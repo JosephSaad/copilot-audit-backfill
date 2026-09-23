@@ -44,7 +44,11 @@ WHILE @i <= @n
 BEGIN
     SELECT @label = label, @sql = sql FROM @tests WHERE id = @i;
     BEGIN TRY
-        EXEC sp_executesql @sql;
+        -- Wrapped so the test query's own rows never reach the client; the
+        -- statement is still compiled, which is what we are probing.
+        DECLARE @wrapped NVARCHAR(MAX) =
+            N'SELECT * INTO #sink FROM (' + @sql + N') q; DROP TABLE #sink;';
+        EXEC sp_executesql @wrapped;
         INSERT INTO @out VALUES (@label, N'OK');
     END TRY
     BEGIN CATCH

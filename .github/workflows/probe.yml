@@ -44,5 +44,9 @@ jobs:
           $cmd.CommandText = Get-Content -Raw tools/probe.sql
           $cmd.CommandTimeout = 300
           $r = $cmd.ExecuteReader()
-          while ($r.Read()) { "{0,-58} {1}" -f $r.GetString(0), $r.GetString(1) }
+          do {
+            while ($r.Read()) {
+              if ($r.FieldCount -ge 2) { "{0,-58} {1}" -f [string]$r[0], [string]$r[1] }
+            }
+          } while ($r.NextResult())
           $r.Close(); $conn.Close()
