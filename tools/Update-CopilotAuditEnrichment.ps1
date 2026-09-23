@@ -173,7 +173,7 @@ function Save-Rows {
         [Parameter(Mandatory)][string] $KeyColumn,
         [Parameter(Mandatory)][hashtable] $ColumnTypes,   # ordered name -> SqlDbType
         [Parameter(Mandatory)][string[]] $ColumnOrder,
-        [Parameter(Mandatory)][System.Collections.IEnumerable] $Rows
+        [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Rows
     )
     $all = @($Rows)
     if ($all.Count -eq 0) { return 0 }
@@ -188,7 +188,7 @@ function Save-Rows {
     $written = 0
     for ($offset = 0; $offset -lt $all.Count; $offset += $chunkSize) {
         $last = [math]::Min($offset + $chunkSize, $all.Count) - 1
-        $chunk = $all[$offset..$last]
+        $chunk = @($all[$offset..$last])   # @() again: a one-row chunk is a bare object
 
         $conn = [System.Data.SqlClient.SqlConnection]::new($script:SqlConnStr)
         try {
@@ -323,13 +323,14 @@ function Invoke-Main {
 
     # ---- Administrative units ---------------------------------------------
     $units = Get-GraphPaged -Uri '/v1.0/directory/administrativeUnits'
-    $unitRows = foreach ($u in $units) {
+    # @() matters: one administrative unit would otherwise be a bare object.
+    $unitRows = @(foreach ($u in $units) {
         [pscustomobject]@{
             Id          = "$(Get-Prop $u 'id')"
             DisplayName = Get-Prop $u 'displayName'
             Description = Get-Prop $u 'description'
         }
-    }
+    })
     $n = Save-Rows -Table 'audit.AdministrativeUnit' -KeyColumn 'Id' -Rows $unitRows `
                    -ColumnOrder @('Id', 'DisplayName', 'Description') `
                    -ColumnTypes @{
