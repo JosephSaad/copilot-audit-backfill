@@ -189,16 +189,23 @@ BEGIN
         ;WITH resAgg AS
         (
             /* Every per-resource value that does not need DISTINCT, in one pass. */
+            /*
+                All three share one ORDER BY, and must: SQL Server rejects
+                ordered aggregates in the same scope whose orderings differ.
+                Sharing it is also better output - the lists are built from the
+                same resource rows in the same order, so the Nth name, the Nth
+                URL and the Nth blocked URL refer to the same resource.
+            */
             SELECT RecordId,
                    STRING_AGG(CASE WHEN Name IS NOT NULL THEN CAST(Name AS NVARCHAR(MAX)) END, N'; ')
-                       WITHIN GROUP (ORDER BY LEFT(Name, 400))                       AS ResourceNames,
+                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS ResourceNames,
                    STRING_AGG(CASE WHEN SiteUrl IS NOT NULL THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
-                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400))                    AS ResourceUrls,
+                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS ResourceUrls,
                    STRING_AGG(CASE WHEN SiteUrl IS NOT NULL
                                     AND (PolicyDetails IS NOT NULL
                                          OR ([Status] IS NOT NULL AND [Status] <> N'Success'))
                                    THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
-                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400))                    AS BlockedUrls,
+                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS BlockedUrls,
                    MAX(CASE WHEN XPIADetected = 1 THEN 1 ELSE 0 END)                 AS AnyXpia,
                    COUNT(*)                                                          AS ResourceCount
             FROM #res
