@@ -556,6 +556,13 @@ SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)       AS A,
     }
 
     try {
+      # A child scope on purpose. Dot-sourcing pulls the script's entire param
+      # block into the current scope, and PowerShell variable names are
+      # case-insensitive, so its $Database silently blanks this suite's
+      # $database - after which every query runs against the wrong catalogue
+      # and fails with 'Invalid object name'. Running it in a child scope keeps
+      # its parameters to itself.
+      & {
         . (Join-Path $root 'tools' 'Update-CopilotAuditEnrichment.ps1')
         $ConnectionString = $connStr
         $TenantId = 'contoso.onmicrosoft.com'
@@ -646,6 +653,7 @@ SELECT (SELECT COUNT(*) FROM audit.CopilotLicense)     AS L,
         Invoke-Main
         $withAll = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense')
         Assert-That ($withAll -eq 50) "-AllLicensedUsers added no phantom users here ($withAll)"
+      }
     }
     finally {
         Remove-Item function:\Connect-MgGraph -ErrorAction SilentlyContinue
