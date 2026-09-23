@@ -41,6 +41,17 @@ $user     = if ($env:SQLIT_USER)     { $env:SQLIT_USER }     else { 'sa' }
 $password = $env:SQLIT_PASSWORD
 $database = if ($env:SQLIT_DATABASE) { $env:SQLIT_DATABASE } else { 'CopilotAuditIntegration' }
 
+# Bound to this file's scope, and read that way inside the helpers below.
+# PowerShell looks variables up dynamically, through the CALLER's scope chain,
+# so a script dot-sourced later in this suite can shadow a plain $database
+# with its own param of the same name - names are case-insensitive - and every
+# query would then silently run against the wrong catalogue. The $script:
+# qualifier resolves here regardless of who is calling.
+$script:ITServer   = $server
+$script:ITUser     = $user
+$script:ITPassword = $password
+$script:ITDatabase = $database
+
 if (-not $password) {
     Write-Host 'SQLIT_PASSWORD is not set - no SQL Server to test against.' -ForegroundColor Yellow
     Write-Host 'Start one and re-run, e.g.:' -ForegroundColor Yellow
@@ -53,10 +64,10 @@ function New-ConnString([string] $InitialCatalog) {
     # Mirrors New-SqlConnectionString in Invoke-CopilotAuditBackfill.ps1
     # (-TrustServerCertificate), which is what a self-signed instance needs.
     $csb = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
-    $csb['Data Source'] = $server
+    $csb['Data Source'] = $script:ITServer
     $csb['Initial Catalog'] = $InitialCatalog
-    $csb['User ID'] = $user
-    $csb['Password'] = $password
+    $csb['User ID'] = $script:ITUser
+    $csb['Password'] = $script:ITPassword
     $csb['Encrypt'] = $true
     $csb['TrustServerCertificate'] = $true
     $csb['Application Name'] = 'CopilotAuditBackfill'
@@ -68,7 +79,7 @@ function New-ConnString([string] $InitialCatalog) {
 function Invoke-SqlText {
     param(
         [Parameter(Mandatory)][string] $Sql,
-        [string] $Catalog = $database,
+        [string] $Catalog = $script:ITDatabase,
         [ValidateSet('NonQuery', 'Scalar', 'Table')][string] $As = 'NonQuery',
         [hashtable] $Parameters = @{},
         [int] $TimeoutSeconds = 600,
