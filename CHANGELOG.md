@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-23
+
+### Added
+
+- **Offline module support, for servers with no PowerShell Gallery access.**
+  `Invoke-CopilotAuditBackfill.ps1` now puts a `Modules` folder sitting beside it
+  at the front of `PSModulePath` at startup. Nothing is installed on the server
+  and nothing is written outside the tool's folder; when the folder is absent,
+  module resolution is unchanged.
+- `tools/Save-CopilotAuditModules.ps1` builds that folder on any machine with
+  gallery access: it pins `Microsoft.Graph.Authentication` 2.40.0, verifies the
+  saved copy resolves with `PSModulePath` pointing at the bundle alone (so a
+  copy already installed on the build machine cannot mask a broken bundle), and
+  writes `MODULES-MANIFEST.csv` with a SHA-256 for every file.
+- Releases now also carry `copilot-audit-backfill-<version>-offline-win-x64.zip`
+  and its checksum, built on a Windows runner by running that same script. It
+  includes `NOTICE-BUNDLED-MODULES.txt` recording what is bundled, its version,
+  its source and its licence.
+
+### Changed
+
+- The "`Connect-MgGraph` not found" error now points at the offline bundle when
+  no `Modules` folder is present, and says the bundle looks incomplete when one is.
+
+`Microsoft.Graph.Authentication` is the only external module; everything else the
+tool uses, including `System.Data.SqlClient`, ships inside PowerShell 7.
+
 ## [1.0.0] - 2026-09-23
 
 First release.
@@ -88,4 +115,5 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[1.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.1.0
 [1.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.0.0

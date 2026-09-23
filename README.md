@@ -27,7 +27,7 @@ PowerShell 7 drives it; the pipeline engine is C# compiled in memory at start, s
 **The machine that runs it:**
 
 - PowerShell **7.2+** (7.4 recommended). Windows PowerShell 5.1 will not work.
-- `Install-Module Microsoft.Graph.Authentication -Scope CurrentUser` — the only module needed.
+- `Install-Module Microsoft.Graph.Authentication -Scope CurrentUser` — the only module needed. On a server with no gallery access, see [Servers without gallery access](#servers-without-gallery-access).
 - Outbound HTTPS to `login.microsoftonline.com` and `graph.microsoft.com`.
 - An interactive desktop session for the browser sign-in, or `-AuthMode DeviceCode` to sign in from another device.
 
@@ -64,6 +64,22 @@ A browser opens for sign-in. Every 30 seconds it prints a progress line:
 ```
 
 **Ctrl+C, a crash or a reboot:** run the same command again. The dates are remembered in SQL, so a resume does not need them, and searches that already finished server-side are reused rather than resubmitted. Add `-Status` from another window to check progress.
+
+## Servers without gallery access
+
+`Microsoft.Graph.Authentication` is the only external module — everything else the tool uses, including `System.Data.SqlClient`, ships inside PowerShell 7. On a locked-down server that cannot reach the PowerShell Gallery, put the module next to the script instead of installing it.
+
+On any machine that **can** reach the gallery (Windows x64 is the closest match to the usual target):
+
+```powershell
+.\tools\Save-CopilotAuditModules.ps1
+```
+
+That pins a known-good version, saves it into a `Modules` folder beside the script, checks the saved copy resolves with `PSModulePath` pointing at it alone, and writes `Modules\MODULES-MANIFEST.csv` with a SHA-256 for every file. Copy the whole tool folder — `Modules` included — to the server and run it as normal.
+
+`Invoke-CopilotAuditBackfill.ps1` puts that folder at the front of `PSModulePath` at startup, so nothing is installed on the server and nothing is written outside the folder. When the folder is absent, module resolution is unchanged.
+
+Each release also carries a prebuilt `...-offline-win-x64.zip` with the module already in place, built on a Windows runner. It bundles Microsoft-owned binaries under Microsoft's own licence terms — see `NOTICE-BUNDLED-MODULES.txt` inside it — so rebuild it yourself with the script above if you would rather not rely on the prebuilt copy.
 
 ## What you get
 
@@ -131,6 +147,7 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `sql/Create-CopilotFlattenedSchema.sql` | The flattened table, plus the optional licence lookup. |
 | `sql/Create-CopilotFlattenProcedure.sql` | `audit.usp_FlattenCopilotAudit`. |
 | `sql/Create-CopilotPurgeProcedure.sql` | `audit.usp_PurgeCopilotAuditJson`. |
+| `tools/Save-CopilotAuditModules.ps1` | Builds the offline module bundle for a disconnected server. |
 | `tests/` | Mock Graph service and the three test suites. |
 
 ## License

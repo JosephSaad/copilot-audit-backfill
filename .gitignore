@@ -19,3 +19,7 @@ TestResults/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Offline module bundle, created by tools/Save-CopilotAuditModules.ps1.
+# Not committed: it is ~40 MB of Microsoft-owned binaries.
+Modules/
