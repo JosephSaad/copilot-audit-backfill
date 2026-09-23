@@ -528,8 +528,8 @@ function Invoke-Main {
         return
     }
     if (($range.End - $range.Start).TotalDays -gt 180) {
-        Write-Log ('The range covers {0:N0} days. Copilot audit records are retained 180 days unless a custom audit ' +
-                   'retention policy covered them at the time - older windows will simply come back empty.' -f ($range.End - $range.Start).TotalDays) -Level WARN
+        Write-Log (('The range covers {0:N0} days. Copilot audit records are retained 180 days unless a custom audit ' +
+                    'retention policy covered them at the time - older windows will simply come back empty.') -f ($range.End - $range.Start).TotalDays) -Level WARN
     }
     if (-not $TenantId) {
         Write-Log 'No -TenantId given; sign-in will use the account''s home tenant. Pass -TenantId to pin it.' -Level WARN
