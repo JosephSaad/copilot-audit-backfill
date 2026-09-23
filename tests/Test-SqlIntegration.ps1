@@ -135,7 +135,11 @@ Write-Host "`n1. Database and schema" -ForegroundColor Cyan
 
 Wait-ForSqlServer
 
-$version = Invoke-SqlText -Catalog 'master' -As Scalar -Sql "SELECT CONCAT(SERVERPROPERTY('ProductVersion'), ' ', SERVERPROPERTY('Edition'))"
+# SERVERPROPERTY returns sql_variant, which CONCAT will not convert implicitly.
+$version = Invoke-SqlText -Catalog 'master' -As Scalar -Sql @"
+SELECT CONCAT(CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128)), N' ',
+              CAST(SERVERPROPERTY('Edition') AS NVARCHAR(128)));
+"@
 Write-Host "  $version" -ForegroundColor DarkGray
 
 # Rebuild from scratch so a re-run is always clean.

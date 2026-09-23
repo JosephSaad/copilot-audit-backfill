@@ -99,7 +99,8 @@ IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL
 IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.indexes
                    WHERE object_id = OBJECT_ID(N'audit.RawLogFlattened') AND name = N'IX_RawLogFlattened_UtcTimeStamp')
-    CREATE INDEX IX_RawLogFlattened_UtcTimeStamp ON audit.RawLogFlattened (UtcTimeStamp) INCLUDE ([User], App);
+    EXEC (N'CREATE INDEX IX_RawLogFlattened_UtcTimeStamp
+            ON audit.RawLogFlattened (UtcTimeStamp) INCLUDE ([User], App);');
 
 /*
     Optional licence lookup. Create and populate it (from Entra/Graph, or a
