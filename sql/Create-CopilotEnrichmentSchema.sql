@@ -28,9 +28,21 @@ IF OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
     (
         UserPrincipalName   NVARCHAR(512)   NOT NULL
                                 CONSTRAINT PK_CopilotLicense PRIMARY KEY,
-        IsCopilotLic        BIT             NOT NULL CONSTRAINT DF_CopilotLicense_Is DEFAULT (1),
+        IsCopilotLic        BIT             NULL,   -- NULL = not known, see above
         UpdatedUtc          DATETIME2(0)    NOT NULL CONSTRAINT DF_CopilotLicense_Updated DEFAULT (SYSUTCDATETIME())
     );
+
+/*
+    IsCopilotLic must allow NULL, which shipped as NOT NULL in
+    Create-CopilotFlattenedSchema.sql before there was anything to record but a
+    yes or a no. There is now a third answer: a user who appears in the audit
+    data but no longer exists in the directory is unknown, not unlicensed, and
+    conflating the two would understate licensed usage.
+*/
+IF EXISTS (SELECT 1 FROM sys.columns
+           WHERE object_id = OBJECT_ID(N'audit.CopilotLicense')
+             AND name = N'IsCopilotLic' AND is_nullable = 0)
+    ALTER TABLE audit.CopilotLicense ALTER COLUMN IsCopilotLic BIT NULL;
 
 /* The Copilot SKU the licence came from, e.g. Microsoft_365_Copilot. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'SkuPartNumber') IS NULL

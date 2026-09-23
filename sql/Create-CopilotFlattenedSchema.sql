@@ -112,6 +112,9 @@ IF OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
     (
         UserPrincipalName   NVARCHAR(512)   NOT NULL
                                 CONSTRAINT PK_CopilotLicense PRIMARY KEY,
-        IsCopilotLic        BIT             NOT NULL CONSTRAINT DF_CopilotLicense_Is DEFAULT (1),
+        /* Nullable on purpose: NULL means "not known", which is the honest
+           answer for a user who appears in the audit data but has since left
+           the directory. 0 would claim they were unlicensed. */
+        IsCopilotLic        BIT             NULL,
         UpdatedUtc          DATETIME2(0)    NOT NULL CONSTRAINT DF_CopilotLicense_Updated DEFAULT (SYSUTCDATETIME())
     );
