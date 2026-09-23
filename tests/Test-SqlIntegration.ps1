@@ -535,6 +535,122 @@ SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)       AS A,
     try { Invoke-SqlText -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 1, @PurgeFlattened = 1, @WhatIf = 0' }
     catch { $refusedFlat = $true }
     Assert-That $refusedFlat 'purge refuses @PurgeFlattened without @DeleteRows'
+
+    # -----------------------------------------------------------------------
+    Write-Host "`n8. Directory enrichment (tools/Update-CopilotAuditEnrichment.ps1)" -ForegroundColor Cyan
+
+    # Stand in for the Graph SDK, pointing at mock_graph.py. Same approach as
+    # Test-Orchestrator: shadow the cmdlets with global functions.
+    $script:MockBase = $mock.Base
+    function global:Connect-MgGraph { param([hashtable] $Splat) }
+    function global:Invoke-MgGraphRequest {
+        param([string] $Method, [string] $Uri, $OutputType, $Body)
+        $full = if ($Uri -match '^https?://') { $Uri } else { "$script:MockBase$Uri" }
+        $r = Invoke-WebRequest -Uri $full -Method $Method -SkipHttpErrorCheck -ErrorAction Stop
+        if ([int] $r.StatusCode -ge 400) {
+            # The script treats a 404 as "this user has left" and anything else
+            # as a real failure, so the message has to say which.
+            throw ("Graph returned {0} for {1}: {2}" -f [int] $r.StatusCode, $Uri, $r.Content)
+        }
+        return ($r.Content | ConvertFrom-Json)
+    }
+
+    try {
+        . (Join-Path $root 'tools' 'Update-CopilotAuditEnrichment.ps1')
+        $ConnectionString = $connStr
+        $TenantId = 'contoso.onmicrosoft.com'
+        Invoke-Main
+
+        $lic = Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*)                                                          AS Rows_,
+       SUM(CASE WHEN IsCopilotLic = 1 THEN 1 ELSE 0 END)                 AS Licensed,
+       SUM(CASE WHEN DirectoryStatus = 'NotFound' THEN 1 ELSE 0 END)     AS Gone,
+       SUM(CASE WHEN DirectoryStatus = 'NotFound' AND IsCopilotLic IS NULL THEN 1 ELSE 0 END) AS GoneUnknown,
+       SUM(CASE WHEN SkuPartNumber = 'Microsoft_365_Copilot' THEN 1 ELSE 0 END) AS WithSku,
+       SUM(CASE WHEN IsCopilotLic = 1 AND LicensedSinceUtc IS NOT NULL THEN 1 ELSE 0 END) AS WithSince,
+       SUM(CASE WHEN IsCopilotLic = 1 AND CapabilityStatus = 'Enabled' THEN 1 ELSE 0 END)  AS Enabled_
+FROM audit.CopilotLicense;
+"@
+        $l = $lic.Rows[0]
+        Assert-That ([int] $l.Rows_ -eq 50) "audit.CopilotLicense covers every user in the audit data ($($l.Rows_))"
+        Assert-That ([int] $l.Licensed -eq 17) "exactly the licensed users are marked ($($l.Licensed) of 17)"
+        Assert-That ([int] $l.WithSku -eq 17) "SkuPartNumber recorded for each ($($l.WithSku))"
+        Assert-That ([int] $l.WithSince -eq 17) "LicensedSinceUtc read from assignedPlans for each ($($l.WithSince))"
+        Assert-That ([int] $l.Enabled_ -eq 17) "CapabilityStatus captured ($($l.Enabled_))"
+        Assert-That ([int] $l.Gone -eq 1) "the departed user is recorded as NotFound ($($l.Gone))"
+        Assert-That ([int] $l.GoneUnknown -eq 1) 'a departed user is left unknown, NOT reported as unlicensed'
+
+        $au = Invoke-SqlText -As Table -Sql 'SELECT Id, DisplayName FROM audit.AdministrativeUnit'
+        Assert-That ($au.Rows.Count -eq 1) "administrative units loaded ($($au.Rows.Count))"
+        Assert-That ($au.Rows[0].DisplayName -eq 'AU-East') "the GUID in the audit data resolves to a name ($($au.Rows[0].DisplayName))"
+        $auJoin = [long] (Invoke-SqlText -As Scalar -Sql @"
+SELECT COUNT_BIG(*) FROM audit.CopilotInteraction AS i
+WHERE EXISTS (SELECT 1 FROM audit.AdministrativeUnit AS a
+              WHERE a.Id = '00000000-0000-0000-0000-0000000000ae');
+"@)
+        Assert-That ($auJoin -gt 0) 'the administrative unit id in the records matches the one Graph returned'
+
+        $prof = Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*)                                                      AS Rows_,
+       COUNT(DISTINCT Department)                                    AS Depts,
+       SUM(CASE WHEN UserType = 'Guest' THEN 1 ELSE 0 END)           AS Guests,
+       SUM(CASE WHEN AccountEnabled = 0 THEN 1 ELSE 0 END)           AS Disabled_,
+       SUM(CASE WHEN ManagerUpn IS NOT NULL THEN 1 ELSE 0 END)       AS WithManager,
+       SUM(CASE WHEN CreatedDateTimeUtc IS NOT NULL THEN 1 ELSE 0 END) AS WithCreated,
+       SUM(CASE WHEN DirectoryStatus = 'Found' THEN 1 ELSE 0 END)    AS Found_
+FROM audit.UserProfile;
+"@
+        $pr = $prof.Rows[0]
+        Assert-That ([int] $pr.Rows_ -eq 50) "audit.UserProfile covers every user ($($pr.Rows_))"
+        Assert-That ([int] $pr.Found_ -eq 49) "49 resolved in the directory, 1 had left ($($pr.Found_))"
+        Assert-That ([int] $pr.Depts -eq 4) "all four departments captured ($($pr.Depts))"
+        Assert-That ([int] $pr.Guests -eq 2) "guest accounts flagged ($($pr.Guests))"
+        Assert-That ([int] $pr.Disabled_ -eq 3) "disabled accounts flagged ($($pr.Disabled_))"
+        Assert-That ([int] $pr.WithManager -eq 48) "manager resolved for everyone who has one ($($pr.WithManager) of 48)"
+        Assert-That ([int] $pr.WithCreated -eq 49) "createdDateTime parsed ($($pr.WithCreated))"
+
+        # The views that make this worth having.
+        $adopt = Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*)                                          AS Rows_,
+       SUM(CASE WHEN NeverUsed = 1 THEN 1 ELSE 0 END)    AS Shelfware,
+       SUM(CASE WHEN Department IS NOT NULL THEN 1 ELSE 0 END) AS WithDept,
+       SUM(CASE WHEN Interactions > 0 THEN 1 ELSE 0 END) AS Active
+FROM audit.vCopilotAdoption;
+"@
+        $ad = $adopt.Rows[0]
+        Assert-That ([int] $ad.Rows_ -eq 17) "vCopilotAdoption lists the licensed users ($($ad.Rows_))"
+        Assert-That ([int] $ad.Active -eq 17) 'every licensed mock user has interactions'
+        Assert-That ([int] $ad.Shelfware -eq 0) 'no licensed user is shelfware in this fixture'
+        Assert-That ([int] $ad.WithDept -eq 17) 'adoption rows carry the department from the profile'
+
+        $dept = Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(DISTINCT Department) AS Depts, SUM(Interactions) AS Interactions
+FROM audit.vCopilotUsageByDepartment;
+"@
+        Assert-That ([long] $dept.Rows[0].Interactions -eq $expectedTotal) `
+            ("vCopilotUsageByDepartment accounts for every interaction ({0:N0})" -f $dept.Rows[0].Interactions)
+        Assert-That ([int] $dept.Rows[0].Depts -ge 4) "usage split across departments ($($dept.Rows[0].Depts))"
+
+        # Re-running must update in place, not duplicate.
+        Invoke-Main
+        $again = Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.CopilotLicense)     AS L,
+       (SELECT COUNT(*) FROM audit.UserProfile)        AS P,
+       (SELECT COUNT(*) FROM audit.AdministrativeUnit) AS A;
+"@
+        Assert-That ([int] $again.Rows[0].L -eq 50 -and [int] $again.Rows[0].P -eq 50 -and [int] $again.Rows[0].A -eq 1) `
+            "a second run updated in place rather than duplicating ($($again.Rows[0].L)/$($again.Rows[0].P)/$($again.Rows[0].A))"
+
+        # -AllLicensedUsers exercises the licence-holder enumeration path.
+        $AllLicensedUsers = $true
+        Invoke-Main
+        $withAll = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense')
+        Assert-That ($withAll -eq 50) "-AllLicensedUsers added no phantom users here ($withAll)"
+    }
+    finally {
+        Remove-Item function:\Connect-MgGraph -ErrorAction SilentlyContinue
+        Remove-Item function:\Invoke-MgGraphRequest -ErrorAction SilentlyContinue
+    }
 }
 finally { Stop-MockGraph $mock }
 
