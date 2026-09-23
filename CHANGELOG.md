@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An empty search window no longer shrinks the next one back to a day.** The
+  planner treated a window that returned no records the same as having no
+  measurement yet, so every empty window reset the next to
+  `InitialWindowHours`. On a sparse tenant, and across every day past the
+  180-day retention horizon, a 365-day run submitted one search per day and
+  hit the 150-per-24h budget part-way through, pausing for up to a day. An
+  empty window now widens the next one, still at most doubling per step and
+  capped at `MaxWindowHours`. On a live tenant the windows went
+  24 → 48 → 96 → 168 h, so a year needs about 75 searches rather than 365.
+- The warning about ranges longer than the 180-day retention printed a literal
+  `{0:N0}` instead of the day count.
+
 ## [1.1.1] - 2026-09-23
 
 ### Changed

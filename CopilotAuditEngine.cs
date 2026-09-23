@@ -1018,8 +1018,13 @@ namespace CopilotAudit
 
         AuditWindow PlanNext()
         {
-            double hours = _density <= 0 ? _o.InitialWindowHours : _o.TargetRecordsPerWindow / _density;
-            if (_density > 0) hours = Math.Min(hours, _lastPlannedHours * 2);   // grow cautiously
+            // _density < 0: nothing observed yet. 0: the last window was empty, which
+            // must widen the next one (sparse tenants, days past retention) rather
+            // than fall back to the initial size and exhaust the submission budget.
+            double hours = _density < 0 ? _o.InitialWindowHours
+                         : _density == 0 ? _o.MaxWindowHours
+                         : _o.TargetRecordsPerWindow / _density;
+            if (_density >= 0) hours = Math.Min(hours, _lastPlannedHours * 2);  // grow cautiously
             hours = Math.Max(_o.MinWindowHours, Math.Min(_o.MaxWindowHours, hours));
             if (hours >= 1) hours = Math.Floor(hours);                           // whole hours when possible
 
