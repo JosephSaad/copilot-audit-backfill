@@ -160,11 +160,17 @@ function Write-Log {
 # ===========================================================================
 
 function New-SqlConnectionString {
-    $csb = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
-    if ($ConnectionString) {
-        $csb.ConnectionString = $ConnectionString
+    # Built from the string, not assigned afterwards: the builder is a
+    # DbConnectionStringBuilder, and PowerShell routes $b.ConnectionString = x
+    # through its keyword indexer, which rejects 'ConnectionString' as a
+    # keyword. The constructor overload is the only form that works.
+    $csb = if ($ConnectionString) {
+        [System.Data.SqlClient.SqlConnectionStringBuilder]::new($ConnectionString)
     }
     else {
+        [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
+    }
+    if (-not $ConnectionString) {
         if (-not $SqlServer -or -not $Database) { throw 'Specify -SqlServer and -Database (or -ConnectionString).' }
         $csb['Data Source'] = $SqlServer
         $csb['Initial Catalog'] = $Database

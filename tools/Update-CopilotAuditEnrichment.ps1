@@ -104,9 +104,15 @@ function Write-Log {
 # ===========================================================================
 
 function New-EnrichmentConnectionString {
-    $csb = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
-    if ($ConnectionString) { $csb.ConnectionString = $ConnectionString }
+    # See Invoke-CopilotAuditBackfill.ps1: assigning .ConnectionString goes
+    # through the builder's keyword indexer and throws.
+    $csb = if ($ConnectionString) {
+        [System.Data.SqlClient.SqlConnectionStringBuilder]::new($ConnectionString)
+    }
     else {
+        [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
+    }
+    if (-not $ConnectionString) {
         if (-not $SqlServer -or -not $Database) { throw 'Specify -SqlServer and -Database (or -ConnectionString).' }
         $csb['Data Source'] = $SqlServer
         $csb['Initial Catalog'] = $Database
