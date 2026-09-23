@@ -41,6 +41,28 @@ Assert-That ($script:LastMgCall.OutputType -eq 'HttpResponseMessage' -and $scrip
 Remove-Item function:\Invoke-MgGraphRequest
 
 # ---------------------------------------------------------------------------
+Write-Host "`n1b. Connection string building" -ForegroundColor Cyan
+
+# -ConnectionString threw for every release up to 1.1.1: the builder is a
+# DbConnectionStringBuilder, and PowerShell routes an assignment to
+# .ConnectionString through its keyword indexer, which rejects
+# 'ConnectionString' as a keyword.
+$ConnectionString = 'Data Source=SQLDEV01;Initial Catalog=CopilotAuditTest;Integrated Security=True'
+$built = New-SqlConnectionString
+Assert-That ($built -match 'SQLDEV01' -and $built -match 'CopilotAuditTest') `
+    '-ConnectionString is honoured rather than throwing'
+Assert-That ($built -match 'Application Name=CopilotAuditBackfill') `
+    'the application name is still stamped onto a supplied connection string'
+
+$ConnectionString = $null
+$SqlServer = 'SQLPROD01'; $Database = 'CopilotAudit'; $TrustServerCertificate = $true
+$built2 = New-SqlConnectionString
+Assert-That ($built2 -match 'SQLPROD01' -and $built2 -match 'CopilotAudit') `
+    '-SqlServer/-Database still build a connection string'
+Assert-That ($built2 -match 'TrustServerCertificate=True') '-TrustServerCertificate is applied'
+$SqlServer = $null; $Database = $null; $TrustServerCertificate = $false
+
+# ---------------------------------------------------------------------------
 Write-Host "`n2. Date handling" -ForegroundColor Cyan
 
 $u = ConvertTo-UtcDate ([datetime]::new(2025, 9, 22))
