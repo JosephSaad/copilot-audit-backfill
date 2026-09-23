@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-23
+
+### Changed
+
+- **`audit.usp_FlattenCopilotAudit` is about 8x faster.** Measured on the
+  integration suite: 168,000 records in 52 s rather than 413 s, so roughly
+  3,200 records/s rather than 407. A 180-day 50M-record backfill goes from about
+  34 hours to about 4.
+
+  It used to read twenty-odd fields with twenty-odd `JSON_VALUE` and `OPENJSON`
+  calls, and each of those parses the whole document. Each batch now parses in
+  stages and keeps the results: one `OPENJSON` over the document for the
+  top-level scalars and the `CopilotEventData` fragment, a second over that
+  fragment for its scalars and the nested arrays, and `AccessedResources`
+  exploded once into a temp table. Everything after that, including the
+  `DISTINCT` lists `STRING_AGG` cannot express directly, is ordinary relational
+  aggregation over rows that are already parsed.
+
+  Temp tables rather than CTEs on purpose: SQL Server does not materialise a
+  CTE, so referencing one repeatedly re-runs the `OPENJSON` underneath it.
+
+  Output is unchanged. The one visible difference is ordering within the
+  semicolon-separated lists: the resource name, location and blocked-URL lists
+  now share a single ordering, so the Nth entry of each refers to the same
+  resource, which the previous per-subquery orderings did not guarantee.
+
 ## [1.1.0] - 2026-09-23
 
 ### Added
@@ -115,5 +141,6 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[1.1.1]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.1.1
 [1.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.1.0
 [1.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.0.0
