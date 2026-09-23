@@ -93,8 +93,9 @@ function Invoke-SqlText {
             'Scalar'   { return $cmd.ExecuteScalar() }
             'Table'    {
                 $dt = [System.Data.DataTable]::new()
-                $dt.Load($cmd.ExecuteReader())
-                return $dt
+                $reader = $cmd.ExecuteReader()
+                try { $dt.Load($reader) } finally { $reader.Dispose() }
+                return ,$dt        # the comma stops PowerShell unrolling it into DataRows
             }
             default    { [void] $cmd.ExecuteNonQuery(); return $null }
         }

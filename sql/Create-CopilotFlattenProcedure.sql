@@ -94,9 +94,12 @@ BEGIN
                 /* ---- scalars ------------------------------------------- */
                 LEFT(COALESCE(JSON_VALUE(s.Doc, '$.CreationTime'),
                               CONVERT(NVARCHAR(30), s.CreationDate, 126)), 4000)      AS [TimeStamp],
+                /* Style 127, not 126: the audit record's CreationTime carries a
+                   trailing Z, which only 127 accepts. It also parses the
+                   unzoned fallback below. */
                 TRY_CONVERT(DATETIME2(0),
                     COALESCE(JSON_VALUE(s.Doc, '$.CreationTime'),
-                             CONVERT(NVARCHAR(30), s.CreationDate, 126)), 126)        AS UtcTimeStamp,
+                             CONVERT(NVARCHAR(30), s.CreationDate, 126)), 127)        AS UtcTimeStamp,
                 LEFT(COALESCE(JSON_VALUE(s.Doc, '$.UserId'), s.UserId), 4000)         AS [User],
                 LEFT(JSON_VALUE(s.Doc, '$.CopilotEventData.AppHost'), 4000)           AS App,
                 JSON_VALUE(s.Doc, '$.ClientRegion')                                   AS Location,
