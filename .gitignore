@@ -1,0 +1,21 @@
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+
+# .NET build output
+bin/
+obj/
+
+# Test output
+TestResults/
+
+# Release artifacts
+*.zip
+*.sha256
+
+# OS noise
+.DS_Store
+Thumbs.db

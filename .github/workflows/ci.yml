@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PowerShell 7.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The runners ship PowerShell 7, but pin 7.4 so the matrix is honest
+          # about what it tested.
+          if pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' | grep -q '^7\.4\.'; then
+            echo "PowerShell 7.4 already present: $(pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()')"
+          else
+            dotnet tool install --global PowerShell --version 7.4.* || dotnet tool update --global PowerShell --version 7.4.*
+            echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          fi
+
+      - name: Report versions
+        shell: bash
+        run: |
+          pwsh -NoProfile -Command '$PSVersionTable | Format-List'
+          python3 --version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Test-Engine
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-Engine.ps1
+
+      - name: Test-Orchestrator
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-Orchestrator.ps1
+
+  analyze:
+    name: PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = Get-ChildItem -Path . -Filter *.ps1 -Recurse -File |
+                   Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }
+          Write-Host "Analyzing $($files.Count) file(s)."
+          $results = @()
+          foreach ($f in $files) {
+              $results += Invoke-ScriptAnalyzer -Path $f.FullName -Severity Error, Warning
+          }
+
+          $errors   = @($results | Where-Object Severity -eq 'Error')
+          $warnings = @($results | Where-Object Severity -eq 'Warning')
+
+          if ($warnings.Count) {
+              Write-Host "::group::$($warnings.Count) warning(s)"
+              $warnings | ForEach-Object {
+                  Write-Host ("::warning file={0},line={1}::{2}: {3}" -f `
+                      (Resolve-Path -Relative $_.ScriptPath), $_.Line, $_.RuleName, $_.Message)
+              }
+              Write-Host '::endgroup::'
+          }
+
+          if ($errors.Count) {
+              $errors | ForEach-Object {
+                  Write-Host ("::error file={0},line={1}::{2}: {3}" -f `
+                      (Resolve-Path -Relative $_.ScriptPath), $_.Line, $_.RuleName, $_.Message)
+              }
+              throw "PSScriptAnalyzer reported $($errors.Count) error(s)."
+          }
+
+          Write-Host "No errors. $($warnings.Count) warning(s) reported above."
+
+  sql-integration:
+    name: SQL Server integration
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: ${{ format('Ci-{0}-Qz9', github.run_id) }}
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+
+    env:
+      SQLIT_SERVER: 127.0.0.1,1433
+      SQLIT_USER: sa
+      SQLIT_PASSWORD: ${{ format('Ci-{0}-Qz9', github.run_id) }}
+      SQLIT_DATABASE: CopilotAuditIntegration
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Wait for SQL Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The service container reports healthy before SQL Server accepts
+          # logins. The test waits too; failing here just gives a clearer message.
+          for i in $(seq 1 60); do
+            if python3 -c "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if not s.connect_ex(('127.0.0.1',1433)) else 1)"; then
+              echo "port 1433 open after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "SQL Server never opened port 1433" >&2
+          docker ps -a
+          exit 1
+
+      - name: Test-SqlIntegration
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-SqlIntegration.ps1

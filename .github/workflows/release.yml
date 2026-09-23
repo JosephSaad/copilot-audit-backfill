@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Test-Engine
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-Engine.ps1
+      - name: Test-Orchestrator
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-Orchestrator.ps1
+
+  sql-integration:
+    name: SQL Server integration
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: ${{ format('Ci-{0}-Qz9', github.run_id) }}
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+    env:
+      SQLIT_SERVER: 127.0.0.1,1433
+      SQLIT_USER: sa
+      SQLIT_PASSWORD: ${{ format('Ci-{0}-Qz9', github.run_id) }}
+      SQLIT_DATABASE: CopilotAuditIntegration
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Wait for SQL Server
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if python3 -c "import socket,sys; s=socket.socket(); s.settimeout(3); sys.exit(0 if not s.connect_ex(('127.0.0.1',1433)) else 1)"; then
+              echo "port 1433 open after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "SQL Server never opened port 1433" >&2
+          exit 1
+      - name: Test-SqlIntegration
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-SqlIntegration.ps1
+
+  publish:
+    name: Publish release
+    needs: [test, sql-integration]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the archive
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          NAME="copilot-audit-backfill-${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+
+          # Everything the tool needs, minus CI plumbing and git metadata.
+          STAGE="$(mktemp -d)/${NAME}"
+          mkdir -p "$STAGE"
+          rsync -a --exclude='.git/' --exclude='.github/' --exclude='.gitignore' ./ "$STAGE/"
+
+          # Deterministic ordering so the checksum is reproducible from a
+          # given tree, and a flat archive rooted at the version folder.
+          ( cd "$(dirname "$STAGE")" && find "${NAME}" -print0 | sort -z | \
+              xargs -0 zip -X -q "${GITHUB_WORKSPACE}/${NAME}.zip" )
+
+          sha256sum "${NAME}.zip" > "${NAME}.zip.sha256"
+
+          echo "--- archive ---"
+          unzip -l "${NAME}.zip"
+          echo "--- checksum ---"
+          cat "${NAME}.zip.sha256"
+
+      - name: Verify the checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c "${{ steps.build.outputs.name }}.zip.sha256"
+
+      - name: Extract the changelog entry
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.build.outputs.version }}"
+          # The section for this tag: from its own heading to the next one.
+          awk -v v="${VERSION#v}" '
+            $0 ~ "^## \\[" v "\\]" { inside = 1; next }
+            inside && /^## / { exit }
+            inside { print }
+          ' CHANGELOG.md > notes.md
+
+          if [ ! -s notes.md ]; then
+            echo "No CHANGELOG entry found for ${VERSION}" >&2
+            exit 1
+          fi
+          echo "--- release notes ---"
+          cat notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="${{ steps.build.outputs.name }}"
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            "${NAME}.zip" \
+            "${NAME}.zip.sha256"
