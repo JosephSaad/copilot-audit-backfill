@@ -16,13 +16,14 @@ Usage: mock_graph.py <port-file> [json-config-overrides]
 """
 import json
 import math
+import re
 import random
 import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 CFG = {
     "range_start": "2026-08-01T00:00:00Z",
@@ -160,9 +161,45 @@ def record_json(rid, t):
         "operation": "CopilotInteraction", "organizationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         "userType": "regular", "userId": audit["UserId"], "userPrincipalName": audit["UserId"],
         "service": "Copilot", "objectId": "thread,%s" % rid, "clientIp": "203.0.113.7",
-        "administrativeUnits": ["AU-East"] if seq(rid) % 3 == 0 else [],
+        "administrativeUnits": [ADMIN_UNIT_ID] if seq(rid) % 3 == 0 else [],
         "auditData": audit,
     }
+
+
+ADMIN_UNIT_ID = "00000000-0000-0000-0000-0000000000ae"
+COPILOT_SKU_ID = "00000000-0000-0000-0000-000000c0p110"
+DIRECTORY_USERS = 50          # user0..user49 appear in the audit data
+DIRECTORY_MISSING = {49}      # ...but this one has left: Graph 404s it
+DEPARTMENTS = ["Retail Banking", "Risk", "Technology", "Operations"]
+
+
+def directory_user(n):
+    """The directory record for userN@contoso.com, or None if they have left."""
+    if n in DIRECTORY_MISSING:
+        return None
+    licensed = (n % 3 == 0)
+    u = {
+        "userPrincipalName": "user%d@contoso.com" % n,
+        "displayName": "User %d" % n,
+        "department": DEPARTMENTS[n % 4],
+        "jobTitle": "Analyst" if n % 2 == 0 else "Manager",
+        "officeLocation": "Floor %d" % (n % 5),
+        "city": "Toronto",
+        "country": "Canada",
+        "companyName": "Contoso",
+        "usageLocation": "CA",
+        "userType": "Guest" if n % 25 == 0 else "Member",
+        "accountEnabled": (n % 17 != 0),
+        "createdDateTime": "2024-01-%02dT00:00:00Z" % ((n % 28) + 1),
+        "assignedLicenses": ([{"skuId": COPILOT_SKU_ID, "disabledPlans": []}] if licensed else []),
+        "assignedPlans": ([{
+            "service": "Microsoft365Copilot",
+            "servicePlanId": COPILOT_SKU_ID,
+            "capabilityStatus": "Enabled",
+            "assignedDateTime": "2026-0%d-01T00:00:00Z" % ((n % 6) + 1),
+        }] if licensed else []),
+    }
+    return u
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -237,10 +274,70 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_json(404, {"error": {"code": "NotFound", "message": path}})
 
+    def directory_get(self, path, qs):
+        """Directory endpoints used by tools/Update-CopilotAuditEnrichment.ps1.
+        Returns True when it handled the request."""
+        if path == "/v1.0/subscribedSkus":
+            self.send_json(200, {"value": [
+                {"skuId": COPILOT_SKU_ID, "skuPartNumber": "Microsoft_365_Copilot",
+                 "consumedUnits": 17, "prepaidUnits": {"enabled": 100}},
+                {"skuId": "00000000-0000-0000-0000-0000000e3105", "skuPartNumber": "ENTERPRISEPACK",
+                 "consumedUnits": 50, "prepaidUnits": {"enabled": 100}},
+            ]})
+            return True
+
+        if path == "/v1.0/directory/administrativeUnits":
+            self.send_json(200, {"value": [
+                {"id": ADMIN_UNIT_ID, "displayName": "AU-East",
+                 "description": "Eastern region"},
+            ]})
+            return True
+
+        # /v1.0/users?$filter=assignedLicenses/any(...)  - licence holders
+        if path == "/v1.0/users":
+            self.send_json(200, {"value": [
+                {"userPrincipalName": "user%d@contoso.com" % n}
+                for n in range(DIRECTORY_USERS) if n % 3 == 0 and n not in DIRECTORY_MISSING
+            ]})
+            return True
+
+        m = re.match(r"^/v1\.0/users/([^/]+)(/manager)?$", path)
+        if m:
+            upn = unquote(m.group(1))
+            want_manager = bool(m.group(2))
+            mm = re.match(r"^user(\d+)@contoso\.com$", upn)
+            if not mm:
+                self.send_json(404, {"error": {"code": "Request_ResourceNotFound",
+                                               "message": "Resource '%s' does not exist." % upn}})
+                return True
+            n = int(mm.group(1))
+            if want_manager:
+                # user0 has no manager; everyone else reports to user0.
+                if n == 0:
+                    self.send_json(404, {"error": {"code": "Request_ResourceNotFound",
+                                                   "message": "manager not found"}})
+                else:
+                    self.send_json(200, {"userPrincipalName": "user0@contoso.com"})
+                return True
+            u = directory_user(n)
+            if u is None:
+                self.send_json(404, {"error": {"code": "Request_ResourceNotFound",
+                                               "message": "Resource '%s' does not exist." % upn}})
+                return True
+            self.send_json(200, u)
+            return True
+
+        return False
+
     def do_GET(self):
         u = urlparse(self.path)
         path = u.path
         qs = parse_qs(u.query)
+
+        if path.startswith("/v1.0/users") or path.startswith("/v1.0/subscribedSkus") \
+           or path.startswith("/v1.0/directory/"):
+            if self.directory_get(path, qs):
+                return
 
         if path == "/_control/token":
             with lock:
