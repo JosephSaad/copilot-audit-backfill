@@ -168,6 +168,17 @@ BEGIN
         /* ---- 2. AccessedResources, exploded once ------------------------ */
 
         SELECT b.RecordId,
+               /*
+                   A precomputed plain column, because SQL Server only
+                   reconciles several ordered aggregates in one scope when the
+                   ORDER BY is a bare column reference. Any expression there -
+                   LEFT(SiteUrl, 400) included - makes each aggregate's
+                   ordering "incompatible" with the others even when the
+                   expressions are identical. Materialising the key keeps the
+                   sort cheap and the aggregates legal. CONCAT never returns
+                   NULL, so the ordering stays deterministic.
+               */
+               CAST(LEFT(CONCAT(a.SiteUrl, N'|', a.Name), 400) AS NVARCHAR(400)) AS SortKey,
                a.Name,
                a.SiteUrl,
                a.[Action],
@@ -209,14 +220,14 @@ BEGIN
 
         SELECT RecordId,
                STRING_AGG(CASE WHEN Name IS NOT NULL THEN CAST(Name AS NVARCHAR(MAX)) END, N'; ')
-                   WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS ResourceNames,
+                   WITHIN GROUP (ORDER BY SortKey)                       AS ResourceNames,
                STRING_AGG(CASE WHEN SiteUrl IS NOT NULL THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
-                   WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS ResourceUrls,
+                   WITHIN GROUP (ORDER BY SortKey)                       AS ResourceUrls,
                STRING_AGG(CASE WHEN SiteUrl IS NOT NULL
                                 AND (PolicyDetails IS NOT NULL
                                      OR ([Status] IS NOT NULL AND [Status] <> N'Success'))
                                THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
-                   WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS BlockedUrls,
+                   WITHIN GROUP (ORDER BY SortKey)                       AS BlockedUrls,
                MAX(CASE WHEN XPIADetected = 1 THEN 1 ELSE 0 END)                 AS AnyXpia,
                COUNT(*)                                                          AS ResourceCount
         INTO #resagg
@@ -226,14 +237,14 @@ BEGIN
         /* STRING_AGG has no DISTINCT, so dedupe first. No JSON is touched. */
         SELECT RecordId,
                STRING_AGG(CAST([Action] AS NVARCHAR(MAX)), N'; ')
-                   WITHIN GROUP (ORDER BY LEFT([Action], 400))                   AS Actions
+                   WITHIN GROUP (ORDER BY [Action])                             AS Actions
         INTO #actagg
         FROM (SELECT DISTINCT RecordId, [Action] FROM #res WHERE [Action] IS NOT NULL) AS d
         GROUP BY RecordId;
 
         SELECT RecordId,
                STRING_AGG(CAST(SensitivityLabelId AS NVARCHAR(MAX)), N'; ')
-                   WITHIN GROUP (ORDER BY LEFT(SensitivityLabelId, 400))         AS Labels
+                   WITHIN GROUP (ORDER BY SensitivityLabelId)                   AS Labels
         INTO #labagg
         FROM (SELECT DISTINCT RecordId, SensitivityLabelId FROM #res WHERE SensitivityLabelId IS NOT NULL) AS d
         GROUP BY RecordId;
@@ -242,7 +253,7 @@ BEGIN
            rather than per row in a correlated subquery. */
         SELECT b.RecordId,
                LEFT(STRING_AGG(CAST(c.Id AS NVARCHAR(MAX)), N'; ')
-                   WITHIN GROUP (ORDER BY LEFT(c.Id, 400)), 4000)                AS Contexts
+                   WITHIN GROUP (ORDER BY c.Id)          , 4000)                AS Contexts
         INTO #ctxagg
         FROM #batch AS b
         CROSS APPLY OPENJSON(COALESCE(b.Contexts, N'[]')) WITH (Id NVARCHAR(MAX) '$.Id') AS c
@@ -251,7 +262,7 @@ BEGIN
 
         SELECT RecordId,
                STRING_AGG(CAST(Id AS NVARCHAR(MAX)), N'; ')
-                   WITHIN GROUP (ORDER BY LEFT(Id, 400))                         AS Plugins
+                   WITHIN GROUP (ORDER BY Id)                                   AS Plugins
         INTO #plugagg
         FROM (
             SELECT DISTINCT b.RecordId, p.Id
