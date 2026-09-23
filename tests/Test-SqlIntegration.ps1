@@ -300,6 +300,25 @@ FROM audit.vCopilotAuditRecord ORDER BY CreationDate;
     Assert-That ($r0.RecordType -eq 'CopilotInteraction') "RecordType is re-cased for the export shape ($($r0.RecordType))"
     Assert-That ($r0.JsonId -eq $r0.RecordId) 'AuditData JSON is the record it is attached to (Id matches RecordId)'
 
+    # The view's column list has to match dbo.PurviewRawLog's, in order, so SQL
+    # written against a portal CSV import can point at it unchanged.
+    $viewCols = Invoke-SqlText -As Table -Sql @"
+SELECT name FROM sys.columns WHERE object_id = OBJECT_ID(N'audit.vCopilotAuditRecord') ORDER BY column_id;
+"@
+    $viewNames = @($viewCols.Rows | ForEach-Object { $_.name }) -join '|'
+    $expectShape = 'RecordId|CreationDate|RecordType|Operation|UserId|AuditData|AssociatedAdminUnits|AssociatedAdminUnitsNames'
+    Assert-That ($viewNames -eq $expectShape) "audit.vCopilotAuditRecord matches the Purview export's column list ($viewNames)"
+
+    # It is present for shape only: Graph carries administrative unit IDs, never names.
+    $auNames = [long] (Invoke-SqlText -As Scalar -TimeoutSeconds 900 -Sql @"
+SELECT COUNT_BIG(*) FROM audit.vCopilotAuditRecord WHERE AssociatedAdminUnitsNames IS NOT NULL;
+"@)
+    $auIds = [long] (Invoke-SqlText -As Scalar -TimeoutSeconds 900 -Sql @"
+SELECT COUNT_BIG(*) FROM audit.vCopilotAuditRecord WHERE AssociatedAdminUnits IS NOT NULL;
+"@)
+    Assert-That ($auNames -eq 0) 'AssociatedAdminUnitsNames is always NULL - Graph does not supply admin unit names'
+    Assert-That ($auIds -gt 0) ("AssociatedAdminUnits does carry the IDs Graph supplies ({0:N0} rows)" -f $auIds)
+
     $interaction = Invoke-SqlText -As Table -Sql @"
 SELECT COUNT_BIG(*)                                              AS Rows_,
        SUM(CASE WHEN AppHost IS NOT NULL THEN 1 ELSE 0 END)      AS WithHost,
