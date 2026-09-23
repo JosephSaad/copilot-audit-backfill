@@ -15,7 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        # Windows only: the tool targets Windows Server x64.
+        os: [windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,6 +30,7 @@ jobs:
         run: pwsh -NoProfile -File tests/Test-Orchestrator.ps1
 
   sql-integration:
+    # See ci.yml: Linux only because service containers require a Linux runner.
     name: SQL Server integration
     runs-on: ubuntu-latest
     services:

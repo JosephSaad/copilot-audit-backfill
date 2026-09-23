@@ -14,7 +14,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        # Windows only: the tool targets Windows Server x64.
+        os: [windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +53,7 @@ jobs:
 
   analyze:
     name: PSScriptAnalyzer
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -95,6 +96,10 @@ jobs:
           Write-Host "No errors. $($warnings.Count) warning(s) reported above."
 
   sql-integration:
+    # ubuntu-latest is the one exception to Windows-only: GitHub service
+    # containers run on Linux runners only, and this job needs one to host
+    # SQL Server. What it exercises - the engine's SqlBulkCopy path and the
+    # SQL scripts - is the same either way; the runner is only the client.
     name: SQL Server integration
     runs-on: ubuntu-latest
 
