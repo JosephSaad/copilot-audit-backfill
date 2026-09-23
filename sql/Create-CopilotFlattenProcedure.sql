@@ -101,6 +101,12 @@ BEGIN
 
         DROP TABLE IF EXISTS #batch;
         DROP TABLE IF EXISTS #res;
+        DROP TABLE IF EXISTS #resagg;
+        DROP TABLE IF EXISTS #actagg;
+        DROP TABLE IF EXISTS #labagg;
+        DROP TABLE IF EXISTS #ctxagg;
+        DROP TABLE IF EXISTS #plugagg;
+        DROP TABLE IF EXISTS #msgagg;
 
         /* ---- 1. The only two passes over the document ------------------- */
 
@@ -184,53 +190,92 @@ BEGIN
 
         CREATE CLUSTERED INDEX CIX_res ON #res (RecordId);
 
-        /* ---- 3. Aggregate, all of it relational ------------------------- */
+        /* ---- 3. Aggregate, all of it relational -------------------------
 
-        ;WITH resAgg AS
-        (
-            /* Every per-resource value that does not need DISTINCT, in one pass. */
-            /*
-                All three share one ORDER BY, and must: SQL Server rejects
-                ordered aggregates in the same scope whose orderings differ.
-                Sharing it is also better output - the lists are built from the
-                same resource rows in the same order, so the Nth name, the Nth
-                URL and the Nth blocked URL refer to the same resource.
-            */
-            SELECT RecordId,
-                   STRING_AGG(CASE WHEN Name IS NOT NULL THEN CAST(Name AS NVARCHAR(MAX)) END, N'; ')
-                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS ResourceNames,
-                   STRING_AGG(CASE WHEN SiteUrl IS NOT NULL THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
-                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS ResourceUrls,
-                   STRING_AGG(CASE WHEN SiteUrl IS NOT NULL
-                                    AND (PolicyDetails IS NOT NULL
-                                         OR ([Status] IS NOT NULL AND [Status] <> N'Success'))
-                                   THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
-                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS BlockedUrls,
-                   MAX(CASE WHEN XPIADetected = 1 THEN 1 ELSE 0 END)                 AS AnyXpia,
-                   COUNT(*)                                                          AS ResourceCount
-            FROM #res
-            GROUP BY RecordId
-        ),
-        /* STRING_AGG has no DISTINCT, so dedupe first. These read #res, which
-           is already parsed - no JSON is touched again. */
-        actAgg AS
-        (
-            SELECT RecordId,
-                   STRING_AGG(CAST([Action] AS NVARCHAR(MAX)), N'; ')
-                       WITHIN GROUP (ORDER BY LEFT([Action], 400))                   AS Actions
-            FROM (SELECT DISTINCT RecordId, [Action] FROM #res WHERE [Action] IS NOT NULL) AS d
-            GROUP BY RecordId
-        ),
-        labAgg AS
-        (
-            SELECT RecordId,
-                   STRING_AGG(CAST(SensitivityLabelId AS NVARCHAR(MAX)), N'; ')
-                       WITHIN GROUP (ORDER BY LEFT(SensitivityLabelId, 400))         AS Labels
-            FROM (SELECT DISTINCT RecordId, SensitivityLabelId FROM #res WHERE SensitivityLabelId IS NOT NULL) AS d
-            GROUP BY RecordId
-        ),
-        shredded AS
-        (
+            Each aggregate is its own statement writing its own temp table,
+            not a CTE. Two reasons, and both matter:
+
+              * SQL Server rejects ordered aggregates with differing ORDER BY
+                clauses "in the same scope", and CTEs feeding one statement
+                count as that scope once they are flattened. Separate
+                statements are unambiguously separate scopes, so each list can
+                keep the ordering that suits it.
+              * A CTE is not materialised, so referencing one repeatedly
+                re-runs the OPENJSON underneath it - the cost this rewrite
+                exists to remove.
+
+            Everything below reads #batch or #res, which are already parsed.
+        */
+
+        SELECT RecordId,
+               STRING_AGG(CASE WHEN Name IS NOT NULL THEN CAST(Name AS NVARCHAR(MAX)) END, N'; ')
+                   WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS ResourceNames,
+               STRING_AGG(CASE WHEN SiteUrl IS NOT NULL THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
+                   WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS ResourceUrls,
+               STRING_AGG(CASE WHEN SiteUrl IS NOT NULL
+                                AND (PolicyDetails IS NOT NULL
+                                     OR ([Status] IS NOT NULL AND [Status] <> N'Success'))
+                               THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
+                   WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400), LEFT(Name, 400))   AS BlockedUrls,
+               MAX(CASE WHEN XPIADetected = 1 THEN 1 ELSE 0 END)                 AS AnyXpia,
+               COUNT(*)                                                          AS ResourceCount
+        INTO #resagg
+        FROM #res
+        GROUP BY RecordId;
+
+        /* STRING_AGG has no DISTINCT, so dedupe first. No JSON is touched. */
+        SELECT RecordId,
+               STRING_AGG(CAST([Action] AS NVARCHAR(MAX)), N'; ')
+                   WITHIN GROUP (ORDER BY LEFT([Action], 400))                   AS Actions
+        INTO #actagg
+        FROM (SELECT DISTINCT RecordId, [Action] FROM #res WHERE [Action] IS NOT NULL) AS d
+        GROUP BY RecordId;
+
+        SELECT RecordId,
+               STRING_AGG(CAST(SensitivityLabelId AS NVARCHAR(MAX)), N'; ')
+                   WITHIN GROUP (ORDER BY LEFT(SensitivityLabelId, 400))         AS Labels
+        INTO #labagg
+        FROM (SELECT DISTINCT RecordId, SensitivityLabelId FROM #res WHERE SensitivityLabelId IS NOT NULL) AS d
+        GROUP BY RecordId;
+
+        /* The three short fragments, each exploded once and aggregated set-based
+           rather than per row in a correlated subquery. */
+        SELECT b.RecordId,
+               LEFT(STRING_AGG(CAST(c.Id AS NVARCHAR(MAX)), N'; ')
+                   WITHIN GROUP (ORDER BY LEFT(c.Id, 400)), 4000)                AS Contexts
+        INTO #ctxagg
+        FROM #batch AS b
+        CROSS APPLY OPENJSON(COALESCE(b.Contexts, N'[]')) WITH (Id NVARCHAR(MAX) '$.Id') AS c
+        WHERE c.Id IS NOT NULL
+        GROUP BY b.RecordId;
+
+        SELECT RecordId,
+               STRING_AGG(CAST(Id AS NVARCHAR(MAX)), N'; ')
+                   WITHIN GROUP (ORDER BY LEFT(Id, 400))                         AS Plugins
+        INTO #plugagg
+        FROM (
+            SELECT DISTINCT b.RecordId, p.Id
+            FROM #batch AS b
+            CROSS APPLY OPENJSON(COALESCE(b.AISystemPlugin, N'[]')) WITH (Id NVARCHAR(4000) '$.Id') AS p
+            WHERE p.Id IS NOT NULL
+        ) AS d
+        GROUP BY RecordId;
+
+        /* Messages answers two questions, so it is read once and pivoted. */
+        SELECT b.RecordId,
+               CASE WHEN MAX(CASE WHEN x.JailbreakDetected = 1 THEN 1 ELSE 0 END) = 1
+                    THEN N'true' ELSE N'false' END                               AS JailbreakDetected,
+               COUNT(CASE WHEN x.isPrompt = 1 THEN 1 END)                        AS PromptCount
+        INTO #msgagg
+        FROM #batch AS b
+        CROSS APPLY OPENJSON(COALESCE(b.Messages, N'[]'))
+             WITH (isPrompt BIT '$.isPrompt', JailbreakDetected BIT '$.JailbreakDetected') AS x
+        GROUP BY b.RecordId;
+
+        /* ---- 4. Merge. No aggregates left in this statement. ------------ */
+
+        MERGE audit.RawLogFlattened WITH (HOLDLOCK) AS t
+        USING (
             SELECT
                 b.RecordId,
                 b.[TimeStamp],
@@ -244,52 +289,29 @@ BEGIN
                 b.AgentName,
                 b.ModelName,
                 b.ModelProvider,
-
-                /* One parse each, of a short fragment rather than the record. */
-                (SELECT LEFT(STRING_AGG(CAST(c.Id AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY LEFT(c.Id, 400)), 4000)
-                 FROM OPENJSON(COALESCE(b.Contexts, N'[]')) WITH (Id NVARCHAR(MAX) '$.Id') AS c
-                 WHERE c.Id IS NOT NULL)                                             AS [App context],
-
-                (SELECT STRING_AGG(CAST(d.Id AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY LEFT(d.Id, 400))
-                 FROM (SELECT DISTINCT p.Id
-                       FROM OPENJSON(COALESCE(b.AISystemPlugin, N'[]')) WITH (Id NVARCHAR(4000) '$.Id') AS p
-                       WHERE p.Id IS NOT NULL) AS d)                                 AS AIPlugin,
-
-                /* Messages gives both the jailbreak flag and the prompt count,
-                   so it is read once and pivoted. */
-                m.JailbreakDetected,
-                m.PromptCount,
-
-                ra.ResourceNames                                                     AS [Accessed Resources],
-                ra.ResourceUrls                                                      AS [Accessed Resource Locations],
-                ra.BlockedUrls                                                       AS BlockedResourceUrls,
-                aa.Actions                                                           AS [Action],
-                la.Labels                                                            AS SensitivityLabelIds,
-                CASE WHEN ISNULL(ra.AnyXpia, 0) = 1 THEN N'true' ELSE N'false' END   AS PromptInjectionDetected,
-                ISNULL(ra.ResourceCount, 0)                                          AS AccessedResourceCount
+                cx.Contexts                                                      AS [App context],
+                ra.ResourceNames                                                 AS [Accessed Resources],
+                ra.ResourceUrls                                                  AS [Accessed Resource Locations],
+                ra.BlockedUrls                                                   AS BlockedResourceUrls,
+                aa.Actions                                                       AS [Action],
+                la.Labels                                                        AS SensitivityLabelIds,
+                pl.Plugins                                                       AS AIPlugin,
+                ISNULL(mg.JailbreakDetected, N'false')                           AS JailbreakDetected,
+                ISNULL(mg.PromptCount, 0)                                        AS PromptCount,
+                CASE WHEN ISNULL(ra.AnyXpia, 0) = 1 THEN N'true' ELSE N'false' END AS PromptInjectionDetected,
+                ISNULL(ra.ResourceCount, 0)                                      AS AccessedResourceCount,
+                CASE WHEN @hasLicence = 1 THEN lic.IsCopilotLic END              AS IsCopilotLic
             FROM #batch AS b
-            LEFT JOIN resAgg AS ra ON ra.RecordId = b.RecordId
-            LEFT JOIN actAgg AS aa ON aa.RecordId = b.RecordId
-            LEFT JOIN labAgg AS la ON la.RecordId = b.RecordId
-            CROSS APPLY (
-                SELECT CASE WHEN MAX(CASE WHEN x.JailbreakDetected = 1 THEN 1 ELSE 0 END) = 1
-                            THEN N'true' ELSE N'false' END                           AS JailbreakDetected,
-                       COUNT(CASE WHEN x.isPrompt = 1 THEN 1 END)                     AS PromptCount
-                FROM OPENJSON(COALESCE(b.Messages, N'[]'))
-                     WITH (isPrompt BIT '$.isPrompt', JailbreakDetected BIT '$.JailbreakDetected') AS x
-            ) AS m
-        )
-        MERGE audit.RawLogFlattened WITH (HOLDLOCK) AS t
-        USING (
-            SELECT sh.*,
-                   CASE WHEN @hasLicence = 1 THEN lic.IsCopilotLic END AS IsCopilotLic
-            FROM shredded AS sh
+            LEFT JOIN #resagg  AS ra ON ra.RecordId = b.RecordId
+            LEFT JOIN #actagg  AS aa ON aa.RecordId = b.RecordId
+            LEFT JOIN #labagg  AS la ON la.RecordId = b.RecordId
+            LEFT JOIN #ctxagg  AS cx ON cx.RecordId = b.RecordId
+            LEFT JOIN #plugagg AS pl ON pl.RecordId = b.RecordId
+            LEFT JOIN #msgagg  AS mg ON mg.RecordId = b.RecordId
             OUTER APPLY (
                 SELECT TOP (1) l.IsCopilotLic
                 FROM audit.CopilotLicense AS l
-                WHERE @hasLicence = 1 AND l.UserPrincipalName = sh.[User]
+                WHERE @hasLicence = 1 AND l.UserPrincipalName = b.[User]
             ) AS lic
         ) AS s
         ON t.RecordId = s.RecordId
@@ -341,6 +363,12 @@ BEGIN
 
         DROP TABLE IF EXISTS #batch;
         DROP TABLE IF EXISTS #res;
+        DROP TABLE IF EXISTS #resagg;
+        DROP TABLE IF EXISTS #actagg;
+        DROP TABLE IF EXISTS #labagg;
+        DROP TABLE IF EXISTS #ctxagg;
+        DROP TABLE IF EXISTS #plugagg;
+        DROP TABLE IF EXISTS #msgagg;
 
         SET @msg = CONCAT(N'  batch ', @batch, N': ', FORMAT(@rows, 'N0'), N' record(s), ',
                           FORMAT(@done, 'N0'), N' so far.');
