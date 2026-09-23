@@ -32,6 +32,19 @@ INSERT INTO @tests (label, sql) VALUES
              STRING_AGG(SiteUrl,'';'') WITHIN GROUP (ORDER BY LEFT(SiteUrl,400)) b,
              MAX(CASE WHEN Act=''Read'' THEN 1 ELSE 0 END) x, COUNT(*) n
    FROM #t GROUP BY g'),
+(N'H. 3 aggs, ORDER BY a precomputed plain sort-key column',
+ N'SELECT g, STRING_AGG(Name,'';'') WITHIN GROUP (ORDER BY SortKey) a,
+             STRING_AGG(SiteUrl,'';'') WITHIN GROUP (ORDER BY SortKey) b,
+             STRING_AGG(CASE WHEN Act=''Read'' THEN SiteUrl END,'';'') WITHIN GROUP (ORDER BY SortKey) c,
+             MAX(CASE WHEN Act=''Read'' THEN 1 ELSE 0 END) x, COUNT(*) n
+   FROM (SELECT g, Name, SiteUrl, Act, CAST(LEFT(SiteUrl,400) AS NVARCHAR(400)) AS SortKey FROM #t) d
+   GROUP BY g'),
+(N'I. same, but sort key materialised in a temp table first',
+ N'SELECT g, CAST(LEFT(SiteUrl,400) AS NVARCHAR(400)) SortKey, Name, SiteUrl, Act INTO #s2 FROM #t;
+   SELECT g, STRING_AGG(Name,'';'') WITHIN GROUP (ORDER BY SortKey) a,
+             STRING_AGG(SiteUrl,'';'') WITHIN GROUP (ORDER BY SortKey) b,
+             STRING_AGG(CASE WHEN Act=''Read'' THEN SiteUrl END,'';'') WITHIN GROUP (ORDER BY SortKey) c
+   FROM #s2 GROUP BY g'),
 (N'G. single-col ORDER BY on the plain column (no LEFT)',
  N'SELECT g, STRING_AGG(Name,'';'') WITHIN GROUP (ORDER BY SiteUrl) a,
              STRING_AGG(SiteUrl,'';'') WITHIN GROUP (ORDER BY SiteUrl) b
@@ -47,7 +60,9 @@ BEGIN
         -- Wrapped so the test query's own rows never reach the client; the
         -- statement is still compiled, which is what we are probing.
         DECLARE @wrapped NVARCHAR(MAX) =
-            N'SELECT * INTO #sink FROM (' + @sql + N') q; DROP TABLE #sink;';
+            CASE WHEN @sql LIKE N'%INTO #s2%'
+                 THEN @sql            -- already writes to a table, returns nothing to wrap
+                 ELSE N'SELECT * INTO #sink FROM (' + @sql + N') q; DROP TABLE #sink;' END;
         EXEC sp_executesql @wrapped;
         INSERT INTO @out VALUES (@label, N'OK');
     END TRY
