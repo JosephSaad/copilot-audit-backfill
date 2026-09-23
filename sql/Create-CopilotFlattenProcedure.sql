@@ -8,17 +8,42 @@
     shape (RecordId, CreationDate, RecordType, Operation, UserId, AuditData,
     AssociatedAdminUnits, AssociatedAdminUnitsNames). Any table with those
     columns works, so to flatten a portal CSV import instead, change the one
-    FROM below to your own raw-log table.
+    FROM in the #batch load below to your own raw-log table.
 
     Parameters:
       @SinceUtc     only records at or after this UTC time. NULL = everything.
       @RebuildAll   1 truncates and rebuilds; 0 (default) MERGEs, so it is
                     safe to run incrementally on a schedule.
-      @BatchSize    records per MERGE. Keeps the log and lock footprint flat
-                    on tens of millions of rows. Default 200,000.
+      @BatchSize    records per batch. Keeps the log, tempdb and lock
+                    footprint flat on tens of millions of rows. Default
+                    200,000.
 
     Re-runnable and idempotent: a record already flattened is updated in place,
     keyed on RecordId.
+
+    ---- How it parses, and why it is shaped this way --------------------------
+
+    Every JSON_VALUE or OPENJSON call against a document parses that whole
+    document. Reading twenty-odd fields with twenty-odd calls therefore parses
+    each record twenty-odd times, and the documents here are the expensive part
+    of the row - they arrive gzipped and are decompressed by the view before
+    any of this runs.
+
+    So each batch parses in stages, widest first, and keeps the results:
+
+      #batch  one OPENJSON over the whole document for the top-level scalars,
+              and a second over the CopilotEventData fragment it returns for
+              that object's scalars. Both pull the nested arrays out as JSON
+              fragments in the same pass, so nothing below ever touches the
+              full document again.
+      #res    the AccessedResources fragment exploded once into rows.
+
+    These are temp tables rather than CTEs on purpose: SQL Server does not
+    materialise a CTE, so referencing one several times re-runs the OPENJSON
+    underneath it, which is the cost this is trying to avoid. Everything after
+    #res - including the DISTINCT lists, which STRING_AGG cannot express
+    directly - is ordinary relational aggregation over rows that are already
+    parsed.
 
     Requires SQL Server 2017+ (STRING_AGG, OPENJSON). Run
     sql/Create-CopilotFlattenedSchema.sql first.
@@ -74,116 +99,180 @@ BEGIN
 
         IF @maxId IS NULL BREAK;   -- nothing left
 
-        ;WITH src AS
+        DROP TABLE IF EXISTS #batch;
+        DROP TABLE IF EXISTS #res;
+
+        /* ---- 1. The only two passes over the document ------------------- */
+
+        SELECT
+            r.RecordId,
+
+            /* scalars */
+            LEFT(COALESCE(t.CreationTime, CONVERT(NVARCHAR(30), r.CreationDate, 126)), 4000)  AS [TimeStamp],
+            /* Style 127, not 126: CreationTime carries a trailing Z, which only
+               127 accepts. It also parses the unzoned fallback. */
+            TRY_CONVERT(DATETIME2(0),
+                COALESCE(t.CreationTime, CONVERT(NVARCHAR(30), r.CreationDate, 126)), 127)    AS UtcTimeStamp,
+            LEFT(COALESCE(t.JsonUserId, r.UserId), 4000)                                      AS [User],
+            LEFT(e.AppHost, 4000)                                                             AS App,
+            t.ClientRegion                                                                    AS Location,
+            LEFT(t.AppIdentity, 200)                                                          AS AppIdentity,
+            LEFT(e.ThreadId, 400)                                                             AS ThreadId,
+            LEFT(e.AgentId, 400)                                                              AS AgentId,
+            LEFT(e.AgentName, 400)                                                            AS AgentName,
+            /* ModelTransparencyDetails is a short fragment by the time we read
+               it, not the whole record. */
+            LEFT(JSON_VALUE(e.ModelTransparencyDetails, '$[0].ModelName'), 200)                AS ModelName,
+            LEFT(JSON_VALUE(e.ModelTransparencyDetails, '$[0].ModelProviderName'), 200)        AS ModelProvider,
+
+            /* nested arrays, carried forward as fragments */
+            e.AccessedResources,
+            e.AISystemPlugin,
+            e.Contexts,
+            e.Messages
+        INTO #batch
+        FROM audit.vCopilotAuditRecord AS r
+        /* A record whose AuditData is absent or not JSON still yields a row,
+           with the JSON-derived columns NULL. */
+        OUTER APPLY OPENJSON(CASE WHEN ISJSON(r.AuditData) = 1 THEN r.AuditData ELSE N'{}' END)
+            WITH (
+                CreationTime     NVARCHAR(64)   '$.CreationTime',
+                JsonUserId       NVARCHAR(4000) '$.UserId',
+                AppIdentity      NVARCHAR(200)  '$.AppIdentity',
+                ClientRegion     NVARCHAR(100)  '$.ClientRegion',
+                CopilotEventData NVARCHAR(MAX)  '$.CopilotEventData' AS JSON
+            ) AS t
+        OUTER APPLY OPENJSON(COALESCE(t.CopilotEventData, N'{}'))
+            WITH (
+                AppHost                  NVARCHAR(4000) '$.AppHost',
+                ThreadId                 NVARCHAR(400)  '$.ThreadId',
+                AgentId                  NVARCHAR(400)  '$.AgentId',
+                AgentName                NVARCHAR(400)  '$.AgentName',
+                ModelTransparencyDetails NVARCHAR(MAX)  '$.ModelTransparencyDetails' AS JSON,
+                AccessedResources        NVARCHAR(MAX)  '$.AccessedResources'        AS JSON,
+                AISystemPlugin           NVARCHAR(MAX)  '$.AISystemPlugin'           AS JSON,
+                Contexts                 NVARCHAR(MAX)  '$.Contexts'                 AS JSON,
+                Messages                 NVARCHAR(MAX)  '$.Messages'                 AS JSON
+            ) AS e
+        WHERE r.RecordId > @cursor AND r.RecordId <= @maxId
+          AND (@SinceUtc IS NULL OR r.CreationDate >= @SinceUtc);
+
+        CREATE CLUSTERED INDEX CIX_batch ON #batch (RecordId);
+
+        /* ---- 2. AccessedResources, exploded once ------------------------ */
+
+        SELECT b.RecordId,
+               a.Name,
+               a.SiteUrl,
+               a.[Action],
+               a.SensitivityLabelId,
+               a.XPIADetected,
+               a.[Status],
+               a.PolicyDetails
+        INTO #res
+        FROM #batch AS b
+        CROSS APPLY OPENJSON(COALESCE(b.AccessedResources, N'[]'))
+            WITH (
+                Name               NVARCHAR(MAX)  '$.Name',
+                SiteUrl            NVARCHAR(MAX)  '$.SiteUrl',
+                [Action]           NVARCHAR(4000) '$.Action',
+                SensitivityLabelId NVARCHAR(4000) '$.SensitivityLabelId',
+                XPIADetected       BIT            '$.XPIADetected',
+                [Status]           NVARCHAR(100)  '$.Status',
+                PolicyDetails      NVARCHAR(MAX)  '$.PolicyDetails' AS JSON
+            ) AS a;
+
+        CREATE CLUSTERED INDEX CIX_res ON #res (RecordId);
+
+        /* ---- 3. Aggregate, all of it relational ------------------------- */
+
+        ;WITH resAgg AS
         (
-            SELECT r.RecordId,
-                   r.CreationDate,
-                   r.UserId,
-                   /* ISJSON guards a record whose AuditData is absent or not
-                      JSON - JSON_VALUE would error under strict settings.   */
-                   CASE WHEN ISJSON(r.AuditData) = 1 THEN r.AuditData END AS Doc
-            FROM audit.vCopilotAuditRecord AS r
-            WHERE r.RecordId > @cursor AND r.RecordId <= @maxId
-              AND (@SinceUtc IS NULL OR r.CreationDate >= @SinceUtc)
+            /* Every per-resource value that does not need DISTINCT, in one pass. */
+            SELECT RecordId,
+                   STRING_AGG(CASE WHEN Name IS NOT NULL THEN CAST(Name AS NVARCHAR(MAX)) END, N'; ')
+                       WITHIN GROUP (ORDER BY LEFT(Name, 400))                       AS ResourceNames,
+                   STRING_AGG(CASE WHEN SiteUrl IS NOT NULL THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
+                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400))                    AS ResourceUrls,
+                   STRING_AGG(CASE WHEN SiteUrl IS NOT NULL
+                                    AND (PolicyDetails IS NOT NULL
+                                         OR ([Status] IS NOT NULL AND [Status] <> N'Success'))
+                                   THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
+                       WITHIN GROUP (ORDER BY LEFT(SiteUrl, 400))                    AS BlockedUrls,
+                   MAX(CASE WHEN XPIADetected = 1 THEN 1 ELSE 0 END)                 AS AnyXpia,
+                   COUNT(*)                                                          AS ResourceCount
+            FROM #res
+            GROUP BY RecordId
+        ),
+        /* STRING_AGG has no DISTINCT, so dedupe first. These read #res, which
+           is already parsed - no JSON is touched again. */
+        actAgg AS
+        (
+            SELECT RecordId,
+                   STRING_AGG(CAST([Action] AS NVARCHAR(MAX)), N'; ')
+                       WITHIN GROUP (ORDER BY LEFT([Action], 400))                   AS Actions
+            FROM (SELECT DISTINCT RecordId, [Action] FROM #res WHERE [Action] IS NOT NULL) AS d
+            GROUP BY RecordId
+        ),
+        labAgg AS
+        (
+            SELECT RecordId,
+                   STRING_AGG(CAST(SensitivityLabelId AS NVARCHAR(MAX)), N'; ')
+                       WITHIN GROUP (ORDER BY LEFT(SensitivityLabelId, 400))         AS Labels
+            FROM (SELECT DISTINCT RecordId, SensitivityLabelId FROM #res WHERE SensitivityLabelId IS NOT NULL) AS d
+            GROUP BY RecordId
         ),
         shredded AS
         (
             SELECT
-                s.RecordId,
+                b.RecordId,
+                b.[TimeStamp],
+                b.UtcTimeStamp,
+                b.[User],
+                b.App,
+                b.Location,
+                b.AppIdentity,
+                b.ThreadId,
+                b.AgentId,
+                b.AgentName,
+                b.ModelName,
+                b.ModelProvider,
 
-                /* ---- scalars ------------------------------------------- */
-                LEFT(COALESCE(JSON_VALUE(s.Doc, '$.CreationTime'),
-                              CONVERT(NVARCHAR(30), s.CreationDate, 126)), 4000)      AS [TimeStamp],
-                /* Style 127, not 126: the audit record's CreationTime carries a
-                   trailing Z, which only 127 accepts. It also parses the
-                   unzoned fallback below. */
-                TRY_CONVERT(DATETIME2(0),
-                    COALESCE(JSON_VALUE(s.Doc, '$.CreationTime'),
-                             CONVERT(NVARCHAR(30), s.CreationDate, 126)), 127)        AS UtcTimeStamp,
-                LEFT(COALESCE(JSON_VALUE(s.Doc, '$.UserId'), s.UserId), 4000)         AS [User],
-                LEFT(JSON_VALUE(s.Doc, '$.CopilotEventData.AppHost'), 4000)           AS App,
-                JSON_VALUE(s.Doc, '$.ClientRegion')                                   AS Location,
-                LEFT(JSON_VALUE(s.Doc, '$.AppIdentity'), 200)                         AS AppIdentity,
-                LEFT(JSON_VALUE(s.Doc, '$.CopilotEventData.ThreadId'), 400)           AS ThreadId,
-                LEFT(JSON_VALUE(s.Doc, '$.CopilotEventData.AgentId'), 400)            AS AgentId,
-                LEFT(JSON_VALUE(s.Doc, '$.CopilotEventData.AgentName'), 400)          AS AgentName,
-                LEFT(JSON_VALUE(s.Doc, '$.CopilotEventData.ModelTransparencyDetails[0].ModelName'), 200)         AS ModelName,
-                LEFT(JSON_VALUE(s.Doc, '$.CopilotEventData.ModelTransparencyDetails[0].ModelProviderName'), 200) AS ModelProvider,
-
-                /* ---- Contexts: where the user was --------------------- */
+                /* One parse each, of a short fragment rather than the record. */
                 (SELECT LEFT(STRING_AGG(CAST(c.Id AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY c.Id), 4000)
-                 FROM OPENJSON(s.Doc, '$.CopilotEventData.Contexts')
-                      WITH (Id NVARCHAR(MAX) '$.Id') AS c
-                 WHERE c.Id IS NOT NULL)                                              AS [App context],
-
-                /* ---- AccessedResources: names, locations, actions ------ */
-                (SELECT STRING_AGG(CAST(a.Name AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY a.Name)
-                 FROM OPENJSON(s.Doc, '$.CopilotEventData.AccessedResources')
-                      WITH (Name NVARCHAR(MAX) '$.Name') AS a
-                 WHERE a.Name IS NOT NULL)                                            AS [Accessed Resources],
-
-                (SELECT STRING_AGG(CAST(a.SiteUrl AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY a.SiteUrl)
-                 FROM OPENJSON(s.Doc, '$.CopilotEventData.AccessedResources')
-                      WITH (SiteUrl NVARCHAR(MAX) '$.SiteUrl') AS a
-                 WHERE a.SiteUrl IS NOT NULL)                                         AS [Accessed Resource Locations],
-
-                /* Distinct actions, so a 40-file interaction does not
-                   produce 'Read; Read; Read; ...'.                        */
-                (SELECT STRING_AGG(CAST(d.Action AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY d.Action)
-                 FROM (SELECT DISTINCT a.Action
-                       FROM OPENJSON(s.Doc, '$.CopilotEventData.AccessedResources')
-                            WITH (Action NVARCHAR(MAX) '$.Action') AS a
-                       WHERE a.Action IS NOT NULL) AS d)                              AS [Action],
+                                WITHIN GROUP (ORDER BY LEFT(c.Id, 400)), 4000)
+                 FROM OPENJSON(COALESCE(b.Contexts, N'[]')) WITH (Id NVARCHAR(MAX) '$.Id') AS c
+                 WHERE c.Id IS NOT NULL)                                             AS [App context],
 
                 (SELECT STRING_AGG(CAST(d.Id AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY d.Id)
+                                WITHIN GROUP (ORDER BY LEFT(d.Id, 400))
                  FROM (SELECT DISTINCT p.Id
-                       FROM OPENJSON(s.Doc, '$.CopilotEventData.AISystemPlugin')
-                            WITH (Id NVARCHAR(MAX) '$.Id') AS p
-                       WHERE p.Id IS NOT NULL) AS d)                                  AS AIPlugin,
+                       FROM OPENJSON(COALESCE(b.AISystemPlugin, N'[]')) WITH (Id NVARCHAR(4000) '$.Id') AS p
+                       WHERE p.Id IS NOT NULL) AS d)                                 AS AIPlugin,
 
-                (SELECT STRING_AGG(CAST(d.SensitivityLabelId AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY d.SensitivityLabelId)
-                 FROM (SELECT DISTINCT a.SensitivityLabelId
-                       FROM OPENJSON(s.Doc, '$.CopilotEventData.AccessedResources')
-                            WITH (SensitivityLabelId NVARCHAR(MAX) '$.SensitivityLabelId') AS a
-                       WHERE a.SensitivityLabelId IS NOT NULL) AS d)                  AS SensitivityLabelIds,
+                /* Messages gives both the jailbreak flag and the prompt count,
+                   so it is read once and pivoted. */
+                m.JailbreakDetected,
+                m.PromptCount,
 
-                /* Resources Copilot was blocked or restricted from: a
-                   PolicyDetails entry, or a non-success Status.            */
-                (SELECT STRING_AGG(CAST(a.SiteUrl AS NVARCHAR(MAX)), N'; ')
-                                WITHIN GROUP (ORDER BY a.SiteUrl)
-                 FROM OPENJSON(s.Doc, '$.CopilotEventData.AccessedResources')
-                      WITH (SiteUrl       NVARCHAR(MAX) '$.SiteUrl',
-                            [Status]      NVARCHAR(100) '$.Status',
-                            PolicyDetails NVARCHAR(MAX) '$.PolicyDetails' AS JSON) AS a
-                 WHERE a.SiteUrl IS NOT NULL
-                   AND (a.PolicyDetails IS NOT NULL
-                        OR (a.[Status] IS NOT NULL AND a.[Status] <> N'Success')))    AS BlockedResourceUrls,
-
-                /* ---- boolean flags, as text to match the source shape --- */
-                CASE WHEN EXISTS (SELECT 1
-                                  FROM OPENJSON(s.Doc, '$.CopilotEventData.Messages')
-                                       WITH (JailbreakDetected BIT '$.JailbreakDetected') AS m
-                                  WHERE m.JailbreakDetected = 1)
-                     THEN N'true' ELSE N'false' END                                   AS JailbreakDetected,
-
-                CASE WHEN EXISTS (SELECT 1
-                                  FROM OPENJSON(s.Doc, '$.CopilotEventData.AccessedResources')
-                                       WITH (XPIADetected BIT '$.XPIADetected') AS a
-                                  WHERE a.XPIADetected = 1)
-                     THEN N'true' ELSE N'false' END                                   AS PromptInjectionDetected,
-
-                /* ---- counts -------------------------------------------- */
-                (SELECT COUNT(*) FROM OPENJSON(s.Doc, '$.CopilotEventData.AccessedResources')) AS AccessedResourceCount,
-                (SELECT COUNT(*) FROM OPENJSON(s.Doc, '$.CopilotEventData.Messages')
-                                      WITH (isPrompt BIT '$.isPrompt') AS m
-                  WHERE m.isPrompt = 1)                                               AS PromptCount
-            FROM src AS s
+                ra.ResourceNames                                                     AS [Accessed Resources],
+                ra.ResourceUrls                                                      AS [Accessed Resource Locations],
+                ra.BlockedUrls                                                       AS BlockedResourceUrls,
+                aa.Actions                                                           AS [Action],
+                la.Labels                                                            AS SensitivityLabelIds,
+                CASE WHEN ISNULL(ra.AnyXpia, 0) = 1 THEN N'true' ELSE N'false' END   AS PromptInjectionDetected,
+                ISNULL(ra.ResourceCount, 0)                                          AS AccessedResourceCount
+            FROM #batch AS b
+            LEFT JOIN resAgg AS ra ON ra.RecordId = b.RecordId
+            LEFT JOIN actAgg AS aa ON aa.RecordId = b.RecordId
+            LEFT JOIN labAgg AS la ON la.RecordId = b.RecordId
+            CROSS APPLY (
+                SELECT CASE WHEN MAX(CASE WHEN x.JailbreakDetected = 1 THEN 1 ELSE 0 END) = 1
+                            THEN N'true' ELSE N'false' END                           AS JailbreakDetected,
+                       COUNT(CASE WHEN x.isPrompt = 1 THEN 1 END)                     AS PromptCount
+                FROM OPENJSON(COALESCE(b.Messages, N'[]'))
+                     WITH (isPrompt BIT '$.isPrompt', JailbreakDetected BIT '$.JailbreakDetected') AS x
+            ) AS m
         )
         MERGE audit.RawLogFlattened WITH (HOLDLOCK) AS t
         USING (
@@ -242,6 +331,9 @@ BEGIN
         SET @rows = @@ROWCOUNT;
         SET @done += @rows;
         SET @cursor = @maxId;
+
+        DROP TABLE IF EXISTS #batch;
+        DROP TABLE IF EXISTS #res;
 
         SET @msg = CONCAT(N'  batch ', @batch, N': ', FORMAT(@rows, 'N0'), N' record(s), ',
                           FORMAT(@done, 'N0'), N' so far.');
