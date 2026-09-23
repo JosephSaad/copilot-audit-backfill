@@ -65,6 +65,11 @@ if (Test-Path -LiteralPath $modulesDir) {
 
 New-Item -ItemType Directory -Path $modulesDir -Force | Out-Null
 
+# Absolute from here on. -Path may be relative (the release workflow passes a
+# relative stage folder), and the verification below compares it against a
+# module's ModuleBase, which is always absolute.
+$modulesDir = (Resolve-Path -LiteralPath $modulesDir).ProviderPath
+
 foreach ($name in $ModuleNames) {
     Write-Host "Saving $name $RequiredVersion ..." -ForegroundColor Cyan
     Save-Module -Name $name -RequiredVersion $RequiredVersion -Path $modulesDir `
