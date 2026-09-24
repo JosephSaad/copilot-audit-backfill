@@ -24,10 +24,28 @@
         in time order that cannot happen, so the rule has nothing to act on.
       * The script's metric version mentions 12h, but no 12-hour rule appears
         in its session logic, so none is applied here.
-      * It is a full rebuild in one transaction rather than an incremental,
-        restart-safe pass over files: a session depends on its neighbours, and
-        a set-based rebuild over the whole table is simpler to trust than
-        carried-over open-session state. Readers never see a half-built table.
+      * It is set-based over the table, in one transaction, rather than a
+        restart-safe pass over files carrying open-session state. Readers
+        never see a half-built table.
+
+    @SinceUtc - incremental builds
+      NULL (default) rebuilds every session and week. A time rebuilds only
+      from local midnight of the day it falls on (in @ReportingTimeZone):
+      a session never crosses midnight, so nothing before that day can
+      change. The sessions from that midnight on are replaced, numbering
+      continues from each stream's last kept session, and every week that
+      contains a rebuilt day is recomputed from audit.CopilotSession. The
+      result is the same as a full rebuild over the same rows - except that
+      a kept session keeps the Division, Department, JobTitle, ManagerUPN and
+      licence flag it was built with, rather than being restated with today's.
+      -Incremental passes the load's start. At 40M interactions a full build
+      took 28 minutes and 24 GB of tempdb, growing with the history kept;
+      an incremental one costs what the window costs.
+
+      An incremental build is refused when the last build used different
+      settings (timeout, fallback, time zone, metric version or licence
+      databases): the kept sessions would follow other rules. Build fully
+      once after changing one. With no earlier build it builds everything.
 
     @ContextFallback
       'User'      (default) one session stream per user across all contexts;
@@ -58,7 +76,8 @@ ALTER PROCEDURE audit.usp_BuildCopilotSessions
     @ReportingTimeZone     SYSNAME       = N'Eastern Standard Time',
     @ContextFallback       NVARCHAR(20)  = N'User',
     @MetricVersion         NVARCHAR(200) = N'sql-1.0-60m-daysplit-satfri-customweek',
-    @LicenceEventDatabase  NVARCHAR(1000) = NULL   -- one database, or several comma-separated
+    @LicenceEventDatabase  NVARCHAR(1000) = NULL,  -- one database, or several comma-separated
+    @SinceUtc              DATETIME2(0)   = NULL   -- NULL: everything; else from local midnight of that day
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -79,6 +98,38 @@ BEGIN
         THROW 50004, N'A database in @LicenceEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
 
     DECLARE @started DATETIME2(0) = SYSUTCDATETIME(), @msg NVARCHAR(600);
+
+    IF COL_LENGTH(N'audit.CopilotSessionRun', N'RebuiltFrom') IS NULL
+        THROW 50005, N'audit.CopilotSessionRun predates incremental builds - run sql/Create-CopilotSessionSchema.sql again.', 1;
+
+    /* Incremental: from local midnight of @SinceUtc's day, if the last build
+       followed the same rules. @rebuiltFrom is local, @fromUtc the same
+       instant in UTC for the index on audit.RawLogFlattened. */
+    DECLARE @rebuiltFrom DATETIME2(0) = NULL, @fromUtc DATETIME2(0) = NULL;
+    IF @SinceUtc IS NOT NULL
+    BEGIN
+        DECLARE @lastRun INT, @lastTimeout INT, @lastFallback NVARCHAR(20), @lastZone NVARCHAR(128),
+                @lastMetric NVARCHAR(200), @lastLic NVARCHAR(1000);
+        SELECT TOP (1) @lastRun = RunId, @lastTimeout = SessionTimeoutMinutes, @lastFallback = ContextFallback,
+                       @lastZone = ReportingTimeZone, @lastMetric = MetricVersion, @lastLic = LicenceEventDatabase
+        FROM audit.CopilotSessionRun ORDER BY RunId DESC;
+
+        IF @lastRun IS NULL
+        BEGIN
+            RAISERROR('No earlier session build: building every session, not only the days asked for.', 0, 1) WITH NOWAIT;
+            SET @SinceUtc = NULL;
+        END
+        ELSE IF @lastTimeout <> @SessionTimeoutMinutes OR @lastFallback <> @ContextFallback
+             OR @lastZone <> @ReportingTimeZone OR @lastMetric <> @MetricVersion
+             OR ISNULL(@lastLic, N'') <> ISNULL(@LicenceEventDatabase, N'')
+            THROW 50006, N'The last session build used different settings, and an incremental build would keep sessions built under them. Run once with @SinceUtc = NULL to rebuild everything.', 1;
+        ELSE
+        BEGIN
+            SET @rebuiltFrom = CAST(CAST(CAST(CAST(@SinceUtc AS DATETIME2(0)) AT TIME ZONE 'UTC'
+                                              AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS DATE) AS DATETIME2(0));
+            SET @fromUtc = CAST(@rebuiltFrom AT TIME ZONE @ReportingTimeZone AT TIME ZONE 'UTC' AS DATETIME2(0));
+        END;
+    END;
 
     /* ---- 1. The rows, with the session context resolved ------------------ */
 
@@ -105,7 +156,9 @@ BEGIN
     CROSS APPLY (SELECT CASE @ContextFallback
                             WHEN N'Location' THEN COALESCE(v.Ctx, v.Loc)
                             WHEN N'None'     THEN v.Ctx
-                            ELSE N'(user)' END AS KeyCtx) AS k;
+                            ELSE N'(user)' END AS KeyCtx) AS k
+    WHERE @fromUtc IS NULL OR f.UtcTimeStamp >= @fromUtc
+    OPTION (RECOMPILE);   -- planned for the window actually asked for, so a small one seeks
 
     DECLARE @read INT, @orig INT, @recovered INT, @noCtx INT, @noUser INT, @badTs INT;
     SELECT @read      = COUNT(*),
@@ -221,8 +274,24 @@ BEGIN
     INTO #histlic
     FROM #sess AS s;
 
+    /* Incremental: each stream's numbering carries on from its last session
+       before the rebuilt days. */
+    DROP TABLE IF EXISTS #base;
+    CREATE TABLE #base (UserUPN NVARCHAR(4000) COLLATE DATABASE_DEFAULT NOT NULL,
+                        KeyCtx  NVARCHAR(4000) COLLATE DATABASE_DEFAULT NOT NULL,
+                        MaxOrdinal INT NOT NULL);
+    IF @rebuiltFrom IS NOT NULL
+        INSERT INTO #base (UserUPN, KeyCtx, MaxOrdinal)
+        SELECT k.UserUPN, k.KeyCtx, m.MaxOrdinal
+        FROM (SELECT DISTINCT UserUPN, KeyCtx FROM #sess) AS k
+        CROSS APPLY (SELECT MAX(c.SessionOrdinal_Derived) AS MaxOrdinal
+                     FROM audit.CopilotSession AS c
+                     WHERE c.UserUPN = k.UserUPN AND c.AppContext = k.KeyCtx
+                       AND c.SessionStart_PromptSubmittedDateTime < @rebuiltFrom) AS m
+        WHERE m.MaxOrdinal IS NOT NULL;
+
     DROP TABLE IF EXISTS #out;
-    SELECT s.KeyCtx AS AppContext, s.UserUPN, CAST(s.Ordinal AS INT) AS Ordinal, s.StartTs, s.EndTs, s.Prompts,
+    SELECT s.KeyCtx AS AppContext, s.UserUPN, CAST(s.Ordinal + ISNULL(b.MaxOrdinal, 0) AS INT) AS Ordinal, s.StartTs, s.EndTs, s.Prompts,
            m.SpanMinutes, d.CalendarDays,
            f.PrimaryApp,
            COALESCE(c.AppCategory, N'In-App Copilot') AS AppCategory,
@@ -234,30 +303,37 @@ BEGIN
     JOIN #histlic AS h ON h.UserUPN = s.UserUPN AND h.KeyCtx = s.KeyCtx AND h.Ordinal = s.Ordinal
     LEFT JOIN audit.SessionAppCategory AS c ON c.App = f.PrimaryApp
     LEFT JOIN #profile AS p ON p.UserPrincipalName = s.UserUPN
+    LEFT JOIN #base AS b ON b.UserUPN = s.UserUPN AND b.KeyCtx = s.KeyCtx
     CROSS APPLY (SELECT CAST(DATEDIFF_BIG(SECOND, s.StartTs, s.EndTs) / 60.0 AS DECIMAL(14, 4)) AS SpanMinutes) AS m
     CROSS APPLY (SELECT DATEDIFF(DAY, s.StartTs, s.EndTs) + 1 AS CalendarDays) AS d;
 
-    /* ---- 5. Weeks: Saturday-Friday, labelled by the Friday --------------- */
-    /* 1900-01-06 was a Saturday, so this is 0 = Saturday ... 6 = Friday
-       whatever DATEFIRST says. */
+    /* ---- 5. Replace the sessions, then the weeks they fall in ------------ */
+    /*
+        Full: both tables emptied and rebuilt. Incremental: the sessions from
+        @rebuiltFrom on are replaced, and every week containing a rebuilt day
+        is recomputed. Either way the weeks are computed from
+        audit.CopilotSession, so a week that straddles @rebuiltFrom counts
+        its kept sessions too, and both paths give the same numbers.
 
-    DROP TABLE IF EXISTS #wk;
-    SELECT o.*, w.WeekEnding, YEAR(w.WeekEnding) AS WeekYear,
-           DATEDIFF(DAY, ff.FirstFriday, w.WeekEnding) / 7 + 1 AS WeekNumber
-    INTO #wk
-    FROM #out AS o
-    CROSS APPLY (SELECT DATEADD(DAY, 6 - DATEDIFF(DAY, '19000106', CAST(o.EndTs AS DATE)) % 7,
-                                CAST(o.EndTs AS DATE)) AS WeekEnding) AS w
-    CROSS APPLY (SELECT DATEFROMPARTS(YEAR(w.WeekEnding), 1, 1) AS Jan1) AS j
-    CROSS APPLY (SELECT DATEADD(DAY, 6 - DATEDIFF(DAY, '19000106', j.Jan1) % 7, j.Jan1) AS FirstFriday) AS ff;
-
-    /* ---- 6. Replace both tables in one transaction ----------------------- */
-
-    DECLARE @sessions INT, @weeks INT;
+        Weeks run Saturday-Friday and are labelled by the Friday; a session
+        belongs to the week its last prompt falls in, which - a session never
+        crossing midnight - is the week of its day. 1900-01-06 was a
+        Saturday, so this is right whatever DATEFIRST says.
+    */
+    DECLARE @sessions INT, @weeks INT, @wk0 DATE = NULL, @weekFrom DATETIME2(0) = NULL;
+    IF @rebuiltFrom IS NOT NULL
+    BEGIN
+        SET @wk0 = DATEADD(DAY, 6 - DATEDIFF(DAY, '19000106', CAST(@rebuiltFrom AS DATE)) % 7, CAST(@rebuiltFrom AS DATE));
+        SET @weekFrom = CAST(DATEADD(DAY, -6, @wk0) AS DATETIME2(0));   -- the Saturday that week starts
+    END;
 
     BEGIN TRANSACTION;
 
-    TRUNCATE TABLE audit.CopilotSession;
+    IF @rebuiltFrom IS NULL
+        TRUNCATE TABLE audit.CopilotSession;
+    ELSE
+        DELETE FROM audit.CopilotSession WHERE SessionStart_PromptSubmittedDateTime >= @rebuiltFrom;
+
     INSERT INTO audit.CopilotSession
         (AppContext, UserUPN, SessionOrdinal_Derived,
          SessionStart_PromptSubmittedDateTime, SessionEnd_PromptSubmittedDateTime,
@@ -278,7 +354,11 @@ BEGIN
     FROM #out AS o;
     SET @sessions = @@ROWCOUNT;
 
-    TRUNCATE TABLE audit.CopilotWeeklyRollup;
+    IF @rebuiltFrom IS NULL
+        TRUNCATE TABLE audit.CopilotWeeklyRollup;
+    ELSE
+        DELETE FROM audit.CopilotWeeklyRollup WHERE WeekEnding >= @wk0;
+
     INSERT INTO audit.CopilotWeeklyRollup
         (WeekEnding, WeekYear, WeekNumber, WeekLabel, UserUPN, PrimaryApp, AppCategory, IsM365CopilotLicensed,
          WeeklySessionCount, WeeklyPromptCount,
@@ -297,22 +377,44 @@ BEGIN
            MAX(k.Division), MAX(k.Department), MAX(k.JobTitle), MAX(k.ManagerUpn),
            ROUND(SUM(k.SpanMinutes) / SUM(k.Prompts), 2),
            @MetricVersion
-    FROM #wk AS k
-    GROUP BY k.WeekEnding, k.WeekYear, k.WeekNumber, k.UserUPN, k.PrimaryApp, k.AppCategory, k.IsLic;
+    FROM (
+        SELECT c.AppContext, c.UserUPN,
+               c.SessionStart_PromptSubmittedDateTime AS StartTs, c.SessionEnd_PromptSubmittedDateTime AS EndTs,
+               c.PromptCount AS Prompts, c.PrimaryApp, c.AppCategory, c.IsM365CopilotLicensed AS IsLic,
+               c.Division, c.Department, c.JobTitle, c.ManagerUPN AS ManagerUpn,
+               /* the exact span, not the rounded column: weeks sum it before rounding */
+               CAST(DATEDIFF_BIG(SECOND, c.SessionStart_PromptSubmittedDateTime, c.SessionEnd_PromptSubmittedDateTime) / 60.0
+                    AS DECIMAL(14, 4)) AS SpanMinutes,
+               w.WeekEnding, YEAR(w.WeekEnding) AS WeekYear,
+               DATEDIFF(DAY, ff.FirstFriday, w.WeekEnding) / 7 + 1 AS WeekNumber
+        FROM audit.CopilotSession AS c
+        CROSS APPLY (SELECT CAST(c.SessionEnd_PromptSubmittedDateTime AS DATE) AS EndDay) AS e
+        CROSS APPLY (SELECT DATEADD(DAY, 6 - DATEDIFF(DAY, '19000106', e.EndDay) % 7, e.EndDay) AS WeekEnding) AS w
+        CROSS APPLY (SELECT DATEFROMPARTS(YEAR(w.WeekEnding), 1, 1) AS Jan1) AS j
+        CROSS APPLY (SELECT DATEADD(DAY, 6 - DATEDIFF(DAY, '19000106', j.Jan1) % 7, j.Jan1) AS FirstFriday) AS ff
+        WHERE @weekFrom IS NULL OR c.SessionStart_PromptSubmittedDateTime >= @weekFrom
+    ) AS k
+    GROUP BY k.WeekEnding, k.WeekYear, k.WeekNumber, k.UserUPN, k.PrimaryApp, k.AppCategory, k.IsLic
+    OPTION (RECOMPILE);
     SET @weeks = @@ROWCOUNT;
 
     INSERT INTO audit.CopilotSessionRun
         (RunStartUtc, RunEndUtc, RowsRead, RowsWithOriginalAppContext, RowsRecoveredFromLocation,
          RowsSkippedMissingContext, RowsSkippedMissingUser, RowsSkippedBadTimestamp,
-         SessionsWritten, WeeklyGroups, SessionTimeoutMinutes, ContextFallback, ReportingTimeZone, LicenceEventDatabase, MetricVersion)
+         SessionsWritten, WeeklyGroups, SessionTimeoutMinutes, ContextFallback, ReportingTimeZone, LicenceEventDatabase,
+         MetricVersion, RebuiltFrom)
     VALUES (@started, SYSUTCDATETIME(), @read, ISNULL(@orig, 0), ISNULL(@recovered, 0),
             ISNULL(@noCtx, 0), ISNULL(@noUser, 0), ISNULL(@badTs, 0),
-            @sessions, @weeks, @SessionTimeoutMinutes, @ContextFallback, @ReportingTimeZone, @LicenceEventDatabase, @MetricVersion);
+            @sessions, @weeks, @SessionTimeoutMinutes, @ContextFallback, @ReportingTimeZone, @LicenceEventDatabase,
+            @MetricVersion, @rebuiltFrom);
 
     COMMIT TRANSACTION;
 
-    SET @msg = CONCAT(N'Sessions built: ', FORMAT(@read, 'N0'), N' row(s) read, ',
-                      FORMAT(@sessions, 'N0'), N' session(s), ', FORMAT(@weeks, 'N0'), N' weekly group(s).');
+    SET @msg = CONCAT(N'Sessions built', CASE WHEN @rebuiltFrom IS NULL THEN N'' ELSE
+                          CONCAT(N' from ', CONVERT(NVARCHAR(10), @rebuiltFrom, 23), N' (incremental)') END, N': ',
+                      FORMAT(@read, 'N0'), N' row(s) read, ',
+                      FORMAT(@sessions, 'N0'), N' session(s), ', FORMAT(@weeks, 'N0'), N' weekly group(s)',
+                      CASE WHEN @rebuiltFrom IS NULL THEN N'' ELSE N' written' END, N'.');
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
     IF ISNULL(@noCtx, 0) + ISNULL(@noUser, 0) + ISNULL(@badTs, 0) > 0
     BEGIN

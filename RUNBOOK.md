@@ -111,7 +111,11 @@ After the backfill is finalized, schedule `-Incremental`. Each run:
 1. Picks up an unfinished load if the previous run stopped, otherwise starts a new one from where the data ends (the last load's end, or the backfill's) **minus `-LookbackHours`** (48 by default) up to the start of the current hour. Microsoft commits to no delivery time for audit records - core services typically take 60-90 minutes, others longer - so the lookback is searched again.
 2. Downloads it with the same engine into `audit.CopilotLoadWindow` / `audit.CopilotLoadStage`.
 3. Runs `audit.usp_MergeCopilotLoad`: checks the load covers its range with no gap, appends the records `audit.CopilotAudit` does not already hold (tagged with `LoadId`) and their shredded rows to `audit.CopilotInteraction` in one transaction, and empties the load tables.
-4. Refreshes the derived tables that are installed: `usp_FlattenCopilotAudit` and `usp_ShredLicenseEvents` from the load's start, then `usp_BuildCopilotSessions`. `-SkipPostProcessing` stops after the merge.
+4. Refreshes the derived tables that are installed: `usp_FlattenCopilotAudit` and `usp_ShredLicenseEvents` from the load's start, then `usp_BuildCopilotSessions` from local midnight of the load's start's day, then `bi.usp_RefreshBi`. `-SkipPostProcessing` stops after the merge.
+
+**Sessions are rebuilt incrementally.** A session never crosses midnight, so only the days from the load's start can change: those sessions are replaced, numbering carries on from the ones kept, and the weeks containing those days are recomputed. The result equals a full rebuild over the same rows, except that sessions already built keep the department and licence flag they were built with. It matters at scale: rebuilding every session took 28 minutes and 24 GB of tempdb at 40M interactions, and grows with every day of history kept.
+
+Rebuild every session (`EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'...';`, no `@SinceUtc`) after changing a session setting - timeout, context fallback, time zone, metric version or licence databases. An incremental build refuses to mix settings, so the nightly load fails with `different settings` until you do. After upgrading from a version before incremental sessions, run `sql/Create-CopilotSessionSchema.sql` and `sql/Create-CopilotBiSchema.sql` again.
 
 `audit.CopilotLoad` keeps one row per load with its range and how many records were new or already there; `-Status` lists the latest. Once a load has been merged, `-Finalize` refuses to run: it rebuilds from the backfill's staging table and would drop the loaded days.
 
@@ -160,7 +164,7 @@ The `bi` schema is what a Power BI semantic model imports: narrow facts with int
 1. Run `sql/Create-CopilotBiSchema.sql`, then `sql/Create-CopilotBiProcedure.sql`.
 2. `EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'<licence database(s)>';` builds everything. It reports what it wrote; `bi.RefreshRun` keeps one row per refresh.
 
-**Keeping it current.** Once the procedure is installed, every `-Incremental` run calls it last, with the load's start as `@SinceUtc` and `-SessionLicenceDatabase` as `@LicenceEventDatabase`. A partial refresh replaces its window in one transaction, so a model refreshing at the same time never sees it half-written. Schedule the model's refresh after the task.
+**Keeping it current.** Once the procedure is installed, every `-Incremental` run calls it last, with the load's start as `@SinceUtc` and `-SessionLicenceDatabase` as `@LicenceEventDatabase`. A partial refresh replaces its window in one transaction, so a model refreshing at the same time never sees it half-written. Sessions follow the session builds: only the days an incremental build rebuilt are copied, and after a full session build (which renumbers every session) all of them. Schedule the model's refresh after the task.
 
 **Run a full rebuild** (`@SinceUtc = NULL`, then a full refresh of the model) when:
 
@@ -227,6 +231,7 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 | Finalize refused | It names the reason: unfinished windows, gaps, compatibility level, or incremental loads already merged. |
 | `-Incremental`: `Run a backfill to completion in this database first` | Loads continue from a finalized backfill. Run one (even a single day) and `-FinalizeOnly`. |
 | `-Incremental`: `Merge refused: ... gap(s)` | A load's windows do not cover its range. Inspect `audit.CopilotLoadWindow`; the next run resumes the load. |
+| `-Incremental`: `The last session build used different settings` | A session setting changed. Rebuild every session once (section 5b); the next load continues incrementally. |
 | `bi.usp_RefreshBi`: `needs a full rebuild` | The reporting time zone differs from the last refresh. Run `EXEC bi.usp_RefreshBi @SinceUtc = NULL, ...` once in the new zone. |
 | `-Incremental` app-only: `token lacks the application permission` | The app has the delegated permission, or consent was not granted. Add `AuditLogsQuery.Read.All` under **Application** permissions and grant consent. |
 | Licence tool app-only: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. See section 5b. |

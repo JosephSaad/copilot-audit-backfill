@@ -1069,6 +1069,50 @@ VALUES ('lic-a1', 0, 'AssignedLicense', '[]', '["[SkuName=Microsoft_365_Copilot,
     Assert-That ([int] $lb -eq 0) "a user with no licence history keeps today's flag ($lb)"
     $lr = Invoke-SqlText -As Scalar -Sql 'SELECT TOP (1) LicenceEventDatabase FROM audit.CopilotSessionRun ORDER BY RunId DESC;'
     Assert-That ("$lr" -eq $script:ITDatabase) "the run log records which licence history was used ($lr)"
+
+    # --- Incremental builds (@SinceUtc) ---------------------------------------
+    # A new prompt from user A at noon Eastern on the 15th, then a build from
+    # the 15th only. It must equal a full rebuild over the same rows - sessions,
+    # numbering and weeks - and the sessions before the 15th must keep their keys.
+    $licArg = "@LicenceEventDatabase = N'$($script:ITDatabase)'"
+    $sessionCols = 'AppContext, UserUPN, SessionOrdinal_Derived, SessionStart_PromptSubmittedDateTime, SessionEnd_PromptSubmittedDateTime, InferredSessionSpanMinutes, InferredSessionSpanHours, InferredSessionSpanDays, SessionTimeoutMinutes, CalendarDaysTouched_InSessionSpan, PromptCount, SessionType, PrimaryApp, AppCategory, IsM365CopilotLicensed, Division, Department, JobTitle, ManagerUPN, AvgMinutesPerPrompt_InferredSessionSpan, AvgMinutesPerPromptPerCalendarDay_InferredSpan, AvgMinutesPerPrompt_NormalizedByCalendarDays, MetricVersion'
+    $keysBefore = Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CAST(SessionKey AS varchar(20)), ',') WITHIN GROUP (ORDER BY SessionKey) FROM audit.CopilotSession WHERE SessionStart_PromptSubmittedDateTime < '2026-09-15';"
+    Invoke-SqlText -Sql @"
+INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], App, IsCopilotLic, FlattenedUtc)
+VALUES (N's-12', N'2026-09-15T16:00:00Z', '2026-09-15T16:00:00', N'a@contoso.com', N'Word', 1, SYSUTCDATETIME());
+"@
+    Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg, @SinceUtc = '2026-09-15T12:00:00';" -ShowMessages
+    $inc = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) CONVERT(varchar(19), RebuiltFrom, 120) AS RebuiltFrom, RowsRead, SessionsWritten FROM audit.CopilotSessionRun ORDER BY RunId DESC;').Rows[0]
+    Assert-That ("$($inc.RebuiltFrom)" -eq '2026-09-15 00:00:00' -and [int] $inc.RowsRead -lt 12) `
+        "an incremental build starts at local midnight of @SinceUtc's day and reads only from there ($($inc.RebuiltFrom), $($inc.RowsRead) rows)"
+    $keysAfter = Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CAST(SessionKey AS varchar(20)), ',') WITHIN GROUP (ORDER BY SessionKey) FROM audit.CopilotSession WHERE SessionStart_PromptSubmittedDateTime < '2026-09-15';"
+    Assert-That ("$keysAfter" -eq "$keysBefore") "the sessions before that day are kept, keys and all ($keysAfter)"
+    $aOrd = Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CAST(SessionOrdinal_Derived AS varchar(5)), ',') WITHIN GROUP (ORDER BY SessionStart_PromptSubmittedDateTime) FROM audit.CopilotSession WHERE UserUPN = 'a@contoso.com';"
+    Assert-That ("$aOrd" -eq '1,2,3,4,5') "numbering carries on from the last kept session ($aOrd)"
+
+    Invoke-SqlText -Sql "DROP TABLE IF EXISTS dbo.IncSessions; DROP TABLE IF EXISTS dbo.IncWeeks; SELECT $sessionCols INTO dbo.IncSessions FROM audit.CopilotSession; SELECT * INTO dbo.IncWeeks FROM audit.CopilotWeeklyRollup;"
+    Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg;"
+    $diff = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM (SELECT $sessionCols FROM dbo.IncSessions EXCEPT SELECT $sessionCols FROM audit.CopilotSession) AS a) +
+       (SELECT COUNT(*) FROM (SELECT $sessionCols FROM audit.CopilotSession EXCEPT SELECT $sessionCols FROM dbo.IncSessions) AS b) AS SessionDiff,
+       (SELECT COUNT(*) FROM (SELECT * FROM dbo.IncWeeks EXCEPT SELECT * FROM audit.CopilotWeeklyRollup) AS c) +
+       (SELECT COUNT(*) FROM (SELECT * FROM audit.CopilotWeeklyRollup EXCEPT SELECT * FROM dbo.IncWeeks) AS d) AS WeekDiff,
+       (SELECT COUNT(*) FROM dbo.IncSessions) AS IncSessions, (SELECT COUNT(*) FROM audit.CopilotSession) AS FullSessions,
+       (SELECT COUNT(*) FROM dbo.IncWeeks) AS IncWeeks, (SELECT COUNT(*) FROM audit.CopilotWeeklyRollup) AS FullWeeks;
+"@).Rows[0]
+    Assert-That ([int] $diff.SessionDiff -eq 0 -and [int] $diff.IncSessions -eq [int] $diff.FullSessions) `
+        "the incremental sessions are identical to a full rebuild's, column for column ($($diff.IncSessions) sessions, $($diff.SessionDiff) differences)"
+    Assert-That ([int] $diff.WeekDiff -eq 0 -and [int] $diff.IncWeeks -eq [int] $diff.FullWeeks) `
+        "and so are the weeks, including the one that straddles the rebuilt day ($($diff.IncWeeks) weekly rows, $($diff.WeekDiff) differences)"
+
+    $refusedInc = ''
+    try { Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg, @SessionTimeoutMinutes = 30, @SinceUtc = '2026-09-15';" }
+    catch { $refusedInc = $_.Exception.GetBaseException().Message }
+    Assert-That ($refusedInc -like '*different settings*') "an incremental build under different settings is refused ($refusedInc)"
+
+    # Back to the fixture section 12 expects.
+    Invoke-SqlText -Sql "DELETE FROM audit.RawLogFlattened WHERE RecordId = N's-12'; DROP TABLE dbo.IncSessions; DROP TABLE dbo.IncWeeks;"
+    Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg;"
 }
 finally { Stop-MockGraph $mock }
 
@@ -1381,6 +1425,34 @@ SELECT (SELECT COUNT_BIG(*) FROM bi.FactInteraction) AS Rows_,
 Assert-That ([long] $p.Rows_ -eq ($flatRows + 1) -and [long] $p.Ids -eq ($flatRows + 1)) "a partial refresh adds the new interaction and duplicates nothing ($($p.Rows_))"
 Assert-That ("$($p.S09)" -eq 'Outlook' -and "$($p.S01)" -eq 'Office') "it rewrites rows inside its window and leaves the ones before it ($($p.S09), $($p.S01))"
 Assert-That ([int] $p.N01User -eq $aKey -and "$($p.Since)" -eq '2026-09-19') "keys are stable across refreshes (user A is still key $aKey)"
+
+# --- Sessions: only what the session builds changed ---------------------------
+# An incremental session build picks up n-01; the next refresh copies just the
+# days it rebuilt. After a full session build (every key renumbered) it copies
+# them all.
+$sessSync = {
+    (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM (SELECT SessionKey, SessionStart_PromptSubmittedDateTime, PromptCount FROM audit.CopilotSession
+                              EXCEPT SELECT SessionKey, SessionStart, PromptCount FROM bi.FactSession) AS a) AS Missing,
+       (SELECT COUNT(*) FROM (SELECT SessionKey, SessionStart, PromptCount FROM bi.FactSession
+                              EXCEPT SELECT SessionKey, SessionStart_PromptSubmittedDateTime, PromptCount FROM audit.CopilotSession) AS b) AS Extra,
+       (SELECT TOP (1) SessionRows FROM bi.RefreshRun ORDER BY RunId DESC) AS Written,
+       (SELECT COUNT(*) FROM audit.CopilotSession) AS Total;
+"@).Rows[0]
+}
+Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'$licDb', @SinceUtc = '2026-09-19';" -ShowMessages
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenceEventDatabase = N'$licDb';" -ShowMessages
+$ss = & $sessSync
+Assert-That ([int] $ss.Missing -eq 0 -and [int] $ss.Extra -eq 0 -and [int] $ss.Written -lt [int] $ss.Total) `
+    "after an incremental session build, bi.FactSession matches by copying only the rebuilt days ($($ss.Written) of $($ss.Total) written)"
+Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'$licDb';"
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenceEventDatabase = N'$licDb';"
+$ss = & $sessSync
+Assert-That ([int] $ss.Missing -eq 0 -and [int] $ss.Extra -eq 0 -and [int] $ss.Written -eq [int] $ss.Total) `
+    "after a full session build renumbers every key, the next refresh copies them all ($($ss.Written) of $($ss.Total))"
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenceEventDatabase = N'$licDb';"
+$ss = & $sessSync
+Assert-That ([int] $ss.Written -eq 0 -and [int] $ss.Missing -eq 0) "with no session build since, a refresh copies no sessions ($($ss.Written))"
 
 $msg = & $biRefused "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @ReportingTimeZone = N'UTC';"
 Assert-That ($msg -like '*needs a full rebuild*') "a partial refresh in a different time zone is refused ($msg)"

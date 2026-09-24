@@ -74,7 +74,7 @@ The backfill covers one fixed range. Once it is finalized, run `-Incremental` on
     -TenantId contoso.onmicrosoft.com -ClientId <app-id> -CertificateThumbprint <thumbprint>
 ```
 
-Each run loads from where the data ends up to the start of the current hour, and appends the new records to `audit.CopilotAudit` and `audit.CopilotInteraction` without rebuilding them. It also re-searches the 48 hours before that (`-LookbackHours`), because Purview can deliver a record hours after the event; records already loaded are counted and skipped, never duplicated. It then refreshes whichever derived tables are installed: the flattened table, licence events and sessions (`-SessionLicenceDatabase` passes the licence history through). A daily run costs 2–4 of the tenant's ~200 searches per 24 hours.
+Each run loads from where the data ends up to the start of the current hour, and appends the new records to `audit.CopilotAudit` and `audit.CopilotInteraction` without rebuilding them. It also re-searches the 48 hours before that (`-LookbackHours`), because Purview can deliver a record hours after the event; records already loaded are counted and skipped, never duplicated. It then refreshes whichever derived tables are installed: the flattened table, licence events, sessions and the `bi` schema, each from the load's start rather than from scratch (`-SessionLicenceDatabase` passes the licence history through). A daily run costs 2–4 of the tenant's ~200 searches per 24 hours.
 
 `-CertificateThumbprint` signs in as an app, so Task Scheduler can run it with nobody present. Without it, the run signs in interactively as before. A run that stops part-way resumes its load next time, and a run that fails exits non-zero. See [RUNBOOK.md](RUNBOOK.md#5b-keeping-it-current) for the app registration and the scheduled task.
 
@@ -116,7 +116,7 @@ Each release also carries a prebuilt `...-offline-win-x64.zip` with the module a
 | `audit.vCopilotAdoption` | Licensed users against actual usage, with `NeverUsed` and `DaysToFirstUse`. Needs the enrichment step below. |
 | `audit.vCopilotUsageByDepartment` | Usage per department, day and app. Needs the enrichment step below. |
 | `bi.*` | A star schema for a Power BI semantic model: interaction, session and licence facts with integer keys, and their dimensions. See [Power BI: the `bi` schema](#power-bi-the-bi-schema). |
-| `audit.CopilotSession` / `audit.CopilotWeeklyRollup` | Inferred sessions (60 minutes idle or a new day ends one) and their Saturday-Friday weekly rollup. `EXEC audit.usp_BuildCopilotSessions`; `tools/Export-CopilotSessionCsv.ps1` writes them as the old `copilot_session_summary.csv` and `weekly_rollup.csv`. |
+| `audit.CopilotSession` / `audit.CopilotWeeklyRollup` | Inferred sessions (60 minutes idle or a new day ends one) and their Saturday-Friday weekly rollup. `EXEC audit.usp_BuildCopilotSessions` rebuilds them all; `@SinceUtc` only the days from then on, which is what `-Incremental` does. `tools/Export-CopilotSessionCsv.ps1` writes them as the old `copilot_session_summary.csv` and `weekly_rollup.csv`. |
 
 `-Finalize` (or `-FinalizeOnly` later) refuses to run unless the whole range is loaded with no gaps.
 

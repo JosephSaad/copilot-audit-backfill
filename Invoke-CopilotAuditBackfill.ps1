@@ -492,9 +492,9 @@ function Invoke-DerivedTableRefresh {
     <#
         After a merge, brings each installed derived table up to date: the
         flattened table and licence events from the load's start (both MERGE,
-        so the lookback's records are updated in place), then sessions, which
-        rebuild in one transaction, then the bi star schema from the load's
-        start.
+        so the lookback's records are updated in place), then sessions from
+        the load's start's day (one transaction), then the bi star schema from
+        the load's start.
     #>
     param([Parameter(Mandatory)][datetime] $SinceUtc)
     function Test-Proc([string] $Name) {
@@ -509,12 +509,19 @@ function Invoke-DerivedTableRefresh {
         Invoke-Sql -Sql 'EXEC audit.usp_ShredLicenseEvents @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
     }
     if (Test-Proc 'audit.usp_BuildCopilotSessions') {
-        Write-Log 'Rebuilding sessions and the weekly rollup...'
-        if ($SessionLicenceDatabase) {
-            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $SessionLicenceDatabase } -TimeoutSeconds 0
+        $licDb = $(if ($SessionLicenceDatabase) { $SessionLicenceDatabase } else { $null })
+        # Incremental from the load's start where the installed procedure can
+        # (it rebuilds only the days from then on); a version before it
+        # rebuilds everything.
+        $canIncrement = [bool] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.parameters WHERE object_id = OBJECT_ID(N'audit.usp_BuildCopilotSessions') AND name = N'@SinceUtc') THEN 1 ELSE 0 END")
+        if ($canIncrement) {
+            Write-Log ('Rebuilding sessions and the weekly rollup from {0:yyyy-MM-dd}...' -f $SinceUtc)
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l, @SinceUtc = @s;' `
+                -Parameters @{ '@l' = $licDb; '@s' = $SinceUtc } -TimeoutSeconds 0
         }
         else {
-            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions;' -TimeoutSeconds 0
+            Write-Log 'Rebuilding every session and the weekly rollup (the installed procedure predates incremental builds)...'
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licDb } -TimeoutSeconds 0
         }
     }
     # Last: it reads the flattened rows, the sessions and the licence events.

@@ -86,9 +86,23 @@ IF OBJECT_ID(N'audit.CopilotSession', N'U') IS NULL
         MetricVersion                                 NVARCHAR(200)  NOT NULL
     );
 
+/* Per user, with what an incremental build needs to carry numbering on
+   (AppContext, the ordinal). Rebuilt with them if it predates that. */
+IF OBJECT_ID(N'audit.CopilotSession', N'U') IS NOT NULL
+   AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.CopilotSession') AND name = N'IX_CopilotSession_User')
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes AS i JOIN sys.index_columns AS ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+                   WHERE i.object_id = OBJECT_ID(N'audit.CopilotSession') AND i.name = N'IX_CopilotSession_User'
+                     AND ic.is_included_column = 1)
+    EXEC (N'DROP INDEX IX_CopilotSession_User ON audit.CopilotSession;');
 IF OBJECT_ID(N'audit.CopilotSession', N'U') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.CopilotSession') AND name = N'IX_CopilotSession_User')
-    EXEC (N'CREATE INDEX IX_CopilotSession_User ON audit.CopilotSession (UserUPN, SessionStart_PromptSubmittedDateTime);');
+    EXEC (N'CREATE INDEX IX_CopilotSession_User ON audit.CopilotSession (UserUPN, SessionStart_PromptSubmittedDateTime)
+            INCLUDE (AppContext, SessionOrdinal_Derived);');
+
+/* By start, for an incremental build's delete and the weeks it recomputes. */
+IF OBJECT_ID(N'audit.CopilotSession', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.CopilotSession') AND name = N'IX_CopilotSession_Start')
+    EXEC (N'CREATE INDEX IX_CopilotSession_Start ON audit.CopilotSession (SessionStart_PromptSubmittedDateTime);');
 
 IF OBJECT_ID(N'audit.CopilotWeeklyRollup', N'U') IS NULL
     CREATE TABLE audit.CopilotWeeklyRollup
@@ -146,6 +160,10 @@ IF OBJECT_ID(N'audit.CopilotSessionRun', N'U') IS NULL
 
 IF COL_LENGTH(N'audit.CopilotSessionRun', N'LicenceEventDatabase') IS NULL
     ALTER TABLE audit.CopilotSessionRun ADD LicenceEventDatabase NVARCHAR(1000) NULL;
+
+/* Local midnight an incremental build rebuilt from; NULL = everything. */
+IF COL_LENGTH(N'audit.CopilotSessionRun', N'RebuiltFrom') IS NULL
+    ALTER TABLE audit.CopilotSessionRun ADD RebuiltFrom DATETIME2(0) NULL;
 
 /* ---- CSV-shaped views ---------------------------------------------------- */
 

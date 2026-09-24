@@ -314,10 +314,15 @@ IF OBJECT_ID(N'bi.RefreshRun', N'U') IS NULL
         LicenceEventDatabase  NVARCHAR(1000) NULL,
         InteractionRows       BIGINT         NOT NULL,   -- written by this run
         InteractionsSkipped   BIGINT         NOT NULL,   -- no timestamp
-        SessionRows           INT            NOT NULL,
+        SessionRows           INT            NOT NULL,   -- written by this run
         LicenceChangeRows     INT            NOT NULL,
-        LicensedDayRows       INT            NOT NULL
+        LicensedDayRows       INT            NOT NULL,
+        SessionRunId          INT            NULL        -- the latest audit.CopilotSessionRun it reflects
     );
+
+/* Incremental sessions: which session build a refresh caught up to. */
+IF COL_LENGTH(N'bi.RefreshRun', N'SessionRunId') IS NULL
+    ALTER TABLE bi.RefreshRun ADD SessionRunId INT NULL;
 
 /* ---- What the model imports ---------------------------------------------- */
 

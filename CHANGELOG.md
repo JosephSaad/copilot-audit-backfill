@@ -9,6 +9,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 User attributes now come from on-premises Active Directory, and Graph is used
 for licences only - one fewer Graph permission, and none for profiles.
 
+### Added
+
+- **Incremental sessions.** `audit.usp_BuildCopilotSessions @SinceUtc` rebuilds
+  only from local midnight of that day: a session never crosses midnight,
+  so nothing earlier can change. Those sessions are replaced, each stream's
+  numbering carries on from its last kept session, and every week containing
+  a rebuilt day is recomputed from `audit.CopilotSession` (so a week that
+  straddles the day counts its kept sessions). The result equals a full
+  rebuild over the same rows, except that kept sessions keep the directory
+  attributes and licence flag they were built with. `-Incremental` passes
+  the load's start; an incremental build is refused if the last build used
+  different settings. `audit.CopilotSessionRun.RebuiltFrom` records the day
+  (NULL for a full build).
+- **`bi.FactSession` follows the session builds** instead of being rebuilt
+  whole on every refresh: the days incremental builds rebuilt, or every
+  session after a full build renumbered them (`bi.RefreshRun.SessionRunId`).
+
+### Fixed
+
+- `bi.usp_RefreshBi` scanned all of `audit.RawLogFlattened` on every partial
+  refresh: once to find its window (an `@SinceUtc IS NULL OR ...` predicate
+  that cannot seek), and again to read it (a plan cached from the first,
+  month-sized full build). Both now seek.
+- `bi.FactLicensedDay` is built by turning each licence period into its range
+  of days, instead of testing every date against every period.
+
+### Performance
+
+Measured on 40M synthetic interactions (70,000 users, 18,000 licensed, a year
+of data; 8 cores, 31 GB RAM):
+
+| Nightly step | Before | After |
+|---|---|---|
+| Sessions and weekly rollup | 1,697 s (full rebuild) | 44-47 s (last 48 h) |
+| `bi` 48-hour refresh | 158 s | 27 s |
+| Largest single statement's tempdb (sessions) | 11.9 GB (23.6 GB in all) | 1.9 GB |
+
+An incremental build over a full one left all 7,382,589 sessions and
+5,545,894 weekly rows identical. The nightly cost now follows the window,
+not the history kept. The new indexes on `audit.CopilotSession` take 0.75 GB
+at that size.
+
 ### Changed (breaking)
 
 - **User attributes come from on-premises AD, not Entra.** The new

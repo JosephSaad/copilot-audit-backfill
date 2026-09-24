@@ -30,8 +30,11 @@
          new users, apps, agents and models as it goes.
       5. Dimension attributes: directory profile, today's licence, app
          category. Small; rewritten every run.
-      6. bi.FactSession, bi.FactLicenceChange and bi.FactLicensedDay: rebuilt
-         whole. They are small next to the interactions.
+      6. bi.FactSession: only what the session builds since the last refresh
+         replaced - every session after a full session build, else the days
+         the incremental ones rebuilt (audit.CopilotSessionRun.RebuiltFrom).
+         bi.FactLicenceChange and bi.FactLicensedDay: rebuilt whole; they are
+         small next to the interactions.
 
     Licence at the time of use (FactInteraction.LicenceStatusKey,
     FactLicensedDay):
@@ -79,6 +82,10 @@ BEGIN
         THROW 50010, N'The bi schema is missing - run sql/Create-CopilotBiSchema.sql first.', 1;
     IF COL_LENGTH(N'bi.DimUser', N'OrgDepth') IS NULL
         THROW 50016, N'bi.DimUser predates 2.0.0 - run sql/Create-CopilotBiSchema.sql again to upgrade it.', 1;
+    IF COL_LENGTH(N'bi.RefreshRun', N'SessionRunId') IS NULL
+        THROW 50017, N'bi.RefreshRun predates incremental sessions - run sql/Create-CopilotBiSchema.sql again to upgrade it.', 1;
+    IF COL_LENGTH(N'audit.CopilotSessionRun', N'RebuiltFrom') IS NULL
+        THROW 50018, N'audit.CopilotSessionRun predates incremental sessions - run sql/Create-CopilotSessionSchema.sql again.', 1;
     IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL OR OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
         THROW 50011, N'audit.RawLogFlattened is missing - run sql/Create-CopilotFlattenedSchema.sql and audit.usp_FlattenCopilotAudit first.', 1;
     IF OBJECT_ID(N'audit.CopilotSession', N'U') IS NULL OR OBJECT_ID(N'audit.SessionAppCategory', N'U') IS NULL
@@ -233,12 +240,33 @@ BEGIN
 
     /* ---- 2. Everything else the facts are built from ------------------------ */
 
+    /*
+        Which sessions changed since the last refresh. A full session build
+        renumbers every SessionKey, so after one - or on a full refresh, or
+        the first - bi.FactSession is rebuilt whole ('all'). After only
+        incremental builds, just the days they rebuilt ('window', from the
+        earliest RebuiltFrom); after none, nothing ('none').
+    */
+    DECLARE @sessRun INT = (SELECT MAX(RunId) FROM audit.CopilotSessionRun),
+            @lastSessRun INT = (SELECT TOP (1) SessionRunId FROM bi.RefreshRun ORDER BY RunId DESC),
+            @sessMode NVARCHAR(6), @sessFrom DATETIME2(0) = NULL;
+    IF @SinceUtc IS NULL OR @lastSessRun IS NULL
+       OR EXISTS (SELECT 1 FROM audit.CopilotSessionRun WHERE RunId > @lastSessRun AND RebuiltFrom IS NULL)
+        SET @sessMode = N'all';
+    ELSE IF @sessRun IS NULL OR @sessRun <= @lastSessRun
+        SET @sessMode = N'none';
+    ELSE
+        SELECT @sessMode = N'window', @sessFrom = MIN(RebuiltFrom)
+        FROM audit.CopilotSessionRun WHERE RunId > @lastSessRun;
+
     DROP TABLE IF EXISTS #sess;
     SELECT s.SessionKey, s.SessionStart_PromptSubmittedDateTime AS StartTs, s.SessionEnd_PromptSubmittedDateTime AS EndTs,
            s.UserUPN AS Upn, COALESCE(NULLIF(LTRIM(RTRIM(s.PrimaryApp)), N''), N'(unknown)') AS App,
            s.IsM365CopilotLicensed AS IsLic, s.PromptCount, s.InferredSessionSpanMinutes AS SpanMinutes
     INTO #sess
-    FROM audit.CopilotSession AS s;
+    FROM audit.CopilotSession AS s
+    WHERE @sessMode = N'all' OR (@sessMode = N'window' AND s.SessionStart_PromptSubmittedDateTime >= @sessFrom)
+    OPTION (RECOMPILE);
 
     /* Directory attributes from on-premises AD (audit.UserDirectory), when
        it has been loaded. Dynamic, so a database without it still compiles. */
@@ -294,8 +322,9 @@ BEGIN
             ((SELECT MIN(UtcTimeStamp) FROM audit.RawLogFlattened)),
             ((SELECT MIN(ChangedUtc) FROM #chg))) AS x(v));
     DECLARE @firstDate DATE = COALESCE(CAST(CAST(@firstUtc AS DATETIME2(0)) AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATE), @today);
-    IF (SELECT MIN(CAST(StartTs AS DATE)) FROM #sess) < @firstDate
-        SET @firstDate = (SELECT MIN(CAST(StartTs AS DATE)) FROM #sess);
+    DECLARE @firstSession DATE = (SELECT CAST(MIN(SessionStart_PromptSubmittedDateTime) AS DATE) FROM audit.CopilotSession);
+    IF @firstSession < @firstDate
+        SET @firstDate = @firstSession;
     IF @firstDate > @today SET @firstDate = @today;
     DECLARE @d0 DATE = DATEFROMPARTS(YEAR(@firstDate), 1, 1), @d1 DATE = DATEFROMPARTS(YEAR(@today), 12, 31);
 
@@ -339,11 +368,16 @@ BEGIN
     DECLARE @interactions BIGINT = 0, @lo DATETIME2(0), @hi DATETIME2(0), @next DATETIME2(0);
     DECLARE @skipped BIGINT = (SELECT COUNT_BIG(*) FROM audit.RawLogFlattened WHERE UtcTimeStamp IS NULL);
 
-    SELECT @lo = COALESCE(@SinceUtc, MIN(UtcTimeStamp)), @hi = MAX(UtcTimeStamp)
-    FROM audit.RawLogFlattened
-    WHERE @SinceUtc IS NULL OR UtcTimeStamp >= @SinceUtc;
-    IF @SinceUtc IS NULL AND @lo IS NOT NULL
-        SET @lo = DATETIME2FROMPARTS(YEAR(@lo), MONTH(@lo), 1, 0, 0, 0, 0, 0);
+    /* Two statements, not one with "@SinceUtc IS NULL OR ...": that form
+       cannot seek the timestamp index, and scanned 40M rows every night. */
+    IF @SinceUtc IS NULL
+    BEGIN
+        SELECT @lo = MIN(UtcTimeStamp), @hi = MAX(UtcTimeStamp) FROM audit.RawLogFlattened;
+        IF @lo IS NOT NULL
+            SET @lo = DATETIME2FROMPARTS(YEAR(@lo), MONTH(@lo), 1, 0, 0, 0, 0, 0);
+    END
+    ELSE
+        SELECT @lo = @SinceUtc, @hi = MAX(UtcTimeStamp) FROM audit.RawLogFlattened WHERE UtcTimeStamp >= @SinceUtc;
 
     IF @SinceUtc IS NOT NULL
     BEGIN
@@ -392,7 +426,10 @@ BEGIN
                                      CASE WHEN asrc.Src = N'Microsoft' AND CHARINDEX(N'.', REVERSE(ai.Ident)) > 1
                                           THEN RIGHT(ai.Ident, CHARINDEX(N'.', REVERSE(ai.Ident)) - 1) END) AS AgentName,
                             COALESCE(asrc.Src, N'(no agent)') AS AgentSource) AS ag
-        WHERE f.UtcTimeStamp >= @lo AND f.UtcTimeStamp < @next;
+        WHERE f.UtcTimeStamp >= @lo AND f.UtcTimeStamp < @next
+        /* Planned per window: a plan cached from a month-sized full rebuild
+           would scan the table for a two-day refresh. */
+        OPTION (RECOMPILE);
 
         INSERT INTO bi.DimUser (UserPrincipalName)
         SELECT DISTINCT s.Upn FROM #src AS s
@@ -504,7 +541,10 @@ BEGIN
 
     BEGIN TRANSACTION;
 
-    TRUNCATE TABLE bi.FactSession;
+    IF @sessMode = N'all'
+        TRUNCATE TABLE bi.FactSession;
+    ELSE IF @sessMode = N'window'
+        DELETE FROM bi.FactSession WHERE SessionStart >= @sessFrom;
     INSERT INTO bi.FactSession
         (SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenceStatusKey, PromptCount, SpanMinutes, IsMultiTurn)
     SELECT s.SessionKey, s.StartTs, s.EndTs,
@@ -537,22 +577,40 @@ BEGIN
 
     /* Licensed at the end of each day, from the first day with data to
        today: held at the instant before local midnight. */
+    /*
+        Held at the end of day d means held at the instant before local
+        midnight: FromUtc before it and ToUtc at or after it - that is,
+        d from FromUtc's local date to the day before ToUtc's. So each held
+        period is turned into its range of DateKeys and seeks bi.DimDate,
+        rather than every date being tested against every period.
+        The ends are clamped first: '0001-01-01' and '9999-12-31' would
+        overflow on conversion to a zone either side of UTC.
+    */
+    DECLARE @lowUtc  DATETIME2(0) = CAST(CAST(DATEADD(DAY, -1, @firstDate) AS DATETIME2(0)) AT TIME ZONE @ReportingTimeZone AT TIME ZONE 'UTC' AS DATETIME2(0)),
+            @highUtc DATETIME2(0) = CAST(CAST(DATEADD(DAY,  2, @today)     AS DATETIME2(0)) AT TIME ZONE @ReportingTimeZone AT TIME ZONE 'UTC' AS DATETIME2(0)),
+            @firstKey INT = YEAR(@firstDate) * 10000 + MONTH(@firstDate) * 100 + DAY(@firstDate),
+            @todayKey INT = YEAR(@today) * 10000 + MONTH(@today) * 100 + DAY(@today);
     TRUNCATE TABLE bi.FactLicensedDay;
     INSERT INTO bi.FactLicensedDay (DateKey, UserKey)
     SELECT DISTINCT d.DateKey, u.UserKey
-    FROM bi.DimDate AS d
-    CROSS APPLY (SELECT CAST(CAST(DATEADD(DAY, 1, d.[Date]) AS DATETIME2(0)) AT TIME ZONE @ReportingTimeZone
-                             AT TIME ZONE 'UTC' AS DATETIME2(0)) AS EndUtc) AS e
-    JOIN #held AS h ON h.FromUtc < e.EndUtc AND h.ToUtc >= e.EndUtc
+    FROM #held AS h
+    CROSS APPLY (SELECT CASE WHEN h.FromUtc < @lowUtc  THEN @lowUtc  ELSE h.FromUtc END AS F,
+                        CASE WHEN h.ToUtc   > @highUtc THEN @highUtc ELSE h.ToUtc   END AS T) AS c
+    CROSS APPLY (SELECT CAST(CAST(c.F AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS DATE) AS FirstDay,
+                        DATEADD(DAY, -1, CAST(CAST(c.T AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS DATE)) AS LastDay) AS r
+    CROSS APPLY (SELECT YEAR(r.FirstDay) * 10000 + MONTH(r.FirstDay) * 100 + DAY(r.FirstDay) AS FirstKey,
+                        YEAR(r.LastDay)  * 10000 + MONTH(r.LastDay)  * 100 + DAY(r.LastDay)  AS LastKey) AS k
+    JOIN bi.DimDate AS d ON d.DateKey BETWEEN k.FirstKey AND k.LastKey
+                        AND d.DateKey BETWEEN @firstKey AND @todayKey
     JOIN bi.DimUser AS u ON u.UserPrincipalName = h.Upn
-    WHERE d.[Date] BETWEEN @firstDate AND @today;
+    WHERE c.T > c.F;
     SET @days = @@ROWCOUNT;
 
     INSERT INTO bi.RefreshRun
         (StartedUtc, EndedUtc, SinceUtc, ReportingTimeZone, LicenceEventDatabase, InteractionRows, InteractionsSkipped,
-         SessionRows, LicenceChangeRows, LicensedDayRows)
+         SessionRows, LicenceChangeRows, LicensedDayRows, SessionRunId)
     VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @ReportingTimeZone, @LicenceEventDatabase, @interactions, @skipped,
-            @sessions, @changes, @days);
+            @sessions, @changes, @days, @sessRun);
 
     COMMIT TRANSACTION;
 
