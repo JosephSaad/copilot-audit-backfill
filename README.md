@@ -116,6 +116,7 @@ Each release also carries a prebuilt `...-offline-win-x64.zip` with the module a
 | `audit.RawLogFlattened` | One row per record with `CopilotEventData` shredded into columns — accessed resources and their locations, sensitivity labels, plugins, jailbreak and prompt-injection flags. |
 | `audit.vCopilotAdoption` | Licensed users against actual usage, with `NeverUsed` and `DaysToFirstUse`. Needs the enrichment step below. |
 | `audit.vCopilotUsageByDepartment` | Usage per department, day and app. Needs the enrichment step below. |
+| `bi.*` | A star schema for a Power BI semantic model: interaction, session and licence facts with integer keys, and their dimensions. See [Power BI: the `bi` schema](#power-bi-the-bi-schema). |
 | `audit.CopilotSession` / `audit.CopilotWeeklyRollup` | Inferred sessions (60 minutes idle or a new day ends one) and their Saturday-Friday weekly rollup. `EXEC audit.usp_BuildCopilotSessions`; `tools/Export-CopilotSessionCsv.ps1` writes them as the old `copilot_session_summary.csv` and `weekly_rollup.csv`. |
 
 `-Finalize` (or `-FinalizeOnly` later) refuses to run unless the whole range is loaded with no gaps.
@@ -167,6 +168,46 @@ ORDER BY LicensedSinceUtc;
 
 Two limits are recorded rather than guessed at. Graph gives the date the **current** licence assignment began, so "licensed since March" is answerable but "was this user licensed last March" is not — a licence granted and later removed leaves no trace. And audit records outlive directory objects, so a departed user is stored as `DirectoryStatus = 'NotFound'` with `IsCopilotLic` NULL: *not known*, which is a different claim from *unlicensed*.
 
+## Power BI: the `bi` schema
+
+A star schema for a Power BI semantic model. The audit tables are shaped for loading and auditing; a model over tens of millions of interactions wants narrow facts with integer keys and small dimensions. Install it once, after the flattened and session scripts (the session tables may stay empty), then build it:
+
+```sql
+-- sql/Create-CopilotBiSchema.sql, then sql/Create-CopilotBiProcedure.sql, then:
+EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'CopilotLicenseEvents,CopilotLicenseLive';
+```
+
+From then on each `-Incremental` run refreshes it after the other derived tables (`-SessionLicenceDatabase` is passed through as `@LicenceEventDatabase`). The model imports the views, which leave out the lineage columns:
+
+| View | One row per | Keys |
+|---|---|---|
+| `bi.Interactions` | Copilot interaction | Date, User, App, Agent, Model, LicenceStatus |
+| `bi.Sessions` | inferred session | Date, User, App (the first prompt's), LicenceStatus |
+| `bi.LicenceChanges` | SKU added (+1) or removed (−1) | Date, User, Sku |
+| `bi.LicensedDays` | user holding a Copilot licence at the end of a day | Date, User |
+| `bi.Calendar` | date, with the rollup's Saturday–Friday week | `DateKey` |
+| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses` | dimension rows | `UserKey`, `AppKey` … |
+
+- **Relationships:** each fact's `DateKey`, `UserKey`, `AppKey` and so on to the dimension of the same key, one-to-many, single direction. Mark `bi.Calendar` as the date table.
+- **Incremental refresh:** on `bi.Interactions`, filter `ActivityHour` between `RangeStart` and `RangeEnd`. It is local time truncated to the hour, so it has ~8,760 values a year and costs almost nothing in memory. The other facts are small enough to refresh whole.
+- **Licence at the time of use** is on the facts (`LicenceStatusKey`): *Licensed*, *Not licensed*, or *Unknown* when there is neither licence history nor enrichment for the user. `bi.Users.CopilotLicenceToday` is today's licence, which is a different question.
+- **Left out on purpose:** RecordId, ThreadId, app context, accessed resources and their URLs, sensitivity label IDs and the JSON. Each is close to one value per row and would cost more memory than the rest of the model together. They stay in `audit.RawLogFlattened` for a DirectQuery drill-through table if you need one.
+- **Keys are stable** across refreshes and rebuilds, so partitions refreshed on different days stay consistent.
+
+Starting-point measures (not yet tried in a model):
+
+```dax
+Interactions = COUNTROWS ( Interactions )
+Prompts = SUM ( Interactions[PromptCount] )
+Active users = DISTINCTCOUNT ( Interactions[UserKey] )
+Active licensed users = CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed" )
+Licensed users = CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),
+                     LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
+```
+
+`@SinceUtc` (the load's start, from `-Incremental`) rebuilds only the interactions from then on; `NULL` rebuilds them all. Run a full rebuild, and a full refresh of the model, after changing the reporting time zone (a partial refresh in a different zone is refused), after licence history arrives for a period already built, or after purging flattened rows.
+
 ## Tests
 
 ```bash
@@ -205,6 +246,8 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `sql/Create-CopilotSessionSchema.sql` | Session, weekly rollup, app-category and run-log tables, and the CSV-shaped views. |
 | `sql/Create-CopilotSessionProcedure.sql` | `audit.usp_BuildCopilotSessions`. |
 | `tools/Export-CopilotSessionCsv.ps1` | Writes the session and weekly CSVs. |
+| `sql/Create-CopilotBiSchema.sql` | The `bi` star schema's tables and the views a Power BI model imports. |
+| `sql/Create-CopilotBiProcedure.sql` | `bi.usp_RefreshBi`, which fills it. |
 | `tests/` | Mock Graph service and the three test suites. |
 
 ## License

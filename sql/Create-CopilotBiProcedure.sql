@@ -1,0 +1,533 @@
+/*
+    bi.usp_RefreshBi
+    ------------------------------------------------------------------------
+    Fills the bi star schema (Create-CopilotBiSchema.sql) from the audit
+    tables. -Incremental calls it after each load; run it by hand after a
+    backfill, or after changing a setting.
+
+      @SinceUtc              Interactions from this UTC time are deleted and
+                             rebuilt; older ones are left as they are. NULL
+                             (the default) rebuilds them all. The first run
+                             always rebuilds, whatever is passed.
+      @ReportingTimeZone     The zone dates and hours are reported in. Use the
+                             one the sessions were built with. Changing it
+                             needs a full rebuild (@SinceUtc = NULL); a partial
+                             refresh in a different zone is refused.
+      @LicenceEventDatabase  One database holding the licence events
+                             (audit.vLicenseSkuChange), or several
+                             comma-separated. The same value as
+                             usp_BuildCopilotSessions takes.
+
+    What it does, in order:
+
+      1. Licence history: every SKU change from @LicenceEventDatabase, and
+         from it, for each user, the periods they held a Copilot SKU.
+      2. Sessions, directory profiles, and keys for any user, app or SKU
+         they bring that has not been seen before.
+      3. bi.DimDate, extended to cover the data.
+      4. bi.FactInteraction: the window from @SinceUtc deleted, then written
+         again from audit.RawLogFlattened a month at a time, adding keys for
+         new users, apps, agents and models as it goes.
+      5. Dimension attributes: directory profile, today's licence, app
+         category. Small; rewritten every run.
+      6. bi.FactSession, bi.FactLicenceChange and bi.FactLicensedDay: rebuilt
+         whole. They are small next to the interactions.
+
+    Licence at the time of use (FactInteraction.LicenceStatusKey,
+    FactLicensedDay):
+
+      * A user with Copilot SKU changes in the licence history held a licence
+        at a moment if any Copilot SKU's latest change at or before it was an
+        addition - or, before their first change, if that first change was a
+        removal. The same rule as usp_BuildCopilotSessions.
+      * A user with no change in the history falls back to the enrichment
+        (audit.CopilotLicense): licensed from LicensedSinceUtc if they hold
+        one today, else not licensed. Sessions use today's flag throughout
+        instead, ignoring LicensedSinceUtc, so for such a user a session
+        before that date can say Licensed where its interactions say not.
+      * Neither: Unknown. So is a user the directory no longer has.
+
+    A row's licence status is fixed when the row is written. A licence change
+    that reaches the history later corrects only rows rebuilt after it; run
+    with @SinceUtc = NULL (and fully refresh the model) to correct them all.
+
+    Reads audit.RawLogFlattened, audit.CopilotLicense, audit.CopilotSession
+    and audit.SessionAppCategory, so run Create-CopilotFlattenedSchema.sql
+    and Create-CopilotSessionSchema.sql first (the session tables may be
+    empty). audit.UserProfile (the enrichment) is optional. Requires SQL
+    Server 2017+.
+*/
+SET NOCOUNT ON;
+
+IF OBJECT_ID(N'bi.usp_RefreshBi', N'P') IS NULL
+    EXEC (N'CREATE PROCEDURE bi.usp_RefreshBi AS BEGIN SET NOCOUNT ON; END;');
+GO
+
+ALTER PROCEDURE bi.usp_RefreshBi
+    @SinceUtc             DATETIME2(0)   = NULL,
+    @ReportingTimeZone    SYSNAME        = N'Eastern Standard Time',
+    @LicenceEventDatabase NVARCHAR(1000) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @started DATETIME2(0) = SYSUTCDATETIME(), @msg NVARCHAR(1000), @sql NVARCHAR(MAX);
+
+    IF OBJECT_ID(N'bi.FactInteraction', N'U') IS NULL
+        THROW 50010, N'The bi schema is missing - run sql/Create-CopilotBiSchema.sql first.', 1;
+    IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL OR OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
+        THROW 50011, N'audit.RawLogFlattened is missing - run sql/Create-CopilotFlattenedSchema.sql and audit.usp_FlattenCopilotAudit first.', 1;
+    IF OBJECT_ID(N'audit.CopilotSession', N'U') IS NULL OR OBJECT_ID(N'audit.SessionAppCategory', N'U') IS NULL
+       OR OBJECT_ID(N'audit.CopilotSessionRun', N'U') IS NULL
+        THROW 50012, N'audit.CopilotSession is missing - run sql/Create-CopilotSessionSchema.sql first (the tables may stay empty).', 1;
+    IF NOT EXISTS (SELECT 1 FROM sys.time_zone_info WHERE name = @ReportingTimeZone)
+        THROW 50013, N'@ReportingTimeZone is not a name in sys.time_zone_info.', 1;
+
+    DECLARE @licDbs TABLE (Name SYSNAME NOT NULL PRIMARY KEY);
+    IF @LicenceEventDatabase IS NOT NULL
+        INSERT INTO @licDbs (Name)
+        SELECT DISTINCT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@LicenceEventDatabase, N',')
+        WHERE LTRIM(RTRIM(value)) <> N'';
+    IF EXISTS (SELECT 1 FROM @licDbs WHERE OBJECT_ID(QUOTENAME(Name) + N'.audit.vLicenseSkuChange', N'V') IS NULL)
+        THROW 50014, N'A database in @LicenceEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
+
+    /* The first refresh builds everything, whatever window was asked for:
+       an empty fact refreshed from yesterday would have nothing before it. */
+    IF NOT EXISTS (SELECT 1 FROM bi.RefreshRun)
+    BEGIN
+        IF @SinceUtc IS NOT NULL
+            RAISERROR('First refresh of the bi schema: building every interaction, not only the window asked for.', 0, 1) WITH NOWAIT;
+        SET @SinceUtc = NULL;
+    END;
+
+    /* Dates and hours already written were computed in the last run's zone;
+       mixing zones inside one table would misplace every row near midnight. */
+    DECLARE @lastZone SYSNAME = (SELECT TOP (1) ReportingTimeZone FROM bi.RefreshRun ORDER BY RunId DESC);
+    IF @SinceUtc IS NOT NULL AND @lastZone <> @ReportingTimeZone
+    BEGIN
+        SET @msg = CONCAT(N'bi.FactInteraction was built in ', @lastZone, N'. Changing to ', @ReportingTimeZone,
+                          N' needs a full rebuild: run with @SinceUtc = NULL.');
+        THROW 50015, @msg, 1;
+    END;
+
+    DECLARE @sessionZone SYSNAME = (SELECT TOP (1) ReportingTimeZone FROM audit.CopilotSessionRun ORDER BY RunId DESC);
+    IF @sessionZone IS NOT NULL AND @sessionZone <> @ReportingTimeZone
+    BEGIN
+        SET @msg = CONCAT(N'Warning: the sessions were built in ', @sessionZone, N', the interactions are being built in ',
+                          @ReportingTimeZone, N'. Their dates will not line up near midnight.');
+        RAISERROR(@msg, 0, 1) WITH NOWAIT;
+    END;
+
+    /* ---- 1. Licence history ---------------------------------------------- */
+
+    /* Every SKU change, from every licence database. The databases can
+       overlap (each licence backfill covers its own range), hence DISTINCT. */
+    DROP TABLE IF EXISTS #chgAll;
+    CREATE TABLE #chgAll
+    (
+        RecordId    VARCHAR(64)   COLLATE DATABASE_DEFAULT NOT NULL,
+        ChangedUtc  DATETIME2(0)  NOT NULL,
+        Upn         NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL,
+        Sku         NVARCHAR(200) COLLATE DATABASE_DEFAULT NOT NULL,
+        Added       BIT           NOT NULL,
+        ActorUpn    NVARCHAR(512) COLLATE DATABASE_DEFAULT NULL
+    );
+    DECLARE @licDb SYSNAME;
+    DECLARE licDbs CURSOR LOCAL FAST_FORWARD FOR SELECT Name FROM @licDbs;
+    OPEN licDbs;
+    FETCH NEXT FROM licDbs INTO @licDb;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @sql = N'INSERT INTO #chgAll (RecordId, ChangedUtc, Upn, Sku, Added, ActorUpn)
+            SELECT c.RecordId, CAST(c.CreatedDateTime AS DATETIME2(0)), LEFT(c.TargetUpn, 512), LEFT(c.Sku, 200),
+                   CASE WHEN c.Change = N''Added'' THEN 1 ELSE 0 END, LEFT(c.ActorUpn, 512)
+            FROM ' + QUOTENAME(@licDb) + N'.audit.vLicenseSkuChange AS c
+            WHERE c.TargetUpn IS NOT NULL AND c.Sku IS NOT NULL;';
+        EXEC (@sql);
+        FETCH NEXT FROM licDbs INTO @licDb;
+    END;
+    CLOSE licDbs;
+    DEALLOCATE licDbs;
+
+    DROP TABLE IF EXISTS #chg;
+    SELECT DISTINCT RecordId, ChangedUtc, Upn, Sku, Added, ActorUpn INTO #chg FROM #chgAll;
+
+    /* Today's licence from the enrichment. SkuPartNumber, LicensedSinceUtc
+       and DirectoryStatus arrive with Create-CopilotEnrichmentSchema.sql;
+       a database without it has only the flag. */
+    DROP TABLE IF EXISTS #cur;
+    CREATE TABLE #cur
+    (
+        Upn              NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY NONCLUSTERED,
+        IsLic            BIT           NULL,
+        Sku              NVARCHAR(100) COLLATE DATABASE_DEFAULT NULL,
+        SinceUtc         DATETIME2(0)  NULL,
+        DirectoryStatus  NVARCHAR(20)  COLLATE DATABASE_DEFAULT NULL
+    );
+    SET @sql = N'INSERT INTO #cur (Upn, IsLic, Sku, SinceUtc, DirectoryStatus)
+        SELECT UserPrincipalName, IsCopilotLic, '
+        + CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'SkuPartNumber')    IS NULL THEN N'NULL' ELSE N'SkuPartNumber'    END + N', '
+        + CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'LicensedSinceUtc') IS NULL THEN N'NULL' ELSE N'LicensedSinceUtc' END + N', '
+        + CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'DirectoryStatus')  IS NULL THEN N'NULL' ELSE N'DirectoryStatus'  END + N'
+        FROM audit.CopilotLicense;';
+    EXEC (@sql);
+
+    /*
+        The periods each user held a Copilot SKU, as [FromUtc, ToUtc).
+
+        With history: per SKU, each change starts a period that lasts until
+        the SKU's next change, held if the change was an addition; before the
+        first change, held if that first change was a removal. Only the held
+        periods are kept - a user in #known is licensed at a moment if a held
+        period covers it, and not licensed otherwise.
+
+        Without history, from the enrichment: licensed from LicensedSinceUtc
+        (or throughout, if it is not known) when licensed today; never, when
+        not. A user in neither is not in #known: Unknown.
+    */
+    DROP TABLE IF EXISTS #ev;
+    SELECT DISTINCT Upn, Sku, ChangedUtc AS Ts, Added INTO #ev FROM #chg WHERE Sku LIKE N'%COPILOT%';
+
+    DROP TABLE IF EXISTS #held;
+    CREATE TABLE #held
+    (
+        Upn      NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL,
+        FromUtc  DATETIME2(0)  NOT NULL,
+        ToUtc    DATETIME2(0)  NOT NULL
+    );
+    INSERT INTO #held (Upn, FromUtc, ToUtc)
+    SELECT q.Upn, q.FromUtc, q.ToUtc
+    FROM (
+        SELECT e.Upn, e.Ts AS FromUtc,
+               LEAD(e.Ts, 1, CAST('99991231' AS DATETIME2(0))) OVER (PARTITION BY e.Upn, e.Sku ORDER BY e.Ts, e.Added) AS ToUtc,
+               e.Added AS Held
+        FROM #ev AS e
+        UNION ALL
+        SELECT f.Upn, CAST('00010101' AS DATETIME2(0)), f.Ts, 1 - CAST(f.Added AS INT)
+        FROM (SELECT e.Upn, e.Ts, e.Added,
+                     ROW_NUMBER() OVER (PARTITION BY e.Upn, e.Sku ORDER BY e.Ts, e.Added) AS rn
+              FROM #ev AS e) AS f
+        WHERE f.rn = 1
+    ) AS q
+    WHERE q.Held = 1 AND q.ToUtc > q.FromUtc;
+
+    INSERT INTO #held (Upn, FromUtc, ToUtc)
+    SELECT c.Upn, COALESCE(c.SinceUtc, CAST('00010101' AS DATETIME2(0))), CAST('99991231' AS DATETIME2(0))
+    FROM #cur AS c
+    WHERE c.IsLic = 1
+      AND NOT EXISTS (SELECT 1 FROM #ev AS e WHERE e.Upn = c.Upn);
+
+    /* Nonclustered: a UPN can be 1,024 bytes, over a clustered key's 900. */
+    CREATE INDEX IX_held ON #held (Upn, FromUtc) INCLUDE (ToUtc);
+
+    DROP TABLE IF EXISTS #known;
+    CREATE TABLE #known (Upn NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY NONCLUSTERED);
+    INSERT INTO #known (Upn)
+    SELECT Upn FROM #ev
+    UNION
+    SELECT Upn FROM #cur WHERE IsLic IS NOT NULL;
+
+    /* ---- 2. Everything else the facts are built from ------------------------ */
+
+    DROP TABLE IF EXISTS #sess;
+    SELECT s.SessionKey, s.SessionStart_PromptSubmittedDateTime AS StartTs, s.SessionEnd_PromptSubmittedDateTime AS EndTs,
+           s.UserUPN AS Upn, COALESCE(NULLIF(LTRIM(RTRIM(s.PrimaryApp)), N''), N'(unknown)') AS App,
+           s.IsM365CopilotLicensed AS IsLic, s.PromptCount, s.InferredSessionSpanMinutes AS SpanMinutes
+    INTO #sess
+    FROM audit.CopilotSession AS s;
+
+    /* Directory attributes, when the enrichment is installed. Division
+       arrived after 1.2.0, so an older profile table may not have it. */
+    DROP TABLE IF EXISTS #profile;
+    CREATE TABLE #profile
+    (
+        Upn             NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY NONCLUSTERED,
+        DisplayName     NVARCHAR(400) NULL, Division NVARCHAR(200) NULL, Department NVARCHAR(200) NULL,
+        JobTitle        NVARCHAR(200) NULL, OfficeLocation NVARCHAR(200) NULL, City NVARCHAR(200) NULL,
+        Country         NVARCHAR(200) NULL, CompanyName NVARCHAR(200) NULL, UserType NVARCHAR(20) NULL,
+        AccountEnabled  BIT NULL, ManagerUpn NVARCHAR(512) NULL, DirectoryStatus NVARCHAR(20) NULL
+    );
+    IF OBJECT_ID(N'audit.UserProfile', N'U') IS NOT NULL
+    BEGIN
+        SET @sql = N'INSERT INTO #profile (Upn, DisplayName, Division, Department, JobTitle, OfficeLocation, City,
+                                           Country, CompanyName, UserType, AccountEnabled, ManagerUpn, DirectoryStatus)
+            SELECT UserPrincipalName, DisplayName, '
+            + CASE WHEN COL_LENGTH(N'audit.UserProfile', N'Division') IS NULL THEN N'NULL' ELSE N'Division' END
+            + N', Department, JobTitle, OfficeLocation, City, Country, CompanyName, UserType, AccountEnabled,
+                   ManagerUpn, DirectoryStatus
+            FROM audit.UserProfile;';
+        EXEC (@sql);
+    END;
+
+    /* Keys for users, apps and SKUs from those. The interactions add their
+       own in step 4, a month at a time. */
+    INSERT INTO bi.DimUser (UserPrincipalName)
+    SELECT n.Upn
+    FROM (SELECT Upn FROM #sess
+          UNION SELECT Upn FROM #chg
+          UNION SELECT Upn FROM #cur
+          UNION SELECT Upn FROM #profile) AS n
+    WHERE NOT EXISTS (SELECT 1 FROM bi.DimUser AS d WHERE d.UserPrincipalName = n.Upn);
+
+    INSERT INTO bi.DimApp (App)
+    SELECT n.App
+    FROM (SELECT App FROM #sess
+          UNION SELECT LEFT(App, 200) FROM audit.SessionAppCategory) AS n
+    WHERE NOT EXISTS (SELECT 1 FROM bi.DimApp AS d WHERE d.App = n.App);
+
+    INSERT INTO bi.DimSku (Sku, IsCopilot)
+    SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' THEN 1 ELSE 0 END FROM #chg AS c
+    WHERE NOT EXISTS (SELECT 1 FROM bi.DimSku AS d WHERE d.Sku = c.Sku);
+
+    /* ---- 3. Calendar ------------------------------------------------------- */
+    /*
+        From 1 January of the earliest year with data to 31 December of this
+        year, in the reporting time zone. Dates are only ever added.
+        1900-01-01 was a Monday and 1900-01-06 a Saturday, so the day and week
+        arithmetic is right whatever DATEFIRST and the language say.
+    */
+    DECLARE @today DATE = CAST(SYSUTCDATETIME() AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATE);
+    DECLARE @firstUtc DATETIME2(0) = (SELECT MIN(v) FROM (VALUES
+            ((SELECT MIN(UtcTimeStamp) FROM audit.RawLogFlattened)),
+            ((SELECT MIN(ChangedUtc) FROM #chg))) AS x(v));
+    DECLARE @firstDate DATE = COALESCE(CAST(CAST(@firstUtc AS DATETIME2(0)) AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATE), @today);
+    IF (SELECT MIN(CAST(StartTs AS DATE)) FROM #sess) < @firstDate
+        SET @firstDate = (SELECT MIN(CAST(StartTs AS DATE)) FROM #sess);
+    IF @firstDate > @today SET @firstDate = @today;
+    DECLARE @d0 DATE = DATEFROMPARTS(YEAR(@firstDate), 1, 1), @d1 DATE = DATEFROMPARTS(YEAR(@today), 12, 31);
+
+    WITH n AS (
+        SELECT TOP (DATEDIFF(DAY, @d0, @d1) + 1)
+               ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS i
+        FROM sys.all_columns AS a CROSS JOIN sys.all_columns AS b
+    )
+    INSERT INTO bi.DimDate
+        (DateKey, [Date], [Year], [Quarter], MonthNumber, [MonthName], YearMonth, DayOfWeekNumber, DayOfWeekName,
+         IsWeekday, WeekEnding, WeekYear, WeekNumber, WeekLabel)
+    SELECT YEAR(d.D) * 10000 + MONTH(d.D) * 100 + DAY(d.D), d.D, YEAR(d.D), DATEPART(QUARTER, d.D), MONTH(d.D),
+           CHOOSE(MONTH(d.D), N'January', N'February', N'March', N'April', N'May', N'June', N'July',
+                  N'August', N'September', N'October', N'November', N'December'),
+           CONVERT(CHAR(7), d.D, 126),
+           w.Dow,
+           CHOOSE(w.Dow, N'Monday', N'Tuesday', N'Wednesday', N'Thursday', N'Friday', N'Saturday', N'Sunday'),
+           CASE WHEN w.Dow <= 5 THEN 1 ELSE 0 END,
+           w.WeekEnding, YEAR(w.WeekEnding), k.WeekNumber,
+           CONCAT(YEAR(w.WeekEnding), N'-W', RIGHT(CONCAT(N'0', k.WeekNumber), 2))
+    FROM n
+    CROSS APPLY (SELECT DATEADD(DAY, n.i, @d0) AS D) AS d
+    CROSS APPLY (SELECT DATEDIFF(DAY, '19000101', d.D) % 7 + 1 AS Dow,
+                        DATEADD(DAY, 6 - DATEDIFF(DAY, '19000106', d.D) % 7, d.D) AS WeekEnding) AS w
+    CROSS APPLY (SELECT DATEFROMPARTS(YEAR(w.WeekEnding), 1, 1) AS Jan1) AS j
+    CROSS APPLY (SELECT DATEDIFF(DAY, DATEADD(DAY, 6 - DATEDIFF(DAY, '19000106', j.Jan1) % 7, j.Jan1), w.WeekEnding) / 7 + 1
+                        AS WeekNumber) AS k
+    WHERE NOT EXISTS (SELECT 1 FROM bi.DimDate AS x WHERE x.[Date] = d.D);
+
+    /* ---- 4. Interactions --------------------------------------------------- */
+    /*
+        A month of audit.RawLogFlattened at a time: resolve its values once,
+        add keys for anything new, write its fact rows. Month by month keeps
+        tempdb and the log flat over tens of millions of rows.
+
+        A partial refresh replaces its window in one transaction, so a model
+        refreshing at the same time never sees it half-written. A full
+        rebuild commits month by month instead; don't refresh the model while
+        one runs.
+    */
+    DECLARE @interactions BIGINT = 0, @lo DATETIME2(0), @hi DATETIME2(0), @next DATETIME2(0);
+    DECLARE @skipped BIGINT = (SELECT COUNT_BIG(*) FROM audit.RawLogFlattened WHERE UtcTimeStamp IS NULL);
+
+    SELECT @lo = COALESCE(@SinceUtc, MIN(UtcTimeStamp)), @hi = MAX(UtcTimeStamp)
+    FROM audit.RawLogFlattened
+    WHERE @SinceUtc IS NULL OR UtcTimeStamp >= @SinceUtc;
+    IF @SinceUtc IS NULL AND @lo IS NOT NULL
+        SET @lo = DATETIME2FROMPARTS(YEAR(@lo), MONTH(@lo), 1, 0, 0, 0, 0, 0);
+
+    IF @SinceUtc IS NOT NULL
+    BEGIN
+        BEGIN TRANSACTION;
+        DELETE FROM bi.FactInteraction WHERE CreatedUtc >= @SinceUtc;
+    END
+    ELSE
+        TRUNCATE TABLE bi.FactInteraction;
+
+    WHILE @lo <= @hi
+    BEGIN
+        SET @next = DATEADD(MONTH, 1, @lo);
+
+        DROP TABLE IF EXISTS #src;
+        SELECT f.RecordId,
+               f.UtcTimeStamp                                                                     AS Utc,
+               COALESCE(NULLIF(LTRIM(RTRIM(LEFT(f.[User], 512))), N''), N'(unknown user)')          AS Upn,
+               COALESCE(NULLIF(LTRIM(RTRIM(LEFT(f.App, 200))), N''), N'(unknown)')                 AS App,
+               COALESCE(NULLIF(LTRIM(RTRIM(f.AgentId)), N''), N'(none)')                           AS AgentId,
+               NULLIF(LTRIM(RTRIM(f.AgentName)), N'')                                              AS AgentName,
+               COALESCE(NULLIF(LTRIM(RTRIM(f.ModelProvider)), N''), N'(not reported)')             AS ModelProvider,
+               COALESCE(NULLIF(LTRIM(RTRIM(f.ModelName)), N''), N'(not reported)')                 AS ModelName,
+               ISNULL(f.PromptCount, 0)                                                            AS PromptCount,
+               ISNULL(f.AccessedResourceCount, 0)                                                  AS AccessedResourceCount,
+               CAST(CASE WHEN f.AIPlugin LIKE N'%BingWebSearch%' THEN 1 ELSE 0 END AS BIT)           AS UsedWebSearch,
+               CAST(CASE WHEN f.JailbreakDetected = N'true' THEN 1 ELSE 0 END AS BIT)                AS JailbreakDetected,
+               CAST(CASE WHEN f.PromptInjectionDetected = N'true' THEN 1 ELSE 0 END AS BIT)          AS PromptInjectionDetected,
+               CAST(CASE WHEN NULLIF(f.BlockedResourceUrls, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasBlockedResource,
+               CAST(CASE WHEN NULLIF(f.SensitivityLabelIds, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasSensitivityLabel
+        INTO #src
+        FROM audit.RawLogFlattened AS f
+        WHERE f.UtcTimeStamp >= @lo AND f.UtcTimeStamp < @next;
+
+        INSERT INTO bi.DimUser (UserPrincipalName)
+        SELECT DISTINCT s.Upn FROM #src AS s
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimUser AS d WHERE d.UserPrincipalName = s.Upn);
+
+        INSERT INTO bi.DimApp (App)
+        SELECT DISTINCT s.App FROM #src AS s
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimApp AS d WHERE d.App = s.App);
+
+        INSERT INTO bi.DimAgent (AgentId)
+        SELECT DISTINCT s.AgentId FROM #src AS s
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimAgent AS d WHERE d.AgentId = s.AgentId);
+
+        INSERT INTO bi.DimModel (ModelProvider, ModelName)
+        SELECT DISTINCT s.ModelProvider, s.ModelName FROM #src AS s
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimModel AS d WHERE d.ModelProvider = s.ModelProvider AND d.ModelName = s.ModelName);
+
+        /* An agent keeps its key when renamed; the name is the latest seen.
+           Months run in time order, so the last one to write wins. */
+        UPDATE d
+        SET AgentName = n.AgentName
+        FROM bi.DimAgent AS d
+        JOIN (SELECT AgentId, AgentName,
+                     ROW_NUMBER() OVER (PARTITION BY AgentId ORDER BY Utc DESC, RecordId DESC) AS rn
+              FROM #src WHERE AgentName IS NOT NULL) AS n
+          ON n.AgentId = d.AgentId AND n.rn = 1;
+
+        INSERT INTO bi.FactInteraction WITH (TABLOCK)
+            (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey,
+             PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected,
+             HasBlockedResource, HasSensitivityLabel)
+        SELECT s.RecordId, s.Utc,
+               DATEADD(HOUR, DATEPART(HOUR, t.LocalTs), CAST(CAST(t.LocalTs AS DATE) AS DATETIME2(0))),
+               YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
+               DATEPART(HOUR, t.LocalTs),
+               u.UserKey, a.AppKey, g.AgentKey, m.ModelKey,
+               CASE WHEN k.Upn IS NULL THEN 0 WHEN h.Held = 1 THEN 1 ELSE 2 END,
+               s.PromptCount, s.AccessedResourceCount, s.UsedWebSearch, s.JailbreakDetected,
+               s.PromptInjectionDetected, s.HasBlockedResource, s.HasSensitivityLabel
+        FROM #src AS s
+        CROSS APPLY (SELECT CAST(CAST(s.Utc AS DATETIME2(0)) AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
+        JOIN bi.DimUser  AS u ON u.UserPrincipalName = s.Upn
+        JOIN bi.DimApp   AS a ON a.App = s.App
+        JOIN bi.DimAgent AS g ON g.AgentId = s.AgentId
+        JOIN bi.DimModel AS m ON m.ModelProvider = s.ModelProvider AND m.ModelName = s.ModelName
+        LEFT JOIN #known AS k ON k.Upn = s.Upn
+        OUTER APPLY (SELECT TOP (1) 1 AS Held FROM #held AS x
+                     WHERE x.Upn = s.Upn AND x.FromUtc <= s.Utc AND x.ToUtc > s.Utc) AS h
+        ORDER BY s.Utc;
+        SET @interactions += @@ROWCOUNT;
+
+        SET @lo = @next;
+    END;
+
+    IF @SinceUtc IS NOT NULL
+        COMMIT TRANSACTION;
+
+    /* ---- 5. Dimension attributes ------------------------------------------ */
+
+    UPDATE d
+    SET DisplayName         = p.DisplayName,
+        Division            = p.Division,
+        Department          = p.Department,
+        JobTitle            = p.JobTitle,
+        OfficeLocation      = p.OfficeLocation,
+        City                = p.City,
+        Country             = p.Country,
+        CompanyName         = p.CompanyName,
+        UserType            = p.UserType,
+        AccountEnabled      = p.AccountEnabled,
+        ManagerUpn          = p.ManagerUpn,
+        DirectoryStatus     = COALESCE(p.DirectoryStatus, c.DirectoryStatus, N'Not looked up'),
+        CopilotLicenceToday = CASE c.IsLic WHEN 1 THEN N'Licensed' WHEN 0 THEN N'Not licensed' ELSE N'Unknown' END,
+        CopilotSku          = c.Sku,
+        LicensedSinceUtc    = c.SinceUtc
+    FROM bi.DimUser AS d
+    LEFT JOIN #profile AS p ON p.Upn = d.UserPrincipalName
+    LEFT JOIN #cur     AS c ON c.Upn = d.UserPrincipalName;
+
+    /* The same mapping the sessions use: unmapped apps are In-App Copilot. */
+    UPDATE d
+    SET AppCategory = COALESCE(m.AppCategory, N'In-App Copilot')
+    FROM bi.DimApp AS d
+    LEFT JOIN audit.SessionAppCategory AS m ON m.App = d.App;
+
+    /* ---- 6. The smaller facts, rebuilt whole ------------------------------- */
+
+    DECLARE @sessions INT, @changes INT, @days INT;
+
+    BEGIN TRANSACTION;
+
+    TRUNCATE TABLE bi.FactSession;
+    INSERT INTO bi.FactSession
+        (SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenceStatusKey, PromptCount, SpanMinutes, IsMultiTurn)
+    SELECT s.SessionKey, s.StartTs, s.EndTs,
+           YEAR(s.StartTs) * 10000 + MONTH(s.StartTs) * 100 + DAY(s.StartTs),
+           u.UserKey, a.AppKey,
+           CASE s.IsLic WHEN 1 THEN 1 WHEN 0 THEN 2 ELSE 0 END,
+           s.PromptCount, s.SpanMinutes,
+           CASE WHEN s.PromptCount > 1 THEN 1 ELSE 0 END
+    FROM #sess AS s
+    JOIN bi.DimUser AS u ON u.UserPrincipalName = s.Upn
+    JOIN bi.DimApp  AS a ON a.App = s.App;
+    SET @sessions = @@ROWCOUNT;
+
+    TRUNCATE TABLE bi.FactLicenceChange;
+    /* One row per record, SKU and direction, even if two licence databases
+       resolved the same record slightly differently. */
+    INSERT INTO bi.FactLicenceChange (RecordId, ChangedUtc, DateKey, UserKey, SkuKey, Change, ChangedBy)
+    SELECT r.RecordId, r.ChangedUtc,
+           YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
+           r.UserKey, r.SkuKey, r.Change, r.ActorUpn
+    FROM (SELECT c.RecordId, c.ChangedUtc, u.UserKey, k.SkuKey, c.ActorUpn,
+                 CAST(CASE WHEN c.Added = 1 THEN 1 ELSE -1 END AS SMALLINT) AS Change,
+                 ROW_NUMBER() OVER (PARTITION BY c.RecordId, k.SkuKey, c.Added ORDER BY c.ChangedUtc, u.UserKey) AS rn
+          FROM #chg AS c
+          JOIN bi.DimUser AS u ON u.UserPrincipalName = c.Upn
+          JOIN bi.DimSku  AS k ON k.Sku = c.Sku) AS r
+    CROSS APPLY (SELECT CAST(r.ChangedUtc AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
+    WHERE r.rn = 1;
+    SET @changes = @@ROWCOUNT;
+
+    /* Licensed at the end of each day, from the first day with data to
+       today: held at the instant before local midnight. */
+    TRUNCATE TABLE bi.FactLicensedDay;
+    INSERT INTO bi.FactLicensedDay (DateKey, UserKey)
+    SELECT DISTINCT d.DateKey, u.UserKey
+    FROM bi.DimDate AS d
+    CROSS APPLY (SELECT CAST(CAST(DATEADD(DAY, 1, d.[Date]) AS DATETIME2(0)) AT TIME ZONE @ReportingTimeZone
+                             AT TIME ZONE 'UTC' AS DATETIME2(0)) AS EndUtc) AS e
+    JOIN #held AS h ON h.FromUtc < e.EndUtc AND h.ToUtc >= e.EndUtc
+    JOIN bi.DimUser AS u ON u.UserPrincipalName = h.Upn
+    WHERE d.[Date] BETWEEN @firstDate AND @today;
+    SET @days = @@ROWCOUNT;
+
+    INSERT INTO bi.RefreshRun
+        (StartedUtc, EndedUtc, SinceUtc, ReportingTimeZone, LicenceEventDatabase, InteractionRows, InteractionsSkipped,
+         SessionRows, LicenceChangeRows, LicensedDayRows)
+    VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @ReportingTimeZone, @LicenceEventDatabase, @interactions, @skipped,
+            @sessions, @changes, @days);
+
+    COMMIT TRANSACTION;
+
+    SET @msg = CONCAT(N'bi refreshed', CASE WHEN @SinceUtc IS NULL THEN N' (full rebuild)'
+                                           ELSE CONCAT(N' from ', CONVERT(NVARCHAR(16), @SinceUtc, 120), N'Z') END,
+                      N': ', FORMAT(@interactions, 'N0'), N' interaction(s), ', FORMAT(@sessions, 'N0'), N' session(s), ',
+                      FORMAT(@changes, 'N0'), N' licence change(s), ', FORMAT(@days, 'N0'), N' licensed user-day(s).');
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+    IF @skipped > 0
+    BEGIN
+        SET @msg = CONCAT(N'  ', FORMAT(@skipped, 'N0'), N' flattened row(s) have no timestamp and are not in bi.FactInteraction.');
+        RAISERROR(@msg, 0, 1) WITH NOWAIT;
+    END;
+    IF @LicenceEventDatabase IS NULL
+        RAISERROR('  No @LicenceEventDatabase: licence at the time of use comes from the enrichment''s LicensedSinceUtc only.', 0, 1) WITH NOWAIT;
+END;
+GO

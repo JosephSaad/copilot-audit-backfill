@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The `bi` schema: a star schema for a Power BI semantic model.**
+  `sql/Create-CopilotBiSchema.sql` and `sql/Create-CopilotBiProcedure.sql`
+  add four facts - interactions, sessions, licence changes, and licensed
+  user-days for the adoption denominator - and their dimensions (date with
+  the Saturday-Friday week, user, app with its category, agent, model, SKU,
+  licence status), with integer keys that stay stable across refreshes. A
+  model imports the views (`bi.Interactions`, `bi.Users`, `bi.Calendar` ...),
+  which leave out lineage; the columns that are one value per row (RecordId,
+  ThreadId, resources, URLs, labels, JSON) are left in `audit.*`.
+  - `bi.usp_RefreshBi` rebuilds the interactions from `@SinceUtc`, a month at
+    a time, and the smaller facts whole. `-Incremental` calls it after the
+    other derived tables, with the load's start.
+  - Each interaction carries the licence held at the time: from the licence
+    history (`@LicenceEventDatabase`, the same rule as sessions), else from
+    the enrichment's `LicensedSinceUtc`, else Unknown.
+  - `ActivityHour`, local time to the hour, is the column for the model's
+    incremental refresh.
+  - A partial refresh in a different reporting time zone from the last one is
+    refused; it would mix zones in one table.
+
+### Tests
+
+- `Test-SqlIntegration.ps1` section 12 builds the schema over sections 8-10's
+  data: every key resolves; licence at the time of use from history, from
+  `LicensedSinceUtc`, and Unknown; local dates and hours either side of
+  midnight; the calendar's week; sessions, licence changes and licensed days;
+  a partial refresh rewrites its window only and keeps keys stable; a full
+  rebuild re-registers nothing; and the time-zone and licence-database
+  refusals.
+
 ## [1.5.0] - 2026-09-24
 
 Incremental loads: a finalized database kept current on a schedule, so a
