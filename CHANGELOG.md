@@ -459,7 +459,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
-[1.6.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.6.0
+[1.6.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.6.0
 [1.5.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.5.0
 [1.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.4.0
 [1.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.3.0
