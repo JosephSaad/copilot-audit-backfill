@@ -670,6 +670,116 @@ SELECT (SELECT COUNT(*) FROM audit.CopilotLicense)     AS L,
         Remove-Item function:\Connect-MgGraph -ErrorAction SilentlyContinue
         Remove-Item function:\Invoke-MgGraphRequest -ErrorAction SilentlyContinue
     }
+
+    # -----------------------------------------------------------------------
+    Write-Host "`n9. Licence lifecycle events (audit.usp_ShredLicenseEvents)" -ForegroundColor Cyan
+
+    Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-LicenseEventSchema.sql') -Raw)
+    Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-LicenseEventProcedure.sql') -Raw)
+
+    # Section 7 emptied audit.CopilotAudit, so it is free for AzureActiveDirectory
+    # records - which is what that table holds in a licence-operations database.
+    #
+    # The fixtures reproduce the awkward part of the real data: 'Change user
+    # license' carries no ModifiedProperties at all, and the licence lists
+    # arrive on a separate 'Update user' record sharing its InterSystemsId.
+    # A shredder that only read the first record would report every change with
+    # no detail, which is exactly the trap this pairs back together.
+    $mkEvent = {
+        param($RecordId, $Op, $Actor, $ObjectId, $Correlation, $Modified, $TargetJson)
+        $doc = [ordered]@{
+            CreationTime   = '2026-09-10T12:00:00'
+            Id             = $RecordId
+            Operation      = $Op
+            RecordType     = 8
+            ResultStatus   = 'Success'
+            Workload       = 'AzureActiveDirectory'
+            UserId         = $Actor
+            ObjectId       = $ObjectId
+            InterSystemsId = $Correlation
+            ModifiedProperties = $Modified
+            Target         = $TargetJson
+        }
+        return ($doc | ConvertTo-Json -Depth 10 -Compress)
+    }
+
+    $licJson = '[{"Name":"AssignedLicense","OldValue":"[]","NewValue":"[Microsoft_365_Copilot]"},{"Name":"AssignedPlan","OldValue":"[]","NewValue":"[Microsoft365Copilot]"}]'
+    $events = @(
+        # detail-free change, paired with the update that carries the licences
+        @{ Id = 'evt-0001'; Op = 'Change user license.'; Actor = 'admin@contoso.com'; ObjectId = 'user1@contoso.com'; Corr = 'corr-a'; Mod = @(); Tgt = @() }
+        @{ Id = 'evt-0002'; Op = 'Update user';          Actor = 'admin@contoso.com'; ObjectId = 'user1@contoso.com'; Corr = 'corr-a'; Mod = (ConvertFrom-Json $licJson); Tgt = @() }
+        # a change whose ObjectId is a GUID, so the UPN is only in Target[]
+        @{ Id = 'evt-0003'; Op = 'Change user license';  Actor = 'admin@contoso.com'; ObjectId = '11111111-2222-3333-4444-555555555555'; Corr = 'corr-b'; Mod = (ConvertFrom-Json $licJson); Tgt = @(@{ ID = 'user2@contoso.com'; Type = 5 }) }
+        # provisioning and revocation
+        @{ Id = 'evt-0004'; Op = 'Add user.';            Actor = 'admin@contoso.com'; ObjectId = 'user3@contoso.com'; Corr = 'corr-c'; Mod = @(); Tgt = @() }
+        @{ Id = 'evt-0005'; Op = 'Delete user.';         Actor = 'admin@contoso.com'; ObjectId = 'user3@contoso.com'; Corr = 'corr-d'; Mod = @(); Tgt = @() }
+    )
+
+    foreach ($e in $events) {
+        $json = & $mkEvent $e.Id $e.Op $e.Actor $e.ObjectId $e.Corr $e.Mod $e.Tgt
+        Invoke-SqlText -Parameters @{ '@id' = $e.Id; '@op' = $e.Op; '@json' = $json } -Sql @"
+INSERT INTO audit.CopilotAudit
+    (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId)
+VALUES (@id, '2026-09-10T12:00:00', 'azureActiveDirectory', @op, 'admin@contoso.com', 'admin@contoso.com',
+        COMPRESS(CAST(@json AS NVARCHAR(MAX))), 1);
+"@
+    }
+
+    Invoke-SqlText -Sql 'EXEC audit.usp_ShredLicenseEvents @RebuildAll = 1' -ShowMessages -TimeoutSeconds 600
+
+    $ev = Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*)                                                        AS Rows_,
+       SUM(CASE WHEN Operation = 'Change user license' THEN 1 ELSE 0 END) AS Changes,
+       SUM(CASE WHEN Operation = 'Add user' THEN 1 ELSE 0 END)         AS Adds,
+       SUM(CASE WHEN Operation = 'Delete user' THEN 1 ELSE 0 END)      AS Deletes,
+       SUM(CASE WHEN TargetUpn LIKE '%@%' THEN 1 ELSE 0 END)           AS WithTarget,
+       SUM(CASE WHEN ActorUpn = 'admin@contoso.com' THEN 1 ELSE 0 END) AS WithActor
+FROM audit.LicenseEvent;
+"@
+    $v = $ev.Rows[0]
+    Assert-That ([int] $v.Rows_ -eq 5) "every event shredded ($($v.Rows_))"
+    Assert-That ([int] $v.Changes -eq 2) "the trailing period on 'Change user license.' is normalised away ($($v.Changes) of 2)"
+    Assert-That ([int] $v.Adds -eq 1 -and [int] $v.Deletes -eq 1) 'provisioning and revocation events are distinguishable'
+    Assert-That ([int] $v.WithTarget -eq 5) "the affected user resolved on every event, including the GUID ObjectId one ($($v.WithTarget))"
+    Assert-That ([int] $v.WithActor -eq 5) 'the actor who made each change is recorded'
+
+    $guidTarget = Invoke-SqlText -As Scalar -Sql "SELECT TargetUpn FROM audit.LicenseEvent WHERE RecordId = 'evt-0003'"
+    Assert-That ("$guidTarget" -eq 'user2@contoso.com') "a GUID ObjectId falls back to Target[] for the UPN ($guidTarget)"
+
+    $props = Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*) AS Rows_, COUNT(DISTINCT RecordId) AS Records,
+       SUM(CASE WHEN [Name] = 'AssignedLicense' THEN 1 ELSE 0 END) AS Licences
+FROM audit.LicenseEventProperty;
+"@
+    Assert-That ([int] $props.Rows[0].Rows_ -eq 4) "ModifiedProperties shredded generically, whatever the names ($($props.Rows[0].Rows_))"
+    Assert-That ([int] $props.Rows[0].Licences -eq 2) 'the licence property came through on both records that carry it'
+
+    # The point of the view: the detail-free record still reports its licences,
+    # taken from the paired record.
+    $paired = Invoke-SqlText -As Table -Sql @"
+SELECT PropertyName, NewValue, FromPairedRecord, TargetUpn
+FROM audit.vLicenseChange WHERE RecordId = 'evt-0001';
+"@
+    Assert-That ($paired.Rows.Count -eq 1 -and "$($paired.Rows[0].PropertyName)" -like '*License*') `
+        "a detail-free 'Change user license' picks up its licences from the paired record ($($paired.Rows[0].PropertyName))"
+    Assert-That ([int] $paired.Rows[0].FromPairedRecord -eq 1) 'and it is marked as coming from the pair, not invented'
+    Assert-That ("$($paired.Rows[0].NewValue)" -like '*Copilot*') "the new licence value is readable ($($paired.Rows[0].NewValue))"
+
+    $life = Invoke-SqlText -As Table -Sql @"
+SELECT TargetUpn, AccountCreatedUtc, AccountDeletedUtc, LicenceChangeCount
+FROM audit.vLicenseLifecycle WHERE TargetUpn = 'user3@contoso.com';
+"@
+    Assert-That ($life.Rows.Count -eq 1 -and $life.Rows[0].AccountCreatedUtc -isnot [DBNull] -and $life.Rows[0].AccountDeletedUtc -isnot [DBNull]) `
+        'vLicenseLifecycle reports both provisioning and revocation for a user'
+
+    # Re-running must update in place, not accumulate duplicate properties.
+    Invoke-SqlText -Sql 'EXEC audit.usp_ShredLicenseEvents' -TimeoutSeconds 600
+    $again = Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.LicenseEvent)         AS E,
+       (SELECT COUNT(*) FROM audit.LicenseEventProperty) AS P;
+"@
+    Assert-That ([int] $again.Rows[0].E -eq 5 -and [int] $again.Rows[0].P -eq 4) `
+        "a second shred updated in place rather than duplicating ($($again.Rows[0].E)/$($again.Rows[0].P))"
 }
 finally { Stop-MockGraph $mock }
 
