@@ -92,6 +92,7 @@ Each release also carries a prebuilt `...-offline-win-x64.zip` with the module a
 | `audit.RawLogFlattened` | One row per record with `CopilotEventData` shredded into columns — accessed resources and their locations, sensitivity labels, plugins, jailbreak and prompt-injection flags. |
 | `audit.vCopilotAdoption` | Licensed users against actual usage, with `NeverUsed` and `DaysToFirstUse`. Needs the enrichment step below. |
 | `audit.vCopilotUsageByDepartment` | Usage per department, day and app. Needs the enrichment step below. |
+| `audit.CopilotSession` / `audit.CopilotWeeklyRollup` | Inferred sessions (60 minutes idle or a new day ends one) and their Saturday-Friday weekly rollup. `EXEC audit.usp_BuildCopilotSessions`; `tools/Export-CopilotSessionCsv.ps1` writes them as the old `copilot_session_summary.csv` and `weekly_rollup.csv`. |
 
 `-Finalize` (or `-FinalizeOnly` later) refuses to run unless the whole range is loaded with no gaps.
 
@@ -176,6 +177,9 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `sql/Create-CopilotEnrichmentSchema.sql` | Licence, administrative unit and user profile tables, plus the adoption views. |
 | `tools/Save-CopilotAuditModules.ps1` | Builds the offline module bundle for a disconnected server. |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Fills those tables from Microsoft Graph. |
+| `sql/Create-CopilotSessionSchema.sql` | Session, weekly rollup, app-category and run-log tables, and the CSV-shaped views. |
+| `sql/Create-CopilotSessionProcedure.sql` | `audit.usp_BuildCopilotSessions`. |
+| `tools/Export-CopilotSessionCsv.ps1` | Writes the session and weekly CSVs. |
 | `tests/` | Mock Graph service and the three test suites. |
 
 ## License

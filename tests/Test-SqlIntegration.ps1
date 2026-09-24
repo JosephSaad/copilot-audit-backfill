@@ -621,6 +621,7 @@ WHERE EXISTS (SELECT 1 FROM audit.AdministrativeUnit AS a
         $prof = Invoke-SqlText -As Table -Sql @"
 SELECT COUNT(*)                                                      AS Rows_,
        COUNT(DISTINCT Department)                                    AS Depts,
+       COUNT(DISTINCT Division)                                      AS Divs,
        SUM(CASE WHEN UserType = 'Guest' THEN 1 ELSE 0 END)           AS Guests,
        SUM(CASE WHEN AccountEnabled = 0 THEN 1 ELSE 0 END)           AS Disabled_,
        SUM(CASE WHEN ManagerUpn IS NOT NULL THEN 1 ELSE 0 END)       AS WithManager,
@@ -632,6 +633,7 @@ FROM audit.UserProfile;
         Assert-That ([int] $pr.Rows_ -eq 50) "audit.UserProfile covers every user ($($pr.Rows_))"
         Assert-That ([int] $pr.Found_ -eq 49) "49 resolved in the directory, 1 had left ($($pr.Found_))"
         Assert-That ([int] $pr.Depts -eq 4) "all four departments captured ($($pr.Depts))"
+        Assert-That ([int] $pr.Divs -eq 2) "division read from employeeOrgData ($($pr.Divs) of 2)"
         Assert-That ([int] $pr.Guests -eq 2) "guest accounts flagged ($($pr.Guests))"
         Assert-That ([int] $pr.Disabled_ -eq 3) "disabled accounts flagged ($($pr.Disabled_))"
         Assert-That ([int] $pr.WithManager -eq 48) "manager resolved for everyone who has one ($($pr.WithManager) of 48)"
@@ -934,6 +936,123 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseEvent)         AS E,
 "@
     Assert-That ([int] $again.Rows[0].E -eq [int] $before.Rows[0].E -and [int] $again.Rows[0].P -eq [int] $before.Rows[0].P) `
         "a second shred updated in place rather than duplicating ($($again.Rows[0].E)/$($again.Rows[0].P), was $($before.Rows[0].E)/$($before.Rows[0].P))"
+
+    # -----------------------------------------------------------------------
+    Write-Host "`n10. Sessions and the Saturday-Friday weekly rollup (audit.usp_BuildCopilotSessions)" -ForegroundColor Cyan
+
+    Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotSessionSchema.sql') -Raw)
+    Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotSessionProcedure.sql') -Raw)
+
+    # A fixture on the rules' exact edges, replacing section 6's rows. Times are
+    # UTC; the reporting zone is Eastern, which is UTC-4 in September.
+    Invoke-SqlText -Sql 'DELETE FROM audit.RawLogFlattened;'
+    $rows = @(
+        # user A, context docA: 09:00, 09:30, 10:29 local (59 min gap: same
+        # session), 11:29 (exactly 60: new), 23:50 (new), then 00:10 the next
+        # day - 20 minutes on, but a new calendar day: new
+        @{ Id = 's-01'; U = 'a@contoso.com'; Utc = '2026-09-14T13:00:00'; App = 'Office';         Ctx = 'docA'; Loc = $null; Lic = 1 }
+        @{ Id = 's-02'; U = 'a@contoso.com'; Utc = '2026-09-14T13:30:00'; App = 'Word';           Ctx = 'docA'; Loc = $null; Lic = 1 }
+        @{ Id = 's-03'; U = 'a@contoso.com'; Utc = '2026-09-14T14:29:00'; App = 'Office';         Ctx = 'docA'; Loc = $null; Lic = 1 }
+        @{ Id = 's-04'; U = 'a@contoso.com'; Utc = '2026-09-14T15:29:00'; App = 'Office';         Ctx = 'docA'; Loc = $null; Lic = 1 }
+        @{ Id = 's-05'; U = 'a@contoso.com'; Utc = '2026-09-15T03:50:00'; App = 'Office';         Ctx = 'docA'; Loc = $null; Lic = 1 }
+        @{ Id = 's-06'; U = 'a@contoso.com'; Utc = '2026-09-15T04:10:00'; App = 'Office';         Ctx = 'docA'; Loc = $null; Lic = 1 }
+        # user A, context docB, inside the first docA session's span
+        @{ Id = 's-07'; U = 'a@contoso.com'; Utc = '2026-09-14T13:10:00'; App = 'Office';         Ctx = 'docB'; Loc = $null; Lic = 1 }
+        # user B on Saturday 19 Sep: no context, Location 'prd' - and one row with neither
+        @{ Id = 's-08'; U = 'b@contoso.com'; Utc = '2026-09-19T14:00:00'; App = 'Copilot Studio'; Ctx = $null;  Loc = 'prd'; Lic = 0 }
+        @{ Id = 's-09'; U = 'b@contoso.com'; Utc = '2026-09-19T14:05:00'; App = 'Copilot Studio'; Ctx = $null;  Loc = 'prd'; Lic = 0 }
+        @{ Id = 's-10'; U = 'b@contoso.com'; Utc = '2026-09-19T14:20:00'; App = 'Copilot Studio'; Ctx = $null;  Loc = $null; Lic = 0 }
+        # no user at all
+        @{ Id = 's-11'; U = $null;           Utc = '2026-09-19T14:30:00'; App = 'Office';         Ctx = 'docC'; Loc = $null; Lic = $null }
+    )
+    foreach ($r in $rows) {
+        Invoke-SqlText -Parameters @{ '@id' = $r.Id; '@u' = $r.U; '@utc' = [datetime] $r.Utc; '@app' = $r.App; '@ctx' = $r.Ctx; '@loc' = $r.Loc; '@lic' = $r.Lic } -Sql @"
+INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], App, Location, [App context], IsCopilotLic, FlattenedUtc)
+VALUES (@id, CONVERT(nvarchar(30), @utc, 126) + 'Z', @utc, @u, @app, @loc, @ctx, @lic, SYSUTCDATETIME());
+"@
+    }
+
+    # The script's rule first: context, else Location, else skip.
+    Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions @ContextFallback = N'Location';" -ShowMessages
+    $run = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) * FROM audit.CopilotSessionRun ORDER BY RunId DESC;').Rows[0]
+    Assert-That ([int] $run.RowsRead -eq 11 -and [int] $run.RowsSkippedMissingContext -eq 1 -and [int] $run.RowsSkippedMissingUser -eq 1) `
+        "Location rule: the row with no context and the row with no user are skipped and counted ($($run.RowsSkippedMissingContext)/$($run.RowsSkippedMissingUser))"
+    Assert-That ([int] $run.RowsRecoveredFromLocation -eq 2) "and the two with only a Location took it as their context ($($run.RowsRecoveredFromLocation))"
+
+    $s = Invoke-SqlText -As Table -Sql @"
+SELECT AppContext, UserUPN, SessionOrdinal_Derived AS Ord, PromptCount, InferredSessionSpanMinutes AS Span,
+       SessionType, PrimaryApp, AppCategory, IsM365CopilotLicensed AS Lic, CalendarDaysTouched_InSessionSpan AS Days,
+       AvgMinutesPerPrompt_InferredSessionSpan AS AvgMin,
+       CONVERT(varchar(16), SessionStart_PromptSubmittedDateTime, 120) AS StartLocal
+FROM audit.CopilotSession ORDER BY UserUPN, AppContext, Ord;
+"@
+    $docA = @($s.Rows | Where-Object AppContext -eq 'docA')
+    Assert-That ($s.Rows.Count -eq 6) "six sessions: four in docA, one in docB, one for user B ($($s.Rows.Count))"
+    Assert-That ($docA.Count -eq 4 -and [int] $docA[0].PromptCount -eq 3) `
+        "a 59-minute gap continues the session, exactly 60 starts a new one ($($docA.Count) docA sessions, first has $($docA[0].PromptCount) prompts)"
+    Assert-That ("$($docA[0].StartLocal)" -eq '2026-09-14 09:00') "times are in the reporting time zone ($($docA[0].StartLocal))"
+    Assert-That ([decimal] $docA[0].Span -eq 89 -and [decimal] $docA[0].AvgMin -eq 29.67 -and "$($docA[0].SessionType)" -eq 'Multi-Turn') `
+        "span, minutes per prompt and type ($($docA[0].Span) min, $($docA[0].AvgMin), $($docA[0].SessionType))"
+    Assert-That ("$($docA[3].StartLocal)" -eq '2026-09-15 00:10' -and "$($docA[3].SessionType)" -eq 'Single-Turn') `
+        "20 minutes after 23:50 but on the next calendar day is a new session ($($docA[3].StartLocal))"
+    Assert-That ("$($docA[0].PrimaryApp)" -eq 'Office' -and "$($docA[0].AppCategory)" -eq 'Copilot Chat' -and [int] $docA[0].Lic -eq 1) `
+        "primary app is the first prompt's, and 'Office' maps to Copilot Chat ($($docA[0].PrimaryApp) / $($docA[0].AppCategory))"
+    $bSess = @($s.Rows | Where-Object UserUPN -eq 'b@contoso.com')
+    Assert-That ($bSess.Count -eq 1 -and "$($bSess[0].AppContext)" -eq 'prd' -and [int] $bSess[0].PromptCount -eq 2 -and "$($bSess[0].AppCategory)" -eq 'In-App Copilot') `
+        "an unmapped app is In-App Copilot, keyed on its Location ($($bSess[0].AppContext), $($bSess[0].PromptCount) prompts)"
+
+    $w = Invoke-SqlText -As Table -Sql @"
+SELECT WeekEnding, WeekLabel, UserUPN, WeeklySessionCount AS S, WeeklyPromptCount AS P,
+       ActiveDaysWithUsageInWeek AS D, DistinctAppContextsInWeek AS C, IsM365CopilotLicensed AS Lic
+FROM audit.vCopilotWeeklyRollup ORDER BY WeekEnding, UserUPN;
+"@
+    $wa = @($w.Rows | Where-Object UserUPN -eq 'a@contoso.com')
+    $wb = @($w.Rows | Where-Object UserUPN -eq 'b@contoso.com')
+    Assert-That ($wa.Count -eq 1 -and "$($wa[0].WeekEnding)" -eq '2026-09-18' -and "$($wa[0].WeekLabel)" -eq '2026-W38') `
+        "Monday and Tuesday roll up into the week ending Friday 18 Sep, 2026-W38 ($($wa[0].WeekEnding) $($wa[0].WeekLabel))"
+    Assert-That ([int] $wa[0].S -eq 5 -and [int] $wa[0].P -eq 7 -and [int] $wa[0].D -eq 2 -and [int] $wa[0].C -eq 2) `
+        "weekly sessions, prompts, active days and distinct contexts ($($wa[0].S)/$($wa[0].P)/$($wa[0].D)/$($wa[0].C))"
+    Assert-That ("$($wa[0].Lic)" -eq 'TRUE') "the view writes the licence flag the way the CSV did ($($wa[0].Lic))"
+    Assert-That ($wb.Count -eq 1 -and "$($wb[0].WeekEnding)" -eq '2026-09-25' -and "$($wb[0].WeekLabel)" -eq '2026-W39') `
+        "a Saturday starts the next week, not the one ending the day before ($($wb[0].WeekEnding) $($wb[0].WeekLabel))"
+
+    # The default: one session stream per user, nothing skipped for context.
+    Invoke-SqlText -Sql 'EXEC audit.usp_BuildCopilotSessions;' -ShowMessages
+    $run2 = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) * FROM audit.CopilotSessionRun ORDER BY RunId DESC;').Rows[0]
+    Assert-That ("$($run2.ContextFallback)" -eq 'User' -and [int] $run2.RowsSkippedMissingContext -eq 0 -and [int] $run2.RowsSkippedMissingUser -eq 1) `
+        "default: no row skipped for context, the user-less row still skipped ($($run2.ContextFallback): $($run2.RowsSkippedMissingContext)/$($run2.RowsSkippedMissingUser))"
+    $s2 = Invoke-SqlText -As Table -Sql "SELECT UserUPN, PromptCount FROM audit.CopilotSession ORDER BY UserUPN, SessionOrdinal_Derived;"
+    $a2 = @($s2.Rows | Where-Object UserUPN -eq 'a@contoso.com')
+    $b2 = @($s2.Rows | Where-Object UserUPN -eq 'b@contoso.com')
+    Assert-That ($a2.Count -eq 4 -and [int] $a2[0].PromptCount -eq 4) `
+        "per user, docB's prompt joins the docA session it falls inside ($($a2.Count) sessions, first has $($a2[0].PromptCount) prompts)"
+    Assert-That ($b2.Count -eq 1 -and [int] $b2[0].PromptCount -eq 3) "and the context-less row is kept ($($b2[0].PromptCount) prompts for user B)"
+
+    # A rebuild replaces rather than appends.
+    Invoke-SqlText -Sql 'EXEC audit.usp_BuildCopilotSessions;'
+    $n = Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotSession;'
+    Assert-That ([int] $n -eq 5) "a rebuild replaces the tables rather than appending ($n sessions)"
+    # Licensed at the time of use. User A is licensed today, but the licence
+    # was assigned at 10:00 local on the 14th - after the first session began
+    # (09:00) and before the next (11:29). Section 9 put the licence-event
+    # schema in this same database, so it serves as @LicenceEventDatabase.
+    Invoke-SqlText -Sql @"
+INSERT INTO audit.LicenseEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ActorUpn, TargetUpn, CorrelationId)
+VALUES ('lic-a1', '2026-09-14T14:00:00', '2026-09-14', 'Change user license', 'admin@contoso.com', 'a@contoso.com', 'corr-a1');
+INSERT INTO audit.LicenseEventProperty (RecordId, Ordinal, [Name], OldValue, NewValue, Source)
+VALUES ('lic-a1', 0, 'AssignedLicense', '[]', '["[SkuName=Microsoft_365_Copilot, AccountId=t, SkuId=x, DisabledPlans=[]]"]', 'record');
+"@
+    Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'$($script:ITDatabase)';" -ShowMessages
+    $la = Invoke-SqlText -As Table -Sql "SELECT IsM365CopilotLicensed AS Lic FROM audit.CopilotSession WHERE UserUPN = 'a@contoso.com' ORDER BY SessionOrdinal_Derived;"
+    $flags = @($la.Rows | ForEach-Object { [int] $_.Lic }) -join ''
+    Assert-That ($flags -eq '0111') "the licence flag is the licence held when each session began, not today's ($flags)"
+    $lw = Invoke-SqlText -As Table -Sql "SELECT IsM365CopilotLicensed AS Lic, WeeklySessionCount AS S FROM audit.CopilotWeeklyRollup WHERE UserUPN = 'a@contoso.com' ORDER BY IsM365CopilotLicensed;"
+    Assert-That ($lw.Rows.Count -eq 2 -and [int] $lw.Rows[0].S -eq 1 -and [int] $lw.Rows[1].S -eq 3) `
+        "the week splits into its unlicensed and licensed sessions ($(@($lw.Rows | ForEach-Object { "$($_.Lic):$($_.S)" }) -join ', '))"
+    $lb = Invoke-SqlText -As Scalar -Sql "SELECT MAX(CAST(IsM365CopilotLicensed AS int)) FROM audit.CopilotSession WHERE UserUPN = 'b@contoso.com';"
+    Assert-That ([int] $lb -eq 0) "a user with no licence history keeps today's flag ($lb)"
+    $lr = Invoke-SqlText -As Scalar -Sql 'SELECT TOP (1) LicenceEventDatabase FROM audit.CopilotSessionRun ORDER BY RunId DESC;'
+    Assert-That ("$lr" -eq $script:ITDatabase) "the run log records which licence history was used ($lr)"
 }
 finally { Stop-MockGraph $mock }
 
