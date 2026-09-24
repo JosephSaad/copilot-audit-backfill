@@ -4,7 +4,35 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-09-24
+
+### Added
+
+- **Directory enrichment**, so adoption can be measured rather than only
+  counted. `tools/Update-CopilotAuditEnrichment.ps1` reads Microsoft Graph and
+  writes only to its own lookup tables, on its own schedule, and cannot touch
+  the audit archive:
+  - `audit.CopilotLicense` — who holds a Copilot licence, which SKU, since when
+    (`assignedPlans[].assignedDateTime`) and its capability status.
+  - `audit.AdministrativeUnit` — administrative unit id to display name, which
+    is what makes the GUIDs in `audit.CopilotAudit.AdministrativeUnits` readable.
+  - `audit.UserProfile` — department, job title, office, city, country, usage
+    location, member or guest, account enabled, manager and creation date.
+  - `audit.vCopilotAdoption` — licensed users against actual usage, including
+    `NeverUsed` and `DaysToFirstUse`. The shelfware view.
+  - `audit.vCopilotUsageByDepartment` — usage per department, day and app.
+- It looks up only the users that appear in `audit.CopilotInteraction` rather
+  than the whole directory; `-AllLicensedUsers` adds licence holders who have
+  never interacted, which the shelfware report needs. `-SkipProfiles` limits it
+  to licences and units. App-only sign-in is supported with
+  `-ClientId` and `-CertificateThumbprint`, so it can run unattended.
+- Two limits are recorded rather than papered over. Graph gives the date the
+  *current* licence assignment began, so "licensed since March" is answerable
+  and "was this user licensed last March" is not. And audit records outlive
+  directory objects, so a departed user is stored with
+  `DirectoryStatus = 'NotFound'` and `IsCopilotLic` left NULL — "not known",
+  which is a different claim from "unlicensed" and avoids understating
+  licensed usage.
 
 ### Fixed
 
@@ -19,7 +47,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   24 → 48 → 96 → 168 h, so a year needs about 75 searches rather than 365.
 - The warning about ranges longer than the 180-day retention printed a literal
   `{0:N0}` instead of the day count.
+- **`-ConnectionString` never worked, in any release up to 1.1.1.** It threw
+  `Keyword not supported: 'ConnectionString'` before anything ran.
+  `SqlConnectionStringBuilder` is a `DbConnectionStringBuilder`, so PowerShell
+  routes an assignment to `.ConnectionString` through its keyword indexer
+  rather than the CLR property, and the indexer rejects that name. The
+  constructor overload is the only form that works. The parameter is optional
+  and no test exercised the branch, which is why it survived three releases;
+  `Test-Orchestrator` now covers both branches of `New-SqlConnectionString`.
 
+### Changed
+
+- `audit.CopilotLicense.IsCopilotLic` is nullable. It shipped as `BIT NOT NULL`
+  from before there was a third answer to record. Existing databases are
+  altered in place by `sql/Create-CopilotEnrichmentSchema.sql`.
 ## [1.1.1] - 2026-09-23
 
 ### Changed
@@ -157,6 +198,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[1.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.2.0
 [1.1.1]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.1.1
 [1.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.1.0
 [1.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.0.0

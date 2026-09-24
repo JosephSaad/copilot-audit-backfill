@@ -90,6 +90,8 @@ Each release also carries a prebuilt `...-offline-win-x64.zip` with the module a
 | `audit.CopilotInteraction` | Slim reporting table: activity date, user, app host, model, prompt and resource counts, web grounding. |
 | `audit.vCopilotDailyUsage` | Interactions, active users, prompts and web-grounded interactions per day per app. Ready for Power BI. |
 | `audit.RawLogFlattened` | One row per record with `CopilotEventData` shredded into columns — accessed resources and their locations, sensitivity labels, plugins, jailbreak and prompt-injection flags. |
+| `audit.vCopilotAdoption` | Licensed users against actual usage, with `NeverUsed` and `DaysToFirstUse`. Needs the enrichment step below. |
+| `audit.vCopilotUsageByDepartment` | Usage per department, day and app. Needs the enrichment step below. |
 
 `-Finalize` (or `-FinalizeOnly` later) refuses to run unless the whole range is loaded with no gaps.
 
@@ -115,6 +117,30 @@ The JSON is what costs the disk, so the default mode clears `AuditDataGz` past t
 `audit.vCopilotAuditRecord` exposes `AssociatedAdminUnitsNames` to match the portal export's column list, but it is **always NULL**: the Graph `auditLogRecord` resource carries a single `administrativeUnits` collection of IDs with no display names. Resolve them from Entra if you need them.
 
 Note that audit records do not contain prompt or response text. That needs the Copilot interaction export API or eDiscovery.
+
+## Adoption reporting
+
+The audit records say what happened, not who was entitled to it. Counting interactions tells you usage; comparing it against the licensed population tells you adoption, and that needs directory data the records cannot carry.
+
+```powershell
+.\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit `
+    -TenantId contoso.onmicrosoft.com -AllLicensedUsers
+```
+
+It reads Graph and writes only to `audit.CopilotLicense`, `audit.AdministrativeUnit` and `audit.UserProfile`, so it runs on its own schedule and cannot affect the archive. Only the users that appear in `audit.CopilotInteraction` are looked up, not the whole directory; `-AllLicensedUsers` adds licence holders who have never interacted, which is what the shelfware report needs. It signs in app-only with `-ClientId` and `-CertificateThumbprint` for unattended runs.
+
+Needs `User.Read.All`, `Organization.Read.All` and `AdministrativeUnit.Read.All` — a different set from the backfill, so it belongs on its own app registration rather than widening the audit app's single permission.
+
+Afterwards, re-run `audit.usp_FlattenCopilotAudit` to carry `IsCopilotLic` through to the flattened table.
+
+```sql
+-- Licensed, never used: usually the number that pays for the rollout
+SELECT UserPrincipalName, Department, LicensedSinceUtc
+FROM audit.vCopilotAdoption WHERE NeverUsed = 1
+ORDER BY LicensedSinceUtc;
+```
+
+Two limits are recorded rather than guessed at. Graph gives the date the **current** licence assignment began, so "licensed since March" is answerable but "was this user licensed last March" is not — a licence granted and later removed leaves no trace. And audit records outlive directory objects, so a departed user is stored as `DirectoryStatus = 'NotFound'` with `IsCopilotLic` NULL: *not known*, which is a different claim from *unlicensed*.
 
 ## Tests
 
@@ -147,7 +173,9 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `sql/Create-CopilotFlattenedSchema.sql` | The flattened table, plus the optional licence lookup. |
 | `sql/Create-CopilotFlattenProcedure.sql` | `audit.usp_FlattenCopilotAudit`. |
 | `sql/Create-CopilotPurgeProcedure.sql` | `audit.usp_PurgeCopilotAuditJson`. |
+| `sql/Create-CopilotEnrichmentSchema.sql` | Licence, administrative unit and user profile tables, plus the adoption views. |
 | `tools/Save-CopilotAuditModules.ps1` | Builds the offline module bundle for a disconnected server. |
+| `tools/Update-CopilotAuditEnrichment.ps1` | Fills those tables from Microsoft Graph. |
 | `tests/` | Mock Graph service and the three test suites. |
 
 ## License
