@@ -21,8 +21,10 @@
 
       SQLIT_SERVER     host,port   (default 127.0.0.1,1433)
       SQLIT_USER       (default sa)
-      SQLIT_PASSWORD   required
-      SQLIT_DATABASE   (default CopilotAuditIntegration)
+      SQLIT_PASSWORD   required, unless SQLIT_INTEGRATED is set
+      SQLIT_INTEGRATED 1 = Windows authentication instead of a SQL login,
+                       for a local instance with no sa password to hand
+      SQLIT_DATABASE   (default CopilotAuditIntegration) - dropped and recreated
 
     Requires python3 and a reachable SQL Server 2017+. CI starts one as a
     service container; locally, docker run mcr.microsoft.com/mssql/server:2022-latest.
@@ -51,8 +53,9 @@ $script:ITServer   = $server
 $script:ITUser     = $user
 $script:ITPassword = $password
 $script:ITDatabase = $database
+$script:ITIntegrated = $env:SQLIT_INTEGRATED -eq '1'
 
-if (-not $password) {
+if (-not $password -and -not $script:ITIntegrated) {
     Write-Host 'SQLIT_PASSWORD is not set - no SQL Server to test against.' -ForegroundColor Yellow
     Write-Host 'Start one and re-run, e.g.:' -ForegroundColor Yellow
     Write-Host '  docker run -d --name sqlit -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=<pw> -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest' -ForegroundColor DarkGray
@@ -66,8 +69,13 @@ function New-ConnString([string] $InitialCatalog) {
     $csb = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
     $csb['Data Source'] = $script:ITServer
     $csb['Initial Catalog'] = $InitialCatalog
-    $csb['User ID'] = $script:ITUser
-    $csb['Password'] = $script:ITPassword
+    if ($script:ITIntegrated) {
+        $csb['Integrated Security'] = $true
+    }
+    else {
+        $csb['User ID'] = $script:ITUser
+        $csb['Password'] = $script:ITPassword
+    }
     $csb['Encrypt'] = $true
     $csb['TrustServerCertificate'] = $true
     $csb['Application Name'] = 'CopilotAuditBackfill'
@@ -121,7 +129,9 @@ function Invoke-SqlScript {
         way sqlcmd does: the word alone on a line.
     #>
     param([Parameter(Mandatory)][string] $Sql, [switch] $ShowMessages, [int] $TimeoutSeconds = 600)
-    $batches = [regex]::Split($Sql, '(?im)^[ \t]*GO[ \t]*(?:--.*)?$')
+    # \r? because a Windows checkout has CRLF endings, and .NET's multiline $
+    # matches before \n only - 'GO\r' would otherwise never split.
+    $batches = [regex]::Split($Sql, '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')
     foreach ($b in $batches) {
         if ([string]::IsNullOrWhiteSpace($b)) { continue }
         Invoke-SqlText -Sql $b -ShowMessages:$ShowMessages -TimeoutSeconds $TimeoutSeconds
@@ -756,14 +766,17 @@ FROM audit.LicenseEventProperty;
 
     # The point of the view: the detail-free record still reports its licences,
     # taken from the paired record.
+    # Every licence property of the pair comes across (both AssignedLicense and
+    # AssignedPlan), not just the first.
     $paired = Invoke-SqlText -As Table -Sql @"
 SELECT PropertyName, NewValue, FromPairedRecord, TargetUpn
-FROM audit.vLicenseChange WHERE RecordId = 'evt-0001';
+FROM audit.vLicenseChange WHERE RecordId = 'evt-0001' ORDER BY PropertyName;
 "@
-    Assert-That ($paired.Rows.Count -eq 1 -and "$($paired.Rows[0].PropertyName)" -like '*License*') `
-        "a detail-free 'Change user license' picks up its licences from the paired record ($($paired.Rows[0].PropertyName))"
-    Assert-That ([int] $paired.Rows[0].FromPairedRecord -eq 1) 'and it is marked as coming from the pair, not invented'
-    Assert-That ("$($paired.Rows[0].NewValue)" -like '*Copilot*') "the new licence value is readable ($($paired.Rows[0].NewValue))"
+    $pairedLicence = @($paired.Rows | Where-Object PropertyName -eq 'AssignedLicense')
+    Assert-That ($paired.Rows.Count -eq 2 -and $pairedLicence.Count -eq 1) `
+        "a detail-free 'Change user license' picks up all its licence properties from the paired record ($(@($paired.Rows | ForEach-Object PropertyName) -join ', '))"
+    Assert-That (@($paired.Rows | Where-Object { [int] $_.FromPairedRecord -ne 1 }).Count -eq 0) 'and they are marked as coming from the pair, not invented'
+    Assert-That ("$($pairedLicence[0].NewValue)" -like '*Copilot*') "the new licence value is readable ($($pairedLicence[0].NewValue))"
 
     $life = Invoke-SqlText -As Table -Sql @"
 SELECT TargetUpn, AccountCreatedUtc, AccountDeletedUtc, LicenceChangeCount
@@ -772,14 +785,155 @@ FROM audit.vLicenseLifecycle WHERE TargetUpn = 'user3@contoso.com';
     Assert-That ($life.Rows.Count -eq 1 -and $life.Rows[0].AccountCreatedUtc -isnot [DBNull] -and $life.Rows[0].AccountDeletedUtc -isnot [DBNull]) `
         'vLicenseLifecycle reports both provisioning and revocation for a user'
 
-    # Re-running must update in place, not accumulate duplicate properties.
+    # -----------------------------------------------------------------------
+    # 9b. The shapes a live tenant actually produced (1,042 records, 180 days).
+    #
+    # Most licence changes arrive CHUNKED: too large for one record, so Entra
+    # writes several with empty ModifiedProperties and an additionalDetails of
+    # {"id","seq","b"}, where the b fragments joined in seq order are one JSON
+    # document whose targetUpdatedProperties holds the change. Each change is
+    # also raised twice - 'Change user license' and 'Update user' - with the
+    # same detail and InterSystemsId. And 'Update user' is mostly not about
+    # licences at all (Authenticator devices and the like), a failed
+    # assignment records only MethodExecutionResult, and the operation filter
+    # for 'Add user' also returns 'Add user sponsor'.
+    Write-Host "`n9b. Chunked, duplicated and non-licence directory events" -ForegroundColor Cyan
+
+    $mkDoc = {
+        param($RecordId, $Op, $Actor, $ObjectId, $Correlation, $Modified, $Extended)
+        $doc = [ordered]@{
+            CreationTime       = '2026-09-11T09:30:00'
+            Id                 = $RecordId
+            Operation          = $Op
+            RecordType         = 8
+            ResultStatus       = 'Success'
+            Workload           = 'AzureActiveDirectory'
+            UserId             = $Actor
+            ObjectId           = $ObjectId
+            InterSystemsId     = $Correlation
+            ExtendedProperties = $Extended
+            ModifiedProperties = $Modified
+            Target             = @()
+        }
+        return ($doc | ConvertTo-Json -Depth 10 -Compress)
+    }
+    $insertDoc = {
+        param($RecordId, $Op, $Json)
+        Invoke-SqlText -Parameters @{ '@id' = $RecordId; '@op' = $Op; '@json' = $Json } -Sql @"
+INSERT INTO audit.CopilotAudit
+    (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId)
+VALUES (@id, '2026-09-11T09:30:00', 'azureActiveDirectory', @op, 'admin@contoso.com', 'admin@contoso.com',
+        COMPRESS(CAST(@json AS NVARCHAR(MAX))), 1);
+"@
+    }
+    # Split one payload into $Parts additionalDetails fragments, the way Entra does.
+    $chunkify = {
+        param([string] $Payload, [string] $GroupId, [int] $Parts)
+        $size = [int] [math]::Ceiling($Payload.Length / $Parts)
+        for ($i = 0; $i -lt $Parts; $i++) {
+            $piece = $Payload.Substring($i * $size, [math]::Min($size, $Payload.Length - $i * $size))
+            $value = [ordered]@{ id = $GroupId; seq = "$($i + 1)"; b = $piece } | ConvertTo-Json -Compress
+            ,@(@{ Name = 'additionalDetails'; Value = $value }, @{ Name = 'extendedAuditEventCategory'; Value = 'User' })
+        }
+    }
+
+    # user4 loses Copilot and keeps E3. The AssignedPlan list is padded the way
+    # a real one is (every service plan of every SKU), which is what forces chunking.
+    $plans = 1..60 | ForEach-Object { [ordered]@{ SubscribedPlanId = [guid]::NewGuid().ToString(); ServiceInstance = "Plan$_/NA001"; CapabilityStatus = 0 } }
+    $change = @(
+        [ordered]@{ Name = 'AssignedLicense'
+                    OldValue = @('[SkuName=Microsoft_365_Copilot, AccountId=t1, SkuId=639dec6b, DisabledPlans=[]]',
+                                 '[SkuName=ENTERPRISEPACK, AccountId=t1, SkuId=6fd2c87f, DisabledPlans=[]]')
+                    NewValue = @('[SkuName=ENTERPRISEPACK, AccountId=t1, SkuId=6fd2c87f, DisabledPlans=[]]') }
+        [ordered]@{ Name = 'AssignedPlan'; OldValue = $plans; NewValue = @($plans | Select-Object -First 40) }
+    )
+    $payload = [ordered]@{
+        targetUpdatedProperties = ($change | ConvertTo-Json -Depth 10 -Compress)
+        additionalDetails       = '{"User-Agent":"MCAPICommercialProductLicensing"}'
+    } | ConvertTo-Json -Compress
+
+    # Record ids deliberately out of seq order: reassembly must follow seq.
+    $licChunks = @(& $chunkify $payload 'grp-lic' 3)
+    $updChunks = @(& $chunkify $payload 'grp-upd' 2)
+    $fixtures = @(
+        @{ Id = 'evt-0102'; Op = 'Change user license.'; Obj = 'user4@contoso.com'; Corr = 'corr-f'; Mod = @(); Ext = $licChunks[0] }
+        @{ Id = 'evt-0101'; Op = 'Change user license.'; Obj = 'user4@contoso.com'; Corr = 'corr-f'; Mod = @(); Ext = $licChunks[1] }
+        @{ Id = 'evt-0103'; Op = 'Change user license.'; Obj = 'user4@contoso.com'; Corr = 'corr-f'; Mod = @(); Ext = $licChunks[2] }
+        @{ Id = 'evt-0104'; Op = 'Update user.';         Obj = 'user4@contoso.com'; Corr = 'corr-f'; Mod = @(); Ext = $updChunks[0] }
+        @{ Id = 'evt-0105'; Op = 'Update user.';         Obj = 'user4@contoso.com'; Corr = 'corr-f'; Mod = @(); Ext = $updChunks[1] }
+        @{ Id = 'evt-0106'; Op = 'Update user.';         Obj = 'user4@contoso.com'; Corr = 'corr-g'
+           Mod = @(@{ Name = 'StrongAuthenticationPhoneAppDetail'; OldValue = '[]'; NewValue = '[{"DeviceName":"Phone"}]' })
+           Ext = @(@{ Name = 'additionalDetails'; Value = '{"UserType":"Member"}' }) }
+        @{ Id = 'evt-0107'; Op = 'Change user license.'; Obj = 'user6@contoso.com'; Corr = 'corr-h'
+           Mod = @(@{ Name = 'MethodExecutionResult.'; OldValue = ''; NewValue = 'Microsoft.Online.Provisioning.SubscriptionManagement.InvalidUserServicePlanConfigurationException' })
+           Ext = @(@{ Name = 'additionalDetails'; Value = '{}' }) }
+        # seq 2 of 3 never arrives - the rest of the change is outside the loaded range
+        @{ Id = 'evt-0108'; Op = 'Change user license.'; Obj = 'user6@contoso.com'; Corr = 'corr-i'; Mod = @(); Ext = (@(& $chunkify $payload 'grp-part' 3))[0] }
+        @{ Id = 'evt-0109'; Op = 'Change user license.'; Obj = 'user6@contoso.com'; Corr = 'corr-i'; Mod = @(); Ext = (@(& $chunkify $payload 'grp-part' 3))[2] }
+        @{ Id = 'evt-0110'; Op = 'Add user sponsor.';    Obj = 'user5@contoso.com'; Corr = 'corr-j'; Mod = @(); Ext = @() }
+    )
+    foreach ($f in $fixtures) {
+        & $insertDoc $f.Id $f.Op (& $mkDoc $f.Id $f.Op 'admin@contoso.com' $f.Obj $f.Corr $f.Mod $f.Ext)
+    }
+
+    # Incremental, not a rebuild: new records on top of section 9's.
+    Invoke-SqlText -Sql 'EXEC audit.usp_ShredLicenseEvents' -ShowMessages -TimeoutSeconds 600
+
+    $ck = Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.LicenseEvent)                                   AS Events,
+       (SELECT COUNT(*) FROM audit.LicenseEvent WHERE ChunkGroupId IS NOT NULL)    AS ChunkRecords,
+       (SELECT ChunkSeq FROM audit.LicenseEvent WHERE RecordId = 'evt-0101')        AS Seq0101,
+       (SELECT COUNT(*) FROM audit.LicenseEventProperty WHERE Source = 'chunks')   AS ChunkProps,
+       (SELECT COUNT(*) FROM audit.LicenseEventProperty
+         WHERE Source = 'chunks' AND RecordId IN ('evt-0108', 'evt-0109'))         AS PartialProps;
+"@
+    $c = $ck.Rows[0]
+    Assert-That ([int] $c.Events -eq 15) "all ten new records shredded ($($c.Events) events)"
+    Assert-That ([int] $c.ChunkRecords -eq 7) "chunk membership recorded on every fragment's record ($($c.ChunkRecords) of 7)"
+    Assert-That ([int] $c.Seq0101 -eq 2) "seq read from the fragment, not from record order (evt-0101 is seq $($c.Seq0101))"
+    Assert-That ([int] $c.ChunkProps -eq 4) "both complete groups reassembled into their two properties each ($($c.ChunkProps) of 4)"
+    Assert-That ([int] $c.PartialProps -eq 0) 'a group missing a fragment is not parsed from a partial document'
+
+    $u4 = Invoke-SqlText -As Table -Sql @"
+SELECT RecordId, Operation, PropertyName, FromChunks, OldValue, NewValue
+FROM audit.vLicenseChange WHERE TargetUpn = 'user4@contoso.com' ORDER BY PropertyName;
+"@
+    $u4Ids = @($u4.Rows | ForEach-Object { "$($_.RecordId)" } | Select-Object -Unique)
+    Assert-That ($u4Ids.Count -eq 1 -and $u4Ids[0] -eq 'evt-0102') `
+        "the chunked change is reported once, on its seq 1 record, not per fragment or again as 'Update user' ($($u4Ids -join ', '))"
+    Assert-That ($u4.Rows.Count -eq 2 -and ($u4.Rows | Where-Object PropertyName -eq 'AssignedLicense')) `
+        "every licence property is reported, not just the first ($($u4.Rows.Count) rows)"
+    Assert-That (@($u4.Rows | Where-Object { [int] $_.FromChunks -eq 1 }).Count -eq 2) 'and marked as reassembled from chunks'
+    Assert-That ("$(($u4.Rows | Where-Object PropertyName -eq 'AssignedLicense').OldValue)" -like '*Microsoft_365_Copilot*') `
+        'the old licence list from the reassembled document is readable'
+
+    $sku = Invoke-SqlText -As Table -Sql "SELECT Sku, Change FROM audit.vLicenseSkuChange WHERE TargetUpn = 'user4@contoso.com';"
+    Assert-That ($sku.Rows.Count -eq 1 -and "$($sku.Rows[0].Sku)" -eq 'Microsoft_365_Copilot' -and "$($sku.Rows[0].Change)" -eq 'Removed') `
+        "vLicenseSkuChange reads the licence lists as 'Copilot removed', with the retained SKU unchanged ($(@($sku.Rows | ForEach-Object { "$($_.Sku) $($_.Change)" }) -join '; '))"
+
+    $noise = Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM audit.vLicenseChange WHERE RecordId IN ('evt-0106', 'evt-0107', 'evt-0108', 'evt-0109');"
+    Assert-That ([int] $noise -eq 0) "an Authenticator update, a failed assignment and an incomplete group are not licence changes ($noise row(s))"
+
+    $life4 = Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT LicenceChangeCount FROM audit.vLicenseLifecycle WHERE TargetUpn = 'user4@contoso.com') AS U4Changes,
+       (SELECT COUNT(*) FROM audit.vLicenseLifecycle WHERE TargetUpn = 'user5@contoso.com' AND AccountCreatedUtc IS NOT NULL) AS U5Created;
+"@
+    Assert-That ([int] $life4.Rows[0].U4Changes -eq 1) "vLicenseLifecycle counts a chunked change once, not per fragment ($($life4.Rows[0].U4Changes))"
+    Assert-That ([int] $life4.Rows[0].U5Created -eq 0) "'Add user sponsor' is not reported as the account being created"
+
+    # Re-running must update in place, not accumulate duplicate properties -
+    # including the reassembled ones, which live outside the per-batch replace.
+    $before = Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.LicenseEvent)         AS E,
+       (SELECT COUNT(*) FROM audit.LicenseEventProperty) AS P;
+"@
     Invoke-SqlText -Sql 'EXEC audit.usp_ShredLicenseEvents' -TimeoutSeconds 600
     $again = Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT COUNT(*) FROM audit.LicenseEvent)         AS E,
        (SELECT COUNT(*) FROM audit.LicenseEventProperty) AS P;
 "@
-    Assert-That ([int] $again.Rows[0].E -eq 5 -and [int] $again.Rows[0].P -eq 4) `
-        "a second shred updated in place rather than duplicating ($($again.Rows[0].E)/$($again.Rows[0].P))"
+    Assert-That ([int] $again.Rows[0].E -eq [int] $before.Rows[0].E -and [int] $again.Rows[0].P -eq [int] $before.Rows[0].P) `
+        "a second shred updated in place rather than duplicating ($($again.Rows[0].E)/$($again.Rows[0].P), was $($before.Rows[0].E)/$($before.Rows[0].P))"
 }
 finally { Stop-MockGraph $mock }
 
