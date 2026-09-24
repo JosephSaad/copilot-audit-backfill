@@ -558,14 +558,17 @@ SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)       AS A,
     Assert-That $refusedFlat 'purge refuses @PurgeFlattened without @DeleteRows'
 
     # -----------------------------------------------------------------------
-    Write-Host "`n8. Directory enrichment (tools/Update-CopilotAuditEnrichment.ps1)" -ForegroundColor Cyan
+    Write-Host "`n8. Licences from Graph, users from AD (tools/Update-CopilotAuditEnrichment.ps1, tools/Export-UsersWithHierarchy-ToSql.ps1)" -ForegroundColor Cyan
 
     # Stand in for the Graph SDK, pointing at mock_graph.py. Same approach as
-    # Test-Orchestrator: shadow the cmdlets with global functions.
+    # Test-Orchestrator: shadow the cmdlets with global functions. Every path
+    # asked for is recorded, to prove the licence tool asks for nothing else.
     $script:MockBase = $mock.Base
+    $script:GraphPaths = [System.Collections.Generic.List[string]]::new()
     function global:Connect-MgGraph { param([hashtable] $Splat) }
     function global:Invoke-MgGraphRequest {
         param([string] $Method, [string] $Uri, $OutputType, $Body)
+        $script:GraphPaths.Add(($Uri -replace '\?.*$', ''))
         $full = if ($Uri -match '^https?://') { $Uri } else { "$script:MockBase$Uri" }
         $r = Invoke-WebRequest -Uri $full -Method $Method -SkipHttpErrorCheck -ErrorAction Stop
         if ([int] $r.StatusCode -ge 400) {
@@ -608,68 +611,18 @@ FROM audit.CopilotLicense;
         Assert-That ([int] $l.Gone -eq 1) "the departed user is recorded as NotFound ($($l.Gone))"
         Assert-That ([int] $l.GoneUnknown -eq 1) 'a departed user is left unknown, NOT reported as unlicensed'
 
-        $au = Invoke-SqlText -As Table -Sql 'SELECT Id, DisplayName FROM audit.AdministrativeUnit'
-        Assert-That ($au.Rows.Count -eq 1) "administrative units loaded ($($au.Rows.Count))"
-        Assert-That ($au.Rows[0].DisplayName -eq 'AU-East') "the GUID in the audit data resolves to a name ($($au.Rows[0].DisplayName))"
-        $auJoin = [long] (Invoke-SqlText -As Scalar -Sql @"
-SELECT COUNT_BIG(*) FROM audit.CopilotInteraction AS i
-WHERE EXISTS (SELECT 1 FROM audit.AdministrativeUnit AS a
-              WHERE a.Id = '00000000-0000-0000-0000-0000000000ae');
-"@)
-        Assert-That ($auJoin -gt 0) 'the administrative unit id in the records matches the one Graph returned'
-
-        $prof = Invoke-SqlText -As Table -Sql @"
-SELECT COUNT(*)                                                      AS Rows_,
-       COUNT(DISTINCT Department)                                    AS Depts,
-       COUNT(DISTINCT Division)                                      AS Divs,
-       SUM(CASE WHEN UserType = 'Guest' THEN 1 ELSE 0 END)           AS Guests,
-       SUM(CASE WHEN AccountEnabled = 0 THEN 1 ELSE 0 END)           AS Disabled_,
-       SUM(CASE WHEN ManagerUpn IS NOT NULL THEN 1 ELSE 0 END)       AS WithManager,
-       SUM(CASE WHEN CreatedDateTimeUtc IS NOT NULL THEN 1 ELSE 0 END) AS WithCreated,
-       SUM(CASE WHEN DirectoryStatus = 'Found' THEN 1 ELSE 0 END)    AS Found_
-FROM audit.UserProfile;
-"@
-        $pr = $prof.Rows[0]
-        Assert-That ([int] $pr.Rows_ -eq 50) "audit.UserProfile covers every user ($($pr.Rows_))"
-        Assert-That ([int] $pr.Found_ -eq 49) "49 resolved in the directory, 1 had left ($($pr.Found_))"
-        Assert-That ([int] $pr.Depts -eq 4) "all four departments captured ($($pr.Depts))"
-        Assert-That ([int] $pr.Divs -eq 2) "division read from employeeOrgData ($($pr.Divs) of 2)"
-        Assert-That ([int] $pr.Guests -eq 2) "guest accounts flagged ($($pr.Guests))"
-        Assert-That ([int] $pr.Disabled_ -eq 3) "disabled accounts flagged ($($pr.Disabled_))"
-        Assert-That ([int] $pr.WithManager -eq 48) "manager resolved for everyone who has one ($($pr.WithManager) of 48)"
-        Assert-That ([int] $pr.WithCreated -eq 49) "createdDateTime parsed ($($pr.WithCreated))"
-
-        # The views that make this worth having.
-        $adopt = Invoke-SqlText -As Table -Sql @"
-SELECT COUNT(*)                                          AS Rows_,
-       SUM(CASE WHEN NeverUsed = 1 THEN 1 ELSE 0 END)    AS Shelfware,
-       SUM(CASE WHEN Department IS NOT NULL THEN 1 ELSE 0 END) AS WithDept,
-       SUM(CASE WHEN Interactions > 0 THEN 1 ELSE 0 END) AS Active
-FROM audit.vCopilotAdoption;
-"@
-        $ad = $adopt.Rows[0]
-        Assert-That ([int] $ad.Rows_ -eq 17) "vCopilotAdoption lists the licensed users ($($ad.Rows_))"
-        Assert-That ([int] $ad.Active -eq 17) 'every licensed mock user has interactions'
-        Assert-That ([int] $ad.Shelfware -eq 0) 'no licensed user is shelfware in this fixture'
-        Assert-That ([int] $ad.WithDept -eq 17) 'adoption rows carry the department from the profile'
-
-        $dept = Invoke-SqlText -As Table -Sql @"
-SELECT COUNT(DISTINCT Department) AS Depts, SUM(Interactions) AS Interactions
-FROM audit.vCopilotUsageByDepartment;
-"@
-        Assert-That ([long] $dept.Rows[0].Interactions -eq $expectedTotal) `
-            ("vCopilotUsageByDepartment accounts for every interaction ({0:N0})" -f $dept.Rows[0].Interactions)
-        Assert-That ([int] $dept.Rows[0].Depts -ge 4) "usage split across departments ($($dept.Rows[0].Depts))"
+        # Licences only: nothing that needs more than User.Read.All and
+        # LicenseAssignment.Read.All, and no Entra profile tables.
+        $asked = @($script:GraphPaths | Sort-Object -Unique)
+        $other = @($asked | Where-Object { $_ -ne '/v1.0/subscribedSkus' -and $_ -notmatch '^/v1\.0/users/[^/]+$' })
+        Assert-That ($other.Count -eq 0) "the licence tool calls only /subscribedSkus and /users/{upn} - no manager, profile or administrative-unit call ($($other -join ', '))"
+        $entraTables = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'audit' AND name IN ('UserProfile', 'AdministrativeUnit');")
+        Assert-That ($entraTables -eq 0) 'no Entra profile or administrative-unit table is created'
 
         # Re-running must update in place, not duplicate.
         Invoke-Main
-        $again = Invoke-SqlText -As Table -Sql @"
-SELECT (SELECT COUNT(*) FROM audit.CopilotLicense)     AS L,
-       (SELECT COUNT(*) FROM audit.UserProfile)        AS P,
-       (SELECT COUNT(*) FROM audit.AdministrativeUnit) AS A;
-"@
-        Assert-That ([int] $again.Rows[0].L -eq 50 -and [int] $again.Rows[0].P -eq 50 -and [int] $again.Rows[0].A -eq 1) `
-            "a second run updated in place rather than duplicating ($($again.Rows[0].L)/$($again.Rows[0].P)/$($again.Rows[0].A))"
+        $again = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense')
+        Assert-That ($again -eq 50) "a second run updated in place rather than duplicating ($again)"
 
         # -AllLicensedUsers exercises the licence-holder enumeration path.
         $AllLicensedUsers = $true
@@ -682,6 +635,69 @@ SELECT (SELECT COUNT(*) FROM audit.CopilotLicense)     AS L,
         Remove-Item function:\Connect-MgGraph -ErrorAction SilentlyContinue
         Remove-Item function:\Invoke-MgGraphRequest -ErrorAction SilentlyContinue
     }
+
+    # The user directory, as the AD export writes it. The directory search
+    # itself needs a domain; everything after it - rows, the transactional
+    # replace, the match report - runs here, through the tool's own functions.
+    #   user0 is the top; user1..user3 report to user0; everyone else to
+    #   user1..user3 in turn. user48's AD UPN is not their sign-in name (only
+    #   their mail is), and user49 has left: a disabled account.
+    & {
+        . (Join-Path $root 'tools' 'Export-UsersWithHierarchy-ToSql.ps1')
+        $depts = 'Retail Banking', 'Risk', 'Technology', 'Operations'
+        $entries = foreach ($n in 0..49) {
+            $mgr = if ($n -eq 0) { $null } elseif ($n -le 3) { 0 } else { 1 + ($n % 3) }
+            [pscustomobject]@{
+                dn = "CN=user$n,DC=corp"; upn = $(if ($n -eq 48) { 'user48@corp.contoso.com' } else { "user$n@contoso.com" })
+                mail = "user$n@contoso.com"; disp = "User $n"; title = 'Analyst'; dept = $depts[$n % 4]
+                div = $(if ($n % 4 -eq 0) { 'Retail' } else { 'Corporate' }); off = "Floor $($n % 5)"; city = 'Toronto'
+                country = 'Canada'; company = 'Contoso'; etype = $(if ($n % 10 -eq 5) { 'NONW' } else { 'EMP' })
+                mgr = $(if ($null -ne $mgr) { "CN=user$mgr,DC=corp" }); uac = $(if ($n -eq 49) { 514 } else { 512 })
+            }
+        }
+        $rows = ConvertTo-UserDirectoryTable -Entries $entries -EmployeeTypeMap @{ 'EMP' = 'EMPLOYEE'; 'NONW' = 'CONTRACTOR' } -EmployeeTypes @('EMP', 'NONW')
+        $n = Write-UserDirectory -ConnString $connStr -Table $rows.Table
+        $n2 = Write-UserDirectory -ConnString $connStr -Table $rows.Table
+        $stored = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.UserDirectory')
+        Assert-That ($n -eq 50 -and $stored -eq 50) "audit.UserDirectory holds every user, and a second load replaces rather than appends ($stored)"
+
+        $d = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT CONCAT(OrgDepth, ':', Mgr1, '>', Mgr2, '|', ManagerUPN) FROM audit.UserDirectory WHERE UserPrincipalName = 'user7@contoso.com') AS U7,
+       (SELECT COUNT(*) FROM audit.UserDirectory WHERE AccountEnabled = 0) AS Disabled_,
+       (SELECT COUNT(*) FROM audit.UserDirectory WHERE IsManager = 1) AS Managers,
+       (SELECT COUNT(*) FROM audit.UserDirectory WHERE EmployeeType = 'CONTRACTOR') AS Contractors;
+"@).Rows[0]
+        Assert-That ("$($d.U7)" -eq '2:User 0>User 2|user2@contoso.com') "the chain and manager land in SQL (user7: $($d.U7))"
+        Assert-That ([int] $d.Disabled_ -eq 1 -and [int] $d.Managers -eq 4 -and [int] $d.Contractors -eq 5) `
+            "disabled, manager and contractor flags ($($d.Disabled_)/$($d.Managers)/$($d.Contractors))"
+
+        $m = Get-DirectoryMatch -ConnString $connStr
+        Assert-That ($m.AuditUsers -eq 50 -and $m.ByUpn -eq 49 -and $m.ByMailOnly -eq 1) `
+            "the match report: 49 of 50 audit users by UPN, 1 more only by mail ($($m.ByUpn)/$($m.AuditUsers), $($m.ByMailOnly))"
+    }
+
+    # The views that make this worth having: licences from Graph, departments from AD.
+    $licensedMatched = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM audit.CopilotLicense WHERE IsCopilotLic = 1 AND UserPrincipalName <> 'user48@contoso.com';")
+    $adopt = Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*)                                          AS Rows_,
+       SUM(CASE WHEN NeverUsed = 1 THEN 1 ELSE 0 END)    AS Shelfware,
+       SUM(CASE WHEN Department IS NOT NULL THEN 1 ELSE 0 END) AS WithDept,
+       SUM(CASE WHEN Interactions > 0 THEN 1 ELSE 0 END) AS Active
+FROM audit.vCopilotAdoption;
+"@
+    $ad = $adopt.Rows[0]
+    Assert-That ([int] $ad.Rows_ -eq 17) "vCopilotAdoption lists the licensed users ($($ad.Rows_))"
+    Assert-That ([int] $ad.Active -eq 17) 'every licensed mock user has interactions'
+    Assert-That ([int] $ad.Shelfware -eq 0) 'no licensed user is shelfware in this fixture'
+    Assert-That ([int] $ad.WithDept -eq $licensedMatched) "adoption rows carry the department from AD where the UPN matches ($($ad.WithDept) of $licensedMatched)"
+
+    $dept = Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(DISTINCT Department) AS Depts, SUM(Interactions) AS Interactions
+FROM audit.vCopilotUsageByDepartment;
+"@
+    Assert-That ([long] $dept.Rows[0].Interactions -eq $expectedTotal) `
+        ("vCopilotUsageByDepartment accounts for every interaction ({0:N0})" -f $dept.Rows[0].Interactions)
+    Assert-That ([int] $dept.Rows[0].Depts -ge 4) "usage split across departments ($($dept.Rows[0].Depts))"
 
     # -----------------------------------------------------------------------
     Write-Host "`n9. Licence lifecycle events (audit.usp_ShredLicenseEvents)" -ForegroundColor Cyan
@@ -1209,9 +1225,10 @@ INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic, SkuPartNumber
     (N'a@contoso.com', 1, N'Microsoft_365_Copilot', '2026-01-01T00:00:00', N'Found'),
     (N'b@contoso.com', 0, NULL, NULL, N'Found'),
     (N'c@contoso.com', 1, N'Microsoft_365_Copilot', '2026-09-16T12:00:00', N'Found');
-DELETE FROM audit.UserProfile WHERE UserPrincipalName = N'a@contoso.com';
-INSERT INTO audit.UserProfile (UserPrincipalName, DisplayName, Department, DirectoryStatus)
-VALUES (N'a@contoso.com', N'User A', N'Finance', N'Found');
+DELETE FROM audit.UserDirectory WHERE UserPrincipalName = N'a@contoso.com';
+INSERT INTO audit.UserDirectory (UserPrincipalName, FullName, Department, EmployeeType, IsManager, AccountEnabled,
+                                 ManagerUPN, ManagerName, OrgDepth, Mgr1, Mgr2)
+VALUES (N'a@contoso.com', N'User A', N'Finance', N'EMPLOYEE', 0, 1, N'boss@contoso.com', N'The Boss', 2, N'The CEO', N'The Boss');
 INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], App, IsCopilotLic, FlattenedUtc) VALUES
     (N'c-01', N'2026-09-15T15:00:00Z', '2026-09-15T15:00:00', N'c@contoso.com', N'Teams', 1, SYSUTCDATETIME()),
     (N'c-02', N'2026-09-17T15:00:00Z', '2026-09-17T15:00:00', N'c@contoso.com', N'Teams', 1, SYSUTCDATETIME());
@@ -1285,6 +1302,8 @@ SELECT (SELECT AppCategory FROM bi.DimApp WHERE App = N'Office') AS OfficeCat,
        (SELECT COUNT(*) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE g.AgentId = N'(none)') AS NoAgent,
        (SELECT m.ModelName FROM bi.FactInteraction AS f JOIN bi.DimModel AS m ON m.ModelKey = f.ModelKey WHERE f.RecordId = N's-01') AS S01Model,
        (SELECT Department FROM bi.DimUser WHERE UserPrincipalName = N'a@contoso.com') AS ADept,
+       (SELECT CONCAT(OrgDepth, ':', OrgLevel1, '>', OrgLevel2, '|', ManagerName, '|', EmployeeType, '|', DirectoryStatus)
+        FROM bi.DimUser WHERE UserPrincipalName = N'a@contoso.com') AS AOrg,
        (SELECT CopilotLicenceToday FROM bi.DimUser WHERE UserPrincipalName = N'b@contoso.com') AS BToday,
        (SELECT DirectoryStatus FROM bi.DimUser WHERE UserPrincipalName = N'(unknown user)') AS UnknownDir;
 "@).Rows[0]
@@ -1297,7 +1316,8 @@ Assert-That ("$($dims.StudioAgent)" -eq 'crd20_expenseAgent/Copilot Studio' -and
 Assert-That ("$($dims.S09Agent)" -eq 'agent-1/Agent ID') "an AgentId wins over AppIdentity ($($dims.S09Agent))"
 Assert-That ("$($dims.S01Model)" -eq 'gpt-5') "the model dimension carries provider and name ($($dims.S01Model))"
 Assert-That ("$($dims.ADept)" -eq 'Finance' -and "$($dims.BToday)" -eq 'Not licensed' -and "$($dims.UnknownDir)" -eq 'Not looked up') `
-    "users carry the directory profile and today's licence ($($dims.ADept), $($dims.BToday), $($dims.UnknownDir))"
+    "users carry the AD attributes and today's licence ($($dims.ADept), $($dims.BToday), $($dims.UnknownDir))"
+Assert-That ("$($dims.AOrg)" -eq '2:The CEO>The Boss|The Boss|EMPLOYEE|Found') "the org chain from AD becomes OrgLevel1..n ($($dims.AOrg))"
 
 $cal = Invoke-SqlText -As Table -Sql @"
 SELECT DateKey, DayOfWeekName, CONVERT(varchar(10), WeekEnding, 120) AS WeekEnding, WeekLabel

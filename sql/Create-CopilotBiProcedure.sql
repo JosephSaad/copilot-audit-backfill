@@ -54,8 +54,9 @@
     Reads audit.RawLogFlattened, audit.CopilotLicense, audit.CopilotSession
     and audit.SessionAppCategory, so run Create-CopilotFlattenedSchema.sql
     and Create-CopilotSessionSchema.sql first (the session tables may be
-    empty). audit.UserProfile (the enrichment) is optional. Requires SQL
-    Server 2017+.
+    empty). audit.UserDirectory (on-premises AD, loaded by
+    tools/Export-UsersWithHierarchy-ToSql.ps1) is optional: without it users
+    have no directory attributes. Requires SQL Server 2017+.
 */
 SET NOCOUNT ON;
 
@@ -76,6 +77,8 @@ BEGIN
 
     IF OBJECT_ID(N'bi.FactInteraction', N'U') IS NULL
         THROW 50010, N'The bi schema is missing - run sql/Create-CopilotBiSchema.sql first.', 1;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgDepth') IS NULL
+        THROW 50016, N'bi.DimUser predates 2.0.0 - run sql/Create-CopilotBiSchema.sql again to upgrade it.', 1;
     IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL OR OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
         THROW 50011, N'audit.RawLogFlattened is missing - run sql/Create-CopilotFlattenedSchema.sql and audit.usp_FlattenCopilotAudit first.', 1;
     IF OBJECT_ID(N'audit.CopilotSession', N'U') IS NULL OR OBJECT_ID(N'audit.SessionAppCategory', N'U') IS NULL
@@ -237,28 +240,27 @@ BEGIN
     INTO #sess
     FROM audit.CopilotSession AS s;
 
-    /* Directory attributes, when the enrichment is installed. Division
-       arrived after 1.2.0, so an older profile table may not have it. */
+    /* Directory attributes from on-premises AD (audit.UserDirectory), when
+       it has been loaded. Dynamic, so a database without it still compiles. */
     DROP TABLE IF EXISTS #profile;
     CREATE TABLE #profile
     (
         Upn             NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY NONCLUSTERED,
-        DisplayName     NVARCHAR(400) NULL, Division NVARCHAR(200) NULL, Department NVARCHAR(200) NULL,
+        DisplayName     NVARCHAR(400) NULL, Division NVARCHAR(256) NULL, Department NVARCHAR(200) NULL,
         JobTitle        NVARCHAR(200) NULL, OfficeLocation NVARCHAR(200) NULL, City NVARCHAR(200) NULL,
-        Country         NVARCHAR(200) NULL, CompanyName NVARCHAR(200) NULL, UserType NVARCHAR(20) NULL,
-        AccountEnabled  BIT NULL, ManagerUpn NVARCHAR(512) NULL, DirectoryStatus NVARCHAR(20) NULL
+        Country         NVARCHAR(200) NULL, CompanyName NVARCHAR(200) NULL, EmployeeType NVARCHAR(32) NULL,
+        IsManager       BIT NULL, AccountEnabled BIT NULL, ManagerUpn NVARCHAR(512) NULL,
+        ManagerName     NVARCHAR(256) NULL, OrgDepth TINYINT NULL,
+        Mgr1 NVARCHAR(256) NULL, Mgr2 NVARCHAR(256) NULL, Mgr3 NVARCHAR(256) NULL, Mgr4 NVARCHAR(256) NULL, Mgr5 NVARCHAR(256) NULL, Mgr6 NVARCHAR(256) NULL, Mgr7 NVARCHAR(256) NULL, Mgr8 NVARCHAR(256) NULL, Mgr9 NVARCHAR(256) NULL, Mgr10 NVARCHAR(256) NULL, Mgr11 NVARCHAR(256) NULL, Mgr12 NVARCHAR(256) NULL, Mgr13 NVARCHAR(256) NULL, Mgr14 NVARCHAR(256) NULL, Mgr15 NVARCHAR(256) NULL
     );
-    IF OBJECT_ID(N'audit.UserProfile', N'U') IS NOT NULL
-    BEGIN
-        SET @sql = N'INSERT INTO #profile (Upn, DisplayName, Division, Department, JobTitle, OfficeLocation, City,
-                                           Country, CompanyName, UserType, AccountEnabled, ManagerUpn, DirectoryStatus)
-            SELECT UserPrincipalName, DisplayName, '
-            + CASE WHEN COL_LENGTH(N'audit.UserProfile', N'Division') IS NULL THEN N'NULL' ELSE N'Division' END
-            + N', Department, JobTitle, OfficeLocation, City, Country, CompanyName, UserType, AccountEnabled,
-                   ManagerUpn, DirectoryStatus
-            FROM audit.UserProfile;';
-        EXEC (@sql);
-    END;
+    IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
+        EXEC (N'INSERT INTO #profile (Upn, DisplayName, Division, Department, JobTitle, OfficeLocation, City,
+                                      Country, CompanyName, EmployeeType, IsManager, AccountEnabled, ManagerUpn,
+                                      ManagerName, OrgDepth, Mgr1, Mgr2, Mgr3, Mgr4, Mgr5, Mgr6, Mgr7, Mgr8, Mgr9, Mgr10, Mgr11, Mgr12, Mgr13, Mgr14, Mgr15)
+                SELECT UserPrincipalName, FullName, Division, Department, JobTitle, Office, City,
+                       Country, Company, EmployeeType, IsManager, AccountEnabled, ManagerUPN,
+                       ManagerName, OrgDepth, Mgr1, Mgr2, Mgr3, Mgr4, Mgr5, Mgr6, Mgr7, Mgr8, Mgr9, Mgr10, Mgr11, Mgr12, Mgr13, Mgr14, Mgr15
+                FROM audit.UserDirectory;');
 
     /* Keys for users, apps and SKUs from those. The interactions add their
        own in step 4, a month at a time. */
@@ -460,10 +462,29 @@ BEGIN
         City                = p.City,
         Country             = p.Country,
         CompanyName         = p.CompanyName,
-        UserType            = p.UserType,
+        EmployeeType        = p.EmployeeType,
+        IsManager           = p.IsManager,
         AccountEnabled      = p.AccountEnabled,
         ManagerUpn          = p.ManagerUpn,
-        DirectoryStatus     = COALESCE(p.DirectoryStatus, c.DirectoryStatus, N'Not looked up'),
+        ManagerName         = p.ManagerName,
+        OrgDepth            = p.OrgDepth,
+        OrgLevel1           = p.Mgr1,
+        OrgLevel2           = p.Mgr2,
+        OrgLevel3           = p.Mgr3,
+        OrgLevel4           = p.Mgr4,
+        OrgLevel5           = p.Mgr5,
+        OrgLevel6           = p.Mgr6,
+        OrgLevel7           = p.Mgr7,
+        OrgLevel8           = p.Mgr8,
+        OrgLevel9           = p.Mgr9,
+        OrgLevel10          = p.Mgr10,
+        OrgLevel11          = p.Mgr11,
+        OrgLevel12          = p.Mgr12,
+        OrgLevel13          = p.Mgr13,
+        OrgLevel14          = p.Mgr14,
+        OrgLevel15          = p.Mgr15,
+        /* In AD: Found. Otherwise what the licence lookup found in Entra. */
+        DirectoryStatus     = COALESCE(CASE WHEN p.Upn IS NOT NULL THEN N'Found' END, c.DirectoryStatus, N'Not looked up'),
         CopilotLicenceToday = CASE c.IsLic WHEN 1 THEN N'Licensed' WHEN 0 THEN N'Not licensed' ELSE N'Unknown' END,
         CopilotSku          = c.Sku,
         LicensedSinceUtc    = c.SinceUtc

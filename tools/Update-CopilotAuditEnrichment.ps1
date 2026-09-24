@@ -1,14 +1,20 @@
 <#
 .SYNOPSIS
-    Fills the directory facts the Copilot audit records cannot carry: who holds
-    a Copilot licence, what the administrative unit GUIDs mean, and the user
-    attributes adoption reporting is sliced by.
+    Records who holds a Copilot licence, from Microsoft Graph: the one fact
+    about users that neither the audit records nor on-premises Active
+    Directory can supply.
 
 .DESCRIPTION
-    Reads Microsoft Graph and writes ONLY to audit.CopilotLicense,
-    audit.AdministrativeUnit and audit.UserProfile. It never touches the
-    backfill tables, so it can run on its own schedule and a mistake here
-    cannot corrupt the audit archive.
+    Reads Microsoft Graph and writes ONLY to audit.CopilotLicense. It never
+    touches the backfill tables, so it can run on its own schedule and a
+    mistake here cannot corrupt the audit archive.
+
+    Licences only, since 2.0.0. Title, department, division, office, manager
+    and the management chain come from on-premises Active Directory instead,
+    by tools/Export-UsersWithHierarchy-ToSql.ps1 - so this needs just two
+    Graph permissions, and none for profiles, managers or administrative
+    units. Before 2.0.0 it also filled audit.UserProfile and
+    audit.AdministrativeUnit; nothing reads those now.
 
     Only the users that actually appear in audit.CopilotInteraction are looked
     up, not the whole directory - at most a few thousand lookups rather than
@@ -17,7 +23,7 @@
     report needs.
 
     Two things Graph cannot tell you, and which this records honestly rather
-    than guessing:
+    than guessing (the licence-event databases fill in the first):
 
       * Licence history. assignedPlans carries the date the CURRENT assignment
         began, so "licensed since March" is answerable. A licence granted and
@@ -36,16 +42,17 @@
 
 .PARAMETER Scopes
     Delegated scopes to request. The defaults are the least that works:
-    User.Read.All and Organization.Read.All for licences and profiles,
-    AdministrativeUnit.Read.All for the unit names. App-only uses the
-    equivalent application permissions instead.
+    User.Read.All for each user's assigned licences and plans, and
+    LicenseAssignment.Read.All for the tenant's SKUs (/subscribedSkus).
+    App-only uses the same two as application permissions.
 
 .PARAMETER AllLicensedUsers
     Also enumerate every user holding a Copilot licence, including those with
     no interactions. Needed for "licensed but never used".
 
 .PARAMETER SkipProfiles
-    Licences and administrative units only.
+    No effect since 2.0.0, which reads licences only. Accepted so existing
+    scheduled tasks keep working.
 
 .EXAMPLE
     .\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit `
@@ -66,7 +73,7 @@ param(
     [string]   $TenantId,
     [string]   $ClientId,
     [string]   $CertificateThumbprint,
-    [string[]] $Scopes = @('User.Read.All', 'Organization.Read.All', 'AdministrativeUnit.Read.All'),
+    [string[]] $Scopes = @('User.Read.All', 'LicenseAssignment.Read.All'),
 
     [switch]   $AllLicensedUsers,
     [switch]   $SkipProfiles,
@@ -303,6 +310,8 @@ function Invoke-Main {
     Invoke-EnrichmentSql -Sql $schema
     Write-Log 'Enrichment tables ready.'
 
+    if ($SkipProfiles) { Write-Log '-SkipProfiles has no effect since 2.0.0: this reads licences only.' -Level WARN }
+
     Connect-EnrichmentGraph
 
     # ---- Which Copilot SKUs exist in this tenant ---------------------------
@@ -320,25 +329,6 @@ function Invoke-Main {
     else {
         Write-Log ('Copilot SKUs in this tenant: ' + (($copilotSkus.Values | Sort-Object -Unique) -join ', ') + '.')
     }
-
-    # ---- Administrative units ---------------------------------------------
-    $units = Get-GraphPaged -Uri '/v1.0/directory/administrativeUnits'
-    # @() matters: one administrative unit would otherwise be a bare object.
-    $unitRows = @(foreach ($u in $units) {
-        [pscustomobject]@{
-            Id          = "$(Get-Prop $u 'id')"
-            DisplayName = Get-Prop $u 'displayName'
-            Description = Get-Prop $u 'description'
-        }
-    })
-    $n = Save-Rows -Table 'audit.AdministrativeUnit' -KeyColumn 'Id' -Rows $unitRows `
-                   -ColumnOrder @('Id', 'DisplayName', 'Description') `
-                   -ColumnTypes @{
-                       Id          = [System.Data.SqlDbType]::NVarChar
-                       DisplayName = [System.Data.SqlDbType]::NVarChar
-                       Description = [System.Data.SqlDbType]::NVarChar
-                   }
-    Write-Log "Administrative units: $n."
 
     # ---- Which users to look up -------------------------------------------
     $upns = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -364,9 +354,8 @@ WHERE UserPrincipalName IS NOT NULL;
     }
 
     # ---- Look each one up --------------------------------------------------
-    $select = 'userPrincipalName,displayName,department,employeeOrgData,jobTitle,officeLocation,city,country,companyName,usageLocation,userType,accountEnabled,createdDateTime,assignedLicenses,assignedPlans'
+    $select = 'userPrincipalName,assignedLicenses,assignedPlans'
     $licRows = New-Object System.Collections.Generic.List[object]
-    $profRows = New-Object System.Collections.Generic.List[object]
     $notFound = 0
 
     foreach ($upn in $upns) {
@@ -387,14 +376,6 @@ WHERE UserPrincipalName IS NOT NULL;
                 UserPrincipalName = $upn; IsCopilotLic = $null; SkuPartNumber = $null
                 LicensedSinceUtc = $null; CapabilityStatus = $null; DirectoryStatus = 'NotFound'
             })
-            if (-not $SkipProfiles) {
-                $profRows.Add([pscustomobject]@{
-                    UserPrincipalName = $upn; DisplayName = $null; Department = $null; Division = $null; JobTitle = $null
-                    OfficeLocation = $null; City = $null; Country = $null; CompanyName = $null
-                    UsageLocation = $null; UserType = $null; AccountEnabled = $null; ManagerUpn = $null
-                    CreatedDateTimeUtc = $null; DirectoryStatus = 'NotFound'
-                })
-            }
             continue
         }
 
@@ -427,36 +408,6 @@ WHERE UserPrincipalName IS NOT NULL;
             CapabilityStatus  = $capability
             DirectoryStatus   = 'Found'
         })
-
-        # Profile
-        if (-not $SkipProfiles) {
-            $mgr = $null
-            try {
-                $m = Invoke-MgGraphRequest -Method GET -OutputType PSObject `
-                        -Uri ("/v1.0/users/$([uri]::EscapeDataString($upn))/manager?`$select=userPrincipalName")
-                $mgr = Get-Prop $m 'userPrincipalName'
-            }
-            catch { $mgr = $null }   # no manager set is the common case, not a failure
-
-            $enabled = Get-Prop $user 'accountEnabled'
-            $profRows.Add([pscustomobject]@{
-                UserPrincipalName  = "$(Get-Prop $user 'userPrincipalName')"
-                DisplayName        = Get-Prop $user 'displayName'
-                Department         = Get-Prop $user 'department'
-                Division           = Get-Prop (Get-Prop $user 'employeeOrgData') 'division'
-                JobTitle           = Get-Prop $user 'jobTitle'
-                OfficeLocation     = Get-Prop $user 'officeLocation'
-                City               = Get-Prop $user 'city'
-                Country            = Get-Prop $user 'country'
-                CompanyName        = Get-Prop $user 'companyName'
-                UsageLocation      = Get-Prop $user 'usageLocation'
-                UserType           = Get-Prop $user 'userType'
-                AccountEnabled     = $(if ($null -eq $enabled) { $null } else { [int] [bool] $enabled })
-                ManagerUpn         = $mgr
-                CreatedDateTimeUtc = ConvertTo-UtcOrNull (Get-Prop $user 'createdDateTime')
-                DirectoryStatus    = 'Found'
-            })
-        }
     }
 
     $n = Save-Rows -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `
@@ -471,32 +422,6 @@ WHERE UserPrincipalName IS NOT NULL;
                        DirectoryStatus   = [System.Data.SqlDbType]::NVarChar
                    }
     Write-Log "Licences written: $n."
-
-    if (-not $SkipProfiles) {
-        $n = Save-Rows -Table 'audit.UserProfile' -KeyColumn 'UserPrincipalName' -Rows $profRows `
-                       -ColumnOrder @('UserPrincipalName', 'DisplayName', 'Department', 'Division', 'JobTitle',
-                                      'OfficeLocation', 'City', 'Country', 'CompanyName', 'UsageLocation',
-                                      'UserType', 'AccountEnabled', 'ManagerUpn', 'CreatedDateTimeUtc',
-                                      'DirectoryStatus') `
-                       -ColumnTypes @{
-                           UserPrincipalName  = [System.Data.SqlDbType]::NVarChar
-                           DisplayName        = [System.Data.SqlDbType]::NVarChar
-                           Department         = [System.Data.SqlDbType]::NVarChar
-                           Division           = [System.Data.SqlDbType]::NVarChar
-                           JobTitle           = [System.Data.SqlDbType]::NVarChar
-                           OfficeLocation     = [System.Data.SqlDbType]::NVarChar
-                           City               = [System.Data.SqlDbType]::NVarChar
-                           Country            = [System.Data.SqlDbType]::NVarChar
-                           CompanyName        = [System.Data.SqlDbType]::NVarChar
-                           UsageLocation      = [System.Data.SqlDbType]::NVarChar
-                           UserType           = [System.Data.SqlDbType]::NVarChar
-                           AccountEnabled     = [System.Data.SqlDbType]::Bit
-                           ManagerUpn         = [System.Data.SqlDbType]::NVarChar
-                           CreatedDateTimeUtc = [System.Data.SqlDbType]::DateTime2
-                           DirectoryStatus    = [System.Data.SqlDbType]::NVarChar
-                       }
-        Write-Log "Profiles written: $n."
-    }
 
     if ($notFound -gt 0) {
         Write-Log "$notFound user(s) are in the audit data but no longer in the directory; recorded as DirectoryStatus = 'NotFound', not as unlicensed." -Level WARN

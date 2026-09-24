@@ -17,7 +17,7 @@
 
       Dimensions
         bi.DimDate                   with the Saturday-Friday week of the rollup
-        bi.DimUser                   directory attributes and today's licence
+        bi.DimUser                   AD attributes, the org chain, today's licence
         bi.DimApp                    app and its Copilot Chat / In-App category
         bi.DimAgent, bi.DimModel, bi.DimSku, bi.DimLicenceStatus
 
@@ -83,10 +83,30 @@ BEGIN
         City                 NVARCHAR(200)  NULL,
         Country              NVARCHAR(200)  NULL,
         CompanyName          NVARCHAR(200)  NULL,
-        UserType             NVARCHAR(20)   NULL,   -- Member | Guest
+        EmployeeType         NVARCHAR(32)   NULL,   -- EMPLOYEE | CONTRACTOR ...
+        IsManager            BIT            NULL,
         AccountEnabled       BIT            NULL,
         ManagerUpn           NVARCHAR(512)  NULL,
-        /* Found | NotFound (left the directory) | Not looked up (no enrichment) */
+        ManagerName          NVARCHAR(256)  NULL,
+        /* The management chain from AD: OrgLevel1 is the top (the CEO),
+           OrgLevel<OrgDepth> the direct manager. A ragged hierarchy, top down. */
+        OrgDepth             TINYINT        NULL,
+        OrgLevel1            NVARCHAR(256)  NULL,
+        OrgLevel2            NVARCHAR(256)  NULL,
+        OrgLevel3            NVARCHAR(256)  NULL,
+        OrgLevel4            NVARCHAR(256)  NULL,
+        OrgLevel5            NVARCHAR(256)  NULL,
+        OrgLevel6            NVARCHAR(256)  NULL,
+        OrgLevel7            NVARCHAR(256)  NULL,
+        OrgLevel8            NVARCHAR(256)  NULL,
+        OrgLevel9            NVARCHAR(256)  NULL,
+        OrgLevel10           NVARCHAR(256)  NULL,
+        OrgLevel11           NVARCHAR(256)  NULL,
+        OrgLevel12           NVARCHAR(256)  NULL,
+        OrgLevel13           NVARCHAR(256)  NULL,
+        OrgLevel14           NVARCHAR(256)  NULL,
+        OrgLevel15           NVARCHAR(256)  NULL,
+        /* Found (in AD) | NotFound (left Entra) | Not looked up (neither source) */
         DirectoryStatus      NVARCHAR(20)   NOT NULL CONSTRAINT DF_DimUser_Directory DEFAULT (N'Not looked up'),
         /* Today's licence, from the enrichment. Licensed | Not licensed | Unknown.
            Licence at the time of use is on the facts, not here. */
@@ -96,6 +116,33 @@ BEGIN
         FirstSeenUtc         DATETIME2(0)   NOT NULL CONSTRAINT DF_DimUser_FirstSeen DEFAULT (SYSUTCDATETIME())
     );
     INSERT INTO bi.DimUser (UserPrincipalName) VALUES (N'(unknown user)');
+END;
+
+/* 2.0.0: user attributes come from on-premises AD (audit.UserDirectory), which
+   adds the employee type, manager name and org chain; Entra's Member/Guest
+   UserType goes. Existing tables are altered in place. */
+IF OBJECT_ID(N'bi.DimUser', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH(N'bi.DimUser', N'EmployeeType') IS NULL ALTER TABLE bi.DimUser ADD EmployeeType NVARCHAR(32) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'IsManager')    IS NULL ALTER TABLE bi.DimUser ADD IsManager BIT NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'ManagerName')  IS NULL ALTER TABLE bi.DimUser ADD ManagerName NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgDepth')     IS NULL ALTER TABLE bi.DimUser ADD OrgDepth TINYINT NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel1') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel1 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel2') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel2 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel3') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel3 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel4') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel4 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel5') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel5 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel6') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel6 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel7') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel7 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel8') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel8 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel9') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel9 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel10') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel10 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel11') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel11 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel12') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel12 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel13') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel13 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel14') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel14 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'OrgLevel15') IS NULL ALTER TABLE bi.DimUser ADD OrgLevel15 NVARCHAR(256) NULL;
+    IF COL_LENGTH(N'bi.DimUser', N'UserType') IS NOT NULL ALTER TABLE bi.DimUser DROP COLUMN UserType;
 END;
 
 IF OBJECT_ID(N'bi.DimApp', N'U') IS NULL
@@ -299,8 +346,9 @@ FROM bi.DimDate;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Users AS
 SELECT UserKey, UserPrincipalName, DisplayName, Division, Department, JobTitle, OfficeLocation, City,
-       Country, CompanyName, UserType, AccountEnabled, ManagerUpn, DirectoryStatus, CopilotLicenceToday,
-       CopilotSku, LicensedSinceUtc
+       Country, CompanyName, EmployeeType, IsManager, AccountEnabled, ManagerUpn, ManagerName, OrgDepth,
+       OrgLevel1, OrgLevel2, OrgLevel3, OrgLevel4, OrgLevel5, OrgLevel6, OrgLevel7, OrgLevel8, OrgLevel9, OrgLevel10, OrgLevel11, OrgLevel12, OrgLevel13, OrgLevel14, OrgLevel15,
+       DirectoryStatus, CopilotLicenceToday, CopilotSku, LicensedSinceUtc
 FROM bi.DimUser;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Apps AS

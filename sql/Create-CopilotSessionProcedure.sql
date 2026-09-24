@@ -147,21 +147,15 @@ BEGIN
     FROM #num AS n;
 
     /* ---- 3. Directory attributes (optional table) ------------------------ */
+    /* From on-premises AD (audit.UserDirectory, loaded by
+       tools/Export-UsersWithHierarchy-ToSql.ps1). Without it, NULL. */
 
     DROP TABLE IF EXISTS #profile;
-    CREATE TABLE #profile (UserPrincipalName NVARCHAR(450) NOT NULL PRIMARY KEY,
+    CREATE TABLE #profile (UserPrincipalName NVARCHAR(450) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY,
                            Division NVARCHAR(400) NULL, Department NVARCHAR(400) NULL, JobTitle NVARCHAR(400) NULL, ManagerUpn NVARCHAR(1024) NULL);
-    IF OBJECT_ID(N'audit.UserProfile', N'U') IS NOT NULL
-    BEGIN
-        /* Division arrived after 1.2.0; an older profile table may not have it. */
-        DECLARE @profSql NVARCHAR(MAX) =
-            CASE WHEN COL_LENGTH(N'audit.UserProfile', N'Division') IS NOT NULL
-                 THEN N'INSERT INTO #profile (UserPrincipalName, Division, Department, JobTitle, ManagerUpn)
-                        SELECT UserPrincipalName, Division, Department, JobTitle, ManagerUpn FROM audit.UserProfile;'
-                 ELSE N'INSERT INTO #profile (UserPrincipalName, Department, JobTitle, ManagerUpn)
-                        SELECT UserPrincipalName, Department, JobTitle, ManagerUpn FROM audit.UserProfile;' END;
-        EXEC (@profSql);
-    END;
+    IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
+        EXEC (N'INSERT INTO #profile (UserPrincipalName, Division, Department, JobTitle, ManagerUpn)
+                SELECT UserPrincipalName, Division, Department, JobTitle, ManagerUPN FROM audit.UserDirectory;');
 
     /* ---- 3b. Copilot licence history (optional) --------------------------- */
     /*
