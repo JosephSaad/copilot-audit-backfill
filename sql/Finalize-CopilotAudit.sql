@@ -55,6 +55,15 @@ BEGIN
     RETURN;
 END;
 
+/* Finalize rebuilds from the backfill's staging table only. Once incremental
+   loads have been appended, a rebuild would silently drop every day they added. */
+IF OBJECT_ID(N'audit.CopilotLoad', N'U') IS NOT NULL
+   AND EXISTS (SELECT 1 FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL)
+BEGIN
+    RAISERROR('Finalize refused: incremental loads have been merged into audit.CopilotAudit, and rebuilding from the backfill''s staging table would drop them. The tables are already final.', 16, 1);
+    RETURN;
+END;
+
 DECLARE @unfinished INT =
     (SELECT COUNT(*) FROM audit.CopilotBackfillWindow WHERE Status NOT IN ('Loaded', 'Split'));
 IF @unfinished > 0
@@ -106,6 +115,8 @@ CREATE TABLE audit.CopilotAudit
     AdministrativeUnits NVARCHAR(4000)  NULL,
     AuditDataGz         VARBINARY(MAX)  NULL,       -- CAST(DECOMPRESS(AuditDataGz) AS NVARCHAR(MAX)); or use audit.vCopilotAuditRecord
     WindowId            BIGINT          NOT NULL,   -- lineage back to the control table
+    LoadId              INT             NULL,       -- NULL: the backfill. Otherwise audit.CopilotLoad, and
+                                                    -- WindowId is then a row of audit.CopilotLoadWindow
     INDEX CCI_CopilotAudit CLUSTERED COLUMNSTORE
 );
 
@@ -165,6 +176,9 @@ CREATE TABLE audit.CopilotInteraction
 );
 
 RAISERROR('Shredding AuditData into audit.CopilotInteraction...', 0, 1) WITH NOWAIT;
+
+/* audit.usp_MergeCopilotLoad (Create-CopilotLoadProcedure.sql) shreds the
+   records incremental loads append with these same expressions. Change both. */
 
 INSERT INTO audit.CopilotInteraction WITH (TABLOCK)
 (

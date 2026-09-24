@@ -104,6 +104,39 @@ ORDER BY Month, ActiveUsers DESC;
 
 Note that the audit record doesn't contain prompt or response text. That needs the Copilot interaction export API or eDiscovery.
 
+## 5b. Keeping it current
+
+After the backfill is finalized, schedule `-Incremental`. Each run:
+
+1. Picks up an unfinished load if the previous run stopped, otherwise starts a new one from where the data ends (the last load's end, or the backfill's) **minus `-LookbackHours`** (48 by default) up to the start of the current hour. Microsoft commits to no delivery time for audit records - core services typically take 60-90 minutes, others longer - so the lookback is searched again.
+2. Downloads it with the same engine into `audit.CopilotLoadWindow` / `audit.CopilotLoadStage`.
+3. Runs `audit.usp_MergeCopilotLoad`: checks the load covers its range with no gap, appends the records `audit.CopilotAudit` does not already hold (tagged with `LoadId`) and their shredded rows to `audit.CopilotInteraction` in one transaction, and empties the load tables.
+4. Refreshes the derived tables that are installed: `usp_FlattenCopilotAudit` and `usp_ShredLicenseEvents` from the load's start, then `usp_BuildCopilotSessions`. `-SkipPostProcessing` stops after the merge.
+
+`audit.CopilotLoad` keeps one row per load with its range and how many records were new or already there; `-Status` lists the latest. Once a load has been merged, `-Finalize` refuses to run: it rebuilds from the backfill's staging table and would drop the loaded days.
+
+**Unattended sign-in.** A scheduled task has nobody to sign in, so use an app registration:
+
+1. Entra admin center → App registrations → New registration.
+2. API permissions → Microsoft Graph → **Application** permissions → `AuditLogsQuery.Read.All` → Grant admin consent.
+3. Certificates & secrets → upload the public key of a certificate held in the task account's certificate store.
+4. Run with `-TenantId <tenant> -ClientId <app id> -CertificateThumbprint <thumbprint>`.
+
+**The scheduled task.** Daily, as a service account with `db_owner` (or the rights in section 1) on the database and read access to the certificate's private key:
+
+```powershell
+$taskArgs = '-NoProfile -File "D:\CopilotAudit\Invoke-CopilotAuditBackfill.ps1" -SqlServer SQLPROD01 -Database CopilotAudit ' +
+            '-Incremental -TenantId contoso.onmicrosoft.com -ClientId <app-id> -CertificateThumbprint <thumbprint> ' +
+            '-LogPath D:\CopilotAudit\logs\incremental.log'
+$cred = Get-Credential 'DOMAIN\svc-copilotaudit'
+Register-ScheduledTask -TaskName 'Copilot audit - incremental' `
+    -Action (New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $taskArgs) `
+    -Trigger (New-ScheduledTaskTrigger -Daily -At 3am) `
+    -User $cred.UserName -Password $cred.GetNetworkCredential().Password
+```
+
+A group managed service account avoids storing a password at all. Schedule the Power BI refresh after the task. A failed run exits non-zero, so the task history shows it; the next run resumes the same load.
+
 ## 6. How it stays inside Microsoft's limits
 
 | Published limit (Graph throttling docs) | What the engine does |
@@ -133,7 +166,10 @@ Note that the audit record doesn't contain prompt or response text. That needs t
 | `Submission budget reached` | Normal. Downloads continue; submissions resume on their own when the 24 h window rolls. |
 | Old windows load 0 rows | Retention boundary (section 1). The summary reports the oldest record found. |
 | `window(s) failed after retries` | Run the same command again. Failed windows are retried; nothing else is redone. |
-| Finalize refused | It names the reason: unfinished windows, gaps, or compatibility level. |
+| Finalize refused | It names the reason: unfinished windows, gaps, compatibility level, or incremental loads already merged. |
+| `-Incremental`: `Run a backfill to completion in this database first` | Loads continue from a finalized backfill. Run one (even a single day) and `-FinalizeOnly`. |
+| `-Incremental`: `Merge refused: ... gap(s)` | A load's windows do not cover its range. Inspect `audit.CopilotLoadWindow`; the next run resumes the load. |
+| `-Incremental` app-only: `token lacks the application permission` | The app has the delegated permission, or consent was not granted. Add `AuditLogsQuery.Read.All` under **Application** permissions and grant consent. |
 
 ## Files
 
@@ -144,4 +180,5 @@ Note that the audit record doesn't contain prompt or response text. That needs t
 | `Import-CopilotAuditEngine.ps1` | Compiles the engine. |
 | `sql/Create-CopilotAuditSchema.sql` | DDL, run automatically. Provided for DBA review. |
 | `sql/Finalize-CopilotAudit.sql` | Dedupe, columnstore, reporting tables and the export-shaped view. |
+| `sql/Create-CopilotLoadProcedure.sql` | `audit.usp_MergeCopilotLoad`, which appends each `-Incremental` load. Installed automatically. |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |

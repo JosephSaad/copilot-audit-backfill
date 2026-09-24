@@ -71,6 +71,28 @@ $l = ConvertTo-UtcDate ([datetime]::new(2025, 9, 22, 8, 0, 0, [DateTimeKind]::Lo
 Assert-That ($l.Kind -eq 'Utc' -and $l -eq [datetime]::new(2025, 9, 22, 8, 0, 0, [DateTimeKind]::Local).ToUniversalTime()) 'a local time is converted'
 
 # ---------------------------------------------------------------------------
+Write-Host "`n2b. Incremental load range" -ForegroundColor Cyan
+
+# The base comes back from SQL with Kind Unspecified; it is UTC.
+$base = [datetime]::new(2026, 9, 23, 0, 0, 0, [DateTimeKind]::Unspecified)
+$now  = [datetime]::new(2026, 9, 24, 13, 37, 12, [DateTimeKind]::Utc)
+
+$r = Resolve-LoadRange -BaseEndUtc $base -NowUtc $now -LookbackHours 48
+Assert-That ($r.Start -eq [datetime]::new(2026, 9, 21, 0, 0, 0, [DateTimeKind]::Utc) -and $r.Start.Kind -eq 'Utc') `
+    "a load starts the lookback before where the data ends ($($r.Start.ToString('u')))"
+Assert-That ($r.End -eq [datetime]::new(2026, 9, 24, 13, 0, 0, [DateTimeKind]::Utc)) `
+    "and ends at the start of the current hour, not mid-hour ($($r.End.ToString('u')))"
+
+$r0 = Resolve-LoadRange -BaseEndUtc $base -NowUtc $now -LookbackHours 0
+Assert-That ($r0.Start -eq [datetime]::new(2026, 9, 23, 0, 0, 0, [DateTimeKind]::Utc)) 'a zero lookback starts exactly where the data ends'
+
+$rEnd = Resolve-LoadRange -BaseEndUtc $base -NowUtc $now -LookbackHours 48 -EndUtc ([datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]::Utc))
+Assert-That ($rEnd.End -eq [datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]::Utc)) 'an explicit end is honoured to the minute'
+
+$none = Resolve-LoadRange -BaseEndUtc $base -NowUtc ([datetime]::new(2026, 9, 23, 0, 40, 0, [DateTimeKind]::Utc)) -LookbackHours 48
+Assert-That ($null -eq $none) 'nothing to load when the current hour has not moved past the data'
+
+# ---------------------------------------------------------------------------
 Write-Host "`n3. Monitor loop: progress + stale-token re-authentication" -ForegroundColor Cyan
 
 $mock = Start-MockGraph @{ days = 8; rotate_after_pages = 40; fail_first_query_covering = '2030-01-01T00:00:00Z' }

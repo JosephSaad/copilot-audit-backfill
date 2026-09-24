@@ -65,6 +65,19 @@ A browser opens for sign-in. Every 30 seconds it prints a progress line:
 
 **Ctrl+C, a crash or a reboot:** run the same command again. The dates are remembered in SQL, so a resume does not need them, and searches that already finished server-side are reused rather than resubmitted. Add `-Status` from another window to check progress.
 
+## Keeping it current
+
+The backfill covers one fixed range. Once it is finalized, run `-Incremental` on a schedule to keep the tables current:
+
+```powershell
+.\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -Incremental `
+    -TenantId contoso.onmicrosoft.com -ClientId <app-id> -CertificateThumbprint <thumbprint>
+```
+
+Each run loads from where the data ends up to the start of the current hour, and appends the new records to `audit.CopilotAudit` and `audit.CopilotInteraction` without rebuilding them. It also re-searches the 48 hours before that (`-LookbackHours`), because Purview can deliver a record hours after the event; records already loaded are counted and skipped, never duplicated. It then refreshes whichever derived tables are installed: the flattened table, licence events and sessions (`-SessionLicenceDatabase` passes the licence history through). A daily run costs 2–4 of the tenant's ~200 searches per 24 hours.
+
+`-CertificateThumbprint` signs in as an app, so Task Scheduler can run it with nobody present; the app needs the Microsoft Graph **application** permission `AuditLogsQuery.Read.All`, admin-consented. Without it, the run signs in interactively as before. A run that stops part-way resumes its load next time, and a run that fails exits non-zero. See [RUNBOOK.md](RUNBOOK.md#5b-keeping-it-current) for the app registration and the scheduled task.
+
 ## Servers without gallery access
 
 `Microsoft.Graph.Authentication` is the only external module — everything else the tool uses, including `System.Data.SqlClient`, ships inside PowerShell 7. On a locked-down server that cannot reach the PowerShell Gallery, put the module next to the script instead of installing it.
@@ -171,6 +184,7 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `Import-CopilotAuditEngine.ps1` | Compiles the engine. |
 | `sql/Create-CopilotAuditSchema.sql` | DDL, run automatically. Provided for DBA review. |
 | `sql/Finalize-CopilotAudit.sql` | Dedupe, columnstore, reporting tables and the export-shaped view. |
+| `sql/Create-CopilotLoadProcedure.sql` | `audit.usp_MergeCopilotLoad`, which appends each `-Incremental` load. Installed automatically. |
 | `sql/Create-CopilotFlattenedSchema.sql` | The flattened table, plus the optional licence lookup. |
 | `sql/Create-CopilotFlattenProcedure.sql` | `audit.usp_FlattenCopilotAudit`. |
 | `sql/Create-CopilotPurgeProcedure.sql` | `audit.usp_PurgeCopilotAuditJson`. |
