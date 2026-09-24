@@ -4,6 +4,45 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-24
+
+### Added
+
+- **Licence lifecycle from the audit log, not from the directory.** Microsoft
+  Graph reports only the *current* licence assignment, so "when was this user
+  given Copilot" is answerable and "when was it taken away" is not. The
+  unified audit log carries both, as Entra directory events, for 180 days.
+  Two new scripts read them:
+  - `sql/Create-LicenseEventSchema.sql` — `audit.LicenseEvent` and
+    `audit.LicenseEventProperty` for the shredded events, `audit.vLicenseChange`
+    for one row per licence change, and `audit.vLicenseLifecycle` for one row
+    per user with the provisioning and revocation dates.
+  - `sql/Create-LicenseEventProcedure.sql` — `audit.usp_ShredLicenseEvents`,
+    batched and MERGE-based like the flatten procedure, so it is safe to run
+    incrementally.
+- Collect the source records by adding the operations to a backfill run:
+  `-Operations 'Change user license','Add user','Delete user','Update user'`.
+  `-Operations` was already a passthrough to the API's `operationFilters`; no
+  engine change was needed.
+- Two details that cost real debugging time, handled in the shredder rather
+  than left to whoever queries the tables. Entra writes the same operation
+  both with and without a trailing period (`Change user license.`), which is
+  normalised away. And a `Change user license` record often carries no licence
+  detail at all — its detail sits on a sibling record written in the same
+  transaction, so the shredder pairs records on `InterSystemsId` and marks the
+  borrowed rows `FromPairedRecord = 1` rather than silently merging them.
+- Target resolution prefers the UPN on the event itself and falls back to the
+  paired record's, so a rename between the event and the report does not lose
+  the user.
+
+### Tests
+
+- `tests/Test-SqlIntegration.ps1` gains section 9: the trailing-period
+  normalisation, the licence property on both carrying records, the
+  detail-free record picking up its licences from its pair, the new licence
+  value being readable, and `vLicenseLifecycle` reporting both provisioning
+  and revocation for one user.
+
 ## [1.2.0] - 2026-09-24
 
 ### Added
@@ -198,6 +237,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[1.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.3.0
 [1.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.2.0
 [1.1.1]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.1.1
 [1.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.1.0
