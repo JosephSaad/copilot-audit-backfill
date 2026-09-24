@@ -27,6 +27,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     incremental refresh.
   - A partial refresh in a different reporting time zone from the last one is
     refused; it would mix zones in one table.
+  - The agent dimension reads `CopilotEventData.AgentId` when a record has
+    one, and otherwise the agent named in `AppIdentity`
+    (`Copilot.Studio.<env>-<tenant>-<schema name>`, `MicrosoftAgent.<...>`).
+    On a live tenant AgentId was empty on every row, Copilot Studio agents
+    included, so without this every agent interaction would have read
+    "(no agent)". `AgentSource` says which it came from.
 
 ### Tests
 
