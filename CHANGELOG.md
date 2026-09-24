@@ -4,10 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-24
 
-User attributes now come from on-premises Active Directory, and Graph is used
-for licences only - one fewer Graph permission, and none for profiles.
+User attributes now come from on-premises Active Directory, with Graph used
+for licences only - three Graph permissions instead of four, and none for
+profiles. And the nightly load stops redoing all of history: at 40M
+interactions it went from about 31 minutes to about 74 seconds, with
+identical results.
+
+### Setting up
+
+The app registration needs three Microsoft Graph application permissions:
+`AuditLogsQuery.Read.All`, `User.Read.All` and `LicenseAssignment.Read.All`.
+Schedule three jobs daily, in this order:
+`tools/Export-UsersWithHierarchy-ToSql.ps1` (on a machine that reaches the
+trusted domain; check the match percentage it reports on the first run),
+`tools/Update-CopilotAuditEnrichment.ps1`, then
+`Invoke-CopilotAuditBackfill.ps1 -Incremental`. README and RUNBOOK
+(sections 5b-5d) have the details.
+
+A database built by 1.x upgrades in place: re-run the enrichment, session
+and `bi` scripts in `sql/` (the procedures refuse to run until then), load
+the user directory, and build sessions once with no `@SinceUtc`.
 
 ### Added
 
@@ -95,6 +113,12 @@ at that size.
   first, the match report counts UPN and mail matches, and the adoption
   views take departments from AD. Section 12 checks the org chain reaching
   `bi.DimUser`.
+- `Test-SqlIntegration.ps1` sections 10 and 12, incremental sessions: after
+  a new prompt, an incremental build equals a full rebuild column for column
+  (sessions and weeks, including a week straddling the rebuilt day); earlier
+  sessions keep their keys; numbering carries on; a build under different
+  settings is refused; and `bi.FactSession` stays equal to the sessions
+  through incremental, full and no session builds.
 
 ## [1.6.0] - 2026-09-24
 
@@ -551,6 +575,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.0.0
 [1.6.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.6.0
 [1.5.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.5.0
 [1.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.4.0
