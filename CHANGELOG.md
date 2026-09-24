@@ -12,24 +12,20 @@ profiles. And the nightly load stops redoing all of history: at 40M
 interactions it went from about 31 minutes to about 74 seconds, with
 identical results.
 
-### Upgrading from 1.x
+### Setting up
 
-1. **App registration:** add `LicenseAssignment.Read.All` (application);
-   remove `Organization.Read.All` and `AdministrativeUnit.Read.All`. Keep
-   `AuditLogsQuery.Read.All` and `User.Read.All`.
-2. **SQL:** re-run `sql/Create-CopilotEnrichmentSchema.sql`,
-   `sql/Create-CopilotSessionSchema.sql`, `sql/Create-CopilotSessionProcedure.sql`,
-   `sql/Create-CopilotBiSchema.sql` and `sql/Create-CopilotBiProcedure.sql`.
-   The session and `bi` procedures refuse to run against the older tables.
-3. **User directory:** schedule `tools/Export-UsersWithHierarchy-ToSql.ps1`
-   on a machine that can reach the trusted domain, before the licence tool
-   and `-Incremental`. On its first run, check the match percentage it
-   reports (RUNBOOK section 5d).
-4. **Rebuild sessions once**, after the first directory load:
-   `EXEC audit.usp_BuildCopilotSessions` with your `@LicenceEventDatabase`
-   and no `@SinceUtc`, so every session carries the AD attributes. The next
-   `bi` refresh copies them all and restates every user from AD; refresh the
-   Power BI model fully once. From then on `-Incremental` keeps both current.
+The app registration needs three Microsoft Graph application permissions:
+`AuditLogsQuery.Read.All`, `User.Read.All` and `LicenseAssignment.Read.All`.
+Schedule three jobs daily, in this order:
+`tools/Export-UsersWithHierarchy-ToSql.ps1` (on a machine that reaches the
+trusted domain; check the match percentage it reports on the first run),
+`tools/Update-CopilotAuditEnrichment.ps1`, then
+`Invoke-CopilotAuditBackfill.ps1 -Incremental`. README and RUNBOOK
+(sections 5b-5d) have the details.
+
+A database built by 1.x upgrades in place: re-run the enrichment, session
+and `bi` scripts in `sql/` (the procedures refuse to run until then), load
+the user directory, and build sessions once with no `@SinceUtc`.
 
 ### Added
 
