@@ -1192,6 +1192,13 @@ Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-C
 Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotBiProcedure.sql') -Raw)
 Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotBiSchema.sql') -Raw)   # re-runnable
 
+# Upgrading a database whose bi schema predates AgentSource: the script is one
+# batch, so a static reference to the new column would not even compile there.
+Invoke-SqlText -Sql 'ALTER TABLE bi.DimAgent DROP COLUMN AgentSource;'
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotBiSchema.sql') -Raw)
+$upgraded = Invoke-SqlText -As Scalar -Sql "SELECT AgentSource FROM bi.DimAgent WHERE AgentId = N'(none)';"
+Assert-That ("$upgraded" -eq '(no agent)') "the schema script upgrades an older bi.DimAgent in place ($upgraded)"
+
 # User C has no licence history, only today's enrichment: licensed since
 # 12:00Z on the 16th (08:00 Eastern). One interaction before, one after.
 # User A's licence comes from the history section 10 added (14:00Z on the
@@ -1212,6 +1219,11 @@ UPDATE audit.RawLogFlattened SET ModelProvider = N'OpenAI', ModelName = N'gpt-5'
 UPDATE audit.RawLogFlattened SET AIPlugin = N'BingWebSearch' WHERE RecordId = N's-02';
 UPDATE audit.RawLogFlattened SET JailbreakDetected = N'true', PromptInjectionDetected = N'false' WHERE RecordId = N's-03';
 UPDATE audit.RawLogFlattened SET AgentId = N'agent-1', AgentName = N'Old name' WHERE RecordId = N's-08';
+-- A Copilot Studio agent named only in AppIdentity, as on a live tenant; and
+-- an AgentId, where there is one, wins over AppIdentity.
+UPDATE audit.RawLogFlattened SET AppIdentity = N'Copilot.Studio.Default-7d53f522-72db-4957-aa26-2d1fe476b96f-crd20_expenseAgent' WHERE RecordId IN (N's-10', N's-09');
+UPDATE audit.RawLogFlattened SET AppIdentity = N'MicrosoftAgent.OutlookDraftsChatSteering.BuiltIn_DraftsAgent' WHERE RecordId = N's-04';
+UPDATE audit.RawLogFlattened SET AppIdentity = N'Copilot.M365Copilot.WebChat' WHERE RecordId = N's-01';
 UPDATE audit.RawLogFlattened SET AgentId = N'agent-1', AgentName = N'New name' WHERE RecordId = N's-09';
 "@
 
@@ -1267,6 +1279,9 @@ $dims = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT AppCategory FROM bi.DimApp WHERE App = N'Office') AS OfficeCat,
        (SELECT AppCategory FROM bi.DimApp WHERE App = N'Word') AS WordCat,
        (SELECT AgentName FROM bi.DimAgent WHERE AgentId = N'agent-1') AS AgentName,
+       (SELECT CONCAT(g.AgentName, '/', g.AgentSource) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-10') AS StudioAgent,
+       (SELECT CONCAT(g.AgentName, '/', g.AgentSource) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-04') AS MsAgent,
+       (SELECT CONCAT(g.AgentId, '/', g.AgentSource) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-09') AS S09Agent,
        (SELECT COUNT(*) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE g.AgentId = N'(none)') AS NoAgent,
        (SELECT m.ModelName FROM bi.FactInteraction AS f JOIN bi.DimModel AS m ON m.ModelKey = f.ModelKey WHERE f.RecordId = N's-01') AS S01Model,
        (SELECT Department FROM bi.DimUser WHERE UserPrincipalName = N'a@contoso.com') AS ADept,
@@ -1275,8 +1290,11 @@ SELECT (SELECT AppCategory FROM bi.DimApp WHERE App = N'Office') AS OfficeCat,
 "@).Rows[0]
 Assert-That ("$($dims.OfficeCat)" -eq 'Copilot Chat' -and "$($dims.WordCat)" -eq 'In-App Copilot') `
     "apps carry the sessions' category mapping ($($dims.OfficeCat), $($dims.WordCat))"
-Assert-That ("$($dims.AgentName)" -eq 'New name' -and [int] $dims.NoAgent -eq ($flatRows - 2)) `
-    "an agent is named by its latest name, and interactions without one map to '(no agent)' ($($dims.AgentName), $($dims.NoAgent))"
+Assert-That ("$($dims.AgentName)" -eq 'New name' -and [int] $dims.NoAgent -eq ($flatRows - 4)) `
+    "an agent is named by its latest name, and interactions without one - a non-agent AppIdentity included - map to '(no agent)' ($($dims.AgentName), $($dims.NoAgent))"
+Assert-That ("$($dims.StudioAgent)" -eq 'crd20_expenseAgent/Copilot Studio' -and "$($dims.MsAgent)" -eq 'BuiltIn_DraftsAgent/Microsoft') `
+    "with no AgentId, the agent comes from AppIdentity: Copilot Studio and Microsoft agents ($($dims.StudioAgent), $($dims.MsAgent))"
+Assert-That ("$($dims.S09Agent)" -eq 'agent-1/Agent ID') "an AgentId wins over AppIdentity ($($dims.S09Agent))"
 Assert-That ("$($dims.S01Model)" -eq 'gpt-5') "the model dimension carries provider and name ($($dims.S01Model))"
 Assert-That ("$($dims.ADept)" -eq 'Finance' -and "$($dims.BToday)" -eq 'Not licensed' -and "$($dims.UnknownDir)" -eq 'Not looked up') `
     "users carry the directory profile and today's licence ($($dims.ADept), $($dims.BToday), $($dims.UnknownDir))"

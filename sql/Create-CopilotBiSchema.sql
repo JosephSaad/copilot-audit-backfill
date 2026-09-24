@@ -110,16 +110,36 @@ BEGIN
     INSERT INTO bi.DimApp (App) VALUES (N'(unknown)');
 END;
 
+/*
+    The agent an interaction went to. The record's CopilotEventData.AgentId
+    is often empty - on a live tenant it was empty on every row, Copilot
+    Studio agents included - and the agent is named in AppIdentity instead:
+    Copilot.Studio.<environment>-<tenant id>-<schema name> for a Copilot
+    Studio agent, MicrosoftAgent.<...>.<name> for one of Microsoft's. So the
+    procedure takes AgentId when there is one and AppIdentity otherwise, and
+    AgentSource says which.
+*/
 IF OBJECT_ID(N'bi.DimAgent', N'U') IS NULL
 BEGIN
     CREATE TABLE bi.DimAgent
     (
         AgentKey      INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimAgent PRIMARY KEY,
-        AgentId       NVARCHAR(400) NOT NULL CONSTRAINT UQ_DimAgent_Id UNIQUE,
+        AgentId       NVARCHAR(400) NOT NULL CONSTRAINT UQ_DimAgent_Id UNIQUE,   -- AgentId, else AppIdentity
         AgentName     NVARCHAR(400) NULL,   -- the latest name seen; agents get renamed
+        AgentSource   NVARCHAR(30)  NULL,   -- Copilot Studio | Microsoft | Agent ID | (no agent)
         FirstSeenUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DimAgent_FirstSeen DEFAULT (SYSUTCDATETIME())
     );
-    INSERT INTO bi.DimAgent (AgentId, AgentName) VALUES (N'(none)', N'(no agent)');
+    /* Dynamic: this script is one batch, compiled whole before it runs, and
+       on a database with the older DimAgent a static reference to
+       AgentSource would fail to compile before the ALTER below could add it. */
+    EXEC (N'INSERT INTO bi.DimAgent (AgentId, AgentName, AgentSource) VALUES (N''(none)'', N''(no agent)'', N''(no agent)'');');
+END;
+
+/* AgentSource arrived after the first bi schema; add it in place. */
+IF COL_LENGTH(N'bi.DimAgent', N'AgentSource') IS NULL
+BEGIN
+    ALTER TABLE bi.DimAgent ADD AgentSource NVARCHAR(30) NULL;
+    EXEC (N'UPDATE bi.DimAgent SET AgentSource = N''(no agent)'' WHERE AgentId = N''(none)'';');
 END;
 
 IF OBJECT_ID(N'bi.DimModel', N'U') IS NULL
@@ -287,7 +307,7 @@ EXEC (N'CREATE OR ALTER VIEW bi.Apps AS
 SELECT AppKey, App, AppCategory FROM bi.DimApp;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Agents AS
-SELECT AgentKey, AgentId, AgentName FROM bi.DimAgent;');
+SELECT AgentKey, AgentId, AgentName, AgentSource FROM bi.DimAgent;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Models AS
 SELECT ModelKey, ModelProvider, ModelName FROM bi.DimModel;');

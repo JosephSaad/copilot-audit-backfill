@@ -360,8 +360,7 @@ BEGIN
                f.UtcTimeStamp                                                                     AS Utc,
                COALESCE(NULLIF(LTRIM(RTRIM(LEFT(f.[User], 512))), N''), N'(unknown user)')          AS Upn,
                COALESCE(NULLIF(LTRIM(RTRIM(LEFT(f.App, 200))), N''), N'(unknown)')                 AS App,
-               COALESCE(NULLIF(LTRIM(RTRIM(f.AgentId)), N''), N'(none)')                           AS AgentId,
-               NULLIF(LTRIM(RTRIM(f.AgentName)), N'')                                              AS AgentName,
+               ag.AgentId, ag.AgentName, ag.AgentSource,
                COALESCE(NULLIF(LTRIM(RTRIM(f.ModelProvider)), N''), N'(not reported)')             AS ModelProvider,
                COALESCE(NULLIF(LTRIM(RTRIM(f.ModelName)), N''), N'(not reported)')                 AS ModelName,
                ISNULL(f.PromptCount, 0)                                                            AS PromptCount,
@@ -373,6 +372,24 @@ BEGIN
                CAST(CASE WHEN NULLIF(f.SensitivityLabelIds, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasSensitivityLabel
         INTO #src
         FROM audit.RawLogFlattened AS f
+        /* The agent: AgentId when the record has one, else the agent named
+           in AppIdentity (see bi.DimAgent in Create-CopilotBiSchema.sql). */
+        CROSS APPLY (SELECT NULLIF(LTRIM(RTRIM(f.AgentId)), N'')     AS Aid,
+                            NULLIF(LTRIM(RTRIM(f.AppIdentity)), N'') AS Ident,
+                            NULLIF(LTRIM(RTRIM(f.AgentName)), N'')   AS Aname) AS ai
+        CROSS APPLY (SELECT CASE WHEN ai.Aid IS NOT NULL                   THEN N'Agent ID'
+                                 WHEN ai.Ident LIKE N'Copilot.Studio.%'    THEN N'Copilot Studio'
+                                 WHEN ai.Ident LIKE N'MicrosoftAgent.%'    THEN N'Microsoft'
+                            END AS Src) AS asrc
+        CROSS APPLY (SELECT COALESCE(ai.Aid, CASE WHEN asrc.Src IS NOT NULL THEN ai.Ident END, N'(none)') AS AgentId,
+                            COALESCE(ai.Aname,
+                                     /* the schema name after the tenant id, e.g. crd20_expenseClaimAutomation */
+                                     CASE WHEN asrc.Src = N'Copilot Studio' AND CHARINDEX(N'-', REVERSE(ai.Ident)) > 1
+                                          THEN RIGHT(ai.Ident, CHARINDEX(N'-', REVERSE(ai.Ident)) - 1) END,
+                                     /* the last dotted part, e.g. BuiltIn_OutlookDraftsChatSteeringAgent */
+                                     CASE WHEN asrc.Src = N'Microsoft' AND CHARINDEX(N'.', REVERSE(ai.Ident)) > 1
+                                          THEN RIGHT(ai.Ident, CHARINDEX(N'.', REVERSE(ai.Ident)) - 1) END) AS AgentName,
+                            COALESCE(asrc.Src, N'(no agent)') AS AgentSource) AS ag
         WHERE f.UtcTimeStamp >= @lo AND f.UtcTimeStamp < @next;
 
         INSERT INTO bi.DimUser (UserPrincipalName)
@@ -383,9 +400,10 @@ BEGIN
         SELECT DISTINCT s.App FROM #src AS s
         WHERE NOT EXISTS (SELECT 1 FROM bi.DimApp AS d WHERE d.App = s.App);
 
-        INSERT INTO bi.DimAgent (AgentId)
-        SELECT DISTINCT s.AgentId FROM #src AS s
-        WHERE NOT EXISTS (SELECT 1 FROM bi.DimAgent AS d WHERE d.AgentId = s.AgentId);
+        INSERT INTO bi.DimAgent (AgentId, AgentSource)
+        SELECT s.AgentId, MIN(s.AgentSource) FROM #src AS s
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimAgent AS d WHERE d.AgentId = s.AgentId)
+        GROUP BY s.AgentId;
 
         INSERT INTO bi.DimModel (ModelProvider, ModelName)
         SELECT DISTINCT s.ModelProvider, s.ModelName FROM #src AS s
@@ -394,9 +412,9 @@ BEGIN
         /* An agent keeps its key when renamed; the name is the latest seen.
            Months run in time order, so the last one to write wins. */
         UPDATE d
-        SET AgentName = n.AgentName
+        SET AgentName = n.AgentName, AgentSource = n.AgentSource
         FROM bi.DimAgent AS d
-        JOIN (SELECT AgentId, AgentName,
+        JOIN (SELECT AgentId, AgentName, AgentSource,
                      ROW_NUMBER() OVER (PARTITION BY AgentId ORDER BY Utc DESC, RecordId DESC) AS rn
               FROM #src WHERE AgentName IS NOT NULL) AS n
           ON n.AgentId = d.AgentId AND n.rn = 1;
