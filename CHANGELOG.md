@@ -19,12 +19,63 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   feeds its actual row count back to the planner whenever the status carried no
   approximate count. The write happens on a SQL writer task, so it is volatile.
 
+- **Licence changes now carry their detail: most of them arrive chunked.**
+  1.3.0 assumed a detail-free `Change user license` had an `Update user`
+  sibling holding the licence lists. On a live tenant (1,042 directory records
+  over 180 days) that was not the shape: 400 of 422 `Change user license`
+  records had no detail, and none was recovered by pairing. When a change is
+  too large for one record - anyone with a few SKUs, because `AssignedPlan`
+  lists every service plan - Entra splits it across up to seven records, each
+  with empty `ModifiedProperties` and an `additionalDetails` of
+  `{"id","seq","b"}`. The `b` fragments, joined in `seq` order, are one JSON
+  document whose `targetUpdatedProperties` holds the change. 775 of the 1,042
+  records were fragments.
+  - `audit.usp_ShredLicenseEvents` keeps the fragments in a new
+    `audit.LicenseEventChunk` table (a group can span shredder batches),
+    reassembles every complete group after the batches, and files its
+    properties against the `seq = 1` record with `Source = 'chunks'`. A group
+    missing a fragment is reported and kept for a later run, never parsed from
+    a partial document. On the live data: 152 of 152 groups, 760 properties.
+  - Fragments are 10,000 characters, so they are read with
+    `OPENJSON ... WITH (... NVARCHAR(MAX))`: `JSON_VALUE` returns NULL past
+    4,000.
+- **`audit.vLicenseChange` returns licence changes only.** It returned every
+  directory event - 998 of its 1,042 rows had no licence detail, most of them
+  `Update user` events for things like Authenticator devices. It now returns
+  one row per licence property per change: each chunk group once, on its
+  `seq = 1` record; every licence property rather than `TOP (1)`; and the
+  `Update user` that Entra raises alongside each licence change, with the same
+  detail and `InterSystemsId`, folded into the `Change user license`. Failed
+  assignments (`MethodExecutionResult` only) are no longer reported as
+  changes. The live tenant's 1,042 rows become 98 changes. Pairing is kept as a
+  fallback and never borrows from the record's own chunk group.
+- **`audit.vLicenseLifecycle` counts a change once.** It counted every
+  fragment, so one user showed 24 licence changes rather than 4. It also
+  matches `Add user` and `Delete user` exactly, because the service's operation
+  filter for `Add user` returns `Add user sponsor` too, which is not an account
+  being created.
+
+### Added
+
+- `audit.vLicenseSkuChange` diffs each change's old and new `AssignedLicense`
+  lists into one row per SKU added or removed, which is the question the
+  feature exists to answer: when was this user given Copilot, and when was it
+  taken away.
+
 ### Tests
 
 - `mock_graph.py` gains `report_approx_count` (default on) to withhold
   `approximateReturnedRecordCount`. `Test-Engine.ps1` section G runs a sparse
   30-day tenant without it: 30 one-day searches before the fix, 16 after, with
   windows reaching 168 h.
+- `Test-SqlIntegration.ps1` section 9b reproduces the live shapes: a change
+  chunked into three fragments inserted out of order, its chunked
+  `Update user` twin, an Authenticator update, a failed assignment, a group
+  missing a fragment and an `Add user sponsor`. Section 9's pairing assertion
+  now expects every licence property from the pair, not one.
+- The suite runs against a local instance with Windows authentication
+  (`SQLIT_INTEGRATED=1`), and its `GO` splitter handles CRLF, so it passes
+  from a Windows checkout rather than only on the Linux CI runner.
 
 ## [1.3.0] - 2026-09-24
 
