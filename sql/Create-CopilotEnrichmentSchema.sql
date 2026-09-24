@@ -106,6 +106,13 @@ IF OBJECT_ID(N'audit.UserProfile', N'U') IS NULL
                                 CONSTRAINT DF_UserProfile_Updated DEFAULT (SYSUTCDATETIME())
     );
 
+/* Division is Entra's employeeOrgData.division - the org level above
+   department that reporting by business line is sliced by. Added after 1.2.0,
+   so existing databases are altered in place. */
+IF OBJECT_ID(N'audit.UserProfile', N'U') IS NOT NULL
+   AND COL_LENGTH(N'audit.UserProfile', N'Division') IS NULL
+    ALTER TABLE audit.UserProfile ADD Division NVARCHAR(200) NULL;
+
 IF OBJECT_ID(N'audit.UserProfile', N'U') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.indexes
                    WHERE object_id = OBJECT_ID(N'audit.UserProfile') AND name = N'IX_UserProfile_Department')

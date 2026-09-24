@@ -183,6 +183,7 @@ def directory_user(n):
         "userPrincipalName": "user%d@contoso.com" % n,
         "displayName": "User %d" % n,
         "department": DEPARTMENTS[n % 4],
+            "employeeOrgData": {"division": "Retail" if n % 4 == 0 else "Corporate", "costCenter": None},
         "jobTitle": "Analyst" if n % 2 == 0 else "Manager",
         "officeLocation": "Floor %d" % (n % 5),
         "city": "Toronto",

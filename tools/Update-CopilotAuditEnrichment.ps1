@@ -364,7 +364,7 @@ WHERE UserPrincipalName IS NOT NULL;
     }
 
     # ---- Look each one up --------------------------------------------------
-    $select = 'userPrincipalName,displayName,department,jobTitle,officeLocation,city,country,companyName,usageLocation,userType,accountEnabled,createdDateTime,assignedLicenses,assignedPlans'
+    $select = 'userPrincipalName,displayName,department,employeeOrgData,jobTitle,officeLocation,city,country,companyName,usageLocation,userType,accountEnabled,createdDateTime,assignedLicenses,assignedPlans'
     $licRows = New-Object System.Collections.Generic.List[object]
     $profRows = New-Object System.Collections.Generic.List[object]
     $notFound = 0
@@ -389,7 +389,7 @@ WHERE UserPrincipalName IS NOT NULL;
             })
             if (-not $SkipProfiles) {
                 $profRows.Add([pscustomobject]@{
-                    UserPrincipalName = $upn; DisplayName = $null; Department = $null; JobTitle = $null
+                    UserPrincipalName = $upn; DisplayName = $null; Department = $null; Division = $null; JobTitle = $null
                     OfficeLocation = $null; City = $null; Country = $null; CompanyName = $null
                     UsageLocation = $null; UserType = $null; AccountEnabled = $null; ManagerUpn = $null
                     CreatedDateTimeUtc = $null; DirectoryStatus = 'NotFound'
@@ -443,6 +443,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 UserPrincipalName  = "$(Get-Prop $user 'userPrincipalName')"
                 DisplayName        = Get-Prop $user 'displayName'
                 Department         = Get-Prop $user 'department'
+                Division           = Get-Prop (Get-Prop $user 'employeeOrgData') 'division'
                 JobTitle           = Get-Prop $user 'jobTitle'
                 OfficeLocation     = Get-Prop $user 'officeLocation'
                 City               = Get-Prop $user 'city'
@@ -473,7 +474,7 @@ WHERE UserPrincipalName IS NOT NULL;
 
     if (-not $SkipProfiles) {
         $n = Save-Rows -Table 'audit.UserProfile' -KeyColumn 'UserPrincipalName' -Rows $profRows `
-                       -ColumnOrder @('UserPrincipalName', 'DisplayName', 'Department', 'JobTitle',
+                       -ColumnOrder @('UserPrincipalName', 'DisplayName', 'Department', 'Division', 'JobTitle',
                                       'OfficeLocation', 'City', 'Country', 'CompanyName', 'UsageLocation',
                                       'UserType', 'AccountEnabled', 'ManagerUpn', 'CreatedDateTimeUtc',
                                       'DirectoryStatus') `
@@ -481,6 +482,7 @@ WHERE UserPrincipalName IS NOT NULL;
                            UserPrincipalName  = [System.Data.SqlDbType]::NVarChar
                            DisplayName        = [System.Data.SqlDbType]::NVarChar
                            Department         = [System.Data.SqlDbType]::NVarChar
+                           Division           = [System.Data.SqlDbType]::NVarChar
                            JobTitle           = [System.Data.SqlDbType]::NVarChar
                            OfficeLocation     = [System.Data.SqlDbType]::NVarChar
                            City               = [System.Data.SqlDbType]::NVarChar

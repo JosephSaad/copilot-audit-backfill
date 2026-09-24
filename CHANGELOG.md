@@ -6,8 +6,42 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
+- **Inferred sessions and the Saturday-Friday weekly rollup, in SQL.** A port
+  of the session script that read the Purview CSV export (v5.7.5).
+  sql/Create-CopilotSessionSchema.sql and sql/Create-CopilotSessionProcedure.sql
+  add udit.usp_BuildCopilotSessions, which rebuilds udit.CopilotSession
+  (one row per session) and udit.CopilotWeeklyRollup (per week, user,
+  primary app, category and licence) from udit.RawLogFlattened in one
+  transaction. udit.vCopilotSessionSummary and udit.vCopilotWeeklyRollup
+  carry the old CSVs' exact column names and formats.
+  - The script's rules: a new session after 60 minutes idle or on a new
+    calendar day in the reporting time zone; primary app and licence from the
+    first prompt; weeks run Saturday to Friday, labelled by the Friday, week 1
+    ending on the year's first Friday; a session counts in the week of its
+    last prompt.
+  - Two settings where the Graph data differs from the CSV. The script's
+    'Copilot Chat' test matched the portal export's App label; the Graph data
+    has host names, so udit.SessionAppCategory maps them (Office,
+    OfficeCopilotSearchAnswer, BizChat, Edge) and is editable. And the
+    script keyed sessions on app context, falling back to Location, skipping
+    rows with neither: on a live tenant that skipped every Copilot Chat,
+    Outlook and Teams row, 507 of 1,145. The procedure keys on the user by
+    default; @ContextFallback = 'Location' reproduces the script exactly.
+    udit.CopilotSessionRun logs each build's rule and every skipped row.
+  - @LicenceEventDatabase (one or several, comma-separated) sets each
+    session's licence flag to the licence held when it began, from the
+    licence-event history, rather than today's. On the live tenant this
+    changed the flag on 65 of 240 sessions.
+  - 240 sessions and 128 weekly groups from 1,145 records in 0.7 s.
+- 	ools/Export-CopilotSessionCsv.ps1 writes copilot_session_summary.csv and
+  weekly_rollup.csv from those views, quoted and UTF-8 as before, streamed
+  from SQL and renamed into place when complete. -Build rebuilds first.
+- **Division** in udit.UserProfile, from Entra's mployeeOrgData.division,
+  and in the session outputs. Existing databases are altered in place.
+
+### Fixed
 - **Windows now grow on a fresh run when the service reports no record count.**
   The planner learned density only from `approximateReturnedRecordCount` on the
   search status, and a live tenant returned none for any search, Copilot or
@@ -68,6 +102,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `approximateReturnedRecordCount`. `Test-Engine.ps1` section G runs a sparse
   30-day tenant without it: 30 one-day searches before the fix, 16 after, with
   windows reaching 168 h.
+- `Test-SqlIntegration.ps1` section 10 puts fixture rows on each session rule's
+  edge (59 and 60 minutes, midnight, a Saturday, a row with no context and
+  one with no user) and checks sessions, weeks and the run log under both the
+  default and the script's rule, plus the licence held at each session's start.
+  Section 8 checks Division.
 - `Test-SqlIntegration.ps1` section 9b reproduces the live shapes: a change
   chunked into three fragments inserted out of order, its chunked
   `Update user` twin, an Authenticator update, a failed assignment, a group
