@@ -78,16 +78,15 @@ Each run loads from where the data ends up to the start of the current hour, and
 
 `-CertificateThumbprint` signs in as an app, so Task Scheduler can run it with nobody present. Without it, the run signs in interactively as before. A run that stops part-way resumes its load next time, and a run that fails exits non-zero. See [RUNBOOK.md](RUNBOOK.md#5b-keeping-it-current) for the app registration and the scheduled task.
 
-**App registration permissions.** One app can run everything. Microsoft Graph **application** permissions, admin-consented, all read-only:
+**App registration permissions.** One app can run everything. Three Microsoft Graph **application** permissions, admin-consented, all read-only:
 
 | Permission | Needed for |
 |---|---|
-| `AuditLogsQuery.Read.All` | The backfill and `-Incremental` loads: Copilot records and licence events. Enough on its own if you don't run the enrichment tool. |
-| `User.Read.All` | Enrichment: profiles, Division, Copilot licences, managers, `-AllLicensedUsers`. |
-| `Organization.Read.All` | Enrichment: finding the Copilot SKUs (`LicenseAssignment.Read.All` also works). |
-| `AdministrativeUnit.Read.All` | Enrichment: administrative-unit names. |
+| `AuditLogsQuery.Read.All` | The backfill and `-Incremental` loads: Copilot records and licence events. Enough on its own if you don't run the licence tool. |
+| `User.Read.All` | Licence tool: each user's assigned licences and plans, and `-AllLicensedUsers`. |
+| `LicenseAssignment.Read.All` | Licence tool: the tenant's SKUs, to find the Copilot ones. |
 
-Plus a certificate credential. An app needs no Purview audit role; that applies to people signing in. RUNBOOK section 5b lists the Graph calls behind each permission.
+Plus a certificate credential. User attributes - title, department, division, office, manager, the org chain - come from on-premises Active Directory instead (see [Adoption reporting](#adoption-reporting)), which needs no Graph permission at all. An app needs no Purview audit role; that applies to people signing in. RUNBOOK section 5b lists the Graph calls behind each permission.
 
 ## Servers without gallery access
 
@@ -146,18 +145,27 @@ Note that audit records do not contain prompt or response text. That needs the C
 
 ## Adoption reporting
 
-The audit records say what happened, not who was entitled to it. Counting interactions tells you usage; comparing it against the licensed population tells you adoption, and that needs directory data the records cannot carry.
+The audit records say what happened, not who was entitled to it or where they sit in the organisation. Two tools fill that in, each from the one place that knows it:
+
+**Who holds a Copilot licence - from Microsoft Graph.**
 
 ```powershell
 .\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit `
     -TenantId contoso.onmicrosoft.com -AllLicensedUsers
 ```
 
-It reads Graph and writes only to `audit.CopilotLicense`, `audit.AdministrativeUnit` and `audit.UserProfile`, so it runs on its own schedule and cannot affect the archive. Only the users that appear in `audit.CopilotInteraction` are looked up, not the whole directory; `-AllLicensedUsers` adds licence holders who have never interacted, which is what the shelfware report needs. It signs in app-only with `-ClientId` and `-CertificateThumbprint` for unattended runs.
+Writes only `audit.CopilotLicense`: the Copilot SKU, since when, and whether the user still exists in Entra. Only the users in the audit data are looked up; `-AllLicensedUsers` adds licence holders who have never interacted, which is what the shelfware report needs. Needs `User.Read.All` and `LicenseAssignment.Read.All`, and signs in app-only with `-ClientId` and `-CertificateThumbprint` for unattended runs. Afterwards, re-run `audit.usp_FlattenCopilotAudit` to carry `IsCopilotLic` through to the flattened table.
 
-Needs `User.Read.All`, `Organization.Read.All` and `AdministrativeUnit.Read.All`. They can go on the same app registration as the audit permission (see [Keeping it current](#keeping-it-current)), or on a second one if you want the audit app kept to a single permission.
+**Where they sit - from on-premises Active Directory.**
 
-Afterwards, re-run `audit.usp_FlattenCopilotAudit` to carry `IsCopilotLic` through to the flattened table.
+```powershell
+.\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain corp.example.com `
+    -SqlServer SQLPROD01 -Database CopilotAudit
+```
+
+Reads every user in a trusted domain in one paged search and replaces `audit.UserDirectory` in one transaction: display name, mail, employee type, title, department, division, office, city, country, company, manager, whether they manage anyone, whether the account is enabled, and the management chain (`Mgr1` the top down to `Mgr<OrgDepth>`, the direct manager). Every account is loaded, enabled or not - a user who has left still has interactions to attribute. Sessions, the `bi` schema and the adoption views all read it.
+
+It binds to AD as the identity running it, over the trust, and needs **no Graph permission**. It runs on Windows PowerShell 5.1 or PowerShell 7, with nothing to install. The audit data is joined on the UPN, so after loading it reports how many audit users it matched - by UPN, and by mail for the rest. A low match means AD's UPNs are not the names users sign in to Microsoft 365 with.
 
 ```sql
 -- Licensed, never used: usually the number that pays for the rollout
@@ -240,9 +248,10 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `sql/Create-CopilotFlattenedSchema.sql` | The flattened table, plus the optional licence lookup. |
 | `sql/Create-CopilotFlattenProcedure.sql` | `audit.usp_FlattenCopilotAudit`. |
 | `sql/Create-CopilotPurgeProcedure.sql` | `audit.usp_PurgeCopilotAuditJson`. |
-| `sql/Create-CopilotEnrichmentSchema.sql` | Licence, administrative unit and user profile tables, plus the adoption views. |
+| `sql/Create-CopilotEnrichmentSchema.sql` | The licence and user directory tables, plus the adoption views. |
 | `tools/Save-CopilotAuditModules.ps1` | Builds the offline module bundle for a disconnected server. |
-| `tools/Update-CopilotAuditEnrichment.ps1` | Fills those tables from Microsoft Graph. |
+| `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licences, from Microsoft Graph. |
+| `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory and management chain, from on-premises AD. |
 | `sql/Create-CopilotSessionSchema.sql` | Session, weekly rollup, app-category and run-log tables, and the CSV-shaped views. |
 | `sql/Create-CopilotSessionProcedure.sql` | `audit.usp_BuildCopilotSessions`. |
 | `tools/Export-CopilotSessionCsv.ps1` | Writes the session and weekly CSVs. |

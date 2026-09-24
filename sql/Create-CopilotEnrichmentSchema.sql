@@ -1,13 +1,19 @@
 /*
     Copilot audit backfill - enrichment lookup tables
     ------------------------------------------------------------------------
-    Directory facts the audit records cannot carry, kept in their own tables so
-    nothing here touches the backfill path. Populated by
-    tools/Update-CopilotAuditEnrichment.ps1.
+    Facts about users that the audit records cannot carry, kept in their own
+    tables so nothing here touches the backfill path.
 
-      audit.CopilotLicense      who holds a Copilot licence, and since when
-      audit.AdministrativeUnit  administrative unit id -> display name
-      audit.UserProfile         department, office, manager and so on
+      audit.CopilotLicense   who holds a Copilot licence, and since when -
+                             from Microsoft Graph, by
+                             tools/Update-CopilotAuditEnrichment.ps1
+      audit.UserDirectory    title, department, division, office, manager and
+                             the management chain - from on-premises Active
+                             Directory, by tools/Export-UsersWithHierarchy-ToSql.ps1
+
+    Before 2.0.0 the Graph tool also filled audit.UserProfile and
+    audit.AdministrativeUnit. Nothing writes or reads them any more; on a
+    database that has them they are left in place, and can be dropped.
 
     audit.CopilotLicense is also created by Create-CopilotFlattenedSchema.sql,
     which shipped before this file existed and made only three columns. The
@@ -69,62 +75,61 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'CapabilityStatus') IS NULL
 IF COL_LENGTH(N'audit.CopilotLicense', N'DirectoryStatus') IS NULL
     ALTER TABLE audit.CopilotLicense ADD DirectoryStatus NVARCHAR(20) NULL;   -- Found | NotFound
 
-/* ---- Administrative units ---------------------------------------------- */
+/* ---- The user directory (on-premises AD) ------------------------------ */
+/*
+    One row per user, replaced whole on every load. Joined to the audit data
+    on UserPrincipalName, so AD's UPN must be the one users sign in to
+    Microsoft 365 with; the load reports how many audit users it matched, by
+    UPN and by Mail, so a mismatch shows at once.
 
-IF OBJECT_ID(N'audit.AdministrativeUnit', N'U') IS NULL
-    CREATE TABLE audit.AdministrativeUnit
+    Mgr1 is the top of the chain (the CEO) and Mgr<OrgDepth> the direct
+    manager; the columns after it are empty. That is the layout a Power BI
+    hierarchy wants. Chains deeper than 15 keep their top 15 levels; OrgDepth
+    is always the full depth.
+*/
+IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NULL
+    CREATE TABLE audit.UserDirectory
     (
-        Id              NVARCHAR(100)   NOT NULL
-                            CONSTRAINT PK_AdministrativeUnit PRIMARY KEY,
-        DisplayName     NVARCHAR(400)   NULL,
-        [Description]   NVARCHAR(1000)  NULL,
-        UpdatedUtc      DATETIME2(0)    NOT NULL
-                            CONSTRAINT DF_AdministrativeUnit_Updated DEFAULT (SYSUTCDATETIME())
+        UserPrincipalName  NVARCHAR(256)  NOT NULL CONSTRAINT PK_UserDirectory PRIMARY KEY,
+        Mail               NVARCHAR(256)  NULL,
+        FullName           NVARCHAR(256)  NULL,       -- displayName
+        EmployeeType       NVARCHAR(32)   NULL,       -- after -EmployeeTypeMap, e.g. EMPLOYEE / CONTRACTOR
+        IsManager          BIT            NOT NULL,   -- someone reports to them
+        AccountEnabled     BIT            NOT NULL,
+        JobTitle           NVARCHAR(128)  NULL,       -- title
+        Department         NVARCHAR(64)   NULL,       -- department
+        Division           NVARCHAR(256)  NULL,       -- division: the line of business
+        Office             NVARCHAR(128)  NULL,       -- physicalDeliveryOfficeName
+        City               NVARCHAR(128)  NULL,       -- l
+        Country            NVARCHAR(128)  NULL,       -- co
+        Company            NVARCHAR(64)   NULL,       -- company
+        ManagerUPN         NVARCHAR(256)  NULL,
+        ManagerName        NVARCHAR(256)  NULL,
+        OrgDepth           TINYINT        NOT NULL,   -- managers above this user; 0 = the top
+        Mgr1  NVARCHAR(256) NULL, Mgr2  NVARCHAR(256) NULL, Mgr3  NVARCHAR(256) NULL,
+        Mgr4  NVARCHAR(256) NULL, Mgr5  NVARCHAR(256) NULL, Mgr6  NVARCHAR(256) NULL,
+        Mgr7  NVARCHAR(256) NULL, Mgr8  NVARCHAR(256) NULL, Mgr9  NVARCHAR(256) NULL,
+        Mgr10 NVARCHAR(256) NULL, Mgr11 NVARCHAR(256) NULL, Mgr12 NVARCHAR(256) NULL,
+        Mgr13 NVARCHAR(256) NULL, Mgr14 NVARCHAR(256) NULL, Mgr15 NVARCHAR(256) NULL,
+        LoadedUtc          DATETIME2(0)   NOT NULL CONSTRAINT DF_UserDirectory_Loaded DEFAULT (SYSUTCDATETIME())
     );
 
-/* ---- User profiles ------------------------------------------------------ */
-
-IF OBJECT_ID(N'audit.UserProfile', N'U') IS NULL
-    CREATE TABLE audit.UserProfile
-    (
-        UserPrincipalName   NVARCHAR(512)   NOT NULL
-                                CONSTRAINT PK_UserProfile PRIMARY KEY,
-        DisplayName         NVARCHAR(400)   NULL,
-        Department          NVARCHAR(200)   NULL,
-        JobTitle            NVARCHAR(200)   NULL,
-        OfficeLocation      NVARCHAR(200)   NULL,
-        City                NVARCHAR(200)   NULL,
-        Country             NVARCHAR(200)   NULL,
-        CompanyName         NVARCHAR(200)   NULL,
-        UsageLocation       NVARCHAR(10)    NULL,
-        UserType            NVARCHAR(20)    NULL,   -- Member | Guest
-        AccountEnabled      BIT             NULL,
-        ManagerUpn          NVARCHAR(512)   NULL,
-        CreatedDateTimeUtc  DATETIME2(0)    NULL,
-        DirectoryStatus     NVARCHAR(20)    NULL,   -- Found | NotFound
-        UpdatedUtc          DATETIME2(0)    NOT NULL
-                                CONSTRAINT DF_UserProfile_Updated DEFAULT (SYSUTCDATETIME())
-    );
-
-/* Division is Entra's employeeOrgData.division - the org level above
-   department that reporting by business line is sliced by. Added after 1.2.0,
-   so existing databases are altered in place. */
-IF OBJECT_ID(N'audit.UserProfile', N'U') IS NOT NULL
-   AND COL_LENGTH(N'audit.UserProfile', N'Division') IS NULL
-    ALTER TABLE audit.UserProfile ADD Division NVARCHAR(200) NULL;
-
-IF OBJECT_ID(N'audit.UserProfile', N'U') IS NOT NULL
+IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.indexes
-                   WHERE object_id = OBJECT_ID(N'audit.UserProfile') AND name = N'IX_UserProfile_Department')
-    EXEC (N'CREATE INDEX IX_UserProfile_Department ON audit.UserProfile (Department) INCLUDE (OfficeLocation, Country);');
+                   WHERE object_id = OBJECT_ID(N'audit.UserDirectory') AND name = N'IX_UserDirectory_Mail')
+    EXEC (N'CREATE INDEX IX_UserDirectory_Mail ON audit.UserDirectory (Mail);');
 
 /* ---- Reporting views ---------------------------------------------------- */
 
 /*
+    Both views read audit.CopilotInteraction, which finalize creates; before
+    then they are skipped, so the tables can be loaded first.
+
     Adoption: licensed users against users who actually interacted. The LEFT
     JOIN direction matters - a licensed user with no interactions is the
     shelfware this is meant to surface.
 */
+IF OBJECT_ID(N'audit.CopilotInteraction', N'U') IS NOT NULL
 EXEC (N'
 CREATE OR ALTER VIEW audit.vCopilotAdoption
 AS
@@ -132,19 +137,21 @@ SELECT l.UserPrincipalName,
        l.IsCopilotLic,
        l.SkuPartNumber,
        l.LicensedSinceUtc,
-       p.Department,
-       p.OfficeLocation,
-       p.Country,
-       p.ManagerUpn,
-       p.UserType,
+       d.Division,
+       d.Department,
+       d.Office,
+       d.Country,
+       d.ManagerUPN,
+       d.EmployeeType,
+       d.AccountEnabled,
        u.Interactions,
        u.FirstInteractionUtc,
        u.LastInteractionUtc,
        CASE WHEN u.Interactions IS NULL THEN 1 ELSE 0 END AS NeverUsed,
        DATEDIFF(DAY, l.LicensedSinceUtc, u.FirstInteractionUtc) AS DaysToFirstUse
 FROM audit.CopilotLicense AS l
-LEFT JOIN audit.UserProfile AS p
-       ON p.UserPrincipalName = l.UserPrincipalName
+LEFT JOIN audit.UserDirectory AS d
+       ON d.UserPrincipalName = l.UserPrincipalName
 LEFT JOIN (
     SELECT UserPrincipalName,
            COUNT_BIG(*)         AS Interactions,
@@ -156,15 +163,16 @@ LEFT JOIN (
 WHERE l.IsCopilotLic = 1;');
 
 /* Interactions by department, for the cut every rollout report asks for. */
+IF OBJECT_ID(N'audit.CopilotInteraction', N'U') IS NOT NULL
 EXEC (N'
 CREATE OR ALTER VIEW audit.vCopilotUsageByDepartment
 AS
-SELECT ISNULL(p.Department, N''(unknown)'') AS Department,
+SELECT ISNULL(d.Department, N''(unknown)'') AS Department,
        i.ActivityDate,
        i.AppHost,
        COUNT_BIG(*)                          AS Interactions,
        COUNT(DISTINCT i.UserPrincipalName)   AS ActiveUsers
 FROM audit.CopilotInteraction AS i
-LEFT JOIN audit.UserProfile AS p
-       ON p.UserPrincipalName = i.UserPrincipalName
-GROUP BY ISNULL(p.Department, N''(unknown)''), i.ActivityDate, i.AppHost;');
+LEFT JOIN audit.UserDirectory AS d
+       ON d.UserPrincipalName = i.UserPrincipalName
+GROUP BY ISNULL(d.Department, N''(unknown)''), i.ActivityDate, i.AppHost;');

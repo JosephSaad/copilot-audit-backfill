@@ -122,18 +122,17 @@ After the backfill is finalized, schedule `-Incremental`. Each run:
 3. Certificates & secrets → upload the public key of a certificate held in the task account's certificate store. The scripts sign in with a certificate only (`-CertificateThumbprint`); there is no client-secret option.
 4. Run with `-TenantId <tenant> -ClientId <app id> -CertificateThumbprint <thumbprint>`.
 
-**Every permission, for one app registration that runs everything.** All are Microsoft Graph **application** permissions, and all are read-only:
+**Every permission, for one app registration that runs everything.** Three Microsoft Graph **application** permissions, all read-only:
 
 | Permission | Used by | Graph calls | What for |
 |---|---|---|---|
 | `AuditLogsQuery.Read.All` | `Invoke-CopilotAuditBackfill.ps1`: the backfill, `-Incremental`, and licence-event databases | `POST` and `GET /security/auditLog/queries`, `GET .../records` | Copilot interaction records and the Entra licence events. The per-workload permissions (`AuditLogsQuery-Entra.Read.All`, `-Exchange`, `-SharePoint`, `-OneDrive`, `-CRM`, `-Endpoint`) include none for Copilot, so the all-services one is needed. |
-| `User.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /users/{upn}`, `GET /users?$filter=assignedLicenses/any(...)`, `GET /users/{upn}/manager` | Profile, Department, Division (`employeeOrgData`), Copilot licence and since when (`assignedLicenses`, `assignedPlans`), licence holders who never used Copilot (`-AllLicensedUsers`), manager. |
-| `Organization.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /subscribedSkus` | Which of the tenant's SKUs are Copilot. Microsoft lists `LicenseAssignment.Read.All` as the least-privileged permission for this call; either works. |
-| `AdministrativeUnit.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /directory/administrativeUnits` | Names for the administrative-unit IDs on each audit record. |
+| `User.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /users/{upn}?$select=userPrincipalName,assignedLicenses,assignedPlans`, `GET /users?$filter=assignedLicenses/any(...)` | Each user's Copilot licence and since when, and licence holders who never used Copilot (`-AllLicensedUsers`). Microsoft's licence-only alternative, `GET /users/{id}/licenseDetails`, does not support application permissions. |
+| `LicenseAssignment.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /subscribedSkus` | Which of the tenant's SKUs are Copilot. The least-privileged permission Microsoft lists for this call. |
 
-- The backfill and loads need only `AuditLogsQuery.Read.All`; the other three are for the enrichment tool. To keep the audit app to a single permission, put those three on a second app registration instead.
+- The backfill and loads need only `AuditLogsQuery.Read.All`; the other two are for the licence tool. To keep the audit app to a single permission, put those two on a second app registration instead.
+- User attributes - title, department, division, office, manager and the org chain - come from on-premises AD (section 5d), which uses the task account's domain identity and **no Graph permission**. Before 2.0.0 they came from Graph, and needed `Organization.Read.All` and `AdministrativeUnit.Read.All` too; remove those two from an existing app registration.
 - For app-only access, Microsoft documents only the Graph permission. The **Audit Reader** / **Audit Manager** role in section 1 applies to a person signing in, not to the app.
-- Microsoft's page for `GET /users/{id}/manager` lists application permissions as not supported. The enrichment tool treats a failed manager lookup as "no manager", so if `ManagerUpn` stays empty after an app-only run, run the enrichment signed in (delegated) instead.
 - Not needed on the app: SQL Server access (the task account's Windows or SQL login, section 1), the Power BI gateway and semantic model (they connect to SQL with their own credentials), and the dashboard.
 - Signing in interactively (no `-CertificateThumbprint`) uses *delegated* permissions instead: the same names under **Delegated**, on *Microsoft Graph Command Line Tools* by default or on your own app with `-ClientId`, plus the Purview audit role for the person.
 
@@ -177,6 +176,25 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
 GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 ```
 
+## 5d. The user directory, from on-premises AD
+
+`tools/Export-UsersWithHierarchy-ToSql.ps1` loads `audit.UserDirectory`: every user in a trusted domain, with title, department, division, office, city, country, company, employee type, manager, the management chain and whether the account is enabled. Sessions, the `bi` schema's user dimension (as `OrgLevel1`..`OrgLevel15`) and the adoption views read it. Licences stay with the Graph licence tool.
+
+**Where it runs.** On a machine that can reach a domain controller in the trusted domain, as an account the trust lets read user objects (by default any authenticated user can). Windows PowerShell 5.1 or PowerShell 7; nothing to install. It needs no Graph permission and no app registration.
+
+```powershell
+.\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain corp.example.com -SqlServer SQLPROD01 -Database CopilotAudit
+```
+
+- Every account is loaded, enabled or not, with `AccountEnabled`. The audit data covers months, and a user who has since left still has interactions to attribute.
+- `-EmployeeTypes` (default `EMP`, `NONW`) chooses which `employeeType` codes to load and `-EmployeeTypeMap` what to call them (default `EMPLOYEE`, `CONTRACTOR`). Pass `-EmployeeTypes @()` for every type. Managers are resolved for the chain whatever their type.
+- `-MaxLevels` (1-15) keeps that many levels of the chain from the top. `OrgDepth` is always the full depth.
+- The table is replaced in one transaction, so reports never see it empty.
+
+**Check the match on the first run.** Everything joins on the UPN. The load ends by reporting how many users in the audit data it found by UPN, and how many more only by mail. Anything under 90% means AD's UPNs are not the names users sign in to Microsoft 365 with (common when the AD forest is not the one synced to Entra), and their usage will show without a department.
+
+**Schedule it before the incremental load**, daily, so the load's session and `bi` rebuilds pick up today's organisation: first this, then the licence tool, then `-Incremental`.
+
 ## 6. How it stays inside Microsoft's limits
 
 | Published limit (Graph throttling docs) | What the engine does |
@@ -211,7 +229,9 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 | `-Incremental`: `Merge refused: ... gap(s)` | A load's windows do not cover its range. Inspect `audit.CopilotLoadWindow`; the next run resumes the load. |
 | `bi.usp_RefreshBi`: `needs a full rebuild` | The reporting time zone differs from the last refresh. Run `EXEC bi.usp_RefreshBi @SinceUtc = NULL, ...` once in the new zone. |
 | `-Incremental` app-only: `token lacks the application permission` | The app has the delegated permission, or consent was not granted. Add `AuditLogsQuery.Read.All` under **Application** permissions and grant consent. |
-| Enrichment app-only: `403` / `Authorization_RequestDenied` | One of `User.Read.All`, `Organization.Read.All`, `AdministrativeUnit.Read.All` is missing or not consented. See section 5b. |
+| Licence tool app-only: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. See section 5b. |
+| User directory: `Could not read RootDSE` | The domain name is wrong, the trust does not reach it, or the account running the script is not trusted there. Try `-TargetDomain` with a domain controller's name. |
+| User directory: under 90% of audit users matched | AD's UPNs are not the names users sign in to Microsoft 365 with. The load reports how many match by mail instead. See section 5d. |
 
 ## Files
 
@@ -224,4 +244,6 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 | `sql/Finalize-CopilotAudit.sql` | Dedupe, columnstore, reporting tables and the export-shaped view. |
 | `sql/Create-CopilotLoadProcedure.sql` | `audit.usp_MergeCopilotLoad`, which appends each `-Incremental` load. Installed automatically. |
 | `sql/Create-CopilotBiSchema.sql` / `sql/Create-CopilotBiProcedure.sql` | The `bi` star schema and `bi.usp_RefreshBi` (section 5c). |
+| `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory from on-premises AD (section 5d). |
+| `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licences, from Microsoft Graph. |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |

@@ -4,6 +4,56 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+User attributes now come from on-premises Active Directory, and Graph is used
+for licences only - one fewer Graph permission, and none for profiles.
+
+### Changed (breaking)
+
+- **User attributes come from on-premises AD, not Entra.** The new
+  `tools/Export-UsersWithHierarchy-ToSql.ps1` reads every user in a trusted
+  domain and replaces `audit.UserDirectory` in one transaction: display
+  name, mail, employee type, title, department, division, office, city,
+  country, company, manager, whether they manage anyone, whether the account
+  is enabled (every account is loaded; there is no enabled filter), and the
+  management chain from the top down (`Mgr1`..`Mgr15`, `OrgDepth`).
+  Sessions, `bi.DimUser` and the adoption views read it instead of
+  `audit.UserProfile`. It binds as the identity running it, needs no Graph
+  permission, and runs on Windows PowerShell 5.1 or PowerShell 7. After
+  loading it reports how many audit users it matched by UPN, and by mail.
+- **`tools/Update-CopilotAuditEnrichment.ps1` reads licences only.** No
+  profiles, managers or administrative units, so it no longer writes
+  `audit.UserProfile` or `audit.AdministrativeUnit` (left in place on
+  existing databases; nothing reads them). Its default scopes are
+  `User.Read.All` and `LicenseAssignment.Read.All`; `-SkipProfiles` is
+  accepted and ignored.
+- **The app registration needs three permissions, not four:**
+  `AuditLogsQuery.Read.All`, `User.Read.All`, `LicenseAssignment.Read.All`.
+  Remove `Organization.Read.All` and `AdministrativeUnit.Read.All`.
+- **`bi.DimUser` (`bi.Users`)** gains `EmployeeType`, `IsManager`,
+  `ManagerName`, `OrgDepth` and `OrgLevel1`..`OrgLevel15` - the org chain as a
+  ragged hierarchy for the model - and loses Entra's `UserType`. Re-run
+  `sql/Create-CopilotBiSchema.sql` to upgrade in place; the procedure refuses
+  to run against the older table. `DirectoryStatus` is `Found` for users in
+  AD.
+- `audit.vCopilotAdoption` returns `Division`, `Office`, `EmployeeType` and
+  `AccountEnabled` from AD in place of `OfficeLocation` and `UserType`.
+
+### Tests
+
+- `tests/Test-UserDirectory.ps1` (new, in CI): the chain from the top down,
+  a chain through a disabled manager and through a manager of a type not
+  loaded, loops and missing managers, the type filter and map, disabled
+  accounts loaded and flagged, skipped rows counted, `-MaxLevels`. Runs on
+  Windows PowerShell 5.1 and PowerShell 7.
+- `Test-SqlIntegration.ps1` section 8: the licence tool calls only
+  `/subscribedSkus` and `/users/{upn}` and creates no Entra profile table;
+  the AD rows load through the tool's own writer, a second load replaces the
+  first, the match report counts UPN and mail matches, and the adoption
+  views take departments from AD. Section 12 checks the org chain reaching
+  `bi.DimUser`.
+
 ## [1.6.0] - 2026-09-24
 
 A star schema for a Power BI semantic model, kept current by every

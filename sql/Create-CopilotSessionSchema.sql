@@ -30,9 +30,9 @@
         @ContextFallback = 'Location' reproduces the script exactly, and every
         build records its rule and its skips in audit.CopilotSessionRun.
 
-    Division, Department, JobTitle and ManagerUPN come from audit.UserProfile
-    (tools/Update-CopilotAuditEnrichment.ps1); Division is Entra's
-    employeeOrgData.division, empty where the directory does not set it.
+    Division, Department, JobTitle and ManagerUPN come from audit.UserDirectory
+    (on-premises AD, loaded by tools/Export-UsersWithHierarchy-ToSql.ps1);
+    Division is AD's division attribute, the line of business.
 
     Idempotent. Single batch (no GO). Requires SQL Server 2016+.
 */

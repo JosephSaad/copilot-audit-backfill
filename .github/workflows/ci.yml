@@ -50,6 +50,9 @@ jobs:
       - name: Test-Orchestrator
         shell: bash
         run: pwsh -NoProfile -File tests/Test-Orchestrator.ps1
+      - name: Test-UserDirectory
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-UserDirectory.ps1
 
   analyze:
     name: PSScriptAnalyzer
