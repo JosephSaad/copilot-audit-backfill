@@ -86,12 +86,13 @@
     With -Incremental: only load and merge. By default the run then brings the
     derived tables up to date as well, for each one installed: the flattened
     table (usp_FlattenCopilotAudit, from the load's start), licence events
-    (usp_ShredLicenseEvents) and sessions (usp_BuildCopilotSessions).
+    (usp_ShredLicenseEvents), sessions (usp_BuildCopilotSessions) and the bi
+    star schema (bi.usp_RefreshBi, from the load's start).
 
 .PARAMETER SessionLicenceDatabase
-    With -Incremental: passed to usp_BuildCopilotSessions as
-    @LicenceEventDatabase (one database, or several comma-separated), so each
-    session carries the licence held at the time.
+    With -Incremental: passed to usp_BuildCopilotSessions and bi.usp_RefreshBi
+    as @LicenceEventDatabase (one database, or several comma-separated), so
+    each session and interaction carries the licence held at the time.
 
 .PARAMETER CertificateThumbprint
     App-only sign-in, for a scheduled run with nobody to sign in: the
@@ -492,7 +493,8 @@ function Invoke-DerivedTableRefresh {
         After a merge, brings each installed derived table up to date: the
         flattened table and licence events from the load's start (both MERGE,
         so the lookback's records are updated in place), then sessions, which
-        rebuild in one transaction.
+        rebuild in one transaction, then the bi star schema from the load's
+        start.
     #>
     param([Parameter(Mandatory)][datetime] $SinceUtc)
     function Test-Proc([string] $Name) {
@@ -514,6 +516,12 @@ function Invoke-DerivedTableRefresh {
         else {
             Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions;' -TimeoutSeconds 0
         }
+    }
+    # Last: it reads the flattened rows, the sessions and the licence events.
+    if (Test-Proc 'bi.usp_RefreshBi') {
+        Write-Log ('Refreshing the bi star schema from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
+        Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenceEventDatabase = @l;' `
+            -Parameters @{ '@s' = $SinceUtc; '@l' = $(if ($SessionLicenceDatabase) { $SessionLicenceDatabase } else { $null }) } -TimeoutSeconds 0
     }
 }
 

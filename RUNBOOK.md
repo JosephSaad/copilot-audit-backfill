@@ -152,6 +152,31 @@ Register-ScheduledTask -TaskName 'Copilot audit - incremental' `
 
 A group managed service account avoids storing a password at all. Schedule the Power BI refresh after the task. A failed run exits non-zero, so the task history shows it; the next run resumes the same load.
 
+## 5c. The Power BI star schema
+
+The `bi` schema is what a Power BI semantic model imports: narrow facts with integer keys (`bi.Interactions`, `bi.Sessions`, `bi.LicenceChanges`, `bi.LicensedDays`) and their dimensions. The README's [Power BI section](README.md#power-bi-the-bi-schema) describes the model.
+
+**Install and build it once**, in the audit database, after `sql/Create-CopilotFlattenedSchema.sql` and `sql/Create-CopilotSessionSchema.sql`:
+
+1. Run `sql/Create-CopilotBiSchema.sql`, then `sql/Create-CopilotBiProcedure.sql`.
+2. `EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'<licence database(s)>';` builds everything. It reports what it wrote; `bi.RefreshRun` keeps one row per refresh.
+
+**Keeping it current.** Once the procedure is installed, every `-Incremental` run calls it last, with the load's start as `@SinceUtc` and `-SessionLicenceDatabase` as `@LicenceEventDatabase`. A partial refresh replaces its window in one transaction, so a model refreshing at the same time never sees it half-written. Schedule the model's refresh after the task.
+
+**Run a full rebuild** (`@SinceUtc = NULL`, then a full refresh of the model) when:
+
+- the reporting time zone changes. A partial refresh in a different zone is refused, because rows already written carry the old zone's dates.
+- licence history arrives for a period already built. A row's licence status is fixed when it is written.
+- flattened rows are purged (`usp_PurgeCopilotAuditJson @PurgeFlattened = 1`). The fact keeps them until rebuilt.
+
+A full rebuild commits a month at a time to keep the log small, so don't refresh the model while one runs.
+
+**The gateway's access.** The Power BI gateway's SQL login needs to read the views and nothing else:
+
+```sql
+GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
+```
+
 ## 6. How it stays inside Microsoft's limits
 
 | Published limit (Graph throttling docs) | What the engine does |
@@ -184,6 +209,7 @@ A group managed service account avoids storing a password at all. Schedule the P
 | Finalize refused | It names the reason: unfinished windows, gaps, compatibility level, or incremental loads already merged. |
 | `-Incremental`: `Run a backfill to completion in this database first` | Loads continue from a finalized backfill. Run one (even a single day) and `-FinalizeOnly`. |
 | `-Incremental`: `Merge refused: ... gap(s)` | A load's windows do not cover its range. Inspect `audit.CopilotLoadWindow`; the next run resumes the load. |
+| `bi.usp_RefreshBi`: `needs a full rebuild` | The reporting time zone differs from the last refresh. Run `EXEC bi.usp_RefreshBi @SinceUtc = NULL, ...` once in the new zone. |
 | `-Incremental` app-only: `token lacks the application permission` | The app has the delegated permission, or consent was not granted. Add `AuditLogsQuery.Read.All` under **Application** permissions and grant consent. |
 | Enrichment app-only: `403` / `Authorization_RequestDenied` | One of `User.Read.All`, `Organization.Read.All`, `AdministrativeUnit.Read.All` is missing or not consented. See section 5b. |
 
@@ -197,4 +223,5 @@ A group managed service account avoids storing a password at all. Schedule the P
 | `sql/Create-CopilotAuditSchema.sql` | DDL, run automatically. Provided for DBA review. |
 | `sql/Finalize-CopilotAudit.sql` | Dedupe, columnstore, reporting tables and the export-shaped view. |
 | `sql/Create-CopilotLoadProcedure.sql` | `audit.usp_MergeCopilotLoad`, which appends each `-Incremental` load. Installed automatically. |
+| `sql/Create-CopilotBiSchema.sql` / `sql/Create-CopilotBiProcedure.sql` | The `bi` star schema and `bi.usp_RefreshBi` (section 5c). |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |

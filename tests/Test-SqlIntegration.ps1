@@ -1183,6 +1183,184 @@ finally {
 }
 
 # ---------------------------------------------------------------------------
+# 12. The bi star schema, over what sections 8-10 left in the main database:
+# section 10's session rows in audit.RawLogFlattened and the sessions built
+# from them, sections 9 and 10's licence events, section 8's enrichment.
+Write-Host "`n12. The bi star schema (bi.usp_RefreshBi)" -ForegroundColor Cyan
+
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotBiSchema.sql') -Raw)
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotBiProcedure.sql') -Raw)
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotBiSchema.sql') -Raw)   # re-runnable
+
+# User C has no licence history, only today's enrichment: licensed since
+# 12:00Z on the 16th (08:00 Eastern). One interaction before, one after.
+# User A's licence comes from the history section 10 added (14:00Z on the
+# 14th), whatever the enrichment says.
+Invoke-SqlText -Sql @"
+DELETE FROM audit.CopilotLicense WHERE UserPrincipalName IN (N'a@contoso.com', N'b@contoso.com', N'c@contoso.com');
+INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic, SkuPartNumber, LicensedSinceUtc, DirectoryStatus) VALUES
+    (N'a@contoso.com', 1, N'Microsoft_365_Copilot', '2026-01-01T00:00:00', N'Found'),
+    (N'b@contoso.com', 0, NULL, NULL, N'Found'),
+    (N'c@contoso.com', 1, N'Microsoft_365_Copilot', '2026-09-16T12:00:00', N'Found');
+DELETE FROM audit.UserProfile WHERE UserPrincipalName = N'a@contoso.com';
+INSERT INTO audit.UserProfile (UserPrincipalName, DisplayName, Department, DirectoryStatus)
+VALUES (N'a@contoso.com', N'User A', N'Finance', N'Found');
+INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], App, IsCopilotLic, FlattenedUtc) VALUES
+    (N'c-01', N'2026-09-15T15:00:00Z', '2026-09-15T15:00:00', N'c@contoso.com', N'Teams', 1, SYSUTCDATETIME()),
+    (N'c-02', N'2026-09-17T15:00:00Z', '2026-09-17T15:00:00', N'c@contoso.com', N'Teams', 1, SYSUTCDATETIME());
+UPDATE audit.RawLogFlattened SET ModelProvider = N'OpenAI', ModelName = N'gpt-5' WHERE RecordId = N's-01';
+UPDATE audit.RawLogFlattened SET AIPlugin = N'BingWebSearch' WHERE RecordId = N's-02';
+UPDATE audit.RawLogFlattened SET JailbreakDetected = N'true', PromptInjectionDetected = N'false' WHERE RecordId = N's-03';
+UPDATE audit.RawLogFlattened SET AgentId = N'agent-1', AgentName = N'Old name' WHERE RecordId = N's-08';
+UPDATE audit.RawLogFlattened SET AgentId = N'agent-1', AgentName = N'New name' WHERE RecordId = N's-09';
+"@
+
+$biRefused = { param([string] $Sql) try { [void] (Invoke-SqlText -As Table -Sql $Sql); return '' } catch { return $_.Exception.GetBaseException().Message } }
+$licDb = $script:ITDatabase
+
+# A window on the first run is widened to everything: there is nothing before it yet.
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenceEventDatabase = N'$licDb';" -ShowMessages
+$flatRows = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.RawLogFlattened;')
+$fi = (Invoke-SqlText -As Table -Sql 'SELECT COUNT_BIG(*) AS Rows_, COUNT(DISTINCT RecordId) AS Ids FROM bi.FactInteraction;').Rows[0]
+Assert-That ([long] $fi.Rows_ -eq $flatRows -and [long] $fi.Ids -eq $flatRows) `
+    "the first refresh builds every interaction, once each, though a window was asked for ($($fi.Rows_) of $flatRows)"
+$firstRun = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) SinceUtc FROM bi.RefreshRun ORDER BY RunId DESC;').Rows[0]
+Assert-That ($firstRun.SinceUtc -is [DBNull]) 'and the run log records it as a full rebuild'
+
+# Every key resolves: the model's relationships will have no blank rows.
+$joined = [long] (Invoke-SqlText -As Scalar -Sql @"
+SELECT COUNT_BIG(*) FROM bi.Interactions AS f
+JOIN bi.Calendar AS d ON d.DateKey = f.DateKey JOIN bi.Users AS u ON u.UserKey = f.UserKey
+JOIN bi.Apps AS a ON a.AppKey = f.AppKey JOIN bi.Agents AS g ON g.AgentKey = f.AgentKey
+JOIN bi.Models AS m ON m.ModelKey = f.ModelKey JOIN bi.LicenceStatuses AS l ON l.LicenceStatusKey = f.LicenceStatusKey;
+"@)
+Assert-That ($joined -eq $flatRows) "every interaction finds its date, user, app, agent, model and licence status ($joined of $flatRows)"
+$lineage = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'bi.Interactions') AND name IN (N'RecordId', N'CreatedUtc');")
+Assert-That ($lineage -eq 0) 'the view the model imports leaves out the lineage columns'
+
+$byUser = Invoke-SqlText -As Table -Sql @"
+SELECT u.UserPrincipalName AS Upn,
+       STRING_AGG(CAST(f.LicenceStatusKey AS varchar(1)), '') WITHIN GROUP (ORDER BY f.CreatedUtc) AS Statuses
+FROM bi.FactInteraction AS f JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
+GROUP BY u.UserPrincipalName;
+"@
+$st = @{}; foreach ($r in $byUser.Rows) { $st["$($r.Upn)"] = "$($r.Statuses)" }
+Assert-That ($st['a@contoso.com'] -eq '2221111') `
+    "licence at the time of use from the history: not licensed before 14:00Z on the 14th, licensed after ($($st['a@contoso.com']))"
+Assert-That ($st['b@contoso.com'] -eq '222') "no history, not licensed today: not licensed throughout ($($st['b@contoso.com']))"
+Assert-That ($st['c@contoso.com'] -eq '21') "no history, licensed today: licensed from LicensedSinceUtc only ($($st['c@contoso.com']))"
+Assert-That ($st['(unknown user)'] -eq '0') "an interaction with no user is kept, under '(unknown user)', licence Unknown ($($st['(unknown user)']))"
+
+$t = Invoke-SqlText -As Table -Sql @"
+SELECT RecordId, DateKey, HourOfDay, CONVERT(varchar(16), ActivityHour, 120) AS Hr, UsedWebSearch, JailbreakDetected
+FROM bi.FactInteraction WHERE RecordId IN (N's-02', N's-03', N's-05', N's-06') ORDER BY RecordId;
+"@
+$tr = @{}; foreach ($r in $t.Rows) { $tr["$($r.RecordId)"] = $r }
+Assert-That ("$($tr['s-02'].Hr)" -eq '2026-09-14 09:00') "ActivityHour is local time truncated to the hour ($($tr['s-02'].Hr))"
+Assert-That ([int] $tr['s-05'].DateKey -eq 20260914 -and [int] $tr['s-05'].HourOfDay -eq 23 -and [int] $tr['s-06'].DateKey -eq 20260915 -and [int] $tr['s-06'].HourOfDay -eq 0) `
+    "dates are local: 03:50Z is 23:50 on the 14th, 04:10Z is 00:10 on the 15th ($($tr['s-05'].DateKey) $($tr['s-05'].HourOfDay)h, $($tr['s-06'].DateKey) $($tr['s-06'].HourOfDay)h)"
+$flags = (Invoke-SqlText -As Table -Sql 'SELECT SUM(CAST(UsedWebSearch AS int)) AS Web, SUM(CAST(JailbreakDetected AS int)) AS Jb FROM bi.FactInteraction;').Rows[0]
+Assert-That ([int] $tr['s-02'].UsedWebSearch -eq 1 -and [int] $flags.Web -eq 1 -and [int] $tr['s-03'].JailbreakDetected -eq 1 -and [int] $flags.Jb -eq 1) `
+    "web grounding and jailbreak flags on exactly the rows that carry them ($($flags.Web), $($flags.Jb))"
+
+$dims = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT AppCategory FROM bi.DimApp WHERE App = N'Office') AS OfficeCat,
+       (SELECT AppCategory FROM bi.DimApp WHERE App = N'Word') AS WordCat,
+       (SELECT AgentName FROM bi.DimAgent WHERE AgentId = N'agent-1') AS AgentName,
+       (SELECT COUNT(*) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE g.AgentId = N'(none)') AS NoAgent,
+       (SELECT m.ModelName FROM bi.FactInteraction AS f JOIN bi.DimModel AS m ON m.ModelKey = f.ModelKey WHERE f.RecordId = N's-01') AS S01Model,
+       (SELECT Department FROM bi.DimUser WHERE UserPrincipalName = N'a@contoso.com') AS ADept,
+       (SELECT CopilotLicenceToday FROM bi.DimUser WHERE UserPrincipalName = N'b@contoso.com') AS BToday,
+       (SELECT DirectoryStatus FROM bi.DimUser WHERE UserPrincipalName = N'(unknown user)') AS UnknownDir;
+"@).Rows[0]
+Assert-That ("$($dims.OfficeCat)" -eq 'Copilot Chat' -and "$($dims.WordCat)" -eq 'In-App Copilot') `
+    "apps carry the sessions' category mapping ($($dims.OfficeCat), $($dims.WordCat))"
+Assert-That ("$($dims.AgentName)" -eq 'New name' -and [int] $dims.NoAgent -eq ($flatRows - 2)) `
+    "an agent is named by its latest name, and interactions without one map to '(no agent)' ($($dims.AgentName), $($dims.NoAgent))"
+Assert-That ("$($dims.S01Model)" -eq 'gpt-5') "the model dimension carries provider and name ($($dims.S01Model))"
+Assert-That ("$($dims.ADept)" -eq 'Finance' -and "$($dims.BToday)" -eq 'Not licensed' -and "$($dims.UnknownDir)" -eq 'Not looked up') `
+    "users carry the directory profile and today's licence ($($dims.ADept), $($dims.BToday), $($dims.UnknownDir))"
+
+$cal = Invoke-SqlText -As Table -Sql @"
+SELECT DateKey, DayOfWeekName, CONVERT(varchar(10), WeekEnding, 120) AS WeekEnding, WeekLabel
+FROM bi.DimDate WHERE DateKey IN (20260914, 20260918, 20260919) ORDER BY DateKey;
+"@
+$c = @($cal.Rows)
+Assert-That ($c.Count -eq 3 -and "$($c[0].DayOfWeekName)" -eq 'Monday' -and "$($c[1].WeekEnding)" -eq '2026-09-18' -and "$($c[1].WeekLabel)" -eq '2026-W38' -and "$($c[2].WeekEnding)" -eq '2026-09-25' -and "$($c[2].WeekLabel)" -eq '2026-W39') `
+    "the calendar carries the rollup's Saturday-Friday week: Friday the 18th ends W38, Saturday the 19th starts W39"
+$calSpan = (Invoke-SqlText -As Table -Sql 'SELECT MIN(DateKey) AS F, COUNT(*) AS N, COUNT(DISTINCT [Date]) AS D FROM bi.DimDate;').Rows[0]
+Assert-That ([int] $calSpan.F -eq 20260101 -and [int] $calSpan.N -eq [int] $calSpan.D) "the calendar starts on 1 January of the first year with data, one row per date ($($calSpan.F))"
+
+$sessCount = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotSession;')
+$fs = (Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*) AS N,
+       (SELECT STRING_AGG(CAST(f.LicenceStatusKey AS varchar(1)), '') WITHIN GROUP (ORDER BY f.SessionStart)
+        FROM bi.FactSession AS f JOIN bi.DimUser AS u ON u.UserKey = f.UserKey WHERE u.UserPrincipalName = N'a@contoso.com') AS AStatuses
+FROM bi.FactSession;
+"@).Rows[0]
+Assert-That ([int] $fs.N -eq $sessCount -and "$($fs.AStatuses)" -eq '2111') `
+    "sessions come across with their licence at the time ($($fs.N) of $sessCount, user A $($fs.AStatuses))"
+
+$skuChanges = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM (SELECT DISTINCT RecordId, Sku, Change FROM audit.vLicenseSkuChange WHERE TargetUpn IS NOT NULL) AS x;')
+$fc = (Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*) AS N,
+       (SELECT CONCAT(f.DateKey, ':', f.Change, ':', k.Sku) FROM bi.FactLicenceChange AS f
+        JOIN bi.DimSku AS k ON k.SkuKey = f.SkuKey WHERE f.RecordId = 'lic-a1') AS A
+FROM bi.FactLicenceChange;
+"@).Rows[0]
+Assert-That ([int] $fc.N -eq $skuChanges -and "$($fc.A)" -eq '20260914:1:Microsoft_365_Copilot') `
+    "every SKU change is a row, +1 or -1 ($($fc.N) of $skuChanges; user A $($fc.A))"
+
+$ld = Invoke-SqlText -As Table -Sql @"
+SELECT u.UserPrincipalName AS Upn, STRING_AGG(CAST(l.DateKey AS varchar(8)), ',') WITHIN GROUP (ORDER BY l.DateKey) AS Days
+FROM bi.FactLicensedDay AS l JOIN bi.DimUser AS u ON u.UserKey = l.UserKey
+WHERE l.DateKey BETWEEN 20260913 AND 20260917 AND u.UserPrincipalName IN (N'a@contoso.com', N'b@contoso.com', N'c@contoso.com')
+GROUP BY u.UserPrincipalName;
+"@
+$ldd = @{}; foreach ($r in $ld.Rows) { $ldd["$($r.Upn)"] = "$($r.Days)" }
+Assert-That ($ldd['a@contoso.com'] -eq '20260914,20260915,20260916,20260917') "user A counts as licensed from the day the licence was assigned ($($ldd['a@contoso.com']))"
+Assert-That ($ldd['c@contoso.com'] -eq '20260916,20260917') "user C from the day of LicensedSinceUtc ($($ldd['c@contoso.com']))"
+Assert-That (-not $ldd.ContainsKey('b@contoso.com')) 'user B, unlicensed, never counts'
+
+# --- A partial refresh replaces its window and nothing before it ------------
+$aKey = [int] (Invoke-SqlText -As Scalar -Sql "SELECT UserKey FROM bi.DimUser WHERE UserPrincipalName = N'a@contoso.com';")
+$usersBefore = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM bi.DimUser;')
+Invoke-SqlText -Sql @"
+UPDATE audit.RawLogFlattened SET App = N'Excel' WHERE RecordId = N's-01';   -- before the window: must not change
+UPDATE audit.RawLogFlattened SET App = N'Outlook' WHERE RecordId = N's-09'; -- inside it: must change
+INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], App, FlattenedUtc)
+VALUES (N'n-01', N'2026-09-20T12:00:00Z', '2026-09-20T12:00:00', N'a@contoso.com', N'Word', SYSUTCDATETIME());
+"@
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenceEventDatabase = N'$licDb';" -ShowMessages
+$p = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT_BIG(*) FROM bi.FactInteraction) AS Rows_,
+       (SELECT COUNT(DISTINCT RecordId) FROM bi.FactInteraction) AS Ids,
+       (SELECT a.App FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey WHERE f.RecordId = N's-01') AS S01,
+       (SELECT a.App FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey WHERE f.RecordId = N's-09') AS S09,
+       (SELECT UserKey FROM bi.FactInteraction WHERE RecordId = N'n-01') AS N01User,
+       (SELECT TOP (1) CONVERT(varchar(10), SinceUtc, 120) FROM bi.RefreshRun ORDER BY RunId DESC) AS Since;
+"@).Rows[0]
+Assert-That ([long] $p.Rows_ -eq ($flatRows + 1) -and [long] $p.Ids -eq ($flatRows + 1)) "a partial refresh adds the new interaction and duplicates nothing ($($p.Rows_))"
+Assert-That ("$($p.S09)" -eq 'Outlook' -and "$($p.S01)" -eq 'Office') "it rewrites rows inside its window and leaves the ones before it ($($p.S09), $($p.S01))"
+Assert-That ([int] $p.N01User -eq $aKey -and "$($p.Since)" -eq '2026-09-19') "keys are stable across refreshes (user A is still key $aKey)"
+
+$msg = & $biRefused "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @ReportingTimeZone = N'UTC';"
+Assert-That ($msg -like '*needs a full rebuild*') "a partial refresh in a different time zone is refused ($msg)"
+$msg = & $biRefused "EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'NoSuchDatabase';"
+Assert-That ($msg -like '*no audit.vLicenseSkuChange*') "a licence database without the licence views is refused ($msg)"
+
+# --- A full rebuild picks up everything, keys unchanged ---------------------
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'$licDb';" -ShowMessages
+$r = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT_BIG(*) FROM bi.FactInteraction) AS Rows_,
+       (SELECT a.App FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey WHERE f.RecordId = N's-01') AS S01,
+       (SELECT COUNT(*) FROM bi.DimUser) AS Users,
+       (SELECT UserKey FROM bi.DimUser WHERE UserPrincipalName = N'a@contoso.com') AS AKey;
+"@).Rows[0]
+Assert-That ([long] $r.Rows_ -eq ($flatRows + 1) -and "$($r.S01)" -eq 'Excel') "a full rebuild rewrites every row ($($r.Rows_), s-01 now $($r.S01))"
+Assert-That ([int] $r.Users -eq $usersBefore -and [int] $r.AKey -eq $aKey) "and re-registers no user: keys survive a rebuild ($($r.Users) users)"
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red
