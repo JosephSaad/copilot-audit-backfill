@@ -1010,21 +1010,24 @@ namespace CopilotAudit
             while (_submitTimes.Count > 0 && _submitTimes.Peek() < cutoff) _submitTimes.Dequeue();
         }
 
+        // Called from the planner and from the SQL writers (TryFinishAsync), so the
+        // write is volatile and PlanNext reads it once.
         void ObserveDensity(long records, double hours)
         {
             if (hours <= 0) return;
-            _density = records / hours;
+            Volatile.Write(ref _density, records / hours);
         }
 
         AuditWindow PlanNext()
         {
-            // _density < 0: nothing observed yet. 0: the last window was empty, which
+            // density < 0: nothing observed yet. 0: the last window was empty, which
             // must widen the next one (sparse tenants, days past retention) rather
             // than fall back to the initial size and exhaust the submission budget.
-            double hours = _density < 0 ? _o.InitialWindowHours
-                         : _density == 0 ? _o.MaxWindowHours
-                         : _o.TargetRecordsPerWindow / _density;
-            if (_density >= 0) hours = Math.Min(hours, _lastPlannedHours * 2);  // grow cautiously
+            double density = Volatile.Read(ref _density);
+            double hours = density < 0 ? _o.InitialWindowHours
+                         : density == 0 ? _o.MaxWindowHours
+                         : _o.TargetRecordsPerWindow / density;
+            if (density >= 0) hours = Math.Min(hours, _lastPlannedHours * 2);   // grow cautiously
             hours = Math.Max(_o.MinWindowHours, Math.Min(_o.MaxWindowHours, hours));
             if (hours >= 1) hours = Math.Floor(hours);                           // whole hours when possible
 
@@ -1605,6 +1608,12 @@ namespace CopilotAudit
             w.RowsLoaded = st.Rows;
             w.CompletedUtc = DateTime.UtcNow;
             w.LastError = null;
+            // The rows actually loaded are the only density signal when the status
+            // call reports no approximate count - which a live tenant did for every
+            // search, Copilot and Entra alike. Without this, a fresh run plans every
+            // window at InitialWindowHours and only a restart (which reads the last
+            // loaded window) lets them grow.
+            if (!w.ApproxRecords.HasValue) ObserveDensity(st.Rows, w.Hours);
             await _store.UpdateAsync(w, ct).ConfigureAwait(false);
             Log("INFO", string.Format(CultureInfo.InvariantCulture, "{0}: loaded {1:N0} rows.", w, st.Rows));
         }

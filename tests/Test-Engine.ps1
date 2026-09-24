@@ -13,6 +13,8 @@
       D  service-side submission 429s: engine backs off instead of hammering
       F  a range reaching past the data: empty windows widen instead of
          resetting to InitialWindowHours and exhausting the search budget
+      G  status with no approximate count on a sparse tenant: windows still
+         widen, from the rows actually loaded
 
     Requires python3 on PATH.
 #>
@@ -284,6 +286,48 @@ try {
 
     $errors = @($logF | Where-Object { $_ -match '\[ERROR\]' })
     Assert-That ($errors.Count -eq 0) "no ERROR log lines ($($errors.Count))"
+}
+finally { Stop-MockGraph $mock }
+
+# ---------------------------------------------------------------------------
+# G. No approximate count in the status response
+# ---------------------------------------------------------------------------
+
+Write-Host "`nG. Status without an approximate count: windows must still widen" -ForegroundColor Cyan
+
+# A live tenant returned no approximateReturnedRecordCount for any search, Copilot
+# or Entra. The planner only learned density from that field, so a fresh run
+# planned every window at InitialWindowHours - one search per day for the whole
+# range - and only a restart, which reads the last loaded window, let them grow.
+# A sparse tenant with a handful of records every day is the shape that exposed
+# it: nothing is empty, so the empty-window rule never applies either.
+$mock = Start-MockGraph @{ range_start = '2026-08-01T00:00:00Z'; days = 30; first_day_count = 12; last_day_count = 30; report_approx_count = $false; fail_first_query_covering = '2000-01-01T00:00:00Z' }
+try {
+    $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
+    $end   = [datetime]::new(2026, 8, 31, 0, 0, 0, [DateTimeKind]::Utc)
+
+    $expected = Get-ExpectedIds $mock
+    $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
+    $sink  = [CopilotAudit.Tests.MemorySink]::new()
+    $logG  = [System.Collections.Generic.List[string]]::new()
+
+    $opts = New-Options $mock $start $end @{ InitialWindowHours = 24 }
+    $runG = Invoke-EngineRun -Mock $mock -Options $opts -Store $store -Sink $sink -Log $logG
+    $statsG = Get-MockStats $mock
+
+    Assert-That ($runG.Task.Status -eq 'RanToCompletion') "completed ($($runG.Task.Status))"
+    [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'G')
+
+    $hoursEach = @($store.Snapshot() | Where-Object Status -eq 'Loaded' | Sort-Object StartUtc |
+                   ForEach-Object { ($_.EndUtc - $_.StartUtc).TotalHours })
+    Write-Host ("  window hours, oldest -> newest: " + ($hoursEach -join ' ')) -ForegroundColor DarkGray
+
+    $approxLines = @($logG | Where-Object { $_ -match 'search complete, ~' })
+    Assert-That ($approxLines.Count -eq 0) 'the mock really withheld the approximate count'
+    Assert-That ($statsG.queries_created -le 18) `
+        "the 30-day range cost $($statsG.queries_created) searches, against 30 at one per day"
+    Assert-That (($hoursEach | Measure-Object -Maximum).Maximum -ge 96) `
+        ("windows grew from the loaded row counts (max {0:N0}h)" -f ($hoursEach | Measure-Object -Maximum).Maximum)
 }
 finally { Stop-MockGraph $mock }
 
