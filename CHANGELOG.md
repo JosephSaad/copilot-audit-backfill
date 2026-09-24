@@ -4,7 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.6.0] - 2026-09-24
+
+A star schema for a Power BI semantic model, kept current by every
+incremental load.
 
 ### Added
 
@@ -42,7 +45,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   midnight; the calendar's week; sessions, licence changes and licensed days;
   a partial refresh rewrites its window only and keeps keys stable; a full
   rebuild re-registers nothing; and the time-zone and licence-database
-  refusals.
+  refusals. It also covers agents named only in `AppIdentity` (Copilot Studio
+  and Microsoft), an `AgentId` taking precedence, and the schema script
+  upgrading an older `bi.DimAgent` in place - the path a fresh test database
+  never takes, which failed on the first live install.
 
 ## [1.5.0] - 2026-09-24
 
@@ -453,6 +459,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[1.6.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.6.0
 [1.5.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.5.0
 [1.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.4.0
 [1.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.3.0
