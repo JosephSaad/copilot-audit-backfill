@@ -117,10 +117,25 @@ After the backfill is finalized, schedule `-Incremental`. Each run:
 
 **Unattended sign-in.** A scheduled task has nobody to sign in, so use an app registration:
 
-1. Entra admin center → App registrations → New registration.
-2. API permissions → Microsoft Graph → **Application** permissions → `AuditLogsQuery.Read.All` → Grant admin consent.
-3. Certificates & secrets → upload the public key of a certificate held in the task account's certificate store.
+1. Entra admin center → App registrations → New registration. Single tenant; no redirect URI.
+2. API permissions → Add a permission → Microsoft Graph → **Application** permissions → the permissions below → **Grant admin consent** (Global Administrator or Privileged Role Administrator).
+3. Certificates & secrets → upload the public key of a certificate held in the task account's certificate store. The scripts sign in with a certificate only (`-CertificateThumbprint`); there is no client-secret option.
 4. Run with `-TenantId <tenant> -ClientId <app id> -CertificateThumbprint <thumbprint>`.
+
+**Every permission, for one app registration that runs everything.** All are Microsoft Graph **application** permissions, and all are read-only:
+
+| Permission | Used by | Graph calls | What for |
+|---|---|---|---|
+| `AuditLogsQuery.Read.All` | `Invoke-CopilotAuditBackfill.ps1`: the backfill, `-Incremental`, and licence-event databases | `POST` and `GET /security/auditLog/queries`, `GET .../records` | Copilot interaction records and the Entra licence events. The per-workload permissions (`AuditLogsQuery-Entra.Read.All`, `-Exchange`, `-SharePoint`, `-OneDrive`, `-CRM`, `-Endpoint`) include none for Copilot, so the all-services one is needed. |
+| `User.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /users/{upn}`, `GET /users?$filter=assignedLicenses/any(...)`, `GET /users/{upn}/manager` | Profile, Department, Division (`employeeOrgData`), Copilot licence and since when (`assignedLicenses`, `assignedPlans`), licence holders who never used Copilot (`-AllLicensedUsers`), manager. |
+| `Organization.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /subscribedSkus` | Which of the tenant's SKUs are Copilot. Microsoft lists `LicenseAssignment.Read.All` as the least-privileged permission for this call; either works. |
+| `AdministrativeUnit.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /directory/administrativeUnits` | Names for the administrative-unit IDs on each audit record. |
+
+- The backfill and loads need only `AuditLogsQuery.Read.All`; the other three are for the enrichment tool. To keep the audit app to a single permission, put those three on a second app registration instead.
+- For app-only access, Microsoft documents only the Graph permission. The **Audit Reader** / **Audit Manager** role in section 1 applies to a person signing in, not to the app.
+- Microsoft's page for `GET /users/{id}/manager` lists application permissions as not supported. The enrichment tool treats a failed manager lookup as "no manager", so if `ManagerUpn` stays empty after an app-only run, run the enrichment signed in (delegated) instead.
+- Not needed on the app: SQL Server access (the task account's Windows or SQL login, section 1), the Power BI gateway and semantic model (they connect to SQL with their own credentials), and the dashboard.
+- Signing in interactively (no `-CertificateThumbprint`) uses *delegated* permissions instead: the same names under **Delegated**, on *Microsoft Graph Command Line Tools* by default or on your own app with `-ClientId`, plus the Purview audit role for the person.
 
 **The scheduled task.** Daily, as a service account with `db_owner` (or the rights in section 1) on the database and read access to the certificate's private key:
 
@@ -170,6 +185,7 @@ A group managed service account avoids storing a password at all. Schedule the P
 | `-Incremental`: `Run a backfill to completion in this database first` | Loads continue from a finalized backfill. Run one (even a single day) and `-FinalizeOnly`. |
 | `-Incremental`: `Merge refused: ... gap(s)` | A load's windows do not cover its range. Inspect `audit.CopilotLoadWindow`; the next run resumes the load. |
 | `-Incremental` app-only: `token lacks the application permission` | The app has the delegated permission, or consent was not granted. Add `AuditLogsQuery.Read.All` under **Application** permissions and grant consent. |
+| Enrichment app-only: `403` / `Authorization_RequestDenied` | One of `User.Read.All`, `Organization.Read.All`, `AdministrativeUnit.Read.All` is missing or not consented. See section 5b. |
 
 ## Files
 

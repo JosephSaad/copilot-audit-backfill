@@ -76,7 +76,18 @@ The backfill covers one fixed range. Once it is finalized, run `-Incremental` on
 
 Each run loads from where the data ends up to the start of the current hour, and appends the new records to `audit.CopilotAudit` and `audit.CopilotInteraction` without rebuilding them. It also re-searches the 48 hours before that (`-LookbackHours`), because Purview can deliver a record hours after the event; records already loaded are counted and skipped, never duplicated. It then refreshes whichever derived tables are installed: the flattened table, licence events and sessions (`-SessionLicenceDatabase` passes the licence history through). A daily run costs 2–4 of the tenant's ~200 searches per 24 hours.
 
-`-CertificateThumbprint` signs in as an app, so Task Scheduler can run it with nobody present; the app needs the Microsoft Graph **application** permission `AuditLogsQuery.Read.All`, admin-consented. Without it, the run signs in interactively as before. A run that stops part-way resumes its load next time, and a run that fails exits non-zero. See [RUNBOOK.md](RUNBOOK.md#5b-keeping-it-current) for the app registration and the scheduled task.
+`-CertificateThumbprint` signs in as an app, so Task Scheduler can run it with nobody present. Without it, the run signs in interactively as before. A run that stops part-way resumes its load next time, and a run that fails exits non-zero. See [RUNBOOK.md](RUNBOOK.md#5b-keeping-it-current) for the app registration and the scheduled task.
+
+**App registration permissions.** One app can run everything. Microsoft Graph **application** permissions, admin-consented, all read-only:
+
+| Permission | Needed for |
+|---|---|
+| `AuditLogsQuery.Read.All` | The backfill and `-Incremental` loads: Copilot records and licence events. Enough on its own if you don't run the enrichment tool. |
+| `User.Read.All` | Enrichment: profiles, Division, Copilot licences, managers, `-AllLicensedUsers`. |
+| `Organization.Read.All` | Enrichment: finding the Copilot SKUs (`LicenseAssignment.Read.All` also works). |
+| `AdministrativeUnit.Read.All` | Enrichment: administrative-unit names. |
+
+Plus a certificate credential. An app needs no Purview audit role; that applies to people signing in. RUNBOOK section 5b lists the Graph calls behind each permission.
 
 ## Servers without gallery access
 
@@ -143,7 +154,7 @@ The audit records say what happened, not who was entitled to it. Counting intera
 
 It reads Graph and writes only to `audit.CopilotLicense`, `audit.AdministrativeUnit` and `audit.UserProfile`, so it runs on its own schedule and cannot affect the archive. Only the users that appear in `audit.CopilotInteraction` are looked up, not the whole directory; `-AllLicensedUsers` adds licence holders who have never interacted, which is what the shelfware report needs. It signs in app-only with `-ClientId` and `-CertificateThumbprint` for unattended runs.
 
-Needs `User.Read.All`, `Organization.Read.All` and `AdministrativeUnit.Read.All` — a different set from the backfill, so it belongs on its own app registration rather than widening the audit app's single permission.
+Needs `User.Read.All`, `Organization.Read.All` and `AdministrativeUnit.Read.All`. They can go on the same app registration as the audit permission (see [Keeping it current](#keeping-it-current)), or on a second one if you want the audit app kept to a single permission.
 
 Afterwards, re-run `audit.usp_FlattenCopilotAudit` to carry `IsCopilotLic` through to the flattened table.
 
