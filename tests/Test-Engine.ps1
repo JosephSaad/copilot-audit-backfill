@@ -11,6 +11,8 @@
       B  v1.0-only status (no cap properties): truncation caught by row count
       C  engine's own submission budget stops it before the service's
       D  service-side submission 429s: engine backs off instead of hammering
+      F  a range reaching past the data: empty windows widen instead of
+         resetting to InitialWindowHours and exhausting the search budget
 
     Requires python3 on PATH.
 #>
@@ -218,6 +220,70 @@ try {
     $run2 = Invoke-EngineRun -Mock $mock -Options $opts2 -Store $store -Sink $sink -Log $logE
     Assert-That ($run2.Task.Status -eq 'RanToCompletion') 'next run with a valid sign-in resumed and completed'
     [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'E')
+}
+finally { Stop-MockGraph $mock }
+
+# ---------------------------------------------------------------------------
+# F. Empty windows past the retention horizon
+# ---------------------------------------------------------------------------
+
+Write-Host "`nF. A range reaching past the data: empty windows must widen, not reset" -ForegroundColor Cyan
+
+# The mock only has records from 2026-08-20. Asking for 2026-08-01 onward makes
+# the first 19 days empty, which is what a real range past the 180-day retention
+# horizon looks like - and what a sparse tenant looks like all the way through.
+#
+# The planner walks backwards from RangeEndUtc, so it meets the records first
+# and the empty span last. An empty window used to be read the same as "no
+# measurement yet" and reset the next window to InitialWindowHours, so the empty
+# span cost one search per day and burned the 150-per-24h submission budget.
+$mock = Start-MockGraph @{ range_start = '2026-08-20T00:00:00Z'; days = 5 }
+try {
+    $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)     # 19 days with nothing
+    $end   = [datetime]::new(2026, 8, 25, 0, 0, 0, [DateTimeKind]::Utc)    # 5 days with records
+    $dataStart = [datetime]::new(2026, 8, 20, 0, 0, 0, [DateTimeKind]::Utc)
+    $emptyHours = ($dataStart - $start).TotalHours                          # 456
+
+    $expected = Get-ExpectedIds $mock
+    $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
+    $sink  = [CopilotAudit.Tests.MemorySink]::new()
+    $logF  = [System.Collections.Generic.List[string]]::new()
+
+    $opts = New-Options $mock $start $end @{ InitialWindowHours = 24 }
+    $runF = Invoke-EngineRun -Mock $mock -Options $opts -Store $store -Sink $sink -Log $logF
+    $statsF = Get-MockStats $mock
+
+    Assert-That ($runF.Task.Status -eq 'RanToCompletion') "completed ($($runF.Task.Status))"
+    [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'F')
+
+    # Windows lying entirely before the first record: the empty span.
+    $res = $store.Snapshot()
+    $empty = @($res | Where-Object { $_.Status -eq 'Loaded' -and $_.EndUtc -le $dataStart })
+    $emptyHoursEach = @($empty | ForEach-Object { ($_.EndUtc - $_.StartUtc).TotalHours })
+    Write-Host ("  empty-span windows, oldest -> newest: " + ($emptyHoursEach -join ' ')) -ForegroundColor DarkGray
+
+    # Thresholds chosen against the broken planner, not the fixed one: reverting
+    # the fix gives 18 windows of which only one exceeds 24 h, so a bar like
+    # "fewer than one per day" or "some window exceeded 24 h" would pass while
+    # broken and prove nothing. Widening gives 5 windows, 4 of them over 24 h.
+    $oneSearchPerDay = [int] ($emptyHours / 24)
+    $widened = @($emptyHoursEach | Where-Object { $_ -gt 24 })
+    Assert-That ($empty.Count -le 8) `
+        ("the empty span cost $($empty.Count) window(s), against $oneSearchPerDay if it reset each time")
+    Assert-That ($widened.Count -ge 3) `
+        ("widening applied repeatedly, not once: $($widened.Count) window(s) exceed InitialWindowHours")
+    Assert-That (($emptyHoursEach | Measure-Object -Maximum).Maximum -ge 96) `
+        ("widening kept compounding rather than stopping after one step (max {0:N0}h)" -f ($emptyHoursEach | Measure-Object -Maximum).Maximum)
+    Assert-That (($emptyHoursEach | Measure-Object -Maximum).Maximum -le $opts.MaxWindowHours) `
+        ("never exceeded MaxWindowHours ({0:N0}h)" -f $opts.MaxWindowHours)
+
+    # The whole run, not just the empty span, has to stay inside the budget.
+    Assert-That ($statsF.queries_created -lt 24) `
+        "the 24-day range cost $($statsF.queries_created) searches, well inside the 150/24h budget"
+    Assert-That ($statsF.submits_429 -eq 0) 'never hit the service submission limit'
+
+    $errors = @($logF | Where-Object { $_ -match '\[ERROR\]' })
+    Assert-That ($errors.Count -eq 0) "no ERROR log lines ($($errors.Count))"
 }
 finally { Stop-MockGraph $mock }
 
