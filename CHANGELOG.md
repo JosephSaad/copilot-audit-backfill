@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Windows now grow on a fresh run when the service reports no record count.**
+  The planner learned density only from `approximateReturnedRecordCount` on the
+  search status, and a live tenant returned none for any search, Copilot or
+  Entra. Density stayed unknown, every window was planned at
+  `InitialWindowHours`, and a 180-day licence-event backfill submitted one search
+  per day, heading for the submission budget. The 1.2.0 empty-window fix looked
+  verified live only because that run had been restarted: a resume reads the last
+  loaded window's `RowsLoaded`, which a fresh run never did. A loaded window now
+  feeds its actual row count back to the planner whenever the status carried no
+  approximate count. The write happens on a SQL writer task, so it is volatile.
+
+### Tests
+
+- `mock_graph.py` gains `report_approx_count` (default on) to withhold
+  `approximateReturnedRecordCount`. `Test-Engine.ps1` section G runs a sparse
+  30-day tenant without it: 30 one-day searches before the fix, 16 after, with
+  windows reaching 168 h.
+
 ## [1.3.0] - 2026-09-24
 
 ### Added

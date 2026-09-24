@@ -43,6 +43,7 @@ CFG = {
     "default_page_size": 100,
     "max_page_size": 1000,
     "rotate_after_pages": 0,        # >0: invalidate the current token once, after this many pages
+    "report_approx_count": True,    # False: beta status omits approximateReturnedRecordCount, as a live tenant did
 }
 if len(sys.argv) > 2:
     CFG.update(json.loads(sys.argv[2]))
@@ -388,7 +389,8 @@ class Handler(BaseHTTPRequestHandler):
             n = count_in(q["start"], q["end"])
             obj["recordCountLimit"] = CFG["cap"]
             obj["isRecordCountLimitExceeded"] = n > CFG["cap"]
-            obj["approximateReturnedRecordCount"] = n
+            if CFG["report_approx_count"]:
+                obj["approximateReturnedRecordCount"] = n
         return self.send_json(200, obj)
 
     def records(self, qid, q, qs):
