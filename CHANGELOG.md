@@ -4,17 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.0] - 2026-09-24
+
+Sessions and the weekly rollup in SQL, licence history that carries its
+detail, and a planner that sizes windows from what it actually loads.
 
 ### Added
 
 - **Inferred sessions and the Saturday-Friday weekly rollup, in SQL.** A port
   of the session script that read the Purview CSV export (v5.7.5).
-  sql/Create-CopilotSessionSchema.sql and sql/Create-CopilotSessionProcedure.sql
-  add udit.usp_BuildCopilotSessions, which rebuilds udit.CopilotSession
-  (one row per session) and udit.CopilotWeeklyRollup (per week, user,
-  primary app, category and licence) from udit.RawLogFlattened in one
-  transaction. udit.vCopilotSessionSummary and udit.vCopilotWeeklyRollup
+  `sql/Create-CopilotSessionSchema.sql` and `sql/Create-CopilotSessionProcedure.sql`
+  add `audit.usp_BuildCopilotSessions`, which rebuilds `audit.CopilotSession`
+  (one row per session) and `audit.CopilotWeeklyRollup` (per week, user,
+  primary app, category and licence) from `audit.RawLogFlattened` in one
+  transaction. `audit.vCopilotSessionSummary` and `audit.vCopilotWeeklyRollup`
   carry the old CSVs' exact column names and formats.
   - The script's rules: a new session after 60 minutes idle or on a new
     calendar day in the reporting time zone; primary app and licence from the
@@ -23,24 +26,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     last prompt.
   - Two settings where the Graph data differs from the CSV. The script's
     'Copilot Chat' test matched the portal export's App label; the Graph data
-    has host names, so udit.SessionAppCategory maps them (Office,
-    OfficeCopilotSearchAnswer, BizChat, Edge) and is editable. And the
+    has host names, so `audit.SessionAppCategory` maps them (`Office`,
+    `OfficeCopilotSearchAnswer`, `BizChat`, `Edge`) and is editable. And the
     script keyed sessions on app context, falling back to Location, skipping
     rows with neither: on a live tenant that skipped every Copilot Chat,
     Outlook and Teams row, 507 of 1,145. The procedure keys on the user by
-    default; @ContextFallback = 'Location' reproduces the script exactly.
-    udit.CopilotSessionRun logs each build's rule and every skipped row.
-  - @LicenceEventDatabase (one or several, comma-separated) sets each
+    default; `@ContextFallback = 'Location'` reproduces the script exactly.
+    `audit.CopilotSessionRun` logs each build's rule and every skipped row.
+  - `@LicenceEventDatabase` (one or several, comma-separated) sets each
     session's licence flag to the licence held when it began, from the
     licence-event history, rather than today's. On the live tenant this
     changed the flag on 65 of 240 sessions.
   - 240 sessions and 128 weekly groups from 1,145 records in 0.7 s.
-- 	ools/Export-CopilotSessionCsv.ps1 writes copilot_session_summary.csv and
-  weekly_rollup.csv from those views, quoted and UTF-8 as before, streamed
-  from SQL and renamed into place when complete. -Build rebuilds first.
-- **Division** in udit.UserProfile, from Entra's mployeeOrgData.division,
+- `tools/Export-CopilotSessionCsv.ps1` writes `copilot_session_summary.csv` and
+  `weekly_rollup.csv` from those views, quoted and UTF-8 as before, streamed
+  from SQL and renamed into place when complete. `-Build` rebuilds first.
+- `audit.vLicenseSkuChange` diffs each licence change's old and new
+  `AssignedLicense` lists into one row per SKU added or removed, which is the
+  question the licence-event feature exists to answer: when was this user
+  given Copilot, and when was it taken away.
+- **Division** in `audit.UserProfile`, from Entra's `employeeOrgData.division`,
   and in the session outputs. Existing databases are altered in place.
-
 ### Fixed
 - **Windows now grow on a fresh run when the service reports no record count.**
   The planner learned density only from `approximateReturnedRecordCount` on the
@@ -89,12 +95,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   filter for `Add user` returns `Add user sponsor` too, which is not an account
   being created.
 
-### Added
-
-- `audit.vLicenseSkuChange` diffs each change's old and new `AssignedLicense`
-  lists into one row per SKU added or removed, which is the question the
-  feature exists to answer: when was this user given Copilot, and when was it
-  taken away.
 
 ### Tests
 
@@ -349,6 +349,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[1.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.4.0
 [1.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.3.0
 [1.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.2.0
 [1.1.1]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.1.1
