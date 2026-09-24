@@ -4,10 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-24
 
-User attributes now come from on-premises Active Directory, and Graph is used
-for licences only - one fewer Graph permission, and none for profiles.
+User attributes now come from on-premises Active Directory, with Graph used
+for licences only - three Graph permissions instead of four, and none for
+profiles. And the nightly load stops redoing all of history: at 40M
+interactions it went from about 31 minutes to about 74 seconds, with
+identical results.
+
+### Upgrading from 1.x
+
+1. **App registration:** add `LicenseAssignment.Read.All` (application);
+   remove `Organization.Read.All` and `AdministrativeUnit.Read.All`. Keep
+   `AuditLogsQuery.Read.All` and `User.Read.All`.
+2. **SQL:** re-run `sql/Create-CopilotEnrichmentSchema.sql`,
+   `sql/Create-CopilotSessionSchema.sql`, `sql/Create-CopilotSessionProcedure.sql`,
+   `sql/Create-CopilotBiSchema.sql` and `sql/Create-CopilotBiProcedure.sql`.
+   The session and `bi` procedures refuse to run against the older tables.
+3. **User directory:** schedule `tools/Export-UsersWithHierarchy-ToSql.ps1`
+   on a machine that can reach the trusted domain, before the licence tool
+   and `-Incremental`. On its first run, check the match percentage it
+   reports (RUNBOOK section 5d).
+4. **Rebuild sessions once**, after the first directory load:
+   `EXEC audit.usp_BuildCopilotSessions` with your `@LicenceEventDatabase`
+   and no `@SinceUtc`, so every session carries the AD attributes. The next
+   `bi` refresh copies them all and restates every user from AD; refresh the
+   Power BI model fully once. From then on `-Incremental` keeps both current.
 
 ### Added
 
@@ -95,6 +117,12 @@ at that size.
   first, the match report counts UPN and mail matches, and the adoption
   views take departments from AD. Section 12 checks the org chain reaching
   `bi.DimUser`.
+- `Test-SqlIntegration.ps1` sections 10 and 12, incremental sessions: after
+  a new prompt, an incremental build equals a full rebuild column for column
+  (sessions and weeks, including a week straddling the rebuilt day); earlier
+  sessions keep their keys; numbering carries on; a build under different
+  settings is refused; and `bi.FactSession` stays equal to the sessions
+  through incremental, full and no session builds.
 
 ## [1.6.0] - 2026-09-24
 
@@ -551,6 +579,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.0.0
 [1.6.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.6.0
 [1.5.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.5.0
 [1.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.4.0
