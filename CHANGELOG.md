@@ -4,7 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-09-24
+
+Incremental loads: a finalized database kept current on a schedule, so a
+semantic model refreshing daily has something new to refresh.
 
 ### Added
 
@@ -398,6 +401,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[1.5.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.5.0
 [1.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.4.0
 [1.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.3.0
 [1.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.2.0
