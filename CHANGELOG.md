@@ -4,7 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.5.0] - 2026-09-24
+
+Incremental loads: a finalized database kept current on a schedule, so a
+semantic model refreshing daily has something new to refresh.
 
 ### Added
 
@@ -34,7 +37,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **App-only sign-in** with `-ClientId` and `-CertificateThumbprint`, so a
   scheduled task can run with nobody to sign in. Needs the Microsoft Graph
   application permission `AuditLogsQuery.Read.All`.
-- RUNBOOK section 5b: the app registration and the scheduled task.
+- RUNBOOK section 5b: the app registration and the scheduled task, with every
+  permission one app registration needs to run all of it. All are Microsoft
+  Graph application permissions, admin-consented and read-only:
+
+  | Permission | Needed for |
+  |---|---|
+  | `AuditLogsQuery.Read.All` | The backfill and `-Incremental` loads (Copilot records and licence events). Enough on its own without the enrichment tool. |
+  | `User.Read.All` | Enrichment: profiles, Division, Copilot licences, managers. |
+  | `Organization.Read.All` | Enrichment: finding the Copilot SKUs (`LicenseAssignment.Read.All` also works). |
+  | `AdministrativeUnit.Read.All` | Enrichment: administrative-unit names. |
+
+  Sign-in is by certificate. The app needs no Purview audit role; that applies
+  to people signing in.
 
 ### Changed
 
@@ -398,6 +413,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[1.5.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.5.0
 [1.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.4.0
 [1.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.3.0
 [1.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.2.0
