@@ -188,8 +188,8 @@ $objects = Invoke-SqlText -As Table -Sql @"
 SELECT name FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'audit' ORDER BY name;
 "@
 $names = @($objects.Rows | ForEach-Object { $_.name })
-Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow') `
-    "Create-CopilotAuditSchema.sql built the three tables, and is idempotent ($($names -join ', '))"
+Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow') `
+    "Create-CopilotAuditSchema.sql built the backfill and incremental-load tables, and is idempotent ($($names -join ', '))"
 
 $heap = Invoke-SqlText -As Scalar -Sql @"
 SELECT COUNT(*) FROM sys.indexes
@@ -1055,6 +1055,132 @@ VALUES ('lic-a1', 0, 'AssignedLicense', '[]', '["[SkuName=Microsoft_365_Copilot,
     Assert-That ("$lr" -eq $script:ITDatabase) "the run log records which licence history was used ($lr)"
 }
 finally { Stop-MockGraph $mock }
+
+# ---------------------------------------------------------------------------
+# 11. Incremental loads: the real engine into the load tables, then the merge
+# ---------------------------------------------------------------------------
+Write-Host "`n11. Incremental loads (audit.usp_MergeCopilotLoad)" -ForegroundColor Cyan
+
+# A database of its own: the sections above leave audit.CopilotAudit holding
+# directory events, and this needs a finalized Copilot backfill to append to.
+$mainDatabase = $script:ITDatabase
+$script:ITDatabase = "$mainDatabase" + '_Load'
+$loadMock = Start-MockGraph @{ days = 8; first_day_count = 300; last_day_count = 600; fail_first_query_covering = '2000-01-01T00:00:00Z' }
+try {
+    Invoke-SqlText -Catalog 'master' -Sql @"
+IF DB_ID(N'$($script:ITDatabase)') IS NOT NULL
+BEGIN
+    ALTER DATABASE [$($script:ITDatabase)] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+    DROP DATABASE [$($script:ITDatabase)];
+END;
+CREATE DATABASE [$($script:ITDatabase)];
+"@
+    Invoke-SqlText -Catalog 'master' -Sql "ALTER DATABASE [$($script:ITDatabase)] SET RECOVERY SIMPLE;"
+    Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotAuditSchema.sql') -Raw)
+    Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotLoadProcedure.sql') -Raw)
+    $loadConn = New-ConnString $script:ITDatabase
+
+    # Expected record ids per day, from the mock: 'yyyyMMdd-NNNNNN'.
+    $allIds = Get-ExpectedIds $loadMock
+    $idsIn = {
+        param([datetime] $From, [datetime] $To)
+        @($allIds | Where-Object {
+            $day = [datetime]::ParseExact($_.Substring(0, 8), 'yyyyMMdd', [cultureinfo]::InvariantCulture)
+            $day -ge $From.Date -and $day -lt $To.Date })
+    }
+    $d = { param([int] $day) [datetime]::new(2026, 8, $day, 0, 0, 0, [DateTimeKind]::Utc) }
+
+    # --- The backfill: Aug 1 - 5, finalized --------------------------------
+    $bStore = [CopilotAudit.SqlWindowStore]::new($loadConn, '[audit].[CopilotBackfillWindow]')
+    $bSink  = [CopilotAudit.SqlBatchSink]::new($loadConn, '[audit].[CopilotAuditStage]')
+    $bLog  = [System.Collections.Generic.List[string]]::new()
+    $bRun = Invoke-EngineRun -Mock $loadMock -Options (New-Options $loadMock (& $d 1) (& $d 5)) -Store $bStore -Sink $bSink -Log $bLog -TimeoutSec 600
+    Assert-That ($bRun.Task.Status -eq 'RanToCompletion') "backfill of Aug 1-5 completed ($($bRun.Task.Status))"
+    Invoke-SqlText -Parameters @{ '@s' = (& $d 1); '@e' = (& $d 5) } -Sql @"
+INSERT INTO audit.CopilotBackfillRange (Id, RangeStartUtc, RangeEndUtc, Operations, CompletedUtc)
+VALUES (1, @s, @e, N'CopilotInteraction', SYSUTCDATETIME());
+"@
+    [void] (Invoke-SqlText -As Table -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Finalize-CopilotAudit.sql') -Raw))
+    $afterBackfill = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit')
+    $expectBackfill = (& $idsIn (& $d 1) (& $d 5)).Count
+    Assert-That ($afterBackfill -eq $expectBackfill) "the finalized backfill holds Aug 1-5 ($afterBackfill of $expectBackfill)"
+
+    # --- Load 1: Aug 4 - 9, a day of lookback over the backfill --------------
+    # What -Incremental does: record the load, run the engine into the load
+    # tables, mark it downloaded, merge.
+    $runLoad = {
+        param([datetime] $From, [datetime] $To)
+        $id = Invoke-SqlText -As Scalar -Parameters @{ '@s' = $From; '@e' = $To } -Sql @"
+INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations) OUTPUT INSERTED.LoadId VALUES (@s, @e, N'CopilotInteraction');
+"@
+        $st = [CopilotAudit.SqlWindowStore]::new($loadConn, '[audit].[CopilotLoadWindow]')
+        $sk = [CopilotAudit.SqlBatchSink]::new($loadConn, '[audit].[CopilotLoadStage]')
+        $lg = [System.Collections.Generic.List[string]]::new()
+        $run = Invoke-EngineRun -Mock $loadMock -Options (New-Options $loadMock $From $To) -Store $st -Sink $sk -Log $lg -TimeoutSec 600
+        [void] (Invoke-SqlText -Sql 'UPDATE audit.CopilotLoad SET DownloadedUtc = SYSUTCDATETIME() WHERE LoadId = @id' -Parameters @{ '@id' = $id })
+        $m = Invoke-SqlText -As Table -Sql 'EXEC audit.usp_MergeCopilotLoad;' -ShowMessages
+        return [pscustomobject]@{ LoadId = [int] $id; Run = $run; Merge = $m.Rows[0] }
+    }
+
+    $l1 = & $runLoad (& $d 4) (& $d 9)
+    $overlap = (& $idsIn (& $d 4) (& $d 5)).Count
+    $newDays = (& $idsIn (& $d 5) (& $d 9)).Count
+    Assert-That ($l1.Run.Task.Status -eq 'RanToCompletion') "load 1 (Aug 4-9) downloaded ($($l1.Run.Task.Status))"
+    Assert-That ([long] $l1.Merge.RowsAdded -eq $newDays -and [long] $l1.Merge.RowsAlreadyLoaded -eq $overlap) `
+        "the lookback day was recognised, not re-added: $($l1.Merge.RowsAdded) new (of $newDays), $($l1.Merge.RowsAlreadyLoaded) already loaded (of $overlap)"
+
+    $state = Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)                          AS Rows_,
+       (SELECT COUNT(DISTINCT RecordId) FROM audit.CopilotAudit)             AS Distinct_,
+       (SELECT COUNT_BIG(*) FROM audit.CopilotInteraction)                    AS Interactions,
+       (SELECT COUNT_BIG(*) FROM audit.CopilotAudit WHERE LoadId = 1)         AS FromLoad1,
+       (SELECT COUNT_BIG(*) FROM audit.CopilotLoadWindow)                     AS LoadWindows,
+       (SELECT COUNT_BIG(*) FROM audit.CopilotLoadStage)                      AS LoadStage,
+       (SELECT COUNT(*) FROM audit.CopilotInteraction WHERE AppHost IS NULL OR PromptCount <> 1) AS BadShred
+"@
+    $s = $state.Rows[0]
+    Assert-That ([long] $s.Rows_ -eq $allIds.Count -and [long] $s.Distinct_ -eq $allIds.Count) `
+        "after the merge every record of Aug 1-9 is present exactly once ($($s.Rows_) rows, $($s.Distinct_) distinct, $($allIds.Count) expected)"
+    Assert-That ([long] $s.Interactions -eq [long] $s.Rows_) "audit.CopilotInteraction gained the same records ($($s.Interactions))"
+    Assert-That ([int] $s.BadShred -eq 0) 'the merged records shredded like the finalized ones (AppHost set, one prompt each)'
+    Assert-That ([long] $s.FromLoad1 -eq $newDays) "the appended rows carry their LoadId ($($s.FromLoad1))"
+    Assert-That ([long] $s.LoadWindows -eq 0 -and [long] $s.LoadStage -eq 0) 'the load tables are emptied for the next load'
+
+    # --- A second merge with nothing waiting changes nothing ----------------
+    [void] (Invoke-SqlText -As Table -Sql 'EXEC audit.usp_MergeCopilotLoad;')
+    $again = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit')
+    Assert-That ($again -eq $allIds.Count) "merging again with nothing waiting is a no-op ($again)"
+
+    # --- Refusals -------------------------------------------------------------
+    $refused = { param([string] $Sql) try { [void] (Invoke-SqlText -As Table -Sql $Sql); return '' } catch { return $_.Exception.GetBaseException().Message } }
+
+    $msg = & $refused (Get-Content -LiteralPath (Join-Path $root 'sql' 'Finalize-CopilotAudit.sql') -Raw)
+    Assert-That ($msg -like '*incremental loads have been merged*') "finalize refuses once loads are merged, rather than dropping them ($msg)"
+
+    Invoke-SqlText -Parameters @{ '@s' = (& $d 8); '@e' = (& $d 9) } -Sql "INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations) VALUES (@s, @e, N'CopilotInteraction');"
+    $msg = & $refused 'EXEC audit.usp_MergeCopilotLoad;'
+    Assert-That ($msg -like '*has not finished downloading*') "a load still downloading is not merged ($msg)"
+    Invoke-SqlText -Sql 'UPDATE audit.CopilotLoad SET DownloadedUtc = SYSUTCDATETIME() WHERE MergedUtc IS NULL;'
+    $msg = & $refused 'EXEC audit.usp_MergeCopilotLoad;'
+    Assert-That ($msg -like '*gap*') "a load whose windows do not cover its range is not merged ($msg)"
+    Invoke-SqlText -Sql 'DELETE FROM audit.CopilotLoad WHERE MergedUtc IS NULL;'
+
+    # --- A record Purview delivered late -------------------------------------
+    # Take one Aug 8 record out, as if it had not reached the audit log when
+    # load 1 ran. The next load's lookback reaches back over Aug 8 and must add
+    # exactly that record.
+    $late = Invoke-SqlText -As Scalar -Sql "SELECT TOP (1) RecordId FROM audit.CopilotAudit WHERE RecordId LIKE '20260808-%' ORDER BY RecordId;"
+    Invoke-SqlText -Parameters @{ '@r' = $late } -Sql 'DELETE FROM audit.CopilotAudit WHERE RecordId = @r; DELETE FROM audit.CopilotInteraction WHERE RecordId = @r;'
+    $l2 = & $runLoad (& $d 7) (& $d 9)
+    Assert-That ([long] $l2.Merge.RowsAdded -eq 1) "the lookback picked up the late record and nothing else ($($l2.Merge.RowsAdded) added, $($l2.Merge.RowsAlreadyLoaded) already loaded)"
+    $back = [long] (Invoke-SqlText -As Scalar -Parameters @{ '@r' = $late; '@l' = $l2.LoadId } -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit WHERE RecordId = @r AND LoadId = @l;')
+    $final = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit')
+    Assert-That ($back -eq 1 -and $final -eq $allIds.Count) "the late record is back, once, attributed to its load (total $final of $($allIds.Count))"
+}
+finally {
+    Stop-MockGraph $loadMock
+    $script:ITDatabase = $mainDatabase
+}
 
 # ---------------------------------------------------------------------------
 Write-Host ''

@@ -4,6 +4,55 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`-Incremental`: keep a finalized database current on a schedule.** The
+  backfill covers one fixed range, and finalize rebuilds everything from it;
+  nothing kept the tables current after that, so a semantic model refreshing
+  daily had nothing new to refresh. Each `-Incremental` run loads from where
+  the data ends - the last load's end, or the backfill's - up to the start of
+  the current hour, and appends instead of rebuilding.
+  - Every load re-searches the `-LookbackHours` (default 48) before its start.
+    Microsoft commits to no delivery time for audit records (core services
+    typically 60-90 minutes), so a record that arrives late is picked up by the
+    next load. Records already present are counted, never duplicated.
+  - The engine runs unchanged against its own `audit.CopilotLoadWindow` and
+    `audit.CopilotLoadStage`; `audit.CopilotLoad` logs each load. A run that
+    stops part-way resumes the same load next time, and a run with failed
+    windows exits non-zero rather than leaving a silent hole.
+  - `audit.usp_MergeCopilotLoad` (`sql/Create-CopilotLoadProcedure.sql`,
+    installed automatically) checks the load covers its range with no gap, then
+    appends the new records to `audit.CopilotAudit` (with a `LoadId` for
+    lineage, added in place on older databases) and `audit.CopilotInteraction`
+    in one transaction, and empties the load tables.
+  - Afterwards it refreshes whichever derived tables are installed: the
+    flattened table and licence events from the load's start, then sessions
+    (`-SessionLicenceDatabase` passes the licence history). `-SkipPostProcessing`
+    stops after the merge.
+- **App-only sign-in** with `-ClientId` and `-CertificateThumbprint`, so a
+  scheduled task can run with nobody to sign in. Needs the Microsoft Graph
+  application permission `AuditLogsQuery.Read.All`.
+- RUNBOOK section 5b: the app registration and the scheduled task.
+
+### Changed
+
+- `-Finalize` refuses once an incremental load has been merged: it rebuilds from
+  the backfill's staging table only, and would drop every day the loads added.
+- `-Status` lists the latest incremental loads.
+
+### Tests
+
+- `Test-SqlIntegration.ps1` section 11 runs the real engine: a backfill of five
+  days, finalized, then a load over four more with a day of lookback. Every
+  record ends up present exactly once, the lookback day is counted as already
+  loaded, a record removed to simulate late delivery is added back by the next
+  load and nothing else is, merging with nothing waiting changes nothing, and
+  finalize, an unfinished load and a load with a coverage gap are all refused.
+- `Test-Orchestrator.ps1` section 2b covers the load range: the lookback, the
+  whole-hour end, an explicit end, and nothing to load.
+
 ## [1.4.0] - 2026-09-24
 
 Sessions and the weekly rollup in SQL, licence history that carries its

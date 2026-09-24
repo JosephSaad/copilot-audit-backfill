@@ -49,7 +49,7 @@
 
 .PARAMETER EndDate
     UTC. Defaults to the start of today (UTC), so no partially ingested day is
-    captured. Leave the ongoing feed (Management Activity API) to cover today on.
+    captured. Keep the data current from there with scheduled -Incremental runs.
 
 .PARAMETER TenantId
     Tenant GUID or contoso.onmicrosoft.com. Strongly recommended: pins sign-in
@@ -68,12 +68,49 @@
 .PARAMETER Status
     Print the backfill's saved progress and exit (safe while a run is active).
 
+.PARAMETER Incremental
+    Keep a finalized database current: load from the end of the previous load
+    (or of the backfill) up to the start of the current hour, then append the
+    new records to audit.CopilotAudit and audit.CopilotInteraction with
+    audit.usp_MergeCopilotLoad - no rebuild. Meant to run on a schedule. A load
+    interrupted part-way resumes on the next run. -StartDate is ignored; pass
+    -EndDate only to stop short of now.
+
+.PARAMETER LookbackHours
+    With -Incremental: how far before the previous load's end each load starts
+    again (default 48). Purview can deliver a record hours after the event, so
+    the overlap is searched again; records already loaded are counted and
+    skipped, never duplicated.
+
+.PARAMETER SkipPostProcessing
+    With -Incremental: only load and merge. By default the run then brings the
+    derived tables up to date as well, for each one installed: the flattened
+    table (usp_FlattenCopilotAudit, from the load's start), licence events
+    (usp_ShredLicenseEvents) and sessions (usp_BuildCopilotSessions).
+
+.PARAMETER SessionLicenceDatabase
+    With -Incremental: passed to usp_BuildCopilotSessions as
+    @LicenceEventDatabase (one database, or several comma-separated), so each
+    session carries the licence held at the time.
+
+.PARAMETER CertificateThumbprint
+    App-only sign-in, for a scheduled run with nobody to sign in: the
+    thumbprint of a certificate in the CurrentUser or LocalMachine store whose
+    public key is uploaded to the app registration given by -ClientId. The app
+    needs the Microsoft Graph APPLICATION permission AuditLogsQuery.Read.All,
+    admin-consented. Requires -ClientId and -TenantId.
+
 .EXAMPLE
     .\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -TenantId contoso.onmicrosoft.com
 
 .EXAMPLE
     # Resume after Ctrl+C / reboot: the same command again.
     .\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -TenantId contoso.onmicrosoft.com -Finalize
+
+.EXAMPLE
+    # Daily, from Task Scheduler, once the backfill is finalized: app-only sign-in.
+    .\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -Incremental `
+        -TenantId contoso.onmicrosoft.com -ClientId <app-id> -CertificateThumbprint <thumbprint>
 
 .EXAMPLE
     # Smoke test first: one day.
@@ -98,12 +135,18 @@ param(
     [ValidateSet('Browser', 'DeviceCode')]
     [string]   $AuthMode = 'Browser',
     [string]   $ClientId,
+    [string]   $CertificateThumbprint,
 
     [string[]] $Operations = @('CopilotInteraction'),
 
     [switch]   $Finalize,
     [switch]   $FinalizeOnly,
     [switch]   $Status,
+
+    [switch]   $Incremental,
+    [ValidateRange(0, 168)]       [int]    $LookbackHours          = 48,
+    [switch]   $SkipPostProcessing,
+    [string]   $SessionLicenceDatabase,
 
     # --- tuning (defaults are deliberately inside Microsoft's published limits)
     [ValidateRange(1, 32)]        [int]    $MaxDownloadStreams     = 8,
@@ -225,6 +268,20 @@ function Invoke-Sql {
     finally { $conn.Dispose() }
 }
 
+function Invoke-SqlScript {
+    <#
+        Runs a script file that uses GO batch separators, as the stored
+        procedure scripts do (CREATE/ALTER PROCEDURE must start a batch).
+        Splits the way sqlcmd does: GO alone on a line. \r? because a Windows
+        checkout has CRLF endings and .NET's multiline $ matches before \n only.
+    #>
+    param([Parameter(Mandatory)][string] $Path, [int] $TimeoutSeconds = 600)
+    $text = Get-Content -LiteralPath $Path -Raw
+    foreach ($batch in [regex]::Split($text, '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) {
+        if (-not [string]::IsNullOrWhiteSpace($batch)) { Invoke-Sql -Sql $batch -TimeoutSeconds $TimeoutSeconds }
+    }
+}
+
 function Initialize-CopilotAuditDatabase {
     try {
         Invoke-Sql -Sql 'SELECT 1' -As Scalar | Out-Null
@@ -313,6 +370,20 @@ FROM audit.CopilotBackfillWindow GROUP BY Status ORDER BY Status
     }
     $stage = Invoke-Sql -As Scalar -Sql "SELECT SUM(rows) FROM sys.partitions WHERE object_id = OBJECT_ID(N'audit.CopilotAuditStage') AND index_id IN (0, 1)"
     Write-Log ('  staging table holds ~{0:N0} rows (including superseded attempts)' -f $stage)
+
+    $loads = Invoke-Sql -As Table -Sql @'
+SELECT TOP (5) LoadId, RangeStartUtc, RangeEndUtc, DownloadedUtc, MergedUtc, RowsAdded, RowsAlreadyLoaded
+FROM audit.CopilotLoad ORDER BY LoadId DESC
+'@
+    if ($loads.Rows.Count -gt 0) {
+        Write-Log 'Incremental loads (latest first):'
+        foreach ($l in $loads.Rows) {
+            $state = if ($l.MergedUtc -isnot [DBNull]) { 'merged {0:yyyy-MM-dd HH:mm}Z, {1:N0} new, {2:N0} already loaded' -f $l.MergedUtc, $l.RowsAdded, $l.RowsAlreadyLoaded }
+                     elseif ($l.DownloadedUtc -isnot [DBNull]) { 'downloaded, not yet merged' }
+                     else { 'in progress' }
+            Write-Log ('  #{0,-4} {1:yyyy-MM-dd HH:mm}Z -> {2:yyyy-MM-dd HH:mm}Z  {3}' -f $l.LoadId, $l.RangeStartUtc, $l.RangeEndUtc, $state)
+        }
+    }
 }
 
 function Invoke-CopilotAuditFinalize {
@@ -329,6 +400,147 @@ function Invoke-CopilotAuditFinalize {
         Write-Log ('Final: {0:N0} records | {1:N0} duplicates removed | {2:yyyy-MM-dd} -> {3:yyyy-MM-dd} | {4:N0} users' -f `
                    $s.FinalRows, $s.DuplicatesRemoved, $s.OldestRecordUtc, $s.NewestRecordUtc, $s.DistinctUsers)
     }
+}
+
+# ===========================================================================
+# Incremental loads
+# ===========================================================================
+
+function Resolve-LoadRange {
+    <#
+        The next incremental load's range, from where the data ends. It starts
+        LookbackHours earlier, because Purview can deliver a record hours after
+        the event and the overlap must be searched again. It ends at EndUtc if
+        given, else at the start of the current hour - a whole hour, so a load
+        never catches an hour half-ingested and misses its tail. Returns $null
+        when there is nothing after BaseEndUtc to load.
+    #>
+    param(
+        [Parameter(Mandatory)][datetime] $BaseEndUtc,
+        [Parameter(Mandatory)][datetime] $NowUtc,
+        [int] $LookbackHours = 48,
+        [Nullable[datetime]] $EndUtc
+    )
+    # PowerShell hands a [Nullable[datetime]] over already unwrapped: no .Value.
+    $e = if ($null -ne $EndUtc) { [datetime] $EndUtc } else { $NowUtc }
+    $end = if ($null -ne $EndUtc) {
+        [datetime]::new($e.Year, $e.Month, $e.Day, $e.Hour, $e.Minute, 0, [DateTimeKind]::Utc)
+    } else {
+        [datetime]::new($e.Year, $e.Month, $e.Day, $e.Hour, 0, 0, [DateTimeKind]::Utc)
+    }
+    $base = [datetime]::SpecifyKind($BaseEndUtc, [DateTimeKind]::Utc)
+    if ($end -le $base) { return $null }
+    return [pscustomobject]@{ Start = $base.AddHours(-$LookbackHours); End = $end }
+}
+
+function Get-IncrementalLoad {
+    <#
+        The load to work on: the unfinished one if a previous run stopped, else
+        a new one continuing from the last merged load - or, the first time,
+        from the end of the finalized backfill.
+    #>
+    $ops = ($Operations | Sort-Object) -join ','
+
+    $pending = Invoke-Sql -As Table -Sql 'SELECT TOP (1) LoadId, RangeStartUtc, RangeEndUtc, Operations, DownloadedUtc FROM audit.CopilotLoad WHERE MergedUtc IS NULL ORDER BY LoadId'
+    if ($pending.Rows.Count -gt 0) {
+        $p = $pending.Rows[0]
+        if ($p.Operations -ne $ops) { throw "Load $($p.LoadId) in this database is of '$($p.Operations)', not '$ops'." }
+        $downloaded = $p.DownloadedUtc -isnot [DBNull]
+        $load = [pscustomobject]@{
+            LoadId = [int] $p.LoadId
+            Start = [datetime]::SpecifyKind($p.RangeStartUtc, [DateTimeKind]::Utc)
+            End = [datetime]::SpecifyKind($p.RangeEndUtc, [DateTimeKind]::Utc)
+            Downloaded = $downloaded
+        }
+        Write-Log ('Resuming load {0}: {1:yyyy-MM-dd HH:mm}Z -> {2:yyyy-MM-dd HH:mm}Z{3}.' -f $load.LoadId, $load.Start, $load.End,
+                   $(if ($downloaded) { ', already downloaded - merging' } else { '' }))
+        return $load
+    }
+
+    $backfill = Invoke-Sql -As Table -Sql 'SELECT RangeEndUtc, Operations, CompletedUtc FROM audit.CopilotBackfillRange WHERE Id = 1'
+    if ($backfill.Rows.Count -eq 0 -or $backfill.Rows[0].CompletedUtc -is [DBNull]) {
+        throw 'Run a backfill to completion in this database first: incremental loads continue from where it ends.'
+    }
+    if ($backfill.Rows[0].Operations -ne $ops) {
+        throw "This database holds a backfill of '$($backfill.Rows[0].Operations)', not '$ops'. Pass the same -Operations."
+    }
+    if ((Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.CopilotAudit', N'U') IS NULL THEN 0 ELSE 1 END") -eq 0) {
+        throw 'The backfill has not been finalized. Run -FinalizeOnly first: loads are appended to audit.CopilotAudit.'
+    }
+
+    $lastMerged = Invoke-Sql -As Scalar -Sql 'SELECT MAX(RangeEndUtc) FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL'
+    $base = if ($null -eq $lastMerged -or $lastMerged -is [DBNull]) { $backfill.Rows[0].RangeEndUtc } else { $lastMerged }
+    $endArg = if ($EndDate) { ConvertTo-UtcDate $EndDate } else { $null }
+    $range = Resolve-LoadRange -BaseEndUtc $base -NowUtc ([datetime]::UtcNow) -LookbackHours $LookbackHours -EndUtc $endArg
+    if (-not $range) {
+        Write-Log ('Nothing to load: the data already reaches {0:yyyy-MM-dd HH:mm}Z.' -f $base)
+        return $null
+    }
+
+    # Leftovers from a load whose merge committed but whose clean-up did not.
+    Invoke-Sql -Sql 'TRUNCATE TABLE audit.CopilotLoadStage; TRUNCATE TABLE audit.CopilotLoadWindow;'
+    $id = Invoke-Sql -As Scalar -Parameters @{ '@s' = $range.Start; '@e' = $range.End; '@o' = $ops } -Sql @'
+INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations) OUTPUT INSERTED.LoadId VALUES (@s, @e, @o);
+'@
+    Write-Log ('New load {0}: {1:yyyy-MM-dd HH:mm}Z -> {2:yyyy-MM-dd HH:mm}Z ({3:N0} h, the first {4} h a lookback over data already loaded).' -f `
+               $id, $range.Start, $range.End, ($range.End - $range.Start).TotalHours, $LookbackHours)
+    return [pscustomobject]@{ LoadId = [int] $id; Start = $range.Start; End = $range.End; Downloaded = $false }
+}
+
+function Invoke-DerivedTableRefresh {
+    <#
+        After a merge, brings each installed derived table up to date: the
+        flattened table and licence events from the load's start (both MERGE,
+        so the lookback's records are updated in place), then sessions, which
+        rebuild in one transaction.
+    #>
+    param([Parameter(Mandatory)][datetime] $SinceUtc)
+    function Test-Proc([string] $Name) {
+        return [bool] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'$Name', N'P') IS NULL THEN 0 ELSE 1 END")
+    }
+    if (Test-Proc 'audit.usp_FlattenCopilotAudit') {
+        Write-Log ('Flattening records from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
+        Invoke-Sql -Sql 'EXEC audit.usp_FlattenCopilotAudit @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
+    }
+    if (Test-Proc 'audit.usp_ShredLicenseEvents') {
+        Write-Log ('Shredding licence events from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
+        Invoke-Sql -Sql 'EXEC audit.usp_ShredLicenseEvents @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
+    }
+    if (Test-Proc 'audit.usp_BuildCopilotSessions') {
+        Write-Log 'Rebuilding sessions and the weekly rollup...'
+        if ($SessionLicenceDatabase) {
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $SessionLicenceDatabase } -TimeoutSeconds 0
+        }
+        else {
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions;' -TimeoutSeconds 0
+        }
+    }
+}
+
+function Invoke-IncrementalLoad {
+    if ($Finalize -or $FinalizeOnly) { Write-Log '-Finalize is not used with -Incremental: each load is merged as it completes.' -Level WARN }
+    if ($StartDate) { Write-Log '-StartDate is ignored with -Incremental: each load starts where the data ends, less the lookback.' -Level WARN }
+
+    Invoke-SqlScript -Path (Join-Path $PSScriptRoot 'sql' 'Create-CopilotLoadProcedure.sql')
+    $load = Get-IncrementalLoad
+    if (-not $load) { return }
+
+    if (-not $load.Downloaded) {
+        if (-not $TenantId) { Write-Log 'No -TenantId given; sign-in will use the account''s home tenant. Pass -TenantId to pin it.' -Level WARN }
+        Connect-AuditGraph
+        $script:CurrentGraphToken = Get-GraphAccessToken
+        $final = Invoke-AuditDownload -Start $load.Start -End $load.End -WindowTable '[audit].[CopilotLoadWindow]' -StageTable '[audit].[CopilotLoadStage]'
+        if ($final.WindowsFailed -gt 0) {
+            # A scheduled run must fail visibly, not exit clean with a hole in the data.
+            throw "$($final.WindowsFailed) window(s) of load $($load.LoadId) failed after retries. The next run resumes this load and retries them."
+        }
+        Invoke-Sql -Sql 'UPDATE audit.CopilotLoad SET DownloadedUtc = SYSUTCDATETIME() WHERE LoadId = @id' -Parameters @{ '@id' = $load.LoadId }
+    }
+
+    [void] (Invoke-Sql -As Table -Sql 'EXEC audit.usp_MergeCopilotLoad;' -TimeoutSeconds 0)
+    if ($SkipPostProcessing) { Write-Log 'Derived tables not updated (-SkipPostProcessing).' }
+    else { Invoke-DerivedTableRefresh -SinceUtc $load.Start }
+    Write-Log ('Incremental load {0} complete: the data now reaches {1:yyyy-MM-dd HH:mm}Z.' -f $load.LoadId, $load.End)
 }
 
 # ===========================================================================
@@ -355,6 +567,21 @@ function Connect-AuditGraph {
             throw "$cmd not found. $hint"
         }
     }
+    if ($CertificateThumbprint) {
+        # App-only: no prompt, so a scheduled run can sign in by itself. The
+        # permission is the application one, granted to the app, not a scope.
+        if (-not $ClientId -or -not $TenantId) { throw '-CertificateThumbprint needs -ClientId and -TenantId.' }
+        Connect-MgGraph -ClientId $ClientId -TenantId $TenantId -CertificateThumbprint $CertificateThumbprint -NoWelcome
+        $ctx = Get-MgContext
+        if (-not $ctx) { throw 'App-only sign-in did not complete.' }
+        if (@($ctx.Scopes).Count -gt 0 -and $ctx.Scopes -notcontains $script:GraphScope) {
+            throw ("App $ClientId signed in, but its token lacks the application permission $($script:GraphScope). " +
+                   'Add it under API permissions (Application, not Delegated) and grant admin consent.')
+        }
+        Write-Log "Signed in app-only as app $ClientId (tenant $($ctx.TenantId))."
+        return
+    }
+
     $connect = @{ Scopes = $script:GraphScope; NoWelcome = $true }
     if ($TenantId) { $connect['TenantId'] = $TenantId }
     if ($ClientId) { $connect['ClientId'] = $ClientId }
@@ -515,38 +742,20 @@ function Wait-BackfillEngine {
 # Main
 # ===========================================================================
 
-function Invoke-Main {
-    if (-not $LogPath) { $LogPath = Join-Path (Get-Location) ('CopilotAuditBackfill_{0:yyyyMMdd_HHmmss}.log' -f [datetime]::UtcNow) }
-    $script:LogFile = $LogPath
-    Write-Log "Log file: $LogPath"
-
-    Import-CopilotAuditEngine 3>$null
-    $script:SqlConnStr = New-SqlConnectionString
-    Initialize-CopilotAuditDatabase
-
-    if ($Status) { Show-BackfillState; return }
-    if ($FinalizeOnly) { Invoke-CopilotAuditFinalize; return }
-
-    $range = Resolve-BackfillRange
-    if ($range.Completed) {
-        Write-Log 'This backfill already completed. Nothing to download.'
-        if ($Finalize) { Invoke-CopilotAuditFinalize }
-        return
-    }
-    if (($range.End - $range.Start).TotalDays -gt 180) {
-        Write-Log (('The range covers {0:N0} days. Copilot audit records are retained 180 days unless a custom audit ' +
-                    'retention policy covered them at the time - older windows will simply come back empty.') -f ($range.End - $range.Start).TotalDays) -Level WARN
-    }
-    if (-not $TenantId) {
-        Write-Log 'No -TenantId given; sign-in will use the account''s home tenant. Pass -TenantId to pin it.' -Level WARN
-    }
-
-    Connect-AuditGraph
-    $script:CurrentGraphToken = Get-GraphAccessToken
-
+function Invoke-AuditDownload {
+    <#
+        Runs the engine over one range into one pair of tables: the backfill's,
+        or an incremental load's. Returns the engine's final status.
+    #>
+    param(
+        [Parameter(Mandatory)][datetime] $Start,
+        [Parameter(Mandatory)][datetime] $End,
+        [Parameter(Mandatory)][string] $WindowTable,
+        [Parameter(Mandatory)][string] $StageTable
+    )
     $o = [CopilotAudit.EngineOptions]::new()
-    $o.RangeStartUtc          = $range.Start
-    $o.RangeEndUtc            = $range.End
+    $o.RangeStartUtc          = $Start
+    $o.RangeEndUtc            = $End
     $o.Operations             = [string[]] $Operations
     $o.InitialWindowHours     = $InitialWindowHours
     $o.TargetRecordsPerWindow = $TargetRecordsPerWindow
@@ -558,8 +767,8 @@ function Invoke-Main {
     $o.BatchRows              = $BatchRows
     $o.PageSize               = $PageSize
 
-    $store = [CopilotAudit.SqlWindowStore]::new($script:SqlConnStr, '[audit].[CopilotBackfillWindow]')
-    $sink  = [CopilotAudit.SqlBatchSink]::new($script:SqlConnStr, '[audit].[CopilotAuditStage]')
+    $store = [CopilotAudit.SqlWindowStore]::new($script:SqlConnStr, $WindowTable)
+    $sink  = [CopilotAudit.SqlBatchSink]::new($script:SqlConnStr, $StageTable)
     $engine = [CopilotAudit.BackfillEngine]::new($o, $store, $sink, $null)
     $engine.SetAccessToken($script:CurrentGraphToken)
 
@@ -584,6 +793,40 @@ function Invoke-Main {
     }
     if ($final.TruncatedValues -gt 0) { Write-Log "$($final.TruncatedValues) oversized field value(s) were truncated to fit the column sizes." -Level WARN }
     if ($final.SkippedRecords -gt 0)  { Write-Log "$($final.SkippedRecords) record(s) had no id or timestamp and were skipped." -Level WARN }
+    return $final
+}
+
+function Invoke-Main {
+    if (-not $LogPath) { $LogPath = Join-Path (Get-Location) ('CopilotAuditBackfill_{0:yyyyMMdd_HHmmss}.log' -f [datetime]::UtcNow) }
+    $script:LogFile = $LogPath
+    Write-Log "Log file: $LogPath"
+
+    Import-CopilotAuditEngine 3>$null
+    $script:SqlConnStr = New-SqlConnectionString
+    Initialize-CopilotAuditDatabase
+
+    if ($Status) { Show-BackfillState; return }
+    if ($Incremental) { Invoke-IncrementalLoad; return }
+    if ($FinalizeOnly) { Invoke-CopilotAuditFinalize; return }
+
+    $range = Resolve-BackfillRange
+    if ($range.Completed) {
+        Write-Log 'This backfill already completed. Nothing to download.'
+        if ($Finalize) { Invoke-CopilotAuditFinalize }
+        return
+    }
+    if (($range.End - $range.Start).TotalDays -gt 180) {
+        Write-Log (('The range covers {0:N0} days. Copilot audit records are retained 180 days unless a custom audit ' +
+                    'retention policy covered them at the time - older windows will simply come back empty.') -f ($range.End - $range.Start).TotalDays) -Level WARN
+    }
+    if (-not $TenantId) {
+        Write-Log 'No -TenantId given; sign-in will use the account''s home tenant. Pass -TenantId to pin it.' -Level WARN
+    }
+
+    Connect-AuditGraph
+    $script:CurrentGraphToken = Get-GraphAccessToken
+
+    $final = Invoke-AuditDownload -Start $range.Start -End $range.End -WindowTable '[audit].[CopilotBackfillWindow]' -StageTable '[audit].[CopilotAuditStage]'
     if ($final.OldestRecordUtc -and ($final.OldestRecordUtc - $range.Start).TotalDays -gt 2) {
         Write-Log ('Oldest record found is {0:yyyy-MM-dd}; nothing exists before that - the retention boundary.' -f $final.OldestRecordUtc) -Level WARN
     }
