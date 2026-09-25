@@ -88,6 +88,22 @@ Each run loads from where the data ends up to the start of the current hour, and
 
 Plus a certificate credential. User attributes - title, department, division, office, manager, the org chain - come from on-premises Active Directory instead (see [Adoption reporting](#adoption-reporting)), which needs no Graph permission at all. An app needs no Purview audit role; that applies to people signing in. RUNBOOK section 5b lists the Graph calls behind each permission.
 
+## Importing Purview CSV exports
+
+Audit log exports from the Purview portal can go into the same tables, instead of the Graph backfill or alongside it. Point the importer at a folder:
+
+```powershell
+.\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports -SqlServer SQLPROD01 -Database CopilotAudit `
+    -SessionLicenceDatabase CopilotLicenseEvents
+```
+
+- **Overlaps are expected.** Exports may cover overlapping ranges and repeat each other; one row per `RecordId` is kept, and a record already loaded - by the backfill, `-Incremental` or an earlier import - wins.
+- **Run it again as the folder grows.** A file already imported (same SHA-256) is skipped.
+- **Nothing is loaded broken.** Rows whose `AuditData` is not JSON (a file opened and saved in Excel cuts it at 32,767 characters), or that have no record ID or time, are listed in `audit.CopilotCsvReject` with their line number. Rows of another operation are counted and left out.
+- **Everything downstream is unchanged.** Records land as the Graph path stores them, and the importer then refreshes the flattened table, sessions and `bi` from the earliest record it added.
+
+**Starting from CSV files alone.** Pass `-CoveredThroughUtc`, the end of the search range the exports were made for. The import records it as the database's range, so `-Incremental` continues from there. The Graph API keeps 180 days only: if the exports end earlier than that, the days in between cannot be filled. The files are read by the importer, not by SQL Server, and it runs on PowerShell 7.2+. RUNBOOK section 5e has the details.
+
 ## Servers without gallery access
 
 `Microsoft.Graph.Authentication` is the only external module — everything else the tool uses, including `System.Data.SqlClient`, ships inside PowerShell 7. On a locked-down server that cannot reach the PowerShell Gallery, put the module next to the script instead of installing it.
@@ -257,8 +273,10 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `tools/Export-CopilotSessionCsv.ps1` | Writes the session and weekly CSVs. |
 | `sql/Create-CopilotBiSchema.sql` | The `bi` star schema's tables and the views a Power BI model imports. |
 | `sql/Create-CopilotBiProcedure.sql` | `bi.usp_RefreshBi`, which fills it. |
+| `tools/Import-CopilotAuditCsv.ps1` | Imports a folder of Purview audit log exports (CSV) into the same tables. |
+| `sql/Create-CopilotCsvImport.sql` | The CSV import's tables and `audit.usp_MergeCopilotCsv`. Run by the importer. |
 | `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licences, the nightly job, Power BI and Copilot. |
-| `tests/` | Mock Graph service and the three test suites. |
+| `tests/` | Mock Graph service and the test suites. |
 
 ## License
 

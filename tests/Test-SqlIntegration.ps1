@@ -1471,6 +1471,148 @@ Assert-That ([long] $r.Rows_ -eq ($flatRows + 1) -and "$($r.S01)" -eq 'Excel') "
 Assert-That ([int] $r.Users -eq $usersBefore -and [int] $r.AKey -eq $aKey) "and re-registers no user: keys survive a rebuild ($($r.Users) users)"
 
 # ---------------------------------------------------------------------------
+# 13. CSV import: section 11's records, exported in the Purview portal's
+# shape as overlapping files, imported by tools/Import-CopilotAuditCsv.ps1
+# into a new database and into section 11's own.
+# ---------------------------------------------------------------------------
+Write-Host "`n13. CSV import (tools/Import-CopilotAuditCsv.ps1)" -ForegroundColor Cyan
+
+$csvTool  = Join-Path $root 'tools' 'Import-CopilotAuditCsv.ps1'
+$loadDb   = "$($script:ITDatabase)_Load"
+$csvDb    = "$($script:ITDatabase)_Csv"
+$guardDb  = "$($script:ITDatabase)_CsvGuard"
+$csvDir   = Join-Path ([System.IO.Path]::GetTempPath()) ('csvit-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $csvDir | Out-Null
+$newDb = {
+    param([string] $Name)
+    Invoke-SqlText -Catalog 'master' -Sql @"
+IF DB_ID(N'$Name') IS NOT NULL BEGIN ALTER DATABASE [$Name] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$Name]; END;
+CREATE DATABASE [$Name];
+"@
+    Invoke-SqlText -Catalog 'master' -Sql "ALTER DATABASE [$Name] SET RECOVERY SIMPLE;"
+}
+$runTool = {
+    param([string] $Catalog, [hashtable] $Extra = @{})
+    & $csvTool -Path $csvDir -ConnectionString (New-ConnString $Catalog) @Extra
+}
+$compare = {
+    # Rows of $Left's audit.CopilotInteraction missing from, or different in, $Right.
+    param([string] $Left, [string] $Right)
+    [long] (Invoke-SqlText -Catalog 'master' -As Scalar -Sql @"
+SELECT COUNT_BIG(*) FROM (
+    SELECT RecordId, CreatedDateTime, ActivityDate, UserPrincipalName, AppHost, AppIdentity, ClientRegion,
+           ModelName, ModelProvider, ThreadId, PromptCount, AccessedResourceCount, UsedWebSearch
+    FROM [$Left].audit.CopilotInteraction
+    EXCEPT
+    SELECT RecordId, CreatedDateTime, ActivityDate, UserPrincipalName, AppHost, AppIdentity, ClientRegion,
+           ModelName, ModelProvider, ThreadId, PromptCount, AccessedResourceCount, UsedWebSearch
+    FROM [$Right].audit.CopilotInteraction) AS x;
+"@)
+}
+try {
+    $recs = Invoke-SqlText -Catalog $loadDb -As Table -Sql @"
+SELECT RecordId, CONVERT(varchar(19), CreationDate, 126) AS CreationDate, RecordType, Operation, UserId, AuditData,
+       AssociatedAdminUnits
+FROM audit.vCopilotAuditRecord ORDER BY CreationDate, RecordId;
+"@
+    $all = @($recs.Rows | ForEach-Object {
+        [pscustomobject]@{ RecordId = $_.RecordId; CreationDate = $_.CreationDate; RecordType = $_.RecordType
+                           Operation = $_.Operation; UserId = $_.UserId; AuditData = $_.AuditData
+                           AssociatedAdminUnits = "$($_.AssociatedAdminUnits)"; AssociatedAdminUnitsNames = '' } })
+    $n = $all.Count
+    $parts = @(, $all[0..([int]($n * 0.5))]) + @(, $all[([int]($n * 0.35))..([int]($n * 0.8))]) + @(, $all[([int]($n * 0.7))..($n - 1)])
+    for ($i = 0; $i -lt 3; $i++) { $parts[$i] | Export-Csv (Join-Path $csvDir "export-$i.csv") -NoTypeInformation -Encoding utf8BOM }
+    Copy-Item (Join-Path $csvDir 'export-0.csv') (Join-Path $csvDir 'export-0 (copy).csv')
+    $csvRows = [long] (($parts | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum)
+    $firstDay = [datetime]::ParseExact($all[0].CreationDate.Substring(0, 10), 'yyyy-MM-dd', [cultureinfo]::InvariantCulture)
+
+    # --- A database that starts from CSV files --------------------------------
+    & $newDb $csvDb
+    & $runTool $csvDb @{ CoveredThroughUtc = (& $d 9) }
+    $c = (Invoke-SqlText -Catalog $csvDb -As Table -Sql @"
+SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)                AS Rows_,
+       (SELECT COUNT(DISTINCT RecordId) FROM audit.CopilotAudit)    AS Distinct_,
+       (SELECT COUNT_BIG(*) FROM audit.CopilotInteraction)          AS Interactions,
+       i.FilesLoaded, i.RowsStaged, i.RowsDuplicate, i.RowsAdded,
+       r.RangeStartUtc, r.RangeEndUtc, r.Source
+FROM audit.CopilotCsvImport AS i CROSS JOIN audit.CopilotBackfillRange AS r;
+"@).Rows[0]
+    Assert-That ([long] $c.Rows_ -eq $n -and [long] $c.Distinct_ -eq $n -and [long] $c.Interactions -eq $n) `
+        "every record once from $csvRows overlapping CSV rows ($($c.Rows_) rows, $($c.Distinct_) distinct, $n expected)"
+    Assert-That ([int] $c.FilesLoaded -eq 3 -and [long] $c.RowsDuplicate -eq ($csvRows - $n)) `
+        "the identical copy was skipped and the overlaps removed ($($c.FilesLoaded) files, $($c.RowsDuplicate) duplicates)"
+    $diff = (& $compare $loadDb $csvDb) + (& $compare $csvDb $loadDb)
+    Assert-That ($diff -eq 0) "audit.CopilotInteraction is the same as the Graph path built ($diff rows differ)"
+    $same = [long] (Invoke-SqlText -Catalog 'master' -As Scalar -Sql @"
+SELECT COUNT_BIG(*) FROM [$csvDb].audit.CopilotAudit AS c
+JOIN [$loadDb].audit.CopilotAudit AS l ON l.RecordId = c.RecordId
+WHERE l.CreatedDateTime = c.CreatedDateTime AND l.UserPrincipalName = c.UserPrincipalName
+  AND CAST(DECOMPRESS(l.AuditDataGz) AS NVARCHAR(MAX)) = CAST(DECOMPRESS(c.AuditDataGz) AS NVARCHAR(MAX));
+"@)
+    Assert-That ($same -eq $n) "each record's time, UPN and JSON match the Graph path's ($same of $n)"
+    Assert-That ("$($c.Source)" -eq 'CSV' -and $c.RangeEndUtc -eq (& $d 9) -and $c.RangeStartUtc -eq $firstDay) `
+        ("the covered range is recorded for -Incremental ({0:yyyy-MM-dd} to {1:yyyy-MM-dd}, {2})" -f $c.RangeStartUtc, $c.RangeEndUtc, $c.Source)
+
+    & $runTool $csvDb
+    $imports = [int] (Invoke-SqlText -Catalog $csvDb -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotCsvImport;')
+    Assert-That ($imports -eq 1) "running again over the same folder imports nothing ($imports import)"
+
+    # --- A new record, a cut-off row, a later coverage end --------------------
+    $j = $all[0].AuditData | ConvertFrom-Json
+    $j.Id = 'csv-new-000001'; $j.CreationTime = '2026-08-09T12:00:00'
+    $bad = $all[1].PSObject.Copy(); $bad.RecordId = 'csv-bad-000001'; $bad.AuditData = $bad.AuditData.Substring(0, 50)
+    @([pscustomobject]@{ RecordId = $j.Id; CreationDate = ''; RecordType = 'CopilotInteraction'; Operation = 'CopilotInteraction'
+                         UserId = $all[0].UserId; AuditData = ($j | ConvertTo-Json -Depth 20 -Compress)
+                         AssociatedAdminUnits = ''; AssociatedAdminUnitsNames = '' },
+      $bad) | Export-Csv (Join-Path $csvDir 'export-late.csv') -NoTypeInformation -Encoding utf8BOM
+    & $runTool $csvDb @{ CoveredThroughUtc = (& $d 10) }
+    $c = (Invoke-SqlText -Catalog $csvDb -As Table -Sql @"
+SELECT i.RowsAdded, i.RowsRejected,
+       (SELECT COUNT(*) FROM audit.CopilotCsvReject AS r JOIN audit.CopilotCsvFile AS f ON f.FileId = r.FileId
+        WHERE f.ImportId = i.ImportId AND r.RecordId = 'csv-bad-000001' AND r.Reason LIKE '%not valid JSON%') AS Listed,
+       (SELECT AppHost FROM audit.CopilotInteraction WHERE RecordId = 'csv-new-000001') AS NewAppHost,
+       (SELECT RangeEndUtc FROM audit.CopilotBackfillRange) AS RangeEndUtc
+FROM audit.CopilotCsvImport AS i WHERE i.ImportId = (SELECT MAX(ImportId) FROM audit.CopilotCsvImport);
+"@).Rows[0]
+    Assert-That ([long] $c.RowsAdded -eq 1 -and "$($c.NewAppHost)" -ne '') "only the new file is read, and its new record is added and shredded ($($c.RowsAdded) added, AppHost $($c.NewAppHost))"
+    Assert-That ([long] $c.RowsRejected -eq 1 -and [int] $c.Listed -eq 1) 'the cut-off row is rejected and listed with its reason'
+    Assert-That ($c.RangeEndUtc -eq (& $d 10)) ("a later coverage end widens the CSV-recorded range ({0:yyyy-MM-dd})" -f $c.RangeEndUtc)
+
+    $msg = try { [void] (Invoke-SqlText -Catalog $csvDb -As Table -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Finalize-CopilotAudit.sql') -Raw)); '' } catch { $_.Exception.GetBaseException().Message }
+    Assert-That ($msg -like '*CSV imports have been merged*') "finalize refuses once CSV rows are merged, rather than dropping them ($msg)"
+
+    # --- Into section 11's database: Graph backfill and loads already there ----
+    Remove-Item -LiteralPath (Join-Path $csvDir 'export-late.csv')
+    $before = [long] (Invoke-SqlText -Catalog $loadDb -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit;')
+    & $runTool $loadDb @{ CoveredThroughUtc = (& $d 12) }
+    $c = (Invoke-SqlText -Catalog $loadDb -As Table -Sql @"
+SELECT i.RowsAdded, i.RowsAlreadyLoaded, (SELECT COUNT_BIG(*) FROM audit.CopilotAudit) AS Rows_,
+       r.RangeEndUtc, r.Source
+FROM audit.CopilotCsvImport AS i CROSS JOIN audit.CopilotBackfillRange AS r;
+"@).Rows[0]
+    Assert-That ([long] $c.RowsAdded -eq 0 -and [long] $c.RowsAlreadyLoaded -eq $n -and [long] $c.Rows_ -eq $before) `
+        "over the Graph path's own records the import adds nothing ($($c.RowsAlreadyLoaded) already loaded, $($c.Rows_) rows)"
+    Assert-That ($c.RangeEndUtc -eq (& $d 5) -and $c.Source -is [DBNull]) 'the Graph backfill''s range is left alone'
+
+    # --- Refused while a Graph backfill is started but not finalized ----------
+    & $newDb $guardDb
+    Invoke-SqlText -Catalog $guardDb -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotAuditSchema.sql') -Raw)
+    Invoke-SqlText -Catalog $guardDb -Parameters @{ '@s' = (& $d 1); '@e' = (& $d 5) } -Sql @"
+INSERT INTO audit.CopilotBackfillRange (Id, RangeStartUtc, RangeEndUtc, Operations) VALUES (1, @s, @e, N'CopilotInteraction');
+"@
+    $msg = try { & $runTool $guardDb; '' } catch { $_.Exception.GetBaseException().Message }
+    Assert-That ($msg -like '*not finalized*') "an import waits for an unfinished Graph backfill to be finalized ($msg)"
+    $stray = [int] (Invoke-SqlText -Catalog $guardDb -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.CopilotAudit', N'U') IS NULL THEN 0 ELSE 1 END;")
+    Assert-That ($stray -eq 0) 'and creates no final table that finalize would then have to replace'
+}
+finally {
+    Remove-Item -LiteralPath $csvDir -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($db in $csvDb, $guardDb) {
+        try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Host "  (could not drop $db)" }
+    }
+}
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

@@ -25,8 +25,8 @@
     Re-runnable: with nothing waiting it reports so and returns. It never
     touches rows from the backfill or from earlier loads.
 
-    Keep step 4's shredding in step with section 4 of Finalize-CopilotAudit.sql:
-    the same expressions, so a record reads the same whichever path loaded it.
+    Step 4 shreds through audit.fnShredCopilotInteraction, as finalize and CSV
+    imports do, so a record reads the same whichever path loaded it.
 
     Requires SQL Server 2017+. Run sql/Create-CopilotAuditSchema.sql first (the
     orchestrator does), and finalize the backfill before the first load.
@@ -64,6 +64,11 @@ BEGIN
     IF OBJECT_ID(N'audit.CopilotAudit', N'U') IS NULL OR OBJECT_ID(N'audit.CopilotInteraction', N'U') IS NULL
     BEGIN
         RAISERROR('Merge refused: audit.CopilotAudit does not exist yet. Finalize the backfill (-FinalizeOnly) before the first incremental load.', 16, 1);
+        RETURN;
+    END;
+    IF OBJECT_ID(N'audit.fnShredCopilotInteraction', N'IF') IS NULL
+    BEGIN
+        RAISERROR('Merge refused: audit.fnShredCopilotInteraction is missing. Run sql/Create-CopilotAuditSchema.sql first (Invoke-CopilotAuditBackfill.ps1 does).', 16, 1);
         RETURN;
     END;
 
@@ -145,7 +150,6 @@ BEGIN
            c.UserPrincipalName, c.Service, c.ObjectId, c.ClientIp, c.AdministrativeUnits, c.AuditDataGz, c.WindowId, @loadId
     FROM #cand AS c;
 
-    /* The same shredding as Finalize-CopilotAudit.sql section 4. */
     INSERT INTO audit.CopilotInteraction
         (RecordId, CreatedDateTime, ActivityDate, UserPrincipalName, AppHost, AppIdentity, ClientRegion,
          ModelName, ModelProvider, ThreadId, PromptCount, AccessedResourceCount, UsedWebSearch)
@@ -153,21 +157,11 @@ BEGIN
         c.RecordId,
         CAST(c.CreatedDateTime AS DATETIME2(0)),
         CAST((c.CreatedDateTime AT TIME ZONE 'UTC') AT TIME ZONE @ReportingTimeZone AS DATE),
-        COALESCE(c.UserPrincipalName, LEFT(JSON_VALUE(j.Doc, '$.UserId'), 512)),
-        LEFT(JSON_VALUE(j.Doc, '$.CopilotEventData.AppHost'), 100),
-        LEFT(JSON_VALUE(j.Doc, '$.AppIdentity'), 200),
-        LEFT(JSON_VALUE(j.Doc, '$.ClientRegion'), 20),
-        LEFT(JSON_VALUE(j.Doc, '$.CopilotEventData.ModelTransparencyDetails[0].ModelName'), 200),
-        LEFT(JSON_VALUE(j.Doc, '$.CopilotEventData.ModelTransparencyDetails[0].ModelProviderName'), 200),
-        LEFT(JSON_VALUE(j.Doc, '$.CopilotEventData.ThreadId'), 400),
-        (SELECT COUNT(*) FROM OPENJSON(j.Doc, '$.CopilotEventData.Messages') WITH (isPrompt BIT '$.isPrompt') AS m
-          WHERE m.isPrompt = 1),
-        (SELECT COUNT(*) FROM OPENJSON(j.Doc, '$.CopilotEventData.AccessedResources')),
-        CASE WHEN EXISTS (SELECT 1 FROM OPENJSON(j.Doc, '$.CopilotEventData.AISystemPlugin') WITH (Id NVARCHAR(200) '$.Id') AS p
-                          WHERE p.Id = N'BingWebSearch') THEN 1 ELSE 0 END
+        COALESCE(c.UserPrincipalName, s.JsonUserId),
+        s.AppHost, s.AppIdentity, s.ClientRegion, s.ModelName, s.ModelProvider, s.ThreadId,
+        s.PromptCount, s.AccessedResourceCount, s.UsedWebSearch
     FROM #cand AS c
-    CROSS APPLY (SELECT CAST(DECOMPRESS(c.AuditDataGz) AS NVARCHAR(MAX)) AS Raw) AS r
-    CROSS APPLY (SELECT CASE WHEN ISJSON(r.Raw) = 1 THEN r.Raw END AS Doc) AS j;
+    CROSS APPLY audit.fnShredCopilotInteraction(c.AuditDataGz) AS s;
 
     UPDATE audit.CopilotLoad
     SET MergedUtc = SYSUTCDATETIME(), RowsStaged = @staged, RowsAdded = @added, RowsAlreadyLoaded = @staged - @added

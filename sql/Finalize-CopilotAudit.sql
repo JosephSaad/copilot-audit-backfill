@@ -64,6 +64,24 @@ BEGIN
     RETURN;
 END;
 
+/* The same for CSV imports (tools/Import-CopilotAuditCsv.ps1). Nested, not
+   ANDed: those tables exist only where the importer has run, and a statement
+   naming a missing table fails when it runs, whatever its other conditions. */
+IF OBJECT_ID(N'audit.CopilotCsvImport', N'U') IS NOT NULL
+BEGIN
+    IF EXISTS (SELECT 1 FROM audit.CopilotCsvImport WHERE MergedUtc IS NOT NULL)
+    BEGIN
+        RAISERROR('Finalize refused: CSV imports have been merged into audit.CopilotAudit, and rebuilding from the backfill''s staging table would drop them. The tables are already final.', 16, 1);
+        RETURN;
+    END;
+END;
+
+IF OBJECT_ID(N'audit.fnShredCopilotInteraction', N'IF') IS NULL
+BEGIN
+    RAISERROR('Finalize refused: audit.fnShredCopilotInteraction is missing. Run sql/Create-CopilotAuditSchema.sql first (Invoke-CopilotAuditBackfill.ps1 does).', 16, 1);
+    RETURN;
+END;
+
 DECLARE @unfinished INT =
     (SELECT COUNT(*) FROM audit.CopilotBackfillWindow WHERE Status NOT IN ('Loaded', 'Split'));
 IF @unfinished > 0
@@ -117,6 +135,8 @@ CREATE TABLE audit.CopilotAudit
     WindowId            BIGINT          NOT NULL,   -- lineage back to the control table
     LoadId              INT             NULL,       -- NULL: the backfill. Otherwise audit.CopilotLoad, and
                                                     -- WindowId is then a row of audit.CopilotLoadWindow
+    CsvImportId         INT             NULL,       -- set: the row came from a CSV import (audit.CopilotCsvImport),
+                                                    -- and WindowId is then its audit.CopilotCsvFile
     INDEX CCI_CopilotAudit CLUSTERED COLUMNSTORE
 );
 
@@ -177,8 +197,8 @@ CREATE TABLE audit.CopilotInteraction
 
 RAISERROR('Shredding AuditData into audit.CopilotInteraction...', 0, 1) WITH NOWAIT;
 
-/* audit.usp_MergeCopilotLoad (Create-CopilotLoadProcedure.sql) shreds the
-   records incremental loads append with these same expressions. Change both. */
+/* audit.fnShredCopilotInteraction (Create-CopilotAuditSchema.sql) holds the
+   JSON paths; incremental loads and CSV imports shred through it too. */
 
 INSERT INTO audit.CopilotInteraction WITH (TABLOCK)
 (
@@ -189,21 +209,11 @@ SELECT
     a.RecordId,
     CAST(a.CreatedDateTime AS DATETIME2(0)),
     CAST((a.CreatedDateTime AT TIME ZONE 'UTC') AT TIME ZONE @ReportingTimeZone AS DATE),
-    COALESCE(a.UserPrincipalName, LEFT(JSON_VALUE(j.Doc, '$.UserId'), 512)),
-    LEFT(JSON_VALUE(j.Doc, '$.CopilotEventData.AppHost'), 100),
-    LEFT(JSON_VALUE(j.Doc, '$.AppIdentity'), 200),
-    LEFT(JSON_VALUE(j.Doc, '$.ClientRegion'), 20),
-    LEFT(JSON_VALUE(j.Doc, '$.CopilotEventData.ModelTransparencyDetails[0].ModelName'), 200),
-    LEFT(JSON_VALUE(j.Doc, '$.CopilotEventData.ModelTransparencyDetails[0].ModelProviderName'), 200),
-    LEFT(JSON_VALUE(j.Doc, '$.CopilotEventData.ThreadId'), 400),
-    (SELECT COUNT(*) FROM OPENJSON(j.Doc, '$.CopilotEventData.Messages') WITH (isPrompt BIT '$.isPrompt') AS m
-      WHERE m.isPrompt = 1),
-    (SELECT COUNT(*) FROM OPENJSON(j.Doc, '$.CopilotEventData.AccessedResources')),
-    CASE WHEN EXISTS (SELECT 1 FROM OPENJSON(j.Doc, '$.CopilotEventData.AISystemPlugin') WITH (Id NVARCHAR(200) '$.Id') AS p
-                      WHERE p.Id = N'BingWebSearch') THEN 1 ELSE 0 END
+    COALESCE(a.UserPrincipalName, s.JsonUserId),
+    s.AppHost, s.AppIdentity, s.ClientRegion, s.ModelName, s.ModelProvider, s.ThreadId,
+    s.PromptCount, s.AccessedResourceCount, s.UsedWebSearch
 FROM audit.CopilotAudit AS a
-CROSS APPLY (SELECT CAST(DECOMPRESS(a.AuditDataGz) AS NVARCHAR(MAX)) AS Raw) AS r
-CROSS APPLY (SELECT CASE WHEN ISJSON(r.Raw) = 1 THEN r.Raw END AS Doc) AS j;
+CROSS APPLY audit.fnShredCopilotInteraction(a.AuditDataGz) AS s;
 
 EXEC (N'
 CREATE OR ALTER VIEW audit.vCopilotDailyUsage

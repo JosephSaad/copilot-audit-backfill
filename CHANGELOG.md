@@ -6,6 +6,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Importing Purview CSV exports.** `tools/Import-CopilotAuditCsv.ps1 -Path <folder>`
+  loads audit log exports from the Purview portal into `audit.CopilotAudit` and
+  `audit.CopilotInteraction`, in the shape the Graph backfill stores, so the
+  flattened table, sessions and `bi` work on them unchanged. Exports may
+  overlap and repeat each other: one row per `RecordId` is kept, and a record
+  already loaded wins. Files already imported are skipped by SHA-256; rows
+  that can't be loaded (cut-off JSON from a file saved in Excel, no ID, no
+  time) are listed in `audit.CopilotCsvReject`. The files are read by the
+  importer, not SQL Server. A database can start from CSV files alone:
+  `-CoveredThroughUtc` records the range, and `-Incremental` continues from
+  it. `sql/Create-CopilotCsvImport.sql` holds the tables and
+  `audit.usp_MergeCopilotCsv`. RUNBOOK section 5e.
+
+### Changed
+
+- The JSON-to-`audit.CopilotInteraction` shredding lives in one inline
+  function, `audit.fnShredCopilotInteraction` (in
+  `sql/Create-CopilotAuditSchema.sql`), used by finalize, the incremental
+  merge and the CSV merge. It was written out twice before; the output is
+  unchanged.
+- Finalize refuses once CSV imports are merged, as it does once incremental
+  loads are: rebuilding from its staging table would drop them.
+  `audit.CopilotAudit` gains `CsvImportId` for lineage, and
+  `audit.CopilotBackfillRange` gains `Source` (`'CSV'` when an import recorded
+  the range).
+
+### Tests
+
+- `tests/Test-CsvImport.ps1` (new, in CI): the reader against both export
+  formats, quoted fields with commas, doubled quotes and line breaks, the
+  Graph path's column mapping, the compressed JSON, rejected rows and their
+  line numbers, and operation matching.
+- `Test-SqlIntegration.ps1` section 13: overlapping exports of section 11's
+  records into a new database give the same `audit.CopilotInteraction`, the
+  same times, UPNs and JSON as the Graph path; re-running imports nothing; a
+  new file adds only its new record and lists its cut-off row; the covered
+  range is recorded and widened; finalize refuses afterwards; over the Graph
+  path's own records nothing is added and its range is left alone; and an
+  unfinalized backfill is refused.
+
 ### Documentation
 
 - `docs/DEPLOYMENT.md`: a step-by-step deployment guide for a new install -
