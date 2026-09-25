@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+
+- `docs/DEPLOYMENT.md`: a step-by-step deployment guide for a new install -
+  decisions to make first, the app registration and certificate, the job
+  server and SQL Server, the history load, the AD directory and licences, a
+  nightly script and its scheduled task, the Power BI model, and Copilot in
+  Power BI (tenant settings, model descriptions, AI instructions, verified
+  answers). It records what has run in the lab and what hasn't yet run
+  anywhere. Linked from the README.
+
 ## [2.0.0] - 2026-09-24
 
 User attributes now come from on-premises Active Directory, with Graph used

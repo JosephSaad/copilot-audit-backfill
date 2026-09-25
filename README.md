@@ -11,7 +11,7 @@ Purview audit searches ──► parallel page downloads ──► bounded queue
 
 PowerShell 7 drives it; the pipeline engine is C# compiled in memory at start, so there are no binaries to ship or trust. State lives in SQL, so stopping and restarting is always safe.
 
-**[RUNBOOK.md](RUNBOOK.md) is the full documentation** — limits, tuning, troubleshooting, and what the finalized tables contain. This README is the short version.
+**[RUNBOOK.md](RUNBOOK.md) is the full documentation** — limits, tuning, troubleshooting, and what the finalized tables contain. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** walks through a new install step by step, from the app registration to the nightly job, the Power BI model and its Copilot agent. This README is the short version.
 
 ## Prerequisites
 
@@ -257,6 +257,7 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `tools/Export-CopilotSessionCsv.ps1` | Writes the session and weekly CSVs. |
 | `sql/Create-CopilotBiSchema.sql` | The `bi` star schema's tables and the views a Power BI model imports. |
 | `sql/Create-CopilotBiProcedure.sql` | `bi.usp_RefreshBi`, which fills it. |
+| `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licences, the nightly job, Power BI and Copilot. |
 | `tests/` | Mock Graph service and the three test suites. |
 
 ## License
