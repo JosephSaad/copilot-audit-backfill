@@ -8,6 +8,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Documentation
 
+- `docs/SCHEMA.md`: every table and view, column by column - type, NULL,
+  default, key, indexes and the DDL's own notes - with the fourteen scripts
+  that create them, what each creates, where it runs and whether it runs by
+  itself. Generated from the lab databases' metadata after the 2.1.0 upgrade.
+  Linked from the README and `docs/DEPLOYMENT.md`.
 - `docs/DEPLOYMENT.md`: the lab's upgrade from 2.0.0 to 2.1.0 (scripts,
   row counts, and the shared shredding function reproducing every existing
   interaction row), the CSV import test, a "new release" row under Running
