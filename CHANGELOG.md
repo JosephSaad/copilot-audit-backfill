@@ -4,7 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0] - 2026-09-25
+
+History can now come from Purview's own audit log exports: point the
+importer at a folder of CSV files, overlapping ranges and all, and the
+records land exactly as the Graph backfill stores them - so a database can
+start from exports, add history older than the API's 180 days, or both. And
+a step-by-step deployment guide, `docs/DEPLOYMENT.md`.
+
+### Upgrading from 2.0.0
+
+Nothing to do by hand. The next `Invoke-CopilotAuditBackfill.ps1` run
+installs the shared shredding function and the updated merge procedure, and
+the CSV importer creates its own tables the first time it runs. New installs
+follow `docs/DEPLOYMENT.md`.
 
 ### Added
 
@@ -19,7 +32,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   importer, not SQL Server. A database can start from CSV files alone:
   `-CoveredThroughUtc` records the range, and `-Incremental` continues from
   it. `sql/Create-CopilotCsvImport.sql` holds the tables and
-  `audit.usp_MergeCopilotCsv`. RUNBOOK section 5e.
+  `audit.usp_MergeCopilotCsv`. RUNBOOK section 5e. Tested on the lab's
+  records reshaped to the export's format, not yet on a file downloaded from
+  the portal: import one real export and check its summary first.
 
 ### Changed
 
@@ -629,6 +644,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.1.0
 [2.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.0.0
 [1.6.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.6.0
 [1.5.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.5.0
