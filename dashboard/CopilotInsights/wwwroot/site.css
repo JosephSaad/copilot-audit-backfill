@@ -49,11 +49,9 @@ nav.side { background: var(--surface); border-right: 1px solid var(--rule); padd
 nav.side a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; }
 nav.side a:hover { color: var(--ink); background: var(--ground); }
 nav.side a.on { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
-nav.side a.locked { color: var(--faint); }
 nav.side .home { font-weight: 600; color: var(--ink); margin-bottom: 6px; }
 .grp { margin-top: 12px; }
 .gname { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 0 10px 2px; }
-.lock { font-size: 10px; }
 
 main { padding: 20px 24px 60px; min-width: 0; }
 .page-head .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }

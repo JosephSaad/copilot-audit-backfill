@@ -18,7 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   their direct reports see everything, as does anyone granted *Organization*; everyone
   else sees themselves and the people under them, at any depth, and can look inside
   their own part only. Named lists need a persona role and stay in scope. Groups smaller
-  than five are folded together. Every view, refusal, export and admin change is logged.
+  than five are folded together. The navigation and start page list only what the
+  viewer can open. Every view, refusal, export and admin change is logged.
 - **An admin module:** settings and the top of the organisation, role grants to people
   or AD groups, effective-access checks, agent and label names, app categories, pipeline
   health with a manual refresh, and the audit log. The first administrators come from

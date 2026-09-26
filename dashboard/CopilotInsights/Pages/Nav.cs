@@ -32,4 +32,19 @@ public static class Nav
             new("Health", "/admin", Admin: true), new("Access", "/admin/access", Admin: true),
             new("Reference data", "/admin/reference", Admin: true), new("Audit log", "/admin/audit", Admin: true)]),
     ];
+
+    /// <summary>
+    /// Whether a page is open to the viewer: admin pages to administrators, role pages to holders
+    /// of the role, and report pages to anyone with data to see (in the directory, or granted
+    /// Organization). The navigation and the start page show only these; the rest are not listed.
+    /// </summary>
+    public static bool Allowed(NavPage page, Viewer viewer) =>
+        page.Admin ? viewer.IsAdmin
+                   : (viewer.OrgWide || viewer.InDirectory) && (page.Role is null || viewer.Has(page.Role));
+
+    /// <summary>The groups and pages this viewer may open; a group with none is left out.</summary>
+    public static IReadOnlyList<NavGroup> For(Viewer? viewer) =>
+        viewer is null ? [] :
+        Groups.Select(g => g with { Pages = g.Pages.Where(p => Allowed(p, viewer)).ToList() })
+              .Where(g => g.Pages.Count > 0).ToList();
 }

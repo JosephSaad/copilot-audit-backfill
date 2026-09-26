@@ -76,6 +76,35 @@ jobs:
         run: pwsh -NoProfile -File tests/Test-SqlIntegration.ps1
 
 
+  dashboard:
+    name: Copilot Insights dashboard
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test
+        shell: pwsh
+        run: dotnet test dashboard/CopilotInsights.Tests/CopilotInsights.Tests.csproj -c Release --nologo
+      - name: Publish the site
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Framework-dependent: the server's ASP.NET Core 10 Hosting Bundle supplies the runtime.
+          $name = "copilot-insights-$env:GITHUB_REF_NAME"
+          dotnet publish dashboard/CopilotInsights/CopilotInsights.csproj -c Release -o "publish/CopilotInsights" --nologo
+          if (-not (Test-Path publish/CopilotInsights/CopilotInsights.dll)) { throw 'publish produced no CopilotInsights.dll' }
+          Compress-Archive -Path publish/CopilotInsights -DestinationPath "$name.zip" -CompressionLevel Optimal
+          Get-Item "$name.zip" | Select-Object Name, Length
+      - name: Upload the site for the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-site
+          path: copilot-insights-*.zip
+          retention-days: 1
+          if-no-files-found: error
+
   bundle:
     name: Offline module bundle (Windows x64)
     runs-on: windows-latest
@@ -140,7 +169,7 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [test, sql-integration, bundle]
+    needs: [test, sql-integration, dashboard, bundle]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -149,6 +178,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: offline-bundle
+          path: dist
+
+      - name: Download the dashboard site
+        uses: actions/download-artifact@v4
+        with:
+          name: dashboard-site
           path: dist
 
       - name: Build the archive
@@ -165,7 +200,7 @@ jobs:
           STAGE="$(mktemp -d)/${NAME}"
           mkdir -p "$STAGE"
           rsync -a --exclude='.git/' --exclude='.github/' --exclude='.gitignore' \
-                --exclude='dist/' --exclude='*.zip' --exclude='*.sha256' ./ "$STAGE/"
+                --exclude='dist/' --exclude='*.zip' --exclude='*.sha256' --exclude='bin/' --exclude='obj/' ./ "$STAGE/"
 
           # Deterministic ordering so the checksum is reproducible from a
           # given tree, and a flat archive rooted at the version folder.
@@ -186,6 +221,16 @@ jobs:
           sha256sum "${OFFLINE}.zip" > "${OFFLINE}.zip.sha256"
           echo "offline=${OFFLINE}" >> "$GITHUB_OUTPUT"
 
+          # The published dashboard, ready for dashboard/Install-CopilotInsights.ps1 -PackagePath.
+          SITE="copilot-insights-${VERSION}"
+          if [ ! -f "dist/${SITE}.zip" ]; then
+            echo "The dashboard package dist/${SITE}.zip is missing" >&2
+            exit 1
+          fi
+          mv "dist/${SITE}.zip" .
+          sha256sum "${SITE}.zip" > "${SITE}.zip.sha256"
+          echo "site=${SITE}" >> "$GITHUB_OUTPUT"
+
           echo "--- archive ---"
           unzip -l "${NAME}.zip"
           echo "--- offline bundle ---"
@@ -200,6 +245,7 @@ jobs:
           set -euo pipefail
           sha256sum -c "${{ steps.build.outputs.name }}.zip.sha256"
           sha256sum -c "${{ steps.build.outputs.offline }}.zip.sha256"
+          sha256sum -c "${{ steps.build.outputs.site }}.zip.sha256"
 
       - name: Extract the changelog entry
         id: notes
@@ -229,10 +275,13 @@ jobs:
           set -euo pipefail
           NAME="${{ steps.build.outputs.name }}"
           OFFLINE="${{ steps.build.outputs.offline }}"
+          SITE="${{ steps.build.outputs.site }}"
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --notes-file notes.md \
             "${NAME}.zip" \
             "${NAME}.zip.sha256" \
             "${OFFLINE}.zip" \
-            "${OFFLINE}.zip.sha256"
+            "${OFFLINE}.zip.sha256" \
+            "${SITE}.zip" \
+            "${SITE}.zip.sha256"

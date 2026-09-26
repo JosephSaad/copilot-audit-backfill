@@ -131,7 +131,7 @@ public sealed class DemandModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Demand";
     public override string Persona => "Licensing";
-    public override string Intro => "People without a licence who use the free Copilot Chat: where demand for a licence is. Named people need the Licensing role.";
+    public override string Intro => "People without a licence who use the free Copilot Chat: where demand for a licence is.";
 
     sealed class Row
     {
@@ -184,11 +184,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
             Chart.Bars(byDept.Select(d => new Bar(d.Dept, d.Heavy, Note: $"{d.Users:#,0} used it; {d.Heavy:#,0} on {Heavy}+ days; {d.People:#,0} unlicensed people", Slot: 2)).ToList(), Fmt.Count, "Heavy unlicensed users by department"),
             $"Unlicensed people who used Copilot Chat on {Heavy} days or more in the period, by department.", "half"));
 
-        if (!Viewer.Has(Roles.Licensing))
-        {
-            Notice = "The list of named people is for the Licensing role; an administrator can grant it.";
-            return;
-        }
+        if (!Viewer.Has(Roles.Licensing)) return;   // the named list is for the Licensing role only
         var pg = new Paging(Request, Sorts, "days");
         var rows = await Db.QueryAsync<Row>($@"
 WITH {Unlicensed}

@@ -35,16 +35,14 @@
 <div class="shell">
     <nav class="side" aria-label="Personas">
         <a class="home @(path == "/" ? "on" : "")" href="/">Start</a>
-        @foreach (var g in Nav.Groups)
+        @foreach (var g in Nav.For(viewer))
         {
-            if (g.Persona == "Admin" && viewer?.IsAdmin != true) { continue; }
             <div class="grp">
                 <div class="gname">@g.Persona</div>
                 @foreach (var p in g.Pages)
                 {
-                    var locked = p.Role is not null && viewer?.Has(p.Role) != true;
                     var href = page?.Ctx is null || p.Admin ? p.Path : page.Ctx.Url(p.Path);
-                    <a class="@(path == p.Path ? "on" : "") @(locked ? "locked" : "")" href="@href" title="@(locked ? $"Needs the {p.Role} role" : null)">@p.Title@if (locked){<span class="lock" aria-label="needs a role"> ·&#x1F512;</span>}</a>
+                    <a class="@(path == p.Path ? "on" : "")" href="@href">@p.Title</a>
                 }
             </div>
         }

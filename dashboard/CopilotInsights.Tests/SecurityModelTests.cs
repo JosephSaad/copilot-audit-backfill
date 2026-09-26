@@ -59,3 +59,48 @@ public class SecurityModelTests
     public void Every_role_is_described() =>
         Assert.All(Roles.All, r => Assert.False(string.IsNullOrWhiteSpace(Roles.Describe[r])));
 }
+
+/// <summary>What the navigation and the start page list: only what the viewer can open.</summary>
+public class NavigationTests
+{
+    static Viewer V(int? level, bool inDirectory = true, params string[] roles) =>
+        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = level, InDirectory = inDirectory, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase) };
+
+    static List<string> Paths(Viewer v) => CopilotInsights.Pages.Nav.For(v).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
+
+    [Fact]
+    public void A_manager_without_roles_sees_no_named_lists_and_no_admin()
+    {
+        var paths = Paths(V(4));
+        Assert.Contains("/leadership", paths);
+        Assert.DoesNotContain("/licensing/unused", paths);
+        Assert.DoesNotContain("/security/flags", paths);
+        Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(V(4)), g => g.Persona == "Admin");
+    }
+
+    [Fact]
+    public void A_role_shows_its_own_named_list_only()
+    {
+        var paths = Paths(V(4, roles: Roles.Licensing));
+        Assert.Contains("/licensing/unused", paths);
+        Assert.DoesNotContain("/adoption/not-started", paths);
+    }
+
+    [Fact]
+    public void An_admin_outside_the_directory_sees_only_admin()
+    {
+        var groups = CopilotInsights.Pages.Nav.For(V(null, inDirectory: false, roles: Roles.Admin));
+        Assert.Equal("Admin", Assert.Single(groups).Persona);
+    }
+
+    [Fact]
+    public void Nobody_sees_an_empty_group() =>
+        Assert.All(CopilotInsights.Pages.Nav.For(V(5)), g => Assert.NotEmpty(g.Pages));
+
+    [Fact]
+    public void Every_page_is_listed_for_someone_holding_every_role()
+    {
+        var all = CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).Count();
+        Assert.Equal(all, Paths(V(1, roles: Roles.All)).Count);
+    }
+}

@@ -20,7 +20,7 @@ It is an ASP.NET Core 10 (Razor Pages) site hosted in IIS on Windows Server 2022
 
 ## What each persona gets
 
-Pages without a role show aggregates only: counts, rates and trends for the viewer's scope, broken down one level at a time. Pages marked with a role list named people. They need that role, and even then they show only people inside the viewer's own scope.
+Pages without a role show aggregates only: counts, rates and trends for the viewer's scope, broken down one level at a time. Pages marked with a role list named people. They need that role, and even then they show only people inside the viewer's own scope. The navigation and the start page list only the pages the viewer can open: someone without a role never sees its pages, an administrator's Admin pages are invisible to everyone else, and a persona with nothing open to the viewer is left out.
 
 | Persona | Page | What it answers | Grain | Named people |
 |---|---|---|---|---|

@@ -77,7 +77,7 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => AgentName ?? "Agent detail";
     public override string Persona => "Agents";
-    public override string Intro => "One agent: who uses it, where, in which apps and how that is changing. Its named users need the Agents role.";
+    public override string Intro => "One agent: who uses it, where, in which apps and how that is changing.";
     string? AgentName { get; set; }
 
     static readonly Dictionary<string, string> Sorts = new()
@@ -147,7 +147,7 @@ SELECT a.App, COUNT_BIG(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App;", args);
         Panels.Add(new("Where it is used", Chart.Bars(apps.OrderByDescending(a => a.N).Select(a => new Bar(a.App, a.N)).ToList(), Fmt.Count, "Agent interactions by app"), null, "half"));
 
-        if (!Viewer.Has(Roles.Agents)) { Notice = "The list of named users is for the Agents role; an administrator can grant it."; return; }
+        if (!Viewer.Has(Roles.Agents)) return;   // the named users are for the Agents role only
         var pg = new Paging(Request, Sorts, "most");
         var rows = await Db.QueryAsync<Row>($@"
 WITH x AS (SELECT f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Days, MAX(f.DateKey) AS LastKey
