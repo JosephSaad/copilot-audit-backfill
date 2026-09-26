@@ -13,6 +13,7 @@ Written for a new install of release 2.1.0. Hands-on time is about a day, plus a
 - [Phase 5: Connect Power BI](#phase-5-connect-power-bi) (steps 14-16)
 - [Phase 6: Add the Copilot agent in Power BI](#phase-6-add-the-copilot-agent-in-power-bi) (steps 17-20)
 - [Check it's healthy](#check-its-healthy) (step 21)
+- [Phase 7: The Copilot Insights dashboard (optional)](#phase-7-the-copilot-insights-dashboard-optional) (steps 22-24)
 - [Running it](#running-it)
 - [What has run in the lab](#what-has-run-in-the-lab)
 - [Not yet proven in a live deployment](#not-yet-proven-in-a-live-deployment)
@@ -589,13 +590,52 @@ FROM audit.vCopilotAdoption WHERE NeverUsed = 1 ORDER BY LicensedSinceUtc;
 
 A healthy morning: a new load with `MergedUtc` set, a session run with a `RebuiltFrom` date, a `bi` run with a `SinceUtc`, and a nightly log ending in *Done.* After that, the semantic model's refresh history shows a success, and Copilot's answer to "how many people used Copilot yesterday?" matches the same query in SQL.
 
+## Phase 7: The Copilot Insights dashboard (optional)
+
+A web dashboard for everyone else: executives see the whole organisation, managers their own people, and persona pages for adoption, licensing, security, compliance, agents, enablement and governance. It runs in IIS on Windows Server 2022 or later, with Windows sign-in, and reads the same database. [DASHBOARD.md](DASHBOARD.md) has the pages, the security model and the detail; these are the steps. It is not yet released.
+
+### Step 22. Install the dashboard's tables
+
+*SSMS, on `CopilotAudit`. About 5 minutes.*
+
+Run `sql/Create-CopilotDashboardSchema.sql`, then `sql/Create-CopilotDashboardProcedure.sql`. Build the rollups once, set the top of the organisation (its person and everyone reporting to them see everything), and build again so the levels follow it:
+
+```sql
+EXEC dash.usp_RefreshDashboard;
+UPDATE dash.Setting SET Value = N'ceo@contoso.com' WHERE Name = 'OrgTopUpn';
+EXEC dash.usp_RefreshDashboard;
+```
+
+From now on the nightly run refreshes it after `bi`: nothing to add to `Run-Nightly.ps1`.
+
+### Step 23. Install the site
+
+*The web server, elevated Windows PowerShell 5.1. About 20 minutes.*
+
+Install the ASP.NET Core 10 Hosting Bundle, then run the installer with the published app (the CI build's `CopilotInsights` folder, or `dashboard\CopilotInsights` with the .NET 10 SDK installed):
+
+```powershell
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer SQLPROD01 -Database CopilotAudit `
+    -AdminPrincipal 'CORP\Copilot-Insights-Admins' -AppPoolIdentity 'CORP\gmsa-insights$' `
+    -HostName insights.corp.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
+```
+
+It sets up IIS with Windows authentication, the app pool and the site, and grants the app-pool account what it needs in `CopilotAudit` (without `-GrantDatabaseAccess` it writes the grants for a DBA instead). Register the SPN it prints.
+
+### Step 24. Enrol the administrators and grant roles
+
+*A browser. About 10 minutes.*
+
+A member of the `-AdminPrincipal` group opens the site and goes to **Admin › Health** (every step should be *Fresh* and the top found), then **Admin › Access**: grant **Admin** to the people who will run it, **Organization** to anyone beyond the top two levels who should see everything, and the persona roles (Adoption, Licensing, Security, Compliance, Agents, Enablement) to the people who need named lists. Grant to AD groups where you can. In **Admin › Reference data**, name the agents and the sensitivity labels.
+
 ## Running it
 
 | When | Do this |
 |---|---|
 | A session setting changes (timeout, time zone, licence databases) | Rebuild every session once: `EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'CopilotLicenseEvents';`. Until then the nightly run stops with *different settings*. |
 | Licence history arrives for a period already built, or flattened rows are purged | `EXEC bi.usp_RefreshBi @SinceUtc = NULL, @LicenceEventDatabase = N'CopilotLicenseEvents';`, then a full refresh of the model. |
-| A new Copilot app appears | Map it to *Copilot Chat* or *In-App Copilot* in `audit.SessionAppCategory`. Unmapped apps count as In-App. |
+| A new Copilot app appears | Map it to *Copilot Chat* or *In-App Copilot* in `audit.SessionAppCategory` (or the dashboard's Admin › Reference data). Unmapped apps count as In-App. |
+| Someone needs to see more of the dashboard | Admin › Access: the Organization role for the whole organisation, a persona role for its named lists. The org chart follows AD by itself, the night after a move. |
 | Disk grows past your horizon | `EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 365;` reports what it would clear; add `@WhatIf = 0` to clear the stored JSON and keep the rows. |
 | A new release comes out | Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `Run-Nightly.ps1`, and read its release notes' upgrade section. From 2.0.0 to 2.1.0 nothing is done by hand: the next nightly run installs the changes. Back up the databases first. |
 | The certificate nears expiry | Create a new one (step 3), upload it to the app, give the gMSA its private key, and change the thumbprint in `Run-Nightly.ps1`. Remove the old one after the next good run. |

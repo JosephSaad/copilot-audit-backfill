@@ -226,6 +226,23 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 
 **Different from the Graph path.** `ClientIp` is filled from `AuditData.ClientIP`, which the Graph path leaves empty; the export's `AssociatedAdminUnitsNames` is not kept. Everything the reports read is the same.
 
+## 5f. The Copilot Insights dashboard
+
+A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `dash` schema. [docs/DASHBOARD.md](docs/DASHBOARD.md) has the pages, the security model and the install; [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) steps 22-24 the order.
+
+- **Refresh:** `dash.usp_RefreshDashboard @SinceUtc` runs last in every `-Incremental` run and CSV import, after `bi.usp_RefreshBi`, from the same day. It rebuilds the org chart (`dash.Person`, `dash.OrgClosure`) from `audit.UserDirectory` in full each time, and the daily rollups (`dash.UserDay`, `dash.ResourceDay`) from that day. `EXEC dash.usp_RefreshDashboard;` rebuilds everything; so does Admin › Health › Rebuild.
+- **Who sees what:** the person in `dash.Setting` `OrgTopUpn` and their direct reports see the whole organisation, as does anyone granted Organization; everyone else sees themselves and the people under them. Named lists need a persona role. Admin alone shows no data.
+- **Locked out:** the installer's `-AdminPrincipal` (`Insights:BootstrapAdmins` in `appsettings.Production.json`) are always administrators. Failing that, `INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (N'CORP\Copilot-Insights-Admins', 'Group', 'Admin', N'recovery', SUSER_SNAME());`
+- **Who looked at what:** `dash.AuditLog`, or Admin › Audit log.
+
+| Symptom | Cause and fix |
+|---|---|
+| Everyone sees only their own use, even executives | `OrgTopUpn` not set or not in the directory (Admin › Health says which). Set it in Admin › Access, then refresh. |
+| Someone sees nothing: "not in the directory" | Their sign-in did not resolve to a UPN in `audit.UserDirectory`: another domain, a new starter before tonight's AD export, or an account AD cannot resolve (map it under `Insights:IdentityMap`). |
+| The browser keeps asking for a password | The host name is not in the Local intranet zone, or its SPN is missing or on the wrong account (`setspn -Q HTTP/<host>`). |
+| HTTP 500.19 or 500.30 from IIS | The ASP.NET Core 10 Hosting Bundle is missing, or was installed before IIS: repair it and restart IIS. |
+| A page is slow at a long period | Check `dash.RefreshRun` ran after the last `bi` refresh, and that the `dash` indexes exist (re-run the schema script). |
+
 ## 6. How it stays inside Microsoft's limits
 
 | Published limit (Graph throttling docs) | What the engine does |
@@ -281,6 +298,8 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 | `sql/Create-CopilotLoadProcedure.sql` | `audit.usp_MergeCopilotLoad`, which appends each `-Incremental` load. Installed automatically. |
 | `sql/Create-CopilotBiSchema.sql` / `sql/Create-CopilotBiProcedure.sql` | The `bi` star schema and `bi.usp_RefreshBi` (section 5c). |
 | `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory from on-premises AD (section 5d). |
+| `sql/Create-CopilotDashboardSchema.sql` / `sql/Create-CopilotDashboardProcedure.sql` | The dashboard's `dash` schema and `dash.usp_RefreshDashboard` (section 5f). |
+| `dashboard/` | The Copilot Insights web dashboard, its IIS installer, demo and tests (section 5f). |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licences, from Microsoft Graph. |
 | `tools/Import-CopilotAuditCsv.ps1` / `sql/Create-CopilotCsvImport.sql` | Purview CSV exports into the same tables (section 5e). |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |

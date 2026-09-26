@@ -6,8 +6,47 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Copilot Insights, a web dashboard** (`dashboard/CopilotInsights`): ASP.NET Core 10
+  Razor Pages in IIS on Windows Server 2022+, Windows sign-in, reading `bi` and a new
+  `dash` schema. Pages for eight personas - Leadership, Adoption, Licensing, Security,
+  Compliance, Agents, Enablement, Governance - with server-drawn charts, periods of 7,
+  14, 30, 90, 180 or 365 days, and every list of people paged in SQL, searchable,
+  sortable and exportable to CSV.
+- **A security model from the org chart.** The top of the organisation (`OrgTopUpn`) and
+  their direct reports see everything, as does anyone granted *Organization*; everyone
+  else sees themselves and the people under them, at any depth, and can look inside
+  their own part only. Named lists need a persona role and stay in scope. Groups smaller
+  than five are folded together. Every view, refusal, export and admin change is logged.
+- **An admin module:** settings and the top of the organisation, role grants to people
+  or AD groups, effective-access checks, agent and label names, app categories, pipeline
+  health with a manual refresh, and the audit log. The first administrators come from
+  the site's configuration (`-AdminPrincipal`), so there is always a way in.
+- `sql/Create-CopilotDashboardSchema.sql` and `sql/Create-CopilotDashboardProcedure.sql`:
+  the `dash` tables, `dash.fnScopeUsers`, `dash.Agent`, and `dash.usp_RefreshDashboard`,
+  which rebuilds the org closure from `audit.UserDirectory` and the daily per-person
+  rollups (`dash.UserDay`, `dash.ResourceDay`) from a given day. The backfill's
+  `-Incremental` run and the CSV importer call it after `bi.usp_RefreshBi` when it is
+  installed. The dashboard's account can run it without ALTER on its tables.
+- `dashboard/Install-CopilotInsights.ps1`: IIS role services, the Hosting Bundle check,
+  the site files, `appsettings.Production.json`, app pool and site, Windows
+  authentication, and the database grants. Idempotent.
+- `dashboard/demo/New-InsightsDemo.ps1`: a synthetic 2,317-person company built with the
+  repository's own scripts, with one person per persona role, to try every page and the
+  security model on.
+- Tests: section 14 of `Test-SqlIntegration.ps1` (levels, the closure with a
+  self-managed top, a manager loop and a missing manager, scope, rollups against the
+  facts, labels and sites, incremental refresh, a refresh without ALTER), and
+  `dashboard/CopilotInsights.Tests` for the access rules, paging, periods, CSV export and
+  charts. CI builds, tests and publishes the dashboard.
+
 ### Documentation
 
+- `docs/DASHBOARD.md`: every page by persona, who sees what, periods, paging and
+  exports, the IIS install, enrolling the first administrator, running it, and what is
+  not yet proven. `docs/DEPLOYMENT.md` Phase 7 (steps 22-24), RUNBOOK section 5f, and
+  the `dash` schema in `docs/SCHEMA.md`.
 - `docs/SCHEMA.md`: every table and view, column by column - type, NULL,
   default, key, indexes and the DDL's own notes - with the fourteen scripts
   that create them, what each creates, where it runs and whether it runs by

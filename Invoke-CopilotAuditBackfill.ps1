@@ -494,7 +494,7 @@ function Invoke-DerivedTableRefresh {
         flattened table and licence events from the load's start (both MERGE,
         so the lookback's records are updated in place), then sessions from
         the load's start's day (one transaction), then the bi star schema from
-        the load's start.
+        the load's start, then the dashboard's rollups.
     #>
     param([Parameter(Mandatory)][datetime] $SinceUtc)
     function Test-Proc([string] $Name) {
@@ -529,6 +529,11 @@ function Invoke-DerivedTableRefresh {
         Write-Log ('Refreshing the bi star schema from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
         Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenceEventDatabase = @l;' `
             -Parameters @{ '@s' = $SinceUtc; '@l' = $(if ($SessionLicenceDatabase) { $SessionLicenceDatabase } else { $null }) } -TimeoutSeconds 0
+    }
+    # After bi: the Copilot Insights dashboard's org chart and daily rollups.
+    if (Test-Proc 'dash.usp_RefreshDashboard') {
+        Write-Log ('Refreshing the dashboard rollups from {0:yyyy-MM-dd}...' -f $SinceUtc)
+        Invoke-Sql -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
     }
 }
 

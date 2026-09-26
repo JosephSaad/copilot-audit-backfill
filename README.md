@@ -11,7 +11,7 @@ Purview audit searches ──► parallel page downloads ──► bounded queue
 
 PowerShell 7 drives it; the pipeline engine is C# compiled in memory at start, so there are no binaries to ship or trust. State lives in SQL, so stopping and restarting is always safe.
 
-**[RUNBOOK.md](RUNBOOK.md) is the full documentation** — limits, tuning, troubleshooting, and what the finalized tables contain. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** walks through a new install step by step, from the app registration to the nightly job, the Power BI model and its Copilot agent. **[docs/SCHEMA.md](docs/SCHEMA.md)** lists every table and view, column by column, and the script that creates it. This README is the short version.
+**[RUNBOOK.md](RUNBOOK.md) is the full documentation** — limits, tuning, troubleshooting, and what the finalized tables contain. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** walks through a new install step by step, from the app registration to the nightly job, the Power BI model and its Copilot agent. **[docs/SCHEMA.md](docs/SCHEMA.md)** lists every table and view, column by column, and the script that creates it. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** covers the Copilot Insights web dashboard. This README is the short version.
 
 ## Prerequisites
 
@@ -232,6 +232,23 @@ Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
 
 `@SinceUtc` (the load's start, from `-Incremental`) rebuilds only the interactions from then on; `NULL` rebuilds them all. Run a full rebuild, and a full refresh of the model, after changing the reporting time zone (a partial refresh in a different zone is refused), after licence history arrives for a period already built, or after purging flattened rows.
 
+## Copilot Insights dashboard
+
+A web dashboard over the same database, for people who will never open Power BI: an ASP.NET Core 10 site in IIS on Windows Server 2022+, with Windows sign-in. Not yet released.
+
+- **Who sees what.** The top of the organisation and their direct reports see everything, as does anyone granted *Organization*; every other manager sees the people under them, at any depth; everyone else sees their own use. The scope comes from the AD manager chain and is enforced on every query.
+- **Pages by persona:** Leadership, Adoption, Licensing, Security, Compliance, Agents, Enablement and Governance, each at the grain its questions need. Lists of named people (not started, unused licences, flagged interactions, labelled-content access, agent users, champions) need that persona's role, and stay inside the viewer's scope.
+- **Periods** of 7, 14, 30, 90, 180 or 365 days; every list paged in SQL (50 rows, search, sort) and exportable to CSV; groups under five people folded together.
+- **Admin module:** access and roles, reference data (agent and label names, app categories), pipeline health and a manual refresh, and the audit log of every view, refusal, export and change.
+
+```powershell
+# sql/Create-CopilotDashboardSchema.sql, then sql/Create-CopilotDashboardProcedure.sql, then:
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer SQL01 -Database CopilotAudit `
+    -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
+```
+
+`dash.usp_RefreshDashboard` keeps its org chart and daily rollups current: every `-Incremental` run and CSV import calls it after `bi`. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** has every page, the security model, the install and how the first administrator gets in; `dashboard/demo/New-InsightsDemo.ps1` builds a 2,317-person demo company to try it on.
+
 ## Tests
 
 ```bash
@@ -249,7 +266,15 @@ docker run -d --name sqlit -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='<pw>' \
 SQLIT_PASSWORD='<pw>' pwsh -NoProfile -File tests/Test-SqlIntegration.ps1
 ```
 
-It creates a database, runs the DDL, backfills 8 days through the real engine, stops and resumes it, finalizes, flattens and purges, and checks the results. It exits 2 and explains itself if `SQLIT_PASSWORD` is not set. CI runs all three on every push.
+It creates a database, runs the DDL, backfills 8 days through the real engine, stops and resumes it, finalizes, flattens and purges, builds sessions, `bi` and the dashboard's rollups, and checks the results. It exits 2 and explains itself if `SQLIT_PASSWORD` is not set.
+
+The dashboard's own tests (the security rules, paging, periods, exports and charts) need the .NET 10 SDK:
+
+```bash
+dotnet test dashboard/CopilotInsights.Tests
+```
+
+CI runs them all on every push.
 
 ## Files
 
@@ -275,7 +300,14 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `sql/Create-CopilotBiProcedure.sql` | `bi.usp_RefreshBi`, which fills it. |
 | `tools/Import-CopilotAuditCsv.ps1` | Imports a folder of Purview audit log exports (CSV) into the same tables. |
 | `sql/Create-CopilotCsvImport.sql` | The CSV import's tables and `audit.usp_MergeCopilotCsv`. Run by the importer. |
+| `sql/Create-CopilotDashboardSchema.sql` | The dashboard's `dash` schema: settings, roles, reference names, audit log, org chart and daily rollups. |
+| `sql/Create-CopilotDashboardProcedure.sql` | `dash.usp_RefreshDashboard`, which rebuilds the org chart and rollups after `bi`. |
+| `dashboard/CopilotInsights/` | The Copilot Insights web dashboard (ASP.NET Core 10, Razor Pages). |
+| `dashboard/Install-CopilotInsights.ps1` | Installs or updates it on IIS, with Windows authentication and its database grants. |
+| `dashboard/demo/` | A synthetic 2,317-person company to try the dashboard on. |
+| `dashboard/CopilotInsights.Tests/` | The dashboard's unit tests. |
 | `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each. |
+| `docs/DASHBOARD.md` | The dashboard: pages by persona, who sees what, install on IIS, the first administrator. |
 | `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licences, the nightly job, Power BI and Copilot. |
 | `tests/` | Mock Graph service and the test suites. |
 

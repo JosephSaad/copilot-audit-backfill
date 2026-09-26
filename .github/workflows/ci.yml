@@ -57,6 +57,24 @@ jobs:
         shell: bash
         run: pwsh -NoProfile -File tests/Test-CsvImport.ps1
 
+  dashboard:
+    name: Copilot Insights dashboard
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build and test
+        shell: pwsh
+        run: dotnet test dashboard/CopilotInsights.Tests/CopilotInsights.Tests.csproj -c Release --nologo
+
+      - name: Publish (what the IIS installer takes)
+        shell: pwsh
+        run: dotnet publish dashboard/CopilotInsights/CopilotInsights.csproj -c Release -o out/CopilotInsights --nologo
+
   analyze:
     name: PSScriptAnalyzer
     runs-on: windows-latest

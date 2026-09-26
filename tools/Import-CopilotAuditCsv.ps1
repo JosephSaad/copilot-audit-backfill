@@ -562,6 +562,10 @@ function Invoke-CsvDerivedRefresh {
         Invoke-CsvSql -Connection $Connection -TimeoutSeconds 0 -Parameters @{ '@s' = $SinceUtc; '@l' = $lic } `
             -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenceEventDatabase = @l;'
     }
+    if (Test-CsvProc $Connection 'dash.usp_RefreshDashboard') {
+        Write-Log ('Refreshing the dashboard rollups from {0:yyyy-MM-dd}...' -f $SinceUtc)
+        Invoke-CsvSql -Connection $Connection -TimeoutSeconds 0 -Parameters @{ '@s' = $SinceUtc } -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;'
+    }
 }
 
 # ===========================================================================

@@ -1,8 +1,8 @@
 # Schema reference
 
-Every table and view copilot-audit-backfill 2.1.0 creates in SQL Server, column by column, and the script behind each. Generated from the lab databases' own metadata after the 2.1.0 upgrade (26 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
+Every table and view copilot-audit-backfill 2.1.0 creates in SQL Server, column by column, and the script behind each - plus the `dash` schema of the Copilot Insights dashboard, not yet released. Generated from the lab databases' own metadata after the 2.1.0 upgrade (26 September 2026), and the `dash` schema from the dashboard's demo database, with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-34 tables (plus 2 left over from 1.x), 20 views, 632 columns, from 14 scripts.
+45 tables (plus 2 left over from 1.x), 21 views, 713 columns, from 16 scripts.
 
 ## Contents
 
@@ -17,6 +17,7 @@ Every table and view copilot-audit-backfill 2.1.0 creates in SQL Server, column 
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenceStatus`](#bidimlicencestatus)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenceChange`](#bifactlicencechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenceChanges`](#bilicencechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenceStatuses`](#bilicencestatuses)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.Agent`](#dashagent)
 - [Left over from 1.x](#left-over-from-1x)
 
 ## The scripts
@@ -39,10 +40,12 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-CopilotBiProcedure.sql` | Copilot | By hand, once (step 8) | bi.usp_RefreshBi. |
 | `sql/Create-LicenseEventSchema.sql` | Licence events | By hand, once (step 7) | LicenseEvent, LicenseEventChunk, LicenseEventProperty, vLicenseChange, vLicenseSkuChange, vLicenseLifecycle. |
 | `sql/Create-LicenseEventProcedure.sql` | Licence events | By hand, once (step 7) | usp_ShredLicenseEvents. |
+| `sql/Create-CopilotDashboardSchema.sql` | Copilot | By hand, once, for the dashboard (step 22) | The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun; the view dash.Agent and the function dash.fnScopeUsers. |
+| `sql/Create-CopilotDashboardProcedure.sql` | Copilot | By hand, once, for the dashboard (step 22) | dash.usp_RefreshDashboard, which the backfill's -Incremental run and the CSV importer call after bi.usp_RefreshBi. |
 
 **Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the licence-event section. The licence-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the licence-event tables and views.
 
-**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents` and `bi.usp_RefreshBi`, from the scripts above.
+**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard` (which the dashboard's account can run without ALTER: EXECUTE on it, SELECT on `bi` and `audit.UserDirectory`), from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organisation to it.
 
 ## Loading and state
 
@@ -1342,6 +1345,251 @@ One view per table above, leaving out the lineage columns. The model imports the
 |--:|---|---|---|---|---|
 | 1 | `LicenceStatusKey` | tinyint | **no** |  |  |
 | 2 | `LicenceStatus` | nvarchar(20) | **no** |  |  |
+
+## dash: the Copilot Insights dashboard
+
+What the dashboard (`dashboard/CopilotInsights`, see [DASHBOARD.md](DASHBOARD.md)) keeps besides the `bi` schema it reads: its settings, roles, reference names and audit log, which the admin module edits, and the org chart and daily rollups `dash.usp_RefreshDashboard` rebuilds after each bi refresh.
+
+### dash.Setting
+
+*Table.* Settings the admin module edits: OrgTopUpn (the top of the organisation), MinGroupSize, DefaultDays, InactiveDays. Seeded; edits survive re-running the script.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Name` | varchar(64) | **no** | **PK** |  |
+| 2 | `Value` | nvarchar(400) | yes |  | NULL or empty: not set |
+| 3 | `Description` | nvarchar(400) | yes |  |  |
+| 4 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 5 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashSetting`: primary key, clustered (Name)
+
+### dash.RoleGrant
+
+*Table.* Roles granted to people (by UPN or DOMAIN\user) or AD groups (DOMAIN\Group). Admin runs the admin module; Organization sees the whole organisation; the persona roles unlock named detail.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `GrantId` | int | **no** | **PK** identity |  |
+| 2 | `Principal` | nvarchar(256) | **no** |  | a UPN, DOMAIN\user or DOMAIN\Group |
+| 3 | `PrincipalType` | varchar(8) | **no** |  |  |
+| 4 | `Role` | varchar(32) | **no** |  | Admin \| Organization \| Adoption \| Licensing \| Security \| Compliance \| Agents \| Enablement |
+| 5 | `Note` | nvarchar(400) | yes |  |  |
+| 6 | `GrantedBy` | nvarchar(256) | **no** |  |  |
+| 7 | `GrantedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashRoleGrant`: primary key, clustered (GrantId)
+- `UQ_DashRoleGrant`: unique, nonclustered (Principal, Role)
+- `CK_DashRoleGrant_Role`: check [Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin'
+- `CK_DashRoleGrant_Type`: check [PrincipalType]='Group' OR [PrincipalType]='User'
+
+### dash.AgentAlias
+
+*Table.* Friendly names and owners for agents, which the audit log names by schema name. Edited in Admin &gt; Reference data.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AgentKey` | int | **no** | **PK** | bi.DimAgent, whose keys are stable |
+| 2 | `FriendlyName` | nvarchar(200) | **no** |  |  |
+| 3 | `Owner` | nvarchar(256) | yes |  |  |
+| 4 | `Notes` | nvarchar(400) | yes |  |  |
+| 5 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 6 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashAgentAlias`: primary key, clustered (AgentKey)
+
+### dash.SensitivityLabel
+
+*Table.* Names and order for sensitivity labels, which the audit log records by id only. Edited in Admin &gt; Reference data.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `LabelId` | nvarchar(64) | **no** | **PK** | the label GUID |
+| 2 | `Name` | nvarchar(200) | **no** |  |  |
+| 3 | `Rank` | tinyint | yes |  | ordering, least to most sensitive |
+| 4 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 5 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashSensitivityLabel`: primary key, clustered (LabelId)
+
+### dash.AuditLog
+
+*Table.* Every page view, refusal, export and admin change: who, what page, what scope, what filters or change, and from where.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `LogId` | bigint | **no** | **PK** identity |  |
+| 2 | `AtUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 3 | `Viewer` | nvarchar(256) | **no** |  | the resolved UPN, or the Windows name if none; "A as B" when viewing as someone (development only) |
+| 4 | `Kind` | varchar(12) | **no** |  | View \| Denied \| Export \| Admin |
+| 5 | `Page` | nvarchar(200) | yes |  |  |
+| 6 | `Scope` | nvarchar(400) | yes |  | Whole organisation, or the subtree shown |
+| 7 | `Detail` | nvarchar(2000) | yes |  | filters, or what an admin change did |
+| 8 | `ClientIp` | varchar(64) | yes |  |  |
+
+Indexes and constraints:
+
+- `PK_DashAuditLog`: primary key, clustered (LogId)
+- `IX_DashAuditLog_Viewer`: index, nonclustered (Viewer, AtUtc)
+- `IX_DashAuditLog_At`: index, nonclustered (AtUtc)
+
+### dash.Person
+
+*Table.* One row per person in the user directory (and each manager missing from it), with their level below the top and how many people are under them. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database · **Filled by** dash.usp_RefreshDashboard
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Upn` | nvarchar(256) | **no** | **PK** |  |
+| 2 | `DisplayName` | nvarchar(256) | yes |  |  |
+| 3 | `ManagerUpn` | nvarchar(256) | yes |  |  |
+| 4 | `Department` | nvarchar(200) | yes |  |  |
+| 5 | `AccountEnabled` | bit | yes |  |  |
+| 6 | `Level` | tinyint | yes |  | 1 = OrgTopUpn, 2 = reports to them, ...; NULL when not under the top (or no top set) |
+| 7 | `DirectReports` | int | **no** |  |  |
+| 8 | `PeopleBelow` | int | **no** |  | everyone under them, at any depth |
+
+Indexes and constraints:
+
+- `PK_DashPerson`: primary key, clustered (Upn)
+- `IX_DashPerson_Manager`: index, nonclustered (ManagerUpn)
+
+### dash.OrgClosure
+
+*Table.* Every (manager, person under them) pair at any depth, and each person with themselves at depth 0: the security model's scope. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database · **Filled by** dash.usp_RefreshDashboard
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AncestorUpn` | nvarchar(256) | **no** | **PK** |  |
+| 2 | `DescendantUpn` | nvarchar(256) | **no** | **PK** |  |
+| 3 | `Depth` | tinyint | **no** |  | 0 = the person themselves |
+
+Indexes and constraints:
+
+- `PK_DashOrgClosure`: primary key, nonclustered (AncestorUpn, DescendantUpn)
+
+### dash.UserDay
+
+*Table.* One row per person per day with any Copilot use or session: the daily rollup behind every page, so the 7- to 365-day periods are exact.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database · **Filled by** dash.usp_RefreshDashboard
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `DateKey` | int | **no** | **PK** | bi.DimDate, in the reporting time zone |
+| 2 | `UserKey` | int | **no** | **PK** | bi.DimUser |
+| 3 | `Interactions` | int | **no** |  |  |
+| 4 | `Prompts` | int | **no** |  |  |
+| 5 | `AppsUsed` | tinyint | **no** |  |  |
+| 6 | `AgentInteractions` | int | **no** |  | interactions with an agent, not Copilot itself |
+| 7 | `WebGrounded` | int | **no** |  |  |
+| 8 | `ChatInteractions` | int | **no** |  | in Copilot Chat apps (bi.DimApp.AppCategory) |
+| 9 | `LicensedUse` | int | **no** |  | interactions made while licensed |
+| 10 | `Jailbreak` | int | **no** |  |  |
+| 11 | `PromptInjection` | int | **no** |  |  |
+| 12 | `BlockedResource` | int | **no** |  |  |
+| 13 | `LabelledContent` | int | **no** |  | interactions that touched sensitivity-labelled content |
+| 14 | `Sessions` | int | **no** |  | sessions that started that day |
+| 15 | `MultiTurnSessions` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashUserDay`: primary key, clustered (DateKey, UserKey)
+- `IX_DashUserDay_User`: index, nonclustered (UserKey, DateKey)
+
+### dash.ResourceDay
+
+*Table.* Sensitivity labels and SharePoint sites Copilot touched, per person per day: Label (a label on content an interaction read), Site (the site of labelled content it read) and Blocked (the site of content it was blocked from). Sites are cut to https://host/sites/name, or /personal/name for OneDrive.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database · **Filled by** dash.usp_RefreshDashboard
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `DateKey` | int | **no** | **PK** |  |
+| 2 | `UserKey` | int | **no** | **PK** |  |
+| 3 | `Kind` | varchar(8) | **no** | **PK** | Label \| Site \| Blocked |
+| 4 | `Item` | nvarchar(400) | **no** | **PK** |  |
+| 5 | `Interactions` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashResourceDay`: primary key, clustered (DateKey, Kind, UserKey, Item)
+- `CK_DashResourceDay_Kind`: check [Kind]='Blocked' OR [Kind]='Site' OR [Kind]='Label'
+
+### dash.AgentUse
+
+*Table.* When each agent was first and last used, from the facts: bi.DimAgent.FirstSeenUtc is when a refresh first saw it, which for a backfill is the day of the backfill. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database · **Filled by** dash.usp_RefreshDashboard
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AgentKey` | int | **no** | **PK** |  |
+| 2 | `FirstDateKey` | int | **no** |  |  |
+| 3 | `LastDateKey` | int | **no** |  |  |
+| 4 | `Interactions` | bigint | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashAgentUse`: primary key, clustered (AgentKey)
+
+### dash.RefreshRun
+
+*Table.* One row per dashboard refresh: when, from which day, and how many people, org pairs and person-days it wrote.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database · **Filled by** dash.usp_RefreshDashboard
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RunId` | int | **no** | **PK** identity |  |
+| 2 | `StartedUtc` | datetime2(0) | **no** |  |  |
+| 3 | `EndedUtc` | datetime2(0) | **no** |  |  |
+| 4 | `SinceUtc` | datetime2(0) | yes |  | NULL: every day rebuilt |
+| 5 | `FromDateKey` | int | yes |  |  |
+| 6 | `People` | int | **no** |  |  |
+| 7 | `ClosureRows` | int | **no** |  |  |
+| 8 | `UserDayRows` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashRefreshRun`: primary key, clustered (RunId)
+
+### dash.Agent
+
+*View.* Agents with their friendly name (from dash.AgentAlias, else the audit log's name), owner, and first use (from dash.AgentUse).
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AgentKey` | int | **no** |  |  |
+| 2 | `AgentId` | nvarchar(400) | **no** |  |  |
+| 3 | `AgentSource` | nvarchar(30) | yes |  |  |
+| 4 | `AgentName` | nvarchar(400) | yes |  |  |
+| 5 | `AuditName` | nvarchar(400) | yes |  |  |
+| 6 | `Owner` | nvarchar(256) | yes |  |  |
+| 7 | `FirstSeenUtc` | datetime2(0) | yes |  | first used, in the reporting time zone |
 
 ## Left over from 1.x
 
