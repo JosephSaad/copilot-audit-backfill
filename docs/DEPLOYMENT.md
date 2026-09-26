@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licences from Microsoft Graph, and the organisation from on-premises Active Directory.
 
-Written for a new install of release 2.1.0. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.2.0. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -92,14 +92,14 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, as a local administrator. About 45 minutes.*
 
-**PowerShell 7 and the release.** Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.1.0-offline-win-x64.zip` and its `.sha256` from the [v2.1.0 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.1.0). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**PowerShell 7 and the release.** Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.2.0-offline-win-x64.zip` and its `.sha256` from the [v2.2.0 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.1.0-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.2.0-offline-win-x64.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.1.0-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.2.0-offline-win-x64' 'CopilotAudit'
 New-Item -ItemType Directory 'D:\CopilotAudit\logs' | Out-Null
 ```
 
@@ -402,16 +402,17 @@ GRANT SELECT ON SCHEMA::bi TO [CORP\svc-pbigateway];
 
 | View | One row per | Relates on |
 |---|---|---|
-| `bi.Interactions` | Copilot interaction | DateKey, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey |
+| `bi.Interactions` | Copilot interaction | DateKey, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey, LicenseTypeKey, SensitivityLabelKey |
+| `bi.AccessedResources` | resource an interaction read | DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey |
 | `bi.Sessions` | inferred session | DateKey, UserKey, AppKey, LicenceStatusKey |
 | `bi.LicenceChanges` | SKU added (+1) or removed (−1) | DateKey, UserKey, SkuKey |
 | `bi.LicensedDays` | user holding a Copilot licence at the end of a day | DateKey, UserKey |
 | `bi.Calendar` | date, with the Saturday–Friday week | DateKey |
-| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses` | dimension rows | their key |
+| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses`, `bi.LicenseTypes`, `bi.SensitivityLabels`, `bi.ResourceTypes`, `bi.ResourceActions`, `bi.Sites` | dimension rows | their key |
 
 1. **Relationships:** each fact's key to the dimension with the same key, one-to-many, single direction.
 2. **Mark `Calendar` as the date table**, on its `Date` column.
-3. **Incremental refresh on `Interactions`:** create the `RangeStart` and `RangeEnd` date/time parameters and filter `ActivityHour` between them (on or after `RangeStart`, before `RangeEnd`). Refresh at least the last 4 days: each night reloads from about 72 hours back, the 48-hour lookback plus the day since the last run. `ActivityHour` is local time cut to the hour, so it costs almost nothing in memory. The other facts are small enough to refresh whole.
+3. **Incremental refresh on `Interactions` and `AccessedResources`:** create the `RangeStart` and `RangeEnd` date/time parameters and filter `ActivityHour` between them (on or after `RangeStart`, before `RangeEnd`). Refresh at least the last 4 days: each night reloads from about 72 hours back, the 48-hour lookback plus the day since the last run. `ActivityHour` is local time cut to the hour, so it costs almost nothing in memory. The other facts are small enough to refresh whole.
 4. **Measures**, as a starting point:
 
 ```dax
@@ -679,6 +680,18 @@ On 26 September 2026 the same lab went from 2.0.0 to 2.1.0: the Copilot database
 | `Create-CopilotCsvImport.sql`, in the Copilot database | No errors. The import tables and `audit.usp_MergeCopilotCsv` are in place, `audit.CopilotAudit` has its `CsvImportId` column, and the backfill range's new `Source` column still says the Graph backfill recorded it. The importer would have run this itself the first time. |
 | Row counts afterwards | Unchanged: 1,149 in `audit.CopilotAudit`, `audit.CopilotInteraction`, `audit.RawLogFlattened` and `bi.Interactions`. |
 | The shared function over every stored record | Reproduces all 1,149 existing `CopilotInteraction` rows exactly: the refactor gives the same results as the code it replaced, on real data. |
+
+### 2.2.0 on a copy of the lab
+
+On 26 September 2026 the 2.2.0 scripts ran against a restored copy-only backup of the lab's Copilot database; the lab itself was not changed.
+
+| What ran | Result |
+|---|---|
+| The flattened, `bi` and dashboard scripts, then a full flatten | No errors; 1,149 records in under a second. `UserKey` and `ClientIP` on every record, `CopilotEventData.LicenseType` on 465 (Premium or Starter), `ConversationId` on 257, `DLPEvaluationDeferred` on 412, `MemoryUpdated` on 381; 1,308 messages. |
+| The columns 2.1.0 already had | Identical, all 24 of them, for every one of the 1,149 records: the extra fields changed nothing that was there. |
+| `AccessedResources` and `Contexts`, one row per element | 1,939 resources, the same as the records' own resource counts added up; 1,632 with a type (Connector, CITATION, Text, TeamsMessage, EmailMessage ...), 1,207 with a site, 128 with Purview policy details (all outcome *None*, so none blocked); 34 contexts. |
+| `audit.RawLogRecordShape` | Three combinations of the fields that carry no information: 1,136 records with only the constants, 12 from a Copilot Studio agent (`AgentPlatform`, `AgentBlueprintId`), 1 with `SubjectType`. No field took a second value, so the flatten raised no note. |
+| Sessions, a full `bi` build and the dashboard's rollups | 241 sessions, 1,149 interactions and 1,939 accessed resources in `bi`; a partial `bi` refresh from three days back kept the same totals. |
 
 Not run in the lab: the AD export (the lab machine isn't on a domain, so department and org columns are blank there), the licence tool signed in as the app, `Run-Nightly.ps1` and its scheduled task, the CSV importer on a real Purview portal export, and the Power BI model and its Copilot setup.
 

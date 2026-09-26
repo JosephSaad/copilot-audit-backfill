@@ -128,7 +128,8 @@ Each release also carries a prebuilt `...-offline-win-x64.zip` with the module a
 | `audit.vCopilotAuditRecord` | The same records in the **Purview export's shape**, with `AuditData` decompressed. SQL written against the portal CSV import can point here. |
 | `audit.CopilotInteraction` | Slim reporting table: activity date, user, app host, model, prompt and resource counts, web grounding. |
 | `audit.vCopilotDailyUsage` | Interactions, active users, prompts and web-grounded interactions per day per app. Ready for Power BI. |
-| `audit.RawLogFlattened` | One row per record with `CopilotEventData` shredded into columns — accessed resources and their locations, sensitivity labels, plugins, jailbreak and prompt-injection flags. |
+| `audit.RawLogFlattened` | One row per record with `CopilotEventData` shredded into columns — accessed resources and their locations, sensitivity labels, plugins, jailbreak and prompt-injection flags — and every other field of the record that carries information in its own typed column (2.2.0). |
+| `audit.RawLogAccessedResource`, `audit.RawLogContext` | One row per element of the record's `AccessedResources` and `Contexts` arrays: type, site, label, policy outcome, blocked, prompt injection (2.2.0). |
 | `audit.vCopilotAdoption` | Licensed users against actual usage, with `NeverUsed` and `DaysToFirstUse`. Needs the enrichment step below. |
 | `audit.vCopilotUsageByDepartment` | Usage per department, day and app. Needs the enrichment step below. |
 | `bi.*` | A star schema for a Power BI semantic model: interaction, session and licence facts with integer keys, and their dimensions. See [Power BI: the `bi` schema](#power-bi-the-bi-schema). |
@@ -153,7 +154,9 @@ EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 180, @WhatIf = 0;            
 EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 365, @DeleteRows = 1, @WhatIf = 0;  -- remove the records
 ```
 
-The JSON is what costs the disk, so the default mode clears `AuditDataGz` past the horizon and leaves the reporting and flattened tables intact.
+The JSON is what costs the disk, so the default mode clears `AuditDataGz` past the horizon and leaves the reporting and flattened tables intact. A re-flatten skips records whose JSON is gone, so it never blanks what was shredded while the JSON existed.
+
+**What the flattening keeps (2.2.0).** Every field of the Copilot audit record that carries information, as a typed column named after its JSON path (`CopilotEventData.LicenseType` is `CopilotEventData_LicenseType`); identifiers that are always GUIDs are stored as `uniqueidentifier`. The small arrays are JSON text, NULL when empty; `AccessedResources` and `Contexts` get a row per element. Seventeen fields that a 19-million-record production profile shows never vary, or are always empty (`Operation`, `RecordType`, `Workload`, `CopilotLogVersion` and the like), are not stored per row: `audit.RawLogRecordShape` counts their combinations, and the flatten reports if one of them ever takes a second value. `OrganizationId` stays on every row, so one database can hold more than one tenant. A resource counts as blocked when its `Status` failed or a Purview policy outcome other than *None* applied; before 2.2.0 the policy outcome, which records carry as JSON text inside the JSON, was not read.
 
 `audit.vCopilotAuditRecord` exposes `AssociatedAdminUnitsNames` to match the portal export's column list, but it is **always NULL**: the Graph `auditLogRecord` resource carries a single `administrativeUnits` collection of IDs with no display names. Resolve them from Entra if you need them.
 
@@ -205,17 +208,18 @@ From then on each `-Incremental` run refreshes it after the other derived tables
 
 | View | One row per | Keys |
 |---|---|---|
-| `bi.Interactions` | Copilot interaction | Date, User, App, Agent, Model, LicenceStatus |
+| `bi.Interactions` | Copilot interaction | Date, User, App, Agent, Model, LicenceStatus, LicenseType, SensitivityLabel |
+| `bi.AccessedResources` | resource an interaction read | Date, User, App, ResourceType, ResourceAction, Site, SensitivityLabel |
 | `bi.Sessions` | inferred session | Date, User, App (the first prompt's), LicenceStatus |
 | `bi.LicenceChanges` | SKU added (+1) or removed (−1) | Date, User, Sku |
 | `bi.LicensedDays` | user holding a Copilot licence at the end of a day | Date, User |
 | `bi.Calendar` | date, with the rollup's Saturday–Friday week | `DateKey` |
-| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses` | dimension rows | `UserKey`, `AppKey` … |
+| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses`, `bi.LicenseTypes`, `bi.SensitivityLabels`, `bi.ResourceTypes`, `bi.ResourceActions`, `bi.Sites` | dimension rows | `UserKey`, `AppKey` … |
 
 - **Relationships:** each fact's `DateKey`, `UserKey`, `AppKey` and so on to the dimension of the same key, one-to-many, single direction. Mark `bi.Calendar` as the date table.
-- **Incremental refresh:** on `bi.Interactions`, filter `ActivityHour` between `RangeStart` and `RangeEnd`. It is local time truncated to the hour, so it has ~8,760 values a year and costs almost nothing in memory. The other facts are small enough to refresh whole.
-- **Licence at the time of use** is on the facts (`LicenceStatusKey`): *Licensed*, *Not licensed*, or *Unknown* when there is neither licence history nor enrichment for the user. `bi.Users.CopilotLicenceToday` is today's licence, which is a different question.
-- **Left out on purpose:** RecordId, ThreadId, app context, accessed resources and their URLs, sensitivity label IDs and the JSON. Each is close to one value per row and would cost more memory than the rest of the model together. They stay in `audit.RawLogFlattened` for a DirectQuery drill-through table if you need one.
+- **Incremental refresh:** on `bi.Interactions` and `bi.AccessedResources`, filter `ActivityHour` between `RangeStart` and `RangeEnd`. It is local time truncated to the hour, so it has ~8,760 values a year and costs almost nothing in memory. The other facts are small enough to refresh whole.
+- **Licence at the time of use** is on the facts (`LicenceStatusKey`): *Licensed*, *Not licensed*, or *Unknown* when there is neither licence history nor enrichment for the user. `bi.Users.CopilotLicenceToday` is today's licence, which is a different question. `LicenseTypeKey` is what the record itself reports (`CopilotEventData.LicenseType`, such as Premium or Starter), from 2.2.0.
+- **Left out on purpose:** RecordId, ThreadId, ConversationId, app context, whole resource URLs and the JSON. Each is close to one value per row and would cost more memory than the rest of the model together. Resources are in the model by type and site (`bi.AccessedResources`, `bi.Sites`); the rest stays in `audit.RawLogFlattened` and `audit.RawLogAccessedResource` for a DirectQuery drill-through table if you need one.
 - **Keys are stable** across refreshes and rebuilds, so partitions refreshed on different days stay consistent.
 
 Starting-point measures (not yet tried in a model):

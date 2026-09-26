@@ -33,16 +33,16 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 | | Not started | People licensed 14 days or more who have never used Copilot | Person | **Adoption** |
 | Licensing | Inventory | Licences held over time, assigned and removed, by SKU, idle licences by unit | Scope, SKU, unit | No |
 | | Unused licences | People holding a licence with no use for 7, 14, 30, 60 or 90 days, and when they last used it | Person | **Licensing** |
-| | Demand | Unlicensed Copilot Chat users over time and by department; the list of them | Department; person | List: **Licensing** |
+| | Demand | Unlicensed Copilot Chat users over time and by department; the licence type each record reports; the list of them | Department; person | List: **Licensing** |
 | Security | Signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit | Scope, unit | No |
 | | Flagged interactions | Each flagged interaction: when, who, app, agent, the signal and the Purview record id | Interaction | **Security** |
-| Compliance | Sensitive content | Interactions with labelled content by label and over time; the sites that content lives on; sites Copilot was blocked from. Personal OneDrive sites are grouped | Scope, label, site | No |
+| Compliance | Sensitive content | Interactions with labelled content by label and over time; the sites that content lives on; sites Copilot was blocked from; everything it read, by type. Personal OneDrive sites are grouped | Scope, label, site, type | No |
 | | Resource access | Who worked with labelled content, how often, their most sensitive label, how many sites, how often blocked; filter by label | Person | **Compliance** |
 | Agents | Agents | Every agent used: people, how many came back, interactions, first use, a trend line; the top six over time | Agent | No |
 | | Agent detail | One agent: people and new people, return rate, trend, by department and app; its users | Agent; person | List: **Agents** |
 | Enablement | Engagement | Segments (power, regular, occasional, one-off, not started) overall and by department; multi-turn share and prompts per session; apps per person | Scope, department | No |
 | | People | Named people in a segment: champions to recruit, one-off users to train | Person | **Enablement** |
-| Governance | Models and grounding | Model mix over time, web grounding, Copilot Chat against in-app, distinct agents in use, agents known by source | Scope; organisation-wide for agents known | No |
+| Governance | Models and grounding | Model mix over time, web grounding, Copilot Chat against in-app, memory updates, calls to another agent, deferred DLP checks, distinct agents in use, agents known by source | Scope; organisation-wide for agents known | No |
 | Admin | Health, Access, Reference data, Audit log | See [Running it](#running-it) | | **Admin** |
 
 An L2 manager, who reports directly to the CEO, sees the whole organisation. The Leadership pages are theirs, and every other aggregate page is open to them too. Whole-organisation access doesn't include named lists: those still need the role.

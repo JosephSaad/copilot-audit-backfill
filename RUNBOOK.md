@@ -157,7 +157,7 @@ A group managed service account avoids storing a password at all. Schedule the P
 
 ## 5c. The Power BI star schema
 
-The `bi` schema is what a Power BI semantic model imports: narrow facts with integer keys (`bi.Interactions`, `bi.Sessions`, `bi.LicenceChanges`, `bi.LicensedDays`) and their dimensions. The README's [Power BI section](README.md#power-bi-the-bi-schema) describes the model.
+The `bi` schema is what a Power BI semantic model imports: narrow facts with integer keys (`bi.Interactions`, `bi.AccessedResources`, `bi.Sessions`, `bi.LicenceChanges`, `bi.LicensedDays`) and their dimensions. The README's [Power BI section](README.md#power-bi-the-bi-schema) describes the model.
 
 **Install and build it once**, in the audit database, after `sql/Create-CopilotFlattenedSchema.sql` and `sql/Create-CopilotSessionSchema.sql`:
 
@@ -171,6 +171,9 @@ The `bi` schema is what a Power BI semantic model imports: narrow facts with int
 - the reporting time zone changes. A partial refresh in a different zone is refused, because rows already written carry the old zone's dates.
 - licence history arrives for a period already built. A row's licence status is fixed when it is written.
 - flattened rows are purged (`usp_PurgeCopilotAuditJson @PurgeFlattened = 1`). The fact keeps them until rebuilt.
+- the flattened records were re-flattened in full, as the upgrade to 2.2.0 asks. The facts carry what the flattening wrote when they were built.
+
+**Flattening (2.2.0).** `audit.usp_FlattenCopilotAudit` writes every informative field of each record into `audit.RawLogFlattened`, and a row per accessed resource and context into `audit.RawLogAccessedResource` and `audit.RawLogContext`, replacing a record's element rows each time it is flattened. The fields that never vary are counted in `audit.RawLogRecordShape` instead of stored; if the flatten says one of them *now carries information*, look there, and add a column if the difference matters. A full re-flatten (`EXEC audit.usp_FlattenCopilotAudit;`) is safe after a JSON purge: records with no JSON left are skipped.
 
 A full rebuild commits a month at a time to keep the log small, so don't refresh the model while one runs.
 
