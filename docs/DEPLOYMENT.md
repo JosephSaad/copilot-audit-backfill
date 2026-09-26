@@ -597,6 +597,7 @@ A healthy morning: a new load with `MergedUtc` set, a session run with a `Rebuil
 | Licence history arrives for a period already built, or flattened rows are purged | `EXEC bi.usp_RefreshBi @SinceUtc = NULL, @LicenceEventDatabase = N'CopilotLicenseEvents';`, then a full refresh of the model. |
 | A new Copilot app appears | Map it to *Copilot Chat* or *In-App Copilot* in `audit.SessionAppCategory`. Unmapped apps count as In-App. |
 | Disk grows past your horizon | `EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 365;` reports what it would clear; add `@WhatIf = 0` to clear the stored JSON and keep the rows. |
+| A new release comes out | Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `Run-Nightly.ps1`, and read its release notes' upgrade section. From 2.0.0 to 2.1.0 nothing is done by hand: the next nightly run installs the changes. Back up the databases first. |
 | The certificate nears expiry | Create a new one (step 3), upload it to the app, give the gMSA its private key, and change the thumbprint in `Run-Nightly.ps1`. Remove the old one after the next good run. |
 
 **When the nightly run fails:**
@@ -626,8 +627,20 @@ On 25 September 2026, 2.0.0 was applied to the lab database: a small tenant with
 | `bi.Users` | Carries the 2.0.0 columns: `EmployeeType`, `IsManager`, `ManagerName`, `OrgDepth`, `OrgLevel1`–`OrgLevel15`. |
 | Licence tool (step 10), signed in interactively | 3 Copilot SKUs found; 14 users looked up (12 from the audit data, 2 licence holders who never used Copilot); 10 licensed. About 25 seconds including sign-in. |
 | Flattening and a full `bi` rebuild afterwards | Licence at time of use: 925 interactions Licensed, 224 Not licensed, none Unknown. Today's licence in `bi.Users`: 10 Licensed, 4 Not licensed, 16 Unknown (15 people seen only in licence history, plus the placeholder row for records with no user). |
+| CSV import (2.1.0), from lab records reshaped to the portal export's format, into scratch databases | Three overlapping exports and a duplicate file: 1,438 rows gave 1,149 records, 289 duplicates removed. Every stored column and every `CopilotInteraction` row matched the Graph path; re-running imported nothing; a cut-off row was rejected and listed; imported on top of Graph-loaded records it added only the missing ones. |
 
-Not run in the lab: the AD export (the lab machine isn't on a domain, so department and org columns are blank there), the licence tool signed in as the app, `Run-Nightly.ps1` and its scheduled task, and the Power BI model and its Copilot setup.
+### Upgrading the lab to 2.1.0
+
+On 26 September 2026 the same lab went from 2.0.0 to 2.1.0: the Copilot database and both licence-event databases, each backed up first.
+
+| What ran | Result |
+|---|---|
+| `Create-CopilotAuditSchema.sql` and `Create-CopilotLoadProcedure.sql`, in all three databases | No errors. Each database has `audit.fnShredCopilotInteraction`, and its nightly merge procedure calls it. These are the two scripts `Invoke-CopilotAuditBackfill.ps1` runs at the start of every run, so the next nightly run would have done the same. |
+| `Create-CopilotCsvImport.sql`, in the Copilot database | No errors. The import tables and `audit.usp_MergeCopilotCsv` are in place, `audit.CopilotAudit` has its `CsvImportId` column, and the backfill range's new `Source` column still says the Graph backfill recorded it. The importer would have run this itself the first time. |
+| Row counts afterwards | Unchanged: 1,149 in `audit.CopilotAudit`, `audit.CopilotInteraction`, `audit.RawLogFlattened` and `bi.Interactions`. |
+| The shared function over every stored record | Reproduces all 1,149 existing `CopilotInteraction` rows exactly: the refactor gives the same results as the code it replaced, on real data. |
+
+Not run in the lab: the AD export (the lab machine isn't on a domain, so department and org columns are blank there), the licence tool signed in as the app, `Run-Nightly.ps1` and its scheduled task, the CSV importer on a real Purview portal export, and the Power BI model and its Copilot setup.
 
 ## Not yet proven in a live deployment
 
@@ -635,6 +648,7 @@ Nothing runs at a client site yet. These parts have not run against the real thi
 
 - **The AD search itself.** Everything after the search is tested, but the search has not run against a real trusted domain. Run step 9 by hand first and read its match report.
 - **The Power BI model and its Copilot setup.** The DAX measures, descriptions, AI instructions and verified answers here are a starting point built from the model's design and Microsoft's documentation. None of them has been tried in a published model yet, so test them as step 20 describes.
+- **The CSV importer on a real portal export.** It has been tested on lab records reshaped to the export's format, not on a file downloaded from the Purview portal. Import one real export and check its summary before loading the rest.
 - **Export compatibility.** `audit.vCopilotAuditRecord` reproduces the Purview portal export's columns, but its JSON hasn't been compared byte for byte with a portal CSV. Check one record before repointing reports built on the portal export.
 - **The `Run-Nightly.ps1` shown above** has been dry-run with stand-in steps only.
 
