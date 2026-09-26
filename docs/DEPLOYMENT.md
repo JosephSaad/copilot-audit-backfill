@@ -215,6 +215,17 @@ sqlcmd -S SQLPROD01 -d CopilotLicenseEvents -E -b -Q "EXEC audit.usp_ShredLicens
 
 Add `-C` to sqlcmd if the instance's certificate is self-signed. From now on this database must always be loaded with the same `-Operations`; the loader refuses anything else.
 
+### Alternative to steps 6 and 7: start from Purview CSV exports
+
+When the history already exists as audit log exports from the Purview portal, or goes back further than the API's 180 days, load it from the files instead of, or as well as, the Graph backfill. Put every export in one folder, overlapping ranges and all, and leave them unopened in Excel:
+
+```powershell
+.\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports -SqlServer SQLPROD01 -Database CopilotAudit `
+    -CoveredThroughUtc 2026-09-01
+```
+
+`-CoveredThroughUtc` is the end of the latest export's search range. The import records it, so the nightly `-Incremental` run (step 12) continues from there. Duplicates across the files are removed, files already imported are skipped on the next run, and rows that can't be loaded are listed with their line number. Check its summary: rows read, duplicates, rejected rows. Then carry on with Phase 3. For the licence-event database, export the licence operations the same way and pass `-Operations 'Change user license','Update user','Add user','Delete user'` against `CopilotLicenseEvents`. [RUNBOOK section 5e](../RUNBOOK.md#5e-importing-purview-csv-exports) has the details.
+
 ## Phase 3: Build the reporting layers
 
 Install the SQL objects, load the two directory sources, then build everything once. After this, the nightly job only rebuilds the days that changed.

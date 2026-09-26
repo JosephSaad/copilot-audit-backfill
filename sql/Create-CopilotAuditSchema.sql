@@ -157,3 +157,32 @@ IF OBJECT_ID(N'audit.CopilotLoadStage', N'U') IS NULL
         AuditDataGz         VARBINARY(MAX)  NULL,
         LoadedUtc           DATETIME2(0)    NOT NULL CONSTRAINT DF_CopilotLoadStage_Loaded DEFAULT (SYSUTCDATETIME())
     );
+
+/*
+    audit.fnShredCopilotInteraction - one audit record's JSON to the columns
+    of audit.CopilotInteraction. Finalize-CopilotAudit.sql, usp_MergeCopilotLoad
+    and usp_MergeCopilotCsv all shred through it, so a record reads the same
+    whichever path loaded it. Inline, so it costs what the expressions would
+    written out in place. JsonUserId is the UPN inside the record, for rows
+    that arrived without one.
+*/
+EXEC (N'
+CREATE OR ALTER FUNCTION audit.fnShredCopilotInteraction (@AuditDataGz VARBINARY(MAX))
+RETURNS TABLE
+AS
+RETURN
+SELECT
+    LEFT(JSON_VALUE(j.Doc, ''$.UserId''), 512)                                                   AS JsonUserId,
+    LEFT(JSON_VALUE(j.Doc, ''$.CopilotEventData.AppHost''), 100)                                  AS AppHost,
+    LEFT(JSON_VALUE(j.Doc, ''$.AppIdentity''), 200)                                               AS AppIdentity,
+    LEFT(JSON_VALUE(j.Doc, ''$.ClientRegion''), 20)                                               AS ClientRegion,
+    LEFT(JSON_VALUE(j.Doc, ''$.CopilotEventData.ModelTransparencyDetails[0].ModelName''), 200)    AS ModelName,
+    LEFT(JSON_VALUE(j.Doc, ''$.CopilotEventData.ModelTransparencyDetails[0].ModelProviderName''), 200) AS ModelProvider,
+    LEFT(JSON_VALUE(j.Doc, ''$.CopilotEventData.ThreadId''), 400)                                 AS ThreadId,
+    (SELECT COUNT(*) FROM OPENJSON(j.Doc, ''$.CopilotEventData.Messages'') WITH (isPrompt BIT ''$.isPrompt'') AS m
+      WHERE m.isPrompt = 1)                                                                        AS PromptCount,
+    (SELECT COUNT(*) FROM OPENJSON(j.Doc, ''$.CopilotEventData.AccessedResources''))              AS AccessedResourceCount,
+    CAST(CASE WHEN EXISTS (SELECT 1 FROM OPENJSON(j.Doc, ''$.CopilotEventData.AISystemPlugin'') WITH (Id NVARCHAR(200) ''$.Id'') AS p
+                           WHERE p.Id = N''BingWebSearch'') THEN 1 ELSE 0 END AS BIT)            AS UsedWebSearch
+FROM (SELECT CAST(DECOMPRESS(@AuditDataGz) AS NVARCHAR(MAX)) AS Raw) AS r
+CROSS APPLY (SELECT CASE WHEN ISJSON(r.Raw) = 1 THEN r.Raw END AS Doc) AS j;');

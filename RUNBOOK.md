@@ -199,6 +199,33 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 
 **Schedule it before the incremental load**, daily, so the load's session and `bi` rebuilds pick up today's organisation: first this, then the licence tool, then `-Incremental`.
 
+## 5e. Importing Purview CSV exports
+
+`tools/Import-CopilotAuditCsv.ps1` loads audit log exports from the Purview portal into `audit.CopilotAudit` and `audit.CopilotInteraction`, in the shape the Graph backfill stores: the object ID in `UserId`, the sign-in name in `UserPrincipalName`, the workload as `Service`, the user type by name, and the `AuditData` JSON compressed exactly as the engine compresses it. The flattened table, sessions and the `bi` schema therefore read them like any other record.
+
+```powershell
+.\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports -SqlServer SQLPROD01 -Database CopilotAudit `
+    -SessionLicenceDatabase CopilotLicenseEvents
+```
+
+**Exporting.** In the Purview portal, search the audit log for the record type the database holds (*CopilotInteraction*, or the licence operations for a licence-event database) and export all results. Note each search's exact start and end: the importer cannot tell a quiet day from a day that was not exported. Leave the files as they came: a file opened and saved in Excel has its `AuditData` cut at 32,767 characters, and those rows are rejected rather than loaded broken. Both the current export's columns (`RecordId`, `CreationDate`, `RecordType`, `Operation`, `UserId`, `AuditData`, ...) and the older one's (`UserIds`, `Operations`) are read.
+
+**What a run does.**
+
+1. Runs `sql/Create-CopilotAuditSchema.sql` and `sql/Create-CopilotCsvImport.sql`. In a database with no backfill, the second creates the final tables and views that finalize would.
+2. Lists the files (`-Filter`, default `*.csv`; `-Recurse` for subfolders) and skips any whose SHA-256 an earlier import already loaded, and any repeating another file in the folder.
+3. Reads each file here, streaming it in batches into `audit.CopilotCsvStage`. SQL Server needs no access to the folder. Rows of another operation are counted and left out, matched the way the Graph search's operation filter matches (`Change user license.` counts as `Change user license`). Rows that cannot be loaded go to `audit.CopilotCsvReject` with their line number and reason.
+4. `audit.usp_MergeCopilotCsv` keeps one row per `RecordId` across the files, drops those `audit.CopilotAudit` already holds, appends the rest (tagged with `CsvImportId`) and their shredded rows, and records the covered range if given - in one transaction.
+5. Refreshes the derived tables that are installed from the earliest record added: flattening, licence events, sessions, `bi`. `-SkipPostProcessing` stops after the merge. If a Power BI model refreshes incrementally and the import added records older than its refresh window, refresh the model fully once.
+
+`audit.CopilotCsvImport` keeps one row per run with its counts, and `audit.CopilotCsvFile` one row per file. A run that stops part-way is started again from scratch the next time; nothing is merged until every file is read.
+
+**A database that starts from CSV files.** Create it (section 1), then run the importer with `-CoveredThroughUtc`, the end of the latest export's search range, and optionally `-CoveredFromUtc`. The import records that range in `audit.CopilotBackfillRange` with `Source = 'CSV'`, and `-Incremental` continues from its end, less the lookback, like after a backfill. A later import can widen a CSV-recorded range; a range the Graph backfill recorded is never changed. Without `-CoveredThroughUtc` the rows load, but `-Incremental` has nowhere to continue from until an import records a range. The Graph API keeps 180 days: if the exports end earlier than that, the importer warns, and the days between cannot be filled.
+
+**Alongside the Graph backfill.** Import at any time once the backfill is finalized, before or after `-Incremental` loads begin - older exports can extend history back past the 180 days the API holds. The importer refuses while a backfill has started but is not finalized: finalize rebuilds `audit.CopilotAudit` from its own staging table. For the same reason finalize refuses once CSV rows are merged.
+
+**Different from the Graph path.** `ClientIp` is filled from `AuditData.ClientIP`, which the Graph path leaves empty; the export's `AssociatedAdminUnitsNames` is not kept. Everything the reports read is the same.
+
 ## 6. How it stays inside Microsoft's limits
 
 | Published limit (Graph throttling docs) | What the engine does |
@@ -237,6 +264,10 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 | Licence tool app-only: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. See section 5b. |
 | User directory: `Could not read RootDSE` | The domain name is wrong, the trust does not reach it, or the account running the script is not trusted there. Try `-TargetDomain` with a domain controller's name. |
 | User directory: under 90% of audit users matched | AD's UPNs are not the names users sign in to Microsoft 365 with. The load reports how many match by mail instead. See section 5d. |
+| CSV import: `A Graph backfill has started in this database but is not finalized` | Finish the backfill and run `-FinalizeOnly`, then import. See section 5e. |
+| CSV import: `row(s) were not loaded` | See `audit.CopilotCsvReject` for each row's file, line and reason. Usually a file saved from Excel: export it again and leave it unopened. |
+| CSV import: `No AuditData column` | A file in the folder is not a Purview audit log export. Move it out, or narrow `-Filter`. |
+| Finalize: `CSV imports have been merged` | The tables are already final, and a rebuild would drop the imported rows. Keep them current with `-Incremental` and further imports. |
 
 ## Files
 
@@ -251,4 +282,5 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 | `sql/Create-CopilotBiSchema.sql` / `sql/Create-CopilotBiProcedure.sql` | The `bi` star schema and `bi.usp_RefreshBi` (section 5c). |
 | `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory from on-premises AD (section 5d). |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licences, from Microsoft Graph. |
+| `tools/Import-CopilotAuditCsv.ps1` / `sql/Create-CopilotCsvImport.sql` | Purview CSV exports into the same tables (section 5e). |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |
