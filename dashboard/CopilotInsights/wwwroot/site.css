@@ -45,13 +45,20 @@ button.theme { background: none; border: 1px solid var(--rule); color: var(--mut
 
 .shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 50px); }
 @media (max-width: 900px) { .shell { grid-template-columns: 1fr; } nav.side { border-right: 0; border-bottom: 1px solid var(--rule); } }
-nav.side { background: var(--surface); border-right: 1px solid var(--rule); padding: 14px 10px 30px; font-size: 13px; }
-nav.side a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; }
-nav.side a:hover { color: var(--ink); background: var(--ground); }
-nav.side a.on { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
-nav.side .home { font-weight: 600; color: var(--ink); margin-bottom: 6px; }
-.grp { margin-top: 12px; }
-.gname { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 0 10px 2px; }
+nav.side { background: var(--surface); border-right: 1px solid var(--rule); padding: 14px 12px 30px; font-size: 13.5px; }
+/* Pages are links: ink-coloured, indented under their category on a guide line, with hover and a current marker. */
+nav.side a { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 10px 5px 12px;
+  margin-left: 6px; border-left: 2px solid var(--rule); border-radius: 0 6px 6px 0; color: var(--ink); text-decoration: none; }
+nav.side a::after { content: "›"; color: var(--faint); opacity: 0; transition: opacity .12s; }
+nav.side a:hover { background: var(--ground); border-left-color: var(--faint); }
+nav.side a:hover::after { opacity: 1; }
+nav.side a.on { color: var(--accent); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
+nav.side a.home { margin: 0 0 4px; border-left: 0; border-radius: 6px; padding-left: 10px; font-weight: 600; }
+/* Categories are labels, not links: small caps, a rule to their right, no pointer and no hover. */
+.grp { margin-top: 14px; }
+.gname { display: flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--faint); padding: 0 4px 5px; cursor: default; user-select: none; }
+.gname::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
 
 main { padding: 20px 24px 60px; min-width: 0; }
 .page-head .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
@@ -131,9 +138,13 @@ button.btn { font: inherit; background: var(--accent); color: var(--surface); bo
 button.btn.quiet { background: none; color: var(--crit); border: 1px solid var(--rule); padding: 2px 8px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
 .card { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; }
-.card h3 { margin: 0 0 4px; font-size: 14px; }
-.card p { margin: 0 0 6px; color: var(--muted); font-size: 12.5px; }
-.card ul { margin: 0; padding-left: 16px; font-size: 13px; }
+.card .cat { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); margin: 0 0 2px; cursor: default; }
+.card p { margin: 0 0 8px; color: var(--muted); font-size: 12.5px; }
+.card ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.card li a { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border: 1px solid var(--rule);
+  border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 13px; }
+.card li a::after { content: "→"; color: var(--accent); }
+.card li a:hover { border-color: var(--accent); background: var(--accent-soft); }
 .status-ok { color: var(--good); } .status-warn { color: var(--warn); } .status-bad { color: var(--crit); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 

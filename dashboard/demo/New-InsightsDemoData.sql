@@ -302,6 +302,34 @@ FROM p
 CROSS APPLY (SELECT CASE WHEN p.App IN (N'Word', N'Excel', N'PowerPoint', N'Microsoft Teams', N'Outlook') OR p.hp % 10 < 4 THEN 1 ELSE 0 END AS Touches) AS r
 JOIN #files AS fl ON fl.f = CASE WHEN p.d = 4 AND p.hp % 9 = 0 THEN 8 WHEN p.d = 5 AND p.hp % 5 = 0 THEN 9 ELSE p.hp % 12 END;
 
+/* What the rest of the record says: licence type, memory, and calls to another agent. */
+UPDATE audit.RawLogFlattened
+SET CopilotEventData_LicenseType = CASE WHEN IsCopilotLic = 1 THEN N'Premium' ELSE N'Starter' END,
+    CopilotEventData_MemoryUpdated = CASE WHEN ABS(CHECKSUM(RecordId)) % 40 = 0 THEN 1 ELSE 0 END,
+    CopilotEventData_TargetAgentName = CASE WHEN AppIdentity IN (N'MicrosoftAgent.BuiltIn.Researcher', N'MicrosoftAgent.BuiltIn.Analyst')
+                                            THEN SUBSTRING(AppIdentity, 24, 40) END,
+    OrganizationId = '5e1f0c2a-1111-4000-8000-000000000000',
+    MessageCount = 2 * PromptCount;
+
+/* The element rows the flattening would have written for those records: the
+   file each read, and the blocked payroll file. Sites cut as the flattening
+   cuts them (all demo URLs are under /sites/ or /personal/). */
+TRUNCATE TABLE audit.RawLogAccessedResource;
+INSERT INTO audit.RawLogAccessedResource WITH (TABLOCK)
+    (RecordId, Ordinal, [Action], [Type], Name, SiteUrl, Site, SensitivityLabelId, XPIADetected, [Status], IsBlocked)
+SELECT f.RecordId, x.Ordinal, N'Read', x.[Type], x.Name, x.Url,
+       LEFT(x.Url, CHARINDEX(N'/', x.Url + N'/', CHARINDEX(N'/', x.Url + N'/', CHARINDEX(N'/', x.Url, 9) + 1) + 1) - 1),
+       x.Label, CASE WHEN x.Ordinal = 0 AND f.PromptInjectionDetected = N'true' THEN 1 ELSE 0 END, x.[Status], x.Blocked
+FROM audit.RawLogFlattened AS f
+CROSS APPLY (
+    SELECT 0 AS Ordinal, N'File' AS [Type], f.[Accessed Resources] AS Name, f.[Accessed Resource Locations] AS Url,
+           TRY_CONVERT(UNIQUEIDENTIFIER, f.SensitivityLabelIds) AS Label, CAST(NULL AS VARCHAR(64)) AS [Status], CAST(0 AS BIT) AS Blocked
+    WHERE f.[Accessed Resource Locations] IS NOT NULL
+    UNION ALL
+    SELECT 1, N'File', N'Salary Bands.xlsx', f.BlockedResourceUrls, NULL, 'Failure', CAST(1 AS BIT)
+    WHERE f.BlockedResourceUrls IS NOT NULL
+) AS x;
+
 /* Temp tables go now: the session and bi procedures have their own of the same names. */
 DROP TABLE IF EXISTS #first, #last, #div, #dept, #org, #u, #ev, #days, #active, #sess, #agent, #files;
 

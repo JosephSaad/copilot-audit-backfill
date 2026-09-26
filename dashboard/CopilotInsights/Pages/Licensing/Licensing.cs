@@ -184,6 +184,16 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
             Chart.Bars(byDept.Select(d => new Bar(d.Dept, d.Heavy, Note: $"{d.Users:#,0} used it; {d.Heavy:#,0} on {Heavy}+ days; {d.People:#,0} unlicensed people", Slot: 2)).ToList(), Fmt.Count, "Heavy unlicensed users by department"),
             $"Unlicensed people who used Copilot Chat on {Heavy} days or more in the period, by department.", "half"));
 
+        var recorded = await Db.QueryAsync<(string LicenseType, int People, long N)>($@"
+SELECT l.LicenseType, COUNT(DISTINCT f.UserKey), COUNT_BIG(*)
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+JOIN bi.DimLicenseType AS l ON l.LicenseTypeKey = f.LicenseTypeKey
+WHERE f.DateKey BETWEEN @k0 AND @k1
+GROUP BY l.LicenseType;", Ctx.Args());
+        Panels.Add(new("Licence the audit record reports",
+            Chart.Bars(recorded.OrderByDescending(r => r.N).Select(r => new Bar(r.LicenseType, r.People, Note: $"{r.N:#,0} interactions", Slot: r.LicenseType == "Premium" ? 1 : 2)).ToList(), Fmt.Count, "People by recorded licence type"),
+            "People by the licence type Copilot wrote into each audit record (CopilotEventData.LicenseType, such as Premium or Starter), beside the licence history. A person can appear under more than one.", "half"));
+
         if (!Viewer.Has(Roles.Licensing)) return;   // the named list is for the Licensing role only
         var pg = new Paging(Request, Sorts, "days");
         var rows = await Db.QueryAsync<Row>($@"

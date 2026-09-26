@@ -225,6 +225,74 @@ BEGIN
     VALUES (0, N'Unknown'), (1, N'Licensed'), (2, N'Not licensed');
 END;
 
+/* ---- 2.2.0: what the rest of the record says ----------------------------- */
+
+/* CopilotEventData.LicenseType: the licence the record itself says the user
+   had (Premium, Starter ...). Beside LicenceStatus, which comes from the
+   licence history, not the record. */
+IF OBJECT_ID(N'bi.DimLicenseType', N'U') IS NULL
+BEGIN
+    CREATE TABLE bi.DimLicenseType
+    (
+        LicenseTypeKey  INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimLicenseType PRIMARY KEY,
+        LicenseType     NVARCHAR(32) NOT NULL CONSTRAINT UQ_DimLicenseType UNIQUE
+    );
+    INSERT INTO bi.DimLicenseType (LicenseType) VALUES (N'(not reported)');
+END;
+
+/* Sensitivity labels, by id: on the interaction (CopilotEventData.SensitivityLabelId)
+   and on the resources it read. Names are not in the audit data; the
+   dashboard's Admin > Reference data holds them (dash.SensitivityLabel). */
+IF OBJECT_ID(N'bi.DimSensitivityLabel', N'U') IS NULL
+BEGIN
+    CREATE TABLE bi.DimSensitivityLabel
+    (
+        SensitivityLabelKey  INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimSensitivityLabel PRIMARY KEY,
+        LabelId              UNIQUEIDENTIFIER NULL,   -- NULL: the '(none)' row
+        FirstSeenUtc         DATETIME2(0) NOT NULL CONSTRAINT DF_DimSensitivityLabel_FirstSeen DEFAULT (SYSUTCDATETIME())
+    );
+    CREATE UNIQUE INDEX UQ_DimSensitivityLabel ON bi.DimSensitivityLabel (LabelId);
+    INSERT INTO bi.DimSensitivityLabel (LabelId) VALUES (NULL);
+END;
+
+/* AccessedResources[].Type: File, EmailMessage, TeamsMessage, WebSearchQuery, a URL ... */
+IF OBJECT_ID(N'bi.DimResourceType', N'U') IS NULL
+BEGIN
+    CREATE TABLE bi.DimResourceType
+    (
+        ResourceTypeKey  INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimResourceType PRIMARY KEY,
+        ResourceType     NVARCHAR(200) NOT NULL CONSTRAINT UQ_DimResourceType UNIQUE
+    );
+    INSERT INTO bi.DimResourceType (ResourceType) VALUES (N'(not reported)');
+END;
+
+/* AccessedResources[].Action: Read, Create ... */
+IF OBJECT_ID(N'bi.DimResourceAction', N'U') IS NULL
+BEGIN
+    CREATE TABLE bi.DimResourceAction
+    (
+        ResourceActionKey  INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimResourceAction PRIMARY KEY,
+        ResourceAction     NVARCHAR(200) NOT NULL CONSTRAINT UQ_DimResourceAction UNIQUE
+    );
+    INSERT INTO bi.DimResourceAction (ResourceAction) VALUES (N'(not reported)');
+END;
+
+/* The site a resource lives on: https://host/sites/name (or /teams/, /personal/),
+   otherwise the host. Whole URLs are left out on purpose: they are nearly one
+   per row and would cost more than the rest of the model. */
+IF OBJECT_ID(N'bi.DimSite', N'U') IS NULL
+BEGIN
+    CREATE TABLE bi.DimSite
+    (
+        SiteKey       INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimSite PRIMARY KEY,
+        Site          NVARCHAR(400) NOT NULL CONSTRAINT UQ_DimSite UNIQUE,
+        Host          NVARCHAR(400) NOT NULL,
+        IsPersonal    BIT           NOT NULL,   -- a OneDrive (/personal/) site: it names its owner
+        FirstSeenUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DimSite_FirstSeen DEFAULT (SYSUTCDATETIME())
+    );
+    INSERT INTO bi.DimSite (Site, Host, IsPersonal) VALUES (N'(none)', N'(none)', 0);
+END;
+
 /* ---- Facts --------------------------------------------------------------- */
 
 /*
@@ -259,6 +327,44 @@ BEGIN
         HasSensitivityLabel      BIT           NOT NULL
     );
     CREATE CLUSTERED COLUMNSTORE INDEX CCI_FactInteraction ON bi.FactInteraction;
+END;
+
+/* 2.2.0 columns, added in place; rows written before them carry the defaults
+   until the next full rebuild. */
+IF COL_LENGTH(N'bi.FactInteraction', N'LicenseTypeKey') IS NULL
+    ALTER TABLE bi.FactInteraction ADD
+        LicenseTypeKey         INT     NOT NULL CONSTRAINT DF_FactInteraction_LicenseType DEFAULT (1),
+        SensitivityLabelKey    INT     NOT NULL CONSTRAINT DF_FactInteraction_Label DEFAULT (1),   -- the interaction's own label
+        MessageCount           INT     NOT NULL CONSTRAINT DF_FactInteraction_Messages DEFAULT (0),
+        MemoryUpdated          BIT     NOT NULL CONSTRAINT DF_FactInteraction_Memory DEFAULT (0),
+        DlpEvaluationDeferred  BIT     NOT NULL CONSTRAINT DF_FactInteraction_Dlp DEFAULT (0),
+        CalledAnotherAgent     BIT     NOT NULL CONSTRAINT DF_FactInteraction_Target DEFAULT (0);   -- TargetAgentName set
+
+/*
+    One row per resource an interaction read (CopilotEventData.AccessedResources),
+    from audit.RawLogAccessedResource: what kind, which site, which label,
+    whether it was blocked or carried a prompt injection. Clustered
+    columnstore, refreshed with the interactions it belongs to.
+*/
+IF OBJECT_ID(N'bi.FactAccessedResource', N'U') IS NULL
+BEGIN
+    CREATE TABLE bi.FactAccessedResource
+    (
+        RecordId             NVARCHAR(450) NOT NULL,   -- lineage; not imported
+        Ordinal              SMALLINT      NOT NULL,   -- lineage; not imported
+        CreatedUtc           DATETIME2(0)  NOT NULL,   -- lineage and the refresh window; not imported
+        ActivityHour         DATETIME2(0)  NOT NULL,
+        DateKey              INT           NOT NULL,
+        UserKey              INT           NOT NULL,
+        AppKey               INT           NOT NULL,
+        ResourceTypeKey      INT           NOT NULL,
+        ResourceActionKey    INT           NOT NULL,
+        SiteKey              INT           NOT NULL,
+        SensitivityLabelKey  INT           NOT NULL,
+        IsBlocked            BIT           NOT NULL,
+        XPIADetected         BIT           NOT NULL
+    );
+    CREATE CLUSTERED COLUMNSTORE INDEX CCI_FactAccessedResource ON bi.FactAccessedResource;
 END;
 
 /* One row per session in audit.CopilotSession. A session never crosses
@@ -326,11 +432,35 @@ IF COL_LENGTH(N'bi.RefreshRun', N'SessionRunId') IS NULL
 
 /* ---- What the model imports ---------------------------------------------- */
 
+IF COL_LENGTH(N'bi.RefreshRun', N'AccessedResourceRows') IS NULL
+    ALTER TABLE bi.RefreshRun ADD AccessedResourceRows BIGINT NULL;
+
 EXEC (N'CREATE OR ALTER VIEW bi.Interactions AS
 SELECT ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey,
-       PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected,
-       HasBlockedResource, HasSensitivityLabel
+       LicenseTypeKey, SensitivityLabelKey,
+       PromptCount, MessageCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected,
+       HasBlockedResource, HasSensitivityLabel, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent
 FROM bi.FactInteraction;');
+
+EXEC (N'CREATE OR ALTER VIEW bi.AccessedResources AS
+SELECT ActivityHour, DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey,
+       IsBlocked, XPIADetected
+FROM bi.FactAccessedResource;');
+
+EXEC (N'CREATE OR ALTER VIEW bi.LicenseTypes AS
+SELECT LicenseTypeKey, LicenseType FROM bi.DimLicenseType;');
+
+EXEC (N'CREATE OR ALTER VIEW bi.SensitivityLabels AS
+SELECT SensitivityLabelKey, COALESCE(LOWER(CAST(LabelId AS NVARCHAR(36))), N''(none)'') AS LabelId FROM bi.DimSensitivityLabel;');
+
+EXEC (N'CREATE OR ALTER VIEW bi.ResourceTypes AS
+SELECT ResourceTypeKey, ResourceType FROM bi.DimResourceType;');
+
+EXEC (N'CREATE OR ALTER VIEW bi.ResourceActions AS
+SELECT ResourceActionKey, ResourceAction FROM bi.DimResourceAction;');
+
+EXEC (N'CREATE OR ALTER VIEW bi.Sites AS
+SELECT SiteKey, Site, Host, IsPersonal FROM bi.DimSite;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Sessions AS
 SELECT SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenceStatusKey,

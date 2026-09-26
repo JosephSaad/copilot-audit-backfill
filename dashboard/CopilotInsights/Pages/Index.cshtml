@@ -22,7 +22,7 @@
         @foreach (var g in Nav.For(Model.Viewer))
         {
             <div class="card">
-                <h3>@g.Persona</h3>
+                <h3 class="cat">@g.Persona</h3>
                 <p>@g.Who</p>
                 <ul>
                     @foreach (var p in g.Pages)

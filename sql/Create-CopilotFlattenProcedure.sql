@@ -2,7 +2,10 @@
     Copilot audit backfill - audit.usp_FlattenCopilotAudit
     ------------------------------------------------------------------------
     Shreds the CopilotEventData JSON into audit.RawLogFlattened, one row per
-    audit record.
+    audit record, with every informative scalar field of the record in its own
+    column (2.2.0; the seventeen that carry no information are counted in
+    audit.RawLogRecordShape instead), and the AccessedResources and Contexts arrays into
+    audit.RawLogAccessedResource and audit.RawLogContext, one row per element.
 
     Reads audit.vCopilotAuditRecord, which has the Purview export's column
     shape (RecordId, CreationDate, RecordType, Operation, UserId, AuditData,
@@ -19,7 +22,9 @@
                     200,000.
 
     Re-runnable and idempotent: a record already flattened is updated in place,
-    keyed on RecordId.
+    keyed on RecordId, and its element rows replaced. A record whose JSON the
+    purge procedure has cleared is skipped once it has been flattened, so a
+    full re-flatten never blanks what was shredded while the JSON existed.
 
     ---- How it parses, and why it is shaped this way --------------------------
 
@@ -72,6 +77,9 @@ BEGIN
     BEGIN
         RAISERROR('Rebuilding audit.RawLogFlattened from scratch.', 0, 1) WITH NOWAIT;
         TRUNCATE TABLE audit.RawLogFlattened;
+        IF OBJECT_ID(N'audit.RawLogAccessedResource', N'U') IS NOT NULL TRUNCATE TABLE audit.RawLogAccessedResource;
+        IF OBJECT_ID(N'audit.RawLogContext', N'U') IS NOT NULL TRUNCATE TABLE audit.RawLogContext;
+        IF OBJECT_ID(N'audit.RawLogRecordShape', N'U') IS NOT NULL TRUNCATE TABLE audit.RawLogRecordShape;
         SET @SinceUtc = NULL;
     END;
 
@@ -100,6 +108,7 @@ BEGIN
         IF @maxId IS NULL BREAK;   -- nothing left
 
         DROP TABLE IF EXISTS #batch;
+        DROP TABLE IF EXISTS #raw;
         DROP TABLE IF EXISTS #res;
         DROP TABLE IF EXISTS #resagg;
         DROP TABLE IF EXISTS #actagg;
@@ -107,6 +116,25 @@ BEGIN
         DROP TABLE IF EXISTS #ctxagg;
         DROP TABLE IF EXISTS #plugagg;
         DROP TABLE IF EXISTS #msgagg;
+
+        /* ---- 0. Each record's JSON, decompressed once ------------------- */
+        /*
+            The view decompresses AuditData, and SQL Server may evaluate a
+            view's expression once per reference. Materialising the batch here
+            decompresses each record exactly once (in parallel), and lets the
+            purge rule below drop records without touching their JSON again.
+        */
+        DROP TABLE IF EXISTS #raw;
+        SELECT r.RecordId, r.CreationDate, r.UserId, r.AuditData, r.AssociatedAdminUnits, r.AssociatedAdminUnitsNames
+        INTO #raw
+        FROM audit.vCopilotAuditRecord AS r
+        WHERE r.RecordId > @cursor AND r.RecordId <= @maxId
+          AND (@SinceUtc IS NULL OR r.CreationDate >= @SinceUtc);
+
+        /* JSON cleared by the purge: keep what was shredded while it existed. */
+        DELETE w FROM #raw AS w
+        WHERE w.AuditData IS NULL
+          AND EXISTS (SELECT 1 FROM audit.RawLogFlattened AS f WHERE f.RecordId = w.RecordId);
 
         /* ---- 1. The only two passes over the document ------------------- */
 
@@ -130,6 +158,51 @@ BEGIN
                it, not the whole record. */
             LEFT(JSON_VALUE(e.ModelTransparencyDetails, '$[0].ModelName'), 200)                AS ModelName,
             LEFT(JSON_VALUE(e.ModelTransparencyDetails, '$[0].ModelProviderName'), 200)        AS ModelProvider,
+            LEFT(JSON_VALUE(e.ModelTransparencyDetails, '$[0].ModelVersion'), 32)              AS ModelVersion,
+
+            /* every other scalar (2.2.0): typed, NULL where a value does not parse */
+            TRY_CONVERT(SMALLINT, t.RecordType)                                               AS RecordType,
+            LEFT(t.Operation, 64)                                                             AS Operation,
+            TRY_CONVERT(UNIQUEIDENTIFIER, t.OrganizationId)                                   AS OrganizationId,
+            TRY_CONVERT(UNIQUEIDENTIFIER, t.UserKey)                                          AS UserKey,
+            TRY_CONVERT(TINYINT, t.UserType)                                                  AS UserType,
+            TRY_CONVERT(TINYINT, t.[Version])                                                 AS [Version],
+            LEFT(t.Workload, 32)                                                              AS Workload,
+            LEFT(t.ClientIP, 64)                                                              AS ClientIP,
+            LEFT(t.CopilotLogVersion, 32)                                                     AS CopilotLogVersion,
+            LEFT(t.AgentVersion, 32)                                                          AS AgentVersion,
+            LEFT(t.ApplicationName, 200)                                                      AS ApplicationName,
+            LEFT(t.AgentPlatform, 64)                                                         AS AgentPlatform,
+            LEFT(t.PlatformAgentId, 256)                                                      AS PlatformAgentId,
+            TRY_CONVERT(UNIQUEIDENTIFIER, t.AgentBlueprintId)                                 AS AgentBlueprintId,
+            TRY_CONVERT(TINYINT, t.SubjectType)                                               AS SubjectType,
+            LEFT(t.ResultStatus, 64)                                                          AS ResultStatus,
+            LEFT(t.AppAccessContext_APIId, 64)                                                AS AppAccessContext_APIId,
+            TRY_CONVERT(UNIQUEIDENTIFIER, t.AppAccessContext_ClientAppId)                     AS AppAccessContext_ClientAppId,
+            LEFT(r.AssociatedAdminUnits, 4000)                                                AS AssociatedAdminUnits,
+            LEFT(r.AssociatedAdminUnitsNames, 4000)                                           AS AssociatedAdminUnitsNames,
+            LEFT(e.LicenseType, 32)                                                           AS CopilotEventData_LicenseType,
+            LEFT(e.ConversationId, 256)                                                       AS CopilotEventData_ConversationId,
+            TRY_CONVERT(UNIQUEIDENTIFIER, e.CorrelationId)                                    AS CopilotEventData_CorrelationId,
+            TRY_CONVERT(UNIQUEIDENTIFIER, e.SensitivityLabelId)                               AS CopilotEventData_SensitivityLabelId,
+            LEFT(e.TargetAgentName, 200)                                                      AS CopilotEventData_TargetAgentName,
+            LEFT(e.TargetPlatformAgentId, 256)                                                AS CopilotEventData_TargetPlatformAgentId,
+            TRY_CONVERT(TINYINT, e.DLPEvaluationDeferred)                                     AS CopilotEventData_DLPEvaluationDeferred,
+            e.MemoryUpdated                                                                   AS CopilotEventData_MemoryUpdated,
+            LEFT(e.MemoryCorrelationId, 64)                                                   AS CopilotEventData_MemoryCorrelationId,
+            TRY_CONVERT(UNIQUEIDENTIFIER, e.FabricCapacityId)                                 AS CopilotEventData_FabricCapacityId,
+            LEFT(e.PlatformAgentId, 256)                                                      AS CopilotEventData_PlatformAgentId,
+            LEFT(e.PlatformAgentType, 64)                                                     AS CopilotEventData_PlatformAgentType,
+            e.IsSpawnTask                                                                     AS CopilotEventData_IsSpawnTask,
+            TRY_CONVERT(UNIQUEIDENTIFIER, e.TaskId)                                           AS CopilotEventData_TaskId,
+            /* the small arrays as JSON text, NULL when empty */
+            NULLIF(e.AISystemPlugin, N'[]')                                                   AS CopilotEventData_AISystemPlugin,
+            NULLIF(e.ModelTransparencyDetails, N'[]')                                         AS CopilotEventData_ModelTransparencyDetails,
+            NULLIF(e.MessageIds, N'[]')                                                       AS CopilotEventData_MessageIds,
+            NULLIF(e.GuardrailDetails, N'[]')                                                 AS CopilotEventData_GuardrailDetails,
+            NULLIF(e.ParticipatingAgents, N'[]')                                              AS CopilotEventData_ParticipatingAgents,
+            NULLIF(e.TargetTaskIds, N'[]')                                                    AS CopilotEventData_TargetTaskIds,
+            NULLIF(e.SourceThreadIds, N'[]')                                                  AS CopilotEventData_SourceThreadIds,
 
             /* nested arrays, carried forward as fragments */
             e.AccessedResources,
@@ -137,7 +210,7 @@ BEGIN
             e.Contexts,
             e.Messages
         INTO #batch
-        FROM audit.vCopilotAuditRecord AS r
+        FROM #raw AS r
         /* A record whose AuditData is absent or not JSON still yields a row,
            with the JSON-derived columns NULL. */
         OUTER APPLY OPENJSON(CASE WHEN ISJSON(r.AuditData) = 1 THEN r.AuditData ELSE N'{}' END)
@@ -146,6 +219,24 @@ BEGIN
                 JsonUserId       NVARCHAR(4000) '$.UserId',
                 AppIdentity      NVARCHAR(200)  '$.AppIdentity',
                 ClientRegion     NVARCHAR(100)  '$.ClientRegion',
+                RecordType       NVARCHAR(20)   '$.RecordType',
+                Operation        NVARCHAR(100)  '$.Operation',
+                OrganizationId   NVARCHAR(100)  '$.OrganizationId',
+                UserKey          NVARCHAR(100)  '$.UserKey',
+                UserType         NVARCHAR(20)   '$.UserType',
+                [Version]        NVARCHAR(20)   '$.Version',
+                Workload         NVARCHAR(100)  '$.Workload',
+                ClientIP         NVARCHAR(100)  '$.ClientIP',
+                CopilotLogVersion NVARCHAR(100) '$.CopilotLogVersion',
+                AgentVersion     NVARCHAR(100)  '$.AgentVersion',
+                ApplicationName  NVARCHAR(400)  '$.ApplicationName',
+                AgentPlatform    NVARCHAR(100)  '$.AgentPlatform',
+                PlatformAgentId  NVARCHAR(400)  '$.PlatformAgentId',
+                AgentBlueprintId NVARCHAR(100)  '$.AgentBlueprintId',
+                SubjectType      NVARCHAR(20)   '$.SubjectType',
+                ResultStatus     NVARCHAR(100)  '$.ResultStatus',
+                AppAccessContext_APIId       NVARCHAR(100) '$.AppAccessContext.APIId',
+                AppAccessContext_ClientAppId NVARCHAR(100) '$.AppAccessContext.ClientAppId',
                 CopilotEventData NVARCHAR(MAX)  '$.CopilotEventData' AS JSON
             ) AS t
         OUTER APPLY OPENJSON(COALESCE(t.CopilotEventData, N'{}'))
@@ -154,20 +245,74 @@ BEGIN
                 ThreadId                 NVARCHAR(400)  '$.ThreadId',
                 AgentId                  NVARCHAR(400)  '$.AgentId',
                 AgentName                NVARCHAR(400)  '$.AgentName',
+                LicenseType              NVARCHAR(100)  '$.LicenseType',
+                ConversationId           NVARCHAR(400)  '$.ConversationId',
+                CorrelationId            NVARCHAR(100)  '$.CorrelationId',
+                SensitivityLabelId       NVARCHAR(100)  '$.SensitivityLabelId',
+                TargetAgentName          NVARCHAR(400)  '$.TargetAgentName',
+                TargetPlatformAgentId    NVARCHAR(400)  '$.TargetPlatformAgentId',
+                DLPEvaluationDeferred    NVARCHAR(20)   '$.DLPEvaluationDeferred',
+                MemoryUpdated            BIT            '$.MemoryUpdated',
+                MemoryCorrelationId      NVARCHAR(100)  '$.MemoryCorrelationId',
+                FabricCapacityId         NVARCHAR(100)  '$.FabricCapacityId',
+                PlatformAgentId          NVARCHAR(400)  '$.PlatformAgentId',
+                PlatformAgentType        NVARCHAR(100)  '$.PlatformAgentType',
+                IsSpawnTask              BIT            '$.IsSpawnTask',
+                TaskId                   NVARCHAR(100)  '$.TaskId',
                 ModelTransparencyDetails NVARCHAR(MAX)  '$.ModelTransparencyDetails' AS JSON,
                 AccessedResources        NVARCHAR(MAX)  '$.AccessedResources'        AS JSON,
                 AISystemPlugin           NVARCHAR(MAX)  '$.AISystemPlugin'           AS JSON,
                 Contexts                 NVARCHAR(MAX)  '$.Contexts'                 AS JSON,
-                Messages                 NVARCHAR(MAX)  '$.Messages'                 AS JSON
+                Messages                 NVARCHAR(MAX)  '$.Messages'                 AS JSON,
+                MessageIds               NVARCHAR(MAX)  '$.MessageIds'               AS JSON,
+                GuardrailDetails         NVARCHAR(MAX)  '$.GuardrailDetails'         AS JSON,
+                ParticipatingAgents      NVARCHAR(MAX)  '$.ParticipatingAgents'      AS JSON,
+                TargetTaskIds            NVARCHAR(MAX)  '$.TargetTaskIds'            AS JSON,
+                SourceThreadIds          NVARCHAR(MAX)  '$.SourceThreadIds'          AS JSON
             ) AS e
-        WHERE r.RecordId > @cursor AND r.RecordId <= @maxId
-          AND (@SinceUtc IS NULL OR r.CreationDate >= @SinceUtc);
+        OPTION (MAXDOP 0);
 
         CREATE CLUSTERED INDEX CIX_batch ON #batch (RecordId);
+
+        /* The fields that never vary: counted by combination, not stored per row. */
+        MERGE audit.RawLogRecordShape AS t
+        USING (
+            SELECT h.ShapeHash, MAX(b.RecordType) AS RecordType, MAX(b.Operation) AS Operation, MAX(b.Workload) AS Workload,
+                   MAX(b.UserType) AS UserType, MAX(b.[Version]) AS [Version], MAX(b.CopilotLogVersion) AS CopilotLogVersion,
+                   MAX(b.SubjectType) AS SubjectType, MAX(b.AgentVersion) AS AgentVersion, MAX(b.AgentPlatform) AS AgentPlatform,
+                   MAX(b.AgentBlueprintId) AS AgentBlueprintId, MAX(b.AppAccessContext_ClientAppId) AS ClientAppId,
+                   MAX(b.CopilotEventData_PlatformAgentType) AS PlatformAgentType,
+                   CAST(MAX(CAST(b.CopilotEventData_IsSpawnTask AS TINYINT)) AS BIT) AS IsSpawnTask,
+                   CAST(MAX(CAST(f.HasAdminUnits AS TINYINT)) AS BIT) AS HasAdminUnits, CAST(MAX(CAST(f.HasMessageIds AS TINYINT)) AS BIT) AS HasMessageIds,
+                   CAST(MAX(CAST(f.HasGuardrailDetails AS TINYINT)) AS BIT) AS HasGuardrailDetails, CAST(MAX(CAST(f.HasTargetTaskIds AS TINYINT)) AS BIT) AS HasTargetTaskIds, COUNT_BIG(*) AS Records
+            FROM #batch AS b
+            CROSS APPLY (SELECT CAST(CASE WHEN NULLIF(b.AssociatedAdminUnits, N'') IS NOT NULL OR NULLIF(b.AssociatedAdminUnitsNames, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasAdminUnits,
+                                CAST(CASE WHEN b.CopilotEventData_MessageIds IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasMessageIds,
+                                CAST(CASE WHEN b.CopilotEventData_GuardrailDetails IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasGuardrailDetails,
+                                CAST(CASE WHEN b.CopilotEventData_TargetTaskIds IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasTargetTaskIds) AS f
+            CROSS APPLY (SELECT CAST(HASHBYTES('SHA2_256', CONCAT_WS(N'|', ISNULL(CAST(b.RecordType AS NVARCHAR(10)), N'~'),
+                    ISNULL(b.Operation, N'~'), ISNULL(b.Workload, N'~'), ISNULL(CAST(b.UserType AS NVARCHAR(5)), N'~'),
+                    ISNULL(CAST(b.[Version] AS NVARCHAR(5)), N'~'), ISNULL(b.CopilotLogVersion, N'~'),
+                    ISNULL(CAST(b.SubjectType AS NVARCHAR(5)), N'~'), ISNULL(b.AgentVersion, N'~'), ISNULL(b.AgentPlatform, N'~'),
+                    ISNULL(CAST(b.AgentBlueprintId AS NVARCHAR(36)), N'~'), ISNULL(CAST(b.AppAccessContext_ClientAppId AS NVARCHAR(36)), N'~'),
+                    ISNULL(b.CopilotEventData_PlatformAgentType, N'~'), ISNULL(CAST(b.CopilotEventData_IsSpawnTask AS NVARCHAR(1)), N'~'),
+                    f.HasAdminUnits, f.HasMessageIds, f.HasGuardrailDetails, f.HasTargetTaskIds)) AS BINARY(32)) AS ShapeHash) AS h
+            GROUP BY h.ShapeHash
+        ) AS s
+        ON t.ShapeHash = s.ShapeHash
+        WHEN MATCHED THEN UPDATE SET t.Records += s.Records, t.LastSeenUtc = SYSUTCDATETIME()
+        WHEN NOT MATCHED THEN INSERT
+            (ShapeHash, RecordType, Operation, Workload, UserType, [Version], CopilotLogVersion, SubjectType, AgentVersion,
+             AgentPlatform, AgentBlueprintId, AppAccessContext_ClientAppId, CopilotEventData_PlatformAgentType, CopilotEventData_IsSpawnTask,
+             HasAdminUnits, HasMessageIds, HasGuardrailDetails, HasTargetTaskIds, Records)
+        VALUES (s.ShapeHash, s.RecordType, s.Operation, s.Workload, s.UserType, s.[Version], s.CopilotLogVersion, s.SubjectType,
+                s.AgentVersion, s.AgentPlatform, s.AgentBlueprintId, s.ClientAppId, s.PlatformAgentType, s.IsSpawnTask,
+                s.HasAdminUnits, s.HasMessageIds, s.HasGuardrailDetails, s.HasTargetTaskIds, s.Records);
 
         /* ---- 2. AccessedResources, exploded once ------------------------ */
 
         SELECT b.RecordId,
+               CAST(j.[key] AS SMALLINT)                                          AS Ordinal,
                /*
                    A precomputed plain column, because SQL Server only
                    reconciles several ordered aggregates in one scope when the
@@ -185,10 +330,17 @@ BEGIN
                a.SensitivityLabelId,
                a.XPIADetected,
                a.[Status],
-               a.PolicyDetails
+               a.[Type],
+               a.Id,
+               a.ListItemUniqueId,
+               /* Real records carry PolicyDetails as JSON text inside the JSON; older
+                  shapes as an array. Either way it is kept as text. */
+               COALESCE(NULLIF(a.PolicyDetailsText, N''), a.PolicyDetailsJson)   AS PolicyDetails,
+               CAST(NULL AS NVARCHAR(400))                                        AS PolicyOutcomes
         INTO #res
         FROM #batch AS b
-        CROSS APPLY OPENJSON(COALESCE(b.AccessedResources, N'[]'))
+        CROSS APPLY OPENJSON(COALESCE(b.AccessedResources, N'[]')) AS j
+        CROSS APPLY OPENJSON(j.[value])
             WITH (
                 Name               NVARCHAR(MAX)  '$.Name',
                 SiteUrl            NVARCHAR(MAX)  '$.SiteUrl',
@@ -196,10 +348,29 @@ BEGIN
                 SensitivityLabelId NVARCHAR(4000) '$.SensitivityLabelId',
                 XPIADetected       BIT            '$.XPIADetected',
                 [Status]           NVARCHAR(100)  '$.Status',
-                PolicyDetails      NVARCHAR(MAX)  '$.PolicyDetails' AS JSON
-            ) AS a;
+                [Type]             NVARCHAR(400)  '$.Type',
+                Id                 NVARCHAR(2000) '$.Id',
+                ListItemUniqueId   NVARCHAR(100)  '$.listItemUniqueId',
+                PolicyDetailsText  NVARCHAR(MAX)  '$.PolicyDetails',
+                PolicyDetailsJson  NVARCHAR(MAX)  '$.PolicyDetails' AS JSON
+            ) AS a
+        WHERE j.[type] = 5;   -- objects only
 
-        CREATE CLUSTERED INDEX CIX_res ON #res (RecordId);
+        CREATE CLUSTERED INDEX CIX_res ON #res (RecordId, Ordinal);
+
+        /* Policy outcomes other than None. Nearly every element says None, so
+           only the rare ones that say something else are parsed. */
+        UPDATE r SET PolicyOutcomes = o.Outcomes
+        FROM #res AS r
+        CROSS APPLY (
+            SELECT LEFT(STRING_AGG(CAST(v.[value] AS NVARCHAR(MAX)), N'; '), 400) AS Outcomes
+            FROM OPENJSON(r.PolicyDetails) WITH (PolicyOutcomes NVARCHAR(MAX) '$.PolicyOutcomes' AS JSON) AS pd
+            CROSS APPLY OPENJSON(pd.PolicyOutcomes) AS v
+            WHERE v.[value] NOT IN (N'None', N'')
+        ) AS o
+        WHERE r.PolicyDetails LIKE N'%PolicyOutcomes%'
+          AND REPLACE(r.PolicyDetails, N'"PolicyOutcomes":["None"]', N'') LIKE N'%PolicyOutcomes%'
+          AND ISJSON(r.PolicyDetails) = 1;
 
         /* ---- 3. Aggregate, all of it relational -------------------------
 
@@ -224,7 +395,7 @@ BEGIN
                STRING_AGG(CASE WHEN SiteUrl IS NOT NULL THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
                    WITHIN GROUP (ORDER BY SortKey)                       AS ResourceUrls,
                STRING_AGG(CASE WHEN SiteUrl IS NOT NULL
-                                AND (PolicyDetails IS NOT NULL
+                                AND (PolicyOutcomes IS NOT NULL
                                      OR ([Status] IS NOT NULL AND [Status] <> N'Success'))
                                THEN CAST(SiteUrl AS NVARCHAR(MAX)) END, N'; ')
                    WITHIN GROUP (ORDER BY SortKey)                       AS BlockedUrls,
@@ -276,7 +447,8 @@ BEGIN
         SELECT b.RecordId,
                CASE WHEN MAX(CASE WHEN x.JailbreakDetected = 1 THEN 1 ELSE 0 END) = 1
                     THEN N'true' ELSE N'false' END                               AS JailbreakDetected,
-               COUNT(CASE WHEN x.isPrompt = 1 THEN 1 END)                        AS PromptCount
+               COUNT(CASE WHEN x.isPrompt = 1 THEN 1 END)                        AS PromptCount,
+               COUNT(x.isPrompt)                                                 AS MessageCount
         INTO #msgagg
         FROM #batch AS b
         CROSS APPLY OPENJSON(COALESCE(b.Messages, N'[]'))
@@ -300,6 +472,31 @@ BEGIN
                 b.AgentName,
                 b.ModelName,
                 b.ModelProvider,
+                b.ModelVersion,
+                b.OrganizationId,
+                b.UserKey,
+                b.ClientIP,
+                b.ApplicationName,
+                b.PlatformAgentId,
+                b.AppAccessContext_APIId,
+                b.ResultStatus,
+                b.CopilotEventData_LicenseType,
+                b.CopilotEventData_ConversationId,
+                b.CopilotEventData_CorrelationId,
+                b.CopilotEventData_SensitivityLabelId,
+                b.CopilotEventData_TargetAgentName,
+                b.CopilotEventData_TargetPlatformAgentId,
+                b.CopilotEventData_DLPEvaluationDeferred,
+                b.CopilotEventData_MemoryUpdated,
+                b.CopilotEventData_MemoryCorrelationId,
+                b.CopilotEventData_FabricCapacityId,
+                b.CopilotEventData_PlatformAgentId,
+                b.CopilotEventData_TaskId,
+                b.CopilotEventData_AISystemPlugin,
+                b.CopilotEventData_ModelTransparencyDetails,
+                b.CopilotEventData_ParticipatingAgents,
+                b.CopilotEventData_SourceThreadIds,
+                ISNULL(mg.MessageCount, 0) AS MessageCount,
                 cx.Contexts                                                      AS [App context],
                 ra.ResourceNames                                                 AS [Accessed Resources],
                 ra.ResourceUrls                                                  AS [Accessed Resource Locations],
@@ -350,6 +547,31 @@ BEGIN
             t.ModelProvider                 = s.ModelProvider,
             t.AccessedResourceCount         = s.AccessedResourceCount,
             t.PromptCount                   = s.PromptCount,
+            t.ModelVersion = s.ModelVersion,
+            t.OrganizationId = s.OrganizationId,
+            t.UserKey = s.UserKey,
+            t.ClientIP = s.ClientIP,
+            t.ApplicationName = s.ApplicationName,
+            t.PlatformAgentId = s.PlatformAgentId,
+            t.AppAccessContext_APIId = s.AppAccessContext_APIId,
+            t.ResultStatus = s.ResultStatus,
+            t.CopilotEventData_LicenseType = s.CopilotEventData_LicenseType,
+            t.CopilotEventData_ConversationId = s.CopilotEventData_ConversationId,
+            t.CopilotEventData_CorrelationId = s.CopilotEventData_CorrelationId,
+            t.CopilotEventData_SensitivityLabelId = s.CopilotEventData_SensitivityLabelId,
+            t.CopilotEventData_TargetAgentName = s.CopilotEventData_TargetAgentName,
+            t.CopilotEventData_TargetPlatformAgentId = s.CopilotEventData_TargetPlatformAgentId,
+            t.CopilotEventData_DLPEvaluationDeferred = s.CopilotEventData_DLPEvaluationDeferred,
+            t.CopilotEventData_MemoryUpdated = s.CopilotEventData_MemoryUpdated,
+            t.CopilotEventData_MemoryCorrelationId = s.CopilotEventData_MemoryCorrelationId,
+            t.CopilotEventData_FabricCapacityId = s.CopilotEventData_FabricCapacityId,
+            t.CopilotEventData_PlatformAgentId = s.CopilotEventData_PlatformAgentId,
+            t.CopilotEventData_TaskId = s.CopilotEventData_TaskId,
+            t.CopilotEventData_AISystemPlugin = s.CopilotEventData_AISystemPlugin,
+            t.CopilotEventData_ModelTransparencyDetails = s.CopilotEventData_ModelTransparencyDetails,
+            t.CopilotEventData_ParticipatingAgents = s.CopilotEventData_ParticipatingAgents,
+            t.CopilotEventData_SourceThreadIds = s.CopilotEventData_SourceThreadIds,
+            t.MessageCount = s.MessageCount,
             t.FlattenedUtc                  = SYSUTCDATETIME()
         WHEN NOT MATCHED BY TARGET THEN INSERT
         (
@@ -357,7 +579,8 @@ BEGIN
             [Accessed Resources], [Accessed Resource Locations], [Action], AIPlugin,
             JailbreakDetected, PromptInjectionDetected, BlockedResourceUrls, SensitivityLabelIds,
             IsCopilotLic, AppIdentity, ThreadId, AgentId, AgentName, ModelName, ModelProvider,
-            AccessedResourceCount, PromptCount
+            AccessedResourceCount, PromptCount,
+            ModelVersion, OrganizationId, UserKey, ClientIP, ApplicationName, PlatformAgentId, AppAccessContext_APIId, ResultStatus, CopilotEventData_LicenseType, CopilotEventData_ConversationId, CopilotEventData_CorrelationId, CopilotEventData_SensitivityLabelId, CopilotEventData_TargetAgentName, CopilotEventData_TargetPlatformAgentId, CopilotEventData_DLPEvaluationDeferred, CopilotEventData_MemoryUpdated, CopilotEventData_MemoryCorrelationId, CopilotEventData_FabricCapacityId, CopilotEventData_PlatformAgentId, CopilotEventData_TaskId, CopilotEventData_AISystemPlugin, CopilotEventData_ModelTransparencyDetails, CopilotEventData_ParticipatingAgents, CopilotEventData_SourceThreadIds, MessageCount
         )
         VALUES
         (
@@ -365,14 +588,46 @@ BEGIN
             s.[Accessed Resources], s.[Accessed Resource Locations], s.[Action], s.AIPlugin,
             s.JailbreakDetected, s.PromptInjectionDetected, s.BlockedResourceUrls, s.SensitivityLabelIds,
             s.IsCopilotLic, s.AppIdentity, s.ThreadId, s.AgentId, s.AgentName, s.ModelName, s.ModelProvider,
-            s.AccessedResourceCount, s.PromptCount
+            s.AccessedResourceCount, s.PromptCount,
+            s.ModelVersion, s.OrganizationId, s.UserKey, s.ClientIP, s.ApplicationName, s.PlatformAgentId, s.AppAccessContext_APIId, s.ResultStatus, s.CopilotEventData_LicenseType, s.CopilotEventData_ConversationId, s.CopilotEventData_CorrelationId, s.CopilotEventData_SensitivityLabelId, s.CopilotEventData_TargetAgentName, s.CopilotEventData_TargetPlatformAgentId, s.CopilotEventData_DLPEvaluationDeferred, s.CopilotEventData_MemoryUpdated, s.CopilotEventData_MemoryCorrelationId, s.CopilotEventData_FabricCapacityId, s.CopilotEventData_PlatformAgentId, s.CopilotEventData_TaskId, s.CopilotEventData_AISystemPlugin, s.CopilotEventData_ModelTransparencyDetails, s.CopilotEventData_ParticipatingAgents, s.CopilotEventData_SourceThreadIds, s.MessageCount
         );
 
         SET @rows = @@ROWCOUNT;
+
+        /* ---- 5. The element tables: this batch's rows replaced ---------- */
+
+        DELETE ar FROM audit.RawLogAccessedResource AS ar JOIN #batch AS b ON b.RecordId = ar.RecordId;
+        INSERT INTO audit.RawLogAccessedResource
+            (RecordId, Ordinal, [Action], [Type], Id, Name, SiteUrl, Site, ListItemUniqueId, SensitivityLabelId,
+             XPIADetected, [Status], PolicyDetails, PolicyOutcomes, IsBlocked)
+        SELECT r.RecordId, r.Ordinal, LEFT(r.[Action], 450), LEFT(r.[Type], 200), LEFT(r.Id, 1000), LEFT(r.Name, 4000),
+               NULLIF(r.SiteUrl, N''), LEFT(NULLIF(st.Site, N''), 400),
+               TRY_CONVERT(UNIQUEIDENTIFIER, r.ListItemUniqueId), TRY_CONVERT(UNIQUEIDENTIFIER, r.SensitivityLabelId),
+               r.XPIADetected, LEFT(r.[Status], 64), NULLIF(r.PolicyDetails, N''), r.PolicyOutcomes,
+               CASE WHEN r.PolicyOutcomes IS NOT NULL OR (r.[Status] IS NOT NULL AND r.[Status] <> N'Success') THEN 1 ELSE 0 END
+        FROM #res AS r
+        /* The site: https://host/sites/name (or /personal/, /teams/), otherwise https://host. */
+        CROSS APPLY (SELECT CHARINDEX(N'/', r.SiteUrl + N'/', 9) AS p) AS p1
+        CROSS APPLY (SELECT CASE WHEN p1.p = 0 THEN 0 ELSE CHARINDEX(N'/', r.SiteUrl + N'/', p1.p + 1) END AS p) AS p2
+        CROSS APPLY (SELECT CASE WHEN p2.p = 0 THEN 0 ELSE CHARINDEX(N'/', r.SiteUrl + N'/', p2.p + 1) END AS p) AS p3
+        CROSS APPLY (SELECT CASE WHEN r.SiteUrl IS NULL THEN NULL
+                                 WHEN SUBSTRING(r.SiteUrl, p1.p, 10) LIKE N'/sites/%' OR SUBSTRING(r.SiteUrl, p1.p, 10) LIKE N'/teams/%' OR SUBSTRING(r.SiteUrl, p1.p, 10) = N'/personal/'
+                                      THEN CASE WHEN p3.p = 0 THEN r.SiteUrl ELSE LEFT(r.SiteUrl, p3.p - 1) END
+                                 ELSE CASE WHEN p1.p = 0 THEN r.SiteUrl ELSE LEFT(r.SiteUrl, p1.p - 1) END END AS Site) AS st;
+
+        DELETE rc FROM audit.RawLogContext AS rc JOIN #batch AS b ON b.RecordId = rc.RecordId;
+        INSERT INTO audit.RawLogContext (RecordId, Ordinal, Id, [Type], ContainerId)
+        SELECT b.RecordId, CAST(j.[key] AS SMALLINT), LEFT(c.Id, 4000), LEFT(c.[Type], 64), LEFT(c.ContainerId, 64)
+        FROM #batch AS b
+        CROSS APPLY OPENJSON(COALESCE(b.Contexts, N'[]')) AS j
+        CROSS APPLY OPENJSON(j.[value]) WITH (Id NVARCHAR(MAX) '$.Id', [Type] NVARCHAR(200) '$.Type', ContainerId NVARCHAR(200) '$.ContainerId') AS c
+        WHERE j.[type] = 5;
+
         SET @done += @rows;
         SET @cursor = @maxId;
 
         DROP TABLE IF EXISTS #batch;
+        DROP TABLE IF EXISTS #raw;
         DROP TABLE IF EXISTS #res;
         DROP TABLE IF EXISTS #resagg;
         DROP TABLE IF EXISTS #actagg;
@@ -389,6 +644,29 @@ BEGIN
 
     IF @hasLicence = 0
         RAISERROR('audit.CopilotLicense does not exist - IsCopilotLic left NULL.', 0, 1) WITH NOWAIT;
+
+    /* Present or absent is expected (several appear only with an agent); a second value is news. */
+    DECLARE @varying NVARCHAR(400);
+    SELECT @varying = CONCAT_WS(N', ',
+        CASE WHEN COUNT(DISTINCT RecordType) > 1 THEN N'RecordType' END, CASE WHEN COUNT(DISTINCT Operation) > 1 THEN N'Operation' END,
+        CASE WHEN COUNT(DISTINCT Workload) > 1 THEN N'Workload' END, CASE WHEN COUNT(DISTINCT UserType) > 1 THEN N'UserType' END,
+        CASE WHEN COUNT(DISTINCT [Version]) > 1 THEN N'Version' END, CASE WHEN COUNT(DISTINCT CopilotLogVersion) > 1 THEN N'CopilotLogVersion' END,
+        CASE WHEN COUNT(DISTINCT SubjectType) > 1 THEN N'SubjectType' END, CASE WHEN COUNT(DISTINCT AgentVersion) > 1 THEN N'AgentVersion' END,
+        CASE WHEN COUNT(DISTINCT AgentPlatform) > 1 THEN N'AgentPlatform' END, CASE WHEN COUNT(DISTINCT AgentBlueprintId) > 1 THEN N'AgentBlueprintId' END,
+        CASE WHEN COUNT(DISTINCT AppAccessContext_ClientAppId) > 1 THEN N'AppAccessContext.ClientAppId' END,
+        CASE WHEN COUNT(DISTINCT CopilotEventData_PlatformAgentType) > 1 THEN N'CopilotEventData.PlatformAgentType' END,
+        CASE WHEN COUNT(DISTINCT CAST(CopilotEventData_IsSpawnTask AS TINYINT)) > 1 THEN N'CopilotEventData.IsSpawnTask' END,
+        CASE WHEN MAX(CAST(HasAdminUnits AS TINYINT)) = 1 THEN N'AssociatedAdminUnits' END,
+        CASE WHEN MAX(CAST(HasMessageIds AS TINYINT)) = 1 THEN N'CopilotEventData.MessageIds' END,
+        CASE WHEN MAX(CAST(HasGuardrailDetails AS TINYINT)) = 1 THEN N'CopilotEventData.GuardrailDetails' END,
+        CASE WHEN MAX(CAST(HasTargetTaskIds AS TINYINT)) = 1 THEN N'CopilotEventData.TargetTaskIds' END)
+    FROM audit.RawLogRecordShape;
+    IF @varying <> N''
+    BEGIN
+        SET @msg = CONCAT(N'Note: ', @varying, N' now carry information - a second value, or something where there was ',
+                          N'always nothing (audit.RawLogRecordShape). They are not stored per row; if it matters, it needs a column.');
+        RAISERROR(@msg, 0, 1) WITH NOWAIT;
+    END;
 
     SET @msg = CONCAT(N'Flatten complete: ', FORMAT(@done, 'N0'), N' record(s) in audit.RawLogFlattened.');
     RAISERROR(@msg, 0, 1) WITH NOWAIT;

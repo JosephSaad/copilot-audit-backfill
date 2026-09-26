@@ -33,6 +33,13 @@ GROUP BY {Ctx.BucketSql("d")}, a.AgentSource;", Ctx.Args());
         Kpis.Add(new("In Copilot Chat", Pct(Ratio(tr.Sum(w => w.Chat), all)), "the rest is Copilot inside the apps"));
         Kpis.Add(new("Through an agent", Pct(Ratio(tr.Sum(w => w.Agent), all))));
         Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count())));
+        var flags = (await Db.QueryAsync<(long N, long Memory, long AgentCalls, long Dlp)>($@"
+SELECT COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.CalledAnotherAgent AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT))
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
+        Kpis.Add(new("Updated Copilot memory", Pct(Ratio(flags.Memory, flags.N)), "of interactions saved something to memory"));
+        Kpis.Add(new("Called another agent", Pct(Ratio(flags.AgentCalls, flags.N)), "handed work to a second agent"));
+        Kpis.Add(new("DLP check deferred", Num(flags.Dlp), "interactions whose data-loss check ran later"));
 
         var top = models.GroupBy(x => x.Model).OrderByDescending(g => g.Sum(x => x.N)).Select(g => g.Key).Take(6).ToList();
         var series = top.Select((mdl, i) => new Series(mdl, buckets.Select(b =>

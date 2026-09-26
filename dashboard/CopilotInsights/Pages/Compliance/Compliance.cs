@@ -66,6 +66,16 @@ GROUP BY rd.Kind, rd.Item;", Ctx.Args());
             "Sites of the labelled content Copilot read." + (named ? "" : " Personal OneDrive sites are grouped; the Compliance role shows them."), "half"));
         Panels.Add(new("Sites Copilot was blocked from", SiteBars("Blocked", 7),
             "Content whose policy or permissions stopped Copilot. Usually a sign the controls are working; a spike is worth a look.", "half"));
+
+        var types = await Db.QueryAsync<(string Type, long N, long Labelled, long Blocked)>($@"
+SELECT t.ResourceType, COUNT_BIG(*), SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END), SUM(CAST(f.IsBlocked AS INT))
+FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
+JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = f.ResourceTypeKey
+WHERE f.DateKey BETWEEN @k0 AND @k1
+GROUP BY t.ResourceType;", Ctx.Args());
+        Panels.Add(new("What Copilot read, by type",
+            Chart.Bars(types.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Type, t.N, Note: $"{t.Labelled:#,0} labelled, {t.Blocked:#,0} blocked")).ToList(), Fmt.Count, "Accessed resources by type"),
+            "Every resource an interaction read: files, mail, Teams messages, web results. Hover for how many were labelled or blocked."));
     }
 }
 

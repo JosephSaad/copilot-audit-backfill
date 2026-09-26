@@ -8,7 +8,7 @@
          organisation. Small: one row per person, and one per (manager,
          person under them) pair.
       2. dash.UserDay from the bi facts, and dash.ResourceDay (labels and
-         sites) from them and the flattened records, for the days from
+         sites) from bi.FactAccessedResource, for the days from
          @SinceUtc's day on (every day when NULL), replaced in one transaction.
       3. dash.AgentUse, whole: when each agent was first and last used.
 
@@ -157,45 +157,31 @@ BEGIN
     FULL JOIN s ON s.DateKey = i.DateKey AND s.UserKey = i.UserKey
     OPTION (RECOMPILE);
 
-    /* Labels and sites, from the flattened records behind the interactions that touched them. */
+    /* Labels and sites, from bi.FactAccessedResource: the label on each resource
+       read, the site of labelled content, and the site of content Copilot was
+       blocked from. Sites are already cut to https://host/sites/name there. */
     DROP TABLE IF EXISTS #res;
-    WITH f AS
+    WITH r AS
     (
-        SELECT f.DateKey, f.UserKey, f.HasSensitivityLabel, f.HasBlockedResource,
-               r.SensitivityLabelIds, r.[Accessed Resource Locations] AS Locations, r.BlockedResourceUrls
-        FROM bi.FactInteraction AS f
-        JOIN audit.RawLogFlattened AS r ON r.RecordId = f.RecordId
-        WHERE (f.HasSensitivityLabel = 1 OR f.HasBlockedResource = 1)
-          AND (@fromKey IS NULL OR f.DateKey >= @fromKey)
+        SELECT f.DateKey, f.UserKey, f.IsBlocked, l.LabelId, s.Site
+        FROM bi.FactAccessedResource AS f
+        JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = f.SensitivityLabelKey
+        JOIN bi.DimSite AS s ON s.SiteKey = f.SiteKey
+        WHERE (@fromKey IS NULL OR f.DateKey >= @fromKey)
+          AND (l.LabelId IS NOT NULL OR f.IsBlocked = 1)
     ),
     items AS
     (
-        SELECT f.DateKey, f.UserKey, 'Label' AS Kind, LTRIM(RTRIM(x.value)) AS Item
-        FROM f CROSS APPLY STRING_SPLIT(f.SensitivityLabelIds, ';') AS x
-        WHERE f.HasSensitivityLabel = 1
+        SELECT DateKey, UserKey, 'Label' AS Kind, LOWER(CAST(LabelId AS NVARCHAR(36))) AS Item FROM r WHERE LabelId IS NOT NULL
         UNION ALL
-        SELECT f.DateKey, f.UserKey, 'Site', LTRIM(RTRIM(x.value))
-        FROM f CROSS APPLY STRING_SPLIT(f.Locations, ';') AS x
-        WHERE f.HasSensitivityLabel = 1
+        SELECT DateKey, UserKey, 'Site', Site FROM r WHERE LabelId IS NOT NULL AND Site <> N'(none)'
         UNION ALL
-        SELECT f.DateKey, f.UserKey, 'Blocked', LTRIM(RTRIM(x.value))
-        FROM f CROSS APPLY STRING_SPLIT(f.BlockedResourceUrls, ';') AS x
-        WHERE f.HasBlockedResource = 1
-    ),
-    cut AS
-    (
-        SELECT i.DateKey, i.UserKey, i.Kind,
-               LEFT(CASE WHEN i.Kind = 'Label' OR p3.p = 0 THEN i.Item ELSE LEFT(i.Item, p3.p - 1) END, 400) AS Item
-        FROM items AS i
-        CROSS APPLY (SELECT CHARINDEX(N'/', i.Item + N'/', 9) AS p) AS p1
-        CROSS APPLY (SELECT CASE WHEN p1.p = 0 THEN 0 ELSE CHARINDEX(N'/', i.Item + N'/', p1.p + 1) END AS p) AS p2
-        CROSS APPLY (SELECT CASE WHEN p2.p = 0 THEN 0 ELSE CHARINDEX(N'/', i.Item + N'/', p2.p + 1) END AS p) AS p3
-        WHERE i.Item <> N''
+        SELECT DateKey, UserKey, 'Blocked', Site FROM r WHERE IsBlocked = 1 AND Site <> N'(none)'
     )
-    SELECT DateKey, UserKey, Kind, Item, COUNT(*) AS Interactions
+    SELECT DateKey, UserKey, Kind, CAST(LEFT(Item, 400) AS NVARCHAR(400)) AS Item, COUNT(*) AS Interactions
     INTO #res
-    FROM cut
-    GROUP BY DateKey, UserKey, Kind, Item
+    FROM items
+    GROUP BY DateKey, UserKey, Kind, LEFT(Item, 400)
     OPTION (RECOMPILE);
 
     BEGIN TRANSACTION;
