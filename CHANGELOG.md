@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+
+- `docs/DEPLOYMENT.md`: the lab's upgrade from 2.0.0 to 2.1.0 (scripts,
+  row counts, and the shared shredding function reproducing every existing
+  interaction row), the CSV import test, a "new release" row under Running
+  it, and the CSV importer on a real portal export under Not yet proven.
+
 ## [2.1.0] - 2026-09-25
 
 History can now come from Purview's own audit log exports: point the
