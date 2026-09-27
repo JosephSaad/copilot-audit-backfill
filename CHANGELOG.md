@@ -99,7 +99,7 @@ parameter used it:
   - `bi.OrgSecurity` gives those members the whole organization, as the
     dashboard already did at sign-in. Before, only people granted Organization
     by name, and the top two levels, saw everyone in Power BI.
-- **Admin › Operations can run the scheduled checks for one tenant or all of them.**
+- **Admin › Alerts and digests can run the scheduled checks for one tenant or all of them.**
 - **The dashboard guide states what the product writes.**
   - `docs/DASHBOARD.md` has a section on what the product reads from
     Microsoft 365 (read-only) and a table of everything it writes.
@@ -116,7 +116,7 @@ parameter used it:
   change only the days loaded afterwards. Now the next bi refresh corrects
   Premium use on every earlier interaction of that app, and the next dashboard
   refresh rolls up again from that app's first day, Copilot Chat counts included.
-- **Admin › Operations › Run all tenants** no longer leaves the request on the
+- **Admin › Alerts and digests, running the checks for every tenant,** no longer leaves the request on the
   last tenant it ran.
 - **PSScriptAnalyzer:**
   - Functions that call ShouldProcess now declare it, so `-WhatIf` reaches them

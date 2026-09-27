@@ -121,7 +121,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 **Who hears about what.** Admin › Alerts and digests › *Who hears about what*: pipeline failures and stale data, security signals, licenses, drops and spikes in use, and new agents, each to its own addresses (a distribution list keeps it short). Alerts also go to the Windows Application log under the source *Copilot Insights*.
 
-**When to alert.** Admin › Alerts and digests › *When to alert*: how old the data may get, the daily thresholds for jailbreaks, prompt injections, blocked resources and sensitive labels, the spike factor, what counts as a drop or a spike in use, and when the license pool is running out. **Run the checks now** runs a round at once; *Where the checks stand* shows what each last saw.
+**When to alert.** Admin › Alerts and digests › *When to alert*: how old the data may get, the daily thresholds for jailbreaks, prompt injections, blocked resources and sensitive labels, the spike factor, what counts as a drop or a spike in use, and when the license pool is running out. **Run the checks now** runs a round at once in the tenant chosen in the switcher, and with several tenants **Run the checks for every tenant** runs one in each; *Where the checks stand* shows what each last saw.
 
 **Digests.** Admin › Alerts and digests › *Digests*: add one (report, recipients, daily, weekly or monthly, the hour, the period, and optionally one manager's organization); **Preview** it, **Send now**, **Pause** or **Remove** it. Digests carry aggregates only.
 
@@ -205,7 +205,7 @@ A group with several Microsoft 365 tenants loads each into its own pair of datab
 2. Load its history once: `.\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam`. From then on the nightly task loads every tenant in turn; `-Tenant` runs one.
 3. On the web server, run the dashboard installer again with every tenant: `-Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess`. The dashboard shows a tenant switcher and **Leadership › Group overview**.
 
-Each tenant's database decides who sees what in it: a person sees a tenant only where its directory has them or they are granted a role there. The Admin pages act on the tenant chosen in the switcher.
+Each tenant's database decides who sees what in it: a person sees a tenant only where its directory has them or they are granted a role there. The Admin pages act on the tenant chosen in the switcher; Admin › Alerts and digests can also run the checks in every tenant at once, as the background checks do.
 
 ## Upgrades and renewals
 
