@@ -238,8 +238,13 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Select("PersonalDigest", "People may ask for a weekly email of their own use", ["On", "Off"], V("PersonalDigest") is "Off" ? "Off" : "On") + Button("Save"))),
             "The manager digest is the Leadership digest for the manager's own organisation (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD; each manager can opt out in My Copilot > Email. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
 
-        Panels.Add(new("Run the checks now", new HtmlString(Form("run", Button("Run the checks now"))),
-            "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
+        var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();
+        Panels.Add(new("Run the checks now", new HtmlString(
+            Form("run", Button(tenants.Many ? $"Run the checks for {tenants.Current.Name}" : "Run the checks now")) +
+            (tenants.Many ? Form("runall", Button($"Run the checks for every tenant ({tenants.All.Count})", quiet: true)) : "")),
+            tenants.Many
+                ? "Runs one round of the alert checks and any digests that are due, for this tenant or for every tenant (the background checks cover every tenant every five minutes)."
+                : "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
         var state = await Db.QueryAsync<(string AlertKey, string? LastValue, DateTime LastFiredUtc)>("SELECT AlertKey, LastValue, LastFiredUtc FROM dash.AlertState ORDER BY AlertKey;");
         var st = new Table { Headers = ["Check", "Last seen", "When (UTC)"], EmptyText = "The checks have not run yet." };
         foreach (var x in state) st.Rows.Add([x.AlertKey, x.LastValue, x.LastFiredUtc]);
@@ -357,6 +362,13 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
     {
         var done = await notifier.RunOnceAsync(HttpContext.RequestAborted);
         return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
+    });
+
+    /// <summary>Every tenant, as the background checks do. Each tenant's lines start with its name.</summary>
+    public Task<IActionResult> OnPostRunallAsync() => AdminChangeAsync(async () =>
+    {
+        var done = await notifier.RunAllAsync(HttpContext.RequestAborted);
+        return done.Count == 0 ? "The checks ran in every tenant: nothing to report." : "The checks ran in every tenant. " + string.Join(" · ", done);
     });
 
     /// <summary>What a digest would look like now, as it would arrive.</summary>

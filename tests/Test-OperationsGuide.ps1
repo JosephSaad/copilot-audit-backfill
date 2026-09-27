@@ -52,6 +52,23 @@ foreach ($n in $named) {
     Assert-That ($n -in $tasks) "-Task $n, in the guide, still exists"
 }
 
+# 2.4.0: every report page in the navigation is in DASHBOARD.md's page table (| Persona | Page | ...),
+# and every page that table names is still in the navigation. Admin pages are checked above.
+$dash = Get-Content -LiteralPath (Join-Path $root 'docs' 'DASHBOARD.md') -Raw
+$table = $dash.Substring($dash.IndexOf('## What each persona gets'))
+$table = $table.Substring(0, $table.IndexOf("`n## ", 5))
+$reportPages = [regex]::Matches($nav, 'new\("([^"]+)", "(/[^"]*)"(?![^)]*Admin: true)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+Assert-That ($reportPages.Count -ge 40) "found the report pages in Nav.cs ($($reportPages.Count))"
+$rows = [regex]::Matches($table, '(?m)^\|[^|
+]*\|\s*([^|
+]+?)\s*\|') | ForEach-Object { $_.Groups[1].Value.Trim() }
+foreach ($p in $reportPages) {
+    Assert-That ($p -in $rows) "$p is in DASHBOARD.md's page table"
+}
+foreach ($r in $rows | Where-Object { $_ -notin 'Page', '---' -and $_ -notlike 'Health,*' }) {
+    Assert-That ($r -in $reportPages) "$r, in DASHBOARD.md's page table, is still a page"
+}
+
 Write-Host ''
-if ($script:Failures) { Write-Host "$($script:Failures) check(s) failed: update docs/OPERATIONS.md." -ForegroundColor Red; exit 1 }
-Write-Host 'The operations guide covers every Admin page and maintenance task.' -ForegroundColor Green
+if ($script:Failures) { Write-Host "$($script:Failures) check(s) failed: update docs/OPERATIONS.md or docs/DASHBOARD.md." -ForegroundColor Red; exit 1 }
+Write-Host 'The operations guide covers every Admin page and maintenance task, and the dashboard guide every report page.' -ForegroundColor Green

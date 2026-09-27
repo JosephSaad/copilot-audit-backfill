@@ -2,7 +2,19 @@
 
 A web dashboard over the Copilot audit data. Everyone signs in with their Windows account and sees the part of the organisation they are entitled to. Executives and anyone granted it see everything; a manager sees their own people; everyone else sees their own use. Pages are grouped by persona. A web-based admin module holds every setting: access, email, alerts, digests and the webhook, targets and assumptions, privacy and retention, reference data and value names, classifications and events, scheduled extracts, training records, directory quality, health and the audit log. One dashboard can span several Microsoft 365 tenants.
 
-It is an ASP.NET Core 10 (Razor Pages) site hosted in IIS on Windows Server 2022 or later. It reads the Copilot database the pipeline already fills: the `bi` star schema, plus its own `dash` schema of settings, roles, the org chart and daily rollups. It has no other data store and calls no outside services.
+It is an ASP.NET Core 10 (Razor Pages) site hosted in IIS on Windows Server 2022 or later. It reads the Copilot database the pipeline already fills: the `bi` star schema, plus its own `dash` schema of settings, roles, the org chart and daily rollups. It has no other data store.
+
+**Read-only towards Microsoft 365, unless someone approves a change.** Nothing in the dashboard or the pipeline changes anything in Microsoft 365, Entra or Azure: license changes are files and scripts an administrator reviews and runs with their own rights. What it does write, and where:
+
+| It writes | Where | Set by |
+|---|---|---|
+| Its settings, roles, names, rules and logs | Its own `dash` tables | Administrators, in the Admin pages |
+| Email | Exchange Online or the SMTP server set in Admin › Email | Alerts and digests |
+| Alert posts | The one webhook address set in Admin › Alerts and digests | Alerts |
+| CSV files of aggregates | The folders set in Admin › Scheduled extracts | Scheduled extracts |
+| License files and scripts | The administrator's browser, as downloads | License exports |
+
+The roadmap's later milestones (M13 to M15) would add changes in Microsoft 365 itself, such as deploying an approved DLP policy. They would use a separate app registration whose credentials the pipeline does not hold, and act only on a change a second person has approved.
 
 **Status.** Released in 2.2.0; the operations features (alerts, digests, the admin settings, value names, the data API, triage, planning, classifications, extracts, multi-tenancy and the pages listed below) in 2.3.0. Every page, the security model, the admin changes and the rollups were tested against a synthetic 2,317-person demo database, a 40-million-interaction scale database and the SQL integration suite; email was tested against a local SMTP server requiring authentication, on ports 2525 (STARTTLS) and 4465 (implicit TLS); every page's layout was checked in a browser at 1440 and 1024 pixels wide for clipped, overlapping or shortened labels. It has not yet run on a Windows Server under IIS. See [Not yet proven](#not-yet-proven).
 

@@ -33,12 +33,17 @@ public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<Insig
         using var root = scopes.CreateScope();
         var tenants = root.ServiceProvider.GetRequiredService<TenantAccessor>();
         var done = new List<string>();
-        foreach (var t in tenants.All)
+        var before = tenants.Current;   // run from a page: the page's tenant again afterwards, for its audit entry
+        try
         {
-            tenants.Use(t);
-            try { done.AddRange((await RunOnceAsync(ct)).Select(d => tenants.Many ? $"[{t.Name}] {d}" : d)); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "The notification checks failed for {Tenant}", t.Name); }
+            foreach (var t in tenants.All)
+            {
+                tenants.Use(t);
+                try { done.AddRange((await RunOnceAsync(ct)).Select(d => tenants.Many ? $"[{t.Name}] {d}" : d)); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "The notification checks failed for {Tenant}", t.Name); }
+            }
         }
+        finally { tenants.Use(before); }
         return done;
     }
 

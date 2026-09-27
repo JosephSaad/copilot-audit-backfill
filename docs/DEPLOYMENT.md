@@ -21,7 +21,7 @@ Written for a new install of release 2.3.0. Hands-on time is about a day, plus a
 
 ## What you're deploying
 
-Seven parts, all read-only towards Microsoft 365. Everything lands in two SQL Server databases. A Power BI model imports the reporting views from one of them, and Copilot in Power BI answers questions from that model.
+Seven parts, all read-only towards Microsoft 365: nothing here changes anything in Microsoft 365, Entra or Azure (the dashboard's writes are listed in [DASHBOARD.md](DASHBOARD.md)). Everything lands in two SQL Server databases. A Power BI model imports the reporting views from one of them, and Copilot in Power BI answers questions from that model.
 
 ```mermaid
 flowchart LR
