@@ -111,6 +111,11 @@ parameter used it:
 
 ### Fixed
 
+- **A change of app category reaches every day.** Changing an app's category
+  (`Invoke-CopilotMaintenance -Task SetAppCategory`, without `-Apply`) used to
+  change only the days loaded afterwards. Now the next bi refresh corrects
+  Premium use on every earlier interaction of that app, and the next dashboard
+  refresh rolls up again from that app's first day, Copilot Chat counts included.
 - **Admin › Operations › Run all tenants** no longer leaves the request on the
   last tenant it ran.
 - **PSScriptAnalyzer:**
