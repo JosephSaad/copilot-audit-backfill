@@ -158,8 +158,10 @@ $i = $n[3].Arguments
 Assert-That ($i.Incremental -and $i.SessionLicenceDatabase -eq 'CopilotLicenseEvents' -and $i.Database -eq 'CopilotAudit' -and
              $i.ClientId -eq 'c' -and $i.CertificateThumbprint -eq 'AB' -and $i.TrustServerCertificate -and $n[3].Script -eq [System.IO.Path]::Combine('R:', 'Invoke-CopilotAuditBackfill.ps1')) `
     'nightly interactions: incremental, licence-aware, signed in as the app'
-Assert-That ((@($n[2].Arguments.Operations) -join ',') -eq 'Change user license,Update user,Add user,Delete user' -and $n[2].Arguments.Database -eq 'CopilotLicenseEvents') `
-    'nightly licence events: always the same operation list'
+$licOps = @($n[2].Arguments.Operations)
+Assert-That ((($licOps | Select-Object -First 4) -join ',') -eq 'Change user license,Update user,Add user,Delete user' -and
+             'BotCreate' -in $licOps -and 'BotUpdateOperation-BotPublish' -in $licOps -and $n[2].Arguments.Database -eq 'CopilotLicenseEvents') `
+    'nightly licence events: the four licence operations, and Copilot Studio''s authoring ones (2.3.0)'
 Assert-That ((@($n[0].Arguments.EmployeeTypes) -join ',') -eq 'EMP' -and $n[0].Arguments.TargetDomain -eq 'users.contoso.com' -and -not $n[0].Arguments.ContainsKey('ClientId')) `
     'the directory step reads AD with no Graph sign-in'
 
