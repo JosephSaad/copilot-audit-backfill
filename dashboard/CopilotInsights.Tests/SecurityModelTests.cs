@@ -98,7 +98,8 @@ public class NavigationTests
     {
         var first = CopilotInsights.Pages.Nav.For(V(5))[0];
         Assert.Equal("My Copilot", first.Persona);
-        Assert.Equal("/me", Assert.Single(first.Pages).Path);
+        Assert.Equal("/me", first.Pages[0].Path);
+        Assert.Equal(["/me", "/me/email", "/me/views"], first.Pages.Select(p => p.Path));
         Assert.Contains("/licensing/changes", Paths(V(5)));   // aggregates; the administrators' names on it need Licensing
     }
 

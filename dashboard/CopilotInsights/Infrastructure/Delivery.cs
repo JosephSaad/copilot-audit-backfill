@@ -36,6 +36,14 @@ public static class Webhook
     }
 }
 
+/// <summary>When to warn that the pipeline's app certificate is expiring. Pure, for the tests.</summary>
+public static class CertificateWarning
+{
+    /// <summary>Which warning is due: the configured days, 14, 3, then expired. Null when none is.</summary>
+    public static string? Step(double daysLeft, int warnDays) =>
+        daysLeft <= 0 ? "expired" : daysLeft <= 3 ? "3" : daysLeft <= 14 ? "14" : daysLeft <= warnDays ? warnDays.ToString(CultureInfo.InvariantCulture) : null;
+}
+
 /// <summary>The datasets a scheduled extract may write: aggregates only, never a named person.</summary>
 public static class ExtractData
 {
@@ -136,7 +144,7 @@ public sealed partial class Notifier
             if (cert.ExpiresUtc is null) return;
             var left = (cert.ExpiresUtc.Value - DateTime.UtcNow).TotalDays;
             var warn = await _settings.IntAsync("CertificateWarnDays", 30);
-            var step = CertificateStep(left, warn);
+            var step = CertificateWarning.Step(left, warn);
             if (step is null) return;
             var key = $"{cert.Thumbprint}|{step}";
             if (await StateAsync("certificate") == key) return;
@@ -146,10 +154,6 @@ public sealed partial class Notifier
                  "Renew it: run tools\\Install-CopilotJobServer.ps1 -RegisterApp on the job server as an administrator (a new certificate, uploaded to the app, its thumbprint in the settings). The operations guide has the steps."], "/admin");
             await SetStateAsync("certificate", key);
         }
-
-        /// <summary>Which warning is due: the configured days, 14, 3, then expired. Null when none is.</summary>
-        internal static string? CertificateStep(double daysLeft, int warnDays) =>
-            daysLeft <= 0 ? "expired" : daysLeft <= 3 ? "3" : daysLeft <= 14 ? "14" : daysLeft <= warnDays ? warnDays.ToString(CultureInfo.InvariantCulture) : null;
 
         /* ---- Manager and personal digests --------------------------------------------------------- */
 
@@ -167,16 +171,27 @@ public sealed partial class Notifier
             return (TimeZoneInfo.ConvertTimeFromUtc(due.Value, zone).ToString("yyyy-MM-dd"), frequency);
         }
 
-        /// <summary>Claims a send for a person and period; false when it was already sent (or claimed by another server).</summary>
+        /// <summary>
+        /// A send is due when there is none for the person and period yet, or when an earlier try failed (Fail1, Fail2)
+        /// at least an hour ago: three tries in all, so a mail server that is down for a while does not cost a week's digest.
+        /// </summary>
+        internal const string Due = @"NOT EXISTS (SELECT 1 FROM dash.DigestSend AS s WHERE s.Upn = {0} AND s.Kind = @kind AND s.PeriodKey = @period
+                   AND NOT (s.Status IN ('Fail1', 'Fail2') AND s.SentUtc < DATEADD(HOUR, -1, SYSUTCDATETIME())))";
+
+        /// <summary>Claims a send for a person and period; false when it was sent, is being sent, or has failed three times.</summary>
         async Task<bool> ClaimAsync(string upn, string kind, string period) =>
             await _db.ExecuteAsync(@"
-INSERT INTO dash.DigestSend (Upn, Kind, PeriodKey, Status)
-SELECT @upn, @kind, @period, 'Sending' WHERE NOT EXISTS (SELECT 1 FROM dash.DigestSend WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period);",
+UPDATE dash.DigestSend SET Status = CASE Status WHEN 'Fail1' THEN 'Sending2' ELSE 'Sending3' END, SentUtc = SYSUTCDATETIME()
+WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period AND Status IN ('Fail1', 'Fail2') AND SentUtc < DATEADD(HOUR, -1, SYSUTCDATETIME());
+IF @@ROWCOUNT = 0
+    INSERT INTO dash.DigestSend (Upn, Kind, PeriodKey, Status)
+    SELECT @upn, @kind, @period, 'Sending1' WHERE NOT EXISTS (SELECT 1 FROM dash.DigestSend WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period);",
                 new { upn, kind, period }) == 1;
 
-        Task MarkAsync(string upn, string kind, string period, string status) =>
-            _db.ExecuteAsync("UPDATE dash.DigestSend SET Status = LEFT(@status, 16), SentUtc = SYSUTCDATETIME() WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;",
-                new { upn, kind, period, status });
+        /// <summary>Sent, or the try's failure (Sending2 becomes Fail2; Fail3 is final).</summary>
+        Task MarkAsync(string upn, string kind, string period, bool sent) =>
+            _db.ExecuteAsync(@"UPDATE dash.DigestSend SET Status = CASE WHEN @sent = 1 THEN 'Sent' ELSE REPLACE(Status, 'Sending', 'Fail') END, SentUtc = SYSUTCDATETIME()
+WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, period, sent });
 
         public async Task ManagerDigestsAsync()
         {
@@ -191,8 +206,8 @@ FROM dash.Person AS p
 LEFT JOIN audit.UserDirectory AS ud ON ud.UserPrincipalName = p.Upn
 LEFT JOIN dash.DigestPreference AS pref ON pref.Upn = p.Upn
 WHERE p.AccountEnabled = 1 AND p.PeopleBelow >= @min AND ISNULL(pref.ManagerDigestOptOut, 0) = 0
-  AND NOT EXISTS (SELECT 1 FROM dash.DigestSend AS s WHERE s.Upn = p.Upn AND s.Kind = 'Manager' AND s.PeriodKey = @period)
-ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, period = round.Period });
+  AND " + string.Format(Due, "p.Upn") + @"
+ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, period = round.Period, kind = "Manager" });
             int sent = 0, failed = 0;
             foreach (var m in managers)
             {
@@ -205,7 +220,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, period = round
                     status = error is null ? "Sent" : "NotSent";
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException) { _log.LogWarning(ex, "Manager digest for {Upn}", m.Upn); status = "Failed"; }
-                await MarkAsync(m.Upn, "Manager", round.Period, status);
+                await MarkAsync(m.Upn, "Manager", round.Period, status == "Sent");
                 if (status == "Sent") sent++; else failed++;
             }
             if (sent + failed > 0) done.Add($"Manager digests for {round.Period}: {sent} sent" + (failed > 0 ? $", {failed} not sent (see Admin > Email)" : "") + ".");
@@ -220,8 +235,8 @@ SELECT TOP (@take) pref.Upn, NULLIF(ud.Mail, N'')
 FROM dash.DigestPreference AS pref
 LEFT JOIN audit.UserDirectory AS ud ON ud.UserPrincipalName = pref.Upn
 WHERE pref.PersonalDigest = 1
-  AND NOT EXISTS (SELECT 1 FROM dash.DigestSend AS s WHERE s.Upn = pref.Upn AND s.Kind = 'Personal' AND s.PeriodKey = @period);",
-                new { take = DigestsPerRound, period = round.Period });
+  AND " + string.Format(Due, "pref.Upn") + ";",
+                new { take = DigestsPerRound, period = round.Period, kind = "Personal" });
             int sent = 0;
             foreach (var p in people)
             {
@@ -233,7 +248,7 @@ WHERE pref.PersonalDigest = 1
                     status = await _mail.SendAsync("PersonalDigest", MailConfig.Recipients(p.Mail ?? p.Upn), subject, html, text, ct) is null ? "Sent" : "NotSent";
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException) { _log.LogWarning(ex, "Personal digest for {Upn}", p.Upn); status = "Failed"; }
-                await MarkAsync(p.Upn, "Personal", round.Period, status);
+                await MarkAsync(p.Upn, "Personal", round.Period, status == "Sent");
                 if (status == "Sent") sent++;
             }
             if (people.Count > 0) done.Add($"Personal digests for {round.Period}: {sent} of {people.Count} sent.");

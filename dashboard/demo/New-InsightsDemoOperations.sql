@@ -112,3 +112,44 @@ BEGIN
     SELECT 'demo-agent-4-del', DATEADD(DAY, -12, CAST(@today AS DATETIME2(0))), N'BotDelete', 'Deleted', ActorUpn, BotId, BotSchemaName
     FROM audit.AgentEvent WHERE RecordId = 'demo-agent-4-1';
 END;
+
+/* ---- 2.3.0, second part: job families, a contract, events on the trends, licence exports, triage ---- */
+IF OBJECT_ID(N'dash.JobFamilyRule', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.JobFamilyRule)
+    INSERT INTO dash.JobFamilyRule (Pattern, Family, Priority, UpdatedBy) VALUES
+        (N'Manager%', N'Managers', 10, N'demo'), (N'%Engineer%', N'Engineering', 20, N'demo'), (N'%Analyst%', N'Analysts', 20, N'demo'),
+        (N'%Specialist%', N'Specialists', 30, N'demo'), (N'Associate', N'Associates', 40, N'demo'), (N'Coordinator', N'Coordinators', 40, N'demo');
+
+IF OBJECT_ID(N'dash.LicenceContract', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.LicenceContract)
+    INSERT INTO dash.LicenceContract (Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note, UpdatedBy)
+    VALUES (N'Microsoft 365 Copilot, enterprise agreement', 1200, 30, DATEADD(MONTH, -10, @today), DATEADD(DAY, 75, @today), N'Annual true-up', N'demo');
+
+IF OBJECT_ID(N'dash.EventMarker', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.EventMarker)
+    INSERT INTO dash.EventMarker (Day, Label, Kind, UpdatedBy) VALUES
+        (DATEADD(DAY, -45, @today), N'Wave 2 licences', 'Rollout', N'demo'),
+        (DATEADD(DAY, -20, @today), N'Prompting workshop', 'Training', N'demo'),
+        (DATEADD(DAY, -8, @today), N'Copilot service incident', 'Outage', N'demo');
+
+IF OBJECT_ID(N'dash.LicenceAction', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.LicenceAction)
+BEGIN
+    DECLARE @k1 INT = (SELECT MAX(DateKey) FROM bi.FactLicensedDay);
+    /* A revocation export three weeks ago: most applied since (no longer licensed), a few still pending. */
+    INSERT INTO dash.LicenceAction (Kind, Upn, ExportedUtc, ExportedBy)
+    SELECT TOP (12) 'revoke', u.UserPrincipalName, DATEADD(DAY, -21, CAST(@today AS DATETIME2(0))), N'wei.okafor@contoso.com'
+    FROM bi.DimUser AS u WHERE NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS l WHERE l.UserKey = u.UserKey AND l.DateKey = @k1) AND u.AccountEnabled = 1
+    ORDER BY CHECKSUM(u.UserPrincipalName);
+    INSERT INTO dash.LicenceAction (Kind, Upn, ExportedUtc, ExportedBy)
+    SELECT TOP (3) 'revoke', l.Upn, DATEADD(DAY, -21, CAST(@today AS DATETIME2(0))), N'wei.okafor@contoso.com'
+    FROM (SELECT u.UserPrincipalName AS Upn FROM bi.FactLicensedDay AS f JOIN bi.DimUser AS u ON u.UserKey = f.UserKey WHERE f.DateKey = @k1) AS l
+    ORDER BY CHECKSUM(l.Upn);
+    /* An upgrade wave two weeks ago: licensed now. */
+    INSERT INTO dash.LicenceAction (Kind, Upn, ExportedUtc, ExportedBy)
+    SELECT TOP (10) 'wave', u.UserPrincipalName, DATEADD(DAY, -14, CAST(@today AS DATETIME2(0))), N'wei.okafor@contoso.com'
+    FROM bi.FactLicensedDay AS f JOIN bi.DimUser AS u ON u.UserKey = f.UserKey WHERE f.DateKey = @k1
+    ORDER BY CHECKSUM(u.UserPrincipalName) DESC;
+END;
+
+IF OBJECT_ID(N'dash.FlagCase', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.FlagCase)
+    INSERT INTO dash.FlagCase (RecordId, Status, Owner, Note, UpdatedBy)
+    SELECT TOP (6) f.RecordId, CASE WHEN ROW_NUMBER() OVER (ORDER BY f.RecordId) <= 2 THEN 'Investigating' WHEN ROW_NUMBER() OVER (ORDER BY f.RecordId) <= 4 THEN 'Closed' ELSE 'FalsePositive' END,
+           N'mei.osei@contoso.com', N'Demo triage', N'mei.osei@contoso.com'
+    FROM bi.FactInteraction AS f WHERE f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 ORDER BY f.RecordId;

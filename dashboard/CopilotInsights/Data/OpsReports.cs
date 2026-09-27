@@ -259,7 +259,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App ORDER BY 2 DESC;", args);
         e.Paragraph(tip);
         var url = await settings.StringAsync("DashboardUrl");
         e.Link(url is null ? null : url.TrimEnd('/') + "/me", "See more in My Copilot");
-        e.Footer("You get this because you asked for it in My Copilot > Email; you can stop it there. Only you receive it.");
+        e.Footer("You get this because you asked for it in My Copilot > Email; you can stop it there. Only you receive it.", aggregates: false);
         return (e.Subject, e.Html(), e.Text());
     }
 
@@ -342,10 +342,10 @@ public sealed class Email(string subject)
         _t.AppendLine().AppendLine($"{text}: {href}");
     }
 
-    public void Footer(string? extra)
+    public void Footer(string? extra, bool aggregates = true)
     {
         FlushKpis();
-        var f = "From Copilot Insights. Figures are aggregates; groups under the minimum size are not shown." + (extra is null ? "" : " " + extra);
+        var f = "From Copilot Insights." + (aggregates ? " Figures are aggregates; groups under the minimum size are not shown." : "") + (extra is null ? "" : " " + extra);
         _h.Append($"<p style=\"font-size:11px;color:#8a94a3;margin-top:22px\">{E(f)}</p>");
         _t.AppendLine().AppendLine(f);
     }
