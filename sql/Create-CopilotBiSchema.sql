@@ -478,8 +478,10 @@ SELECT ResourceTypeKey, ResourceType FROM bi.DimResourceType;');
 EXEC (N'CREATE OR ALTER VIEW bi.ResourceActions AS
 SELECT ResourceActionKey, ResourceAction FROM bi.DimResourceAction;');
 
+/* A OneDrive site is named after its owner (/personal/firstname_lastname_...): hidden in privacy mode. */
 EXEC (N'CREATE OR ALTER VIEW bi.Sites AS
-SELECT SiteKey, Site, Host, IsPersonal FROM bi.DimSite;');
+SELECT SiteKey, CASE WHEN IsPersonal = 1 AND EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'') THEN N''OneDrive (personal)'' ELSE Site END AS Site, Host, IsPersonal
+FROM bi.DimSite;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Sessions AS
 SELECT SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenceStatusKey,
@@ -508,8 +510,9 @@ EXEC (N'CREATE OR ALTER VIEW bi.AgentEvents AS
 SELECT RecordId, EventUtc, DateKey, Action, Operation, ActorKey, BotId, BotSchemaName, ComponentName, ComponentType
 FROM bi.FactAgentEvent;');
 
+/* ChangedBy names the administrator: blank in privacy mode. */
 EXEC (N'CREATE OR ALTER VIEW bi.LicenceChanges AS
-SELECT ChangedUtc, DateKey, UserKey, SkuKey, Change, ChangedBy
+SELECT ChangedUtc, DateKey, UserKey, SkuKey, Change, CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'') THEN NULL ELSE ChangedBy END AS ChangedBy
 FROM bi.FactLicenceChange;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.LicensedDays AS

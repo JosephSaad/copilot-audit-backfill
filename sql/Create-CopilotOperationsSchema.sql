@@ -505,12 +505,15 @@ IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
 /*
     Row-level security from the org chart: one row per (viewer, person they may
     see). A manager sees everyone under them; the top of the organisation, the
-    people reporting to them and anyone granted Organization see everyone. In
-    the model, relate OrgSecurity[UserKey] to Users[UserKey] and give the role
-    the filter [ViewerUpn] = USERPRINCIPALNAME() on OrgSecurity, with the
-    relationship filtering both ways (docs/DEPLOYMENT.md, step 15). Group
-    grants are resolved at sign-in by the dashboard, not here: grant
-    Organization to people directly for Power BI.
+    people reporting to them and anyone granted Organization see everyone. The
+    Power BI model in powerbi/ uses it in its Organisation role:
+    Users[UserKey] IN the viewer's rows, by USERPRINCIPALNAME(). Group grants are
+    resolved at sign-in by the dashboard, not here: grant Organization to people
+    directly for Power BI.
+
+    Empty in privacy mode: each row pairs a real sign-in with a user key, which
+    would undo the pseudonyms in bi.Users. With privacy mode on, share
+    bi.DepartmentWeek rather than the person-level model.
 */
 EXEC (N'CREATE OR ALTER VIEW bi.OrgSecurity AS
 SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey
@@ -518,11 +521,13 @@ FROM dash.OrgClosure AS oc
 JOIN bi.DimUser AS u ON u.UserPrincipalName = oc.DescendantUpn
 WHERE NOT EXISTS (SELECT 1 FROM dash.Person AS p WHERE p.Upn = oc.AncestorUpn AND p.Level IN (1, 2))
   AND NOT EXISTS (SELECT 1 FROM dash.RoleGrant AS g WHERE g.Principal = oc.AncestorUpn AND g.PrincipalType = ''User'' AND g.Role = ''Organization'')
+  AND NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'')
 UNION ALL
 SELECT w.Upn, u.UserKey
 FROM (SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
       UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization'') AS w
-CROSS JOIN bi.DimUser AS u;');
+CROSS JOIN bi.DimUser AS u
+WHERE NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'');');
 
 /* Readable names for the catalogued codes; Name is NULL until someone names it. */
 EXEC (N'CREATE OR ALTER VIEW bi.ValueNames AS
