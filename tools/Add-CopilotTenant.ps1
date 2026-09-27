@@ -117,9 +117,8 @@ function Invoke-Main {
     Write-Host 'Next:'
     Write-Host "  1. Load its history once: .\Invoke-CopilotPipeline.ps1 -History -Tenant '$Name'"
     Write-Host '  2. From tonight the nightly task loads it with the others.'
-    Write-Host '  3. For the dashboard, add it to Insights:Tenants in appsettings.Production.json on the web server:'
-    Write-Host "     { ""Name"": ""$Name"", ""ConnectionString"": ""Server=$($s.SqlServer);Database=$db;Integrated Security=true;Encrypt=true"" }"
-    Write-Host "     and give the web server's account CopilotInsightsApp in $db (Install-CopilotInsights.ps1 -Database $db -GrantDatabaseAccess)."
+    Write-Host '  3. For the dashboard, run the dashboard installer again on the web server with every tenant, the first one first:'
+    Write-Host "     .\dashboard\Install-CopilotInsights.ps1 ... -Tenant '<first tenant>=$($s.Database)','$Name=$db' -GrantDatabaseAccess"
 }
 
 # Dot-sourcing (tests) loads the functions without running anything.

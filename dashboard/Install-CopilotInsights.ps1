@@ -31,6 +31,13 @@
     The app to install: a folder holding CopilotInsights.csproj (published with
     dotnet publish, which needs the .NET 10 SDK), a published folder, or a zip of one.
 
+.PARAMETER Tenant
+    For a group with several Microsoft 365 tenants (tools\Add-CopilotTenant.ps1):
+    each as Name=Database, on -SqlServer, the first being -Database's own name,
+    such as 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam'. Written to
+    Insights:Tenants; the dashboard shows a tenant switcher and a group overview.
+    With -GrantDatabaseAccess, the site's account is given access in each.
+
 .PARAMETER AdminPrincipal
     Bootstrap administrators: UPNs, DOMAIN\user or, better, DOMAIN\Group. They are
     administrators whatever the database says; keep the list short.
@@ -64,6 +71,7 @@ param(
     [switch] $TrustServerCertificate,
     [switch] $GrantDatabaseAccess,
     [string] $OrgTopUpn,
+    [string[]] $Tenant = @(),
     [switch] $SkipFeatureInstall
 )
 
@@ -155,6 +163,17 @@ Set-Prop $settings.Insights 'ConnectionString' "Server=$SqlServer;Database=$Data
 if ($AdminPrincipal.Count -gt 0) { Set-Prop $settings.Insights 'BootstrapAdmins' @($AdminPrincipal) }
 elseif (-not $settings.Insights.PSObject.Properties['BootstrapAdmins'] -or @($settings.Insights.BootstrapAdmins).Count -eq 0) {
     Write-Warning 'No -AdminPrincipal: nobody can open Admin until a row is added to dash.RoleGrant (see the RUNBOOK).'
+}
+# Several tenants: Name=Database on the same server. Without -Tenant, any list already there is kept.
+$tenantDbs = @()
+if ($Tenant.Count -gt 0) {
+    $list = foreach ($t in $Tenant) {
+        if ($t -notmatch '^\s*([^=]+?)\s*=\s*([A-Za-z0-9_\-]+)\s*$') { throw "-Tenant '$t' is not Name=Database." }
+        $tenantDbs += $Matches[2]
+        [pscustomobject] @{ Name = $Matches[1]; ConnectionString = "Server=$SqlServer;Database=$($Matches[2]);Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust" }
+    }
+    if (@($list.Name | Sort-Object -Unique).Count -ne @($list).Count) { throw '-Tenant names must be different.' }
+    Set-Prop $settings.Insights 'Tenants' @($list)
 }
 # Before 2.3.0 a Development-only setting let an administrator view as someone else; the site no longer has it.
 if ($settings.Insights.PSObject.Properties['AllowViewAs']) { $settings.Insights.PSObject.Properties.Remove('AllowViewAs') }
@@ -263,12 +282,16 @@ BEGIN
     FETCH NEXT FROM t INTO @t;
 END;
 "@
+# The same grants in every tenant's database.
+$databases = @(@($Database) + $tenantDbs | Select-Object -Unique)
+$grantsFor = { param($db) $grants.Replace("USE [$Database];", "USE [$db];") }
 $grantsFile = Join-Path $PhysicalPath 'Grant-CopilotInsightsAccess.sql'
-Set-Content $grantsFile $grants -Encoding utf8
+Set-Content $grantsFile (($databases | ForEach-Object { & $grantsFor $_ }) -join "`r`n") -Encoding utf8
 if ($GrantDatabaseAccess) {
+  foreach ($db in $databases) {
     # The dash schema first: the grants below name its tables.
     $repoSql = Join-Path (Split-Path $PSScriptRoot -Parent) 'sql'
-    $dbConn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
+    $dbConn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=$db;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
     $dbConn.Open()
     try {
         foreach ($f in 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql') {
@@ -282,14 +305,15 @@ if ($GrantDatabaseAccess) {
             [void] $c.Parameters.AddWithValue('@v', $OrgTopUpn.Trim()); [void] $c.Parameters.AddWithValue('@by', "$env:USERDOMAIN\$env:USERNAME"); [void] $c.ExecuteNonQuery()
         }
         $c = $dbConn.CreateCommand(); $c.CommandText = "IF OBJECT_ID(N'bi.FactInteraction', N'U') IS NOT NULL EXEC dash.usp_RefreshDashboard;"; $c.CommandTimeout = 0; [void] $c.ExecuteNonQuery()
-        Write-Host "Dashboard schema installed in $Database and its rollups built."
+        Write-Host "Dashboard schema installed in $db and its rollups built."
     }
     finally { $dbConn.Dispose() }
     $conn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=master;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
     $conn.Open()
-    try { $cmd = $conn.CreateCommand(); $cmd.CommandText = $grants; $cmd.CommandTimeout = 120; [void] $cmd.ExecuteNonQuery() }
+    try { $cmd = $conn.CreateCommand(); $cmd.CommandText = (& $grantsFor $db); $cmd.CommandTimeout = 120; [void] $cmd.ExecuteNonQuery() }
     finally { $conn.Dispose() }
-    Write-Host "Granted $sqlLogin access to $Database."
+    Write-Host "Granted $sqlLogin access to $db."
+  }
 }
 else {
     Write-Host "Database grants written to $grantsFile. Have a DBA run them, or run this again with -GrantDatabaseAccess."
