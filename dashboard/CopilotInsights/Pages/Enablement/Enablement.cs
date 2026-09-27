@@ -28,7 +28,7 @@ pop AS (SELECT du.UserKey, ISNULL(a.D, 0) AS D, ISNULL(a.I, 0) AS I, ISNULL(a.S,
                {Sql("ISNULL(a.D, 0)")} AS Segment
         FROM bi.DimUser AS du {c.Scope("du.UserKey")}
         LEFT JOIN act AS a ON a.UserKey = du.UserKey
-        WHERE a.I > 0 OR du.CopilotLicenceToday = N'Licensed')";
+        WHERE a.I > 0 OR du.CopilotLicenseToday = N'Licensed')";
 
     public static async Task<int> WorkdaysAsync(Db db, ReportContext c) =>
         await db.ScalarAsync<int>("SELECT COUNT(*) FROM bi.DimDate WHERE DateKey BETWEEN @k0 AND @k1 AND IsWeekday = 1;", c.Args());

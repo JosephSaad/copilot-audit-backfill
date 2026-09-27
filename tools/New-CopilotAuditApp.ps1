@@ -82,7 +82,7 @@ function Get-Single($Result) {
     if ($v.Count -gt 0) { $v[0] } else { $null }
 }
 
-function Get-GraphRoleIds {
+function Get-GraphRoleId {
     <# The Graph service principal and the ids of the three app roles, looked up rather than hard-coded. #>
     $graph = Get-Single (Invoke-Graph -Uri "/v1.0/servicePrincipals?`$filter=appId eq '$script:GraphAppId'&`$select=id,appRoles")
     if (-not $graph) { throw 'Microsoft Graph has no service principal in this tenant.' }
@@ -140,7 +140,7 @@ function Invoke-Main {
     Connect-MgGraph @connect
     $tenant = (Get-MgContext).TenantId
 
-    $graph = Get-GraphRoleIds
+    $graph = Get-GraphRoleId
     $required = @([ordered]@{
         resourceAppId  = $script:GraphAppId
         resourceAccess = @($graph.RoleIds.Values | ForEach-Object { [ordered]@{ id = $_; type = 'Role' } })

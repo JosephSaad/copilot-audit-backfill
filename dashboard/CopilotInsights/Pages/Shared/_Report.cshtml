@@ -42,10 +42,10 @@
         {
             <input type="hidden" name="@k" value="@Context.Request.Query[k]" />
         }
-        <div class="crumbs" aria-label="Organisation">
+        <div class="crumbs" aria-label="Organization">
             @if (c.Viewer.OrgWide)
             {
-                <a href="@c.Url(path, org: null, keepOrg: false)" class="@(c.Root is null ? "on" : "")">Whole organisation</a>
+                <a href="@c.Url(path, org: null, keepOrg: false)" class="@(c.Root is null ? "on" : "")">Whole organization</a>
             }
             @foreach (var u in c.Breadcrumb)
             {
@@ -62,7 +62,14 @@
                 </select>
             }
         </div>
-        <span class="period">@c.PeriodLabel</span>
+        @if (Model.OwnWindow is { } own)
+        {
+            <span class="period own" title="The period filter does not change this page">This page: @own</span>
+        }
+        else
+        {
+            <span class="period">@c.PeriodLabel</span>
+        }
     </form>
     @if (Model.Denied is null && CopilotInsights.Pages.Personal.ViewsModel.SafeUrl(path + Context.Request.QueryString.Value))
     {
@@ -112,7 +119,10 @@
             {
                 <p class="sub">@p.Sub</p>
             }
-            @p.Body
+            @* A chart in a half or third panel is drawn narrower, so its text is the size it is in a full panel. *@
+            @(p.Body is CopilotInsights.Charts.ChartSvg chart && p.Size != "full"
+                ? new Microsoft.AspNetCore.Html.HtmlString(chart.Render(p.Size.Contains("third") ? 360 : 440))
+                : p.Body)
         </section>
     }
 </div>

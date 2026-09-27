@@ -50,7 +50,7 @@ Write-Host "`n1b. Connection string building" -ForegroundColor Cyan
 $ConnectionString = 'Data Source=SQLDEV01;Initial Catalog=CopilotAuditTest;Integrated Security=True'
 $built = New-SqlConnectionString
 Assert-That ($built -match 'SQLDEV01' -and $built -match 'CopilotAuditTest') `
-    '-ConnectionString is honoured rather than throwing'
+    '-ConnectionString is honored rather than throwing'
 Assert-That ($built -match 'Application Name=CopilotAuditBackfill') `
     'the application name is still stamped onto a supplied connection string'
 
@@ -87,12 +87,12 @@ $r0 = Resolve-LoadRange -BaseEndUtc $base -NowUtc $now -LookbackHours 0
 Assert-That ($r0.Start -eq [datetime]::new(2026, 9, 23, 0, 0, 0, [DateTimeKind]::Utc)) 'a zero lookback starts exactly where the data ends'
 
 $rEnd = Resolve-LoadRange -BaseEndUtc $base -NowUtc $now -LookbackHours 48 -EndUtc ([datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]::Utc))
-Assert-That ($rEnd.End -eq [datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]::Utc)) 'an explicit end is honoured to the minute'
+Assert-That ($rEnd.End -eq [datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]::Utc)) 'an explicit end is honored to the minute'
 
 $none = Resolve-LoadRange -BaseEndUtc $base -NowUtc ([datetime]::new(2026, 9, 23, 0, 40, 0, [DateTimeKind]::Utc)) -LookbackHours 48
 Assert-That ($null -eq $none) 'nothing to load when the current hour has not moved past the data'
 
-# Upgrading: a licence database backfilled with the four licence operations, loaded by 2.3.0 with Copilot Studio's too.
+# Upgrading: a license database backfilled with the four license operations, loaded by 2.3.0 with Copilot Studio's too.
 $licOps = 'Add user,Change user license,Delete user,Update user'
 $wider = Get-OperationsChange -Recorded $licOps -Requested @('Change user license', 'Update user', 'Add user', 'Delete user', 'BotCreate', 'BotUpdateOperation-BotPublish')
 Assert-That ($null -ne $wider -and ($wider -join ',') -eq 'BotCreate,BotUpdateOperation-BotPublish') "a load may ask for more operations than the database recorded ($($wider -join ', '))"
@@ -108,10 +108,10 @@ $mock = Start-MockGraph @{ days = 8; rotate_after_pages = 40; fail_first_query_c
 try {
     $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
     $end   = [datetime]::new(2026, 8, 9, 0, 0, 0, [DateTimeKind]::Utc)
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
-    $engine = [CopilotAudit.BackfillEngine]::new((New-Options $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
+    $engine = [CopilotAudit.BackfillEngine]::new((New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
 
     # The "token cache" keeps handing back the old token until we sign in again -
     # exactly what happens when a session is revoked but the cached token has not expired.
@@ -145,10 +145,10 @@ $mock = Start-MockGraph @{ days = 12; fail_first_query_covering = '2030-01-01T00
 try {
     $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
     $end   = [datetime]::new(2026, 8, 13, 0, 0, 0, [DateTimeKind]::Utc)
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
-    $engine1 = [CopilotAudit.BackfillEngine]::new((New-Options $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
+    $engine1 = [CopilotAudit.BackfillEngine]::new((New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
     $engine1.SetAccessToken((Get-MockToken $mock))
 
     # Run the real monitor loop in its own runspace, then stop that pipeline -
@@ -171,9 +171,9 @@ try {
     $child.Dispose()
 
     Start-Sleep -Milliseconds 1500      # let the mock finish any response the engine already hung up on
-    $pagesAfterStop = (Get-MockStats $mock).pages_served
+    $pagesAfterStop = (Get-MockStatistic $mock).pages_served
     Start-Sleep -Seconds 3
-    $pagesLater = (Get-MockStats $mock).pages_served
+    $pagesLater = (Get-MockStatistic $mock).pages_served
     $snap = $store.Snapshot()
 
     Assert-That ($rowsAtStop -ge 60000) ("stopped mid-run at {0:N0} rows" -f $rowsAtStop)
@@ -182,7 +182,7 @@ try {
     Assert-That (@($snap | Where-Object Status -ne 'Loaded').Count -gt 0) 'work was left for the resume'
     $engine1.Dispose()
 
-    $engine2 = [CopilotAudit.BackfillEngine]::new((New-Options $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
+    $engine2 = [CopilotAudit.BackfillEngine]::new((New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
     $script:CurrentGraphToken = Get-MockToken $mock
     $engine2.SetAccessToken($script:CurrentGraphToken)
     $final = Wait-BackfillEngine -Engine $engine2 -ProgressSeconds 60 -PollMilliseconds 200 -GetToken { Get-MockToken $mock } 6>$null

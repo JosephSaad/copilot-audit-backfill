@@ -6,7 +6,7 @@ namespace CopilotInsights.Pages.Agents;
 
 /// <summary>
 /// Who builds, publishes and shares Copilot Studio agents: the authoring records Copilot Studio writes
-/// to the audit log (BotCreate, BotUpdateOperation-BotPublish, ...), loaded with the licence events.
+/// to the audit log (BotCreate, BotUpdateOperation-BotPublish, ...), loaded with the license events.
 /// Agent lifecycles for everyone with data to see; the makers' names for the Agents role.
 /// </summary>
 public sealed class BuildModel(PageServices s) : InsightsPage(s)
@@ -34,9 +34,9 @@ public sealed class BuildModel(PageServices s) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NULL THEN 0 ELSE 1 END") == 0)
-        { Notice = "Agent build and publish records arrive with 2.3.0's licence-event load. Run Install-CopilotAudit.ps1 from this release."; return; }
+        { Notice = "Agent build and publish records arrive with 2.3.0's license-event load. Run Install-CopilotAudit.ps1 from this release."; return; }
         var named = Viewer.Has(Roles.Agents) && !PrivacyMode;
-        /* Makers in scope: a manager sees the building their own people do; whole-organisation viewers see all of it. */
+        /* Makers in scope: a manager sees the building their own people do; whole-organization viewers see all of it. */
         var scope = Ctx.Root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = e.ActorKey";
         var byAction = await Db.QueryAsync<(DateTime Bucket, string Action, int N)>($@"
 SELECT {Ctx.BucketSql("d")}, e.Action, COUNT(*)

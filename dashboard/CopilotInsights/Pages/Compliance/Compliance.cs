@@ -19,17 +19,17 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Sensitive content";
     public override string Persona => "Compliance";
-    public override string Intro => "How often Copilot works with sensitivity-labelled content, which labels, from which sites, and what it was blocked from.";
+    public override string Intro => "How often Copilot works with sensitivity-labeled content, which labels, from which sites, and what it was blocked from.";
 
     protected override async Task BuildAsync()
     {
         var tr = await m.TrendAsync(Ctx);
-        long labelled = tr.Sum(w => w.Labelled), all = tr.Sum(w => w.Interactions), blocked = tr.Sum(w => w.Blocked);
+        long labeled = tr.Sum(w => w.Labeled), all = tr.Sum(w => w.Interactions), blocked = tr.Sum(w => w.Blocked);
         var people = await Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.LabelledContent > 0;", Ctx.Args());
-        Kpis.Add(new("Interactions with labelled content", Num(labelled), $"{Pct(Ratio(labelled, all))} of all interactions"));
-        Kpis.Add(new("People", Num(people), "whose Copilot use touched labelled content"));
+WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.LabeledContent > 0;", Ctx.Args());
+        Kpis.Add(new("Interactions with labeled content", Num(labeled), $"{Pct(Ratio(labeled, all))} of all interactions"));
+        Kpis.Add(new("People", Num(people), "whose Copilot use touched labeled content"));
         Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted"));
 
         var labels = await Db.QueryAsync<(DateTime Bucket, string Label, int Rank, int N)>($@"
@@ -45,11 +45,11 @@ GROUP BY {Ctx.BucketSql("d")}, {Sites.LabelName};", Ctx.Args());
         var series = shown.Select((l, i) => new Series(l, buckets.Select(b => (double?)labels.Where(x => x.Label == l && x.Bucket == b.Key).Sum(x => x.N)).ToList(), i + 1)).ToList();
         if (order.Count > 7)
             series.Add(new Series("Other labels", buckets.Select(b => (double?)labels.Where(x => !shown.Contains(x.Label) && x.Bucket == b.Key).Sum(x => x.N)).ToList(), 8));
-        Panels.Add(new("Labelled content by label", Chart.Columns(Labels(), series, Fmt.Count, "Interactions by sensitivity label"),
+        Panels.Add(new("Labeled content by label", Chart.Columns(Labels(), series, Fmt.Count, "Interactions by sensitivity label"),
             $"An interaction that read content with two labels counts under each. Labels are ordered least to most sensitive when Admin › Reference data ranks them. {TrendNote}"));
 
-        Panels.Add(new("Share of interactions touching labelled content",
-            Chart.Line(Labels(), [new Series("Labelled", tr.Select(w => Ratio(w.Labelled, w.Interactions)).ToList(), 1)], Fmt.Percent, "Labelled share"), null, "half"));
+        Panels.Add(new("Share of interactions touching labeled content",
+            Chart.Line(Labels(), [new Series("Labeled", tr.Select(w => Ratio(w.Labeled, w.Interactions)).ToList(), 1)], Fmt.Percent, "Labeled share"), null, "half"));
         Panels.Add(new("By label, whole period",
             Chart.Bars(order.Select(l => new Bar(l, labels.Where(x => x.Label == l).Sum(x => x.N))).ToList(), Fmt.Count, "Interactions by label"), null, "half"));
 
@@ -62,20 +62,20 @@ GROUP BY rd.Kind, rd.Item;", Ctx.Args());
         HtmlString SiteBars(string kind, int slot) => Chart.Bars(sites.Where(x => x.Kind == kind)
             .GroupBy(x => Sites.Show(x.Item, named)).Select(g => (Site: g.Key, N: g.Sum(x => x.N), People: g.Sum(x => x.People)))
             .OrderByDescending(x => x.N).Take(12).Select(x => new Bar(x.Site, x.N, Note: $"{x.People:#,0} people", Slot: slot)).ToList(), Fmt.Count, kind + " sites");
-        Panels.Add(new("Where labelled content lives", SiteBars("Site", 3),
-            "Sites of the labelled content Copilot read." + (named ? "" : " Personal OneDrive sites are grouped; the Compliance role shows them."), "half"));
+        Panels.Add(new("Where labeled content lives", SiteBars("Site", 3),
+            "Sites of the labeled content Copilot read." + (named ? "" : " Personal OneDrive sites are grouped; the Compliance role shows them."), "half"));
         Panels.Add(new("Sites Copilot was blocked from", SiteBars("Blocked", 7),
             "Content whose policy or permissions stopped Copilot. Usually a sign the controls are working; a spike is worth a look.", "half"));
 
-        var types = await Db.QueryAsync<(string Type, long N, long Labelled, long Blocked)>($@"
+        var types = await Db.QueryAsync<(string Type, long N, long Labeled, long Blocked)>($@"
 SELECT dash.fnValueName(31, t.ResourceType), COUNT_BIG(*), SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END), SUM(CAST(f.IsBlocked AS INT))
 FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = f.ResourceTypeKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY t.ResourceType;", Ctx.Args());
         Panels.Add(new("What Copilot read, by type",
-            Chart.Bars(types.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Type, t.N, Note: $"{t.Labelled:#,0} labelled, {t.Blocked:#,0} blocked")).ToList(), Fmt.Count, "Accessed resources by type"),
-            "Every resource an interaction read: files, mail, Teams messages, web results. Hover for how many were labelled or blocked."));
+            Chart.Bars(types.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Type, t.N, Note: $"{t.Labeled:#,0} labeled, {t.Blocked:#,0} blocked")).ToList(), Fmt.Count, "Accessed resources by type"),
+            "Every resource an interaction read: files, mail, Teams messages, web results. Hover for how many were labeled or blocked."));
     }
 }
 
@@ -84,7 +84,7 @@ public sealed class AccessModel(PageServices s) : InsightsPage(s)
     public override string Title => "Resource access";
     public override string Persona => "Compliance";
     public override string? RequiredRole => Roles.Compliance;
-    public override string Intro => "Who worked with labelled content through Copilot in the period, how often, and the most sensitive label they touched.";
+    public override string Intro => "Who worked with labeled content through Copilot in the period, how often, and the most sensitive label they touched.";
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -117,7 +117,7 @@ WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1;", Ctx.Args());
         var pg = new Paging(Request, Sorts, "most");
         var rows = await Db.QueryAsync<Row>($@"
 /* Each measure into a temporary table of its own, then the page, then the most sensitive
-   label only for the rows shown. With the two distinct counts in one statement the optimiser
+   label only for the rows shown. With the two distinct counts in one statement the optimizer
    asked for gigabytes of memory and still spilled; with the label looked up person by person
    (dash.ResourceDay is keyed by day, not person) it read the whole period per row. Either way
    30 to 45 seconds for 180 days at 70,000 people; this way a few seconds. */
@@ -168,12 +168,12 @@ ORDER BY {Sorts[pg.SortKey]};", Ctx.Args(new { q = pg.Like, label }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Labelled interactions", "Days", "Most sensitive label", "Sites", "Blocked"],
-            Numeric = new HashSet<int> { 3, 4, 6, 7 }, EmptyText = "Nobody touched labelled content in the period.",
+            Headers = ["Name", "Sign-in", "Department", "Labeled interactions", "Days", "Most sensitive label", "Sites", "Blocked"],
+            Numeric = new HashSet<int> { 3, 4, 6, 7 }, EmptyText = "Nobody touched labeled content in the period.",
         };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.N, r.Days, r.TopLabel, r.Sites, r.Blocked]);
         CsvTable = t;
-        Kpis.Add(new("People", Num(pg.Total), label is null ? "touched labelled content or were blocked" : "touched this label"));
+        Kpis.Add(new("People", Num(pg.Total), label is null ? "touched labeled content or were blocked" : "touched this label"));
         var choices = "<a href=\"" + System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path)) + "\"" + (label is null ? " class=\"on\"" : "") + ">All labels</a>" +
             string.Concat(labels.OrderBy(x => x.Name).Select(x =>
                 $" · <a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "label=" + Uri.EscapeDataString(x.Id)))}\"{(x.Id == label ? " class=\"on\"" : "")}>{System.Net.WebUtility.HtmlEncode(x.Name)}</a>"));

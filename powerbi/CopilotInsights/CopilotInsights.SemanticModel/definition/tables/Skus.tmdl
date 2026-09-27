@@ -1,4 +1,4 @@
-/// Licence SKUs that appear in the licence history.
+/// License SKUs that appear in the license history.
 table Skus
 	lineageTag: 5caa2115-0b4e-5000-8b85-6c7a01d25109
 

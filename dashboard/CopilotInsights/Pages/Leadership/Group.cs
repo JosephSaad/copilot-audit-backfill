@@ -6,15 +6,15 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Leadership;
 
 /// <summary>
-/// Every tenant side by side, and the group's totals: for organisations with several Microsoft 365
+/// Every tenant side by side, and the group's totals: for organizations with several Microsoft 365
 /// tenants, each loaded into its own database. A tenant counts only where the viewer sees its whole
-/// organisation, which is decided in that tenant's own database from their sign-in.
+/// organization, which is decided in that tenant's own database from their sign-in.
 /// </summary>
 public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics metrics) : InsightsPage(s)
 {
     public override string Title => "Group overview";
     public override string Persona => "Leadership";
-    public override string Intro => "Each tenant's headline figures for the period, and the group's totals. A tenant is included where you see its whole organisation; the others are listed without figures.";
+    public override string Intro => "Each tenant's headline figures for the period, and the group's totals. A tenant is included where you see its whole organization; the others are listed without figures.";
 
     sealed record Row(string Tenant, Totals? T, string? Why);
 
@@ -31,7 +31,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
                 try
                 {
                     var v = await S.Viewers.ResolveAsync();
-                    if (!v.OrgWide) { rows.Add(new(t.Name, null, v.InDirectory ? "you see part of this organisation" : "you are not in this tenant's directory")); continue; }
+                    if (!v.OrgWide) { rows.Add(new(t.Name, null, v.InDirectory ? "you see part of this organization" : "you are not in this tenant's directory")); continue; }
                     var c = await S.Contexts.CreateAsync(v, Ctx.Days, null);
                     rows.Add(new(t.Name, await metrics.TotalsAsync(c), null));
                 }

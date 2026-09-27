@@ -56,7 +56,7 @@ public class AlertRuleTests
             new("Jailbreak attempts", 2, 0.1, 1),         // over the threshold
             new("Prompt injections", 0, 0.5, 1),           // nothing
             new("Blocked", 40, 10, 0),                     // threshold off, but four times the average
-            new("Labelled", 12, 10, 100),                  // neither
+            new("Labeled", 12, 10, 100),                  // neither
             new("Tiny", 2, 0.1, 0),                        // a spike of two is noise
         ], 3);
         Assert.Equal(2, f.Count);
@@ -84,12 +84,12 @@ public class AlertRuleTests
     }
 }
 
-public class LicenceExportTests
+public class LicenseExportTests
 {
     [Fact]
     public void The_bulk_file_is_Entras_template()
     {
-        var csv = LicenceExport.BulkMembersCsv(["a@contoso.com", "b,\"x\"@contoso.com"]).Split("\r\n");
+        var csv = LicenseExport.BulkMembersCsv(["a@contoso.com", "b,\"x\"@contoso.com"]).Split("\r\n");
         Assert.Equal("version:v1.0", csv[0]);
         Assert.Equal("Member object ID or user principal name [memberObjectIdOrUpn] Required", csv[1]);
         Assert.Equal("a@contoso.com", csv[2]);
@@ -99,11 +99,11 @@ public class LicenceExportTests
     [Fact]
     public void The_script_uses_the_group_when_there_is_one_and_quotes_names()
     {
-        var byGroup = LicenceExport.Script("revoke", ["o'brien@contoso.com"], "6c1e8b2a-3f4d-4e5f-9a0b-1c2d3e4f5a6b", "sku", "admin", DateTime.UtcNow);
+        var byGroup = LicenseExport.Script("revoke", ["o'brien@contoso.com"], "6c1e8b2a-3f4d-4e5f-9a0b-1c2d3e4f5a6b", "sku", "admin", DateTime.UtcNow);
         Assert.Contains("'o''brien@contoso.com'", byGroup);
         Assert.Contains("DELETE", byGroup);
         Assert.Contains("SupportsShouldProcess", byGroup);
-        var direct = LicenceExport.Script("upgrade", ["a@contoso.com"], null, "639dec6b-bb19-468b-871c-c5c441c4b0cb", "admin", DateTime.UtcNow);
+        var direct = LicenseExport.Script("upgrade", ["a@contoso.com"], null, "639dec6b-bb19-468b-871c-c5c441c4b0cb", "admin", DateTime.UtcNow);
         Assert.Contains("addLicenses = @(@{ skuId = $skuId })", direct);
         Assert.Contains("639dec6b-bb19-468b-871c-c5c441c4b0cb", direct);
     }
@@ -189,7 +189,7 @@ public class FreshnessTests
     public void Old_data_and_a_failed_run_do()
     {
         Assert.Contains("40 hours ago", Freshness.Describe(Now.AddHours(-40), 36, "Succeeded", null, null, Now));
-        Assert.Contains("failed at \"Copilot licences from Graph\"", Freshness.Describe(Now.AddHours(-2), 36, "Failed", "Copilot licences from Graph", Now.AddHours(-3), Now));
+        Assert.Contains("failed at \"Copilot licenses from Graph\"", Freshness.Describe(Now.AddHours(-2), 36, "Failed", "Copilot licenses from Graph", Now.AddHours(-3), Now));
     }
 }
 

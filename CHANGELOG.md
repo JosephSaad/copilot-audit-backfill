@@ -4,6 +4,155 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-09-27
+
+A consistency release. Each figure is now computed in one place, the product
+uses one spelling, retries follow one policy, and each page says which dates it
+covers. Power BI now honors Organization grants made to AD groups. Nothing is
+added for the reader of a report, but several names change, so **2.4.0 is a
+fresh install**. There is no upgrade path from 2.3.0: drop the databases (or
+point the installer at new ones), install, and run the history load again.
+
+### Setting up
+The same commands as 2.3.0; any parameter with License in its name is now spelled
+the American way (see the renames below):
+parameter used it:
+
+```powershell
+.\tools\Install-CopilotJobServer.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\gmsa-copilot$' `
+    -TargetDomain users.contoso.com -TenantId contoso.onmicrosoft.com -RegisterApp -Dashboard
+.\Invoke-CopilotPipeline.ps1 -History
+# web server
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.0.zip -SqlServer SQLPROD01 `
+    -AdminPrincipal 'USERS\Copilot-Insights-Admins' -GrantDatabaseAccess
+```
+
+### Changed: one spelling, License (breaking)
+
+- **Tables and views:**
+  - `bi.DimLicenceStatus` → `bi.DimLicenseStatus`
+  - `bi.FactLicenceChange` → `bi.FactLicenseChange`
+  - `bi.LicenceChanges` → `bi.LicenseChanges`
+  - `bi.LicenceStatuses` → `bi.LicenseStatuses`
+  - `dash.LicenceAction` → `dash.LicenseAction`
+  - `dash.LicenceContract` → `dash.LicenseContract`
+- **Columns, dashboard settings and Power BI names:**
+  - columns such as `LicenseStatusKey`, `CopilotLicenseToday` and `LicenseChangeCount`;
+  - the dashboard settings `LicenseCurrency` and `LicenseMonthlyCost`;
+  - the Power BI table `LicenseChanges`.
+- **Script parameters:**
+  - `-LicenseDatabase` (Install-CopilotAudit, Install-CopilotJobServer, Add-CopilotTenant);
+  - `-LicenseEventDatabases` (Install-CopilotAudit, Invoke-CopilotMaintenance);
+  - `-SkipLicenseDatabase`;
+  - `-SessionLicenseDatabase` (the backfill and the CSV import);
+  - `-LicenseEventDatabase` (Export-CopilotSessionCsv);
+  - the matching key in `copilot-audit.settings.psd1`.
+- **Text:** every page, guide and message now says license.
+
+### Changed: American spelling throughout
+
+- **Every other British spelling,** after License: organization, honor,
+  recognize, catalog, behavior, labeled, pseudonymize and the rest, in names
+  and text alike.
+- **Names that change:**
+  - the Power BI role *Organisation* → *Organization*;
+  - `dash.UserDay.LabelledContent` → `LabeledContent`;
+  - the privacy mode value `Pseudonymise` → `Pseudonymize`.
+- **Not changed:** values that are Microsoft's own, such as Graph's
+  `cancelled` status and every field name in the audit records.
+
+### Changed: computed once
+
+- **Premium use and the use case are stored on each interaction.** Premium use is
+  whether an interaction needed the Copilot license. They are two new columns,
+  `bi.FactInteraction.PremiumUse` and `UseCaseKey`, written by the bi refresh.
+  - The dashboard's rollups, the use-case reports, `bi.Interactions` and the
+    Power BI model all read these columns. Before, each one applied the rules
+    itself, so a rule change could leave one figure disagreeing with another.
+  - An integration test checks that the stored value, the view and the rollups
+    agree with the rule.
+- **One retry policy.**
+  - A digest or scheduled extract that fails is tried again an hour later,
+    three tries in all, and then waits for its next period. Before, digests
+    were marked sent after a failure and extracts were not retried. Manager
+    and personal digests already worked this way.
+  - Webhooks retry on the spot, after 5 and then 20 seconds, but not when the
+    address or payload is wrong (a 4xx other than 408 or 429).
+  - The status line shows each try.
+- **Extracts are dated in the reporting time zone,** like every other figure.
+- **Each page says which dates it covers.** Pages that don't follow the period
+  filter now show *This page: …* in the filter bar, where the period normally
+  appears. These are Actions, the forecasts, unused licenses, leavers and the
+  rollout-wave cohorts. Before, a sentence in the notes said so, in different
+  words on each page.
+- **Chart text is the same size in every panel.** A chart in a half- or
+  third-width panel is drawn at that panel's width instead of being scaled
+  down, and no chart scales up past 1.3 times. Before, text in the smaller
+  panels came out about half the size.
+
+### Added
+
+- **Power BI honors Organization granted to an AD group.**
+  - The nightly directory load expands every group granted Organization into
+    its members, nested groups included, and writes them to the new table
+    `audit.GroupMember`, rewritten every night.
+  - `bi.OrgSecurity` gives those members the whole organization, as the
+    dashboard already did at sign-in. Before, only people granted Organization
+    by name, and the top two levels, saw everyone in Power BI.
+- **Admin › Alerts and digests can run the scheduled checks for one tenant or all of them.**
+- **The dashboard guide states what the product writes.**
+  - `docs/DASHBOARD.md` has a section on what the product reads from
+    Microsoft 365 (read-only) and a table of everything it writes.
+  - It writes only to its own database, except for license changes, which
+    apply only after someone approves them.
+- **`tools/dev`.** The UI layout audit and the generator for
+  `docs/SCHEMA.md` are now in the repository, with a release checklist
+  (`tools/dev/README.md`).
+
+### Fixed
+
+- **A change of app category reaches every day.** Changing an app's category
+  (`Invoke-CopilotMaintenance -Task SetAppCategory`, without `-Apply`) used to
+  change only the days loaded afterwards. Now the next bi refresh corrects
+  Premium use on every earlier interaction of that app, and the next dashboard
+  refresh rolls up again from that app's first day, Copilot Chat counts included.
+- **Admin › Alerts and digests, running the checks for every tenant,** no longer leaves the request on the
+  last tenant it ran.
+- **PSScriptAnalyzer:**
+  - Functions that call ShouldProcess now declare it, so `-WhatIf` reaches them
+    (Install-CopilotJobServer).
+  - Empty `catch` blocks now log why they are empty.
+  - Plural function names are renamed.
+  - A parameter named `$sender` (an automatic variable) is renamed.
+- **Encoding:** two test files with non-ASCII text are now saved with a BOM, so
+  Windows PowerShell 5.1 reads them correctly.
+
+### Tests and CI
+
+- **Script order:** `Test-SqlScriptOrder.ps1` fails the build when a script
+  adds a column above the CREATE TABLE of its own table, which a fresh install
+  skips; the retry columns of `dash.Extract` were the case it found.
+- **Spelling:** `Test-Spelling.ps1` fails the build on a British spelling
+  anywhere in the code, the SQL, the Power BI model or the guides, so 2.4.0's
+  renames stay done.
+- **Pages vs. guide:** `Test-OperationsGuide.ps1` checks all 61 report pages
+  against the page table in `docs/DASHBOARD.md`, in both directions.
+- **New checks:**
+  - `Test-UserDirectory.ps1`: group expansion.
+  - `Test-SqlIntegration.ps1`: group grants in `bi.OrgSecurity`, and stored
+    Premium use.
+  - The dashboard's unit tests: the retry policy.
+- **Analyzer:**
+  - CI runs PSScriptAnalyzer with `PSScriptAnalyzerSettings.psd1` and now fails
+    on warnings as well as errors.
+  - Rules that don't fit are excluded in that file, each with its reason.
+- **CI actions:**
+  - checkout v7
+  - setup-python v7
+  - setup-dotnet v6
+  - upload-artifact v7
+  - download-artifact v8
+
 ## [2.3.0] - 2026-09-27
 
 The dashboard becomes something a Copilot programme can be run from: alerts and
@@ -879,6 +1028,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0
 [2.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0
 [2.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.1.0

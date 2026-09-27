@@ -147,36 +147,36 @@ Assert-That ($out.ClientId -eq 'client-x' -and $script:Tenant.Assignments.Count 
 Write-Host "`n2. The pipeline's plan, and a step in its own process" -ForegroundColor Cyan
 
 . (Join-Path $root 'Invoke-CopilotPipeline.ps1')
-$s = @{ SqlServer = 'sql01'; Database = 'CopilotAudit'; LicenceDatabase = 'CopilotLicenseEvents'; TrustServerCertificate = $true
+$s = @{ SqlServer = 'sql01'; Database = 'CopilotAudit'; LicenseDatabase = 'CopilotLicenseEvents'; TrustServerCertificate = $true
         TenantId = 't'; ClientId = 'c'; CertificateThumbprint = 'AB'; TargetDomain = 'users.contoso.com'; EmployeeTypes = @('EMP')
         Dashboard = $true; HistoryDays = 90 }
 $today = [datetime]::new(2026, 9, 26, 0, 0, 0, [System.DateTimeKind]::Utc)
 
 $n = Get-PipelineStep -Setting $s -Today $today -Root 'R:'
-Assert-That (($n.Name -join '|') -eq 'User directory from AD|Copilot licences from Graph|Licence events|Copilot interactions') 'nightly: the four steps, in the documented order'
+Assert-That (($n.Name -join '|') -eq 'User directory from AD|Copilot licenses from Graph|License events|Copilot interactions') 'nightly: the four steps, in the documented order'
 $i = $n[3].Arguments
-Assert-That ($i.Incremental -and $i.SessionLicenceDatabase -eq 'CopilotLicenseEvents' -and $i.Database -eq 'CopilotAudit' -and
+Assert-That ($i.Incremental -and $i.SessionLicenseDatabase -eq 'CopilotLicenseEvents' -and $i.Database -eq 'CopilotAudit' -and
              $i.ClientId -eq 'c' -and $i.CertificateThumbprint -eq 'AB' -and $i.TrustServerCertificate -and $n[3].Script -eq [System.IO.Path]::Combine('R:', 'Invoke-CopilotAuditBackfill.ps1')) `
-    'nightly interactions: incremental, licence-aware, signed in as the app'
+    'nightly interactions: incremental, license-aware, signed in as the app'
 $licOps = @($n[2].Arguments.Operations)
 Assert-That ((($licOps | Select-Object -First 4) -join ',') -eq 'Change user license,Update user,Add user,Delete user' -and
              'BotCreate' -in $licOps -and 'BotUpdateOperation-BotPublish' -in $licOps -and $n[2].Arguments.Database -eq 'CopilotLicenseEvents') `
-    'nightly licence events: the four licence operations, and Copilot Studio''s authoring ones (2.3.0)'
+    'nightly license events: the four license operations, and Copilot Studio''s authoring ones (2.3.0)'
 Assert-That ((@($n[0].Arguments.EmployeeTypes) -join ',') -eq 'EMP' -and $n[0].Arguments.TargetDomain -eq 'users.contoso.com' -and -not $n[0].Arguments.ContainsKey('ClientId')) `
     'the directory step reads AD with no Graph sign-in'
 
 $h = Get-PipelineStep -Setting $s -History -Today $today -Root 'R:'
-Assert-That (($h.Name -join '|') -eq 'Copilot interactions (history)|Licence events (history)|User directory from AD|Copilot licences from Graph|Build everything') 'history: load, directory, licences, then build'
+Assert-That (($h.Name -join '|') -eq 'Copilot interactions (history)|License events (history)|User directory from AD|Copilot licenses from Graph|Build everything') 'history: load, directory, licenses, then build'
 Assert-That ($h[0].Arguments.StartDate -eq $today.AddDays(-90) -and $h[0].Arguments.Finalize -and $h[1].Arguments.StartDate -eq $today.AddDays(-90)) 'history: HistoryDays back, finalized'
 Assert-That ((Get-PipelineStep -Setting $s -History -Days 30 -Today $today)[0].Arguments.StartDate -eq $today.AddDays(-30)) '-Days overrides the settings'
 $b = $h[4].Arguments
-Assert-That ($b.Dashboard -and (@($b.LicenceEventDatabases) -join ',') -eq 'CopilotLicenseEvents' -and $h[4].Script -eq [System.IO.Path]::Combine('R:', 'Install-CopilotAudit.ps1')) 'history ends with the one-command build'
+Assert-That ($b.Dashboard -and (@($b.LicenseEventDatabases) -join ',') -eq 'CopilotLicenseEvents' -and $h[4].Script -eq [System.IO.Path]::Combine('R:', 'Install-CopilotAudit.ps1')) 'history ends with the one-command build'
 
 $lean = @{ SqlServer = 'sql01'; Database = 'CopilotAudit'; TenantId = 't'; ClientId = 'c'; CertificateThumbprint = 'AB' }
 $l = Get-PipelineStep -Setting $lean -Today $today
-Assert-That (($l.Name -join '|') -eq 'Copilot licences from Graph|Copilot interactions' -and -not $l[1].Arguments.ContainsKey('SessionLicenceDatabase')) 'no users domain or licence database: those steps are left out'
+Assert-That (($l.Name -join '|') -eq 'Copilot licenses from Graph|Copilot interactions' -and -not $l[1].Arguments.ContainsKey('SessionLicenseDatabase')) 'no users domain or license database: those steps are left out'
 $lh = Get-PipelineStep -Setting $lean -History -Today $today
-Assert-That ($lh[-1].Arguments.SkipLicenceDatabase -and $lh[0].Arguments.StartDate -eq $today.AddDays(-180)) 'and history defaults to 180 days'
+Assert-That ($lh[-1].Arguments.SkipLicenseDatabase -and $lh[0].Arguments.StartDate -eq $today.AddDays(-180)) 'and history defaults to 180 days'
 
 $bad = Join-Path $tmp 'bad.psd1'; Set-Content $bad "@{ SqlServer = 'x'; Database = 'y' }"
 $err = $null; try { Get-PipelineSetting $bad } catch { $err = $_.Exception.Message }
@@ -218,9 +218,9 @@ Assert-That ((Add-SidToRightLine -Line '' -Right 'SeBatchLogonRight' -Sid 'S-1-5
 
 Write-Host "`nSeveral tenants (Get-PipelineTenant, tools/Add-CopilotTenant.ps1)" -ForegroundColor Cyan
 $multi = @{
-    SqlServer = 'SQL1'; Database = 'CopilotAudit'; LicenceDatabase = 'CopilotLicenseEvents'; TenantId = 'contoso.onmicrosoft.com'; ClientId = 'c1'
+    SqlServer = 'SQL1'; Database = 'CopilotAudit'; LicenseDatabase = 'CopilotLicenseEvents'; TenantId = 'contoso.onmicrosoft.com'; ClientId = 'c1'
     CertificateThumbprint = 'AB12'; TargetDomain = 'contoso.local'; TenantName = 'Contoso'
-    Tenants = @(@{ Name = 'Fabrikam'; TenantId = 'fabrikam.onmicrosoft.com'; ClientId = 'f1'; Database = 'CopilotAudit_Fabrikam'; LicenceDatabase = 'CopilotLicenseEvents_Fabrikam'; TargetDomain = '' })
+    Tenants = @(@{ Name = 'Fabrikam'; TenantId = 'fabrikam.onmicrosoft.com'; ClientId = 'f1'; Database = 'CopilotAudit_Fabrikam'; LicenseDatabase = 'CopilotLicenseEvents_Fabrikam'; TargetDomain = '' })
 }
 $ts = Get-PipelineTenant -Setting $multi
 Assert-That ($ts.Count -eq 2 -and $ts[0].Name -eq 'Contoso' -and $ts[1].Name -eq 'Fabrikam') 'each tenant is run: the top-level one first, then each listed'

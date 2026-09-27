@@ -86,7 +86,7 @@ FROM dash.UserDay WHERE DateKey BETWEEN @k0 AND @k;", new { k, k0 })).Single();
 SELECT ISNULL(SUM(CASE WHEN rd.DateKey = @k THEN CAST(rd.Interactions AS BIGINT) END), 0), ISNULL(SUM(CASE WHEN rd.DateKey < @k THEN CAST(rd.Interactions AS BIGINT) END), 0) / 28.0
 FROM dash.ResourceDay AS rd JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item AND sl.Rank >= @rank
 WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k;", new { k, k0, rank })).Single();
-            list.Add(new($"Interactions touching content labelled at order {rank} or above", lab.N, lab.Avg, await settings.IntAsync("AlertLabelPerDay", 1)));
+            list.Add(new($"Interactions touching content labeled at order {rank} or above", lab.N, lab.Avg, await settings.IntAsync("AlertLabelPerDay", 1)));
         }
         return (day, list);
     }
@@ -115,13 +115,13 @@ GROUP BY d.Dept, dd.[Date];", new { k0 = ReportContext.Key(from), k1 = ReportCon
         return result;
     }
 
-    /// <summary>The licence pool now: every SKU, Copilot ones first.</summary>
+    /// <summary>The license pool now: every SKU, Copilot ones first.</summary>
     public async Task<List<PoolRow>> PoolAsync() =>
         await HasAsync("audit.LicenseSku")
             ? await db.QueryAsync<PoolRow>("SELECT SkuPartNumber, SkuId, IsCopilot, Enabled, Warning, Suspended, Consumed, CapturedUtc FROM audit.LicenseSku ORDER BY IsCopilot DESC, SkuPartNumber;")
             : [];
 
-    /// <summary>Copilot licences held today by accounts that are disabled (in AD or Entra) or gone from the directory.</summary>
+    /// <summary>Copilot licenses held today by accounts that are disabled (in AD or Entra) or gone from the directory.</summary>
     public async Task<List<LeaverRow>> LeaversAsync(string? root = null, string? q = null, string orderAndPage = "ORDER BY u.DisplayName OFFSET 0 ROWS")
     {
         var hasEntra = await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL THEN 0 ELSE 1 END") == 1;

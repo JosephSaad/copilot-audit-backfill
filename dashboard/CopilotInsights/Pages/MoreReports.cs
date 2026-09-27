@@ -11,7 +11,7 @@ namespace CopilotInsights.Pages.Leadership
     {
         public override string Title => "Scorecard";
         public override string Persona => "Leadership";
-        public override string Intro => "This period against the one before it, of the same length: what moved, and in which part of the organisation.";
+        public override string Intro => "This period against the one before it, of the same length: what moved, and in which part of the organization.";
 
         protected override async Task BuildAsync()
         {
@@ -95,7 +95,7 @@ WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0;", Ctx.Args(new { a =
             Kpis.Add(new("Still there 8 weeks on", Pct(curve[7])));
             Panels.Add(new("Share of a week's users active again, weeks later",
                 Chart.Line(Enumerable.Range(1, 8).Select(i => $"+{i} wk").ToList(), [new Series("Came back", curve, 3)], Fmt.Percent, "Weekly retention", 1),
-                "Averaged over twelve starting weeks, ending with the last complete week. A flattening line is a habit forming; one that keeps falling is novelty wearing off. The period filter does not apply here.", "half"));
+                "Own window: twelve starting weeks, ending with the last complete week, whatever the period. A flattening line is a habit forming; one that keeps falling is novelty wearing off.", "half"));
 
             var last12 = Enumerable.Range(0, 12).Select(i => w1.AddDays(-7 * i)).ToHashSet();
             var counts = byUser.Values.Select(v => v.Count(last12.Contains)).Where(n => n > 0).GroupBy(n => n).ToDictionary(g => g.Key, g => g.Count());
@@ -139,9 +139,9 @@ namespace CopilotInsights.Pages.Compliance
 {
     public sealed class UnitsModel(PageServices s, Metrics m) : InsightsPage(s)
     {
-        public override string Title => "Labelled content by unit";
+        public override string Title => "Labeled content by unit";
         public override string Persona => "Compliance";
-        public override string Intro => "Which parts of the organisation have Copilot working with labelled content, and what kind of content it is.";
+        public override string Intro => "Which parts of the organization have Copilot working with labeled content, and what kind of content it is.";
 
         protected override async Task BuildAsync()
         {
@@ -153,9 +153,9 @@ namespace CopilotInsights.Pages.Compliance
                 for (var c = 0; c < buckets.Count; c++)
                 {
                     var p = series.FirstOrDefault(x => x.Unit == units[r].Unit && x.Bucket == buckets[c].Key);
-                    grid[r, c] = p is { Interactions: > 0 } ? p.Labelled / (double)p.Interactions : null;
+                    grid[r, c] = p is { Interactions: > 0 } ? p.Labeled / (double)p.Interactions : null;
                 }
-            Panels.Add(new("Share of interactions touching labelled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labelled share by unit", 1),
+            Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1),
                 $"One level down. Darker is a larger share. {TrendNote}"));
 
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"

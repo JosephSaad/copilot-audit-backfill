@@ -17,13 +17,13 @@ public sealed class DirectoryModel(PageServices s) : AdminPage(s)
     /// <summary>Each check: its label, why it matters, and the WHERE over dash.Person p / audit.UserDirectory ud.</summary>
     internal static readonly (string Key, string Label, string Why, string Where)[] Checks =
     [
-        ("nomanager", "No manager", "They sit outside the org chart: only whole-organisation viewers see them, and no manager's view counts them.",
+        ("nomanager", "No manager", "They sit outside the org chart: only whole-organization viewers see them, and no manager's view counts them.",
             "p.AccountEnabled = 1 AND p.ManagerUpn IS NULL AND p.Upn <> ISNULL(@top, N'')"),
         ("lostmanager", "Manager not in the directory", "The manager named in AD is not a person in the directory, so the chain above them is broken.",
             "p.AccountEnabled = 1 AND p.ManagerUpn IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.Person AS m WHERE m.Upn = p.ManagerUpn)"),
         ("disabledmanager", "Manager's account disabled", "Their manager has left: the manager's view goes to nobody, and digests to a closed mailbox.",
             "p.AccountEnabled = 1 AND EXISTS (SELECT 1 FROM dash.Person AS m WHERE m.Upn = p.ManagerUpn AND m.AccountEnabled = 0)"),
-        ("unplaced", "Not placed under the top", "No chain of managers reaches the top of the organisation, so levels and scopes cannot be worked out for them.",
+        ("unplaced", "Not placed under the top", "No chain of managers reaches the top of the organization, so levels and scopes cannot be worked out for them.",
             "p.AccountEnabled = 1 AND p.Level IS NULL"),
         ("nodept", "No department", "They count under \"(no department)\" in every breakdown, chargeback and leaderboard.",
             "p.AccountEnabled = 1 AND NULLIF(p.Department, N'') IS NULL"),
@@ -181,7 +181,7 @@ DELETE FROM dash.UseCaseRule;
 INSERT INTO dash.UseCaseRule (AppPattern, WebGrounded, WithAgent, UseCase, Priority, UpdatedBy) VALUES
     (N'%', NULL, 1, N'Working with an agent', 10, N'default'), (N'%Teams%', NULL, NULL, N'Meetings and chats', 20, N'default'),
     (N'Outlook', NULL, NULL, N'Email', 20, N'default'), (N'Word', NULL, NULL, N'Writing documents', 20, N'default'),
-    (N'Excel', NULL, NULL, N'Analysing data', 20, N'default'), (N'PowerPoint', NULL, NULL, N'Presentations', 20, N'default'),
+    (N'Excel', NULL, NULL, N'Analyzing data', 20, N'default'), (N'PowerPoint', NULL, NULL, N'Presentations', 20, N'default'),
     (N'%Loop%', NULL, NULL, N'Collaborative notes', 20, N'default'), (N'%OneNote%', NULL, NULL, N'Collaborative notes', 20, N'default'),
     (N'%', 1, NULL, N'Research on the web', 50, N'default'), (N'%', NULL, NULL, N'Asking questions (Copilot Chat)', 999, N'default');");
         return "The default use-case rules are back.";

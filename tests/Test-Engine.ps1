@@ -2,7 +2,7 @@
     End-to-end tests of the backfill engine against a mock Graph Audit Search
     service (mock_graph.py) and in-memory SQL stand-ins (TestDoubles.cs).
 
-      0  RowBatchReader honours the IDataReader contract (loaded via DataTable.Load)
+      0  RowBatchReader honors the IDataReader contract (loaded via DataTable.Load)
       A  30 days / ~630K records: adaptive windows, beta cap detection + splits,
          a server-side failed search, page 429s under a concurrency ceiling,
          random 503s, token rotation (401), transient SQL failures, a hard stop
@@ -57,7 +57,7 @@ $mock = Start-MockGraph @{}
 try {
     $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
     $end   = [datetime]::new(2026, 8, 31, 0, 0, 0, [DateTimeKind]::Utc)
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
     $sink.FailEvery = 29
@@ -75,13 +75,13 @@ try {
         if ($s.RowsWritten -ge 260000) { $e.RequestStop() }                            # simulated crash / Ctrl+C
     }
 
-    $run1 = Invoke-EngineRun -Mock $mock -Options (New-Options $mock $start $end) -Store $store -Sink $sink -OnTick $tick -Log $logA
+    $run1 = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -OnTick $tick -Log $logA
     $afterRun1 = $store.Snapshot()
     $loaded1 = @($afterRun1 | Where-Object Status -eq 'Loaded').Count
     $partial1 = @($afterRun1 | Where-Object { $_.Status -in 'Downloading', 'Ready', 'Submitted' }).Count
 
-    $run2 = Invoke-EngineRun -Mock $mock -Options (New-Options $mock $start $end) -Store $store -Sink $sink -Log $logA
-    $stats = Get-MockStats $mock
+    $run2 = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -Log $logA
+    $stats = Get-MockStatistic $mock
 
     Write-Host ("  run 1: {0:N1}s, stopped at {1:N0} rows | run 2: {2:N1}s | {3:N0} rows written, {4:N0} pages" -f `
                 $run1.Seconds, $run1.Status.RowsWritten, $run2.Seconds, ($run1.Status.RowsWritten + $run2.Status.RowsWritten),
@@ -140,11 +140,11 @@ $mock = Start-MockGraph @{ days = 8; beta_supported = $false; fail_first_query_c
 try {
     $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
     $end   = [datetime]::new(2026, 8, 9, 0, 0, 0, [DateTimeKind]::Utc)
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
     $logB = [System.Collections.Generic.List[string]]::new()
-    $run = Invoke-EngineRun -Mock $mock -Options (New-Options $mock $start $end) -Store $store -Sink $sink -Log $logB
+    $run = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -Log $logB
 
     Assert-That ($run.Task.Status -eq 'RanToCompletion') "completed ($($run.Task.Status))"
     Assert-That (@($logB | Where-Object { $_ -match 'using v1.0' }).Count -eq 1) 'switched to v1.0 status once'
@@ -163,11 +163,11 @@ try {
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
     $logC = [System.Collections.Generic.List[string]]::new()
-    $opts = New-Options $mock ([datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)) ([datetime]::new(2026, 8, 31, 0, 0, 0, [DateTimeKind]::Utc)) @{ MaxSubmissionsPer24h = 4; InitialWindowHours = 12 }
+    $opts = New-EngineOption $mock ([datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)) ([datetime]::new(2026, 8, 31, 0, 0, 0, [DateTimeKind]::Utc)) @{ MaxSubmissionsPer24h = 4; InitialWindowHours = 12 }
     $script:t0 = [datetime]::UtcNow
     $run = Invoke-EngineRun -Mock $mock -Options $opts -Store $store -Sink $sink -Log $logC `
             -OnTick { param($e) if (([datetime]::UtcNow - $script:t0).TotalSeconds -gt 12) { $e.RequestStop() } }
-    $stats = Get-MockStats $mock
+    $stats = Get-MockStatistic $mock
     Assert-That ($stats.queries_created -eq 4) "stopped at its own budget: $($stats.queries_created) submissions"
     Assert-That ($stats.submits_429 -eq 0) 'service never had to throttle a submission'
     Assert-That (@($logC | Where-Object { $_ -match 'Submission budget reached' }).Count -eq 1) 'budget pause announced once'
@@ -185,11 +185,11 @@ try {
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
     $logD = [System.Collections.Generic.List[string]]::new()
-    $opts = New-Options $mock ([datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)) ([datetime]::new(2026, 8, 31, 0, 0, 0, [DateTimeKind]::Utc))
+    $opts = New-EngineOption $mock ([datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)) ([datetime]::new(2026, 8, 31, 0, 0, 0, [DateTimeKind]::Utc))
     $script:t0 = [datetime]::UtcNow
     $run = Invoke-EngineRun -Mock $mock -Options $opts -Store $store -Sink $sink -Log $logD `
             -OnTick { param($e) if (([datetime]::UtcNow - $script:t0).TotalSeconds -gt 12) { $e.RequestStop() } }
-    $stats = Get-MockStats $mock
+    $stats = Get-MockStatistic $mock
     Assert-That ($stats.queries_created -eq 3) "3 searches accepted"
     Assert-That ($stats.submits_429 -ge 1 -and $stats.submits_429 -le 7) "backed off on 429 instead of hammering ($($stats.submits_429) rejected in ~12s with Retry-After 2s)"
     Assert-That (@($logD | Where-Object { $_ -match 'submission throttled' }).Count -ge 1) 'throttle logged'
@@ -205,11 +205,11 @@ $mock = Start-MockGraph @{ days = 6; rotate_after_pages = 25; fail_first_query_c
 try {
     $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
     $end   = [datetime]::new(2026, 8, 7, 0, 0, 0, [DateTimeKind]::Utc)
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
     $logE = [System.Collections.Generic.List[string]]::new()
-    $opts = New-Options $mock $start $end @{ TokenWaitMinutes = 0.05; InitialWindowHours = 24 }
+    $opts = New-EngineOption $mock $start $end @{ TokenWaitMinutes = 0.05; InitialWindowHours = 24 }
     $run = Invoke-EngineRun -Mock $mock -Options $opts -Store $store -Sink $sink -Log $logE -NoTokenRefresh -TimeoutSec 60
     $snap = $store.Snapshot()
     $fault = if ($run.Task.Exception) { $run.Task.Exception.GetBaseException().Message } else { '' }
@@ -218,7 +218,7 @@ try {
     Assert-That ($fault -match 'no new sign-in completed') 'the reason is stated plainly'
     Assert-That (@($snap | Where-Object Status -eq 'Failed').Count -eq 0) 'no window was written off as Failed'
 
-    $opts2 = New-Options $mock $start $end @{ InitialWindowHours = 24 }
+    $opts2 = New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }
     $run2 = Invoke-EngineRun -Mock $mock -Options $opts2 -Store $store -Sink $sink -Log $logE
     Assert-That ($run2.Task.Status -eq 'RanToCompletion') 'next run with a valid sign-in resumed and completed'
     [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'E')
@@ -246,14 +246,14 @@ try {
     $dataStart = [datetime]::new(2026, 8, 20, 0, 0, 0, [DateTimeKind]::Utc)
     $emptyHours = ($dataStart - $start).TotalHours                          # 456
 
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
     $logF  = [System.Collections.Generic.List[string]]::new()
 
-    $opts = New-Options $mock $start $end @{ InitialWindowHours = 24 }
+    $opts = New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }
     $runF = Invoke-EngineRun -Mock $mock -Options $opts -Store $store -Sink $sink -Log $logF
-    $statsF = Get-MockStats $mock
+    $statsF = Get-MockStatistic $mock
 
     Assert-That ($runF.Task.Status -eq 'RanToCompletion') "completed ($($runF.Task.Status))"
     [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'F')
@@ -306,14 +306,14 @@ try {
     $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
     $end   = [datetime]::new(2026, 8, 31, 0, 0, 0, [DateTimeKind]::Utc)
 
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
     $logG  = [System.Collections.Generic.List[string]]::new()
 
-    $opts = New-Options $mock $start $end @{ InitialWindowHours = 24 }
+    $opts = New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }
     $runG = Invoke-EngineRun -Mock $mock -Options $opts -Store $store -Sink $sink -Log $logG
-    $statsG = Get-MockStats $mock
+    $statsG = Get-MockStatistic $mock
 
     Assert-That ($runG.Task.Status -eq 'RanToCompletion') "completed ($($runG.Task.Status))"
     [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'G')

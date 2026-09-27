@@ -27,7 +27,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
                 new Series("Active, licensed", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
                 new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2),
             ], Fmt.Count, "People licensed and active"),
-            $"Licensed: holding a Copilot licence at the end of the day or week. Copilot Chat only: people without a licence using the free Copilot Chat. {TrendNote}"));
+            $"Licensed: holding a Copilot license at the end of the day or week. Copilot Chat only: people without a license using the free Copilot Chat. {TrendNote}"));
         Panels.Add(new("Adoption rate",
             Chart.Line(x, [new Series("Adoption", tr.Select(w => Ratio(w.ActiveLicensed, w.Licensed)).ToList(), 1)], Fmt.Percent, "Adoption rate"),
             "Licensed people who used Copilot, as a share of people licensed at the end of the day or week.", "half"));
@@ -36,7 +36,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
             null, "half"));
 
         var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
-        Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption by organisation",
+        Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption by organization",
             Chart.Bars(units.OrderByDescending(u => Ratio(u.ActiveLicensed, u.Licensed) ?? -1)
                 .Select(u => new Bar(u.Name, Ratio(u.ActiveLicensed, u.Licensed), u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
                     $"{u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by unit", 1),
@@ -47,9 +47,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
 public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Organisation";
+    public override string Title => "Organization";
     public override string Persona => "Leadership";
-    public override string Intro => "Each part of the organisation one level down, side by side. Select a name to look inside it.";
+    public override string Intro => "Each part of the organization one level down, side by side. Select a name to look inside it.";
 
     protected override async Task BuildAsync()
     {

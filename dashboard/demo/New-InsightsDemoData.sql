@@ -3,7 +3,7 @@
     ------------------------------------------------------------------------
     A synthetic company for trying the dashboard without real data: 2,317
     people in five levels (a CEO, six divisions, 30 departments, 120 teams),
-    Copilot licences rolled out in waves over 26 weeks with their licence
+    Copilot licenses rolled out in waves over 26 weeks with their license
     history, and about half a million interactions shaped like real use -
     champions, regular, light and dormant users, unlicensed people on the
     free Copilot Chat, Copilot Studio agents launched over time, a shifting
@@ -39,7 +39,7 @@ INSERT INTO #last VALUES (0,N'Morgan'),(1,N'Chen'),(2,N'Patel'),(3,N'Nguyen'),(4
  (47,N'Lindqvist'),(48,N'Osei'),(49,N'Marin'),(50,N'Fraser'),(51,N'Petrov'),(52,N'Abe'),(53,N'Grant'),(54,N'Vargas'),(55,N'Nowak'),(56,N'Ito'),
  (57,N'Barros'),(58,N'Quinn'),(59,N'Saleh');
 
-/* Division: name, the head's title, SharePoint site, licence share for staff (%), rollout wave (days ago). */
+/* Division: name, the head's title, SharePoint site, license share for staff (%), rollout wave (days ago). */
 CREATE TABLE #div (d INT PRIMARY KEY, Division NVARCHAR(40), HeadTitle NVARCHAR(80), Site NVARCHAR(40), LicPct INT, WaveDaysAgo INT, Office NVARCHAR(40), City NVARCHAR(40), Country NVARCHAR(40), Loc NVARCHAR(4));
 INSERT INTO #div VALUES
  (0, N'Finance',    N'Chief Financial Officer', N'finance',     55, 120, N'Toronto HQ',  N'Toronto',  N'Canada',         N'CA'),
@@ -110,14 +110,14 @@ LEFT JOIN #org AS ceo ON ceo.id = 0
 LEFT JOIN #org AS l2 ON l2.id = 1 + o.d
 LEFT JOIN #org AS l3 ON l3.Lvl = 3 AND l3.d = o.d AND l3.k = o.k;
 
-/* ---- Licences and their history -------------------------------------------- */
+/* ---- Licenses and their history -------------------------------------------- */
 
 DROP TABLE IF EXISTS #u;
 SELECT o.id, o.Upn, o.Lvl, o.d, o.h, dv.Site, dv.Loc,
        /* managers are all licensed; staff by their division's share */
        CAST(CASE WHEN o.Lvl < 5 OR o.h % 100 < dv.LicPct THEN 1 ELSE 0 END AS BIT) AS Licensed,
        DATEADD(DAY, -(COALESCE(dv.WaveDaysAgo, 180) - (o.h / 7) % 21), @today) AS LicensedOn,
-       /* 1 in 40 licensed staff lost the licence 10-40 days ago */
+       /* 1 in 40 licensed staff lost the license 10-40 days ago */
        CASE WHEN o.Lvl = 5 AND o.h % 40 = 3 THEN DATEADD(DAY, -(10 + o.h % 31), @today) END AS RemovedOn,
        /* engagement: 0 champion, 1 regular, 2 light, 3 dormant; Legal and Operations lean light */
        CASE WHEN (o.h / 101) % 100 + CASE o.d WHEN 5 THEN 15 WHEN 1 THEN 10 ELSE 0 END < 12 THEN 0
@@ -302,7 +302,7 @@ FROM p
 CROSS APPLY (SELECT CASE WHEN p.App IN (N'Word', N'Excel', N'PowerPoint', N'Microsoft Teams', N'Outlook') OR p.hp % 10 < 4 THEN 1 ELSE 0 END AS Touches) AS r
 JOIN #files AS fl ON fl.f = CASE WHEN p.d = 4 AND p.hp % 9 = 0 THEN 8 WHEN p.d = 5 AND p.hp % 5 = 0 THEN 9 ELSE p.hp % 12 END;
 
-/* What the rest of the record says: licence type, memory, and calls to another agent. */
+/* What the rest of the record says: license type, memory, and calls to another agent. */
 UPDATE audit.RawLogFlattened
 SET CopilotEventData_LicenseType = CASE WHEN IsCopilotLic = 1 THEN N'Premium' ELSE N'Starter' END,
     CopilotEventData_MemoryUpdated = CASE WHEN ABS(CHECKSUM(RecordId)) % 40 = 0 THEN 1 ELSE 0 END,
@@ -335,7 +335,7 @@ DROP TABLE IF EXISTS #first, #last, #div, #dept, #org, #u, #ev, #days, #active, 
 
 SELECT (SELECT COUNT(*) FROM audit.UserDirectory) AS People,
        (SELECT COUNT(*) FROM audit.CopilotLicense WHERE IsCopilotLic = 1) AS LicensedToday,
-       (SELECT COUNT(*) FROM audit.LicenseEvent) AS LicenceEvents,
+       (SELECT COUNT(*) FROM audit.LicenseEvent) AS LicenseEvents,
        (SELECT COUNT(DISTINCT ThreadId) FROM audit.RawLogFlattened) AS Sessions,
        (SELECT COUNT_BIG(*) FROM audit.RawLogFlattened) AS Interactions,
        (SELECT COUNT(DISTINCT [User]) FROM audit.RawLogFlattened) AS ActiveEver;

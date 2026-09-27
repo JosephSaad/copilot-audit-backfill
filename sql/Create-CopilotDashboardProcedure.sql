@@ -5,7 +5,7 @@
 
       1. dash.Person and dash.OrgClosure, whole, from audit.UserDirectory
          (on-premises AD) - so the security model follows today's
-         organisation. Small: one row per person, and one per (manager,
+         organization. Small: one row per person, and one per (manager,
          person under them) pair.
       2. dash.UserDay from the bi facts, and dash.ResourceDay (labels and
          sites) from bi.FactAccessedResource, for the days from
@@ -92,7 +92,7 @@ BEGIN
     USING (SELECT 'OrgTopUpnDetected' AS Name, @detected AS Value) AS s ON t.Name = s.Name
     WHEN MATCHED THEN UPDATE SET Value = s.Value, UpdatedBy = N'dash.usp_RefreshDashboard', UpdatedUtc = SYSUTCDATETIME()
     WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy)
-        VALUES (s.Name, s.Value, N'The top of the organisation found in the org chart, used while OrgTopUpn is empty. Written by each refresh.', N'dash.usp_RefreshDashboard');
+        VALUES (s.Name, s.Value, N'The top of the organization found in the org chart, used while OrgTopUpn is empty. Written by each refresh.', N'dash.usp_RefreshDashboard');
     SET @top = COALESCE(@top, @detected);
 
     DROP TABLE IF EXISTS #person;
@@ -137,6 +137,16 @@ BEGIN
         SET @fromKey = YEAR(@localDay) * 10000 + MONTH(@localDay) * 100 + DAY(@localDay);
     END;
 
+    /* A bi refresh since the last rollup that changed an app's category moves the start back to the
+       first day that app was used: Premium use and ChatInteractions depend on the category. */
+    DECLARE @biRun INT = (SELECT MAX(RunId) FROM bi.RefreshRun);
+    IF @fromKey IS NOT NULL
+    BEGIN
+        DECLARE @recatFrom INT = (SELECT MIN(b.RecategorizedFromDateKey) FROM bi.RefreshRun AS b
+                                 WHERE b.RunId > ISNULL((SELECT TOP (1) r.BiRunId FROM dash.RefreshRun AS r WHERE r.BiRunId IS NOT NULL ORDER BY r.RunId DESC), 0));
+        IF @recatFrom < @fromKey SET @fromKey = @recatFrom;
+    END;
+
     DECLARE @noAgent INT = (SELECT AgentKey FROM bi.DimAgent WHERE AgentId = N'(none)');
 
     DROP TABLE IF EXISTS #day;
@@ -149,18 +159,12 @@ BEGIN
                SUM(CASE WHEN f.AgentKey <> ISNULL(@noAgent, -1) THEN 1 ELSE 0 END)   AS AgentInteractions,
                SUM(CAST(f.UsedWebSearch AS INT))                                     AS WebGrounded,
                SUM(CASE WHEN a.AppCategory = N'Copilot Chat' THEN 1 ELSE 0 END)      AS ChatInteractions,
-               SUM(CASE WHEN f.LicenceStatusKey = 1 THEN 1 ELSE 0 END)               AS LicensedUse,
-               /* Use that needs the Premium licence: Copilot inside Word, Excel, PowerPoint, Outlook or Teams
-                  (Copilot Studio agents can be metered without one), or Copilot Chat reading work content
-                  (files, mail, sites) rather than the web. Web-only Copilot Chat is what the free tier gives. */
-               SUM(CASE WHEN f.LicenceStatusKey = 1
-                         AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
-                              OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
-                        THEN 1 ELSE 0 END)                                           AS PremiumUse,
+               SUM(CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END)               AS LicensedUse,
+               SUM(CAST(f.PremiumUse AS INT))                                        AS PremiumUse,   -- set by bi.usp_RefreshBi, the rule's one definition
                SUM(CAST(f.JailbreakDetected AS INT))                                 AS Jailbreak,
                SUM(CAST(f.PromptInjectionDetected AS INT))                           AS PromptInjection,
                SUM(CAST(f.HasBlockedResource AS INT))                                AS BlockedResource,
-               SUM(CAST(f.HasSensitivityLabel AS INT))                               AS LabelledContent
+               SUM(CAST(f.HasSensitivityLabel AS INT))                               AS LabeledContent
         FROM bi.FactInteraction AS f
         JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
         WHERE @fromKey IS NULL OR f.DateKey >= @fromKey
@@ -179,7 +183,7 @@ BEGIN
            ISNULL(i.AgentInteractions, 0) AS AgentInteractions, ISNULL(i.WebGrounded, 0) AS WebGrounded,
            ISNULL(i.ChatInteractions, 0) AS ChatInteractions, ISNULL(i.LicensedUse, 0) AS LicensedUse, ISNULL(i.PremiumUse, 0) AS PremiumUse,
            ISNULL(i.Jailbreak, 0) AS Jailbreak, ISNULL(i.PromptInjection, 0) AS PromptInjection,
-           ISNULL(i.BlockedResource, 0) AS BlockedResource, ISNULL(i.LabelledContent, 0) AS LabelledContent,
+           ISNULL(i.BlockedResource, 0) AS BlockedResource, ISNULL(i.LabeledContent, 0) AS LabeledContent,
            ISNULL(s.Sessions, 0) AS Sessions, ISNULL(s.MultiTurnSessions, 0) AS MultiTurnSessions
     INTO #day
     FROM i
@@ -187,7 +191,7 @@ BEGIN
     OPTION (RECOMPILE);
 
     /* Labels and sites, from bi.FactAccessedResource: the label on each resource
-       read, the site of labelled content, and the site of content Copilot was
+       read, the site of labeled content, and the site of content Copilot was
        blocked from. Sites are already cut to https://host/sites/name there. */
     DROP TABLE IF EXISTS #res;
     WITH r AS
@@ -222,9 +226,9 @@ BEGIN
         DELETE FROM dash.UserDay WHERE DateKey >= @fromKey;
     INSERT INTO dash.UserDay WITH (TABLOCK)
         (DateKey, UserKey, Interactions, Prompts, AppsUsed, AgentInteractions, WebGrounded, ChatInteractions,
-         LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabelledContent, Sessions, MultiTurnSessions)
+         LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions)
     SELECT DateKey, UserKey, Interactions, Prompts, AppsUsed, AgentInteractions, WebGrounded, ChatInteractions,
-           LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabelledContent, Sessions, MultiTurnSessions
+           LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions
     FROM #day;
     DECLARE @dayRows INT = @@ROWCOUNT;
     IF @fromKey IS NULL AND HAS_PERMS_BY_NAME(N'dash.ResourceDay', N'OBJECT', N'ALTER') = 1
@@ -240,15 +244,15 @@ BEGIN
     SELECT AgentKey, MIN(DateKey), MAX(DateKey), COUNT_BIG(*) FROM bi.FactInteraction GROUP BY AgentKey;
     COMMIT TRANSACTION;
 
-    INSERT INTO dash.RefreshRun (StartedUtc, EndedUtc, SinceUtc, FromDateKey, People, ClosureRows, UserDayRows)
-    VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @fromKey, @people, @closure, @dayRows);
+    INSERT INTO dash.RefreshRun (StartedUtc, EndedUtc, SinceUtc, FromDateKey, People, ClosureRows, UserDayRows, BiRunId)
+    VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @fromKey, @people, @closure, @dayRows, @biRun);
 
     SET @msg = CONCAT(N'Dashboard refreshed', CASE WHEN @fromKey IS NULL THEN N' (every day)' ELSE CONCAT(N' from ', @fromKey) END,
                       N': ', FORMAT(@people, 'N0'), N' people, ', FORMAT(@closure, 'N0'), N' org pairs, ',
                       FORMAT(@dayRows, 'N0'), N' person-days written.',
-                      CASE WHEN @top IS NULL THEN N' No top of the organisation: none is set, and no one person has half the directory under them, so nobody sees the whole organisation by level.'
+                      CASE WHEN @top IS NULL THEN N' No top of the organization: none is set, and no one person has half the directory under them, so nobody sees the whole organization by level.'
                            WHEN @detected = @top AND NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'OrgTopUpn' AND NULLIF(LTRIM(RTRIM(Value)), N'') IS NOT NULL)
-                                THEN CONCAT(N' Top of the organisation, from the org chart: ', @top, N'.')
+                                THEN CONCAT(N' Top of the organization, from the org chart: ', @top, N'.')
                            ELSE N'' END);
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
 END;

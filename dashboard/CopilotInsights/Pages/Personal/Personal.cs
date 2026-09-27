@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Personal;
 
 /// <summary>
-/// The employee's own view: their use only, whoever they are, against the organisation's
+/// The employee's own view: their use only, whoever they are, against the organization's
 /// median. Nothing here is anyone else's, so it needs no role and no place in the org chart.
 /// </summary>
 public sealed class IndexModel(PageServices s) : InsightsPage(s)
@@ -22,7 +22,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
         public long MultiTurn { get; set; }
         public long AgentInteractions { get; set; }
         public long WebGrounded { get; set; }
-        public long Labelled { get; set; }
+        public long Labeled { get; set; }
     }
 
     protected override async Task BuildAsync()
@@ -36,11 +36,11 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
 SELECT COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS ActiveDays, ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0) AS Interactions,
        ISNULL(SUM(CAST(ud.Prompts AS BIGINT)), 0) AS Prompts, ISNULL(SUM(CAST(ud.Sessions AS BIGINT)), 0) AS Sessions,
        ISNULL(SUM(CAST(ud.MultiTurnSessions AS BIGINT)), 0) AS MultiTurn, ISNULL(SUM(CAST(ud.AgentInteractions AS BIGINT)), 0) AS AgentInteractions,
-       ISNULL(SUM(CAST(ud.WebGrounded AS BIGINT)), 0) AS WebGrounded, ISNULL(SUM(CAST(ud.LabelledContent AS BIGINT)), 0) AS Labelled
+       ISNULL(SUM(CAST(ud.WebGrounded AS BIGINT)), 0) AS WebGrounded, ISNULL(SUM(CAST(ud.LabeledContent AS BIGINT)), 0) AS Labeled
 FROM dash.UserDay AS ud {string.Format(Mine, "ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1;", args)).FirstOrDefault() ?? new Totals();
 
-        /* The organisation's median, over everyone who used it in the period: an aggregate, shown only for a group big enough to hide anyone in it. */
+        /* The organization's median, over everyone who used it in the period: an aggregate, shown only for a group big enough to hide anyone in it. */
         var peers = (await Db.QueryAsync<(int People, double? MedianDays, double? MedianInteractions)>(@"
 WITH p AS (SELECT UserKey, COUNT(*) AS Days, SUM(CAST(Interactions AS BIGINT)) AS N
            FROM dash.UserDay WHERE DateKey BETWEEN @k0 AND @k1 AND Interactions > 0 GROUP BY UserKey)
@@ -53,10 +53,10 @@ FROM p;", args)).FirstOrDefault();
         var licensed = await Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS l {string.Format(Mine, "l.UserKey")} WHERE l.DateKey = @k1;", args) > 0;
 
-        Kpis.Add(new("Days you used Copilot", Num(t.ActiveDays), showPeers ? $"the organisation's median is {Num(peers.MedianDays)}" : $"of {Ctx.Days}"));
+        Kpis.Add(new("Days you used Copilot", Num(t.ActiveDays), showPeers ? $"the organization's median is {Num(peers.MedianDays)}" : $"of {Ctx.Days}"));
         Kpis.Add(new("Interactions", Num(t.Interactions), showPeers ? $"median {Num(peers.MedianInteractions)}" : null));
         Kpis.Add(new("Conversations", Num(t.Sessions), t.Sessions > 0 ? $"{Pct(Ratio(t.MultiTurn, t.Sessions))} went back and forth" : null));
-        Kpis.Add(new("Licence", licensed ? "Microsoft 365 Copilot" : "Copilot Chat (free)", licensed ? null : "ask your manager if you use it most days"));
+        Kpis.Add(new("License", licensed ? "Microsoft 365 Copilot" : "Copilot Chat (free)", licensed ? null : "ask your manager if you use it most days"));
         if (t.Interactions == 0)
         {
             Notice = $"No Copilot use recorded for you from {Ctx.PeriodLabel}. Records arrive a day or two after use.";
@@ -108,8 +108,8 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", args);
 
         var tips = new List<string>();
         if (t.Sessions > 0 && Ratio(t.MultiTurn, t.Sessions) < 0.3) tips.Add("Most of your conversations are a single prompt. Following up (\"shorter\", \"as a table\", \"what did I miss?\") usually gets a better answer than starting again.");
-        if (apps.Count <= 2) tips.Add("You use Copilot in one or two apps. Try it where you spend the most time: summarising a Teams meeting, drafting in Word, or analysing a sheet in Excel.");
-        if (t.AgentInteractions == 0) tips.Add("You haven't used an agent. Your organisation's agents answer questions from its own content; look for them in Copilot Chat.");
+        if (apps.Count <= 2) tips.Add("You use Copilot in one or two apps. Try it where you spend the most time: summarizing a Teams meeting, drafting in Word, or analyzing a sheet in Excel.");
+        if (t.AgentInteractions == 0) tips.Add("You haven't used an agent. Your organization's agents answer questions from its own content; look for them in Copilot Chat.");
         if (t.WebGrounded == 0) tips.Add("None of your prompts used the web. For current events or public information, Copilot can search the web when that is enabled.");
         if (tips.Count > 0)
             Panels.Add(new("Ideas to get more from it",

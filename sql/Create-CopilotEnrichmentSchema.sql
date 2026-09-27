@@ -4,7 +4,7 @@
     Facts about users that the audit records cannot carry, kept in their own
     tables so nothing here touches the backfill path.
 
-      audit.CopilotLicense   who holds a Copilot licence, and since when -
+      audit.CopilotLicense   who holds a Copilot license, and since when -
                              from Microsoft Graph, by
                              tools/Update-CopilotAuditEnrichment.ps1
       audit.UserDirectory    title, department, division, office, manager and
@@ -27,7 +27,7 @@ SET NOCOUNT ON;
 IF SCHEMA_ID(N'audit') IS NULL
     EXEC (N'CREATE SCHEMA audit AUTHORIZATION dbo;');
 
-/* ---- Licences ---------------------------------------------------------- */
+/* ---- Licenses ---------------------------------------------------------- */
 
 IF OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
     CREATE TABLE audit.CopilotLicense
@@ -50,7 +50,7 @@ IF EXISTS (SELECT 1 FROM sys.columns
              AND name = N'IsCopilotLic' AND is_nullable = 0)
     ALTER TABLE audit.CopilotLicense ALTER COLUMN IsCopilotLic BIT NULL;
 
-/* The Copilot SKU the licence came from, e.g. Microsoft_365_Copilot. */
+/* The Copilot SKU the license came from, e.g. Microsoft_365_Copilot. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'SkuPartNumber') IS NULL
     ALTER TABLE audit.CopilotLicense ADD SkuPartNumber NVARCHAR(100) NULL;
 
@@ -58,13 +58,13 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'SkuPartNumber') IS NULL
     assignedPlans[].assignedDateTime for the Copilot service plan. This is the
     only history Graph offers: it says when the CURRENT assignment began, so
     "licensed since March" is answerable but "was this user licensed last
-    March" is not - a licence granted and later removed leaves no trace.
+    March" is not - a license granted and later removed leaves no trace.
 */
 IF COL_LENGTH(N'audit.CopilotLicense', N'LicensedSinceUtc') IS NULL
     ALTER TABLE audit.CopilotLicense ADD LicensedSinceUtc DATETIME2(0) NULL;
 
 /* The Entra account's state and hire date, from the same user lookup (User.Read.All):
-   a licence on a disabled account is wasted, and the hire date starts the
+   a license on a disabled account is wasted, and the hire date starts the
    new-joiner report's clock. AD's own AccountEnabled is in audit.UserDirectory. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL
     ALTER TABLE audit.CopilotLicense ADD EntraAccountEnabled BIT NULL;
@@ -75,8 +75,22 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'UserType') IS NULL
     ALTER TABLE audit.CopilotLicense ADD UserType NVARCHAR(20) NULL;
 
 /*
-    The tenant's licence pool, from /subscribedSkus (LicenseAssignment.Read.All),
-    which the licence tool already reads to find the Copilot SKUs: seats bought
+    2.4.0: members of the AD groups granted Organization in the dashboard (dash.RoleGrant), expanded
+    by the directory load, nested groups included. bi.OrgSecurity gives them the whole organization,
+    so Power BI honors a group grant the way the dashboard does at sign-in. Replaced whole each load.
+*/
+IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
+    CREATE TABLE audit.GroupMember
+    (
+        GroupName          NVARCHAR(256)  NOT NULL,   -- as granted: DOMAIN\Group
+        UserPrincipalName  NVARCHAR(256)  NOT NULL,
+        LoadedUtc          DATETIME2(0)   NOT NULL CONSTRAINT DF_GroupMember_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_GroupMember PRIMARY KEY (GroupName, UserPrincipalName)
+    );
+
+/*
+    The tenant's license pool, from /subscribedSkus (LicenseAssignment.Read.All),
+    which the license tool already reads to find the Copilot SKUs: seats bought
     (prepaidUnits) and assigned (consumedUnits) per SKU. LicenseSku is the
     latest; LicenseSkuDay keeps one row per SKU per day for the trend.
 */
@@ -165,7 +179,7 @@ IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
                    WHERE object_id = OBJECT_ID(N'audit.UserDirectory') AND name = N'IX_UserDirectory_Mail')
     EXEC (N'CREATE INDEX IX_UserDirectory_Mail ON audit.UserDirectory (Mail);');
 
-/* The account's SID (objectSid, S-1-5-21-...): the dashboard recognises a
+/* The account's SID (objectSid, S-1-5-21-...): the dashboard recognizes a
    Windows sign-in by it, with no directory lookup at sign-in - so it works
    when the web servers are in another domain from the users. */
 IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'Sid') IS NULL

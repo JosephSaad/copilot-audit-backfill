@@ -19,7 +19,7 @@
         time, are not loaded; each is listed in audit.CopilotCsvReject.
       - Rows for other operations are counted and left out: a database holds
         one operation set, as the backfill records it.
-      - After the merge it brings the flattened table, licence events,
+      - After the merge it brings the flattened table, license events,
         sessions and the bi schema up to date from the earliest record it
         added, as -Incremental does.
 
@@ -50,7 +50,7 @@
 .PARAMETER Operations
     The operations this database holds. Only needed for a database with no
     backfill yet; otherwise the backfill's are used, and a different value is
-    refused. Default CopilotInteraction. For a licence-event database, the same
+    refused. Default CopilotInteraction. For a license-event database, the same
     list the backfill takes: 'Change user license','Update user','Add user','Delete user'.
     A row matches when its Operation contains one of them, as the Graph
     search's operation filter does ('Change user license.' matches).
@@ -68,14 +68,14 @@
     Only import and merge; leave the derived tables for the next -Incremental
     run or a manual rebuild.
 
-.PARAMETER SessionLicenceDatabase
+.PARAMETER SessionLicenseDatabase
     Passed to usp_BuildCopilotSessions and bi.usp_RefreshBi as
-    @LicenceEventDatabase, as -Incremental does. Pass the same value the
+    @LicenseEventDatabase, as -Incremental does. Pass the same value the
     nightly run uses.
 
 .EXAMPLE
     .\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports -SqlServer SQLPROD01 -Database CopilotAudit `
-        -SessionLicenceDatabase CopilotLicenseEvents
+        -SessionLicenseDatabase CopilotLicenseEvents
 
 .EXAMPLE
     # A new database, from exports that covered up to 1 September:
@@ -100,7 +100,7 @@ param(
     [datetime] $CoveredThroughUtc,
 
     [switch]   $SkipPostProcessing,
-    [string]   $SessionLicenceDatabase,
+    [string]   $SessionLicenseDatabase,
 
     [ValidateRange(100, 100000)] [int] $BatchRows = 5000
 )
@@ -535,32 +535,32 @@ WHERE FileId = @f;
 function Invoke-CsvDerivedRefresh {
     <#
         The same refresh -Incremental runs after a merge, from the earliest
-        record the import added: flattened rows and licence events (both
+        record the import added: flattened rows and license events (both
         MERGE), sessions from that day, then the bi schema.
     #>
     param(
         [Parameter(Mandatory)][System.Data.SqlClient.SqlConnection] $Connection,
         [Parameter(Mandatory)][datetime] $SinceUtc,
-        [string] $LicenceDatabase
+        [string] $LicenseDatabase
     )
-    $lic = if ($LicenceDatabase) { $LicenceDatabase } else { $null }
+    $lic = if ($LicenseDatabase) { $LicenseDatabase } else { $null }
     if (Test-CsvProc $Connection 'audit.usp_FlattenCopilotAudit') {
         Write-Log ('Flattening records from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
         Invoke-CsvSql -Connection $Connection -TimeoutSeconds 0 -Parameters @{ '@s' = $SinceUtc } -Sql 'EXEC audit.usp_FlattenCopilotAudit @SinceUtc = @s;'
     }
     if (Test-CsvProc $Connection 'audit.usp_ShredLicenseEvents') {
-        Write-Log ('Shredding licence events from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
+        Write-Log ('Shredding license events from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
         Invoke-CsvSql -Connection $Connection -TimeoutSeconds 0 -Parameters @{ '@s' = $SinceUtc } -Sql 'EXEC audit.usp_ShredLicenseEvents @SinceUtc = @s;'
     }
     if (Test-CsvProc $Connection 'audit.usp_BuildCopilotSessions') {
         Write-Log ('Rebuilding sessions and the weekly rollup from {0:yyyy-MM-dd}...' -f $SinceUtc)
         Invoke-CsvSql -Connection $Connection -TimeoutSeconds 0 -Parameters @{ '@l' = $lic; '@s' = $SinceUtc } `
-            -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l, @SinceUtc = @s;'
+            -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l, @SinceUtc = @s;'
     }
     if (Test-CsvProc $Connection 'bi.usp_RefreshBi') {
         Write-Log ('Refreshing the bi star schema from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
         Invoke-CsvSql -Connection $Connection -TimeoutSeconds 0 -Parameters @{ '@s' = $SinceUtc; '@l' = $lic } `
-            -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenceEventDatabase = @l;'
+            -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l;'
     }
     if (Test-CsvProc $Connection 'dash.usp_RefreshDashboard') {
         Write-Log ('Refreshing the dashboard rollups from {0:yyyy-MM-dd}...' -f $SinceUtc)
@@ -689,7 +689,7 @@ INSERT INTO audit.CopilotCsvImport (FolderPath, Operations) OUTPUT INSERTED.Impo
 
         if ([long] $m.RowsAdded -gt 0 -and -not $SkipPostProcessing) {
             $since = [datetime]::SpecifyKind($m.EarliestAddedUtc, [DateTimeKind]::Utc)
-            Invoke-CsvDerivedRefresh -Connection $conn -SinceUtc $since -LicenceDatabase $SessionLicenceDatabase
+            Invoke-CsvDerivedRefresh -Connection $conn -SinceUtc $since -LicenseDatabase $SessionLicenseDatabase
             if (Test-CsvProc $conn 'bi.usp_RefreshBi') {
                 Write-Log ('If a Power BI model refreshes incrementally and this import added records before its refresh window ({0:yyyy-MM-dd}), refresh the model fully once.' -f $since)
             }

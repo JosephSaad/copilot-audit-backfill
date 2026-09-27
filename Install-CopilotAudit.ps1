@@ -6,7 +6,7 @@
     Run it once before the first backfill, and again after it: it does what the
     state of the databases calls for, and is safe to run any number of times.
 
-      1. Creates the Copilot and licence-event databases if they do not exist
+      1. Creates the Copilot and license-event databases if they do not exist
          (compatibility level 160 or the server's highest below it, SIMPLE
          recovery so the bulk loads are minimally logged), and with
          -ServiceAccount gives the nightly job's account a login and db_owner
@@ -14,7 +14,7 @@
       2. Installs or upgrades every table, view and procedure, in the order
          they depend on each other. Nothing is dropped; data is kept.
       3. Builds whatever needs building from the data already loaded:
-           * the licence events shredded, once the licence database has records;
+           * the license events shredded, once the license database has records;
            * every record flattened, the first time there are records to
              flatten - and again once after an upgrade that adds columns (2.2.0),
              so history gets them too;
@@ -33,7 +33,7 @@
     dashboard\Install-CopilotInsights.ps1.
 
 .PARAMETER OrgTopUpn
-    The top of the organisation for the dashboard (usually the CEO). Leave it
+    The top of the organization for the dashboard (usually the CEO). Leave it
     out and the dashboard uses the one person the org chart has most people
     under, or keeps what an administrator already set.
 
@@ -51,23 +51,23 @@
 .EXAMPLE
     .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01
 .EXAMPLE
-    .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard -LicenceEventDatabases CopilotLicenseEvents,CopilotLicenseLive
+    .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard -LicenseEventDatabases CopilotLicenseEvents,CopilotLicenseLive
 #>
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string] $SqlServer,
     [string] $Database = 'CopilotAudit',
-    [string] $LicenceDatabase = 'CopilotLicenseEvents',
-    # Databases holding licence events, for licence at the time of use (the backfill's -SessionLicenceDatabase). Defaults to -LicenceDatabase.
-    [string[]] $LicenceEventDatabases,
+    [string] $LicenseDatabase = 'CopilotLicenseEvents',
+    # Databases holding license events, for license at the time of use (the backfill's -SessionLicenseDatabase). Defaults to -LicenseDatabase.
+    [string[]] $LicenseEventDatabases,
     [pscredential] $SqlCredential,
     [switch] $TrustServerCertificate,
     [switch] $Dashboard,
     [string] $OrgTopUpn,
     [switch] $Rebuild,
     [string] $ReportingTimeZone,
-    [switch] $SkipLicenceDatabase,
+    [switch] $SkipLicenseDatabase,
     # The account the nightly job runs as (DOMAIN\gmsa$ or DOMAIN\user): given a login and db_owner in both databases.
     [string] $ServiceAccount,
     # Accounts that read the bi views and nothing else, such as the Power BI gateway's (DOMAIN\name).
@@ -77,8 +77,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $sqlDir = Join-Path $PSScriptRoot 'sql'
-if (-not $LicenceEventDatabases) { $LicenceEventDatabases = if ($SkipLicenceDatabase) { @() } else { @($LicenceDatabase) } }
-$licList = if ($LicenceEventDatabases) { @($LicenceEventDatabases) -join ',' } else { $null }
+if (-not $LicenseEventDatabases) { $LicenseEventDatabases = if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) } }
+$licList = if ($LicenseEventDatabases) { @($LicenseEventDatabases) -join ',' } else { $null }
 
 function Write-Step([string] $Text) { Write-Host "==> $Text" -ForegroundColor Cyan }
 function Write-Done([string] $Text) { Write-Host "    $Text" }
@@ -130,7 +130,7 @@ function Get-Count([string] $Catalog, [string] $Table) {
 Write-Step "Databases on $SqlServer"
 $targetLevel = [int] (Invoke-Sql -Catalog master -Scalar -Sql "SELECT CASE WHEN CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) >= 16 THEN 160 ELSE CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) * 10 END")
 if ($targetLevel -lt 140) { throw 'SQL Server 2017 or later is needed.' }
-$dbs = @($Database) + $(if ($SkipLicenceDatabase) { @() } else { @($LicenceDatabase) })
+$dbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) })
 foreach ($db in $dbs) {
     $exists = [bool] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT CASE WHEN DB_ID(@d) IS NULL THEN 0 ELSE 1 END' -Parameters @{ '@d' = $db })
     if (-not $exists) {
@@ -165,13 +165,13 @@ $copilotScripts = 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.
                   'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql'
 if ($Dashboard) { $copilotScripts += 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql' }
 foreach ($s in $copilotScripts) { Invoke-SqlFile $Database $s }
-if (-not $SkipLicenceDatabase) {
-    Write-Step "Tables, views and procedures in $LicenceDatabase"
-    foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql', 'Create-AgentEventProcedure.sql') { Invoke-SqlFile $LicenceDatabase $s }
+if (-not $SkipLicenseDatabase) {
+    Write-Step "Tables, views and procedures in $LicenseDatabase"
+    foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql', 'Create-AgentEventProcedure.sql') { Invoke-SqlFile $LicenseDatabase $s }
 }
 
 # The reporting time zone, stored where every procedure reads it (audit.ReportingTimeZone()).
-$zoneDbs = @($Database) + $(if ($SkipLicenceDatabase) { @() } else { @($LicenceDatabase) })
+$zoneDbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) })
 if ($ReportingTimeZone) {
     $known = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT COUNT(*) FROM sys.time_zone_info WHERE name = @z' -Parameters @{ '@z' = $ReportingTimeZone })
     if (-not $known) { throw "'$ReportingTimeZone' is not a time zone SQL Server knows. SELECT name FROM sys.time_zone_info lists them." }
@@ -201,7 +201,7 @@ if ($Dashboard -and $OrgTopUpn) {
     Invoke-Sql -Catalog $Database -Parameters @{ '@v' = $OrgTopUpn.Trim(); '@by' = "$env:USERDOMAIN\$env:USERNAME" } -Sql @"
 UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = 'OrgTopUpn';
 "@
-    Write-Done "top of the organisation: $OrgTopUpn"
+    Write-Done "top of the organization: $OrgTopUpn"
 }
 
 # ---- 3. Build what needs building ---------------------------------------------------------------
@@ -210,14 +210,14 @@ $records = Get-Count $Database 'audit.CopilotAudit'
 $flattened = Get-Count $Database 'audit.RawLogFlattened'
 $todo = @()
 
-if (-not $SkipLicenceDatabase) {
-    $licRecords = Get-Count $LicenceDatabase 'audit.CopilotAudit'
+if (-not $SkipLicenseDatabase) {
+    $licRecords = Get-Count $LicenseDatabase 'audit.CopilotAudit'
     if ($licRecords -gt 0) {
-        Write-Done ("licence events: shredding {0:N0} record(s)..." -f $licRecords)
-        Invoke-Sql -Catalog $LicenceDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents;'
-        Invoke-Sql -Catalog $LicenceDatabase -Sql 'EXEC audit.usp_ShredAgentEvents;'
+        Write-Done ("license events: shredding {0:N0} record(s)..." -f $licRecords)
+        Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents;'
+        Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredAgentEvents;'
     }
-    else { $todo += "Backfill the licence history into $LicenceDatabase (deployment step 7), then run this again." }
+    else { $todo += "Backfill the license history into $LicenseDatabase (deployment step 7), then run this again." }
 }
 
 # Flattened by a version before 2.2.0: rows, but no record shapes - only the 2.2.0
@@ -232,16 +232,16 @@ elseif ($fullBuild) {
     Write-Done ("flattening {0:N0} record(s) ({1})..." -f $records, $why)
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_FlattenCopilotAudit;'
     Write-Done 'sessions, in full...'
-    Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+    Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
     Write-Done 'bi, in full...'
-    Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+    Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
     if ($upgrade) { $todo += 'Refresh the Power BI model in full once. The ready-made model in powerbi\CopilotInsights has every bi view (docs/DEPLOYMENT.md, step 15).' }
 }
 else { Write-Done 'sessions and bi are built; the nightly -Incremental run keeps them current.' }
 
-# 2.3.0: the value catalogue fills as records are flattened; records flattened before it existed are catalogued once here.
+# 2.3.0: the value catalog fills as records are flattened; records flattened before it existed are cataloged once here.
 if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.ValueCatalog') -and (Get-Count $Database 'audit.ValueCatalog') -eq 0) {
-    Write-Done ("value catalogue: reading {0:N0} flattened record(s) once..." -f $flattened)
+    Write-Done ("value catalog: reading {0:N0} flattened record(s) once..." -f $flattened)
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
 }
 
@@ -254,7 +254,7 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }
 }
-if ((Get-Count $Database 'audit.CopilotLicense') -eq 0 -and $records -gt 0) { $todo += 'Load current licences (deployment step 10, tools\Update-CopilotAuditEnrichment.ps1).' }
+if ((Get-Count $Database 'audit.CopilotLicense') -eq 0 -and $records -gt 0) { $todo += 'Load current licenses (deployment step 10, tools\Update-CopilotAuditEnrichment.ps1).' }
 
 # ---- 4. Summary -------------------------------------------------------------------------------
 Write-Host ''

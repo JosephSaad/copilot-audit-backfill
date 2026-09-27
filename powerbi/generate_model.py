@@ -32,7 +32,7 @@ TABLES = {
             ("AppKey", "int64", dict(hidden=True)),
             ("AgentKey", "int64", dict(hidden=True)),
             ("ModelKey", "int64", dict(hidden=True)),
-            ("LicenceStatusKey", "int64", dict(hidden=True)),
+            ("LicenseStatusKey", "int64", dict(hidden=True)),
             ("LicenseTypeKey", "int64", dict(hidden=True)),
             ("SensitivityLabelKey", "int64", dict(hidden=True)),
             ("PromptCount", "int64", dict(hidden=True)),
@@ -46,7 +46,7 @@ TABLES = {
             ("MemoryUpdated", "boolean", dict(desc="True when Copilot updated its memory of the person.")),
             ("DlpEvaluationDeferred", "boolean", dict(desc="True when the DLP check was deferred.")),
             ("CalledAnotherAgent", "boolean", dict(desc="True when the agent handed off to another agent.")),
-            ("PremiumUse", "boolean", dict(desc="True when the interaction needed the Premium licence: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content rather than the web. The dashboard's train and revoke recommendations use the same rule.")),
+            ("PremiumUse", "boolean", dict(desc="True when the interaction needed the Premium license: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content rather than the web. The dashboard's train and revoke recommendations use the same rule.")),
             ("UseCaseKey", "int64", dict(hidden=True)),
         ],
         measures=[
@@ -61,15 +61,15 @@ TABLES = {
              "    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),\n"
              "        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )\n"
              "RETURN\n"
-             '    CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",\n'
+             '    CALCULATE ( [Active users], LicenseStatuses[LicenseStatus] = "Licensed",\n'
              "        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )", "#,0",
-             "People who used Copilot with a licence in the period and still hold one at its end: always part of Licensed users, so adoption cannot pass 100% when licences are removed mid-period (the dashboard's rule)."),
+             "People who used Copilot with a license in the period and still hold one at its end: always part of Licensed users, so adoption cannot pass 100% when licenses are removed mid-period (the dashboard's rule)."),
             ("Premium interactions", "CALCULATE ( [Interactions], Interactions[PremiumUse] = TRUE () )", "#,0",
-             "Interactions that needed the Premium licence."),
+             "Interactions that needed the Premium license."),
             ("Free interactions", "[Interactions] - [Premium interactions]", "#,0",
-             "Interactions the free tier covers: web Copilot Chat, agents, and use without a licence."),
+             "Interactions the free tier covers: web Copilot Chat, agents, and use without a license."),
             ("Premium share", "DIVIDE ( [Premium interactions], [Interactions] )", "0.0%",
-             "The share of interactions that needed the Premium licence."),
+             "The share of interactions that needed the Premium license."),
             ("Premium users", "CALCULATE ( [Active users], Interactions[PremiumUse] = TRUE () )", "#,0",
              "People who used a Premium feature in the period."),
             ("Rank by general use",
@@ -83,7 +83,7 @@ TABLES = {
             ("Rank by premium use",
              "IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,\n"
              "    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Premium interactions] ) )", "#,0",
-             "The person's rank by use that needed the Premium licence. A licence holder low here is paying for what they do not use."),
+             "The person's rank by use that needed the Premium license. A license holder low here is paying for what they do not use."),
             ("Web-grounded interactions",
              "CALCULATE ( [Interactions], Interactions[UsedWebSearch] = TRUE () )", "#,0",
              "Interactions Copilot grounded in a web search."),
@@ -98,7 +98,7 @@ TABLES = {
             ("DateKey", "int64", dict(hidden=True)),
             ("UserKey", "int64", dict(hidden=True)),
             ("AppKey", "int64", dict(hidden=True, desc="The app of the session's first prompt.")),
-            ("LicenceStatusKey", "int64", dict(hidden=True)),
+            ("LicenseStatusKey", "int64", dict(hidden=True)),
             ("PromptCount", "int64", dict(hidden=True)),
             ("SpanMinutes", "double", dict(fmt="#,0.0", desc="Minutes from the first to the last prompt.")),
             ("IsMultiTurn", "boolean", dict(desc="True when the session has more than one prompt.")),
@@ -110,11 +110,11 @@ TABLES = {
             ("Multi-turn sessions", "CALCULATE ( [Sessions], Sessions[IsMultiTurn] = TRUE () )", "#,0",
              "Sessions with more than one prompt."),
         ]),
-    "LicenceChanges": dict(
+    "LicenseChanges": dict(
         desc="One row per Copilot SKU added to (+1) or removed from (-1) a person, from the directory audit log.",
-        view="LicenceChanges",
+        view="LicenseChanges",
         cols=[
-            ("ChangedUtc", "dateTime", dict(fmt="General Date", desc="When the licence changed, UTC.")),
+            ("ChangedUtc", "dateTime", dict(fmt="General Date", desc="When the license changed, UTC.")),
             ("DateKey", "int64", dict(hidden=True)),
             ("UserKey", "int64", dict(hidden=True)),
             ("SkuKey", "int64", dict(hidden=True)),
@@ -122,13 +122,13 @@ TABLES = {
             ("ChangedBy", "string", dict(desc="Who made the change.")),
         ],
         measures=[
-            ("Licences added", "CALCULATE ( COUNTROWS ( LicenceChanges ), LicenceChanges[Change] = 1 )", "#,0",
+            ("Licenses added", "CALCULATE ( COUNTROWS ( LicenseChanges ), LicenseChanges[Change] = 1 )", "#,0",
              "Copilot SKUs assigned in the period."),
-            ("Licences removed", "CALCULATE ( COUNTROWS ( LicenceChanges ), LicenceChanges[Change] = -1 )", "#,0",
+            ("Licenses removed", "CALCULATE ( COUNTROWS ( LicenseChanges ), LicenseChanges[Change] = -1 )", "#,0",
              "Copilot SKUs removed in the period."),
         ]),
     "LicensedDays": dict(
-        desc="One row per person per day on which they held a Copilot licence at the end of the day. Use for licensed-user counts on a date.",
+        desc="One row per person per day on which they held a Copilot license at the end of the day. Use for licensed-user counts on a date.",
         view="LicensedDays",
         cols=[
             ("DateKey", "int64", dict(hidden=True)),
@@ -138,9 +138,9 @@ TABLES = {
             ("Licensed users",
              "CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),\n"
              "    LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )", "#,0",
-             "People holding a Copilot licence at the end of the period."),
+             "People holding a Copilot license at the end of the period."),
             ("Adoption %", "DIVIDE ( [Active licensed users], [Licensed users] )", "0.0%",
-             "Active licensed users divided by people holding a Copilot licence at the end of the period."),
+             "Active licensed users divided by people holding a Copilot license at the end of the period."),
             ("Licensed users not using Copilot",
              "VAR licensed =\n"
              "    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),\n"
@@ -169,7 +169,7 @@ TABLES = {
             ("WeekLabel", "string", dict(desc="Week name, e.g. 2026-W38, for the Saturday-to-Friday week.")),
         ]),
     "Users": dict(
-        desc="One row per person: directory attributes from on-premises Active Directory and today's Copilot licence.",
+        desc="One row per person: directory attributes from on-premises Active Directory and today's Copilot license.",
         view="Users",
         cols=[
             ("UserKey", "int64", dict(hidden=True)),
@@ -188,9 +188,9 @@ TABLES = {
                    f"Manager {i} levels from the top of the chain (a display name)."))
              for i in range(1, 16)] + [
             ("DirectoryStatus", "string", dict(desc="Found when the person is in Active Directory; NotFound usually means they have left.")),
-            ("CopilotLicenceToday", "string", dict(desc="Today's Copilot licence: Licensed, Not licensed or Unknown. Not for past periods.")),
+            ("CopilotLicenseToday", "string", dict(desc="Today's Copilot license: Licensed, Not licensed or Unknown. Not for past periods.")),
             ("CopilotSku", "string", {}),
-            ("LicensedSinceUtc", "dateTime", dict(fmt="yyyy-mm-dd", desc="When the current Copilot licence was assigned, UTC.")),
+            ("LicensedSinceUtc", "dateTime", dict(fmt="yyyy-mm-dd", desc="When the current Copilot license was assigned, UTC.")),
         ],
         calc_cols=[("User", "string",
                     "COALESCE ( Users[DisplayName], Users[UserPrincipalName] )",
@@ -221,7 +221,7 @@ TABLES = {
             ("ModelName", "string", {}),
         ]),
     "Skus": dict(
-        desc="Licence SKUs that appear in the licence history.",
+        desc="License SKUs that appear in the license history.",
         view="Skus",
         cols=[
             ("SkuKey", "int64", dict(hidden=True)),
@@ -229,7 +229,7 @@ TABLES = {
             ("IsCopilot", "boolean", {}),
         ]),
     "LicenseTypes": dict(
-        desc="The licence Copilot recorded on the interaction (the licence the records report).",
+        desc="The license Copilot recorded on the interaction (the license the records report).",
         view="LicenseTypes",
         cols=[("LicenseTypeKey", "int64", dict(hidden=True)), ("LicenseType", "string", {})]),
     "SensitivityLabels": dict(
@@ -274,7 +274,7 @@ TABLES = {
                   ("Agents published", 'CALCULATE ( DISTINCTCOUNT ( AgentEvents[BotSchemaName] ), AgentEvents[Action] = "Published" )', "#,0", "Agents published at least once in the period."),
                   ("Makers", "DISTINCTCOUNT ( AgentEvents[ActorKey] )", "#,0", "People who built or changed an agent.")]),
     "LicensePool": dict(
-        desc="Licences bought, assigned and available per SKU per day, from the tenant's subscriptions.",
+        desc="Licenses bought, assigned and available per SKU per day, from the tenant's subscriptions.",
         view="LicensePool",
         cols=[
             ("SnapshotDate", "dateTime", dict(fmt="yyyy-mm-dd")),
@@ -290,7 +290,7 @@ TABLES = {
         cols=[("WeekEnding", "dateTime", dict(fmt="yyyy-mm-dd")), ("Department", "string", {}),
               ("ActivePeople", "int64", {}), ("Interactions", "int64", {}), ("Sessions", "int64", {}), ("Hidden", "boolean", {})]),
     "ValueNames": dict(
-        desc="Readable names administrators gave the codes in the audit records (labels, apps, agents, licence types), from the dashboard's Admin > Value names.",
+        desc="Readable names administrators gave the codes in the audit records (labels, apps, agents, license types), from the dashboard's Admin > Value names.",
         view="ValueNames",
         cols=[("TableName", "string", {}), ("ColumnName", "string", {}), ("ColumnLabel", "string", {}), ("Value", "string", {}),
               ("Name", "string", {}), ("Records", "int64", {}), ("FirstSeenUtc", "dateTime", dict(fmt="yyyy-mm-dd")), ("LastSeenUtc", "dateTime", dict(fmt="yyyy-mm-dd"))]),
@@ -299,7 +299,7 @@ TABLES = {
         view="UseCases",
         cols=[("UseCaseKey", "int64", dict(hidden=True)), ("App", "string", dict(hidden=True)),
               ("WebGrounded", "boolean", dict(hidden=True)), ("WithAgent", "boolean", dict(hidden=True)),
-              ("UseCase", "string", dict(desc="Email, Meetings and chats, Writing documents, Analysing data, Research on the web..."))]),
+              ("UseCase", "string", dict(desc="Email, Meetings and chats, Writing documents, Analyzing data, Research on the web..."))]),
     "JobFamilies": dict(
         desc="Each person's job family, from their job title and the rules in the dashboard's Admin > Classifications and events.",
         view="JobFamilies",
@@ -310,26 +310,26 @@ TABLES = {
         cols=[("Day", "dateTime", dict(fmt="yyyy-mm-dd")), ("DateKey", "int64", dict(hidden=True)),
               ("Label", "string", {}), ("Kind", "string", {})]),
     "OrgSecurity": dict(
-        desc="Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organisation role.",
+        desc="Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organization role.",
         view="OrgSecurity", hidden=True,
         cols=[("ViewerUpn", "string", dict(hidden=True)), ("UserKey", "int64", dict(hidden=True))]),
-    "LicenceStatuses": dict(
-        desc="Whether the person held a Copilot licence when the interaction or session happened.",
-        view="LicenceStatuses",
+    "LicenseStatuses": dict(
+        desc="Whether the person held a Copilot license when the interaction or session happened.",
+        view="LicenseStatuses",
         cols=[
-            ("LicenceStatusKey", "int64", dict(hidden=True)),
-            ("LicenceStatus", "string", dict(desc="Licensed, Not licensed, or Unknown (no record either way; never the same as Not licensed).")),
+            ("LicenseStatusKey", "int64", dict(hidden=True)),
+            ("LicenseStatus", "string", dict(desc="Licensed, Not licensed, or Unknown (no record either way; never the same as Not licensed).")),
         ]),
 }
 
 RELATIONSHIPS = [
     ("Interactions", "DateKey", "Calendar"), ("Interactions", "UserKey", "Users"),
     ("Interactions", "AppKey", "Apps"), ("Interactions", "AgentKey", "Agents"),
-    ("Interactions", "ModelKey", "Models"), ("Interactions", "LicenceStatusKey", "LicenceStatuses"),
+    ("Interactions", "ModelKey", "Models"), ("Interactions", "LicenseStatusKey", "LicenseStatuses"),
     ("Sessions", "DateKey", "Calendar"), ("Sessions", "UserKey", "Users"),
-    ("Sessions", "AppKey", "Apps"), ("Sessions", "LicenceStatusKey", "LicenceStatuses"),
-    ("LicenceChanges", "DateKey", "Calendar"), ("LicenceChanges", "UserKey", "Users"),
-    ("LicenceChanges", "SkuKey", "Skus"),
+    ("Sessions", "AppKey", "Apps"), ("Sessions", "LicenseStatusKey", "LicenseStatuses"),
+    ("LicenseChanges", "DateKey", "Calendar"), ("LicenseChanges", "UserKey", "Users"),
+    ("LicenseChanges", "SkuKey", "Skus"),
     ("LicensedDays", "DateKey", "Calendar"), ("LicensedDays", "UserKey", "Users"),
     ("Interactions", "LicenseTypeKey", "LicenseTypes"), ("Interactions", "SensitivityLabelKey", "SensitivityLabels"),
     ("AccessedResources", "DateKey", "Calendar"), ("AccessedResources", "UserKey", "Users"), ("AccessedResources", "AppKey", "Apps"),
@@ -449,7 +449,7 @@ def main():
              + ",".join(f'"{n}"' for n in TABLES) + "]\n\n",
              "annotation PBI_ProTooling = [\"DevMode\"]\n\n"]
     model += [f"ref table {n}\n" for n in TABLES]
-    model += ["\nref role Organisation\n"]
+    model += ["\nref role Organization\n"]
     write(os.path.join(d, "model.tmdl"), "".join(model))
 
     def param(name, value, typ, text):
@@ -475,10 +475,10 @@ def main():
         write(os.path.join(d, "tables", f"{n}.tmdl"), table_tmdl(n, t))
 
     # Row-level security from the org chart: a viewer sees the people at or under them (bi.OrgSecurity).
-    write(os.path.join(d, "roles", "Organisation.tmdl"),
+    write(os.path.join(d, "roles", "Organization.tmdl"),
           desc("Each viewer sees the people at or under them in the org chart, as the dashboard does.\n"
                "Add the report's viewers (or an Entra group) to this role in the Power BI service.", "") +
-          "role Organisation\n\tmodelPermission: read\n\n"
+          "role Organization\n\tmodelPermission: read\n\n"
           "\ttablePermission Users = Users[UserKey] IN CALCULATETABLE ( VALUES ( OrgSecurity[UserKey] ), OrgSecurity[ViewerUpn] = USERPRINCIPALNAME () )\n")
 
     # Report: one blank page, PBIR format.
@@ -503,7 +503,7 @@ def main():
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.0.0/schema.json",
         "name": "overview", "displayName": "Overview", "displayOption": "FitToPage",
         "height": 720, "width": 1280}, indent=2) + "\n")
-    # The dashboard's categorical colours, so charts look the same in both.
+    # The dashboard's categorical colors, so charts look the same in both.
     write(os.path.join(rp, "StaticResources", "RegisteredResources", "CopilotInsights.json"), json.dumps({
         "name": "Copilot Insights",
         "dataColors": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],

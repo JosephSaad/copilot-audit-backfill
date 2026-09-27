@@ -4,7 +4,7 @@
     Turns the AzureActiveDirectory records in audit.CopilotAudit into
     audit.LicenseEvent and audit.LicenseEventProperty.
 
-    Run it in the database the licence-operations backfill loaded - a
+    Run it in the database the license-operations backfill loaded - a
     different database from the Copilot one, because the backfill refuses to
     mix operation sets in a single database.
 
@@ -40,7 +40,7 @@ BEGIN
 
     IF @RebuildAll = 1
     BEGIN
-        RAISERROR('Rebuilding the licence event tables from scratch.', 0, 1) WITH NOWAIT;
+        RAISERROR('Rebuilding the license event tables from scratch.', 0, 1) WITH NOWAIT;
         TRUNCATE TABLE audit.LicenseEventProperty;
         TRUNCATE TABLE audit.LicenseEventChunk;
         TRUNCATE TABLE audit.LicenseEvent;
@@ -280,7 +280,7 @@ BEGIN
 
     SET @parsed = @@ROWCOUNT;
 
-    SET @msg = CONCAT(N'Shred complete: ', FORMAT(@done, 'N0'), N' licence event(s); ',
+    SET @msg = CONCAT(N'Shred complete: ', FORMAT(@done, 'N0'), N' license event(s); ',
                       FORMAT(@complete, 'N0'), N' of ', FORMAT(@groups, 'N0'),
                       N' chunk group(s) reassembled into ', FORMAT(@parsed, 'N0'), N' propert(ies).');
     RAISERROR(@msg, 0, 1) WITH NOWAIT;

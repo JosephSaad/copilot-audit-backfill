@@ -25,9 +25,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Panels.Add(new("By employee type", Groups.AdoptionBars(types, "Adoption by employee type"), "From the employeeType attribute in AD.", "half"));
         Panels.Add(new("Managers and individual contributors", Groups.AdoptionBars(roles, "Adoption by role"),
             "A manager is anyone with someone reporting to them.", "half"));
-        Panels.Add(new("By level in the organisation",
+        Panels.Add(new("By level in the organization",
             Chart.Bars(levels.Where(l => l.Licensed > 0).OrderBy(l => l.Name).Select(l => new Bar(l.Name, l.ActiveLicensed / (double)l.Licensed, Note: $"{l.ActiveLicensed:#,0} of {l.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by level", 1),
-            "Level 1 is the top of the organisation.", "half"));
+            "Level 1 is the top of the organization.", "half"));
         Panels.Add(new("By job title", Groups.AdoptionBars(titles, "Adoption by job title", 15),
             "The fifteen titles with the highest adoption." + (ft > 0 ? $" {ft} title(s) under {Ctx.MinGroupSize} people combined." : ""), "half"));
         var tt = Groups.Table(titles, "Job title");

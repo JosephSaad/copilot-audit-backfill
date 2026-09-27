@@ -44,7 +44,7 @@ SELECT wk.WeekEnding,
         WHERE ld.DateKey = YEAR(wk.WeekEnding) * 10000 + MONTH(wk.WeekEnding) * 100 + DAY(wk.WeekEnding)) AS Licensed,
        (SELECT ISNULL(SUM(CAST(I AS BIGINT)), 0) FROM per WHERE per.WeekEnding = wk.WeekEnding) AS Interactions
 FROM wk ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = ReportContext.Key(w0.AddDays(-6)), wk1 = ReportContext.Key(w1) }));
-        /* Leading weeks before any data are not history; start at the first week with a licence or any use. */
+        /* Leading weeks before any data are not history; start at the first week with a license or any use. */
         return rows.SkipWhile(r => r.Active == 0 && r.Licensed == 0).ToList();
     }
 
@@ -53,9 +53,10 @@ FROM wk ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = Re
 
 public sealed class IndexModel(PageServices s) : InsightsPage(s)
 {
+    public override string? OwnWindow => "all history, projected 13, 26 or 52 weeks ahead";
     public override string Title => "Forecast";
     public override string Persona => "Forecasting";
-    public override string Intro => "Where use and licences are heading, from the last year of weekly history, with how sure the projection can be.";
+    public override string Intro => "Where use and licenses are heading, from the last year of weekly history, with how sure the projection can be.";
     public override bool UsesFilters => true;
 
     protected override async Task BuildAsync()
@@ -66,7 +67,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"h={h}"))}\"{(h == horizon ? " class=\"on\"" : "")}>{h} weeks</a>"));
         Panels.Add(new("How far ahead", new HtmlString($"<p class=\"sub\">Forecast: {links}</p>"),
             "Damped-trend exponential smoothing, fitted to each weekly series separately. The shaded band is the 95% interval: it widens the further out it goes. "
-            + "This projects history; a planned rollout or reclaim will move it. The period filter does not apply here."));
+            + "This projects history; a planned rollout or reclaim will move it."));
         if (hist.Count < 8)
         {
             Notice = $"A forecast needs at least 8 weeks of history; there are {hist.Count}.";
@@ -82,24 +83,24 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
             return (new Series(name, y.Select(v => (double?)v).ToList(), slot), p.Forecast, p.Low, p.High);
         }
 
-        var licensed = Line("Licences held", 1, h => h.Licensed);
+        var licensed = Line("Licenses held", 1, h => h.Licensed);
         var active = Line("Active, licensed", 3, h => h.ActiveLicensed);
         var chat = Line("Copilot Chat only", 2, h => h.ChatOnly);
         var inter = Line("Interactions", 1, h => h.Interactions);
 
         double Ahead((Series, IReadOnlyList<double> F, IReadOnlyList<double>, IReadOnlyList<double>) l) => l.F[^1];
         var nowHeld = hist[^1].Licensed; var nowActive = hist[^1].ActiveLicensed;
-        Kpis.Add(new($"Licences held in {horizon} weeks", Num(Math.Round(Ahead(licensed))), $"now {nowHeld:#,0}, on the current trend"));
+        Kpis.Add(new($"Licenses held in {horizon} weeks", Num(Math.Round(Ahead(licensed))), $"now {nowHeld:#,0}, on the current trend"));
         Kpis.Add(new($"Active licensed people in {horizon} weeks", Num(Math.Round(Ahead(active))), $"now {nowActive:#,0} a week"));
         Kpis.Add(new("Weekly adoption then", Pct(Ratio(Ahead(active), Ahead(licensed))), $"now {Pct(Ratio(nowActive, nowHeld))}"));
-        Kpis.Add(new($"Copilot Chat-only users in {horizon} weeks", Num(Math.Round(Ahead(chat))), $"now {hist[^1].ChatOnly:#,0} a week: demand for a licence"));
+        Kpis.Add(new($"Copilot Chat-only users in {horizon} weeks", Num(Math.Round(Ahead(chat))), $"now {hist[^1].ChatOnly:#,0} a week: demand for a license"));
 
-        Panels.Add(new("Licences held and licensed people using them",
-            Chart.Projection(labels, hist.Count, [licensed, active], Fmt.Count, "Licences and active licensed people, forecast"),
-            "Each point is a Saturday-to-Friday week. The gap between the lines is licences not used that week; if it widens, licences are being bought faster than they are taken up."));
-        Panels.Add(new("Copilot Chat without a licence",
+        Panels.Add(new("Licenses held and licensed people using them",
+            Chart.Projection(labels, hist.Count, [licensed, active], Fmt.Count, "Licenses and active licensed people, forecast"),
+            "Each point is a Saturday-to-Friday week. The gap between the lines is licenses not used that week; if it widens, licenses are being bought faster than they are taken up."));
+        Panels.Add(new("Copilot Chat without a license",
             Chart.Projection(labels, hist.Count, [chat], Fmt.Count, "Unlicensed Copilot Chat users, forecast"),
-            "People using the free Copilot Chat each week. A rising line is demand the licence count does not yet meet.", "half"));
+            "People using the free Copilot Chat each week. A rising line is demand the license count does not yet meet.", "half"));
         Panels.Add(new("Interactions",
             Chart.Projection(labels, hist.Count, [inter], Fmt.Count, "Weekly interactions, forecast"), null, "half"));
 
@@ -110,15 +111,15 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
         var rateHi = licensed.Item3.Zip(active.Item4, (l, a) => l > 0 ? Math.Min(1, a / l) : 0).ToList();
         Panels.Add(new("Weekly adoption",
             Chart.Projection(labels, hist.Count, [(new Series("Adoption", rateHist, 3), rateF, rateLo, rateHi)], Fmt.Percent, "Weekly adoption, forecast"),
-            "Licensed people active in the week, as a share of licences held. The band combines both forecasts' intervals, so it is wide."));
+            "Licensed people active in the week, as a share of licenses held. The band combines both forecasts' intervals, so it is wide."));
     }
 }
 
-public sealed class OptimiseModel(PageServices s) : InsightsPage(s)
+public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "Licence optimisation";
+    public override string Title => "License optimization";
     public override string Persona => "Forecasting";
-    public override string Intro => "What to do with Copilot licences: reclaim, reassign, coach or buy, with what each is worth. Based on the last 30 days and the 13-week forecast.";
+    public override string Intro => "What to do with Copilot licenses: reclaim, reassign, coach or buy, with what each is worth. Based on the last 30 days and the 13-week forecast.";
     public override bool UsesFilters => true;
 
     sealed class DeptRow
@@ -134,8 +135,8 @@ public sealed class OptimiseModel(PageServices s) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var price = decimal.TryParse(await S.Settings.StringAsync("LicenceMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
-        var currency = await S.Settings.StringAsync("LicenceCurrency") ?? "USD";
+        var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
+        var currency = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         string Money(decimal v) => $"{v:#,0} {currency}";
         var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
 
@@ -161,15 +162,15 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         var hist = await Weekly.HistoryAsync(Db, Ctx);
         var proj = hist.Count >= 8 ? Forecast.Holt(hist.Select(h => (double)h.ActiveLicensed).ToList(), 13) : null;
         var projectedActive = proj is null ? active : (int)Math.Ceiling(proj.At(13));
-        /* Enough for the people forecast to use a licence each week in 13 weeks, a 10% margin for monthly-only users,
+        /* Enough for the people forecast to use a license each week in 13 weeks, a 10% margin for monthly-only users,
            and the heavy Copilot Chat users who would use one now. */
         var target = (int)Math.Ceiling(Math.Max(projectedActive, active) * 1.10) + demand;
         var change = target - held;
         var reassign = Math.Min(idle, demand);
 
-        Kpis.Add(new("Licences held", Num(held), $"{Pct(Ratio(active, held))} used in the last 30 days"));
+        Kpis.Add(new("Licenses held", Num(held), $"{Pct(Ratio(active, held))} used in the last 30 days"));
         Kpis.Add(new($"Unused for {Ctx.InactiveDays}+ days", Num(idle), $"{Money(idle * price)} a month", idle > 0 ? "crit" : null));
-        Kpis.Add(new("Heavy Copilot Chat users", Num(demand), "no licence, used it on 6+ of the last 30 days"));
+        Kpis.Add(new("Heavy Copilot Chat users", Num(demand), "no license, used it on 6+ of the last 30 days"));
         Kpis.Add(new("Right size in 13 weeks", Num(target), change == 0 ? "as held" : change > 0 ? $"{change:#,0} more than held" : $"{-change:#,0} fewer than held"));
 
         bool Can(string role) => Viewer.Has(role);
@@ -179,39 +180,39 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         void Rec(string cls, string title, string big, string text, string link = "")
             => recs.Append($"<div class=\"rec {cls}\"><h3>{WebUtility.HtmlEncode(title)}</h3><div class=\"big\">{WebUtility.HtmlEncode(big)}</div><p>{WebUtility.HtmlEncode(text)}{(link == "" ? "" : " " + link)}</p></div>");
         if (reassign > 0)
-            Rec("save", "Revoke and reassign", $"{reassign:#,0} licences",
-                $"Move licences unused for {Ctx.InactiveDays}+ days to the heavy Copilot Chat users who would use them. Costs nothing; turns {Money(reassign * price)} a month of idle spend into use.",
+            Rec("save", "Revoke and reassign", $"{reassign:#,0} licenses",
+                $"Move licenses unused for {Ctx.InactiveDays}+ days to the heavy Copilot Chat users who would use them. Costs nothing; turns {Money(reassign * price)} a month of idle spend into use.",
                 A("Revoke list", "/forecasting/actions", Roles.Licensing, "kind=revoke") + " " + A("Upgrade list", "/forecasting/actions", Roles.Licensing, "kind=upgrade"));
         if (idle - reassign > 0)
             Rec("save", "Reclaim what is left", Money((idle - reassign) * price) + " a month",
-                $"{idle - reassign:#,0} licences unused for {Ctx.InactiveDays}+ days with no one waiting for them. Reclaim at renewal, or after a reminder.",
+                $"{idle - reassign:#,0} licenses unused for {Ctx.InactiveDays}+ days with no one waiting for them. Reclaim at renewal, or after a reminder.",
                 A("Who they are", "/forecasting/actions", Roles.Licensing, "kind=revoke"));
         if (demand - reassign > 0)
-            Rec("spend", "Upgrade proven Copilot Chat users", $"{demand - reassign:#,0} licences",
-                $"Heavy Copilot Chat users with no licence and none free to move: {Money((demand - reassign) * price)} a month, for people already using Copilot most days.",
+            Rec("spend", "Upgrade proven Copilot Chat users", $"{demand - reassign:#,0} licenses",
+                $"Heavy Copilot Chat users with no license and none free to move: {Money((demand - reassign) * price)} a month, for people already using Copilot most days.",
                 A("Who they are", "/forecasting/actions", Roles.Licensing, "kind=upgrade"));
         if (light > 0)
             Rec("info", "Train before revoking", $"{light:#,0} people",
-                "Licensed, but used Copilot on only one or two days in the last 30. Training or a champion usually does more than taking the licence back.",
+                "Licensed, but used Copilot on only one or two days in the last 30. Training or a champion usually does more than taking the license back.",
                 A("Who to train", "/forecasting/actions", Roles.Licensing, "kind=train"));
         Rec(change > 0 ? "spend" : "save", "Right-size for the next quarter", change == 0 ? "Hold" : change > 0 ? $"+{change:#,0}" : $"{change:#,0}",
             $"On the forecast, about {projectedActive:#,0} licensed people will use Copilot each week in 13 weeks. With a 10% margin and today's heavy demand, "
-            + $"{target:#,0} licences cover it: {(change >= 0 ? "a cost of " + Money(change * price) : "a saving of " + Money(-change * price))} a month against today.");
+            + $"{target:#,0} licenses cover it: {(change >= 0 ? "a cost of " + Money(change * price) : "a saving of " + Money(-change * price))} a month against today.");
         recs.Append("</div>");
         Panels.Add(new("Recommendations", new HtmlString(recs.ToString()),
-            $"At {Money(price)} a licence a month (set in Admin › Access). Links to named lists appear for people with the role."));
+            $"At {Money(price)} a license a month (set in Admin › Access). Links to named lists appear for people with the role."));
 
         var shown = FoldSmall(rows, r => r.People, small => new DeptRow
         {
             Department = "Smaller departments", People = small.Sum(r => r.People), Held = small.Sum(r => r.Held), Active = small.Sum(r => r.Active),
             Idle = small.Sum(r => r.Idle), Light = small.Sum(r => r.Light), Demand = small.Sum(r => r.Demand),
         }, out var folded).OrderByDescending(r => Math.Abs(r.Demand - r.Idle)).ToList();
-        Panels.Add(new("Unused licences against demand, by department",
+        Panels.Add(new("Unused licenses against demand, by department",
             Chart.Columns(shown.Take(15).Select(r => r.Department).ToList(), [
                 new Series("Unused", shown.Take(15).Select(r => (double?)r.Idle).ToList(), 2),
                 new Series("Heavy demand", shown.Take(15).Select(r => (double?)r.Demand).ToList(), 3),
-            ], Fmt.Count, "Unused licences and demand by department", stacked: false),
-            "Where licences sit idle and where people without one use Copilot most. The departments with the biggest gap either way come first."));
+            ], Fmt.Count, "Unused licenses and demand by department", stacked: false),
+            "Where licenses sit idle and where people without one use Copilot most. The departments with the biggest gap either way come first."));
         var t = new Table
         {
             Headers = ["Department", "People", "Held", "Used (30 days)", "Unused", "Light users", "Heavy demand", "Suggested change", "Monthly effect"],
@@ -225,7 +226,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         }
         CsvTable = t;
         Panels.Add(new("By department", t.Render(),
-            "Suggested change: heavy demand less unused licences, within the department. Negative is licences to release." +
+            "Suggested change: heavy demand less unused licenses, within the department. Negative is licenses to release." +
             (folded > 0 ? $" {folded} department(s) under {Ctx.MinGroupSize} people are combined." : ""), "full", CsvUrl()));
     }
 }

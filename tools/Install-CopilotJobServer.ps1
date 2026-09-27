@@ -60,7 +60,7 @@
 param(
     [string] $SqlServer,
     [string] $Database,
-    [string] $LicenceDatabase,
+    [string] $LicenseDatabase,
     [switch] $TrustServerCertificate,
     [string] $ServiceAccount,
     [pscredential] $ServiceAccountCredential,
@@ -94,13 +94,13 @@ function Write-Done([string] $Text) { Write-Information "    $Text" -Information
 # Settings: what the pipeline reads, kept between runs
 # ===========================================================================
 
-$script:SettingOrder = 'SqlServer', 'Database', 'LicenceDatabase', 'TrustServerCertificate', 'TenantId', 'ClientId',
+$script:SettingOrder = 'SqlServer', 'Database', 'LicenseDatabase', 'TrustServerCertificate', 'TenantId', 'ClientId',
                        'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'Dashboard', 'HistoryDays',
                        'LogPath', 'LogRetentionDays', 'TenantName', 'Tenants'
 
 function Get-DefaultSetting {
     [ordered]@{
-        SqlServer = ''; Database = 'CopilotAudit'; LicenceDatabase = 'CopilotLicenseEvents'; TrustServerCertificate = $false
+        SqlServer = ''; Database = 'CopilotAudit'; LicenseDatabase = 'CopilotLicenseEvents'; TrustServerCertificate = $false
         TenantId = ''; ClientId = ''; CertificateThumbprint = ''; TargetDomain = ''; EmployeeTypes = @('EMP', 'NONW')
         Dashboard = $false; HistoryDays = 180; LogPath = (Join-Path $script:Root 'logs'); LogRetentionDays = 90
         TenantName = ''; Tenants = @()   # more tenants: tools\Add-CopilotTenant.ps1
@@ -170,6 +170,7 @@ function Get-PrivateKeyFile {
 }
 
 function Grant-PrivateKeyRead {
+    [CmdletBinding(SupportsShouldProcess)]
     param([System.Security.Cryptography.X509Certificates.X509Certificate2] $Certificate, [string] $Account)
     $file = Get-PrivateKeyFile $Certificate
     $acl = Get-Acl -LiteralPath $file
@@ -199,6 +200,7 @@ function Add-SidToRightLine {
 }
 
 function Grant-BatchLogonRight {
+    [CmdletBinding(SupportsShouldProcess)]
     param([string] $Account)
     $sid = ([System.Security.Principal.NTAccount] $Account).Translate([System.Security.Principal.SecurityIdentifier]).Value
     $dir = Join-Path ([System.IO.Path]::GetTempPath()) "copilot-secedit-$PID"
@@ -221,6 +223,7 @@ function Grant-BatchLogonRight {
 }
 
 function Test-ServiceAccount {
+    [CmdletBinding(SupportsShouldProcess)]
     param([string] $Account)
     if (-not $Account.EndsWith('$')) { return }
     $name = $Account.Split('\')[-1]
@@ -253,6 +256,7 @@ function Test-Endpoint {
 # ===========================================================================
 
 function Register-NightlyTask {
+    [CmdletBinding(SupportsShouldProcess)]
     param([string] $Account, [pscredential] $Credential, [string] $Time)
     $pipeline = Join-Path $script:Root 'Invoke-CopilotPipeline.ps1'
     $pwsh = (Get-Command pwsh -ErrorAction Stop).Source
@@ -286,7 +290,7 @@ function Invoke-Main {
 
     $saved = if (Test-Path -LiteralPath $SettingsPath) { Import-PowerShellDataFile -LiteralPath $SettingsPath } else { @{} }
     $given = @{}
-    foreach ($k in 'SqlServer', 'Database', 'LicenceDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes') {
+    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes') {
         $v = Get-Variable -Name $k -ValueOnly
         if ($v) { $given[$k] = $v }
     }
@@ -334,7 +338,7 @@ function Invoke-Main {
     # ---- 4. Databases ----------------------------------------------------------------------
     if (-not $SkipDatabase) {
         Write-Step "Databases on $($s.SqlServer)"
-        $install = @{ SqlServer = $s.SqlServer; Database = $s.Database; LicenceDatabase = $s.LicenceDatabase; ServiceAccount = $account }
+        $install = @{ SqlServer = $s.SqlServer; Database = $s.Database; LicenseDatabase = $s.LicenseDatabase; ServiceAccount = $account }
         if ($s.TrustServerCertificate) { $install.TrustServerCertificate = $true }
         if ($s.Dashboard) { $install.Dashboard = $true }
         if ($ReportingTimeZone) { $install.ReportingTimeZone = $ReportingTimeZone }

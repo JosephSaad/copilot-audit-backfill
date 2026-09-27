@@ -18,8 +18,8 @@ jobs:
         # Windows only: the tool targets Windows Server x64.
         os: [windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
       - name: Test-Engine
@@ -60,8 +60,8 @@ jobs:
       SQLIT_PASSWORD: ${{ format('Ci-{0}-Qz9', github.run_id) }}
       SQLIT_DATABASE: CopilotAuditIntegration
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
       - name: Wait for SQL Server
@@ -86,8 +86,8 @@ jobs:
     name: Copilot Insights dashboard
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
       - name: Test
@@ -104,7 +104,7 @@ jobs:
           Compress-Archive -Path publish/CopilotInsights -DestinationPath "$name.zip" -CompressionLevel Optimal
           Get-Item "$name.zip" | Select-Object Name, Length
       - name: Upload the site for the publish job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dashboard-site
           path: copilot-insights-*.zip
@@ -115,7 +115,7 @@ jobs:
     name: Offline module bundle (Windows x64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Stage the tool and save the modules
         shell: pwsh
@@ -150,10 +150,10 @@ jobs:
             '  Copyright : (c) Microsoft Corporation. All rights reserved.'
             '  Source    : https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication'
             '  Project   : https://github.com/microsoftgraph/msgraph-sdk-powershell'
-            '  Licence   : https://aka.ms/devservicesagreement'
+            '  License   : https://aka.ms/devservicesagreement'
             ''
             'It is redistributed here only so the tool can be installed on a disconnected'
-            "server. Microsoft's licence terms govern that module; this project's MIT"
+            "server. Microsoft's license terms govern that module; this project's MIT"
             'LICENSE covers only the files outside the Modules folder.'
             'Modules/MODULES-MANIFEST.csv lists a SHA-256 for every bundled file.'
             ''
@@ -166,7 +166,7 @@ jobs:
           Get-Item "$name.zip" | Select-Object Name, Length
 
       - name: Upload the bundle for the publish job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: offline-bundle
           path: copilot-audit-backfill-*-offline-win-x64.zip
@@ -178,16 +178,16 @@ jobs:
     needs: [test, sql-integration, dashboard, bundle]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download the offline bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: offline-bundle
           path: dist
 
       - name: Download the dashboard site
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dashboard-site
           path: dist

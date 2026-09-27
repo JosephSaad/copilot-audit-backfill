@@ -56,11 +56,11 @@
 SET NOCOUNT ON;
 
 /*
-    audit.usp_CatalogValues: adds the distinct values of the catalogued columns
+    audit.usp_CatalogValues: adds the distinct values of the cataloged columns
     (audit.ValueCatalogColumn) to audit.ValueCatalog. The flatten calls it for
     each batch while #batch exists, so only that batch's records are read.
     Called on its own it reads every flattened record; @Rebuild = 1 starts the
-    catalogue again (Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog).
+    catalog again (Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog).
     A column stops collecting at 10,000 distinct values and is marked Capped.
 */
 IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NULL
@@ -163,7 +163,7 @@ BEGIN
     IF @BatchSize IS NULL OR @BatchSize < 1000 SET @BatchSize = 1000;
 
     DECLARE @msg NVARCHAR(400), @rows BIGINT = 0, @done BIGINT = 0, @batch INT = 1;
-    DECLARE @hasLicence BIT = CASE WHEN OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL THEN 0 ELSE 1 END;
+    DECLARE @hasLicense BIT = CASE WHEN OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL THEN 0 ELSE 1 END;
 
     IF @RebuildAll = 1
     BEGIN
@@ -613,7 +613,7 @@ BEGIN
                 ISNULL(mg.PromptCount, 0)                                        AS PromptCount,
                 CASE WHEN ISNULL(ra.AnyXpia, 0) = 1 THEN N'true' ELSE N'false' END AS PromptInjectionDetected,
                 ISNULL(ra.ResourceCount, 0)                                      AS AccessedResourceCount,
-                CASE WHEN @hasLicence = 1 THEN lic.IsCopilotLic END              AS IsCopilotLic
+                CASE WHEN @hasLicense = 1 THEN lic.IsCopilotLic END              AS IsCopilotLic
             FROM #batch AS b
             LEFT JOIN #resagg  AS ra ON ra.RecordId = b.RecordId
             LEFT JOIN #actagg  AS aa ON aa.RecordId = b.RecordId
@@ -624,7 +624,7 @@ BEGIN
             OUTER APPLY (
                 SELECT TOP (1) l.IsCopilotLic
                 FROM audit.CopilotLicense AS l
-                WHERE @hasLicence = 1 AND l.UserPrincipalName = b.[User]
+                WHERE @hasLicense = 1 AND l.UserPrincipalName = b.[User]
             ) AS lic
         ) AS s
         ON t.RecordId = s.RecordId
@@ -728,7 +728,7 @@ BEGIN
         CROSS APPLY OPENJSON(j.[value]) WITH (Id NVARCHAR(MAX) '$.Id', [Type] NVARCHAR(200) '$.Type', ContainerId NVARCHAR(200) '$.ContainerId') AS c
         WHERE j.[type] = 5;
 
-        /* This batch's values into the catalogue, for Admin > Value names. */
+        /* This batch's values into the catalog, for Admin > Value names. */
         IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NOT NULL EXEC audit.usp_CatalogValues;
 
         SET @done += @rows;
@@ -750,7 +750,7 @@ BEGIN
         SET @batch += 1;
     END;
 
-    IF @hasLicence = 0
+    IF @hasLicense = 0
         RAISERROR('audit.CopilotLicense does not exist - IsCopilotLic left NULL.', 0, 1) WITH NOWAIT;
 
     /* Present or absent is expected (several appear only with an agent); a second value is news. */

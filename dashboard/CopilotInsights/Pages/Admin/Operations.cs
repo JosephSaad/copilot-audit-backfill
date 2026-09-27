@@ -154,7 +154,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
     static readonly (string Key, string Label)[] Recipients =
     [
         ("AlertAdminTo", "Pipeline failures and stale data"), ("AlertSecurityTo", "Security signals"),
-        ("AlertLicensingTo", "Licence pool running out; licences on disabled accounts"), ("AlertAdoptionTo", "Drops and spikes in use"),
+        ("AlertLicensingTo", "License pool running out; licenses on disabled accounts"), ("AlertAdoptionTo", "Drops and spikes in use"),
         ("AlertAgentsTo", "Agents used for the first time"),
     ];
 
@@ -164,7 +164,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         ("AlertInjectionPerDay", "Prompt injections a day (0 off)", 0, 100000), ("AlertBlockedPerDay", "Blocked-resource interactions a day (0 off)", 0, 1000000),
         ("AlertLabelPerDay", "Interactions with sensitive labels a day", 1, 1000000), ("AlertSpikeFactor", "A signal spikes at (times its average)", 0, 100),
         ("AnomalyDropPercent", "A drop is at least (% below usual)", 0, 100), ("AnomalySpikePercent", "A spike is at least (% above usual)", 0, 10000),
-        ("PoolWarnPercent", "The licence pool is running out at (% assigned)", 50, 100),
+        ("PoolWarnPercent", "The license pool is running out at (% assigned)", 50, 100),
         ("CertificateWarnDays", "Warn about the app certificate (days before it expires)", 7, 120),
     ];
 
@@ -206,7 +206,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         var zone = await HttpContext.RequestServices.GetRequiredService<OpsData>().ZoneAsync();
         var t = new Table { Headers = ["Name", "Report", "To", "When", "For", "Days", "Last sent (UTC)", "Result", ""], EmptyText = "No digests yet." };
         foreach (var sub in subs)
-            t.Rows.Add([sub.Name, sub.Report, sub.Recipients, When(sub), sub.RootUpn ?? "Whole organisation", sub.Days, sub.LastSentUtc, sub.LastStatus,
+            t.Rows.Add([sub.Name, sub.Report, sub.Recipients, When(sub), sub.RootUpn ?? "Whole organization", sub.Days, sub.LastSentUtc, sub.LastStatus,
                 new HtmlString(
                     $"<a href=\"{E(Request.Path + $"?handler=preview&report={sub.Report}&days={sub.Days}&root={Uri.EscapeDataString(sub.RootUpn ?? "")}")}\">Preview</a> " +
                     Form("sendnow", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button("Send now", quiet: true)) +
@@ -218,7 +218,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Select("frequency", "How often", Schedule.Frequencies, "Weekly") + Select("dow", "Day (weekly)", days, "Monday") +
             Input("dom", "Day of the month (monthly)", "1", 4, "number") + Input("hour", $"Hour ({zone.StandardName})", "7", 4, "number") +
             Select("days", "Covering", ReportContext.DayChoices.Select(d => $"{d}"), "30") +
-            Input("root", "A manager's organisation (UPN; empty for everyone)", null, 30) + Button("Add")) +
+            Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) + Button("Add")) +
             "<ul class=\"sub\">" + string.Concat(OpsReports.DigestKinds.Select(k => $"<li><b>{E(k.Key)}</b>: {E(k.Value)}</li>")) + "</ul>"),
             "Digests hold aggregates only, never a named person, so they can go to anyone the scope is right for. Each covers the period chosen up to the last complete day."));
 
@@ -231,15 +231,20 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             "Every alert is also posted here. Teams: a Workflows \"Post to a channel when a webhook request is received\" address (or an incoming webhook). Json: {source, kind, subject, lines, link, atUtc} for ServiceNow, Splunk or anything else. The address is stored encrypted, like the email password.", "half"));
 
         Panels.Add(new("Manager and personal digests", new HtmlString(Form("digests",
-            Select("ManagerDigest", "Every manager gets their organisation's digest", ["Off", "Weekly", "Monthly"], V("ManagerDigest") is "" ? "Off" : V("ManagerDigest")) +
+            Select("ManagerDigest", "Every manager gets their organization's digest", ["Off", "Weekly", "Monthly"], V("ManagerDigest") is "" ? "Off" : V("ManagerDigest")) +
             Input("ManagerDigestMinPeople", "Managers with at least this many people under them", V("ManagerDigestMinPeople"), 5, "number") +
             Select("ManagerDigestDay", "Weekly on", days, days[Math.Clamp(int.TryParse(V("ManagerDigestDay"), out var md) ? md : 1, 0, 6)]) +
             Input("DigestHour", $"At (hour, {zone.StandardName})", V("DigestHour") is "" ? "7" : V("DigestHour"), 4, "number") +
             Select("PersonalDigest", "People may ask for a weekly email of their own use", ["On", "Off"], V("PersonalDigest") is "Off" ? "Off" : "On") + Button("Save"))),
-            "The manager digest is the Leadership digest for the manager's own organisation (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD; each manager can opt out in My Copilot > Email. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
+            "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD; each manager can opt out in My Copilot > Email. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
 
-        Panels.Add(new("Run the checks now", new HtmlString(Form("run", Button("Run the checks now"))),
-            "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
+        var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();
+        Panels.Add(new("Run the checks now", new HtmlString(
+            Form("run", Button(tenants.Many ? $"Run the checks for {tenants.Current.Name}" : "Run the checks now")) +
+            (tenants.Many ? Form("runall", Button($"Run the checks for every tenant ({tenants.All.Count})", quiet: true)) : "")),
+            tenants.Many
+                ? "Runs one round of the alert checks and any digests that are due, for this tenant or for every tenant (the background checks cover every tenant every five minutes)."
+                : "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
         var state = await Db.QueryAsync<(string AlertKey, string? LastValue, DateTime LastFiredUtc)>("SELECT AlertKey, LastValue, LastFiredUtc FROM dash.AlertState ORDER BY AlertKey;");
         var st = new Table { Headers = ["Check", "Last seen", "When (UTC)"], EmptyText = "The checks have not run yet." };
         foreach (var x in state) st.Rows.Add([x.AlertKey, x.LastValue, x.LastFiredUtc]);
@@ -359,6 +364,13 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
     });
 
+    /// <summary>Every tenant, as the background checks do. Each tenant's lines start with its name.</summary>
+    public Task<IActionResult> OnPostRunallAsync() => AdminChangeAsync(async () =>
+    {
+        var done = await notifier.RunAllAsync(HttpContext.RequestAborted);
+        return done.Count == 0 ? "The checks ran in every tenant: nothing to report." : "The checks ran in every tenant. " + string.Join(" · ", done);
+    });
+
     /// <summary>What a digest would look like now, as it would arrive.</summary>
     public async Task<IActionResult> OnGetPreviewAsync(string? report, int? days, string? root)
     {
@@ -374,7 +386,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
 public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Targets and assumptions";
-    public override string Intro => "The adoption targets progress is measured against, the minutes an interaction saves in each app and what an hour is worth, and the licensing group the licence exports use.";
+    public override string Intro => "The adoption targets progress is measured against, the minutes an interaction saves in each app and what an hour is worth, and the licensing group the license exports use.";
 
     protected override async Task BuildAsync()
     {
@@ -385,10 +397,10 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
             "SELECT TargetId, RootUpn, Metric, TargetValue, StartDate, DueDate, Note, CreatedBy FROM dash.Target ORDER BY DueDate;");
         var t = new Table { Headers = ["For", "Target", "From", "Due", "Note", "Set by", ""], EmptyText = "No targets yet." };
         foreach (var x in targets)
-            t.Rows.Add([x.RootUpn ?? "Whole organisation", $"{Adoption.TargetsModel.Label(x.Metric)} {x.TargetValue:0.#}{(x.Metric == "ActivePeople" ? "" : "%")}", x.StartDate, x.DueDate, x.Note, x.CreatedBy,
+            t.Rows.Add([x.RootUpn ?? "Whole organization", $"{Adoption.TargetsModel.Label(x.Metric)} {x.TargetValue:0.#}{(x.Metric == "ActivePeople" ? "" : "%")}", x.StartDate, x.DueDate, x.Note, x.CreatedBy,
                 new HtmlString(Form("deltarget", $"<input type=\"hidden\" name=\"id\" value=\"{x.TargetId}\"/>" + Button("Remove", "Remove this target?", quiet: true)))]);
         Panels.Add(new("Adoption targets", new HtmlString(t.Render().Value + "<h3>Add a target</h3>" + Form("target",
-            Input("root", "A manager's organisation (UPN; empty for everyone)", null, 30) +
+            Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) +
             Select("metric", "Measure", ["Adoption", "ActiveShare", "ActivePeople"], "Adoption") + Input("value", "Target (% or people)", null, 6, "number") +
             Input("start", "From", DateTime.Today.ToString("yyyy-MM-dd"), 10, "date") + Input("due", "Due", DateTime.Today.AddMonths(3).ToString("yyyy-MM-dd"), 10, "date") +
             Input("note", "Note", null, 30) + Button("Add"))),
@@ -401,14 +413,14 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 Input("minutes", "Minutes (empty: the default)", a.Minutes?.ToString("0.##", CultureInfo.InvariantCulture), 5) + Button("Save", quiet: true)))]);
         Panels.Add(new("Time saved", new HtmlString(Form("value",
             Input("MinutesSavedDefault", "Minutes one interaction saves (default)", V("MinutesSavedDefault"), 5) +
-            Input("HourlyCost", $"What an hour is worth ({V("LicenceCurrency")})", V("HourlyCost"), 6) + Button("Save")) + at.Render().Value),
-            "Your organisation's own estimates, from a survey or a pilot: every figure on Leadership > Value follows them. Microsoft's and analysts' published studies are a starting point, not a measurement of your tenant."));
+            Input("HourlyCost", $"What an hour is worth ({V("LicenseCurrency")})", V("HourlyCost"), 6) + Button("Save")) + at.Render().Value),
+            "Your organization's own estimates, from a survey or a pilot: every figure on Leadership > Value follows them. Microsoft's and analysts' published studies are a starting point, not a measurement of your tenant."));
 
         Panels.Add(new("Licensing and champions", new HtmlString(Form("licensing",
-            Input("LicenceGroupId", "Object id of the Entra group that assigns Copilot licences (empty if licences are assigned directly)", V("LicenceGroupId"), 38) +
+            Input("LicenseGroupId", "Object id of the Entra group that assigns Copilot licenses (empty if licenses are assigned directly)", V("LicenseGroupId"), 38) +
             Input("ChampionsPerDepartment", "Champions to suggest per department", V("ChampionsPerDepartment"), 4, "number") +
             Input("RolloutWaveSize", "People in a rollout wave", V("RolloutWaveSize"), 6, "number") + Button("Save"))),
-            "With a group, the licence exports add and remove its members; without one, they assign or remove the licence itself. The licence price is in Admin > Access.", "half"));
+            "With a group, the license exports add and remove its members; without one, they assign or remove the license itself. The license price is in Admin > Access.", "half"));
     }
 
     public Task<IActionResult> OnPostTargetAsync(string? root, string? metric, string? value, DateTime? start, DateTime? due, string? note) => AdminChangeAsync(async () =>
@@ -422,7 +434,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
         if (start is null || due is null || due <= start) throw new ArgumentException("the due date comes after the start.");
         await Db.ExecuteAsync("INSERT INTO dash.Target (RootUpn, Metric, TargetValue, StartDate, DueDate, Note, CreatedBy) VALUES (@root, @metric, @v, @start, @due, @note, @by);",
             new { root, metric, v, start, due, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by = Viewer.Upn ?? Viewer.WindowsName });
-        return $"Target added: {Adoption.TargetsModel.Label(metric)} {v:0.#} for {root ?? "the whole organisation"} by {due:yyyy-MM-dd}.";
+        return $"Target added: {Adoption.TargetsModel.Label(metric)} {v:0.#} for {root ?? "the whole organization"} by {due:yyyy-MM-dd}.";
     });
 
     public Task<IActionResult> OnPostDeltargetAsync(int id) => AdminChangeAsync(async () =>
@@ -453,12 +465,12 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.TimeSaving (App, Minutes, UpdatedBy) VALUES (
         return $"{app}: {m:0.##} minutes an interaction.";
     });
 
-    public Task<IActionResult> OnPostLicensingAsync(string? LicenceGroupId, string? ChampionsPerDepartment, string? RolloutWaveSize) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostLicensingAsync(string? LicenseGroupId, string? ChampionsPerDepartment, string? RolloutWaveSize) => AdminChangeAsync(async () =>
     {
-        if (!string.IsNullOrWhiteSpace(LicenceGroupId) && !Guid.TryParse(LicenceGroupId, out _)) throw new ArgumentException("the group's object id is a GUID.");
+        if (!string.IsNullOrWhiteSpace(LicenseGroupId) && !Guid.TryParse(LicenseGroupId, out _)) throw new ArgumentException("the group's object id is a GUID.");
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, new Dictionary<string, string?>
         {
-            ["LicenceGroupId"] = LicenceGroupId, ["ChampionsPerDepartment"] = SettingWriter.Int(ChampionsPerDepartment, "Champions per department", 1, 20).ToString(CultureInfo.InvariantCulture),
+            ["LicenseGroupId"] = LicenseGroupId, ["ChampionsPerDepartment"] = SettingWriter.Int(ChampionsPerDepartment, "Champions per department", 1, 20).ToString(CultureInfo.InvariantCulture),
             ["RolloutWaveSize"] = SettingWriter.Int(string.IsNullOrWhiteSpace(RolloutWaveSize) ? "50" : RolloutWaveSize, "People in a wave", 1, 100000).ToString(CultureInfo.InvariantCulture),
         }));
     });
@@ -469,7 +481,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.TimeSaving (App, Minutes, UpdatedBy) VALUES (
 public sealed class PrivacyModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Privacy and retention";
-    public override string Intro => "Privacy mode for organisations that must not report on named people (a works council's condition, for example), how long logs and stored JSON are kept, and the data API.";
+    public override string Intro => "Privacy mode for organizations that must not report on named people (a works council's condition, for example), how long logs and stored JSON are kept, and the data API.";
 
     protected override async Task BuildAsync()
     {
@@ -479,7 +491,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         var on = await S.Settings.PrivacyModeAsync();
         Kpis.Add(new("Privacy mode", on ? "On" : "Off", on ? "nobody is named but the viewer themselves" : null));
         Panels.Add(new("Privacy mode", new HtmlString(Form("privacy",
-            Select("mode", "Privacy mode", ["Off", "Pseudonymise"], on ? "Pseudonymise" : "Off") + Button("Save", "Change privacy mode? It applies to every viewer and to Power BI at its next refresh."))),
+            Select("mode", "Privacy mode", ["Off", "Pseudonymize"], on ? "Pseudonymize" : "Off") + Button("Save", "Change privacy mode? It applies to every viewer and to Power BI at its next refresh."))),
             "On: every page, export, digest and API call that names people is refused (My Copilot still shows each person their own use), and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. Aggregates keep the minimum group size (Admin > Access)."));
 
         Panels.Add(new("Retention", new HtmlString(Form("retention",
@@ -496,10 +508,10 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
 
     public Task<IActionResult> OnPostPrivacyAsync(string? mode) => AdminChangeAsync(async () =>
     {
-        if (mode is not ("Off" or "Pseudonymise")) throw new ArgumentException("choose Off or Pseudonymise.");
+        if (mode is not ("Off" or "Pseudonymize")) throw new ArgumentException("choose Off or Pseudonymize.");
         await Db.ExecuteAsync("EXEC dash.usp_SetPrivacyMode @Mode = @mode, @By = @by;", new { mode, by = Viewer.Upn ?? Viewer.WindowsName });
         S.Settings.Invalidate();
-        return mode == "Off" ? "Privacy mode is off." : "Privacy mode is on: nobody is named. Power BI's Users table is pseudonymised from its next refresh.";
+        return mode == "Off" ? "Privacy mode is off." : "Privacy mode is on: nobody is named. Power BI's Users table is pseudonymized from its next refresh.";
     });
 
     public Task<IActionResult> OnPostRetentionAsync(string? AuditLogRetentionDays, string? NotificationRetentionDays, string? JsonRetentionDays) => AdminChangeAsync(async () =>
@@ -529,7 +541,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
 public sealed class ValuesModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Value names";
-    public override string Intro => "Readable names for the codes the audit log records: label ids, tenant, app and agent ids, capacities, licence types. Every column here has fewer than 10,000 distinct values; names show in the dashboard and in Power BI (bi.ValueNames).";
+    public override string Intro => "Readable names for the codes the audit log records: label ids, tenant, app and agent ids, capacities, license types. Every column here has fewer than 10,000 distinct values; names show in the dashboard and in Power BI (bi.ValueNames).";
 
     sealed class ColRow
     {
@@ -564,7 +576,7 @@ LEFT JOIN dash.AgentAlias AS aa ON aa.AgentKey = ag.AgentKey";
         ShowDone();
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.ValueCatalogColumn', N'U') IS NULL THEN 0 ELSE 1 END") == 0)
         {
-            Notice = "The value catalogue is not installed yet: run Install-CopilotAudit.ps1 from this release.";
+            Notice = "The value catalog is not installed yet: run Install-CopilotAudit.ps1 from this release.";
             return;
         }
         var cols = await Db.QueryAsync<ColRow>($@"
@@ -576,7 +588,7 @@ FROM audit.ValueCatalogColumn AS c ORDER BY c.ColumnId;");
         foreach (var c in cols.Where(c => c.DistinctValues > 0 || c.Capped))
             ct.Rows.Add([c.Label, $"{c.TableName}.{c.ColumnName}", c.Capped ? "10,000 or more" : $"{c.DistinctValues:#,0}", c.Named,
                 c.Capped ? "too many to name" : new Link(c.ColumnId == col?.ColumnId ? "Naming" : "Name them", Request.Path + $"?col={c.ColumnId}")]);
-        Panels.Add(new("Columns", ct.Render(), "Columns with no values yet are hidden. The catalogue fills as records are flattened; for data flattened before it existed, run Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog once."));
+        Panels.Add(new("Columns", ct.Render(), "Columns with no values yet are hidden. The catalog fills as records are flattened; for data flattened before it existed, run Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog once."));
         if (col is null || col.Capped) return;
 
         var pg = new Paging(Request, new Dictionary<string, string> { ["most"] = "v.Records DESC", ["unnamed"] = $"CASE WHEN {NameExpr} IS NULL THEN 0 ELSE 1 END, v.Records DESC", ["value"] = "v.Value", ["new"] = "v.FirstSeenUtc DESC" }, "unnamed");

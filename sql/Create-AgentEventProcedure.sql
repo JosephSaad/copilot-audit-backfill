@@ -1,8 +1,8 @@
 /*
     Copilot audit backfill - agent build and publish activity
     ------------------------------------------------------------------------
-    audit.AgentEvent and audit.usp_ShredAgentEvents, in the licence-event
-    database(s). The nightly licence-event load also asks for Copilot Studio's
+    audit.AgentEvent and audit.usp_ShredAgentEvents, in the license-event
+    database(s). The nightly license-event load also asks for Copilot Studio's
     authoring operations (BotCreate, BotUpdateOperation-BotPublish,
     BotUpdateOperation-BotShare, BotDelete, BotComponent*...), in the same
     audit searches, so they cost no extra search. This turns each into one row:
@@ -12,7 +12,7 @@
                          (BotId, BotSchemaName), the maker, the component,
                          and the update details
 
-    bi.usp_RefreshBi copies them into bi.FactAgentEvent from every licence
+    bi.usp_RefreshBi copies them into bi.FactAgentEvent from every license
     database, for the dashboard's Agents > Build and publish and Power BI.
 
     Operation names: https://learn.microsoft.com/microsoft-copilot-studio/admin-logging-copilot-studio

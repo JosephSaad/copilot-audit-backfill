@@ -24,7 +24,7 @@
                         needs no grant script
       bi.OrgSecurity, bi.ValueNames, bi.LicensePool, bi.DepartmentWeek
                         for Power BI: row-level security from the org chart,
-                        value names, the licence pool, and department figures
+                        value names, the license pool, and department figures
                         with small groups hidden
 
     Idempotent. Single batch. Requires SQL Server 2017+.
@@ -52,7 +52,7 @@ USING (VALUES
     ('ExoClientId',             NULL,     N'App (client) id for Exchange Online OAuth. The client secret is kept encrypted (dash.Secret).'),
     ('AlertAdminTo',            NULL,     N'Who hears about pipeline failures and stale data (addresses separated by ;).'),
     ('AlertSecurityTo',         NULL,     N'Who gets security alerts.'),
-    ('AlertLicensingTo',        NULL,     N'Who gets licence alerts: the pool running out, licences on disabled accounts.'),
+    ('AlertLicensingTo',        NULL,     N'Who gets license alerts: the pool running out, licenses on disabled accounts.'),
     ('AlertAdoptionTo',         NULL,     N'Who gets usage drops and spikes.'),
     ('AlertAgentsTo',           NULL,     N'Who hears about agents seen for the first time.'),
     ('EventLogAlerts',          N'1',     N'1 also writes each alert to the Windows Application log (source Copilot Insights), for a SIEM to collect.'),
@@ -60,7 +60,7 @@ USING (VALUES
     ('AlertJailbreakPerDay',    N'1',     N'Jailbreak attempts in a day that raise a security alert; 0 turns it off.'),
     ('AlertInjectionPerDay',    N'1',     N'Prompt injections in a day that raise a security alert; 0 turns it off.'),
     ('AlertBlockedPerDay',      N'25',    N'Interactions with a blocked resource in a day that raise a security alert; 0 turns it off.'),
-    ('AlertLabelRank',          NULL,     N'Label order (Admin > Reference data) at or above which labelled content is alert-worthy; empty turns it off.'),
+    ('AlertLabelRank',          NULL,     N'Label order (Admin > Reference data) at or above which labeled content is alert-worthy; empty turns it off.'),
     ('AlertLabelPerDay',        N'1',     N'Interactions touching content at or above AlertLabelRank in a day that raise a security alert.'),
     ('AlertSpikeFactor',        N'3',     N'A signal also alerts when a day is this many times its 28-day daily average.'),
     ('AnomalyDropPercent',      N'50',    N'A unit''s day this far below its usual level for that weekday is a drop.'),
@@ -68,9 +68,9 @@ USING (VALUES
     ('PoolWarnPercent',         N'95',    N'Alert when this share of the Copilot seats bought is assigned.'),
     ('NewAgentAlert',           N'1',     N'1 sends an alert when an agent is used for the first time.'),
     ('MinutesSavedDefault',     N'3',     N'Minutes one interaction saves, for apps without their own figure (Admin > Targets and assumptions).'),
-    ('HourlyCost',              N'50',    N'What an hour of an employee''s time is worth, in LicenceCurrency, for the value report.'),
+    ('HourlyCost',              N'50',    N'What an hour of an employee''s time is worth, in LicenseCurrency, for the value report.'),
     ('ChampionsPerDepartment',  N'3',     N'How many champions to suggest per department.'),
-    ('LicenceGroupId',          NULL,     N'Object id of the Entra group that assigns Copilot licences, if licences are group-based: the licence export adds and removes its members.'),
+    ('LicenseGroupId',          NULL,     N'Object id of the Entra group that assigns Copilot licenses, if licenses are group-based: the license export adds and removes its members.'),
     ('AuditLogRetentionDays',   N'730',   N'Dashboard audit-log rows older than this are deleted each night; 0 keeps them.'),
     ('NotificationRetentionDays', N'365', N'Notification-log rows older than this are deleted each night; 0 keeps them.'),
     ('JsonRetentionDays',       N'0',     N'Clear the stored JSON of records older than this each night (the reports keep working); 0 keeps it. At least 200.'),
@@ -145,7 +145,7 @@ IF OBJECT_ID(N'dash.Subscription', N'U') IS NULL
         DayOfWeek   TINYINT         NULL,       -- Weekly: 0 Sunday to 6 Saturday
         DayOfMonth  TINYINT         NULL,       -- Monthly: 1 to 28
         HourLocal   TINYINT         NOT NULL CONSTRAINT DF_DashSubscription_Hour DEFAULT (7),   -- in the reporting time zone
-        RootUpn     NVARCHAR(256)   NULL,       -- a manager's organisation; NULL for the whole organisation
+        RootUpn     NVARCHAR(256)   NULL,       -- a manager's organization; NULL for the whole organization
         Days        INT             NOT NULL CONSTRAINT DF_DashSubscription_Days DEFAULT (30),
         Enabled     BIT             NOT NULL CONSTRAINT DF_DashSubscription_Enabled DEFAULT (1),
         LastSentUtc DATETIME2(0)    NULL,
@@ -182,7 +182,7 @@ IF OBJECT_ID(N'dash.Target', N'U') IS NULL
     CREATE TABLE dash.Target
     (
         TargetId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashTarget PRIMARY KEY,
-        RootUpn     NVARCHAR(256)   NULL,       -- a manager's organisation; NULL for the whole organisation
+        RootUpn     NVARCHAR(256)   NULL,       -- a manager's organization; NULL for the whole organization
         Metric      VARCHAR(16)     NOT NULL CONSTRAINT CK_DashTarget_Metric CHECK (Metric IN ('Adoption', 'ActivePeople', 'ActiveShare')),
         TargetValue DECIMAL(12, 2)  NOT NULL,   -- a percentage for Adoption and ActiveShare, a count for ActivePeople
         StartDate   DATE            NOT NULL,
@@ -272,31 +272,31 @@ IF OBJECT_ID(N'dash.DigestSend', N'U') IS NULL
         CONSTRAINT PK_DashDigestSend PRIMARY KEY (Upn, Kind, PeriodKey)
     );
 
-/* The licence changes the dashboard exported for someone to apply, to measure what happened next. */
-IF OBJECT_ID(N'dash.LicenceAction', N'U') IS NULL
-    CREATE TABLE dash.LicenceAction
+/* The license changes the dashboard exported for someone to apply, to measure what happened next. */
+IF OBJECT_ID(N'dash.LicenseAction', N'U') IS NULL
+    CREATE TABLE dash.LicenseAction
     (
-        ActionId    BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenceAction PRIMARY KEY,
+        ActionId    BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenseAction PRIMARY KEY,
         Kind        VARCHAR(16)     NOT NULL,   -- upgrade | revoke | leaver | wave
         Upn         NVARCHAR(256)   NOT NULL,
-        ExportedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenceAction_Exported DEFAULT (SYSUTCDATETIME()),
+        ExportedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenseAction_Exported DEFAULT (SYSUTCDATETIME()),
         ExportedBy  NVARCHAR(256)   NOT NULL,
-        INDEX IX_DashLicenceAction_Upn (Upn, ExportedUtc)
+        INDEX IX_DashLicenseAction_Upn (Upn, ExportedUtc)
     );
 
-/* Licence contracts, for the budget and renewal planner. */
-IF OBJECT_ID(N'dash.LicenceContract', N'U') IS NULL
-    CREATE TABLE dash.LicenceContract
+/* License contracts, for the budget and renewal planner. */
+IF OBJECT_ID(N'dash.LicenseContract', N'U') IS NULL
+    CREATE TABLE dash.LicenseContract
     (
-        ContractId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenceContract PRIMARY KEY,
+        ContractId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenseContract PRIMARY KEY,
         Name          NVARCHAR(200)   NOT NULL,
-        Seats         INT             NOT NULL CONSTRAINT CK_DashLicenceContract_Seats CHECK (Seats >= 0),
+        Seats         INT             NOT NULL CONSTRAINT CK_DashLicenseContract_Seats CHECK (Seats >= 0),
         MonthlyPrice  DECIMAL(12, 2)  NOT NULL,
         StartDate     DATE            NOT NULL,
         RenewalDate   DATE            NOT NULL,
         Note          NVARCHAR(400)   NULL,
         UpdatedBy     NVARCHAR(256)   NOT NULL,
-        UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenceContract_Updated DEFAULT (SYSUTCDATETIME())
+        UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenseContract_Updated DEFAULT (SYSUTCDATETIME())
     );
 
 /* Each person's saved views; one may be their start page. */
@@ -343,13 +343,19 @@ BEGIN
         (N'%Teams%', NULL, NULL, N'Meetings and chats', 20, N'default'),
         (N'Outlook', NULL, NULL, N'Email', 20, N'default'),
         (N'Word', NULL, NULL, N'Writing documents', 20, N'default'),
-        (N'Excel', NULL, NULL, N'Analysing data', 20, N'default'),
+        (N'Excel', NULL, NULL, N'Analyzing data', 20, N'default'),
         (N'PowerPoint', NULL, NULL, N'Presentations', 20, N'default'),
         (N'%Loop%', NULL, NULL, N'Collaborative notes', 20, N'default'),
         (N'%OneNote%', NULL, NULL, N'Collaborative notes', 20, N'default'),
         (N'%', 1, NULL, N'Research on the web', 50, N'default'),
         (N'%', NULL, NULL, N'Asking questions (Copilot Chat)', 999, N'default');
 END;
+
+/* 2.4.0: one retry policy. A scheduled digest or extract that fails is tried again an hour later, three tries in all,
+   before it waits for its next period (as manager and personal digests do, through dash.DigestSend). dash.Extract's
+   columns follow its CREATE TABLE below. */
+IF COL_LENGTH(N'dash.Subscription', N'FailedTries') IS NULL
+    ALTER TABLE dash.Subscription ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashSubscription_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
 
 /* Markers on trend charts: a rollout wave, a training push, an outage, a policy change. */
 IF OBJECT_ID(N'dash.EventMarker', N'U') IS NULL
@@ -381,6 +387,9 @@ IF OBJECT_ID(N'dash.Extract', N'U') IS NULL
         LastStatus  NVARCHAR(400)   NULL,
         CreatedBy   NVARCHAR(256)   NOT NULL
     );
+/* The retry policy's columns (2.4.0), after the table exists. */
+IF COL_LENGTH(N'dash.Extract', N'FailedTries') IS NULL
+    ALTER TABLE dash.Extract ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashExtract_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
 
 MERGE dash.Setting AS t
 USING (VALUES
@@ -406,7 +415,7 @@ EXEC (N'CREATE OR ALTER PROCEDURE dash.usp_SetPrivacyMode
 AS
 BEGIN
     SET NOCOUNT ON;
-    IF @Mode NOT IN (N''Off'', N''Pseudonymise'') THROW 50002, N''@Mode is Off or Pseudonymise.'', 1;
+    IF @Mode NOT IN (N''Off'', N''Pseudonymize'') THROW 50002, N''@Mode is Off or Pseudonymize.'', 1;
     IF NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PseudonymSalt'')
         INSERT INTO audit.PipelineSetting (Name, Value, UpdatedBy) VALUES (N''PseudonymSalt'', CONVERT(NVARCHAR(64), CRYPT_GEN_RANDOM(32), 2), @By);
     UPDATE audit.PipelineSetting SET Value = @Mode, UpdatedBy = @By, UpdatedUtc = SYSUTCDATETIME() WHERE Name = N''PrivacyMode'';
@@ -460,8 +469,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestPreference TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestSend TO CopilotInsightsApp;
-GRANT INSERT, UPDATE, DELETE ON dash.LicenceAction TO CopilotInsightsApp;
-GRANT INSERT, UPDATE, DELETE ON dash.LicenceContract TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.LicenseAction TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.LicenseContract TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.UseCaseRule TO CopilotInsightsApp;
@@ -480,7 +489,7 @@ GRANT VIEW DEFINITION ON SYMMETRIC KEY::CopilotInsightsSecretKey TO CopilotInsig
 GRANT CONTROL ON CERTIFICATE::CopilotInsightsSecretCert TO CopilotInsightsApp;
 IF OBJECT_ID(N'audit.SessionAppCategory', N'U') IS NOT NULL
     GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO CopilotInsightsApp;
-/* The pipeline tables Admin > Health, the licence reports and the value catalogue read. */
+/* The pipeline tables Admin > Health, the license reports and the value catalog read. */
 DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),
@@ -504,32 +513,39 @@ IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
 
 /*
     Row-level security from the org chart: one row per (viewer, person they may
-    see). A manager sees everyone under them; the top of the organisation, the
+    see). A manager sees everyone under them; the top of the organization, the
     people reporting to them and anyone granted Organization see everyone. The
-    Power BI model in powerbi/ uses it in its Organisation role:
-    Users[UserKey] IN the viewer's rows, by USERPRINCIPALNAME(). Group grants are
-    resolved at sign-in by the dashboard, not here: grant Organization to people
-    directly for Power BI.
+    Power BI model in powerbi/ uses it in its Organization role:
+    Users[UserKey] IN the viewer's rows, by USERPRINCIPALNAME(). Organization
+    granted to an AD group counts for its members too (2.4.0): the nightly
+    directory load expands the group into audit.GroupMember.
 
     Empty in privacy mode: each row pairs a real sign-in with a user key, which
     would undo the pseudonyms in bi.Users. With privacy mode on, share
     bi.DepartmentWeek rather than the person-level model.
 */
+IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
+    CREATE TABLE audit.GroupMember (GroupName NVARCHAR(256) NOT NULL, UserPrincipalName NVARCHAR(256) NOT NULL,
+        LoadedUtc DATETIME2(0) NOT NULL CONSTRAINT DF_GroupMember_Loaded DEFAULT (SYSUTCDATETIME()), CONSTRAINT PK_GroupMember PRIMARY KEY (GroupName, UserPrincipalName));
 EXEC (N'CREATE OR ALTER VIEW bi.OrgSecurity AS
+WITH whole AS (   -- everyone who sees the whole organization: the top two levels, and Organization granted to them or to a group they are in
+    SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
+    UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization''
+    UNION SELECT gm.UserPrincipalName FROM audit.GroupMember AS gm
+          JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.PrincipalType = ''Group'' AND g.Role = ''Organization''
+)
 SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey
 FROM dash.OrgClosure AS oc
 JOIN bi.DimUser AS u ON u.UserPrincipalName = oc.DescendantUpn
-WHERE NOT EXISTS (SELECT 1 FROM dash.Person AS p WHERE p.Upn = oc.AncestorUpn AND p.Level IN (1, 2))
-  AND NOT EXISTS (SELECT 1 FROM dash.RoleGrant AS g WHERE g.Principal = oc.AncestorUpn AND g.PrincipalType = ''User'' AND g.Role = ''Organization'')
-  AND NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'')
+WHERE NOT EXISTS (SELECT 1 FROM whole WHERE whole.Upn = oc.AncestorUpn)
+  AND NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'')
 UNION ALL
 SELECT w.Upn, u.UserKey
-FROM (SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
-      UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization'') AS w
+FROM whole AS w
 CROSS JOIN bi.DimUser AS u
-WHERE NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'');');
+WHERE NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'');');
 
-/* Readable names for the catalogued codes; Name is NULL until someone names it. */
+/* Readable names for the cataloged codes; Name is NULL until someone names it. */
 EXEC (N'CREATE OR ALTER VIEW bi.ValueNames AS
 SELECT c.TableName, c.ColumnName, c.Label AS ColumnLabel, v.Value,
        COALESCE(n.Name, CASE WHEN c.ColumnId IN (11, 30) THEN sl.Name END) AS Name,

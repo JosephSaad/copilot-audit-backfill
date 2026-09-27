@@ -12,7 +12,7 @@ namespace CopilotInsights.Pages.Adoption
     {
         public override string Title => "Leaderboard";
         public override string Persona => "Adoption";
-        public override string Intro => "Groups ranked by adoption (licensed people using Copilot), with the change on the period before and the most improved. Only groups of at least the minimum group size, with at least that many licences, are ranked.";
+        public override string Intro => "Groups ranked by adoption (licensed people using Copilot), with the change on the period before and the most improved. Only groups of at least the minimum group size, with at least that many licenses, are ranked.";
 
         static readonly string[] By = ["Department", "Division", "Company", "Country", "Office"];
 
@@ -25,7 +25,7 @@ namespace CopilotInsights.Pages.Adoption
             double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
             var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
             var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
-            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licences in scope."; return; }
+            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses in scope."; return; }
 
             var t = new Table
             {
@@ -56,7 +56,7 @@ namespace CopilotInsights.Pages.Adoption
                 Panels.Add(new("Most improved", Chart.Bars(changes.OrderByDescending(c => c.Points).Take(10).Select(c => new Bar(c.Name, c.Points, Note: $"{c.Points:+0.#;-0.#;0} points", Slot: c.Points >= 0 ? 3 : 8)).ToList(),
                     Fmt.Decimal1, "Change in adoption, points"), "Adoption now, less adoption in the period before, in percentage points.", "half"));
             Panels.Add(new("Ranking", new HtmlString($"<p class=\"sub\">Rank by: {choices}</p>" + t.Render().Value),
-                "Adoption: of the people holding a licence at the end of the period, the share who used Copilot while licensed.", "full", CsvUrl()));
+                "Adoption: of the people holding a license at the end of the period, the share who used Copilot while licensed.", "full", CsvUrl()));
         }
     }
 }
@@ -68,7 +68,7 @@ namespace CopilotInsights.Pages.Security
     {
         public override string Title => "Guests and external users";
         public override string Persona => "Security";
-        public override string Intro => "Copilot use by guest accounts (#EXT# sign-ins, or a user type of Guest from the licence tool): how much, from which home organisations, and with which signals. Home organisations with fewer guests than the minimum group size are combined; the named list needs the Security role.";
+        public override string Intro => "Copilot use by guest accounts (#EXT# sign-ins, or a user type of Guest from the license tool): how much, from which home organizations, and with which signals. Home organizations with fewer guests than the minimum group size are combined; the named list needs the Security role.";
 
         sealed class Row
         {
@@ -77,7 +77,7 @@ namespace CopilotInsights.Pages.Security
             public int Active { get; set; }
             public long Interactions { get; set; }
             public long Flags { get; set; }
-            public long Labelled { get; set; }
+            public long Labeled { get; set; }
             public int Licensed { get; set; }
         }
 
@@ -97,16 +97,16 @@ namespace CopilotInsights.Pages.Security
                 : "du.UserPrincipalName LIKE N'%#EXT#%'";
             var rows = await Db.QueryAsync<Row>($@"
 WITH g AS (SELECT du.UserKey, {Domain} AS Domain FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE {guest}),
-a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F, SUM(ud.LabelledContent) AS L
+a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F, SUM(ud.LabeledContent) AS L
       FROM dash.UserDay AS ud JOIN g ON g.UserKey = ud.UserKey WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
 SELECT g.Domain, COUNT(*) AS People, COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active, ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions,
-       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.L AS BIGINT)), 0) AS Labelled, COUNT(ld.UserKey) AS Licensed
+       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.L AS BIGINT)), 0) AS Labeled, COUNT(ld.UserKey) AS Licensed
 FROM g LEFT JOIN a ON a.UserKey = g.UserKey
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = g.UserKey AND ld.DateKey = @k1
 GROUP BY g.Domain;", Ctx.Args());
             Kpis.Add(new("Guests in Copilot's records", Num(rows.Sum(r => r.People))));
             Kpis.Add(new("Used Copilot in the period", Num(rows.Sum(r => r.Active)), $"{rows.Sum(r => r.Interactions):#,0} interactions"));
-            Kpis.Add(new("Holding a Copilot licence", Num(rows.Sum(r => r.Licensed)), "licences in this tenant assigned to guests", rows.Sum(r => r.Licensed) > 0 ? "warn" : null));
+            Kpis.Add(new("Holding a Copilot license", Num(rows.Sum(r => r.Licensed)), "licenses in this tenant assigned to guests", rows.Sum(r => r.Licensed) > 0 ? "warn" : null));
             Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
             if (rows.Count == 0) { Notice = "No guest or external accounts in Copilot's records for this scope."; return; }
 
@@ -114,10 +114,10 @@ GROUP BY g.Domain;", Ctx.Args());
             var shown = named ? rows : rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();
             var small = rows.Except(shown).ToList();
             if (small.Count > 0)
-                shown.Add(new Row { Domain = $"{small.Count} smaller home organisations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labelled = small.Sum(r => r.Labelled), Licensed = small.Sum(r => r.Licensed) });
-            var t = new Table { Headers = ["Home organisation", "Guests", "Active", "Interactions", "Licensed here", "Security signals", "Labelled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
-            foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labelled]);
-            Panels.Add(new("By home organisation", t.Render(), "From the guest's sign-in name. Labelled content: interactions that touched content with a sensitivity label."));
+                shown.Add(new Row { Domain = $"{small.Count} smaller home organizations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labeled = small.Sum(r => r.Labeled), Licensed = small.Sum(r => r.Licensed) });
+            var t = new Table { Headers = ["Home organization", "Guests", "Active", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
+            foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labeled]);
+            Panels.Add(new("By home organization", t.Render(), "From the guest's sign-in name. Labeled content: interactions that touched content with a sensitivity label."));
 
             if (!named) return;
             var pg = new Paging(Request, new Dictionary<string, string> { ["most"] = "I DESC", ["name"] = "du.DisplayName" }, "most");
@@ -130,7 +130,7 @@ LEFT JOIN bi.DimDate AS dl ON dl.DateKey = a.LastKey
 WHERE {guest} AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
             pg.Total = people.FirstOrDefault().Total;
-            var pt = new Table { Headers = ["Name", "Sign-in", "Home organisation", "Interactions", "Security signals", "Last used"], Numeric = new HashSet<int> { 3, 4 } };
+            var pt = new Table { Headers = ["Name", "Sign-in", "Home organization", "Interactions", "Security signals", "Last used"], Numeric = new HashSet<int> { 3, 4 } };
             foreach (var r in people) pt.Rows.Add([r.Name, r.Upn, r.Domain, r.I, r.F, r.Last]);
             CsvTable = pt;
             Panels.Add(new("Guests using Copilot", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["most"] = "Most use", ["name"] = "Name" }).Value + pt.Render().Value),
@@ -143,7 +143,7 @@ namespace CopilotInsights.Pages.Compliance
 {
     /// <summary>
     /// Everything recorded about one person's Copilot use, for a data-subject access request or an
-    /// investigation: their directory and licence record, and each interaction, downloadable. Needs
+    /// investigation: their directory and license record, and each interaction, downloadable. Needs
     /// the Compliance role; works in privacy mode (it is a request about one named person); every
     /// look and download is in the audit log with the person it was about.
     /// </summary>
@@ -207,8 +207,8 @@ FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @up
             d.Rows.Add(["Licensed since", who.LicensedSinceUtc]); d.Rows.Add(["First seen in Copilot's records", who.FirstSeenUtc]);
             var lic = (await Db.QueryAsync<(string? Sku, string? Status, DateTime? Updated)>(
                 "SELECT SkuPartNumber, CapabilityStatus, UpdatedUtc FROM audit.CopilotLicense WHERE UserPrincipalName = @upn;", new { upn })).FirstOrDefault();
-            if (lic.Updated is not null) { d.Rows.Add(["Licence (licence tool)", $"{lic.Sku} {lic.Status}".Trim()]); d.Rows.Add(["Licence read", lic.Updated]); }
-            Panels.Add(new("Directory and licence", d.Render(), null, "half"));
+            if (lic.Updated is not null) { d.Rows.Add(["License (license tool)", $"{lic.Sku} {lic.Status}".Trim()]); d.Rows.Add(["License read", lic.Updated]); }
+            Panels.Add(new("Directory and license", d.Render(), null, "half"));
 
             var pg = new Paging(Request, new Dictionary<string, string> { ["new"] = "f.CreatedUtc DESC, f.RecordId", ["old"] = "f.CreatedUtc, f.RecordId" }, "new");
             var recs = await Db.QueryAsync<Rec>($@"
@@ -224,7 +224,7 @@ WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
             Kpis.Add(new("With a security signal", Num(recs.Count(r => r.JailbreakDetected || r.PromptInjectionDetected || r.HasBlockedResource)), pg.ForExport || pg.Total <= Paging.PageSize ? null : "on this page"));
             var t = new Table
             {
-                Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labelled content", "Resources read", "Record id"],
+                Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labeled content", "Resources read", "Record id"],
                 Numeric = new HashSet<int> { 6 }, EmptyText = "No interactions in the period.",
             };
             foreach (var r in recs)

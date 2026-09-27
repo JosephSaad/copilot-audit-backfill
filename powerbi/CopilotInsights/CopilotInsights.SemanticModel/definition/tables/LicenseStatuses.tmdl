@@ -1,0 +1,29 @@
+/// Whether the person held a Copilot license when the interaction or session happened.
+table LicenseStatuses
+	lineageTag: 3b2f3696-00ba-5469-8422-7f8e795c4e25
+
+	column LicenseStatusKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: cbd10b52-7a19-55ea-9f72-359e7a0db30d
+		summarizeBy: none
+		sourceColumn: LicenseStatusKey
+
+	/// Licensed, Not licensed, or Unknown (no record either way; never the same as Not licensed).
+	column LicenseStatus
+		dataType: string
+		lineageTag: f8127558-8334-5599-a2a5-eeecac59a765
+		summarizeBy: none
+		sourceColumn: LicenseStatus
+
+	partition LicenseStatuses = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "LicenseStatuses"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

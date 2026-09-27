@@ -1,4 +1,4 @@
-/// One row per person: directory attributes from on-premises Active Directory and today's Copilot licence.
+/// One row per person: directory attributes from on-premises Active Directory and today's Copilot license.
 table Users
 	lineageTag: 01585f8a-005b-5322-bdde-3755e63dd381
 
@@ -219,12 +219,12 @@ table Users
 		summarizeBy: none
 		sourceColumn: DirectoryStatus
 
-	/// Today's Copilot licence: Licensed, Not licensed or Unknown. Not for past periods.
-	column CopilotLicenceToday
+	/// Today's Copilot license: Licensed, Not licensed or Unknown. Not for past periods.
+	column CopilotLicenseToday
 		dataType: string
-		lineageTag: e34f435e-d436-549b-a1d7-88fdd7fb1821
+		lineageTag: 9635c948-3a58-5d63-945e-875f690c409d
 		summarizeBy: none
-		sourceColumn: CopilotLicenceToday
+		sourceColumn: CopilotLicenseToday
 
 	column CopilotSku
 		dataType: string
@@ -232,7 +232,7 @@ table Users
 		summarizeBy: none
 		sourceColumn: CopilotSku
 
-	/// When the current Copilot licence was assigned, UTC.
+	/// When the current Copilot license was assigned, UTC.
 	column LicensedSinceUtc
 		dataType: dateTime
 		formatString: yyyy-mm-dd

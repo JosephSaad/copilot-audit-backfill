@@ -16,11 +16,11 @@ public static class Roles
     public static readonly Dictionary<string, string> Describe = new()
     {
         [Admin] = "Runs the admin module: access, settings, reference data, health and the audit log. Sees no usage data by itself.",
-        [Organization] = "Sees the whole organisation's aggregates, whatever their place in it.",
+        [Organization] = "Sees the whole organization's aggregates, whatever their place in it.",
         [Adoption] = "Sees named people who were licensed but have not started.",
-        [Licensing] = "Sees named unused licences and named unlicensed Copilot Chat users.",
+        [Licensing] = "Sees named unused licenses and named unlicensed Copilot Chat users.",
         [Security] = "Sees the individual interactions flagged for jailbreak, prompt injection or blocked resources.",
-        [Compliance] = "Sees who accessed which sensitivity-labelled or blocked resources.",
+        [Compliance] = "Sees who accessed which sensitivity-labeled or blocked resources.",
         [Agents] = "Sees the named people using each agent.",
         [Enablement] = "Sees named champions and people who may need support.",
     };
@@ -32,14 +32,14 @@ public sealed class Viewer
     public required string WindowsName { get; init; }
     public string? Upn { get; init; }
     public string? DisplayName { get; init; }
-    /// <summary>1 = the configured top of the organisation, 2 = reports to them. Null when not under the top or no top is set.</summary>
+    /// <summary>1 = the configured top of the organization, 2 = reports to them. Null when not under the top or no top is set.</summary>
     public int? Level { get; init; }
     public bool InDirectory { get; init; }
     public int PeopleBelow { get; init; }
     public required IReadOnlySet<string> Roles { get; init; }
 
     public bool IsAdmin => Roles.Contains(Infrastructure.Roles.Admin);
-    public bool OrgWide => AccessRules.SeesWholeOrganisation(Level, Roles);
+    public bool OrgWide => AccessRules.SeesWholeOrganization(Level, Roles);
     public bool Has(string role) => Roles.Contains(role);
     public string Name => DisplayName ?? Upn ?? WindowsName;
 }
@@ -48,12 +48,12 @@ public sealed class Viewer
 public static class AccessRules
 {
     /// <summary>Level 1 or 2 below the configured top, or granted Organization. Admin alone is not enough.</summary>
-    public static bool SeesWholeOrganisation(int? level, IReadOnlySet<string> roles) =>
+    public static bool SeesWholeOrganization(int? level, IReadOnlySet<string> roles) =>
         roles.Contains(Roles.Organization) || level is 1 or 2;
 
     /// <summary>
     /// Whether a viewer may look at the subtree under <paramref name="rootUpn"/>:
-    /// anyone who sees the whole organisation may; others only at themselves or
+    /// anyone who sees the whole organization may; others only at themselves or
     /// someone under them (<paramref name="rootIsUnderViewer"/>, from dash.OrgClosure).
     /// </summary>
     /// <summary>

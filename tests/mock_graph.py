@@ -2,7 +2,7 @@
 """
 Mock of the Microsoft Graph Audit Search API, for testing the backfill engine.
 
-Simulates the documented service behaviour:
+Simulates the documented service behavior:
   * async audit searches: POST query -> poll status -> page records
   * per-query record cap: records stop at CAP; beta status reports
     isRecordCountLimitExceeded / recordCountLimit / approximateReturnedRecordCount
@@ -312,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
             ]})
             return True
 
-        # /v1.0/users?$filter=assignedLicenses/any(...)  - licence holders
+        # /v1.0/users?$filter=assignedLicenses/any(...)  - license holders
         if path == "/v1.0/users":
             self.send_json(200, {"value": [
                 {"userPrincipalName": "user%d@contoso.com" % n}

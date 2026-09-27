@@ -37,9 +37,9 @@ function Start-MockGraph {
 function Stop-MockGraph($Mock) { if ($Mock -and -not $Mock.Process.HasExited) { $Mock.Process.Kill() } }
 
 function Get-MockToken($Mock) { (Invoke-RestMethod "$($Mock.Base)/_control/token").token }
-function Get-MockStats($Mock) { Invoke-RestMethod "$($Mock.Base)/_control/stats" }
+function Get-MockStatistic($Mock) { Invoke-RestMethod "$($Mock.Base)/_control/stats" }
 
-function New-Options {
+function New-EngineOption {
     param($Mock, [datetime] $Start, [datetime] $End, [hashtable] $Overrides = @{})
     $o = [CopilotAudit.EngineOptions]::new()
     $o.GraphBaseUrl           = $Mock.Base
@@ -75,14 +75,14 @@ function Invoke-EngineRun {
         if ($OnTick) { & $OnTick $engine }
         if ($sw.Elapsed.TotalSeconds -gt $TimeoutSec) { $engine.RequestStop(); Start-Sleep 2; throw "engine run exceeded $TimeoutSec s" }
     }
-    try { [void]$task.Wait(5000) } catch { }
+    try { [void]$task.Wait(5000) } catch { Write-Verbose "The engine stopped with: $($_.Exception.Message)" }
     foreach ($l in $engine.DrainLog()) { $Log.Add($l) }
     $status = $engine.GetStatus()
     $engine.Dispose()
     return [pscustomobject]@{ Task = $task; Status = $status; Seconds = $sw.Elapsed.TotalSeconds; Refreshes = $refreshes }
 }
 
-function Get-ExpectedIds($Mock) {
+function Get-ExpectedId($Mock) {
     $dc = Invoke-RestMethod "$($Mock.Base)/_control/daycounts"
     $start = [datetime]::Parse($dc.range_start, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal)
     $set = [System.Collections.Generic.HashSet[string]]::new()

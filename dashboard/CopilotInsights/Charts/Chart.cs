@@ -7,10 +7,20 @@ namespace CopilotInsights.Charts;
 
 public enum Fmt { Count, Percent, Decimal1, Days }
 
-/// <summary>One series. Slot is the categorical colour (1-8, fixed per entity, never by rank).</summary>
+/// <summary>One series. Slot is the categorical color (1-8, fixed per entity, never by rank).</summary>
 public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot);
 
 public sealed record Bar(string Label, double? Value, string? Href = null, string? Note = null, int Slot = 1);
+
+/// <summary>
+/// A chart that can draw itself again at another width. Drawn at 720 units by default; a page
+/// draws one in a half-width panel at a narrower width, so its text comes out the same size as
+/// in a full-width panel (the SVG scales to its panel).
+/// </summary>
+public sealed class ChartSvg(string value, Func<string> draw) : HtmlString(value)
+{
+    public string Render(int width) => Chart.At(width, draw);
+}
 
 /// <summary>An event on a trend: a rollout wave, a training push, an outage (dash.EventMarker), at the point it falls in.</summary>
 public sealed record Marker(int Index, string Label, string Kind);
@@ -22,15 +32,34 @@ public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
 }
 
 /// <summary>
-/// Server-rendered SVG charts. Colours come from CSS variables (--s1..--s8,
+/// Server-rendered SVG charts. Colors come from CSS variables (--s1..--s8,
 /// --q0..--q8), so light and dark themes swap in site.css. Every mark carries
-/// data-tip, which site.js shows as a tooltip; text uses the ink colours,
-/// never a series colour.
+/// data-tip, which site.js shows as a tooltip; text uses the ink colors,
+/// never a series color.
 /// </summary>
 public static class Chart
 {
     static readonly CultureInfo Ci = CultureInfo.InvariantCulture;
-    const int W = 720, L = 52, T = 14;
+    const int L = 52, T = 14;
+    [ThreadStatic] static int _w;
+    /// <summary>The drawing width in viewBox units: 720, or the panel's (see ChartSvg).</summary>
+    static int W => _w == 0 ? 720 : _w;
+    /// <summary>No chart is drawn more than 1.3 times its units, so its text stays near its set size however wide the panel.</summary>
+    static string MaxWidth => $" style=\"max-width:{N(W * 1.3)}px\"";
+
+    internal static string At(int width, Func<string> draw)
+    {
+        var before = _w;
+        _w = width;
+        try { return draw(); }
+        finally { _w = before; }
+    }
+
+    static HtmlString Svg(Func<HtmlString> draw)
+    {
+        var first = draw();
+        return first.Value is { } v && v.Contains("<svg class=\"chart") ? new ChartSvg(v, () => draw().Value ?? "") : first;
+    }
 
     /*
         The right margin (line-end labels), bottom margin (axis labels) and height are set per chart from
@@ -155,7 +184,7 @@ public static class Chart
             var label = g.First().Label + more;
             var width = label.Length * 5.5;
             /* Whole names: near the right edge the label sits left of its rule. */
-            var left = xx + 3 + width > W - 2;
+            var left = xx + 3 + width > W - R - 2;   // inside the plot, clear of the line-end labels
             var x0 = left ? xx - 3 - width : xx + 3;
             var row = rows.FindIndex(end => end < x0);
             if (row < 0) { rows.Add(0); row = rows.Count - 1; }
@@ -171,17 +200,20 @@ public static class Chart
             $"<span><i class=\"sw\" style=\"background:var(--s{s.Slot})\"></i>{E(s.Name)}</span>")) + "</div>");
 
     /// <summary>Lines over the weeks, one axis from zero. Direct labels at the line ends for up to four series.</summary>
-    public static HtmlString Line(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, double? max = null)
+    public static HtmlString Line(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, double? max = null) =>
+        Svg(() => LineAt(x, series, f, aria, max));
+
+    static HtmlString LineAt(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, double? max)
     {
         if (x.Count == 0 || series.All(s => s.Values.All(v => v is null))) return new(Empty("No data for this period."));
         var top0 = max ?? series.SelectMany(s => s.Values).Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
         var endLabel = series.Count > 4 ? 0 : series.Select(s => TextW(s.Name + " " + Format(s.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
-        var r = (int)Math.Clamp(endLabel + 16, 110, 300);
+        var r = (int)Math.Clamp(endLabel + 16, 110, Math.Max(110, W * 0.42));
         using var layout = new Layout(r, BottomFor(x, W - r - L));
         double X(int i) => x.Count == 1 ? (L + W - R) / 2.0 : L + i * (W - R - L) / (double)(x.Count - 1);
         double Y(double v) => T + (H - T - B) * (1 - v / top);
-        var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\" role=\"img\" aria-label=\"{E(aria)}\">");
+        var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
         Grid(sb, top, step, f, Y);
         XLabels(sb, x, X);
         var labelYs = new List<double>();
@@ -220,17 +252,21 @@ public static class Chart
     /// </summary>
     public static HtmlString Projection(IReadOnlyList<string> x, int historyCount,
         IReadOnlyList<(Series History, IReadOnlyList<double> Forecast, IReadOnlyList<double> Low, IReadOnlyList<double> High)> lines,
+        Fmt f, string aria) => Svg(() => ProjectionAt(x, historyCount, lines, f, aria));
+
+    static HtmlString ProjectionAt(IReadOnlyList<string> x, int historyCount,
+        IReadOnlyList<(Series History, IReadOnlyList<double> Forecast, IReadOnlyList<double> Low, IReadOnlyList<double> High)> lines,
         Fmt f, string aria)
     {
         if (x.Count == 0 || lines.Count == 0 || lines.All(l => l.History.Values.All(v => v is null))) return new(Empty("Not enough history to forecast yet."));
         var top0 = lines.SelectMany(l => l.History.Values.Where(v => v.HasValue).Select(v => v!.Value).Concat(l.High)).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
         var endLabel = lines.Select(l => TextW(l.History.Name + " " + Format(l.Forecast.Count > 0 ? l.Forecast[^1] : l.History.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
-        var r = (int)Math.Clamp(endLabel + 16, 110, 300);
+        var r = (int)Math.Clamp(endLabel + 16, 110, Math.Max(110, W * 0.42));
         using var layout = new Layout(r, BottomFor(x, W - r - L));
         double X(int i) => x.Count == 1 ? (L + W - R) / 2.0 : L + i * (W - R - L) / (double)(x.Count - 1);
         double Y(double v) => T + (H - T - B) * (1 - Math.Min(v, top) / top);
-        var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\" role=\"img\" aria-label=\"{E(aria)}\">");
+        var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
         Grid(sb, top, step, f, Y);
         XLabels(sb, x, X);
         var now = X(historyCount - 1);
@@ -273,7 +309,10 @@ public static class Chart
     }
 
     /// <summary>Columns per week, stacked (parts of a whole) or grouped (side by side).</summary>
-    public static HtmlString Columns(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, bool stacked = true)
+    public static HtmlString Columns(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, bool stacked = true) =>
+        Svg(() => ColumnsAt(x, series, f, aria, stacked));
+
+    static HtmlString ColumnsAt(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, bool stacked)
     {
         if (x.Count == 0 || series.All(s => s.Values.All(v => v is null or 0))) return new(Empty("Nothing in this period."));
         var totals = Enumerable.Range(0, x.Count).Select(i => stacked
@@ -285,7 +324,7 @@ public static class Chart
         var bw = Math.Max(3, band * 0.72);
         double X0(int i) => L + i * band + (band - bw) / 2;
         double Y(double v) => T + (H - T - B) * (1 - v / top);
-        var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\" role=\"img\" aria-label=\"{E(aria)}\">");
+        var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
         Grid(sb, top, step, f, Y);
         XLabels(sb, x, i => X0(i) + bw / 2);
         for (var i = 0; i < x.Count; i++)
@@ -323,16 +362,20 @@ public static class Chart
     }
 
     /// <summary>Horizontal bars with labels and values, for rankings and comparisons.</summary>
-    public static HtmlString Bars(IReadOnlyList<Bar> bars, Fmt f, string aria, double? max = null)
+    public static HtmlString Bars(IReadOnlyList<Bar> bars, Fmt f, string aria, double? max = null) =>
+        Svg(() => BarsAt(bars, f, aria, max));
+
+    static HtmlString BarsAt(IReadOnlyList<Bar> bars, Fmt f, string aria, double? max)
     {
         if (bars.Count == 0) return new(Empty("Nothing to compare."));
         var top = max ?? bars.Max(b => b.Value ?? 0);
         var low = Math.Min(0, bars.Min(b => b.Value ?? 0));   // a change can be negative: bars grow left from zero
         if (top <= 0 && low >= 0) top = 1;
         top = Math.Max(0, top);
-        const int valueW = 70, BW = 720;
+        const int valueW = 70;
+        var BW = W;
         /* The label column fits the longest name up to 300; longer names wrap onto a second line. */
-        var labelW = (int)Math.Clamp(bars.Max(b => b.Label.Length * 6.9) + 18, 190, 300);
+        var labelW = (int)Math.Clamp(bars.Max(b => b.Label.Length * 6.9) + 18, Math.Min(190, BW * 0.3), BW * 0.42);
         var perLine = Math.Max(10, (int)((labelW - 18) / 6.9));
         var wrapped = bars.Select(b => WrapLines(b.Label, perLine)).ToList();
         var lineCount = Math.Min(3, wrapped.Max(w => w.Count));
@@ -340,7 +383,7 @@ public static class Chart
         var span = BW - labelW - valueW - (low < 0 ? valueW : 0);
         var zero = labelW + (low < 0 ? valueW : 0) + span * (-low) / (top - low);
         var h = bars.Count * rowH + 6;
-        var sb = new StringBuilder($"<svg class=\"chart bars\" viewBox=\"0 0 {BW} {h}\" role=\"img\" aria-label=\"{E(aria)}\">");
+        var sb = new StringBuilder($"<svg class=\"chart bars\" viewBox=\"0 0 {BW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
         if (low < 0) sb.Append($"<line class=\"grid\" x1=\"{N(zero)}\" x2=\"{N(zero)}\" y1=\"0\" y2=\"{h}\"/>");
         for (var i = 0; i < bars.Count; i++)
         {
@@ -375,15 +418,19 @@ public static class Chart
     }
 
     /// <summary>A grid of cells shaded on the blue sequential ramp (q0 lightest to q8 darkest).</summary>
-    public static HtmlString Heatmap(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max = null)
+    public static HtmlString Heatmap(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max = null) =>
+        Svg(() => HeatmapAt(rows, cols, values, f, aria, max));
+
+    static HtmlString HeatmapAt(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max)
     {
         if (rows.Count == 0 || cols.Count == 0) return new(Empty("No data for this period."));
         var top = max ?? values.Cast<double?>().Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
-        const int rowH = 24, HW = 720;
-        var labelW = (int)Math.Clamp(rows.Max(r => TextW(r)) + 14, 110, 260);
+        const int rowH = 24;
+        var HW = W;
+        var labelW = (int)Math.Clamp(rows.Max(r => TextW(r)) + 14, 110, Math.Max(110, HW * 0.36));
         var cw = (HW - labelW - 8) / (double)cols.Count;
         var h = rows.Count * rowH + 24;
-        var sb = new StringBuilder($"<svg class=\"chart heat\" viewBox=\"0 0 {HW} {h}\" role=\"img\" aria-label=\"{E(aria)}\">");
+        var sb = new StringBuilder($"<svg class=\"chart heat\" viewBox=\"0 0 {HW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
         var every = Math.Max(1, (int)Math.Ceiling(cols.Count / 12.0));
         for (var c = 0; c < cols.Count; c++)
             if (c % every == 0)
@@ -441,7 +488,7 @@ public static class Chart
     static double Place(List<double> used, double want)
     {
         const double gap = 14, lo = T + 10;
-        double hi = H - B + 12;
+        double hi = H - B - 2;   // above the axis labels
         want = Math.Clamp(want, lo, hi);
         for (var step = 0; step < 30; step++)
             foreach (var y in new[] { want + step * gap, want - step * gap })

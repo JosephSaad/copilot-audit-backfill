@@ -23,3 +23,8 @@ Thumbs.db
 # Offline module bundle, created by tools/Save-CopilotAuditModules.ps1.
 # Not committed: it is ~40 MB of Microsoft-owned binaries.
 Modules/
+
+# Development tools output (tools/dev/README.md)
+tools/dev/schema/out/
+tools/dev/ui/ui-audit/
+tools/dev/ui/edge-audit/

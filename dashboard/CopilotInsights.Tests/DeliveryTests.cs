@@ -124,7 +124,7 @@ public class MarkerTests
     public void Markers_draw_on_line_and_column_charts_at_their_point()
     {
         var x = new Axis(["1 Oct", "2 Oct", "3 Oct"]);
-        x.Markers.Add(new Marker(1, "Wave 2 licences", "Rollout"));
+        x.Markers.Add(new Marker(1, "Wave 2 licenses", "Rollout"));
         x.Markers.Add(new Marker(1, "Workshop", "Training"));
         x.Markers.Add(new Marker(7, "Out of range", "Other"));
         var line = Chart.Line(x, [new Series("People", [1, 2, 3], 1)], Fmt.Count, "t").Value!;
@@ -132,7 +132,7 @@ public class MarkerTests
         foreach (var svg in new[] { line, cols })
         {
             Assert.Single(System.Text.RegularExpressions.Regex.Matches(svg, "class=\"marker\""));
-            Assert.Contains("Wave 2 licences +1", svg);
+            Assert.Contains("Wave 2 licenses +1", svg);
             Assert.Contains("Workshop (training)", svg);
             Assert.DoesNotContain("Out of range", svg);
         }
@@ -165,5 +165,37 @@ public class PrivacyNavTests
                                   "/compliance/person", "/forecasting/budget", "/forecasting/waves", "/forecasting/outcomes", "/workforce/families",
                                   "/admin/directory", "/admin/classifications", "/admin/extracts", "/licensing/ranking" })
             Assert.Contains(p, paths);
+    }
+}
+
+/// <summary>One retry policy: three tries an hour apart, then the next period.</summary>
+public class RetryTests
+{
+    static readonly DateTime Now = new(2026, 10, 1, 8, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void A_success_clears_the_count()
+    {
+        var r = Retry.After(true, 2, Now);
+        Assert.False(r.Retry); Assert.Equal(0, r.FailedTries); Assert.Null(r.RetryAfterUtc);
+    }
+
+    [Fact]
+    public void Failures_are_retried_an_hour_later_three_tries_in_all()
+    {
+        var first = Retry.After(false, 0, Now);
+        Assert.True(first.Retry); Assert.Equal(1, first.FailedTries); Assert.Equal(Now.AddHours(1), first.RetryAfterUtc);
+        var second = Retry.After(false, first.FailedTries, Now);
+        Assert.True(second.Retry); Assert.Equal(2, second.FailedTries);
+        var third = Retry.After(false, second.FailedTries, Now);
+        Assert.False(third.Retry); Assert.Equal(0, third.FailedTries);   // given up: waits for the next period
+    }
+
+    [Fact]
+    public void Ready_once_the_wait_is_over()
+    {
+        Assert.True(Retry.Ready(null, Now));
+        Assert.False(Retry.Ready(Now.AddMinutes(5), Now));
+        Assert.True(Retry.Ready(Now, Now));
     }
 }

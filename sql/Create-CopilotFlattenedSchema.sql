@@ -74,7 +74,7 @@ IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL
         /* $.CopilotEventData.AccessedResources[*].SensitivityLabelId           */
         SensitivityLabelIds             NVARCHAR(MAX)   NULL,
 
-        /* Whether the user held a Copilot licence. Not in the audit record:
+        /* Whether the user held a Copilot license. Not in the audit record:
            filled from audit.CopilotLicense when that table exists (see the
            procedure), NULL otherwise.                                          */
         IsCopilotLic                    BIT             NULL,
@@ -250,8 +250,8 @@ IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NOT NULL
             ON audit.RawLogFlattened (UtcTimeStamp) INCLUDE ([User], App);');
 
 /*
-    Optional licence lookup. Create and populate it (from Entra/Graph, or a
-    licence report) and the flatten procedure fills IsCopilotLic; leave it out
+    Optional license lookup. Create and populate it (from Entra/Graph, or a
+    license report) and the flatten procedure fills IsCopilotLic; leave it out
     and IsCopilotLic stays NULL. Matched on UPN, case-insensitively.
 */
 IF OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
@@ -267,8 +267,8 @@ IF OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
     );
 
 /*
-    The value catalogue: every distinct value of the columns that carry an
-    opaque code or a short list - label ids, agent and app ids, licence types,
+    The value catalog: every distinct value of the columns that carry an
+    opaque code or a short list - label ids, agent and app ids, license types,
     model names, regions - so an administrator can give each one a readable
     name (dash.ValueName, Admin > Value names). The flatten procedure adds each
     batch's values (audit.usp_CatalogValues); a column that passes 10,000
@@ -312,7 +312,7 @@ USING (VALUES
     (7,  N'RawLogFlattened',        N'PlatformAgentId',                         N'Platform agent id'),
     (8,  N'RawLogFlattened',        N'ResultStatus',                            N'Result status'),
     (9,  N'RawLogFlattened',        N'AppAccessContext_APIId',                  N'API id (AppAccessContext.APIId)'),
-    (10, N'RawLogFlattened',        N'CopilotEventData_LicenseType',            N'Licence type'),
+    (10, N'RawLogFlattened',        N'CopilotEventData_LicenseType',            N'License type'),
     (11, N'RawLogFlattened',        N'CopilotEventData_SensitivityLabelId',     N'Sensitivity label of the interaction'),
     (12, N'RawLogFlattened',        N'CopilotEventData_TargetAgentName',        N'Agent called (TargetAgentName)'),
     (13, N'RawLogFlattened',        N'CopilotEventData_TargetPlatformAgentId',  N'Agent called, platform id'),

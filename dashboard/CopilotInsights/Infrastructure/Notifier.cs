@@ -33,12 +33,17 @@ public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<Insig
         using var root = scopes.CreateScope();
         var tenants = root.ServiceProvider.GetRequiredService<TenantAccessor>();
         var done = new List<string>();
-        foreach (var t in tenants.All)
+        var before = tenants.Current;   // run from a page: the page's tenant again afterwards, for its audit entry
+        try
         {
-            tenants.Use(t);
-            try { done.AddRange((await RunOnceAsync(ct)).Select(d => tenants.Many ? $"[{t.Name}] {d}" : d)); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "The notification checks failed for {Tenant}", t.Name); }
+            foreach (var t in tenants.All)
+            {
+                tenants.Use(t);
+                try { done.AddRange((await RunOnceAsync(ct)).Select(d => tenants.Many ? $"[{t.Name}] {d}" : d)); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "The notification checks failed for {Tenant}", t.Name); }
+            }
         }
+        finally { tenants.Use(before); }
         return done;
     }
 
@@ -217,9 +222,9 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             /* Once a week while it lasts. */
             var last = DateTime.TryParse(await StateAsync("pool"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
             if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
-            await AlertAsync("Pool", "AlertLicensingTo", "Copilot licences are running out",
+            await AlertAsync("Pool", "AlertLicensingTo", "Copilot licenses are running out",
                 full.Select(p => $"{p.SkuPartNumber}: {p.Consumed:#,0} of {p.Bought:#,0} assigned ({100.0 * p.Consumed / p.Bought:0}%), {p.Available:#,0} left.")
-                    .Append("Licence optimisation lists unused licences to reclaim before buying more.").ToList(), "/licensing/pool");
+                    .Append("License optimization lists unused licenses to reclaim before buying more.").ToList(), "/licensing/pool");
             await SetStateAsync("pool", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
         }
 
@@ -229,10 +234,10 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             var before = int.TryParse(await StateAsync("leavers"), out var b) ? b : 0;
             if (!first && n > before)
             {
-                var price = decimal.TryParse(await _settings.StringAsync("LicenceMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m;
-                var cur = await _settings.StringAsync("LicenceCurrency") ?? "USD";
-                await AlertAsync("Leavers", "AlertLicensingTo", $"{n} Copilot licence(s) on disabled or departed accounts",
-                    [$"{n - before} more since the last check: {n:#,0} in all, {n * price:#,0} {cur} a month. The list is on Licensing > Licences on disabled accounts, for people with the Licensing role."],
+                var price = decimal.TryParse(await _settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m;
+                var cur = await _settings.StringAsync("LicenseCurrency") ?? "USD";
+                await AlertAsync("Leavers", "AlertLicensingTo", $"{n} Copilot license(s) on disabled or departed accounts",
+                    [$"{n - before} more since the last check: {n:#,0} in all, {n * price:#,0} {cur} a month. The list is on Licensing > Licenses on disabled accounts, for people with the Licensing role."],
                     "/licensing/leavers");
             }
             await SetStateAsync("leavers", n.ToString(CultureInfo.InvariantCulture));
@@ -253,26 +258,33 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             public string? RootUpn { get; set; }
             public int Days { get; set; }
             public DateTime? LastSentUtc { get; set; }
+            public byte FailedTries { get; set; }
+            public DateTime? RetryAfterUtc { get; set; }
         }
 
         public async Task DigestsAsync()
         {
-            var subs = await _db.QueryAsync<Sub>("SELECT SubscriptionId, Name, Report, Recipients, Frequency, DayOfWeek, DayOfMonth, HourLocal, RootUpn, Days, LastSentUtc FROM dash.Subscription WHERE Enabled = 1;");
+            var subs = await _db.QueryAsync<Sub>("SELECT SubscriptionId, Name, Report, Recipients, Frequency, DayOfWeek, DayOfMonth, HourLocal, RootUpn, Days, LastSentUtc, FailedTries, RetryAfterUtc FROM dash.Subscription WHERE Enabled = 1;");
             if (subs.Count == 0) return;
             var zone = await _ops.ZoneAsync();
-            foreach (var s in subs.Where(s => Schedule.IsDue(s.Frequency, s.DayOfWeek, s.DayOfMonth, s.HourLocal, s.LastSentUtc, DateTime.UtcNow, zone)))
+            foreach (var s in subs.Where(s => Schedule.IsDue(s.Frequency, s.DayOfWeek, s.DayOfMonth, s.HourLocal, s.LastSentUtc, DateTime.UtcNow, zone)
+                                              && Retry.Ready(s.RetryAfterUtc, DateTime.UtcNow)))
             {
                 string status;
+                bool sent;
                 try
                 {
                     var (subject, html, text) = await _reports.DigestAsync(s.Report, s.Days, s.RootUpn);
                     var error = await _mail.SendAsync("Digest", MailConfig.Recipients(s.Recipients), subject, html, text, ct);
-                    status = error is null ? "Sent" : "Not sent: " + error;
+                    sent = error is null;
+                    status = sent ? "Sent" : "Not sent: " + error;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) { status = "Failed: " + ex.Message; }
-                /* Marked as sent either way, so a broken setting fails once per period, not every five minutes. */
-                await _db.ExecuteAsync("UPDATE dash.Subscription SET LastSentUtc = SYSUTCDATETIME(), LastStatus = @status WHERE SubscriptionId = @id;",
-                    new { id = s.SubscriptionId, status = status.Length > 400 ? status[..400] : status });
+                catch (Exception ex) when (ex is not OperationCanceledException) { sent = false; status = "Failed: " + ex.Message; }
+                var next = Retry.After(sent, s.FailedTries, DateTime.UtcNow);
+                if (next.Retry) status += $" Trying again after {next.RetryAfterUtc:HH:mm} UTC (try {s.FailedTries + 2} of {Retry.Tries}).";
+                await _db.ExecuteAsync(@"UPDATE dash.Subscription SET LastSentUtc = CASE WHEN @retry = 1 THEN LastSentUtc ELSE SYSUTCDATETIME() END,
+    FailedTries = @tries, RetryAfterUtc = @after, LastStatus = @status WHERE SubscriptionId = @id;",
+                    new { id = s.SubscriptionId, retry = next.Retry, tries = next.FailedTries, after = next.RetryAfterUtc, status = status.Length > 400 ? status[..400] : status });
                 done.Add($"Digest \"{s.Name}\": {status}");
             }
         }

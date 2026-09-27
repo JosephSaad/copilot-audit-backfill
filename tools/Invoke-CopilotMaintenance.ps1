@@ -8,7 +8,7 @@
                                the dashboard (after a flattening change).
     -Task RebuildSessions      Rebuild every session (after a session setting changes), then
                                bring bi and the dashboard up to date.
-    -Task RebuildBi            Rebuild bi in full (after a time-zone change, licence history
+    -Task RebuildBi            Rebuild bi in full (after a time-zone change, license history
                                arriving late, or a purge of flattened rows), then the dashboard.
     -Task RefreshDashboard     Rebuild the dashboard's org chart, and its rollups from -SinceUtc
                                (every day when omitted).
@@ -16,7 +16,7 @@
                                to rebuild sessions and bi with it now rather than on the next load.
     -Task GrantRole            Give -Principal (a UPN, DOMAIN\user or DOMAIN\Group) a dashboard -Role.
     -Task RevokeRole           Take it away again.
-    -Task SetOrgTop            Make -Upn the top of the organisation for the dashboard, or -Clear
+    -Task SetOrgTop            Make -Upn the top of the organization for the dashboard, or -Clear
                                to go back to the one found in the org chart. Rebuilds the org chart.
     -Task SetDashboardSetting  Set MinGroupSize, DefaultDays or InactiveDays to -Value.
     -Task NameAgent            Give the agent -AgentId (its id in the audit log) a -FriendlyName
@@ -25,11 +25,11 @@
     -Task PurgeJson            Clear the stored JSON of records older than -RetainDays (with
                                -DeleteRows, remove those records altogether). Reports only,
                                unless -Apply.
-    -Task RebuildValueCatalog  List every distinct value of the catalogued columns again, from
+    -Task RebuildValueCatalog  List every distinct value of the cataloged columns again, from
                                every flattened record: once, for data flattened before 2.3.0.
-    -Task ListValues           The catalogued columns, or with -ColumnId one column's values
+    -Task ListValues           The cataloged columns, or with -ColumnId one column's values
                                and names; -Path writes them to a CSV to fill in.
-    -Task ImportValueNames     Readable names for catalogued values from -Path, a CSV of
+    -Task ImportValueNames     Readable names for cataloged values from -Path, a CSV of
                                ColumnId, Value, Name[, Note] (what ListValues -Path writes).
                                An empty Name removes the name.
 
@@ -48,7 +48,7 @@
 param(
     [Parameter(Mandatory)][string] $SqlServer,
     [string] $Database = 'CopilotAudit',
-    [string[]] $LicenceEventDatabases = @('CopilotLicenseEvents'),
+    [string[]] $LicenseEventDatabases = @('CopilotLicenseEvents'),
     [pscredential] $SqlCredential,
     [switch] $TrustServerCertificate,
     [Parameter(Mandatory)]
@@ -64,7 +64,7 @@ param(
     [ValidateSet('User', 'Group')][string] $PrincipalType,
     [string] $Upn,
     [switch] $Clear,
-    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenceMonthlyCost', 'LicenceCurrency')][string] $Name,
+    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenseMonthlyCost', 'LicenseCurrency')][string] $Name,
     [string] $Value,
     [string] $AgentId,
     [string] $FriendlyName,
@@ -84,7 +84,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$licList = if ($LicenceEventDatabases) { $LicenceEventDatabases -join ',' } else { $null }
+$licList = if ($LicenseEventDatabases) { $LicenseEventDatabases -join ',' } else { $null }
 $me = "$env:USERDOMAIN\$env:USERNAME"
 
 function Invoke-Sql {
@@ -111,7 +111,7 @@ function Need([string] $what, $value) { if (-not $value) { throw "-Task $Task ne
 function Update-Dashboard([object] $since) {
     if (Test-Proc 'dash.usp_RefreshDashboard') { Invoke-Sql -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since } }
 }
-function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenceEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
+function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
 
 switch ($Task) {
     'Status' {
@@ -123,7 +123,7 @@ UNION ALL SELECT 'Last session build (UTC)', CASE WHEN OBJECT_ID(N'audit.Copilot
 UNION ALL SELECT 'Last bi refresh (UTC)', CASE WHEN OBJECT_ID(N'bi.RefreshRun') IS NOT NULL THEN (SELECT CONVERT(NVARCHAR(20), MAX(EndedUtc), 120) FROM bi.RefreshRun) END
 UNION ALL SELECT 'Last dashboard refresh (UTC)', CASE WHEN OBJECT_ID(N'dash.RefreshRun') IS NOT NULL THEN (SELECT CONVERT(NVARCHAR(20), MAX(EndedUtc), 120) FROM dash.RefreshRun) END
 UNION ALL SELECT 'Directory people', CASE WHEN OBJECT_ID(N'audit.UserDirectory') IS NOT NULL THEN CAST((SELECT COUNT(*) FROM audit.UserDirectory) AS NVARCHAR(40)) END
-UNION ALL SELECT 'Top of the organisation', CASE WHEN OBJECT_ID(N'dash.Setting') IS NOT NULL THEN
+UNION ALL SELECT 'Top of the organization', CASE WHEN OBJECT_ID(N'dash.Setting') IS NOT NULL THEN
     (SELECT COALESCE(MAX(CASE WHEN Name = 'OrgTopUpn' THEN NULLIF(Value, N'') END), MAX(CASE WHEN Name = 'OrgTopUpnDetected' THEN Value + N' (from the org chart)' END)) FROM dash.Setting) END
 UNION ALL SELECT 'Record shapes', CASE WHEN OBJECT_ID(N'audit.RawLogRecordShape') IS NOT NULL THEN CAST((SELECT COUNT(*) FROM audit.RawLogRecordShape) AS NVARCHAR(40)) END;
 "@
@@ -131,11 +131,11 @@ UNION ALL SELECT 'Record shapes', CASE WHEN OBJECT_ID(N'audit.RawLogRecordShape'
     }
     'Reflatten' {
         Invoke-Sql -Sql 'EXEC audit.usp_FlattenCopilotAudit;'
-        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
         Update-Bi $null; Update-Dashboard $null
     }
     'RebuildSessions' {
-        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
         # After a full session build bi copies every session again; interactions from today on only.
         Update-Bi ([datetime]::UtcNow.Date); Update-Dashboard $null
     }
@@ -149,7 +149,7 @@ IF @@ROWCOUNT = 0 INSERT INTO audit.SessionAppCategory (App, AppCategory) VALUES
 "@
         Write-Host "$App is $Category."
         if ($Apply) {
-            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
             Update-Bi $null; Update-Dashboard $null
         }
         else { Write-Host 'It applies from the next load; add -Apply to rebuild sessions and bi with it now.' }

@@ -23,7 +23,7 @@
     only, no module.
 
     The table is replaced whole, in one transaction, so a reader never sees it
-    empty or half-loaded. Licences are not here: they come from Microsoft
+    empty or half-loaded. Licenses are not here: they come from Microsoft
     Graph, by tools/Update-CopilotAuditEnrichment.ps1.
 
     After loading it reports how many of the users in the audit data it found,
@@ -149,6 +149,66 @@ function Get-DirectoryEntry {
     }
     finally { $results.Dispose() }
     return , $all
+}
+
+function ConvertTo-LdapFilterValue {
+    <# A value escaped for an LDAP filter (RFC 4515). Pure, for the tests. #>
+    param([Parameter(Mandatory)][AllowEmptyString()][string] $Value)
+    $sb = [System.Text.StringBuilder]::new()
+    foreach ($ch in $Value.ToCharArray()) {
+        switch ($ch) {
+            '\' { [void] $sb.Append('\5c') }
+            '*' { [void] $sb.Append('\2a') }
+            '(' { [void] $sb.Append('\28') }
+            ')' { [void] $sb.Append('\29') }
+            ([char] 0) { [void] $sb.Append('\00') }
+            default { [void] $sb.Append($ch) }
+        }
+    }
+    $sb.ToString()
+}
+
+function Get-GroupMemberUpn {
+    <#
+        The UPNs of every user in an AD group, nested groups included (the in-chain matching
+        rule). The group is DOMAIN\Name as the dashboard grants it; it is looked up by its
+        account name in the target domain. Returns $null when there is no such group.
+    #>
+    param([Parameter(Mandatory)][string] $Domain, [Parameter(Mandatory)][string] $Group)
+    $name = if ($Group.Contains('\')) { $Group.Substring($Group.IndexOf('\') + 1) } else { $Group }
+    $base = ([ADSI]"LDAP://$Domain/RootDSE").defaultNamingContext
+    $find = [System.DirectoryServices.DirectorySearcher]::new([ADSI]"LDAP://$Domain/$base",
+        "(&(objectCategory=group)(sAMAccountName=$(ConvertTo-LdapFilterValue $name)))")
+    [void] $find.PropertiesToLoad.Add('distinguishedName')
+    $g = $find.FindOne()
+    if (-not $g) { return $null }
+    $dn = [string] $g.Properties['distinguishedname'][0]
+    $members = [System.DirectoryServices.DirectorySearcher]::new([ADSI]"LDAP://$Domain/$base",
+        "(&(objectCategory=person)(objectClass=user)(memberOf:1.2.840.113556.1.4.1941:=$(ConvertTo-LdapFilterValue $dn)))")
+    $members.PageSize = 1000
+    $members.SizeLimit = 0
+    [void] $members.PropertiesToLoad.Add('userPrincipalName')
+    $upns = [System.Collections.Generic.List[string]]::new()
+    $results = $members.FindAll()
+    try { foreach ($r in $results) { if ($r.Properties.Contains('userprincipalname')) { $upns.Add([string] $r.Properties['userprincipalname'][0]) } } }
+    finally { $results.Dispose() }
+    , $upns.ToArray()
+}
+
+function ConvertTo-GroupMemberTable {
+    <# (group, UPNs) pairs to audit.GroupMember rows, each pair once. Pure, for the tests. #>
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Groups)
+    $t = [System.Data.DataTable]::new()
+    [void] $t.Columns.Add('GroupName', [string])
+    [void] $t.Columns.Add('UserPrincipalName', [string])
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($g in $Groups) {
+        foreach ($u in @($g.Members)) {
+            if ([string]::IsNullOrWhiteSpace($u) -or $u.Length -gt 256) { continue }
+            if ($seen.Add("$($g.Group)|$u")) { [void] $t.Rows.Add($g.Group, $u) }
+        }
+    }
+    , $t
 }
 
 # ===========================================================================
@@ -317,6 +377,46 @@ function Write-UserDirectory {
     return $Table.Rows.Count
 }
 
+function Get-OrganizationGroup {
+    <# The AD groups granted Organization in the dashboard, if it is installed. #>
+    param([Parameter(Mandatory)][string] $ConnString)
+    $conn = [System.Data.SqlClient.SqlConnection]::new($ConnString)
+    $conn.Open()
+    try {
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandText = "IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NOT NULL EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE PrincipalType = ''Group'' AND Role = ''Organization'';');"
+        $r = $cmd.ExecuteReader()
+        $list = [System.Collections.Generic.List[string]]::new()
+        try { while ($r.Read()) { $list.Add($r.GetString(0)) } } finally { $r.Dispose() }
+        , $list.ToArray()
+    }
+    finally { $conn.Dispose() }
+}
+
+function Write-GroupMember {
+    <# Replaces audit.GroupMember with the rows given, in one transaction. #>
+    param([Parameter(Mandatory)][string] $ConnString, [Parameter(Mandatory)][System.Data.DataTable] $Table)
+    $conn = [System.Data.SqlClient.SqlConnection]::new($ConnString)
+    $conn.Open()
+    try {
+        $tx = $conn.BeginTransaction()
+        try {
+            $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx
+            $cmd.CommandText = 'DELETE FROM audit.GroupMember;'
+            [void] $cmd.ExecuteNonQuery()
+            $bulk = [System.Data.SqlClient.SqlBulkCopy]::new($conn, [System.Data.SqlClient.SqlBulkCopyOptions]::Default, $tx)
+            $bulk.DestinationTableName = 'audit.GroupMember'
+            foreach ($c in $Table.Columns) { [void] $bulk.ColumnMappings.Add($c.ColumnName, $c.ColumnName) }
+            $bulk.WriteToServer($Table)
+            $bulk.Close()
+            $tx.Commit()
+        }
+        catch { $tx.Rollback(); throw }
+    }
+    finally { $conn.Dispose() }
+    $Table.Rows.Count
+}
+
 function Get-DirectoryMatch {
     <#
         How many of the users in the audit data the directory has a row for,
@@ -373,6 +473,17 @@ function Invoke-Main {
 
     $n = Write-UserDirectory -ConnString $connStr -Table $rows.Table -BatchRows $BatchSize
     Write-Log ("Loaded {0:N0} row(s) into audit.UserDirectory." -f $n)
+
+    # Organization granted to AD groups: their members, for Power BI's row-level security (bi.OrgSecurity).
+    # Written every night, even with no groups, so a revoked grant's members do not linger.
+    $groups = @(Get-OrganizationGroup -ConnString $connStr)
+    $expanded = @(foreach ($g in $groups) {
+        $members = Get-GroupMemberUpn -Domain $TargetDomain -Group $g
+        if ($null -eq $members) { Write-Log "Group $g, granted Organization, is not in ${TargetDomain}: Power BI will not give its members the whole organization." -Level WARN; continue }
+        [pscustomobject]@{ Group = $g; Members = $members }
+    })
+    $gm = Write-GroupMember -ConnString $connStr -Table (ConvertTo-GroupMemberTable -Groups $expanded)
+    if ($groups.Count -gt 0) { Write-Log ("{0:N0} member(s) of {1} group(s) granted Organization recorded for Power BI." -f $gm, $expanded.Count) }
 
     $m = Get-DirectoryMatch -ConnString $connStr
     if ($m.AuditUsers -gt 0) {

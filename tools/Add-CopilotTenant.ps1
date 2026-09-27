@@ -33,8 +33,8 @@
 .PARAMETER Database
     Its Copilot database. Default: CopilotAudit_<Name>.
 
-.PARAMETER LicenceDatabase
-    Its licence-event database. Default: CopilotLicenseEvents_<Name>.
+.PARAMETER LicenseDatabase
+    Its license-event database. Default: CopilotLicenseEvents_<Name>.
 
 .PARAMETER TargetDomain
     Its users' Active Directory domain, if its directory is loaded from AD.
@@ -49,7 +49,7 @@ param(
     [Parameter(Mandatory)][string] $TenantId,
     [string] $ClientId,
     [string] $Database,
-    [string] $LicenceDatabase,
+    [string] $LicenseDatabase,
     [string] $TargetDomain,
     [switch] $UseDeviceCode,
     [string] $SettingsPath
@@ -79,7 +79,7 @@ function Invoke-Main {
     if (-not (Test-Path -LiteralPath $SettingsPath)) { throw "No settings at $SettingsPath. Set up the first tenant with tools\Install-CopilotJobServer.ps1." }
     $s = Import-PowerShellDataFile -LiteralPath $SettingsPath
     $db = if ($Database) { $Database } else { "CopilotAudit_$($Name -replace '[^A-Za-z0-9_]', '')" }
-    $lic = if ($LicenceDatabase) { $LicenceDatabase } else { "CopilotLicenseEvents_$($Name -replace '[^A-Za-z0-9_]', '')" }
+    $lic = if ($LicenseDatabase) { $LicenseDatabase } else { "CopilotLicenseEvents_$($Name -replace '[^A-Za-z0-9_]', '')" }
 
     # 1. The app, in the new tenant, with the job server's certificate.
     $client = $ClientId
@@ -95,14 +95,14 @@ function Invoke-Main {
     }
 
     # 2. Its databases.
-    $install = @{ SqlServer = $s.SqlServer; Database = $db; LicenceDatabase = $lic }
+    $install = @{ SqlServer = $s.SqlServer; Database = $db; LicenseDatabase = $lic }
     if ($s.Contains('ServiceAccount') -and $s.ServiceAccount) { $install.ServiceAccount = $s.ServiceAccount }
     if ($s.Contains('TrustServerCertificate') -and $s.TrustServerCertificate) { $install.TrustServerCertificate = $true }
     if ($s.Contains('Dashboard') -and $s.Dashboard) { $install.Dashboard = $true }
     if ($PSCmdlet.ShouldProcess("$($s.SqlServer): $db, $lic", 'Install-CopilotAudit.ps1')) { & (Join-Path $root 'Install-CopilotAudit.ps1') @install }
 
     # 3. The settings.
-    $tenant = [ordered]@{ Name = $Name; TenantId = $TenantId; ClientId = $client; Database = $db; LicenceDatabase = $lic }
+    $tenant = [ordered]@{ Name = $Name; TenantId = $TenantId; ClientId = $client; Database = $db; LicenseDatabase = $lic }
     if ($TargetDomain) { $tenant.TargetDomain = $TargetDomain }
     $new = Add-TenantSetting -Setting $s -Tenant $tenant
     if ($PSCmdlet.ShouldProcess($SettingsPath, "Add tenant $Name")) {

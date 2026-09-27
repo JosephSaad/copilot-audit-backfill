@@ -4,15 +4,15 @@ using CopilotInsights.Infrastructure;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// How licences move: how long people held one before it was taken away, whether it was
+/// How licenses move: how long people held one before it was taken away, whether it was
 /// taken from someone still using it, whether it came back, and who made the changes.
-/// All from the directory's own audit records (bi.FactLicenceChange): no extra permission.
+/// All from the directory's own audit records (bi.FactLicenseChange): no extra permission.
 /// </summary>
 public sealed class ChangesModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "Licence changes";
+    public override string Title => "License changes";
     public override string Persona => "Licensing";
-    public override string Intro => "Every Copilot licence assigned and removed in the period, from the directory's audit records: how long people had held a licence when it was removed, whether they were still using it, and whether it came back.";
+    public override string Intro => "Every Copilot license assigned and removed in the period, from the directory's audit records: how long people had held a license when it was removed, whether they were still using it, and whether it came back.";
 
     sealed class Removal
     {
@@ -29,20 +29,20 @@ public sealed class ChangesModel(PageServices s) : InsightsPage(s)
         var copilot = "JOIN bi.DimSku AS k ON k.SkuKey = f.SkuKey AND k.IsCopilot = 1";
         var counts = (await Db.QueryAsync<(int Added, int Removed, int People)>($@"
 SELECT ISNULL(SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), 0), ISNULL(SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END), 0), COUNT(DISTINCT f.UserKey)
-FROM bi.FactLicenceChange AS f {Ctx.Scope("f.UserKey")} {copilot}
+FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")} {copilot}
 WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).First();
 
-        /* Each removal: when that licence was assigned, whether they used Copilot in the 30 days before, and whether a licence came back later. */
+        /* Each removal: when that license was assigned, whether they used Copilot in the 30 days before, and whether a license came back later. */
         var removals = (await Db.QueryAsync<Removal>($@"
 SELECT f.UserKey, NULLIF(u.Department, N'') AS Department, f.ChangedUtc, a.SinceUtc,
        CAST(CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay AS ud JOIN bi.DimDate AS dd ON dd.DateKey = ud.DateKey
                               WHERE ud.UserKey = f.UserKey AND ud.Interactions > 0
                                 AND dd.[Date] BETWEEN DATEADD(DAY, -30, CAST(f.ChangedUtc AS DATE)) AND CAST(f.ChangedUtc AS DATE)) THEN 1 ELSE 0 END AS BIT) AS ActiveBefore,
-       CAST(CASE WHEN EXISTS (SELECT 1 FROM bi.FactLicenceChange AS b JOIN bi.DimSku AS bk ON bk.SkuKey = b.SkuKey AND bk.IsCopilot = 1
+       CAST(CASE WHEN EXISTS (SELECT 1 FROM bi.FactLicenseChange AS b JOIN bi.DimSku AS bk ON bk.SkuKey = b.SkuKey AND bk.IsCopilot = 1
                               WHERE b.UserKey = f.UserKey AND b.Change > 0 AND b.ChangedUtc > f.ChangedUtc) THEN 1 ELSE 0 END AS BIT) AS GivenBack
-FROM bi.FactLicenceChange AS f {Ctx.Scope("f.UserKey")} {copilot}
+FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")} {copilot}
 JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
-OUTER APPLY (SELECT TOP (1) p.ChangedUtc AS SinceUtc FROM bi.FactLicenceChange AS p
+OUTER APPLY (SELECT TOP (1) p.ChangedUtc AS SinceUtc FROM bi.FactLicenseChange AS p
              WHERE p.UserKey = f.UserKey AND p.SkuKey = f.SkuKey AND p.Change > 0 AND p.ChangedUtc <= f.ChangedUtc
              ORDER BY p.ChangedUtc DESC) AS a
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
@@ -60,7 +60,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
 
         if (removals.Count == 0)
         {
-            Notice = "No Copilot licences were removed in the period.";
+            Notice = "No Copilot licenses were removed in the period.";
         }
         else
         {
@@ -68,8 +68,8 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
             var bars = bands.Select((b, i) => new Bar(b.Label, removals.Count(r => r.SinceUtc is not null && (r.ChangedUtc - r.SinceUtc.Value).TotalDays is var d && d >= b.Lo && d < b.Hi), Slot: 1)).ToList();
             var unknown = removals.Count(r => r.SinceUtc is null);
             if (unknown > 0) bars.Add(new Bar("Assigned before the history", unknown, Slot: 3));
-            Panels.Add(new("How long the licence was held", Chart.Bars(bars, Fmt.Count, "Removals by time held"),
-                "Time from the licence's assignment to its removal. A licence removed within 30 days usually means it went to the wrong person.", "half"));
+            Panels.Add(new("How long the license was held", Chart.Bars(bars, Fmt.Count, "Removals by time held"),
+                "Time from the license's assignment to its removal. A license removed within 30 days usually means it went to the wrong person.", "half"));
 
             var inUse = new List<Bar>
             {
@@ -98,7 +98,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
         {
             var admins = await Db.QueryAsync<(string By, int Added, int Removed, DateTime Last)>($@"
 SELECT ISNULL(NULLIF(f.ChangedBy, N''), N'(not recorded)'), SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END), MAX(f.ChangedUtc)
-FROM bi.FactLicenceChange AS f {Ctx.Scope("f.UserKey")} {copilot}
+FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")} {copilot}
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY ISNULL(NULLIF(f.ChangedBy, N''), N'(not recorded)')
 ORDER BY COUNT(*) DESC;", Ctx.Args());

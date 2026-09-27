@@ -3,7 +3,7 @@
     ------------------------------------------------------------------------
     The audit tables are shaped for loading and auditing, not for a model: the
     flattened table has a row-sized text column for every list, users are UPN
-    strings, and licence history lives in other databases. A semantic model
+    strings, and license history lives in other databases. A semantic model
     over 20-40M interactions wants narrow facts with integer keys, small
     dimensions, and nothing high-cardinality it does not need. This is that
     layer. bi.usp_RefreshBi (Create-CopilotBiProcedure.sql) fills it, and each
@@ -12,14 +12,14 @@
       Facts                          one row per
         bi.FactInteraction           Copilot interaction (the big one)
         bi.FactSession               inferred session (audit.CopilotSession)
-        bi.FactLicenceChange         SKU added to or removed from a user
-        bi.FactLicensedDay           user holding a Copilot licence, per day
+        bi.FactLicenseChange         SKU added to or removed from a user
+        bi.FactLicensedDay           user holding a Copilot license, per day
 
       Dimensions
         bi.DimDate                   with the Saturday-Friday week of the rollup
-        bi.DimUser                   AD attributes, the org chain, today's licence
+        bi.DimUser                   AD attributes, the org chain, today's license
         bi.DimApp                    app and its Copilot Chat / In-App category
-        bi.DimAgent, bi.DimModel, bi.DimSku, bi.DimLicenceStatus
+        bi.DimAgent, bi.DimModel, bi.DimSku, bi.DimLicenseStatus
 
     The views with plain names (bi.Interactions, bi.Users, bi.Calendar ...)
     are what the model imports: the same columns less lineage (RecordId,
@@ -61,7 +61,7 @@ IF OBJECT_ID(N'bi.DimDate', N'U') IS NULL
         DayOfWeekNumber  TINYINT       NOT NULL,   -- 1 = Monday ... 7 = Sunday
         DayOfWeekName    NVARCHAR(10)  NOT NULL,
         IsWeekday        BIT           NOT NULL,
-        /* The weekly rollup's week: Saturday to Friday, labelled by the
+        /* The weekly rollup's week: Saturday to Friday, labeled by the
            Friday; week 1 of a year ends on its first Friday. */
         WeekEnding       DATE          NOT NULL,
         WeekYear         SMALLINT      NOT NULL,
@@ -108,9 +108,9 @@ BEGIN
         OrgLevel15           NVARCHAR(256)  NULL,
         /* Found (in AD) | NotFound (left Entra) | Not looked up (neither source) */
         DirectoryStatus      NVARCHAR(20)   NOT NULL CONSTRAINT DF_DimUser_Directory DEFAULT (N'Not looked up'),
-        /* Today's licence, from the enrichment. Licensed | Not licensed | Unknown.
-           Licence at the time of use is on the facts, not here. */
-        CopilotLicenceToday  NVARCHAR(12)   NOT NULL CONSTRAINT DF_DimUser_Licence DEFAULT (N'Unknown'),
+        /* Today's license, from the enrichment. Licensed | Not licensed | Unknown.
+           License at the time of use is on the facts, not here. */
+        CopilotLicenseToday  NVARCHAR(12)   NOT NULL CONSTRAINT DF_DimUser_License DEFAULT (N'Unknown'),
         CopilotSku           NVARCHAR(100)  NULL,
         LicensedSinceUtc     DATETIME2(0)   NULL,
         FirstSeenUtc         DATETIME2(0)   NOT NULL CONSTRAINT DF_DimUser_FirstSeen DEFAULT (SYSUTCDATETIME())
@@ -211,25 +211,25 @@ IF OBJECT_ID(N'bi.DimSku', N'U') IS NULL
         FirstSeenUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DimSku_FirstSeen DEFAULT (SYSUTCDATETIME())
     );
 
-/* Licence held at the time of use. Unknown is kept apart from Not licensed:
-   a user who has left the directory, with no licence history, is not known
+/* License held at the time of use. Unknown is kept apart from Not licensed:
+   a user who has left the directory, with no license history, is not known
    to have been unlicensed. */
-IF OBJECT_ID(N'bi.DimLicenceStatus', N'U') IS NULL
+IF OBJECT_ID(N'bi.DimLicenseStatus', N'U') IS NULL
 BEGIN
-    CREATE TABLE bi.DimLicenceStatus
+    CREATE TABLE bi.DimLicenseStatus
     (
-        LicenceStatusKey  TINYINT      NOT NULL CONSTRAINT PK_DimLicenceStatus PRIMARY KEY,
-        LicenceStatus     NVARCHAR(20) NOT NULL
+        LicenseStatusKey  TINYINT      NOT NULL CONSTRAINT PK_DimLicenseStatus PRIMARY KEY,
+        LicenseStatus     NVARCHAR(20) NOT NULL
     );
-    INSERT INTO bi.DimLicenceStatus (LicenceStatusKey, LicenceStatus)
+    INSERT INTO bi.DimLicenseStatus (LicenseStatusKey, LicenseStatus)
     VALUES (0, N'Unknown'), (1, N'Licensed'), (2, N'Not licensed');
 END;
 
 /* ---- 2.2.0: what the rest of the record says ----------------------------- */
 
-/* CopilotEventData.LicenseType: the licence the record itself says the user
-   had (Premium, Starter ...). Beside LicenceStatus, which comes from the
-   licence history, not the record. */
+/* CopilotEventData.LicenseType: the license the record itself says the user
+   had (Premium, Starter ...). Beside LicenseStatus, which comes from the
+   license history, not the record. */
 IF OBJECT_ID(N'bi.DimLicenseType', N'U') IS NULL
 BEGIN
     CREATE TABLE bi.DimLicenseType
@@ -317,7 +317,7 @@ BEGIN
         AppKey                   INT           NOT NULL,
         AgentKey                 INT           NOT NULL,
         ModelKey                 INT           NOT NULL,
-        LicenceStatusKey         TINYINT       NOT NULL,
+        LicenseStatusKey         TINYINT       NOT NULL,
         PromptCount              INT           NOT NULL,
         AccessedResourceCount    INT           NOT NULL,
         UsedWebSearch            BIT           NOT NULL,
@@ -328,6 +328,22 @@ BEGIN
     );
     CREATE CLUSTERED COLUMNSTORE INDEX CCI_FactInteraction ON bi.FactInteraction;
 END;
+
+/*
+    PremiumUse and UseCaseKey (2.4.0), set by bi.usp_RefreshBi and nowhere else: every other place
+    (the dashboard's rollups and pages, the bi views, Power BI) reads these columns, so each rule
+    has one definition.
+      PremiumUse  a licensed interaction that needed the Premium license: Copilot inside Word, Excel,
+                  PowerPoint, Outlook or Teams (bi.DimApp.AppCategory In-App Copilot, but not
+                  Copilot Studio, whose agents can be metered without one), or Copilot Chat that
+                  read work content (resources read, no web search).
+      UseCaseKey  AppKey x 4 + web search x 2 + agent: the key into bi.UseCases.
+    An app's category changes PremiumUse, so set categories before a build, or rebuild bi after.
+*/
+IF COL_LENGTH(N'bi.FactInteraction', N'PremiumUse') IS NULL
+    ALTER TABLE bi.FactInteraction ADD
+        PremiumUse  BIT NOT NULL CONSTRAINT DF_FactInteraction_Premium DEFAULT (0),
+        UseCaseKey  INT NOT NULL CONSTRAINT DF_FactInteraction_UseCase DEFAULT (0);
 
 /* 2.2.0 columns, added in place; rows written before them carry the defaults
    until the next full rebuild. */
@@ -383,27 +399,27 @@ IF OBJECT_ID(N'bi.FactSession', N'U') IS NULL
         DateKey              INT           NOT NULL,
         UserKey              INT           NOT NULL,
         AppKey               INT           NOT NULL,   -- the first prompt's app
-        LicenceStatusKey     TINYINT       NOT NULL,
+        LicenseStatusKey     TINYINT       NOT NULL,
         PromptCount          INT           NOT NULL,
         SpanMinutes          DECIMAL(12, 2) NOT NULL,
         IsMultiTurn          BIT           NOT NULL
     );
 
-IF OBJECT_ID(N'bi.FactLicenceChange', N'U') IS NULL
-    CREATE TABLE bi.FactLicenceChange
+IF OBJECT_ID(N'bi.FactLicenseChange', N'U') IS NULL
+    CREATE TABLE bi.FactLicenseChange
     (
         RecordId     VARCHAR(64)    NOT NULL,   -- lineage; not imported
         ChangedUtc   DATETIME2(0)   NOT NULL,
         DateKey      INT            NOT NULL,
-        UserKey      INT            NOT NULL,   -- whose licence changed
+        UserKey      INT            NOT NULL,   -- whose license changed
         SkuKey       INT            NOT NULL,
         Change       SMALLINT       NOT NULL,   -- +1 added, -1 removed
         ChangedBy    NVARCHAR(512)  NULL,       -- the admin who made it
-        CONSTRAINT PK_FactLicenceChange PRIMARY KEY (RecordId, SkuKey, Change)
+        CONSTRAINT PK_FactLicenseChange PRIMARY KEY (RecordId, SkuKey, Change)
     );
 
 /* The adoption denominator: one row per user per day they held a Copilot
-   licence at the end of that day. Active licensed users / licensed users,
+   license at the end of that day. Active licensed users / licensed users,
    and licensed users with no interactions, both come from this. */
 IF OBJECT_ID(N'bi.FactLicensedDay', N'U') IS NULL
     CREATE TABLE bi.FactLicensedDay
@@ -422,11 +438,11 @@ IF OBJECT_ID(N'bi.RefreshRun', N'U') IS NULL
         EndedUtc              DATETIME2(0)   NOT NULL,
         SinceUtc              DATETIME2(0)   NULL,       -- NULL = a full rebuild
         ReportingTimeZone     SYSNAME        NOT NULL,
-        LicenceEventDatabase  NVARCHAR(1000) NULL,
+        LicenseEventDatabase  NVARCHAR(1000) NULL,
         InteractionRows       BIGINT         NOT NULL,   -- written by this run
         InteractionsSkipped   BIGINT         NOT NULL,   -- no timestamp
         SessionRows           INT            NOT NULL,   -- written by this run
-        LicenceChangeRows     INT            NOT NULL,
+        LicenseChangeRows     INT            NOT NULL,
         LicensedDayRows       INT            NOT NULL,
         SessionRunId          INT            NULL        -- the latest audit.CopilotSessionRun it reflects
     );
@@ -440,26 +456,26 @@ IF COL_LENGTH(N'bi.RefreshRun', N'SessionRunId') IS NULL
 IF COL_LENGTH(N'bi.RefreshRun', N'AccessedResourceRows') IS NULL
     ALTER TABLE bi.RefreshRun ADD AccessedResourceRows BIGINT NULL;
 
+/* 2.4.0: the first day with an interaction in an app whose category this run changed (NULL: none).
+   Premium use and the dashboard's Copilot Chat counts depend on the category, so the dashboard's
+   next refresh rolls up again from that day. */
+IF COL_LENGTH(N'bi.RefreshRun', N'RecategorizedFromDateKey') IS NULL
+    ALTER TABLE bi.RefreshRun ADD RecategorizedFromDateKey INT NULL;
+
 /*
-    PremiumUse (2.3.0): a licensed interaction that needed the Premium licence - Copilot inside Word, Excel,
+    PremiumUse (2.3.0): a licensed interaction that needed the Premium license - Copilot inside Word, Excel,
     PowerPoint, Outlook or Teams (Copilot Studio agents can be metered without one), or Copilot Chat reading
     work content (files, mail, sites) rather than the web. The same rule as dash.UserDay.PremiumUse, which the
     dashboard's train and revoke recommendations use. UseCaseKey (2.3.0): the app, whether it searched the web,
     and whether an agent answered, as one key into bi.UseCases (the dashboard's use-case rules).
 */
 EXEC (N'CREATE OR ALTER VIEW bi.Interactions AS
-SELECT f.ActivityHour, f.DateKey, f.HourOfDay, f.UserKey, f.AppKey, f.AgentKey, f.ModelKey, f.LicenceStatusKey,
+SELECT f.ActivityHour, f.DateKey, f.HourOfDay, f.UserKey, f.AppKey, f.AgentKey, f.ModelKey, f.LicenseStatusKey,
        f.LicenseTypeKey, f.SensitivityLabelKey,
        f.PromptCount, f.MessageCount, f.AccessedResourceCount, f.UsedWebSearch, f.JailbreakDetected, f.PromptInjectionDetected,
        f.HasBlockedResource, f.HasSensitivityLabel, f.MemoryUpdated, f.DlpEvaluationDeferred, f.CalledAnotherAgent,
-       CAST(CASE WHEN f.LicenceStatusKey = 1
-                  AND ((a.AppCategory = N''In-App Copilot'' AND a.App <> N''Copilot Studio'')
-                       OR (a.AppCategory = N''Copilot Chat'' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
-                 THEN 1 ELSE 0 END AS BIT) AS PremiumUse,
-       f.AppKey * 4 + CAST(f.UsedWebSearch AS INT) * 2 + CASE WHEN ag.AgentId = N''(none)'' THEN 0 ELSE 1 END AS UseCaseKey
-FROM bi.FactInteraction AS f
-JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey;');
+       f.PremiumUse, f.UseCaseKey
+FROM bi.FactInteraction AS f;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.AccessedResources AS
 SELECT ActivityHour, DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey,
@@ -480,16 +496,16 @@ SELECT ResourceActionKey, ResourceAction FROM bi.DimResourceAction;');
 
 /* A OneDrive site is named after its owner (/personal/firstname_lastname_...): hidden in privacy mode. */
 EXEC (N'CREATE OR ALTER VIEW bi.Sites AS
-SELECT SiteKey, CASE WHEN IsPersonal = 1 AND EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'') THEN N''OneDrive (personal)'' ELSE Site END AS Site, Host, IsPersonal
+SELECT SiteKey, CASE WHEN IsPersonal = 1 AND EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'') THEN N''OneDrive (personal)'' ELSE Site END AS Site, Host, IsPersonal
 FROM bi.DimSite;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Sessions AS
-SELECT SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenceStatusKey,
+SELECT SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenseStatusKey,
        PromptCount, SpanMinutes, IsMultiTurn
 FROM bi.FactSession;');
 
 /* Copilot Studio authoring: one row per create, publish, share, update, delete or component
-   change, copied whole from every licence database's audit.AgentEvent at each refresh (2.3.0). */
+   change, copied whole from every license database's audit.AgentEvent at each refresh (2.3.0). */
 IF OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NULL
     CREATE TABLE bi.FactAgentEvent
     (
@@ -511,9 +527,9 @@ SELECT RecordId, EventUtc, DateKey, Action, Operation, ActorKey, BotId, BotSchem
 FROM bi.FactAgentEvent;');
 
 /* ChangedBy names the administrator: blank in privacy mode. */
-EXEC (N'CREATE OR ALTER VIEW bi.LicenceChanges AS
-SELECT ChangedUtc, DateKey, UserKey, SkuKey, Change, CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'') THEN NULL ELSE ChangedBy END AS ChangedBy
-FROM bi.FactLicenceChange;');
+EXEC (N'CREATE OR ALTER VIEW bi.LicenseChanges AS
+SELECT ChangedUtc, DateKey, UserKey, SkuKey, Change, CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'') THEN NULL ELSE ChangedBy END AS ChangedBy
+FROM bi.FactLicenseChange;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.LicensedDays AS
 SELECT DateKey, UserKey FROM bi.FactLicensedDay;');
@@ -524,37 +540,37 @@ SELECT DateKey, [Date], [Year], [Quarter], MonthNumber, [MonthName], YearMonth, 
 FROM bi.DimDate;');
 
 /*
-    People, with every name and sign-in pseudonymised when privacy mode is on
-    (audit.PipelineSetting PrivacyMode = 'Pseudonymise', set in the dashboard's
+    People, with every name and sign-in pseudonymized when privacy mode is on
+    (audit.PipelineSetting PrivacyMode = 'Pseudonymize', set in the dashboard's
     Admin > Privacy and retention): a salted hash, the same for the same person
     everywhere, so counts and org slicing still work but nobody is named.
 */
 EXEC (N'CREATE OR ALTER VIEW bi.Users AS
 SELECT u.UserKey,
-       CASE WHEN pm.Pseudonymise = 1 AND u.UserPrincipalName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.UserPrincipalName)), 2) ELSE u.UserPrincipalName END AS UserPrincipalName,
-       CASE WHEN pm.Pseudonymise = 1 AND u.DisplayName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.DisplayName)), 2) ELSE u.DisplayName END AS DisplayName,
-       CASE WHEN pm.Pseudonymise = 1 AND u.ManagerUpn IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.ManagerUpn)), 2) ELSE u.ManagerUpn END AS ManagerUpn,
-       CASE WHEN pm.Pseudonymise = 1 AND u.ManagerName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.ManagerName)), 2) ELSE u.ManagerName END AS ManagerName,
+       CASE WHEN pm.Pseudonymize = 1 AND u.UserPrincipalName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.UserPrincipalName)), 2) ELSE u.UserPrincipalName END AS UserPrincipalName,
+       CASE WHEN pm.Pseudonymize = 1 AND u.DisplayName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.DisplayName)), 2) ELSE u.DisplayName END AS DisplayName,
+       CASE WHEN pm.Pseudonymize = 1 AND u.ManagerUpn IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.ManagerUpn)), 2) ELSE u.ManagerUpn END AS ManagerUpn,
+       CASE WHEN pm.Pseudonymize = 1 AND u.ManagerName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.ManagerName)), 2) ELSE u.ManagerName END AS ManagerName,
        u.Division, u.Department, u.JobTitle, u.OfficeLocation, u.City,
        u.Country, u.CompanyName, u.EmployeeType, u.IsManager, u.AccountEnabled, u.OrgDepth,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel1 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel1)), 2) ELSE u.OrgLevel1 END AS OrgLevel1,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel2 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel2)), 2) ELSE u.OrgLevel2 END AS OrgLevel2,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel3 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel3)), 2) ELSE u.OrgLevel3 END AS OrgLevel3,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel4 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel4)), 2) ELSE u.OrgLevel4 END AS OrgLevel4,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel5 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel5)), 2) ELSE u.OrgLevel5 END AS OrgLevel5,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel6 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel6)), 2) ELSE u.OrgLevel6 END AS OrgLevel6,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel7 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel7)), 2) ELSE u.OrgLevel7 END AS OrgLevel7,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel8 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel8)), 2) ELSE u.OrgLevel8 END AS OrgLevel8,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel9 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel9)), 2) ELSE u.OrgLevel9 END AS OrgLevel9,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel10 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel10)), 2) ELSE u.OrgLevel10 END AS OrgLevel10,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel11 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel11)), 2) ELSE u.OrgLevel11 END AS OrgLevel11,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel12 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel12)), 2) ELSE u.OrgLevel12 END AS OrgLevel12,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel13 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel13)), 2) ELSE u.OrgLevel13 END AS OrgLevel13,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel14 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel14)), 2) ELSE u.OrgLevel14 END AS OrgLevel14,
-       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel15 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel15)), 2) ELSE u.OrgLevel15 END AS OrgLevel15,
-       u.DirectoryStatus, u.CopilotLicenceToday, u.CopilotSku, u.LicensedSinceUtc
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel1 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel1)), 2) ELSE u.OrgLevel1 END AS OrgLevel1,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel2 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel2)), 2) ELSE u.OrgLevel2 END AS OrgLevel2,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel3 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel3)), 2) ELSE u.OrgLevel3 END AS OrgLevel3,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel4 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel4)), 2) ELSE u.OrgLevel4 END AS OrgLevel4,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel5 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel5)), 2) ELSE u.OrgLevel5 END AS OrgLevel5,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel6 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel6)), 2) ELSE u.OrgLevel6 END AS OrgLevel6,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel7 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel7)), 2) ELSE u.OrgLevel7 END AS OrgLevel7,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel8 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel8)), 2) ELSE u.OrgLevel8 END AS OrgLevel8,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel9 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel9)), 2) ELSE u.OrgLevel9 END AS OrgLevel9,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel10 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel10)), 2) ELSE u.OrgLevel10 END AS OrgLevel10,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel11 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel11)), 2) ELSE u.OrgLevel11 END AS OrgLevel11,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel12 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel12)), 2) ELSE u.OrgLevel12 END AS OrgLevel12,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel13 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel13)), 2) ELSE u.OrgLevel13 END AS OrgLevel13,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel14 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel14)), 2) ELSE u.OrgLevel14 END AS OrgLevel14,
+       CASE WHEN pm.Pseudonymize = 1 AND u.OrgLevel15 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel15)), 2) ELSE u.OrgLevel15 END AS OrgLevel15,
+       u.DirectoryStatus, u.CopilotLicenseToday, u.CopilotSku, u.LicensedSinceUtc
 FROM bi.DimUser AS u
-CROSS JOIN (SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'') THEN 1 ELSE 0 END AS BIT) AS Pseudonymise,
+CROSS JOIN (SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'') THEN 1 ELSE 0 END AS BIT) AS Pseudonymize,
                    COALESCE((SELECT Value FROM audit.PipelineSetting WHERE Name = N''PseudonymSalt''), N'''') AS Salt) AS pm;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Apps AS
@@ -569,5 +585,5 @@ SELECT ModelKey, ModelProvider, ModelName FROM bi.DimModel;');
 EXEC (N'CREATE OR ALTER VIEW bi.Skus AS
 SELECT SkuKey, Sku, IsCopilot FROM bi.DimSku;');
 
-EXEC (N'CREATE OR ALTER VIEW bi.LicenceStatuses AS
-SELECT LicenceStatusKey, LicenceStatus FROM bi.DimLicenceStatus;');
+EXEC (N'CREATE OR ALTER VIEW bi.LicenseStatuses AS
+SELECT LicenseStatusKey, LicenseStatus FROM bi.DimLicenseStatus;');

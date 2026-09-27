@@ -7,7 +7,7 @@
     dash.usp_RefreshDashboard (Create-CopilotDashboardProcedure.sql):
 
       dash.Person       one row per person in audit.UserDirectory, with their
-                        level below the configured top of the organisation
+                        level below the configured top of the organization
       dash.OrgClosure   every (manager, person under them) pair at any depth,
                         by UPN - the security model's subtree lookup
       dash.UserDay      per person per day they used Copilot: interactions,
@@ -16,9 +16,9 @@
                         of 7 to 365 days
 
     The security model (enforced by the app, on every query):
-      - A person granted Organization (Admin alone is not enough), the top of the organisation
+      - A person granted Organization (Admin alone is not enough), the top of the organization
         (Setting OrgTopUpn) and anyone reporting directly to them see the
-        whole organisation.
+        whole organization.
       - Everyone else sees themselves and everyone under them, at any depth;
         someone with no reports sees only themselves.
       - Named or sensitive detail also needs the page's persona role
@@ -47,12 +47,12 @@ IF OBJECT_ID(N'dash.Setting', N'U') IS NULL
     );
 MERGE dash.Setting AS t
 USING (VALUES
-    ('OrgTopUpn',    CAST(NULL AS NVARCHAR(400)), N'UPN of the top of the organisation (the CEO). They and their direct reports see the whole organisation. Empty: taken from the org chart (OrgTopUpnDetected).'),
+    ('OrgTopUpn',    CAST(NULL AS NVARCHAR(400)), N'UPN of the top of the organization (the CEO). They and their direct reports see the whole organization. Empty: taken from the org chart (OrgTopUpnDetected).'),
     ('MinGroupSize', N'5',  N'Breakdowns hide groups with fewer people than this, folding them into "Smaller groups", so a group total cannot reveal one person.'),
     ('DefaultDays',  N'30', N'Days shown when a page opens: 7, 14, 30, 90, 180 or 365.'),
-    ('InactiveDays', N'30', N'A licensed person with no Copilot use for this many days counts as not using their licence.'),
-    ('LicenceMonthlyCost', N'30', N'What one Copilot licence costs a month, for the licence recommendations.'),
-    ('LicenceCurrency', N'USD', N'The currency LicenceMonthlyCost is in.')
+    ('InactiveDays', N'30', N'A licensed person with no Copilot use for this many days counts as not using their license.'),
+    ('LicenseMonthlyCost', N'30', N'What one Copilot license costs a month, for the license recommendations.'),
+    ('LicenseCurrency', N'USD', N'The currency LicenseMonthlyCost is in.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);
@@ -158,21 +158,21 @@ IF OBJECT_ID(N'dash.UserDay', N'U') IS NULL
         Jailbreak         INT     NOT NULL,
         PromptInjection   INT     NOT NULL,
         BlockedResource   INT     NOT NULL,
-        LabelledContent   INT     NOT NULL,   -- interactions that touched sensitivity-labelled content
+        LabeledContent   INT     NOT NULL,   -- interactions that touched sensitivity-labeled content
         Sessions          INT     NOT NULL,   -- sessions that started that day
         MultiTurnSessions INT     NOT NULL,
-        PremiumUse        INT     NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0),   -- licensed interactions that needed the licence (2.3.0)
+        PremiumUse        INT     NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0),   -- licensed interactions that needed the license (2.3.0)
         CONSTRAINT PK_DashUserDay PRIMARY KEY (DateKey, UserKey),
         INDEX IX_DashUserDay_User (UserKey, DateKey)
     );
 
-/* 2.3.0: use that needs the Premium licence. Zero until the rollups are rebuilt once (dash.usp_RefreshDashboard with no date). */
+/* 2.3.0: use that needs the Premium license. Zero until the rollups are rebuilt once (dash.usp_RefreshDashboard with no date). */
 IF COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NULL
     ALTER TABLE dash.UserDay ADD PremiumUse INT NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0);
 
 /*
     Sensitivity labels and SharePoint sites Copilot touched, per person per day:
-    Label (a label id on content an interaction read), Site (the site of labelled
+    Label (a label id on content an interaction read), Site (the site of labeled
     content it read) and Blocked (the site of content it was blocked from). Sites
     are cut to https://host/sites/name, or /personal/name for OneDrive.
 */
@@ -209,11 +209,14 @@ IF OBJECT_ID(N'dash.RefreshRun', N'U') IS NULL
         ClosureRows  INT           NOT NULL,
         UserDayRows  INT           NOT NULL
     );
+/* 2.4.0: the latest bi.RefreshRun the rollups reflect, so the next refresh sees what bi changed since. */
+IF COL_LENGTH(N'dash.RefreshRun', N'BiRunId') IS NULL
+    ALTER TABLE dash.RefreshRun ADD BiRunId INT NULL;
 
 /*
     The people a scope covers, as bi.DimUser keys: @RootUpn and everyone under
     them. The app passes the viewer's own UPN, or a manager inside their scope
-    when they drill in; a whole-organisation view with no drill-in does not
+    when they drill in; a whole-organization view with no drill-in does not
     call it at all.
 */
 EXEC (N'

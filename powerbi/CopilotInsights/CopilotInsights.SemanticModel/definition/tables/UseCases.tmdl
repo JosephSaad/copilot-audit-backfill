@@ -31,7 +31,7 @@ table UseCases
 		summarizeBy: none
 		sourceColumn: WithAgent
 
-	/// Email, Meetings and chats, Writing documents, Analysing data, Research on the web...
+	/// Email, Meetings and chats, Writing documents, Analyzing data, Research on the web...
 	column UseCase
 		dataType: string
 		lineageTag: 1fbcabf6-2113-5783-bfdf-c96f56d8502d
