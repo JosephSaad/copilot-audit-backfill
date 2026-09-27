@@ -78,7 +78,7 @@ public sealed class ViewerService(
         var ctx = http.HttpContext ?? throw new InvalidOperationException("No request.");
         var user = ctx.User;
         var windowsName = user.Identity?.Name ?? "(anonymous)";
-        var upn = ResolveUpn(user, windowsName);
+        var upn = await ResolveUpnAsync(user, windowsName);
 
         var roles = await RolesForAsync(upn, windowsName, user);
         if (IsBootstrapAdmin(upn, windowsName, user)) roles.Add(Roles.Admin);
@@ -148,31 +148,44 @@ public sealed class ViewerService(
     }
 
     /// <summary>
-    /// The viewer's UPN: the configured map first, then Active Directory (by the
-    /// account's SID), then the sign-in name itself when it already is one.
-    /// Cached for ten minutes per account.
+    /// The viewer's UPN: the configured map first, then the account's SID in the
+    /// directory table (no lookup at sign-in, so it works when the web servers
+    /// are in another domain from the users), then Active Directory by the SID,
+    /// then the sign-in name itself when it already is one. Cached for ten
+    /// minutes per account.
     /// </summary>
-    string? ResolveUpn(ClaimsPrincipal user, string windowsName)
+    async Task<string?> ResolveUpnAsync(ClaimsPrincipal user, string windowsName)
     {
         if (_o.IdentityMap.TryGetValue(windowsName, out var mapped)) return mapped;
-        return cache.GetOrCreate("upn:" + windowsName, e =>
+        if (cache.TryGetValue("upn:" + windowsName, out string? known)) return known;
+        var sid = OperatingSystem.IsWindows() && user.Identity is WindowsIdentity w ? w.User?.Value : null;
+        string? upn = null;
+        if (sid is not null)
         {
-            e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
-            if (_o.ResolveUpnFromDirectory && OperatingSystem.IsWindows() && user.Identity is WindowsIdentity wi && wi.User is not null)
+            try { upn = await db.ScalarAsync<string?>("SELECT TOP (1) Upn FROM dash.Person WHERE Sid = @sid ORDER BY AccountEnabled DESC", new { sid }); }
+            catch (Exception ex) { log.LogInformation("No SID match for {Name}: {Message}", windowsName, ex.Message); }
+        }
+        upn ??= FromDirectory(user, windowsName);
+        cache.Set("upn:" + windowsName, upn, TimeSpan.FromMinutes(10));
+        return upn;
+    }
+
+    string? FromDirectory(ClaimsPrincipal user, string windowsName)
+    {
+        if (_o.ResolveUpnFromDirectory && OperatingSystem.IsWindows() && user.Identity is WindowsIdentity wi && wi.User is not null)
+        {
+            try
             {
-                try
-                {
-                    var domain = windowsName.Contains('\\') ? windowsName[..windowsName.IndexOf('\\')] : null;
-                    using var pc = domain is null
-                        ? new System.DirectoryServices.AccountManagement.PrincipalContext(System.DirectoryServices.AccountManagement.ContextType.Domain)
-                        : new System.DirectoryServices.AccountManagement.PrincipalContext(System.DirectoryServices.AccountManagement.ContextType.Domain, domain);
-                    using var up = System.DirectoryServices.AccountManagement.UserPrincipal.FindByIdentity(
-                        pc, System.DirectoryServices.AccountManagement.IdentityType.Sid, wi.User.Value);
-                    if (!string.IsNullOrWhiteSpace(up?.UserPrincipalName)) return up!.UserPrincipalName;
-                }
-                catch (Exception ex) { log.LogInformation("No directory UPN for {Name}: {Message}", windowsName, ex.Message); }
+                var domain = windowsName.Contains('\\') ? windowsName[..windowsName.IndexOf('\\')] : null;
+                using var pc = domain is null
+                    ? new System.DirectoryServices.AccountManagement.PrincipalContext(System.DirectoryServices.AccountManagement.ContextType.Domain)
+                    : new System.DirectoryServices.AccountManagement.PrincipalContext(System.DirectoryServices.AccountManagement.ContextType.Domain, domain);
+                using var up = System.DirectoryServices.AccountManagement.UserPrincipal.FindByIdentity(
+                    pc, System.DirectoryServices.AccountManagement.IdentityType.Sid, wi.User.Value);
+                if (!string.IsNullOrWhiteSpace(up?.UserPrincipalName)) return up!.UserPrincipalName;
             }
-            return windowsName.Contains('@') ? windowsName : null;
-        });
+            catch (Exception ex) { log.LogInformation("No directory UPN for {Name}: {Message}", windowsName, ex.Message); }
+        }
+        return windowsName.Contains('@') ? windowsName : null;
     }
 }

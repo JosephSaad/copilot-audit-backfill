@@ -126,6 +126,12 @@ IF OBJECT_ID(N'dash.Person', N'U') IS NULL
         INDEX IX_DashPerson_Manager (ManagerUpn)
     );
 
+/* The person's Windows account SID, from audit.UserDirectory: how a sign-in is matched to a person. */
+IF COL_LENGTH(N'dash.Person', N'Sid') IS NULL
+    ALTER TABLE dash.Person ADD Sid VARCHAR(184) NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.Person') AND name = N'IX_DashPerson_Sid')
+    EXEC (N'CREATE INDEX IX_DashPerson_Sid ON dash.Person (Sid);');
+
 IF OBJECT_ID(N'dash.OrgClosure', N'U') IS NULL
     CREATE TABLE dash.OrgClosure
     (

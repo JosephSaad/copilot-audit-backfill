@@ -97,10 +97,13 @@ BEGIN
 
     DROP TABLE IF EXISTS #person;
     CREATE TABLE #person (Upn NVARCHAR(256) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY, DisplayName NVARCHAR(256) NULL,
-                          ManagerUpn NVARCHAR(256) NULL, Department NVARCHAR(200) NULL, AccountEnabled BIT NULL);
+                          ManagerUpn NVARCHAR(256) NULL, Department NVARCHAR(200) NULL, AccountEnabled BIT NULL,
+                          Sid VARCHAR(184) NULL);
+    /* The SID column arrives with the 2.2.0 enrichment schema; a directory table from before it has none. */
+    DECLARE @sidCol NVARCHAR(4) = CASE WHEN COL_LENGTH(N'audit.UserDirectory', N'Sid') IS NULL THEN N'NULL' ELSE N'Sid' END;
     IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
-        EXEC (N'INSERT INTO #person (Upn, DisplayName, ManagerUpn, Department, AccountEnabled)
-                SELECT UserPrincipalName, FullName, NULLIF(NULLIF(ManagerUPN, N''''), UserPrincipalName), Department, AccountEnabled
+        EXEC (N'INSERT INTO #person (Upn, DisplayName, ManagerUpn, Department, AccountEnabled, Sid)
+                SELECT UserPrincipalName, FullName, NULLIF(NULLIF(ManagerUPN, N''''), UserPrincipalName), Department, AccountEnabled, ' + @sidCol + N'
                 FROM audit.UserDirectory;');
     /* Managers outside the directory table still get a row, so they can sign in and see their people. */
     INSERT INTO #person (Upn)
@@ -112,8 +115,8 @@ BEGIN
     SELECT AncestorUpn, DescendantUpn, Depth FROM #clo;
 
     DELETE FROM dash.Person;
-    INSERT INTO dash.Person (Upn, DisplayName, ManagerUpn, Department, AccountEnabled, Level, DirectReports, PeopleBelow)
-    SELECT p.Upn, p.DisplayName, p.ManagerUpn, p.Department, p.AccountEnabled,
+    INSERT INTO dash.Person (Upn, DisplayName, ManagerUpn, Department, AccountEnabled, Sid, Level, DirectReports, PeopleBelow)
+    SELECT p.Upn, p.DisplayName, p.ManagerUpn, p.Department, p.AccountEnabled, p.Sid,
            CASE WHEN @top IS NULL THEN NULL ELSE t.Depth + 1 END,
            (SELECT COUNT(*) FROM #clo AS c WHERE c.AncestorUpn = p.Upn AND c.Depth = 1),
            (SELECT COUNT(*) FROM #clo AS c WHERE c.AncestorUpn = p.Upn AND c.Depth >= 1)

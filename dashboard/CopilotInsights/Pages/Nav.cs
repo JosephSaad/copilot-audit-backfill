@@ -10,6 +10,8 @@ public static class Nav
 {
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
+        new("My Copilot", "Everyone: your own use", [
+            new("My use", "/me")]),
         new("Leadership", "Executives and department heads", [
             new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organisation", "/leadership/org"), new("Apps and agents", "/leadership/mix")]),
         new("Adoption", "Copilot programme lead", [
@@ -17,7 +19,7 @@ public static class Nav
             new("Departments", "/adoption/departments"), new("Not started", "/adoption/not-started", Roles.Adoption)]),
         new("Licensing", "Licensing, IT asset and FinOps", [
             new("Inventory", "/licensing"), new("Unused licences", "/licensing/unused", Roles.Licensing),
-            new("Demand", "/licensing/demand")]),
+            new("Demand", "/licensing/demand"), new("Licence changes", "/licensing/changes")]),
         new("Security", "Security operations", [
             new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Flagged interactions", "/security/flags", Roles.Security)]),
         new("Compliance", "Data protection and compliance", [

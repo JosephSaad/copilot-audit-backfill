@@ -223,11 +223,12 @@ ALTER PROCEDURE audit.usp_MergeCopilotCsv
     @ImportId           INT,
     @CoveredFromUtc     DATETIME2(0) = NULL,
     @CoveredToUtc       DATETIME2(0) = NULL,
-    @ReportingTimeZone  SYSNAME      = N'Eastern Standard Time'
+    @ReportingTimeZone  SYSNAME      = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
+    SET @ReportingTimeZone = COALESCE(@ReportingTimeZone, audit.ReportingTimeZone());   -- the zone Install-CopilotAudit.ps1 -ReportingTimeZone stored
 
     DECLARE @msg NVARCHAR(800), @ops NVARCHAR(400), @merged DATETIME2(0);
     SELECT @ops = Operations, @merged = MergedUtc FROM audit.CopilotCsvImport WHERE ImportId = @ImportId;

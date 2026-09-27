@@ -72,12 +72,13 @@ GO
 
 ALTER PROCEDURE bi.usp_RefreshBi
     @SinceUtc             DATETIME2(0)   = NULL,
-    @ReportingTimeZone    SYSNAME        = N'Eastern Standard Time',
+    @ReportingTimeZone    SYSNAME        = NULL,
     @LicenceEventDatabase NVARCHAR(1000) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
+    SET @ReportingTimeZone = COALESCE(@ReportingTimeZone, audit.ReportingTimeZone());   -- the zone Install-CopilotAudit.ps1 -ReportingTimeZone stored
 
     DECLARE @started DATETIME2(0) = SYSUTCDATETIME(), @msg NVARCHAR(1000), @sql NVARCHAR(MAX);
 

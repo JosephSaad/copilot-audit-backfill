@@ -22,8 +22,9 @@
     -Task NameAgent            Give the agent -AgentId (its id in the audit log) a -FriendlyName
                                (and -Owner). An empty -FriendlyName removes the name.
     -Task NameLabel            Give the sensitivity label -LabelId a -Name (and -Rank, 0 least sensitive).
-    -Task PurgeJson            Clear the stored JSON of records older than -RetainDays. Reports
-                               only, unless -Apply.
+    -Task PurgeJson            Clear the stored JSON of records older than -RetainDays (with
+                               -DeleteRows, remove those records altogether). Reports only,
+                               unless -Apply.
 
     Most of these are also in the dashboard's Admin pages; this is the same for
     servers without it, and for scripts.
@@ -64,7 +65,9 @@ param(
     [ValidateRange(0, 250)][int] $Rank = -1,
     [datetime] $SinceUtc,
     [ValidateRange(1, 3650)][int] $RetainDays = 365,
-    [switch] $Apply
+    [switch] $Apply,
+    # PurgeJson: remove the old records altogether, not only their JSON.
+    [switch] $DeleteRows
 )
 
 $ErrorActionPreference = 'Stop'
@@ -210,7 +213,8 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.SensitivityLabel (LabelId, Name, Rank, Update
         Write-Host "Label $LabelId is $FriendlyName."
     }
     'PurgeJson' {
-        $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w;' -Parameters @{ '@d' = $RetainDays; '@w' = [int] (-not $Apply) }
+        $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w, @DeleteRows = @r;' `
+            -Parameters @{ '@d' = $RetainDays; '@w' = [int] (-not $Apply); '@r' = [int] [bool] $DeleteRows }
         $t.Rows | Format-Table -AutoSize | Out-String | Write-Host
         if (-not $Apply) { Write-Host 'Nothing was cleared; add -Apply to clear it.' }
     }

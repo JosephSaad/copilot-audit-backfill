@@ -7,7 +7,10 @@
     state of the databases calls for, and is safe to run any number of times.
 
       1. Creates the Copilot and licence-event databases if they do not exist
-         (compatibility level 160 or the server's highest below it).
+         (compatibility level 160 or the server's highest below it, SIMPLE
+         recovery so the bulk loads are minimally logged), and with
+         -ServiceAccount gives the nightly job's account a login and db_owner
+         in both.
       2. Installs or upgrades every table, view and procedure, in the order
          they depend on each other. Nothing is dropped; data is kept.
       3. Builds whatever needs building from the data already loaded:
@@ -34,6 +37,13 @@
     out and the dashboard uses the one person the org chart has most people
     under, or keeps what an administrator already set.
 
+.PARAMETER ReportingTimeZone
+    The zone days and Saturday-to-Friday weeks are cut in: a name from
+    sys.time_zone_info, such as 'GMT Standard Time'. Default Eastern Standard
+    Time. Stored in both databases, where every procedure reads it; set it
+    before the first load, as changing it later would leave history cut in
+    the old zone (it is refused then).
+
 .PARAMETER Rebuild
     Rebuild the flattened table, sessions, bi and the dashboard in full even
     if nothing calls for it.
@@ -56,14 +66,19 @@ param(
     [switch] $Dashboard,
     [string] $OrgTopUpn,
     [switch] $Rebuild,
-    [switch] $SkipLicenceDatabase
+    [string] $ReportingTimeZone,
+    [switch] $SkipLicenceDatabase,
+    # The account the nightly job runs as (DOMAIN\gmsa$ or DOMAIN\user): given a login and db_owner in both databases.
+    [string] $ServiceAccount,
+    # Accounts that read the bi views and nothing else, such as the Power BI gateway's (DOMAIN\name).
+    [string[]] $ReportingAccount = @()
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $sqlDir = Join-Path $PSScriptRoot 'sql'
 if (-not $LicenceEventDatabases) { $LicenceEventDatabases = if ($SkipLicenceDatabase) { @() } else { @($LicenceDatabase) } }
-$licList = if ($LicenceEventDatabases.Count) { $LicenceEventDatabases -join ',' } else { $null }
+$licList = if ($LicenceEventDatabases) { @($LicenceEventDatabases) -join ',' } else { $null }
 
 function Write-Step([string] $Text) { Write-Host "==> $Text" -ForegroundColor Cyan }
 function Write-Done([string] $Text) { Write-Host "    $Text" }
@@ -119,8 +134,8 @@ $dbs = @($Database) + $(if ($SkipLicenceDatabase) { @() } else { @($LicenceDatab
 foreach ($db in $dbs) {
     $exists = [bool] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT CASE WHEN DB_ID(@d) IS NULL THEN 0 ELSE 1 END' -Parameters @{ '@d' = $db })
     if (-not $exists) {
-        Invoke-Sql -Catalog master -Sql "CREATE DATABASE [$($db.Replace(']', ']]'))];"
-        Write-Done "created $db"
+        Invoke-Sql -Catalog master -Sql "CREATE DATABASE [$($db.Replace(']', ']]'))]; ALTER DATABASE [$($db.Replace(']', ']]'))] SET RECOVERY SIMPLE;"
+        Write-Done "created $db (SIMPLE recovery)"
     }
     $level = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT compatibility_level FROM sys.databases WHERE name = @d' -Parameters @{ '@d' = $db })
     if ($level -lt 130) {
@@ -128,6 +143,18 @@ foreach ($db in $dbs) {
         Write-Done "$db compatibility level $level -> $targetLevel"
     }
     elseif ($exists) { Write-Done "$db exists (level $level)" }
+}
+
+if ($ServiceAccount) {
+    $sa = $ServiceAccount.Replace(']', ']]')
+    Invoke-Sql -Catalog master -Sql "IF SUSER_ID(@a) IS NULL EXEC (N'CREATE LOGIN [$sa] FROM WINDOWS');" -Parameters @{ '@a' = $ServiceAccount }
+    foreach ($db in $dbs) {
+        Invoke-Sql -Catalog $db -Parameters @{ '@a' = $ServiceAccount } -Sql @"
+IF USER_ID(@a) IS NULL EXEC (N'CREATE USER [$sa] FOR LOGIN [$sa]');
+IF IS_ROLEMEMBER(N'db_owner', @a) = 0 EXEC (N'ALTER ROLE db_owner ADD MEMBER [$sa]');
+"@
+    }
+    Write-Done "$ServiceAccount has a login and db_owner in $($dbs -join ' and ')"
 }
 
 # ---- 2. Objects ---------------------------------------------------------------------------------
@@ -141,6 +168,33 @@ foreach ($s in $copilotScripts) { Invoke-SqlFile $Database $s }
 if (-not $SkipLicenceDatabase) {
     Write-Step "Tables, views and procedures in $LicenceDatabase"
     foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql') { Invoke-SqlFile $LicenceDatabase $s }
+}
+
+# The reporting time zone, stored where every procedure reads it (audit.ReportingTimeZone()).
+$zoneDbs = @($Database) + $(if ($SkipLicenceDatabase) { @() } else { @($LicenceDatabase) })
+if ($ReportingTimeZone) {
+    $known = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT COUNT(*) FROM sys.time_zone_info WHERE name = @z' -Parameters @{ '@z' = $ReportingTimeZone })
+    if (-not $known) { throw "'$ReportingTimeZone' is not a time zone SQL Server knows. SELECT name FROM sys.time_zone_info lists them." }
+    foreach ($db in $zoneDbs) {
+        $current = [string] (Invoke-Sql -Catalog $db -Scalar -Sql 'SELECT audit.ReportingTimeZone();')
+        if ($current -eq $ReportingTimeZone) { continue }
+        if ((Get-Count $db 'audit.CopilotAudit') -gt 0 -or (Get-Count $db 'audit.CopilotInteraction') -gt 0) {
+            throw "$db already holds records cut in $current. The reporting time zone is set before the first load; to change it, load into new databases."
+        }
+        Invoke-Sql -Catalog $db -Parameters @{ '@z' = $ReportingTimeZone } -Sql @"
+MERGE audit.PipelineSetting AS t USING (SELECT N'ReportingTimeZone' AS Name, @z AS Value) AS s ON t.Name = s.Name
+WHEN MATCHED THEN UPDATE SET Value = s.Value, UpdatedUtc = SYSUTCDATETIME(), UpdatedBy = SUSER_SNAME()
+WHEN NOT MATCHED THEN INSERT (Name, Value) VALUES (s.Name, s.Value);
+"@
+    }
+}
+Write-Done ("reporting time zone: {0}" -f (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT audit.ReportingTimeZone();'))
+
+foreach ($acct in $ReportingAccount) {
+    $ra = $acct.Replace(']', ']]')
+    Invoke-Sql -Catalog master -Sql "IF SUSER_ID(@a) IS NULL EXEC (N'CREATE LOGIN [$ra] FROM WINDOWS');" -Parameters @{ '@a' = $acct }
+    Invoke-Sql -Catalog $Database -Parameters @{ '@a' = $acct } -Sql "IF USER_ID(@a) IS NULL EXEC (N'CREATE USER [$ra] FOR LOGIN [$ra]'); EXEC (N'GRANT SELECT ON SCHEMA::bi TO [$ra]');"
+    Write-Done "$acct can read the bi views in $Database"
 }
 
 if ($Dashboard -and $OrgTopUpn) {
@@ -165,10 +219,9 @@ if (-not $SkipLicenceDatabase) {
     else { $todo += "Backfill the licence history into $LicenceDatabase (deployment step 7), then run this again." }
 }
 
-# Flattened by a version before 2.2.0: rows, but none carrying the fields 2.2.0 added
-# (every record has a UserKey). Upgraded scripts alone do not fill history; this does.
-$upgrade = $flattened -gt 0 -and -not [bool] (Invoke-Sql -Catalog $Database -Scalar -Sql `
-    "SELECT CASE WHEN EXISTS (SELECT 1 FROM audit.RawLogFlattened WHERE UserKey IS NOT NULL) THEN 1 ELSE 0 END")
+# Flattened by a version before 2.2.0: rows, but no record shapes - only the 2.2.0
+# flatten counts them. Upgraded scripts alone do not fill history; this does, once.
+$upgrade = $flattened -gt 0 -and (Get-Count $Database 'audit.RawLogRecordShape') -eq 0
 $fullBuild = $Rebuild -or ($records -gt 0 -and $flattened -eq 0) -or $upgrade
 if ($records -eq 0) {
     $todo += "Load Copilot records into $Database (the backfill, deployment step 6, or a CSV import), then run this again."

@@ -188,7 +188,7 @@ $objects = Invoke-SqlText -As Table -Sql @"
 SELECT name FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'audit' ORDER BY name;
 "@
 $names = @($objects.Rows | ForEach-Object { $_.name })
-Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow') `
+Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow,PipelineSetting') `
     "Create-CopilotAuditSchema.sql built the backfill and incremental-load tables, and is idempotent ($($names -join ', '))"
 
 $heap = Invoke-SqlText -As Scalar -Sql @"
@@ -1698,6 +1698,7 @@ INSERT INTO audit.UserDirectory (UserPrincipalName, FullName, Department, Employ
     (N'loop1@contoso.com',  N'Loop 1',   NULL,       N'EMPLOYEE', 1, 1, N'loop2@contoso.com', N'Loop 2',   1),
     (N'loop2@contoso.com',  N'Loop 2',   NULL,       N'EMPLOYEE', 1, 1, N'loop1@contoso.com', N'Loop 1',   1),
     (N'orphan@contoso.com', N'Orphan',   NULL,       N'EMPLOYEE', 0, 1, N'ghost@contoso.com', N'Ghost',    1);
+UPDATE audit.UserDirectory SET Sid = 'S-1-5-21-1111-2222-3333-1001' WHERE UserPrincipalName = N'a@contoso.com';
 UPDATE dash.Setting SET Value = N'ceo@contoso.com' WHERE Name = N'OrgTopUpn';
 -- Labels, sites and a blocked resource, to be cut to their sites.
 UPDATE audit.RawLogFlattened SET SensitivityLabelIds = N'label-1; label-2',
@@ -1728,6 +1729,8 @@ Assert-That ($p['ceo@contoso.com'].PeopleBelow -eq 4 -and $p['boss@contoso.com']
     "people below count everyone under, at any depth (CEO $($p['ceo@contoso.com'].PeopleBelow), boss $($p['boss@contoso.com'].PeopleBelow))"
 Assert-That ($p['loop1@contoso.com'].Lvl -eq -1 -and $p['orphan@contoso.com'].Lvl -eq -1) 'people outside the top''s tree have no level'
 Assert-That ($p.ContainsKey('ghost@contoso.com') -and $p['ghost@contoso.com'].PeopleBelow -eq 1) 'a manager missing from the directory is added, so they can see their people'
+$bySid = [string] (Invoke-SqlText -As Scalar -Sql "SELECT Upn FROM dash.Person WHERE Sid = 'S-1-5-21-1111-2222-3333-1001';")
+Assert-That ($bySid -eq 'a@contoso.com') "each person carries their account SID from the directory, so a sign-in from another domain is matched without a lookup ($bySid)"
 
 $oc = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT Depth FROM dash.OrgClosure WHERE AncestorUpn = N'boss@contoso.com' AND DescendantUpn = N'c@contoso.com') AS BossC,
@@ -1804,6 +1807,83 @@ SELECT (SELECT SUM(CAST(Interactions AS BIGINT)) FROM dash.UserDay) AS Days_, (S
 "@).Rows[0]
 Assert-That ([long] $lowPriv.Days_ -eq [long] $ds.Days_ -and [int] $lowPriv.People -eq $p.Count) `
     "the dashboard's account can run a full refresh without ALTER, deleting where it may not truncate ($($lowPriv.People) people)"
+
+# With no top set, the refresh takes it from the org chart: the one person with
+# no manager who has at least half the directory under them.
+Invoke-SqlText -Sql "UPDATE dash.Setting SET Value = NULL WHERE Name = N'OrgTopUpn'; EXEC dash.usp_RefreshDashboard;"
+$auto = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT Value FROM dash.Setting WHERE Name = N'OrgTopUpnDetected') AS Detected,
+       (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'c@contoso.com') AS CLevel;
+"@).Rows[0]
+Assert-That ("$($auto.Detected)" -eq 'ceo@contoso.com' -and [int] $auto.CLevel -eq 4) "with no top set, the org chart's top is found and levels follow it ($($auto.Detected))"
+
+# ---------------------------------------------------------------------------
+# 15. Provisioning and maintenance without SQL: Install-CopilotAudit.ps1 on a
+# new server path and on section 14's database, and Invoke-CopilotMaintenance.ps1.
+# ---------------------------------------------------------------------------
+Write-Host "`n15. Provisioning and maintenance (Install-CopilotAudit.ps1, tools/Invoke-CopilotMaintenance.ps1)" -ForegroundColor Cyan
+
+$installer = Join-Path $root 'Install-CopilotAudit.ps1'
+$maint = Join-Path $root 'tools' 'Invoke-CopilotMaintenance.ps1'
+$conn = @{ SqlServer = $script:ITServer; TrustServerCertificate = $true }
+if (-not $script:ITIntegrated) {
+    $conn.SqlCredential = [pscredential]::new($script:ITUser, (ConvertTo-SecureString $script:ITPassword -AsPlainText -Force))
+}
+$freshDb = "$($script:ITDatabase)_Fresh"; $freshLic = "$($script:ITDatabase)_FreshLic"
+try {
+    $out = & $installer @conn -Database $freshDb -LicenceDatabase $freshLic -Dashboard -ReportingTimeZone 'GMT Standard Time' 6>&1 | Out-String
+    $made = Invoke-SqlText -Catalog master -As Table -Sql "SELECT name, recovery_model_desc AS Recovery FROM sys.databases WHERE name IN (N'$freshDb', N'$freshLic');"
+    Assert-That ($made.Rows.Count -eq 2 -and @($made.Rows | Where-Object Recovery -eq 'SIMPLE').Count -eq 2) 'a fresh install creates both databases, in SIMPLE recovery'
+    $objs = [int] (Invoke-SqlText -Catalog $freshDb -As Scalar -Sql "SELECT COUNT(*) FROM sys.objects WHERE OBJECT_ID(N'audit.usp_FlattenCopilotAudit') IS NOT NULL AND OBJECT_ID(N'bi.usp_RefreshBi') IS NOT NULL AND OBJECT_ID(N'dash.usp_RefreshDashboard') IS NOT NULL AND object_id = OBJECT_ID(N'audit.RawLogAccessedResource');")
+    $licObjs = [int] (Invoke-SqlText -Catalog $freshLic -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.usp_ShredLicenseEvents') IS NOT NULL THEN 1 ELSE 0 END;")
+    Assert-That ($objs -eq 1 -and $licObjs -eq 1) 'and installs every procedure and table in both'
+    Assert-That ($out -like '*Load Copilot records into*' -and $out -like '*Backfill the licence history*') 'and says what is left to do'
+    $zones = @($freshDb, $freshLic | ForEach-Object { [string] (Invoke-SqlText -Catalog $_ -As Scalar -Sql 'SELECT audit.ReportingTimeZone();') })
+    Assert-That (($zones -join ',') -eq 'GMT Standard Time,GMT Standard Time' -and $out -like '*reporting time zone: GMT Standard Time*') `
+        "-ReportingTimeZone is stored in both databases, where the procedures read it ($($zones -join ','))"
+    $badZone = try { & $installer @conn -Database $freshDb -LicenceDatabase $freshLic -ReportingTimeZone 'Mars Standard Time' 6>$null | Out-Null; '' } catch { $_.Exception.Message }
+    Assert-That ($badZone -like '*not a time zone SQL Server knows*') 'an unknown zone is refused'
+    $again = & $installer @conn -Database $freshDb -LicenceDatabase $freshLic -Dashboard 6>&1 | Out-String
+    Assert-That ($again -like '*Done.*' -and $again -notlike '*flattening*') 'running it again changes nothing and builds nothing'
+}
+finally {
+    foreach ($db in $freshDb, $freshLic) {
+        try { Invoke-SqlText -Catalog master -Sql "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Host "  (could not drop $db)" }
+    }
+}
+
+# Upgrading from 2.1.0: flattened rows without the 2.2.0 fields are flattened again, and bi rebuilt.
+# A 2.1.0 database: flattened rows, but no record shapes (only the 2.2.0 flatten counts them).
+Invoke-SqlText -Sql 'TRUNCATE TABLE audit.RawLogRecordShape;'
+$withJson = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotAudit WHERE AuditDataGz IS NOT NULL;')
+$up = & $installer @conn -Database $script:ITDatabase -SkipLicenceDatabase -LicenceEventDatabases $licDb -Dashboard 6>&1 | Out-String
+$shaped = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT ISNULL(SUM(Records), 0) FROM audit.RawLogRecordShape;')
+Assert-That ($up -like '*gained columns (2.2.0)*' -and $shaped -eq $withJson) "an upgrade from 2.1.0 is detected and every record with its JSON flattened again ($shaped of $withJson)"
+$once = & $installer @conn -Database $script:ITDatabase -SkipLicenceDatabase -LicenceEventDatabases $licDb -Dashboard 6>&1 | Out-String
+Assert-That ($once -notlike '*flattening*') 'and only once: the next run finds nothing to rebuild'
+Assert-That ($up -like '*bi, in full*' -and $up -like '*Refresh the Power BI model in full once*') 'and bi rebuilt in full, with the model refresh left to do'
+$moved = try { & $installer @conn -Database $script:ITDatabase -SkipLicenceDatabase -ReportingTimeZone 'Pacific Standard Time' 6>$null | Out-Null; '' } catch { $_.Exception.Message }
+$still = [string] (Invoke-SqlText -As Scalar -Sql 'SELECT audit.ReportingTimeZone();')
+Assert-That ($moved -like '*already holds records cut in Eastern Standard Time*' -and $still -eq 'Eastern Standard Time') 'the time zone cannot be changed once records are loaded'
+
+$status = & $maint @conn -Database $script:ITDatabase -Task Status | Out-String
+$topNow = [string] (Invoke-SqlText -As Scalar -Sql "SELECT COALESCE(MAX(CASE WHEN Name = N'OrgTopUpn' THEN NULLIF(Value, N'') END), MAX(CASE WHEN Name = N'OrgTopUpnDetected' THEN Value END)) FROM dash.Setting;")
+Assert-That ($status -like '*Flattened*' -and $status -like "*Top of the organisation*$topNow*") "Status reports what is loaded, built, and the top of the organisation ($topNow)"
+& $maint @conn -Database $script:ITDatabase -Task SetAppCategory -App 'Teams' -Category 'Copilot Chat' | Out-Null
+& $maint @conn -Database $script:ITDatabase -Task GrantRole -Principal 'CONTOSO\Insights-Admins' -PrincipalType Group -Role Admin -Note 'test' | Out-Null
+& $maint @conn -Database $script:ITDatabase -Task SetDashboardSetting -Name LicenceMonthlyCost -Value '31.5' | Out-Null
+& $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'boss@contoso.com' | Out-Null
+$mt = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT AppCategory FROM audit.SessionAppCategory WHERE App = N'Teams') AS Teams,
+       (SELECT PrincipalType + N'/' + Role FROM dash.RoleGrant WHERE Principal = N'CONTOSO\Insights-Admins') AS Grant_,
+       (SELECT Value FROM dash.Setting WHERE Name = N'LicenceMonthlyCost') AS Cost,
+       (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'a@contoso.com') AS ALevel,
+       (SELECT COUNT(*) FROM dash.AuditLog WHERE Page = N'Invoke-CopilotMaintenance') AS Logged;
+"@).Rows[0]
+Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/Admin' -and "$($mt.Cost)" -eq '31.5') 'maintenance tasks set an app category, grant a role and change a setting, without SQL'
+Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organisation takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
+$refused = try { & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'nobody@contoso.com'; '' } catch { $_.Exception.Message }
+Assert-That ($refused -like '*not in the directory*') 'a top of the organisation not in the directory is refused'
 
 # ---------------------------------------------------------------------------
 Write-Host ''

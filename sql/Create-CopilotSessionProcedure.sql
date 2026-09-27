@@ -73,7 +73,7 @@ GO
 
 ALTER PROCEDURE audit.usp_BuildCopilotSessions
     @SessionTimeoutMinutes INT           = 60,
-    @ReportingTimeZone     SYSNAME       = N'Eastern Standard Time',
+    @ReportingTimeZone     SYSNAME       = NULL,
     @ContextFallback       NVARCHAR(20)  = N'User',
     @MetricVersion         NVARCHAR(200) = N'sql-1.0-60m-daysplit-satfri-customweek',
     @LicenceEventDatabase  NVARCHAR(1000) = NULL,  -- one database, or several comma-separated
@@ -82,6 +82,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
+    SET @ReportingTimeZone = COALESCE(@ReportingTimeZone, audit.ReportingTimeZone());   -- the zone Install-CopilotAudit.ps1 -ReportingTimeZone stored
 
     IF @ContextFallback NOT IN (N'Location', N'None', N'User')
         THROW 50001, N'@ContextFallback must be Location, None or User.', 1;

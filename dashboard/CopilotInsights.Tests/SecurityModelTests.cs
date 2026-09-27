@@ -94,6 +94,15 @@ public class NavigationTests
     }
 
     [Fact]
+    public void Everyone_in_the_directory_gets_their_own_page_first()
+    {
+        var first = CopilotInsights.Pages.Nav.For(V(5))[0];
+        Assert.Equal("My Copilot", first.Persona);
+        Assert.Equal("/me", Assert.Single(first.Pages).Path);
+        Assert.Contains("/licensing/changes", Paths(V(5)));   // aggregates; the administrators' names on it need Licensing
+    }
+
+    [Fact]
     public void Nobody_sees_an_empty_group() =>
         Assert.All(CopilotInsights.Pages.Nav.For(V(5)), g => Assert.NotEmpty(g.Pages));
 

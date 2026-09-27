@@ -6,6 +6,7 @@ Written for a new install of release 2.2.0. Hands-on time is about a day, plus a
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
+- [The short version](#the-short-version)
 - [Phase 1: Prepare](#phase-1-prepare) (steps 1-4)
 - [Phase 2: Load the history](#phase-2-load-the-history) (steps 5-7)
 - [Phase 3: Build the reporting layers](#phase-3-build-the-reporting-layers) (steps 8-11)
@@ -52,10 +53,27 @@ Each is awkward to change after the first load. The examples below use the names
 - **SQL Server and the two databases.** `SQLPROD01`, `CopilotAudit` and `CopilotLicenseEvents`. They must be separate databases: the loader refuses to mix operation sets in one.
 - **The job server.** One Windows server that runs every scheduled step. It must reach `login.microsoftonline.com` and `graph.microsoft.com` over HTTPS, the SQL Server, and a domain controller of the domain your users are in. The AD export reads a *trusted* domain and refuses the domain the server itself is joined to, so the users must live in a different domain from the job server.
 - **The service account.** A group managed service account (gMSA), so there is no password to store or rotate. This guide uses `CORP\gmsa-copilot$`. The AD trust must let it read user objects (by default any authenticated user can).
-- **The reporting time zone.** Days and Saturday–Friday weeks are cut in Eastern time (`Eastern Standard Time`, which follows daylight saving). For another zone, change the `@ReportingTimeZone` default in five scripts *before step 6*: `Finalize-CopilotAudit.sql`, `Create-CopilotLoadProcedure.sql`, `Create-CopilotSessionProcedure.sql`, `Create-CopilotBiProcedure.sql` and `Create-LicenseEventProcedure.sql`. Use a name from `sys.time_zone_info`.
+- **The reporting time zone.** Days and Saturday–Friday weeks are cut in Eastern time (`Eastern Standard Time`, which follows daylight saving) unless you pass `-ReportingTimeZone` to the setup in step 3, such as `'GMT Standard Time'` (a name from `sys.time_zone_info`). It is stored in both databases and every procedure reads it. It can't be changed once records are loaded.
 - **How much history.** Microsoft keeps Copilot audit records for 180 days. More exists only if a custom retention policy covered Copilot at the time (step 1).
 - **Capacity for the Copilot agent.** Copilot in Power BI needs a paid Fabric (F2+) or Premium (P1+) capacity. Outside the US or EU data boundary it also needs a tenant setting that lets data be processed in another region (step 17). Buying capacity and that residency decision both take time, so start them now.
 - **Which employee types to load.** The AD export loads `employeeType` codes `EMP` and `NONW` by default, written as EMPLOYEE and CONTRACTOR. Check the codes your directory uses; `-EmployeeTypes @()` loads every type.
+
+## The short version
+
+Three commands on the job server, after the approvals in step 2 and the service account in step 3:
+
+```powershell
+# 1. Everything on the job server and SQL Server, and the app registration (elevated; you sign in once as an admin who can consent)
+.\tools\Install-CopilotJobServer.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\gmsa-copilot$' `
+    -TargetDomain users.contoso.com -TenantId contoso.onmicrosoft.com -RegisterApp
+
+# 2. The history, built (hours; run it again to resume if it stops)
+.\Invoke-CopilotPipeline.ps1 -History
+
+# 3. From tonight, the scheduled task runs .\Invoke-CopilotPipeline.ps1 on its own.
+```
+
+The steps below explain each command, and give the alternatives where your organisation splits the work (a DBA who runs SQL, an identity team who registers apps). Nothing in them is typed into SQL by hand.
 
 ## Phase 1: Prepare
 
@@ -74,11 +92,22 @@ If no policy mentions Copilot, plan for 180 days. Asking for more returns empty 
 
 ### Step 2. Register the app
 
-*Entra admin center; Global Administrator or Privileged Role Administrator to consent. About 20 minutes.*
+*Global Administrator or Privileged Role Administrator, to consent. About 5 minutes, done by step 3's `-RegisterApp`.*
 
-1. **App registrations → New registration.** Single tenant, no redirect URI. Note the *Application (client) ID* and *Directory (tenant) ID*.
-2. **API permissions → Add a permission → Microsoft Graph → Application permissions.** Add the three below, then **Grant admin consent**. They must be *Application*, not *Delegated*.
-3. **Certificates & secrets → Certificates → Upload** the `.cer` file you create in step 3. The scripts sign in with a certificate only; there is no client-secret option.
+`tools\New-CopilotAuditApp.ps1` registers the app. Step 3 runs it for you with `-RegisterApp`, and it can also run on its own on any machine with PowerShell 7. It signs you in to Microsoft Graph once, then:
+
+1. Creates the app **Copilot audit pipeline**: single tenant, no redirect URI, no client secret. The scripts sign in with a certificate only.
+2. Asks for the three application permissions below, and nothing else.
+3. Grants admin consent to each.
+4. Uploads the job server's certificate.
+
+It prints the tenant and client ids and writes them into the job server's settings. Run it again at any time: it changes only what is missing, and adds a renewed certificate alongside the old one.
+
+```powershell
+.\tools\New-CopilotAuditApp.ps1 -TenantId contoso.onmicrosoft.com -CertificatePath D:\CopilotAudit\copilot-audit.cer
+```
+
+Add `-UseDeviceCode` on a server with no browser. If your identity team registers apps by hand instead, give them this table and the `.cer` file from step 3. Then pass the resulting client id to step 3 as `-TenantId` and `-ClientId`.
 
 | Permission | Used by | For |
 |---|---|---|
@@ -86,13 +115,13 @@ If no policy mentions Copilot, plan for 180 days. Asking for more returns empty 
 | `User.Read.All` | Licence tool | Each user's assigned licences and plans, and the list of licence holders who never used Copilot. |
 | `LicenseAssignment.Read.All` | Licence tool | The tenant's SKUs, to find the Copilot ones. |
 
-The app needs no Purview role: the Audit Reader role applies to a person signing in, not to an app. User attributes come from AD, which needs no Graph permission. To keep the audit app to a single permission, put the two licence permissions on a second app registration instead.
+The app needs no Purview role: the Audit Reader role applies to a person signing in, not to an app. User attributes come from AD, which needs no Graph permission.
 
 ### Step 3. Prepare the job server
 
-*Job server, as a local administrator. About 45 minutes.*
+*Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**PowerShell 7 and the release.** Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.2.0-offline-win-x64.zip` and its `.sha256` from the [v2.2.0 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.2.0-offline-win-x64.zip` and its `.sha256` from the [v2.2.0 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
 $zip = 'copilot-audit-backfill-v2.2.0-offline-win-x64.zip'
@@ -100,44 +129,39 @@ $zip = 'copilot-audit-backfill-v2.2.0-offline-win-x64.zip'
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
 Rename-Item 'D:\copilot-audit-backfill-v2.2.0-offline-win-x64' 'CopilotAudit'
-New-Item -ItemType Directory 'D:\CopilotAudit\logs' | Out-Null
+cd D:\CopilotAudit
 ```
 
-**The certificate.** In an elevated window. A certificate from your own PKI works as well, as long as its private key is in the machine store.
+**Then one command:**
 
 ```powershell
-$cert = New-SelfSignedCertificate -Subject 'CN=Copilot audit pipeline' `
-    -CertStoreLocation Cert:\LocalMachine\My -KeySpec Signature -KeyLength 2048 `
-    -KeyExportPolicy NonExportable -NotAfter (Get-Date).AddYears(2)
-Export-Certificate -Cert $cert -FilePath 'D:\CopilotAudit\copilot-audit.cer'
-$cert.Thumbprint   # goes in every command below as -CertificateThumbprint
+.\tools\Install-CopilotJobServer.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\gmsa-copilot$' `
+    -TargetDomain users.contoso.com -TenantId contoso.onmicrosoft.com -RegisterApp
 ```
 
-Upload `copilot-audit.cer` to the app (step 2). Then let the service account use the private key: **certlm.msc → Personal → Certificates**, right-click the certificate, **All Tasks → Manage Private Keys**, add `CORP\gmsa-copilot$` with *Read*.
+`-TargetDomain` is the users' domain, which the directory load reads over the trust (step 9). Add `-ReportingTimeZone 'GMT Standard Time'` for another zone, `-Dashboard` if you will install the dashboard (Phase 7), and `-TrustServerCertificate` for a SQL Server with a self-signed certificate. The script:
 
-**The service account.**
+1. **Certificate.** Creates a self-signed certificate in LocalMachine\My: 2048-bit RSA, private key not exportable, valid 2 years. It exports the public half as `copilot-audit.cer`. To use your own PKI instead, import the certificate first and pass `-CertificateThumbprint`.
+2. **Service account.** Checks the gMSA is installed on the server, installing it when the ActiveDirectory module is present. Gives it *Read* on the certificate's private key, and *Log on as a batch job*. If a domain Group Policy sets that right, add the account there too, or the policy removes it at its next refresh.
+3. **Connectivity.** Checks `login.microsoftonline.com` and `graph.microsoft.com` on 443, and warns if they aren't reachable directly (a system proxy is fine).
+4. **Databases.** Runs step 4's `Install-CopilotAudit.ps1` with the service account.
+5. **App registration.** With `-RegisterApp`, runs step 2's script with the new certificate.
+6. **Settings.** Writes `copilot-audit.settings.psd1` next to the scripts: the server, databases, tenant, client id, thumbprint, users' domain and log folder. Every later command reads them.
+7. **The nightly task.** Registers *Copilot audit - nightly*, daily at 02:00 (`-At` to change it), as the gMSA, running `Invoke-CopilotPipeline.ps1` (steps 12-13).
 
-- Install the gMSA on the server (`Install-ADServiceAccount`; `Test-ADServiceAccount` returns True).
-- Give it **Log on as a batch job** (Local Security Policy → User Rights Assignment), so it can run a scheduled task.
-- Check the server reaches `login.microsoftonline.com` and `graph.microsoft.com` on 443, through the system proxy if there is one.
+It ends by listing what is left. Run it again at any time with no parameters, and it redoes only what is missing. For example, run it after renewing the certificate, with `-RegisterApp` to upload the new one. For a service account that isn't a gMSA, add `-ServiceAccountCredential (Get-Credential)` so the task can store its password.
 
 ### Step 4. Prepare SQL Server
 
-*SQL Server, as a sysadmin. About 30 minutes.*
+*Done by step 3, when you're a sysadmin. Otherwise the DBA runs one command.*
 
-SQL Server 2017 or later, database compatibility level 130 or higher. SIMPLE recovery keeps the parallel bulk loads minimally logged. `CopilotAuditTest` is only for the smoke test in step 5; drop it afterwards.
+SQL Server 2017 or later. Step 3 runs `Install-CopilotAudit.ps1` for you. When someone else administers SQL Server, give them this command and run step 3 with `-SkipDatabase`:
 
-```sql
-CREATE DATABASE CopilotAudit;          ALTER DATABASE CopilotAudit         SET RECOVERY SIMPLE;
-CREATE DATABASE CopilotLicenseEvents;  ALTER DATABASE CopilotLicenseEvents SET RECOVERY SIMPLE;
-CREATE DATABASE CopilotAuditTest;      ALTER DATABASE CopilotAuditTest     SET RECOVERY SIMPLE;
-
-CREATE LOGIN [CORP\gmsa-copilot$] FROM WINDOWS;
-USE CopilotAudit;         CREATE USER [CORP\gmsa-copilot$]; ALTER ROLE db_owner ADD MEMBER [CORP\gmsa-copilot$];
-USE CopilotLicenseEvents; CREATE USER [CORP\gmsa-copilot$]; ALTER ROLE db_owner ADD MEMBER [CORP\gmsa-copilot$];
+```powershell
+.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\gmsa-copilot$' [-ReportingTimeZone 'GMT Standard Time']
 ```
 
-Your own account needs the same rights in all three databases for the one-off steps. `db_ddladmin` + `db_datareader` + `db_datawriter` also works instead of `db_owner`. The service account needs its rights in `CopilotLicenseEvents` too, because the session and `bi` builds read the licence history across databases.
+It creates both databases (SIMPLE recovery, so the parallel bulk loads are minimally logged) and gives the service account a login and `db_owner` in both. It installs every table, view and procedure in the order they depend on each other, and stores the reporting time zone. It is safe to run any number of times: each run builds whatever the data then calls for. The service account needs its rights in `CopilotLicenseEvents` too, because the session and `bi` builds read the licence history across databases.
 
 **How much space.** Measured in a scale test with 70,000 users, 18,000 of them licensed, and 40 million interactions:
 
@@ -154,40 +178,44 @@ The finalized `audit.CopilotAudit` is a compressed columnstore that keeps each r
 
 ## Phase 2: Load the history
 
-Run these from a console on the job server, as yourself. Everything signs in as the app, so nothing waits on a browser. Every command here is safe to run again: after Ctrl+C, a crash or a reboot, the same command resumes where it stopped.
+One command loads and builds everything, from a console on the job server, as yourself:
 
-### Step 5. Smoke-test one day
+```powershell
+.\Invoke-CopilotPipeline.ps1 -History            # 180 days; -Days 90 for fewer
+```
+
+It runs steps 6, 7 and 9-11 in order, each in its own PowerShell process, and logs to `logs\history-<date>.log`. Everything signs in as the app, so nothing waits on a browser. After Ctrl+C, a crash or a reboot, the same command resumes where it stopped. The steps below say what each part does, and how to run it alone.
+
+### Step 5. Smoke-test one day (optional)
 
 *Job server. About 15 minutes.*
 
+Before the long run, you can prove the app, certificate and permissions against a scratch database:
+
 ```powershell
-cd D:\CopilotAudit
-$app = @{ TenantId = 'contoso.onmicrosoft.com'; ClientId = '<app-id>'; CertificateThumbprint = '<thumbprint>' }
-
-.\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotAuditTest @app `
-    -StartDate (Get-Date).ToUniversalTime().Date.AddDays(-2) `
-    -EndDate   (Get-Date).ToUniversalTime().Date.AddDays(-1) -Finalize
+.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Database CopilotAuditTest -SkipLicenceDatabase
+$s = Import-PowerShellDataFile .\copilot-audit.settings.psd1
+.\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotAuditTest `
+    -TenantId $s.TenantId -ClientId $s.ClientId -CertificateThumbprint $s.CertificateThumbprint `
+    -StartDate (Get-Date).ToUniversalTime().Date.AddDays(-2) -EndDate (Get-Date).ToUniversalTime().Date.AddDays(-1) -Finalize
 ```
 
-Then compare the count with the same UTC day searched in the Purview portal (**Audit → New search**, record type *CopilotInteraction*):
-
-```sql
-SELECT COUNT(*) FROM CopilotAuditTest.audit.CopilotAudit;
-```
-
-If they match, drop `CopilotAuditTest`. A `403` means the permission or its consent is missing (step 2). A SQL certificate error means the instance presents a self-signed certificate; add `-TrustServerCertificate`.
+`.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Database CopilotAuditTest -Task Status` then shows the records loaded. Compare them with the same UTC day searched in the Purview portal (**Audit → New search**, record type *CopilotInteraction*), then drop `CopilotAuditTest`. A `403` means the permission or its consent is missing (step 2). A SQL certificate error means the instance presents a self-signed certificate: run step 3 again with `-TrustServerCertificate`.
 
 ### Step 6. Backfill the Copilot interactions
 
 *Job server. Roughly 2–3½ hours per 50M records.*
 
-> **Time zone first.** If you are not using Eastern time, edit the five scripts listed under [Decide these first](#decide-these-first) now. Finalizing writes the day boundaries.
+> **Time zone first.** Finalizing writes the day boundaries, in the zone step 3 stored.
+
+`Invoke-CopilotPipeline.ps1 -History` runs this first, as:
 
 ```powershell
 .\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotAudit @app `
-    -StartDate (Get-Date).ToUniversalTime().Date.AddDays(-180) -Finalize `
-    -LogPath D:\CopilotAudit\logs\backfill.log
+    -StartDate (Get-Date).ToUniversalTime().Date.AddDays(-180) -Finalize
 ```
+
+`@app` stands for `-TenantId`, `-ClientId` and `-CertificateThumbprint`, from the settings file.
 
 Every 30 seconds it prints coverage, rows per second and an ETA. `-Status` from a second window shows saved progress without disturbing the run. How fast it goes depends on how fast Graph serves pages. At about 2 million records a week, 180 days is roughly 50 million records and about 85 of the tenant's 200 daily searches. The loader keeps itself under 150 searches per 24 hours, so colleagues who also search the audit log still have room.
 
@@ -197,24 +225,15 @@ Every 30 seconds it prints coverage, rows per second and an ETA. `-Status` from 
 
 *Job server and SQL Server. About 30 minutes.*
 
-Graph only knows the licences users hold today. Who held what, and when, comes from the directory's own audit records, loaded into the second database with a different operation list:
+Graph only knows the licences users hold today. Who held what, and when, comes from the directory's own audit records. The history run loads them into the second database with a different operation list:
 
 ```powershell
-$licenceOps = 'Change user license', 'Update user', 'Add user', 'Delete user'
-
 .\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotLicenseEvents @app `
-    -Operations $licenceOps -StartDate (Get-Date).ToUniversalTime().Date.AddDays(-180) -Finalize
+    -Operations 'Change user license', 'Update user', 'Add user', 'Delete user' `
+    -StartDate (Get-Date).ToUniversalTime().Date.AddDays(-180) -Finalize
 ```
 
-Then install the licence-event objects in that database and shred what was loaded. Use sqlcmd as below, or open each script in SSMS; some contain `GO`, so they need one of those two.
-
-```powershell
-sqlcmd -S SQLPROD01 -d CopilotLicenseEvents -E -b -i sql\Create-LicenseEventSchema.sql
-sqlcmd -S SQLPROD01 -d CopilotLicenseEvents -E -b -i sql\Create-LicenseEventProcedure.sql
-sqlcmd -S SQLPROD01 -d CopilotLicenseEvents -E -b -Q "EXEC audit.usp_ShredLicenseEvents;"
-```
-
-Add `-C` to sqlcmd if the instance's certificate is self-signed. From now on this database must always be loaded with the same `-Operations`; the loader refuses anything else.
+Its last step, `Install-CopilotAudit.ps1`, shreds them into the licence-event tables. This database is always loaded with the same `-Operations`; the loader refuses anything else, and the pipeline always passes these.
 
 ### Alternative to steps 6 and 7: start from Purview CSV exports
 
@@ -225,7 +244,7 @@ When the history already exists as audit log exports from the Purview portal, or
     -CoveredThroughUtc 2026-09-01
 ```
 
-`-CoveredThroughUtc` is the end of the latest export's search range. The import records it, so the nightly `-Incremental` run (step 12) continues from there. Duplicates across the files are removed, files already imported are skipped on the next run, and rows that can't be loaded are listed with their line number. Check its summary: rows read, duplicates, rejected rows. Then carry on with Phase 3. For the licence-event database, export the licence operations the same way and pass `-Operations 'Change user license','Update user','Add user','Delete user'` against `CopilotLicenseEvents`. [RUNBOOK section 5e](../RUNBOOK.md#5e-importing-purview-csv-exports) has the details.
+`-CoveredThroughUtc` is the end of the latest export's search range. The import records it, so the nightly `-Incremental` run (step 12) continues from there. Duplicates across the files are removed, files already imported are skipped on the next run, and rows that can't be loaded are listed with their line number. Check its summary: rows read, duplicates, rejected rows. Then carry on with Phase 3, running steps 9, 10 and 11 by their commands (not `-History`, which would search the audit log again). From then on the nightly task continues from the exports' end. For the licence-event database, export the licence operations the same way and pass `-Operations 'Change user license','Update user','Add user','Delete user'` against `CopilotLicenseEvents`. [RUNBOOK section 5e](../RUNBOOK.md#5e-importing-purview-csv-exports) has the details.
 
 ## Phase 3: Build the reporting layers
 
@@ -233,33 +252,22 @@ Install the SQL objects, load the two directory sources, then build everything o
 
 ### Step 8. Install the reporting objects
 
-*Job server or SSMS. About 5 minutes.*
+*Nothing to do.*
 
-In `CopilotAudit`, in this order. Each script is safe to run again.
-
-```powershell
-$scripts = 'Create-CopilotFlattenedSchema.sql',  'Create-CopilotFlattenProcedure.sql',
-           'Create-CopilotPurgeProcedure.sql',   'Create-CopilotEnrichmentSchema.sql',
-           'Create-CopilotSessionSchema.sql',    'Create-CopilotSessionProcedure.sql',
-           'Create-CopilotBiSchema.sql',         'Create-CopilotBiProcedure.sql'
-foreach ($s in $scripts) {
-    sqlcmd -S SQLPROD01 -d CopilotAudit -E -b -i "D:\CopilotAudit\sql\$s"
-    if ($LASTEXITCODE) { throw "$s failed" }
-}
-```
-
-The order matters in three places: the enrichment script creates the adoption views only once the finalized tables exist, it makes a column the flattened schema creates nullable, and the `bi` schema needs the flattened and session tables. The purge procedure is optional; it only runs when you call it.
+Step 4's `Install-CopilotAudit.ps1` installed them: the flattened table and procedure, the purge procedure, the enrichment tables, sessions and the `bi` schema, in the order they need. Running it again after a backfill also creates the adoption views, which need the finalized tables.
 
 ### Step 9. Load the user directory from AD
 
 *Job server; no Graph permission. About 5–15 minutes.*
 
+Part of the history run, and of every nightly run. Alone:
+
 ```powershell
-.\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain corp.example.com `
+.\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain users.contoso.com `
     -SqlServer SQLPROD01 -Database CopilotAudit
 ```
 
-One paged search reads every user in the trusted domain, enabled or not, since a user who has left still has interactions to attribute. It replaces `audit.UserDirectory` in one transaction, so readers never see it empty. It binds to AD as whoever runs it, over the trust.
+One paged search reads every user in the trusted domain, enabled or not, since a user who has left still has interactions to attribute. It replaces `audit.UserDirectory` in one transaction, so readers never see it empty. It binds to AD as whoever runs it, over the trust: the users' domain must trust the job server's domain. It also keeps each account's SID, which the dashboard uses to recognise people signing in from the users' domain.
 
 > **Read the match report.** It ends by saying how many users in the audit data it found by UPN, and how many more only by mail. Everything joins on the UPN. Under 90% means AD's UPNs are not the names people sign in to Microsoft 365 with, and their usage will show without a department. Resolve that before going further.
 
@@ -268,6 +276,8 @@ It also reports the accounts it skipped: other employee types, no UPN, a UPN ove
 ### Step 10. Load current Copilot licences
 
 *Job server. About 5–20 minutes.*
+
+Part of the history run, and of every nightly run. Alone:
 
 ```powershell
 .\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit @app -AllLicensedUsers
@@ -289,16 +299,15 @@ People who appear only in the licence history, whose licence was removed and who
 
 ### Step 11. Build everything once
 
-*SSMS. About 40 minutes for sessions and `bi` at 40M interactions, plus flattening.*
+*Job server. About 40 minutes for sessions and `bi` at 40M interactions, plus flattening.*
 
-```sql
-USE CopilotAudit;
-EXEC audit.usp_FlattenCopilotAudit;                                       -- every record, with the licence flag
-EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'CopilotLicenseEvents';
-EXEC bi.usp_RefreshBi               @LicenceEventDatabase = N'CopilotLicenseEvents';
+The history run's last step:
+
+```powershell
+.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -LicenceEventDatabases CopilotLicenseEvents
 ```
 
-Each reports progress as it goes. In the 40-million-interaction scale test the full session build took 25 minutes and the first `bi` build 13½ minutes. Both are one-off costs: the nightly job rebuilds only from the start of the day its load began. A full `bi` build commits a month at a time, so don't refresh a Power BI model while one runs.
+With records loaded and nothing built yet, it flattens every record, builds every session and the `bi` schema, and says so as it goes. See [What has run in the lab](#what-has-run-in-the-lab) for the timings at 40 million interactions. These are one-off costs: the nightly job rebuilds only from the start of the day its load began. A full `bi` build commits a month at a time, so don't refresh a Power BI model while one runs.
 
 ## Phase 4: Run it every night
 
@@ -309,71 +318,35 @@ Four steps, in this order, each finishing before the next starts:
 3. **Licence events**: `-Incremental` into `CopilotLicenseEvents`; it shreds the new events itself.
 4. **Copilot interactions**: `-Incremental` into `CopilotAudit`. It loads from where the data ends, minus a 48-hour lookback for records Purview delivers late. Then it refreshes the flattened table, sessions and `bi`, reading the licence history the step before brought up to date.
 
-### Step 12. Write the nightly script
+### Step 12. The nightly run
 
-*Job server. About 15 minutes.*
+*Nothing to write.*
 
-Save as `D:\CopilotAudit\Run-Nightly.ps1`. The script isn't in the release; it's shown here in full. Each step runs in its own PowerShell process and appends to a dated log. The script stops at the first failure and exits 1, so Task Scheduler's history shows it. Tomorrow's run resumes the same load.
+`Invoke-CopilotPipeline.ps1`, with no parameters, runs the four steps above in order, from the settings file:
 
-```powershell
-# Run-Nightly.ps1 - the four nightly steps in order; stops at the first failure.
-$ErrorActionPreference = 'Stop'
-$root = 'D:\CopilotAudit'
-$log  = "$root\logs\nightly-$(Get-Date -Format yyyy-MM-dd).log"
+- each step in its own PowerShell process, so one step's modules and state can't affect the next;
+- output appended to `logs\nightly-<date>.log`, and logs older than 90 days deleted;
+- at the first failure it stops and exits 1, so Task Scheduler's history shows it; tomorrow's run resumes the same load;
+- if the history hasn't been loaded yet, it says so and exits 1, rather than starting a partial load.
 
-$sql = 'SQLPROD01'
-$app = @{ TenantId = 'contoso.onmicrosoft.com'; ClientId = '<app-id>'; CertificateThumbprint = '<thumbprint>' }
-
-function Invoke-Step([string] $Name, [string] $Script, [hashtable] $Arguments) {
-    "$(Get-Date -Format s) == $Name" | Tee-Object -FilePath $log -Append
-    # A separate process per step, so one step's modules and state cannot affect the next.
-    & pwsh -NoProfile -NonInteractive -Command { param($s, $a) & $s @a } -args $Script, $Arguments 2>&1 |
-        Tee-Object -FilePath $log -Append
-    if ($LASTEXITCODE -ne 0) {
-        "$(Get-Date -Format s) $Name failed (exit code $LASTEXITCODE)." | Tee-Object -FilePath $log -Append
-        exit 1
-    }
-}
-
-Invoke-Step 'User directory from AD' "$root\tools\Export-UsersWithHierarchy-ToSql.ps1" @{
-    TargetDomain = 'corp.example.com'; SqlServer = $sql; Database = 'CopilotAudit' }
-
-Invoke-Step 'Copilot licences from Graph' "$root\tools\Update-CopilotAuditEnrichment.ps1" (@{
-    SqlServer = $sql; Database = 'CopilotAudit'; AllLicensedUsers = $true } + $app)
-
-Invoke-Step 'Licence events' "$root\Invoke-CopilotAuditBackfill.ps1" (@{
-    SqlServer = $sql; Database = 'CopilotLicenseEvents'; Incremental = $true
-    Operations = 'Change user license', 'Update user', 'Add user', 'Delete user' } + $app)
-
-Invoke-Step 'Copilot interactions' "$root\Invoke-CopilotAuditBackfill.ps1" (@{
-    SqlServer = $sql; Database = 'CopilotAudit'; Incremental = $true
-    SessionLicenceDatabase = 'CopilotLicenseEvents' } + $app)
-
-"$(Get-Date -Format s) Done." | Tee-Object -FilePath $log -Append
-```
-
-Run it once by hand before scheduling it. The script's control flow was tried with stand-in steps; running it by hand is the first time it runs against your tenant and AD.
+Run it once by hand before relying on the schedule:
 
 ```powershell
-pwsh -NoProfile -File D:\CopilotAudit\Run-Nightly.ps1; $LASTEXITCODE   # 0 when every step succeeded
+.\Invoke-CopilotPipeline.ps1; $LASTEXITCODE   # 0 when every step succeeded
 ```
 
 ### Step 13. Schedule it
 
-*Job server, elevated. About 10 minutes.*
+*Done by step 3.*
 
-As the gMSA, so there is no password to store. `-LogonType Password` is how Task Scheduler is told to fetch a gMSA's password from AD.
+Step 3 registered **Copilot audit - nightly**, daily at 02:00, as the gMSA (`-LogonType Password` is how Task Scheduler fetches a gMSA's password from AD). To run it now and check the result:
 
 ```powershell
-$action    = New-ScheduledTaskAction -Execute 'pwsh.exe' -WorkingDirectory 'D:\CopilotAudit' `
-                 -Argument '-NoProfile -NonInteractive -File "D:\CopilotAudit\Run-Nightly.ps1"'
-$trigger   = New-ScheduledTaskTrigger -Daily -At 2am
-$principal = New-ScheduledTaskPrincipal -UserId 'CORP\gmsa-copilot$' -LogonType Password
-Register-ScheduledTask -TaskName 'Copilot audit - nightly' -Action $action -Trigger $trigger -Principal $principal
-
 Start-ScheduledTask -TaskName 'Copilot audit - nightly'
 (Get-ScheduledTaskInfo -TaskName 'Copilot audit - nightly').LastTaskResult   # 0 once it has finished
 ```
+
+To move it, run step 3 again with `-At 03:30`.
 
 A daily run costs 2–4 of the tenant's roughly 200 audit searches per 24 hours. At 40 million interactions, the SQL work after the download (sessions and `bi`) took about 74 seconds, against 31 minutes for rebuilding everything.
 
@@ -385,13 +358,10 @@ The model imports the `bi` views: narrow facts with integer keys, and small dime
 
 *SQL Server. About 5 minutes.*
 
-The on-premises data gateway's login needs the `bi` views and nothing else:
+The on-premises data gateway's login needs the `bi` views and nothing else. The installer grants exactly that:
 
-```sql
-CREATE LOGIN [CORP\svc-pbigateway] FROM WINDOWS;   -- if it has no login yet
-USE CopilotAudit;
-CREATE USER [CORP\svc-pbigateway];
-GRANT SELECT ON SCHEMA::bi TO [CORP\svc-pbigateway];
+```powershell
+.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -ReportingAccount 'CORP\svc-pbigateway'
 ```
 
 ### Step 15. Build the model
@@ -568,78 +538,28 @@ Freshness
 
 ### Step 21. Check the first nightly run
 
-*SSMS. About 10 minutes.*
-
-```sql
-USE CopilotAudit;
--- One row per load: its range, and how many records were new or already there
-SELECT TOP (5) LoadId, RangeStartUtc, RangeEndUtc, MergedUtc, RowsAdded, RowsAlreadyLoaded
-FROM audit.CopilotLoad ORDER BY LoadId DESC;
-
--- Session builds: RebuiltFrom is NULL for a full build, a date for a nightly one
-SELECT TOP (5) RunId, RunStartUtc, RunEndUtc, RebuiltFrom, SessionsWritten
-FROM audit.CopilotSessionRun ORDER BY RunId DESC;
-
--- bi refreshes: SinceUtc is NULL for a full rebuild
-SELECT TOP (5) RunId, StartedUtc, EndedUtc, SinceUtc, InteractionRows, SessionRows
-FROM bi.RefreshRun ORDER BY RunId DESC;
-
--- Licensed, never used: usually the number that pays for the rollout
-SELECT UserPrincipalName, Department, LicensedSinceUtc
-FROM audit.vCopilotAdoption WHERE NeverUsed = 1 ORDER BY LicensedSinceUtc;
-```
-
-A healthy morning: a new load with `MergedUtc` set, a session run with a `RebuiltFrom` date, a `bi` run with a `SinceUtc`, and a nightly log ending in *Done.* After that, the semantic model's refresh history shows a success, and Copilot's answer to "how many people used Copilot yesterday?" matches the same query in SQL.
-
-## Phase 7: The Copilot Insights dashboard (optional)
-
-A web dashboard for everyone else: executives see the whole organisation, managers their own people, and persona pages for adoption, licensing, security, compliance, agents, enablement and governance. It runs in IIS on Windows Server 2022 or later, with Windows sign-in, and reads the same database. [DASHBOARD.md](DASHBOARD.md) has the pages, the security model and the detail; these are the steps. It is not yet released.
-
-### Step 22. Install the dashboard's tables
-
-*SSMS, on `CopilotAudit`. About 5 minutes.*
-
-Run `sql/Create-CopilotDashboardSchema.sql`, then `sql/Create-CopilotDashboardProcedure.sql`. Build the rollups once, set the top of the organisation (its person and everyone reporting to them see everything), and build again so the levels follow it:
-
-```sql
-EXEC dash.usp_RefreshDashboard;
-UPDATE dash.Setting SET Value = N'ceo@contoso.com' WHERE Name = 'OrgTopUpn';
-EXEC dash.usp_RefreshDashboard;
-```
-
-From now on the nightly run refreshes it after `bi`: nothing to add to `Run-Nightly.ps1`.
-
-### Step 23. Install the site
-
-*The web server, elevated Windows PowerShell 5.1. About 20 minutes.*
-
-Install the ASP.NET Core 10 Hosting Bundle, then run the installer with the published app (the CI build's `CopilotInsights` folder, or `dashboard\CopilotInsights` with the .NET 10 SDK installed):
+*Job server. About 10 minutes.*
 
 ```powershell
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer SQLPROD01 -Database CopilotAudit `
-    -AdminPrincipal 'CORP\Copilot-Insights-Admins' -AppPoolIdentity 'CORP\gmsa-insights$' `
-    -HostName insights.corp.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
+.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task Status
 ```
 
-It sets up IIS with Windows authentication, the app pool and the site, and grants the app-pool account what it needs in `CopilotAudit` (without `-GrantDatabaseAccess` it writes the grants for a DBA instead). Register the SPN it prints.
-
-### Step 24. Enrol the administrators and grant roles
-
-*A browser. About 10 minutes.*
-
-A member of the `-AdminPrincipal` group opens the site and goes to **Admin › Health** (every step should be *Fresh* and the top found), then **Admin › Access**: grant **Admin** to the people who will run it, **Organization** to anyone beyond the top two levels who should see everything, and the persona roles (Adoption, Licensing, Security, Compliance, Agents, Enablement) to the people who need named lists. Grant to AD groups where you can. In **Admin › Reference data**, name the agents and the sensitivity labels.
+It lists the records loaded and flattened, when the last load was merged, and when sessions, `bi` and the dashboard were last rebuilt. A healthy morning: every time is from last night, and the nightly log ends in *Done.* If the dashboard is installed, **Admin › Health** shows the same with fresh, stale and old marked. After that, the semantic model's refresh history shows a success, and Copilot's answer to "how many people used Copilot yesterday?" matches the Leadership page for yesterday.
 
 ## Running it
 
+Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01`; `-Task Status` shows what is loaded and when each step last ran.
+
 | When | Do this |
 |---|---|
-| A session setting changes (timeout, time zone, licence databases) | Rebuild every session once: `EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'CopilotLicenseEvents';`. Until then the nightly run stops with *different settings*. |
-| Licence history arrives for a period already built, or flattened rows are purged | `EXEC bi.usp_RefreshBi @SinceUtc = NULL, @LicenceEventDatabase = N'CopilotLicenseEvents';`, then a full refresh of the model. |
-| A new Copilot app appears | Map it to *Copilot Chat* or *In-App Copilot* in `audit.SessionAppCategory` (or the dashboard's Admin › Reference data). Unmapped apps count as In-App. |
-| Someone needs to see more of the dashboard | Admin › Access: the Organization role for the whole organisation, a persona role for its named lists. The org chart follows AD by itself, the night after a move. |
-| Disk grows past your horizon | `EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 365;` reports what it would clear; add `@WhatIf = 0` to clear the stored JSON and keep the rows. |
-| A new release comes out | Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `Run-Nightly.ps1`, and read its release notes' upgrade section. From 2.0.0 to 2.1.0 nothing is done by hand: the next nightly run installs the changes. Back up the databases first. |
-| The certificate nears expiry | Create a new one (step 3), upload it to the app, give the gMSA its private key, and change the thumbprint in `Run-Nightly.ps1`. Remove the old one after the next good run. |
+| A session setting changes (timeout, time zone, licence databases) | `M -Task RebuildSessions`. Until then the nightly run stops with *different settings*. |
+| Licence history arrives for a period already built, the time zone changes, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the model. |
+| A new Copilot app appears | `M -Task SetAppCategory -App 'Name' -Category 'Copilot Chat'` (or *In-App Copilot*), or the dashboard's Admin › Reference data. Add `-Apply` to rebuild with it now. Unmapped apps count as In-App. |
+| Someone needs to see more of the dashboard | Admin › Access, or `M -Task GrantRole -Principal 'CORP\Group' -Role Organization`: Organization for the whole organisation, a persona role for its named lists. The org chart follows AD by itself, the night after a move. |
+| The flatten says a field *now carries information* | One of the fields that never varied has a second value: see `audit.RawLogRecordShape`. Nothing is lost from the JSON; if it matters for reporting, it needs a column in a new release. |
+| Disk grows past your horizon | `M -Task PurgeJson -RetainDays 365` reports what it would clear; add `-Apply` to clear the stored JSON and keep the rows. |
+| A new release comes out | Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, and run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once. It upgrades every object and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. Read the release notes' upgrade section. |
+| The certificate nears expiry | Within 30 days of expiry, `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` creates a new one, gives the gMSA its private key, uploads it to the app next to the old one and puts its thumbprint in the settings. Remove the old one from the app after the next good run. |
 
 **When the nightly run fails:**
 
@@ -693,7 +613,7 @@ On 26 September 2026 the 2.2.0 scripts ran against a restored copy-only backup o
 | `audit.RawLogRecordShape` | Three combinations of the fields that carry no information: 1,136 records with only the constants, 12 from a Copilot Studio agent (`AgentPlatform`, `AgentBlueprintId`), 1 with `SubjectType`. No field took a second value, so the flatten raised no note. |
 | Sessions, a full `bi` build and the dashboard's rollups | 241 sessions, 1,149 interactions and 1,939 accessed resources in `bi`; a partial `bi` refresh from three days back kept the same totals. |
 
-Not run in the lab: the AD export (the lab machine isn't on a domain, so department and org columns are blank there), the licence tool signed in as the app, `Run-Nightly.ps1` and its scheduled task, the CSV importer on a real Purview portal export, and the Power BI model and its Copilot setup.
+Not run in the lab: the AD export (the lab machine isn't on a domain, so department and org columns are blank there), the licence tool signed in as the app, `tools\Install-CopilotJobServer.ps1`, `tools\New-CopilotAuditApp.ps1` and the scheduled task, the CSV importer on a real Purview portal export, and the Power BI model and its Copilot setup.
 
 ## Not yet proven in a live deployment
 
@@ -703,6 +623,6 @@ Nothing runs at a client site yet. These parts have not run against the real thi
 - **The Power BI model and its Copilot setup.** The DAX measures, descriptions, AI instructions and verified answers here are a starting point built from the model's design and Microsoft's documentation. None of them has been tried in a published model yet, so test them as step 20 describes.
 - **The CSV importer on a real portal export.** It has been tested on lab records reshaped to the export's format, not on a file downloaded from the Purview portal. Import one real export and check its summary before loading the rest.
 - **Export compatibility.** `audit.vCopilotAuditRecord` reproduces the Purview portal export's columns, but its JSON hasn't been compared byte for byte with a portal CSV. Check one record before repointing reports built on the portal export.
-- **The `Run-Nightly.ps1` shown above** has been dry-run with stand-in steps only.
+- **The setup scripts.** `tools\Install-CopilotJobServer.ps1` (certificate, private key, batch-logon right, gMSA, scheduled task) and `tools\New-CopilotAuditApp.ps1` (app, consent, certificate upload) are tested against stand-ins: a simulated tenant, and their pure parts. They haven't run on a domain-joined server or against a real tenant. `Invoke-CopilotPipeline.ps1` is tested for its plan and for running steps in their own processes, with stand-in steps. Run step 3, then check the app in the Entra admin center and the task in Task Scheduler.
 
 Figures under "How much space" and the build times come from a scale test on 8 cores and 31 GB of RAM. Copilot in Power BI requirements follow Microsoft Learn as of 25 September 2026; check the current pages before purchasing capacity.
