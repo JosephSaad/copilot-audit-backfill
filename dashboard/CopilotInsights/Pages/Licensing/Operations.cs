@@ -149,6 +149,7 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
         var text = script
             ? LicenceExport.Script("revoke", upns, await S.Settings.StringAsync("LicenceGroupId"), skuId, Viewer.Upn ?? Viewer.WindowsName, DateTime.UtcNow)
             : LicenceExport.BulkMembersCsv(upns);
+        await LicenceActions.RecordAsync(Db, "leaver", upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"{(script ? "script" : "bulk file")}: {upns.Count} licences on disabled accounts");
         return File(Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? $"reclaim-copilot-licences-{DateTime.UtcNow:yyyyMMdd}.ps1" : $"reclaim-copilot-licences-{DateTime.UtcNow:yyyyMMdd}.csv");
     }

@@ -2,6 +2,7 @@ using CopilotInsights.Charts;
 using CopilotInsights.Data;
 using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
+using Microsoft.AspNetCore.Mvc;
 
 namespace CopilotInsights.Pages.Security;
 
@@ -68,7 +69,17 @@ public sealed class FlagsModel(PageServices s) : InsightsPage(s)
     public override string Title => "Flagged interactions";
     public override string Persona => "Security";
     public override string? RequiredRole => Roles.Security;
-    public override string Intro => "Each interaction with a jailbreak, prompt-injection or blocked-resource flag, with who and where. The record id finds it in Purview.";
+    public override string Intro => "Each interaction with a jailbreak, prompt-injection or blocked-resource flag, with who and where, and its triage: new, being investigated, closed, or a false positive. The record id finds it in Purview.";
+
+    public static readonly string[] Statuses = ["New", "Investigating", "Closed", "FalsePositive"];
+    static readonly Dictionary<string, (string Label, string Sql)> Triage = new()
+    {
+        ["open"] = ("Open", "ISNULL(fc.Status, 'New') IN ('New', 'Investigating')"),
+        ["new"] = ("New", "ISNULL(fc.Status, 'New') = 'New'"),
+        ["investigating"] = ("Investigating", "fc.Status = 'Investigating'"),
+        ["done"] = ("Closed or false positive", "fc.Status IN ('Closed', 'FalsePositive')"),
+        ["any"] = ("Any", "1 = 1"),
+    };
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -96,41 +107,78 @@ public sealed class FlagsModel(PageServices s) : InsightsPage(s)
         public bool PromptInjectionDetected { get; set; }
         public bool HasBlockedResource { get; set; }
         public string RecordId { get; set; } = "";
+        public string? Status { get; set; }
+        public string? Owner { get; set; }
+        public string? Note { get; set; }
         public int TotalRows { get; set; }
     }
 
     protected override async Task BuildAsync()
     {
+        ShowDone();
         var kind = Request.Query["kind"].FirstOrDefault() is { } k && Kinds.ContainsKey(k) ? k : "all";
+        var cases = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().HasAsync("dash.FlagCase");
+        var triage = cases && Request.Query["status"].FirstOrDefault() is { } st && Triage.ContainsKey(st) ? st : cases ? "open" : "any";
         var pg = new Paging(Request, Sorts, "new");
         var rows = await Db.QueryAsync<Row>($@"
 SELECT f.ActivityHour, du.DisplayName, du.UserPrincipalName, du.Department, a.App,
        CASE WHEN ag.AgentSource = N'(no agent)' THEN NULL ELSE ag.AgentName END AS AgentName,
-       f.JailbreakDetected, f.PromptInjectionDetected, f.HasBlockedResource, f.RecordId, COUNT(*) OVER () AS TotalRows
+       f.JailbreakDetected, f.PromptInjectionDetected, f.HasBlockedResource, f.RecordId,
+       {(cases ? "fc.Status, fc.Owner, fc.Note" : "NULL AS Status, NULL AS Owner, NULL AS Note")}, COUNT(*) OVER () AS TotalRows
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = f.UserKey
 JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
 JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds[kind].Sql}
+{(cases ? "LEFT JOIN dash.FlagCase AS fc ON fc.RecordId = f.RecordId" : "")}
+WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds[kind].Sql} AND {(cases ? Triage[triage].Sql : "1 = 1")}
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
-            Headers = ["When (hour)", "Name", "Sign-in", "Department", "App", "Agent", "Signals", "Record id"],
+            Headers = ["When (hour)", "Name", "Sign-in", "Department", "App", "Agent", "Signals", "Record id", "Triage", "Owner", "Note"],
             EmptyText = "No flagged interactions in the period.",
         };
         foreach (var r in rows)
         {
             var flags = string.Join(", ", new[] { r.JailbreakDetected ? "Jailbreak" : null, r.PromptInjectionDetected ? "Injection" : null, r.HasBlockedResource ? "Blocked" : null }.Where(x => x is not null));
+            var status = r.Status ?? "New";
+            object? triageCell = !cases ? null : pg.ForExport ? status : new HtmlString(InlineForm("triage", Hidden("recordId", r.RecordId) +
+                $"<select name=\"status\" aria-label=\"Triage\">{string.Concat(Statuses.Select(x => $"<option{(x == status ? " selected" : "")}>{x}</option>"))}</select>" +
+                $"<input type=\"text\" name=\"note\" value=\"{E(r.Note)}\" size=\"14\" maxlength=\"2000\" aria-label=\"Note\"/>" + Button("Save", quiet: true)));
             t.Rows.Add([r.ActivityHour, r.DisplayName, r.UserPrincipalName, r.Department, r.App, r.AgentName,
-                        new HtmlString($"<span class=\"flag\">{System.Net.WebUtility.HtmlEncode(flags)}</span>"), r.RecordId]);
+                        new HtmlString($"<span class=\"flag\">{System.Net.WebUtility.HtmlEncode(flags)}</span>"), r.RecordId, triageCell, r.Owner, pg.ForExport ? r.Note : null]);
         }
         CsvTable = t;
         Kpis.Add(new(Kinds[kind].Label, Num(pg.Total), "flagged interactions in the period", pg.Total > 0 ? "crit" : null));
         var tabs = string.Join(" · ", Kinds.Select(kv =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "kind=" + kv.Key))}\"{(kv.Key == kind ? " class=\"on\"" : "")}>{kv.Value.Label}</a>"));
-        Panels.Add(new("Interactions", new HtmlString($"<p class=\"sub\">Show: {tabs}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "Times are the hour of the interaction in the reporting time zone.", "full", CsvUrl()));
+        var tri = !cases ? "" : "<p class=\"sub\">Triage: " + string.Join(" · ", Triage.Select(kv =>
+            $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&status={kv.Key}"))}\"{(kv.Key == triage ? " class=\"on\"" : "")}>{kv.Value.Label}</a>")) + "</p>";
+        if (cases)
+        {
+            var open = await Db.ScalarAsync<int>($@"
+SELECT COUNT(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} LEFT JOIN dash.FlagCase AS fc ON fc.RecordId = f.RecordId
+WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1) AND ISNULL(fc.Status, 'New') IN ('New', 'Investigating');", Ctx.Args());
+            Kpis.Add(new("Open", Num(open), "new or being investigated", open > 0 ? "warn" : null));
+        }
+        Panels.Add(new("Interactions", new HtmlString($"<p class=\"sub\">Show: {tabs}</p>" + tri + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+            "Times are the hour of the interaction in the reporting time zone. Saving a triage records you as its owner, with the time, in the audit log.", "full", CsvUrl()));
     }
+
+    /// <summary>Security's triage of one flagged interaction: status and a note, owned by whoever saved it.</summary>
+    public Task<IActionResult> OnPostTriageAsync(string? recordId, string? status, string? note) => RoleChangeAsync(Roles.Security, async () =>
+    {
+        if (status is null || !Statuses.Contains(status)) throw new ArgumentException("choose a status.");
+        if (string.IsNullOrEmpty(recordId) || recordId.Length > 64) throw new ArgumentException("no record.");
+        if (await Db.ScalarAsync<int>($@"SELECT COUNT(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+WHERE f.RecordId = @recordId AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1);", Ctx.Args(new { recordId })) == 0)
+            throw new ArgumentException("that record is not a flagged interaction in your scope.");
+        note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(2000, note.Trim().Length)];
+        var by = Viewer.Upn ?? Viewer.WindowsName;
+        await Db.ExecuteAsync(@"
+UPDATE dash.FlagCase SET Status = @status, Note = @note, Owner = @by, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE RecordId = @recordId;
+IF @@ROWCOUNT = 0 INSERT INTO dash.FlagCase (RecordId, Status, Owner, Note, UpdatedBy) VALUES (@recordId, @status, @by, @note, @by);", new { recordId, status, note, by });
+        return $"Record {recordId}: {status}.";
+    });
 }

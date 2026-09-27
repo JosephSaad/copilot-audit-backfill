@@ -166,6 +166,23 @@ td form.admin label { flex-direction: row; align-items: center; gap: 4px; }
 svg.chart .line.dashed { stroke-dasharray: 6 4; }
 svg.chart .band { opacity: 0.14; stroke: none; }
 svg.chart .grid.now { stroke: var(--faint); stroke-dasharray: 2 3; }
+svg.chart .marker { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+svg.chart .mlabel { fill: var(--muted); font-size: 10px; }
+svg.chart .mhit { fill: transparent; }
+form.inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+form.inline select, form.inline input { font: inherit; font-size: 12px; }
+.status-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--accent-soft); color: var(--ink); }
+.status-pill.New { background: var(--warn-soft); }
+.status-pill.Closed, .status-pill.FalsePositive { background: var(--grid); color: var(--muted); }
+.print-only { display: none; }
+@media print {
+  header.top, nav.side, form.filters, .csv, .no-print, button, form.admin { display: none !important; }
+  .shell { display: block; }
+  main { padding: 0; }
+  body { background: #fff; color: #000; }
+  .panel { break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+  .print-only { display: block; }
+}
 .recs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
 .rec { background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 8px; padding: 12px 14px; }
 .rec.save { border-left-color: var(--good); } .rec.spend { border-left-color: var(--warn); } .rec.info { border-left-color: var(--faint); }

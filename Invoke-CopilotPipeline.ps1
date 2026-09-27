@@ -244,6 +244,16 @@ function Invoke-Retention {
     catch { "$(Get-Date -Format s) Retention was not applied: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
 }
 
+function Get-PipelineCertificate {
+    <# The app certificate in LocalMachine\My (or CurrentUser\My), or nothing. #>
+    param([System.Collections.IDictionary] $T)
+    if (-not $T.Contains('CertificateThumbprint') -or -not $T.CertificateThumbprint) { return }
+    foreach ($store in 'Cert:\LocalMachine\My', 'Cert:\CurrentUser\My') {
+        $c = Get-Item -LiteralPath "$store\$($T.CertificateThumbprint)" -ErrorAction SilentlyContinue
+        if ($c) { return $c }
+    }
+}
+
 function Invoke-TenantRun {
     <# One tenant's run: its steps in order, recorded in its own database. Returns $true when every step succeeded. #>
     param([System.Collections.IDictionary] $T, [string] $Log, [string] $Label)
@@ -254,6 +264,12 @@ function Invoke-TenantRun {
     }
     $runId = Write-PipelineRecord $T -Log $Log -Parameters @{ '@k' = $(if ($History) { 'History' } else { 'Nightly' }); '@h' = [Environment]::MachineName; '@u' = "$env:USERDOMAIN\$env:USERNAME" } -Sql `
         "INSERT INTO audit.PipelineRun (Kind, Host, RunAs) VALUES (@k, @h, @u); SELECT CAST(SCOPE_IDENTITY() AS INT);"
+    # The app's certificate and when it expires, for the dashboard's expiry alert.
+    $cert = Get-PipelineCertificate $T
+    if ($runId -and $cert) {
+        [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@t' = $cert.Thumbprint; '@e' = $cert.NotAfter.ToUniversalTime(); '@s' = $cert.Subject } -Sql `
+            "IF COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') IS NOT NULL EXEC sp_executesql N'UPDATE audit.PipelineRun SET CertificateThumbprint = @t, CertificateExpiresUtc = @e, CertificateSubject = LEFT(@s, 400) WHERE RunId = @r;', N'@r INT, @t VARCHAR(64), @e DATETIME2(0), @s NVARCHAR(4000)', @r = @r, @t = @t, @e = @e, @s = @s;")
+    }
     $n = 0
     foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
         $n++

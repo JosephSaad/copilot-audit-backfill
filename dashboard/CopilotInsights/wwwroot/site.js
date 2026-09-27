@@ -47,7 +47,14 @@
   document.querySelectorAll('select[data-navigate]').forEach(function (s) {
     s.addEventListener('change', function () { if (s.value) location.href = s.value; });
   });
+  document.querySelectorAll('[data-print]').forEach(function (b) {
+    b.addEventListener('click', function () { window.print(); });
+  });
   document.querySelectorAll('form[data-confirm]').forEach(function (f) {
     f.addEventListener('submit', function (e) { if (!window.confirm(f.getAttribute('data-confirm'))) e.preventDefault(); });
+  });
+  // The admin forms put the question on the button.
+  document.querySelectorAll('button[data-confirm]').forEach(function (b) {
+    b.addEventListener('click', function (e) { if (!window.confirm(b.getAttribute('data-confirm'))) e.preventDefault(); });
   });
 })();

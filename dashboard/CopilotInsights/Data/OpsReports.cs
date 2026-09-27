@@ -226,6 +226,43 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
         return (e.Subject, e.Html(), e.Text());
     }
 
+    /// <summary>
+    /// A person's own weekly email: their last seven days against the seven before, where they used it,
+    /// and one idea. Only ever about the person it goes to, so privacy mode does not stop it.
+    /// </summary>
+    public async Task<(string Subject, string Html, string Text)> PersonalDigestAsync(string upn)
+    {
+        var end = await db.ScalarAsync<int?>("SELECT MAX(DateKey) FROM dash.UserDay;");
+        var endDay = end is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : DateTime.UtcNow.Date.AddDays(-1);
+        int K(DateTime d) => ReportContext.Key(d);
+        var args = new { upn, k0 = K(endDay.AddDays(-6)), k1 = K(endDay), p0 = K(endDay.AddDays(-13)), p1 = K(endDay.AddDays(-7)) };
+        var t = (await db.QueryAsync<(int Days, long N, int PDays, long PN, long Agents, long Sessions, long Multi)>(@"
+SELECT COUNT(CASE WHEN ud.DateKey >= @k0 AND ud.Interactions > 0 THEN 1 END), ISNULL(SUM(CASE WHEN ud.DateKey >= @k0 THEN CAST(ud.Interactions AS BIGINT) END), 0),
+       COUNT(CASE WHEN ud.DateKey <= @p1 AND ud.Interactions > 0 THEN 1 END), ISNULL(SUM(CASE WHEN ud.DateKey <= @p1 THEN CAST(ud.Interactions AS BIGINT) END), 0),
+       ISNULL(SUM(CASE WHEN ud.DateKey >= @k0 THEN CAST(ud.AgentInteractions AS BIGINT) END), 0), ISNULL(SUM(CASE WHEN ud.DateKey >= @k0 THEN CAST(ud.Sessions AS BIGINT) END), 0),
+       ISNULL(SUM(CASE WHEN ud.DateKey >= @k0 THEN CAST(ud.MultiTurnSessions AS BIGINT) END), 0)
+FROM dash.UserDay AS ud JOIN bi.DimUser AS u ON u.UserKey = ud.UserKey AND u.UserPrincipalName = @upn
+WHERE ud.DateKey BETWEEN @p0 AND @k1;", args)).FirstOrDefault();
+        var apps = await db.QueryAsync<(string App, long N)>(@"
+SELECT TOP (5) a.App, COUNT_BIG(*) FROM bi.FactInteraction AS f
+JOIN bi.DimUser AS u ON u.UserKey = f.UserKey AND u.UserPrincipalName = @upn JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App ORDER BY 2 DESC;", args);
+        var e = new Email($"Your Copilot week: {endDay.AddDays(-6):d MMM} to {endDay:d MMM}");
+        e.Kpi("Days you used Copilot", t.Days, t.PDays);
+        e.Kpi("Interactions", t.N, t.PN);
+        e.Kpi("With an agent", t.Agents, null);
+        e.Table("Where you used it", ["App", "Interactions"], apps.Select(a => new object?[] { a.App, a.N }));
+        var tip = t.N == 0 ? "No use recorded this week. Try asking Copilot to summarise a long email thread or a meeting you missed."
+            : apps.Count <= 1 ? "You used Copilot in one app. Try it where you spend most time: a Teams meeting recap, a first draft in Word, or a formula in Excel."
+            : t.Sessions > 0 && t.Multi * 3 < t.Sessions ? "Most of your conversations were a single prompt. Following up (\"shorter\", \"as a table\") usually gets a better answer than starting again."
+            : t.Agents == 0 ? "You haven't used an agent this week: your organisation's agents answer from its own content." : "Keep going: you are using Copilot across several apps.";
+        e.Paragraph(tip);
+        var url = await settings.StringAsync("DashboardUrl");
+        e.Link(url is null ? null : url.TrimEnd('/') + "/me", "See more in My Copilot");
+        e.Footer("You get this because you asked for it in My Copilot > Email; you can stop it there. Only you receive it.");
+        return (e.Subject, e.Html(), e.Text());
+    }
+
     static string Metrics(string m) => m switch { "Adoption" => "Adoption", "ActiveShare" => "Share of people active", _ => "People active" };
     static double? Pct(int a, int b) => b > 0 ? 100.0 * a / b : null;
     static string PctText(int a, int b) => b > 0 ? $"{100.0 * a / b:0.#}%" : "—";

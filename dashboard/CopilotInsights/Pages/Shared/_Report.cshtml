@@ -64,6 +64,15 @@
         </div>
         <span class="period">@c.PeriodLabel</span>
     </form>
+    @if (Model.Denied is null && CopilotInsights.Pages.Personal.ViewsModel.SafeUrl(path + Context.Request.QueryString.Value))
+    {
+        <form class="inline save-view no-print" method="post" action="/me/views?handler=save">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="url" value="@(path + Context.Request.QueryString.Value)" />
+            <input type="text" name="name" placeholder="Name this view" size="18" maxlength="100" required aria-label="Name for the saved view" />
+            <button class="btn quiet" type="submit">Save view</button>
+        </form>
+    }
 }
 
 @if (Model.Notice is not null)

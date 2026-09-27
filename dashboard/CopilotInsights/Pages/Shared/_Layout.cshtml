@@ -37,7 +37,7 @@
 </header>
 <div class="shell">
     <nav class="side" aria-label="Personas">
-        <a class="home @(path == "/" ? "on" : "")" href="/">Start</a>
+        <a class="home @(path == "/" ? "on" : "")" href="/?home=1">Start</a>
         @foreach (var g in Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many))
         {
             <div class="grp">

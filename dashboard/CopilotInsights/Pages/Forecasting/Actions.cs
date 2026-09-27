@@ -69,6 +69,7 @@ ORDER BY du.UserPrincipalName;", Ctx.Args(new { k30 }));
         var text = script
             ? CopilotInsights.Data.LicenceExport.Script(kind, upns, await S.Settings.StringAsync("LicenceGroupId"), skuId, Viewer.Upn ?? Viewer.WindowsName, DateTime.UtcNow)
             : CopilotInsights.Data.LicenceExport.BulkMembersCsv(upns);
+        await CopilotInsights.Data.LicenceActions.RecordAsync(Db, kind, upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"{kind} {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-{kind}-{DateTime.UtcNow:yyyyMMdd}";
         return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");

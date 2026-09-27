@@ -12,6 +12,15 @@ public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot
 
 public sealed record Bar(string Label, double? Value, string? Href = null, string? Note = null, int Slot = 1);
 
+/// <summary>An event on a trend: a rollout wave, a training push, an outage (dash.EventMarker), at the point it falls in.</summary>
+public sealed record Marker(int Index, string Label, string Kind);
+
+/// <summary>A trend's labels, with the events that fall in it. Line and Columns draw the events as dashed rules.</summary>
+public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
+{
+    public List<Marker> Markers { get; } = [];
+}
+
 /// <summary>
 /// Server-rendered SVG charts. Colours come from CSS variables (--s1..--s8,
 /// --q0..--q8), so light and dark themes swap in site.css. Every mark carries
@@ -66,6 +75,20 @@ public static class Chart
                 sb.Append($"<text class=\"tick\" x=\"{N(xpos(i))}\" y=\"{H - 10}\" text-anchor=\"middle\">{E(x[i])}</text>");
     }
 
+    /// <summary>The events on the axis, as dashed rules with a short label and a tooltip.</summary>
+    static void Markers(StringBuilder sb, IReadOnlyList<string> x, Func<int, double> xpos)
+    {
+        if (x is not Axis a || a.Markers.Count == 0) return;
+        foreach (var g in a.Markers.Where(m => m.Index >= 0 && m.Index < x.Count).GroupBy(m => m.Index))
+        {
+            var xx = xpos(g.Key);
+            var tip = x[g.Key] + ": " + string.Join("; ", g.Select(m => $"{m.Label} ({m.Kind.ToLowerInvariant()})"));
+            sb.Append($"<line class=\"marker\" x1=\"{N(xx)}\" x2=\"{N(xx)}\" y1=\"{T}\" y2=\"{H - B}\"/>");
+            sb.Append($"<text class=\"mlabel\" x=\"{N(xx + 3)}\" y=\"{T + 9}\">{E(Trunc(g.First().Label, 16))}{(g.Count() > 1 ? $" +{g.Count() - 1}" : "")}</text>");
+            sb.Append($"<rect class=\"mhit\" x=\"{N(xx - 4)}\" y=\"{T}\" width=\"8\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\"/>");
+        }
+    }
+
     public static HtmlString Legend(IEnumerable<Series> series) =>
         new("<div class=\"legend\">" + string.Concat(series.Select(s =>
             $"<span><i class=\"sw\" style=\"background:var(--s{s.Slot})\"></i>{E(s.Name)}</span>")) + "</div>");
@@ -105,6 +128,7 @@ public static class Chart
             var w = x.Count == 1 ? 60 : (W - R - L) / (double)(x.Count - 1);
             sb.Append($"<rect class=\"hit\" x=\"{N(X(i) - w / 2)}\" y=\"{T}\" width=\"{N(w)}\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\" data-x=\"{N(X(i))}\"/>");
         }
+        Markers(sb, x, X);
         sb.Append($"<line class=\"cross\" x1=\"0\" x2=\"0\" y1=\"{T}\" y2=\"{H - B}\"/></svg>");
         return new((series.Count >= 2 ? Legend(series).Value : "") + sb);
     }
@@ -198,6 +222,7 @@ public static class Chart
                 acc += v;
             }
         }
+        Markers(sb, x, i => X0(i) + bw / 2);
         sb.Append("</svg>");
         return new((series.Count >= 2 ? Legend(series).Value : "") + sb);
     }

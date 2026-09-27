@@ -165,6 +165,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         ("AlertLabelPerDay", "Interactions with sensitive labels a day", 1, 1000000), ("AlertSpikeFactor", "A signal spikes at (times its average)", 0, 100),
         ("AnomalyDropPercent", "A drop is at least (% below usual)", 0, 100), ("AnomalySpikePercent", "A spike is at least (% above usual)", 0, 10000),
         ("PoolWarnPercent", "The licence pool is running out at (% assigned)", 50, 100),
+        ("CertificateWarnDays", "Warn about the app certificate (days before it expires)", 7, 120),
     ];
 
     sealed class SubRow
@@ -221,6 +222,22 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             "<ul class=\"sub\">" + string.Concat(OpsReports.DigestKinds.Select(k => $"<li><b>{E(k.Key)}</b>: {E(k.Value)}</li>")) + "</ul>"),
             "Digests hold aggregates only, never a named person, so they can go to anyone the scope is right for. Each covers the period chosen up to the last complete day."));
 
+        var webhook = await HttpContext.RequestServices.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
+        Panels.Add(new("Teams, ServiceNow or any webhook", new HtmlString(Form("webhook",
+            Input("url", webhook is null ? "Webhook address (https://)" : "Webhook address (stored; leave empty to keep)", null, 50, "password") +
+            Select("AlertWebhookFormat", "Format", Webhook.Formats, V("AlertWebhookFormat") is "Json" ? "Json" : "Teams") +
+            "<label><input type=\"checkbox\" name=\"clear\" value=\"1\"/> Remove the stored address</label>" + Button("Save")) +
+            Form("webhooktest", Button("Post a test alert", quiet: true))),
+            "Every alert is also posted here. Teams: a Workflows \"Post to a channel when a webhook request is received\" address (or an incoming webhook). Json: {source, kind, subject, lines, link, atUtc} for ServiceNow, Splunk or anything else. The address is stored encrypted, like the email password.", "half"));
+
+        Panels.Add(new("Manager and personal digests", new HtmlString(Form("digests",
+            Select("ManagerDigest", "Every manager gets their organisation's digest", ["Off", "Weekly", "Monthly"], V("ManagerDigest") is "" ? "Off" : V("ManagerDigest")) +
+            Input("ManagerDigestMinPeople", "Managers with at least this many people under them", V("ManagerDigestMinPeople"), 5, "number") +
+            Select("ManagerDigestDay", "Weekly on", days, days[Math.Clamp(int.TryParse(V("ManagerDigestDay"), out var md) ? md : 1, 0, 6)]) +
+            Input("DigestHour", $"At (hour, {zone.StandardName})", V("DigestHour") is "" ? "7" : V("DigestHour"), 4, "number") +
+            Select("PersonalDigest", "People may ask for a weekly email of their own use", ["On", "Off"], V("PersonalDigest") is "Off" ? "Off" : "On") + Button("Save"))),
+            "The manager digest is the Leadership digest for the manager's own organisation (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD; each manager can opt out in My Copilot > Email. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
+
         Panels.Add(new("Run the checks now", new HtmlString(Form("run", Button("Run the checks now"))),
             "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
         var state = await Db.QueryAsync<(string AlertKey, string? LastValue, DateTime LastFiredUtc)>("SELECT AlertKey, LastValue, LastFiredUtc FROM dash.AlertState ORDER BY AlertKey;");
@@ -251,6 +268,48 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         values["NewAgentAlert"] = Request.Form["NewAgentAlert"] == "1" ? "1" : "0";
         values["EventLogAlerts"] = Request.Form["EventLogAlerts"] == "1" ? "1" : "0";
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, values));
+    });
+
+    public Task<IActionResult> OnPostWebhookAsync(string? url, string? AlertWebhookFormat, string? clear) => AdminChangeAsync(async () =>
+    {
+        var by = Viewer.Upn ?? Viewer.WindowsName;
+        if (Webhook.Problem(url) is { } bad) throw new ArgumentException(bad);
+        var changed = await SettingWriter.SaveAsync(Db, S.Settings, by, new Dictionary<string, string?> { ["AlertWebhookFormat"] = AlertWebhookFormat is "Json" ? "Json" : "Teams" });
+        var secrets = HttpContext.RequestServices.GetRequiredService<SecretStore>();
+        if (clear == "1") { await secrets.SetAsync(SecretStore.AlertWebhookUrl, null, by); changed.Add("webhook address removed"); }
+        if (!string.IsNullOrWhiteSpace(url)) { await secrets.SetAsync(SecretStore.AlertWebhookUrl, url.Trim(), by); changed.Add("webhook address"); }
+        return SettingWriter.Saved(changed);
+    });
+
+    public Task<IActionResult> OnPostWebhooktestAsync() => AdminChangeAsync(async () =>
+    {
+        var url = await HttpContext.RequestServices.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
+        if (url is null) throw new ArgumentException("save a webhook address first.");
+        var format = await S.Settings.StringAsync("AlertWebhookFormat") is "Json" ? "Json" : "Teams";
+        var payload = Webhook.Payload(format, "Test", "Copilot Insights test alert", [$"Posted by {Viewer.Name} from Admin > Alerts and digests. Alerts will arrive here."], null, DateTime.UtcNow);
+        using var http = HttpContext.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(20);
+        try
+        {
+            using var r = await http.PostAsync(url, new StringContent(payload, Encoding.UTF8, "application/json"), HttpContext.RequestAborted);
+            return r.IsSuccessStatusCode ? $"Test alert posted ({format}): HTTP {(int)r.StatusCode}." : $"The webhook answered HTTP {(int)r.StatusCode} {r.ReasonPhrase}.";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return "The webhook could not be reached: " + ex.Message; }
+    });
+
+    public Task<IActionResult> OnPostDigestsAsync(string? ManagerDigest, string? ManagerDigestMinPeople, string? ManagerDigestDay, string? DigestHour, string? PersonalDigest) => AdminChangeAsync(async () =>
+    {
+        if (ManagerDigest is not ("Off" or "Weekly" or "Monthly")) throw new ArgumentException("choose Off, Weekly or Monthly.");
+        var day = Array.IndexOf(new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }, ManagerDigestDay);
+        if (day < 0) throw new ArgumentException("choose the day.");
+        return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, new Dictionary<string, string?>
+        {
+            ["ManagerDigest"] = ManagerDigest,
+            ["ManagerDigestMinPeople"] = SettingWriter.Int(ManagerDigestMinPeople, "The number of people", 1, 1000000).ToString(CultureInfo.InvariantCulture),
+            ["ManagerDigestDay"] = day.ToString(CultureInfo.InvariantCulture),
+            ["DigestHour"] = SettingWriter.Int(DigestHour, "The hour", 0, 23).ToString(CultureInfo.InvariantCulture),
+            ["PersonalDigest"] = PersonalDigest is "Off" ? "Off" : "On",
+        }));
     });
 
     public Task<IActionResult> OnPostAddAsync(string? name, string? report, string? recipients, string? frequency, string? dow, int? dom, int? hour, int? days, string? root) => AdminChangeAsync(async () =>
@@ -347,7 +406,8 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
 
         Panels.Add(new("Licensing and champions", new HtmlString(Form("licensing",
             Input("LicenceGroupId", "Object id of the Entra group that assigns Copilot licences (empty if licences are assigned directly)", V("LicenceGroupId"), 38) +
-            Input("ChampionsPerDepartment", "Champions to suggest per department", V("ChampionsPerDepartment"), 4, "number") + Button("Save"))),
+            Input("ChampionsPerDepartment", "Champions to suggest per department", V("ChampionsPerDepartment"), 4, "number") +
+            Input("RolloutWaveSize", "People in a rollout wave", V("RolloutWaveSize"), 6, "number") + Button("Save"))),
             "With a group, the licence exports add and remove its members; without one, they assign or remove the licence itself. The licence price is in Admin > Access.", "half"));
     }
 
@@ -393,12 +453,13 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.TimeSaving (App, Minutes, UpdatedBy) VALUES (
         return $"{app}: {m:0.##} minutes an interaction.";
     });
 
-    public Task<IActionResult> OnPostLicensingAsync(string? LicenceGroupId, string? ChampionsPerDepartment) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostLicensingAsync(string? LicenceGroupId, string? ChampionsPerDepartment, string? RolloutWaveSize) => AdminChangeAsync(async () =>
     {
         if (!string.IsNullOrWhiteSpace(LicenceGroupId) && !Guid.TryParse(LicenceGroupId, out _)) throw new ArgumentException("the group's object id is a GUID.");
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, new Dictionary<string, string?>
         {
             ["LicenceGroupId"] = LicenceGroupId, ["ChampionsPerDepartment"] = SettingWriter.Int(ChampionsPerDepartment, "Champions per department", 1, 20).ToString(CultureInfo.InvariantCulture),
+            ["RolloutWaveSize"] = SettingWriter.Int(string.IsNullOrWhiteSpace(RolloutWaveSize) ? "50" : RolloutWaveSize, "People in a wave", 1, 100000).ToString(CultureInfo.InvariantCulture),
         }));
     });
 }

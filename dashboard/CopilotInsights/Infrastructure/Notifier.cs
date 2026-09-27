@@ -11,7 +11,7 @@ namespace CopilotInsights.Infrastructure;
 /// that are due. Alerts go by email to the recipients set in Admin > Alerts and digests, and to
 /// the Windows Application log; each fires once per occurrence (dash.AlertState).
 /// </summary>
-public sealed class Notifier(IServiceScopeFactory scopes, IOptions<InsightsOptions> options, ILogger<Notifier> log) : BackgroundService
+public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<InsightsOptions> options, ILogger<Notifier> log) : BackgroundService
 {
     public static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
 
@@ -64,12 +64,16 @@ public sealed class Notifier(IServiceScopeFactory scopes, IOptions<InsightsOptio
             await run.FreshnessAsync();
             await run.AfterRefreshAsync();
             await run.DigestsAsync();
+            await run.CertificateAsync();
+            await run.ManagerDigestsAsync();
+            await run.PersonalDigestsAsync();
+            await run.ExtractsAsync();
         }
         finally { await conn.ExecuteAsync("EXEC sp_releaseapplock @Resource = N'CopilotInsightsNotifier', @LockOwner = 'Session';"); }
         return done;
     }
 
-    sealed class Run(IServiceProvider sp, List<string> done, CancellationToken ct)
+    sealed partial class Run(IServiceProvider sp, List<string> done, CancellationToken ct)
     {
         readonly Db _db = sp.GetRequiredService<Db>();
         readonly Settings _settings = sp.GetRequiredService<Settings>();
@@ -93,6 +97,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             email.Footer(null);
             var error = await _mail.SendAsync(kind, MailConfig.Recipients(await _settings.StringAsync(recipientsSetting)), subject, email.Html(), email.Text(), ct);
             if (await _settings.StringAsync("EventLogAlerts") != "0") WriteEventLog(kind, subject + Environment.NewLine + string.Join(Environment.NewLine, lines));
+            await WebhookAsync(kind, subject, lines, url is not null && link is not null ? url.TrimEnd('/') + link : null);
             done.Add(error is null ? $"Alert sent: {subject}" : $"Alert recorded, not emailed ({error}): {subject}");
         }
 
@@ -101,7 +106,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             if (!OperatingSystem.IsWindows()) return;
             try
             {
-                var id = kind switch { "Pipeline" => 1001, "Freshness" => 1002, "Security" => 2001, "Anomaly" => 3001, "Pool" => 4001, "Leavers" => 4002, "NewAgent" => 5001, _ => 1000 };
+                var id = kind switch { "Pipeline" => 1001, "Freshness" => 1002, "Certificate" => 1003, "Security" => 2001, "Anomaly" => 3001, "Pool" => 4001, "Leavers" => 4002, "NewAgent" => 5001, _ => 1000 };
                 System.Diagnostics.EventLog.WriteEntry("Copilot Insights", message.Length > 30000 ? message[..30000] : message,
                     kind == "Security" ? System.Diagnostics.EventLogEntryType.Warning : System.Diagnostics.EventLogEntryType.Information, id);
             }

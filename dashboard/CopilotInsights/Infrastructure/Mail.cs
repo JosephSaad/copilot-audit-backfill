@@ -12,7 +12,7 @@ namespace CopilotInsights.Infrastructure;
 /// <summary>Passwords and client secrets, encrypted in the database (dash.Secret) and read only through its procedures.</summary>
 public sealed class SecretStore(Db db)
 {
-    public const string SmtpPassword = "SmtpPassword", ExoClientSecret = "ExoClientSecret";
+    public const string SmtpPassword = "SmtpPassword", ExoClientSecret = "ExoClientSecret", AlertWebhookUrl = "AlertWebhookUrl";
 
     public async Task<string?> GetAsync(string name)
     {

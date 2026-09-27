@@ -105,6 +105,8 @@ public abstract class InsightsPage(PageServices s) : PageModel
     public virtual string? RequiredRole => null;
     public virtual bool AdminOnly => false;
     public virtual bool UsesFilters => true;
+    /// <summary>A role page that privacy mode still allows: it is about one person, on request (a data-subject request).</summary>
+    public virtual bool AllowedInPrivacyMode => false;
 
     public List<Kpi> Kpis { get; } = [];
     public List<Panel> Panels { get; } = [];
@@ -126,11 +128,12 @@ public abstract class InsightsPage(PageServices s) : PageModel
         Ctx = await S.Contexts.CreateAsync(Viewer, Request);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
-        else if (RequiredRole is not null && PrivacyMode)
+        else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
             Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin > Privacy and retention.";
         else if (RequiredRole is not null && !Viewer.Has(RequiredRole))
             Denied = $"This page lists named people, so it needs the {RequiredRole} role. {Roles.Describe[RequiredRole]} An administrator can grant it.";
         Stale = await S.Freshness.BannerAsync();
+        if (UsesFilters) await LoadMarkersAsync();
         if (Denied is not null)
         {
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, Ctx.ScopeLabel, Denied);
@@ -179,6 +182,57 @@ public abstract class InsightsPage(PageServices s) : PageModel
         return Redirect(Request.Path + (q.Count > 0 ? "?" + string.Join("&", q) : ""));
     }
 
+    /// <summary>
+    /// A change a persona role may make (Security triaging a flag, a viewer saving their own view):
+    /// the role checked, always audited, then back to the page with a message.
+    /// </summary>
+    protected async Task<IActionResult> RoleChangeAsync(string? role, Func<Task<string>> change)
+    {
+        if (!await PrepareAsync()) return Page();
+        if (role is not null && !Viewer.Has(role))
+        {
+            await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, $"change refused: needs {role}");
+            return StatusCode(403);
+        }
+        string done;
+        try { done = await change(); }
+        catch (ArgumentException ex) { done = "Not changed: " + ex.Message; }
+        await S.Audit.WriteAsync(Viewer, "Change", Request.Path, null, done);
+        TempData["done"] = done;
+        var q = Request.Query.Where(kv => kv.Key != "handler").Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}").ToList();
+        return Redirect(Request.Path + (q.Count > 0 ? "?" + string.Join("&", q) : ""));
+    }
+
+    /// <summary>The message a change left for the page it redirected back to.</summary>
+    protected void ShowDone()
+    {
+        if (TempData["done"] is string d) Notice = d;
+    }
+
+    /* ---- forms the pages write themselves (anti-forgery token included) ---------------------- */
+
+    protected string Form(string handler, string body, string? extraQuery = null) =>
+        $"<form class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=" + handler + (extraQuery is null ? "" : "&" + extraQuery))}\">{Token()}{body}</form>";
+
+    /// <summary>A form on one line, posting back with the page's own query (its period, scope and filters).</summary>
+    protected string InlineForm(string handler, string body)
+    {
+        var q = Request.Query.Where(kv => kv.Key is not ("handler" or "p")).Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}");
+        return $"<form class=\"inline\" method=\"post\" action=\"{E(Request.Path + "?" + string.Join("&", q.Append("handler=" + handler)))}\">{Token()}{body}</form>";
+    }
+
+    protected static string Input(string name, string label, string? value, int size = 24, string type = "text") =>
+        $"<label>{E(label)}<input type=\"{type}\" name=\"{name}\" value=\"{E(value)}\" size=\"{size}\"/></label>";
+
+    protected static string Select(string name, string label, IEnumerable<string> options, string? selected) =>
+        $"<label>{E(label)}<select name=\"{name}\">" +
+        string.Concat(options.Select(o => $"<option{(o == selected ? " selected" : "")}>{E(o)}</option>")) + "</select></label>";
+
+    protected static string Button(string text, string? confirm = null, bool quiet = false) =>
+        $"<button class=\"btn{(quiet ? " quiet" : "")}\" type=\"submit\"{(confirm is null ? "" : $" data-confirm=\"{E(confirm)}\"")}>{E(text)}</button>";
+
+    protected static string Hidden(string name, object? value) => $"<input type=\"hidden\" name=\"{name}\" value=\"{E(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture))}\"/>";
+
     /// <summary>A hidden anti-forgery field for forms the page writes itself.</summary>
     protected string Token()
     {
@@ -196,7 +250,31 @@ public abstract class InsightsPage(PageServices s) : PageModel
     protected static double? Ratio(double a, double b) => b > 0 ? a / b : null;
     /// <summary>The trend's points (days or weeks), oldest first, and their labels.</summary>
     protected IReadOnlyList<Bucket> Buckets() => Ctx.Buckets();
-    protected IReadOnlyList<string> Labels() => Ctx.Buckets().Select(b => b.Label).ToList();
+    protected IReadOnlyList<string> Labels()
+    {
+        var buckets = Ctx.Buckets();
+        var axis = new Axis(buckets.Select(b => b.Label));
+        foreach (var m in _markers)
+        {
+            var key = Ctx.Daily ? m.Day.Date : ReportContext.WeekEnding(m.Day);
+            var i = buckets.ToList().FindIndex(b => b.Key == key);
+            if (i >= 0) axis.Markers.Add(new(i, m.Label, m.Kind));
+        }
+        return axis;
+    }
+
+    List<(DateTime Day, string Label, string Kind)> _markers = [];
+
+    /// <summary>The events in the period, for the trend charts (Admin > Classifications and events).</summary>
+    async Task LoadMarkersAsync()
+    {
+        try
+        {
+            _markers = await Db.QueryAsync<(DateTime, string, string)>(
+                "SELECT Day, Label, Kind FROM dash.EventMarker WHERE Day BETWEEN @d0 AND @d1 ORDER BY Day;", new { d0 = Ctx.Start.AddDays(-6), d1 = Ctx.End });
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { _markers = []; }
+    }
     protected string TrendNote => Ctx.Daily ? "Each point is a day." : "Each point is a Saturday-to-Friday week, labelled by its Friday; the first and last may be partial.";
 
     /// <summary>The CSV export of this page's list, with its current search and sort.</summary>
