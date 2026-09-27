@@ -71,21 +71,33 @@ public static class Chart
     {
         var every = Math.Max(1, (int)Math.Ceiling(x.Count / 8.0));
         for (var i = 0; i < x.Count; i++)
-            if (i % every == 0 || i == x.Count - 1)
-                sb.Append($"<text class=\"tick\" x=\"{N(xpos(i))}\" y=\"{H - 10}\" text-anchor=\"middle\">{E(x[i])}</text>");
+            if ((i % every == 0 && (i == x.Count - 1 || x.Count - 1 - i >= Math.Max(2, every * 0.6))) || i == x.Count - 1)
+            {
+                /* Names (departments, units) can be longer than the space between ticks: cut to fit, full name on hover. */
+                var room = x.Count > 1 ? Math.Max(4, (int)((xpos(1) - xpos(0)) * every / 6.2) - 1) : 40;
+                var (attr, body) = Cut(x[i], room);
+                sb.Append($"<text class=\"tick\" x=\"{N(xpos(i))}\" y=\"{H - 10}\" text-anchor=\"middle\"{attr}>{body}</text>");
+            }
     }
 
     /// <summary>The events on the axis, as dashed rules with a short label and a tooltip.</summary>
     static void Markers(StringBuilder sb, IReadOnlyList<string> x, Func<int, double> xpos)
     {
         if (x is not Axis a || a.Markers.Count == 0) return;
+        var rows = new List<double>();   // the right end of the last label on each row
         foreach (var g in a.Markers.Where(m => m.Index >= 0 && m.Index < x.Count).GroupBy(m => m.Index))
         {
             var xx = xpos(g.Key);
             var tip = x[g.Key] + ": " + string.Join("; ", g.Select(m => $"{m.Label} ({m.Kind.ToLowerInvariant()})"));
+            var more = g.Count() > 1 ? $" +{g.Count() - 1}" : "";
+            var shown = Math.Min(g.First().Label.Length, 16) + more.Length;
+            var row = rows.FindIndex(end => end < xx);
+            if (row < 0) { rows.Add(0); row = rows.Count - 1; }
+            rows[row] = xx + 3 + shown * 5.5 + 6;
             sb.Append($"<line class=\"marker\" x1=\"{N(xx)}\" x2=\"{N(xx)}\" y1=\"{T}\" y2=\"{H - B}\"/>");
-            sb.Append($"<text class=\"mlabel\" x=\"{N(xx + 3)}\" y=\"{T + 9}\">{E(Trunc(g.First().Label, 16))}{(g.Count() > 1 ? $" +{g.Count() - 1}" : "")}</text>");
             sb.Append($"<rect class=\"mhit\" x=\"{N(xx - 4)}\" y=\"{T}\" width=\"8\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\"/>");
+            var label = Trunc(g.First().Label, 16) + more;
+            sb.Append($"<text class=\"mlabel\" x=\"{N(xx + 3)}\" y=\"{T + 9 + row * 13}\" data-tip=\"{E(tip)}\">{E(label)}<title>{E(tip)}</title></text>");
         }
     }
 
@@ -115,10 +127,10 @@ public static class Chart
             sb.Append($"<circle class=\"end\" cx=\"{N(X(last.i))}\" cy=\"{N(Y(last.v!.Value))}\" r=\"4\" style=\"fill:var(--s{s.Slot})\"/>");
             if (series.Count <= 4)
             {
-                var ly = Y(last.v!.Value) + 4;
-                while (labelYs.Any(o => Math.Abs(o - ly) < 13)) ly += 13;
-                labelYs.Add(ly);
-                sb.Append($"<text class=\"dlabel\" x=\"{N(X(last.i) + 9)}\" y=\"{N(ly)}\">{E(Trunc(s.Name, 14))} {E(Format(last.v, f))}</text>");
+                var ly = Place(labelYs, Y(last.v!.Value) + 4);
+                var val = Format(last.v, f);
+                var (attr, body) = Cut(s.Name, NameRoom(val), " " + val);
+                sb.Append($"<text class=\"dlabel\" x=\"{N(X(last.i) + 9)}\" y=\"{N(ly)}\"{attr}>{body}</text>");
             }
         }
         /* Hover: one column per week carrying every series' value. */
@@ -171,10 +183,10 @@ public static class Chart
             var endV = fc.Count > 0 ? fc[^1] : last.v!.Value;
             var endX = fc.Count > 0 ? X(historyCount + fc.Count - 1) : X(last.i);
             sb.Append($"<circle class=\"end\" cx=\"{N(endX)}\" cy=\"{N(Y(endV))}\" r=\"4\" style=\"fill:var(--s{s.Slot})\"/>");
-            var ly = Y(endV) + 4;
-            while (labelYs.Any(o => Math.Abs(o - ly) < 13)) ly += 13;
-            labelYs.Add(ly);
-            sb.Append($"<text class=\"dlabel\" x=\"{N(endX + 9)}\" y=\"{N(ly)}\">{E(Trunc(s.Name, 14))} {E(Format(endV, f))}</text>");
+            var ly = Place(labelYs, Y(endV) + 4);
+            var endVal = Format(endV, f);
+            var (endAttr, endBody) = Cut(s.Name, NameRoom(endVal), " " + endVal);
+            sb.Append($"<text class=\"dlabel\" x=\"{N(endX + 9)}\" y=\"{N(ly)}\"{endAttr}>{endBody}</text>");
         }
         for (var i = 0; i < x.Count; i++)
         {
@@ -243,26 +255,39 @@ public static class Chart
     {
         if (bars.Count == 0) return new(Empty("Nothing to compare."));
         var top = max ?? bars.Max(b => b.Value ?? 0);
-        if (top <= 0) top = 1;
+        var low = Math.Min(0, bars.Min(b => b.Value ?? 0));   // a change can be negative: bars grow left from zero
+        if (top <= 0 && low >= 0) top = 1;
+        top = Math.Max(0, top);
         const int rowH = 26, labelW = 190, valueW = 70, BW = 720;
+        var span = BW - labelW - valueW - (low < 0 ? valueW : 0);
+        var zero = labelW + (low < 0 ? valueW : 0) + span * (-low) / (top - low);
         var h = bars.Count * rowH + 6;
         var sb = new StringBuilder($"<svg class=\"chart bars\" viewBox=\"0 0 {BW} {h}\" role=\"img\" aria-label=\"{E(aria)}\">");
+        if (low < 0) sb.Append($"<line class=\"grid\" x1=\"{N(zero)}\" x2=\"{N(zero)}\" y1=\"0\" y2=\"{h}\"/>");
         for (var i = 0; i < bars.Count; i++)
         {
             var b = bars[i];
             var y = i * rowH + 4;
-            var w = (BW - labelW - valueW) * (b.Value ?? 0) / top;
-            var label = E(Trunc(b.Label, 30));
+            var v = b.Value ?? 0;
+            var w = span * Math.Abs(v) / (top - low);
+            var (attr, label) = Cut(b.Label, 30);
             sb.Append(b.Href is null
-                ? $"<text class=\"blabel\" x=\"{labelW - 10}\" y=\"{y + 15}\" text-anchor=\"end\">{label}</text>"
-                : $"<a href=\"{E(b.Href)}\"><text class=\"blabel link\" x=\"{labelW - 10}\" y=\"{y + 15}\" text-anchor=\"end\">{label}</text></a>");
+                ? $"<text class=\"blabel\" x=\"{labelW - 10}\" y=\"{y + 15}\" text-anchor=\"end\"{attr}>{label}</text>"
+                : $"<a href=\"{E(b.Href)}\"><text class=\"blabel link\" x=\"{labelW - 10}\" y=\"{y + 15}\" text-anchor=\"end\"{attr}>{label}</text></a>");
+            var tip = E(b.Label + ": " + Format(b.Value, f) + (b.Note is null ? "" : " — " + b.Note));
             if (w > 0.5)
             {
                 var r = Math.Min(4, w / 2);
-                var x0 = labelW; var bh = rowH - 10;
-                sb.Append($"<path class=\"mark\" d=\"M{x0},{y} H{N(x0 + w - r)} Q{N(x0 + w)},{y} {N(x0 + w)},{N(y + r)} V{N(y + bh - r)} Q{N(x0 + w)},{N(y + bh)} {N(x0 + w - r)},{N(y + bh)} H{x0} Z\" style=\"fill:var(--s{b.Slot})\" data-tip=\"{E(b.Label + ": " + Format(b.Value, f) + (b.Note is null ? "" : " — " + b.Note))}\"/>");
+                var bh = rowH - 10;
+                /* The data end (away from zero) is rounded; the zero end is square. */
+                var d = v >= 0
+                    ? $"M{N(zero)},{y} H{N(zero + w - r)} Q{N(zero + w)},{y} {N(zero + w)},{N(y + r)} V{N(y + bh - r)} Q{N(zero + w)},{N(y + bh)} {N(zero + w - r)},{N(y + bh)} H{N(zero)} Z"
+                    : $"M{N(zero)},{y} H{N(zero - w + r)} Q{N(zero - w)},{y} {N(zero - w)},{N(y + r)} V{N(y + bh - r)} Q{N(zero - w)},{N(y + bh)} {N(zero - w + r)},{N(y + bh)} H{N(zero)} Z";
+                sb.Append($"<path class=\"mark\" d=\"{d}\" style=\"fill:var(--s{b.Slot})\" data-tip=\"{tip}\"/>");
             }
-            sb.Append($"<text class=\"bvalue\" x=\"{N(labelW + w + 6)}\" y=\"{y + 15}\">{E(Format(b.Value, f))}</text>");
+            sb.Append(v >= 0
+                ? $"<text class=\"bvalue\" x=\"{N(zero + w + 6)}\" y=\"{y + 15}\">{E(Format(b.Value, f))}</text>"
+                : $"<text class=\"bvalue\" x=\"{N(zero - w - 6)}\" y=\"{y + 15}\" text-anchor=\"end\">{E(Format(b.Value, f))}</text>");
         }
         sb.Append("</svg>");
         return new(sb.ToString());
@@ -284,7 +309,8 @@ public static class Chart
         for (var r = 0; r < rows.Count; r++)
         {
             var y = 20 + r * rowH;
-            sb.Append($"<text class=\"blabel\" x=\"{labelW - 8}\" y=\"{y + 15}\" text-anchor=\"end\">{E(Trunc(rows[r], 16))}</text>");
+            var (rowAttr, rowBody) = Cut(rows[r], 16);
+            sb.Append($"<text class=\"blabel\" x=\"{labelW - 8}\" y=\"{y + 15}\" text-anchor=\"end\"{rowAttr}>{rowBody}</text>");
             for (var c = 0; c < cols.Count; c++)
             {
                 var v = values[r, c];
@@ -315,4 +341,32 @@ public static class Chart
     }
 
     static string Trunc(string s, int n) => s.Length <= n ? s : s[..(n - 1)] + "…";
+
+    /// <summary>
+    /// A label cut to <paramref name="n"/> characters: the attributes to put on its &lt;text&gt; and the text itself.
+    /// When it is cut, the full label shows on hover (data-tip for the site's tooltip, &lt;title&gt; for everything else).
+    /// </summary>
+    static (string Attr, string Body) Cut(string s, int n, string suffix = "")
+    {
+        if (s.Length <= n) return ("", E(s) + suffix);
+        return ($" data-tip=\"{E(s + suffix)}\"", E(Trunc(s, n)) + suffix + $"<title>{E(s + suffix)}</title>");
+    }
+
+    /// <summary>
+    /// Where a line-end label goes: as near its line as it can without touching another label,
+    /// trying below then above, and never outside the chart.
+    /// </summary>
+    static double Place(List<double> used, double want)
+    {
+        const double gap = 14, lo = T + 10, hi = H - B + 12;
+        want = Math.Clamp(want, lo, hi);
+        for (var step = 0; step < 30; step++)
+            foreach (var y in new[] { want + step * gap, want - step * gap })
+                if (y >= lo && y <= hi && !used.Any(o => Math.Abs(o - y) < gap)) { used.Add(y); return y; }
+        used.Add(want);
+        return want;
+    }
+
+    /// <summary>How many characters of a series name fit beside its end value in the right margin (about 6px a character at 11px).</summary>
+    static int NameRoom(string value) => Math.Max(4, (R - 12) / 6 - value.Length - 1);
 }
