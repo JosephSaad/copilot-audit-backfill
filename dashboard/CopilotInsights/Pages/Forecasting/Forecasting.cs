@@ -36,7 +36,9 @@ WITH per AS (SELECT d.WeekEnding, ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.
 wk AS (SELECT DISTINCT WeekEnding FROM bi.DimDate WHERE [Date] BETWEEN @w0 AND @w1 AND DayOfWeekNumber = 5)
 SELECT wk.WeekEnding,
        (SELECT COUNT(*) FROM per WHERE per.WeekEnding = wk.WeekEnding AND per.I > 0) AS Active,
-       (SELECT COUNT(*) FROM per WHERE per.WeekEnding = wk.WeekEnding AND per.L > 0) AS ActiveLicensed,
+       (SELECT COUNT(*) FROM per JOIN bi.FactLicensedDay AS la
+          ON la.UserKey = per.UserKey AND la.DateKey = YEAR(wk.WeekEnding) * 10000 + MONTH(wk.WeekEnding) * 100 + DAY(wk.WeekEnding)
+        WHERE per.WeekEnding = wk.WeekEnding AND per.L > 0) AS ActiveLicensed,
        (SELECT COUNT(*) FROM per WHERE per.WeekEnding = wk.WeekEnding AND per.I > 0 AND per.L = 0) AS ChatOnly,
        (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")}
         WHERE ld.DateKey = YEAR(wk.WeekEnding) * 10000 + MONTH(wk.WeekEnding) * 100 + DAY(wk.WeekEnding)) AS Licensed,

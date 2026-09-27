@@ -116,27 +116,55 @@ WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1;", Ctx.Args());
         var label = Request.Query["label"].FirstOrDefault() is { } l && labels.Any(x => x.Id == l) ? l : null;
         var pg = new Paging(Request, Sorts, "most");
         var rows = await Db.QueryAsync<Row>($@"
-WITH x AS
-(
-    SELECT rd.UserKey,
-           SUM(CASE WHEN rd.Kind = 'Label' AND (@label IS NULL OR rd.Item = @label) THEN rd.Interactions ELSE 0 END) AS N,
-           COUNT(DISTINCT CASE WHEN rd.Kind = 'Label' THEN rd.DateKey END) AS Days,
-           MAX(CASE WHEN rd.Kind = 'Label' THEN ISNULL(sl.Rank, 0) END) AS TopRank,
-           COUNT(DISTINCT CASE WHEN rd.Kind = 'Site' THEN rd.Item END) AS Sites,
-           SUM(CASE WHEN rd.Kind = 'Blocked' THEN rd.Interactions ELSE 0 END) AS Blocked
-    FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
-    LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
-    WHERE rd.DateKey BETWEEN @k0 AND @k1
-    GROUP BY rd.UserKey
-)
-SELECT du.DisplayName, du.UserPrincipalName, du.Department, x.N, x.Days,
-       (SELECT TOP (1) {Sites.LabelName} FROM dash.ResourceDay AS rd LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
-        WHERE rd.UserKey = x.UserKey AND rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1 ORDER BY ISNULL(sl.Rank, 0) DESC) AS TopLabel,
-       x.Sites, x.Blocked, COUNT(*) OVER () AS TotalRows
-FROM x JOIN bi.DimUser AS du ON du.UserKey = x.UserKey
+/* Each measure into a temporary table of its own, then the page, then the most sensitive
+   label only for the rows shown. With the two distinct counts in one statement the optimiser
+   asked for gigabytes of memory and still spilled; with the label looked up person by person
+   (dash.ResourceDay is keyed by day, not person) it read the whole period per row. Either way
+   30 to 45 seconds for 180 days at 70,000 people; this way a few seconds. */
+SELECT rd.UserKey,
+       SUM(CASE WHEN @label IS NULL OR rd.Item = @label THEN rd.Interactions ELSE 0 END) AS N,
+       COUNT(DISTINCT rd.DateKey) AS Days, MAX(ISNULL(sl.Rank, 0)) AS TopRank
+INTO #lab
+FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
+LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
+WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1
+GROUP BY rd.UserKey;
+SELECT rd.UserKey, COUNT(DISTINCT rd.Item) AS Sites
+INTO #site
+FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
+WHERE rd.Kind = 'Site' AND rd.DateKey BETWEEN @k0 AND @k1
+GROUP BY rd.UserKey;
+SELECT rd.UserKey, SUM(rd.Interactions) AS Blocked
+INTO #blk
+FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
+WHERE rd.Kind = 'Blocked' AND rd.DateKey BETWEEN @k0 AND @k1
+GROUP BY rd.UserKey;
+SELECT k.UserKey, ISNULL(l.N, 0) AS N, ISNULL(l.Days, 0) AS Days, l.TopRank, ISNULL(st.Sites, 0) AS Sites, ISNULL(b.Blocked, 0) AS Blocked
+INTO #x
+FROM (SELECT UserKey FROM #lab UNION SELECT UserKey FROM #site UNION SELECT UserKey FROM #blk) AS k
+LEFT JOIN #lab AS l ON l.UserKey = k.UserKey
+LEFT JOIN #site AS st ON st.UserKey = k.UserKey
+LEFT JOIN #blk AS b ON b.UserKey = k.UserKey;
+SELECT x.UserKey, x.N, x.Days, x.TopRank, x.Sites, x.Blocked, COUNT(*) OVER () AS TotalRows
+INTO #pick
+FROM #x AS x JOIN bi.DimUser AS du ON du.UserKey = x.UserKey
 WHERE (x.N > 0 OR (@label IS NULL AND x.Blocked > 0))
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
-{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, label }));
+{pg.OrderAndPage()};
+WITH toplabel AS
+(
+    SELECT rd.UserKey, {Sites.LabelName} AS Name,
+           ROW_NUMBER() OVER (PARTITION BY rd.UserKey ORDER BY ISNULL(sl.Rank, 0) DESC) AS n
+    FROM dash.ResourceDay AS rd
+    JOIN #pick AS pick ON pick.UserKey = rd.UserKey
+    LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
+    WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1
+)
+SELECT du.DisplayName, du.UserPrincipalName, du.Department, x.N, x.Days, toplabel.Name AS TopLabel,
+       x.Sites, x.Blocked, x.TotalRows
+FROM #pick AS x JOIN bi.DimUser AS du ON du.UserKey = x.UserKey
+LEFT JOIN toplabel ON toplabel.UserKey = x.UserKey AND toplabel.n = 1
+ORDER BY {Sorts[pg.SortKey]};", Ctx.Args(new { q = pg.Like, label }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {

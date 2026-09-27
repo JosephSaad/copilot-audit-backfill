@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.2.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of a copy of the lab database with the 2.2.0 scripts applied (26 September 2026), and of the lab's licence-event database, with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-55 tables (plus 2 left over from 1.x), 27 views, 847 columns, from 16 scripts.
+55 tables (plus 2 left over from 1.x), 27 views, 848 columns, from 16 scripts.
 
 ## Contents
 
@@ -1271,10 +1271,11 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 | 21 | `MemoryUpdated` | bit | **no** | `0` | 2.2.0 |
 | 22 | `DlpEvaluationDeferred` | bit | **no** | `0` | 2.2.0 |
 | 23 | `CalledAnotherAgent` | bit | **no** | `0` | TargetAgentName set (2.2.0) |
+| 24 | `TargetAgentName` | nvarchar(400) | yes |  | the agent called, from CopilotEventData.TargetAgentName (2.2.0); the dashboard's hand-off report reads it |
 
 Indexes and constraints:
 
-- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent)
+- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
 
 ### bi.FactSession
 

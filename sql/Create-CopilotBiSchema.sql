@@ -340,6 +340,11 @@ IF COL_LENGTH(N'bi.FactInteraction', N'LicenseTypeKey') IS NULL
         DlpEvaluationDeferred  BIT     NOT NULL CONSTRAINT DF_FactInteraction_Dlp DEFAULT (0),
         CalledAnotherAgent     BIT     NOT NULL CONSTRAINT DF_FactInteraction_Target DEFAULT (0);   -- TargetAgentName set
 
+/* The agent called, by name: the dashboard's hand-off report reads it here rather
+   than joining 40M facts back to audit.RawLogFlattened. */
+IF COL_LENGTH(N'bi.FactInteraction', N'TargetAgentName') IS NULL
+    ALTER TABLE bi.FactInteraction ADD TargetAgentName NVARCHAR(400) NULL;
+
 /*
     One row per resource an interaction read (CopilotEventData.AccessedResources),
     from audit.RawLogAccessedResource: what kind, which site, which label,

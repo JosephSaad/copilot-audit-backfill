@@ -32,6 +32,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
 
     sealed class Row
     {
+        public int UserKey { get; set; }
         public string? DisplayName { get; set; }
         public string UserPrincipalName { get; set; } = "";
         public string? Department { get; set; }
@@ -70,14 +71,29 @@ base AS (
       AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 ),
 pick AS (SELECT base.*, COUNT(*) OVER () AS TotalRows FROM base {pg.OrderAndPage()})
-/* The detail only for the page shown: last use, and the licence the latest record reports. */
-SELECT pick.*,
-       (SELECT dl.[Date] FROM bi.DimDate AS dl WHERE dl.DateKey = (SELECT MAX(x.DateKey) FROM dash.UserDay AS x WHERE x.UserKey = pick.UserKey AND x.Interactions > 0)) AS LastUsed,
-       (SELECT TOP (1) t.LicenseType FROM bi.FactInteraction AS f JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = f.LicenseTypeKey
-        WHERE f.UserKey = pick.UserKey AND f.LicenseTypeKey <> 1 ORDER BY f.DateKey DESC) AS RecordedLicence
-FROM pick
+SELECT pick.* FROM pick
 ORDER BY {Sorts[pg.SortKey]};", Ctx.Args(new { k30, kind, q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
+
+        /* The detail only for the page shown, in one pass for all of them: last use, and the
+           licence the latest record reports. Looked up person by person, the interaction fact
+           (a columnstore) was scanned once per row: 100 seconds a page at 40M interactions. */
+        if (rows.Count > 0)
+        {
+            var keys = rows.Select(r => r.UserKey).ToList();
+            var detail = (await Db.QueryAsync<(int UserKey, DateTime? LastUsed, string? RecordedLicence)>(@"
+WITH used AS (SELECT x.UserKey, MAX(x.DateKey) AS DateKey FROM dash.UserDay AS x WHERE x.UserKey IN @keys AND x.Interactions > 0 GROUP BY x.UserKey),
+rec AS (SELECT f.UserKey, f.LicenseTypeKey, ROW_NUMBER() OVER (PARTITION BY f.UserKey ORDER BY f.DateKey DESC) AS n
+        FROM bi.FactInteraction AS f WHERE f.UserKey IN @keys AND f.LicenseTypeKey <> 1)
+SELECT k.UserKey, dl.[Date], t.LicenseType
+FROM (SELECT DISTINCT UserKey FROM (SELECT UserKey FROM used UNION ALL SELECT UserKey FROM rec WHERE n = 1) AS u) AS k
+LEFT JOIN used ON used.UserKey = k.UserKey
+LEFT JOIN bi.DimDate AS dl ON dl.DateKey = used.DateKey
+LEFT JOIN rec ON rec.UserKey = k.UserKey AND rec.n = 1
+LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new { keys })).ToDictionary(d => d.UserKey);
+            foreach (var r in rows)
+                if (detail.TryGetValue(r.UserKey, out var d)) { r.LastUsed = d.LastUsed; r.RecordedLicence = d.RecordedLicence; }
+        }
 
         var t = new Table
         {

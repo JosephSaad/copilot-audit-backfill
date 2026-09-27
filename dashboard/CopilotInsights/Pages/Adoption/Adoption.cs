@@ -62,19 +62,23 @@ public sealed class CohortsModel(PageServices s) : InsightsPage(s)
     {
         const int weeks = 12;
         var rows = await Db.QueryAsync<(DateTime Cohort, int K, int People, int Active, int Size)>($@"
-WITH c AS (SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,
-                  DATEFROMPARTS(YEAR(du.LicensedSinceUtc), MONTH(du.LicensedSinceUtc), 1) AS Cohort
-           FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-           WHERE du.CopilotLicenceToday = N'Licensed' AND du.LicensedSinceUtc >= DATEADD(MONTH, -12, @d1)),
-k AS (SELECT TOP ({weeks}) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS K FROM sys.all_objects),
-n AS (SELECT Cohort, COUNT(*) AS Size FROM c GROUP BY Cohort),
-a AS (SELECT DISTINCT c.UserKey, DATEDIFF(DAY, c.Since, d.[Date]) / 7 AS K
-      FROM c JOIN dash.UserDay AS ud ON ud.UserKey = c.UserKey AND ud.Interactions > 0
-      JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-      WHERE d.[Date] >= c.Since AND d.[Date] < DATEADD(DAY, 7 * {weeks}, c.Since))
+/* Cohort members and their active weeks as temporary tables: as CTEs the optimiser
+   re-evaluated the activity once per cohort week (10 seconds at 70,000 people). */
+SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,
+       DATEFROMPARTS(YEAR(du.LicensedSinceUtc), MONTH(du.LicensedSinceUtc), 1) AS Cohort
+INTO #c
+FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
+WHERE du.CopilotLicenceToday = N'Licensed' AND du.LicensedSinceUtc >= DATEADD(MONTH, -12, @d1);
+SELECT DISTINCT c.UserKey, DATEDIFF(DAY, c.Since, d.[Date]) / 7 AS K
+INTO #a
+FROM #c AS c JOIN dash.UserDay AS ud ON ud.UserKey = c.UserKey AND ud.Interactions > 0
+JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+WHERE d.[Date] >= c.Since AND d.[Date] < DATEADD(DAY, 7 * {weeks}, c.Since);
+WITH k AS (SELECT TOP ({weeks}) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS K FROM sys.all_objects),
+n AS (SELECT Cohort, COUNT(*) AS Size FROM #c GROUP BY Cohort)
 SELECT c.Cohort, k.K, COUNT(*) AS People, COUNT(a.UserKey) AS Active, MAX(n.Size) AS Size
-FROM c CROSS JOIN k JOIN n ON n.Cohort = c.Cohort
-LEFT JOIN a ON a.UserKey = c.UserKey AND a.K = k.K
+FROM #c AS c CROSS JOIN k JOIN n ON n.Cohort = c.Cohort
+LEFT JOIN #a AS a ON a.UserKey = c.UserKey AND a.K = k.K
 WHERE DATEADD(DAY, 7 * k.K + 6, c.Since) <= @d1
 GROUP BY c.Cohort, k.K;", Ctx.Args());
         var cohorts = rows.Select(r => r.Cohort).Distinct().OrderBy(d => d).ToList();
@@ -137,7 +141,7 @@ WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) A
              FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
        COUNT(*) AS People, COUNT(ld.UserKey) AS Licensed, COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active,
-       COUNT(CASE WHEN a.L > 0 THEN 1 END) AS ActiveLicensed, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
+       COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
        ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN act AS a ON a.UserKey = du.UserKey

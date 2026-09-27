@@ -191,11 +191,10 @@ SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT)), COUNT_BIG(*
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             var targets = await Db.QueryAsync<(string Target, long N, int People)>($@"
-SELECT r.CopilotEventData_TargetAgentName, COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
+SELECT f.TargetAgentName, COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN audit.RawLogFlattened AS r ON r.RecordId = f.RecordId
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1
-GROUP BY r.CopilotEventData_TargetAgentName;", Ctx.Args());
+GROUP BY f.TargetAgentName;", Ctx.Args());
             long calls = tr.Sum(x => x.Calls), all = tr.Sum(x => x.All);
             Kpis.Add(new("Hand-offs", Num(calls), $"{Pct(Ratio(calls, all))} of interactions"));
             Kpis.Add(new("Agents called", Num(targets.Count)));
