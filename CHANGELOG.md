@@ -125,8 +125,8 @@ parameter used it:
 ### Tests and CI
 
 - **Spelling:** `Test-Spelling.ps1` fails the build on a British spelling
-  (licence, organisation, catalogue, ...) anywhere in the code, the SQL, the
-  Power BI model or the guides, so 2.4.0's renames stay done.
+  anywhere in the code, the SQL, the Power BI model or the guides, so 2.4.0's
+  renames stay done.
 - **Pages vs. guide:** `Test-OperationsGuide.ps1` checks all 61 report pages
   against the page table in `docs/DASHBOARD.md`, in both directions.
 - **New checks:**
