@@ -129,6 +129,9 @@ parameter used it:
 
 ### Tests and CI
 
+- **Script order:** `Test-SqlScriptOrder.ps1` fails the build when a script
+  adds a column above the CREATE TABLE of its own table, which a fresh install
+  skips; the retry columns of `dash.Extract` were the case it found.
 - **Spelling:** `Test-Spelling.ps1` fails the build on a British spelling
   anywhere in the code, the SQL, the Power BI model or the guides, so 2.4.0's
   renames stay done.

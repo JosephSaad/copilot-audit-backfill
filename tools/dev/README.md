@@ -59,7 +59,7 @@ Work through every step, in this order, before tagging.
 1. **Version.** Update `CHANGELOG.md` with the version, date and a summary. If the release needs a fresh install rather than an upgrade, say so at the top of the entry.
 2. **Unit and script tests:**
    - `dotnet test dashboard/CopilotInsights.Tests`;
-   - the test scripts `tests/Test-Engine.ps1`, `Test-Orchestrator.ps1`, `Test-UserDirectory.ps1`, `Test-Provisioning.ps1`, `Test-OperationsGuide.ps1`, `Test-Spelling.ps1` and `Test-CsvImport.ps1`.
+   - the test scripts `tests/Test-Engine.ps1`, `Test-Orchestrator.ps1`, `Test-UserDirectory.ps1`, `Test-Provisioning.ps1`, `Test-OperationsGuide.ps1`, `Test-Spelling.ps1`, `Test-SqlScriptOrder.ps1` and `Test-CsvImport.ps1`.
 3. **SQL integration.** Run `tests/Test-SqlIntegration.ps1` against a local SQL Server, with `SQLIT_SERVER` and `SQLIT_INTEGRATED=1` set.
 4. **Analyzer.** `Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1` must report nothing, because CI fails on any finding.
 5. **Demo and UI.**

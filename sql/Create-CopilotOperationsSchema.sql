@@ -352,11 +352,10 @@ BEGIN
 END;
 
 /* 2.4.0: one retry policy. A scheduled digest or extract that fails is tried again an hour later, three tries in all,
-   before it waits for its next period (as manager and personal digests do, through dash.DigestSend). */
+   before it waits for its next period (as manager and personal digests do, through dash.DigestSend). dash.Extract's
+   columns follow its CREATE TABLE below. */
 IF COL_LENGTH(N'dash.Subscription', N'FailedTries') IS NULL
     ALTER TABLE dash.Subscription ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashSubscription_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
-IF OBJECT_ID(N'dash.Extract', N'U') IS NOT NULL AND COL_LENGTH(N'dash.Extract', N'FailedTries') IS NULL
-    ALTER TABLE dash.Extract ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashExtract_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
 
 /* Markers on trend charts: a rollout wave, a training push, an outage, a policy change. */
 IF OBJECT_ID(N'dash.EventMarker', N'U') IS NULL
@@ -388,6 +387,9 @@ IF OBJECT_ID(N'dash.Extract', N'U') IS NULL
         LastStatus  NVARCHAR(400)   NULL,
         CreatedBy   NVARCHAR(256)   NOT NULL
     );
+/* The retry policy's columns (2.4.0), after the table exists. */
+IF COL_LENGTH(N'dash.Extract', N'FailedTries') IS NULL
+    ALTER TABLE dash.Extract ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashExtract_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
 
 MERGE dash.Setting AS t
 USING (VALUES
