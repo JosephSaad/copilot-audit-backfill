@@ -312,7 +312,7 @@ class Handler(BaseHTTPRequestHandler):
             ]})
             return True
 
-        # /v1.0/users?$filter=assignedLicenses/any(...)  - licence holders
+        # /v1.0/users?$filter=assignedLicenses/any(...)  - license holders
         if path == "/v1.0/users":
             self.send_json(200, {"value": [
                 {"userPrincipalName": "user%d@contoso.com" % n}

@@ -9,13 +9,13 @@ model Model
 
 annotation __PBI_TimeIntelligenceEnabled = 0
 
-annotation PBI_QueryOrder = ["SqlServer","SqlDatabase","RangeStart","RangeEnd","Interactions","Sessions","LicenceChanges","LicensedDays","Calendar","Users","Apps","Agents","Models","Skus","LicenseTypes","SensitivityLabels","AccessedResources","ResourceTypes","ResourceActions","Sites","AgentEvents","LicensePool","DepartmentWeek","ValueNames","UseCases","JobFamilies","EventMarkers","OrgSecurity","LicenceStatuses"]
+annotation PBI_QueryOrder = ["SqlServer","SqlDatabase","RangeStart","RangeEnd","Interactions","Sessions","LicenseChanges","LicensedDays","Calendar","Users","Apps","Agents","Models","Skus","LicenseTypes","SensitivityLabels","AccessedResources","ResourceTypes","ResourceActions","Sites","AgentEvents","LicensePool","DepartmentWeek","ValueNames","UseCases","JobFamilies","EventMarkers","OrgSecurity","LicenseStatuses"]
 
 annotation PBI_ProTooling = ["DevMode"]
 
 ref table Interactions
 ref table Sessions
-ref table LicenceChanges
+ref table LicenseChanges
 ref table LicensedDays
 ref table Calendar
 ref table Users
@@ -37,6 +37,6 @@ ref table UseCases
 ref table JobFamilies
 ref table EventMarkers
 ref table OrgSecurity
-ref table LicenceStatuses
+ref table LicenseStatuses
 
 ref role Organisation

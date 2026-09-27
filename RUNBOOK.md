@@ -113,9 +113,9 @@ After the backfill is finalized, schedule `-Incremental`. Each run:
 3. Runs `audit.usp_MergeCopilotLoad`: checks the load covers its range with no gap, appends the records `audit.CopilotAudit` does not already hold (tagged with `LoadId`) and their shredded rows to `audit.CopilotInteraction` in one transaction, and empties the load tables.
 4. Refreshes the derived tables that are installed: `usp_FlattenCopilotAudit` and `usp_ShredLicenseEvents` from the load's start, then `usp_BuildCopilotSessions` from local midnight of the load's start's day, then `bi.usp_RefreshBi`. `-SkipPostProcessing` stops after the merge.
 
-**Sessions are rebuilt incrementally.** A session never crosses midnight, so only the days from the load's start can change: those sessions are replaced, numbering carries on from the ones kept, and the weeks containing those days are recomputed. The result equals a full rebuild over the same rows, except that sessions already built keep the department and licence flag they were built with. It matters at scale: rebuilding every session took 32 minutes and 25 GB of tempdb at 40M interactions, and grows with every day of history kept.
+**Sessions are rebuilt incrementally.** A session never crosses midnight, so only the days from the load's start can change: those sessions are replaced, numbering carries on from the ones kept, and the weeks containing those days are recomputed. The result equals a full rebuild over the same rows, except that sessions already built keep the department and license flag they were built with. It matters at scale: rebuilding every session took 32 minutes and 25 GB of tempdb at 40M interactions, and grows with every day of history kept.
 
-Rebuild every session (`.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task RebuildSessions`) after changing a session setting - timeout, context fallback, time zone, metric version or licence databases. An incremental build refuses to mix settings, so the nightly load fails with `different settings` until you do. After upgrading to any new release, run `.\Install-CopilotAudit.ps1 -SqlServer <server>` once: it upgrades every object and does whatever one-off rebuild the release needs.
+Rebuild every session (`.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task RebuildSessions`) after changing a session setting - timeout, context fallback, time zone, metric version or license databases. An incremental build refuses to mix settings, so the nightly load fails with `different settings` until you do. After upgrading to any new release, run `.\Install-CopilotAudit.ps1 -SqlServer <server>` once: it upgrades every object and does whatever one-off rebuild the release needs.
 
 `audit.CopilotLoad` keeps one row per load with its range and how many records were new or already there; `-Status` lists the latest. Once a load has been merged, `-Finalize` refuses to run: it rebuilds from the backfill's staging table and would drop the loaded days.
 
@@ -130,30 +130,30 @@ Rebuild every session (`.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server
 
 | Permission | Used by | Graph calls | What for |
 |---|---|---|---|
-| `AuditLogsQuery.Read.All` | `Invoke-CopilotAuditBackfill.ps1`: the backfill, `-Incremental`, and licence-event databases | `POST` and `GET /security/auditLog/queries`, `GET .../records` | Copilot interaction records and the Entra licence events. The per-workload permissions (`AuditLogsQuery-Entra.Read.All`, `-Exchange`, `-SharePoint`, `-OneDrive`, `-CRM`, `-Endpoint`) include none for Copilot, so the all-services one is needed. |
-| `User.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /users/{upn}?$select=userPrincipalName,assignedLicenses,assignedPlans`, `GET /users?$filter=assignedLicenses/any(...)` | Each user's Copilot licence and since when, and licence holders who never used Copilot (`-AllLicensedUsers`). Microsoft's licence-only alternative, `GET /users/{id}/licenseDetails`, does not support application permissions. |
+| `AuditLogsQuery.Read.All` | `Invoke-CopilotAuditBackfill.ps1`: the backfill, `-Incremental`, and license-event databases | `POST` and `GET /security/auditLog/queries`, `GET .../records` | Copilot interaction records and the Entra license events. The per-workload permissions (`AuditLogsQuery-Entra.Read.All`, `-Exchange`, `-SharePoint`, `-OneDrive`, `-CRM`, `-Endpoint`) include none for Copilot, so the all-services one is needed. |
+| `User.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /users/{upn}?$select=userPrincipalName,assignedLicenses,assignedPlans`, `GET /users?$filter=assignedLicenses/any(...)` | Each user's Copilot license and since when, and license holders who never used Copilot (`-AllLicensedUsers`). Microsoft's license-only alternative, `GET /users/{id}/licenseDetails`, does not support application permissions. |
 | `LicenseAssignment.Read.All` | `tools/Update-CopilotAuditEnrichment.ps1` | `GET /subscribedSkus` | Which of the tenant's SKUs are Copilot. The least-privileged permission Microsoft lists for this call. |
 
-- The backfill and loads need only `AuditLogsQuery.Read.All`; the other two are for the licence tool. To keep the audit app to a single permission, put those two on a second app registration instead.
+- The backfill and loads need only `AuditLogsQuery.Read.All`; the other two are for the license tool. To keep the audit app to a single permission, put those two on a second app registration instead.
 - User attributes - title, department, division, office, manager and the org chain - come from on-premises AD (section 5d), which uses the task account's domain identity and **no Graph permission**. Before 2.0.0 they came from Graph, and needed `Organization.Read.All` and `AdministrativeUnit.Read.All` too; remove those two from an existing app registration.
 - For app-only access, Microsoft documents only the Graph permission. The **Audit Reader** / **Audit Manager** role in section 1 applies to a person signing in, not to the app.
 - Not needed on the app: SQL Server access (the task account's Windows or SQL login, section 1), the Power BI gateway and semantic model (they connect to SQL with their own credentials), and the dashboard.
 - Signing in interactively (no `-CertificateThumbprint`) uses *delegated* permissions instead: the same names under **Delegated**, on *Microsoft Graph Command Line Tools* by default or on your own app with `-ClientId`, plus the Purview audit role for the person.
 
-**The scheduled task.** `tools\Install-CopilotJobServer.ps1` registers it: *Copilot audit - nightly*, daily, as the service account, running `Invoke-CopilotPipeline.ps1`. That script runs the directory load, the licence tool and both `-Incremental` loads, in order, from `copilot-audit.settings.psd1`. The account needs `db_owner` (or the rights in section 1) and read access to the certificate's private key, and the installer grants both. A group managed service account avoids storing a password at all; for any other account, pass `-ServiceAccountCredential`. Schedule the Power BI refresh after the task. A failed run exits non-zero, so the task history shows it; the next run resumes the same load.
+**The scheduled task.** `tools\Install-CopilotJobServer.ps1` registers it: *Copilot audit - nightly*, daily, as the service account, running `Invoke-CopilotPipeline.ps1`. That script runs the directory load, the license tool and both `-Incremental` loads, in order, from `copilot-audit.settings.psd1`. The account needs `db_owner` (or the rights in section 1) and read access to the certificate's private key, and the installer grants both. A group managed service account avoids storing a password at all; for any other account, pass `-ServiceAccountCredential`. Schedule the Power BI refresh after the task. A failed run exits non-zero, so the task history shows it; the next run resumes the same load.
 
 ## 5c. The Power BI star schema
 
-The `bi` schema is what a Power BI semantic model imports: narrow facts with integer keys (`bi.Interactions`, `bi.AccessedResources`, `bi.Sessions`, `bi.LicenceChanges`, `bi.LicensedDays`) and their dimensions. The README's [Power BI section](README.md#power-bi-the-bi-schema) describes the model.
+The `bi` schema is what a Power BI semantic model imports: narrow facts with integer keys (`bi.Interactions`, `bi.AccessedResources`, `bi.Sessions`, `bi.LicenseChanges`, `bi.LicensedDays`) and their dimensions. The README's [Power BI section](README.md#power-bi-the-bi-schema) describes the model.
 
-**Install and build it once:** `.\Install-CopilotAudit.ps1 -SqlServer <server> -LicenceEventDatabases <licence database(s)>` installs it with everything else and builds it the first time there is data. It reports what it wrote; `bi.RefreshRun` keeps one row per refresh.
+**Install and build it once:** `.\Install-CopilotAudit.ps1 -SqlServer <server> -LicenseEventDatabases <license database(s)>` installs it with everything else and builds it the first time there is data. It reports what it wrote; `bi.RefreshRun` keeps one row per refresh.
 
-**Keeping it current.** Once the procedure is installed, every `-Incremental` run calls it last, with the load's start as `@SinceUtc` and `-SessionLicenceDatabase` as `@LicenceEventDatabase`. A partial refresh replaces its window in one transaction, so a model refreshing at the same time never sees it half-written. Sessions follow the session builds: only the days an incremental build rebuilt are copied, and after a full session build (which renumbers every session) all of them. Schedule the model's refresh after the task.
+**Keeping it current.** Once the procedure is installed, every `-Incremental` run calls it last, with the load's start as `@SinceUtc` and `-SessionLicenseDatabase` as `@LicenseEventDatabase`. A partial refresh replaces its window in one transaction, so a model refreshing at the same time never sees it half-written. Sessions follow the session builds: only the days an incremental build rebuilt are copied, and after a full session build (which renumbers every session) all of them. Schedule the model's refresh after the task.
 
 **Run a full rebuild** (`@SinceUtc = NULL`, then a full refresh of the model) when:
 
 - the reporting time zone changes. A partial refresh in a different zone is refused, because rows already written carry the old zone's dates.
-- licence history arrives for a period already built. A row's licence status is fixed when it is written.
+- license history arrives for a period already built. A row's license status is fixed when it is written.
 - flattened rows are purged (`usp_PurgeCopilotAuditJson @PurgeFlattened = 1`). The fact keeps them until rebuilt.
 - the flattened records were re-flattened in full, as the upgrade to 2.2.0 asks. The facts carry what the flattening wrote when they were built.
 
@@ -165,7 +165,7 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
 
 ## 5d. The user directory, from on-premises AD
 
-`tools/Export-UsersWithHierarchy-ToSql.ps1` loads `audit.UserDirectory`: every user in a trusted domain, with title, department, division, office, city, country, company, employee type, manager, the management chain and whether the account is enabled. Sessions, the `bi` schema's user dimension (as `OrgLevel1`..`OrgLevel15`) and the adoption views read it. Licences stay with the Graph licence tool.
+`tools/Export-UsersWithHierarchy-ToSql.ps1` loads `audit.UserDirectory`: every user in a trusted domain, with title, department, division, office, city, country, company, employee type, manager, the management chain and whether the account is enabled. Sessions, the `bi` schema's user dimension (as `OrgLevel1`..`OrgLevel15`) and the adoption views read it. Licenses stay with the Graph license tool.
 
 **Where it runs.** On a machine that can reach a domain controller in the trusted domain, as an account the trust lets read user objects (by default any authenticated user can). Windows PowerShell 5.1 or PowerShell 7; nothing to install. It needs no Graph permission and no app registration.
 
@@ -180,7 +180,7 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
 
 **Check the match on the first run.** Everything joins on the UPN. The load ends by reporting how many users in the audit data it found by UPN, and how many more only by mail. Anything under 90% means AD's UPNs are not the names users sign in to Microsoft 365 with (common when the AD forest is not the one synced to Entra), and their usage will show without a department.
 
-**Schedule it before the incremental load**, daily, so the load's session and `bi` rebuilds pick up today's organisation: first this, then the licence tool, then `-Incremental`.
+**Schedule it before the incremental load**, daily, so the load's session and `bi` rebuilds pick up today's organisation: first this, then the license tool, then `-Incremental`.
 
 ## 5e. Importing Purview CSV exports
 
@@ -188,12 +188,12 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
 
 ```powershell
 .\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports -SqlServer SQLPROD01 -Database CopilotAudit `
-    -SessionLicenceDatabase CopilotLicenseEvents
+    -SessionLicenseDatabase CopilotLicenseEvents
 ```
 
-**Adding operations to a load (2.3.0).** A database records the operations its backfill asked for, and every `-Incremental` load must ask for the same ones or more. 2.3.0 adds Copilot Studio's authoring operations (`BotCreate`, `BotUpdateOperation-BotPublish`, `BotUpdateOperation-BotShare`, `BotDelete`, `BotComponent*` ...) to the licence-event load: the first 2.3.0 run records the wider set and logs *Loading ... too from now on*. Earlier records of the new operations are not fetched into that database. A load asking for fewer operations, or different ones, is still refused (*holds a backfill of ..., not ...*).
+**Adding operations to a load (2.3.0).** A database records the operations its backfill asked for, and every `-Incremental` load must ask for the same ones or more. 2.3.0 adds Copilot Studio's authoring operations (`BotCreate`, `BotUpdateOperation-BotPublish`, `BotUpdateOperation-BotShare`, `BotDelete`, `BotComponent*` ...) to the license-event load: the first 2.3.0 run records the wider set and logs *Loading ... too from now on*. Earlier records of the new operations are not fetched into that database. A load asking for fewer operations, or different ones, is still refused (*holds a backfill of ..., not ...*).
 
-**Exporting.** In the Purview portal, search the audit log for the record type the database holds (*CopilotInteraction*, or the licence operations for a licence-event database) and export all results. Note each search's exact start and end: the importer cannot tell a quiet day from a day that was not exported. Leave the files as they came: a file opened and saved in Excel has its `AuditData` cut at 32,767 characters, and those rows are rejected rather than loaded broken. Both the current export's columns (`RecordId`, `CreationDate`, `RecordType`, `Operation`, `UserId`, `AuditData`, ...) and the older one's (`UserIds`, `Operations`) are read.
+**Exporting.** In the Purview portal, search the audit log for the record type the database holds (*CopilotInteraction*, or the license operations for a license-event database) and export all results. Note each search's exact start and end: the importer cannot tell a quiet day from a day that was not exported. Leave the files as they came: a file opened and saved in Excel has its `AuditData` cut at 32,767 characters, and those rows are rejected rather than loaded broken. Both the current export's columns (`RecordId`, `CreationDate`, `RecordType`, `Operation`, `UserId`, `AuditData`, ...) and the older one's (`UserIds`, `Operations`) are read.
 
 **What a run does.**
 
@@ -201,7 +201,7 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
 2. Lists the files (`-Filter`, default `*.csv`; `-Recurse` for subfolders) and skips any whose SHA-256 an earlier import already loaded, and any repeating another file in the folder.
 3. Reads each file here, streaming it in batches into `audit.CopilotCsvStage`. SQL Server needs no access to the folder. Rows of another operation are counted and left out, matched the way the Graph search's operation filter matches (`Change user license.` counts as `Change user license`). Rows that cannot be loaded go to `audit.CopilotCsvReject` with their line number and reason.
 4. `audit.usp_MergeCopilotCsv` keeps one row per `RecordId` across the files, drops those `audit.CopilotAudit` already holds, appends the rest (tagged with `CsvImportId`) and their shredded rows, and records the covered range if given - in one transaction.
-5. Refreshes the derived tables that are installed from the earliest record added: flattening, licence events, sessions, `bi`. `-SkipPostProcessing` stops after the merge. If a Power BI model refreshes incrementally and the import added records older than its refresh window, refresh the model fully once.
+5. Refreshes the derived tables that are installed from the earliest record added: flattening, license events, sessions, `bi`. `-SkipPostProcessing` stops after the merge. If a Power BI model refreshes incrementally and the import added records older than its refresh window, refresh the model fully once.
 
 `audit.CopilotCsvImport` keeps one row per run with its counts, and `audit.CopilotCsvFile` one row per file. A run that stops part-way is started again from scratch the next time; nothing is merged until every file is read.
 
@@ -263,7 +263,7 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | `-Incremental`: `The last session build used different settings` | A session setting changed. Rebuild every session once (section 5b); the next load continues incrementally. |
 | `bi.usp_RefreshBi`: `needs a full rebuild` | The reporting time zone differs from the last refresh. Run `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task RebuildBi` once in the new zone. |
 | `-Incremental` app-only: `token lacks the application permission` | The app has the delegated permission, or consent was not granted. Add `AuditLogsQuery.Read.All` under **Application** permissions and grant consent. |
-| Licence tool app-only: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. See section 5b. |
+| License tool app-only: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. See section 5b. |
 | User directory: `Could not read RootDSE` | The domain name is wrong, the trust does not reach it, or the account running the script is not trusted there. Try `-TargetDomain` with a domain controller's name. |
 | User directory: under 90% of audit users matched | AD's UPNs are not the names users sign in to Microsoft 365 with. The load reports how many match by mail instead. See section 5d. |
 | CSV import: `A Graph backfill has started in this database but is not finalized` | Finish the backfill and run `-FinalizeOnly`, then import. See section 5e. |
@@ -285,6 +285,6 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory from on-premises AD (section 5d). |
 | `sql/Create-CopilotDashboardSchema.sql` / `sql/Create-CopilotDashboardProcedure.sql` | The dashboard's `dash` schema and `dash.usp_RefreshDashboard` (section 5f). |
 | `dashboard/` | The Copilot Insights web dashboard, its IIS installer, demo and tests (section 5f). |
-| `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licences, from Microsoft Graph. |
+| `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |
 | `tools/Import-CopilotAuditCsv.ps1` / `sql/Create-CopilotCsvImport.sql` | Purview CSV exports into the same tables (section 5e). |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |

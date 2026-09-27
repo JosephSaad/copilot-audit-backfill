@@ -9,7 +9,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Inventory";
     public override string Persona => "Licensing";
-    public override string Intro => "How many Copilot licences are assigned, how that changed, and how many are in use.";
+    public override string Intro => "How many Copilot licenses are assigned, how that changed, and how many are in use.";
 
     protected override async Task BuildAsync()
     {
@@ -21,7 +21,7 @@ WHERE ld.DateKey = @k1
   AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0);", Ctx.Args());
         var changes = await Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END)
-FROM bi.FactLicenceChange AS f {Ctx.Scope("f.UserKey")}
+FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimSku AS k ON k.SkuKey = f.SkuKey AND k.IsCopilot = 1
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
@@ -37,38 +37,38 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new($"Unused for {Ctx.InactiveDays} days", Num(unused), "candidates to reclaim", unused > 0 ? "crit" : null));
 
         var buckets = Buckets();
-        Panels.Add(new("Licences held", Chart.Line(Labels(), [new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1)], Fmt.Count, "Licences held"),
-            $"People holding a Copilot licence at the end of each day or week. {TrendNote}", "half"));
+        Panels.Add(new("Licenses held", Chart.Line(Labels(), [new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1)], Fmt.Count, "Licenses held"),
+            $"People holding a Copilot license at the end of each day or week. {TrendNote}", "half"));
         Panels.Add(new("Assigned and removed",
             Chart.Columns(Labels(), [
                 new Series("Assigned", buckets.Select(b => (double?)changes.Where(c => c.Bucket == b.Key).Sum(c => c.Added)).ToList(), 1),
                 new Series("Removed", buckets.Select(b => (double?)changes.Where(c => c.Bucket == b.Key).Sum(c => c.Removed)).ToList(), 2),
-            ], Fmt.Count, "Licences assigned and removed", stacked: false),
-            "From the licence history. A person moved between two Copilot SKUs counts once each way.", "half"));
+            ], Fmt.Count, "Licenses assigned and removed", stacked: false),
+            "From the license history. A person moved between two Copilot SKUs counts once each way.", "half"));
 
         var skus = await Db.QueryAsync<(string Sku, int N)>($@"
 SELECT ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)'), COUNT(*)
 FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)') ORDER BY 2 DESC;", Ctx.Args());
-        Panels.Add(new("Licences by SKU", Chart.Bars(skus.Select(k => new Bar(k.Sku, k.N)).ToList(), Fmt.Count, "Licences by SKU"), null, "half"));
+        Panels.Add(new("Licenses by SKU", Chart.Bars(skus.Select(k => new Bar(k.Sku, k.N)).ToList(), Fmt.Count, "Licenses by SKU"), null, "half"));
 
         var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
             .Where(u => u.Licensed > 0).OrderByDescending(u => u.Licensed - u.ActiveLicensed).ToList();
         Panels.Add(new("Licensed but not active in the period, by unit",
             Chart.Bars(units.Take(20).Select(u => new Bar(u.Name, u.Licensed - u.ActiveLicensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
-                $"{u.Licensed - u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed", 2)).ToList(), Fmt.Count, "Idle licences by unit"),
-            "Licences held today by people who did not use Copilot in the selected period, one level down." +
+                $"{u.Licensed - u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed", 2)).ToList(), Fmt.Count, "Idle licenses by unit"),
+            "Licenses held today by people who did not use Copilot in the selected period, one level down." +
             (folded > 0 ? $" {folded} unit(s) under {Ctx.MinGroupSize} people are combined." : ""), "half"));
     }
 }
 
 public sealed class UnusedModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "Unused licences";
+    public override string Title => "Unused licenses";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "People holding a Copilot licence who have not used Copilot recently: candidates to reclaim or to follow up.";
+    public override string Intro => "People holding a Copilot license who have not used Copilot recently: candidates to reclaim or to follow up.";
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -113,7 +113,7 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
         var t = new Table
         {
             Headers = ["Name", "Sign-in", "Department", "Manager", "SKU", "Licensed since", "Last used", "Days since last use"],
-            Numeric = new HashSet<int> { 7 }, EmptyText = "Every licence is in use.",
+            Numeric = new HashSet<int> { 7 }, EmptyText = "Every license is in use.",
         };
         foreach (var r in rows)
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.CopilotSku, r.LicensedSinceUtc?.Date,
@@ -123,7 +123,7 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
         var choices = string.Join(" · ", new[] { 7, 14, 30, 60, 90 }.Select(d =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"idle={d}"))}\"{(d == idleDays ? " class=\"on\"" : "")}>{d} days</a>"));
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Not used for: {choices}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "The period filter does not apply here: this is today's licences against the idle time you choose.", "full", CsvUrl()));
+            "The period filter does not apply here: this is today's licenses against the idle time you choose.", "full", CsvUrl()));
     }
 }
 
@@ -131,7 +131,7 @@ public sealed class DemandModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Demand";
     public override string Persona => "Licensing";
-    public override string Intro => "People without a licence who use the free Copilot Chat: where demand for a licence is.";
+    public override string Intro => "People without a license who use the free Copilot Chat: where demand for a license is.";
 
     sealed class Row
     {
@@ -167,15 +167,15 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*),
        COUNT(a.UserKey), COUNT(CASE WHEN a.D >= @heavy THEN 1 END)
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey
-WHERE du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1 AND du.CopilotLicenceToday <> N'Licensed'
+WHERE du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1 AND du.CopilotLicenseToday <> N'Licensed'
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { heavy = Heavy }));
         var users = depts.Sum(d => d.Users);
         var heavy = depts.Sum(d => d.Heavy);
         Kpis.Add(new("Unlicensed Copilot Chat users", Num(users), "in the period"));
-        Kpis.Add(new($"Used it on {Heavy}+ days", Num(heavy), "the strongest candidates for a licence"));
-        Kpis.Add(new("People without a licence", Num(depts.Sum(d => d.People)), "enabled accounts in scope"));
+        Kpis.Add(new($"Used it on {Heavy}+ days", Num(heavy), "the strongest candidates for a license"));
+        Kpis.Add(new("People without a license", Num(depts.Sum(d => d.People)), "enabled accounts in scope"));
 
-        Panels.Add(new("Copilot Chat users without a licence",
+        Panels.Add(new("Copilot Chat users without a license",
             Chart.Line(Labels(), [new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "Unlicensed users"),
             TrendNote, "half"));
         var byDept = FoldSmall(depts, d => d.People, small => ("Smaller departments", small.Sum(x => x.People), small.Sum(x => x.Users), small.Sum(x => x.Heavy)), out _)
@@ -190,9 +190,9 @@ FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimLicenseType AS l ON l.LicenseTypeKey = f.LicenseTypeKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY l.LicenseType;", Ctx.Args());
-        Panels.Add(new("Licence the audit record reports",
-            Chart.Bars(recorded.OrderByDescending(r => r.N).Select(r => new Bar(r.LicenseType, r.People, Note: $"{r.N:#,0} interactions", Slot: r.LicenseType == "Premium" ? 1 : 2)).ToList(), Fmt.Count, "People by recorded licence type"),
-            "People by the licence type Copilot wrote into each audit record (CopilotEventData.LicenseType, such as Premium or Starter), beside the licence history. A person can appear under more than one.", "half"));
+        Panels.Add(new("License the audit record reports",
+            Chart.Bars(recorded.OrderByDescending(r => r.N).Select(r => new Bar(r.LicenseType, r.People, Note: $"{r.N:#,0} interactions", Slot: r.LicenseType == "Premium" ? 1 : 2)).ToList(), Fmt.Count, "People by recorded license type"),
+            "People by the license type Copilot wrote into each audit record (CopilotEventData.LicenseType, such as Premium or Starter), beside the license history. A person can appear under more than one.", "half"));
 
         if (!Viewer.Has(Roles.Licensing)) return;   // the named list is for the Licensing role only
         var pg = new Paging(Request, Sorts, "days");
@@ -200,7 +200,7 @@ GROUP BY l.LicenseType;", Ctx.Args());
 WITH {Unlicensed}
 SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, a.D AS ActiveDays, a.I AS Interactions, COUNT(*) OVER () AS TotalRows
 FROM a JOIN bi.DimUser AS du ON du.UserKey = a.UserKey {Ctx.Scope("a.UserKey")}
-WHERE du.CopilotLicenceToday <> N'Licensed'
+WHERE du.CopilotLicenseToday <> N'Licensed'
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;

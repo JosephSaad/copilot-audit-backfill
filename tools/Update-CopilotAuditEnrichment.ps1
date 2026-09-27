@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Records who holds a Copilot licence, from Microsoft Graph: the one fact
+    Records who holds a Copilot license, from Microsoft Graph: the one fact
     about users that neither the audit records nor on-premises Active
     Directory can supply.
 
@@ -9,7 +9,7 @@
     touches the backfill tables, so it can run on its own schedule and a
     mistake here cannot corrupt the audit archive.
 
-    Licences only, since 2.0.0. Title, department, division, office, manager
+    Licenses only, since 2.0.0. Title, department, division, office, manager
     and the management chain come from on-premises Active Directory instead,
     by tools/Export-UsersWithHierarchy-ToSql.ps1 - so this needs just two
     Graph permissions, and none for profiles, managers or administrative
@@ -19,14 +19,14 @@
     Only the users that actually appear in audit.CopilotInteraction are looked
     up, not the whole directory - at most a few thousand lookups rather than
     every account in the tenant. Pass -AllLicensedUsers to also pull in users
-    who hold a licence but have never interacted, which is what the shelfware
+    who hold a license but have never interacted, which is what the shelfware
     report needs.
 
     Two things Graph cannot tell you, and which this records honestly rather
-    than guessing (the licence-event databases fill in the first):
+    than guessing (the license-event databases fill in the first):
 
-      * Licence history. assignedPlans carries the date the CURRENT assignment
-        began, so "licensed since March" is answerable. A licence granted and
+      * License history. assignedPlans carries the date the CURRENT assignment
+        began, so "licensed since March" is answerable. A license granted and
         later removed leaves no trace at all.
       * Users who have left. Audit records outlive directory objects, so a
         departed user resolves to nothing. Those rows get
@@ -42,17 +42,17 @@
 
 .PARAMETER Scopes
     Delegated scopes to request. The defaults are the least that works:
-    User.Read.All for each user's assigned licences and plans, account state
+    User.Read.All for each user's assigned licenses and plans, account state
     and hire date, and LicenseAssignment.Read.All for the tenant's SKUs and
     their seat counts (/subscribedSkus). App-only uses the same two as
     application permissions.
 
 .PARAMETER AllLicensedUsers
-    Also enumerate every user holding a Copilot licence, including those with
+    Also enumerate every user holding a Copilot license, including those with
     no interactions. Needed for "licensed but never used".
 
 .PARAMETER SkipProfiles
-    No effect since 2.0.0, which reads licences only. Accepted so existing
+    No effect since 2.0.0, which reads licenses only. Accepted so existing
     scheduled tasks keep working.
 
 .EXAMPLE
@@ -289,7 +289,7 @@ function Get-Prop {
 
 function ConvertTo-LicensePoolRow {
     <#
-        The licence pool from /subscribedSkus: one row per SKU with the seats
+        The license pool from /subscribedSkus: one row per SKU with the seats
         bought (prepaidUnits) and assigned (consumedUnits). Pure, for the tests.
     #>
     param([object[]] $Sku, [hashtable] $CopilotSku)
@@ -297,7 +297,7 @@ function ConvertTo-LicensePoolRow {
         $id = "$(Get-Prop $s 'skuId')"
         $guid = [guid]::Empty
         if (-not [guid]::TryParse($id, [ref] $guid)) {
-            if ($id) { Write-Log "Licence pool: skipped SKU '$id', which is not a GUID." -Level WARN }
+            if ($id) { Write-Log "License pool: skipped SKU '$id', which is not a GUID." -Level WARN }
             continue
         }
         $pre = Get-Prop $s 'prepaidUnits'
@@ -380,7 +380,7 @@ function Invoke-Main {
     Invoke-EnrichmentSql -Sql $schema
     Write-Log 'Enrichment tables ready.'
 
-    if ($SkipProfiles) { Write-Log '-SkipProfiles has no effect since 2.0.0: this reads licences only.' -Level WARN }
+    if ($SkipProfiles) { Write-Log '-SkipProfiles has no effect since 2.0.0: this reads licenses only.' -Level WARN }
 
     Connect-EnrichmentGraph
 
@@ -399,13 +399,13 @@ function Invoke-Main {
     else {
         Write-Log ('Copilot SKUs in this tenant: ' + (($copilotSkus.Values | Sort-Object -Unique) -join ', ') + '.')
     }
-    # The same response carries the seat counts: bought against assigned, for the licence pool report.
+    # The same response carries the seat counts: bought against assigned, for the license pool report.
     $pool = @(ConvertTo-LicensePoolRow -Sku $skus -CopilotSku $copilotSkus)
     $poolSaved = Save-LicensePool -Rows $pool
     foreach ($p in @($pool | Where-Object IsCopilot)) {
-        Write-Log ("Licence pool {0}: {1:N0} bought, {2:N0} assigned." -f $p.SkuPartNumber, ($p.Enabled + $p.Warning), $p.Consumed)
+        Write-Log ("License pool {0}: {1:N0} bought, {2:N0} assigned." -f $p.SkuPartNumber, ($p.Enabled + $p.Warning), $p.Consumed)
     }
-    Write-Log "Licence pool written: $poolSaved SKU(s)."
+    Write-Log "License pool written: $poolSaved SKU(s)."
 
     # ---- Which users to look up -------------------------------------------
     $upns = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -418,7 +418,7 @@ WHERE UserPrincipalName IS NOT NULL;
     Write-Log ("{0:N0} distinct user(s) appear in the audit data." -f $upns.Count)
 
     if ($AllLicensedUsers) {
-        # Everyone holding a Copilot licence, including users who never
+        # Everyone holding a Copilot license, including users who never
         # interacted - the population the shelfware report needs.
         foreach ($skuId in $copilotSkus.Keys) {
             $lic = Get-GraphPaged -Uri ("/v1.0/users?`$select=userPrincipalName&`$filter=assignedLicenses/any(x:x/skuId eq $skuId)&`$count=true")
@@ -427,7 +427,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 if ($upn) { [void] $upns.Add($upn) }
             }
         }
-        Write-Log ("{0:N0} user(s) after adding licence holders with no interactions." -f $upns.Count)
+        Write-Log ("{0:N0} user(s) after adding license holders with no interactions." -f $upns.Count)
     }
 
     # ---- Look each one up --------------------------------------------------
@@ -457,7 +457,7 @@ WHERE UserPrincipalName IS NOT NULL;
             continue
         }
 
-        # Licence
+        # License
         $matchedSku = $null
         foreach ($al in @(Get-Prop $user 'assignedLicenses')) {
             $id = "$(Get-Prop $al 'skuId')"
@@ -506,7 +506,7 @@ WHERE UserPrincipalName IS NOT NULL;
                        EmployeeHireDate  = [System.Data.SqlDbType]::Date
                        UserType          = [System.Data.SqlDbType]::NVarChar
                    }
-    Write-Log "Licences written: $n."
+    Write-Log "Licenses written: $n."
 
     if ($notFound -gt 0) {
         Write-Log "$notFound user(s) are in the audit data but no longer in the directory; recorded as DirectoryStatus = 'NotFound', not as unlicensed." -Level WARN

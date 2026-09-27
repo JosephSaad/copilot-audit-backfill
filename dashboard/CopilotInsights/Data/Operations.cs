@@ -103,8 +103,8 @@ public static class Anomalies
     }
 }
 
-/// <summary>The licence recommendations as something an administrator can apply. Pure, for the tests.</summary>
-public static class LicenceExport
+/// <summary>The license recommendations as something an administrator can apply. Pure, for the tests.</summary>
+public static class LicenseExport
 {
     /// <summary>Entra's bulk add or remove members template (Groups > Bulk operations): two header lines, then one UPN per line.</summary>
     public static string BulkMembersCsv(IEnumerable<string> upns)
@@ -127,8 +127,8 @@ public static class LicenceExport
         var sb = new StringBuilder();
         sb.AppendLine("#Requires -Modules Microsoft.Graph.Authentication");
         sb.AppendLine("<#");
-        sb.AppendLine($"    Copilot Insights: {(add ? "assign a Copilot licence to" : "remove the Copilot licence from")} {upns.Count} people.");
-        sb.AppendLine($"    Generated {generatedUtc:yyyy-MM-dd HH:mm} UTC by {generatedBy}. Review the list, then run it signed in as a licence administrator.");
+        sb.AppendLine($"    Copilot Insights: {(add ? "assign a Copilot license to" : "remove the Copilot license from")} {upns.Count} people.");
+        sb.AppendLine($"    Generated {generatedUtc:yyyy-MM-dd HH:mm} UTC by {generatedBy}. Review the list, then run it signed in as a license administrator.");
         sb.AppendLine("    Add -WhatIf to see what it would do without changing anything.");
         sb.AppendLine("#>");
         sb.AppendLine("[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')] param()");
@@ -138,11 +138,11 @@ public static class LicenceExport
         sb.AppendLine(")");
         if (groupId is not null)
         {
-            sb.AppendLine($"$groupId = '{groupId.Replace("'", "")}'   # the group that assigns Copilot licences");
+            sb.AppendLine($"$groupId = '{groupId.Replace("'", "")}'   # the group that assigns Copilot licenses");
             sb.AppendLine("Connect-MgGraph -Scopes 'GroupMember.ReadWrite.All', 'User.Read.All' -NoWelcome");
             sb.AppendLine("foreach ($upn in $people) {");
             sb.AppendLine("    $id = (Invoke-MgGraphRequest -Method GET -Uri \"/v1.0/users/$([uri]::EscapeDataString($upn))?`$select=id\").id");
-            sb.AppendLine($"    if ($PSCmdlet.ShouldProcess($upn, '{(add ? "Add to" : "Remove from")} the Copilot licence group')) {{");
+            sb.AppendLine($"    if ($PSCmdlet.ShouldProcess($upn, '{(add ? "Add to" : "Remove from")} the Copilot license group')) {{");
             if (add) sb.AppendLine("        Invoke-MgGraphRequest -Method POST -Uri \"/v1.0/groups/$groupId/members/`$ref\" -Body @{ '@odata.id' = \"https://graph.microsoft.com/v1.0/directoryObjects/$id\" }");
             else sb.AppendLine("        Invoke-MgGraphRequest -Method DELETE -Uri \"/v1.0/groups/$groupId/members/$id/`$ref\"");
             sb.AppendLine("    }");
@@ -150,10 +150,10 @@ public static class LicenceExport
         }
         else
         {
-            sb.AppendLine($"$skuId = '{(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE").Replace("'", "")}'   # the Copilot SKU (Admin > Licence pool shows it)");
+            sb.AppendLine($"$skuId = '{(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE").Replace("'", "")}'   # the Copilot SKU (Admin > License pool shows it)");
             sb.AppendLine("Connect-MgGraph -Scopes 'User.ReadWrite.All' -NoWelcome");
             sb.AppendLine("foreach ($upn in $people) {");
-            sb.AppendLine($"    if ($PSCmdlet.ShouldProcess($upn, '{(add ? "Assign" : "Remove")} the Copilot licence')) {{");
+            sb.AppendLine($"    if ($PSCmdlet.ShouldProcess($upn, '{(add ? "Assign" : "Remove")} the Copilot license')) {{");
             sb.AppendLine(add
                 ? "        Invoke-MgGraphRequest -Method POST -Uri \"/v1.0/users/$([uri]::EscapeDataString($upn))/assignLicense\" -Body @{ addLicenses = @(@{ skuId = $skuId }); removeLicenses = @() }"
                 : "        Invoke-MgGraphRequest -Method POST -Uri \"/v1.0/users/$([uri]::EscapeDataString($upn))/assignLicense\" -Body @{ addLicenses = @(); removeLicenses = @($skuId) }");

@@ -88,7 +88,7 @@ try {
     Assert-That ((Unzip $byId['r-3'].AuditDataGz) -eq $multi) 'a quoted field with line breaks, commas and doubled quotes survives intact'
     Assert-That ($r.Earliest -eq [datetime]::new(2026, 9, 1, 10, 0, 0) -and $r.Latest -eq [datetime]::new(2026, 9, 1, 12, 0, 0)) 'earliest and latest staged times tracked'
 
-    Write-Host "`nOlder export format, and licence operations" -ForegroundColor Cyan
+    Write-Host "`nOlder export format, and license operations" -ForegroundColor Cyan
     $f2 = Join-Path $tmp 'classic.csv'
     @(
         [pscustomobject]@{ CreationDate = '2026-08-01T09:00:00'; UserIds = 'bob@contoso.com'; Operations = 'Change user license.'; AuditData = (New-Audit 'c-1' '2026-08-01T09:00:00' @{ Operation = 'Change user license.'; Workload = 'AzureActiveDirectory'; UserType = 4 }) }
@@ -98,7 +98,7 @@ try {
     $res = Read-All $f2 @('Add user', 'Change user license', 'Delete user', 'Update user')
     $ids = @($res.Table.Rows | ForEach-Object { $_.RecordId })
     Assert-That ($res.Reader.RowsStaged -eq 2 -and $ids -contains 'c-1' -and $ids -contains 'c-2') "UserIds/Operations columns read; 'Change user license.' and 'Hard Delete user.' match as the Graph filter would ($($ids -join ', '))"
-    Assert-That ($res.Reader.RowsOtherOperation -eq 1) 'UserLoggedIn is not a licence operation'
+    Assert-That ($res.Reader.RowsOtherOperation -eq 1) 'UserLoggedIn is not a license operation'
     $c1 = @($res.Table.Rows | Where-Object { $_.RecordId -eq 'c-1' })[0]
     Assert-That ($c1.UserPrincipalName -eq 'bob@contoso.com' -and $c1.UserType -eq 'System' -and $c1.Service -eq 'AzureActiveDirectory') 'the UserIds column gives the UPN; UserType 4 becomes System'
 

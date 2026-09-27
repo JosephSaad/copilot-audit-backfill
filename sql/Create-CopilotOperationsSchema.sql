@@ -24,7 +24,7 @@
                         needs no grant script
       bi.OrgSecurity, bi.ValueNames, bi.LicensePool, bi.DepartmentWeek
                         for Power BI: row-level security from the org chart,
-                        value names, the licence pool, and department figures
+                        value names, the license pool, and department figures
                         with small groups hidden
 
     Idempotent. Single batch. Requires SQL Server 2017+.
@@ -52,7 +52,7 @@ USING (VALUES
     ('ExoClientId',             NULL,     N'App (client) id for Exchange Online OAuth. The client secret is kept encrypted (dash.Secret).'),
     ('AlertAdminTo',            NULL,     N'Who hears about pipeline failures and stale data (addresses separated by ;).'),
     ('AlertSecurityTo',         NULL,     N'Who gets security alerts.'),
-    ('AlertLicensingTo',        NULL,     N'Who gets licence alerts: the pool running out, licences on disabled accounts.'),
+    ('AlertLicensingTo',        NULL,     N'Who gets license alerts: the pool running out, licenses on disabled accounts.'),
     ('AlertAdoptionTo',         NULL,     N'Who gets usage drops and spikes.'),
     ('AlertAgentsTo',           NULL,     N'Who hears about agents seen for the first time.'),
     ('EventLogAlerts',          N'1',     N'1 also writes each alert to the Windows Application log (source Copilot Insights), for a SIEM to collect.'),
@@ -68,9 +68,9 @@ USING (VALUES
     ('PoolWarnPercent',         N'95',    N'Alert when this share of the Copilot seats bought is assigned.'),
     ('NewAgentAlert',           N'1',     N'1 sends an alert when an agent is used for the first time.'),
     ('MinutesSavedDefault',     N'3',     N'Minutes one interaction saves, for apps without their own figure (Admin > Targets and assumptions).'),
-    ('HourlyCost',              N'50',    N'What an hour of an employee''s time is worth, in LicenceCurrency, for the value report.'),
+    ('HourlyCost',              N'50',    N'What an hour of an employee''s time is worth, in LicenseCurrency, for the value report.'),
     ('ChampionsPerDepartment',  N'3',     N'How many champions to suggest per department.'),
-    ('LicenceGroupId',          NULL,     N'Object id of the Entra group that assigns Copilot licences, if licences are group-based: the licence export adds and removes its members.'),
+    ('LicenseGroupId',          NULL,     N'Object id of the Entra group that assigns Copilot licenses, if licenses are group-based: the license export adds and removes its members.'),
     ('AuditLogRetentionDays',   N'730',   N'Dashboard audit-log rows older than this are deleted each night; 0 keeps them.'),
     ('NotificationRetentionDays', N'365', N'Notification-log rows older than this are deleted each night; 0 keeps them.'),
     ('JsonRetentionDays',       N'0',     N'Clear the stored JSON of records older than this each night (the reports keep working); 0 keeps it. At least 200.'),
@@ -272,31 +272,31 @@ IF OBJECT_ID(N'dash.DigestSend', N'U') IS NULL
         CONSTRAINT PK_DashDigestSend PRIMARY KEY (Upn, Kind, PeriodKey)
     );
 
-/* The licence changes the dashboard exported for someone to apply, to measure what happened next. */
-IF OBJECT_ID(N'dash.LicenceAction', N'U') IS NULL
-    CREATE TABLE dash.LicenceAction
+/* The license changes the dashboard exported for someone to apply, to measure what happened next. */
+IF OBJECT_ID(N'dash.LicenseAction', N'U') IS NULL
+    CREATE TABLE dash.LicenseAction
     (
-        ActionId    BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenceAction PRIMARY KEY,
+        ActionId    BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenseAction PRIMARY KEY,
         Kind        VARCHAR(16)     NOT NULL,   -- upgrade | revoke | leaver | wave
         Upn         NVARCHAR(256)   NOT NULL,
-        ExportedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenceAction_Exported DEFAULT (SYSUTCDATETIME()),
+        ExportedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenseAction_Exported DEFAULT (SYSUTCDATETIME()),
         ExportedBy  NVARCHAR(256)   NOT NULL,
-        INDEX IX_DashLicenceAction_Upn (Upn, ExportedUtc)
+        INDEX IX_DashLicenseAction_Upn (Upn, ExportedUtc)
     );
 
-/* Licence contracts, for the budget and renewal planner. */
-IF OBJECT_ID(N'dash.LicenceContract', N'U') IS NULL
-    CREATE TABLE dash.LicenceContract
+/* License contracts, for the budget and renewal planner. */
+IF OBJECT_ID(N'dash.LicenseContract', N'U') IS NULL
+    CREATE TABLE dash.LicenseContract
     (
-        ContractId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenceContract PRIMARY KEY,
+        ContractId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenseContract PRIMARY KEY,
         Name          NVARCHAR(200)   NOT NULL,
-        Seats         INT             NOT NULL CONSTRAINT CK_DashLicenceContract_Seats CHECK (Seats >= 0),
+        Seats         INT             NOT NULL CONSTRAINT CK_DashLicenseContract_Seats CHECK (Seats >= 0),
         MonthlyPrice  DECIMAL(12, 2)  NOT NULL,
         StartDate     DATE            NOT NULL,
         RenewalDate   DATE            NOT NULL,
         Note          NVARCHAR(400)   NULL,
         UpdatedBy     NVARCHAR(256)   NOT NULL,
-        UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenceContract_Updated DEFAULT (SYSUTCDATETIME())
+        UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenseContract_Updated DEFAULT (SYSUTCDATETIME())
     );
 
 /* Each person's saved views; one may be their start page. */
@@ -460,8 +460,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestPreference TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestSend TO CopilotInsightsApp;
-GRANT INSERT, UPDATE, DELETE ON dash.LicenceAction TO CopilotInsightsApp;
-GRANT INSERT, UPDATE, DELETE ON dash.LicenceContract TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.LicenseAction TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.LicenseContract TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.UseCaseRule TO CopilotInsightsApp;
@@ -480,7 +480,7 @@ GRANT VIEW DEFINITION ON SYMMETRIC KEY::CopilotInsightsSecretKey TO CopilotInsig
 GRANT CONTROL ON CERTIFICATE::CopilotInsightsSecretCert TO CopilotInsightsApp;
 IF OBJECT_ID(N'audit.SessionAppCategory', N'U') IS NOT NULL
     GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO CopilotInsightsApp;
-/* The pipeline tables Admin > Health, the licence reports and the value catalogue read. */
+/* The pipeline tables Admin > Health, the license reports and the value catalogue read. */
 DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),

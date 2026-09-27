@@ -13,36 +13,36 @@
                              one the sessions were built with. Changing it
                              needs a full rebuild (@SinceUtc = NULL); a partial
                              refresh in a different zone is refused.
-      @LicenceEventDatabase  One database holding the licence events
+      @LicenseEventDatabase  One database holding the license events
                              (audit.vLicenseSkuChange), or several
                              comma-separated. The same value as
                              usp_BuildCopilotSessions takes.
 
     What it does, in order:
 
-      1. Licence history: every SKU change from @LicenceEventDatabase, and
+      1. License history: every SKU change from @LicenseEventDatabase, and
          from it, for each user, the periods they held a Copilot SKU.
       2. Sessions, directory profiles, and keys for any user, app or SKU
          they bring that has not been seen before.
       3. bi.DimDate, extended to cover the data.
       4. bi.FactInteraction: the window from @SinceUtc deleted, then written
          again from audit.RawLogFlattened a month at a time, adding keys for
-         new users, apps, agents, models, licence types and labels as it goes.
+         new users, apps, agents, models, license types and labels as it goes.
          bi.FactAccessedResource the same way, alongside, from
          audit.RawLogAccessedResource (2.2.0), with keys for new resource
          types, actions, sites and labels.
-      5. Dimension attributes: directory profile, today's licence, app
+      5. Dimension attributes: directory profile, today's license, app
          category. Small; rewritten every run.
       6. bi.FactSession: only what the session builds since the last refresh
          replaced - every session after a full session build, else the days
          the incremental ones rebuilt (audit.CopilotSessionRun.RebuiltFrom).
-         bi.FactLicenceChange and bi.FactLicensedDay: rebuilt whole; they are
+         bi.FactLicenseChange and bi.FactLicensedDay: rebuilt whole; they are
          small next to the interactions.
 
-    Licence at the time of use (FactInteraction.LicenceStatusKey,
+    License at the time of use (FactInteraction.LicenseStatusKey,
     FactLicensedDay):
 
-      * A user with Copilot SKU changes in the licence history held a licence
+      * A user with Copilot SKU changes in the license history held a license
         at a moment if any Copilot SKU's latest change at or before it was an
         addition - or, before their first change, if that first change was a
         removal. The same rule as usp_BuildCopilotSessions.
@@ -53,7 +53,7 @@
         before that date can say Licensed where its interactions say not.
       * Neither: Unknown. So is a user the directory no longer has.
 
-    A row's licence status is fixed when the row is written. A licence change
+    A row's license status is fixed when the row is written. A license change
     that reaches the history later corrects only rows rebuilt after it; run
     with @SinceUtc = NULL (and fully refresh the model) to correct them all.
 
@@ -73,7 +73,7 @@ GO
 ALTER PROCEDURE bi.usp_RefreshBi
     @SinceUtc             DATETIME2(0)   = NULL,
     @ReportingTimeZone    SYSNAME        = NULL,
-    @LicenceEventDatabase NVARCHAR(1000) = NULL
+    @LicenseEventDatabase NVARCHAR(1000) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -99,12 +99,12 @@ BEGIN
         THROW 50013, N'@ReportingTimeZone is not a name in sys.time_zone_info.', 1;
 
     DECLARE @licDbs TABLE (Name SYSNAME NOT NULL PRIMARY KEY);
-    IF @LicenceEventDatabase IS NOT NULL
+    IF @LicenseEventDatabase IS NOT NULL
         INSERT INTO @licDbs (Name)
-        SELECT DISTINCT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@LicenceEventDatabase, N',')
+        SELECT DISTINCT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@LicenseEventDatabase, N',')
         WHERE LTRIM(RTRIM(value)) <> N'';
     IF EXISTS (SELECT 1 FROM @licDbs WHERE OBJECT_ID(QUOTENAME(Name) + N'.audit.vLicenseSkuChange', N'V') IS NULL)
-        THROW 50014, N'A database in @LicenceEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
+        THROW 50014, N'A database in @LicenseEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
 
     /* The first refresh builds everything, whatever window was asked for:
        an empty fact refreshed from yesterday would have nothing before it. */
@@ -133,10 +133,10 @@ BEGIN
         RAISERROR(@msg, 0, 1) WITH NOWAIT;
     END;
 
-    /* ---- 1. Licence history ---------------------------------------------- */
+    /* ---- 1. License history ---------------------------------------------- */
 
-    /* Every SKU change, from every licence database. The databases can
-       overlap (each licence backfill covers its own range), hence DISTINCT. */
+    /* Every SKU change, from every license database. The databases can
+       overlap (each license backfill covers its own range), hence DISTINCT. */
     DROP TABLE IF EXISTS #chgAll;
     CREATE TABLE #chgAll
     (
@@ -167,7 +167,7 @@ BEGIN
     DROP TABLE IF EXISTS #chg;
     SELECT DISTINCT RecordId, ChangedUtc, Upn, Sku, Added, ActorUpn INTO #chg FROM #chgAll;
 
-    /* Today's licence from the enrichment. SkuPartNumber, LicensedSinceUtc
+    /* Today's license from the enrichment. SkuPartNumber, LicensedSinceUtc
        and DirectoryStatus arrive with Create-CopilotEnrichmentSchema.sql;
        a database without it has only the flag. */
     DROP TABLE IF EXISTS #cur;
@@ -517,7 +517,7 @@ BEGIN
           ON n.AgentId = d.AgentId AND n.rn = 1;
 
         INSERT INTO bi.FactInteraction WITH (TABLOCK)
-            (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey,
+            (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenseStatusKey,
              PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected,
              HasBlockedResource, HasSensitivityLabel,
              LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
@@ -603,9 +603,9 @@ BEGIN
         OrgLevel13          = p.Mgr13,
         OrgLevel14          = p.Mgr14,
         OrgLevel15          = p.Mgr15,
-        /* In AD: Found. Otherwise what the licence lookup found in Entra. */
+        /* In AD: Found. Otherwise what the license lookup found in Entra. */
         DirectoryStatus     = COALESCE(CASE WHEN p.Upn IS NOT NULL THEN N'Found' END, c.DirectoryStatus, N'Not looked up'),
-        CopilotLicenceToday = CASE c.IsLic WHEN 1 THEN N'Licensed' WHEN 0 THEN N'Not licensed' ELSE N'Unknown' END,
+        CopilotLicenseToday = CASE c.IsLic WHEN 1 THEN N'Licensed' WHEN 0 THEN N'Not licensed' ELSE N'Unknown' END,
         CopilotSku          = c.Sku,
         LicensedSinceUtc    = c.SinceUtc
     FROM bi.DimUser AS d
@@ -629,7 +629,7 @@ BEGIN
     ELSE IF @sessMode = N'window'
         DELETE FROM bi.FactSession WHERE SessionStart >= @sessFrom;
     INSERT INTO bi.FactSession
-        (SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenceStatusKey, PromptCount, SpanMinutes, IsMultiTurn)
+        (SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenseStatusKey, PromptCount, SpanMinutes, IsMultiTurn)
     SELECT s.SessionKey, s.StartTs, s.EndTs,
            YEAR(s.StartTs) * 10000 + MONTH(s.StartTs) * 100 + DAY(s.StartTs),
            u.UserKey, a.AppKey,
@@ -641,10 +641,10 @@ BEGIN
     JOIN bi.DimApp  AS a ON a.App = s.App;
     SET @sessions = @@ROWCOUNT;
 
-    TRUNCATE TABLE bi.FactLicenceChange;
-    /* One row per record, SKU and direction, even if two licence databases
+    TRUNCATE TABLE bi.FactLicenseChange;
+    /* One row per record, SKU and direction, even if two license databases
        resolved the same record slightly differently. */
-    INSERT INTO bi.FactLicenceChange (RecordId, ChangedUtc, DateKey, UserKey, SkuKey, Change, ChangedBy)
+    INSERT INTO bi.FactLicenseChange (RecordId, ChangedUtc, DateKey, UserKey, SkuKey, Change, ChangedBy)
     SELECT r.RecordId, r.ChangedUtc,
            YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
            r.UserKey, r.SkuKey, r.Change, r.ActorUpn
@@ -658,7 +658,7 @@ BEGIN
     WHERE r.rn = 1;
     SET @changes = @@ROWCOUNT;
 
-    /* Copilot Studio authoring events, from every licence database that has them (2.3.0). */
+    /* Copilot Studio authoring events, from every license database that has them (2.3.0). */
     IF OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NOT NULL
     BEGIN
         TRUNCATE TABLE bi.FactAgentEvent;
@@ -717,9 +717,9 @@ BEGIN
     SET @days = @@ROWCOUNT;
 
     INSERT INTO bi.RefreshRun
-        (StartedUtc, EndedUtc, SinceUtc, ReportingTimeZone, LicenceEventDatabase, InteractionRows, InteractionsSkipped,
-         SessionRows, LicenceChangeRows, LicensedDayRows, SessionRunId, AccessedResourceRows)
-    VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @ReportingTimeZone, @LicenceEventDatabase, @interactions, @skipped,
+        (StartedUtc, EndedUtc, SinceUtc, ReportingTimeZone, LicenseEventDatabase, InteractionRows, InteractionsSkipped,
+         SessionRows, LicenseChangeRows, LicensedDayRows, SessionRunId, AccessedResourceRows)
+    VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @ReportingTimeZone, @LicenseEventDatabase, @interactions, @skipped,
             @sessions, @changes, @days, @sessRun, @resources);
 
     COMMIT TRANSACTION;
@@ -728,14 +728,14 @@ BEGIN
                                            ELSE CONCAT(N' from ', CONVERT(NVARCHAR(16), @SinceUtc, 120), N'Z') END,
                       N': ', FORMAT(@interactions, 'N0'), N' interaction(s), ', FORMAT(@resources, 'N0'), N' accessed resource(s), ',
                       FORMAT(@sessions, 'N0'), N' session(s), ',
-                      FORMAT(@changes, 'N0'), N' licence change(s), ', FORMAT(@days, 'N0'), N' licensed user-day(s).');
+                      FORMAT(@changes, 'N0'), N' license change(s), ', FORMAT(@days, 'N0'), N' licensed user-day(s).');
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
     IF @skipped > 0
     BEGIN
         SET @msg = CONCAT(N'  ', FORMAT(@skipped, 'N0'), N' flattened row(s) have no timestamp and are not in bi.FactInteraction.');
         RAISERROR(@msg, 0, 1) WITH NOWAIT;
     END;
-    IF @LicenceEventDatabase IS NULL
-        RAISERROR('  No @LicenceEventDatabase: licence at the time of use comes from the enrichment''s LicensedSinceUtc only.', 0, 1) WITH NOWAIT;
+    IF @LicenseEventDatabase IS NULL
+        RAISERROR('  No @LicenseEventDatabase: license at the time of use comes from the enrichment''s LicensedSinceUtc only.', 0, 1) WITH NOWAIT;
 END;
 GO

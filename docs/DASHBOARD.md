@@ -11,7 +11,7 @@ It is an ASP.NET Core 10 (Razor Pages) site hosted in IIS on Windows Server 2022
 - [What each persona gets](#what-each-persona-gets)
 - [Who sees what](#who-sees-what)
 - [Periods](#periods)
-- [Premium use and the licence rules](#premium-use-and-the-licence-rules)
+- [Premium use and the license rules](#premium-use-and-the-license-rules)
 - [Saved views, events and hover text](#saved-views-events-and-hover-text)
 - [More than one tenant](#more-than-one-tenant)
 - [Long lists and exports](#long-lists-and-exports)
@@ -36,39 +36,39 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 | | Email | Ask for a weekly email of your own use; managers can stop their team digest | You | Only you |
 | | Saved views | The pages you saved with their period, scope and filters; one can be your start page | You | Only you |
 | Leadership | Overview | People using Copilot, licensed, adoption, active in the last 7 days; trends; adoption by the next level down | Scope, then one level down | No |
-| | Scorecard | This period against the one before it: people, adoption, licences, interactions and multi-turn sessions, and each unit one level down with its change | Scope, one level down | No |
+| | Scorecard | This period against the one before it: people, adoption, licenses, interactions and multi-turn sessions, and each unit one level down with its change | Scope, one level down | No |
 | | Organisation | Each unit one level down side by side: people, licensed, active, adoption, days active, interactions, multi-turn share, a trend line; heatmap of share active per week | One level down | No |
 | | Apps and agents | Interactions by app over time, Copilot Chat and agent share, most-used agents | Scope | No |
-| | Value and time saved | Estimated hours saved (interactions times the minutes each app saves) and their worth, by app and department, against the licence cost | Scope, app, department | No |
+| | Value and time saved | Estimated hours saved (interactions times the minutes each app saves) and their worth, by app and department, against the license cost | Scope, app, department | No |
 | | Use cases | What Copilot is used for (email, meetings, writing, analysis, research, agents...) from the app, web search and agent, by the rules in Admin › Classifications and events; over time and by department | Scope, department | No |
-| | Board pack | One printable page for the board: use and adoption against the period before, the trend, targets, estimated value against licence cost, licences and risk signals | Scope | No |
+| | Board pack | One printable page for the board: use and adoption against the period before, the trend, targets, estimated value against license cost, licenses and risk signals | Scope | No |
 | | Group overview | With several tenants: each tenant's people, adoption and interactions side by side, for the tenants the viewer can see | Tenant | No |
 | Adoption | Funnel and trend | Licensed → started → active → active this week → multi-turn; first-time users over time | Scope | No |
 | | Retention and habit | Of everyone active in a week, how many come back in each of the next eight weeks; how many of the last twelve weeks people used it | Weekly cohorts | No |
-| | Licence cohorts | Of the people licensed each month, the share active in weeks 1 to 12 after; time from licence to first use | Monthly cohorts | No |
+| | License cohorts | Of the people licensed each month, the share active in weeks 1 to 12 after; time from license to first use | Monthly cohorts | No |
 | | Departments | Licensed, active and adoption per AD department; small departments combined | Department | No |
 | | Leaderboard | Departments (or divisions, companies, countries, offices) ranked by adoption, with the change on the period before and the most improved | Attribute | No |
 | | Targets | Each adoption target against where it started, where it is now and where it should be by now | Target | No |
-| | New joiners | Days from getting a licence (or joining, with an Entra hire date) to first use; how many have not started; by department | Scope, department | No |
+| | New joiners | Days from getting a license (or joining, with an Entra hire date) to first use; how many have not started; by department | Scope, department | No |
 | | Drops and spikes | Days in the last two weeks when a department's use was far from its usual level for that weekday | Department, day | No |
 | | Not started | People licensed 14 days or more who have never used Copilot | Person | **Adoption** |
-| Licensing | Inventory | Licences held over time, assigned and removed, by SKU, idle licences by unit | Scope, SKU, unit | No |
-| | Unused licences | People holding a licence with no use for 7, 14, 30, 60 or 90 days, and when they last used it | Person | **Licensing** |
-| | Use ranking | Everyone ranked three ways: all use, free use (web Copilot Chat, agents) and Premium use; their Premium share and licence | Person | **Licensing** |
-| | Demand | Unlicensed Copilot Chat users over time and by department; the licence type each record reports; the list of them | Department; person | List: **Licensing** |
-| | Licence changes | Licences assigned and removed: how long each was held, whether it was taken from someone still using it, whether it came back, by department; who made the changes | Scope, department | Who made them: **Licensing** |
-| | Licence pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No (whole-organisation viewers or **Licensing**) |
-| | Chargeback | The monthly cost of the licences each department (or division, company, country, office) holds, its unused share, and the cost per person using Copilot | Attribute | No |
-| | Licences on disabled accounts | Licences held today by accounts disabled in AD or Entra, or gone from the directory; with the files to reclaim them | Person | **Licensing** |
+| Licensing | Inventory | Licenses held over time, assigned and removed, by SKU, idle licenses by unit | Scope, SKU, unit | No |
+| | Unused licenses | People holding a license with no use for 7, 14, 30, 60 or 90 days, and when they last used it | Person | **Licensing** |
+| | Use ranking | Everyone ranked three ways: all use, free use (web Copilot Chat, agents) and Premium use; their Premium share and license | Person | **Licensing** |
+| | Demand | Unlicensed Copilot Chat users over time and by department; the license type each record reports; the list of them | Department; person | List: **Licensing** |
+| | License changes | Licenses assigned and removed: how long each was held, whether it was taken from someone still using it, whether it came back, by department; who made the changes | Scope, department | Who made them: **Licensing** |
+| | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No (whole-organisation viewers or **Licensing**) |
+| | Chargeback | The monthly cost of the licenses each department (or division, company, country, office) holds, its unused share, and the cost per person using Copilot | Attribute | No |
+| | Licenses on disabled accounts | Licenses held today by accounts disabled in AD or Entra, or gone from the directory; with the files to reclaim them | Person | **Licensing** |
 | Security | Signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit | Scope, unit | No |
 | | Signals by unit | Signals per 1,000 interactions for each unit one level down, over time | Unit | No |
-| | Guests and external users | Copilot use by guest accounts, by home organisation: people, interactions, licences held here, signals; the named list for the Security role | Home organisation; person | List: **Security** |
+| | Guests and external users | Copilot use by guest accounts, by home organisation: people, interactions, licenses held here, signals; the named list for the Security role | Home organisation; person | List: **Security** |
 | | Flagged interactions | Each flagged interaction: when, who, app, agent, the signal and the Purview record id, with its triage (new, investigating, closed, false positive), owner and note | Interaction | **Security** |
 | Compliance | Sensitive content | Interactions with labelled content by label and over time; the sites that content lives on; sites Copilot was blocked from; everything it read, by type. Personal OneDrive sites are grouped | Scope, label, site, type | No |
 | | Labelled content by unit | The share of each unit's interactions that touched labelled content, over time; resources read by type and label | Unit, type, label | No |
 | | Oversharing hotspots | The sites Copilot read from, by how many people reached them through it, with how much of what it read was labelled and its most sensitive label | Site | No (people counts under the minimum group size hidden) |
 | | Resource access | Who worked with labelled content, how often, their most sensitive label, how many sites, how often blocked; filter by label | Person | **Compliance** |
-| | Person record | One person's directory and licence record and every interaction in the period with its record id, downloadable, for a data-subject request or an investigation. Open in privacy mode | Person | **Compliance** |
+| | Person record | One person's directory and license record and every interaction in the period with its record id, downloadable, for a data-subject request or an investigation. Open in privacy mode | Person | **Compliance** |
 | Agents | Agents | Every agent used: people, how many came back, interactions, first use, a trend line; the top six over time | Agent | No |
 | | Inventory | Every agent seen: where it was built, first and last use, people and interactions in the period, owner and friendly name | Agent | No |
 | | Build and publish | Copilot Studio agents created, published, shared, changed and deleted, from Copilot Studio's own audit records; each agent's lifecycle | Scope, agent | Makers: **Agents** |
@@ -81,12 +81,12 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 | | People | Named people in a segment: champions to recruit, one-off users to train | Person | **Enablement** |
 | Governance | Models and grounding | Model mix over time, web grounding, Copilot Chat against in-app, memory updates, calls to another agent, deferred DLP checks, distinct agents in use, agents known by source | Scope; organisation-wide for agents known | No |
 | | Controls | Memory updates, deferred data-loss checks and web grounding over time; web grounding by unit | Scope, unit | No |
-| Forecasting | Forecast | Licences held, licensed people using them, Copilot Chat demand, interactions and adoption, 13, 26 or 52 weeks ahead, with 95% intervals | Scope, weekly | No |
-| | Licence optimisation | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right licence count for the next quarter; the same by department | Scope, department | No |
+| Forecasting | Forecast | Licenses held, licensed people using them, Copilot Chat demand, interactions and adoption, 13, 26 or 52 weeks ahead, with 95% intervals | Scope, weekly | No |
+| | License optimisation | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right license count for the next quarter; the same by department | Scope, department | No |
 | | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No (whole-organisation viewers or **Licensing**) |
-| | Upgrade, train or revoke | The named people behind each recommendation, with the evidence: days and days with Premium use in the last 30, interactions, last use, licence age, the licence their records report; for upgrades and revokes, an Entra bulk-members file and a PowerShell script to apply them | Person | **Licensing** |
-| | Rollout waves | Everyone without a licence in the order to license them, split into waves, each with its own file and script | Person | **Licensing** |
-| | Licence action outcomes | Every licence export, whether it has been applied, licences reclaimed and new licences in use; who is still waiting | Export; person | **Licensing** |
+| | Upgrade, train or revoke | The named people behind each recommendation, with the evidence: days and days with Premium use in the last 30, interactions, last use, license age, the license their records report; for upgrades and revokes, an Entra bulk-members file and a PowerShell script to apply them | Person | **Licensing** |
+| | Rollout waves | Everyone without a license in the order to license them, split into waves, each with its own file and script | Person | **Licensing** |
+| | License action outcomes | Every license export, whether it has been applied, licenses reclaimed and new licenses in use; who is still waiting | Export; person | **Licensing** |
 | Regions | Countries and offices | Adoption by country, city and office; people using Copilot by country over time | Country, office | No |
 | | Working patterns | Interactions by weekday and hour; the share outside working hours; each app's shape through the day | Scope | No |
 | People | Workforce | Adoption by employee type, managers and individual contributors, level in the organisation and job title | Attribute | No |
@@ -115,7 +115,7 @@ A viewer can look inside any part of their own scope, one level at a time. The b
 | Admin | The admin module. **No usage data by itself.** |
 | Organization | The whole organisation's aggregates, at any level |
 | Adoption | Named people who were licensed but have not started |
-| Licensing | Named unused licences, unlicensed Copilot Chat users, the use ranking, rollout waves and licence action outcomes |
+| Licensing | Named unused licenses, unlicensed Copilot Chat users, the use ranking, rollout waves and license action outcomes |
 | Security | Named flagged interactions and their triage; named guests |
 | Compliance | Named people who worked with labelled content; personal OneDrive site names; one person's record |
 | Agents | Named users of an agent |
@@ -135,18 +135,18 @@ Every report has the same choice: the last **7, 14, 30, 90, 180 or 365 days**, e
 
 A few views set their own window, and each one says so on the page:
 
-- **Licence cohorts:** the last 12 months of licence starts.
-- **Unused licences:** today's licences against an idle time chosen on the page.
+- **License cohorts:** the last 12 months of license starts.
+- **Unused licenses:** today's licenses against an idle time chosen on the page.
 - **Agents known:** every agent the log has ever seen.
 
-## Premium use and the licence rules
+## Premium use and the license rules
 
-Every interaction made with a licence is either **Premium use**, which needed the licence, or **free use**, which the free tier gives:
+Every interaction made with a license is either **Premium use**, which needed the license, or **free use**, which the free tier gives:
 
 - **Premium:** Copilot inside Word, Excel, PowerPoint, Outlook or Teams; or Copilot Chat that read work content (files, mail, sites) rather than the web.
-- **Free:** web Copilot Chat, Copilot Studio agents (they can be paid for per use without a licence), and anything done without a licence.
+- **Free:** web Copilot Chat, Copilot Studio agents (they can be paid for per use without a license), and anything done without a license.
 
-The rollups keep both per person per day (`dash.UserDay.PremiumUse`), and `bi.Interactions.PremiumUse` carries the same flag to Power BI, so the two always agree. *Train* and *revoke* in Upgrade, train or revoke look at Premium use: a licence holder who only used web Copilot Chat in the last 30 days is a revocation candidate, with the reason given on the row. *Upgrade* looks at any use, since the people it names have no licence. Licensing › Use ranking ranks everyone by all three.
+The rollups keep both per person per day (`dash.UserDay.PremiumUse`), and `bi.Interactions.PremiumUse` carries the same flag to Power BI, so the two always agree. *Train* and *revoke* in Upgrade, train or revoke look at Premium use: a license holder who only used web Copilot Chat in the last 30 days is a revocation candidate, with the reason given on the row. *Upgrade* looks at any use, since the people it names have no license. Licensing › Use ranking ranks everyone by all three.
 
 The Chat-over-work-content part is an approximation from the audit record: an interaction that searched the web and also read work files counts as free. Until the rollups are rebuilt once with 2.3.0 (the installer does this), the rules count any use, as before, and the page says so.
 
@@ -166,15 +166,15 @@ A group with several Microsoft 365 tenants keeps each in its own database (loade
 
 **Forecast.** Each weekly series (the last 52 complete Saturday-to-Friday weeks in the viewer's scope) is projected with damped-trend exponential smoothing: Holt's method with the trend damped by 0.9 a week, its two smoothing parameters chosen by a grid search on the one-step error. Damping keeps a recent climb from being projected upward for ever, as rollouts level off. The shaded band is a 95% interval from the fitted error, widening with the horizon. It projects history: a planned rollout or reclaim will move it. A forecast needs 8 weeks of history.
 
-**Recommendations**, from the last 30 days and the price per licence in Admin › Access:
+**Recommendations**, from the last 30 days and the price per license in Admin › Access:
 
 | Recommendation | Who |
 |---|---|
-| Upgrade to Premium | No Premium licence, and used the free Copilot Chat on 6 or more of the last 30 days |
-| Train, then review | A Premium licence, used on only 1 or 2 of the last 30 days |
-| Revoke | A Premium licence held at least 30 days, with no use at all in the last 30 (or never) |
-| Revoke and reassign | As many revoke candidates as there are upgrade candidates: moving a licence costs nothing |
-| Right size for the next quarter | Licences for the people the forecast expects to use one each week in 13 weeks, plus 10%, plus today's upgrade candidates, against the licences held |
+| Upgrade to Premium | No Premium license, and used the free Copilot Chat on 6 or more of the last 30 days |
+| Train, then review | A Premium license, used on only 1 or 2 of the last 30 days |
+| Revoke | A Premium license held at least 30 days, with no use at all in the last 30 (or never) |
+| Revoke and reassign | As many revoke candidates as there are upgrade candidates: moving a license costs nothing |
+| Right size for the next quarter | Licenses for the people the forecast expects to use one each week in 13 weeks, plus 10%, plus today's upgrade candidates, against the licenses held |
 
 The named lists are on **Forecasting › Upgrade, train or revoke**, for the Licensing role; the recommendation cards link to them for people who hold it.
 
@@ -203,7 +203,7 @@ The site sends its own email, from a background task that runs every five minute
 
 Passwords and client secrets are stored in `dash.Secret`, encrypted by SQL Server (a symmetric key protected by a certificate and the database master key). The site's account reads them only through `dash.usp_GetSecret`; it cannot select the table. They are never shown again: leave the field empty to keep what is stored. Restored to another SQL Server instance, they cannot be decrypted: enter them again. **Send a test** sends one message and shows the server's answer; everything sent, and anything that could not be, is listed with the reason.
 
-**Alerts** (Admin › Alerts and digests), each to its own recipients, posted to the webhook if one is set, and each written to the Windows Application log under the source *Copilot Insights* (event 1001 pipeline, 1002 stale data, 1003 certificate, 2001 security, 3001 drops and spikes, 4001 licence pool, 4002 licences on disabled accounts, 5001 new agents), for a SIEM to collect:
+**Alerts** (Admin › Alerts and digests), each to its own recipients, posted to the webhook if one is set, and each written to the Windows Application log under the source *Copilot Insights* (event 1001 pipeline, 1002 stale data, 1003 certificate, 2001 security, 3001 drops and spikes, 4001 license pool, 4002 licenses on disabled accounts, 5001 new agents), for a SIEM to collect:
 
 | Alert | When |
 |---|---|
@@ -212,8 +212,8 @@ Passwords and client secrets are stored in `dash.Secret`, encrypted by SQL Serve
 | App certificate | The certificate the pipeline signs in to Graph with expires within *CertificateWarnDays* (30), then again at 14 and 3 days, and when it has expired. |
 | Security signals | After each refresh, for the last complete day: jailbreak attempts, prompt injections, blocked resources, and interactions touching content at or above a label order, when a day reaches its threshold or is the set number of times its 28-day average. |
 | Drops and spikes | A department's day at least 50% below, or 200% above, its average for that weekday over the four weeks before. Departments smaller than the minimum group size are not judged. |
-| Licence pool | 95% of the Copilot seats bought are assigned. Once a week while it lasts. |
-| Licences on disabled accounts | More of them than at the last check. |
+| License pool | 95% of the Copilot seats bought are assigned. Once a week while it lasts. |
+| Licenses on disabled accounts | More of them than at the last check. |
 | New agents | An agent used for the first time. |
 
 An alert fires once per occurrence (`dash.AlertState` remembers what it last saw). The very first check notes where things stand rather than announcing every existing agent and leaver. **Run the checks now** runs a round at once and says what it did.
@@ -228,7 +228,7 @@ A manager or personal digest that fails is tried again an hour later, three time
 
 **The webhook**: every alert is also posted to one https address, stored encrypted like the email password: to Teams as an adaptive card (a Workflows "post to a channel when a webhook request is received" address, or an incoming webhook), or as JSON (`source`, `kind`, `subject`, `lines`, `link`, `atUtc`) for ServiceNow, Splunk or anything else. Addresses on this server or link-local ones are refused.
 
-**Scheduled extracts** (Admin › Scheduled extracts) write aggregate CSV files to a folder or share, daily, weekly or monthly: department by week (groups under the minimum size hidden), daily totals, apps by week, the licence pool, agents by week (agents with fewer users than the minimum group size left out). No extract names a person.
+**Scheduled extracts** (Admin › Scheduled extracts) write aggregate CSV files to a folder or share, daily, weekly or monthly: department by week (groups under the minimum size hidden), daily totals, apps by week, the license pool, agents by week (agents with fewer users than the minimum group size left out). No extract names a person.
 
 ## Targets, value, training and champions
 
@@ -240,9 +240,9 @@ A manager or personal digest that fails is tried again an hour later, three time
 
 **Champions**: Enablement › Champions suggests the most regular and broadest users in each department (days active, then apps used, then back-and-forth conversations), as many per department as set. It is a named list, for the Enablement role.
 
-**Licence exports**: Upgrade, train or revoke, Licences on disabled accounts and Rollout waves offer the list as an **Entra bulk add or remove members file** (Groups › Bulk operations) and as a **PowerShell script** for a licence administrator to review and run with their own rights. With the Object id of the group that assigns Copilot licences set in Admin › Targets and assumptions, the script adds and removes its members; without it, it assigns or removes the SKU itself. The script confirms each change and takes `-WhatIf`. The dashboard changes nothing in Entra. Each export is recorded (`dash.LicenceAction`) so Forecasting › Licence action outcomes can show whether it was applied and what followed.
+**License exports**: Upgrade, train or revoke, Licenses on disabled accounts and Rollout waves offer the list as an **Entra bulk add or remove members file** (Groups › Bulk operations) and as a **PowerShell script** for a license administrator to review and run with their own rights. With the Object id of the group that assigns Copilot licenses set in Admin › Targets and assumptions, the script adds and removes its members; without it, it assigns or removes the SKU itself. The script confirms each change and takes `-WhatIf`. The dashboard changes nothing in Entra. Each export is recorded (`dash.LicenseAction`) so Forecasting › License action outcomes can show whether it was applied and what followed.
 
-**Contracts** (entered by an administrator on Forecasting › Budget and renewal): each agreement's seats, price and renewal date. The page compares them with the seats the use supports: seats assigned today, less licences to revoke and on disabled accounts, plus people ready to upgrade.
+**Contracts** (entered by an administrator on Forecasting › Budget and renewal): each agreement's seats, price and renewal date. The page compares them with the seats the use supports: seats assigned today, less licenses to revoke and on disabled accounts, plus people ready to upgrade.
 
 **Classifications** (Admin › Classifications and events): job-title patterns to job families (People › Job families), and app, web-search and agent patterns to use cases (Leadership › Use cases). The first matching rule by priority wins; both apply at once, to past data too, and to Power BI through `bi.JobFamilies` and `bi.UseCases`.
 
@@ -252,16 +252,16 @@ A manager or personal digest that fails is tried again an hour later, three time
 
 - every page, export, digest and API call that names people is refused, and hidden from the navigation. My Copilot still shows each person their own use, and Compliance › Person record stays open to the Compliance role, for data-subject requests;
 - Power BI's `bi.Users` shows a salted hash (`P-…`) instead of every name, sign-in, manager and org level, the same for the same person everywhere, so counts and org slicing still work;
-- `bi.OrgSecurity` is empty (its rows would pair real sign-ins with the pseudonyms), and OneDrive site names and the administrators in `bi.LicenceChanges` are hidden;
+- `bi.OrgSecurity` is empty (its rows would pair real sign-ins with the pseudonyms), and OneDrive site names and the administrators in `bi.LicenseChanges` are hidden;
 - `bi.DepartmentWeek` gives weekly department figures with any group under the minimum size hidden, for a model that must not show individuals.
 
 **Retention**, applied each night after a successful run and on demand: the dashboard's audit log (730 days by default), the notification log (365), and the stored JSON of old records (off by default; at least 200 days, since past Purview's 180 days it cannot be fetched again; the reports keep working without it).
 
 ## Value names
 
-The audit log records many things as codes: sensitivity label ids, the tenant id, app and agent ids, Fabric capacities, licence types, model names. The flatten keeps a catalogue of every distinct value of 23 such columns (`audit.ValueCatalog`); a column that passes 10,000 distinct values stops collecting and is marked capped, since a list that long is not one to name by hand.
+The audit log records many things as codes: sensitivity label ids, the tenant id, app and agent ids, Fabric capacities, license types, model names. The flatten keeps a catalogue of every distinct value of 23 such columns (`audit.ValueCatalog`); a column that passes 10,000 distinct values stops collecting and is marked capped, since a list that long is not one to name by hand.
 
-**Admin › Value names** lists the columns and their values, most seen or unnamed first, with a name and a note for each. **Download** writes a column's values and names to a CSV to fill in; **Upload** reads it back (column id, value, name, note; an empty name removes one). Names show on the dashboard's pages where those codes appear (apps, models, resource types, licence types, agents called) and in Power BI through `bi.ValueNames`. Label names are shared with Admin › Reference data, where their order is set, and agent names with its agent aliases. The same from PowerShell:
+**Admin › Value names** lists the columns and their values, most seen or unnamed first, with a name and a note for each. **Download** writes a column's values and names to a CSV to fill in; **Upload** reads it back (column id, value, name, note; an empty name removes one). Names show on the dashboard's pages where those codes appear (apps, models, resource types, license types, agents called) and in Power BI through `bi.ValueNames`. Label names are shared with Admin › Reference data, where their order is set, and agent names with its agent aliases. The same from PowerShell:
 
 ```powershell
 .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQL01 -Task ListValues -ColumnId 16 -Path models.csv
@@ -278,11 +278,11 @@ The audit log records many things as codes: sensitivity label ids, the tenant id
 | `/api/v1/usage` | totals and the trend | data to see |
 | `/api/v1/units` | each unit one level down, small ones combined | data to see |
 | `/api/v1/security` | security signals by day or week | data to see |
-| `/api/v1/licence-pool` | seats bought and assigned per SKU | data to see |
+| `/api/v1/license-pool` | seats bought and assigned per SKU | data to see |
 | `/api/v1/value` | hours saved and their worth, by app and department | data to see |
 | `/api/v1/targets` | each target and where it stands | data to see |
-| `/api/v1/licence-actions?kind=upgrade\|train\|revoke` | the people behind a recommendation | **Licensing** |
-| `/api/v1/leavers` | licences on disabled or departed accounts | **Licensing** |
+| `/api/v1/license-actions?kind=upgrade\|train\|revoke` | the people behind a recommendation | **Licensing** |
+| `/api/v1/leavers` | licenses on disabled or departed accounts | **Licensing** |
 | `/api/v1/health` | pipeline runs and freshness | **Admin** |
 
 Every call is in the audit log (kind *Api*); refusals answer 403 with the reason. Named endpoints are refused in privacy mode. Admin › Privacy and retention can turn the API off (it then answers 404). A script calls it as its own Windows account, for example `Invoke-RestMethod https://insights.contoso.com/api/v1/usage?d=30 -UseDefaultCredentials`.
@@ -382,7 +382,7 @@ Admin shows no usage data by itself. An administrator who should also see the re
 - the latest day with data;
 - the last ten dashboard refreshes.
 
-**Admin › Access.** The settings (top of the organisation, minimum group size, default period, unused-after days, and what a licence costs a month and in which currency, for the licence recommendations), granting and removing roles, and checking one person's effective access. A new top of the organisation takes effect at once.
+**Admin › Access.** The settings (top of the organisation, minimum group size, default period, unused-after days, and what a license costs a month and in which currency, for the license recommendations), granting and removing roles, and checking one person's effective access. A new top of the organisation takes effect at once.
 
 **Admin › Reference data.** Friendly names and owners for agents, which the audit log names by schema name. Names and sensitivity order for labels, which it records by id only (`Get-Label` lists them). Which apps count as Copilot Chat.
 
@@ -394,7 +394,7 @@ Every admin change needs the Admin role and a valid anti-forgery token, and is w
 
 ## Trying it on a demo database
 
-`dashboard/demo/New-InsightsDemo.ps1` builds a synthetic company: 2,317 people in six divisions, with six months of Copilot use, licences, agents, labels and a few security signals. It builds it with the repository's own scripts, exactly as an install would. It also grants one director each persona role.
+`dashboard/demo/New-InsightsDemo.ps1` builds a synthetic company: 2,317 people in six divisions, with six months of Copilot use, licenses, agents, labels and a few security signals. It builds it with the repository's own scripts, exactly as an install would. It also grants one director each persona role.
 
 ```powershell
 .\dashboard\demo\New-InsightsDemo.ps1 -SqlServer localhost -Database CopilotInsightsDemo -TrustServerCertificate -Force -Admins 'CONTOSO\me'

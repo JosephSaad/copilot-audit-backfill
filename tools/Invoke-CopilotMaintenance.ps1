@@ -8,7 +8,7 @@
                                the dashboard (after a flattening change).
     -Task RebuildSessions      Rebuild every session (after a session setting changes), then
                                bring bi and the dashboard up to date.
-    -Task RebuildBi            Rebuild bi in full (after a time-zone change, licence history
+    -Task RebuildBi            Rebuild bi in full (after a time-zone change, license history
                                arriving late, or a purge of flattened rows), then the dashboard.
     -Task RefreshDashboard     Rebuild the dashboard's org chart, and its rollups from -SinceUtc
                                (every day when omitted).
@@ -48,7 +48,7 @@
 param(
     [Parameter(Mandatory)][string] $SqlServer,
     [string] $Database = 'CopilotAudit',
-    [string[]] $LicenceEventDatabases = @('CopilotLicenseEvents'),
+    [string[]] $LicenseEventDatabases = @('CopilotLicenseEvents'),
     [pscredential] $SqlCredential,
     [switch] $TrustServerCertificate,
     [Parameter(Mandatory)]
@@ -64,7 +64,7 @@ param(
     [ValidateSet('User', 'Group')][string] $PrincipalType,
     [string] $Upn,
     [switch] $Clear,
-    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenceMonthlyCost', 'LicenceCurrency')][string] $Name,
+    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenseMonthlyCost', 'LicenseCurrency')][string] $Name,
     [string] $Value,
     [string] $AgentId,
     [string] $FriendlyName,
@@ -84,7 +84,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$licList = if ($LicenceEventDatabases) { $LicenceEventDatabases -join ',' } else { $null }
+$licList = if ($LicenseEventDatabases) { $LicenseEventDatabases -join ',' } else { $null }
 $me = "$env:USERDOMAIN\$env:USERNAME"
 
 function Invoke-Sql {
@@ -111,7 +111,7 @@ function Need([string] $what, $value) { if (-not $value) { throw "-Task $Task ne
 function Update-Dashboard([object] $since) {
     if (Test-Proc 'dash.usp_RefreshDashboard') { Invoke-Sql -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since } }
 }
-function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenceEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
+function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
 
 switch ($Task) {
     'Status' {
@@ -131,11 +131,11 @@ UNION ALL SELECT 'Record shapes', CASE WHEN OBJECT_ID(N'audit.RawLogRecordShape'
     }
     'Reflatten' {
         Invoke-Sql -Sql 'EXEC audit.usp_FlattenCopilotAudit;'
-        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
         Update-Bi $null; Update-Dashboard $null
     }
     'RebuildSessions' {
-        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
         # After a full session build bi copies every session again; interactions from today on only.
         Update-Bi ([datetime]::UtcNow.Date); Update-Dashboard $null
     }
@@ -149,7 +149,7 @@ IF @@ROWCOUNT = 0 INSERT INTO audit.SessionAppCategory (App, AppCategory) VALUES
 "@
         Write-Host "$App is $Category."
         if ($Apply) {
-            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
             Update-Bi $null; Update-Dashboard $null
         }
         else { Write-Host 'It applies from the next load; add -Apply to rebuild sessions and bi with it now.' }

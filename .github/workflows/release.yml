@@ -150,10 +150,10 @@ jobs:
             '  Copyright : (c) Microsoft Corporation. All rights reserved.'
             '  Source    : https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication'
             '  Project   : https://github.com/microsoftgraph/msgraph-sdk-powershell'
-            '  Licence   : https://aka.ms/devservicesagreement'
+            '  License   : https://aka.ms/devservicesagreement'
             ''
             'It is redistributed here only so the tool can be installed on a disconnected'
-            "server. Microsoft's licence terms govern that module; this project's MIT"
+            "server. Microsoft's license terms govern that module; this project's MIT"
             'LICENSE covers only the files outside the Modules folder.'
             'Modules/MODULES-MANIFEST.csv lists a SHA-256 for every bundled file.'
             ''

@@ -49,7 +49,7 @@ namespace CopilotInsights.Pages.Adoption
         public static string Label(string metric) => metric switch { "Adoption" => "Adoption", "ActiveShare" => "Share of people active", _ => "People active" };
     }
 
-    /// <summary>New joiners: how long from getting a licence (or joining) to first using Copilot.</summary>
+    /// <summary>New joiners: how long from getting a license (or joining) to first using Copilot.</summary>
     public sealed class OnboardingModel(PageServices s) : InsightsPage(s)
     {
         public override string Title => "New joiners";
@@ -70,7 +70,7 @@ namespace CopilotInsights.Pages.Adoption
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Dept, CAST(du.LicensedSinceUtc AS DATE) AS Since, du.UserKey
 INTO #c
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.CopilotLicenceToday = N'Licensed' AND du.LicensedSinceUtc >= @d0 AND du.LicensedSinceUtc < DATEADD(DAY, 1, @d1) AND ISNULL(du.AccountEnabled, 1) = 1;
+WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc >= @d0 AND du.LicensedSinceUtc < DATEADD(DAY, 1, @d1) AND ISNULL(du.AccountEnabled, 1) = 1;
 SELECT c.Dept, DATEDIFF(DAY, c.Since, (SELECT MIN(d.[Date]) FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
                                       WHERE ud.UserKey = c.UserKey AND ud.Interactions > 0 AND d.[Date] >= c.Since)) AS Days
 FROM #c AS c;", Ctx.Args());
@@ -89,12 +89,12 @@ FROM #h AS h;", Ctx.Args());
             var started = licensed.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList();
             Kpis.Add(new("Licensed in the period", Num(licensed.Count)));
             Kpis.Add(new("Have used it", Num(started.Count), licensed.Count > 0 ? Pct(Ratio(started.Count, licensed.Count)) : null));
-            Kpis.Add(new("Median days to first use", started.Count >= Ctx.MinGroupSize ? $"{started[started.Count / 2]}" : "—", "from the licence"));
+            Kpis.Add(new("Median days to first use", started.Count >= Ctx.MinGroupSize ? $"{started[started.Count / 2]}" : "—", "from the license"));
             Kpis.Add(new("Not started yet", Num(licensed.Count - started.Count), null, licensed.Count - started.Count > 0 ? "warn" : null));
 
             List<Bar> Dist(List<Row> rows) => Bands.Select(b => new Bar(b.Label, rows.Count(r => r.Days is int d && d >= b.Lo && d <= b.Hi), Slot: 3))
                 .Append(new Bar("Not yet", rows.Count(r => r.Days is null), Slot: 5)).ToList();
-            Panels.Add(new("From licence to first use", Chart.Bars(Dist(licensed), Fmt.Count, "Days from licence to first use"),
+            Panels.Add(new("From license to first use", Chart.Bars(Dist(licensed), Fmt.Count, "Days from license to first use"),
                 "People licensed in the period, by how soon they first used Copilot. The Adoption role sees who has not started (Adoption > Not started).", "half"));
             if (hired.Count > 0)
                 Panels.Add(new("From hire to first use", Chart.Bars(Dist(hired), Fmt.Count, "Days from hire to first use"),
@@ -107,7 +107,7 @@ FROM #h AS h;", Ctx.Args());
             var tb = new Table { Headers = ["Department", "Licensed in the period", "Have used it", "Median days to first use"], Numeric = new HashSet<int> { 1, 2, 3 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Started, d.Median.Count >= Ctx.MinGroupSize ? d.Median[d.Median.Count / 2] : null]);
             if (small.Count > 0) tb.Rows.Add(["Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Started), null]);
-            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{small.Count} department(s) with fewer than {Ctx.MinGroupSize} new licences are combined." : null));
+            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{small.Count} department(s) with fewer than {Ctx.MinGroupSize} new licenses are combined." : null));
         }
     }
 
@@ -158,16 +158,16 @@ namespace CopilotInsights.Pages.Leadership
         protected override async Task BuildAsync()
         {
             var v = await reports.ValueAsync(Ctx);
-            var cur = await S.Settings.StringAsync("LicenceCurrency") ?? "USD";
-            var price = decimal.TryParse(await S.Settings.StringAsync("LicenceMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
+            var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
+            var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
             var t = await HttpContext.RequestServices.GetRequiredService<Metrics>().TotalsAsync(Ctx);
             var hours = v.ByApp.Sum(x => x.Hours);
             var value = v.ByApp.Sum(x => x.Value);
-            var licenceCost = t.LicensedNow * price * (decimal)(Ctx.Days / 30.4);
+            var licenseCost = t.LicensedNow * price * (decimal)(Ctx.Days / 30.4);
             Kpis.Add(new("Hours saved (estimate)", Num(hours), $"{v.DefaultMinutes:0.#} minutes an interaction unless set per app"));
             Kpis.Add(new($"Worth ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour"));
             Kpis.Add(new("Per person using Copilot", t.Active > 0 ? $"{hours / t.Active:0.#} h" : "—", "in the period"));
-            Kpis.Add(new("Against the licence cost", licenceCost > 0 ? $"{value / licenceCost:0.#}×" : "—", $"licences for the period: {licenceCost:#,0} {cur}"));
+            Kpis.Add(new("Against the license cost", licenseCost > 0 ? $"{value / licenseCost:0.#}×" : "—", $"licenses for the period: {licenseCost:#,0} {cur}"));
             Panels.Add(new("Hours saved by app", Chart.Bars(v.ByApp.Take(12).Select(a => new Bar(a.Name, a.Hours, Note: $"{a.Interactions:#,0} interactions")).ToList(), Fmt.Count, "Hours saved by app"),
                 "Set the minutes each app saves in Admin > Targets and assumptions.", "half"));
             var shown = v.ByDepartment.Where(d => d.People >= Ctx.MinGroupSize).ToList();

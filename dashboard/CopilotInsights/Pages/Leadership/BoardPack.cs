@@ -6,12 +6,12 @@ using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Pages.Leadership;
 
-/// <summary>One page to print for the board or the steering group: the headline figures, the trend, targets, value, licences and risk.</summary>
+/// <summary>One page to print for the board or the steering group: the headline figures, the trend, targets, value, licenses and risk.</summary>
 public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports reports, OpsData ops) : InsightsPage(s)
 {
     public override string Title => "Board pack";
     public override string Persona => "Leadership";
-    public override string Intro => "The programme on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licences and risk signals. Print it, or save it as a PDF from the print dialog. Aggregates only.";
+    public override string Intro => "The programme on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licenses and risk signals. Print it, or save it as a PDF from the print dialog. Aggregates only.";
 
     protected override async Task BuildAsync()
     {
@@ -22,7 +22,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         Kpis.Add(new("People using Copilot", Num(t.Active), Change(t.Active, p.Active)));
         Kpis.Add(new("Adoption", Pct(Adopt(t)), Adopt(p) is double a0 && Adopt(t) is double a1 ? $"{(a1 - a0) * 100:+0.#;-0.#;0} points" : "of licensed people"));
         Kpis.Add(new("Interactions", Num(t.Interactions), Change(t.Interactions, p.Interactions)));
-        Kpis.Add(new("Licences", Num(t.LicensedNow), $"{t.ActiveLicensed:#,0} used in the period"));
+        Kpis.Add(new("Licenses", Num(t.LicensedNow), $"{t.ActiveLicensed:#,0} used in the period"));
 
         Panels.Add(new("Print", new HtmlString(
             "<button type=\"button\" class=\"btn\" data-print>Print or save as PDF</button>" +
@@ -47,27 +47,27 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         }
 
         var v = await reports.ValueAsync(Ctx);
-        var cur = await S.Settings.StringAsync("LicenceCurrency") ?? "USD";
-        var price = decimal.TryParse(await S.Settings.StringAsync("LicenceMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
+        var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
+        var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
         var hours = v.ByApp.Sum(x => x.Hours);
         var worth = v.ByApp.Sum(x => x.Value);
         var cost = t.LicensedNow * price * Ctx.Days / 30m;
         Panels.Add(new("Estimated value", new HtmlString(
             $"<div class=\"kpis\"><div class=\"kpi\"><div class=\"klabel\">Hours saved (estimate)</div><div class=\"kvalue\">{hours:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Worth ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
-            $"<div class=\"kpi\"><div class=\"klabel\">Licence cost in the period ({E(cur)})</div><div class=\"kvalue\">{cost:#,0}</div></div>" +
+            $"<div class=\"kpi\"><div class=\"klabel\">License cost in the period ({E(cur)})</div><div class=\"kvalue\">{cost:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Return</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
             $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organisation's own assumptions (Admin > Targets and assumptions).", "half"));
 
         var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
         var counts = await reports.ActionCountsAsync(Ctx);
-        var lt = new Table { Headers = ["Licences", ""], Numeric = new HashSet<int> { 1 } };
+        var lt = new Table { Headers = ["Licenses", ""], Numeric = new HashSet<int> { 1 } };
         if (pool.Count > 0) { lt.Rows.Add(["Bought", pool.Sum(x => x.Bought)]); lt.Rows.Add(["Assigned", pool.Sum(x => x.Consumed)]); }
         lt.Rows.Add(["Held in scope", t.LicensedNow]);
         lt.Rows.Add(["Used in the period", t.ActiveLicensed]);
         lt.Rows.Add(["Unused for 30 days, to revoke", counts.GetValueOrDefault("revoke")]);
         lt.Rows.Add(["Free Copilot Chat users ready to upgrade", counts.GetValueOrDefault("upgrade")]);
-        Panels.Add(new("Licences", lt.Render(), $"At {price:#,0.##} {cur} a licence a month, the unused licences cost {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month.", "half"));
+        Panels.Add(new("Licenses", lt.Render(), $"At {price:#,0.##} {cur} a license a month, the unused licenses cost {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month.", "half"));
 
         var rp = await metrics.TrendAsync(prev);
         var rt = new Table { Headers = ["Risk signal", "This period", "Period before"], Numeric = new HashSet<int> { 1, 2 } };
@@ -81,7 +81,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         if (units.Count > 1)
             Panels.Add(new("Adoption by unit", Chart.Bars(units.OrderByDescending(u => (double)u.ActiveLicensed / u.Licensed).Take(12)
                 .Select(u => new Bar(u.Name, (double)u.ActiveLicensed / u.Licensed, Note: $"{u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by unit", 1),
-                "Units with at least the minimum group size of people and licences.", "half"));
+                "Units with at least the minimum group size of people and licenses.", "half"));
     }
 }
 

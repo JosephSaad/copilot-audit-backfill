@@ -10,7 +10,7 @@
     sets the CEO as the top of the organisation, names the demo's agents and
     sensitivity labels, and grants a persona role to one person per persona,
     so every page and the security model can be tried as each of them. It also
-    adds a licence pool, pipeline runs (one failed), training records, targets
+    adds a license pool, pipeline runs (one failed), training records, targets
     and a digest, for the operations pages.
 
     Point the dashboard's connection string at this database. To see it as one
@@ -86,13 +86,13 @@ try {
         $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoData.sql') -Raw
         $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
         $r = $t.Rows[0]
-        Write-Host ("   {0:N0} people, {1:N0} licensed today, {2:N0} licence events, {3:N0} sessions, {4:N0} interactions by {5:N0} people" -f `
-                    $r.People, $r.LicensedToday, $r.LicenceEvents, $r.Sessions, $r.Interactions, $r.ActiveEver)
+        Write-Host ("   {0:N0} people, {1:N0} licensed today, {2:N0} license events, {3:N0} sessions, {4:N0} interactions by {5:N0} people" -f `
+                    $r.People, $r.LicensedToday, $r.LicenseEvents, $r.Sessions, $r.Interactions, $r.ActiveEver)
     }
     $conn.Dispose(); $conn = Get-Conn $Database   # a fresh session: no temp tables left over from the seed
-    Step 'Sessions' { Invoke-Batches $conn "EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'$Database';" }
-    Step 'bi star schema' { Invoke-Batches $conn "EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'$Database';" }
-    Step 'Licence pool, pipeline runs, training and targets' {
+    Step 'Sessions' { Invoke-Batches $conn "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N'$Database';" }
+    Step 'bi star schema' { Invoke-Batches $conn "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$Database';" }
+    Step 'License pool, pipeline runs, training and targets' {
         Invoke-Batches $conn (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoOperations.sql') -Raw)
     }
     Step 'Dashboard settings, names and demo roles' {

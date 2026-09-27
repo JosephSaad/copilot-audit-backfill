@@ -154,7 +154,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
     static readonly (string Key, string Label)[] Recipients =
     [
         ("AlertAdminTo", "Pipeline failures and stale data"), ("AlertSecurityTo", "Security signals"),
-        ("AlertLicensingTo", "Licence pool running out; licences on disabled accounts"), ("AlertAdoptionTo", "Drops and spikes in use"),
+        ("AlertLicensingTo", "License pool running out; licenses on disabled accounts"), ("AlertAdoptionTo", "Drops and spikes in use"),
         ("AlertAgentsTo", "Agents used for the first time"),
     ];
 
@@ -164,7 +164,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         ("AlertInjectionPerDay", "Prompt injections a day (0 off)", 0, 100000), ("AlertBlockedPerDay", "Blocked-resource interactions a day (0 off)", 0, 1000000),
         ("AlertLabelPerDay", "Interactions with sensitive labels a day", 1, 1000000), ("AlertSpikeFactor", "A signal spikes at (times its average)", 0, 100),
         ("AnomalyDropPercent", "A drop is at least (% below usual)", 0, 100), ("AnomalySpikePercent", "A spike is at least (% above usual)", 0, 10000),
-        ("PoolWarnPercent", "The licence pool is running out at (% assigned)", 50, 100),
+        ("PoolWarnPercent", "The license pool is running out at (% assigned)", 50, 100),
         ("CertificateWarnDays", "Warn about the app certificate (days before it expires)", 7, 120),
     ];
 
@@ -374,7 +374,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
 public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Targets and assumptions";
-    public override string Intro => "The adoption targets progress is measured against, the minutes an interaction saves in each app and what an hour is worth, and the licensing group the licence exports use.";
+    public override string Intro => "The adoption targets progress is measured against, the minutes an interaction saves in each app and what an hour is worth, and the licensing group the license exports use.";
 
     protected override async Task BuildAsync()
     {
@@ -401,14 +401,14 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 Input("minutes", "Minutes (empty: the default)", a.Minutes?.ToString("0.##", CultureInfo.InvariantCulture), 5) + Button("Save", quiet: true)))]);
         Panels.Add(new("Time saved", new HtmlString(Form("value",
             Input("MinutesSavedDefault", "Minutes one interaction saves (default)", V("MinutesSavedDefault"), 5) +
-            Input("HourlyCost", $"What an hour is worth ({V("LicenceCurrency")})", V("HourlyCost"), 6) + Button("Save")) + at.Render().Value),
+            Input("HourlyCost", $"What an hour is worth ({V("LicenseCurrency")})", V("HourlyCost"), 6) + Button("Save")) + at.Render().Value),
             "Your organisation's own estimates, from a survey or a pilot: every figure on Leadership > Value follows them. Microsoft's and analysts' published studies are a starting point, not a measurement of your tenant."));
 
         Panels.Add(new("Licensing and champions", new HtmlString(Form("licensing",
-            Input("LicenceGroupId", "Object id of the Entra group that assigns Copilot licences (empty if licences are assigned directly)", V("LicenceGroupId"), 38) +
+            Input("LicenseGroupId", "Object id of the Entra group that assigns Copilot licenses (empty if licenses are assigned directly)", V("LicenseGroupId"), 38) +
             Input("ChampionsPerDepartment", "Champions to suggest per department", V("ChampionsPerDepartment"), 4, "number") +
             Input("RolloutWaveSize", "People in a rollout wave", V("RolloutWaveSize"), 6, "number") + Button("Save"))),
-            "With a group, the licence exports add and remove its members; without one, they assign or remove the licence itself. The licence price is in Admin > Access.", "half"));
+            "With a group, the license exports add and remove its members; without one, they assign or remove the license itself. The license price is in Admin > Access.", "half"));
     }
 
     public Task<IActionResult> OnPostTargetAsync(string? root, string? metric, string? value, DateTime? start, DateTime? due, string? note) => AdminChangeAsync(async () =>
@@ -453,12 +453,12 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.TimeSaving (App, Minutes, UpdatedBy) VALUES (
         return $"{app}: {m:0.##} minutes an interaction.";
     });
 
-    public Task<IActionResult> OnPostLicensingAsync(string? LicenceGroupId, string? ChampionsPerDepartment, string? RolloutWaveSize) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostLicensingAsync(string? LicenseGroupId, string? ChampionsPerDepartment, string? RolloutWaveSize) => AdminChangeAsync(async () =>
     {
-        if (!string.IsNullOrWhiteSpace(LicenceGroupId) && !Guid.TryParse(LicenceGroupId, out _)) throw new ArgumentException("the group's object id is a GUID.");
+        if (!string.IsNullOrWhiteSpace(LicenseGroupId) && !Guid.TryParse(LicenseGroupId, out _)) throw new ArgumentException("the group's object id is a GUID.");
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, new Dictionary<string, string?>
         {
-            ["LicenceGroupId"] = LicenceGroupId, ["ChampionsPerDepartment"] = SettingWriter.Int(ChampionsPerDepartment, "Champions per department", 1, 20).ToString(CultureInfo.InvariantCulture),
+            ["LicenseGroupId"] = LicenseGroupId, ["ChampionsPerDepartment"] = SettingWriter.Int(ChampionsPerDepartment, "Champions per department", 1, 20).ToString(CultureInfo.InvariantCulture),
             ["RolloutWaveSize"] = SettingWriter.Int(string.IsNullOrWhiteSpace(RolloutWaveSize) ? "50" : RolloutWaveSize, "People in a wave", 1, 100000).ToString(CultureInfo.InvariantCulture),
         }));
     });
@@ -529,7 +529,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
 public sealed class ValuesModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Value names";
-    public override string Intro => "Readable names for the codes the audit log records: label ids, tenant, app and agent ids, capacities, licence types. Every column here has fewer than 10,000 distinct values; names show in the dashboard and in Power BI (bi.ValueNames).";
+    public override string Intro => "Readable names for the codes the audit log records: label ids, tenant, app and agent ids, capacities, license types. Every column here has fewer than 10,000 distinct values; names show in the dashboard and in Power BI (bi.ValueNames).";
 
     sealed class ColRow
     {

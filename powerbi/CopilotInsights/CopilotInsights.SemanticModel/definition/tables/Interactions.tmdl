@@ -17,28 +17,28 @@ table Interactions
 		formatString: #,0
 		lineageTag: 37013666-45f2-5390-be40-388d82fea6e8
 
-	/// People who used Copilot with a licence in the period and still hold one at its end: always part of Licensed users, so adoption cannot pass 100% when licences are removed mid-period (the dashboard's rule).
+	/// People who used Copilot with a license in the period and still hold one at its end: always part of Licensed users, so adoption cannot pass 100% when licenses are removed mid-period (the dashboard's rule).
 	measure 'Active licensed users' =
 			VAR HeldAtEnd =
 			    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
 			        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
 			RETURN
-			    CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",
+			    CALCULATE ( [Active users], LicenseStatuses[LicenseStatus] = "Licensed",
 			        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )
 		formatString: #,0
 		lineageTag: 8796e483-fa2e-55d0-84a7-edd87daf8c31
 
-	/// Interactions that needed the Premium licence.
+	/// Interactions that needed the Premium license.
 	measure 'Premium interactions' = CALCULATE ( [Interactions], Interactions[PremiumUse] = TRUE () )
 		formatString: #,0
 		lineageTag: 21e2677b-9810-54dc-8f8c-f2d4ddc6730b
 
-	/// Interactions the free tier covers: web Copilot Chat, agents, and use without a licence.
+	/// Interactions the free tier covers: web Copilot Chat, agents, and use without a license.
 	measure 'Free interactions' = [Interactions] - [Premium interactions]
 		formatString: #,0
 		lineageTag: 2a30f28d-297e-5b35-a249-f3bde50a0300
 
-	/// The share of interactions that needed the Premium licence.
+	/// The share of interactions that needed the Premium license.
 	measure 'Premium share' = DIVIDE ( [Premium interactions], [Interactions] )
 		formatString: 0.0%
 		lineageTag: 3c8de5fc-a908-5b1b-b0f7-18c85dc568a2
@@ -62,7 +62,7 @@ table Interactions
 		formatString: #,0
 		lineageTag: 278a2cf2-a8b7-5e5a-966c-94a139f2540a
 
-	/// The person's rank by use that needed the Premium licence. A licence holder low here is paying for what they do not use.
+	/// The person's rank by use that needed the Premium license. A license holder low here is paying for what they do not use.
 	measure 'Rank by premium use' =
 			IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,
 			    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Premium interactions] ) )
@@ -131,13 +131,13 @@ table Interactions
 		summarizeBy: none
 		sourceColumn: ModelKey
 
-	column LicenceStatusKey
+	column LicenseStatusKey
 		dataType: int64
 		formatString: 0
 		isHidden
-		lineageTag: 5ab04725-51a2-57e9-b589-a06e97e05bdb
+		lineageTag: ae023cd1-5732-5184-a598-572b71570d33
 		summarizeBy: none
-		sourceColumn: LicenceStatusKey
+		sourceColumn: LicenseStatusKey
 
 	column LicenseTypeKey
 		dataType: int64
@@ -235,7 +235,7 @@ table Interactions
 		summarizeBy: none
 		sourceColumn: CalledAnotherAgent
 
-	/// True when the interaction needed the Premium licence: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content rather than the web. The dashboard's train and revoke recommendations use the same rule.
+	/// True when the interaction needed the Premium license: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content rather than the web. The dashboard's train and revoke recommendations use the same rule.
 	column PremiumUse
 		dataType: boolean
 		lineageTag: 5a91b896-e330-5a39-9869-54a8a25caef1

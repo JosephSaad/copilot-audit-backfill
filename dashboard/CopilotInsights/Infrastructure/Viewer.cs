@@ -18,7 +18,7 @@ public static class Roles
         [Admin] = "Runs the admin module: access, settings, reference data, health and the audit log. Sees no usage data by itself.",
         [Organization] = "Sees the whole organisation's aggregates, whatever their place in it.",
         [Adoption] = "Sees named people who were licensed but have not started.",
-        [Licensing] = "Sees named unused licences and named unlicensed Copilot Chat users.",
+        [Licensing] = "Sees named unused licenses and named unlicensed Copilot Chat users.",
         [Security] = "Sees the individual interactions flagged for jailbreak, prompt injection or blocked resources.",
         [Compliance] = "Sees who accessed which sensitivity-labelled or blocked resources.",
         [Agents] = "Sees the named people using each agent.",

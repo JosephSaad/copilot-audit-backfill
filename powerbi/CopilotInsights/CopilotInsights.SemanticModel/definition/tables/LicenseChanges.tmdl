@@ -1,22 +1,22 @@
 /// One row per Copilot SKU added to (+1) or removed from (-1) a person, from the directory audit log.
-table LicenceChanges
-	lineageTag: e294ba14-4e10-571d-8e0d-3dbf3e1074bd
+table LicenseChanges
+	lineageTag: 0e69e79b-4a65-567c-afd1-5afb80933a35
 
 	/// Copilot SKUs assigned in the period.
-	measure 'Licences added' = CALCULATE ( COUNTROWS ( LicenceChanges ), LicenceChanges[Change] = 1 )
+	measure 'Licenses added' = CALCULATE ( COUNTROWS ( LicenseChanges ), LicenseChanges[Change] = 1 )
 		formatString: #,0
-		lineageTag: 8c879226-1c8b-593f-98b8-02a14e32c41b
+		lineageTag: a61bc91d-f57b-5667-9f51-308aacbbf64e
 
 	/// Copilot SKUs removed in the period.
-	measure 'Licences removed' = CALCULATE ( COUNTROWS ( LicenceChanges ), LicenceChanges[Change] = -1 )
+	measure 'Licenses removed' = CALCULATE ( COUNTROWS ( LicenseChanges ), LicenseChanges[Change] = -1 )
 		formatString: #,0
-		lineageTag: dc0ecca9-78dd-54ae-ae38-a3b472a6fafc
+		lineageTag: 60cd684e-9b34-5854-adc9-8d09f145a575
 
-	/// When the licence changed, UTC.
+	/// When the license changed, UTC.
 	column ChangedUtc
 		dataType: dateTime
 		formatString: General Date
-		lineageTag: f83ceedc-4150-5377-9b05-133f513636bd
+		lineageTag: 742fb0e8-90bf-5728-8773-8e5e284c19dd
 		summarizeBy: none
 		sourceColumn: ChangedUtc
 
@@ -24,7 +24,7 @@ table LicenceChanges
 		dataType: int64
 		formatString: 0
 		isHidden
-		lineageTag: bebf6f0c-5be5-5a79-aada-1f60c5ebe6c8
+		lineageTag: 41759007-c20f-5e56-be01-5af9039c27da
 		summarizeBy: none
 		sourceColumn: DateKey
 
@@ -32,7 +32,7 @@ table LicenceChanges
 		dataType: int64
 		formatString: 0
 		isHidden
-		lineageTag: 4bd4acc0-1d62-559a-919f-e29b81affbee
+		lineageTag: 45c307c2-1aff-5f96-b306-f4e1197a8d88
 		summarizeBy: none
 		sourceColumn: UserKey
 
@@ -40,7 +40,7 @@ table LicenceChanges
 		dataType: int64
 		formatString: 0
 		isHidden
-		lineageTag: de8e435c-d1e1-59c7-8b7b-c27bbb50cd16
+		lineageTag: bcda54b7-3e4a-5143-9ad7-36bb5719b976
 		summarizeBy: none
 		sourceColumn: SkuKey
 
@@ -48,23 +48,23 @@ table LicenceChanges
 	column Change
 		dataType: int64
 		formatString: 0
-		lineageTag: c3953ee6-52bd-5225-90e8-3187a416acdf
+		lineageTag: da6c707f-0ef5-5d2f-a09c-cb65ceadbebe
 		summarizeBy: none
 		sourceColumn: Change
 
 	/// Who made the change.
 	column ChangedBy
 		dataType: string
-		lineageTag: 590e4cd0-1934-52df-b59e-e91f7c090035
+		lineageTag: c125de73-1c51-5226-bff2-f079c8e89b7e
 		summarizeBy: none
 		sourceColumn: ChangedBy
 
-	partition LicenceChanges = m
+	partition LicenseChanges = m
 		mode: import
 		source =
 				let
 				    Source = Sql.Database(SqlServer, SqlDatabase),
-				    Data = Source{[Schema = "bi", Item = "LicenceChanges"]}[Data]
+				    Data = Source{[Schema = "bi", Item = "LicenseChanges"]}[Data]
 				in
 				    Data
 

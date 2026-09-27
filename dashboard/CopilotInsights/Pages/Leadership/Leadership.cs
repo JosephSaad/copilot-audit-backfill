@@ -27,7 +27,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
                 new Series("Active, licensed", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
                 new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2),
             ], Fmt.Count, "People licensed and active"),
-            $"Licensed: holding a Copilot licence at the end of the day or week. Copilot Chat only: people without a licence using the free Copilot Chat. {TrendNote}"));
+            $"Licensed: holding a Copilot license at the end of the day or week. Copilot Chat only: people without a license using the free Copilot Chat. {TrendNote}"));
         Panels.Add(new("Adoption rate",
             Chart.Line(x, [new Series("Adoption", tr.Select(w => Ratio(w.ActiveLicensed, w.Licensed)).ToList(), 1)], Fmt.Percent, "Adoption rate"),
             "Licensed people who used Copilot, as a share of people licensed at the end of the day or week.", "half"));

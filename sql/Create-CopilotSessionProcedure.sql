@@ -10,8 +10,8 @@
       * The next prompt continues the session unless it comes 60 minutes or
         more after the previous one, or on a different calendar day in the
         reporting time zone. Either starts a new session.
-      * A session's PrimaryApp and licence flag are those of its first prompt;
-        with @LicenceEventDatabase the flag is the licence held at that moment.
+      * A session's PrimaryApp and license flag are those of its first prompt;
+        with @LicenseEventDatabase the flag is the license held at that moment.
         PromptCount is its number of rows. Single-Turn is one prompt.
       * Sessions roll up by the week their LAST prompt falls in. Weeks run
         Saturday to Friday and are labelled by the Friday; week 1 of a year
@@ -37,13 +37,13 @@
       contains a rebuilt day is recomputed from audit.CopilotSession. The
       result is the same as a full rebuild over the same rows - except that
       a kept session keeps the Division, Department, JobTitle, ManagerUPN and
-      licence flag it was built with, rather than being restated with today's.
+      license flag it was built with, rather than being restated with today's.
       -Incremental passes the load's start. At 40M interactions a full build
       took 28 minutes and 24 GB of tempdb, growing with the history kept;
       an incremental one costs what the window costs.
 
       An incremental build is refused when the last build used different
-      settings (timeout, fallback, time zone, metric version or licence
+      settings (timeout, fallback, time zone, metric version or license
       databases): the kept sessions would follow other rules. Build fully
       once after changing one. With no earlier build it builds everything.
 
@@ -76,7 +76,7 @@ ALTER PROCEDURE audit.usp_BuildCopilotSessions
     @ReportingTimeZone     SYSNAME       = NULL,
     @ContextFallback       NVARCHAR(20)  = N'User',
     @MetricVersion         NVARCHAR(200) = N'sql-1.0-60m-daysplit-satfri-customweek',
-    @LicenceEventDatabase  NVARCHAR(1000) = NULL,  -- one database, or several comma-separated
+    @LicenseEventDatabase  NVARCHAR(1000) = NULL,  -- one database, or several comma-separated
     @SinceUtc              DATETIME2(0)   = NULL   -- NULL: everything; else from local midnight of that day
 AS
 BEGIN
@@ -91,12 +91,12 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM sys.time_zone_info WHERE name = @ReportingTimeZone)
         THROW 50003, N'@ReportingTimeZone is not a name in sys.time_zone_info.', 1;
     DECLARE @licDbs TABLE (Name SYSNAME NOT NULL PRIMARY KEY);
-    IF @LicenceEventDatabase IS NOT NULL
+    IF @LicenseEventDatabase IS NOT NULL
         INSERT INTO @licDbs (Name)
-        SELECT DISTINCT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@LicenceEventDatabase, N',')
+        SELECT DISTINCT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@LicenseEventDatabase, N',')
         WHERE LTRIM(RTRIM(value)) <> N'';
     IF EXISTS (SELECT 1 FROM @licDbs WHERE OBJECT_ID(QUOTENAME(Name) + N'.audit.vLicenseSkuChange', N'V') IS NULL)
-        THROW 50004, N'A database in @LicenceEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
+        THROW 50004, N'A database in @LicenseEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
 
     DECLARE @started DATETIME2(0) = SYSUTCDATETIME(), @msg NVARCHAR(600);
 
@@ -112,7 +112,7 @@ BEGIN
         DECLARE @lastRun INT, @lastTimeout INT, @lastFallback NVARCHAR(20), @lastZone NVARCHAR(128),
                 @lastMetric NVARCHAR(200), @lastLic NVARCHAR(1000);
         SELECT TOP (1) @lastRun = RunId, @lastTimeout = SessionTimeoutMinutes, @lastFallback = ContextFallback,
-                       @lastZone = ReportingTimeZone, @lastMetric = MetricVersion, @lastLic = LicenceEventDatabase
+                       @lastZone = ReportingTimeZone, @lastMetric = MetricVersion, @lastLic = LicenseEventDatabase
         FROM audit.CopilotSessionRun ORDER BY RunId DESC;
 
         IF @lastRun IS NULL
@@ -122,7 +122,7 @@ BEGIN
         END
         ELSE IF @lastTimeout <> @SessionTimeoutMinutes OR @lastFallback <> @ContextFallback
              OR @lastZone <> @ReportingTimeZone OR @lastMetric <> @MetricVersion
-             OR ISNULL(@lastLic, N'') <> ISNULL(@LicenceEventDatabase, N'')
+             OR ISNULL(@lastLic, N'') <> ISNULL(@LicenseEventDatabase, N'')
             THROW 50006, N'The last session build used different settings, and an incremental build would keep sessions built under them. Run once with @SinceUtc = NULL to rebuild everything.', 1;
         ELSE
         BEGIN
@@ -211,9 +211,9 @@ BEGIN
         EXEC (N'INSERT INTO #profile (UserPrincipalName, Division, Department, JobTitle, ManagerUpn)
                 SELECT UserPrincipalName, Division, Department, JobTitle, ManagerUPN FROM audit.UserDirectory;');
 
-    /* ---- 3b. Copilot licence history (optional) --------------------------- */
+    /* ---- 3b. Copilot license history (optional) --------------------------- */
     /*
-        With @LicenceEventDatabase, a session's licence flag is whether the
+        With @LicenseEventDatabase, a session's license flag is whether the
         user held a Copilot SKU when it started, not today's enrichment value.
         Per SKU: the latest change at or before the start decides; with none,
         the first change after it does in reverse (a removal means it was held
@@ -226,7 +226,7 @@ BEGIN
     */
     DROP TABLE IF EXISTS #lic;
     CREATE TABLE #lic (UserUPN NVARCHAR(512) NOT NULL, Sku NVARCHAR(200) NOT NULL, Ts DATETIME2(0) NOT NULL, Added BIT NOT NULL);
-    /* Several databases are read together: each licence backfill covers a
+    /* Several databases are read together: each license backfill covers a
        fixed range, and a change after one's end - the most recent, often -
        is only in a later one. Overlap is harmless: each lookup below takes a
        single latest or earliest change. */
@@ -402,11 +402,11 @@ BEGIN
     INSERT INTO audit.CopilotSessionRun
         (RunStartUtc, RunEndUtc, RowsRead, RowsWithOriginalAppContext, RowsRecoveredFromLocation,
          RowsSkippedMissingContext, RowsSkippedMissingUser, RowsSkippedBadTimestamp,
-         SessionsWritten, WeeklyGroups, SessionTimeoutMinutes, ContextFallback, ReportingTimeZone, LicenceEventDatabase,
+         SessionsWritten, WeeklyGroups, SessionTimeoutMinutes, ContextFallback, ReportingTimeZone, LicenseEventDatabase,
          MetricVersion, RebuiltFrom)
     VALUES (@started, SYSUTCDATETIME(), @read, ISNULL(@orig, 0), ISNULL(@recovered, 0),
             ISNULL(@noCtx, 0), ISNULL(@noUser, 0), ISNULL(@badTs, 0),
-            @sessions, @weeks, @SessionTimeoutMinutes, @ContextFallback, @ReportingTimeZone, @LicenceEventDatabase,
+            @sessions, @weeks, @SessionTimeoutMinutes, @ContextFallback, @ReportingTimeZone, @LicenseEventDatabase,
             @MetricVersion, @rebuiltFrom);
 
     COMMIT TRANSACTION;

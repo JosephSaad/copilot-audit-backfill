@@ -50,9 +50,9 @@ USING (VALUES
     ('OrgTopUpn',    CAST(NULL AS NVARCHAR(400)), N'UPN of the top of the organisation (the CEO). They and their direct reports see the whole organisation. Empty: taken from the org chart (OrgTopUpnDetected).'),
     ('MinGroupSize', N'5',  N'Breakdowns hide groups with fewer people than this, folding them into "Smaller groups", so a group total cannot reveal one person.'),
     ('DefaultDays',  N'30', N'Days shown when a page opens: 7, 14, 30, 90, 180 or 365.'),
-    ('InactiveDays', N'30', N'A licensed person with no Copilot use for this many days counts as not using their licence.'),
-    ('LicenceMonthlyCost', N'30', N'What one Copilot licence costs a month, for the licence recommendations.'),
-    ('LicenceCurrency', N'USD', N'The currency LicenceMonthlyCost is in.')
+    ('InactiveDays', N'30', N'A licensed person with no Copilot use for this many days counts as not using their license.'),
+    ('LicenseMonthlyCost', N'30', N'What one Copilot license costs a month, for the license recommendations.'),
+    ('LicenseCurrency', N'USD', N'The currency LicenseMonthlyCost is in.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);
@@ -161,12 +161,12 @@ IF OBJECT_ID(N'dash.UserDay', N'U') IS NULL
         LabelledContent   INT     NOT NULL,   -- interactions that touched sensitivity-labelled content
         Sessions          INT     NOT NULL,   -- sessions that started that day
         MultiTurnSessions INT     NOT NULL,
-        PremiumUse        INT     NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0),   -- licensed interactions that needed the licence (2.3.0)
+        PremiumUse        INT     NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0),   -- licensed interactions that needed the license (2.3.0)
         CONSTRAINT PK_DashUserDay PRIMARY KEY (DateKey, UserKey),
         INDEX IX_DashUserDay_User (UserKey, DateKey)
     );
 
-/* 2.3.0: use that needs the Premium licence. Zero until the rollups are rebuilt once (dash.usp_RefreshDashboard with no date). */
+/* 2.3.0: use that needs the Premium license. Zero until the rollups are rebuilt once (dash.usp_RefreshDashboard with no date). */
 IF COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NULL
     ALTER TABLE dash.UserDay ADD PremiumUse INT NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0);
 

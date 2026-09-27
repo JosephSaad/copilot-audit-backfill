@@ -38,10 +38,10 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
             Notice = "The budget is the whole tenant's, so it needs the whole-organisation view or the Licensing role.";
             return;
         }
-        if (!await ops.HasAsync("dash.LicenceContract")) { Notice = "Contracts arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
-        var contracts = await Db.QueryAsync<Contract>("SELECT ContractId, Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note FROM dash.LicenceContract ORDER BY RenewalDate;");
-        var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenceMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
-                            await S.Settings.StringAsync("LicenceCurrency") ?? "USD");
+        if (!await ops.HasAsync("dash.LicenseContract")) { Notice = "Contracts arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        var contracts = await Db.QueryAsync<Contract>("SELECT ContractId, Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note FROM dash.LicenseContract ORDER BY RenewalDate;");
+        var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
+                            await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
         var whole = await S.Contexts.CreateAsync(Viewer, 30, null);
         var totals = await metrics.TotalsAsync(whole);
@@ -85,7 +85,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
             Input("start", "Started", DateTime.Today.ToString("yyyy-MM-dd"), 10, "date") + Input("renewal", "Renews", DateTime.Today.AddYears(1).ToString("yyyy-MM-dd"), 10, "date") +
             Input("note", "Note", null, 24) + Button("Add"));
         Panels.Add(new("Contracts", new HtmlString(t.Render().Value + add),
-            "Entered by an administrator from the agreements; the tenant's own count of seats bought is on Licensing > Licence pool.", "full", CsvUrl()));
+            "Entered by an administrator from the agreements; the tenant's own count of seats bought is on Licensing > License pool.", "full", CsvUrl()));
     }
 
     public Task<IActionResult> OnPostContractAsync(string? name, int? seats, string? price, DateTime? start, DateTime? renewal, string? note) => AdminChangeAsync(async () =>
@@ -95,13 +95,13 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         if (seats is null or < 0 or > 10_000_000) throw new ArgumentException("seats is a whole number.");
         if (!decimal.TryParse(price, NumberStyles.Number, CultureInfo.InvariantCulture, out var pr) || pr < 0 || pr > 100000) throw new ArgumentException("the price is a number.");
         if (start is null || renewal is null || renewal <= start) throw new ArgumentException("the renewal date comes after the start.");
-        await Db.ExecuteAsync("INSERT INTO dash.LicenceContract (Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note, UpdatedBy) VALUES (@name, @seats, @pr, @start, @renewal, @note, @by);",
+        await Db.ExecuteAsync("INSERT INTO dash.LicenseContract (Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note, UpdatedBy) VALUES (@name, @seats, @pr, @start, @renewal, @note, @by);",
             new { name, seats, pr, start, renewal, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by = Viewer.Upn ?? Viewer.WindowsName });
         return $"Contract \"{name}\" added: {seats:#,0} seats, renewing {renewal:yyyy-MM-dd}.";
     });
 
     public Task<IActionResult> OnPostDelcontractAsync(int id) => AdminChangeAsync(async () =>
-        await Db.ExecuteAsync("DELETE FROM dash.LicenceContract WHERE ContractId = @id", new { id }) > 0 ? "Contract removed." : "That contract was already gone.");
+        await Db.ExecuteAsync("DELETE FROM dash.LicenseContract WHERE ContractId = @id", new { id }) > 0 ? "Contract removed." : "That contract was already gone.");
 }
 
 /* ---- Rollout waves ----------------------------------------------------------------------------- */
@@ -112,7 +112,7 @@ public sealed class WavesModel(PageServices s, OpsData ops) : InsightsPage(s)
     public override string Title => "Rollout waves";
     public override string Persona => "Forecasting";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "Everyone without a Premium licence, in the order to license them: first those who use the free Copilot Chat most (they already rely on it), then those in departments where licensed people use Copilot most. Split into waves of a set size, each with a file to apply it.";
+    public override string Intro => "Everyone without a Premium license, in the order to license them: first those who use the free Copilot Chat most (they already rely on it), then those in departments where licensed people use Copilot most. Split into waves of a set size, each with a file to apply it.";
 
     static readonly Dictionary<string, string> Sorts = new() { ["rank"] = "c.[Rank]", ["name"] = "c.DisplayName", ["dept"] = "c.Department, c.[Rank]" };
 
@@ -164,8 +164,8 @@ SELECT {select} FROM c {tail}";
     protected override async Task BuildAsync()
     {
         var (size, dept) = await OptionsAsync();
-        var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenceMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
-                            await S.Settings.StringAsync("LicenceCurrency") ?? "USD");
+        var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
+                            await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var pg = new Paging(Request, Sorts, "rank");
         var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
         var rows = await Db.QueryAsync<Row>(Sql("c.*, (c.[Rank] - 1) / @size + 1 AS Wave, COUNT(*) OVER () AS TotalRows",
@@ -175,7 +175,7 @@ SELECT {select} FROM c {tail}";
         var waves = await Db.QueryAsync<(int Wave, int People, int UsingChat)>(Sql("(c.[Rank] - 1) / @size + 1, COUNT(*), COUNT(CASE WHEN c.D > 0 THEN 1 END)",
             "GROUP BY (c.[Rank] - 1) / @size + 1 ORDER BY 1;"), Ctx.Args(new { k30, size, dept }));
         var all = waves.Sum(w => w.People);
-        Kpis.Add(new("People without a licence", Num(all), $"{waves.Sum(w => w.UsingChat):#,0} of them use the free Copilot Chat"));
+        Kpis.Add(new("People without a license", Num(all), $"{waves.Sum(w => w.UsingChat):#,0} of them use the free Copilot Chat"));
         Kpis.Add(new("Waves", Num(waves.Count), $"of {size:#,0} people"));
         Kpis.Add(new("A wave costs", $"{size * price:#,0} {cur}", "a month"));
         Kpis.Add(new("Everyone licensed", $"{all * price:#,0} {cur}", "a month more"));
@@ -188,12 +188,12 @@ SELECT {select} FROM c {tail}";
         var sizes = string.Join(" · ", new[] { 25, 50, 100, 250, 500, 1000 }.Select(n =>
             $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(n, dept, null)))}\"{(n == size ? " class=\"on\"" : "")}>{n}</a>"));
         Panels.Add(new("Waves", new HtmlString($"<p class=\"sub\">People a wave: {sizes} (the default is set in Admin > Targets and assumptions).</p>" + wt.Render().Value),
-            (waves.Count > 12 ? $"The first 12 of {waves.Count} waves. " : "") + "Each file is for a licence administrator to review and apply; the dashboard changes nothing. Exports are recorded for Forecasting > Licence action outcomes.", "half"));
+            (waves.Count > 12 ? $"The first 12 of {waves.Count} waves. " : "") + "Each file is for a license administrator to review and apply; the dashboard changes nothing. Exports are recorded for Forecasting > License action outcomes.", "half"));
 
         var t = new Table
         {
             Headers = ["Order", "Wave", "Name", "Sign-in", "Department", "Manager", "Job title", "Days on Copilot Chat (30)", "Interactions (30)", "Department adoption"],
-            Numeric = new HashSet<int> { 0, 1, 7, 8, 9 }, EmptyText = "Everyone in scope has a licence.",
+            Numeric = new HashSet<int> { 0, 1, 7, 8, 9 }, EmptyText = "Everyone in scope has a license.",
         };
         foreach (var r in rows)
             t.Rows.Add([r.Rank, r.Wave, r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.JobTitle, r.D, r.I, r.DeptAdoption is null ? null : $"{r.DeptAdoption:0}%"]);
@@ -217,24 +217,24 @@ SELECT {select} FROM c {tail}";
         var upns = await Db.QueryAsync<string>(Sql("c.UserPrincipalName", "WHERE (c.[Rank] - 1) / @size + 1 = @wave ORDER BY c.[Rank];"), Ctx.Args(new { k30, size, dept, wave }));
         var skuId = (await ops.PoolAsync()).FirstOrDefault(p => p.IsCopilot)?.SkuId.ToString();
         var by = Viewer.Upn ?? Viewer.WindowsName;
-        var text = script ? LicenceExport.Script("upgrade", upns, await S.Settings.StringAsync("LicenceGroupId"), skuId, by, DateTime.UtcNow) : LicenceExport.BulkMembersCsv(upns);
-        await LicenceActions.RecordAsync(Db, "wave", upns, by);
+        var text = script ? LicenseExport.Script("upgrade", upns, await S.Settings.StringAsync("LicenseGroupId"), skuId, by, DateTime.UtcNow) : LicenseExport.BulkMembersCsv(upns);
+        await LicenseActions.RecordAsync(Db, "wave", upns, by);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"wave {wave} of {size} {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-wave-{wave}-{DateTime.UtcNow:yyyyMMdd}";
         return File(Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 }
 
-/* ---- Licence action outcomes ------------------------------------------------------------------- */
+/* ---- License action outcomes ------------------------------------------------------------------- */
 
-/// <summary>Were the exported licence changes applied, and what followed: the loop from recommendation to saving.</summary>
+/// <summary>Were the exported license changes applied, and what followed: the loop from recommendation to saving.</summary>
 public sealed class OutcomesModel(PageServices s, OpsData ops) : InsightsPage(s)
 {
-    public override string Title => "Licence action outcomes";
+    public override string Title => "License action outcomes";
     public override string Persona => "Forecasting";
     public override string? RequiredRole => Roles.Licensing;
     public override bool UsesFilters => false;
-    public override string Intro => "Every licence export from this dashboard (upgrades, revocations, licences on disabled accounts, rollout waves), whether the change has happened since, and what followed: the licences reclaimed, and whether the people given one use it.";
+    public override string Intro => "Every license export from this dashboard (upgrades, revocations, licenses on disabled accounts, rollout waves), whether the change has happened since, and what followed: the licenses reclaimed, and whether the people given one use it.";
 
     sealed class Batch
     {
@@ -249,7 +249,7 @@ public sealed class OutcomesModel(PageServices s, OpsData ops) : InsightsPage(s)
     const string Base = @"
 WITH x AS (SELECT la.Kind, la.Upn, la.ExportedBy, la.ExportedUtc, CAST(la.ExportedUtc AS DATE) AS Day,
                   ROW_NUMBER() OVER (PARTITION BY la.Kind, la.Upn, CAST(la.ExportedUtc AS DATE) ORDER BY la.ActionId) AS n
-           FROM dash.LicenceAction AS la),
+           FROM dash.LicenseAction AS la),
 today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay),
 o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
              CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS LicensedNow,
@@ -262,28 +262,28 @@ o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
 
     protected override async Task BuildAsync()
     {
-        if (!await ops.HasAsync("dash.LicenceAction")) { Notice = "Licence exports are recorded from 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
-        var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenceMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
-                            await S.Settings.StringAsync("LicenceCurrency") ?? "USD");
+        if (!await ops.HasAsync("dash.LicenseAction")) { Notice = "License exports are recorded from 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
+                            await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var batches = await Db.QueryAsync<Batch>(Base + @"
 SELECT Kind, Day, ExportedBy, COUNT(*) AS People, SUM(LicensedNow) AS LicensedNow, SUM(UsedSince) AS UsedSince
 FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
-        if (batches.Count == 0) { Notice = "No licence exports yet. They are recorded when someone downloads a bulk file or script from Upgrade, train or revoke, Licences on disabled accounts, or Rollout waves."; return; }
+        if (batches.Count == 0) { Notice = "No license exports yet. They are recorded when someone downloads a bulk file or script from Upgrade, train or revoke, Licenses on disabled accounts, or Rollout waves."; return; }
 
         int Done(Batch b) => b.Kind is "upgrade" or "wave" ? b.LicensedNow : b.People - b.LicensedNow;
         var reclaimed = batches.Where(b => b.Kind is "revoke" or "leaver").Sum(Done);
         var given = batches.Where(b => b.Kind is "upgrade" or "wave").ToList();
         Kpis.Add(new("Exported", Num(batches.Sum(b => b.People)), $"in {batches.Count} export(s)"));
-        Kpis.Add(new("Applied", Pct(Ratio(batches.Sum(Done), batches.Sum(b => b.People))), "the licence is where the export said it should be"));
-        Kpis.Add(new("Licences reclaimed", Num(reclaimed), $"{reclaimed * price:#,0} {cur} a month saved"));
-        Kpis.Add(new("New licences in use", Pct(Ratio(given.Sum(b => b.UsedSince), given.Sum(b => b.LicensedNow))), "of those licensed from an upgrade or wave export, used Copilot since"));
+        Kpis.Add(new("Applied", Pct(Ratio(batches.Sum(Done), batches.Sum(b => b.People))), "the license is where the export said it should be"));
+        Kpis.Add(new("Licenses reclaimed", Num(reclaimed), $"{reclaimed * price:#,0} {cur} a month saved"));
+        Kpis.Add(new("New licenses in use", Pct(Ratio(given.Sum(b => b.UsedSince), given.Sum(b => b.LicensedNow))), "of those licensed from an upgrade or wave export, used Copilot since"));
 
         var t = new Table { Headers = ["Exported", "What", "By", "People", "Applied", "Share applied", "Used Copilot since", $"A month ({cur})"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
         foreach (var b in batches)
             t.Rows.Add([b.Day, b.Kind switch { "upgrade" => "Upgrade", "revoke" => "Revoke unused", "leaver" => "Reclaim from disabled accounts", _ => "Rollout wave" },
                 b.ExportedBy, b.People, Done(b), Pct(Ratio(Done(b), b.People)), b.Kind is "upgrade" or "wave" ? b.UsedSince : null,
                 b.Kind is "upgrade" or "wave" ? Done(b) * price : -Done(b) * price]);
-        Panels.Add(new("Exports", t.Render(), "Applied: for an upgrade or wave, the person holds a licence today; for a revocation, they no longer do. A month: the cost added (positive) or saved (negative) by what has been applied."));
+        Panels.Add(new("Exports", t.Render(), "Applied: for an upgrade or wave, the person holds a license today; for a revocation, they no longer do. A month: the cost added (positive) or saved (negative) by what has been applied."));
 
         var pg = new Paging(Request, new Dictionary<string, string> { ["new"] = "o.Day DESC, o.DisplayName", ["name"] = "o.DisplayName" }, "new");
         var pending = await Db.QueryAsync<(DateTime Day, string Kind, string Upn, string? DisplayName, string? Department, int Total)>(Base + $@"
@@ -296,6 +296,6 @@ FROM o WHERE ((o.Kind IN ('upgrade', 'wave') AND o.LicensedNow = 0) OR (o.Kind I
         foreach (var r in pending) pt.Rows.Add([r.Day, r.Kind, r.DisplayName, r.Upn, r.Department]);
         CsvTable = pt;
         Panels.Add(new("Not applied yet", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["new"] = "Newest", ["name"] = "Name" }).Value + pt.Render().Value),
-            "Licence state is from the licence tool's last nightly read.", "full", CsvUrl()));
+            "License state is from the license tool's last nightly read.", "full", CsvUrl()));
     }
 }

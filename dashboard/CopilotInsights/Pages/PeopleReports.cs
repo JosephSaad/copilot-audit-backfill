@@ -12,7 +12,7 @@ namespace CopilotInsights.Pages.Adoption
     {
         public override string Title => "Leaderboard";
         public override string Persona => "Adoption";
-        public override string Intro => "Groups ranked by adoption (licensed people using Copilot), with the change on the period before and the most improved. Only groups of at least the minimum group size, with at least that many licences, are ranked.";
+        public override string Intro => "Groups ranked by adoption (licensed people using Copilot), with the change on the period before and the most improved. Only groups of at least the minimum group size, with at least that many licenses, are ranked.";
 
         static readonly string[] By = ["Department", "Division", "Company", "Country", "Office"];
 
@@ -25,7 +25,7 @@ namespace CopilotInsights.Pages.Adoption
             double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
             var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
             var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
-            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licences in scope."; return; }
+            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses in scope."; return; }
 
             var t = new Table
             {
@@ -56,7 +56,7 @@ namespace CopilotInsights.Pages.Adoption
                 Panels.Add(new("Most improved", Chart.Bars(changes.OrderByDescending(c => c.Points).Take(10).Select(c => new Bar(c.Name, c.Points, Note: $"{c.Points:+0.#;-0.#;0} points", Slot: c.Points >= 0 ? 3 : 8)).ToList(),
                     Fmt.Decimal1, "Change in adoption, points"), "Adoption now, less adoption in the period before, in percentage points.", "half"));
             Panels.Add(new("Ranking", new HtmlString($"<p class=\"sub\">Rank by: {choices}</p>" + t.Render().Value),
-                "Adoption: of the people holding a licence at the end of the period, the share who used Copilot while licensed.", "full", CsvUrl()));
+                "Adoption: of the people holding a license at the end of the period, the share who used Copilot while licensed.", "full", CsvUrl()));
         }
     }
 }
@@ -68,7 +68,7 @@ namespace CopilotInsights.Pages.Security
     {
         public override string Title => "Guests and external users";
         public override string Persona => "Security";
-        public override string Intro => "Copilot use by guest accounts (#EXT# sign-ins, or a user type of Guest from the licence tool): how much, from which home organisations, and with which signals. Home organisations with fewer guests than the minimum group size are combined; the named list needs the Security role.";
+        public override string Intro => "Copilot use by guest accounts (#EXT# sign-ins, or a user type of Guest from the license tool): how much, from which home organisations, and with which signals. Home organisations with fewer guests than the minimum group size are combined; the named list needs the Security role.";
 
         sealed class Row
         {
@@ -106,7 +106,7 @@ LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = g.UserKey AND ld.DateKey = @k
 GROUP BY g.Domain;", Ctx.Args());
             Kpis.Add(new("Guests in Copilot's records", Num(rows.Sum(r => r.People))));
             Kpis.Add(new("Used Copilot in the period", Num(rows.Sum(r => r.Active)), $"{rows.Sum(r => r.Interactions):#,0} interactions"));
-            Kpis.Add(new("Holding a Copilot licence", Num(rows.Sum(r => r.Licensed)), "licences in this tenant assigned to guests", rows.Sum(r => r.Licensed) > 0 ? "warn" : null));
+            Kpis.Add(new("Holding a Copilot license", Num(rows.Sum(r => r.Licensed)), "licenses in this tenant assigned to guests", rows.Sum(r => r.Licensed) > 0 ? "warn" : null));
             Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
             if (rows.Count == 0) { Notice = "No guest or external accounts in Copilot's records for this scope."; return; }
 
@@ -143,7 +143,7 @@ namespace CopilotInsights.Pages.Compliance
 {
     /// <summary>
     /// Everything recorded about one person's Copilot use, for a data-subject access request or an
-    /// investigation: their directory and licence record, and each interaction, downloadable. Needs
+    /// investigation: their directory and license record, and each interaction, downloadable. Needs
     /// the Compliance role; works in privacy mode (it is a request about one named person); every
     /// look and download is in the audit log with the person it was about.
     /// </summary>
@@ -207,8 +207,8 @@ FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @up
             d.Rows.Add(["Licensed since", who.LicensedSinceUtc]); d.Rows.Add(["First seen in Copilot's records", who.FirstSeenUtc]);
             var lic = (await Db.QueryAsync<(string? Sku, string? Status, DateTime? Updated)>(
                 "SELECT SkuPartNumber, CapabilityStatus, UpdatedUtc FROM audit.CopilotLicense WHERE UserPrincipalName = @upn;", new { upn })).FirstOrDefault();
-            if (lic.Updated is not null) { d.Rows.Add(["Licence (licence tool)", $"{lic.Sku} {lic.Status}".Trim()]); d.Rows.Add(["Licence read", lic.Updated]); }
-            Panels.Add(new("Directory and licence", d.Render(), null, "half"));
+            if (lic.Updated is not null) { d.Rows.Add(["License (license tool)", $"{lic.Sku} {lic.Status}".Trim()]); d.Rows.Add(["License read", lic.Updated]); }
+            Panels.Add(new("Directory and license", d.Render(), null, "half"));
 
             var pg = new Paging(Request, new Dictionary<string, string> { ["new"] = "f.CreatedUtc DESC, f.RecordId", ["old"] = "f.CreatedUtc, f.RecordId" }, "new");
             var recs = await Db.QueryAsync<Rec>($@"

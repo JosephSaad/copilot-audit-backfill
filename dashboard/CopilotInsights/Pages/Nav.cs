@@ -17,13 +17,13 @@ public static class Nav
             new("Value and time saved", "/leadership/value"), new("Use cases", "/leadership/usecases"), new("Board pack", "/leadership/boardpack"),
             new("Group overview", "/group", ManyTenants: true)]),
         new("Adoption", "Copilot programme lead", [
-            new("Funnel and trend", "/adoption"), new("Retention and habit", "/adoption/retention"), new("Licence cohorts", "/adoption/cohorts"),
+            new("Funnel and trend", "/adoption"), new("Retention and habit", "/adoption/retention"), new("License cohorts", "/adoption/cohorts"),
             new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"), new("Targets", "/adoption/targets"), new("New joiners", "/adoption/onboarding"),
             new("Drops and spikes", "/adoption/anomalies"), new("Not started", "/adoption/not-started", Roles.Adoption)]),
         new("Licensing", "Licensing, IT asset and FinOps", [
-            new("Inventory", "/licensing"), new("Unused licences", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
-            new("Demand", "/licensing/demand"), new("Licence changes", "/licensing/changes"), new("Licence pool", "/licensing/pool"),
-            new("Chargeback", "/licensing/chargeback"), new("Licences on disabled accounts", "/licensing/leavers", Roles.Licensing)]),
+            new("Inventory", "/licensing"), new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
+            new("Demand", "/licensing/demand"), new("License changes", "/licensing/changes"), new("License pool", "/licensing/pool"),
+            new("Chargeback", "/licensing/chargeback"), new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing)]),
         new("Security", "Security operations", [
             new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Guests and external users", "/security/guests"),
             new("Flagged interactions", "/security/flags", Roles.Security)]),
@@ -36,9 +36,9 @@ public static class Nav
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
             new("Champions", "/enablement/champions", Roles.Enablement), new("People", "/enablement/people", Roles.Enablement)]),
         new("Forecasting", "Finance, licensing and programme leads", [
-            new("Forecast", "/forecasting"), new("Licence optimisation", "/forecasting/optimise"), new("Budget and renewal", "/forecasting/budget"),
+            new("Forecast", "/forecasting"), new("License optimisation", "/forecasting/optimise"), new("Budget and renewal", "/forecasting/budget"),
             new("Upgrade, train or revoke", "/forecasting/actions", Roles.Licensing), new("Rollout waves", "/forecasting/waves", Roles.Licensing),
-            new("Licence action outcomes", "/forecasting/outcomes", Roles.Licensing)]),
+            new("License action outcomes", "/forecasting/outcomes", Roles.Licensing)]),
         new("Regions", "Country, office and site leads", [
             new("Countries and offices", "/regions"), new("Working patterns", "/regions/patterns")]),
         new("People", "HR and people analytics", [

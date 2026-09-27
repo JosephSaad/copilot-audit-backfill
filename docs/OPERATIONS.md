@@ -17,7 +17,7 @@ Nothing here needs SQL typed by hand. `tests/Test-OperationsGuide.ps1` fails the
 - [Email, alerts and digests](#email-alerts-and-digests)
 - [Targets, value and training](#targets-value-and-training)
 - [Classifications, events and extracts](#classifications-events-and-extracts)
-- [Acting on the licence recommendations](#acting-on-the-licence-recommendations)
+- [Acting on the license recommendations](#acting-on-the-license-recommendations)
 - [Triage and investigations](#triage-and-investigations)
 - [Privacy, retention and the data API](#privacy-retention-and-the-data-api)
 - [The pipeline](#the-pipeline)
@@ -49,7 +49,7 @@ When the last run failed, its step and last log lines are on Admin › Health an
 | Admin | The Admin pages |
 | Organization | The whole organisation's aggregates, whatever the person's level |
 | Adoption | Named people licensed but not started |
-| Licensing | Named unused licences, Copilot Chat users, licences on disabled accounts, upgrade/train/revoke lists, the use ranking, rollout waves, licence action outcomes, and their export files |
+| Licensing | Named unused licenses, Copilot Chat users, licenses on disabled accounts, upgrade/train/revoke lists, the use ranking, rollout waves, license action outcomes, and their export files |
 | Security | Named flagged interactions and their triage; named guests |
 | Compliance | Named people who worked with labelled content; one person's full record (works in privacy mode) |
 | Agents | Named users of an agent |
@@ -75,11 +75,11 @@ A new top takes effect at once: the org chart is rebuilt as it is saved.
 
 **The first administrator, or a way back in.** The site's configuration names bootstrap administrators, who cannot be removed from the Admin pages: run the IIS installer with `-AdminPrincipal`, or edit `Insights:BootstrapAdmins` in `appsettings.Production.json` and recycle the app pool. From the job server, `M -Task GrantRole -Principal 'USERS\Copilot-Insights-Admins' -PrincipalType Group -Role Admin`.
 
-**The other access settings** (Admin › Access › *Settings*): the minimum group size (no breakdown shows a group smaller than this), the default period, the days after which a licence counts as unused, and the licence's monthly price and currency.
+**The other access settings** (Admin › Access › *Settings*): the minimum group size (no breakdown shows a group smaller than this), the default period, the days after which a license counts as unused, and the license's monthly price and currency.
 
 ```powershell
 M -Task SetDashboardSetting -Name MinGroupSize -Value 10
-M -Task SetDashboardSetting -Name LicenceMonthlyCost -Value 30
+M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 ```
 
 **An account the directory cannot match.** Sign-ins are matched to people by the account's SID, which the nightly directory load copies from AD. An account with no match (a local or Entra-joined account) is "not in the directory" and sees nothing unless granted Organization. To map one, add it to `Insights:IdentityMap` in `appsettings.Production.json` (`"CONTOSO\\svc-report": "report.owner@contoso.com"`) and recycle the app pool. A mapping cannot land an account on a person whose directory record carries a different SID, and nothing in a URL changes who is signed in.
@@ -92,7 +92,7 @@ M -Task SetDashboardSetting -Name LicenceMonthlyCost -Value 30
 
 The audit log records many things as codes. Give them names once and the dashboard's pages and Power BI (`bi.ValueNames`) show the names.
 
-**Any catalogued code** (tenant, app, agent and platform ids, licence types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top), or **Download** the column as a CSV, fill in the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
+**Any catalogued code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top), or **Download** the column as a CSV, fill in the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
 
 ```powershell
 M -Task ListValues                                  # the columns, and how many values each has
@@ -119,9 +119,9 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 **Set up sending.** Admin › Email: Exchange Online (the mailbox's password, or OAuth with an app holding `SMTP.SendAsApp`), or any SMTP server on any port with its user name and password. **Send a test** after any change. Passwords and secrets are stored encrypted and never shown again; leave the field empty to keep the stored one, or tick *Remove the stored password and secret*. [DASHBOARD.md](DASHBOARD.md#email-alerts-and-digests) explains each mode, and when Exchange Online stops taking passwords.
 
-**Who hears about what.** Admin › Alerts and digests › *Who hears about what*: pipeline failures and stale data, security signals, licences, drops and spikes in use, and new agents, each to its own addresses (a distribution list keeps it short). Alerts also go to the Windows Application log under the source *Copilot Insights*.
+**Who hears about what.** Admin › Alerts and digests › *Who hears about what*: pipeline failures and stale data, security signals, licenses, drops and spikes in use, and new agents, each to its own addresses (a distribution list keeps it short). Alerts also go to the Windows Application log under the source *Copilot Insights*.
 
-**When to alert.** Admin › Alerts and digests › *When to alert*: how old the data may get, the daily thresholds for jailbreaks, prompt injections, blocked resources and sensitive labels, the spike factor, what counts as a drop or a spike in use, and when the licence pool is running out. **Run the checks now** runs a round at once; *Where the checks stand* shows what each last saw.
+**When to alert.** Admin › Alerts and digests › *When to alert*: how old the data may get, the daily thresholds for jailbreaks, prompt injections, blocked resources and sensitive labels, the spike factor, what counts as a drop or a spike in use, and when the license pool is running out. **Run the checks now** runs a round at once; *Where the checks stand* shows what each last saw.
 
 **Digests.** Admin › Alerts and digests › *Digests*: add one (report, recipients, daily, weekly or monthly, the hour, the period, and optionally one manager's organisation); **Preview** it, **Send now**, **Pause** or **Remove** it. Digests carry aggregates only.
 
@@ -153,23 +153,23 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 **Events on the trends.** Admin › Classifications and events › *Events on the trend charts*: a day, a name and a kind (rollout, training, outage, policy, other). Each shows on every trend chart as a dashed line with its name, and in Power BI's `EventMarkers`.
 
-**Scheduled extracts.** Admin › Scheduled extracts: a name, the data (department by week, daily totals, apps by week, the licence pool, agents by week: aggregates only), a folder or share, how often and when, and how many days back. The site's app-pool account (for a share, the web server's computer account) needs write access to the folder. **Write now** writes one at once; *Last written* and *Result* show how the last one went.
+**Scheduled extracts.** Admin › Scheduled extracts: a name, the data (department by week, daily totals, apps by week, the license pool, agents by week: aggregates only), a folder or share, how often and when, and how many days back. The site's app-pool account (for a share, the web server's computer account) needs write access to the folder. **Write now** writes one at once; *Last written* and *Result* show how the last one went.
 
-## Acting on the licence recommendations
+## Acting on the license recommendations
 
-1. **Forecasting › Licence optimisation** shows the recommendations and what they are worth; **Forecasting › Upgrade, train or revoke** and **Licensing › Licences on disabled accounts** name the people (Licensing role). *Train* and *revoke* look at Premium use: Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat over work content. Someone who only uses web Copilot Chat, which the free tier gives, is not using their licence. **Licensing › Use ranking** ranks everyone by general, free and Premium use.
-2. On those pages, download the **Entra bulk add or remove members file**, or the **PowerShell script**. If Copilot licences are assigned through a group, set its object id first in Admin › Targets and assumptions › *Licensing and champions*, so both use the group; otherwise the script assigns or removes the SKU directly.
-3. A licence administrator applies it: the bulk file in Entra (Groups › the licence group › Bulk operations), or the script in PowerShell with their own rights (`-WhatIf` first). The dashboard changes nothing in Entra.
+1. **Forecasting › License optimisation** shows the recommendations and what they are worth; **Forecasting › Upgrade, train or revoke** and **Licensing › Licenses on disabled accounts** name the people (Licensing role). *Train* and *revoke* look at Premium use: Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat over work content. Someone who only uses web Copilot Chat, which the free tier gives, is not using their license. **Licensing › Use ranking** ranks everyone by general, free and Premium use.
+2. On those pages, download the **Entra bulk add or remove members file**, or the **PowerShell script**. If Copilot licenses are assigned through a group, set its object id first in Admin › Targets and assumptions › *Licensing and champions*, so both use the group; otherwise the script assigns or removes the SKU directly.
+3. A license administrator applies it: the bulk file in Entra (Groups › the license group › Bulk operations), or the script in PowerShell with their own rights (`-WhatIf` first). The dashboard changes nothing in Entra.
 4. The next nightly run picks the change up; the lists update the day after.
-5. **Forecasting › Licence action outcomes** shows every export, whether it has been applied, the licences reclaimed and whether new licences are being used; *Not applied yet* lists who is still waiting.
+5. **Forecasting › License action outcomes** shows every export, whether it has been applied, the licenses reclaimed and whether new licenses are being used; *Not applied yet* lists who is still waiting.
 
-**Rolling out in waves.** Forecasting › Rollout waves orders everyone without a licence (the heaviest free Copilot Chat users first, then those in departments where licensed people use it most) and splits them into waves; each wave has its own bulk file and script. The default wave size is in Admin › Targets and assumptions.
+**Rolling out in waves.** Forecasting › Rollout waves orders everyone without a license (the heaviest free Copilot Chat users first, then those in departments where licensed people use it most) and splits them into waves; each wave has its own bulk file and script. The default wave size is in Admin › Targets and assumptions.
 
 ## Triage and investigations
 
 **Flagged interactions.** Security › Flagged interactions (Security role) lists every jailbreak, prompt-injection and blocked-resource flag with a triage status: *New*, *Investigating*, *Closed* or *False positive*, and a note. Saving one records you as its owner. *Open* (new or investigating) is the default view; the count is at the top.
 
-**One person's record.** Compliance › Person record (Compliance role; also in privacy mode): a person's directory and licence record, and every interaction in the period with its record id, downloadable. Use it for a data-subject request or an investigation; the prompt and response text is in Purview, found by the record ids. Every look and download is in the audit log with whose record it was.
+**One person's record.** Compliance › Person record (Compliance role; also in privacy mode): a person's directory and license record, and every interaction in the period with its record id, downloadable. Use it for a data-subject request or an investigation; the prompt and response text is in Purview, found by the record ids. Every look and download is in the audit log with whose record it was.
 
 ## Privacy, retention and the data API
 
@@ -183,15 +183,15 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 ## The pipeline
 
-**The nightly task** (`Copilot audit - nightly`, 02:00 by default) runs `Invoke-CopilotPipeline.ps1`: the directory, the licences, the licence events and the Copilot interactions, then retention. It records each run and step in `audit.PipelineRun`. To run it now, or to resume after a failure, run `.\Invoke-CopilotPipeline.ps1` on the job server. To move it, run `tools\Install-CopilotJobServer.ps1 -At 03:30`.
+**The nightly task** (`Copilot audit - nightly`, 02:00 by default) runs `Invoke-CopilotPipeline.ps1`: the directory, the licenses, the license events and the Copilot interactions, then retention. It records each run and step in `audit.PipelineRun`. To run it now, or to resume after a failure, run `.\Invoke-CopilotPipeline.ps1` on the job server. To move it, run `tools\Install-CopilotJobServer.ps1 -At 03:30`.
 
 **Refresh or rebuild by hand**, after a change that the nightly run would not pick up:
 
 | After | Do this |
 |---|---|
 | A change to the directory, the top of the organisation or the app categories, wanted on the dashboard now | Admin › Health › *Refresh the last 7 days*, or `M -Task RefreshDashboard` (every day) or `-SinceUtc 2026-10-01` |
-| A session setting changes (timeout, time zone, licence databases) | `M -Task RebuildSessions` |
-| Licence history arrives for a period already built, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the Power BI model |
+| A session setting changes (timeout, time zone, license databases) | `M -Task RebuildSessions` |
+| License history arrives for a period already built, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the Power BI model |
 | A release changes the flattening | `M -Task Reflatten` (every record flattened again, then sessions, `bi` and the dashboard) |
 | The flatten says a field *now carries information* | Nothing breaks; see `audit.RawLogRecordShape` and [RUNBOOK.md](../RUNBOOK.md) |
 
@@ -222,7 +222,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | Admin page | What it is for |
 |---|---|
 | Admin › Health | Pipeline runs and each step's freshness, directory coverage, the latest day with data, the app certificate, audit searches waiting, and a manual refresh |
-| Admin › Access | The top of the organisation, the access settings and licence price, granting and removing roles, checking someone's access |
+| Admin › Access | The top of the organisation, the access settings and license price, granting and removing roles, checking someone's access |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, and everything sent or not |
 | Admin › Alerts and digests | Alert recipients and thresholds, digests, manager and personal digests, the webhook, running the checks now |
@@ -246,7 +246,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | `GrantRole` | Give `-Principal` (UPN, `DOMAIN\user` or `DOMAIN\Group`) a `-Role` |
 | `RevokeRole` | Take it away |
 | `SetOrgTop` | Make `-Upn` the top of the organisation, or `-Clear` |
-| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenceMonthlyCost or LicenceCurrency to `-Value` |
+| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost or LicenseCurrency to `-Value` |
 | `NameAgent` | Give agent `-AgentId` a `-FriendlyName` and `-Owner` |
 | `NameLabel` | Give label `-LabelId` a `-FriendlyName` and `-Rank` |
 | `PurgeJson` | Clear the stored JSON of records older than `-RetainDays` (`-Apply` to do it) |

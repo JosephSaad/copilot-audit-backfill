@@ -56,7 +56,7 @@ SELECT COUNT(*) FROM bi.FactLicensedDay AS l {string.Format(Mine, "l.UserKey")} 
         Kpis.Add(new("Days you used Copilot", Num(t.ActiveDays), showPeers ? $"the organisation's median is {Num(peers.MedianDays)}" : $"of {Ctx.Days}"));
         Kpis.Add(new("Interactions", Num(t.Interactions), showPeers ? $"median {Num(peers.MedianInteractions)}" : null));
         Kpis.Add(new("Conversations", Num(t.Sessions), t.Sessions > 0 ? $"{Pct(Ratio(t.MultiTurn, t.Sessions))} went back and forth" : null));
-        Kpis.Add(new("Licence", licensed ? "Microsoft 365 Copilot" : "Copilot Chat (free)", licensed ? null : "ask your manager if you use it most days"));
+        Kpis.Add(new("License", licensed ? "Microsoft 365 Copilot" : "Copilot Chat (free)", licensed ? null : "ask your manager if you use it most days"));
         if (t.Interactions == 0)
         {
             Notice = $"No Copilot use recorded for you from {Ctx.PeriodLabel}. Records arrive a day or two after use.";

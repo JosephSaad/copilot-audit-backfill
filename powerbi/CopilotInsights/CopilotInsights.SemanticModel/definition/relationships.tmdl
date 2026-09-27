@@ -18,9 +18,9 @@ relationship 4ce0b198-7d4d-503e-a4c3-a51f5b7ec8a3
 	fromColumn: Interactions.ModelKey
 	toColumn: Models.ModelKey
 
-relationship a3c52543-9c84-5976-a7e4-66b80035c3e6
-	fromColumn: Interactions.LicenceStatusKey
-	toColumn: LicenceStatuses.LicenceStatusKey
+relationship 1a422fe3-8034-5664-a630-29d834de70bd
+	fromColumn: Interactions.LicenseStatusKey
+	toColumn: LicenseStatuses.LicenseStatusKey
 
 relationship a6bedf7e-365f-57f4-a147-c2c5a72f09a1
 	fromColumn: Sessions.DateKey
@@ -34,20 +34,20 @@ relationship 145e0785-3006-59ea-a0fa-3eff022dc0af
 	fromColumn: Sessions.AppKey
 	toColumn: Apps.AppKey
 
-relationship bc43685f-fb6f-5feb-aef7-de8a2f6b7d7f
-	fromColumn: Sessions.LicenceStatusKey
-	toColumn: LicenceStatuses.LicenceStatusKey
+relationship c2593f89-282f-51be-860c-397c7c0ffa6b
+	fromColumn: Sessions.LicenseStatusKey
+	toColumn: LicenseStatuses.LicenseStatusKey
 
-relationship d0fba5e9-820c-5d17-8106-83c2e77d3c86
-	fromColumn: LicenceChanges.DateKey
+relationship 75f5d680-e20c-5d34-bd27-2bc40bf4554d
+	fromColumn: LicenseChanges.DateKey
 	toColumn: Calendar.DateKey
 
-relationship f1457077-11f8-5279-8878-6efc78f2048f
-	fromColumn: LicenceChanges.UserKey
+relationship 2573232a-3978-57a4-8eba-b0f502f1f594
+	fromColumn: LicenseChanges.UserKey
 	toColumn: Users.UserKey
 
-relationship c8239e02-3516-5234-96e5-0aefddc584a6
-	fromColumn: LicenceChanges.SkuKey
+relationship 6c55d88f-f070-5422-8872-865a56b66e2e
+	fromColumn: LicenseChanges.SkuKey
 	toColumn: Skus.SkuKey
 
 relationship 0723a08f-08d7-5622-a6c0-632147f83cfb

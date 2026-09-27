@@ -92,7 +92,7 @@ Assert-That ($rEnd.End -eq [datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]
 $none = Resolve-LoadRange -BaseEndUtc $base -NowUtc ([datetime]::new(2026, 9, 23, 0, 40, 0, [DateTimeKind]::Utc)) -LookbackHours 48
 Assert-That ($null -eq $none) 'nothing to load when the current hour has not moved past the data'
 
-# Upgrading: a licence database backfilled with the four licence operations, loaded by 2.3.0 with Copilot Studio's too.
+# Upgrading: a license database backfilled with the four license operations, loaded by 2.3.0 with Copilot Studio's too.
 $licOps = 'Add user,Change user license,Delete user,Update user'
 $wider = Get-OperationsChange -Recorded $licOps -Requested @('Change user license', 'Update user', 'Add user', 'Delete user', 'BotCreate', 'BotUpdateOperation-BotPublish')
 Assert-That ($null -ne $wider -and ($wider -join ',') -eq 'BotCreate,BotUpdateOperation-BotPublish') "a load may ask for more operations than the database recorded ($($wider -join ', '))"

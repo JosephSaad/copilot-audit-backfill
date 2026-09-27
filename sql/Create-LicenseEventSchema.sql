@@ -1,7 +1,7 @@
 /*
-    Licence lifecycle events
+    License lifecycle events
     ------------------------------------------------------------------------
-    Requirement 3 asks for licence type, licence CHANGE dates, and when access
+    Requirement 3 asks for license type, license CHANGE dates, and when access
     was provisioned and revoked. The Graph user object carries current state
     only - assignedPlans gives the date the CURRENT assignment began and
     nothing about one that was removed - so history has to come from the audit
@@ -29,7 +29,7 @@
 
     ---- Chunked events -------------------------------------------------------
 
-    Most licence changes do not carry their detail in ModifiedProperties at
+    Most license changes do not carry their detail in ModifiedProperties at
     all. When the change is too large for one audit record - any user holding
     a few SKUs, because AssignedPlan lists every service plan - Entra splits it
     across several records. Each has empty ModifiedProperties and an
@@ -73,12 +73,12 @@ IF OBJECT_ID(N'audit.LicenseEvent', N'U') IS NULL
         Operation        NVARCHAR(200)   NULL,       -- 'Change user license', 'Update user', ...
         ResultStatus     NVARCHAR(50)    NULL,
         ActorUpn         NVARCHAR(512)   NULL,       -- who made the change
-        TargetUpn        NVARCHAR(512)   NULL,       -- whose licence changed
+        TargetUpn        NVARCHAR(512)   NULL,       -- whose license changed
         TargetObjectId   NVARCHAR(200)   NULL,
         /*
             Records raised for the same underlying change share this, which is
             what pairs a detail-free 'Change user license' with the
-            'Update user' that carries the licence lists.
+            'Update user' that carries the license lists.
         */
         CorrelationId    NVARCHAR(200)   NULL,
         ShreddedUtc      DATETIME2(0)    NOT NULL
@@ -141,17 +141,17 @@ IF COL_LENGTH(N'audit.LicenseEventProperty', N'Source') IS NULL
 /* ---- Views ------------------------------------------------------------- */
 
 /*
-    Licence changes only: one row per licence-bearing property per change.
+    License changes only: one row per license-bearing property per change.
 
     A chunked change is one change however many records carried it, so only
     its seq = 1 record appears (the other records are the same event). And
-    the 'Update user' that Entra raises alongside every licence change, with
+    the 'Update user' that Entra raises alongside every license change, with
     the same detail and CorrelationId, is dropped in favour of the
     'Change user license'. An
-    event with no licence property of its own may still borrow one from a
+    event with no license property of its own may still borrow one from a
     record sharing its CorrelationId, marked FromPairedRecord = 1 - but never
     from its own chunk group, whose records all share that id. Events with no
-    licence detail from either source are not licence changes as far as the
+    license detail from either source are not license changes as far as the
     record can show, and are left out; audit.LicenseEvent still has them.
 */
 EXEC (N'
@@ -202,7 +202,7 @@ OUTER APPLY (
 WHERE (e.ChunkSeq IS NULL OR e.ChunkSeq = 1)
   /* Entra raises the same change as a ''Change user license'' and an
      ''Update user'', each with the full detail, under one CorrelationId.
-     Report it once, as the licence change. */
+     Report it once, as the license change. */
   AND NOT (e.Operation = N''Update user''
            AND e.CorrelationId IS NOT NULL
            AND EXISTS (SELECT 1 FROM audit.LicenseEvent AS x
@@ -260,7 +260,7 @@ CROSS APPLY (
 
 /*
     Provisioning and revocation per user. "Revoked" is inferred from the
-    licence disappearing or the account being deleted, so it is a reading of
+    license disappearing or the account being deleted, so it is a reading of
     the events rather than a field the service provides - treat it as such.
     A chunked change counts once: only its seq = 1 record is counted.
     Operations match exactly: the service's operation filter for 'Add user'
@@ -272,9 +272,9 @@ AS
 SELECT TargetUpn,
        MIN(CASE WHEN Operation = N''Add user'' THEN CreatedDateTime END)        AS AccountCreatedUtc,
        MAX(CASE WHEN Operation = N''Delete user'' THEN CreatedDateTime END)     AS AccountDeletedUtc,
-       MIN(CASE WHEN Operation LIKE N''Change user license%'' THEN CreatedDateTime END) AS FirstLicenceChangeUtc,
-       MAX(CASE WHEN Operation LIKE N''Change user license%'' THEN CreatedDateTime END) AS LastLicenceChangeUtc,
-       COUNT(CASE WHEN Operation LIKE N''Change user license%'' THEN 1 END)     AS LicenceChangeCount,
+       MIN(CASE WHEN Operation LIKE N''Change user license%'' THEN CreatedDateTime END) AS FirstLicenseChangeUtc,
+       MAX(CASE WHEN Operation LIKE N''Change user license%'' THEN CreatedDateTime END) AS LastLicenseChangeUtc,
+       COUNT(CASE WHEN Operation LIKE N''Change user license%'' THEN 1 END)     AS LicenseChangeCount,
        COUNT(*)                                                                AS EventCount
 FROM audit.LicenseEvent
 WHERE TargetUpn IS NOT NULL

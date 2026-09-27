@@ -27,9 +27,9 @@
 .PARAMETER Build
     Rebuild the sessions and weekly rollup before exporting.
 
-.PARAMETER LicenceEventDatabase
-    With -Build: the licence-event database(s), comma-separated, so the
-    licence flag is the one held at the time of use. See
+.PARAMETER LicenseEventDatabase
+    With -Build: the license-event database(s), comma-separated, so the
+    license flag is the one held at the time of use. See
     sql/Create-CopilotSessionProcedure.sql.
 
 .PARAMETER ContextFallback
@@ -40,7 +40,7 @@
 
 .EXAMPLE
     .\tools\Export-CopilotSessionCsv.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -Build `
-        -LicenceEventDatabase 'CopilotLicenseEvents' -OutputFolder D:\Copilot\Output
+        -LicenseEventDatabase 'CopilotLicenseEvents' -OutputFolder D:\Copilot\Output
 #>
 [CmdletBinding()]
 param(
@@ -52,7 +52,7 @@ param(
 
     [string]       $OutputFolder = (Join-Path (Get-Location) 'Output'),
     [switch]       $Build,
-    [string]       $LicenceEventDatabase,
+    [string]       $LicenseEventDatabase,
     [ValidateSet('User', 'Location', 'None')]
     [string]       $ContextFallback = 'User'
 )
@@ -133,7 +133,7 @@ try {
         $cmd.CommandType = [System.Data.CommandType]::StoredProcedure
         $cmd.CommandTimeout = 0
         [void] $cmd.Parameters.AddWithValue('@ContextFallback', $ContextFallback)
-        if ($LicenceEventDatabase) { [void] $cmd.Parameters.AddWithValue('@LicenceEventDatabase', $LicenceEventDatabase) }
+        if ($LicenseEventDatabase) { [void] $cmd.Parameters.AddWithValue('@LicenseEventDatabase', $LicenseEventDatabase) }
         [void] $cmd.ExecuteNonQuery()
     }
 

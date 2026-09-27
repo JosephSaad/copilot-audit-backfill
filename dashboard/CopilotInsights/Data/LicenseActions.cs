@@ -4,11 +4,11 @@ using CopilotInsights.Infrastructure;
 namespace CopilotInsights.Data;
 
 /// <summary>
-/// The licence changes the dashboard exported for an administrator to apply (upgrade, revoke,
-/// leaver, rollout wave), kept so Forecasting > Licence action outcomes can show whether they
+/// The license changes the dashboard exported for an administrator to apply (upgrade, revoke,
+/// leaver, rollout wave), kept so Forecasting > License action outcomes can show whether they
 /// were applied and what followed.
 /// </summary>
-public static class LicenceActions
+public static class LicenseActions
 {
     public static readonly string[] Kinds = ["upgrade", "revoke", "leaver", "wave"];
 
@@ -19,9 +19,9 @@ public static class LicenceActions
         {
             foreach (var chunk in upns.Chunk(1000))
                 await db.ExecuteAsync(@"
-INSERT INTO dash.LicenceAction (Kind, Upn, ExportedBy)
+INSERT INTO dash.LicenseAction (Kind, Upn, ExportedBy)
 SELECT @kind, j.Upn, @by FROM OPENJSON(@json) WITH (Upn NVARCHAR(256) '$') AS j;", new { kind, by, json = JsonSerializer.Serialize(chunk) });
         }
-        catch (Microsoft.Data.SqlClient.SqlException) { /* dash.LicenceAction arrives with 2.3.0's operations schema; the export still works without it. */ }
+        catch (Microsoft.Data.SqlClient.SqlException) { /* dash.LicenseAction arrives with 2.3.0's operations schema; the export still works without it. */ }
     }
 }

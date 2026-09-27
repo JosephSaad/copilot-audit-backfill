@@ -1,6 +1,6 @@
 # Schema reference
 
-Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and licence-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
+Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
 81 tables (plus 2 left over from 1.x), 35 views, 1091 columns, from 18 scripts.
 
@@ -10,15 +10,15 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
-- [Licences and the user directory](#licences-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
+- [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
-- [Licence events (licence-event database)](#licence-events-licence-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
-- [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenceStatus`](#bidimlicencestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
-- [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenceChange`](#bifactlicencechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RefreshRun`](#birefreshrun)
-- [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenceChanges`](#bilicencechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenceStatuses`](#bilicencestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
+- [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
+- [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
+- [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RefreshRun`](#birefreshrun)
+- [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
 - [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.Agent`](#dashagent)
-- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenceAction`](#dashlicenceaction), [`dash.LicenceContract`](#dashlicencecontract), [`dash.SavedView`](#dashsavedview), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
+- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
 ## The scripts
@@ -30,23 +30,23 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage. The shared function fnShredCopilotInteraction. |
 | `sql/Finalize-CopilotAudit.sql` | Both | By -Finalize or -FinalizeOnly, once, after the backfill | CopilotAudit and CopilotInteraction (dropped and rebuilt from staging), vCopilotDailyUsage, vCopilotAuditRecord. |
 | `sql/Create-CopilotLoadProcedure.sql` | Both | Automatically, by every -Incremental run | usp_MergeCopilotLoad, which appends each nightly load. |
-| `sql/Create-CopilotCsvImport.sql` | Copilot (or licence, if importing there) | Automatically, by tools/Import-CopilotAuditCsv.ps1 | CopilotCsvImport, CopilotCsvFile, CopilotCsvReject, CopilotCsvStage, usp_MergeCopilotCsv. In a database with no backfill, also CopilotAudit, CopilotInteraction and their two views. Adds CopilotAudit.CsvImportId and CopilotBackfillRange.Source. |
+| `sql/Create-CopilotCsvImport.sql` | Copilot (or license, if importing there) | Automatically, by tools/Import-CopilotAuditCsv.ps1 | CopilotCsvImport, CopilotCsvFile, CopilotCsvReject, CopilotCsvStage, usp_MergeCopilotCsv. In a database with no backfill, also CopilotAudit, CopilotInteraction and their two views. Adds CopilotAudit.CsvImportId and CopilotBackfillRange.Source. |
 | `sql/Create-CopilotFlattenedSchema.sql` | Copilot | By hand, once (deployment step 8) | RawLogFlattened, and CopilotLicense if it does not exist yet. |
 | `sql/Create-CopilotFlattenProcedure.sql` | Copilot | By hand, once (step 8) | usp_FlattenCopilotAudit. |
 | `sql/Create-CopilotPurgeProcedure.sql` | Copilot | By hand, optional (step 8) | usp_PurgeCopilotAuditJson. |
 | `sql/Create-CopilotEnrichmentSchema.sql` | Copilot | Automatically, by both enrichment tools; or by hand (step 8) | CopilotLicense, UserDirectory, vCopilotAdoption, vCopilotUsageByDepartment (the views only once CopilotInteraction exists). |
 | `sql/Create-CopilotSessionSchema.sql` | Copilot | By hand, once (step 8) | SessionAppCategory (seeded), CopilotSession, CopilotWeeklyRollup, CopilotSessionRun, vCopilotSessionSummary, vCopilotWeeklyRollup. |
 | `sql/Create-CopilotSessionProcedure.sql` | Copilot | By hand, once (step 8) | usp_BuildCopilotSessions. |
-| `sql/Create-CopilotBiSchema.sql` | Copilot | By hand, once (step 8) | The bi schema: the dimensions (DimDate, DimUser, DimApp, DimAgent, DimModel, DimSku, DimLicenceStatus, DimLicenseType, DimSensitivityLabel, DimResourceType, DimResourceAction, DimSite), the facts (FactInteraction, FactSession, FactLicenceChange, FactLicensedDay, FactAccessedResource, FactAgentEvent), RefreshRun, and the views Power BI imports. bi.Interactions carries PremiumUse and UseCaseKey (2.3.0). |
+| `sql/Create-CopilotBiSchema.sql` | Copilot | By hand, once (step 8) | The bi schema: the dimensions (DimDate, DimUser, DimApp, DimAgent, DimModel, DimSku, DimLicenseStatus, DimLicenseType, DimSensitivityLabel, DimResourceType, DimResourceAction, DimSite), the facts (FactInteraction, FactSession, FactLicenseChange, FactLicensedDay, FactAccessedResource, FactAgentEvent), RefreshRun, and the views Power BI imports. bi.Interactions carries PremiumUse and UseCaseKey (2.3.0). |
 | `sql/Create-CopilotBiProcedure.sql` | Copilot | By hand, once (step 8) | bi.usp_RefreshBi. |
-| `sql/Create-LicenseEventSchema.sql` | Licence events | By hand, once (step 7) | LicenseEvent, LicenseEventChunk, LicenseEventProperty, vLicenseChange, vLicenseSkuChange, vLicenseLifecycle. |
-| `sql/Create-LicenseEventProcedure.sql` | Licence events | By hand, once (step 7) | usp_ShredLicenseEvents. |
+| `sql/Create-LicenseEventSchema.sql` | License events | By hand, once (step 7) | LicenseEvent, LicenseEventChunk, LicenseEventProperty, vLicenseChange, vLicenseSkuChange, vLicenseLifecycle. |
+| `sql/Create-LicenseEventProcedure.sql` | License events | By hand, once (step 7) | usp_ShredLicenseEvents. |
 | `sql/Create-CopilotDashboardSchema.sql` | Copilot | By hand, once, for the dashboard (step 22) | The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun; the view dash.Agent and the function dash.fnScopeUsers. |
-| `sql/Create-CopilotOperationsSchema.sql` | Copilot | By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess | The dashboard's operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, licence actions and contracts, saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers. |
-| `sql/Create-AgentEventProcedure.sql` | Licence events | By Install-CopilotAudit.ps1, and after each licence-event load | audit.AgentEvent and audit.usp_ShredAgentEvents (2.3.0): Copilot Studio authoring records, one row each. |
+| `sql/Create-CopilotOperationsSchema.sql` | Copilot | By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess | The dashboard's operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, license actions and contracts, saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers. |
+| `sql/Create-AgentEventProcedure.sql` | License events | By Install-CopilotAudit.ps1, and after each license-event load | audit.AgentEvent and audit.usp_ShredAgentEvents (2.3.0): Copilot Studio authoring records, one row each. |
 | `sql/Create-CopilotDashboardProcedure.sql` | Copilot | By hand, once, for the dashboard (step 22) | dash.usp_RefreshDashboard, which the backfill's -Incremental run and the CSV importer call after bi.usp_RefreshBi. |
 
-**Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the licence-event section. The licence-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the licence-event tables and views.
+**Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the license-event section. The license-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the license-event tables and views.
 
 **Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organisation to it.
 
@@ -58,7 +58,7 @@ What the backfill and the nightly loads write while they run. The engine resumes
 
 *Table.* One row (Id = 1): the range and operation set this database holds, and when the backfill completed. -Incremental continues from its end. A CSV import that starts a database writes it with Source = 'CSV'.
 
-**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and licence-event databases · **Columns added by** `Create-CopilotCsvImport.sql`
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases · **Columns added by** `Create-CopilotCsvImport.sql`
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -79,7 +79,7 @@ Indexes and constraints:
 
 *Table.* One row per search window of the backfill: its time range, status (Pending, Submitted, Ready, Downloading, Loaded, Split, Failed), the Graph query, attempts and rows loaded. The resume state; finalize checks it covers the range with no gap.
 
-**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and licence-event databases
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -108,7 +108,7 @@ Indexes and constraints:
 
 *Table.* Every row the backfill downloaded, per window attempt, with the record JSON gzipped in AuditDataGz. Finalize keeps each window's final attempt. A heap; drop it once the final tables are checked.
 
-**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and licence-event databases
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -133,7 +133,7 @@ Indexes and constraints:
 
 *Table.* One row per -Incremental load: its range, operations, when it finished downloading and was merged, and how many records were new or already there.
 
-**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and licence-event databases
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -157,7 +157,7 @@ Indexes and constraints:
 
 *Table.* The search windows of the load in progress, as CopilotBackfillWindow. Emptied after each merge.
 
-**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and licence-event databases
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -186,7 +186,7 @@ Indexes and constraints:
 
 *Table.* The rows of the load in progress, as CopilotAuditStage. Emptied after each merge.
 
-**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and licence-event databases
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -276,7 +276,7 @@ Every audit record once, and the slim reporting table. Built by finalize, then a
 
 *Table.* One row per audit record, deduplicated by RecordId. Clustered columnstore; the full JSON is in AuditDataGz (read it through vCopilotAuditRecord). Lineage: WindowId and LoadId for Graph loads, CsvImportId for CSV imports.
 
-**Script** `Finalize-CopilotAudit.sql` · **In** Copilot and licence-event databases · **Also** Create-CopilotCsvImport.sql, for a database that starts from CSV · **Columns added by** `Create-CopilotCsvImport.sql`, `Create-CopilotLoadProcedure.sql`
+**Script** `Finalize-CopilotAudit.sql` · **In** Copilot and license-event databases · **Also** Create-CopilotCsvImport.sql, for a database that starts from CSV · **Columns added by** `Create-CopilotCsvImport.sql`, `Create-CopilotLoadProcedure.sql`
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -305,7 +305,7 @@ Indexes and constraints:
 
 *Table.* One row per Copilot interaction, shredded from the JSON by fnShredCopilotInteraction: day, user, app, agent identity, model, thread, prompt and resource counts, web grounding. Clustered columnstore.
 
-**Script** `Finalize-CopilotAudit.sql` · **In** Copilot and licence-event databases · **Also** Create-CopilotCsvImport.sql, for a database that starts from CSV
+**Script** `Finalize-CopilotAudit.sql` · **In** Copilot and license-event databases · **Also** Create-CopilotCsvImport.sql, for a database that starts from CSV
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -331,7 +331,7 @@ Indexes and constraints:
 
 *View.* CopilotAudit in the Purview portal export's shape (RecordId, CreationDate, RecordType, Operation, UserId, AuditData, ...), with AuditData decompressed. SQL written against the portal CSV can point here. AssociatedAdminUnitsNames is always NULL.
 
-**Script** `Finalize-CopilotAudit.sql` · **In** Copilot and licence-event databases · **Also** Create-CopilotCsvImport.sql, for a database that starts from CSV
+**Script** `Finalize-CopilotAudit.sql` · **In** Copilot and license-event databases · **Also** Create-CopilotCsvImport.sql, for a database that starts from CSV
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -348,7 +348,7 @@ Indexes and constraints:
 
 *View.* Interactions, active users, prompts and web-grounded interactions per day per app.
 
-**Script** `Finalize-CopilotAudit.sql` · **In** Copilot and licence-event databases · **Also** Create-CopilotCsvImport.sql, for a database that starts from CSV
+**Script** `Finalize-CopilotAudit.sql` · **In** Copilot and license-event databases · **Also** Create-CopilotCsvImport.sql, for a database that starts from CSV
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -385,7 +385,7 @@ One row per record with the Copilot event data shredded into columns, for report
 | 12 | `PromptInjectionDetected` | nvarchar(5) | yes |  | $.CopilotEventData.AccessedResources[ ].XPIADetected - cross prompt injection attack detected in an accessed resource. |
 | 13 | `BlockedResourceUrls` | nvarchar(max) | yes |  | SiteUrl of any accessed resource carrying PolicyDetails or a failed Status - Copilot's access to it was blocked or restricted. |
 | 14 | `SensitivityLabelIds` | nvarchar(max) | yes |  | $.CopilotEventData.AccessedResources[ ].SensitivityLabelId |
-| 15 | `IsCopilotLic` | bit | yes |  | Whether the user held a Copilot licence. Not in the audit record: filled from audit.CopilotLicense when that table exists (see the procedure), NULL otherwise. |
+| 15 | `IsCopilotLic` | bit | yes |  | Whether the user held a Copilot license. Not in the audit record: filled from audit.CopilotLicense when that table exists (see the procedure), NULL otherwise. |
 | 16 | `UtcTimeStamp` | datetime2(0) | yes |  | Beyond the source table's columns, cheap to carry and hard to reconstruct later. Drop them if the shape has to match exactly. $.CreationTime, typed |
 | 17 | `AppIdentity` | nvarchar(200) | yes |  | $.AppIdentity |
 | 18 | `ThreadId` | nvarchar(400) | yes |  | $.CopilotEventData.ThreadId |
@@ -403,7 +403,7 @@ One row per record with the Copilot event data shredded into columns, for report
 | 30 | `PlatformAgentId` | varchar(256) | yes |  | $.PlatformAgentId |
 | 31 | `ResultStatus` | varchar(64) | yes |  | $.ResultStatus |
 | 32 | `AppAccessContext_APIId` | varchar(64) | yes |  | $.AppAccessContext.APIId |
-| 33 | `CopilotEventData_LicenseType` | varchar(32) | yes |  | $.CopilotEventData.LicenseType: the licence the record reports (Premium, Starter ...) |
+| 33 | `CopilotEventData_LicenseType` | varchar(32) | yes |  | $.CopilotEventData.LicenseType: the license the record reports (Premium, Starter ...) |
 | 34 | `CopilotEventData_ConversationId` | varchar(256) | yes |  | $.CopilotEventData.ConversationId |
 | 35 | `CopilotEventData_CorrelationId` | uniqueidentifier | yes |  | $.CopilotEventData.CorrelationId |
 | 36 | `CopilotEventData_SensitivityLabelId` | uniqueidentifier | yes |  | $.CopilotEventData.SensitivityLabelId: the interaction's own label |
@@ -475,7 +475,7 @@ Indexes and constraints:
 
 ### audit.ValueCatalog
 
-*Table.* Every distinct value of 23 low-cardinality columns (2.3.0): label ids, tenant, app, agent and platform ids, models, capacities, licence types, resource types. How often and when first and last seen; a column stops collecting at 10,000 values. Filled by each flatten batch; names are in dash.ValueName.
+*Table.* Every distinct value of 23 low-cardinality columns (2.3.0): label ids, tenant, app, agent and platform ids, models, capacities, license types, resource types. How often and when first and last seen; a column stops collecting at 10,000 values. Filled by each flatten batch; names are in dash.ValueName.
 
 **Script** `Create-CopilotFlattenedSchema.sql` · **In** Copilot database
 
@@ -546,13 +546,13 @@ Indexes and constraints:
 
 - `PK_RawLogRecordShape`: primary key, clustered (ShapeHash)
 
-## Licences and the user directory
+## Licenses and the user directory
 
-Who holds a licence (Microsoft Graph) and where they sit in the organisation (on-premises AD).
+Who holds a license (Microsoft Graph) and where they sit in the organisation (on-premises AD).
 
 ### audit.CopilotLicense
 
-*Table.* One row per user looked up by the licence tool: whether they hold a Copilot licence, the SKU, since when, and whether they still exist in Entra. IsCopilotLic NULL means not known, which is not the same as unlicensed.
+*Table.* One row per user looked up by the license tool: whether they hold a Copilot license, the SKU, since when, and whether they still exist in Entra. IsCopilotLic NULL means not known, which is not the same as unlicensed.
 
 **Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database · **Also** Create-CopilotFlattenedSchema.sql, if run first
 
@@ -622,7 +622,7 @@ Indexes and constraints:
 
 ### audit.LicenseSku
 
-*Table.* The tenant's subscriptions as of the licence tool's last run (2.3.0): per SKU, seats enabled, in the grace period, suspended and assigned, and whether it is a Copilot SKU.
+*Table.* The tenant's subscriptions as of the license tool's last run (2.3.0): per SKU, seats enabled, in the grace period, suspended and assigned, and whether it is a Copilot SKU.
 
 **Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
 
@@ -645,7 +645,7 @@ Indexes and constraints:
 
 ### audit.LicenseSkuDay
 
-*Table.* The same per night (2.3.0), for the licence pool over time.
+*Table.* The same per night (2.3.0), for the license pool over time.
 
 **Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
 
@@ -725,7 +725,7 @@ Indexes and constraints:
 
 ### audit.CopilotSession
 
-*Table.* One row per inferred session: a person's prompts with less than 60 minutes between them, within one reporting-time-zone day. Primary app and licence flag come from its first prompt.
+*Table.* One row per inferred session: a person's prompts with less than 60 minutes between them, within one reporting-time-zone day. Primary app and license flag come from its first prompt.
 
 **Script** `Create-CopilotSessionSchema.sql` · **In** Copilot database
 
@@ -764,7 +764,7 @@ Indexes and constraints:
 
 ### audit.CopilotWeeklyRollup
 
-*Table.* One row per week x user x primary app x category x licence, by the week a session's last prompt falls in.
+*Table.* One row per week x user x primary app x category x license, by the week a session's last prompt falls in.
 
 **Script** `Create-CopilotSessionSchema.sql` · **In** Copilot database
 
@@ -821,7 +821,7 @@ Indexes and constraints:
 | 13 | `ContextFallback` | nvarchar(20) | **no** |  |  |
 | 14 | `ReportingTimeZone` | nvarchar(128) | **no** |  |  |
 | 15 | `MetricVersion` | nvarchar(200) | **no** |  |  |
-| 16 | `LicenceEventDatabase` | nvarchar(1000) | yes |  | NULL: licence flag is today's, from the enrichment |
+| 16 | `LicenseEventDatabase` | nvarchar(1000) | yes |  | NULL: license flag is today's, from the enrichment |
 | 17 | `RebuiltFrom` | datetime2(0) | yes |  |  |
 
 Indexes and constraints:
@@ -995,15 +995,15 @@ Indexes and constraints:
 | 14 | `AdministrativeUnits` | nvarchar(4000) | yes |  |  |
 | 15 | `AuditDataGz` | varbinary(max) | yes |  |  |
 
-## Licence events (licence-event database)
+## License events (license-event database)
 
-In the separate database the licence-operations backfill fills. It also holds the loading, state and final-record tables above; these are added on top.
+In the separate database the license-operations backfill fills. It also holds the loading, state and final-record tables above; these are added on top.
 
 ### audit.LicenseEvent
 
-*Table.* One row per licence-related directory audit record (Change user license, Update user, Add user, Delete user): who changed whom, when, and whether the detail came from chunks.
+*Table.* One row per license-related directory audit record (Change user license, Update user, Add user, Delete user): who changed whom, when, and whether the detail came from chunks.
 
-**Script** `Create-LicenseEventSchema.sql` · **In** Licence-event database
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -1013,9 +1013,9 @@ In the separate database the licence-operations backfill fills. It also holds th
 | 4 | `Operation` | nvarchar(200) | yes |  | 'Change user license', 'Update user', ... |
 | 5 | `ResultStatus` | nvarchar(50) | yes |  |  |
 | 6 | `ActorUpn` | nvarchar(512) | yes |  | who made the change |
-| 7 | `TargetUpn` | nvarchar(512) | yes |  | whose licence changed |
+| 7 | `TargetUpn` | nvarchar(512) | yes |  | whose license changed |
 | 8 | `TargetObjectId` | nvarchar(200) | yes |  |  |
-| 9 | `CorrelationId` | nvarchar(200) | yes |  | Records raised for the same underlying change share this, which is what pairs a detail-free 'Change user license' with the 'Update user' that carries the licence lists. |
+| 9 | `CorrelationId` | nvarchar(200) | yes |  | Records raised for the same underlying change share this, which is what pairs a detail-free 'Change user license' with the 'Update user' that carries the license lists. |
 | 10 | `ShreddedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 11 | `ChunkGroupId` | nvarchar(100) | yes |  |  |
 | 12 | `ChunkSeq` | int | yes |  |  |
@@ -1031,7 +1031,7 @@ Indexes and constraints:
 
 *Table.* Fragments of changes too large for one audit record, kept until every fragment of a group has arrived and can be reassembled.
 
-**Script** `Create-LicenseEventSchema.sql` · **In** Licence-event database
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -1048,7 +1048,7 @@ Indexes and constraints:
 
 *Table.* One row per modified property of an event: Name, OldValue, NewValue. Whatever Microsoft records is queryable, whatever the property names.
 
-**Script** `Create-LicenseEventSchema.sql` · **In** Licence-event database
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -1065,9 +1065,9 @@ Indexes and constraints:
 
 ### audit.vLicenseChange
 
-*View.* One row per licence change, deduplicated: a chunked change counts once, and the Update user raised alongside every licence change is dropped in favour of the Change user license.
+*View.* One row per license change, deduplicated: a chunked change counts once, and the Update user raised alongside every license change is dropped in favour of the Change user license.
 
-**Script** `Create-LicenseEventSchema.sql` · **In** Licence-event database
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -1086,9 +1086,9 @@ Indexes and constraints:
 
 ### audit.vLicenseSkuChange
 
-*View.* SKUs added and removed per change, from the old and new AssignedLicense lists: "when was this user given Copilot, and when was it taken away". Sessions and bi read it for licence at the time of use.
+*View.* SKUs added and removed per change, from the old and new AssignedLicense lists: "when was this user given Copilot, and when was it taken away". Sessions and bi read it for license at the time of use.
 
-**Script** `Create-LicenseEventSchema.sql` · **In** Licence-event database
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -1103,9 +1103,9 @@ Indexes and constraints:
 
 ### audit.AgentEvent
 
-*Table.* One row per Copilot Studio authoring record (2.3.0): the operation (BotCreate, BotUpdateOperation-BotPublish, BotUpdateOperation-BotShare, BotDelete, BotComponent...), the action it means (Created, Published, Shared, Updated, Component, Deleted), the maker, the agent and the component, and the update details. Shredded by usp_ShredAgentEvents after each licence-event load, which asks for these operations too.
+*Table.* One row per Copilot Studio authoring record (2.3.0): the operation (BotCreate, BotUpdateOperation-BotPublish, BotUpdateOperation-BotShare, BotDelete, BotComponent...), the action it means (Created, Published, Shared, Updated, Component, Deleted), the maker, the agent and the component, and the update details. Shredded by usp_ShredAgentEvents after each license-event load, which asks for these operations too.
 
-**Script** `Create-AgentEventProcedure.sql` · **In** Licence-event database
+**Script** `Create-AgentEventProcedure.sql` · **In** License-event database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -1130,18 +1130,18 @@ Indexes and constraints:
 
 ### audit.vLicenseLifecycle
 
-*View.* Provisioning and revocation per user. "Revoked" is inferred from a licence disappearing or the account being deleted: a reading of the events, not a field the service provides.
+*View.* Provisioning and revocation per user. "Revoked" is inferred from a license disappearing or the account being deleted: a reading of the events, not a field the service provides.
 
-**Script** `Create-LicenseEventSchema.sql` · **In** Licence-event database
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
 | 1 | `TargetUpn` | nvarchar(512) | yes |  |  |
 | 2 | `AccountCreatedUtc` | datetime2(0) | yes |  |  |
 | 3 | `AccountDeletedUtc` | datetime2(0) | yes |  |  |
-| 4 | `FirstLicenceChangeUtc` | datetime2(0) | yes |  |  |
-| 5 | `LastLicenceChangeUtc` | datetime2(0) | yes |  |  |
-| 6 | `LicenceChangeCount` | int | yes |  |  |
+| 4 | `FirstLicenseChangeUtc` | datetime2(0) | yes |  |  |
+| 5 | `LastLicenseChangeUtc` | datetime2(0) | yes |  |  |
+| 6 | `LicenseChangeCount` | int | yes |  |  |
 | 7 | `EventCount` | int | yes |  |  |
 
 ## bi: dimensions
@@ -1177,7 +1177,7 @@ Indexes and constraints:
 
 ### bi.DimUser
 
-*Table.* One row per person seen in the audit data, licences or licence history: directory attributes from AD, the org chain as OrgLevel1..15, and today's licence. Restated from the sources on every refresh.
+*Table.* One row per person seen in the audit data, licenses or license history: directory attributes from AD, the org chain as OrgLevel1..15, and today's license. Restated from the sources on every refresh.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1196,7 +1196,7 @@ Indexes and constraints:
 | 12 | `AccountEnabled` | bit | yes |  |  |
 | 13 | `ManagerUpn` | nvarchar(512) | yes |  |  |
 | 14 | `DirectoryStatus` | nvarchar(20) | **no** | `N'Not looked up'` | Found (in AD) \| NotFound (left Entra) \| Not looked up (neither source) |
-| 15 | `CopilotLicenceToday` | nvarchar(12) | **no** | `N'Unknown'` | Today's licence, from the enrichment. Licensed \| Not licensed \| Unknown. Licence at the time of use is on the facts, not here. |
+| 15 | `CopilotLicenseToday` | nvarchar(12) | **no** | `N'Unknown'` | Today's license, from the enrichment. Licensed \| Not licensed \| Unknown. License at the time of use is on the facts, not here. |
 | 16 | `CopilotSku` | nvarchar(100) | yes |  |  |
 | 17 | `LicensedSinceUtc` | datetime2(0) | yes |  |  |
 | 18 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
@@ -1282,7 +1282,7 @@ Indexes and constraints:
 
 ### bi.DimSku
 
-*Table.* One row per licence SKU seen in the licence history, flagged when it is a Copilot SKU.
+*Table.* One row per license SKU seen in the license history, flagged when it is a Copilot SKU.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1298,7 +1298,7 @@ Indexes and constraints:
 - `PK_DimSku`: primary key, clustered (SkuKey)
 - `UQ_DimSku_Sku`: unique, nonclustered (Sku)
 
-### bi.DimLicenceStatus
+### bi.DimLicenseStatus
 
 *Table.* Three rows: 0 Unknown, 1 Licensed, 2 Not licensed.
 
@@ -1306,16 +1306,16 @@ Indexes and constraints:
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
-| 1 | `LicenceStatusKey` | tinyint | **no** | **PK** |  |
-| 2 | `LicenceStatus` | nvarchar(20) | **no** |  |  |
+| 1 | `LicenseStatusKey` | tinyint | **no** | **PK** |  |
+| 2 | `LicenseStatus` | nvarchar(20) | **no** |  |  |
 
 Indexes and constraints:
 
-- `PK_DimLicenceStatus`: primary key, clustered (LicenceStatusKey)
+- `PK_DimLicenseStatus`: primary key, clustered (LicenseStatusKey)
 
 ### bi.DimLicenseType
 
-*Table.* The licence type the audit record itself reports (CopilotEventData.LicenseType), 2.2.0. Key 1 is (not reported).
+*Table.* The license type the audit record itself reports (CopilotEventData.LicenseType), 2.2.0. Key 1 is (not reported).
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1403,7 +1403,7 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 
 ### bi.FactInteraction
 
-*Table.* One row per Copilot interaction: date, hour, user, app, agent, model, licence status at the time of use, counts and safety flags. RecordId and CreatedUtc are kept for lineage and left out of the view the model imports.
+*Table.* One row per Copilot interaction: date, hour, user, app, agent, model, license status at the time of use, counts and safety flags. RecordId and CreatedUtc are kept for lineage and left out of the view the model imports.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1418,7 +1418,7 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 | 7 | `AppKey` | int | **no** |  |  |
 | 8 | `AgentKey` | int | **no** |  |  |
 | 9 | `ModelKey` | int | **no** |  |  |
-| 10 | `LicenceStatusKey` | tinyint | **no** |  |  |
+| 10 | `LicenseStatusKey` | tinyint | **no** |  |  |
 | 11 | `PromptCount` | int | **no** |  |  |
 | 12 | `AccessedResourceCount` | int | **no** |  |  |
 | 13 | `UsedWebSearch` | bit | **no** |  |  |
@@ -1426,7 +1426,7 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 | 15 | `PromptInjectionDetected` | bit | **no** |  |  |
 | 16 | `HasBlockedResource` | bit | **no** |  |  |
 | 17 | `HasSensitivityLabel` | bit | **no** |  |  |
-| 18 | `LicenseTypeKey` | int | **no** | `1` | bi.DimLicenseType: the licence the record reports (2.2.0) |
+| 18 | `LicenseTypeKey` | int | **no** | `1` | bi.DimLicenseType: the license the record reports (2.2.0) |
 | 19 | `SensitivityLabelKey` | int | **no** | `1` | bi.DimSensitivityLabel: the interaction's own label (2.2.0) |
 | 20 | `MessageCount` | int | **no** | `0` | prompts and responses (2.2.0) |
 | 21 | `MemoryUpdated` | bit | **no** | `0` | 2.2.0 |
@@ -1436,7 +1436,7 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 
 Indexes and constraints:
 
-- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
+- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenseStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
 
 ### bi.FactSession
 
@@ -1452,7 +1452,7 @@ Indexes and constraints:
 | 4 | `DateKey` | int | **no** |  |  |
 | 5 | `UserKey` | int | **no** |  |  |
 | 6 | `AppKey` | int | **no** |  | the first prompt's app |
-| 7 | `LicenceStatusKey` | tinyint | **no** |  |  |
+| 7 | `LicenseStatusKey` | tinyint | **no** |  |  |
 | 8 | `PromptCount` | int | **no** |  |  |
 | 9 | `SpanMinutes` | decimal(12,2) | **no** |  |  |
 | 10 | `IsMultiTurn` | bit | **no** |  |  |
@@ -1461,7 +1461,7 @@ Indexes and constraints:
 
 - `PK_FactSession`: primary key, clustered (SessionKey)
 
-### bi.FactLicenceChange
+### bi.FactLicenseChange
 
 *Table.* One row per Copilot SKU added (+1) or removed (-1) from a person.
 
@@ -1472,18 +1472,18 @@ Indexes and constraints:
 | 1 | `RecordId` | varchar(64) | **no** | **PK** | lineage; not imported |
 | 2 | `ChangedUtc` | datetime2(0) | **no** |  |  |
 | 3 | `DateKey` | int | **no** |  |  |
-| 4 | `UserKey` | int | **no** |  | whose licence changed |
+| 4 | `UserKey` | int | **no** |  | whose license changed |
 | 5 | `SkuKey` | int | **no** | **PK** |  |
 | 6 | `Change` | smallint | **no** | **PK** | +1 added, -1 removed |
 | 7 | `ChangedBy` | nvarchar(512) | yes |  | the admin who made it |
 
 Indexes and constraints:
 
-- `PK_FactLicenceChange`: primary key, clustered (RecordId, SkuKey, Change)
+- `PK_FactLicenseChange`: primary key, clustered (RecordId, SkuKey, Change)
 
 ### bi.FactLicensedDay
 
-*Table.* One row per person per day on which they held a Copilot licence at the end of the day.
+*Table.* One row per person per day on which they held a Copilot license at the end of the day.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1524,7 +1524,7 @@ Indexes and constraints:
 
 ### bi.FactAgentEvent
 
-*Table.* One row per Copilot Studio authoring event (2.3.0), copied from audit.AgentEvent in every licence-event database by each refresh, with the day in the reporting time zone and the maker's user key.
+*Table.* One row per Copilot Studio authoring event (2.3.0), copied from audit.AgentEvent in every license-event database by each refresh, with the day in the reporting time zone and the maker's user key.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1549,7 +1549,7 @@ Indexes and constraints:
 
 ### bi.RefreshRun
 
-*Table.* One row per bi.usp_RefreshBi run: window (SinceUtc NULL is a full rebuild), time zone, licence databases, rows written, and the session build it followed.
+*Table.* One row per bi.usp_RefreshBi run: window (SinceUtc NULL is a full rebuild), time zone, license databases, rows written, and the session build it followed.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1560,11 +1560,11 @@ Indexes and constraints:
 | 3 | `EndedUtc` | datetime2(0) | **no** |  |  |
 | 4 | `SinceUtc` | datetime2(0) | yes |  | NULL = a full rebuild |
 | 5 | `ReportingTimeZone` | sysname | **no** |  |  |
-| 6 | `LicenceEventDatabase` | nvarchar(1000) | yes |  |  |
+| 6 | `LicenseEventDatabase` | nvarchar(1000) | yes |  |  |
 | 7 | `InteractionRows` | bigint | **no** |  | written by this run |
 | 8 | `InteractionsSkipped` | bigint | **no** |  | no timestamp |
 | 9 | `SessionRows` | int | **no** |  | written by this run |
-| 10 | `LicenceChangeRows` | int | **no** |  |  |
+| 10 | `LicenseChangeRows` | int | **no** |  |  |
 | 11 | `LicensedDayRows` | int | **no** |  |  |
 | 12 | `SessionRunId` | int | yes |  | the latest audit.CopilotSessionRun it reflects |
 | 13 | `AccessedResourceRows` | bigint | yes |  |  |
@@ -1592,7 +1592,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 5 | `AppKey` | int | **no** |  |  |
 | 6 | `AgentKey` | int | **no** |  |  |
 | 7 | `ModelKey` | int | **no** |  |  |
-| 8 | `LicenceStatusKey` | tinyint | **no** |  |  |
+| 8 | `LicenseStatusKey` | tinyint | **no** |  |  |
 | 9 | `LicenseTypeKey` | int | **no** |  |  |
 | 10 | `SensitivityLabelKey` | int | **no** |  |  |
 | 11 | `PromptCount` | int | **no** |  |  |
@@ -1623,14 +1623,14 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 4 | `DateKey` | int | **no** |  |  |
 | 5 | `UserKey` | int | **no** |  |  |
 | 6 | `AppKey` | int | **no** |  |  |
-| 7 | `LicenceStatusKey` | tinyint | **no** |  |  |
+| 7 | `LicenseStatusKey` | tinyint | **no** |  |  |
 | 8 | `PromptCount` | int | **no** |  |  |
 | 9 | `SpanMinutes` | decimal(12,2) | **no** |  |  |
 | 10 | `IsMultiTurn` | bit | **no** |  |  |
 
-### bi.LicenceChanges
+### bi.LicenseChanges
 
-*View.* bi.FactLicenceChange for the model.
+*View.* bi.FactLicenseChange for the model.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1717,7 +1717,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 30 | `OrgLevel14` | nvarchar(256) | yes |  |  |
 | 31 | `OrgLevel15` | nvarchar(256) | yes |  |  |
 | 32 | `DirectoryStatus` | nvarchar(20) | **no** |  |  |
-| 33 | `CopilotLicenceToday` | nvarchar(12) | **no** |  |  |
+| 33 | `CopilotLicenseToday` | nvarchar(12) | **no** |  |  |
 | 34 | `CopilotSku` | nvarchar(100) | yes |  |  |
 | 35 | `LicensedSinceUtc` | datetime2(0) | yes |  |  |
 
@@ -1770,16 +1770,16 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 2 | `Sku` | nvarchar(200) | **no** |  |  |
 | 3 | `IsCopilot` | bit | **no** |  |  |
 
-### bi.LicenceStatuses
+### bi.LicenseStatuses
 
-*View.* bi.DimLicenceStatus for the model.
+*View.* bi.DimLicenseStatus for the model.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
-| 1 | `LicenceStatusKey` | tinyint | **no** |  |  |
-| 2 | `LicenceStatus` | nvarchar(20) | **no** |  |  |
+| 1 | `LicenseStatusKey` | tinyint | **no** |  |  |
+| 2 | `LicenseStatus` | nvarchar(20) | **no** |  |  |
 
 ### bi.AccessedResources
 
@@ -2142,7 +2142,7 @@ Indexes and constraints:
 | 13 | `LabelledContent` | int | **no** |  | interactions that touched sensitivity-labelled content |
 | 14 | `Sessions` | int | **no** |  | sessions that started that day |
 | 15 | `MultiTurnSessions` | int | **no** |  |  |
-| 16 | `PremiumUse` | int | **no** | `0` | licensed interactions that needed the licence (2.3.0) |
+| 16 | `PremiumUse` | int | **no** | `0` | licensed interactions that needed the license (2.3.0) |
 
 Indexes and constraints:
 
@@ -2444,9 +2444,9 @@ Indexes and constraints:
 
 - `PK_DashDigestSend`: primary key, clustered (Upn, Kind, PeriodKey)
 
-### dash.LicenceAction
+### dash.LicenseAction
 
-*Table.* Each person in each licence export (upgrade, revoke, leaver, wave), with who exported it and when, for Forecasting &gt; Licence action outcomes.
+*Table.* Each person in each license export (upgrade, revoke, leaver, wave), with who exported it and when, for Forecasting &gt; License action outcomes.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -2460,12 +2460,12 @@ Indexes and constraints:
 
 Indexes and constraints:
 
-- `PK_DashLicenceAction`: primary key, clustered (ActionId)
-- `IX_DashLicenceAction_Upn`: nonclustered (Upn, ExportedUtc)
+- `PK_DashLicenseAction`: primary key, clustered (ActionId)
+- `IX_DashLicenseAction_Upn`: nonclustered (Upn, ExportedUtc)
 
-### dash.LicenceContract
+### dash.LicenseContract
 
-*Table.* Licence contracts (Forecasting &gt; Budget and renewal): seats, price per seat a month, start and renewal dates.
+*Table.* License contracts (Forecasting &gt; Budget and renewal): seats, price per seat a month, start and renewal dates.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -2483,8 +2483,8 @@ Indexes and constraints:
 
 Indexes and constraints:
 
-- `PK_DashLicenceContract`: primary key, clustered (ContractId)
-- `CK_DashLicenceContract_Seats`: check `([Seats]>=(0))`
+- `PK_DashLicenseContract`: primary key, clustered (ContractId)
+- `CK_DashLicenseContract_Seats`: check `([Seats]>=(0))`
 
 ### dash.SavedView
 
@@ -2599,7 +2599,7 @@ Present in a database upgraded from 1.x, as the lab is. No current script create
 
 ### audit.UserProfile
 
-*Table.* Entra profiles written by the 1.x licence tool. No 2.x script creates, fills or reads it; only the optional ASP.NET dashboard still reads it for names. Safe to drop once that no longer matters.
+*Table.* Entra profiles written by the 1.x license tool. No 2.x script creates, fills or reads it; only the optional ASP.NET dashboard still reads it for names. Safe to drop once that no longer matters.
 
 **Script** 1.x (no current script) · **In** Copilot database
 
@@ -2629,7 +2629,7 @@ Indexes and constraints:
 
 ### audit.AdministrativeUnit
 
-*Table.* Administrative-unit names written by the 1.x licence tool. Not used since 2.0.0; safe to drop.
+*Table.* Administrative-unit names written by the 1.x license tool. Not used since 2.0.0; safe to drop.
 
 **Script** 1.x (no current script) · **In** Copilot database
 

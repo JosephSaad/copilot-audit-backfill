@@ -124,7 +124,7 @@ public class MarkerTests
     public void Markers_draw_on_line_and_column_charts_at_their_point()
     {
         var x = new Axis(["1 Oct", "2 Oct", "3 Oct"]);
-        x.Markers.Add(new Marker(1, "Wave 2 licences", "Rollout"));
+        x.Markers.Add(new Marker(1, "Wave 2 licenses", "Rollout"));
         x.Markers.Add(new Marker(1, "Workshop", "Training"));
         x.Markers.Add(new Marker(7, "Out of range", "Other"));
         var line = Chart.Line(x, [new Series("People", [1, 2, 3], 1)], Fmt.Count, "t").Value!;
@@ -132,7 +132,7 @@ public class MarkerTests
         foreach (var svg in new[] { line, cols })
         {
             Assert.Single(System.Text.RegularExpressions.Regex.Matches(svg, "class=\"marker\""));
-            Assert.Contains("Wave 2 licences +1", svg);
+            Assert.Contains("Wave 2 licenses +1", svg);
             Assert.Contains("Workshop (training)", svg);
             Assert.DoesNotContain("Out of range", svg);
         }

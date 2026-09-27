@@ -3,7 +3,7 @@
     ------------------------------------------------------------------------
     The audit tables are shaped for loading and auditing, not for a model: the
     flattened table has a row-sized text column for every list, users are UPN
-    strings, and licence history lives in other databases. A semantic model
+    strings, and license history lives in other databases. A semantic model
     over 20-40M interactions wants narrow facts with integer keys, small
     dimensions, and nothing high-cardinality it does not need. This is that
     layer. bi.usp_RefreshBi (Create-CopilotBiProcedure.sql) fills it, and each
@@ -12,14 +12,14 @@
       Facts                          one row per
         bi.FactInteraction           Copilot interaction (the big one)
         bi.FactSession               inferred session (audit.CopilotSession)
-        bi.FactLicenceChange         SKU added to or removed from a user
-        bi.FactLicensedDay           user holding a Copilot licence, per day
+        bi.FactLicenseChange         SKU added to or removed from a user
+        bi.FactLicensedDay           user holding a Copilot license, per day
 
       Dimensions
         bi.DimDate                   with the Saturday-Friday week of the rollup
-        bi.DimUser                   AD attributes, the org chain, today's licence
+        bi.DimUser                   AD attributes, the org chain, today's license
         bi.DimApp                    app and its Copilot Chat / In-App category
-        bi.DimAgent, bi.DimModel, bi.DimSku, bi.DimLicenceStatus
+        bi.DimAgent, bi.DimModel, bi.DimSku, bi.DimLicenseStatus
 
     The views with plain names (bi.Interactions, bi.Users, bi.Calendar ...)
     are what the model imports: the same columns less lineage (RecordId,
@@ -108,9 +108,9 @@ BEGIN
         OrgLevel15           NVARCHAR(256)  NULL,
         /* Found (in AD) | NotFound (left Entra) | Not looked up (neither source) */
         DirectoryStatus      NVARCHAR(20)   NOT NULL CONSTRAINT DF_DimUser_Directory DEFAULT (N'Not looked up'),
-        /* Today's licence, from the enrichment. Licensed | Not licensed | Unknown.
-           Licence at the time of use is on the facts, not here. */
-        CopilotLicenceToday  NVARCHAR(12)   NOT NULL CONSTRAINT DF_DimUser_Licence DEFAULT (N'Unknown'),
+        /* Today's license, from the enrichment. Licensed | Not licensed | Unknown.
+           License at the time of use is on the facts, not here. */
+        CopilotLicenseToday  NVARCHAR(12)   NOT NULL CONSTRAINT DF_DimUser_License DEFAULT (N'Unknown'),
         CopilotSku           NVARCHAR(100)  NULL,
         LicensedSinceUtc     DATETIME2(0)   NULL,
         FirstSeenUtc         DATETIME2(0)   NOT NULL CONSTRAINT DF_DimUser_FirstSeen DEFAULT (SYSUTCDATETIME())
@@ -211,25 +211,25 @@ IF OBJECT_ID(N'bi.DimSku', N'U') IS NULL
         FirstSeenUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DimSku_FirstSeen DEFAULT (SYSUTCDATETIME())
     );
 
-/* Licence held at the time of use. Unknown is kept apart from Not licensed:
-   a user who has left the directory, with no licence history, is not known
+/* License held at the time of use. Unknown is kept apart from Not licensed:
+   a user who has left the directory, with no license history, is not known
    to have been unlicensed. */
-IF OBJECT_ID(N'bi.DimLicenceStatus', N'U') IS NULL
+IF OBJECT_ID(N'bi.DimLicenseStatus', N'U') IS NULL
 BEGIN
-    CREATE TABLE bi.DimLicenceStatus
+    CREATE TABLE bi.DimLicenseStatus
     (
-        LicenceStatusKey  TINYINT      NOT NULL CONSTRAINT PK_DimLicenceStatus PRIMARY KEY,
-        LicenceStatus     NVARCHAR(20) NOT NULL
+        LicenseStatusKey  TINYINT      NOT NULL CONSTRAINT PK_DimLicenseStatus PRIMARY KEY,
+        LicenseStatus     NVARCHAR(20) NOT NULL
     );
-    INSERT INTO bi.DimLicenceStatus (LicenceStatusKey, LicenceStatus)
+    INSERT INTO bi.DimLicenseStatus (LicenseStatusKey, LicenseStatus)
     VALUES (0, N'Unknown'), (1, N'Licensed'), (2, N'Not licensed');
 END;
 
 /* ---- 2.2.0: what the rest of the record says ----------------------------- */
 
-/* CopilotEventData.LicenseType: the licence the record itself says the user
-   had (Premium, Starter ...). Beside LicenceStatus, which comes from the
-   licence history, not the record. */
+/* CopilotEventData.LicenseType: the license the record itself says the user
+   had (Premium, Starter ...). Beside LicenseStatus, which comes from the
+   license history, not the record. */
 IF OBJECT_ID(N'bi.DimLicenseType', N'U') IS NULL
 BEGIN
     CREATE TABLE bi.DimLicenseType
@@ -317,7 +317,7 @@ BEGIN
         AppKey                   INT           NOT NULL,
         AgentKey                 INT           NOT NULL,
         ModelKey                 INT           NOT NULL,
-        LicenceStatusKey         TINYINT       NOT NULL,
+        LicenseStatusKey         TINYINT       NOT NULL,
         PromptCount              INT           NOT NULL,
         AccessedResourceCount    INT           NOT NULL,
         UsedWebSearch            BIT           NOT NULL,
@@ -383,27 +383,27 @@ IF OBJECT_ID(N'bi.FactSession', N'U') IS NULL
         DateKey              INT           NOT NULL,
         UserKey              INT           NOT NULL,
         AppKey               INT           NOT NULL,   -- the first prompt's app
-        LicenceStatusKey     TINYINT       NOT NULL,
+        LicenseStatusKey     TINYINT       NOT NULL,
         PromptCount          INT           NOT NULL,
         SpanMinutes          DECIMAL(12, 2) NOT NULL,
         IsMultiTurn          BIT           NOT NULL
     );
 
-IF OBJECT_ID(N'bi.FactLicenceChange', N'U') IS NULL
-    CREATE TABLE bi.FactLicenceChange
+IF OBJECT_ID(N'bi.FactLicenseChange', N'U') IS NULL
+    CREATE TABLE bi.FactLicenseChange
     (
         RecordId     VARCHAR(64)    NOT NULL,   -- lineage; not imported
         ChangedUtc   DATETIME2(0)   NOT NULL,
         DateKey      INT            NOT NULL,
-        UserKey      INT            NOT NULL,   -- whose licence changed
+        UserKey      INT            NOT NULL,   -- whose license changed
         SkuKey       INT            NOT NULL,
         Change       SMALLINT       NOT NULL,   -- +1 added, -1 removed
         ChangedBy    NVARCHAR(512)  NULL,       -- the admin who made it
-        CONSTRAINT PK_FactLicenceChange PRIMARY KEY (RecordId, SkuKey, Change)
+        CONSTRAINT PK_FactLicenseChange PRIMARY KEY (RecordId, SkuKey, Change)
     );
 
 /* The adoption denominator: one row per user per day they held a Copilot
-   licence at the end of that day. Active licensed users / licensed users,
+   license at the end of that day. Active licensed users / licensed users,
    and licensed users with no interactions, both come from this. */
 IF OBJECT_ID(N'bi.FactLicensedDay', N'U') IS NULL
     CREATE TABLE bi.FactLicensedDay
@@ -422,11 +422,11 @@ IF OBJECT_ID(N'bi.RefreshRun', N'U') IS NULL
         EndedUtc              DATETIME2(0)   NOT NULL,
         SinceUtc              DATETIME2(0)   NULL,       -- NULL = a full rebuild
         ReportingTimeZone     SYSNAME        NOT NULL,
-        LicenceEventDatabase  NVARCHAR(1000) NULL,
+        LicenseEventDatabase  NVARCHAR(1000) NULL,
         InteractionRows       BIGINT         NOT NULL,   -- written by this run
         InteractionsSkipped   BIGINT         NOT NULL,   -- no timestamp
         SessionRows           INT            NOT NULL,   -- written by this run
-        LicenceChangeRows     INT            NOT NULL,
+        LicenseChangeRows     INT            NOT NULL,
         LicensedDayRows       INT            NOT NULL,
         SessionRunId          INT            NULL        -- the latest audit.CopilotSessionRun it reflects
     );
@@ -441,18 +441,18 @@ IF COL_LENGTH(N'bi.RefreshRun', N'AccessedResourceRows') IS NULL
     ALTER TABLE bi.RefreshRun ADD AccessedResourceRows BIGINT NULL;
 
 /*
-    PremiumUse (2.3.0): a licensed interaction that needed the Premium licence - Copilot inside Word, Excel,
+    PremiumUse (2.3.0): a licensed interaction that needed the Premium license - Copilot inside Word, Excel,
     PowerPoint, Outlook or Teams (Copilot Studio agents can be metered without one), or Copilot Chat reading
     work content (files, mail, sites) rather than the web. The same rule as dash.UserDay.PremiumUse, which the
     dashboard's train and revoke recommendations use. UseCaseKey (2.3.0): the app, whether it searched the web,
     and whether an agent answered, as one key into bi.UseCases (the dashboard's use-case rules).
 */
 EXEC (N'CREATE OR ALTER VIEW bi.Interactions AS
-SELECT f.ActivityHour, f.DateKey, f.HourOfDay, f.UserKey, f.AppKey, f.AgentKey, f.ModelKey, f.LicenceStatusKey,
+SELECT f.ActivityHour, f.DateKey, f.HourOfDay, f.UserKey, f.AppKey, f.AgentKey, f.ModelKey, f.LicenseStatusKey,
        f.LicenseTypeKey, f.SensitivityLabelKey,
        f.PromptCount, f.MessageCount, f.AccessedResourceCount, f.UsedWebSearch, f.JailbreakDetected, f.PromptInjectionDetected,
        f.HasBlockedResource, f.HasSensitivityLabel, f.MemoryUpdated, f.DlpEvaluationDeferred, f.CalledAnotherAgent,
-       CAST(CASE WHEN f.LicenceStatusKey = 1
+       CAST(CASE WHEN f.LicenseStatusKey = 1
                   AND ((a.AppCategory = N''In-App Copilot'' AND a.App <> N''Copilot Studio'')
                        OR (a.AppCategory = N''Copilot Chat'' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
                  THEN 1 ELSE 0 END AS BIT) AS PremiumUse,
@@ -484,12 +484,12 @@ SELECT SiteKey, CASE WHEN IsPersonal = 1 AND EXISTS (SELECT 1 FROM audit.Pipelin
 FROM bi.DimSite;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Sessions AS
-SELECT SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenceStatusKey,
+SELECT SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenseStatusKey,
        PromptCount, SpanMinutes, IsMultiTurn
 FROM bi.FactSession;');
 
 /* Copilot Studio authoring: one row per create, publish, share, update, delete or component
-   change, copied whole from every licence database's audit.AgentEvent at each refresh (2.3.0). */
+   change, copied whole from every license database's audit.AgentEvent at each refresh (2.3.0). */
 IF OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NULL
     CREATE TABLE bi.FactAgentEvent
     (
@@ -511,9 +511,9 @@ SELECT RecordId, EventUtc, DateKey, Action, Operation, ActorKey, BotId, BotSchem
 FROM bi.FactAgentEvent;');
 
 /* ChangedBy names the administrator: blank in privacy mode. */
-EXEC (N'CREATE OR ALTER VIEW bi.LicenceChanges AS
+EXEC (N'CREATE OR ALTER VIEW bi.LicenseChanges AS
 SELECT ChangedUtc, DateKey, UserKey, SkuKey, Change, CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'') THEN NULL ELSE ChangedBy END AS ChangedBy
-FROM bi.FactLicenceChange;');
+FROM bi.FactLicenseChange;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.LicensedDays AS
 SELECT DateKey, UserKey FROM bi.FactLicensedDay;');
@@ -552,7 +552,7 @@ SELECT u.UserKey,
        CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel13 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel13)), 2) ELSE u.OrgLevel13 END AS OrgLevel13,
        CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel14 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel14)), 2) ELSE u.OrgLevel14 END AS OrgLevel14,
        CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel15 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel15)), 2) ELSE u.OrgLevel15 END AS OrgLevel15,
-       u.DirectoryStatus, u.CopilotLicenceToday, u.CopilotSku, u.LicensedSinceUtc
+       u.DirectoryStatus, u.CopilotLicenseToday, u.CopilotSku, u.LicensedSinceUtc
 FROM bi.DimUser AS u
 CROSS JOIN (SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'') THEN 1 ELSE 0 END AS BIT) AS Pseudonymise,
                    COALESCE((SELECT Value FROM audit.PipelineSetting WHERE Name = N''PseudonymSalt''), N'''') AS Salt) AS pm;');
@@ -569,5 +569,5 @@ SELECT ModelKey, ModelProvider, ModelName FROM bi.DimModel;');
 EXEC (N'CREATE OR ALTER VIEW bi.Skus AS
 SELECT SkuKey, Sku, IsCopilot FROM bi.DimSku;');
 
-EXEC (N'CREATE OR ALTER VIEW bi.LicenceStatuses AS
-SELECT LicenceStatusKey, LicenceStatus FROM bi.DimLicenceStatus;');
+EXEC (N'CREATE OR ALTER VIEW bi.LicenseStatuses AS
+SELECT LicenseStatusKey, LicenseStatus FROM bi.DimLicenseStatus;');

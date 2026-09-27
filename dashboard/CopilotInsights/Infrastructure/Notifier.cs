@@ -217,9 +217,9 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             /* Once a week while it lasts. */
             var last = DateTime.TryParse(await StateAsync("pool"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
             if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
-            await AlertAsync("Pool", "AlertLicensingTo", "Copilot licences are running out",
+            await AlertAsync("Pool", "AlertLicensingTo", "Copilot licenses are running out",
                 full.Select(p => $"{p.SkuPartNumber}: {p.Consumed:#,0} of {p.Bought:#,0} assigned ({100.0 * p.Consumed / p.Bought:0}%), {p.Available:#,0} left.")
-                    .Append("Licence optimisation lists unused licences to reclaim before buying more.").ToList(), "/licensing/pool");
+                    .Append("License optimisation lists unused licenses to reclaim before buying more.").ToList(), "/licensing/pool");
             await SetStateAsync("pool", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
         }
 
@@ -229,10 +229,10 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             var before = int.TryParse(await StateAsync("leavers"), out var b) ? b : 0;
             if (!first && n > before)
             {
-                var price = decimal.TryParse(await _settings.StringAsync("LicenceMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m;
-                var cur = await _settings.StringAsync("LicenceCurrency") ?? "USD";
-                await AlertAsync("Leavers", "AlertLicensingTo", $"{n} Copilot licence(s) on disabled or departed accounts",
-                    [$"{n - before} more since the last check: {n:#,0} in all, {n * price:#,0} {cur} a month. The list is on Licensing > Licences on disabled accounts, for people with the Licensing role."],
+                var price = decimal.TryParse(await _settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m;
+                var cur = await _settings.StringAsync("LicenseCurrency") ?? "USD";
+                await AlertAsync("Leavers", "AlertLicensingTo", $"{n} Copilot license(s) on disabled or departed accounts",
+                    [$"{n - before} more since the last check: {n:#,0} in all, {n * price:#,0} {cur} a month. The list is on Licensing > Licenses on disabled accounts, for people with the Licensing role."],
                     "/licensing/leavers");
             }
             await SetStateAsync("leavers", n.ToString(CultureInfo.InvariantCulture));

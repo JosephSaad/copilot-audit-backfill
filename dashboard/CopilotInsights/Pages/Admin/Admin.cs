@@ -177,8 +177,8 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             Input("MinGroupSize", "Minimum group size", set.GetValueOrDefault("MinGroupSize"), 4, "number") +
             Select("DefaultDays", "Default period (days)", ReportContext.DayChoices.Select(d => d.ToString()), set.GetValueOrDefault("DefaultDays")) +
             Input("InactiveDays", "Unused after (days)", set.GetValueOrDefault("InactiveDays"), 4, "number") +
-            Input("LicenceMonthlyCost", "Licence cost a month", set.GetValueOrDefault("LicenceMonthlyCost"), 6) +
-            Input("LicenceCurrency", "Currency", set.GetValueOrDefault("LicenceCurrency"), 4) +
+            Input("LicenseMonthlyCost", "License cost a month", set.GetValueOrDefault("LicenseMonthlyCost"), 6) +
+            Input("LicenseCurrency", "Currency", set.GetValueOrDefault("LicenseCurrency"), 4) +
             Button("Save settings"))),
             "The top is usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows" +
             (set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({det})" : "") +
@@ -239,7 +239,7 @@ WHERE (@role IS NULL OR g.Role = @role) AND (@q IS NULL OR g.Principal LIKE @q O
         Panels.Add(new("People by level", lt.Render(), null, "half"));
     }
 
-    public Task<IActionResult> OnPostSettingsAsync(string? OrgTopUpn, int MinGroupSize, int DefaultDays, int InactiveDays, string? LicenceMonthlyCost, string? LicenceCurrency) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostSettingsAsync(string? OrgTopUpn, int MinGroupSize, int DefaultDays, int InactiveDays, string? LicenseMonthlyCost, string? LicenseCurrency) => AdminChangeAsync(async () =>
     {
         OrgTopUpn = string.IsNullOrWhiteSpace(OrgTopUpn) ? null : OrgTopUpn.Trim();
         if (OrgTopUpn is not null && await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Person WHERE Upn = @OrgTopUpn", new { OrgTopUpn }) == 0)
@@ -247,12 +247,12 @@ WHERE (@role IS NULL OR g.Role = @role) AND (@q IS NULL OR g.Principal LIKE @q O
         if (MinGroupSize is < 1 or > 50) throw new ArgumentException("the minimum group size must be 1 to 50.");
         if (!ReportContext.DayChoices.Contains(DefaultDays)) throw new ArgumentException("the default period must be one of the periods offered.");
         if (InactiveDays is < 7 or > 180) throw new ArgumentException("unused-after must be 7 to 180 days.");
-        if (!decimal.TryParse(LicenceMonthlyCost, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var cost) || cost < 0 || cost > 10000)
-            throw new ArgumentException("the licence cost is a number, such as 30 or 31.50.");
-        LicenceCurrency = (LicenceCurrency ?? "").Trim().ToUpperInvariant();
-        if (LicenceCurrency.Length is < 1 or > 8) throw new ArgumentException("the currency is a short code, such as USD or CAD.");
+        if (!decimal.TryParse(LicenseMonthlyCost, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var cost) || cost < 0 || cost > 10000)
+            throw new ArgumentException("the license cost is a number, such as 30 or 31.50.");
+        LicenseCurrency = (LicenseCurrency ?? "").Trim().ToUpperInvariant();
+        if (LicenseCurrency.Length is < 1 or > 8) throw new ArgumentException("the currency is a short code, such as USD or CAD.");
         var values = new Dictionary<string, string?> { ["OrgTopUpn"] = OrgTopUpn, ["MinGroupSize"] = MinGroupSize.ToString(), ["DefaultDays"] = DefaultDays.ToString(), ["InactiveDays"] = InactiveDays.ToString(),
-                                                        ["LicenceMonthlyCost"] = cost.ToString(System.Globalization.CultureInfo.InvariantCulture), ["LicenceCurrency"] = LicenceCurrency };
+                                                        ["LicenseMonthlyCost"] = cost.ToString(System.Globalization.CultureInfo.InvariantCulture), ["LicenseCurrency"] = LicenseCurrency };
         var before = await S.Settings.AllAsync();
         var changed = values.Where(kv => before.GetValueOrDefault(kv.Key) != kv.Value).ToList();
         foreach (var kv in changed)

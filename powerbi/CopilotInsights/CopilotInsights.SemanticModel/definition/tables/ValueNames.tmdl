@@ -1,4 +1,4 @@
-/// Readable names administrators gave the codes in the audit records (labels, apps, agents, licence types), from the dashboard's Admin > Value names.
+/// Readable names administrators gave the codes in the audit records (labels, apps, agents, license types), from the dashboard's Admin > Value names.
 table ValueNames
 	lineageTag: 1208ccd9-44bd-58f5-b43d-4e262278b6d1
 

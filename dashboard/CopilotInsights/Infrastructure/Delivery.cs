@@ -59,7 +59,7 @@ FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey WHERE d.[
             @"SELECT d.WeekEnding, a.App, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
 FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, a.App ORDER BY d.WeekEnding, a.App;"),
-        ["LicencePool"] = ("Licences bought and assigned, per day",
+        ["LicensePool"] = ("Licenses bought and assigned, per day",
             "SELECT SnapshotDate, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, Consumed FROM audit.LicenseSkuDay WHERE SnapshotDate >= @d0 ORDER BY SnapshotDate, SkuPartNumber;"),
         ["AgentWeek"] = ("Agent use by week",
             @"SELECT d.WeekEnding, ag.AgentName, ag.AgentSource, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People

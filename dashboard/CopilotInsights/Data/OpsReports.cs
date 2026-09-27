@@ -109,7 +109,7 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", c.Args())).ToD
                 rows.GroupBy(r => r.Dept).Select(g => Roll(g) with { People = people.GetValueOrDefault(g.Key) }).OrderByDescending(r => r.Hours).ToList(), hourly, dflt);
     }
 
-    /* ---- Licence recommendations, counted ----------------------------------------------------- */
+    /* ---- License recommendations, counted ----------------------------------------------------- */
 
     public async Task<Dictionary<string, int>> ActionCountsAsync(ReportContext c)
     {
@@ -131,7 +131,7 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
     {
         ["Leadership"] = "Leadership summary: use, adoption and the units, against the period before",
         ["Adoption"] = "Adoption: the funnel, targets, and days that stood out",
-        ["Licensing"] = "Licensing: the pool, recommendations, and licences on disabled accounts",
+        ["Licensing"] = "Licensing: the pool, recommendations, and licenses on disabled accounts",
         ["Security"] = "Security and compliance signals, against the period before",
         ["Value"] = "Value: hours saved and what they are worth",
     };
@@ -181,17 +181,17 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
             case "Licensing":
             {
                 var pool = (await ops.PoolAsync()).Where(r => r.IsCopilot).ToList();
-                e.Table("Copilot licence pool", ["Licence", "Bought", "Assigned", "Available"],
+                e.Table("Copilot license pool", ["License", "Bought", "Assigned", "Available"],
                     pool.Select(r => new object?[] { r.SkuPartNumber, r.Bought, r.Consumed, r.Available }));
                 var counts = await ActionCountsAsync(c);
-                var price = decimal.TryParse(await settings.StringAsync("LicenceMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
-                var cur = await settings.StringAsync("LicenceCurrency") ?? "USD";
+                var price = decimal.TryParse(await settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
+                var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
                 e.Kpi("Upgrade candidates", counts.GetValueOrDefault("upgrade"), null, $"{counts.GetValueOrDefault("upgrade") * price:#,0} {cur} a month");
                 e.Kpi("Train, then review", counts.GetValueOrDefault("train"), null);
-                e.Kpi("Unused licences to revoke", counts.GetValueOrDefault("revoke"), null, $"saves {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month");
+                e.Kpi("Unused licenses to revoke", counts.GetValueOrDefault("revoke"), null, $"saves {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month");
                 var leavers = await ops.LeaversAsync(c.Root);
-                e.Kpi("Licences on disabled or departed accounts", leavers.Count, null, leavers.Count > 0 ? $"{leavers.Count * price:#,0} {cur} a month" : null);
-                e.Link(Link("/forecasting/optimise"), "Open licence optimisation");
+                e.Kpi("Licenses on disabled or departed accounts", leavers.Count, null, leavers.Count > 0 ? $"{leavers.Count * price:#,0} {cur} a month" : null);
+                e.Link(Link("/forecasting/optimise"), "Open license optimisation");
                 break;
             }
             case "Security":
@@ -211,7 +211,7 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
             case "Value":
             {
                 var v = await ValueAsync(c);
-                var cur = await settings.StringAsync("LicenceCurrency") ?? "USD";
+                var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
                 e.Kpi("Hours saved (estimate)", (long)v.ByApp.Sum(x => x.Hours), null, $"at {v.DefaultMinutes:0.#} minutes an interaction unless set per app");
                 e.Kpi($"Worth ({cur})", (long)v.ByApp.Sum(x => x.Value), null, $"at {v.HourlyCost:#,0.##} {cur} an hour");
                 e.Table("By department", ["Department", "Interactions", "Hours", $"Worth ({cur})"],

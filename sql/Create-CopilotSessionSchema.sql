@@ -8,7 +8,7 @@
 
       audit.CopilotSession        copilot_session_summary.csv, one row per session
       audit.CopilotWeeklyRollup   weekly_rollup.csv, one row per
-                                  week x user x primary app x category x licence
+                                  week x user x primary app x category x license
 
     The views audit.vCopilotSessionSummary and audit.vCopilotWeeklyRollup carry
     the CSVs' exact column names and text formats (yyyy-MM-dd HH:mm:ss, TRUE /
@@ -154,12 +154,12 @@ IF OBJECT_ID(N'audit.CopilotSessionRun', N'U') IS NULL
         SessionTimeoutMinutes        INT           NOT NULL,
         ContextFallback              NVARCHAR(20)  NOT NULL,
         ReportingTimeZone            NVARCHAR(128) NOT NULL,
-        LicenceEventDatabase         NVARCHAR(1000) NULL,  -- NULL: licence flag is today's, from the enrichment
+        LicenseEventDatabase         NVARCHAR(1000) NULL,  -- NULL: license flag is today's, from the enrichment
         MetricVersion                NVARCHAR(200) NOT NULL
     );
 
-IF COL_LENGTH(N'audit.CopilotSessionRun', N'LicenceEventDatabase') IS NULL
-    ALTER TABLE audit.CopilotSessionRun ADD LicenceEventDatabase NVARCHAR(1000) NULL;
+IF COL_LENGTH(N'audit.CopilotSessionRun', N'LicenseEventDatabase') IS NULL
+    ALTER TABLE audit.CopilotSessionRun ADD LicenseEventDatabase NVARCHAR(1000) NULL;
 
 /* Local midnight an incremental build rebuilt from; NULL = everything. */
 IF COL_LENGTH(N'audit.CopilotSessionRun', N'RebuiltFrom') IS NULL

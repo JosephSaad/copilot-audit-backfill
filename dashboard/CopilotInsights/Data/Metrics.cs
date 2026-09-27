@@ -20,13 +20,13 @@ public sealed class TrendRow
     public long Injection { get; set; }
     public long Blocked { get; set; }
     public long Labelled { get; set; }
-    public int Licensed { get; set; }   // holding a licence at the end of the day or week
+    public int Licensed { get; set; }   // holding a license at the end of the day or week
 }
 
 public sealed class Totals
 {
     public int People { get; set; }            // enabled accounts in the directory, in scope
-    public int LicensedNow { get; set; }       // holding a licence on the last day
+    public int LicensedNow { get; set; }       // holding a license on the last day
     public int Active { get; set; }            // used Copilot in the period
     public int ActiveLicensed { get; set; }    // used it while licensed
     public int EverActive { get; set; }        // used it at any time
@@ -67,7 +67,7 @@ WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d W
 ends AS (SELECT Bucket, MAX(DateKey) AS EndKey FROM b GROUP BY Bucket),
 ud AS (SELECT b.Bucket, ud.* FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} JOIN b ON b.DateKey = ud.DateKey),
 per AS (SELECT Bucket, UserKey, SUM(Interactions) AS I, SUM(LicensedUse) AS L FROM ud GROUP BY Bucket, UserKey),
-/* Active and licensed: used it with a licence in the trend point, and still holds one at its end,
+/* Active and licensed: used it with a license in the trend point, and still holds one at its end,
    so it is always a part of Licensed and adoption never passes 100%. */
 people AS (SELECT per.Bucket, COUNT(CASE WHEN per.I > 0 THEN 1 END) AS Active,
                   COUNT(CASE WHEN per.L > 0 AND le.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
@@ -206,7 +206,7 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
         Flags = rows.Sum(r => r.Flags), Labelled = rows.Sum(r => r.Labelled),
     };
     /// <summary>
-    /// People, licences and use in the period, grouped by one directory attribute of bi.DimUser.
+    /// People, licenses and use in the period, grouped by one directory attribute of bi.DimUser.
     /// <paramref name="attribute"/> is one of <see cref="Attributes"/>, never text from a request.
     /// </summary>
     public async Task<List<GroupRow>> ByAttributeAsync(ReportContext c, string attribute)

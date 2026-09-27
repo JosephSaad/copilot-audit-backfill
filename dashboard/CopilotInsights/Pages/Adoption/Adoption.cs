@@ -9,7 +9,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Funnel and trend";
     public override string Persona => "Adoption";
-    public override string Intro => "From licence to habit: how many licensed people have started, are active now, and go beyond one-off questions.";
+    public override string Intro => "From license to habit: how many licensed people have started, are active now, and go beyond one-off questions.";
 
     protected override async Task BuildAsync()
     {
@@ -54,9 +54,9 @@ WHERE f.FirstKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args()
 
 public sealed class CohortsModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "Licence cohorts";
+    public override string Title => "License cohorts";
     public override string Persona => "Adoption";
-    public override string Intro => "Do people keep using Copilot after they get it? Each row is the people licensed in one month; each column a week after their licence.";
+    public override string Intro => "Do people keep using Copilot after they get it? Each row is the people licensed in one month; each column a week after their license.";
 
     protected override async Task BuildAsync()
     {
@@ -68,7 +68,7 @@ SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,
        DATEFROMPARTS(YEAR(du.LicensedSinceUtc), MONTH(du.LicensedSinceUtc), 1) AS Cohort
 INTO #c
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.CopilotLicenceToday = N'Licensed' AND du.LicensedSinceUtc >= DATEADD(MONTH, -12, @d1);
+WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc >= DATEADD(MONTH, -12, @d1);
 SELECT DISTINCT c.UserKey, DATEDIFF(DAY, c.Since, d.[Date]) / 7 AS K
 INTO #a
 FROM #c AS c JOIN dash.UserDay AS ud ON ud.UserKey = c.UserKey AND ud.Interactions > 0
@@ -90,16 +90,16 @@ GROUP BY c.Cohort, k.K;", Ctx.Args());
                 var r = rows.FirstOrDefault(x => x.Cohort == cohortsShown[i] && x.K == k);
                 grid[i, k] = r.People >= Ctx.MinGroupSize ? r.Active / (double)r.People : null;
             }
-        Panels.Add(new("Share of each cohort active, week by week after their licence",
+        Panels.Add(new("Share of each cohort active, week by week after their license",
             Chart.Heatmap(cohortsShown.Select(c => $"{c:MMM yyyy} ({rows.First(r => r.Cohort == c).Size:#,0})").ToList(),
                 Enumerable.Range(1, weeks).Select(k => $"Wk {k}").ToList(), grid, Fmt.Percent, "Cohort retention", 1),
-            $"People licensed today, by the month their current licence began, over the last 12 months. Empty cells are weeks that have not happened yet for enough of the cohort. Cohorts under {Ctx.MinGroupSize} people are left out. This view ignores the period filter."));
+            $"People licensed today, by the month their current license began, over the last 12 months. Empty cells are weeks that have not happened yet for enough of the cohort. Cohorts under {Ctx.MinGroupSize} people are left out. This view ignores the period filter."));
 
         var ttf = await Db.QueryAsync<(string Bucket, int N)>($@"
 WITH f AS (SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,
                   (SELECT MIN(ud.DateKey) FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0) AS FirstKey
            FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-           WHERE du.CopilotLicenceToday = N'Licensed' AND du.LicensedSinceUtc IS NOT NULL),
+           WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc IS NOT NULL),
 g AS (SELECT CASE WHEN FirstKey IS NULL THEN 7
                   ELSE CASE WHEN DATEDIFF(DAY, Since, DATEFROMPARTS(FirstKey / 10000, FirstKey / 100 % 100, FirstKey % 100)) <= 0 THEN 1
                             WHEN DATEDIFF(DAY, Since, DATEFROMPARTS(FirstKey / 10000, FirstKey / 100 % 100, FirstKey % 100)) <= 7 THEN 2
@@ -109,9 +109,9 @@ g AS (SELECT CASE WHEN FirstKey IS NULL THEN 7
       FROM f)
 SELECT CHOOSE(B, N'Same day', N'1-7 days', N'8-14 days', N'15-30 days', N'31-60 days', N'Over 60 days', N'Not yet'), COUNT(*)
 FROM g GROUP BY B ORDER BY B;", Ctx.Args());
-        Panels.Add(new("Time from licence to first use",
+        Panels.Add(new("Time from license to first use",
             Chart.Bars(ttf.Select(t => new Bar(t.Bucket, t.N, Slot: t.Bucket == "Not yet" ? 2 : 1)).ToList(), Fmt.Count, "Time to first use"),
-            "People licensed today, by how long after their licence they first used Copilot."));
+            "People licensed today, by how long after their license they first used Copilot."));
     }
 }
 
@@ -203,7 +203,7 @@ public sealed class NotStartedModel(PageServices s) : InsightsPage(s)
         var rows = await Db.QueryAsync<Row>($@"
 SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.JobTitle, du.ManagerName, du.LicensedSinceUtc, COUNT(*) OVER () AS TotalRows
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.CopilotLicenceToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DAY, -14, @d1)
+WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DAY, -14, @d1)
   AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0)
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));

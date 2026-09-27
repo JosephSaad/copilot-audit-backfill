@@ -149,11 +149,11 @@ BEGIN
                SUM(CASE WHEN f.AgentKey <> ISNULL(@noAgent, -1) THEN 1 ELSE 0 END)   AS AgentInteractions,
                SUM(CAST(f.UsedWebSearch AS INT))                                     AS WebGrounded,
                SUM(CASE WHEN a.AppCategory = N'Copilot Chat' THEN 1 ELSE 0 END)      AS ChatInteractions,
-               SUM(CASE WHEN f.LicenceStatusKey = 1 THEN 1 ELSE 0 END)               AS LicensedUse,
-               /* Use that needs the Premium licence: Copilot inside Word, Excel, PowerPoint, Outlook or Teams
+               SUM(CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END)               AS LicensedUse,
+               /* Use that needs the Premium license: Copilot inside Word, Excel, PowerPoint, Outlook or Teams
                   (Copilot Studio agents can be metered without one), or Copilot Chat reading work content
                   (files, mail, sites) rather than the web. Web-only Copilot Chat is what the free tier gives. */
-               SUM(CASE WHEN f.LicenceStatusKey = 1
+               SUM(CASE WHEN f.LicenseStatusKey = 1
                          AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
                               OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
                         THEN 1 ELSE 0 END)                                           AS PremiumUse,

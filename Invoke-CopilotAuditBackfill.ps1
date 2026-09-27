@@ -85,14 +85,14 @@
 .PARAMETER SkipPostProcessing
     With -Incremental: only load and merge. By default the run then brings the
     derived tables up to date as well, for each one installed: the flattened
-    table (usp_FlattenCopilotAudit, from the load's start), licence events
+    table (usp_FlattenCopilotAudit, from the load's start), license events
     (usp_ShredLicenseEvents), sessions (usp_BuildCopilotSessions) and the bi
     star schema (bi.usp_RefreshBi, from the load's start).
 
-.PARAMETER SessionLicenceDatabase
+.PARAMETER SessionLicenseDatabase
     With -Incremental: passed to usp_BuildCopilotSessions and bi.usp_RefreshBi
-    as @LicenceEventDatabase (one database, or several comma-separated), so
-    each session and interaction carries the licence held at the time.
+    as @LicenseEventDatabase (one database, or several comma-separated), so
+    each session and interaction carries the license held at the time.
 
 .PARAMETER CertificateThumbprint
     App-only sign-in, for a scheduled run with nobody to sign in: the
@@ -147,7 +147,7 @@ param(
     [switch]   $Incremental,
     [ValidateRange(0, 168)]       [int]    $LookbackHours          = 48,
     [switch]   $SkipPostProcessing,
-    [string]   $SessionLicenceDatabase,
+    [string]   $SessionLicenseDatabase,
 
     # --- tuning (defaults are deliberately inside Microsoft's published limits)
     [ValidateRange(1, 32)]        [int]    $MaxDownloadStreams     = 8,
@@ -485,7 +485,7 @@ function Get-IncrementalLoad {
         throw "This database holds a backfill of '$($backfill.Rows[0].Operations)', not '$ops'. Pass the same -Operations, or more of them."
     }
     if ($added.Count -gt 0) {
-        # 2.3.0 added Copilot Studio's authoring operations to the licence-event load: they load from now on.
+        # 2.3.0 added Copilot Studio's authoring operations to the license-event load: they load from now on.
         Invoke-Sql -Sql 'UPDATE audit.CopilotBackfillRange SET Operations = @o WHERE Id = 1' -Parameters @{ '@o' = $ops }
         Write-Log "Loading $($added -join ', ') too from now on. Earlier records of them are not loaded into this database."
     }
@@ -515,7 +515,7 @@ INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations) OUTPUT IN
 function Invoke-DerivedTableRefresh {
     <#
         After a merge, brings each installed derived table up to date: the
-        flattened table and licence events from the load's start (both MERGE,
+        flattened table and license events from the load's start (both MERGE,
         so the lookback's records are updated in place), then sessions from
         the load's start's day (one transaction), then the bi star schema from
         the load's start, then the dashboard's rollups.
@@ -529,7 +529,7 @@ function Invoke-DerivedTableRefresh {
         Invoke-Sql -Sql 'EXEC audit.usp_FlattenCopilotAudit @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
     }
     if (Test-Proc 'audit.usp_ShredLicenseEvents') {
-        Write-Log ('Shredding licence events from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
+        Write-Log ('Shredding license events from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
         Invoke-Sql -Sql 'EXEC audit.usp_ShredLicenseEvents @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
     }
     if (Test-Proc 'audit.usp_ShredAgentEvents') {
@@ -537,26 +537,26 @@ function Invoke-DerivedTableRefresh {
         Invoke-Sql -Sql 'EXEC audit.usp_ShredAgentEvents @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
     }
     if (Test-Proc 'audit.usp_BuildCopilotSessions') {
-        $licDb = $(if ($SessionLicenceDatabase) { $SessionLicenceDatabase } else { $null })
+        $licDb = $(if ($SessionLicenseDatabase) { $SessionLicenseDatabase } else { $null })
         # Incremental from the load's start where the installed procedure can
         # (it rebuilds only the days from then on); a version before it
         # rebuilds everything.
         $canIncrement = [bool] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN EXISTS (SELECT 1 FROM sys.parameters WHERE object_id = OBJECT_ID(N'audit.usp_BuildCopilotSessions') AND name = N'@SinceUtc') THEN 1 ELSE 0 END")
         if ($canIncrement) {
             Write-Log ('Rebuilding sessions and the weekly rollup from {0:yyyy-MM-dd}...' -f $SinceUtc)
-            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l, @SinceUtc = @s;' `
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l, @SinceUtc = @s;' `
                 -Parameters @{ '@l' = $licDb; '@s' = $SinceUtc } -TimeoutSeconds 0
         }
         else {
             Write-Log 'Rebuilding every session and the weekly rollup (the installed procedure predates incremental builds)...'
-            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licDb } -TimeoutSeconds 0
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licDb } -TimeoutSeconds 0
         }
     }
-    # Last: it reads the flattened rows, the sessions and the licence events.
+    # Last: it reads the flattened rows, the sessions and the license events.
     if (Test-Proc 'bi.usp_RefreshBi') {
         Write-Log ('Refreshing the bi star schema from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
-        Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenceEventDatabase = @l;' `
-            -Parameters @{ '@s' = $SinceUtc; '@l' = $(if ($SessionLicenceDatabase) { $SessionLicenceDatabase } else { $null }) } -TimeoutSeconds 0
+        Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l;' `
+            -Parameters @{ '@s' = $SinceUtc; '@l' = $(if ($SessionLicenseDatabase) { $SessionLicenseDatabase } else { $null }) } -TimeoutSeconds 0
     }
     # After bi: the Copilot Insights dashboard's org chart and daily rollups.
     if (Test-Proc 'dash.usp_RefreshDashboard') {

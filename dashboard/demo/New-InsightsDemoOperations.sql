@@ -3,7 +3,7 @@
     New-InsightsDemoData.sql. Run after the bi build and before the
     dashboard's (the disabled account is set in bi too, as a rebuild would).
 
-      - the licence pool: 60 nightly snapshots of the Copilot SKU and one other
+      - the license pool: 60 nightly snapshots of the Copilot SKU and one other
       - three licensed people whose accounts are disabled (two in Entra, one in AD)
       - five recorded pipeline runs, the second-to-last of them failed
       - two training sessions, a target for the organisation and one for a unit,
@@ -15,7 +15,7 @@ SET NOCOUNT ON;
 DECLARE @licensed INT = (SELECT COUNT(*) FROM audit.CopilotLicense WHERE IsCopilotLic = 1);
 DECLARE @today DATE = CAST(SYSUTCDATETIME() AS DATE);
 
-/* ---- The licence pool ---- */
+/* ---- The license pool ---- */
 DELETE FROM audit.LicenseSkuDay;
 DELETE FROM audit.LicenseSku;
 DECLARE @d INT = 59;
@@ -29,7 +29,7 @@ END;
 INSERT INTO audit.LicenseSku (SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed, CapabilityStatus)
 SELECT SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed, N'Enabled' FROM audit.LicenseSkuDay WHERE SnapshotDate = @today;
 
-/* ---- Licences on disabled accounts: the 11th and 12th licensed people in Entra, the 13th in AD ---- */
+/* ---- Licenses on disabled accounts: the 11th and 12th licensed people in Entra, the 13th in AD ---- */
 WITH l AS (SELECT UserPrincipalName, ROW_NUMBER() OVER (ORDER BY UserPrincipalName) AS n FROM audit.CopilotLicense WHERE IsCopilotLic = 1)
 UPDATE c SET EntraAccountEnabled = CASE WHEN l.n IN (11, 12) THEN 0 ELSE 1 END
 FROM audit.CopilotLicense AS c JOIN l ON l.UserPrincipalName = c.UserPrincipalName;
@@ -53,10 +53,10 @@ BEGIN
     VALUES (N'Nightly', DATEADD(HOUR, 2, CAST(DATEADD(DAY, -@d, @today) AS DATETIME2(0))),
             DATEADD(MINUTE, CASE WHEN @d = 1 THEN 14 ELSE 41 END, DATEADD(HOUR, 2, CAST(DATEADD(DAY, -@d, @today) AS DATETIME2(0)))),
             CASE WHEN @d = 1 THEN 'Failed' ELSE 'Succeeded' END,
-            CASE WHEN @d = 1 THEN N'Copilot licences from Graph' END,
+            CASE WHEN @d = 1 THEN N'Copilot licenses from Graph' END,
             CASE WHEN @d = 1 THEN N'2026-09-26T02:13:58 Connecting to Microsoft Graph as the app...
 Connect-MgGraph: ClientCertificateCredential authentication failed: The certificate has expired.
-2026-09-26T02:14:02 Copilot licences from Graph failed (exit code 1). Run the same command again to resume.' END,
+2026-09-26T02:14:02 Copilot licenses from Graph failed (exit code 1). Run the same command again to resume.' END,
             N'JOBSRV01', N'CONTOSO\gmsa-copilot$');
     SET @d -= 1;
 END;
@@ -72,7 +72,7 @@ FROM a WHERE n <= 70;
 
 DELETE FROM dash.Target;
 INSERT INTO dash.Target (RootUpn, Metric, TargetValue, StartDate, DueDate, Note, CreatedBy)
-VALUES (NULL, 'Adoption', 95, DATEADD(DAY, -90, @today), DATEADD(DAY, 60, @today), N'Every licence in use by year end', N'demo'),
+VALUES (NULL, 'Adoption', 95, DATEADD(DAY, -90, @today), DATEADD(DAY, 60, @today), N'Every license in use by year end', N'demo'),
        ((SELECT TOP (1) UserPrincipalName FROM bi.DimUser WHERE OrgDepth = 1 AND IsManager = 1 ORDER BY UserPrincipalName), 'ActiveShare', 60, DATEADD(DAY, -60, @today), DATEADD(DAY, 30, @today), NULL, N'demo');
 
 MERGE dash.TimeSaving AS t
@@ -113,36 +113,36 @@ BEGIN
     FROM audit.AgentEvent WHERE RecordId = 'demo-agent-4-1';
 END;
 
-/* ---- 2.3.0, second part: job families, a contract, events on the trends, licence exports, triage ---- */
+/* ---- 2.3.0, second part: job families, a contract, events on the trends, license exports, triage ---- */
 IF OBJECT_ID(N'dash.JobFamilyRule', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.JobFamilyRule)
     INSERT INTO dash.JobFamilyRule (Pattern, Family, Priority, UpdatedBy) VALUES
         (N'Manager%', N'Managers', 10, N'demo'), (N'%Engineer%', N'Engineering', 20, N'demo'), (N'%Analyst%', N'Analysts', 20, N'demo'),
         (N'%Specialist%', N'Specialists', 30, N'demo'), (N'Associate', N'Associates', 40, N'demo'), (N'Coordinator', N'Coordinators', 40, N'demo');
 
-IF OBJECT_ID(N'dash.LicenceContract', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.LicenceContract)
-    INSERT INTO dash.LicenceContract (Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note, UpdatedBy)
+IF OBJECT_ID(N'dash.LicenseContract', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.LicenseContract)
+    INSERT INTO dash.LicenseContract (Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note, UpdatedBy)
     VALUES (N'Microsoft 365 Copilot, enterprise agreement', 1200, 30, DATEADD(MONTH, -10, @today), DATEADD(DAY, 75, @today), N'Annual true-up', N'demo');
 
 IF OBJECT_ID(N'dash.EventMarker', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.EventMarker)
     INSERT INTO dash.EventMarker (Day, Label, Kind, UpdatedBy) VALUES
-        (DATEADD(DAY, -45, @today), N'Wave 2 licences', 'Rollout', N'demo'),
+        (DATEADD(DAY, -45, @today), N'Wave 2 licenses', 'Rollout', N'demo'),
         (DATEADD(DAY, -20, @today), N'Prompting workshop', 'Training', N'demo'),
         (DATEADD(DAY, -8, @today), N'Copilot service incident', 'Outage', N'demo');
 
-IF OBJECT_ID(N'dash.LicenceAction', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.LicenceAction)
+IF OBJECT_ID(N'dash.LicenseAction', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.LicenseAction)
 BEGIN
     DECLARE @k1 INT = (SELECT MAX(DateKey) FROM bi.FactLicensedDay);
     /* A revocation export three weeks ago: most applied since (no longer licensed), a few still pending. */
-    INSERT INTO dash.LicenceAction (Kind, Upn, ExportedUtc, ExportedBy)
+    INSERT INTO dash.LicenseAction (Kind, Upn, ExportedUtc, ExportedBy)
     SELECT TOP (12) 'revoke', u.UserPrincipalName, DATEADD(DAY, -21, CAST(@today AS DATETIME2(0))), N'wei.okafor@contoso.com'
     FROM bi.DimUser AS u WHERE NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS l WHERE l.UserKey = u.UserKey AND l.DateKey = @k1) AND u.AccountEnabled = 1
     ORDER BY CHECKSUM(u.UserPrincipalName);
-    INSERT INTO dash.LicenceAction (Kind, Upn, ExportedUtc, ExportedBy)
+    INSERT INTO dash.LicenseAction (Kind, Upn, ExportedUtc, ExportedBy)
     SELECT TOP (3) 'revoke', l.Upn, DATEADD(DAY, -21, CAST(@today AS DATETIME2(0))), N'wei.okafor@contoso.com'
     FROM (SELECT u.UserPrincipalName AS Upn FROM bi.FactLicensedDay AS f JOIN bi.DimUser AS u ON u.UserKey = f.UserKey WHERE f.DateKey = @k1) AS l
     ORDER BY CHECKSUM(l.Upn);
     /* An upgrade wave two weeks ago: licensed now. */
-    INSERT INTO dash.LicenceAction (Kind, Upn, ExportedUtc, ExportedBy)
+    INSERT INTO dash.LicenseAction (Kind, Upn, ExportedUtc, ExportedBy)
     SELECT TOP (10) 'wave', u.UserPrincipalName, DATEADD(DAY, -14, CAST(@today AS DATETIME2(0))), N'wei.okafor@contoso.com'
     FROM bi.FactLicensedDay AS f JOIN bi.DimUser AS u ON u.UserKey = f.UserKey WHERE f.DateKey = @k1
     ORDER BY CHECKSUM(u.UserPrincipalName) DESC;

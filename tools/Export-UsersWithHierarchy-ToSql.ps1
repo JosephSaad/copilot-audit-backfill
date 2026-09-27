@@ -23,7 +23,7 @@
     only, no module.
 
     The table is replaced whole, in one transaction, so a reader never sees it
-    empty or half-loaded. Licences are not here: they come from Microsoft
+    empty or half-loaded. Licenses are not here: they come from Microsoft
     Graph, by tools/Update-CopilotAuditEnrichment.ps1.
 
     After loading it reports how many of the users in the audit data it found,

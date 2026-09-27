@@ -12,8 +12,8 @@
 
     Nightly (the scheduled task), in this order:
       1. User directory from AD, so tonight's builds see today's organisation.
-      2. Copilot licences from Graph.
-      3. Licence events: -Incremental into the licence database.
+      2. Copilot licenses from Graph.
+      3. License events: -Incremental into the license database.
       4. Copilot interactions: -Incremental, which then refreshes the
          flattened table, sessions, bi and the dashboard.
 
@@ -28,10 +28,10 @@
 
     -History (once, from a console; hours):
       1. Copilot interactions for the last HistoryDays days, finalized.
-      2. Licence events for the same days, finalized.
+      2. License events for the same days, finalized.
       3. User directory from AD.
-      4. Copilot licences from Graph.
-      5. Install-CopilotAudit.ps1: shreds the licence events and builds
+      4. Copilot licenses from Graph.
+      5. Install-CopilotAudit.ps1: shreds the license events and builds
          everything in full.
     Every step resumes where it stopped, so after Ctrl+C or a reboot the same
     command carries on.
@@ -74,13 +74,13 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# The licence-event load's operations. Copilot Studio's authoring operations ride along in the same
+# The license-event load's operations. Copilot Studio's authoring operations ride along in the same
 # searches (no extra search), for Agents > Build and publish (audit.usp_ShredAgentEvents).
 $script:AgentOperations = 'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpdateOperation-BotPublish', 'BotUpdateOperation-BotShare',
                           'BotUpdateOperation-BotNameUpdate', 'BotUpdateOperation-BotAuthUpdate', 'BotUpdateOperation-BotIconUpdate',
                           'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
                           'BotComponentCollectionCreate', 'BotComponentCollectionDelete'
-$script:LicenceOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
+$script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
 
 function Get-PipelineSetting {
@@ -139,7 +139,7 @@ function Get-PipelineStep {
     $app = @{ TenantId = $Setting.TenantId; ClientId = $Setting.ClientId; CertificateThumbprint = $Setting.CertificateThumbprint }
     $sql = @{ SqlServer = $Setting.SqlServer }
     if (Has 'TrustServerCertificate') { $sql.TrustServerCertificate = $true }
-    $lic = if (Has 'LicenceDatabase') { [string] $Setting.LicenceDatabase } else { $null }
+    $lic = if (Has 'LicenseDatabase') { [string] $Setting.LicenseDatabase } else { $null }
     $steps = [System.Collections.Generic.List[object]]::new()
     function Add($name, $script, $argsTable) { $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable }) }
 
@@ -150,26 +150,26 @@ function Get-PipelineStep {
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' $a
         }
     }
-    $licences = { Add 'Copilot licences from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' ($sql + $app + @{ Database = $Setting.Database; AllLicensedUsers = $true }) }
+    $licenses = { Add 'Copilot licenses from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' ($sql + $app + @{ Database = $Setting.Database; AllLicensedUsers = $true }) }
 
     if ($History) {
         $n = if ($Days) { $Days } elseif (Has 'HistoryDays') { [int] $Setting.HistoryDays } else { 180 }
         $start = $Today.AddDays(-$n)
         Add 'Copilot interactions (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $Setting.Database; StartDate = $start; Finalize = $true })
-        if ($lic) { Add 'Licence events (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; StartDate = $start; Finalize = $true; Operations = $script:LicenceOperations }) }
+        if ($lic) { Add 'License events (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; StartDate = $start; Finalize = $true; Operations = $script:LicenseOperations }) }
         & $directory
-        & $licences
+        & $licenses
         $build = $sql + @{ Database = $Setting.Database }
-        if ($lic) { $build.LicenceDatabase = $lic; $build.LicenceEventDatabases = @($lic) } else { $build.SkipLicenceDatabase = $true }
+        if ($lic) { $build.LicenseDatabase = $lic; $build.LicenseEventDatabases = @($lic) } else { $build.SkipLicenseDatabase = $true }
         if (Has 'Dashboard') { $build.Dashboard = $true }
         Add 'Build everything' 'Install-CopilotAudit.ps1' $build
     }
     else {
         & $directory
-        & $licences
-        if ($lic) { Add 'Licence events' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; Incremental = $true; Operations = $script:LicenceOperations }) }
+        & $licenses
+        if ($lic) { Add 'License events' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; Incremental = $true; Operations = $script:LicenseOperations }) }
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
-        if ($lic) { $inter.SessionLicenceDatabase = $lic }
+        if ($lic) { $inter.SessionLicenseDatabase = $lic }
         Add 'Copilot interactions' 'Invoke-CopilotAuditBackfill.ps1' $inter
     }
     , $steps.ToArray()
