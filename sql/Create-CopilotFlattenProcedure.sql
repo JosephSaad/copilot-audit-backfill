@@ -56,11 +56,11 @@
 SET NOCOUNT ON;
 
 /*
-    audit.usp_CatalogValues: adds the distinct values of the catalogued columns
+    audit.usp_CatalogValues: adds the distinct values of the cataloged columns
     (audit.ValueCatalogColumn) to audit.ValueCatalog. The flatten calls it for
     each batch while #batch exists, so only that batch's records are read.
     Called on its own it reads every flattened record; @Rebuild = 1 starts the
-    catalogue again (Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog).
+    catalog again (Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog).
     A column stops collecting at 10,000 distinct values and is marked Capped.
 */
 IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NULL
@@ -728,7 +728,7 @@ BEGIN
         CROSS APPLY OPENJSON(j.[value]) WITH (Id NVARCHAR(MAX) '$.Id', [Type] NVARCHAR(200) '$.Type', ContainerId NVARCHAR(200) '$.ContainerId') AS c
         WHERE j.[type] = 5;
 
-        /* This batch's values into the catalogue, for Admin > Value names. */
+        /* This batch's values into the catalog, for Admin > Value names. */
         IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NOT NULL EXEC audit.usp_CatalogValues;
 
         SET @done += @rows;

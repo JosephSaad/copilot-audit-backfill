@@ -224,7 +224,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
             await AlertAsync("Pool", "AlertLicensingTo", "Copilot licenses are running out",
                 full.Select(p => $"{p.SkuPartNumber}: {p.Consumed:#,0} of {p.Bought:#,0} assigned ({100.0 * p.Consumed / p.Bought:0}%), {p.Available:#,0} left.")
-                    .Append("License optimisation lists unused licenses to reclaim before buying more.").ToList(), "/licensing/pool");
+                    .Append("License optimization lists unused licenses to reclaim before buying more.").ToList(), "/licensing/pool");
             await SetStateAsync("pool", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
         }
 

@@ -2,7 +2,7 @@
     End-to-end tests of the backfill engine against a mock Graph Audit Search
     service (mock_graph.py) and in-memory SQL stand-ins (TestDoubles.cs).
 
-      0  RowBatchReader honours the IDataReader contract (loaded via DataTable.Load)
+      0  RowBatchReader honors the IDataReader contract (loaded via DataTable.Load)
       A  30 days / ~630K records: adaptive windows, beta cap detection + splits,
          a server-side failed search, page 429s under a concurrency ceiling,
          random 503s, token rotation (401), transient SQL failures, a hard stop

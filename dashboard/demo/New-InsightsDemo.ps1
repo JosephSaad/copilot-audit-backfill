@@ -7,7 +7,7 @@
     Creates the database (replacing it with -Force), runs the repository's
     schema scripts, loads New-InsightsDemoData.sql, then builds sessions, the
     bi schema and the dashboard tables exactly as a real install would. It
-    sets the CEO as the top of the organisation, names the demo's agents and
+    sets the CEO as the top of the organization, names the demo's agents and
     sensitivity labels, and grants a persona role to one person per persona,
     so every page and the security model can be tried as each of them. It also
     adds a license pool, pipeline runs (one failed), training records, targets

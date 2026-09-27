@@ -6,7 +6,7 @@
       - the license pool: 60 nightly snapshots of the Copilot SKU and one other
       - three licensed people whose accounts are disabled (two in Entra, one in AD)
       - five recorded pipeline runs, the second-to-last of them failed
-      - two training sessions, a target for the organisation and one for a unit,
+      - two training sessions, a target for the organization and one for a unit,
         minutes saved for two apps, and a weekly digest (email is off, so it only
         records itself)
 */

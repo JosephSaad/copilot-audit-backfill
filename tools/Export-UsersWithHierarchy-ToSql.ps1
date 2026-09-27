@@ -479,7 +479,7 @@ function Invoke-Main {
     $groups = @(Get-OrganizationGroup -ConnString $connStr)
     $expanded = @(foreach ($g in $groups) {
         $members = Get-GroupMemberUpn -Domain $TargetDomain -Group $g
-        if ($null -eq $members) { Write-Log "Group $g, granted Organization, is not in ${TargetDomain}: Power BI will not give its members the whole organisation." -Level WARN; continue }
+        if ($null -eq $members) { Write-Log "Group $g, granted Organization, is not in ${TargetDomain}: Power BI will not give its members the whole organization." -Level WARN; continue }
         [pscustomobject]@{ Group = $g; Members = $members }
     })
     $gm = Write-GroupMember -ConnString $connStr -Table (ConvertTo-GroupMemberTable -Groups $expanded)

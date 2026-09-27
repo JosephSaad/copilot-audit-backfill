@@ -11,7 +11,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 {
     public override string Title => "Board pack";
     public override string Persona => "Leadership";
-    public override string Intro => "The programme on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licenses and risk signals. Print it, or save it as a PDF from the print dialog. Aggregates only.";
+    public override string Intro => "The program on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licenses and risk signals. Print it, or save it as a PDF from the print dialog. Aggregates only.";
 
     protected override async Task BuildAsync()
     {
@@ -40,7 +40,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         {
             var tt = new Table { Headers = ["Target", "For", "Now", "Should be by now", "Due", "Status"] };
             foreach (var r in targets)
-                tt.Rows.Add([$"{Adoption.TargetsModel.Label(r.Metric)} {r.TargetValue:0.#}{(r.Metric == "ActivePeople" ? "" : "%")}", r.RootName ?? r.RootUpn ?? "Whole organisation",
+                tt.Rows.Add([$"{Adoption.TargetsModel.Label(r.Metric)} {r.TargetValue:0.#}{(r.Metric == "ActivePeople" ? "" : "%")}", r.RootName ?? r.RootUpn ?? "Whole organization",
                     r.Current is null ? null : Math.Round(r.Current.Value, 1), r.Expected is null ? null : Math.Round(r.Expected.Value, 1), r.DueDate,
                     new HtmlString($"<span class=\"{(r.Status is "Met" or "On track" ? "status-ok" : r.Status == "Behind" ? "status-warn" : "status-bad")}\">{E(r.Status)}</span>")]);
             Panels.Add(new("Targets", tt.Render(), null, "half"));
@@ -57,7 +57,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             $"<div class=\"kpi\"><div class=\"klabel\">Worth ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">License cost in the period ({E(cur)})</div><div class=\"kvalue\">{cost:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Return</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
-            $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organisation's own assumptions (Admin > Targets and assumptions).", "half"));
+            $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin > Targets and assumptions).", "half"));
 
         var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
         var counts = await reports.ActionCountsAsync(Ctx);
@@ -74,7 +74,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         rt.Rows.Add(["Jailbreak attempts", tr.Sum(x => x.Jailbreak), rp.Sum(x => x.Jailbreak)]);
         rt.Rows.Add(["Prompt injection detected", tr.Sum(x => x.Injection), rp.Sum(x => x.Injection)]);
         rt.Rows.Add(["Blocked resources", tr.Sum(x => x.Blocked), rp.Sum(x => x.Blocked)]);
-        rt.Rows.Add(["Interactions with labelled content", tr.Sum(x => x.Labelled), rp.Sum(x => x.Labelled)]);
+        rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp.Sum(x => x.Labeled)]);
         Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance.", "half"));
 
         var units = (await metrics.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize && u.Licensed >= Ctx.MinGroupSize).ToList();
@@ -139,7 +139,7 @@ SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase,
         var agents = totals.Where(x => x.UseCase == "Working with an agent").Sum(x => x.N);
         Kpis.Add(new("With an agent", Pct(Ratio(agents, all)), "of interactions"));
 
-        /* Fixed colours per use case, by overall size (the chart shows at most eight). */
+        /* Fixed colors per use case, by overall size (the chart shows at most eight). */
         var top = ranked.Take(7).Select(x => x.UseCase).ToList();
         string Key(string u) => top.Contains(u) ? u : "Everything else";
         var names = top.Concat(ranked.Count > 7 ? ["Everything else"] : []).ToList();

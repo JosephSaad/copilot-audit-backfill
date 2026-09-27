@@ -42,10 +42,10 @@
         {
             <input type="hidden" name="@k" value="@Context.Request.Query[k]" />
         }
-        <div class="crumbs" aria-label="Organisation">
+        <div class="crumbs" aria-label="Organization">
             @if (c.Viewer.OrgWide)
             {
-                <a href="@c.Url(path, org: null, keepOrg: false)" class="@(c.Root is null ? "on" : "")">Whole organisation</a>
+                <a href="@c.Url(path, org: null, keepOrg: false)" class="@(c.Root is null ? "on" : "")">Whole organization</a>
             }
             @foreach (var u in c.Breadcrumb)
             {

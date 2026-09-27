@@ -26,7 +26,7 @@ public sealed record ValueRow(string Name, long Interactions, double Hours, deci
 /// <summary>Report figures the pages, the digests and the data API share, for any scope and period.</summary>
 public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContextFactory contexts, Settings settings)
 {
-    /// <summary>Who the digests and alerts see as: the whole organisation, aggregates only.</summary>
+    /// <summary>Who the digests and alerts see as: the whole organization, aggregates only.</summary>
     public static Viewer SystemViewer() => new()
     {
         WindowsName = "Copilot Insights (scheduled)", DisplayName = "Copilot Insights", InDirectory = false,
@@ -169,7 +169,7 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
                 e.KpiPct("Adoption", Pct(t.ActiveLicensed, t.LicensedNow), Pct(p.ActiveLicensed, p.LicensedNow));
                 var targets = await TargetsAsync(c);
                 e.Table("Targets", ["Target", "For", "Now", "Should be by now", "Due", "Status"],
-                    targets.Select(r => new object?[] { $"{Metrics(r.Metric)} {r.TargetValue:0.#}{(r.Metric == "ActivePeople" ? "" : "%")}", r.RootName ?? r.RootUpn ?? "Whole organisation",
+                    targets.Select(r => new object?[] { $"{Metrics(r.Metric)} {r.TargetValue:0.#}{(r.Metric == "ActivePeople" ? "" : "%")}", r.RootName ?? r.RootUpn ?? "Whole organization",
                         Fmt1(r.Current), Fmt1(r.Expected), r.DueDate.ToString("yyyy-MM-dd"), r.Status }));
                 var series = await ops.DepartmentDaysAsync(c.End.AddDays(-34), c.End, c.MinGroupSize, c.Root);
                 var odd = Anomalies.Find(series, c.End.AddDays(-6), await settings.IntAsync("AnomalyDropPercent", 50), await settings.IntAsync("AnomalySpikePercent", 200));
@@ -191,7 +191,7 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
                 e.Kpi("Unused licenses to revoke", counts.GetValueOrDefault("revoke"), null, $"saves {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month");
                 var leavers = await ops.LeaversAsync(c.Root);
                 e.Kpi("Licenses on disabled or departed accounts", leavers.Count, null, leavers.Count > 0 ? $"{leavers.Count * price:#,0} {cur} a month" : null);
-                e.Link(Link("/forecasting/optimise"), "Open license optimisation");
+                e.Link(Link("/forecasting/optimize"), "Open license optimization");
                 break;
             }
             case "Security":
@@ -201,10 +201,10 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
                 e.Kpi("Jailbreak attempts", tr.Sum(x => x.Jailbreak), tp.Sum(x => x.Jailbreak));
                 e.Kpi("Prompt injections", tr.Sum(x => x.Injection), tp.Sum(x => x.Injection));
                 e.Kpi("Blocked resources", tr.Sum(x => x.Blocked), tp.Sum(x => x.Blocked));
-                e.Kpi("Labelled content", tr.Sum(x => x.Labelled), tp.Sum(x => x.Labelled));
+                e.Kpi("Labeled content", tr.Sum(x => x.Labeled), tp.Sum(x => x.Labeled));
                 var units = (await metrics.UnitsAsync(c)).Where(u => u.People >= c.MinGroupSize).OrderByDescending(u => u.Flags).Take(10).ToList();
-                e.Table("Units with the most signals", ["Unit", "People", "Signals", "Labelled interactions"],
-                    units.Select(u => new object?[] { u.Name, u.People, u.Flags, u.Labelled }));
+                e.Table("Units with the most signals", ["Unit", "People", "Signals", "Labeled interactions"],
+                    units.Select(u => new object?[] { u.Name, u.People, u.Flags, u.Labeled }));
                 e.Link(Link("/security"), "Open security signals");
                 break;
             }
@@ -252,10 +252,10 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App ORDER BY 2 DESC;", args);
         e.Kpi("Interactions", t.N, t.PN);
         e.Kpi("With an agent", t.Agents, null);
         e.Table("Where you used it", ["App", "Interactions"], apps.Select(a => new object?[] { a.App, a.N }));
-        var tip = t.N == 0 ? "No use recorded this week. Try asking Copilot to summarise a long email thread or a meeting you missed."
+        var tip = t.N == 0 ? "No use recorded this week. Try asking Copilot to summarize a long email thread or a meeting you missed."
             : apps.Count <= 1 ? "You used Copilot in one app. Try it where you spend most time: a Teams meeting recap, a first draft in Word, or a formula in Excel."
             : t.Sessions > 0 && t.Multi * 3 < t.Sessions ? "Most of your conversations were a single prompt. Following up (\"shorter\", \"as a table\") usually gets a better answer than starting again."
-            : t.Agents == 0 ? "You haven't used an agent this week: your organisation's agents answer from its own content." : "Keep going: you are using Copilot across several apps.";
+            : t.Agents == 0 ? "You haven't used an agent this week: your organization's agents answer from its own content." : "Keep going: you are using Copilot across several apps.";
         e.Paragraph(tip);
         var url = await settings.StringAsync("DashboardUrl");
         e.Link(url is null ? null : url.TrimEnd('/') + "/me", "See more in My Copilot");

@@ -68,7 +68,7 @@ namespace CopilotInsights.Pages.Security
     {
         public override string Title => "Guests and external users";
         public override string Persona => "Security";
-        public override string Intro => "Copilot use by guest accounts (#EXT# sign-ins, or a user type of Guest from the license tool): how much, from which home organisations, and with which signals. Home organisations with fewer guests than the minimum group size are combined; the named list needs the Security role.";
+        public override string Intro => "Copilot use by guest accounts (#EXT# sign-ins, or a user type of Guest from the license tool): how much, from which home organizations, and with which signals. Home organizations with fewer guests than the minimum group size are combined; the named list needs the Security role.";
 
         sealed class Row
         {
@@ -77,7 +77,7 @@ namespace CopilotInsights.Pages.Security
             public int Active { get; set; }
             public long Interactions { get; set; }
             public long Flags { get; set; }
-            public long Labelled { get; set; }
+            public long Labeled { get; set; }
             public int Licensed { get; set; }
         }
 
@@ -97,10 +97,10 @@ namespace CopilotInsights.Pages.Security
                 : "du.UserPrincipalName LIKE N'%#EXT#%'";
             var rows = await Db.QueryAsync<Row>($@"
 WITH g AS (SELECT du.UserKey, {Domain} AS Domain FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE {guest}),
-a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F, SUM(ud.LabelledContent) AS L
+a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F, SUM(ud.LabeledContent) AS L
       FROM dash.UserDay AS ud JOIN g ON g.UserKey = ud.UserKey WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
 SELECT g.Domain, COUNT(*) AS People, COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active, ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions,
-       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.L AS BIGINT)), 0) AS Labelled, COUNT(ld.UserKey) AS Licensed
+       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.L AS BIGINT)), 0) AS Labeled, COUNT(ld.UserKey) AS Licensed
 FROM g LEFT JOIN a ON a.UserKey = g.UserKey
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = g.UserKey AND ld.DateKey = @k1
 GROUP BY g.Domain;", Ctx.Args());
@@ -114,10 +114,10 @@ GROUP BY g.Domain;", Ctx.Args());
             var shown = named ? rows : rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();
             var small = rows.Except(shown).ToList();
             if (small.Count > 0)
-                shown.Add(new Row { Domain = $"{small.Count} smaller home organisations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labelled = small.Sum(r => r.Labelled), Licensed = small.Sum(r => r.Licensed) });
-            var t = new Table { Headers = ["Home organisation", "Guests", "Active", "Interactions", "Licensed here", "Security signals", "Labelled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
-            foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labelled]);
-            Panels.Add(new("By home organisation", t.Render(), "From the guest's sign-in name. Labelled content: interactions that touched content with a sensitivity label."));
+                shown.Add(new Row { Domain = $"{small.Count} smaller home organizations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labeled = small.Sum(r => r.Labeled), Licensed = small.Sum(r => r.Licensed) });
+            var t = new Table { Headers = ["Home organization", "Guests", "Active", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
+            foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labeled]);
+            Panels.Add(new("By home organization", t.Render(), "From the guest's sign-in name. Labeled content: interactions that touched content with a sensitivity label."));
 
             if (!named) return;
             var pg = new Paging(Request, new Dictionary<string, string> { ["most"] = "I DESC", ["name"] = "du.DisplayName" }, "most");
@@ -130,7 +130,7 @@ LEFT JOIN bi.DimDate AS dl ON dl.DateKey = a.LastKey
 WHERE {guest} AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
             pg.Total = people.FirstOrDefault().Total;
-            var pt = new Table { Headers = ["Name", "Sign-in", "Home organisation", "Interactions", "Security signals", "Last used"], Numeric = new HashSet<int> { 3, 4 } };
+            var pt = new Table { Headers = ["Name", "Sign-in", "Home organization", "Interactions", "Security signals", "Last used"], Numeric = new HashSet<int> { 3, 4 } };
             foreach (var r in people) pt.Rows.Add([r.Name, r.Upn, r.Domain, r.I, r.F, r.Last]);
             CsvTable = pt;
             Panels.Add(new("Guests using Copilot", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["most"] = "Most use", ["name"] = "Name" }).Value + pt.Render().Value),
@@ -224,7 +224,7 @@ WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
             Kpis.Add(new("With a security signal", Num(recs.Count(r => r.JailbreakDetected || r.PromptInjectionDetected || r.HasBlockedResource)), pg.ForExport || pg.Total <= Paging.PageSize ? null : "on this page"));
             var t = new Table
             {
-                Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labelled content", "Resources read", "Record id"],
+                Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labeled content", "Resources read", "Record id"],
                 Numeric = new HashSet<int> { 6 }, EmptyText = "No interactions in the period.",
             };
             foreach (var r in recs)

@@ -1,4 +1,4 @@
-<#
+﻿<#
     Integration test: the real SqlWindowStore / SqlBatchSink and both SQL
     scripts against a real SQL Server.
 
@@ -47,7 +47,7 @@ $database = if ($env:SQLIT_DATABASE) { $env:SQLIT_DATABASE } else { 'CopilotAudi
 # PowerShell looks variables up dynamically, through the CALLER's scope chain,
 # so a script dot-sourced later in this suite can shadow a plain $database
 # with its own param of the same name - names are case-insensitive - and every
-# query would then silently run against the wrong catalogue. The $script:
+# query would then silently run against the wrong catalog. The $script:
 # qualifier resolves here regardless of who is calling.
 $script:ITServer   = $server
 $script:ITUser     = $user
@@ -419,7 +419,7 @@ WHERE c.object_id = OBJECT_ID(N'audit.RawLogFlattened') ORDER BY c.column_id;
     Invoke-SqlText -Sql 'EXEC audit.usp_FlattenCopilotAudit @RebuildAll = 1, @BatchSize = 50000' -ShowMessages -TimeoutSeconds 1800
     Write-Host ("  flatten took {0:N1}s" -f $swl.Elapsed.TotalSeconds) -ForegroundColor DarkGray
 
-    # 2.3.0: each batch's codes go into the value catalogue, for Admin > Value names.
+    # 2.3.0: each batch's codes go into the value catalog, for Admin > Value names.
     $vc = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT DistinctValues FROM audit.ValueCatalogColumn WHERE ColumnId = 2) AS Apps,
        (SELECT COUNT(DISTINCT App) FROM audit.RawLogFlattened WHERE NULLIF(App, N'') IS NOT NULL) AS AppsInData,
@@ -427,12 +427,12 @@ SELECT (SELECT DistinctValues FROM audit.ValueCatalogColumn WHERE ColumnId = 2) 
        (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE OrganizationId IS NOT NULL) AS WithTenant,
        (SELECT COUNT(*) FROM audit.ValueCatalog WHERE ColumnId = 1 AND Value = LOWER(Value)) AS LowerGuids;
 "@).Rows[0]
-    Assert-That ([int] $vc.Apps -gt 0 -and [int] $vc.Apps -eq [int] $vc.AppsInData) "the flatten catalogues every distinct app, batch by batch ($($vc.Apps) of $($vc.AppsInData))"
+    Assert-That ([int] $vc.Apps -gt 0 -and [int] $vc.Apps -eq [int] $vc.AppsInData) "the flatten catalogs every distinct app, batch by batch ($($vc.Apps) of $($vc.AppsInData))"
     Assert-That ([long] $vc.TenantRecords -eq [long] $vc.WithTenant -and [int] $vc.LowerGuids -ge 1) "and counts each record once in a full rebuild, with GUIDs in lower case ($($vc.TenantRecords) of $($vc.WithTenant))"
     $before = [string] (Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CONCAT(ColumnId, ':', Value, ':', Records), '|') WITHIN GROUP (ORDER BY ColumnId, Value) FROM audit.ValueCatalog;")
     Invoke-SqlText -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
     $after = [string] (Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CONCAT(ColumnId, ':', Value, ':', Records), '|') WITHIN GROUP (ORDER BY ColumnId, Value) FROM audit.ValueCatalog;")
-    Assert-That ($before -eq $after -and $after.Length -gt 0) 'a rebuild of the catalogue from every record gives the same values and counts as the batches did'
+    Assert-That ($before -eq $after -and $after.Length -gt 0) 'a rebuild of the catalog from every record gives the same values and counts as the batches did'
 
     # What the mock put in the JSON, counted from the day counts it reports.
     $dc = Invoke-RestMethod "$($mock.Base)/_control/daycounts"
@@ -519,7 +519,7 @@ SELECT (SELECT COUNT(*) FROM audit.RawLogRecordShape)                           
        (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE PolicyOutcomes = N'Blocked') AS PolicyBlocked,
        (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE Site = N'https://contoso.sharepoint.com/sites/finance') AS FinanceSite,
        (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE Site = N'https://outlook.office365.com' AND [Type] = N'EmailMessage') AS MailSite,
-       (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE SensitivityLabelId IS NOT NULL) AS LabelledElements,
+       (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE SensitivityLabelId IS NOT NULL) AS LabeledElements,
        (SELECT COUNT(*) FROM audit.RawLogContext WHERE [Type] = N'xlsx') AS Contexts
 FROM audit.RawLogFlattened;
 "@).Rows[0]
@@ -538,7 +538,7 @@ FROM audit.RawLogFlattened;
     Assert-That ([long] $x.BlockedElements -eq ($expBlocked + $exp19)) ("blocked: a failed Status or a policy outcome ({0:N0} elements)" -f $x.BlockedElements)
     Assert-That ([long] $x.BlockedRecords -eq ($expBlocked + $exp19 - $exp209)) ("BlockedResourceUrls now includes policy-blocked resources ({0:N0} records)" -f $x.BlockedRecords)
     Assert-That ([long] $x.FinanceSite -eq $expectedTotal -and [long] $x.MailSite -eq $exp19) 'sites cut to https://host/sites/name, and to the host elsewhere'
-    Assert-That ([long] $x.LabelledElements -eq $expectedTotal -and [long] $x.Contexts -eq $expectedTotal) 'element labels parsed as GUIDs, and one Contexts row per context'
+    Assert-That ([long] $x.LabeledElements -eq $expectedTotal -and [long] $x.Contexts -eq $expectedTotal) 'element labels parsed as GUIDs, and one Contexts row per context'
 
     # IsCopilotLic fills in once the license table has the user.
     Invoke-SqlText -Sql "INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic) VALUES (N'user0@contoso.com', 1)"
@@ -661,7 +661,7 @@ SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)       AS A,
       # A child scope on purpose. Dot-sourcing pulls the script's entire param
       # block into the current scope, and PowerShell variable names are
       # case-insensitive, so its $Database silently blanks this suite's
-      # $database - after which every query runs against the wrong catalogue
+      # $database - after which every query runs against the wrong catalog
       # and fails with 'Invalid object name'. Running it in a child scope keeps
       # its parameters to itself.
       & {
@@ -857,7 +857,7 @@ FROM audit.LicenseEvent;
 "@
     $v = $ev.Rows[0]
     Assert-That ([int] $v.Rows_ -eq 5) "every event shredded ($($v.Rows_))"
-    Assert-That ([int] $v.Changes -eq 2) "the trailing period on 'Change user license.' is normalised away ($($v.Changes) of 2)"
+    Assert-That ([int] $v.Changes -eq 2) "the trailing period on 'Change user license.' is normalized away ($($v.Changes) of 2)"
     Assert-That ([int] $v.Adds -eq 1 -and [int] $v.Deletes -eq 1) 'provisioning and revocation events are distinguishable'
     Assert-That ([int] $v.WithTarget -eq 5) "the affected user resolved on every event, including the GUID ObjectId one ($($v.WithTarget))"
     Assert-That ([int] $v.WithActor -eq 5) 'the actor who made each change is recorded'
@@ -1278,7 +1278,7 @@ INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations) OUTPUT IN
     $newDays = (& $idsIn (& $d 5) (& $d 9)).Count
     Assert-That ($l1.Run.Task.Status -eq 'RanToCompletion') "load 1 (Aug 4-9) downloaded ($($l1.Run.Task.Status))"
     Assert-That ([long] $l1.Merge.RowsAdded -eq $newDays -and [long] $l1.Merge.RowsAlreadyLoaded -eq $overlap) `
-        "the lookback day was recognised, not re-added: $($l1.Merge.RowsAdded) new (of $newDays), $($l1.Merge.RowsAlreadyLoaded) already loaded (of $overlap)"
+        "the lookback day was recognized, not re-added: $($l1.Merge.RowsAdded) new (of $newDays), $($l1.Merge.RowsAlreadyLoaded) already loaded (of $overlap)"
 
     $state = Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)                          AS Rows_,
@@ -1793,7 +1793,7 @@ Assert-That ([int] $ds.AgentUse -eq [int] $ds.Agents) "every agent used has its 
 $res = [string[]] @((Invoke-SqlText -As Table -Sql 'SELECT Kind, Item FROM dash.ResourceDay GROUP BY Kind, Item;').Rows | ForEach-Object { "$($_.Kind)=$($_.Item)" })
 [Array]::Sort($res, [StringComparer]::Ordinal)
 Assert-That (($res -join ' | ') -eq 'Blocked=https://contoso.sharepoint.com/sites/hr | Label=11111111-0000-0000-0000-000000000001 | Label=11111111-0000-0000-0000-000000000002 | Site=https://contoso-my.sharepoint.com/personal/x_contoso_com | Site=https://contoso.sharepoint.com/sites/fin') `
-    "labels, sites of labelled content and blocked sites come from bi.FactAccessedResource ($($res -join ' | '))"
+    "labels, sites of labeled content and blocked sites come from bi.FactAccessedResource ($($res -join ' | '))"
 
 $bx = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT COUNT(*) FROM bi.FactAccessedResource) AS Resources,
@@ -1896,7 +1896,7 @@ Assert-That ($moved -like '*already holds records cut in Eastern Standard Time*'
 
 $status = & $maint @conn -Database $script:ITDatabase -Task Status | Out-String
 $topNow = [string] (Invoke-SqlText -As Scalar -Sql "SELECT COALESCE(MAX(CASE WHEN Name = N'OrgTopUpn' THEN NULLIF(Value, N'') END), MAX(CASE WHEN Name = N'OrgTopUpnDetected' THEN Value END)) FROM dash.Setting;")
-Assert-That ($status -like '*Flattened*' -and $status -like "*Top of the organisation*$topNow*") "Status reports what is loaded, built, and the top of the organisation ($topNow)"
+Assert-That ($status -like '*Flattened*' -and $status -like "*Top of the organization*$topNow*") "Status reports what is loaded, built, and the top of the organization ($topNow)"
 & $maint @conn -Database $script:ITDatabase -Task SetAppCategory -App 'Teams' -Category 'Copilot Chat' | Out-Null
 & $maint @conn -Database $script:ITDatabase -Task GrantRole -Principal 'CONTOSO\Insights-Admins' -PrincipalType Group -Role Admin -Note 'test' | Out-Null
 & $maint @conn -Database $script:ITDatabase -Task SetDashboardSetting -Name LicenseMonthlyCost -Value '31.5' | Out-Null
@@ -1909,13 +1909,13 @@ SELECT (SELECT AppCategory FROM audit.SessionAppCategory WHERE App = N'Teams') A
        (SELECT COUNT(*) FROM dash.AuditLog WHERE Page = N'Invoke-CopilotMaintenance') AS Logged;
 "@).Rows[0]
 Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/Admin' -and "$($mt.Cost)" -eq '31.5') 'maintenance tasks set an app category, grant a role and change a setting, without SQL'
-Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organisation takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
+Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organization takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
 $refused = try { & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'nobody@contoso.com'; '' } catch { $_.Exception.Message }
-Assert-That ($refused -like '*not in the directory*') 'a top of the organisation not in the directory is refused'
+Assert-That ($refused -like '*not in the directory*') 'a top of the organization not in the directory is refused'
 
 # ---------------------------------------------------------------------------
 # 16. Operations (2.3.0): the operations schema over section 14's dashboard,
-# its secrets, privacy mode, retention, the value catalogue's cap, the
+# its secrets, privacy mode, retention, the value catalog's cap, the
 # pipeline's run record, and the Power BI views.
 # ---------------------------------------------------------------------------
 Write-Host "`n16. Operations (Create-CopilotOperationsSchema.sql, Invoke-CopilotPipeline.ps1 run records)" -ForegroundColor Cyan
@@ -1950,9 +1950,9 @@ Assert-That (-not ([Text.Encoding]::Unicode.GetString([byte[]] $sec.Stored)).Con
 Invoke-SqlText -Sql "EXEC dash.usp_SetSecret @Name = 'SmtpPassword', @Value = NULL, @By = N'test';"
 Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM dash.Secret WHERE Name = 'SmtpPassword'") -eq 0) 'an empty value removes the secret'
 
-# Privacy mode: bi.Users pseudonymised, the same hash for the same person, counts unchanged.
+# Privacy mode: bi.Users pseudonymized, the same hash for the same person, counts unchanged.
 $plain = (Invoke-SqlText -As Table -Sql "SELECT COUNT(*) AS N, COUNT(DISTINCT UserPrincipalName) AS D FROM bi.Users;").Rows[0]
-Invoke-SqlText -Sql "EXECUTE AS USER = 'it_app'; EXEC dash.usp_SetPrivacyMode @Mode = N'Pseudonymise', @By = N'test'; REVERT;"
+Invoke-SqlText -Sql "EXECUTE AS USER = 'it_app'; EXEC dash.usp_SetPrivacyMode @Mode = N'Pseudonymize', @By = N'test'; REVERT;"
 $hidden = (Invoke-SqlText -As Table -Sql @"
 SELECT COUNT(*) AS N, COUNT(DISTINCT UserPrincipalName) AS D,
        SUM(CASE WHEN UserPrincipalName LIKE N'%@%' OR DisplayName LIKE N'User %' OR ManagerUpn LIKE N'%@%' THEN 1 ELSE 0 END) AS Named,
@@ -1982,7 +1982,7 @@ Assert-That ([int] $left.OldAudit -eq 0 -and [int] $left.NewAudit -eq 1 -and [in
 Assert-That ($ret -like '*JSON kept*') 'and refuses to clear JSON with retention under 200 days'
 Invoke-SqlText -Sql "UPDATE dash.Setting SET Value = N'0' WHERE Name = 'JsonRetentionDays';"
 
-# The value catalogue's cap: a column stops collecting at 10,000 distinct values.
+# The value catalog's cap: a column stops collecting at 10,000 distinct values.
 Invoke-SqlText -Sql @"
 DELETE FROM audit.ValueCatalog WHERE ColumnId = 2;
 INSERT INTO audit.ValueCatalog (ColumnId, Value, Records) SELECT TOP (9999) 2, CONCAT(N'fake-app-', ROW_NUMBER() OVER (ORDER BY (SELECT NULL))), 1 FROM sys.all_objects a CROSS JOIN sys.all_objects b;
@@ -2025,7 +2025,7 @@ SELECT (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'a@contoso.com') 
        (SELECT COUNT(*) FROM bi.DepartmentWeek WHERE Hidden = 1 AND ActivePeople IS NOT NULL) AS Leaks;
 "@).Rows[0]
 Assert-That ([int] $sec.CSelf -le 1 -and [int] $sec.AUnder -ge [int] $sec.CSelf) "bi.OrgSecurity: a person sees themselves, a manager their people ($($sec.AUnder) for user A)"
-Assert-That ([int] $sec.TopSees -eq [int] $sec.Everyone) "the top of the organisation sees everyone ($($sec.TopSees) of $($sec.Everyone))"
+Assert-That ([int] $sec.TopSees -eq [int] $sec.Everyone) "the top of the organization sees everyone ($($sec.TopSees) of $($sec.Everyone))"
 Assert-That ([int] $sec.Leaks -eq 0) 'bi.DepartmentWeek hides every figure of a group under the minimum size'
 # 2.4.0: Organization granted to an AD group reaches its members, once each, through audit.GroupMember.
 $grp = (Invoke-SqlText -As Table -Sql @"

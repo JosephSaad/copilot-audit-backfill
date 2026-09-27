@@ -2,7 +2,7 @@
 """
 Mock of the Microsoft Graph Audit Search API, for testing the backfill engine.
 
-Simulates the documented service behaviour:
+Simulates the documented service behavior:
   * async audit searches: POST query -> poll status -> page records
   * per-query record cap: records stop at CAP; beta status reports
     isRecordCountLimitExceeded / recordCountLimit / approximateReturnedRecordCount

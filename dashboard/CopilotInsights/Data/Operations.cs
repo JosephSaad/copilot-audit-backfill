@@ -167,7 +167,7 @@ public static class LicenseExport
 /// <summary>A row of an uploaded CSV, and what was wrong with the rest. Pure, for the tests.</summary>
 public static class CsvUpload
 {
-    /// <summary>Splits one CSV line, honouring double quotes.</summary>
+    /// <summary>Splits one CSV line, honoring double quotes.</summary>
     public static List<string> Split(string line)
     {
         var cells = new List<string>();

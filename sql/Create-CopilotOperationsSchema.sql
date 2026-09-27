@@ -60,7 +60,7 @@ USING (VALUES
     ('AlertJailbreakPerDay',    N'1',     N'Jailbreak attempts in a day that raise a security alert; 0 turns it off.'),
     ('AlertInjectionPerDay',    N'1',     N'Prompt injections in a day that raise a security alert; 0 turns it off.'),
     ('AlertBlockedPerDay',      N'25',    N'Interactions with a blocked resource in a day that raise a security alert; 0 turns it off.'),
-    ('AlertLabelRank',          NULL,     N'Label order (Admin > Reference data) at or above which labelled content is alert-worthy; empty turns it off.'),
+    ('AlertLabelRank',          NULL,     N'Label order (Admin > Reference data) at or above which labeled content is alert-worthy; empty turns it off.'),
     ('AlertLabelPerDay',        N'1',     N'Interactions touching content at or above AlertLabelRank in a day that raise a security alert.'),
     ('AlertSpikeFactor',        N'3',     N'A signal also alerts when a day is this many times its 28-day daily average.'),
     ('AnomalyDropPercent',      N'50',    N'A unit''s day this far below its usual level for that weekday is a drop.'),
@@ -145,7 +145,7 @@ IF OBJECT_ID(N'dash.Subscription', N'U') IS NULL
         DayOfWeek   TINYINT         NULL,       -- Weekly: 0 Sunday to 6 Saturday
         DayOfMonth  TINYINT         NULL,       -- Monthly: 1 to 28
         HourLocal   TINYINT         NOT NULL CONSTRAINT DF_DashSubscription_Hour DEFAULT (7),   -- in the reporting time zone
-        RootUpn     NVARCHAR(256)   NULL,       -- a manager's organisation; NULL for the whole organisation
+        RootUpn     NVARCHAR(256)   NULL,       -- a manager's organization; NULL for the whole organization
         Days        INT             NOT NULL CONSTRAINT DF_DashSubscription_Days DEFAULT (30),
         Enabled     BIT             NOT NULL CONSTRAINT DF_DashSubscription_Enabled DEFAULT (1),
         LastSentUtc DATETIME2(0)    NULL,
@@ -182,7 +182,7 @@ IF OBJECT_ID(N'dash.Target', N'U') IS NULL
     CREATE TABLE dash.Target
     (
         TargetId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashTarget PRIMARY KEY,
-        RootUpn     NVARCHAR(256)   NULL,       -- a manager's organisation; NULL for the whole organisation
+        RootUpn     NVARCHAR(256)   NULL,       -- a manager's organization; NULL for the whole organization
         Metric      VARCHAR(16)     NOT NULL CONSTRAINT CK_DashTarget_Metric CHECK (Metric IN ('Adoption', 'ActivePeople', 'ActiveShare')),
         TargetValue DECIMAL(12, 2)  NOT NULL,   -- a percentage for Adoption and ActiveShare, a count for ActivePeople
         StartDate   DATE            NOT NULL,
@@ -343,7 +343,7 @@ BEGIN
         (N'%Teams%', NULL, NULL, N'Meetings and chats', 20, N'default'),
         (N'Outlook', NULL, NULL, N'Email', 20, N'default'),
         (N'Word', NULL, NULL, N'Writing documents', 20, N'default'),
-        (N'Excel', NULL, NULL, N'Analysing data', 20, N'default'),
+        (N'Excel', NULL, NULL, N'Analyzing data', 20, N'default'),
         (N'PowerPoint', NULL, NULL, N'Presentations', 20, N'default'),
         (N'%Loop%', NULL, NULL, N'Collaborative notes', 20, N'default'),
         (N'%OneNote%', NULL, NULL, N'Collaborative notes', 20, N'default'),
@@ -413,7 +413,7 @@ EXEC (N'CREATE OR ALTER PROCEDURE dash.usp_SetPrivacyMode
 AS
 BEGIN
     SET NOCOUNT ON;
-    IF @Mode NOT IN (N''Off'', N''Pseudonymise'') THROW 50002, N''@Mode is Off or Pseudonymise.'', 1;
+    IF @Mode NOT IN (N''Off'', N''Pseudonymize'') THROW 50002, N''@Mode is Off or Pseudonymize.'', 1;
     IF NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PseudonymSalt'')
         INSERT INTO audit.PipelineSetting (Name, Value, UpdatedBy) VALUES (N''PseudonymSalt'', CONVERT(NVARCHAR(64), CRYPT_GEN_RANDOM(32), 2), @By);
     UPDATE audit.PipelineSetting SET Value = @Mode, UpdatedBy = @By, UpdatedUtc = SYSUTCDATETIME() WHERE Name = N''PrivacyMode'';
@@ -487,7 +487,7 @@ GRANT VIEW DEFINITION ON SYMMETRIC KEY::CopilotInsightsSecretKey TO CopilotInsig
 GRANT CONTROL ON CERTIFICATE::CopilotInsightsSecretCert TO CopilotInsightsApp;
 IF OBJECT_ID(N'audit.SessionAppCategory', N'U') IS NOT NULL
     GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO CopilotInsightsApp;
-/* The pipeline tables Admin > Health, the license reports and the value catalogue read. */
+/* The pipeline tables Admin > Health, the license reports and the value catalog read. */
 DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),
@@ -511,9 +511,9 @@ IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
 
 /*
     Row-level security from the org chart: one row per (viewer, person they may
-    see). A manager sees everyone under them; the top of the organisation, the
+    see). A manager sees everyone under them; the top of the organization, the
     people reporting to them and anyone granted Organization see everyone. The
-    Power BI model in powerbi/ uses it in its Organisation role:
+    Power BI model in powerbi/ uses it in its Organization role:
     Users[UserKey] IN the viewer's rows, by USERPRINCIPALNAME(). Organization
     granted to an AD group counts for its members too (2.4.0): the nightly
     directory load expands the group into audit.GroupMember.
@@ -526,7 +526,7 @@ IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
     CREATE TABLE audit.GroupMember (GroupName NVARCHAR(256) NOT NULL, UserPrincipalName NVARCHAR(256) NOT NULL,
         LoadedUtc DATETIME2(0) NOT NULL CONSTRAINT DF_GroupMember_Loaded DEFAULT (SYSUTCDATETIME()), CONSTRAINT PK_GroupMember PRIMARY KEY (GroupName, UserPrincipalName));
 EXEC (N'CREATE OR ALTER VIEW bi.OrgSecurity AS
-WITH whole AS (   -- everyone who sees the whole organisation: the top two levels, and Organization granted to them or to a group they are in
+WITH whole AS (   -- everyone who sees the whole organization: the top two levels, and Organization granted to them or to a group they are in
     SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
     UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization''
     UNION SELECT gm.UserPrincipalName FROM audit.GroupMember AS gm
@@ -536,14 +536,14 @@ SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey
 FROM dash.OrgClosure AS oc
 JOIN bi.DimUser AS u ON u.UserPrincipalName = oc.DescendantUpn
 WHERE NOT EXISTS (SELECT 1 FROM whole WHERE whole.Upn = oc.AncestorUpn)
-  AND NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'')
+  AND NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'')
 UNION ALL
 SELECT w.Upn, u.UserKey
 FROM whole AS w
 CROSS JOIN bi.DimUser AS u
-WHERE NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'');');
+WHERE NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'');');
 
-/* Readable names for the catalogued codes; Name is NULL until someone names it. */
+/* Readable names for the cataloged codes; Name is NULL until someone names it. */
 EXEC (N'CREATE OR ALTER VIEW bi.ValueNames AS
 SELECT c.TableName, c.ColumnName, c.Label AS ColumnLabel, v.Value,
        COALESCE(n.Name, CASE WHEN c.ColumnId IN (11, 30) THEN sl.Name END) AS Name,

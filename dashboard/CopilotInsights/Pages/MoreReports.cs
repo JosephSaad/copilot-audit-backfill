@@ -11,7 +11,7 @@ namespace CopilotInsights.Pages.Leadership
     {
         public override string Title => "Scorecard";
         public override string Persona => "Leadership";
-        public override string Intro => "This period against the one before it, of the same length: what moved, and in which part of the organisation.";
+        public override string Intro => "This period against the one before it, of the same length: what moved, and in which part of the organization.";
 
         protected override async Task BuildAsync()
         {
@@ -139,9 +139,9 @@ namespace CopilotInsights.Pages.Compliance
 {
     public sealed class UnitsModel(PageServices s, Metrics m) : InsightsPage(s)
     {
-        public override string Title => "Labelled content by unit";
+        public override string Title => "Labeled content by unit";
         public override string Persona => "Compliance";
-        public override string Intro => "Which parts of the organisation have Copilot working with labelled content, and what kind of content it is.";
+        public override string Intro => "Which parts of the organization have Copilot working with labeled content, and what kind of content it is.";
 
         protected override async Task BuildAsync()
         {
@@ -153,9 +153,9 @@ namespace CopilotInsights.Pages.Compliance
                 for (var c = 0; c < buckets.Count; c++)
                 {
                     var p = series.FirstOrDefault(x => x.Unit == units[r].Unit && x.Bucket == buckets[c].Key);
-                    grid[r, c] = p is { Interactions: > 0 } ? p.Labelled / (double)p.Interactions : null;
+                    grid[r, c] = p is { Interactions: > 0 } ? p.Labeled / (double)p.Interactions : null;
                 }
-            Panels.Add(new("Share of interactions touching labelled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labelled share by unit", 1),
+            Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1),
                 $"One level down. Darker is a larger share. {TrendNote}"));
 
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"

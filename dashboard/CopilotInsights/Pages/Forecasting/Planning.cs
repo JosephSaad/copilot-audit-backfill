@@ -35,7 +35,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         ShowDone();
         if (!Viewer.OrgWide && !Viewer.Has(Roles.Licensing))
         {
-            Notice = "The budget is the whole tenant's, so it needs the whole-organisation view or the Licensing role.";
+            Notice = "The budget is the whole tenant's, so it needs the whole-organization view or the Licensing role.";
             return;
         }
         if (!await ops.HasAsync("dash.LicenseContract")) { Notice = "Contracts arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }

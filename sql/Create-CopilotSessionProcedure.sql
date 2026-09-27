@@ -14,7 +14,7 @@
         with @LicenseEventDatabase the flag is the license held at that moment.
         PromptCount is its number of rows. Single-Turn is one prompt.
       * Sessions roll up by the week their LAST prompt falls in. Weeks run
-        Saturday to Friday and are labelled by the Friday; week 1 of a year
+        Saturday to Friday and are labeled by the Friday; week 1 of a year
         ends on its first Friday.
 
     Where the port differs from the script, deliberately:
@@ -316,7 +316,7 @@ BEGIN
         audit.CopilotSession, so a week that straddles @rebuiltFrom counts
         its kept sessions too, and both paths give the same numbers.
 
-        Weeks run Saturday-Friday and are labelled by the Friday; a session
+        Weeks run Saturday-Friday and are labeled by the Friday; a session
         belongs to the week its last prompt falls in, which - a session never
         crossing midnight - is the week of its day. 1900-01-06 was a
         Saturday, so this is right whatever DATEFIRST says.

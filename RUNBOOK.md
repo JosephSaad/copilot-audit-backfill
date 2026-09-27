@@ -5,7 +5,7 @@ Pulls every `CopilotInteraction` record for a date range out of Microsoft Purvie
 ```
 Purview audit searches ──► parallel page downloads ──► bounded queue ──► parallel SqlBulkCopy
  (sized to the record cap,   (adaptive concurrency,                    (heap + TABLOCK,
-  within the daily budget)    honours Retry-After)                      bulk-update locks)
+  within the daily budget)    honors Retry-After)                      bulk-update locks)
                         state for every window: audit.CopilotBackfillWindow
 ```
 
@@ -180,7 +180,7 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
 
 **Check the match on the first run.** Everything joins on the UPN. The load ends by reporting how many users in the audit data it found by UPN, and how many more only by mail. Anything under 90% means AD's UPNs are not the names users sign in to Microsoft 365 with (common when the AD forest is not the one synced to Entra), and their usage will show without a department.
 
-**Schedule it before the incremental load**, daily, so the load's session and `bi` rebuilds pick up today's organisation: first this, then the license tool, then `-Incremental`.
+**Schedule it before the incremental load**, daily, so the load's session and `bi` rebuilds pick up today's organization: first this, then the license tool, then `-Incremental`.
 
 ## 5e. Importing Purview CSV exports
 
@@ -216,13 +216,13 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
 A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `dash` schema. [docs/DASHBOARD.md](docs/DASHBOARD.md) has the pages, the security model and the install; [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) steps 22-24 the order.
 
 - **Refresh:** `dash.usp_RefreshDashboard @SinceUtc` runs last in every `-Incremental` run and CSV import, after `bi.usp_RefreshBi`, from the same day. It rebuilds the org chart (`dash.Person`, `dash.OrgClosure`) from `audit.UserDirectory` in full each time, and the daily rollups (`dash.UserDay`, `dash.ResourceDay`) from that day. `.\tools\Invoke-CopilotMaintenance.ps1 -Task RefreshDashboard` rebuilds everything; so does Admin › Health › Rebuild.
-- **Who sees what:** the person in `dash.Setting` `OrgTopUpn` and their direct reports see the whole organisation, as does anyone granted Organization; everyone else sees themselves and the people under them. Named lists need a persona role. Admin alone shows no data.
+- **Who sees what:** the person in `dash.Setting` `OrgTopUpn` and their direct reports see the whole organization, as does anyone granted Organization; everyone else sees themselves and the people under them. Named lists need a persona role. Admin alone shows no data.
 - **Locked out:** the installer's `-AdminPrincipal` (`Insights:BootstrapAdmins` in `appsettings.Production.json`) are always administrators. Failing that, run the installer again with `-AdminPrincipal`, or `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task GrantRole -Principal 'CORP\Copilot-Insights-Admins' -Role Admin`.
 - **Who looked at what:** `dash.AuditLog`, or Admin › Audit log.
 
 | Symptom | Cause and fix |
 |---|---|
-| Everyone sees only their own use, even executives | No top of the organisation: none is set and no one person has half the directory under them, or the one set is not in the directory (Admin › Health says which). Set it in Admin › Access, or `-Task SetOrgTop -Upn ceo@...`; it applies at once. |
+| Everyone sees only their own use, even executives | No top of the organization: none is set and no one person has half the directory under them, or the one set is not in the directory (Admin › Health says which). Set it in Admin › Access, or `-Task SetOrgTop -Upn ceo@...`; it applies at once. |
 | Someone sees nothing: "not in the directory" | Their sign-in did not resolve to a UPN in `audit.UserDirectory`: another domain, a new starter before tonight's AD export, or an account AD cannot resolve (map it under `Insights:IdentityMap`). |
 | The browser keeps asking for a password | The host name is not in the Local intranet zone, or its SPN is missing or on the wrong account (`setspn -Q HTTP/<host>`). |
 | HTTP 500.19 or 500.30 from IIS | The ASP.NET Core 10 Hosting Bundle is missing, or was installed before IIS: repair it and restart IIS. |
@@ -233,7 +233,7 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | Published limit (Graph throttling docs) | What the engine does |
 |---|---|
 | ~1,000,000 records per search, after which it stops silently and still reports `succeeded` | Sizes each search to ~600K from observed density. Reads the service's `isRecordCountLimitExceeded` and splits any over-cap search **before downloading it**. If that flag is unavailable, it detects a capped result by row count. |
-| ~200 search submissions per rolling 24 h, **tenant-wide** | Caps itself at 150/24 h (`-MaxSubmissionsPer24h`), counted across restarts, which leaves headroom for colleagues. Honours `Retry-After` on any submission 429. |
+| ~200 search submissions per rolling 24 h, **tenant-wide** | Caps itself at 150/24 h (`-MaxSubmissionsPer24h`), counted across restarts, which leaves headroom for colleagues. Honors `Retry-After` on any submission 429. |
 | ~50 queued/running searches tenant-wide; 10 per user in the portal | 8 in flight (`-MaxQueriesInFlight`). |
 | Page throttling, rate not published | Starts at 4 streams, adds one after each run of clean pages, halves on a 429, and pauses every stream for `Retry-After`. |
 

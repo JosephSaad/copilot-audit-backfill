@@ -7,7 +7,7 @@ namespace CopilotInsights.Charts;
 
 public enum Fmt { Count, Percent, Decimal1, Days }
 
-/// <summary>One series. Slot is the categorical colour (1-8, fixed per entity, never by rank).</summary>
+/// <summary>One series. Slot is the categorical color (1-8, fixed per entity, never by rank).</summary>
 public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot);
 
 public sealed record Bar(string Label, double? Value, string? Href = null, string? Note = null, int Slot = 1);
@@ -32,10 +32,10 @@ public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
 }
 
 /// <summary>
-/// Server-rendered SVG charts. Colours come from CSS variables (--s1..--s8,
+/// Server-rendered SVG charts. Colors come from CSS variables (--s1..--s8,
 /// --q0..--q8), so light and dark themes swap in site.css. Every mark carries
-/// data-tip, which site.js shows as a tooltip; text uses the ink colours,
-/// never a series colour.
+/// data-tip, which site.js shows as a tooltip; text uses the ink colors,
+/// never a series color.
 /// </summary>
 public static class Chart
 {

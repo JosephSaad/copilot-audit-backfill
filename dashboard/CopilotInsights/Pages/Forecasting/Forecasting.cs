@@ -115,9 +115,9 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
     }
 }
 
-public sealed class OptimiseModel(PageServices s) : InsightsPage(s)
+public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "License optimisation";
+    public override string Title => "License optimization";
     public override string Persona => "Forecasting";
     public override string Intro => "What to do with Copilot licenses: reclaim, reassign, coach or buy, with what each is worth. Based on the last 30 days and the 13-week forecast.";
     public override bool UsesFilters => true;

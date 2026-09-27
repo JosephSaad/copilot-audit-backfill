@@ -76,8 +76,8 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'UserType') IS NULL
 
 /*
     2.4.0: members of the AD groups granted Organization in the dashboard (dash.RoleGrant), expanded
-    by the directory load, nested groups included. bi.OrgSecurity gives them the whole organisation,
-    so Power BI honours a group grant the way the dashboard does at sign-in. Replaced whole each load.
+    by the directory load, nested groups included. bi.OrgSecurity gives them the whole organization,
+    so Power BI honors a group grant the way the dashboard does at sign-in. Replaced whole each load.
 */
 IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
     CREATE TABLE audit.GroupMember
@@ -179,7 +179,7 @@ IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
                    WHERE object_id = OBJECT_ID(N'audit.UserDirectory') AND name = N'IX_UserDirectory_Mail')
     EXEC (N'CREATE INDEX IX_UserDirectory_Mail ON audit.UserDirectory (Mail);');
 
-/* The account's SID (objectSid, S-1-5-21-...): the dashboard recognises a
+/* The account's SID (objectSid, S-1-5-21-...): the dashboard recognizes a
    Windows sign-in by it, with no directory lookup at sign-in - so it works
    when the web servers are in another domain from the users. */
 IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'Sid') IS NULL

@@ -6,7 +6,7 @@
 //   planner ──(succeeded queries)──► N download streams ──(row batches)──► M SqlBulkCopy writers
 //      │                                   │                                      │
 //      └─ submits audit searches ahead,    └─ adaptive concurrency (AIMD),        └─ parallel bulk load
-//         sized to stay under the            Retry-After honoured, global            into a heap (TABLOCK /
+//         sized to stay under the            Retry-After honored, global            into a heap (TABLOCK /
 //         per-query record cap and the       pause on 429                            BU locks)
 //         daily submission budget
 //
@@ -535,7 +535,7 @@ namespace CopilotAudit
             {
                 _clean = 0;
                 _consecutiveThrottles++;
-                // Honour Retry-After as Microsoft asks; escalate gently only if 429s
+                // Honor Retry-After as Microsoft asks; escalate gently only if 429s
                 // keep coming. Without the header, exponential backoff.
                 pause = retryAfter.HasValue
                     ? retryAfter.Value + TimeSpan.FromSeconds(Math.Min(60, 5 * (_consecutiveThrottles - 1)))

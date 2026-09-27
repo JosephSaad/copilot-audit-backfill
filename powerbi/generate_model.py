@@ -299,7 +299,7 @@ TABLES = {
         view="UseCases",
         cols=[("UseCaseKey", "int64", dict(hidden=True)), ("App", "string", dict(hidden=True)),
               ("WebGrounded", "boolean", dict(hidden=True)), ("WithAgent", "boolean", dict(hidden=True)),
-              ("UseCase", "string", dict(desc="Email, Meetings and chats, Writing documents, Analysing data, Research on the web..."))]),
+              ("UseCase", "string", dict(desc="Email, Meetings and chats, Writing documents, Analyzing data, Research on the web..."))]),
     "JobFamilies": dict(
         desc="Each person's job family, from their job title and the rules in the dashboard's Admin > Classifications and events.",
         view="JobFamilies",
@@ -310,7 +310,7 @@ TABLES = {
         cols=[("Day", "dateTime", dict(fmt="yyyy-mm-dd")), ("DateKey", "int64", dict(hidden=True)),
               ("Label", "string", {}), ("Kind", "string", {})]),
     "OrgSecurity": dict(
-        desc="Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organisation role.",
+        desc="Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organization role.",
         view="OrgSecurity", hidden=True,
         cols=[("ViewerUpn", "string", dict(hidden=True)), ("UserKey", "int64", dict(hidden=True))]),
     "LicenseStatuses": dict(
@@ -449,7 +449,7 @@ def main():
              + ",".join(f'"{n}"' for n in TABLES) + "]\n\n",
              "annotation PBI_ProTooling = [\"DevMode\"]\n\n"]
     model += [f"ref table {n}\n" for n in TABLES]
-    model += ["\nref role Organisation\n"]
+    model += ["\nref role Organization\n"]
     write(os.path.join(d, "model.tmdl"), "".join(model))
 
     def param(name, value, typ, text):
@@ -475,10 +475,10 @@ def main():
         write(os.path.join(d, "tables", f"{n}.tmdl"), table_tmdl(n, t))
 
     # Row-level security from the org chart: a viewer sees the people at or under them (bi.OrgSecurity).
-    write(os.path.join(d, "roles", "Organisation.tmdl"),
+    write(os.path.join(d, "roles", "Organization.tmdl"),
           desc("Each viewer sees the people at or under them in the org chart, as the dashboard does.\n"
                "Add the report's viewers (or an Entra group) to this role in the Power BI service.", "") +
-          "role Organisation\n\tmodelPermission: read\n\n"
+          "role Organization\n\tmodelPermission: read\n\n"
           "\ttablePermission Users = Users[UserKey] IN CALCULATETABLE ( VALUES ( OrgSecurity[UserKey] ), OrgSecurity[ViewerUpn] = USERPRINCIPALNAME () )\n")
 
     # Report: one blank page, PBIR format.
@@ -503,7 +503,7 @@ def main():
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.0.0/schema.json",
         "name": "overview", "displayName": "Overview", "displayOption": "FitToPage",
         "height": 720, "width": 1280}, indent=2) + "\n")
-    # The dashboard's categorical colours, so charts look the same in both.
+    # The dashboard's categorical colors, so charts look the same in both.
     write(os.path.join(rp, "StaticResources", "RegisteredResources", "CopilotInsights.json"), json.dumps({
         "name": "Copilot Insights",
         "dataColors": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],

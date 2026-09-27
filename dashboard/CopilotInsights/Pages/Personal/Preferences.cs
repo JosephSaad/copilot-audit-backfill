@@ -28,7 +28,7 @@ public sealed class EmailModel(PageServices s, OpsData ops) : InsightsPage(s)
         if (personalOn)
             body += $"<label><input type=\"checkbox\" name=\"personal\" value=\"1\"{(pref.PersonalDigest ? " checked" : "")}/> Send me a weekly email about my own use of Copilot</label>";
         if (managerMode != "Off" && Viewer.PeopleBelow >= min)
-            body += $"<label><input type=\"checkbox\" name=\"manager\" value=\"1\"{(pref.ManagerDigestOptOut ? "" : " checked")}/> Send me the {managerMode.ToLowerInvariant()} digest for my organisation ({Viewer.PeopleBelow:#,0} people)</label>";
+            body += $"<label><input type=\"checkbox\" name=\"manager\" value=\"1\"{(pref.ManagerDigestOptOut ? "" : " checked")}/> Send me the {managerMode.ToLowerInvariant()} digest for my organization ({Viewer.PeopleBelow:#,0} people)</label>";
         if (body == "") { Notice = "There is nothing to choose: the administrators have not turned on the personal or manager emails."; return; }
         Panels.Add(new("Your email", new HtmlString(Form("save", body + Button("Save"))),
             $"Sent to {mail}. The weekly emails go out on the day and hour set by the administrators.", "half"));
@@ -53,7 +53,7 @@ public sealed class ViewsModel(PageServices s, OpsData ops) : InsightsPage(s)
     public override string Title => "Saved views";
     public override string Persona => "My Copilot";
     public override bool UsesFilters => false;
-    public override string Intro => "The pages you saved with Save view, with their period, part of the organisation and filters. Make one your start page to open it when you come to the dashboard.";
+    public override string Intro => "The pages you saved with Save view, with their period, part of the organization and filters. Make one your start page to open it when you come to the dashboard.";
 
     string Owner => Viewer.Upn ?? Viewer.WindowsName;
 
@@ -71,7 +71,7 @@ public sealed class ViewsModel(PageServices s, OpsData ops) : InsightsPage(s)
         if (!await ops.HasAsync("dash.SavedView")) { Notice = "Saved views arrive with 2.3.0's operations schema."; return; }
         var views = await Db.QueryAsync<(int ViewId, string Name, string Url, bool IsStart, DateTime CreatedUtc)>(
             "SELECT ViewId, Name, Url, IsStart, CreatedUtc FROM dash.SavedView WHERE Owner = @o ORDER BY IsStart DESC, Name;", new { o = Owner });
-        var t = new Table { Headers = ["View", "Page", "Saved", "Start page", ""], EmptyText = "No saved views yet. Open a report, set its period and part of the organisation, and use Save view at the top." };
+        var t = new Table { Headers = ["View", "Page", "Saved", "Start page", ""], EmptyText = "No saved views yet. Open a report, set its period and part of the organization, and use Save view at the top." };
         foreach (var v in views)
         {
             var page = Nav.Groups.SelectMany(g => g.Pages).FirstOrDefault(p => p.Path.Equals(v.Url.Split('?')[0].TrimEnd('/'), StringComparison.OrdinalIgnoreCase));

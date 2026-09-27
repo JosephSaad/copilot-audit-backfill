@@ -5,7 +5,7 @@ Pulls every `CopilotInteraction` audit record for a date range out of Microsoft 
 ```
 Purview audit searches ──► parallel page downloads ──► bounded queue ──► parallel SqlBulkCopy
  (sized to the record cap,   (adaptive concurrency,                    (heap + TABLOCK,
-  within the daily budget)    honours Retry-After)                      bulk-update locks)
+  within the daily budget)    honors Retry-After)                      bulk-update locks)
                         state for every window: audit.CopilotBackfillWindow
 ```
 
@@ -178,7 +178,7 @@ Note that audit records do not contain prompt or response text. That needs the C
 
 ## Adoption reporting
 
-The audit records say what happened, not who was entitled to it or where they sit in the organisation. Two tools fill that in, each from the one place that knows it:
+The audit records say what happened, not who was entitled to it or where they sit in the organization. Two tools fill that in, each from the one place that knows it:
 
 **Who holds a Copilot license - from Microsoft Graph.**
 
@@ -237,7 +237,7 @@ From then on each `-Incremental` run refreshes it after the other derived tables
 - **Left out on purpose:** RecordId, ThreadId, ConversationId, app context, whole resource URLs and the JSON. Each is close to one value per row and would cost more memory than the rest of the model together. Resources are in the model by type and site (`bi.AccessedResources`, `bi.Sites`); the rest stays in `audit.RawLogFlattened` and `audit.RawLogAccessedResource` for a DirectQuery drill-through table if you need one.
 - **Keys are stable** across refreshes and rebuilds, so partitions refreshed on different days stay consistent.
 
-**A ready-made model** ships in `powerbi/CopilotInsights` (2.3.0): a Power BI project over every view here and the dashboard's, with the relationships, measures (adoption, Premium use, rankings by general, free and Premium use, sessions, licenses, agents), descriptions and an *Organisation* row-level-security role from the org chart. It has been opened and refreshed in Power BI Desktop against the demo database, where its figures matched the dashboard's. [DEPLOYMENT.md, step 15](docs/DEPLOYMENT.md#step-15-open-the-ready-made-model) sets it up. Some of its measures:
+**A ready-made model** ships in `powerbi/CopilotInsights` (2.3.0): a Power BI project over every view here and the dashboard's, with the relationships, measures (adoption, Premium use, rankings by general, free and Premium use, sessions, licenses, agents), descriptions and an *Organization* row-level-security role from the org chart. It has been opened and refreshed in Power BI Desktop against the demo database, where its figures matched the dashboard's. [DEPLOYMENT.md, step 15](docs/DEPLOYMENT.md#step-15-open-the-ready-made-model) sets it up. Some of its measures:
 
 ```dax
 Interactions = COUNTROWS ( Interactions )
@@ -262,7 +262,7 @@ Premium share = DIVIDE ( CALCULATE ( [Interactions], Interactions[PremiumUse] = 
 
 A web dashboard over the same database, for people who will never open Power BI: an ASP.NET Core 10 site in IIS on Windows Server 2022+, with Windows sign-in. It works with the web servers in one domain and the users in another.
 
-- **Who sees what.** The top of the organisation and their direct reports see everything, as does anyone granted *Organization*; every other manager sees the people under them, at any depth; everyone else sees their own use. The scope comes from the AD manager chain and is enforced on every query.
+- **Who sees what.** The top of the organization and their direct reports see everything, as does anyone granted *Organization*; every other manager sees the people under them, at any depth; everyone else sees their own use. The scope comes from the AD manager chain and is enforced on every query.
 - **Pages by persona:** My Copilot (every employee's own use, their email choices and saved views), Leadership (including use cases and a printable board pack), Adoption (including a department leaderboard), Licensing (including the license pool, chargeback and a ranking by general, free and Premium use), Security (with triage of flagged interactions, and guests), Compliance (with one person's record for data-subject requests), Agents (with Copilot Studio build and publish activity), Enablement, Governance, Forecasting (with budget and renewal, rollout waves and license action outcomes), Regions, People (with job families) and App owners. Forecasting turns forecasts into priced recommendations: upgrade proven Copilot Chat users, train light users and revoke licenses whose Premium features go unused. Lists of named people need that persona's role, and stay inside the viewer's scope.
 - **Periods** of 7, 14, 30, 90, 180 or 365 days; every list paged in SQL (50 rows, search, sort) and exportable to CSV; groups under five people folded together; every chart label shown whole.
 - **Read-only towards Microsoft 365:** it changes nothing there; what it writes (its own tables, email, a webhook, extract files, downloads) is listed in [DASHBOARD.md](docs/DASHBOARD.md).

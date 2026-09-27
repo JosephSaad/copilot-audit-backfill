@@ -27,13 +27,13 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants)
 
     /// <summary>
     /// Privacy mode (Admin > Privacy and retention): no page, export, email or API call names
-    /// anyone but the viewer themselves, and bi.Users is pseudonymised for Power BI.
+    /// anyone but the viewer themselves, and bi.Users is pseudonymized for Power BI.
     /// </summary>
     public async Task<bool> PrivacyModeAsync() =>
         await cache.GetOrCreateAsync(tenants.Key("privacy-mode"), async e =>
         {
             e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
-            try { return await db.ScalarAsync<string?>("SELECT Value FROM audit.PipelineSetting WHERE Name = N'PrivacyMode'") == "Pseudonymise"; }
+            try { return await db.ScalarAsync<string?>("SELECT Value FROM audit.PipelineSetting WHERE Name = N'PrivacyMode'") == "Pseudonymize"; }
             catch (Microsoft.Data.SqlClient.SqlException) { return false; }
         });
 }
@@ -58,7 +58,7 @@ public sealed class ReportContext
     public required int Days { get; init; }
     public required DateTime Start { get; init; }
     public required DateTime End { get; init; }     // the last complete day with data
-    /// <summary>The subtree shown; null = the whole organisation (allowed only for whole-organisation viewers).</summary>
+    /// <summary>The subtree shown; null = the whole organization (allowed only for whole-organization viewers).</summary>
     public string? Root { get; init; }
     public string? RootName { get; init; }
     public required int MinGroupSize { get; init; }
@@ -74,7 +74,7 @@ public sealed class ReportContext
     public static int Key(DateTime d) => d.Year * 10000 + d.Month * 100 + d.Day;
     public static DateTime WeekEnding(DateTime d) => d.Date.AddDays(((int)DayOfWeek.Friday - (int)d.DayOfWeek + 7) % 7);
 
-    /// <summary>The trend's points, oldest first. Weekly points are labelled by the Friday ending them.</summary>
+    /// <summary>The trend's points, oldest first. Weekly points are labeled by the Friday ending them.</summary>
     public IReadOnlyList<Bucket> Buckets()
     {
         if (Daily)
@@ -88,7 +88,7 @@ public sealed class ReportContext
     /// <summary>SQL for a trend point from a bi.DimDate alias: the date, or its week ending.</summary>
     public string BucketSql(string dimDateAlias) => Daily ? $"{dimDateAlias}.[Date]" : $"{dimDateAlias}.WeekEnding";
 
-    /// <summary>A join restricting a fact to the scope, on the given UserKey expression; empty for the whole organisation.</summary>
+    /// <summary>A join restricting a fact to the scope, on the given UserKey expression; empty for the whole organization.</summary>
     public string Scope(string userKeyExpr) =>
         Root is null ? "" : $"JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = {userKeyExpr}";
 
@@ -108,7 +108,7 @@ public sealed class ReportContext
         return d;
     }
 
-    public string ScopeLabel => Root is null ? "Whole organisation" : $"{RootName ?? Root} and their organisation";
+    public string ScopeLabel => Root is null ? "Whole organization" : $"{RootName ?? Root} and their organization";
     public string PeriodLabel => $"{Start:d MMM yyyy} to {End:d MMM yyyy}";
 
     public string Url(string path, int? days = null, string? org = null, bool keepOrg = true, string? extra = null)
@@ -145,7 +145,7 @@ SELECT COALESCE(
         var end = endKey is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : DateTime.Today.AddDays(-1);
         var start = end.AddDays(-(days - 1));
 
-        /* Whose data: whole organisation, or a subtree the viewer may see. */
+        /* Whose data: whole organization, or a subtree the viewer may see. */
         string? root;
         if (viewer.OrgWide)
             root = string.IsNullOrWhiteSpace(requested) ? null : requested;

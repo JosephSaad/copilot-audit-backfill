@@ -1,6 +1,6 @@
 # Copilot Insights dashboard
 
-A web dashboard over the Copilot audit data. Everyone signs in with their Windows account and sees the part of the organisation they are entitled to. Executives and anyone granted it see everything; a manager sees their own people; everyone else sees their own use. Pages are grouped by persona. A web-based admin module holds every setting: access, email, alerts, digests and the webhook, targets and assumptions, privacy and retention, reference data and value names, classifications and events, scheduled extracts, training records, directory quality, health and the audit log. One dashboard can span several Microsoft 365 tenants.
+A web dashboard over the Copilot audit data. Everyone signs in with their Windows account and sees the part of the organization they are entitled to. Executives and anyone granted it see everything; a manager sees their own people; everyone else sees their own use. Pages are grouped by persona. A web-based admin module holds every setting: access, email, alerts, digests and the webhook, targets and assumptions, privacy and retention, reference data and value names, classifications and events, scheduled extracts, training records, directory quality, health and the audit log. One dashboard can span several Microsoft 365 tenants.
 
 It is an ASP.NET Core 10 (Razor Pages) site hosted in IIS on Windows Server 2022 or later. It reads the Copilot database the pipeline already fills: the `bi` star schema, plus its own `dash` schema of settings, roles, the org chart and daily rollups. It has no other data store.
 
@@ -44,12 +44,12 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 
 | Persona | Page | What it answers | Grain | Named people |
 |---|---|---|---|---|
-| My Copilot | My use | Your own use: days and interactions against the organisation's median, conversations, apps, agents, the hours you use it, and ideas drawn from your own patterns | You | Only you |
+| My Copilot | My use | Your own use: days and interactions against the organization's median, conversations, apps, agents, the hours you use it, and ideas drawn from your own patterns | You | Only you |
 | | Email | Ask for a weekly email of your own use; managers can stop their team digest | You | Only you |
 | | Saved views | The pages you saved with their period, scope and filters; one can be your start page | You | Only you |
 | Leadership | Overview | People using Copilot, licensed, adoption, active in the last 7 days; trends; adoption by the next level down | Scope, then one level down | No |
 | | Scorecard | This period against the one before it: people, adoption, licenses, interactions and multi-turn sessions, and each unit one level down with its change | Scope, one level down | No |
-| | Organisation | Each unit one level down side by side: people, licensed, active, adoption, days active, interactions, multi-turn share, a trend line; heatmap of share active per week | One level down | No |
+| | Organization | Each unit one level down side by side: people, licensed, active, adoption, days active, interactions, multi-turn share, a trend line; heatmap of share active per week | One level down | No |
 | | Apps and agents | Interactions by app over time, Copilot Chat and agent share, most-used agents | Scope | No |
 | | Value and time saved | Estimated hours saved (interactions times the minutes each app saves) and their worth, by app and department, against the license cost | Scope, app, department | No |
 | | Use cases | What Copilot is used for (email, meetings, writing, analysis, research, agents...) from the app, web search and agent, by the rules in Admin › Classifications and events; over time and by department | Scope, department | No |
@@ -69,17 +69,17 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 | | Use ranking | Everyone ranked three ways: all use, free use (web Copilot Chat, agents) and Premium use; their Premium share and license | Person | **Licensing** |
 | | Demand | Unlicensed Copilot Chat users over time and by department; the license type each record reports; the list of them | Department; person | List: **Licensing** |
 | | License changes | Licenses assigned and removed: how long each was held, whether it was taken from someone still using it, whether it came back, by department; who made the changes | Scope, department | Who made them: **Licensing** |
-| | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No (whole-organisation viewers or **Licensing**) |
+| | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No (whole-organization viewers or **Licensing**) |
 | | Chargeback | The monthly cost of the licenses each department (or division, company, country, office) holds, its unused share, and the cost per person using Copilot | Attribute | No |
 | | Licenses on disabled accounts | Licenses held today by accounts disabled in AD or Entra, or gone from the directory; with the files to reclaim them | Person | **Licensing** |
 | Security | Signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit | Scope, unit | No |
 | | Signals by unit | Signals per 1,000 interactions for each unit one level down, over time | Unit | No |
-| | Guests and external users | Copilot use by guest accounts, by home organisation: people, interactions, licenses held here, signals; the named list for the Security role | Home organisation; person | List: **Security** |
+| | Guests and external users | Copilot use by guest accounts, by home organization: people, interactions, licenses held here, signals; the named list for the Security role | Home organization; person | List: **Security** |
 | | Flagged interactions | Each flagged interaction: when, who, app, agent, the signal and the Purview record id, with its triage (new, investigating, closed, false positive), owner and note | Interaction | **Security** |
-| Compliance | Sensitive content | Interactions with labelled content by label and over time; the sites that content lives on; sites Copilot was blocked from; everything it read, by type. Personal OneDrive sites are grouped | Scope, label, site, type | No |
-| | Labelled content by unit | The share of each unit's interactions that touched labelled content, over time; resources read by type and label | Unit, type, label | No |
-| | Oversharing hotspots | The sites Copilot read from, by how many people reached them through it, with how much of what it read was labelled and its most sensitive label | Site | No (people counts under the minimum group size hidden) |
-| | Resource access | Who worked with labelled content, how often, their most sensitive label, how many sites, how often blocked; filter by label | Person | **Compliance** |
+| Compliance | Sensitive content | Interactions with labeled content by label and over time; the sites that content lives on; sites Copilot was blocked from; everything it read, by type. Personal OneDrive sites are grouped | Scope, label, site, type | No |
+| | Labeled content by unit | The share of each unit's interactions that touched labeled content, over time; resources read by type and label | Unit, type, label | No |
+| | Oversharing hotspots | The sites Copilot read from, by how many people reached them through it, with how much of what it read was labeled and its most sensitive label | Site | No (people counts under the minimum group size hidden) |
+| | Resource access | Who worked with labeled content, how often, their most sensitive label, how many sites, how often blocked; filter by label | Person | **Compliance** |
 | | Person record | One person's directory and license record and every interaction in the period with its record id, downloadable, for a data-subject request or an investigation. Open in privacy mode | Person | **Compliance** |
 | Agents | Agents | Every agent used: people, how many came back, interactions, first use, a trend line; the top six over time | Agent | No |
 | | Inventory | Every agent seen: where it was built, first and last use, people and interactions in the period, owner and friendly name | Agent | No |
@@ -91,45 +91,45 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 | | Training effect | For each training session: attendees' active days in the 28 days before and after, against colleagues in the same departments | Session | No (sessions under the minimum group size hidden) |
 | | Champions | The most regular and broadest users in each department, as champion candidates | Person | **Enablement** |
 | | People | Named people in a segment: champions to recruit, one-off users to train | Person | **Enablement** |
-| Governance | Models and grounding | Model mix over time, web grounding, Copilot Chat against in-app, memory updates, calls to another agent, deferred DLP checks, distinct agents in use, agents known by source | Scope; organisation-wide for agents known | No |
+| Governance | Models and grounding | Model mix over time, web grounding, Copilot Chat against in-app, memory updates, calls to another agent, deferred DLP checks, distinct agents in use, agents known by source | Scope; organization-wide for agents known | No |
 | | Controls | Memory updates, deferred data-loss checks and web grounding over time; web grounding by unit | Scope, unit | No |
 | Forecasting | Forecast | Licenses held, licensed people using them, Copilot Chat demand, interactions and adoption, 13, 26 or 52 weeks ahead, with 95% intervals | Scope, weekly | No |
-| | License optimisation | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right license count for the next quarter; the same by department | Scope, department | No |
-| | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No (whole-organisation viewers or **Licensing**) |
+| | License optimization | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right license count for the next quarter; the same by department | Scope, department | No |
+| | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No (whole-organization viewers or **Licensing**) |
 | | Upgrade, train or revoke | The named people behind each recommendation, with the evidence: days and days with Premium use in the last 30, interactions, last use, license age, the license their records report; for upgrades and revokes, an Entra bulk-members file and a PowerShell script to apply them | Person | **Licensing** |
 | | Rollout waves | Everyone without a license in the order to license them, split into waves, each with its own file and script | Person | **Licensing** |
 | | License action outcomes | Every license export, whether it has been applied, licenses reclaimed and new licenses in use; who is still waiting | Export; person | **Licensing** |
 | Regions | Countries and offices | Adoption by country, city and office; people using Copilot by country over time | Country, office | No |
 | | Working patterns | Interactions by weekday and hour; the share outside working hours; each app's shape through the day | Scope | No |
-| People | Workforce | Adoption by employee type, managers and individual contributors, level in the organisation and job title | Attribute | No |
+| People | Workforce | Adoption by employee type, managers and individual contributors, level in the organization and job title | Attribute | No |
 | | Managers and their teams | Team adoption where the manager uses Copilot against where they do not; teams by adoption band | Team | No |
 | | Job families | Adoption and use by job family, from the job-title rules in Admin › Classifications and events | Family | No |
 | App owners | Apps | Each app's reach, return visits, prompts per person and resources read, with a trend line | App | No |
 | | App detail | One app: people over time, what Copilot read in it, departments, agents | App | No |
 | Admin | Health, Access, Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Scheduled extracts, Training records, Audit log | See [Running it](#running-it), the sections below and [OPERATIONS.md](OPERATIONS.md) | | **Admin** |
 
-An L2 manager, who reports directly to the CEO, sees the whole organisation. The Leadership pages are theirs, and every other aggregate page is open to them too. Whole-organisation access doesn't include named lists: those still need the role.
+An L2 manager, who reports directly to the CEO, sees the whole organization. The Leadership pages are theirs, and every other aggregate page is open to them too. Whole-organization access doesn't include named lists: those still need the role.
 
 ## Who sees what
 
-**Scope.** Every query is restricted to one part of the organisation before anything is counted:
+**Scope.** Every query is restricted to one part of the organization before anything is counted:
 
-- **The whole organisation** for the person set as its top (`OrgTopUpn`, usually the CEO), everyone who reports directly to them, and anyone granted the **Organization** role, wherever they sit.
+- **The whole organization** for the person set as its top (`OrgTopUpn`, usually the CEO), everyone who reports directly to them, and anyone granted the **Organization** role, wherever they sit.
 - **Themselves and everyone under them, at any depth,** for everyone else, from the manager chain in Active Directory (`audit.UserDirectory`). Someone with nobody under them sees their own use.
 - **Nothing** for someone who is not in the directory, unless granted Organization.
 
 A viewer can look inside any part of their own scope, one level at a time. The breadcrumb and the "Look inside a team" list offer only what they may open. Each request's `org` value is checked against the org chart on the server, so editing the URL can't widen a scope.
 
-**Roles** are granted in Admin › Access to a person (UPN or `DOMAIN\user`) or an AD group (`DOMAIN\Group`). Group membership is read from the Windows sign-in, so a group grant follows AD with no database change. Power BI has no Windows sign-in to read, so for its *Organisation* role the nightly directory load writes the members of every group granted Organization to `audit.GroupMember`: a change to such a group reaches Power BI the next morning.
+**Roles** are granted in Admin › Access to a person (UPN or `DOMAIN\user`) or an AD group (`DOMAIN\Group`). Group membership is read from the Windows sign-in, so a group grant follows AD with no database change. Power BI has no Windows sign-in to read, so for its *Organization* role the nightly directory load writes the members of every group granted Organization to `audit.GroupMember`: a change to such a group reaches Power BI the next morning.
 
 | Role | Gives |
 |---|---|
 | Admin | The admin module. **No usage data by itself.** |
-| Organization | The whole organisation's aggregates, at any level |
+| Organization | The whole organization's aggregates, at any level |
 | Adoption | Named people who were licensed but have not started |
 | Licensing | Named unused licenses, unlicensed Copilot Chat users, the use ranking, rollout waves and license action outcomes |
 | Security | Named flagged interactions and their triage; named guests |
-| Compliance | Named people who worked with labelled content; personal OneDrive site names; one person's record |
+| Compliance | Named people who worked with labeled content; personal OneDrive site names; one person's record |
 | Agents | Named users of an agent |
 | Enablement | Named people by engagement segment |
 
@@ -143,7 +143,7 @@ A viewer can look inside any part of their own scope, one level at a time. The b
 
 ## Periods
 
-Every report has the same choice: the last **7, 14, 30, 90, 180 or 365 days**, ending on the last complete day with data. The default is 30, which admins can change. Periods of 30 days or less trend by day. Longer ones trend by Saturday-to-Friday week, labelled by the Friday, and the first and last week may be partial.
+Every report has the same choice: the last **7, 14, 30, 90, 180 or 365 days**, ending on the last complete day with data. The default is 30, which admins can change. Periods of 30 days or less trend by day. Longer ones trend by Saturday-to-Friday week, labeled by the Friday, and the first and last week may be partial.
 
 A few views set their own window, and each one says so on the page:
 
@@ -164,7 +164,7 @@ The Chat-over-work-content part is an approximation from the audit record: an in
 
 ## Saved views, events and hover text
 
-**Save view**, under the filters of every report, keeps the page with its period, part of the organisation and filters under a name, in My Copilot › Saved views. One can be the start page: opening the dashboard goes straight to it (*Start* in the navigation always goes to the usual page). A saved view can only point at a report page of this site.
+**Save view**, under the filters of every report, keeps the page with its period, part of the organization and filters under a name, in My Copilot › Saved views. One can be the start page: opening the dashboard goes straight to it (*Start* in the navigation always goes to the usual page). A saved view can only point at a report page of this site.
 
 **Events** (Admin › Classifications and events) show on every trend as a dashed line with their name: a rollout wave, a training push, an outage, a policy change. Hover for the day and every event on it.
 
@@ -230,9 +230,9 @@ Passwords and client secrets are stored in `dash.Secret`, encrypted by SQL Serve
 
 An alert fires once per occurrence (`dash.AlertState` remembers what it last saw). The very first check notes where things stand rather than announcing every existing agent and leaver. **Run the checks now** runs a round at once and says what it did.
 
-**Digests** are scheduled emails: *Leadership*, *Adoption*, *Licensing*, *Security* or *Value*, daily, weekly or monthly at an hour in the reporting time zone, for the whole organisation or one manager's, over a period of 7 to 365 days. They carry aggregates only, never a named person, so they can go to anyone the scope suits. **Preview** shows one as it would arrive; **Send now** sends one today.
+**Digests** are scheduled emails: *Leadership*, *Adoption*, *Licensing*, *Security* or *Value*, daily, weekly or monthly at an hour in the reporting time zone, for the whole organization or one manager's, over a period of 7 to 365 days. They carry aggregates only, never a named person, so they can go to anyone the scope suits. **Preview** shows one as it would arrive; **Send now** sends one today.
 
-**Manager digests** go to every manager with at least a set number of people under them, weekly or monthly: the Leadership digest for their own organisation, to the email address AD holds for them. Each manager can stop theirs in My Copilot › Email. They are not sent in privacy mode, since a unit is named after its manager.
+**Manager digests** go to every manager with at least a set number of people under them, weekly or monthly: the Leadership digest for their own organization, to the email address AD holds for them. Each manager can stop theirs in My Copilot › Email. They are not sent in privacy mode, since a unit is named after its manager.
 
 **Personal digests** are a weekly email a person asks for in My Copilot › Email: their own days and interactions against the week before, their apps, and one idea. They go only to that person, so privacy mode does not stop them.
 
@@ -244,9 +244,9 @@ A manager or personal digest that fails is tried again an hour later, three time
 
 ## Targets, value, training and champions
 
-**Targets** (Admin › Targets and assumptions): for the whole organisation or one manager's, *Adoption* (licensed people using it, over people licensed), *Share of people active*, or *People active*, from a start date to a due date. Adoption › Targets shows each against its baseline (the 30 days before it started), where it is now (the last 30 days) and where a straight line to the target says it should be: met, on track, behind or missed.
+**Targets** (Admin › Targets and assumptions): for the whole organization or one manager's, *Adoption* (licensed people using it, over people licensed), *Share of people active*, or *People active*, from a start date to a due date. Adoption › Targets shows each against its baseline (the 30 days before it started), where it is now (the last 30 days) and where a straight line to the target says it should be: met, on track, behind or missed.
 
-**Value**: the minutes one interaction saves, by default and per app, and what an hour is worth. They are your organisation's own estimates (from a survey or a pilot); Leadership › Value and time saved, the Value digest and the API follow them.
+**Value**: the minutes one interaction saves, by default and per app, and what an hour is worth. They are your organization's own estimates (from a survey or a pilot); Leadership › Value and time saved, the Value digest and the API follow them.
 
 **Training records** (Admin › Training records): a CSV of UPN, session and date (yyyy-MM-dd) from your learning system. Enablement › Training effect compares attendees' active days in the 28 days before and after each session with colleagues in the same departments who did not attend, four weeks after the session.
 
@@ -260,7 +260,7 @@ A manager or personal digest that fails is tried again an hour later, three time
 
 ## Privacy mode and retention
 
-**Privacy mode** (Admin › Privacy and retention), for organisations that must not report on named people, such as under a works council agreement:
+**Privacy mode** (Admin › Privacy and retention), for organizations that must not report on named people, such as under a works council agreement:
 
 - every page, export, digest and API call that names people is refused, and hidden from the navigation. My Copilot still shows each person their own use, and Compliance › Person record stays open to the Compliance role, for data-subject requests;
 - Power BI's `bi.Users` shows a salted hash (`P-…`) instead of every name, sign-in, manager and org level, the same for the same person everywhere, so counts and org slicing still work;
@@ -271,7 +271,7 @@ A manager or personal digest that fails is tried again an hour later, three time
 
 ## Value names
 
-The audit log records many things as codes: sensitivity label ids, the tenant id, app and agent ids, Fabric capacities, license types, model names. The flatten keeps a catalogue of every distinct value of 23 such columns (`audit.ValueCatalog`); a column that passes 10,000 distinct values stops collecting and is marked capped, since a list that long is not one to name by hand.
+The audit log records many things as codes: sensitivity label ids, the tenant id, app and agent ids, Fabric capacities, license types, model names. The flatten keeps a catalog of every distinct value of 23 such columns (`audit.ValueCatalog`); a column that passes 10,000 distinct values stops collecting and is marked capped, since a list that long is not one to name by hand.
 
 **Admin › Value names** lists the columns and their values, most seen or unnamed first, with a name and a note for each. **Download** writes a column's values and names to a CSV to fill in; **Upload** reads it back (column id, value, name, note; an empty name removes one). Names show on the dashboard's pages where those codes appear (apps, models, resource types, license types, agents called) and in Power BI through `bi.ValueNames`. Label names are shared with Admin › Reference data, where their order is set, and agent names with its agent aliases. The same from PowerShell:
 
@@ -305,7 +305,7 @@ Every call is in the audit log (kind *Api*); refusals answer 403 with the reason
 
 - Windows Server 2022 or later, joined to the users' domain or to a domain that trusts it (see [Servers in one domain, users in another](#servers-in-one-domain-users-in-another)).
 - The ASP.NET Core 10 **Hosting Bundle**, installed beforehand or passed to the installer with `-HostingBundlePath`.
-- The Copilot database with the `bi` schema filled (`Install-CopilotAudit.ps1`, deployment steps 4-11). The installer below adds the dashboard's own `dash` schema to it and builds its rollups when run with `-GrantDatabaseAccess`; nothing needs running by hand. The top of the organisation is found in the org chart (the one person with no manager who has at least half the directory under them); `-OrgTopUpn` or Admin › Access names someone else.
+- The Copilot database with the `bi` schema filled (`Install-CopilotAudit.ps1`, deployment steps 4-11). The installer below adds the dashboard's own `dash` schema to it and builds its rollups when run with `-GrantDatabaseAccess`; nothing needs running by hand. The top of the organization is found in the org chart (the one person with no manager who has at least half the directory under them); `-OrgTopUpn` or Admin › Access names someone else.
 - An account for the app pool. A **group managed service account** is best: it needs no password and can have its own SPN.
 - A certificate for the site's host name, in LocalMachine\My.
 
@@ -371,7 +371,7 @@ If the SPN can't be found, the browser falls back to NTLM. NTLM still works, but
 The site's configuration names its first administrators. The database's grants don't, so there is always a way in:
 
 1. Run the installer with `-AdminPrincipal`, naming an AD group (recommended) or a person as `DOMAIN\user` or a UPN. It writes them to `Insights:BootstrapAdmins` in `appsettings.Production.json`.
-2. A member signs in and opens **Admin › Access**. They set the top of the organisation, then grant roles, including Admin for the people who will run it day to day.
+2. A member signs in and opens **Admin › Access**. They set the top of the organization, then grant roles, including Admin for the people who will run it day to day.
 3. Bootstrap administrators aren't listed in Admin › Access and can't be removed there. To change them, edit the settings file, or run the installer again with a new `-AdminPrincipal`, then recycle the app pool.
 
 If the settings file is lost and nobody holds Admin, run the installer again with `-AdminPrincipal`, or grant it from the job server:
@@ -388,13 +388,13 @@ Admin shows no usage data by itself. An administrator who should also see the re
 
 **Admin › Health.** Each pipeline step's last run and its age, marked fresh, stale or old. It also shows:
 
-- whether the top of the organisation is set and found;
+- whether the top of the organization is set and found;
 - how many people sit under it;
 - how many people in the data are matched to AD;
 - the latest day with data;
 - the last ten dashboard refreshes.
 
-**Admin › Access.** The settings (top of the organisation, minimum group size, default period, unused-after days, and what a license costs a month and in which currency, for the license recommendations), granting and removing roles, and checking one person's effective access. A new top of the organisation takes effect at once.
+**Admin › Access.** The settings (top of the organization, minimum group size, default period, unused-after days, and what a license costs a month and in which currency, for the license recommendations), granting and removing roles, and checking one person's effective access. A new top of the organization takes effect at once.
 
 **Admin › Reference data.** Friendly names and owners for agents, which the audit log names by schema name. Names and sensitivity order for labels, which it records by id only (`Get-Label` lists them). Which apps count as Copilot Chat.
 
@@ -430,10 +430,10 @@ The demo's people have no SID on record, so the mapping is allowed; in a real di
 ## Not yet proven
 
 - **The IIS installer** has only been parsed under Windows PowerShell 5.1. It has not been run on a Windows Server.
-- **The lab's own data**, and anything at the real organisation's size (18,000 people now, 40,000 expected). The demo has 2,317. The rollups are sized per active person per day, and every list is paged in SQL, but the page timings above are the demo's.
+- **The lab's own data**, and anything at the real organization's size (18,000 people now, 40,000 expected). The demo has 2,317. The rollups are sized per active person per day, and every list is paged in SQL, but the page timings above are the demo's.
 - **Kerberos on a host name, with a gMSA,** in a real domain.
 - **Email through Exchange Online.** Sending was tested against a local SMTP server requiring a user name and password on ports 2525 (STARTTLS) and 4465 (implicit TLS), with the certificate check both on and off. Exchange Online's password and OAuth sign-ins follow Microsoft's documentation and have not been tried against a tenant.
 - **The Windows event log source** is created by the IIS installer, which has not run on a server; without it, alerts still go by email and into the notification log.
 - **Webhooks to a real Teams channel or ServiceNow instance.** The payloads were checked against their formats in unit tests; posting was not tried against a live endpoint.
 - **Extracts to a network share** under a gMSA: tested only to a local folder.
-- **Manager digests at the organisation's size.** Each round sends at most 200 and the next round carries on; 2,000 managers take about an hour at the default five-minute interval.
+- **Manager digests at the organization's size.** Each round sends at most 200 and the next round carries on; 2,000 managers take about an hour at the default five-minute interval.

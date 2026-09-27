@@ -86,7 +86,7 @@ FROM dash.UserDay WHERE DateKey BETWEEN @k0 AND @k;", new { k, k0 })).Single();
 SELECT ISNULL(SUM(CASE WHEN rd.DateKey = @k THEN CAST(rd.Interactions AS BIGINT) END), 0), ISNULL(SUM(CASE WHEN rd.DateKey < @k THEN CAST(rd.Interactions AS BIGINT) END), 0) / 28.0
 FROM dash.ResourceDay AS rd JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item AND sl.Rank >= @rank
 WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k;", new { k, k0, rank })).Single();
-            list.Add(new($"Interactions touching content labelled at order {rank} or above", lab.N, lab.Avg, await settings.IntAsync("AlertLabelPerDay", 1)));
+            list.Add(new($"Interactions touching content labeled at order {rank} or above", lab.N, lab.Avg, await settings.IntAsync("AlertLabelPerDay", 1)));
         }
         return (day, list);
     }

@@ -19,7 +19,7 @@ public sealed class TrendRow
     public long Jailbreak { get; set; }
     public long Injection { get; set; }
     public long Blocked { get; set; }
-    public long Labelled { get; set; }
+    public long Labeled { get; set; }
     public int Licensed { get; set; }   // holding a license at the end of the day or week
 }
 
@@ -53,7 +53,7 @@ public sealed class UnitRow
     public long Sessions { get; set; }
     public long MultiTurn { get; set; }
     public long Flags { get; set; }
-    public long Labelled { get; set; }
+    public long Labeled { get; set; }
     public bool Drillable => !Unit.StartsWith('~') && Unit.Contains('@');
 }
 
@@ -80,14 +80,14 @@ sums AS (SELECT Bucket, SUM(CAST(Interactions AS BIGINT)) AS Interactions, SUM(C
                 SUM(CAST(ChatInteractions AS BIGINT)) AS Chat, SUM(CAST(AgentInteractions AS BIGINT)) AS Agent,
                 SUM(CAST(WebGrounded AS BIGINT)) AS Web, SUM(CAST(Jailbreak AS BIGINT)) AS Jailbreak,
                 SUM(CAST(PromptInjection AS BIGINT)) AS Injection, SUM(CAST(BlockedResource AS BIGINT)) AS Blocked,
-                SUM(CAST(LabelledContent AS BIGINT)) AS Labelled
+                SUM(CAST(LabeledContent AS BIGINT)) AS Labeled
          FROM ud GROUP BY Bucket),
 lic AS (SELECT e.Bucket, COUNT(*) AS Licensed FROM ends AS e JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey {c.Scope("ld.UserKey")} GROUP BY e.Bucket)
 SELECT e.Bucket, ISNULL(p.Active, 0) AS Active, ISNULL(p.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(p.ActiveUnlicensed, 0) AS ActiveUnlicensed,
        ISNULL(s.Interactions, 0) AS Interactions, ISNULL(s.Prompts, 0) AS Prompts, ISNULL(s.Sessions, 0) AS Sessions,
        ISNULL(s.MultiTurn, 0) AS MultiTurn, ISNULL(s.Chat, 0) AS Chat, ISNULL(s.Agent, 0) AS Agent, ISNULL(s.Web, 0) AS Web,
        ISNULL(s.Jailbreak, 0) AS Jailbreak, ISNULL(s.Injection, 0) AS Injection, ISNULL(s.Blocked, 0) AS Blocked,
-       ISNULL(s.Labelled, 0) AS Labelled, ISNULL(l.Licensed, 0) AS Licensed
+       ISNULL(s.Labeled, 0) AS Labeled, ISNULL(l.Licensed, 0) AS Licensed
 FROM ends AS e
 LEFT JOIN people AS p ON p.Bucket = e.Bucket
 LEFT JOIN sums AS s ON s.Bucket = e.Bucket
@@ -133,8 +133,8 @@ u AS (SELECT ISNULL(NULLIF(du.Division, N''), N'(no division)') AS Unit, du.Acco
       FROM bi.DimUser AS du {c.Scope("du.UserKey")} WHERE du.DirectoryStatus = N'Found')";
 
     /* The members, materialised as #u before the query that uses them. Joined as a CTE to the
-       per-person rollups, the optimiser re-aggregated dash.UserDay once per person (70,000
-       times at the top of a 70,000-person organisation: 10 to 40 seconds a page); from a
+       per-person rollups, the optimizer re-aggregated dash.UserDay once per person (70,000
+       times at the top of a 70,000-person organization: 10 to 40 seconds a page); from a
        temporary table it aggregates once. The table lasts only for the one batch. */
     static string UnitMembersInto(ReportContext c, bool haveParent) =>
         $@"WITH {UnitMembers(c, haveParent)}
@@ -148,7 +148,7 @@ SELECT u.Unit, u.AccountEnabled, u.UserKey INTO #u FROM u;
 {UnitMembersInto(c, parent is not null)}
 WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
                     SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F,
-                    SUM(ud.LabelledContent) AS LB
+                    SUM(ud.LabeledContent) AS LB
              FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
 SELECT u.Unit,
        {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN N'Reporting directly' ELSE MAX(mp.DisplayName) END")} AS Name,
@@ -159,7 +159,7 @@ SELECT u.Unit,
        COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
        ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
        ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn,
-       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.LB AS BIGINT)), 0) AS Labelled
+       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.LB AS BIGINT)), 0) AS Labeled
 FROM #u AS u
 LEFT JOIN act AS a ON a.UserKey = u.UserKey
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
@@ -183,7 +183,7 @@ WHERE u.AccountEnabled = 1
 GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
     }
 
-    /// <summary>Per unit (as UnitsAsync) and trend point: interactions, safety signals, labelled content, web grounding.</summary>
+    /// <summary>Per unit (as UnitsAsync) and trend point: interactions, safety signals, labeled content, web grounding.</summary>
     public async Task<List<UnitPoint>> UnitSeriesAsync(ReportContext c)
     {
         var parent = c.Root ?? c.OrgTopUpn;
@@ -192,7 +192,7 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
 WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1)
 SELECT u.Unit, b.Bucket, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
        SUM(CAST(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource AS BIGINT)) AS Flags,
-       SUM(CAST(ud.LabelledContent AS BIGINT)) AS Labelled, SUM(CAST(ud.WebGrounded AS BIGINT)) AS Web
+       SUM(CAST(ud.LabeledContent AS BIGINT)) AS Labeled, SUM(CAST(ud.WebGrounded AS BIGINT)) AS Web
 FROM #u AS u JOIN dash.UserDay AS ud ON ud.UserKey = u.UserKey
 JOIN b ON b.DateKey = ud.DateKey
 GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
@@ -203,7 +203,7 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
         Unit = "~small", Name = name, People = rows.Sum(r => r.People), Licensed = rows.Sum(r => r.Licensed),
         Active = rows.Sum(r => r.Active), ActiveLicensed = rows.Sum(r => r.ActiveLicensed), Interactions = rows.Sum(r => r.Interactions),
         ActiveDays = rows.Sum(r => r.ActiveDays), Sessions = rows.Sum(r => r.Sessions), MultiTurn = rows.Sum(r => r.MultiTurn),
-        Flags = rows.Sum(r => r.Flags), Labelled = rows.Sum(r => r.Labelled),
+        Flags = rows.Sum(r => r.Flags), Labeled = rows.Sum(r => r.Labeled),
     };
     /// <summary>
     /// People, licenses and use in the period, grouped by one directory attribute of bi.DimUser.
@@ -268,6 +268,6 @@ public sealed class UnitPoint
     public DateTime Bucket { get; set; }
     public long Interactions { get; set; }
     public long Flags { get; set; }
-    public long Labelled { get; set; }
+    public long Labeled { get; set; }
     public long Web { get; set; }
 }

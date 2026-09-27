@@ -28,7 +28,7 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
     {
         if (!Viewer.OrgWide && !Viewer.Has(Roles.Licensing))
         {
-            Notice = "The license pool is the whole tenant's, so it needs the whole-organisation view (the top of the organisation, or the Organization role) or the Licensing role.";
+            Notice = "The license pool is the whole tenant's, so it needs the whole-organization view (the top of the organization, or the Organization role) or the Licensing role.";
             return;
         }
         var pool = await ops.PoolAsync();

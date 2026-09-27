@@ -48,7 +48,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 
 **Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the license-event section. The license-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the license-event tables and views.
 
-**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organisation to it.
+**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organization to it.
 
 ## Loading and state
 
@@ -493,7 +493,7 @@ Indexes and constraints:
 
 ### audit.ValueCatalogColumn
 
-*Table.* The catalogued columns (2.3.0): which table and column, a label, how many distinct values, and whether the column passed 10,000 and was capped.
+*Table.* The cataloged columns (2.3.0): which table and column, a label, how many distinct values, and whether the column passed 10,000 and was capped.
 
 **Script** `Create-CopilotFlattenedSchema.sql` · **In** Copilot database
 
@@ -548,7 +548,7 @@ Indexes and constraints:
 
 ## Licenses and the user directory
 
-Who holds a license (Microsoft Graph) and where they sit in the organisation (on-premises AD).
+Who holds a license (Microsoft Graph) and where they sit in the organization (on-premises AD).
 
 ### audit.CopilotLicense
 
@@ -1065,7 +1065,7 @@ Indexes and constraints:
 
 ### audit.vLicenseChange
 
-*View.* One row per license change, deduplicated: a chunked change counts once, and the Update user raised alongside every license change is dropped in favour of the Change user license.
+*View.* One row per license change, deduplicated: a chunked change counts once, and the Update user raised alongside every license change is dropped in favor of the Change user license.
 
 **Script** `Create-LicenseEventSchema.sql` · **In** License-event database
 
@@ -1166,7 +1166,7 @@ The star schema Power BI imports (through the bi views below). Integer surrogate
 | 8 | `DayOfWeekNumber` | tinyint | **no** |  | 1 = Monday ... 7 = Sunday |
 | 9 | `DayOfWeekName` | nvarchar(10) | **no** |  |  |
 | 10 | `IsWeekday` | bit | **no** |  |  |
-| 11 | `WeekEnding` | date | **no** |  | The weekly rollup's week: Saturday to Friday, labelled by the Friday; week 1 of a year ends on its first Friday. |
+| 11 | `WeekEnding` | date | **no** |  | The weekly rollup's week: Saturday to Friday, labeled by the Friday; week 1 of a year ends on its first Friday. |
 | 12 | `WeekYear` | smallint | **no** |  |  |
 | 13 | `WeekNumber` | tinyint | **no** |  |  |
 | 14 | `WeekLabel` | char(8) | **no** |  | 2026-W38 |
@@ -1878,7 +1878,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 
 ### bi.OrgSecurity
 
-*View.* Who may see whom (2.3.0): each viewer's sign-in with the user key of everyone at or under them, and everyone for the top of the organisation, the people reporting to them and people granted Organization. The Power BI model's Organisation role filters Users by it. Empty in privacy mode.
+*View.* Who may see whom (2.3.0): each viewer's sign-in with the user key of everyone at or under them, and everyone for the top of the organization, the people reporting to them and people granted Organization. The Power BI model's Organization role filters Users by it. Empty in privacy mode.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -1889,7 +1889,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 
 ### bi.ValueNames
 
-*View.* Each catalogued value with the name an administrator gave it (2.3.0), from audit.ValueCatalog and dash.ValueName.
+*View.* Each cataloged value with the name an administrator gave it (2.3.0), from audit.ValueCatalog and dash.ValueName.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -1980,7 +1980,7 @@ What the dashboard (dashboard/CopilotInsights, see DASHBOARD.md) keeps besides t
 
 ### dash.Setting
 
-*Table.* Settings the admin module edits: OrgTopUpn (the top of the organisation), MinGroupSize, DefaultDays, InactiveDays. Seeded; edits survive re-running the script.
+*Table.* Settings the admin module edits: OrgTopUpn (the top of the organization), MinGroupSize, DefaultDays, InactiveDays. Seeded; edits survive re-running the script.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -1998,7 +1998,7 @@ Indexes and constraints:
 
 ### dash.RoleGrant
 
-*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Organization sees the whole organisation; the persona roles unlock named detail.
+*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Organization sees the whole organization; the persona roles unlock named detail.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2139,7 +2139,7 @@ Indexes and constraints:
 | 10 | `Jailbreak` | int | **no** |  |  |
 | 11 | `PromptInjection` | int | **no** |  |  |
 | 12 | `BlockedResource` | int | **no** |  |  |
-| 13 | `LabelledContent` | int | **no** |  | interactions that touched sensitivity-labelled content |
+| 13 | `LabeledContent` | int | **no** |  | interactions that touched sensitivity-labeled content |
 | 14 | `Sessions` | int | **no** |  | sessions that started that day |
 | 15 | `MultiTurnSessions` | int | **no** |  |  |
 | 16 | `PremiumUse` | int | **no** | `0` | licensed interactions that needed the license (2.3.0) |
@@ -2151,7 +2151,7 @@ Indexes and constraints:
 
 ### dash.ResourceDay
 
-*Table.* Labels on content Copilot read, the sites of labelled content, and the sites it was blocked from, per person per day, from bi.FactAccessedResource.
+*Table.* Labels on content Copilot read, the sites of labeled content, and the sites it was blocked from, per person per day, from bi.FactAccessedResource.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2245,7 +2245,7 @@ Indexes and constraints:
 
 ### dash.Subscription
 
-*Table.* Scheduled digests (Admin &gt; Alerts and digests): report, recipients, frequency, day and hour in the reporting time zone, period, optionally one manager's organisation, and the last send and its result.
+*Table.* Scheduled digests (Admin &gt; Alerts and digests): report, recipients, frequency, day and hour in the reporting time zone, period, optionally one manager's organization, and the last send and its result.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -2259,7 +2259,7 @@ Indexes and constraints:
 | 6 | `DayOfWeek` | tinyint | yes |  | Weekly: 0 Sunday to 6 Saturday |
 | 7 | `DayOfMonth` | tinyint | yes |  | Monthly: 1 to 28 |
 | 8 | `HourLocal` | tinyint | **no** | `7` | in the reporting time zone |
-| 9 | `RootUpn` | nvarchar(256) | yes |  | a manager's organisation; NULL for the whole organisation |
+| 9 | `RootUpn` | nvarchar(256) | yes |  | a manager's organization; NULL for the whole organization |
 | 10 | `Days` | int | **no** | `30` |  |
 | 11 | `Enabled` | bit | **no** | `1` |  |
 | 12 | `LastSentUtc` | datetime2(0) | yes |  |  |
@@ -2311,14 +2311,14 @@ Indexes and constraints:
 
 ### dash.Target
 
-*Table.* Adoption targets (Admin &gt; Targets and assumptions): measure, value, start and due dates, for the whole organisation or one manager's.
+*Table.* Adoption targets (Admin &gt; Targets and assumptions): measure, value, start and due dates, for the whole organization or one manager's.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
 | 1 | `TargetId` | int | **no** | **PK** identity |  |
-| 2 | `RootUpn` | nvarchar(256) | yes |  | a manager's organisation; NULL for the whole organisation |
+| 2 | `RootUpn` | nvarchar(256) | yes |  | a manager's organization; NULL for the whole organization |
 | 3 | `Metric` | varchar(16) | **no** |  |  |
 | 4 | `TargetValue` | decimal(12,2) | **no** |  | a percentage for Adoption and ActiveShare, a count for ActivePeople |
 | 5 | `StartDate` | date | **no** |  |  |
@@ -2372,7 +2372,7 @@ Indexes and constraints:
 
 ### dash.ValueName
 
-*Table.* Names and notes administrators gave catalogued values (Admin &gt; Value names).
+*Table.* Names and notes administrators gave cataloged values (Admin &gt; Value names).
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 

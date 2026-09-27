@@ -146,7 +146,7 @@ IF COL_LENGTH(N'audit.LicenseEventProperty', N'Source') IS NULL
     A chunked change is one change however many records carried it, so only
     its seq = 1 record appears (the other records are the same event). And
     the 'Update user' that Entra raises alongside every license change, with
-    the same detail and CorrelationId, is dropped in favour of the
+    the same detail and CorrelationId, is dropped in favor of the
     'Change user license'. An
     event with no license property of its own may still borrow one from a
     record sharing its CorrelationId, marked FromPairedRecord = 1 - but never

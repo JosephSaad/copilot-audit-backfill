@@ -50,7 +50,7 @@ Write-Host "`n1b. Connection string building" -ForegroundColor Cyan
 $ConnectionString = 'Data Source=SQLDEV01;Initial Catalog=CopilotAuditTest;Integrated Security=True'
 $built = New-SqlConnectionString
 Assert-That ($built -match 'SQLDEV01' -and $built -match 'CopilotAuditTest') `
-    '-ConnectionString is honoured rather than throwing'
+    '-ConnectionString is honored rather than throwing'
 Assert-That ($built -match 'Application Name=CopilotAuditBackfill') `
     'the application name is still stamped onto a supplied connection string'
 
@@ -87,7 +87,7 @@ $r0 = Resolve-LoadRange -BaseEndUtc $base -NowUtc $now -LookbackHours 0
 Assert-That ($r0.Start -eq [datetime]::new(2026, 9, 23, 0, 0, 0, [DateTimeKind]::Utc)) 'a zero lookback starts exactly where the data ends'
 
 $rEnd = Resolve-LoadRange -BaseEndUtc $base -NowUtc $now -LookbackHours 48 -EndUtc ([datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]::Utc))
-Assert-That ($rEnd.End -eq [datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]::Utc)) 'an explicit end is honoured to the minute'
+Assert-That ($rEnd.End -eq [datetime]::new(2026, 9, 24, 6, 30, 0, [DateTimeKind]::Utc)) 'an explicit end is honored to the minute'
 
 $none = Resolve-LoadRange -BaseEndUtc $base -NowUtc ([datetime]::new(2026, 9, 23, 0, 40, 0, [DateTimeKind]::Utc)) -LookbackHours 48
 Assert-That ($null -eq $none) 'nothing to load when the current hour has not moved past the data'

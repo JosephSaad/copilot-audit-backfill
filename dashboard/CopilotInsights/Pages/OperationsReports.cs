@@ -17,7 +17,7 @@ namespace CopilotInsights.Pages.Adoption
         protected override async Task BuildAsync()
         {
             var all = await reports.TargetsAsync(Ctx);
-            /* A target for part of the organisation is shown to people who may see that part. */
+            /* A target for part of the organization is shown to people who may see that part. */
             var mine = Viewer.OrgWide ? all : Viewer.Upn is null ? [] :
                 all.Where(t => t.RootUpn is not null).ToList() is var scoped && scoped.Count > 0
                     ? (await Db.QueryAsync<string>("SELECT DescendantUpn FROM dash.OrgClosure WHERE AncestorUpn = @v", new { v = Viewer.Upn })).ToHashSet(StringComparer.OrdinalIgnoreCase) is var under
@@ -25,7 +25,7 @@ namespace CopilotInsights.Pages.Adoption
                     : [];
             if (mine.Count == 0)
             {
-                Notice = all.Count == 0 ? "No targets yet. An administrator sets them in Admin > Targets and assumptions." : "No target covers the part of the organisation you see.";
+                Notice = all.Count == 0 ? "No targets yet. An administrator sets them in Admin > Targets and assumptions." : "No target covers the part of the organization you see.";
                 return;
             }
             Kpis.Add(new("Targets", Num(mine.Count)));
@@ -33,14 +33,14 @@ namespace CopilotInsights.Pages.Adoption
             Kpis.Add(new("Behind", Num(mine.Count(t => t.Status == "Behind")), null, mine.Any(t => t.Status == "Behind") ? "warn" : null));
             Kpis.Add(new("Missed", Num(mine.Count(t => t.Status == "Missed")), null, mine.Any(t => t.Status == "Missed") ? "crit" : null));
             string Unit(TargetRow t) => t.Metric == "ActivePeople" ? "" : "%";
-            Panels.Add(new("Progress", Chart.Bars(mine.Select(t => new Bar($"{Label(t.Metric)}: {t.RootName ?? "Whole organisation"}",
+            Panels.Add(new("Progress", Chart.Bars(mine.Select(t => new Bar($"{Label(t.Metric)}: {t.RootName ?? "Whole organization"}",
                 t.TargetValue > 0 && t.Current is not null ? t.Current / (double)t.TargetValue : null,
                 Note: $"{t.Current:#,0.#}{Unit(t)} of {t.TargetValue:#,0.#}{Unit(t)} by {t.DueDate:d MMM yyyy}; {t.Status}",
                 Slot: t.Status switch { "Met" or "On track" => 3, "Behind" => 5, "Missed" => 6, _ => 1 })).ToList(), Fmt.Percent, "Progress to each target", 1),
                 "The share of the target reached."));
             var tb = new Table { Headers = ["Target", "For", "Before it started", "Now", "Should be by now", "Target", "Due", "Status", "Note"], Numeric = new HashSet<int> { 2, 3, 4, 5 } };
             foreach (var t in mine)
-                tb.Rows.Add([Label(t.Metric), t.RootName ?? t.RootUpn ?? "Whole organisation", Round(t.Baseline), Round(t.Current), Round(t.Expected), (double)t.TargetValue,
+                tb.Rows.Add([Label(t.Metric), t.RootName ?? t.RootUpn ?? "Whole organization", Round(t.Baseline), Round(t.Current), Round(t.Expected), (double)t.TargetValue,
                              t.DueDate, new HtmlString($"<span class=\"status-{(t.Status is "Met" or "On track" ? "ok" : t.Status == "Behind" ? "warn" : t.Status == "Missed" ? "bad" : "warn")}\">{E(t.Status)}</span>"), t.Note]);
             Panels.Add(new("Every target", tb.Render(), "Adoption: licensed people who used Copilot, over people licensed. Share active: people who used it, over everyone in the directory. People active: a count."));
         }
@@ -153,7 +153,7 @@ namespace CopilotInsights.Pages.Leadership
     {
         public override string Title => "Value and time saved";
         public override string Persona => "Leadership";
-        public override string Intro => "An estimate: interactions in each app times the minutes one saves, valued at an hourly cost. The minutes and the hourly cost are your organisation's assumptions (Admin > Targets and assumptions); change them and every figure here follows.";
+        public override string Intro => "An estimate: interactions in each app times the minutes one saves, valued at an hourly cost. The minutes and the hourly cost are your organization's assumptions (Admin > Targets and assumptions); change them and every figure here follows.";
 
         protected override async Task BuildAsync()
         {
@@ -183,12 +183,12 @@ namespace CopilotInsights.Pages.Leadership
 
 namespace CopilotInsights.Pages.Compliance
 {
-    /// <summary>The SharePoint and OneDrive sites Copilot draws answers from most, and how well they are labelled.</summary>
+    /// <summary>The SharePoint and OneDrive sites Copilot draws answers from most, and how well they are labeled.</summary>
     public sealed class SitesModel(PageServices s) : InsightsPage(s)
     {
         public override string Title => "Oversharing hotspots";
         public override string Persona => "Compliance";
-        public override string Intro => "The sites Copilot read from most, by how many people reached them through it, with how much of what it read carried a sensitivity label. A widely reached site with little labelled, or with confidential content, is where to check permissions first.";
+        public override string Intro => "The sites Copilot read from most, by how many people reached them through it, with how much of what it read carried a sensitivity label. A widely reached site with little labeled, or with confidential content, is where to check permissions first.";
 
         sealed class Row
         {
@@ -196,7 +196,7 @@ namespace CopilotInsights.Pages.Compliance
             public bool IsPersonal { get; set; }
             public long Reads { get; set; }
             public int People { get; set; }
-            public long Labelled { get; set; }
+            public long Labeled { get; set; }
             public long Blocked { get; set; }
             public int? TopRank { get; set; }
             public string? TopLabel { get; set; }
@@ -206,7 +206,7 @@ namespace CopilotInsights.Pages.Compliance
         {
             var rows = await Db.QueryAsync<Row>($@"
 SELECT f.SiteKey, COUNT_BIG(*) AS Reads, COUNT(DISTINCT f.UserKey) AS People,
-       SUM(CASE WHEN f.SensitivityLabelKey > 1 THEN 1 ELSE 0 END) AS Labelled, SUM(CAST(f.IsBlocked AS INT)) AS Blocked,
+       SUM(CASE WHEN f.SensitivityLabelKey > 1 THEN 1 ELSE 0 END) AS Labeled, SUM(CAST(f.IsBlocked AS INT)) AS Blocked,
        MAX(ISNULL(sl.Rank, CASE WHEN f.SensitivityLabelKey > 1 THEN 0 END)) AS TopRank
 INTO #s
 FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
@@ -214,7 +214,7 @@ LEFT JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = f.SensitivityLa
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = l.LabelId
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.SiteKey > 1
 GROUP BY f.SiteKey;
-SELECT TOP (200) st.Site, st.IsPersonal, s.Reads, s.People, s.Labelled, s.Blocked, s.TopRank,
+SELECT TOP (200) st.Site, st.IsPersonal, s.Reads, s.People, s.Labeled, s.Blocked, s.TopRank,
        (SELECT TOP (1) sl.Name FROM dash.SensitivityLabel AS sl WHERE sl.Rank = s.TopRank ORDER BY sl.Name) AS TopLabel
 FROM #s AS s JOIN bi.DimSite AS st ON st.SiteKey = s.SiteKey
 ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
@@ -222,15 +222,15 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
             var wide = rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();
             Kpis.Add(new("Sites Copilot read from", Num(rows.Count)));
             Kpis.Add(new("Reached by many people", Num(wide.Count), $"{Ctx.MinGroupSize} or more"));
-            Kpis.Add(new("Of those, mostly unlabelled", Num(wide.Count(r => r.Reads > 0 && r.Labelled < r.Reads * 0.1)), "under 10% of what was read carried a label",
-                wide.Any(r => r.Reads > 0 && r.Labelled < r.Reads * 0.1) ? "warn" : null));
+            Kpis.Add(new("Of those, mostly unlabeled", Num(wide.Count(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1)), "under 10% of what was read carried a label",
+                wide.Any(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1) ? "warn" : null));
             Kpis.Add(new("With blocked content", Num(rows.Count(r => r.Blocked > 0))));
             Panels.Add(new("The widest-reaching sites", Chart.Bars(wide.Take(15).Select(r => new Bar(Short(r.Site), r.People,
-                Note: $"{r.Reads:#,0} reads, {Pct(Ratio(r.Labelled, r.Reads))} labelled{(r.TopLabel is null ? "" : $", up to {r.TopLabel}")}", Slot: r.Labelled < r.Reads * 0.1 ? 5 : 1)).ToList(),
+                Note: $"{r.Reads:#,0} reads, {Pct(Ratio(r.Labeled, r.Reads))} labeled{(r.TopLabel is null ? "" : $", up to {r.TopLabel}")}", Slot: r.Labeled < r.Reads * 0.1 ? 5 : 1)).ToList(),
                 Fmt.Count, "People reaching each site through Copilot"), "Orange: under 10% of what Copilot read there carried a label.", "half"));
-            var tb = new Table { Headers = ["Site", "OneDrive", "People", "Reads", "Labelled", "Most sensitive label", "Blocked"], Numeric = new HashSet<int> { 2, 3, 5 } };
+            var tb = new Table { Headers = ["Site", "OneDrive", "People", "Reads", "Labeled", "Most sensitive label", "Blocked"], Numeric = new HashSet<int> { 2, 3, 5 } };
             foreach (var r in rows)
-                tb.Rows.Add([r.Site, r.IsPersonal ? "Yes" : "", r.People < Ctx.MinGroupSize ? null : r.People, r.Reads, Pct(Ratio(r.Labelled, r.Reads)),
+                tb.Rows.Add([r.Site, r.IsPersonal ? "Yes" : "", r.People < Ctx.MinGroupSize ? null : r.People, r.Reads, Pct(Ratio(r.Labeled, r.Reads)),
                              r.TopLabel ?? (r.TopRank is not null ? "(unnamed label)" : null), r.Blocked]);
             CsvTable = tb;
             Panels.Add(new("Every site (the 200 most reached)", tb.Render(),

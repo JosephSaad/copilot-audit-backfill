@@ -24,7 +24,7 @@
          what it needs. Without it, writes the grants for a DBA instead.
 
     The dashboard reads the database the pipeline fills (Install-CopilotAudit.ps1).
-    The top of the organisation is found in the org chart; -OrgTopUpn or
+    The top of the organization is found in the org chart; -OrgTopUpn or
     Admin > Access overrides it. Nothing needs setting by hand in SQL.
 
 .PARAMETER PackagePath
@@ -322,5 +322,5 @@ else {
 $url = "{0}://{1}{2}/" -f $proto, $(if ($HostName) { $HostName } else { $env:COMPUTERNAME }), $(if (($https -and $Port -eq 443) -or (-not $https -and $Port -eq 80)) { '' } else { ":$Port" })
 Write-Host ''
 Write-Host "Copilot Insights is at $url" -ForegroundColor Green
-Write-Host 'Next: sign in as a bootstrap administrator, open Admin > Access, set the top of the organisation, and grant roles.'
+Write-Host 'Next: sign in as a bootstrap administrator, open Admin > Access, set the top of the organization, and grant roles.'
 if ($HostName) { Write-Host "For Kerberos sign-in on $HostName, register its SPN on the app-pool account: setspn -S HTTP/$HostName $(if ($AppPoolIdentity) { $AppPoolIdentity } else { "$env:USERDOMAIN\$env:COMPUTERNAME`$" })" }

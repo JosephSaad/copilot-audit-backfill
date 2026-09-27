@@ -56,7 +56,7 @@ public class AlertRuleTests
             new("Jailbreak attempts", 2, 0.1, 1),         // over the threshold
             new("Prompt injections", 0, 0.5, 1),           // nothing
             new("Blocked", 40, 10, 0),                     // threshold off, but four times the average
-            new("Labelled", 12, 10, 100),                  // neither
+            new("Labeled", 12, 10, 100),                  // neither
             new("Tiny", 2, 0.1, 0),                        // a spike of two is noise
         ], 3);
         Assert.Equal(2, f.Count);

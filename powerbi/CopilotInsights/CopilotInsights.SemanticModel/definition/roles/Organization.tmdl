@@ -1,6 +1,6 @@
 /// Each viewer sees the people at or under them in the org chart, as the dashboard does.
 /// Add the report's viewers (or an Entra group) to this role in the Power BI service.
-role Organisation
+role Organization
 	modelPermission: read
 
 	tablePermission Users = Users[UserKey] IN CALCULATETABLE ( VALUES ( OrgSecurity[UserKey] ), OrgSecurity[ViewerUpn] = USERPRINCIPALNAME () )

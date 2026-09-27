@@ -11,7 +11,7 @@
     next run resumes the same load.
 
     Nightly (the scheduled task), in this order:
-      1. User directory from AD, so tonight's builds see today's organisation.
+      1. User directory from AD, so tonight's builds see today's organization.
       2. Copilot licenses from Graph.
       3. License events: -Incremental into the license database.
       4. Copilot interactions: -Incremental, which then refreshes the

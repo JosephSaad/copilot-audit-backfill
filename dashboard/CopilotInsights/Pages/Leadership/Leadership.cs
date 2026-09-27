@@ -36,7 +36,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
             null, "half"));
 
         var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
-        Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption by organisation",
+        Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption by organization",
             Chart.Bars(units.OrderByDescending(u => Ratio(u.ActiveLicensed, u.Licensed) ?? -1)
                 .Select(u => new Bar(u.Name, Ratio(u.ActiveLicensed, u.Licensed), u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
                     $"{u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by unit", 1),
@@ -47,9 +47,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
 public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Organisation";
+    public override string Title => "Organization";
     public override string Persona => "Leadership";
-    public override string Intro => "Each part of the organisation one level down, side by side. Select a name to look inside it.";
+    public override string Intro => "Each part of the organization one level down, side by side. Select a name to look inside it.";
 
     protected override async Task BuildAsync()
     {

@@ -1,4 +1,4 @@
-/// Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organisation role.
+/// Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organization role.
 table OrgSecurity
 	lineageTag: d543112f-5c18-561f-bddd-31401ab3c093
 	isHidden

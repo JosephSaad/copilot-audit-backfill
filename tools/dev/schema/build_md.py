@@ -68,7 +68,7 @@ out.append('**Procedures and function.** `audit.fnShredCopilotInteraction` (inli
            '`audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, '
            '`audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. '
            '`dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every '
-           'query for a part of the organisation to it.\n')
+           'query for a part of the organization to it.\n')
 
 
 def section(name, purpose, legacy=False):

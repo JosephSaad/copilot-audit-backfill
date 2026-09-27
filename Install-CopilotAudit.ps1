@@ -33,7 +33,7 @@
     dashboard\Install-CopilotInsights.ps1.
 
 .PARAMETER OrgTopUpn
-    The top of the organisation for the dashboard (usually the CEO). Leave it
+    The top of the organization for the dashboard (usually the CEO). Leave it
     out and the dashboard uses the one person the org chart has most people
     under, or keeps what an administrator already set.
 
@@ -201,7 +201,7 @@ if ($Dashboard -and $OrgTopUpn) {
     Invoke-Sql -Catalog $Database -Parameters @{ '@v' = $OrgTopUpn.Trim(); '@by' = "$env:USERDOMAIN\$env:USERNAME" } -Sql @"
 UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = 'OrgTopUpn';
 "@
-    Write-Done "top of the organisation: $OrgTopUpn"
+    Write-Done "top of the organization: $OrgTopUpn"
 }
 
 # ---- 3. Build what needs building ---------------------------------------------------------------
@@ -239,9 +239,9 @@ elseif ($fullBuild) {
 }
 else { Write-Done 'sessions and bi are built; the nightly -Incremental run keeps them current.' }
 
-# 2.3.0: the value catalogue fills as records are flattened; records flattened before it existed are catalogued once here.
+# 2.3.0: the value catalog fills as records are flattened; records flattened before it existed are cataloged once here.
 if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.ValueCatalog') -and (Get-Count $Database 'audit.ValueCatalog') -eq 0) {
-    Write-Done ("value catalogue: reading {0:N0} flattened record(s) once..." -f $flattened)
+    Write-Done ("value catalog: reading {0:N0} flattened record(s) once..." -f $flattened)
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
 }
 

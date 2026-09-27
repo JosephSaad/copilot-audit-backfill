@@ -69,6 +69,6 @@ FROM dash.Agent AS a WHERE a.AgentSource <> N'(no agent)' AND a.FirstSeenUtc < D
 GROUP BY a.AgentSource;", Ctx.Args());
         Panels.Add(new("Agent sprawl",
             Chart.Bars(born.OrderByDescending(b => b.N).Select(b => new Bar(b.Source, b.N, Note: $"{b.New:#,0} first used in the period")).ToList(), Fmt.Count, "Agents known"),
-            "Every agent the audit log has seen, whoever used it, by source. This one is organisation-wide: agents are not owned by a part of the org chart.", "half"));
+            "Every agent the audit log has seen, whoever used it, by source. This one is organization-wide: agents are not owned by a part of the org chart.", "half"));
     }
 }

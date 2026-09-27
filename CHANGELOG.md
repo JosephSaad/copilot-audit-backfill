@@ -8,7 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 A consistency release. Each figure is now computed in one place, the product
 uses one spelling, retries follow one policy, and each page says which dates it
-covers. Power BI now honours Organization grants made to AD groups. Nothing is
+covers. Power BI now honors Organization grants made to AD groups. Nothing is
 added for the reader of a report, but several names change, so **2.4.0 is a
 fresh install**. There is no upgrade path from 2.3.0: drop the databases (or
 point the installer at new ones), install, and run the history load again.
@@ -80,11 +80,11 @@ parameter used it:
 
 ### Added
 
-- **Power BI honours Organization granted to an AD group.**
+- **Power BI honors Organization granted to an AD group.**
   - The nightly directory load expands every group granted Organization into
     its members, nested groups included, and writes them to the new table
     `audit.GroupMember`, rewritten every night.
-  - `bi.OrgSecurity` gives those members the whole organisation, as the
+  - `bi.OrgSecurity` gives those members the whole organization, as the
     dashboard already did at sign-in. Before, only people granted Organization
     by name, and the top two levels, saw everyone in Power BI.
 - **Admin › Operations can run the scheduled checks for one tenant or all of them.**

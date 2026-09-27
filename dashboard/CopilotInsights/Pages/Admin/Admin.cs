@@ -77,14 +77,14 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
         var sb = new StringBuilder("<div class=\"cards\">");
         void Card(string title, string body, string cls) => sb.Append($"<div class=\"card\"><h3 class=\"{cls}\">{E(title)}</h3><p>{body}</p></div>");
         var topSet = await S.Settings.StringAsync("OrgTopUpn") is not null;
-        Card("Top of the organisation", top is null ? "None found: no one person has half the directory under them, so nobody sees the whole organisation by level. Set it on the Access page."
+        Card("Top of the organization", top is null ? "None found: no one person has half the directory under them, so nobody sees the whole organization by level. Set it on the Access page."
             : topName is null ? $"{E(top)} is not in the directory. Check the UPN on the Access page."
             : $"{E(topName)} ({E(top)}), {(topSet ? "set on the Access page" : "found in the org chart")}.",
             top is not null && topName is not null ? "status-ok" : "status-bad");
         Card("People placed in the org chart", $"{d.Levelled:#,0} of {d.People:#,0} directory people sit under the top. The rest see only themselves and the people under them.",
             d.People > 0 && d.Levelled >= d.People * 0.95 ? "status-ok" : "status-warn");
         var seen = d.Found + d.NotFound + d.NotLooked;
-        Card("Users matched to the directory", $"{d.Found:#,0} of {seen:#,0} people in the audit data are in AD. {d.NotFound:#,0} have left; {d.NotLooked:#,0} were never looked up. Unmatched people count only in whole-organisation views.",
+        Card("Users matched to the directory", $"{d.Found:#,0} of {seen:#,0} people in the audit data are in AD. {d.NotFound:#,0} have left; {d.NotLooked:#,0} were never looked up. Unmatched people count only in whole-organization views.",
             seen > 0 && d.Found >= seen * 0.95 ? "status-ok" : "status-warn");
         Card("Latest day with data", d.LastKey is null ? "No data yet." : $"{d.LastKey / 10000}-{d.LastKey / 100 % 100:00}-{d.LastKey % 100:00}", d.LastKey is null ? "status-bad" : "status-ok");
         Panels.Add(new("Directory and security model", new HtmlString(sb.Append("</div>").ToString())));
@@ -132,7 +132,7 @@ FROM w;")).Single();
         foreach (var r in runs)
             rt.Rows.Add([r.StartedUtc, $"{(r.EndedUtc - r.StartedUtc).TotalSeconds:0} s", r.SinceUtc is null ? "Every day" : r.SinceUtc.Value, r.People, r.ClosureRows, r.UserDayRows]);
         Panels.Add(new("Refresh the dashboard", new HtmlString(
-            "<p class=\"sub\">The scheduled backfill refreshes the dashboard after each run. Refresh by hand after changing the directory, the top of the organisation or app categories.</p>" +
+            "<p class=\"sub\">The scheduled backfill refreshes the dashboard after each run. Refresh by hand after changing the directory, the top of the organization or app categories.</p>" +
             Form("refresh", "<input type=\"hidden\" name=\"days\" value=\"7\"/>" + Button("Refresh the last 7 days")) +
             Form("refresh", "<input type=\"hidden\" name=\"days\" value=\"0\"/>" + Button("Rebuild every day", "Rebuild every day of the rollups? On a large tenant this takes minutes.", quiet: true)) +
             rt.Render().Value)));
@@ -151,7 +151,7 @@ FROM w;")).Single();
 public sealed class AccessModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Access and roles";
-    public override string Intro => "Who sees what. Levels 1 and 2 below the top see the whole organisation; everyone else their own part of it. Roles add whole-organisation access or named detail.";
+    public override string Intro => "Who sees what. Levels 1 and 2 below the top see the whole organization; everyone else their own part of it. Roles add whole-organization access or named detail.";
 
     static readonly string[] SettingNames = ["OrgTopUpn", "MinGroupSize", "DefaultDays", "InactiveDays"];
 
@@ -173,7 +173,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         ShowDone();
         var set = await S.Settings.AllAsync();
         Panels.Add(new("Settings", new HtmlString(Form("settings",
-            Input("OrgTopUpn", "Top of the organisation (UPN)", set.GetValueOrDefault("OrgTopUpn"), 34) +
+            Input("OrgTopUpn", "Top of the organization (UPN)", set.GetValueOrDefault("OrgTopUpn"), 34) +
             Input("MinGroupSize", "Minimum group size", set.GetValueOrDefault("MinGroupSize"), 4, "number") +
             Select("DefaultDays", "Default period (days)", ReportContext.DayChoices.Select(d => d.ToString()), set.GetValueOrDefault("DefaultDays")) +
             Input("InactiveDays", "Unused after (days)", set.GetValueOrDefault("InactiveDays"), 4, "number") +
@@ -222,11 +222,11 @@ WHERE (@role IS NULL OR g.Role = @role) AND (@q IS NULL OR g.Principal LIKE @q O
                 "SELECT Upn, DisplayName, Level, PeopleBelow, ManagerUpn FROM dash.Person WHERE Upn = @who;", new { who })).FirstOrDefault();
             var direct = await Db.QueryAsync<string>("SELECT Role FROM dash.RoleGrant WHERE PrincipalType = 'User' AND Principal = @who ORDER BY Role;", new { who });
             var roles = direct.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var org = AccessRules.SeesWholeOrganisation(p.Level, roles);
+            var org = AccessRules.SeesWholeOrganization(p.Level, roles);
             body.Append(p.Upn is null
                 ? $"<p>{E(who)} is not in the directory, so they see nothing unless granted Organization{(roles.Contains(Roles.Organization) ? " (they are)" : "")}.</p>"
                 : $"<p><b>{E(p.DisplayName ?? p.Upn)}</b>, level {(p.Level?.ToString() ?? "not under the top")}, reports to {E(p.ManagerUpn ?? "nobody")}.</p>" +
-                  $"<p>Sees: <b>{(org ? "the whole organisation" : p.PeopleBelow > 0 ? $"themselves and the {p.PeopleBelow:#,0} people under them" : "their own use")}</b>" +
+                  $"<p>Sees: <b>{(org ? "the whole organization" : p.PeopleBelow > 0 ? $"themselves and the {p.PeopleBelow:#,0} people under them" : "their own use")}</b>" +
                   $"{(org && roles.Contains(Roles.Organization) && p.Level is not (1 or 2) ? " (by the Organization role)" : "")}.</p>");
             body.Append($"<p>Roles granted to the account directly: {(roles.Count == 0 ? "none" : E(string.Join(", ", roles)))}. Group grants are resolved when they sign in, so check the groups above too.</p>");
         }
@@ -235,7 +235,7 @@ WHERE (@role IS NULL OR g.Role = @role) AND (@q IS NULL OR g.Principal LIKE @q O
         var levels = await Db.QueryAsync<(byte? Level, int N)>("SELECT Level, COUNT(*) FROM dash.Person WHERE AccountEnabled = 1 GROUP BY Level ORDER BY Level;");
         var lt = new Table { Headers = ["Level", "People", "Sees"], Numeric = new HashSet<int> { 1 } };
         foreach (var l in levels)
-            lt.Rows.Add([l.Level?.ToString() ?? "Not under the top", l.N, l.Level is 1 or 2 ? "Whole organisation" : "Their own part"]);
+            lt.Rows.Add([l.Level?.ToString() ?? "Not under the top", l.N, l.Level is 1 or 2 ? "Whole organization" : "Their own part"]);
         Panels.Add(new("People by level", lt.Render(), null, "half"));
     }
 
@@ -336,7 +336,7 @@ FROM (SELECT DISTINCT Item AS LabelId FROM dash.ResourceDay WHERE Kind = 'Label'
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = i.LabelId
 LEFT JOIN dash.ResourceDay AS rd ON rd.Kind = 'Label' AND rd.Item = i.LabelId
 GROUP BY i.LabelId, sl.Name, sl.Rank ORDER BY ISNULL(sl.Rank, 255), i.LabelId;");
-        var lt = new Table { Headers = ["Label id", "Interactions", "Name and order"], Numeric = new HashSet<int> { 1 }, EmptyText = "No labelled content seen yet." };
+        var lt = new Table { Headers = ["Label id", "Interactions", "Name and order"], Numeric = new HashSet<int> { 1 }, EmptyText = "No labeled content seen yet." };
         foreach (var l in labels)
             lt.Rows.Add([l.LabelId, l.N, new HtmlString(Form("label", $"<input type=\"hidden\" name=\"id\" value=\"{E(l.LabelId)}\"/>" +
                 Input("name", "Name", l.Name, 22) + Input("rank", "Order (0 least)", l.Rank?.ToString(), 4, "number") + Button("Save")))]);

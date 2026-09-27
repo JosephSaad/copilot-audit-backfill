@@ -281,7 +281,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         }
         catch (Microsoft.Data.SqlClient.SqlException) { _markers = []; }
     }
-    protected string TrendNote => Ctx.Daily ? "Each point is a day." : "Each point is a Saturday-to-Friday week, labelled by its Friday; the first and last may be partial.";
+    protected string TrendNote => Ctx.Daily ? "Each point is a day." : "Each point is a Saturday-to-Friday week, labeled by its Friday; the first and last may be partial.";
 
     /// <summary>The CSV export of this page's list, with its current search and sort.</summary>
     protected string CsvUrl()

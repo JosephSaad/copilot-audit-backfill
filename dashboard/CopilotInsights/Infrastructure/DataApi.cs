@@ -50,7 +50,7 @@ public static class DataApi
         {
             var t = await x.GetRequiredService<Metrics>().TrendAsync(c);
             return new { scope = c.ScopeLabel, from = c.Start, to = c.End, days = c.Daily,
-                         points = t.Select(p => new { p.Bucket, p.Jailbreak, p.Injection, p.Blocked, p.Labelled, p.Interactions }) };
+                         points = t.Select(p => new { p.Bucket, p.Jailbreak, p.Injection, p.Blocked, p.Labeled, p.Interactions }) };
         }));
 
         api.MapGet("/license-pool", (HttpContext h, CancellationToken _) => Run(h, "license-pool", null, async (x, _) =>

@@ -62,7 +62,7 @@ public sealed class CohortsModel(PageServices s) : InsightsPage(s)
     {
         const int weeks = 12;
         var rows = await Db.QueryAsync<(DateTime Cohort, int K, int People, int Active, int Size)>($@"
-/* Cohort members and their active weeks as temporary tables: as CTEs the optimiser
+/* Cohort members and their active weeks as temporary tables: as CTEs the optimizer
    re-evaluated the activity once per cohort week (10 seconds at 70,000 people). */
 SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,
        DATEFROMPARTS(YEAR(du.LicensedSinceUtc), MONTH(du.LicensedSinceUtc), 1) AS Cohort

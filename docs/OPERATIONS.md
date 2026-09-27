@@ -42,16 +42,16 @@ When the last run failed, its step and last log lines are on Admin › Health an
 
 ## Access and permissions
 
-**How access works.** Everyone signs in with their Windows account. The top of the organisation, the people who report directly to them and anyone granted **Organization** see the whole organisation; everyone else sees themselves and the people under them. Pages that name people also need their persona's role. **Admin** runs the Admin pages and sees no usage data by itself. [DASHBOARD.md](DASHBOARD.md#who-sees-what) has the full rules.
+**How access works.** Everyone signs in with their Windows account. The top of the organization, the people who report directly to them and anyone granted **Organization** see the whole organization; everyone else sees themselves and the people under them. Pages that name people also need their persona's role. **Admin** runs the Admin pages and sees no usage data by itself. [DASHBOARD.md](DASHBOARD.md#who-sees-what) has the full rules.
 
 | Role | Gives |
 |---|---|
 | Admin | The Admin pages |
-| Organization | The whole organisation's aggregates, whatever the person's level |
+| Organization | The whole organization's aggregates, whatever the person's level |
 | Adoption | Named people licensed but not started |
 | Licensing | Named unused licenses, Copilot Chat users, licenses on disabled accounts, upgrade/train/revoke lists, the use ranking, rollout waves, license action outcomes, and their export files |
 | Security | Named flagged interactions and their triage; named guests |
-| Compliance | Named people who worked with labelled content; one person's full record (works in privacy mode) |
+| Compliance | Named people who worked with labeled content; one person's full record (works in privacy mode) |
 | Agents | Named users of an agent |
 | Enablement | Named champions and engagement segments |
 
@@ -64,7 +64,7 @@ M -Task RevokeRole -Principal 'ada.lovelace@contoso.com' -Role Licensing
 
 **Check what someone sees.** Admin › Access › *Check someone's access*: their level, their scope, and the roles granted to their account directly (group grants are resolved when they sign in).
 
-**The top of the organisation** decides who sees everything by level. Admin › Access › *Settings*, or leave it empty to use the one person with no manager who has at least half the directory under them:
+**The top of the organization** decides who sees everything by level. Admin › Access › *Settings*, or leave it empty to use the one person with no manager who has at least half the directory under them:
 
 ```powershell
 M -Task SetOrgTop -Upn 'ceo@contoso.com'
@@ -84,7 +84,7 @@ M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 
 **An account the directory cannot match.** Sign-ins are matched to people by the account's SID, which the nightly directory load copies from AD. An account with no match (a local or Entra-joined account) is "not in the directory" and sees nothing unless granted Organization. To map one, add it to `Insights:IdentityMap` in `appsettings.Production.json` (`"CONTOSO\\svc-report": "report.owner@contoso.com"`) and recycle the app pool. A mapping cannot land an account on a person whose directory record carries a different SID, and nothing in a URL changes who is signed in.
 
-**Power BI.** The ready-made model in `powerbi\CopilotInsights` has an *Organisation* role that follows the same org chart through `bi.OrgSecurity` ([DEPLOYMENT.md](DEPLOYMENT.md), step 15): add the report's viewers to it in the Power BI service. Organization granted to an AD group reaches Power BI after the next nightly directory load, which expands the group into its members (nested groups included) in `audit.GroupMember`; the load's log names any granted group it cannot find in the target domain. In privacy mode `bi.OrgSecurity` is empty (it would pair real sign-ins with the pseudonyms), so share `bi.DepartmentWeek` rather than the person-level model.
+**Power BI.** The ready-made model in `powerbi\CopilotInsights` has an *Organization* role that follows the same org chart through `bi.OrgSecurity` ([DEPLOYMENT.md](DEPLOYMENT.md), step 15): add the report's viewers to it in the Power BI service. Organization granted to an AD group reaches Power BI after the next nightly directory load, which expands the group into its members (nested groups included) in `audit.GroupMember`; the load's log names any granted group it cannot find in the target domain. In privacy mode `bi.OrgSecurity` is empty (it would pair real sign-ins with the pseudonyms), so share `bi.DepartmentWeek` rather than the person-level model.
 
 **Each person's own choices.** Everyone sets what they are emailed in **My Copilot › Email** (their weekly email; managers can stop their team digest) and keeps their own **saved views**, one of them as their start page. Nothing about these needs an administrator.
 
@@ -92,7 +92,7 @@ M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 
 The audit log records many things as codes. Give them names once and the dashboard's pages and Power BI (`bi.ValueNames`) show the names.
 
-**Any catalogued code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top), or **Download** the column as a CSV, fill in the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
+**Any cataloged code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top), or **Download** the column as a CSV, fill in the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
 
 ```powershell
 M -Task ListValues                                  # the columns, and how many values each has
@@ -123,9 +123,9 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 **When to alert.** Admin › Alerts and digests › *When to alert*: how old the data may get, the daily thresholds for jailbreaks, prompt injections, blocked resources and sensitive labels, the spike factor, what counts as a drop or a spike in use, and when the license pool is running out. **Run the checks now** runs a round at once; *Where the checks stand* shows what each last saw.
 
-**Digests.** Admin › Alerts and digests › *Digests*: add one (report, recipients, daily, weekly or monthly, the hour, the period, and optionally one manager's organisation); **Preview** it, **Send now**, **Pause** or **Remove** it. Digests carry aggregates only.
+**Digests.** Admin › Alerts and digests › *Digests*: add one (report, recipients, daily, weekly or monthly, the hour, the period, and optionally one manager's organization); **Preview** it, **Send now**, **Pause** or **Remove** it. Digests carry aggregates only.
 
-**Manager and personal digests.** Admin › Alerts and digests › *Manager and personal digests*: *Weekly* or *Monthly* sends every manager with at least the given number of people under them the Leadership digest for their own organisation, to their email address in AD (managers can opt out in My Copilot › Email; not sent in privacy mode). *People may ask for a weekly email of their own use* lets anyone opt in from My Copilot › Email. Both go out on the day and hour set here; a send that fails is tried again an hour later, three times in all.
+**Manager and personal digests.** Admin › Alerts and digests › *Manager and personal digests*: *Weekly* or *Monthly* sends every manager with at least the given number of people under them the Leadership digest for their own organization, to their email address in AD (managers can opt out in My Copilot › Email; not sent in privacy mode). *People may ask for a weekly email of their own use* lets anyone opt in from My Copilot › Email. Both go out on the day and hour set here; a send that fails is tried again an hour later, three times in all.
 
 **Teams, ServiceNow or any webhook.** Admin › Alerts and digests › *Teams, ServiceNow or any webhook*: an https address (stored encrypted) and a format. *Teams* posts an adaptive card (use a Teams Workflows "post to a channel when a webhook request is received" address, or an incoming webhook); *Json* posts `{source, kind, subject, lines, link, atUtc}` for ServiceNow, Splunk or anything else. **Post a test alert** checks it. Every alert then goes to the webhook as well as email.
 
@@ -135,7 +135,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 ## Targets, value and training
 
-**Adoption targets.** Admin › Targets and assumptions › *Adoption targets*: for the whole organisation or one manager's, the measure (adoption, share of people active, or people active), the target, the start and the due date. Progress is on Adoption › Targets and in the Adoption digest.
+**Adoption targets.** Admin › Targets and assumptions › *Adoption targets*: for the whole organization or one manager's, the measure (adoption, share of people active, or people active), the target, the start and the due date. Progress is on Adoption › Targets and in the Adoption digest.
 
 **Time saved.** Admin › Targets and assumptions › *Time saved*: the default minutes one interaction saves, what an hour is worth, and the minutes per app. Leadership › Value and time saved and the Value digest follow them.
 
@@ -157,7 +157,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 ## Acting on the license recommendations
 
-1. **Forecasting › License optimisation** shows the recommendations and what they are worth; **Forecasting › Upgrade, train or revoke** and **Licensing › Licenses on disabled accounts** name the people (Licensing role). *Train* and *revoke* look at Premium use: Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat over work content. Someone who only uses web Copilot Chat, which the free tier gives, is not using their license. **Licensing › Use ranking** ranks everyone by general, free and Premium use.
+1. **Forecasting › License optimization** shows the recommendations and what they are worth; **Forecasting › Upgrade, train or revoke** and **Licensing › Licenses on disabled accounts** name the people (Licensing role). *Train* and *revoke* look at Premium use: Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat over work content. Someone who only uses web Copilot Chat, which the free tier gives, is not using their license. **Licensing › Use ranking** ranks everyone by general, free and Premium use.
 2. On those pages, download the **Entra bulk add or remove members file**, or the **PowerShell script**. If Copilot licenses are assigned through a group, set its object id first in Admin › Targets and assumptions › *Licensing and champions*, so both use the group; otherwise the script assigns or removes the SKU directly.
 3. A license administrator applies it: the bulk file in Entra (Groups › the license group › Bulk operations), or the script in PowerShell with their own rights (`-WhatIf` first). The dashboard changes nothing in Entra.
 4. The next nightly run picks the change up; the lists update the day after.
@@ -173,7 +173,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 ## Privacy, retention and the data API
 
-**Privacy mode.** Admin › Privacy and retention › *Privacy mode*: *Pseudonymise* refuses every page, export, digest and API call that names people, and Power BI's `bi.Users` shows a salted hash instead of names (from its next refresh). *Off* restores both.
+**Privacy mode.** Admin › Privacy and retention › *Privacy mode*: *Pseudonymize* refuses every page, export, digest and API call that names people, and Power BI's `bi.Users` shows a salted hash instead of names (from its next refresh). *Off* restores both.
 
 **Retention.** Admin › Privacy and retention › *Retention*: days to keep the dashboard's audit log and the notification log, and when to clear the stored JSON of old records (0 keeps it; at least 200 days). Applied each night after a successful run; **Apply retention now** does it at once. To clear JSON from the job server instead, `M -Task PurgeJson -RetainDays 365` reports what would go and `-Apply` clears it (`-DeleteRows` removes those records altogether).
 
@@ -189,7 +189,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 | After | Do this |
 |---|---|
-| A change to the directory, the top of the organisation or the app categories, wanted on the dashboard now | Admin › Health › *Refresh the last 7 days*, or `M -Task RefreshDashboard` (every day) or `-SinceUtc 2026-10-01` |
+| A change to the directory, the top of the organization or the app categories, wanted on the dashboard now | Admin › Health › *Refresh the last 7 days*, or `M -Task RefreshDashboard` (every day) or `-SinceUtc 2026-10-01` |
 | A session setting changes (timeout, time zone, license databases) | `M -Task RebuildSessions` |
 | License history arrives for a period already built, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the Power BI model |
 | A release changes the flattening | `M -Task Reflatten` (every record flattened again, then sessions, `bi` and the dashboard) |
@@ -209,7 +209,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 
 ## Upgrades and renewals
 
-**A new release.** Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogues the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1` again with the new `copilot-insights` zip.
+**A new release.** Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1` again with the new `copilot-insights` zip.
 
 **The app's certificate.** Within 30 days of expiry, run `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` on the job server: a new certificate, its private key for the gMSA, uploaded to the app next to the old one, and its thumbprint in the settings. Remove the old certificate from the app after the next good run.
 
@@ -222,14 +222,14 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | Admin page | What it is for |
 |---|---|
 | Admin › Health | Pipeline runs and each step's freshness, directory coverage, the latest day with data, the app certificate, audit searches waiting, and a manual refresh |
-| Admin › Access | The top of the organisation, the access settings and license price, granting and removing roles, checking someone's access |
+| Admin › Access | The top of the organization, the access settings and license price, granting and removing roles, checking someone's access |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, and everything sent or not |
 | Admin › Alerts and digests | Alert recipients and thresholds, digests, manager and personal digests, the webhook, running the checks now |
 | Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size |
 | Admin › Privacy and retention | Privacy mode, retention of logs and JSON, the data API |
 | Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories |
-| Admin › Value names | Names for every catalogued code, one by one or by CSV |
+| Admin › Value names | Names for every cataloged code, one by one or by CSV |
 | Admin › Classifications and events | Job-family rules, use-case rules, and the events marked on trend charts |
 | Admin › Scheduled extracts | Aggregate CSV files written to a folder or share on a schedule |
 | Admin › Training records | Training attendance, by CSV |
@@ -245,11 +245,11 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | `SetAppCategory` | Put `-App` in `-Category` (Copilot Chat or In-App Copilot); `-Apply` rebuilds now |
 | `GrantRole` | Give `-Principal` (UPN, `DOMAIN\user` or `DOMAIN\Group`) a `-Role` |
 | `RevokeRole` | Take it away |
-| `SetOrgTop` | Make `-Upn` the top of the organisation, or `-Clear` |
+| `SetOrgTop` | Make `-Upn` the top of the organization, or `-Clear` |
 | `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost or LicenseCurrency to `-Value` |
 | `NameAgent` | Give agent `-AgentId` a `-FriendlyName` and `-Owner` |
 | `NameLabel` | Give label `-LabelId` a `-FriendlyName` and `-Rank` |
 | `PurgeJson` | Clear the stored JSON of records older than `-RetainDays` (`-Apply` to do it) |
-| `RebuildValueCatalog` | List every catalogued column's values again, from every flattened record (the installer does it once when upgrading) |
-| `ListValues` | The catalogued columns, or one column's values and names (`-ColumnId`, `-Path` for a CSV) |
-| `ImportValueNames` | Names for catalogued values from `-Path` |
+| `RebuildValueCatalog` | List every cataloged column's values again, from every flattened record (the installer does it once when upgrading) |
+| `ListValues` | The cataloged columns, or one column's values and names (`-ColumnId`, `-Path` for a CSV) |
+| `ImportValueNames` | Names for cataloged values from `-Path` |

@@ -267,7 +267,7 @@ IF OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
     );
 
 /*
-    The value catalogue: every distinct value of the columns that carry an
+    The value catalog: every distinct value of the columns that carry an
     opaque code or a short list - label ids, agent and app ids, license types,
     model names, regions - so an administrator can give each one a readable
     name (dash.ValueName, Admin > Value names). The flatten procedure adds each
