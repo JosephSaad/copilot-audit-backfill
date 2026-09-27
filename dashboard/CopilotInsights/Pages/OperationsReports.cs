@@ -237,7 +237,7 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
                 $"People are shown only where {Ctx.MinGroupSize} or more reached the site. Name labels and set their order in Admin > Reference data.", "full", CsvUrl()));
         }
 
-        static string Short(string url) => url.Replace("https://", "").Length > 48 ? url.Replace("https://", "")[..48] + "…" : url.Replace("https://", "");
+        static string Short(string url) => url.Replace("https://", "");
     }
 }
 

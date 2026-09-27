@@ -646,7 +646,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.ValueName (ColumnId, Value, Name, Note, Updat
             }
             catch (ArgumentException ex) { errors.Add(ex.Message); }
         }
-        return $"{saved} name(s) saved, {cleared} left without a name." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? " …" : ""));
+        return $"{saved} name(s) saved, {cleared} left without a name." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
     });
 
     public async Task<IActionResult> OnGetDownloadAsync(short col)
@@ -700,7 +700,7 @@ FROM OPENJSON(@json) WITH (Upn NVARCHAR(256) '$.u', Session NVARCHAR(190) '$.s',
 WHERE NOT EXISTS (SELECT 1 FROM dash.TrainingAttendance AS t WHERE t.Upn = s.Upn AND t.Session = s.Session AND t.AttendedOn = s.AttendedOn)
 GROUP BY s.Upn, s.Session, s.AttendedOn;",
                 new { by, json = System.Text.Json.JsonSerializer.Serialize(chunk.Select(x => new { u = x.Upn, s = x.Session, d = x.Date.ToString("yyyy-MM-dd") })) });
-        return $"{added} attendance record(s) added from {rows.Count} line(s)." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? " …" : ""));
+        return $"{added} attendance record(s) added from {rows.Count} line(s)." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
     });
 
     public Task<IActionResult> OnPostRemoveAsync(string? session, DateTime? date) => AdminChangeAsync(async () =>

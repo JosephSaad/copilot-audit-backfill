@@ -54,7 +54,7 @@
             @if (c.Children.Count > 0)
             {
                 <select aria-label="Look inside" data-navigate>
-                    <option value="">Look inside…</option>
+                    <option value="">Look inside a team</option>
                     @foreach (var k in c.Children)
                     {
                         <option value="@c.Url(path, org: k.Upn)">@k.Name (@k.PeopleBelow.ToString("#,0"))</option>

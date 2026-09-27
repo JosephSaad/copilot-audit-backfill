@@ -78,7 +78,7 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         var key = int.TryParse(Request.Query["app"], out var k) && apps.Any(a => a.AppKey == k) ? k : (int?)null;
         var options = string.Concat(apps.Select(a =>
             $"<option value=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"app={a.AppKey}"))}\"{(a.AppKey == key ? " selected" : "")}>{WebUtility.HtmlEncode(a.App)}</option>"));
-        Panels.Add(new("App", new HtmlString($"<select aria-label=\"App\" data-navigate><option value=\"\">Choose an app…</option>{options}</select>")));
+        Panels.Add(new("App", new HtmlString($"<select aria-label=\"App\" data-navigate><option value=\"\">Choose an app</option>{options}</select>")));
         if (key is null) { Notice = "Choose an app, or select one on the Apps page."; return; }
         AppName = apps.First(a => a.AppKey == key).App;
         var args = Ctx.Args(new { app = key });

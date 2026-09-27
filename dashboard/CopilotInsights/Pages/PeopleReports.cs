@@ -64,7 +64,7 @@ namespace CopilotInsights.Pages.Adoption
 namespace CopilotInsights.Pages.Security
 {
     /// <summary>Guests and external users in Copilot's records: who from outside is using it, and on what.</summary>
-    public sealed class GuestsModel(PageServices s, OpsData ops) : InsightsPage(s)
+    public sealed class GuestsModel(PageServices s) : InsightsPage(s)
     {
         public override string Title => "Guests and external users";
         public override string Persona => "Security";
