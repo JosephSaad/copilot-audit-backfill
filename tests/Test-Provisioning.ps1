@@ -213,6 +213,36 @@ Assert-That ((Add-SidToRightLine -Line 'SeBatchLogonRight = *S-1-5-32-544,*S-1-5
              'SeBatchLogonRight = *S-1-5-32-544,*S-1-5-32-551,*S-1-5-21-9') 'the batch-logon right gains the account, keeping who had it'
 Assert-That ($null -eq (Add-SidToRightLine -Line 'SeBatchLogonRight = *S-1-5-21-9' -Right 'SeBatchLogonRight' -Sid 'S-1-5-21-9')) 'and is left alone when the account has it'
 Assert-That ((Add-SidToRightLine -Line '' -Right 'SeBatchLogonRight' -Sid 'S-1-5-21-9') -eq 'SeBatchLogonRight = *S-1-5-21-9') 'or starts the line when nobody had it'
+
+Write-Host "`nSeveral tenants (Get-PipelineTenant, tools/Add-CopilotTenant.ps1)" -ForegroundColor Cyan
+$multi = @{
+    SqlServer = 'SQL1'; Database = 'CopilotAudit'; LicenceDatabase = 'CopilotLicenseEvents'; TenantId = 'contoso.onmicrosoft.com'; ClientId = 'c1'
+    CertificateThumbprint = 'AB12'; TargetDomain = 'contoso.local'; TenantName = 'Contoso'
+    Tenants = @(@{ Name = 'Fabrikam'; TenantId = 'fabrikam.onmicrosoft.com'; ClientId = 'f1'; Database = 'CopilotAudit_Fabrikam'; LicenceDatabase = 'CopilotLicenseEvents_Fabrikam'; TargetDomain = '' })
+}
+$ts = Get-PipelineTenant -Setting $multi
+Assert-That ($ts.Count -eq 2 -and $ts[0].Name -eq 'Contoso' -and $ts[1].Name -eq 'Fabrikam') 'each tenant is run: the top-level one first, then each listed'
+Assert-That ($ts[1].SqlServer -eq 'SQL1' -and $ts[1].CertificateThumbprint -eq 'AB12' -and $ts[1].Database -eq 'CopilotAudit_Fabrikam') 'a listed tenant inherits the shared values and overrides its own'
+$fab = Get-PipelineStep -Setting $ts[1] -Today $today -Root 'R:'
+Assert-That (@($fab | Where-Object { $_.Name -eq 'User directory from AD' }).Count -eq 0) 'an empty TargetDomain turns the directory step off for that tenant'
+Assert-That (@($fab | Where-Object { $_.Arguments.Database -eq 'CopilotAudit' }).Count -eq 0 -and $fab[0].Arguments.TenantId -eq 'fabrikam.onmicrosoft.com') 'and its steps load its own databases with its own app'
+Assert-That ((Get-PipelineTenant -Setting $multi -Only 'Fabrikam').Count -eq 1) '-Tenant runs one'
+$bad = try { Get-PipelineTenant -Setting $multi -Only 'Nobody'; '' } catch { $_.Exception.Message }
+Assert-That ($bad -like '*No tenant*Contoso, Fabrikam*') 'an unknown -Tenant lists the tenants there are'
+$shared = @{} + $multi; $shared.Tenants = @(@{ Name = 'Clash'; TenantId = 'x'; ClientId = 'y'; Database = 'CopilotAudit' })
+$bad = try { Get-PipelineTenant -Setting $shared; '' } catch { $_.Exception.Message }
+Assert-That ($bad -like '*its own*') 'two tenants cannot share a database'
+& {
+    . (Join-Path $root 'tools' 'Add-CopilotTenant.ps1') -Name Dummy -TenantId dummy
+    $more = Add-TenantSetting -Setting $multi -Tenant ([ordered]@{ Name = 'Northwind'; TenantId = 'nw'; ClientId = 'n1'; Database = 'CopilotAudit_Northwind' })
+    Assert-That (@($more.Tenants).Count -eq 2 -and $more.Tenants[1].Name -eq 'Northwind') 'adding a tenant keeps the ones there'
+    $dup = try { Add-TenantSetting -Setting $multi -Tenant @{ Name = 'Fabrikam'; Database = 'Other' }; '' } catch { $_.Exception.Message }
+    Assert-That ($dup -like '*already a tenant*') 'and refuses a name in use'
+    $text = & { param($n) . (Join-Path $root 'tools' 'Install-CopilotJobServer.ps1'); ConvertTo-SettingText $n } $more
+    $f = Join-Path $tmp 'multi.psd1'; Set-Content -LiteralPath $f -Value $text
+    $read = Import-PowerShellDataFile -LiteralPath $f
+    Assert-That (@($read.Tenants).Count -eq 2 -and $read.Tenants[1].Database -eq 'CopilotAudit_Northwind' -and $read.TenantName -eq 'Contoso') 'the settings file keeps every tenant through a rewrite'
+}
 }
 finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 

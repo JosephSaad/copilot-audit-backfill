@@ -1,3 +1,4 @@
+@inject CopilotInsights.Infrastructure.TenantAccessor Tenants
 @{
     var page = Model as InsightsPage;
     var viewer = page?.Viewer;
@@ -20,6 +21,15 @@
     {
         <div class="who">
             <span>@viewer.Name</span>
+            @if (Tenants.Many)
+            {
+                <select class="tenant" aria-label="Tenant" data-navigate>
+                    @foreach (var t in Tenants.All)
+                    {
+                        <option value="@(path)?tenant=@Uri.EscapeDataString(t.Name)" selected="@(t.Name == Tenants.Current.Name)">@t.Name</option>
+                    }
+                </select>
+            }
             <span class="scope-pill">@(viewer.OrgWide ? "Whole organisation" : viewer.InDirectory ? (viewer.PeopleBelow > 0 ? $"You and {viewer.PeopleBelow:#,0} people under you" : "Your own use") : "Not in the directory")</span>
             <button type="button" class="theme" id="theme-toggle" aria-label="Switch light or dark theme">◐</button>
         </div>
@@ -28,7 +38,7 @@
 <div class="shell">
     <nav class="side" aria-label="Personas">
         <a class="home @(path == "/" ? "on" : "")" href="/">Start</a>
-        @foreach (var g in Nav.For(viewer, page?.PrivacyMode ?? false))
+        @foreach (var g in Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many))
         {
             <div class="grp">
                 <div class="gname">@g.Persona</div>

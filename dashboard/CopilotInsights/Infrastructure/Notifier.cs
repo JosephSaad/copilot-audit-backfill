@@ -21,13 +21,28 @@ public sealed class Notifier(IServiceScopeFactory scopes, IOptions<InsightsOptio
         try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, options.Value.NotifierStartDelaySeconds)), stop); } catch (OperationCanceledException) { return; }
         while (!stop.IsCancellationRequested)
         {
-            try { await RunOnceAsync(stop); }
+            try { await RunAllAsync(stop); }
             catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "The notification checks failed"); }
             try { await Task.Delay(Interval, stop); } catch (OperationCanceledException) { return; }
         }
     }
 
-    /// <summary>One round of checks. Returns what it did, for Admin > Alerts and digests' "Run the checks now".</summary>
+    /// <summary>One round of checks in every tenant's database.</summary>
+    public async Task<List<string>> RunAllAsync(CancellationToken ct = default)
+    {
+        using var root = scopes.CreateScope();
+        var tenants = root.ServiceProvider.GetRequiredService<TenantAccessor>();
+        var done = new List<string>();
+        foreach (var t in tenants.All)
+        {
+            tenants.Use(t);
+            try { done.AddRange((await RunOnceAsync(ct)).Select(d => tenants.Many ? $"[{t.Name}] {d}" : d)); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "The notification checks failed for {Tenant}", t.Name); }
+        }
+        return done;
+    }
+
+    /// <summary>One round of checks in the current tenant's database. Returns what it did, for Admin > Alerts and digests' "Run the checks now".</summary>
     public async Task<List<string>> RunOnceAsync(CancellationToken ct = default)
     {
         var done = new List<string>();

@@ -3,10 +3,10 @@ using Microsoft.Extensions.Caching.Memory;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>Settings from dash.Setting, cached for a minute.</summary>
-public sealed class Settings(Db db, IMemoryCache cache)
+public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants)
 {
     public async Task<IReadOnlyDictionary<string, string?>> AllAsync() =>
-        (await cache.GetOrCreateAsync("dash-settings", async e =>
+        (await cache.GetOrCreateAsync(tenants.Key("dash-settings"), async e =>
         {
             e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
             var rows = await db.QueryAsync<(string Name, string? Value)>("SELECT Name, Value FROM dash.Setting");
@@ -21,8 +21,8 @@ public sealed class Settings(Db db, IMemoryCache cache)
 
     public void Invalidate()
     {
-        cache.Remove("dash-settings");
-        cache.Remove("privacy-mode");
+        cache.Remove(tenants.Key("dash-settings"));
+        cache.Remove(tenants.Key("privacy-mode"));
     }
 
     /// <summary>
@@ -30,7 +30,7 @@ public sealed class Settings(Db db, IMemoryCache cache)
     /// anyone but the viewer themselves, and bi.Users is pseudonymised for Power BI.
     /// </summary>
     public async Task<bool> PrivacyModeAsync() =>
-        await cache.GetOrCreateAsync("privacy-mode", async e =>
+        await cache.GetOrCreateAsync(tenants.Key("privacy-mode"), async e =>
         {
             e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
             try { return await db.ScalarAsync<string?>("SELECT Value FROM audit.PipelineSetting WHERE Name = N'PrivacyMode'") == "Pseudonymise"; }

@@ -33,6 +33,13 @@ public sealed class InsightsOptions
     /// </summary>
     public bool Notifications { get; set; } = true;
 
+    /// <summary>
+    /// Several Microsoft 365 tenants, each with its own Copilot database: a name and a connection
+    /// string each. The first is shown by default; viewers switch in the header. Empty for one
+    /// tenant, from ConnectionString.
+    /// </summary>
+    public List<TenantOption> Tenants { get; set; } = [];
+
     /// <summary>How long after start-up the first round of checks waits, in seconds.</summary>
     public int NotifierStartDelaySeconds { get; set; } = 60;
 }

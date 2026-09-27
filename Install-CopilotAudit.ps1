@@ -167,7 +167,7 @@ if ($Dashboard) { $copilotScripts += 'Create-CopilotDashboardSchema.sql', 'Creat
 foreach ($s in $copilotScripts) { Invoke-SqlFile $Database $s }
 if (-not $SkipLicenceDatabase) {
     Write-Step "Tables, views and procedures in $LicenceDatabase"
-    foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql') { Invoke-SqlFile $LicenceDatabase $s }
+    foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql', 'Create-AgentEventProcedure.sql') { Invoke-SqlFile $LicenceDatabase $s }
 }
 
 # The reporting time zone, stored where every procedure reads it (audit.ReportingTimeZone()).
@@ -215,6 +215,7 @@ if (-not $SkipLicenceDatabase) {
     if ($licRecords -gt 0) {
         Write-Done ("licence events: shredding {0:N0} record(s)..." -f $licRecords)
         Invoke-Sql -Catalog $LicenceDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents;'
+        Invoke-Sql -Catalog $LicenceDatabase -Sql 'EXEC audit.usp_ShredAgentEvents;'
     }
     else { $todo += "Backfill the licence history into $LicenceDatabase (deployment step 7), then run this again." }
 }

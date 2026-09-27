@@ -236,6 +236,167 @@ BEGIN
     RETURN COALESCE((SELECT Name FROM dash.ValueName WHERE ColumnId = @ColumnId AND Value = @Value), @Value);
 END;');
 
+/* ---- 2.3.0, second part: triage, preferences, actions, contracts, views, classifications ---- */
+
+/* Security's triage of each flagged interaction. */
+IF OBJECT_ID(N'dash.FlagCase', N'U') IS NULL
+    CREATE TABLE dash.FlagCase
+    (
+        RecordId    VARCHAR(64)     NOT NULL CONSTRAINT PK_DashFlagCase PRIMARY KEY,
+        Status      VARCHAR(16)     NOT NULL CONSTRAINT CK_DashFlagCase_Status CHECK (Status IN ('New', 'Investigating', 'Closed', 'FalsePositive')),
+        Owner       NVARCHAR(256)   NULL,
+        Note        NVARCHAR(2000)  NULL,
+        UpdatedBy   NVARCHAR(256)   NOT NULL,
+        UpdatedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashFlagCase_Updated DEFAULT (SYSUTCDATETIME())
+    );
+
+/* Each person's email choices: managers can opt out of their team digest, anyone can opt in to their own. */
+IF OBJECT_ID(N'dash.DigestPreference', N'U') IS NULL
+    CREATE TABLE dash.DigestPreference
+    (
+        Upn                 NVARCHAR(256)   NOT NULL CONSTRAINT PK_DashDigestPreference PRIMARY KEY,
+        ManagerDigestOptOut BIT             NOT NULL CONSTRAINT DF_DashDigestPreference_Out DEFAULT (0),
+        PersonalDigest      BIT             NOT NULL CONSTRAINT DF_DashDigestPreference_Personal DEFAULT (0),
+        UpdatedUtc          DATETIME2(0)    NOT NULL CONSTRAINT DF_DashDigestPreference_Updated DEFAULT (SYSUTCDATETIME())
+    );
+
+/* One send per person, kind and period: a restart mid-round never sends twice. */
+IF OBJECT_ID(N'dash.DigestSend', N'U') IS NULL
+    CREATE TABLE dash.DigestSend
+    (
+        Upn         NVARCHAR(256)   NOT NULL,
+        Kind        VARCHAR(16)     NOT NULL,   -- Manager | Personal
+        PeriodKey   VARCHAR(16)     NOT NULL,   -- 2026-W40, 2026-10
+        SentUtc     DATETIME2(0)    NOT NULL CONSTRAINT DF_DashDigestSend_Sent DEFAULT (SYSUTCDATETIME()),
+        Status      VARCHAR(16)     NOT NULL,
+        CONSTRAINT PK_DashDigestSend PRIMARY KEY (Upn, Kind, PeriodKey)
+    );
+
+/* The licence changes the dashboard exported for someone to apply, to measure what happened next. */
+IF OBJECT_ID(N'dash.LicenceAction', N'U') IS NULL
+    CREATE TABLE dash.LicenceAction
+    (
+        ActionId    BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenceAction PRIMARY KEY,
+        Kind        VARCHAR(16)     NOT NULL,   -- upgrade | revoke | leaver | wave
+        Upn         NVARCHAR(256)   NOT NULL,
+        ExportedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenceAction_Exported DEFAULT (SYSUTCDATETIME()),
+        ExportedBy  NVARCHAR(256)   NOT NULL,
+        INDEX IX_DashLicenceAction_Upn (Upn, ExportedUtc)
+    );
+
+/* Licence contracts, for the budget and renewal planner. */
+IF OBJECT_ID(N'dash.LicenceContract', N'U') IS NULL
+    CREATE TABLE dash.LicenceContract
+    (
+        ContractId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashLicenceContract PRIMARY KEY,
+        Name          NVARCHAR(200)   NOT NULL,
+        Seats         INT             NOT NULL CONSTRAINT CK_DashLicenceContract_Seats CHECK (Seats >= 0),
+        MonthlyPrice  DECIMAL(12, 2)  NOT NULL,
+        StartDate     DATE            NOT NULL,
+        RenewalDate   DATE            NOT NULL,
+        Note          NVARCHAR(400)   NULL,
+        UpdatedBy     NVARCHAR(256)   NOT NULL,
+        UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenceContract_Updated DEFAULT (SYSUTCDATETIME())
+    );
+
+/* Each person's saved views; one may be their start page. */
+IF OBJECT_ID(N'dash.SavedView', N'U') IS NULL
+    CREATE TABLE dash.SavedView
+    (
+        ViewId      INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashSavedView PRIMARY KEY,
+        Owner       NVARCHAR(256)   NOT NULL,   -- the viewer's UPN or Windows name
+        Name        NVARCHAR(100)   NOT NULL,
+        Url         NVARCHAR(600)   NOT NULL,   -- a path and query on this site
+        IsStart     BIT             NOT NULL CONSTRAINT DF_DashSavedView_Start DEFAULT (0),
+        CreatedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashSavedView_Created DEFAULT (SYSUTCDATETIME()),
+        INDEX IX_DashSavedView_Owner (Owner)
+    );
+
+/* Job titles to job families, first matching rule wins (LIKE patterns). */
+IF OBJECT_ID(N'dash.JobFamilyRule', N'U') IS NULL
+    CREATE TABLE dash.JobFamilyRule
+    (
+        RuleId      INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashJobFamilyRule PRIMARY KEY,
+        Pattern     NVARCHAR(200)   NOT NULL,   -- a LIKE pattern on bi.DimUser.JobTitle, such as %engineer%
+        Family      NVARCHAR(100)   NOT NULL,
+        Priority    INT             NOT NULL CONSTRAINT DF_DashJobFamilyRule_Priority DEFAULT (100),
+        UpdatedBy   NVARCHAR(256)   NOT NULL,
+        UpdatedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashJobFamilyRule_Updated DEFAULT (SYSUTCDATETIME())
+    );
+
+/* Use cases from the app and what the interaction did, first matching rule wins. */
+IF OBJECT_ID(N'dash.UseCaseRule', N'U') IS NULL
+BEGIN
+    CREATE TABLE dash.UseCaseRule
+    (
+        RuleId       INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashUseCaseRule PRIMARY KEY,
+        AppPattern   NVARCHAR(200)   NOT NULL,   -- a LIKE pattern on bi.DimApp.App
+        WebGrounded  BIT             NULL,       -- NULL: either
+        WithAgent    BIT             NULL,       -- NULL: either
+        UseCase      NVARCHAR(100)   NOT NULL,
+        Priority     INT             NOT NULL CONSTRAINT DF_DashUseCaseRule_Priority DEFAULT (100),
+        UpdatedBy    NVARCHAR(256)   NOT NULL,
+        UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashUseCaseRule_Updated DEFAULT (SYSUTCDATETIME())
+    );
+    INSERT INTO dash.UseCaseRule (AppPattern, WebGrounded, WithAgent, UseCase, Priority, UpdatedBy) VALUES
+        (N'%', NULL, 1, N'Working with an agent', 10, N'default'),
+        (N'%Teams%', NULL, NULL, N'Meetings and chats', 20, N'default'),
+        (N'Outlook', NULL, NULL, N'Email', 20, N'default'),
+        (N'Word', NULL, NULL, N'Writing documents', 20, N'default'),
+        (N'Excel', NULL, NULL, N'Analysing data', 20, N'default'),
+        (N'PowerPoint', NULL, NULL, N'Presentations', 20, N'default'),
+        (N'%Loop%', NULL, NULL, N'Collaborative notes', 20, N'default'),
+        (N'%OneNote%', NULL, NULL, N'Collaborative notes', 20, N'default'),
+        (N'%', 1, NULL, N'Research on the web', 50, N'default'),
+        (N'%', NULL, NULL, N'Asking questions (Copilot Chat)', 999, N'default');
+END;
+
+/* Markers on trend charts: a rollout wave, a training push, an outage, a policy change. */
+IF OBJECT_ID(N'dash.EventMarker', N'U') IS NULL
+    CREATE TABLE dash.EventMarker
+    (
+        MarkerId    INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashEventMarker PRIMARY KEY,
+        Day         DATE            NOT NULL,
+        Label       NVARCHAR(100)   NOT NULL,
+        Kind        VARCHAR(16)     NOT NULL CONSTRAINT CK_DashEventMarker_Kind CHECK (Kind IN ('Rollout', 'Training', 'Outage', 'Policy', 'Other')),
+        UpdatedBy   NVARCHAR(256)   NOT NULL,
+        INDEX IX_DashEventMarker_Day (Day)
+    );
+
+/* Scheduled CSV extracts to a folder or share. */
+IF OBJECT_ID(N'dash.Extract', N'U') IS NULL
+    CREATE TABLE dash.Extract
+    (
+        ExtractId   INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashExtract PRIMARY KEY,
+        Name        NVARCHAR(100)   NOT NULL,
+        Dataset     VARCHAR(32)     NOT NULL,
+        Folder      NVARCHAR(400)   NOT NULL,   -- a local path or \\server\share\folder the site's account may write
+        Frequency   VARCHAR(8)      NOT NULL CONSTRAINT CK_DashExtract_Frequency CHECK (Frequency IN ('Daily', 'Weekly', 'Monthly')),
+        DayOfWeek   TINYINT         NULL,
+        DayOfMonth  TINYINT         NULL,
+        HourLocal   TINYINT         NOT NULL CONSTRAINT DF_DashExtract_Hour DEFAULT (6),
+        Days        INT             NOT NULL CONSTRAINT DF_DashExtract_Days DEFAULT (30),
+        Enabled     BIT             NOT NULL CONSTRAINT DF_DashExtract_Enabled DEFAULT (1),
+        LastRunUtc  DATETIME2(0)    NULL,
+        LastStatus  NVARCHAR(400)   NULL,
+        CreatedBy   NVARCHAR(256)   NOT NULL
+    );
+
+MERGE dash.Setting AS t
+USING (VALUES
+    ('AlertWebhookFormat',     N'Teams', N'How alerts are posted to the webhook (its address is stored encrypted): Teams (a Workflows or incoming-webhook URL) or Json (any endpoint).'),
+    ('ManagerDigest',          N'Off',   N'Off, Weekly or Monthly: every manager with enough people under them gets their team''s leadership digest.'),
+    ('ManagerDigestMinPeople', N'10',    N'Managers with at least this many people under them get the manager digest.'),
+    ('ManagerDigestDay',       N'1',     N'The manager digest''s day: 0 Sunday to 6 Saturday (weekly), or 1 to 28 (monthly).'),
+    ('DigestHour',             N'7',     N'The hour the manager and personal digests go out, in the reporting time zone.'),
+    ('PersonalDigest',         N'On',    N'On lets people opt in to a weekly email of their own use (My Copilot > Email); Off hides the choice.'),
+    ('CertificateWarnDays',    N'30',    N'Alert when the pipeline''s app certificate expires within this many days (and again at 14 and 3).'),
+    ('RolloutWaveSize',        N'50',    N'The default number of people in a rollout wave.')
+) AS src (Name, Value, Description)
+ON t.Name = src.Name
+WHEN MATCHED AND ISNULL(t.Description, N'') <> src.Description THEN UPDATE SET Description = src.Description
+WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (src.Name, src.Value, src.Description);
+
 /* ---- Privacy and retention ------------------------------------------------ */
 
 /* Privacy mode lives in audit.PipelineSetting, which bi.Users reads. Owned by dbo like the
@@ -296,6 +457,16 @@ GRANT INSERT, UPDATE, DELETE ON dash.Target TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TimeSaving TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TrainingAttendance TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.DigestPreference TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.DigestSend TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.LicenceAction TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.LicenceContract TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.UseCaseRule TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.EventMarker TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.Extract TO CopilotInsightsApp;
 GRANT INSERT ON dash.AuditLog TO CopilotInsightsApp;
 GRANT INSERT ON dash.NotificationLog TO CopilotInsightsApp;
 GRANT EXECUTE ON dash.usp_RefreshDashboard TO CopilotInsightsApp;
@@ -314,7 +485,7 @@ DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),
                              (N'PipelineRunStep'), (N'PipelineSetting'), (N'LicenseSku'), (N'LicenseSkuDay'), (N'CopilotLicense'),
-                             (N'ValueCatalog'), (N'ValueCatalogColumn')) AS v (name)
+                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;

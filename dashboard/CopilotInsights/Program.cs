@@ -15,6 +15,7 @@ builder.Services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolic
 
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<TenantAccessor>();
 builder.Services.AddSingleton<Db>();
 builder.Services.AddSingleton<Settings>();
 builder.Services.AddSingleton<Freshness>();
@@ -57,6 +58,7 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
+app.Use((ctx, next) => TenantAccessor.SelectAsync(ctx, () => next()));
 app.MapRazorPages();
 app.MapDataApi();
 

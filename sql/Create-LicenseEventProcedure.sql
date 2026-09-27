@@ -105,7 +105,9 @@ BEGIN
                 ExtendedProperties NVARCHAR(MAX)  '$.ExtendedProperties' AS JSON
             ) AS t
         WHERE a.RecordId > @cursor AND a.RecordId <= @maxId
-          AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc);
+          AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc)
+          /* Copilot Studio's authoring records share the load (2.3.0): audit.usp_ShredAgentEvents takes them. */
+          AND a.Operation NOT LIKE N'Bot%';
 
         CREATE CLUSTERED INDEX CIX_evt ON #evt (RecordId);
 

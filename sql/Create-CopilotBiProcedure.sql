@@ -658,6 +658,33 @@ BEGIN
     WHERE r.rn = 1;
     SET @changes = @@ROWCOUNT;
 
+    /* Copilot Studio authoring events, from every licence database that has them (2.3.0). */
+    IF OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NOT NULL
+    BEGIN
+        TRUNCATE TABLE bi.FactAgentEvent;
+        DECLARE @agentDb SYSNAME, @agentSql NVARCHAR(MAX);
+        DECLARE agentDbs CURSOR LOCAL FAST_FORWARD FOR SELECT Name FROM @licDbs;
+        OPEN agentDbs;
+        FETCH NEXT FROM agentDbs INTO @agentDb;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            IF OBJECT_ID(QUOTENAME(@agentDb) + N'.audit.AgentEvent', N'U') IS NOT NULL
+            BEGIN
+                SET @agentSql = N'INSERT INTO bi.FactAgentEvent (RecordId, EventUtc, DateKey, Action, Operation, ActorUpn, ActorKey, BotId, BotSchemaName, ComponentName, ComponentType)
+                    SELECT e.RecordId, e.CreatedUtc, YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs), e.Action, e.Operation, e.ActorUpn,
+                           u.UserKey, e.BotId, e.BotSchemaName, e.ComponentName, e.ComponentType
+                    FROM ' + QUOTENAME(@agentDb) + N'.audit.AgentEvent AS e
+                    CROSS APPLY (SELECT CAST(e.CreatedUtc AT TIME ZONE ''UTC'' AT TIME ZONE @z AS DATETIME2(0)) AS LocalTs) AS t
+                    LEFT JOIN bi.DimUser AS u ON u.UserPrincipalName = e.ActorUpn
+                    WHERE NOT EXISTS (SELECT 1 FROM bi.FactAgentEvent AS x WHERE x.RecordId = e.RecordId);';
+                EXEC sys.sp_executesql @agentSql, N'@z SYSNAME', @z = @ReportingTimeZone;
+            END;
+            FETCH NEXT FROM agentDbs INTO @agentDb;
+        END;
+        CLOSE agentDbs;
+        DEALLOCATE agentDbs;
+    END;
+
     /* Licensed at the end of each day, from the first day with data to
        today: held at the instant before local midnight. */
     /*

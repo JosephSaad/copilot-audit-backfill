@@ -77,7 +77,7 @@ public static class AccessRules
 /// </remarks>
 public sealed class ViewerService(
     IHttpContextAccessor http, Db db, IMemoryCache cache, IOptions<InsightsOptions> options,
-    ILogger<ViewerService> log)
+    TenantAccessor tenants, ILogger<ViewerService> log)
 {
     readonly InsightsOptions _o = options.Value;
     Viewer? _viewer;
@@ -85,6 +85,12 @@ public sealed class ViewerService(
     public async Task<Viewer> GetAsync()
     {
         if (_viewer is not null) return _viewer;
+        return _viewer = await ResolveAsync();
+    }
+
+    /// <summary>The viewer in the current tenant's database, not cached: for pages that look across tenants.</summary>
+    public async Task<Viewer> ResolveAsync()
+    {
         var ctx = http.HttpContext ?? throw new InvalidOperationException("No request.");
         var user = ctx.User;
         var windowsName = user.Identity?.Name ?? "(anonymous)";
@@ -92,7 +98,7 @@ public sealed class ViewerService(
 
         var roles = await RolesForAsync(upn, windowsName, user);
         if (IsBootstrapAdmin(upn, windowsName, user)) roles.Add(Roles.Admin);
-        return _viewer = await BuildAsync(windowsName, upn, roles);
+        return await BuildAsync(windowsName, upn, roles);
     }
 
     async Task<Viewer> BuildAsync(string windowsName, string? upn, HashSet<string> roles)
@@ -152,7 +158,7 @@ public sealed class ViewerService(
     async Task<string?> ResolveUpnAsync(ClaimsPrincipal user, string windowsName)
     {
         var sid = OperatingSystem.IsWindows() && user.Identity is WindowsIdentity w ? w.User?.Value : null;
-        var key = "upn:" + (sid ?? windowsName);
+        var key = tenants.Key("upn:" + (sid ?? windowsName));
         if (cache.TryGetValue(key, out string? known)) return known;
         string? upn = null;
         if (sid is not null)

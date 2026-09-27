@@ -109,7 +109,9 @@ public class NavigationTests
     [Fact]
     public void Every_page_is_listed_for_someone_holding_every_role()
     {
-        var all = CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).Count();
-        Assert.Equal(all, Paths(V(1, roles: Roles.All)).Count);
+        var pages = CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).ToList();
+        Assert.Equal(pages.Count(p => !p.ManyTenants), Paths(V(1, roles: Roles.All)).Count);
+        /* With several tenants, the group overview too. */
+        Assert.Equal(pages.Count, CopilotInsights.Pages.Nav.For(V(1, roles: Roles.All), manyTenants: true).SelectMany(g => g.Pages).Count());
     }
 }

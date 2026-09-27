@@ -6,10 +6,10 @@ namespace CopilotInsights.Infrastructure;
 /// Whether the data is fresh: the banner every page shows when the rollups are older than
 /// FreshnessHours, or the last pipeline run failed. Worked out every five minutes, not per page.
 /// </summary>
-public sealed class Freshness(Db db, Settings settings, IMemoryCache cache)
+public sealed class Freshness(Db db, Settings settings, IMemoryCache cache, TenantAccessor tenants)
 {
     public async Task<string?> BannerAsync() =>
-        await cache.GetOrCreateAsync("freshness-banner", async e =>
+        await cache.GetOrCreateAsync(tenants.Key("freshness-banner"), async e =>
         {
             e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
             try

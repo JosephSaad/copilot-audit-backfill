@@ -2,7 +2,7 @@ using CopilotInsights.Infrastructure;
 
 namespace CopilotInsights.Pages;
 
-public sealed record NavPage(string Title, string Path, string? Role = null, bool Admin = false);
+public sealed record NavPage(string Title, string Path, string? Role = null, bool Admin = false, bool ManyTenants = false);
 public sealed record NavGroup(string Persona, string Who, IReadOnlyList<NavPage> Pages);
 
 /// <summary>The personas and their pages. A page with a Role lists named people and needs that role.</summary>
@@ -14,7 +14,7 @@ public static class Nav
             new("My use", "/me")]),
         new("Leadership", "Executives and department heads", [
             new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organisation", "/leadership/org"), new("Apps and agents", "/leadership/mix"),
-            new("Value and time saved", "/leadership/value")]),
+            new("Value and time saved", "/leadership/value"), new("Group overview", "/group", ManyTenants: true)]),
         new("Adoption", "Copilot programme lead", [
             new("Funnel and trend", "/adoption"), new("Retention and habit", "/adoption/retention"), new("Licence cohorts", "/adoption/cohorts"),
             new("Departments", "/adoption/departments"), new("Targets", "/adoption/targets"), new("New joiners", "/adoption/onboarding"),
@@ -29,7 +29,7 @@ public static class Nav
             new("Sensitive content", "/compliance"), new("Labelled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
             new("Resource access", "/compliance/access", Roles.Compliance)]),
         new("Agents", "Copilot Studio makers and CoE", [
-            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")]),
+            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")]),
         new("Enablement", "Training and champions", [
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
             new("Champions", "/enablement/champions", Roles.Enablement), new("People", "/enablement/people", Roles.Enablement)]),
@@ -58,12 +58,13 @@ public static class Nav
     /// Organization). The navigation and the start page show only these; the rest are not listed.
     /// </summary>
     public static bool Allowed(NavPage page, Viewer viewer, bool privacyMode = false) =>
-        page.Admin ? viewer.IsAdmin
+        page.ManyTenants ? (viewer.OrgWide || viewer.InDirectory)
+        : page.Admin ? viewer.IsAdmin
                    : (viewer.OrgWide || viewer.InDirectory) && (page.Role is null || (!privacyMode && viewer.Has(page.Role)));
 
     /// <summary>The groups and pages this viewer may open; a group with none is left out.</summary>
-    public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false) =>
+    public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false) =>
         viewer is null ? [] :
-        Groups.Select(g => g with { Pages = g.Pages.Where(p => Allowed(p, viewer, privacyMode)).ToList() })
+        Groups.Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode)).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
 }

@@ -83,3 +83,32 @@ WHEN NOT MATCHED THEN INSERT (App, Minutes, UpdatedBy) VALUES (s.App, s.Minutes,
 IF NOT EXISTS (SELECT 1 FROM dash.Subscription)
     INSERT INTO dash.Subscription (Name, Report, Recipients, Frequency, DayOfWeek, HourLocal, Days, CreatedBy, LastSentUtc)
     VALUES (N'Monday leadership summary', 'Leadership', N'leadership@contoso.com', 'Weekly', 1, 7, 30, N'demo', SYSUTCDATETIME());
+
+/* ---- Copilot Studio authoring: agents created, published, shared, changed, one deleted ---- */
+IF OBJECT_ID(N'audit.AgentEvent', N'U') IS NOT NULL
+BEGIN
+    DELETE FROM audit.AgentEvent;
+    WITH makers AS (SELECT TOP (6) UserPrincipalName, ROW_NUMBER() OVER (ORDER BY CHECKSUM(UserPrincipalName)) AS n
+                    FROM bi.DimUser WHERE DirectoryStatus = N'Found' AND AccountEnabled = 1 ORDER BY CHECKSUM(UserPrincipalName)),
+    agents AS (SELECT a.n, a.Schema_, a.Maker, a.Born FROM (VALUES
+                   (1, N'cr1a2_hrHelper', 1, 160), (2, N'cr1a2_itServiceDesk', 2, 140), (3, N'cr1a2_policyFinder', 3, 120),
+                   (4, N'cr1a2_travelBooker', 4, 90), (5, N'cr1a2_salesCoach', 5, 60), (6, N'cr1a2_contractReview', 6, 35),
+                   (7, N'cr1a2_onboardingBuddy', 1, 20), (8, N'cr1a2_expenseChecker', 2, 9)) AS a (n, Schema_, Maker, Born)),
+    steps AS (SELECT s.Op, s.Offset FROM (VALUES
+                  (N'BotCreate', 0), (N'BotComponentCreate', 1), (N'BotComponentCreate', 2), (N'BotComponentUpdate', 4),
+                  (N'BotUpdateOperation-BotPublish', 5), (N'BotUpdateOperation-BotShare', 6), (N'BotComponentUpdate', 20),
+                  (N'BotUpdateOperation-BotPublish', 21)) AS s (Op, Offset))
+    INSERT INTO audit.AgentEvent (RecordId, CreatedUtc, Operation, Action, ActorUpn, BotId, BotSchemaName, ComponentName, ComponentType)
+    SELECT CONCAT('demo-agent-', a.n, '-', ROW_NUMBER() OVER (PARTITION BY a.n ORDER BY s.Offset, s.Op)),
+           DATEADD(HOUR, 10, CAST(DATEADD(DAY, -a.Born + s.Offset, @today) AS DATETIME2(0))), s.Op,
+           CASE WHEN s.Op = N'BotCreate' THEN 'Created' WHEN s.Op LIKE N'%Publish%' THEN 'Published' WHEN s.Op LIKE N'%Share%' THEN 'Shared'
+                WHEN s.Op LIKE N'BotComponent%' THEN 'Component' ELSE 'Updated' END,
+           m.UserPrincipalName, CONCAT('00000000-0000-4000-9000-00000000000', a.n), a.Schema_,
+           CASE WHEN s.Op LIKE N'BotComponent%' THEN CONCAT(a.Schema_, '.topic.Greeting') END, CASE WHEN s.Op LIKE N'BotComponent%' THEN N'Topic' END
+    FROM agents AS a JOIN makers AS m ON m.n = a.Maker CROSS JOIN steps AS s
+    WHERE DATEADD(DAY, -a.Born + s.Offset, @today) <= @today;
+    /* One agent retired. */
+    INSERT INTO audit.AgentEvent (RecordId, CreatedUtc, Operation, Action, ActorUpn, BotId, BotSchemaName)
+    SELECT 'demo-agent-4-del', DATEADD(DAY, -12, CAST(@today AS DATETIME2(0))), N'BotDelete', 'Deleted', ActorUpn, BotId, BotSchemaName
+    FROM audit.AgentEvent WHERE RecordId = 'demo-agent-4-1';
+END;

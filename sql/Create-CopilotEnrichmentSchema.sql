@@ -70,6 +70,9 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL
     ALTER TABLE audit.CopilotLicense ADD EntraAccountEnabled BIT NULL;
 IF COL_LENGTH(N'audit.CopilotLicense', N'EmployeeHireDate') IS NULL
     ALTER TABLE audit.CopilotLicense ADD EmployeeHireDate DATE NULL;
+/* Member or Guest, from the same lookup: guests using Copilot are a report of their own. */
+IF COL_LENGTH(N'audit.CopilotLicense', N'UserType') IS NULL
+    ALTER TABLE audit.CopilotLicense ADD UserType NVARCHAR(20) NULL;
 
 /*
     The tenant's licence pool, from /subscribedSkus (LicenseAssignment.Read.All),

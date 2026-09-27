@@ -472,6 +472,28 @@ SELECT SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenceSt
        PromptCount, SpanMinutes, IsMultiTurn
 FROM bi.FactSession;');
 
+/* Copilot Studio authoring: one row per create, publish, share, update, delete or component
+   change, copied whole from every licence database's audit.AgentEvent at each refresh (2.3.0). */
+IF OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NULL
+    CREATE TABLE bi.FactAgentEvent
+    (
+        RecordId      VARCHAR(64)     NOT NULL CONSTRAINT PK_FactAgentEvent PRIMARY KEY,
+        EventUtc      DATETIME2(0)    NOT NULL,
+        DateKey       INT             NOT NULL,
+        Action        VARCHAR(16)     NOT NULL,
+        Operation     NVARCHAR(100)   NOT NULL,
+        ActorUpn      NVARCHAR(512)   NULL,
+        ActorKey      INT             NULL,       -- bi.DimUser, where the maker is in it
+        BotId         NVARCHAR(100)   NULL,
+        BotSchemaName NVARCHAR(200)   NULL,
+        ComponentName NVARCHAR(200)   NULL,
+        ComponentType NVARCHAR(100)   NULL,
+        INDEX IX_FactAgentEvent_Date (DateKey)
+    );
+EXEC (N'CREATE OR ALTER VIEW bi.AgentEvents AS
+SELECT RecordId, EventUtc, DateKey, Action, Operation, ActorKey, BotId, BotSchemaName, ComponentName, ComponentType
+FROM bi.FactAgentEvent;');
+
 EXEC (N'CREATE OR ALTER VIEW bi.LicenceChanges AS
 SELECT ChangedUtc, DateKey, UserKey, SkuKey, Change, ChangedBy
 FROM bi.FactLicenceChange;');

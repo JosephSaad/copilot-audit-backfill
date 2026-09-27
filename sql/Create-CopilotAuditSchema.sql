@@ -233,3 +233,8 @@ IF OBJECT_ID(N'audit.PipelineRunStep', N'U') IS NULL
         ExitCode   INT             NULL,
         CONSTRAINT PK_PipelineRunStep PRIMARY KEY (RunId, StepNo)
     );
+
+/* The app certificate each run signed in with, and when it expires: the dashboard warns 30, 14
+   and 3 days before (2.3.0). */
+IF COL_LENGTH(N'audit.PipelineRun', N'CertificateThumbprint') IS NULL
+    ALTER TABLE audit.PipelineRun ADD CertificateThumbprint VARCHAR(64) NULL, CertificateExpiresUtc DATETIME2(0) NULL, CertificateSubject NVARCHAR(400) NULL;

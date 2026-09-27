@@ -396,6 +396,9 @@ function Invoke-Main {
     if ($copilotSkus.Count -eq 0) {
         Write-Log "No subscribed SKU matched '$CopilotSkuMatch'. Every user will be recorded as unlicensed." -Level WARN
     }
+    else {
+        Write-Log ('Copilot SKUs in this tenant: ' + (($copilotSkus.Values | Sort-Object -Unique) -join ', ') + '.')
+    }
     # The same response carries the seat counts: bought against assigned, for the licence pool report.
     $pool = @(ConvertTo-LicensePoolRow -Sku $skus -CopilotSku $copilotSkus)
     $poolSaved = Save-LicensePool -Rows $pool
@@ -403,9 +406,6 @@ function Invoke-Main {
         Write-Log ("Licence pool {0}: {1:N0} bought, {2:N0} assigned." -f $p.SkuPartNumber, ($p.Enabled + $p.Warning), $p.Consumed)
     }
     Write-Log "Licence pool written: $poolSaved SKU(s)."
-    else {
-        Write-Log ('Copilot SKUs in this tenant: ' + (($copilotSkus.Values | Sort-Object -Unique) -join ', ') + '.')
-    }
 
     # ---- Which users to look up -------------------------------------------
     $upns = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -431,7 +431,7 @@ WHERE UserPrincipalName IS NOT NULL;
     }
 
     # ---- Look each one up --------------------------------------------------
-    $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate'
+    $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType'
     $licRows = New-Object System.Collections.Generic.List[object]
     $notFound = 0
 
@@ -452,7 +452,7 @@ WHERE UserPrincipalName IS NOT NULL;
             $licRows.Add([pscustomobject]@{
                 UserPrincipalName = $upn; IsCopilotLic = $null; SkuPartNumber = $null
                 LicensedSinceUtc = $null; CapabilityStatus = $null; DirectoryStatus = 'NotFound'
-                EntraAccountEnabled = $null; EmployeeHireDate = $null
+                EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null
             })
             continue
         }
@@ -487,13 +487,14 @@ WHERE UserPrincipalName IS NOT NULL;
             DirectoryStatus   = 'Found'
             EntraAccountEnabled = $(if ($null -ne (Get-Prop $user 'accountEnabled')) { [int] [bool] (Get-Prop $user 'accountEnabled') } else { $null })
             EmployeeHireDate  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeHireDate'))
+            UserType          = $(if (Get-Prop $user 'userType') { "$(Get-Prop $user 'userType')" } else { $null })
         })
     }
 
     $n = Save-Rows -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `
                    -ColumnOrder @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber',
                                   'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
-                                  'EntraAccountEnabled', 'EmployeeHireDate') `
+                                  'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') `
                    -ColumnTypes @{
                        UserPrincipalName = [System.Data.SqlDbType]::NVarChar
                        IsCopilotLic      = [System.Data.SqlDbType]::Bit
@@ -503,6 +504,7 @@ WHERE UserPrincipalName IS NOT NULL;
                        DirectoryStatus   = [System.Data.SqlDbType]::NVarChar
                        EntraAccountEnabled = [System.Data.SqlDbType]::Bit
                        EmployeeHireDate  = [System.Data.SqlDbType]::Date
+                       UserType          = [System.Data.SqlDbType]::NVarChar
                    }
     Write-Log "Licences written: $n."
 

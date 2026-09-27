@@ -508,6 +508,10 @@ function Invoke-DerivedTableRefresh {
         Write-Log ('Shredding licence events from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
         Invoke-Sql -Sql 'EXEC audit.usp_ShredLicenseEvents @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
     }
+    if (Test-Proc 'audit.usp_ShredAgentEvents') {
+        Write-Log ('Shredding agent build and publish events from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
+        Invoke-Sql -Sql 'EXEC audit.usp_ShredAgentEvents @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
+    }
     if (Test-Proc 'audit.usp_BuildCopilotSessions') {
         $licDb = $(if ($SessionLicenceDatabase) { $SessionLicenceDatabase } else { $null })
         # Incremental from the load's start where the installed procedure can

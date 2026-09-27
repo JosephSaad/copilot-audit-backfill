@@ -184,7 +184,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
     /// <summary>An app-only token for Exchange Online SMTP (scope outlook.office365.com), cached until shortly before it expires.</summary>
     async Task<string> TokenAsync(MailConfig cfg, CancellationToken ct)
     {
-        var key = $"exo-token:{cfg.TenantId}:{cfg.ClientId}";
+        var key = $"exo-token:{cfg.TenantId}:{cfg.ClientId}";   // per app, so the same across dashboard tenants
         if (cache.TryGetValue(key, out string? t) && t is not null) return t;
         using var http = httpFactory.CreateClient();
         var r = await http.PostAsync($"https://login.microsoftonline.com/{Uri.EscapeDataString(cfg.TenantId!)}/oauth2/v2.0/token",

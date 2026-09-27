@@ -96,13 +96,14 @@ function Write-Done([string] $Text) { Write-Information "    $Text" -Information
 
 $script:SettingOrder = 'SqlServer', 'Database', 'LicenceDatabase', 'TrustServerCertificate', 'TenantId', 'ClientId',
                        'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'Dashboard', 'HistoryDays',
-                       'LogPath', 'LogRetentionDays'
+                       'LogPath', 'LogRetentionDays', 'TenantName', 'Tenants'
 
 function Get-DefaultSetting {
     [ordered]@{
         SqlServer = ''; Database = 'CopilotAudit'; LicenceDatabase = 'CopilotLicenseEvents'; TrustServerCertificate = $false
         TenantId = ''; ClientId = ''; CertificateThumbprint = ''; TargetDomain = ''; EmployeeTypes = @('EMP', 'NONW')
         Dashboard = $false; HistoryDays = 180; LogPath = (Join-Path $script:Root 'logs'); LogRetentionDays = 90
+        TenantName = ''; Tenants = @()   # more tenants: tools\Add-CopilotTenant.ps1
     }
 }
 
@@ -123,6 +124,7 @@ function ConvertTo-SettingText {
     function Q($v) {
         if ($v -is [bool]) { return $(if ($v) { '$true' } else { '$false' }) }
         if ($v -is [int] -or $v -is [long]) { return "$v" }
+        if ($v -is [System.Collections.IDictionary]) { return '@{ ' + ((@($v.Keys) | ForEach-Object { "$_ = $(Q $v[$_])" }) -join '; ') + ' }' }
         if ($v -is [array]) { return '@(' + ((@($v) | ForEach-Object { Q $_ }) -join ', ') + ')' }
         "'" + ([string] $v).Replace("'", "''") + "'"
     }
