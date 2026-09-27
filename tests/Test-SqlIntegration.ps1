@@ -1827,7 +1827,7 @@ $installer = Join-Path $root 'Install-CopilotAudit.ps1'
 $maint = Join-Path $root 'tools' 'Invoke-CopilotMaintenance.ps1'
 $conn = @{ SqlServer = $script:ITServer; TrustServerCertificate = $true }
 if (-not $script:ITIntegrated) {
-    $conn.SqlCredential = [pscredential]::new($script:ITUser, (ConvertTo-SecureString $script:ITPassword -AsPlainText -Force))
+    $conn.SqlCredential = [pscredential]::new($script:ITUser, [Net.NetworkCredential]::new('', $script:ITPassword).SecurePassword)
 }
 $freshDb = "$($script:ITDatabase)_Fresh"; $freshLic = "$($script:ITDatabase)_FreshLic"
 try {
