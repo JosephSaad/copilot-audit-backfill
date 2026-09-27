@@ -630,14 +630,14 @@ BEGIN
     WHERE d.AppCategory <> COALESCE(m.AppCategory, N'In-App Copilot');
 
     /* Premium use depends on the category, so an app that changed category (or was new in this run
-       and mapped to a category other than the default) has its stored flags set again, on every day. */
-    DECLARE @premFrom INT = NULL;
+       and mapped to a category other than the default) has its stored flags set again, on every day,
+       and the dashboard is told to roll up again from its first day. */
+    DECLARE @recatFrom INT = NULL;
     IF EXISTS (SELECT 1 FROM @recat)
     BEGIN
-        DECLARE @fixed TABLE (DateKey INT NOT NULL);
+        SET @recatFrom = (SELECT MIN(DateKey) FROM bi.FactInteraction WHERE AppKey IN (SELECT AppKey FROM @recat));
         UPDATE f
         SET PremiumUse = p.PremiumUse
-        OUTPUT inserted.DateKey INTO @fixed
         FROM bi.FactInteraction AS f
         JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
         CROSS APPLY (SELECT CAST(CASE WHEN f.LicenseStatusKey = 1
@@ -645,7 +645,6 @@ BEGIN
                                             OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
                                       THEN 1 ELSE 0 END AS BIT) AS PremiumUse) AS p
         WHERE f.AppKey IN (SELECT AppKey FROM @recat) AND f.PremiumUse <> p.PremiumUse;
-        SET @premFrom = (SELECT MIN(DateKey) FROM @fixed);
     END;
 
     /* ---- 6. The smaller facts, rebuilt whole ------------------------------- */
@@ -748,9 +747,9 @@ BEGIN
 
     INSERT INTO bi.RefreshRun
         (StartedUtc, EndedUtc, SinceUtc, ReportingTimeZone, LicenseEventDatabase, InteractionRows, InteractionsSkipped,
-         SessionRows, LicenseChangeRows, LicensedDayRows, SessionRunId, AccessedResourceRows, PremiumFromDateKey)
+         SessionRows, LicenseChangeRows, LicensedDayRows, SessionRunId, AccessedResourceRows, RecategorizedFromDateKey)
     VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @ReportingTimeZone, @LicenseEventDatabase, @interactions, @skipped,
-            @sessions, @changes, @days, @sessRun, @resources, @premFrom);
+            @sessions, @changes, @days, @sessRun, @resources, @recatFrom);
 
     COMMIT TRANSACTION;
 

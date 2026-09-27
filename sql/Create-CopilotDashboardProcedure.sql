@@ -137,14 +137,14 @@ BEGIN
         SET @fromKey = YEAR(@localDay) * 10000 + MONTH(@localDay) * 100 + DAY(@localDay);
     END;
 
-    /* A bi refresh since the last rollup that corrected Premium use on earlier days (an app changed
-       category) moves the start back to the first of them. */
+    /* A bi refresh since the last rollup that changed an app's category moves the start back to the
+       first day that app was used: Premium use and ChatInteractions depend on the category. */
     DECLARE @biRun INT = (SELECT MAX(RunId) FROM bi.RefreshRun);
     IF @fromKey IS NOT NULL
     BEGIN
-        DECLARE @premFrom INT = (SELECT MIN(b.PremiumFromDateKey) FROM bi.RefreshRun AS b
+        DECLARE @recatFrom INT = (SELECT MIN(b.RecategorizedFromDateKey) FROM bi.RefreshRun AS b
                                  WHERE b.RunId > ISNULL((SELECT TOP (1) r.BiRunId FROM dash.RefreshRun AS r WHERE r.BiRunId IS NOT NULL ORDER BY r.RunId DESC), 0));
-        IF @premFrom < @fromKey SET @fromKey = @premFrom;
+        IF @recatFrom < @fromKey SET @fromKey = @recatFrom;
     END;
 
     DECLARE @noAgent INT = (SELECT AgentKey FROM bi.DimAgent WHERE AgentId = N'(none)');
