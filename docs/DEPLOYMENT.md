@@ -14,7 +14,7 @@ Written for a new install of release 2.3.0. Hands-on time is about a day, plus a
 - [Phase 5: Connect Power BI](#phase-5-connect-power-bi) (steps 14-16)
 - [Phase 6: Add the Copilot agent in Power BI](#phase-6-add-the-copilot-agent-in-power-bi) (steps 17-20)
 - [Check it's healthy](#check-its-healthy) (step 21)
-- [Phase 7: The Copilot Insights dashboard (optional)](#phase-7-the-copilot-insights-dashboard-optional) (steps 22-24)
+- [Phase 7: The Copilot Insights dashboard (optional)](#phase-7-the-copilot-insights-dashboard-optional) (steps 22-25)
 - [Running it](#running-it)
 - [What has run in the lab](#what-has-run-in-the-lab)
 - [Not yet proven in a live deployment](#not-yet-proven-in-a-live-deployment)
@@ -371,11 +371,20 @@ The on-premises data gateway's login needs the `bi` views and nothing else. The 
 .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -ReportingAccount 'CORP\svc-pbigateway'
 ```
 
-### Step 15. Build the model
+### Step 15. Open the ready-made model
 
-*Power BI Desktop. About 2–3 hours.*
+*Power BI Desktop (September 2026 or later). About 30 minutes.*
 
-**Get data → SQL Server**, server `SQLPROD01`, database `CopilotAudit`, **Import**. Select these views:
+The release ships the model as a Power BI project: `powerbi\CopilotInsights\CopilotInsights.pbip`, a semantic model in TMDL over every `bi` view, with its relationships, measures, descriptions and row-level security, and an empty report to build on in the dashboard's colours.
+
+1. Open `CopilotInsights.pbip` in Power BI Desktop.
+2. **Transform data › Edit parameters**: `SqlServer` (`SQLPROD01`; for Azure SQL, its server name) and `SqlDatabase` (`CopilotAudit`). Leave `RangeStart` and `RangeEnd` as they are.
+3. **Refresh**. On the lab's 180,000-interaction demo this took about a minute.
+4. **Incremental refresh** on `Interactions` and `AccessedResources` (their queries already filter `ActivityHour` between `RangeStart` and `RangeEnd`): in each table's *Incremental refresh* settings, archive 2 years and refresh the last 4 days, since each night reloads from about 72 hours back.
+5. **Modeling › Manage roles** shows *Organisation*: `Users` filtered to the people the viewer may see in `bi.OrgSecurity`, by `USERPRINCIPALNAME()`. *View as* the role to check it. In privacy mode `bi.OrgSecurity` is empty and the role sees nobody: share `DepartmentWeek` instead.
+6. Build the report pages you want on the measures below, then **File › Save**. The project is plain text, so it can live in source control.
+
+What the model holds, for reference:
 
 | View | One row per | Relates on |
 |---|---|---|
@@ -390,12 +399,16 @@ The on-premises data gateway's login needs the `bi` views and nothing else. The 
 | `bi.LicensePool` | SKU per day: seats bought, assigned, available | none (a table of its own) |
 | `bi.ValueNames` (with the dashboard) | a catalogued code and the name an administrator gave it | none |
 | `bi.DepartmentWeek` (with the dashboard) | department per week, groups under the minimum size hidden | none |
+| `bi.AgentEvents` | Copilot Studio authoring event (created, published, shared, changed, deleted) | DateKey, ActorKey (to Users) |
+| `bi.UseCases` (with the dashboard) | combination of app, web search and agent, with its use case | UseCaseKey (from Interactions) |
+| `bi.JobFamilies` (with the dashboard) | person and job family | UserKey (one-to-one with Users) |
+| `bi.EventMarkers` (with the dashboard) | event marked on the trends | DateKey |
 
-1. **Relationships:** each fact's key to the dimension with the same key, one-to-many, single direction.
-2. **Mark `Calendar` as the date table**, on its `Date` column.
-3. **Incremental refresh on `Interactions` and `AccessedResources`:** create the `RangeStart` and `RangeEnd` date/time parameters and filter `ActivityHour` between them (on or after `RangeStart`, before `RangeEnd`). Refresh at least the last 4 days: each night reloads from about 72 hours back, the 48-hour lookback plus the day since the last run. `ActivityHour` is local time cut to the hour, so it costs almost nothing in memory. The other facts are small enough to refresh whole.
-4. **Row-level security from the org chart** (optional, with the dashboard installed): relate `OrgSecurity[UserKey]` to `Users[UserKey]` (many-to-one, filtering both ways, with security filtering in both directions), then add a role *Organisation* with the filter `[ViewerUpn] = USERPRINCIPALNAME()` on `OrgSecurity`, and add everyone who may open the report to it. A manager then sees everyone under them; the top of the organisation, the people reporting to them and anyone granted Organization in the dashboard see everyone. The view resolves people granted Organization directly, not through a group: grant it to people for Power BI. Test with *View as* in Power BI Desktop.
-5. **Measures**, as a starting point:
+- **Relationships:** each fact's key to the dimension with the same key, one-to-many, single direction; `JobFamilies` one-to-one with `Users`, both ways. `Calendar` is the date table.
+- **Premium use:** `Interactions[PremiumUse]` is true when the interaction needed the Premium licence (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat over work content), the same rule as the dashboard's train and revoke lists.
+- **Row-level security:** the *Organisation* role. A manager sees everyone under them; the top of the organisation, the people reporting to them and anyone granted Organization in the dashboard see everyone. The view resolves people granted Organization directly, not through a group: grant it to people for Power BI.
+- **To change the model's shape** after a release changes a view, run `python powerbi\generate_model.py` from the source package (it rewrites the project; lineage tags are stable, so reports keep their bindings), or edit it in Desktop.
+- **Measures** in the model (a selection):
 
 ```dax
 Interactions = COUNTROWS ( Interactions )
@@ -411,7 +424,13 @@ Active licensed users =
     RETURN CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",
                        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )
 Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
+Premium interactions = CALCULATE ( [Interactions], Interactions[PremiumUse] = TRUE () )
+Premium share = DIVIDE ( [Premium interactions], [Interactions] )
+Rank by premium use = IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,
+    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Premium interactions] ) )
 ```
+
+The model also has *Rank by general use* and *Rank by free use*, *Premium users*, *Free interactions*, the session, licence-change, resource, agent-authoring and licence-pool measures, each with a description.
 
 **Licence at the time of use** is on the facts: *Licensed*, *Not licensed*, or *Unknown* when there is neither licence history nor a current licence record. `Users[CopilotLicenceToday]` answers a different question. Slice by organisation with `Users[OrgLevel1]` to `[OrgLevel15]`, where level 1 is the top of the chain.
 
@@ -445,16 +464,16 @@ Copilot's usage is billed against the capacity, alongside the model's refreshes 
 
 *Power BI Desktop. About 1–2 hours.*
 
-The `bi` views already give Copilot a star schema with readable table names. Three more things help it most:
+The ready-made model already hides every key column and `ActivityHour`, and describes each table, column and measure (definition first, since Copilot reads only the first 200 characters). Two things remain:
 
-- **Hide every key column** (`DateKey`, `UserKey`, `AppKey` and the rest) and `ActivityHour`. Copilot should reach them only through relationships.
 - **Turn on Q&A** for the model. "Prep data for AI" in the next step requires it.
-- **Write descriptions.** Copilot reads only the first 200 characters of each, so put the definition first. These matter most:
+- **Check the descriptions** read right for your organisation. These matter most:
 
 | Object | Description |
 |---|---|
 | Interactions (table) | One row per Microsoft 365 Copilot prompt and response, from the Purview audit log. Contains no prompt or response text. |
-| Sessions (table) | One row per session: a person's prompts with less than 60 minutes between them, within one Eastern-time day. |
+| Sessions (table) | One row per session: a person's prompts with less than 60 minutes between them, within one day in the reporting time zone. |
+| Interactions[PremiumUse] | True when the interaction needed the Premium licence: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content. |
 | LicensedDays (table) | One row per person per day on which they held a Copilot licence at the end of the day. Use for licensed-user counts on a date. |
 | LicenceStatuses[LicenceStatus] | Whether the person held a Copilot licence when the interaction happened: Licensed, Not licensed, or Unknown (no record either way). |
 | Users[CopilotLicenceToday] | Today's Copilot licence. Not for past periods; use LicenceStatus for those. |
@@ -592,7 +611,24 @@ A member of `-AdminPrincipal` opens the site and goes to **Admin › Access**: t
 
 *Browser. Needs a mailbox or an SMTP relay.*
 
-In **Admin › Email**, choose Exchange Online (the mailbox's password, or OAuth with an app holding `SMTP.SendAsApp`) or an SMTP server on any port, with its user name and password. **Send a test**. Then in **Admin › Alerts and digests**, set who hears about pipeline failures, security signals, licences and drops in use, and add the digests. [DASHBOARD.md](DASHBOARD.md#email-alerts-and-digests) has the details, including when Exchange Online stops accepting passwords.
+In **Admin › Email**, choose Exchange Online (the mailbox's password, or OAuth with an app holding `SMTP.SendAsApp`) or an SMTP server on any port, with its user name and password. **Send a test**. Then in **Admin › Alerts and digests**, set who hears about pipeline failures, security signals, licences and drops in use, add the digests, and optionally the manager and personal digests and a Teams or ServiceNow webhook. [DASHBOARD.md](DASHBOARD.md#email-alerts-and-digests) has the details, including when Exchange Online stops accepting passwords. [OPERATIONS.md](OPERATIONS.md) covers everything after this.
+
+### Step 25. More than one tenant (optional)
+
+*Job server and web server, as an administrator. About an hour per tenant, plus its history load.*
+
+For a group with several Microsoft 365 tenants, each gets its own app registration and pair of databases, and one dashboard spans them:
+
+```powershell
+# job server: the app in the new tenant, its databases, and its place in the settings
+.\tools\Add-CopilotTenant.ps1 -Name Fabrikam -TenantId fabrikam.onmicrosoft.com -TargetDomain fabrikam.local
+.\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam
+# web server: every tenant, the first one first
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.3.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+    -Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess
+```
+
+The new tenant's admin consents to the same three Graph permissions for its own app. The nightly task then loads every tenant in turn, and a failure in one does not stop the others.
 
 ## Running it
 
@@ -606,8 +642,8 @@ Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -Sql
 | Someone needs to see more of the dashboard | Admin › Access, or `M -Task GrantRole -Principal 'CORP\Group' -Role Organization`: Organization for the whole organisation, a persona role for its named lists. The org chart follows AD by itself, the night after a move. |
 | The flatten says a field *now carries information* | One of the fields that never varied has a second value: see `audit.RawLogRecordShape`. Nothing is lost from the JSON; if it matters for reporting, it needs a column in a new release. |
 | Disk grows past your horizon | `M -Task PurgeJson -RetainDays 365` reports what it would clear; add `-Apply` to clear the stored JSON and keep the rows. |
-| A new release comes out | Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, and run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once. It upgrades every object and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. Read the release notes' upgrade section. |
-| Upgrading to 2.3.0 | As for any release, then once: `M -Task RebuildValueCatalog`, so the codes flattened before 2.3.0 are in Admin › Value names (new records are catalogued as they are flattened). With the dashboard, run step 22 again with the new package. |
+| A new release comes out | Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, and run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once (with `-Dashboard` if the dashboard is installed). It upgrades every object and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. Read the release notes' upgrade section. |
+| Upgrading to 2.3.0 | As for any release. The installer catalogues the codes of records flattened before (Admin › Value names) and rebuilds the dashboard's rollups once with Premium use; the nightly licence-event load starts asking for Copilot Studio's authoring operations as well, from that night on. With the dashboard, run step 22 again with the new package, and replace a hand-built Power BI model with the one in `powerbi\` (step 15). |
 | The certificate nears expiry | Within 30 days of expiry, `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` creates a new one, gives the gMSA its private key, uploads it to the app next to the old one and puts its thumbprint in the settings. Remove the old one from the app after the next good run. |
 
 **When the nightly run fails:**
@@ -664,6 +700,18 @@ On 26 September 2026 the 2.2.0 scripts ran against a restored copy-only backup o
 
 Not run in the lab: the AD export (the lab machine isn't on a domain, so department and org columns are blank there), the licence tool signed in as the app, `tools\Install-CopilotJobServer.ps1`, `tools\New-CopilotAuditApp.ps1` and the scheduled task, the CSV importer on a real Purview portal export, and the Power BI model and its Copilot setup.
 
+### 2.3.0 on a copy of the lab, and on the demo and scale databases
+
+On 27 September 2026:
+
+| What ran | Result |
+|---|---|
+| `Install-CopilotAudit.ps1 -Dashboard` over a restored copy of the lab's 2.2.0 Copilot database | No errors. The ten new tables and the `bi` views for use cases, job families and events installed; the value catalogue filled from the 1,149 flattened records (82 values) and the rollups were rebuilt with Premium use (282 of 925 licensed interactions). Run again, it did neither a second time. |
+| The dashboard with two tenants (the demo and the 40-million-record scale database) | The tenant switcher, a tenant remembered between pages, each tenant's own data and access (a named page refused in the tenant whose directory did not have the viewer), and the group overview. |
+| Every dashboard page, at 1440 and 1024 pixels wide, in a browser | 87 pages: no clipped or overlapping text, no labels outside a chart, no link touching another, nothing shortened with an ellipsis. |
+| The Power BI project, opened in Power BI Desktop and refreshed from the demo database | 25 tables, 29 relationships, 27 measures and the role load; the refresh took about a minute. Interactions (179,484), active users (1,270), adoption (79.4%) and Premium share (61.2%) matched the dashboard. The role's filter gave a manager exactly the 77 people `bi.OrgSecurity` gives them, and a viewer outside the org chart nothing. |
+| Manager and personal digests, the certificate alert and a scheduled extract, against a local SMTP server | 7 manager digests and 1 personal digest sent after a first round that failed on purpose (they were retried); the certificate alert at 10 days; an extract of 367 rows. |
+
 ### 40 million interactions (the 2.2.0 release test)
 
 On 26 and 27 September 2026 the 2.2.0 scripts ran against generated data: 70,000 people in a seven-level organisation, 17,692 of them licensed, and 40 million interaction records as the backfill stores them (JSON, 30.5 GB compressed), over a year, with 70 million accessed resources among them. One SQL Server 2025 instance on 8 cores and 31 GB of RAM.
@@ -689,7 +737,8 @@ The test found three problems, fixed before release:
 Nothing runs at a client site yet. These parts have not run against the real thing:
 
 - **The AD search itself.** Everything after the search is tested, but the search has not run against a real trusted domain. Run step 9 by hand first and read its match report.
-- **The Power BI model and its Copilot setup.** The DAX measures, descriptions, AI instructions and verified answers here are a starting point built from the model's design and Microsoft's documentation. None of them has been tried in a published model yet, so test them as step 20 describes.
+- **The Power BI model in the service, and its Copilot setup.** The model has been opened and refreshed in Power BI Desktop against the demo database (see above), but not published, and not refreshed through a gateway. The AI instructions and verified answers in Phase 6 are a starting point from Microsoft's documentation; test them as step 20 describes.
+- **Agent authoring history on an existing install.** The licence-event load asks for Copilot Studio's operations from the night 2.3.0 is installed; records from before are not fetched into that database. A new install's history load includes them.
 - **The CSV importer on a real portal export.** It has been tested on lab records reshaped to the export's format, not on a file downloaded from the Purview portal. Import one real export and check its summary before loading the rest.
 - **Export compatibility.** `audit.vCopilotAuditRecord` reproduces the Purview portal export's columns, but its JSON hasn't been compared byte for byte with a portal CSV. Check one record before repointing reports built on the portal export.
 - **The setup scripts.** `tools\Install-CopilotJobServer.ps1` (certificate, private key, batch-logon right, gMSA, scheduled task) and `tools\New-CopilotAuditApp.ps1` (app, consent, certificate upload) are tested against stand-ins: a simulated tenant, and their pure parts. They haven't run on a domain-joined server or against a real tenant. `Invoke-CopilotPipeline.ps1` is tested for its plan and for running steps in their own processes, with stand-in steps. Run step 3, then check the app in the Entra admin center and the task in Task Scheduler.
