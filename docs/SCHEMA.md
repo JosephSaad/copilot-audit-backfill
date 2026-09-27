@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-81 tables (plus 2 left over from 1.x), 35 views, 1091 columns, from 18 scripts.
+82 tables (plus 2 left over from 1.x), 35 views, 1101 columns, from 18 scripts.
 
 ## Contents
 
@@ -10,7 +10,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
-- [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
+- [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
 - [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
@@ -37,7 +37,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-CopilotEnrichmentSchema.sql` | Copilot | Automatically, by both enrichment tools; or by hand (step 8) | CopilotLicense, UserDirectory, vCopilotAdoption, vCopilotUsageByDepartment (the views only once CopilotInteraction exists). |
 | `sql/Create-CopilotSessionSchema.sql` | Copilot | By hand, once (step 8) | SessionAppCategory (seeded), CopilotSession, CopilotWeeklyRollup, CopilotSessionRun, vCopilotSessionSummary, vCopilotWeeklyRollup. |
 | `sql/Create-CopilotSessionProcedure.sql` | Copilot | By hand, once (step 8) | usp_BuildCopilotSessions. |
-| `sql/Create-CopilotBiSchema.sql` | Copilot | By hand, once (step 8) | The bi schema: the dimensions (DimDate, DimUser, DimApp, DimAgent, DimModel, DimSku, DimLicenseStatus, DimLicenseType, DimSensitivityLabel, DimResourceType, DimResourceAction, DimSite), the facts (FactInteraction, FactSession, FactLicenseChange, FactLicensedDay, FactAccessedResource, FactAgentEvent), RefreshRun, and the views Power BI imports. bi.Interactions carries PremiumUse and UseCaseKey (2.3.0). |
+| `sql/Create-CopilotBiSchema.sql` | Copilot | By hand, once (step 8) | The bi schema: the dimensions (DimDate, DimUser, DimApp, DimAgent, DimModel, DimSku, DimLicenseStatus, DimLicenseType, DimSensitivityLabel, DimResourceType, DimResourceAction, DimSite), the facts (FactInteraction, FactSession, FactLicenseChange, FactLicensedDay, FactAccessedResource, FactAgentEvent), RefreshRun, and the views Power BI imports. bi.FactInteraction stores PremiumUse and UseCaseKey, set once by the refresh (2.4.0), and bi.Interactions passes them on. |
 | `sql/Create-CopilotBiProcedure.sql` | Copilot | By hand, once (step 8) | bi.usp_RefreshBi. |
 | `sql/Create-LicenseEventSchema.sql` | License events | By hand, once (step 7) | LicenseEvent, LicenseEventChunk, LicenseEventProperty, vLicenseChange, vLicenseSkuChange, vLicenseLifecycle. |
 | `sql/Create-LicenseEventProcedure.sql` | License events | By hand, once (step 7) | usp_ShredLicenseEvents. |
@@ -68,7 +68,6 @@ What the backfill and the nightly loads write while they run. The engine resumes
 | 4 | `Operations` | nvarchar(400) | **no** |  |  |
 | 5 | `StartedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 6 | `CompletedUtc` | datetime2(0) | yes |  |  |
-| 7 | `Source` | varchar(8) | yes |  |  |
 
 Indexes and constraints:
 
@@ -559,15 +558,15 @@ Who holds a license (Microsoft Graph) and where they sit in the organization (on
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
 | 1 | `UserPrincipalName` | nvarchar(512) | **no** | **PK** |  |
-| 2 | `IsCopilotLic` | bit | yes | `1` | Nullable on purpose: NULL means "not known", which is the honest answer for a user who appears in the audit data but has since left the directory. 0 would claim they were unlicensed. |
+| 2 | `IsCopilotLic` | bit | yes |  | Nullable on purpose: NULL means "not known", which is the honest answer for a user who appears in the audit data but has since left the directory. 0 would claim they were unlicensed. |
 | 3 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 4 | `SkuPartNumber` | nvarchar(100) | yes |  |  |
 | 5 | `LicensedSinceUtc` | datetime2(0) | yes |  |  |
-| 6 | `CapabilityStatus` | nvarchar(50) | yes |  |  |
-| 7 | `DirectoryStatus` | nvarchar(20) | yes |  |  |
-| 8 | `EntraAccountEnabled` | bit | yes |  |  |
-| 9 | `EmployeeHireDate` | date | yes |  |  |
-| 10 | `UserType` | nvarchar(20) | yes |  |  |
+| 6 | `EntraAccountEnabled` | bit | yes |  |  |
+| 7 | `EmployeeHireDate` | date | yes |  |  |
+| 8 | `UserType` | nvarchar(20) | yes |  |  |
+| 9 | `CapabilityStatus` | nvarchar(50) | yes |  |  |
+| 10 | `DirectoryStatus` | nvarchar(20) | yes |  |  |
 
 Indexes and constraints:
 
@@ -619,6 +618,22 @@ Indexes and constraints:
 
 - `PK_UserDirectory`: primary key, clustered (UserPrincipalName)
 - `IX_UserDirectory_Mail`: nonclustered (Mail)
+
+### audit.GroupMember
+
+*Table.* The members of each AD group granted Organization in the dashboard, nested groups included (2.4.0): the group as granted (DOMAIN\\Group) and the member's UPN. Rewritten by each AD export, so bi.OrgSecurity gives them the whole organization in Power BI as the dashboard does at sign-in.
+
+**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `GroupName` | nvarchar(256) | **no** | **PK** | as granted: DOMAIN\\Group |
+| 2 | `UserPrincipalName` | nvarchar(256) | **no** | **PK** |  |
+| 3 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GroupMember`: primary key, clustered (GroupName, UserPrincipalName)
 
 ### audit.LicenseSku
 
@@ -820,8 +835,8 @@ Indexes and constraints:
 | 12 | `SessionTimeoutMinutes` | int | **no** |  |  |
 | 13 | `ContextFallback` | nvarchar(20) | **no** |  |  |
 | 14 | `ReportingTimeZone` | nvarchar(128) | **no** |  |  |
-| 15 | `MetricVersion` | nvarchar(200) | **no** |  |  |
-| 16 | `LicenseEventDatabase` | nvarchar(1000) | yes |  | NULL: license flag is today's, from the enrichment |
+| 15 | `LicenseEventDatabase` | nvarchar(1000) | yes |  | NULL: license flag is today's, from the enrichment |
+| 16 | `MetricVersion` | nvarchar(200) | **no** |  |  |
 | 17 | `RebuiltFrom` | datetime2(0) | yes |  |  |
 
 Indexes and constraints:
@@ -1193,32 +1208,32 @@ Indexes and constraints:
 | 8 | `City` | nvarchar(200) | yes |  |  |
 | 9 | `Country` | nvarchar(200) | yes |  |  |
 | 10 | `CompanyName` | nvarchar(200) | yes |  |  |
-| 12 | `AccountEnabled` | bit | yes |  |  |
-| 13 | `ManagerUpn` | nvarchar(512) | yes |  |  |
-| 14 | `DirectoryStatus` | nvarchar(20) | **no** | `N'Not looked up'` | Found (in AD) \| NotFound (left Entra) \| Not looked up (neither source) |
-| 15 | `CopilotLicenseToday` | nvarchar(12) | **no** | `N'Unknown'` | Today's license, from the enrichment. Licensed \| Not licensed \| Unknown. License at the time of use is on the facts, not here. |
-| 16 | `CopilotSku` | nvarchar(100) | yes |  |  |
-| 17 | `LicensedSinceUtc` | datetime2(0) | yes |  |  |
-| 18 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
-| 19 | `EmployeeType` | nvarchar(32) | yes |  | EMPLOYEE \| CONTRACTOR ... |
-| 20 | `IsManager` | bit | yes |  |  |
-| 21 | `ManagerName` | nvarchar(256) | yes |  |  |
-| 22 | `OrgDepth` | tinyint | yes |  | The management chain from AD: OrgLevel1 is the top (the CEO), OrgLevel&lt;OrgDepth&gt; the direct manager. A ragged hierarchy, top down. |
-| 23 | `OrgLevel1` | nvarchar(256) | yes |  |  |
-| 24 | `OrgLevel2` | nvarchar(256) | yes |  |  |
-| 25 | `OrgLevel3` | nvarchar(256) | yes |  |  |
-| 26 | `OrgLevel4` | nvarchar(256) | yes |  |  |
-| 27 | `OrgLevel5` | nvarchar(256) | yes |  |  |
-| 28 | `OrgLevel6` | nvarchar(256) | yes |  |  |
-| 29 | `OrgLevel7` | nvarchar(256) | yes |  |  |
-| 30 | `OrgLevel8` | nvarchar(256) | yes |  |  |
-| 31 | `OrgLevel9` | nvarchar(256) | yes |  |  |
-| 32 | `OrgLevel10` | nvarchar(256) | yes |  |  |
-| 33 | `OrgLevel11` | nvarchar(256) | yes |  |  |
-| 34 | `OrgLevel12` | nvarchar(256) | yes |  |  |
-| 35 | `OrgLevel13` | nvarchar(256) | yes |  |  |
-| 36 | `OrgLevel14` | nvarchar(256) | yes |  |  |
-| 37 | `OrgLevel15` | nvarchar(256) | yes |  |  |
+| 11 | `EmployeeType` | nvarchar(32) | yes |  | EMPLOYEE \| CONTRACTOR ... |
+| 12 | `IsManager` | bit | yes |  |  |
+| 13 | `AccountEnabled` | bit | yes |  |  |
+| 14 | `ManagerUpn` | nvarchar(512) | yes |  |  |
+| 15 | `ManagerName` | nvarchar(256) | yes |  |  |
+| 16 | `OrgDepth` | tinyint | yes |  | The management chain from AD: OrgLevel1 is the top (the CEO), OrgLevel&lt;OrgDepth&gt; the direct manager. A ragged hierarchy, top down. |
+| 17 | `OrgLevel1` | nvarchar(256) | yes |  |  |
+| 18 | `OrgLevel2` | nvarchar(256) | yes |  |  |
+| 19 | `OrgLevel3` | nvarchar(256) | yes |  |  |
+| 20 | `OrgLevel4` | nvarchar(256) | yes |  |  |
+| 21 | `OrgLevel5` | nvarchar(256) | yes |  |  |
+| 22 | `OrgLevel6` | nvarchar(256) | yes |  |  |
+| 23 | `OrgLevel7` | nvarchar(256) | yes |  |  |
+| 24 | `OrgLevel8` | nvarchar(256) | yes |  |  |
+| 25 | `OrgLevel9` | nvarchar(256) | yes |  |  |
+| 26 | `OrgLevel10` | nvarchar(256) | yes |  |  |
+| 27 | `OrgLevel11` | nvarchar(256) | yes |  |  |
+| 28 | `OrgLevel12` | nvarchar(256) | yes |  |  |
+| 29 | `OrgLevel13` | nvarchar(256) | yes |  |  |
+| 30 | `OrgLevel14` | nvarchar(256) | yes |  |  |
+| 31 | `OrgLevel15` | nvarchar(256) | yes |  |  |
+| 32 | `DirectoryStatus` | nvarchar(20) | **no** | `N'Not looked up'` | Found (in AD) \| NotFound (left Entra) \| Not looked up (neither source) |
+| 33 | `CopilotLicenseToday` | nvarchar(12) | **no** | `N'Unknown'` | Today's license, from the enrichment. Licensed \| Not licensed \| Unknown. License at the time of use is on the facts, not here. |
+| 34 | `CopilotSku` | nvarchar(100) | yes |  |  |
+| 35 | `LicensedSinceUtc` | datetime2(0) | yes |  |  |
+| 36 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 
 Indexes and constraints:
 
@@ -1254,8 +1269,8 @@ Indexes and constraints:
 | 1 | `AgentKey` | int | **no** | **PK** identity |  |
 | 2 | `AgentId` | nvarchar(400) | **no** |  | AgentId, else AppIdentity |
 | 3 | `AgentName` | nvarchar(400) | yes |  | the latest name seen; agents get renamed |
-| 4 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
-| 5 | `AgentSource` | nvarchar(30) | yes |  | Copilot Studio \| Microsoft \| Agent ID \| (no agent) |
+| 5 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 6 | `AgentSource` | nvarchar(30) | yes |  | Copilot Studio \| Microsoft \| Agent ID \| (no agent) |
 
 Indexes and constraints:
 
@@ -1426,17 +1441,19 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 | 15 | `PromptInjectionDetected` | bit | **no** |  |  |
 | 16 | `HasBlockedResource` | bit | **no** |  |  |
 | 17 | `HasSensitivityLabel` | bit | **no** |  |  |
-| 18 | `LicenseTypeKey` | int | **no** | `1` | bi.DimLicenseType: the license the record reports (2.2.0) |
-| 19 | `SensitivityLabelKey` | int | **no** | `1` | bi.DimSensitivityLabel: the interaction's own label (2.2.0) |
-| 20 | `MessageCount` | int | **no** | `0` | prompts and responses (2.2.0) |
-| 21 | `MemoryUpdated` | bit | **no** | `0` | 2.2.0 |
-| 22 | `DlpEvaluationDeferred` | bit | **no** | `0` | 2.2.0 |
-| 23 | `CalledAnotherAgent` | bit | **no** | `0` | TargetAgentName set (2.2.0) |
-| 24 | `TargetAgentName` | nvarchar(400) | yes |  |  |
+| 18 | `PremiumUse` | bit | **no** | `0` |  |
+| 19 | `UseCaseKey` | int | **no** | `0` |  |
+| 20 | `LicenseTypeKey` | int | **no** | `1` | bi.DimLicenseType: the license the record reports (2.2.0) |
+| 21 | `SensitivityLabelKey` | int | **no** | `1` | bi.DimSensitivityLabel: the interaction's own label (2.2.0) |
+| 22 | `MessageCount` | int | **no** | `0` | prompts and responses (2.2.0) |
+| 23 | `MemoryUpdated` | bit | **no** | `0` | 2.2.0 |
+| 24 | `DlpEvaluationDeferred` | bit | **no** | `0` | 2.2.0 |
+| 25 | `CalledAnotherAgent` | bit | **no** | `0` | TargetAgentName set (2.2.0) |
+| 26 | `TargetAgentName` | nvarchar(400) | yes |  |  |
 
 Indexes and constraints:
 
-- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenseStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
+- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenseStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, PremiumUse, UseCaseKey, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
 
 ### bi.FactSession
 
@@ -1549,7 +1566,7 @@ Indexes and constraints:
 
 ### bi.RefreshRun
 
-*Table.* One row per bi.usp_RefreshBi run: window (SinceUtc NULL is a full rebuild), time zone, license databases, rows written, and the session build it followed.
+*Table.* One row per bi.usp_RefreshBi run: window (SinceUtc NULL is a full rebuild), time zone, license databases, rows written, the session build it followed, and from 2.4.0 the first day with use of an app whose category it changed (RecategorizedFromDateKey), from which the dashboard rolls up again.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1568,6 +1585,7 @@ Indexes and constraints:
 | 11 | `LicensedDayRows` | int | **no** |  |  |
 | 12 | `SessionRunId` | int | yes |  | the latest audit.CopilotSessionRun it reflects |
 | 13 | `AccessedResourceRows` | bigint | yes |  |  |
+| 14 | `RecategorizedFromDateKey` | int | yes |  |  |
 
 Indexes and constraints:
 
@@ -1606,8 +1624,8 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 19 | `MemoryUpdated` | bit | **no** |  |  |
 | 20 | `DlpEvaluationDeferred` | bit | **no** |  |  |
 | 21 | `CalledAnotherAgent` | bit | **no** |  |  |
-| 22 | `PremiumUse` | bit | yes |  |  |
-| 23 | `UseCaseKey` | int | yes |  |  |
+| 22 | `PremiumUse` | bit | **no** |  |  |
+| 23 | `UseCaseKey` | int | **no** |  |  |
 
 ### bi.Sessions
 
@@ -2187,7 +2205,7 @@ Indexes and constraints:
 
 ### dash.RefreshRun
 
-*Table.* One row per dashboard refresh: when, from which day, and how many people, org pairs and person-days it wrote.
+*Table.* One row per dashboard refresh: when, from which day, how many people, org pairs and person-days it wrote, and from 2.4.0 the latest bi refresh it reflects (BiRunId).
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2201,6 +2219,7 @@ Indexes and constraints:
 | 6 | `People` | int | **no** |  |  |
 | 7 | `ClosureRows` | int | **no** |  |  |
 | 8 | `UserDayRows` | int | **no** |  |  |
+| 9 | `BiRunId` | int | yes |  |  |
 
 Indexes and constraints:
 
@@ -2266,6 +2285,8 @@ Indexes and constraints:
 | 13 | `LastStatus` | nvarchar(400) | yes |  |  |
 | 14 | `CreatedBy` | nvarchar(256) | **no** |  |  |
 | 15 | `CreatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 16 | `FailedTries` | tinyint | **no** | `0` |  |
+| 17 | `RetryAfterUtc` | datetime2(0) | yes |  |  |
 
 Indexes and constraints:
 
@@ -2587,6 +2608,8 @@ Indexes and constraints:
 | 11 | `LastRunUtc` | datetime2(0) | yes |  |  |
 | 12 | `LastStatus` | nvarchar(400) | yes |  |  |
 | 13 | `CreatedBy` | nvarchar(256) | **no** |  |  |
+| 14 | `FailedTries` | tinyint | **no** | `0` |  |
+| 15 | `RetryAfterUtc` | datetime2(0) | yes |  |  |
 
 Indexes and constraints:
 

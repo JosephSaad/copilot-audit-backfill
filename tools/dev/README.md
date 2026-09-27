@@ -29,21 +29,27 @@ python tools/dev/ui/ui_audit.py
 
 ## Schema reference
 
-Before you start, do a fresh install of the release to document, with the dashboard's objects included:
+The reference describes every table and view, including some that only exist once data is in:
 
-```powershell
-.\Install-CopilotAudit.ps1 -Dashboard
-```
+- `audit.CopilotAudit` exists after the first finalize;
+- the `audit.CopilotCsv*` tables exist after a CSV import;
+- `audit.AdministrativeUnit` and `audit.UserProfile` exist only in a database upgraded from 1.x.
+
+So read it from databases where all of that has happened:
+
+1. Run `tests/Test-SqlIntegration.ps1` on the release. It leaves behind the loaded database `CopilotAuditIntegration`, and `CopilotAuditIntegration_Load`, which has the CSV tables.
+2. Do a fresh install for the license-event database: `.\Install-CopilotAudit.ps1 -SqlServer localhost -Database <name> -LicenseDatabase <name> -Dashboard`.
+3. Use any database upgraded from 1.x for the two leftover tables.
 
 Then run the steps in order:
 
 ```powershell
-pwsh tools/dev/schema/extract.ps1 -SqlServer localhost -CopilotDatabase CopilotAudit -LicenseDatabase CopilotLicenseEvents
+pwsh -Command "& tools/dev/schema/extract.ps1 -CopilotDatabase CopilotAuditIntegration -LicenseDatabase <license db> -Supplement CopilotAuditIntegration_Load, '<1.x db>=audit.AdministrativeUnit,audit.UserProfile'"
 python tools/dev/schema/scripts.py
 python tools/dev/schema/build_md.py
 ```
 
-1. **When a table or view is new,** describe it in `build.py`, in the group it belongs to. `build_md.py` stops and names any object without a description.
+1. **When a table or view is new,** describe it in `build.py`, in the group it belongs to. `build_md.py` stops and names any installed object without a description, and lists any it describes that the databases don't have.
 2. **When a script is new,** add it to the script list in `build.py`.
 
 ## Release checklist

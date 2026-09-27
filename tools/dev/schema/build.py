@@ -28,7 +28,7 @@ SCRIPTS = [
      'SessionAppCategory (seeded), CopilotSession, CopilotWeeklyRollup, CopilotSessionRun, vCopilotSessionSummary, vCopilotWeeklyRollup.'),
     ('Create-CopilotSessionProcedure.sql', 'Copilot', 'By hand, once (step 8)', 'usp_BuildCopilotSessions.'),
     ('Create-CopilotBiSchema.sql', 'Copilot', 'By hand, once (step 8)',
-     'The bi schema: the dimensions (DimDate, DimUser, DimApp, DimAgent, DimModel, DimSku, DimLicenseStatus, DimLicenseType, DimSensitivityLabel, DimResourceType, DimResourceAction, DimSite), the facts (FactInteraction, FactSession, FactLicenseChange, FactLicensedDay, FactAccessedResource, FactAgentEvent), RefreshRun, and the views Power BI imports. bi.Interactions carries PremiumUse and UseCaseKey (2.3.0).'),
+     'The bi schema: the dimensions (DimDate, DimUser, DimApp, DimAgent, DimModel, DimSku, DimLicenseStatus, DimLicenseType, DimSensitivityLabel, DimResourceType, DimResourceAction, DimSite), the facts (FactInteraction, FactSession, FactLicenseChange, FactLicensedDay, FactAccessedResource, FactAgentEvent), RefreshRun, and the views Power BI imports. bi.FactInteraction stores PremiumUse and UseCaseKey, set once by the refresh (2.4.0), and bi.Interactions passes them on.'),
     ('Create-CopilotBiProcedure.sql', 'Copilot', 'By hand, once (step 8)', 'bi.usp_RefreshBi.'),
     ('Create-LicenseEventSchema.sql', 'License events', 'By hand, once (step 7)',
      'LicenseEvent, LicenseEventChunk, LicenseEventProperty, vLicenseChange, vLicenseSkuChange, vLicenseLifecycle.'),
@@ -86,6 +86,7 @@ AREAS = [
     ('enrich', 'Licenses and the user directory', 'Who holds a license (Microsoft Graph) and where they sit in the organization (on-premises AD).', [
         ('audit.CopilotLicense', 'One row per user looked up by the license tool: whether they hold a Copilot license, the SKU, since when, and whether they still exist in Entra. IsCopilotLic NULL means not known, which is not the same as unlicensed.'),
         ('audit.UserDirectory', 'One row per user in the trusted AD domain, enabled or not: identity, job and location attributes, manager, and the management chain Mgr1 (the top) to Mgr<OrgDepth> (the direct manager). Replaced whole in one transaction by the AD export.'),
+        ('audit.GroupMember', 'The members of each AD group granted Organization in the dashboard, nested groups included (2.4.0): the group as granted (DOMAIN\\Group) and the member\'s UPN. Rewritten by each AD export, so bi.OrgSecurity gives them the whole organization in Power BI as the dashboard does at sign-in.'),
         ('audit.LicenseSku', 'The tenant\'s subscriptions as of the license tool\'s last run (2.3.0): per SKU, seats enabled, in the grace period, suspended and assigned, and whether it is a Copilot SKU.'),
         ('audit.LicenseSkuDay', 'The same per night (2.3.0), for the license pool over time.'),
         ('audit.vCopilotAdoption', 'Licensed users against actual use: first and last interaction, interactions, NeverUsed, DaysToFirstUse, with directory attributes.'),
@@ -135,7 +136,7 @@ AREAS = [
         ('bi.FactLicensedDay', 'One row per person per day on which they held a Copilot license at the end of the day.'),
         ('bi.FactAccessedResource', 'One row per resource an interaction read (2.2.0), from audit.RawLogAccessedResource: type, action, site, label, blocked and prompt-injection flags. Clustered columnstore, refreshed with the interactions.'),
         ('bi.FactAgentEvent', 'One row per Copilot Studio authoring event (2.3.0), copied from audit.AgentEvent in every license-event database by each refresh, with the day in the reporting time zone and the maker\'s user key.'),
-        ('bi.RefreshRun', 'One row per bi.usp_RefreshBi run: window (SinceUtc NULL is a full rebuild), time zone, license databases, rows written, and the session build it followed.'),
+        ('bi.RefreshRun', 'One row per bi.usp_RefreshBi run: window (SinceUtc NULL is a full rebuild), time zone, license databases, rows written, the session build it followed, and from 2.4.0 the first day with use of an app whose category it changed (RecategorizedFromDateKey), from which the dashboard rolls up again.'),
     ]),
     ('biviews', 'bi: views Power BI imports', 'One view per table above, leaving out the lineage columns. The model imports these, not the tables.', [
         ('bi.Interactions', 'bi.FactInteraction for the model.'), ('bi.Sessions', 'bi.FactSession for the model.'),
@@ -166,7 +167,7 @@ AREAS = [
         ('dash.UserDay', 'One row per person per day with any use or session: the daily rollup behind every page, so the 7- to 365-day periods are exact.'),
         ('dash.ResourceDay', 'Labels on content Copilot read, the sites of labeled content, and the sites it was blocked from, per person per day, from bi.FactAccessedResource.'),
         ('dash.AgentUse', 'When each agent was first and last used, from the facts. Rebuilt whole by each refresh.'),
-        ('dash.RefreshRun', 'One row per dashboard refresh: when, from which day, and how many people, org pairs and person-days it wrote.'),
+        ('dash.RefreshRun', 'One row per dashboard refresh: when, from which day, how many people, org pairs and person-days it wrote, and from 2.4.0 the latest bi refresh it reflects (BiRunId).'),
         ('dash.Agent', 'Agents with their friendly name, owner and first use.'),
     ]),
     ('ops', 'dash: operations (2.3.0)', 'What the dashboard\'s operations features keep, from Create-CopilotOperationsSchema.sql: every table is edited through the Admin pages or the pages named, never by hand.', [
