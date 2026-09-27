@@ -2122,15 +2122,17 @@ SELECT @r;
 Assert-That ($w -eq 'ok') "the dashboard's role writes saved views, events, licence actions and digest sends ($w)"
 
 # Premium use: the rollup's count of licensed interactions that needed the licence, recomputed from the facts.
+# The rollups first: the bi refresh above has moved on since section 14 built them.
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;'
 $prem = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM dash.UserDay) AS Rolled,
        (SELECT COUNT_BIG(*) FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
         WHERE f.LicenceStatusKey = 1
           AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
                OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))) AS Facts,
-       (SELECT COUNT(*) FROM dash.UserDay WHERE PremiumUse > LicensedUse) AS Over;
+       (SELECT COUNT(*) FROM dash.UserDay WHERE PremiumUse > LicensedUse) AS TooMany;
 "@).Rows[0]
-Assert-That ([long] $prem.Rolled -eq [long] $prem.Facts -and [int] $prem.Over -eq 0) "dash.UserDay.PremiumUse counts the licensed interactions that needed the licence ($($prem.Rolled) of the facts' $($prem.Facts)), never more than the licensed use"
+Assert-That ([long] $prem.Rolled -eq [long] $prem.Facts -and [int] $prem.TooMany -eq 0) "dash.UserDay.PremiumUse counts the licensed interactions that needed the licence ($($prem.Rolled) of the facts' $($prem.Facts)), never more than the licensed use"
 
 # ---------------------------------------------------------------------------
 Write-Host ''
