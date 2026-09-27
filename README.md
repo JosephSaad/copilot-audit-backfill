@@ -303,7 +303,9 @@ The dashboard's own tests (the security rules, paging, periods, exports and char
 dotnet test dashboard/CopilotInsights.Tests
 ```
 
-CI runs them all on every push.
+CI runs them all on every push, with PSScriptAnalyzer (`PSScriptAnalyzerSettings.psd1`), which fails the build on any warning.
+
+Two more are run by hand before a release, since CI has no dashboard or installed database to point them at: the layout audit of every dashboard page and the generator for `docs/SCHEMA.md`. They are in `tools/dev`, with the release checklist ([tools/dev/README.md](tools/dev/README.md)).
 
 ## Files
 
@@ -326,7 +328,7 @@ CI runs them all on every push.
 | `sql/Create-CopilotEnrichmentSchema.sql` | The license and user directory tables, plus the adoption views. |
 | `tools/Save-CopilotAuditModules.ps1` | Builds the offline module bundle for a disconnected server. |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |
-| `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory and management chain, from on-premises AD. |
+| `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory and management chain, from on-premises AD, and the members of AD groups granted Organization, for Power BI. |
 | `sql/Create-CopilotSessionSchema.sql` | Session, weekly rollup, app-category and run-log tables, and the CSV-shaped views. |
 | `sql/Create-CopilotSessionProcedure.sql` | `audit.usp_BuildCopilotSessions`. |
 | `tools/Export-CopilotSessionCsv.ps1` | Writes the session and weekly CSVs. |
@@ -344,6 +346,8 @@ CI runs them all on every push.
 | `docs/DASHBOARD.md` | The dashboard: pages by persona, who sees what, install on IIS, the first administrator. |
 | `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licenses, the nightly job, Power BI and Copilot. |
 | `tests/` | Mock Graph service and the test suites. |
+| `tools/dev/` | For building a release: the dashboard's layout audit, the `docs/SCHEMA.md` generator and the release checklist. Not deployed. |
+| `PSScriptAnalyzerSettings.psd1` | The analyzer rules CI applies, and why each excluded rule is excluded. |
 
 ## License
 
