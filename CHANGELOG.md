@@ -14,8 +14,8 @@ fresh install**. There is no upgrade path from 2.3.0: drop the databases (or
 point the installer at new ones), install, and run the history load again.
 
 ### Setting up
-
-The same commands as 2.3.0, with `License` in place of `Licence` wherever a
+The same commands as 2.3.0; any parameter with License in its name is now spelled
+the American way (see the renames below):
 parameter used it:
 
 ```powershell
@@ -48,6 +48,18 @@ parameter used it:
   - `-LicenseEventDatabase` (Export-CopilotSessionCsv);
   - the matching key in `copilot-audit.settings.psd1`.
 - **Text:** every page, guide and message now says license.
+
+### Changed: American spelling throughout
+
+- **Every other British spelling,** after License: organization, honor,
+  recognize, catalog, behavior, labeled, pseudonymize and the rest, in names
+  and text alike.
+- **Names that change:**
+  - the Power BI role *Organisation* → *Organization*;
+  - `dash.UserDay.LabelledContent` → `LabeledContent`;
+  - the privacy mode value `Pseudonymise` → `Pseudonymize`.
+- **Not changed:** values that are Microsoft's own, such as Graph's
+  `cancelled` status and every field name in the audit records.
 
 ### Changed: computed once
 
@@ -112,6 +124,9 @@ parameter used it:
 
 ### Tests and CI
 
+- **Spelling:** `Test-Spelling.ps1` fails the build on a British spelling
+  (licence, organisation, catalogue, ...) anywhere in the code, the SQL, the
+  Power BI model or the guides, so 2.4.0's renames stay done.
 - **Pages vs. guide:** `Test-OperationsGuide.ps1` checks all 61 report pages
   against the page table in `docs/DASHBOARD.md`, in both directions.
 - **New checks:**

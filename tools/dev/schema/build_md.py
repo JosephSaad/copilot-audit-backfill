@@ -34,7 +34,7 @@ def anchor(name):
 out = []
 out.append('# Schema reference\n')
 out.append('Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. '
-           'Generated from the metadata of copies of the lab\'s Copilot and licence-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts\' DDL carries. '
+           'Generated from the metadata of copies of the lab\'s Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts\' DDL carries. '
            'Types are SQL Server\'s; **no** under Null means NOT NULL.\n')
 
 counts = {'tables': 0, 'views': 0, 'columns': 0}
@@ -61,9 +61,9 @@ out.append('| Script | Database | Run | Creates |\n|---|---|---|---|')
 for s, db, when, what in SCRIPTS:
     out.append(f'| `sql/{s}` | {md(db)} | {md(when)} | {md(what)} |')
 out.append('')
-out.append('**Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the licence-event section. The licence-event '
+out.append('**Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the license-event section. The license-event '
            'database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the '
-           'licence-event tables and views.\n')
+           'license-event tables and views.\n')
 out.append('**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, '
            '`audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, '
            '`audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. '
@@ -78,7 +78,7 @@ def section(name, purpose, legacy=False):
     kind = 'view' if rows[0]['otype'] == 'V' else 'table'
     script = PRIMARY.get(name, scr['created'].get(name, '1.x (no current script)' if legacy else ''))
     added = [s for s in scr['altered'].get(name, []) if s != script]
-    dbs = 'Copilot and licence-event databases' if name in BOTH else ('Licence-event database' if name in LIC_ONLY else 'Copilot database')
+    dbs = 'Copilot and license-event databases' if name in BOTH else ('License-event database' if name in LIC_ONLY else 'Copilot database')
     pk = next((i for i in idx if i['pk']), None)
     pkcols = set(pk['keys'].split(', ')) if pk else set()
     n = notes.get(name, {})

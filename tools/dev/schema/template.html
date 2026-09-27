@@ -119,7 +119,7 @@
           <tbody>%%SCRIPTS%%</tbody>
         </table>
       </div>
-      <div class="note-box"><p><b>Two databases.</b> The Copilot database (<code>CopilotAudit</code>) holds everything below except the licence-event section. The licence-event database (<code>CopilotLicenseEvents</code>) holds the same loading, state and final-record tables, filled with directory events instead, plus the licence-event tables and views.</p>
+      <div class="note-box"><p><b>Two databases.</b> The Copilot database (<code>CopilotAudit</code>) holds everything below except the license-event section. The license-event database (<code>CopilotLicenseEvents</code>) holds the same loading, state and final-record tables, filled with directory events instead, plus the license-event tables and views.</p>
       <p><b>Procedures and function.</b> <code>audit.fnShredCopilotInteraction</code> (inline, JSON to interaction columns), <code>audit.usp_MergeCopilotLoad</code>, <code>audit.usp_MergeCopilotCsv</code>, <code>audit.usp_FlattenCopilotAudit</code>, <code>audit.usp_PurgeCopilotAuditJson</code>, <code>audit.usp_BuildCopilotSessions</code>, <code>audit.usp_ShredLicenseEvents</code> and <code>bi.usp_RefreshBi</code>, from the scripts named above.</p></div>
     </section>
 

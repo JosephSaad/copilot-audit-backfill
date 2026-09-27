@@ -59,6 +59,9 @@ jobs:
       - name: Test-OperationsGuide
         shell: pwsh
         run: pwsh -NoProfile -File tests/Test-OperationsGuide.ps1
+      - name: Test-Spelling
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-Spelling.ps1
       - name: Test-CsvImport
         shell: bash
         run: pwsh -NoProfile -File tests/Test-CsvImport.ps1
