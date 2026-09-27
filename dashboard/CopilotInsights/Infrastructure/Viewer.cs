@@ -127,9 +127,9 @@ public sealed class ViewerService(
         var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var g in grants)
         {
-            var hit = g.PrincipalType == "User"
-                ? Same(g.Principal, upn) || Same(g.Principal, windowsName)
-                : user is not null && IsInGroup(user, g.Principal);
+            /* Whatever the grant says it is: a DOMAIN\name recorded as a user may be a group, and the other way round. */
+            var hit = Same(g.Principal, upn) || Same(g.Principal, windowsName)
+                      || (user is not null && IsInGroup(user, g.Principal));
             if (hit) roles.Add(g.Role);
         }
         return roles;

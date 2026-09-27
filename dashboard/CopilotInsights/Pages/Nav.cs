@@ -11,23 +11,32 @@ public static class Nav
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
         new("Leadership", "Executives and department heads", [
-            new("Overview", "/leadership"), new("Organisation", "/leadership/org"), new("Apps and agents", "/leadership/mix")]),
+            new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organisation", "/leadership/org"), new("Apps and agents", "/leadership/mix")]),
         new("Adoption", "Copilot programme lead", [
-            new("Funnel and trend", "/adoption"), new("Licence cohorts", "/adoption/cohorts"),
+            new("Funnel and trend", "/adoption"), new("Retention and habit", "/adoption/retention"), new("Licence cohorts", "/adoption/cohorts"),
             new("Departments", "/adoption/departments"), new("Not started", "/adoption/not-started", Roles.Adoption)]),
         new("Licensing", "Licensing, IT asset and FinOps", [
             new("Inventory", "/licensing"), new("Unused licences", "/licensing/unused", Roles.Licensing),
             new("Demand", "/licensing/demand")]),
         new("Security", "Security operations", [
-            new("Signals", "/security"), new("Flagged interactions", "/security/flags", Roles.Security)]),
+            new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Flagged interactions", "/security/flags", Roles.Security)]),
         new("Compliance", "Data protection and compliance", [
-            new("Sensitive content", "/compliance"), new("Resource access", "/compliance/access", Roles.Compliance)]),
+            new("Sensitive content", "/compliance"), new("Labelled content by unit", "/compliance/units"), new("Resource access", "/compliance/access", Roles.Compliance)]),
         new("Agents", "Copilot Studio makers and CoE", [
-            new("Agents", "/agents"), new("Agent detail", "/agents/detail")]),
+            new("Agents", "/agents"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")]),
         new("Enablement", "Training and champions", [
-            new("Engagement", "/enablement"), new("People", "/enablement/people", Roles.Enablement)]),
+            new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("People", "/enablement/people", Roles.Enablement)]),
+        new("Forecasting", "Finance, licensing and programme leads", [
+            new("Forecast", "/forecasting"), new("Licence optimisation", "/forecasting/optimise"),
+            new("Upgrade, train or revoke", "/forecasting/actions", Roles.Licensing)]),
+        new("Regions", "Country, office and site leads", [
+            new("Countries and offices", "/regions"), new("Working patterns", "/regions/patterns")]),
+        new("People", "HR and people analytics", [
+            new("Workforce", "/workforce"), new("Managers and their teams", "/workforce/managers")]),
+        new("App owners", "Microsoft 365 workload owners", [
+            new("Apps", "/apps"), new("App detail", "/apps/detail")]),
         new("Governance", "AI governance and architecture", [
-            new("Models and grounding", "/governance")]),
+            new("Models and grounding", "/governance"), new("Controls", "/governance/controls")]),
         new("Admin", "Dashboard administrators", [
             new("Health", "/admin", Admin: true), new("Access", "/admin/access", Admin: true),
             new("Reference data", "/admin/reference", Admin: true), new("Audit log", "/admin/audit", Admin: true)]),

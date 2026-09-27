@@ -109,6 +109,62 @@ public static class Chart
         return new((series.Count >= 2 ? Legend(series).Value : "") + sb);
     }
 
+    /// <summary>
+    /// History and its projection on one axis: each history series solid, its
+    /// forecast dashed from the last actual point with a shaded 95% band, and a
+    /// line where history ends. <paramref name="x"/> covers history then forecast.
+    /// </summary>
+    public static HtmlString Projection(IReadOnlyList<string> x, int historyCount,
+        IReadOnlyList<(Series History, IReadOnlyList<double> Forecast, IReadOnlyList<double> Low, IReadOnlyList<double> High)> lines,
+        Fmt f, string aria)
+    {
+        if (x.Count == 0 || lines.Count == 0 || lines.All(l => l.History.Values.All(v => v is null))) return new(Empty("Not enough history to forecast yet."));
+        var top0 = lines.SelectMany(l => l.History.Values.Where(v => v.HasValue).Select(v => v!.Value).Concat(l.High)).DefaultIfEmpty(0).Max();
+        var (top, step) = Nice(top0, f);
+        double X(int i) => x.Count == 1 ? (L + W - R) / 2.0 : L + i * (W - R - L) / (double)(x.Count - 1);
+        double Y(double v) => T + (H - T - B) * (1 - Math.Min(v, top) / top);
+        var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\" role=\"img\" aria-label=\"{E(aria)}\">");
+        Grid(sb, top, step, f, Y);
+        XLabels(sb, x, X);
+        var now = X(historyCount - 1);
+        sb.Append($"<line class=\"grid now\" x1=\"{N(now)}\" x2=\"{N(now)}\" y1=\"{T}\" y2=\"{H - B}\"/>");
+        sb.Append($"<text class=\"tick\" x=\"{N(now + 4)}\" y=\"{T + 10}\">forecast</text>");
+        var labelYs = new List<double>();
+        foreach (var (s, fc, lo, hi) in lines)
+        {
+            var pts = s.Values.Select((v, i) => (v, i)).Where(p => p.v.HasValue).ToList();
+            if (pts.Count == 0) continue;
+            var last = pts[^1];
+            /* the band: along the interval's top, and back along its bottom */
+            var band = new StringBuilder($"M{N(X(last.i))},{N(Y(last.v!.Value))}");
+            for (var h = 0; h < hi.Count; h++) band.Append($" L{N(X(historyCount + h))},{N(Y(hi[h]))}");
+            for (var h = lo.Count - 1; h >= 0; h--) band.Append($" L{N(X(historyCount + h))},{N(Y(lo[h]))}");
+            sb.Append($"<path class=\"band\" d=\"{band} Z\" style=\"fill:var(--s{s.Slot})\"/>");
+            var d = string.Join(" ", pts.Select((p, j) => $"{(j == 0 ? "M" : "L")}{N(X(p.i))},{N(Y(p.v!.Value))}"));
+            sb.Append($"<path class=\"line\" d=\"{d}\" style=\"stroke:var(--s{s.Slot})\"/>");
+            var fd = $"M{N(X(last.i))},{N(Y(last.v!.Value))} " + string.Join(" ", fc.Select((v, h) => $"L{N(X(historyCount + h))},{N(Y(v))}"));
+            sb.Append($"<path class=\"line dashed\" d=\"{fd}\" style=\"stroke:var(--s{s.Slot})\"/>");
+            var endV = fc.Count > 0 ? fc[^1] : last.v!.Value;
+            var endX = fc.Count > 0 ? X(historyCount + fc.Count - 1) : X(last.i);
+            sb.Append($"<circle class=\"end\" cx=\"{N(endX)}\" cy=\"{N(Y(endV))}\" r=\"4\" style=\"fill:var(--s{s.Slot})\"/>");
+            var ly = Y(endV) + 4;
+            while (labelYs.Any(o => Math.Abs(o - ly) < 13)) ly += 13;
+            labelYs.Add(ly);
+            sb.Append($"<text class=\"dlabel\" x=\"{N(endX + 9)}\" y=\"{N(ly)}\">{E(Trunc(s.Name, 14))} {E(Format(endV, f))}</text>");
+        }
+        for (var i = 0; i < x.Count; i++)
+        {
+            var parts = lines.Select(l => i < historyCount
+                ? $"{l.History.Name} {Format(l.History.Values.ElementAtOrDefault(i), f)}"
+                : $"{l.History.Name} {Format(l.Forecast.ElementAtOrDefault(i - historyCount), f)} (95%: {Format(l.Low.ElementAtOrDefault(i - historyCount), f)} to {Format(l.High.ElementAtOrDefault(i - historyCount), f)})");
+            var tip = x[i] + (i < historyCount ? ": " : " (forecast): ") + string.Join("; ", parts);
+            var w = x.Count == 1 ? 60 : (W - R - L) / (double)(x.Count - 1);
+            sb.Append($"<rect class=\"hit\" x=\"{N(X(i) - w / 2)}\" y=\"{T}\" width=\"{N(w)}\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\" data-x=\"{N(X(i))}\"/>");
+        }
+        sb.Append($"<line class=\"cross\" x1=\"0\" x2=\"0\" y1=\"{T}\" y2=\"{H - B}\"/></svg>");
+        return new((lines.Count >= 2 ? Legend(lines.Select(l => l.History)).Value : "") + sb);
+    }
+
     /// <summary>Columns per week, stacked (parts of a whole) or grouped (side by side).</summary>
     public static HtmlString Columns(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, bool stacked = true)
     {

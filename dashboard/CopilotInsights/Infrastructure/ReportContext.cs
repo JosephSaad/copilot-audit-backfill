@@ -114,7 +114,8 @@ public sealed class ReportContextFactory(Db db, Settings settings)
         var days = int.TryParse(request.Query["d"], out var dq) && ReportContext.DayChoices.Contains(dq) ? dq : defaultDays;
         var minGroup = await settings.IntAsync("MinGroupSize", 5);
         var inactive = await settings.IntAsync("InactiveDays", 30);
-        var top = await settings.StringAsync("OrgTopUpn");
+        /* Set by an admin, or else found in the org chart by the refresh. */
+        var top = await settings.StringAsync("OrgTopUpn") ?? await settings.StringAsync("OrgTopUpnDetected");
 
         /* The last complete day with data (today is still arriving). */
         var endKey = await db.ScalarAsync<int?>(@"

@@ -47,10 +47,12 @@ IF OBJECT_ID(N'dash.Setting', N'U') IS NULL
     );
 MERGE dash.Setting AS t
 USING (VALUES
-    ('OrgTopUpn',    CAST(NULL AS NVARCHAR(400)), N'UPN of the top of the organisation (the CEO). They and their direct reports see the whole organisation. Empty: nobody does by level.'),
+    ('OrgTopUpn',    CAST(NULL AS NVARCHAR(400)), N'UPN of the top of the organisation (the CEO). They and their direct reports see the whole organisation. Empty: taken from the org chart (OrgTopUpnDetected).'),
     ('MinGroupSize', N'5',  N'Breakdowns hide groups with fewer people than this, folding them into "Smaller groups", so a group total cannot reveal one person.'),
     ('DefaultDays',  N'30', N'Days shown when a page opens: 7, 14, 30, 90, 180 or 365.'),
-    ('InactiveDays', N'30', N'A licensed person with no Copilot use for this many days counts as not using their licence.')
+    ('InactiveDays', N'30', N'A licensed person with no Copilot use for this many days counts as not using their licence.'),
+    ('LicenceMonthlyCost', N'30', N'What one Copilot licence costs a month, for the licence recommendations.'),
+    ('LicenceCurrency', N'USD', N'The currency LicenceMonthlyCost is in.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);

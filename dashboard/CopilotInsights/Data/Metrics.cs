@@ -168,6 +168,21 @@ WHERE u.AccountEnabled = 1
 GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
     }
 
+    /// <summary>Per unit (as UnitsAsync) and trend point: interactions, safety signals, labelled content, web grounding.</summary>
+    public async Task<List<UnitPoint>> UnitSeriesAsync(ReportContext c)
+    {
+        var parent = c.Root ?? c.OrgTopUpn;
+        return await db.QueryAsync<UnitPoint>($@"
+WITH {UnitMembers(c, parent is not null)},
+b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1)
+SELECT u.Unit, b.Bucket, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
+       SUM(CAST(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource AS BIGINT)) AS Flags,
+       SUM(CAST(ud.LabelledContent AS BIGINT)) AS Labelled, SUM(CAST(ud.WebGrounded AS BIGINT)) AS Web
+FROM u JOIN dash.UserDay AS ud ON ud.UserKey = u.UserKey
+JOIN b ON b.DateKey = ud.DateKey
+GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
+    }
+
     public static UnitRow Combine(IReadOnlyList<UnitRow> rows, string name) => new()
     {
         Unit = "~small", Name = name, People = rows.Sum(r => r.People), Licensed = rows.Sum(r => r.Licensed),
@@ -175,4 +190,67 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
         ActiveDays = rows.Sum(r => r.ActiveDays), Sessions = rows.Sum(r => r.Sessions), MultiTurn = rows.Sum(r => r.MultiTurn),
         Flags = rows.Sum(r => r.Flags), Labelled = rows.Sum(r => r.Labelled),
     };
+    /// <summary>
+    /// People, licences and use in the period, grouped by one directory attribute of bi.DimUser.
+    /// <paramref name="attribute"/> is one of <see cref="Attributes"/>, never text from a request.
+    /// </summary>
+    public async Task<List<GroupRow>> ByAttributeAsync(ReportContext c, string attribute)
+    {
+        var expr = Attributes[attribute];
+        return await db.QueryAsync<GroupRow>($@"
+WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
+                    SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT
+             FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
+SELECT {expr} AS Name, COUNT(*) AS People, COUNT(ld.UserKey) AS Licensed,
+       COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active, COUNT(CASE WHEN a.L > 0 THEN 1 END) AS ActiveLicensed,
+       ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
+       ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn
+FROM bi.DimUser AS du {c.Scope("du.UserKey")}
+LEFT JOIN act AS a ON a.UserKey = du.UserKey
+LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
+WHERE du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1
+GROUP BY {expr};", c.Args());
+    }
+
+    public static readonly IReadOnlyDictionary<string, string> Attributes = new Dictionary<string, string>
+    {
+        ["Country"] = "ISNULL(NULLIF(du.Country, N''), N'(no country)')",
+        ["City"] = "ISNULL(NULLIF(du.City, N''), N'(no city)')",
+        ["Office"] = "ISNULL(NULLIF(du.OfficeLocation, N''), N'(no office)')",
+        ["EmployeeType"] = "ISNULL(NULLIF(du.EmployeeType, N''), N'(not set)')",
+        ["Role"] = "CASE WHEN du.IsManager = 1 THEN N'Managers' ELSE N'Individual contributors' END",
+        ["JobTitle"] = "ISNULL(NULLIF(du.JobTitle, N''), N'(no title)')",
+        ["Level"] = "CASE WHEN du.OrgDepth IS NULL THEN N'(not in the chart)' ELSE CONCAT(N'Level ', du.OrgDepth + 1) END",
+        ["Division"] = "ISNULL(NULLIF(du.Division, N''), N'(no division)')",
+    };
+
+    public static GroupRow CombineGroups(IReadOnlyList<GroupRow> rows, string name) => new()
+    {
+        Name = name, People = rows.Sum(r => r.People), Licensed = rows.Sum(r => r.Licensed), Active = rows.Sum(r => r.Active),
+        ActiveLicensed = rows.Sum(r => r.ActiveLicensed), Interactions = rows.Sum(r => r.Interactions), ActiveDays = rows.Sum(r => r.ActiveDays),
+        Sessions = rows.Sum(r => r.Sessions), MultiTurn = rows.Sum(r => r.MultiTurn),
+    };
+}
+
+public sealed class GroupRow
+{
+    public string Name { get; set; } = "";
+    public int People { get; set; }
+    public int Licensed { get; set; }
+    public int Active { get; set; }
+    public int ActiveLicensed { get; set; }
+    public long Interactions { get; set; }
+    public long ActiveDays { get; set; }
+    public long Sessions { get; set; }
+    public long MultiTurn { get; set; }
+}
+
+public sealed class UnitPoint
+{
+    public string Unit { get; set; } = "";
+    public DateTime Bucket { get; set; }
+    public long Interactions { get; set; }
+    public long Flags { get; set; }
+    public long Labelled { get; set; }
+    public long Web { get; set; }
 }

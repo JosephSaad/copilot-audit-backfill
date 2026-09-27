@@ -34,7 +34,8 @@ public sealed class Paging
     public string? Like => Search is null ? null : "%" + Search.Replace("[", "[[]").Replace("%", "[%]").Replace("_", "[_]") + "%";
 
     public string OrderAndPage() =>
-        $"ORDER BY {_sorts[SortKey]} " + (ForExport ? "" : $"OFFSET {(Page - 1) * PageSize} ROWS FETCH NEXT {PageSize} ROWS ONLY");
+        /* An export takes every row; OFFSET 0 keeps the ORDER BY legal inside a CTE or derived table too. */
+        $"ORDER BY {_sorts[SortKey]} " + (ForExport ? "OFFSET 0 ROWS" : $"OFFSET {(Page - 1) * PageSize} ROWS FETCH NEXT {PageSize} ROWS ONLY");
 
     public int Pages => Math.Max(1, (int)Math.Ceiling(Total / (double)PageSize));
 

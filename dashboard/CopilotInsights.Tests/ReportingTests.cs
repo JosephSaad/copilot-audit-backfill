@@ -44,7 +44,7 @@ public class PagingTests
 
     [Fact]
     public void An_export_gets_every_row() =>
-        Assert.Equal("ORDER BY du.Department ", new Paging(Q("?handler=csv&p=9&s=dept"), Sorts, "name").OrderAndPage());
+        Assert.Equal("ORDER BY du.Department OFFSET 0 ROWS", new Paging(Q("?handler=csv&p=9&s=dept"), Sorts, "name").OrderAndPage());
 }
 
 public class ExportTests

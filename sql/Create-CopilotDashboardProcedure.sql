@@ -76,6 +76,25 @@ BEGIN
 
     DECLARE @top NVARCHAR(256) = (SELECT NULLIF(LTRIM(RTRIM(Value)), N'') FROM dash.Setting WHERE Name = 'OrgTopUpn');
 
+    /* No top set: take it from the org chart - the one person with no manager
+       who has at least half the directory under them - and record it, so the
+       dashboard works with nothing configured. OrgTopUpn, when set, wins. */
+    DECLARE @detected NVARCHAR(256) =
+    (
+        SELECT TOP (1) c.AncestorUpn
+        FROM #clo AS c
+        JOIN #dir AS d ON d.Upn = c.AncestorUpn AND d.ManagerUpn IS NULL
+        GROUP BY c.AncestorUpn
+        HAVING COUNT(*) * 2 >= (SELECT COUNT(*) FROM #dir)
+        ORDER BY COUNT(*) DESC
+    );
+    MERGE dash.Setting AS t
+    USING (SELECT 'OrgTopUpnDetected' AS Name, @detected AS Value) AS s ON t.Name = s.Name
+    WHEN MATCHED THEN UPDATE SET Value = s.Value, UpdatedBy = N'dash.usp_RefreshDashboard', UpdatedUtc = SYSUTCDATETIME()
+    WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy)
+        VALUES (s.Name, s.Value, N'The top of the organisation found in the org chart, used while OrgTopUpn is empty. Written by each refresh.', N'dash.usp_RefreshDashboard');
+    SET @top = COALESCE(@top, @detected);
+
     DROP TABLE IF EXISTS #person;
     CREATE TABLE #person (Upn NVARCHAR(256) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY, DisplayName NVARCHAR(256) NULL,
                           ManagerUpn NVARCHAR(256) NULL, Department NVARCHAR(200) NULL, AccountEnabled BIT NULL);
@@ -217,7 +236,10 @@ BEGIN
     SET @msg = CONCAT(N'Dashboard refreshed', CASE WHEN @fromKey IS NULL THEN N' (every day)' ELSE CONCAT(N' from ', @fromKey) END,
                       N': ', FORMAT(@people, 'N0'), N' people, ', FORMAT(@closure, 'N0'), N' org pairs, ',
                       FORMAT(@dayRows, 'N0'), N' person-days written.',
-                      CASE WHEN @top IS NULL THEN N' OrgTopUpn is not set: nobody sees the whole organisation by level.' ELSE N'' END);
+                      CASE WHEN @top IS NULL THEN N' No top of the organisation: none is set, and no one person has half the directory under them, so nobody sees the whole organisation by level.'
+                           WHEN @detected = @top AND NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'OrgTopUpn' AND NULLIF(LTRIM(RTRIM(Value)), N'') IS NOT NULL)
+                                THEN CONCAT(N' Top of the organisation, from the org chart: ', @top, N'.')
+                           ELSE N'' END);
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
 END;
 GO

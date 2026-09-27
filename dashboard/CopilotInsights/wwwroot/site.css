@@ -158,3 +158,12 @@ form.pager .pages { margin-left: auto; display: flex; gap: 12px; align-items: ce
 form.admin + form.admin { margin-top: 4px; }
 td form.admin { margin: 0; flex-wrap: nowrap; }
 td form.admin label { flex-direction: row; align-items: center; gap: 4px; }
+svg.chart .line.dashed { stroke-dasharray: 6 4; }
+svg.chart .band { opacity: 0.14; stroke: none; }
+svg.chart .grid.now { stroke: var(--faint); stroke-dasharray: 2 3; }
+.recs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.rec { background: var(--surface); border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 8px; padding: 12px 14px; }
+.rec.save { border-left-color: var(--good); } .rec.spend { border-left-color: var(--warn); } .rec.info { border-left-color: var(--faint); }
+.rec h3 { margin: 0 0 4px; font-size: 14px; }
+.rec .big { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.rec p { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }

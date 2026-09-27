@@ -18,12 +18,14 @@
       5. Creates the app pool (no managed code, the given identity) and the
          site, with an HTTPS binding when -CertificateThumbprint is given.
       6. Turns Windows authentication on and anonymous authentication off.
-      7. Writes the database grants the app-pool account needs, and runs
-         them with -GrantDatabaseAccess (you need to be able to create logins).
+      7. With -GrantDatabaseAccess (you need to be able to create logins):
+         installs or upgrades the dashboard's dash schema in the database,
+         builds its org chart and rollups, and grants the app-pool account
+         what it needs. Without it, writes the grants for a DBA instead.
 
-    The dashboard reads the database the backfill writes (the bi and dash
-    schemas): install sql/Create-CopilotDashboardSchema.sql and
-    sql/Create-CopilotDashboardProcedure.sql there first, and set OrgTopUpn.
+    The dashboard reads the database the pipeline fills (Install-CopilotAudit.ps1).
+    The top of the organisation is found in the org chart; -OrgTopUpn or
+    Admin > Access overrides it. Nothing needs setting by hand in SQL.
 
 .PARAMETER PackagePath
     The app to install: a folder holding CopilotInsights.csproj (published with
@@ -61,6 +63,7 @@ param(
     [string] $HostingBundlePath,
     [switch] $TrustServerCertificate,
     [switch] $GrantDatabaseAccess,
+    [string] $OrgTopUpn,
     [switch] $SkipFeatureInstall
 )
 
@@ -244,6 +247,25 @@ END;
 $grantsFile = Join-Path $PhysicalPath 'Grant-CopilotInsightsAccess.sql'
 Set-Content $grantsFile $grants -Encoding utf8
 if ($GrantDatabaseAccess) {
+    # The dash schema first: the grants below name its tables.
+    $repoSql = Join-Path (Split-Path $PSScriptRoot -Parent) 'sql'
+    $dbConn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
+    $dbConn.Open()
+    try {
+        foreach ($f in 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql') {
+            $text = Get-Content -LiteralPath (Join-Path $repoSql $f) -Raw
+            foreach ($batch in [regex]::Split($text, '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) {
+                if ($batch.Trim()) { $c = $dbConn.CreateCommand(); $c.CommandText = $batch; $c.CommandTimeout = 0; [void] $c.ExecuteNonQuery() }
+            }
+        }
+        if ($OrgTopUpn) {
+            $c = $dbConn.CreateCommand(); $c.CommandText = "UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = 'OrgTopUpn';"
+            [void] $c.Parameters.AddWithValue('@v', $OrgTopUpn.Trim()); [void] $c.Parameters.AddWithValue('@by', "$env:USERDOMAIN\$env:USERNAME"); [void] $c.ExecuteNonQuery()
+        }
+        $c = $dbConn.CreateCommand(); $c.CommandText = "IF OBJECT_ID(N'bi.FactInteraction', N'U') IS NOT NULL EXEC dash.usp_RefreshDashboard;"; $c.CommandTimeout = 0; [void] $c.ExecuteNonQuery()
+        Write-Host "Dashboard schema installed in $Database and its rollups built."
+    }
+    finally { $dbConn.Dispose() }
     $conn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=master;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
     $conn.Open()
     try { $cmd = $conn.CreateCommand(); $cmd.CommandText = $grants; $cmd.CommandTimeout = 120; [void] $cmd.ExecuteNonQuery() }
