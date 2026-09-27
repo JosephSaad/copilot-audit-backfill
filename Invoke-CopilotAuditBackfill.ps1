@@ -407,6 +407,19 @@ function Invoke-CopilotAuditFinalize {
 # Incremental loads
 # ===========================================================================
 
+function Get-OperationsChange {
+    <#
+        Whether a load may ask for these operations in a database that recorded
+        others: the operations it adds (none when they are the same), or $null
+        when it would drop one. Pure, for the tests.
+    #>
+    param([string] $Recorded, [string[]] $Requested)
+    $had = @($Recorded -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $want = @($Requested | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Sort-Object -Unique)
+    if (@($had | Where-Object { $_ -notin $want }).Count -gt 0) { return $null }
+    , @($want | Where-Object { $_ -notin $had })
+}
+
 function Resolve-LoadRange {
     <#
         The next incremental load's range, from where the data ends. It starts
@@ -445,7 +458,12 @@ function Get-IncrementalLoad {
     $pending = Invoke-Sql -As Table -Sql 'SELECT TOP (1) LoadId, RangeStartUtc, RangeEndUtc, Operations, DownloadedUtc FROM audit.CopilotLoad WHERE MergedUtc IS NULL ORDER BY LoadId'
     if ($pending.Rows.Count -gt 0) {
         $p = $pending.Rows[0]
-        if ($p.Operations -ne $ops) { throw "Load $($p.LoadId) in this database is of '$($p.Operations)', not '$ops'." }
+        $widen = Get-OperationsChange -Recorded $p.Operations -Requested $Operations
+        if ($null -eq $widen) { throw "Load $($p.LoadId) in this database is of '$($p.Operations)', not '$ops'." }
+        if ($widen.Count -gt 0) {
+            Invoke-Sql -Sql 'UPDATE audit.CopilotLoad SET Operations = @o WHERE LoadId = @id' -Parameters @{ '@o' = $ops; '@id' = [int] $p.LoadId }
+            Write-Log "Load $($p.LoadId) now also asks for: $($widen -join ', ')."
+        }
         $downloaded = $p.DownloadedUtc -isnot [DBNull]
         $load = [pscustomobject]@{
             LoadId = [int] $p.LoadId
@@ -462,8 +480,14 @@ function Get-IncrementalLoad {
     if ($backfill.Rows.Count -eq 0 -or $backfill.Rows[0].CompletedUtc -is [DBNull]) {
         throw 'Run a backfill to completion in this database first: incremental loads continue from where it ends.'
     }
-    if ($backfill.Rows[0].Operations -ne $ops) {
-        throw "This database holds a backfill of '$($backfill.Rows[0].Operations)', not '$ops'. Pass the same -Operations."
+    $added = Get-OperationsChange -Recorded $backfill.Rows[0].Operations -Requested $Operations
+    if ($null -eq $added) {
+        throw "This database holds a backfill of '$($backfill.Rows[0].Operations)', not '$ops'. Pass the same -Operations, or more of them."
+    }
+    if ($added.Count -gt 0) {
+        # 2.3.0 added Copilot Studio's authoring operations to the licence-event load: they load from now on.
+        Invoke-Sql -Sql 'UPDATE audit.CopilotBackfillRange SET Operations = @o WHERE Id = 1' -Parameters @{ '@o' = $ops }
+        Write-Log "Loading $($added -join ', ') too from now on. Earlier records of them are not loaded into this database."
     }
     if ((Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.CopilotAudit', N'U') IS NULL THEN 0 ELSE 1 END") -eq 0) {
         throw 'The backfill has not been finalized. Run -FinalizeOnly first: loads are appended to audit.CopilotAudit.'

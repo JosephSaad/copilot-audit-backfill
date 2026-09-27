@@ -235,12 +235,21 @@ elseif ($fullBuild) {
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
     Write-Done 'bi, in full...'
     Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
-    if ($upgrade) { $todo += 'Refresh the Power BI model in full once, and add the new bi views (AccessedResources, LicenseTypes, SensitivityLabels, ResourceTypes, ResourceActions, Sites) if you want them.' }
+    if ($upgrade) { $todo += 'Refresh the Power BI model in full once. The ready-made model in powerbi\CopilotInsights has every bi view (docs/DEPLOYMENT.md, step 15).' }
 }
 else { Write-Done 'sessions and bi are built; the nightly -Incremental run keeps them current.' }
 
+# 2.3.0: the value catalogue fills as records are flattened; records flattened before it existed are catalogued once here.
+if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.ValueCatalog') -and (Get-Count $Database 'audit.ValueCatalog') -eq 0) {
+    Write-Done ("value catalogue: reading {0:N0} flattened record(s) once..." -f $flattened)
+    Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
+}
+
 if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
-    $since = if ($fullBuild -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
+    # 2.3.0 added Premium-feature use to the rollups: rebuilt in full once, when they have days but none of it.
+    $premiumEmpty = (Get-Count $Database 'dash.UserDay') -gt 0 -and
+        [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE PremiumUse > 0) OR NOT EXISTS (SELECT 1 FROM dash.UserDay WHERE LicensedUse > 0) THEN 1 ELSE 0 END;') -eq 0
+    $since = if ($fullBuild -or $premiumEmpty -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
     Write-Done $(if ($since) { 'dashboard: org chart, and today''s rollups...' } else { 'dashboard: org chart and every day''s rollups...' })
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }
