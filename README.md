@@ -241,9 +241,15 @@ Starting-point measures (not yet tried in a model):
 Interactions = COUNTROWS ( Interactions )
 Prompts = SUM ( Interactions[PromptCount] )
 Active users = DISTINCTCOUNT ( Interactions[UserKey] )
-Active licensed users = CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed" )
 Licensed users = CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),
                      LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+// Used it with a licence in the period, and still hold one at its end: always part of
+// [Licensed users], so adoption can't pass 100% when licences are removed mid-period.
+Active licensed users =
+    VAR HeldAtEnd = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
+                        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+    RETURN CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",
+                       KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )
 Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
 ```
 

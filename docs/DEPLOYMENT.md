@@ -168,13 +168,16 @@ It creates both databases (SIMPLE recovery, so the parallel bulk loads are minim
 | What | Size at 40M interactions |
 |---|---:|
 | Backfill staging (about 1.5 KB per record; can be dropped once the finalized tables are checked) | ≈ 60 GB |
-| `audit.RawLogFlattened`, plus its index | 15.3 GB + 5.6 GB |
-| `audit.CopilotSession` | 2.3 GB |
+| `audit.CopilotAudit`, the finalized records with their compressed JSON | 32.9 GB |
+| `audit.RawLogFlattened`, with its indexes | 49.4 GB |
+| `audit.RawLogAccessedResource` (70 million rows) and `audit.RawLogContext` | 8.3 GB + 0.1 GB |
+| `audit.CopilotSession` | 3.8 GB |
 | `audit.CopilotWeeklyRollup` | 1.9 GB |
-| `bi` interaction fact (columnstore) | 1.2 GB |
+| `bi` interaction and accessed-resource facts (columnstore) | 1.5 GB + 2.1 GB |
+| `dash` rollups for the dashboard | 1.8 GB |
 | tempdb free space for the first full session build (step 11) | ≈ 25 GB |
 
-The finalized `audit.CopilotAudit` is a compressed columnstore that keeps each record's JSON; it was not measured separately. Leave room for it on top of the table.
+About 100 GB for the Copilot database once built, on top of staging. The flattened table grew in 2.2.0: it keeps every informative field of the record, not 24 of them.
 
 ## Phase 2: Load the history
 
@@ -299,7 +302,7 @@ People who appear only in the licence history, whose licence was removed and who
 
 ### Step 11. Build everything once
 
-*Job server. About 40 minutes for sessions and `bi` at 40M interactions, plus flattening.*
+*Job server. About 8 hours at 40M interactions, most of it flattening.*
 
 The history run's last step:
 
@@ -348,7 +351,7 @@ Start-ScheduledTask -TaskName 'Copilot audit - nightly'
 
 To move it, run step 3 again with `-At 03:30`.
 
-A daily run costs 2–4 of the tenant's roughly 200 audit searches per 24 hours. At 40 million interactions, the SQL work after the download (sessions and `bi`) took about 74 seconds, against 31 minutes for rebuilding everything.
+A daily run costs 2–4 of the tenant's roughly 200 audit searches per 24 hours. At 40 million interactions, the SQL work after the download (flattening, sessions, `bi` and the dashboard's rollups, from 48 hours back) took about 7½ minutes, against 8 hours for building everything.
 
 ## Phase 5: Connect Power BI
 
@@ -389,9 +392,15 @@ The on-premises data gateway's login needs the `bi` views and nothing else. The 
 Interactions = COUNTROWS ( Interactions )
 Prompts = SUM ( Interactions[PromptCount] )
 Active users = DISTINCTCOUNT ( Interactions[UserKey] )
-Active licensed users = CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed" )
 Licensed users = CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),
                      LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+// Used it with a licence in the period, and still hold one at its end: always part of
+// [Licensed users], so adoption can't pass 100% when licences are removed mid-period.
+Active licensed users =
+    VAR HeldAtEnd = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
+                        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+    RETURN CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",
+                       KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )
 Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
 ```
 
@@ -442,7 +451,7 @@ The `bi` views already give Copilot a star schema with readable table names. Thr
 | Users[CopilotLicenceToday] | Today's Copilot licence. Not for past periods; use LicenceStatus for those. |
 | Calendar[WeekEnding] | The Friday that ends the date's Saturday-to-Friday week. Weeks in this model are always Saturday to Friday. |
 | [Active users] | People with at least one Copilot interaction in the period. |
-| [Adoption %] | Active licensed users divided by people holding a Copilot licence at the end of the period. |
+| [Adoption %] | People holding a Copilot licence at the end of the period who used it while licensed, divided by everyone holding one then. |
 
 Add synonyms where people's words differ from the model's: "prompts" and "uses" for Interactions, "seats" for licences, "team" and "org" for Department.
 
@@ -483,7 +492,8 @@ Licences
 - Users[CopilotLicenceToday] is today's licence only. Use it for "who has a
   licence now", not for past periods.
 - Licensed users on a date come from the LicensedDays table. [Adoption %] is
-  active licensed users divided by licensed users.
+  the people licensed at the end of the period who used Copilot while licensed,
+  divided by everyone licensed then. It never passes 100%.
 - "Licensed but not using Copilot" means people in LicensedDays for the period
   with no interactions in it.
 
@@ -614,6 +624,26 @@ On 26 September 2026 the 2.2.0 scripts ran against a restored copy-only backup o
 | Sessions, a full `bi` build and the dashboard's rollups | 241 sessions, 1,149 interactions and 1,939 accessed resources in `bi`; a partial `bi` refresh from three days back kept the same totals. |
 
 Not run in the lab: the AD export (the lab machine isn't on a domain, so department and org columns are blank there), the licence tool signed in as the app, `tools\Install-CopilotJobServer.ps1`, `tools\New-CopilotAuditApp.ps1` and the scheduled task, the CSV importer on a real Purview portal export, and the Power BI model and its Copilot setup.
+
+### 40 million interactions (the 2.2.0 release test)
+
+On 26 and 27 September 2026 the 2.2.0 scripts ran against generated data: 70,000 people in a seven-level organisation, 17,692 of them licensed, and 40 million interaction records as the backfill stores them (JSON, 30.5 GB compressed), over a year, with 70 million accessed resources among them. One SQL Server 2025 instance on 8 cores and 31 GB of RAM.
+
+| What ran | Time | Result |
+|---|---:|---|
+| Flatten every record | 6 h 28 min | 40,000,000 records; 69,628,759 accessed resources; tempdb data 4.6 GB |
+| Full session build | 32 min | 7,382,635 sessions, 5,545,884 weekly rows; tempdb grew to 25 GB |
+| Full `bi` build | 43 min | 40,000,000 interactions, 69,628,759 accessed resources, 7,382,635 sessions, 3,940,204 licensed user-days |
+| Dashboard rollups, full (twice) | 96 s, 92 s | 70,000 people, 447,202 manager-to-person pairs, 6,021,999 person-days |
+| Nightly: flatten, sessions, `bi` and dashboard from 48 hours back | 4 min 19 s, 85 s, 76 s, 26 s | 220,480 interactions and 60,852 sessions rebuilt |
+
+Every count agreed across the layers: interactions, sessions, labelled interactions and accessed resources were the same in `audit`, `bi` and the dashboard's rollups, and everyone in the organisation was under its top.
+
+The test found three problems, fixed before release:
+
+- **Flattening at 40M** spent half its time finding each 200,000-record batch in the columnstore: it would have taken about 10 hours. The records to do are now keyed once, at the start.
+- **Dashboard pages over 180 days**, viewed as the top of the organisation, took up to 48 seconds, and the licence recommendations list 105 seconds. After the fixes, all 44 page views tested opened in under 9 seconds at 180 days (half of them in under 2), and in under 5 seconds at 30 days (half in about 1).
+- **Adoption above 100%.** People whose licence was removed during the period counted as active and licensed, but not as licensed at its end. Adoption now counts only the people licensed at the end of the period (or of each week) who used Copilot while licensed, in the dashboard and in the Power BI measures under step 15.
 
 ## Not yet proven in a live deployment
 

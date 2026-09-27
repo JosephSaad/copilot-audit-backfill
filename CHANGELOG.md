@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-09-27
 
 Setting up is now two commands on the job server, with nothing typed into SQL
 or clicked through in the Entra portal. The rest of the release: every field in
@@ -101,8 +101,18 @@ the web servers and the users are in different domains.
   `dashboard/CopilotInsights.Tests` for the access rules, paging, periods, CSV export and
   charts. CI builds, tests and publishes the dashboard.
 
+### Changed
+
+- **Flattening finds its batches faster.** The records to do are keyed once at the start, rather than found in the columnstore for each 200,000-record batch. At 40 million records that search was half the flatten, which now takes about 6½ hours instead of about 10.
+- **Adoption can't pass 100%.** The Power BI starting-point measure `[Active licensed users]`, and the dashboard, count only people who still hold a licence at the end of the period (or of each week) and used Copilot while licensed. Before, someone whose licence was removed during the period counted as active and licensed, but not in `[Licensed users]`.
+
+### Tested at 40 million interactions
+
+70,000 people, 17,692 licensed, a year of records: flattening in 6 h 28 min, sessions in 32 min, `bi` in 43 min, the dashboard's rollups in 96 s; a nightly run from 48 hours back in about 7½ minutes. Counts agreed across `audit`, `bi` and the dashboard. Every dashboard page opened in under 9 seconds for 180 days, viewed as the top of the organisation, after fixes to the pages that took up to 105 seconds. `docs/DEPLOYMENT.md` has the figures and the space each table takes.
+
 ### Documentation
 
+- `docs/DEPLOYMENT.md`: the 40-million-interaction test under *What has run in the lab*, and the space table, step 11's time and the nightly cost updated from it.
 - `docs/DEPLOYMENT.md` leads with the two setup commands. Steps 2-4 and 12-13 now describe what the scripts do, with the manual alternatives for split teams. The certificate, private key, batch-logon right, scheduled task and time zone need no hand steps.
 - `docs/DASHBOARD.md`: servers in one domain and users in another. Which trust direction is needed for what, how sign-ins are matched, grants from the users' domain, and Kerberos across a forest trust.
 - `docs/DASHBOARD.md`: every page by persona, who sees what, periods, paging and
@@ -759,6 +769,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0
 [2.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.1.0
 [2.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.0.0
 [1.6.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.6.0
