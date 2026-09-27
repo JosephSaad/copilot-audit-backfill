@@ -53,6 +53,7 @@ FROM wk ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = Re
 
 public sealed class IndexModel(PageServices s) : InsightsPage(s)
 {
+    public override string? OwnWindow => "all history, projected 13, 26 or 52 weeks ahead";
     public override string Title => "Forecast";
     public override string Persona => "Forecasting";
     public override string Intro => "Where use and licenses are heading, from the last year of weekly history, with how sure the projection can be.";
@@ -66,7 +67,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"h={h}"))}\"{(h == horizon ? " class=\"on\"" : "")}>{h} weeks</a>"));
         Panels.Add(new("How far ahead", new HtmlString($"<p class=\"sub\">Forecast: {links}</p>"),
             "Damped-trend exponential smoothing, fitted to each weekly series separately. The shaded band is the 95% interval: it widens the further out it goes. "
-            + "This projects history; a planned rollout or reclaim will move it. The period filter does not apply here."));
+            + "This projects history; a planned rollout or reclaim will move it."));
         if (hist.Count < 8)
         {
             Notice = $"A forecast needs at least 8 weeks of history; there are {hist.Count}.";

@@ -14,6 +14,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     public override string Intro => "Named recommendations from the last 30 days: free Copilot Chat users to upgrade to a Premium license, "
         + "license holders who barely use Copilot to train, and licenses unused long enough to revoke.";
 
+    public override string? OwnWindow => "the last 30 days, whatever the period";
     public const int UpgradeDays = 6;   // of the last 30, on the free Copilot Chat
     public const int LightMax = 2;      // days of use in 30 with a license: train
     public const int RevokeAfterDays = 30;
@@ -193,6 +194,6 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         if (!premiumReady && kind != "upgrade")
             Notice = "Premium-feature use is not in the rollups yet, so train and revoke count any use, as before 2.3.0. An administrator rebuilds the rollups once (Admin > Health, Rebuild every day) to separate Premium features from web Copilot Chat.";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "The period filter does not apply here: every rule looks at the last 30 days. \"License the records report\" is what Copilot wrote into the person's latest audit record.", "full", CsvUrl()));
+            "\"License the records report\" is what Copilot wrote into the person's latest audit record.", "full", CsvUrl()));
     }
 }

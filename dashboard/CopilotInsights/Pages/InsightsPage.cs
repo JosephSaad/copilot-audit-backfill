@@ -105,6 +105,12 @@ public abstract class InsightsPage(PageServices s) : PageModel
     public virtual string? RequiredRole => null;
     public virtual bool AdminOnly => false;
     public virtual bool UsesFilters => true;
+    /// <summary>
+    /// A page whose figures do not follow the period filter says what window they use instead,
+    /// shown in the filter bar where the period's dates usually are.
+    /// </summary>
+    public virtual string? OwnWindow => null;
+
     /// <summary>A role page that privacy mode still allows: it is about one person, on request (a data-subject request).</summary>
     public virtual bool AllowedInPrivacyMode => false;
 

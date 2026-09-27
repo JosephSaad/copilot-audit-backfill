@@ -44,6 +44,22 @@ public static class CertificateWarning
         daysLeft <= 0 ? "expired" : daysLeft <= 3 ? "3" : daysLeft <= 14 ? "14" : daysLeft <= warnDays ? warnDays.ToString(CultureInfo.InvariantCulture) : null;
 }
 
+/// <summary>
+/// The one retry policy (2.4.0): something scheduled that fails is tried again an hour later, three tries in all,
+/// then waits for its next period. Pure, for the tests.
+/// </summary>
+public static class Retry
+{
+    public const int Tries = 3;
+    public static readonly TimeSpan Wait = TimeSpan.FromHours(1);
+
+    public static bool Ready(DateTime? retryAfterUtc, DateTime nowUtc) => retryAfterUtc is null || retryAfterUtc <= nowUtc;
+
+    /// <summary>What to record after a try: whether to try again, the failures so far, and when.</summary>
+    public static (bool Retry, byte FailedTries, DateTime? RetryAfterUtc) After(bool succeeded, byte failedBefore, DateTime nowUtc) =>
+        succeeded || failedBefore + 1 >= Tries ? (false, (byte)0, null) : (true, (byte)(failedBefore + 1), nowUtc + Wait);
+}
+
 /// <summary>The datasets a scheduled extract may write: aggregates only, never a named person.</summary>
 public static class ExtractData
 {
@@ -120,15 +136,23 @@ public sealed partial class Notifier
             var format = await _settings.StringAsync("AlertWebhookFormat") is "Json" ? "Json" : "Teams";
             string status = "Sent";
             string? error = null;
-            try
+            /* An alert should not wait an hour: three tries on the spot, 5 and 20 seconds apart. */
+            var payload = Webhook.Payload(format, kind, subject, lines, link, DateTime.UtcNow);
+            using var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(20);
+            foreach (var wait in new[] { 0, 5, 20 })
             {
-                using var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient();
-                http.Timeout = TimeSpan.FromSeconds(20);
-                using var body = new StringContent(Webhook.Payload(format, kind, subject, lines, link, DateTime.UtcNow), Encoding.UTF8, "application/json");
-                using var r = await http.PostAsync(url, body, ct);
-                if (!r.IsSuccessStatusCode) { status = "Failed"; error = $"HTTP {(int)r.StatusCode} {r.ReasonPhrase}"; }
+                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait), ct);
+                try
+                {
+                    using var body = new StringContent(payload, Encoding.UTF8, "application/json");
+                    using var r = await http.PostAsync(url, body, ct);
+                    if (r.IsSuccessStatusCode) { status = "Sent"; error = null; break; }
+                    status = "Failed"; error = $"HTTP {(int)r.StatusCode} {r.ReasonPhrase}";
+                    if ((int)r.StatusCode is >= 400 and < 500 and not 408 and not 429) break;   // the address or payload is wrong: trying again will not help
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = "Failed"; error = ex.Message; }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = "Failed"; error = ex.Message; }
             await _db.ExecuteAsync("INSERT INTO dash.NotificationLog (Kind, Subject, Recipients, Status, Error) VALUES (@kind, @subject, N'webhook', @status, @error);",
                 new { kind = "Webhook", subject = subject.Length > 400 ? subject[..400] : subject, status, error = error is { Length: > 1000 } ? error[..1000] : error });
             if (error is not null) done.Add($"Webhook not delivered ({error}): {subject}");
@@ -268,39 +292,48 @@ WHERE pref.PersonalDigest = 1
             public byte HourLocal { get; set; }
             public int Days { get; set; }
             public DateTime? LastRunUtc { get; set; }
+            public byte FailedTries { get; set; }
+            public DateTime? RetryAfterUtc { get; set; }
         }
 
         public async Task ExtractsAsync()
         {
             if (!await _ops.HasAsync("dash.Extract")) return;
-            var rows = await _db.QueryAsync<ExtractRow>("SELECT ExtractId, Name, Dataset, Folder, Frequency, DayOfWeek, DayOfMonth, HourLocal, Days, LastRunUtc FROM dash.Extract WHERE Enabled = 1;");
+            var rows = await _db.QueryAsync<ExtractRow>("SELECT ExtractId, Name, Dataset, Folder, Frequency, DayOfWeek, DayOfMonth, HourLocal, Days, LastRunUtc, FailedTries, RetryAfterUtc FROM dash.Extract WHERE Enabled = 1;");
             if (rows.Count == 0) return;
             var zone = await _ops.ZoneAsync();
-            foreach (var x in rows.Where(x => Schedule.IsDue(x.Frequency, x.DayOfWeek, x.DayOfMonth, x.HourLocal, x.LastRunUtc, DateTime.UtcNow, zone)))
+            foreach (var x in rows.Where(x => Schedule.IsDue(x.Frequency, x.DayOfWeek, x.DayOfMonth, x.HourLocal, x.LastRunUtc, DateTime.UtcNow, zone)
+                                              && Retry.Ready(x.RetryAfterUtc, DateTime.UtcNow)))
                 done.Add($"Extract \"{x.Name}\": " + await WriteExtractAsync(x.ExtractId));
         }
 
         /// <summary>Writes one extract now and records the result. Also used by Admin > Scheduled extracts' Run now.</summary>
         public async Task<string> WriteExtractAsync(int id)
         {
-            var x = (await _db.QueryAsync<ExtractRow>("SELECT ExtractId, Name, Dataset, Folder, Frequency, DayOfWeek, DayOfMonth, HourLocal, Days, LastRunUtc FROM dash.Extract WHERE ExtractId = @id;", new { id })).FirstOrDefault();
+            var x = (await _db.QueryAsync<ExtractRow>("SELECT ExtractId, Name, Dataset, Folder, Frequency, DayOfWeek, DayOfMonth, HourLocal, Days, LastRunUtc, FailedTries, RetryAfterUtc FROM dash.Extract WHERE ExtractId = @id;", new { id })).FirstOrDefault();
             if (x is null) return "no such extract.";
             string status;
+            var ok = false;
             try
             {
                 if (!ExtractData.Datasets.TryGetValue(x.Dataset, out var ds)) throw new InvalidOperationException($"unknown dataset {x.Dataset}.");
                 if (ExtractData.FolderProblem(x.Folder) is { } bad) throw new InvalidOperationException(bad);
-                var privacy = await _settings.PrivacyModeAsync();
+                /* Days and the file's date in the reporting time zone, as everywhere else. Every dataset is an aggregate, so privacy mode changes nothing. */
+                var today = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, await _ops.ZoneAsync()).Date;
                 await using var conn = _db.Open();
-                var data = (await conn.QueryAsync(new CommandDefinition(ds.Sql, new { d0 = DateTime.UtcNow.Date.AddDays(-x.Days), minGroup = await _settings.IntAsync("MinGroupSize", 5) }, commandTimeout: 600, cancellationToken: ct)))
+                var data = (await conn.QueryAsync(new CommandDefinition(ds.Sql, new { d0 = today.AddDays(-x.Days), minGroup = await _settings.IntAsync("MinGroupSize", 5) }, commandTimeout: 600, cancellationToken: ct)))
                     .Cast<IDictionary<string, object?>>().ToList();
-                _ = privacy;   // every dataset is an aggregate, so privacy mode changes nothing
-                var file = Path.Combine(x.Folder.Trim(), ExtractData.FileName(x.Name, DateTime.UtcNow));
+                var file = Path.Combine(x.Folder.Trim(), ExtractData.FileName(x.Name, today));
                 await File.WriteAllTextAsync(file, ExtractData.ToCsv(data), new UTF8Encoding(true), ct);
                 status = $"{data.Count:#,0} rows to {file}";
+                ok = true;
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = "Failed: " + ex.Message; }
-            await _db.ExecuteAsync("UPDATE dash.Extract SET LastRunUtc = SYSUTCDATETIME(), LastStatus = LEFT(@status, 400) WHERE ExtractId = @id;", new { id, status });
+            var next = Retry.After(ok, x.FailedTries, DateTime.UtcNow);
+            if (next.Retry) status += $" Trying again after {next.RetryAfterUtc:HH:mm} UTC (try {x.FailedTries + 2} of {Retry.Tries}).";
+            await _db.ExecuteAsync(@"UPDATE dash.Extract SET LastRunUtc = CASE WHEN @retry = 1 THEN LastRunUtc ELSE SYSUTCDATETIME() END,
+    FailedTries = @tries, RetryAfterUtc = @after, LastStatus = LEFT(@status, 400) WHERE ExtractId = @id;",
+                new { id, status, retry = next.Retry, tries = next.FailedTries, after = next.RetryAfterUtc });
             return status;
         }
     }

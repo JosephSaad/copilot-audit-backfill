@@ -62,7 +62,14 @@
                 </select>
             }
         </div>
-        <span class="period">@c.PeriodLabel</span>
+        @if (Model.OwnWindow is { } own)
+        {
+            <span class="period own" title="The period filter does not change this page">This page: @own</span>
+        }
+        else
+        {
+            <span class="period">@c.PeriodLabel</span>
+        }
     </form>
     @if (Model.Denied is null && CopilotInsights.Pages.Personal.ViewsModel.SafeUrl(path + Context.Request.QueryString.Value))
     {

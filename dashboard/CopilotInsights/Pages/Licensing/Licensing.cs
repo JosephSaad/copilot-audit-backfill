@@ -65,6 +65,7 @@ WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SK
 
 public sealed class UnusedModel(PageServices s) : InsightsPage(s)
 {
+    public override string? OwnWindow => "today's licenses";
     public override string Title => "Unused licenses";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
@@ -123,7 +124,7 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
         var choices = string.Join(" · ", new[] { 7, 14, 30, 60, 90 }.Select(d =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"idle={d}"))}\"{(d == idleDays ? " class=\"on\"" : "")}>{d} days</a>"));
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Not used for: {choices}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "The period filter does not apply here: this is today's licenses against the idle time you choose.", "full", CsvUrl()));
+            "Today's licenses against the idle time you choose.", "full", CsvUrl()));
     }
 }
 

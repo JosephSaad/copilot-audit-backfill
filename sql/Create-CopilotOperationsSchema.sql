@@ -351,6 +351,13 @@ BEGIN
         (N'%', NULL, NULL, N'Asking questions (Copilot Chat)', 999, N'default');
 END;
 
+/* 2.4.0: one retry policy. A scheduled digest or extract that fails is tried again an hour later, three tries in all,
+   before it waits for its next period (as manager and personal digests do, through dash.DigestSend). */
+IF COL_LENGTH(N'dash.Subscription', N'FailedTries') IS NULL
+    ALTER TABLE dash.Subscription ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashSubscription_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
+IF OBJECT_ID(N'dash.Extract', N'U') IS NOT NULL AND COL_LENGTH(N'dash.Extract', N'FailedTries') IS NULL
+    ALTER TABLE dash.Extract ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashExtract_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
+
 /* Markers on trend charts: a rollout wave, a training push, an outage, a policy change. */
 IF OBJECT_ID(N'dash.EventMarker', N'U') IS NULL
     CREATE TABLE dash.EventMarker

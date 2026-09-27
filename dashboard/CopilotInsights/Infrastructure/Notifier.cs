@@ -253,26 +253,33 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             public string? RootUpn { get; set; }
             public int Days { get; set; }
             public DateTime? LastSentUtc { get; set; }
+            public byte FailedTries { get; set; }
+            public DateTime? RetryAfterUtc { get; set; }
         }
 
         public async Task DigestsAsync()
         {
-            var subs = await _db.QueryAsync<Sub>("SELECT SubscriptionId, Name, Report, Recipients, Frequency, DayOfWeek, DayOfMonth, HourLocal, RootUpn, Days, LastSentUtc FROM dash.Subscription WHERE Enabled = 1;");
+            var subs = await _db.QueryAsync<Sub>("SELECT SubscriptionId, Name, Report, Recipients, Frequency, DayOfWeek, DayOfMonth, HourLocal, RootUpn, Days, LastSentUtc, FailedTries, RetryAfterUtc FROM dash.Subscription WHERE Enabled = 1;");
             if (subs.Count == 0) return;
             var zone = await _ops.ZoneAsync();
-            foreach (var s in subs.Where(s => Schedule.IsDue(s.Frequency, s.DayOfWeek, s.DayOfMonth, s.HourLocal, s.LastSentUtc, DateTime.UtcNow, zone)))
+            foreach (var s in subs.Where(s => Schedule.IsDue(s.Frequency, s.DayOfWeek, s.DayOfMonth, s.HourLocal, s.LastSentUtc, DateTime.UtcNow, zone)
+                                              && Retry.Ready(s.RetryAfterUtc, DateTime.UtcNow)))
             {
                 string status;
+                bool sent;
                 try
                 {
                     var (subject, html, text) = await _reports.DigestAsync(s.Report, s.Days, s.RootUpn);
                     var error = await _mail.SendAsync("Digest", MailConfig.Recipients(s.Recipients), subject, html, text, ct);
-                    status = error is null ? "Sent" : "Not sent: " + error;
+                    sent = error is null;
+                    status = sent ? "Sent" : "Not sent: " + error;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) { status = "Failed: " + ex.Message; }
-                /* Marked as sent either way, so a broken setting fails once per period, not every five minutes. */
-                await _db.ExecuteAsync("UPDATE dash.Subscription SET LastSentUtc = SYSUTCDATETIME(), LastStatus = @status WHERE SubscriptionId = @id;",
-                    new { id = s.SubscriptionId, status = status.Length > 400 ? status[..400] : status });
+                catch (Exception ex) when (ex is not OperationCanceledException) { sent = false; status = "Failed: " + ex.Message; }
+                var next = Retry.After(sent, s.FailedTries, DateTime.UtcNow);
+                if (next.Retry) status += $" Trying again after {next.RetryAfterUtc:HH:mm} UTC (try {s.FailedTries + 2} of {Retry.Tries}).";
+                await _db.ExecuteAsync(@"UPDATE dash.Subscription SET LastSentUtc = CASE WHEN @retry = 1 THEN LastSentUtc ELSE SYSUTCDATETIME() END,
+    FailedTries = @tries, RetryAfterUtc = @after, LastStatus = @status WHERE SubscriptionId = @id;",
+                    new { id = s.SubscriptionId, retry = next.Retry, tries = next.FailedTries, after = next.RetryAfterUtc, status = status.Length > 400 ? status[..400] : status });
                 done.Add($"Digest \"{s.Name}\": {status}");
             }
         }

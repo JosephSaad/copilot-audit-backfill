@@ -113,6 +113,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
 /// <summary>Copilot licenses on accounts that can no longer use them: straight savings, and a security loose end.</summary>
 public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
 {
+    public override string? OwnWindow => "today";
     public override string Title => "Licenses on disabled accounts";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
@@ -135,7 +136,7 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
             $"<p class=\"sub\">To reclaim them: <a href=\"{WebUtility.HtmlEncode(Request.Path + "?handler=bulk")}\">Entra bulk-remove file</a> · " +
             $"<a href=\"{WebUtility.HtmlEncode(Request.Path + "?handler=script")}\">PowerShell script</a> (run by a license administrator; the dashboard changes nothing).</p>";
         Panels.Add(new("People", new HtmlString(exports + pg.Controls(Request, new Dictionary<string, string> { ["name"] = "Name", ["dept"] = "Department", ["since"] = "Licensed longest" }).Value + t.Render().Value),
-            "AD's account state comes from the nightly directory load, Entra's from the license tool. The period filter does not apply: this is today.", "full", CsvUrl()));
+            "AD's account state comes from the nightly directory load, Entra's from the license tool.", "full", CsvUrl()));
     }
 
     public async Task<IActionResult> OnGetBulkAsync() => await ExportAsync(false);
