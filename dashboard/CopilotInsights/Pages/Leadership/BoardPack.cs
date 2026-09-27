@@ -101,39 +101,36 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
         public int People { get; set; }
     }
 
-    const string Rules = @"OUTER APPLY (SELECT TOP (1) r.UseCase FROM dash.UseCaseRule AS r
-             WHERE g.App LIKE r.AppPattern AND (r.WebGrounded IS NULL OR r.WebGrounded = g.Web) AND (r.WithAgent IS NULL OR r.WithAgent = g.WithAgent)
-             ORDER BY r.Priority, r.RuleId) AS r";
+    /* bi.UseCases applies the rules (its one definition); the fact carries the key into it. */
+    const string UseCase = "JOIN bi.UseCases AS uc ON uc.UseCaseKey = g.UseCaseKey";
 
     protected override async Task BuildAsync()
     {
-        if (!await ops.HasAsync("dash.UseCaseRule")) { Notice = "Use-case rules arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "Use-case rules arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
         var byDept = await Db.QueryAsync<G>($@"
-WITH g AS (SELECT f.UserKey, a.App, CAST(f.UsedWebSearch AS BIT) AS Web, CAST(CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS BIT) AS WithAgent, COUNT_BIG(*) AS N
+WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           JOIN bi.DimApp AS a ON a.AppKey = f.AppKey JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
            WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.UserKey, a.App, CAST(f.UsedWebSearch AS BIT), CAST(CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS BIT)),
-k AS (SELECT g.UserKey, g.N, ISNULL(r.UseCase, N'Other') AS UseCase FROM g {Rules})
+           GROUP BY f.UserKey, f.UseCaseKey),
+k AS (SELECT g.UserKey, g.N, uc.UseCase FROM g {UseCase})
 SELECT k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department, SUM(k.N) AS N, COUNT(DISTINCT k.UserKey) AS People
 FROM k JOIN bi.DimUser AS du ON du.UserKey = k.UserKey
 GROUP BY k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(), timeout: 300);
         var totals = await Db.QueryAsync<G>($@"
-WITH g AS (SELECT f.UserKey, a.App, CAST(f.UsedWebSearch AS BIT) AS Web, CAST(CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS BIT) AS WithAgent, COUNT_BIG(*) AS N
+WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           JOIN bi.DimApp AS a ON a.AppKey = f.AppKey JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
            WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.UserKey, a.App, CAST(f.UsedWebSearch AS BIT), CAST(CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS BIT))
-SELECT ISNULL(r.UseCase, N'Other') AS UseCase, SUM(g.N) AS N, COUNT(DISTINCT g.UserKey) AS People FROM g {Rules} GROUP BY ISNULL(r.UseCase, N'Other');", Ctx.Args(), timeout: 300);
+           GROUP BY f.UserKey, f.UseCaseKey)
+SELECT uc.UseCase, SUM(g.N) AS N, COUNT(DISTINCT g.UserKey) AS People FROM g {UseCase} GROUP BY uc.UseCase;", Ctx.Args(), timeout: 300);
         if (totals.Count == 0) { Notice = $"No Copilot use from {Ctx.PeriodLabel}."; return; }
         var trend = await Db.QueryAsync<G>($@"
-WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, a.App, CAST(f.UsedWebSearch AS BIT) AS Web, CAST(CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS BIT) AS WithAgent, COUNT_BIG(*) AS N
+WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           JOIN bi.DimApp AS a ON a.AppKey = f.AppKey JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+           JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
            WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY {Ctx.BucketSql("d")}, a.App, CAST(f.UsedWebSearch AS BIT), CAST(CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS BIT))
-SELECT ISNULL(r.UseCase, N'Other') AS UseCase, g.Bucket, SUM(g.N) AS N FROM g {Rules} GROUP BY ISNULL(r.UseCase, N'Other'), g.Bucket;", Ctx.Args(), timeout: 300);
+           GROUP BY {Ctx.BucketSql("d")}, f.UseCaseKey)
+SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase, g.Bucket;", Ctx.Args(), timeout: 300);
 
         var all = totals.Sum(x => x.N);
         var ranked = totals.OrderByDescending(x => x.N).ToList();

@@ -150,13 +150,7 @@ BEGIN
                SUM(CAST(f.UsedWebSearch AS INT))                                     AS WebGrounded,
                SUM(CASE WHEN a.AppCategory = N'Copilot Chat' THEN 1 ELSE 0 END)      AS ChatInteractions,
                SUM(CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END)               AS LicensedUse,
-               /* Use that needs the Premium license: Copilot inside Word, Excel, PowerPoint, Outlook or Teams
-                  (Copilot Studio agents can be metered without one), or Copilot Chat reading work content
-                  (files, mail, sites) rather than the web. Web-only Copilot Chat is what the free tier gives. */
-               SUM(CASE WHEN f.LicenseStatusKey = 1
-                         AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
-                              OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
-                        THEN 1 ELSE 0 END)                                           AS PremiumUse,
+               SUM(CAST(f.PremiumUse AS INT))                                        AS PremiumUse,   -- set by bi.usp_RefreshBi, the rule's one definition
                SUM(CAST(f.JailbreakDetected AS INT))                                 AS Jailbreak,
                SUM(CAST(f.PromptInjectionDetected AS INT))                           AS PromptInjection,
                SUM(CAST(f.HasBlockedResource AS INT))                                AS BlockedResource,

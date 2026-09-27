@@ -2126,13 +2126,21 @@ Assert-That ($w -eq 'ok') "the dashboard's role writes saved views, events, lice
 Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;'
 $prem = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM dash.UserDay) AS Rolled,
+       (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM bi.FactInteraction) AS Stored,
+       (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM bi.Interactions) AS Viewed,
        (SELECT COUNT_BIG(*) FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-        WHERE f.LicenseStatusKey = 1
-          AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
-               OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))) AS Facts,
-       (SELECT COUNT(*) FROM dash.UserDay WHERE PremiumUse > LicensedUse) AS TooMany;
+        WHERE f.PremiumUse <> CASE WHEN f.LicenseStatusKey = 1
+                                    AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
+                                         OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
+                                   THEN 1 ELSE 0 END) AS Wrong,
+       (SELECT COUNT(*) FROM dash.UserDay WHERE PremiumUse > LicensedUse) AS TooMany,
+       (SELECT COUNT_BIG(*) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey
+        WHERE f.UseCaseKey <> f.AppKey * 4 + CAST(f.UsedWebSearch AS INT) * 2 + CASE WHEN ag.AgentId = N'(none)' THEN 0 ELSE 1 END) AS WrongKey,
+       (SELECT COUNT_BIG(*) FROM bi.FactInteraction AS f WHERE NOT EXISTS (SELECT 1 FROM bi.UseCases AS u WHERE u.UseCaseKey = f.UseCaseKey)) AS NoUseCase;
 "@).Rows[0]
-Assert-That ([long] $prem.Rolled -eq [long] $prem.Facts -and [int] $prem.TooMany -eq 0) "dash.UserDay.PremiumUse counts the licensed interactions that needed the license ($($prem.Rolled) of the facts' $($prem.Facts)), never more than the licensed use"
+Assert-That ([long] $prem.Wrong -eq 0 -and [long] $prem.Stored -eq [long] $prem.Viewed) "bi.FactInteraction.PremiumUse follows the rule on every interaction ($($prem.Stored) Premium), and bi.Interactions passes it on"
+Assert-That ([long] $prem.Rolled -eq [long] $prem.Stored -and [int] $prem.TooMany -eq 0) "dash.UserDay.PremiumUse adds up the stored flag ($($prem.Rolled)), never more than the licensed use"
+Assert-That ([long] $prem.WrongKey -eq 0 -and [long] $prem.NoUseCase -eq 0) "every interaction carries its use-case key, and bi.UseCases has a use case for each"
 
 # ---------------------------------------------------------------------------
 Write-Host ''

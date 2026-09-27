@@ -329,6 +329,22 @@ BEGIN
     CREATE CLUSTERED COLUMNSTORE INDEX CCI_FactInteraction ON bi.FactInteraction;
 END;
 
+/*
+    PremiumUse and UseCaseKey (2.4.0), set by bi.usp_RefreshBi and nowhere else: every other place
+    (the dashboard's rollups and pages, the bi views, Power BI) reads these columns, so each rule
+    has one definition.
+      PremiumUse  a licensed interaction that needed the Premium license: Copilot inside Word, Excel,
+                  PowerPoint, Outlook or Teams (bi.DimApp.AppCategory In-App Copilot, but not
+                  Copilot Studio, whose agents can be metered without one), or Copilot Chat that
+                  read work content (resources read, no web search).
+      UseCaseKey  AppKey x 4 + web search x 2 + agent: the key into bi.UseCases.
+    An app's category changes PremiumUse, so set categories before a build, or rebuild bi after.
+*/
+IF COL_LENGTH(N'bi.FactInteraction', N'PremiumUse') IS NULL
+    ALTER TABLE bi.FactInteraction ADD
+        PremiumUse  BIT NOT NULL CONSTRAINT DF_FactInteraction_Premium DEFAULT (0),
+        UseCaseKey  INT NOT NULL CONSTRAINT DF_FactInteraction_UseCase DEFAULT (0);
+
 /* 2.2.0 columns, added in place; rows written before them carry the defaults
    until the next full rebuild. */
 IF COL_LENGTH(N'bi.FactInteraction', N'LicenseTypeKey') IS NULL
@@ -452,14 +468,8 @@ SELECT f.ActivityHour, f.DateKey, f.HourOfDay, f.UserKey, f.AppKey, f.AgentKey, 
        f.LicenseTypeKey, f.SensitivityLabelKey,
        f.PromptCount, f.MessageCount, f.AccessedResourceCount, f.UsedWebSearch, f.JailbreakDetected, f.PromptInjectionDetected,
        f.HasBlockedResource, f.HasSensitivityLabel, f.MemoryUpdated, f.DlpEvaluationDeferred, f.CalledAnotherAgent,
-       CAST(CASE WHEN f.LicenseStatusKey = 1
-                  AND ((a.AppCategory = N''In-App Copilot'' AND a.App <> N''Copilot Studio'')
-                       OR (a.AppCategory = N''Copilot Chat'' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
-                 THEN 1 ELSE 0 END AS BIT) AS PremiumUse,
-       f.AppKey * 4 + CAST(f.UsedWebSearch AS INT) * 2 + CASE WHEN ag.AgentId = N''(none)'' THEN 0 ELSE 1 END AS UseCaseKey
-FROM bi.FactInteraction AS f
-JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey;');
+       f.PremiumUse, f.UseCaseKey
+FROM bi.FactInteraction AS f;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.AccessedResources AS
 SELECT ActivityHour, DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey,

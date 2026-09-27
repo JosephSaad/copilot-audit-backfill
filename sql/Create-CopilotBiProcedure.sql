@@ -520,17 +520,24 @@ BEGIN
             (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenseStatusKey,
              PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected,
              HasBlockedResource, HasSensitivityLabel,
-             LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
+             LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName,
+             PremiumUse, UseCaseKey)
         SELECT s.RecordId, s.Utc,
                DATEADD(HOUR, DATEPART(HOUR, t.LocalTs), CAST(CAST(t.LocalTs AS DATE) AS DATETIME2(0))),
                YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
                DATEPART(HOUR, t.LocalTs),
                u.UserKey, a.AppKey, g.AgentKey, m.ModelKey,
-               CASE WHEN k.Upn IS NULL THEN 0 WHEN h.Held = 1 THEN 1 ELSE 2 END,
+               ls.LicenseStatusKey,
                s.PromptCount, s.AccessedResourceCount, s.UsedWebSearch, s.JailbreakDetected,
                s.PromptInjectionDetected, s.HasBlockedResource, s.HasSensitivityLabel,
                lt.LicenseTypeKey, ISNULL(sl.SensitivityLabelKey, 1), s.MessageCount, s.MemoryUpdated,
-               s.DlpEvaluationDeferred, s.CalledAnotherAgent, s.TargetAgentName
+               s.DlpEvaluationDeferred, s.CalledAnotherAgent, s.TargetAgentName,
+               /* Premium use and the use-case key: defined here once (see bi.FactInteraction). */
+               CASE WHEN ls.LicenseStatusKey = 1
+                     AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
+                          OR (a.AppCategory = N'Copilot Chat' AND s.AccessedResourceCount > 0 AND s.UsedWebSearch = 0))
+                    THEN 1 ELSE 0 END,
+               a.AppKey * 4 + CAST(s.UsedWebSearch AS INT) * 2 + CASE WHEN g.AgentId = N'(none)' THEN 0 ELSE 1 END
         FROM #src AS s
         CROSS APPLY (SELECT CAST(CAST(s.Utc AS DATETIME2(0)) AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
         JOIN bi.DimUser  AS u ON u.UserPrincipalName = s.Upn
@@ -542,6 +549,7 @@ BEGIN
         LEFT JOIN #known AS k ON k.Upn = s.Upn
         OUTER APPLY (SELECT TOP (1) 1 AS Held FROM #held AS x
                      WHERE x.Upn = s.Upn AND x.FromUtc <= s.Utc AND x.ToUtc > s.Utc) AS h
+        CROSS APPLY (SELECT CAST(CASE WHEN k.Upn IS NULL THEN 0 WHEN h.Held = 1 THEN 1 ELSE 2 END AS TINYINT) AS LicenseStatusKey) AS ls
         ORDER BY s.Utc;
         SET @interactions += @@ROWCOUNT;
 
