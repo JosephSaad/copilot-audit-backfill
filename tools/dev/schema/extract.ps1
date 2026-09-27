@@ -25,7 +25,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-function Get-SchemaMetadata {
+function Get-SchemaDescription {
     param([string] $Database)
     $cn = [System.Data.SqlClient.SqlConnection]::new("Server=$SqlServer;Database=$Database;Integrated Security=true;TrustServerCertificate=true")
     $cn.Open()
@@ -73,8 +73,8 @@ WHERE s.name IN ('audit','bi','dash')
 }
 
 $out = @{
-    CopilotAudit         = Get-SchemaMetadata $CopilotDatabase
-    CopilotLicenseEvents = Get-SchemaMetadata $LicenseDatabase
+    CopilotAudit         = Get-SchemaDescription $CopilotDatabase
+    CopilotLicenseEvents = Get-SchemaDescription $LicenseDatabase
 }
 
 # What the main Copilot database lacks, from the supplements, in the order given.
@@ -83,7 +83,7 @@ foreach ($s in $Supplement) {
     $db, $only = $s -split '=', 2
     $want = if ($only) { @($only -split ',' | ForEach-Object { $_.Trim() }) } else { $null }
     $have = [System.Collections.Generic.HashSet[string]]::new([string[]] @($main.columns | ForEach-Object { "$($_.sch).$($_.obj)" }))
-    $meta = Get-SchemaMetadata $db
+    $meta = Get-SchemaDescription $db
     $take = { param($r) $n = "$($r.sch).$($r.obj)"; -not $have.Contains($n) -and (-not $want -or $want -contains $n) }
     $added = @($meta.columns | Where-Object { & $take $_ })
     $main.columns += $added
