@@ -1,0 +1,29 @@
+/// Each person's job family, from their job title and the rules in the dashboard's Admin > Classifications and events.
+table JobFamilies
+	lineageTag: 7e46464b-2086-5b6a-afa9-d7efb36ff693
+
+	column UserKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 1c708c5d-749c-58ff-9492-cf44fde469f2
+		summarizeBy: none
+		sourceColumn: UserKey
+
+	/// (no family) when no rule matches the title.
+	column JobFamily
+		dataType: string
+		lineageTag: 85c62d21-15c5-5726-95a3-472dc8186077
+		summarizeBy: none
+		sourceColumn: JobFamily
+
+	partition JobFamilies = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "JobFamilies"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

@@ -102,3 +102,17 @@ relationship 703bc858-5eef-5c57-b0a4-0db382c355f6
 	fromColumn: AgentEvents.ActorKey
 	toColumn: Users.UserKey
 
+relationship 85377e34-1fd6-5758-a748-9ad32282aebe
+	fromColumn: Interactions.UseCaseKey
+	toColumn: UseCases.UseCaseKey
+
+relationship 32f14e05-708a-5e8e-990c-1c5d8307e60f
+	fromColumn: EventMarkers.DateKey
+	toColumn: Calendar.DateKey
+
+relationship fee99501-eb32-53a2-83f7-4debce6939e5
+	fromCardinality: one
+	crossFilteringBehavior: bothDirections
+	fromColumn: JobFamilies.UserKey
+	toColumn: Users.UserKey
+

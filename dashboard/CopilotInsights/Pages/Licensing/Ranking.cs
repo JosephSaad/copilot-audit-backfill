@@ -1,0 +1,97 @@
+using System.Net;
+using CopilotInsights.Charts;
+using CopilotInsights.Infrastructure;
+using Microsoft.AspNetCore.Html;
+
+namespace CopilotInsights.Pages.Licensing;
+
+/// <summary>
+/// Everyone ranked three ways: by all their Copilot use, by use the free tier covers (web Copilot Chat,
+/// agents), and by use that needs the Premium licence (Copilot in Word, Excel, PowerPoint, Outlook and
+/// Teams, or chat over work content). Licence decisions follow the Premium ranking.
+/// </summary>
+public sealed class RankingModel(PageServices s) : InsightsPage(s)
+{
+    public override string Title => "Use ranking";
+    public override string Persona => "Licensing";
+    public override string? RequiredRole => Roles.Licensing;
+    public override string Intro => "Everyone in scope ranked three ways in the period: all their Copilot use, use the free tier covers (web Copilot Chat and agents), and use that needs the Premium licence (Copilot in Word, Excel, PowerPoint, Outlook and Teams, or Copilot Chat over work files, mail and sites). A licence holder low on the Premium ranking is paying for what they do not use; someone without a licence high on the free ranking is ready for one.";
+
+    internal static readonly Dictionary<string, (string Label, string Order)> By = new()
+    {
+        ["general"] = ("General use", "r.I DESC, r.P DESC"),
+        ["free"] = ("Free use", "r.F DESC, r.I DESC"),
+        ["premium"] = ("Premium use", "r.P DESC, r.I DESC"),
+    };
+
+    sealed class Row
+    {
+        public long RankGeneral { get; set; }
+        public long RankFree { get; set; }
+        public long RankPremium { get; set; }
+        public string? DisplayName { get; set; }
+        public string UserPrincipalName { get; set; } = "";
+        public string? Department { get; set; }
+        public bool Licensed { get; set; }
+        public long I { get; set; }
+        public long F { get; set; }
+        public long P { get; set; }
+        public int Days { get; set; }
+        public int PremiumDays { get; set; }
+        public int TotalRows { get; set; }
+    }
+
+    protected override async Task BuildAsync()
+    {
+        var by = Request.Query["by"].FirstOrDefault() is { } b && By.ContainsKey(b) ? b : "premium";
+        var licence = Request.Query["licence"].FirstOrDefault() is "licensed" or "unlicensed" ? Request.Query["licence"].ToString() : "all";
+        var ready = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NULL THEN 0 ELSE 1 END") == 1
+                    && await Db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE DateKey BETWEEN @k0 AND @k1 AND PremiumUse > 0) THEN 1 ELSE 0 END", Ctx.Args()) == 1;
+        if (!ready)
+            Notice = "Premium-feature use is not in the rollups yet: an administrator rebuilds them once (Admin > Health, Rebuild every day). Until then free and premium use are empty.";
+        var pg = new Paging(Request, new Dictionary<string, string> { ["rank"] = By[by].Order.Replace("r.", "x."), ["name"] = "x.DisplayName" }, "rank");
+        /* Ranked over everyone in scope with any use, before the search and the licence filter, so a person's rank does not change with them. */
+        var rows = await Db.QueryAsync<Row>($@"
+WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.PremiumUse AS BIGINT)) AS P,
+                  COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS Days, COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END) AS PremiumDays
+           FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
+           WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey HAVING SUM(ud.Interactions) > 0),
+r AS (SELECT u.*, u.I - u.P AS F FROM u),
+x AS (SELECT r.*, du.DisplayName, du.UserPrincipalName, du.Department,
+             CAST(CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS BIT) AS Licensed,
+             RANK() OVER (ORDER BY r.I DESC) AS RankGeneral, RANK() OVER (ORDER BY r.F DESC) AS RankFree, RANK() OVER (ORDER BY r.P DESC) AS RankPremium
+      FROM r JOIN bi.DimUser AS du ON du.UserKey = r.UserKey
+      LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = r.UserKey AND ld.DateKey = @k1)
+SELECT x.*, COUNT(*) OVER () AS TotalRows FROM x
+WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
+  AND (@licence = 'all' OR (@licence = 'licensed' AND x.Licensed = 1) OR (@licence = 'unlicensed' AND x.Licensed = 0))
+{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, licence }), timeout: 300);
+        pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
+
+        var totals = (await Db.QueryAsync<(long I, long P, int People)>($@"
+SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CAST(ud.PremiumUse AS BIGINT)), 0), COUNT(DISTINCT CASE WHEN ud.Interactions > 0 THEN ud.UserKey END)
+FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
+        Kpis.Add(new("People using Copilot", Num(totals.People)));
+        Kpis.Add(new("Premium use", Pct(Ratio(totals.P, totals.I)), $"{totals.P:#,0} of {totals.I:#,0} interactions needed the licence"));
+        Kpis.Add(new("Free use", Pct(Ratio(totals.I - totals.P, totals.I)), "web Copilot Chat, agents, and use without a licence"));
+
+        var tabs = string.Join(" · ", By.Select(kv =>
+            $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"by={kv.Key}&licence={licence}"))}\"{(kv.Key == by ? " class=\"on\"" : "")}>{kv.Value.Label}</a>"));
+        var lic = string.Join(" · ", new[] { ("all", "Everyone"), ("licensed", "Licensed"), ("unlicensed", "Not licensed") }.Select(l =>
+            $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"by={by}&licence={l.Item1}"))}\"{(l.Item1 == licence ? " class=\"on\"" : "")}>{l.Item2}</a>"));
+        var t = new Table
+        {
+            Headers = ["Rank: general", "Rank: free", "Rank: premium", "Name", "Sign-in", "Department", "Licensed", "Interactions", "Free", "Premium", "Premium share", "Days used", "Days with Premium use"],
+            Numeric = new HashSet<int> { 0, 1, 2, 7, 8, 9, 10, 11, 12 },
+            EmptyText = "Nobody in scope used Copilot in the period.",
+        };
+        foreach (var r in rows)
+            t.Rows.Add([r.RankGeneral, r.RankFree, r.RankPremium, r.DisplayName, r.UserPrincipalName, r.Department, r.Licensed ? "Yes" : "No",
+                        r.I, r.F, r.P, Pct(Ratio(r.P, r.I)), r.Days, r.PremiumDays]);
+        CsvTable = t;
+        Panels.Add(new("Ranking", new HtmlString($"<p class=\"sub\">Rank by: {tabs}</p><p class=\"sub\">Show: {lic}</p>" +
+            pg.Controls(Request, new Dictionary<string, string> { ["rank"] = "Rank", ["name"] = "Name" }).Value + t.Render().Value),
+            "Ranks are among everyone in scope with any use in the period (1 is the most); ties share a rank. Premium: licensed interactions in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat that read work content rather than the web. Free: the rest. The Upgrade, train or revoke page uses the same split.",
+            "full", CsvUrl()));
+    }
+}

@@ -541,6 +541,28 @@ SELECT SnapshotDate, SkuPartNumber, IsCopilot, Enabled + Warning AS Bought, Cons
        Enabled + Warning - Consumed AS Available, Warning AS InGracePeriod, Suspended
 FROM audit.LicenseSkuDay;');
 
+/* 2.3.0: the dashboard's classifications for Power BI. Every combination of app, web search and agent
+   with the use case the rules in dash.UseCaseRule give it (bi.Interactions.UseCaseKey points here). */
+EXEC (N'CREATE OR ALTER VIEW bi.UseCases AS
+SELECT a.AppKey * 4 + w.Web * 2 + g.WithAgent AS UseCaseKey, a.App, CAST(w.Web AS BIT) AS WebGrounded, CAST(g.WithAgent AS BIT) AS WithAgent,
+       ISNULL(r.UseCase, N''Other'') AS UseCase
+FROM bi.DimApp AS a
+CROSS JOIN (VALUES (0), (1)) AS w (Web)
+CROSS JOIN (VALUES (0), (1)) AS g (WithAgent)
+OUTER APPLY (SELECT TOP (1) ur.UseCase FROM dash.UseCaseRule AS ur
+             WHERE a.App LIKE ur.AppPattern AND (ur.WebGrounded IS NULL OR ur.WebGrounded = w.Web) AND (ur.WithAgent IS NULL OR ur.WithAgent = g.WithAgent)
+             ORDER BY ur.Priority, ur.RuleId) AS r;');
+
+/* Each person's job family from dash.JobFamilyRule (first matching pattern by priority). */
+EXEC (N'CREATE OR ALTER VIEW bi.JobFamilies AS
+SELECT u.UserKey, ISNULL(r.Family, N''(no family)'') AS JobFamily
+FROM bi.DimUser AS u
+OUTER APPLY (SELECT TOP (1) jr.Family FROM dash.JobFamilyRule AS jr WHERE u.JobTitle LIKE jr.Pattern ORDER BY jr.Priority, jr.RuleId) AS r;');
+
+/* Events marked on the dashboard's trends (a rollout wave, a training push, an outage), for chart annotations. */
+EXEC (N'CREATE OR ALTER VIEW bi.EventMarkers AS
+SELECT Day, YEAR(Day) * 10000 + MONTH(Day) * 100 + DAY(Day) AS DateKey, Label, Kind FROM dash.EventMarker;');
+
 /* Weekly figures by department with any group under the minimum size hidden,
    for a model that must not show individuals (a works council''s condition). */
 EXEC (N'CREATE OR ALTER VIEW bi.DepartmentWeek AS

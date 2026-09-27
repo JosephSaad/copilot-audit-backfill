@@ -46,6 +46,8 @@ TABLES = {
             ("MemoryUpdated", "boolean", dict(desc="True when Copilot updated its memory of the person.")),
             ("DlpEvaluationDeferred", "boolean", dict(desc="True when the DLP check was deferred.")),
             ("CalledAnotherAgent", "boolean", dict(desc="True when the agent handed off to another agent.")),
+            ("PremiumUse", "boolean", dict(desc="True when the interaction needed the Premium licence: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content rather than the web. The dashboard's train and revoke recommendations use the same rule.")),
+            ("UseCaseKey", "int64", dict(hidden=True)),
         ],
         measures=[
             ("Interactions", "COUNTROWS ( Interactions )", "#,0",
@@ -62,6 +64,26 @@ TABLES = {
              '    CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",\n'
              "        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )", "#,0",
              "People who used Copilot with a licence in the period and still hold one at its end: always part of Licensed users, so adoption cannot pass 100% when licences are removed mid-period (the dashboard's rule)."),
+            ("Premium interactions", "CALCULATE ( [Interactions], Interactions[PremiumUse] = TRUE () )", "#,0",
+             "Interactions that needed the Premium licence."),
+            ("Free interactions", "[Interactions] - [Premium interactions]", "#,0",
+             "Interactions the free tier covers: web Copilot Chat, agents, and use without a licence."),
+            ("Premium share", "DIVIDE ( [Premium interactions], [Interactions] )", "0.0%",
+             "The share of interactions that needed the Premium licence."),
+            ("Premium users", "CALCULATE ( [Active users], Interactions[PremiumUse] = TRUE () )", "#,0",
+             "People who used a Premium feature in the period."),
+            ("Rank by general use",
+             "IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,\n"
+             "    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Interactions] ) )", "#,0",
+             "The person's rank by all their Copilot use, among the people in the current selection who used it (1 is the most)."),
+            ("Rank by free use",
+             "IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,\n"
+             "    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Free interactions] ) )", "#,0",
+             "The person's rank by use the free tier covers."),
+            ("Rank by premium use",
+             "IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,\n"
+             "    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Premium interactions] ) )", "#,0",
+             "The person's rank by use that needed the Premium licence. A licence holder low here is paying for what they do not use."),
             ("Web-grounded interactions",
              "CALCULATE ( [Interactions], Interactions[UsedWebSearch] = TRUE () )", "#,0",
              "Interactions Copilot grounded in a web search."),
@@ -272,6 +294,21 @@ TABLES = {
         view="ValueNames",
         cols=[("TableName", "string", {}), ("ColumnName", "string", {}), ("ColumnLabel", "string", {}), ("Value", "string", {}),
               ("Name", "string", {}), ("Records", "int64", {}), ("FirstSeenUtc", "dateTime", dict(fmt="yyyy-mm-dd")), ("LastSeenUtc", "dateTime", dict(fmt="yyyy-mm-dd"))]),
+    "UseCases": dict(
+        desc="What an interaction was for, from its app, whether it searched the web and whether an agent answered: the rules in the dashboard's Admin > Classifications and events.",
+        view="UseCases",
+        cols=[("UseCaseKey", "int64", dict(hidden=True)), ("App", "string", dict(hidden=True)),
+              ("WebGrounded", "boolean", dict(hidden=True)), ("WithAgent", "boolean", dict(hidden=True)),
+              ("UseCase", "string", dict(desc="Email, Meetings and chats, Writing documents, Analysing data, Research on the web..."))]),
+    "JobFamilies": dict(
+        desc="Each person's job family, from their job title and the rules in the dashboard's Admin > Classifications and events.",
+        view="JobFamilies",
+        cols=[("UserKey", "int64", dict(hidden=True)), ("JobFamily", "string", dict(desc="(no family) when no rule matches the title."))]),
+    "EventMarkers": dict(
+        desc="Events marked on the dashboard's trends (rollout waves, training, outages, policy changes), for annotating charts.",
+        view="EventMarkers",
+        cols=[("Day", "dateTime", dict(fmt="yyyy-mm-dd")), ("DateKey", "int64", dict(hidden=True)),
+              ("Label", "string", {}), ("Kind", "string", {})]),
     "OrgSecurity": dict(
         desc="Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organisation role.",
         view="OrgSecurity", hidden=True,
@@ -299,6 +336,9 @@ RELATIONSHIPS = [
     ("AccessedResources", "ResourceTypeKey", "ResourceTypes"), ("AccessedResources", "ResourceActionKey", "ResourceActions"),
     ("AccessedResources", "SiteKey", "Sites"), ("AccessedResources", "SensitivityLabelKey", "SensitivityLabels"),
     ("AgentEvents", "DateKey", "Calendar"), ("AgentEvents", "ActorKey", "Users", "UserKey"),
+    ("Interactions", "UseCaseKey", "UseCases"), ("EventMarkers", "DateKey", "Calendar"),
+    # One job family per person: one-to-one, filtering both ways, so the family slices every fact through Users.
+    ("JobFamilies", "UserKey", "Users", "UserKey", "\tfromCardinality: one\n\tcrossFilteringBehavior: bothDirections\n"),
 ]
 
 
@@ -427,7 +467,8 @@ def main():
     for r in RELATIONSHIPS:
         f, c, dim = r[:3]
         to = r[3] if len(r) > 3 else c
-        rel.append(f"relationship {lt('rel', f, c)}\n\tfromColumn: {f}.{c}\n\ttoColumn: {dim}.{to}\n\n")
+        extra = r[4] if len(r) > 4 else ""
+        rel.append(f"relationship {lt('rel', f, c)}\n{extra}\tfromColumn: {f}.{c}\n\ttoColumn: {dim}.{to}\n\n")
     write(os.path.join(d, "relationships.tmdl"), "".join(rel))
 
     for n, t in TABLES.items():

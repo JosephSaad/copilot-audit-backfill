@@ -1,0 +1,41 @@
+/// Events marked on the dashboard's trends (rollout waves, training, outages, policy changes), for annotating charts.
+table EventMarkers
+	lineageTag: 86e23ce2-d61b-5145-bffe-a85810e60dd7
+
+	column Day
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		lineageTag: 8177b61a-fd49-5170-aee3-af3fd365272e
+		summarizeBy: none
+		sourceColumn: Day
+
+	column DateKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 7e4c3245-3c85-5983-94ea-226071912d21
+		summarizeBy: none
+		sourceColumn: DateKey
+
+	column Label
+		dataType: string
+		lineageTag: 98c73a65-4665-53b9-81c6-b8cfee68eee6
+		summarizeBy: none
+		sourceColumn: Label
+
+	column Kind
+		dataType: string
+		lineageTag: de8a5ef2-9ef5-5971-9f61-056b2bfb1f17
+		summarizeBy: none
+		sourceColumn: Kind
+
+	partition EventMarkers = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "EventMarkers"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

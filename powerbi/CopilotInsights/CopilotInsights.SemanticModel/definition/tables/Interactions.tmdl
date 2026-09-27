@@ -28,6 +28,47 @@ table Interactions
 		formatString: #,0
 		lineageTag: 8796e483-fa2e-55d0-84a7-edd87daf8c31
 
+	/// Interactions that needed the Premium licence.
+	measure 'Premium interactions' = CALCULATE ( [Interactions], Interactions[PremiumUse] = TRUE () )
+		formatString: #,0
+		lineageTag: 21e2677b-9810-54dc-8f8c-f2d4ddc6730b
+
+	/// Interactions the free tier covers: web Copilot Chat, agents, and use without a licence.
+	measure 'Free interactions' = [Interactions] - [Premium interactions]
+		formatString: #,0
+		lineageTag: 2a30f28d-297e-5b35-a249-f3bde50a0300
+
+	/// The share of interactions that needed the Premium licence.
+	measure 'Premium share' = DIVIDE ( [Premium interactions], [Interactions] )
+		formatString: 0.0%
+		lineageTag: 3c8de5fc-a908-5b1b-b0f7-18c85dc568a2
+
+	/// People who used a Premium feature in the period.
+	measure 'Premium users' = CALCULATE ( [Active users], Interactions[PremiumUse] = TRUE () )
+		formatString: #,0
+		lineageTag: 09814507-7db8-5814-be3b-04e217ff6711
+
+	/// The person's rank by all their Copilot use, among the people in the current selection who used it (1 is the most).
+	measure 'Rank by general use' =
+			IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,
+			    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Interactions] ) )
+		formatString: #,0
+		lineageTag: 822a8467-5b35-5148-be01-0d52a7ae7e34
+
+	/// The person's rank by use the free tier covers.
+	measure 'Rank by free use' =
+			IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,
+			    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Free interactions] ) )
+		formatString: #,0
+		lineageTag: 278a2cf2-a8b7-5e5a-966c-94a139f2540a
+
+	/// The person's rank by use that needed the Premium licence. A licence holder low here is paying for what they do not use.
+	measure 'Rank by premium use' =
+			IF ( HASONEVALUE ( Users[UserPrincipalName] ) && [Interactions] > 0,
+			    RANKX ( FILTER ( ALLSELECTED ( Users[UserPrincipalName] ), [Interactions] > 0 ), [Premium interactions] ) )
+		formatString: #,0
+		lineageTag: d778bcbb-33f1-5915-9d90-2ed4c1a6e06e
+
 	/// Interactions Copilot grounded in a web search.
 	measure 'Web-grounded interactions' = CALCULATE ( [Interactions], Interactions[UsedWebSearch] = TRUE () )
 		formatString: #,0
@@ -193,6 +234,21 @@ table Interactions
 		lineageTag: 200310b5-8b1c-5cb0-a079-b4f45c7e2164
 		summarizeBy: none
 		sourceColumn: CalledAnotherAgent
+
+	/// True when the interaction needed the Premium licence: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content rather than the web. The dashboard's train and revoke recommendations use the same rule.
+	column PremiumUse
+		dataType: boolean
+		lineageTag: 5a91b896-e330-5a39-9869-54a8a25caef1
+		summarizeBy: none
+		sourceColumn: PremiumUse
+
+	column UseCaseKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 4d110e2e-9981-5c98-9eb2-bb5b2843b56a
+		summarizeBy: none
+		sourceColumn: UseCaseKey
 
 	partition Interactions = m
 		mode: import

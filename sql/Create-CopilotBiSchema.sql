@@ -440,12 +440,26 @@ IF COL_LENGTH(N'bi.RefreshRun', N'SessionRunId') IS NULL
 IF COL_LENGTH(N'bi.RefreshRun', N'AccessedResourceRows') IS NULL
     ALTER TABLE bi.RefreshRun ADD AccessedResourceRows BIGINT NULL;
 
+/*
+    PremiumUse (2.3.0): a licensed interaction that needed the Premium licence - Copilot inside Word, Excel,
+    PowerPoint, Outlook or Teams (Copilot Studio agents can be metered without one), or Copilot Chat reading
+    work content (files, mail, sites) rather than the web. The same rule as dash.UserDay.PremiumUse, which the
+    dashboard's train and revoke recommendations use. UseCaseKey (2.3.0): the app, whether it searched the web,
+    and whether an agent answered, as one key into bi.UseCases (the dashboard's use-case rules).
+*/
 EXEC (N'CREATE OR ALTER VIEW bi.Interactions AS
-SELECT ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey,
-       LicenseTypeKey, SensitivityLabelKey,
-       PromptCount, MessageCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected,
-       HasBlockedResource, HasSensitivityLabel, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent
-FROM bi.FactInteraction;');
+SELECT f.ActivityHour, f.DateKey, f.HourOfDay, f.UserKey, f.AppKey, f.AgentKey, f.ModelKey, f.LicenceStatusKey,
+       f.LicenseTypeKey, f.SensitivityLabelKey,
+       f.PromptCount, f.MessageCount, f.AccessedResourceCount, f.UsedWebSearch, f.JailbreakDetected, f.PromptInjectionDetected,
+       f.HasBlockedResource, f.HasSensitivityLabel, f.MemoryUpdated, f.DlpEvaluationDeferred, f.CalledAnotherAgent,
+       CAST(CASE WHEN f.LicenceStatusKey = 1
+                  AND ((a.AppCategory = N''In-App Copilot'' AND a.App <> N''Copilot Studio'')
+                       OR (a.AppCategory = N''Copilot Chat'' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
+                 THEN 1 ELSE 0 END AS BIT) AS PremiumUse,
+       f.AppKey * 4 + CAST(f.UsedWebSearch AS INT) * 2 + CASE WHEN ag.AgentId = N''(none)'' THEN 0 ELSE 1 END AS UseCaseKey
+FROM bi.FactInteraction AS f
+JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.AccessedResources AS
 SELECT ActivityHour, DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey,

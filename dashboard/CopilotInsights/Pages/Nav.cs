@@ -21,7 +21,7 @@ public static class Nav
             new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"), new("Targets", "/adoption/targets"), new("New joiners", "/adoption/onboarding"),
             new("Drops and spikes", "/adoption/anomalies"), new("Not started", "/adoption/not-started", Roles.Adoption)]),
         new("Licensing", "Licensing, IT asset and FinOps", [
-            new("Inventory", "/licensing"), new("Unused licences", "/licensing/unused", Roles.Licensing),
+            new("Inventory", "/licensing"), new("Unused licences", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Demand", "/licensing/demand"), new("Licence changes", "/licensing/changes"), new("Licence pool", "/licensing/pool"),
             new("Chargeback", "/licensing/chargeback"), new("Licences on disabled accounts", "/licensing/leavers", Roles.Licensing)]),
         new("Security", "Security operations", [
