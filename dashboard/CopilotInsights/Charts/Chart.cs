@@ -12,6 +12,15 @@ public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot
 
 public sealed record Bar(string Label, double? Value, string? Href = null, string? Note = null, int Slot = 1);
 
+/// <summary>An event on a trend: a rollout wave, a training push, an outage (dash.EventMarker), at the point it falls in.</summary>
+public sealed record Marker(int Index, string Label, string Kind);
+
+/// <summary>A trend's labels, with the events that fall in it. Line and Columns draw the events as dashed rules.</summary>
+public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
+{
+    public List<Marker> Markers { get; } = [];
+}
+
 /// <summary>
 /// Server-rendered SVG charts. Colours come from CSS variables (--s1..--s8,
 /// --q0..--q8), so light and dark themes swap in site.css. Every mark carries
@@ -21,7 +30,74 @@ public sealed record Bar(string Label, double? Value, string? Href = null, strin
 public static class Chart
 {
     static readonly CultureInfo Ci = CultureInfo.InvariantCulture;
-    const int W = 720, H = 250, L = 52, R = 110, T = 14, B = 30;
+    const int W = 720, L = 52, T = 14;
+
+    /*
+        The right margin (line-end labels), bottom margin (axis labels) and height are set per chart from
+        the labels it draws, so every label is shown whole: nothing on a page is cut short with "…".
+        Charts render synchronously, so a thread's layout belongs to the chart being drawn.
+    */
+    [ThreadStatic] static int _r, _b, _h;
+    static int R => _r == 0 ? 110 : _r;
+    static int B => _b == 0 ? 30 : _b;
+    static int H => _h == 0 ? 250 : _h;
+
+    sealed class Layout : IDisposable
+    {
+        public Layout(int r = 110, int b = 30) { _r = r; _b = b; _h = 220 + b; }
+        public void Dispose() { _r = 0; _b = 0; _h = 0; }
+    }
+
+    /// <summary>Approximate width of a label at 11-12px, in viewBox units.</summary>
+    static double TextW(string s) => s.Length * 6.3;
+
+    /// <summary>Words packed into lines of at most <paramref name="n"/> characters (a word longer than that keeps its own line).</summary>
+    static List<string> WrapLines(string s, int n)
+    {
+        /* Break at spaces, and inside a long word after / _ - . (a site address, a schema name) so no line outruns its room. */
+        var pieces = new List<(string Text, bool Space)>();
+        foreach (var w in s.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (w.Length <= n) { pieces.Add((w, true)); continue; }
+            var parts = System.Text.RegularExpressions.Regex.Split(w, "(?<=[/_\\-\\.])");
+            for (var i = 0; i < parts.Length; i++)
+                if (parts[i].Length > 0) pieces.Add((parts[i], i == 0));
+        }
+        var lines = new List<string>();
+        var cur = "";
+        foreach (var (text, space) in pieces)
+        {
+            var join = cur.Length == 0 ? text : cur + (space ? " " : "") + text;
+            if (cur.Length == 0 || join.Length <= n) cur = join;
+            else { lines.Add(cur); cur = text; }
+        }
+        if (cur.Length > 0) lines.Add(cur);
+        return lines.Count == 0 ? [""] : lines;
+    }
+
+    /// <summary>Lines as tspans under one text element, the first at its y.</summary>
+    static string Tspans(IReadOnlyList<string> lines, double x, double lineH = 11) =>
+        string.Concat(lines.Select((l, i) => $"<tspan x=\"{N(x)}\" dy=\"{(i == 0 ? 0 : lineH)}\">{E(l)}</tspan>"));
+
+    /// <summary>The axis labels drawn for a trend: which points, and the lines each wraps to.</summary>
+    static List<(int I, List<string> Lines)> AxisLabels(IReadOnlyList<string> x, double spacing)
+    {
+        var every = Math.Max(1, (int)Math.Ceiling(x.Count / 8.0));
+        var room = Math.Max(6, (int)(spacing * every / 6.3) - 1);
+        var list = new List<(int, List<string>)>();
+        for (var i = 0; i < x.Count; i++)
+            if ((i % every == 0 && (i == x.Count - 1 || x.Count - 1 - i >= Math.Max(2, every * 0.6))) || i == x.Count - 1)
+                list.Add((i, WrapLines(x[i], room)));
+        return list;
+    }
+
+    /// <summary>The bottom margin the axis labels need: one line is the usual 30.</summary>
+    static int BottomFor(IReadOnlyList<string> x, double plotWidth)
+    {
+        if (x.Count == 0) return 30;
+        var lines = AxisLabels(x, plotWidth / Math.Max(1, x.Count - 1)).Max(l => l.Lines.Count);
+        return 30 + (Math.Min(lines, 4) - 1) * 11;
+    }
 
     public static string Format(double? v, Fmt f) => v is null ? "—" : f switch
     {
@@ -60,10 +136,34 @@ public static class Chart
 
     static void XLabels(StringBuilder sb, IReadOnlyList<string> x, Func<int, double> xpos)
     {
-        var every = Math.Max(1, (int)Math.Ceiling(x.Count / 8.0));
-        for (var i = 0; i < x.Count; i++)
-            if (i % every == 0 || i == x.Count - 1)
-                sb.Append($"<text class=\"tick\" x=\"{N(xpos(i))}\" y=\"{H - 10}\" text-anchor=\"middle\">{E(x[i])}</text>");
+        /* Names (departments, units) longer than the space between ticks wrap onto more lines; the chart is taller for them. */
+        var spacing = x.Count > 1 ? xpos(1) - xpos(0) : 400;
+        foreach (var (i, lines) in AxisLabels(x, spacing))
+            sb.Append($"<text class=\"tick\" x=\"{N(xpos(i))}\" y=\"{H - B + 20}\" text-anchor=\"middle\">{Tspans(lines.Take(4).ToList(), xpos(i))}</text>");
+    }
+
+    /// <summary>The events on the axis, as dashed rules with a short label and a tooltip.</summary>
+    static void Markers(StringBuilder sb, IReadOnlyList<string> x, Func<int, double> xpos)
+    {
+        if (x is not Axis a || a.Markers.Count == 0) return;
+        var rows = new List<double>();   // the right end of the last label on each row
+        foreach (var g in a.Markers.Where(m => m.Index >= 0 && m.Index < x.Count).GroupBy(m => m.Index))
+        {
+            var xx = xpos(g.Key);
+            var tip = x[g.Key] + ": " + string.Join("; ", g.Select(m => $"{m.Label} ({m.Kind.ToLowerInvariant()})"));
+            var more = g.Count() > 1 ? $" +{g.Count() - 1}" : "";
+            var label = g.First().Label + more;
+            var width = label.Length * 5.5;
+            /* Whole names: near the right edge the label sits left of its rule. */
+            var left = xx + 3 + width > W - 2;
+            var x0 = left ? xx - 3 - width : xx + 3;
+            var row = rows.FindIndex(end => end < x0);
+            if (row < 0) { rows.Add(0); row = rows.Count - 1; }
+            rows[row] = x0 + width + 6;
+            sb.Append($"<line class=\"marker\" x1=\"{N(xx)}\" x2=\"{N(xx)}\" y1=\"{T}\" y2=\"{H - B}\"/>");
+            sb.Append($"<rect class=\"mhit\" x=\"{N(xx - 4)}\" y=\"{T}\" width=\"8\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\"/>");
+            sb.Append($"<text class=\"mlabel\" x=\"{N(left ? xx - 3 : xx + 3)}\" y=\"{T + 9 + row * 13}\"{(left ? " text-anchor=\"end\"" : "")} data-tip=\"{E(tip)}\">{E(label)}<title>{E(tip)}</title></text>");
+        }
     }
 
     public static HtmlString Legend(IEnumerable<Series> series) =>
@@ -76,6 +176,9 @@ public static class Chart
         if (x.Count == 0 || series.All(s => s.Values.All(v => v is null))) return new(Empty("No data for this period."));
         var top0 = max ?? series.SelectMany(s => s.Values).Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
+        var endLabel = series.Count > 4 ? 0 : series.Select(s => TextW(s.Name + " " + Format(s.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
+        var r = (int)Math.Clamp(endLabel + 16, 110, 300);
+        using var layout = new Layout(r, BottomFor(x, W - r - L));
         double X(int i) => x.Count == 1 ? (L + W - R) / 2.0 : L + i * (W - R - L) / (double)(x.Count - 1);
         double Y(double v) => T + (H - T - B) * (1 - v / top);
         var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\" role=\"img\" aria-label=\"{E(aria)}\">");
@@ -92,10 +195,10 @@ public static class Chart
             sb.Append($"<circle class=\"end\" cx=\"{N(X(last.i))}\" cy=\"{N(Y(last.v!.Value))}\" r=\"4\" style=\"fill:var(--s{s.Slot})\"/>");
             if (series.Count <= 4)
             {
-                var ly = Y(last.v!.Value) + 4;
-                while (labelYs.Any(o => Math.Abs(o - ly) < 13)) ly += 13;
-                labelYs.Add(ly);
-                sb.Append($"<text class=\"dlabel\" x=\"{N(X(last.i) + 9)}\" y=\"{N(ly)}\">{E(Trunc(s.Name, 14))} {E(Format(last.v, f))}</text>");
+                var ly = Place(labelYs, Y(last.v!.Value) + 4);
+                var val = Format(last.v, f);
+                var (attr, body) = Cut(s.Name, Math.Max(NameRoom(val), 60), " " + val);
+                sb.Append($"<text class=\"dlabel\" x=\"{N(X(last.i) + 9)}\" y=\"{N(ly)}\"{attr}>{body}</text>");
             }
         }
         /* Hover: one column per week carrying every series' value. */
@@ -105,6 +208,7 @@ public static class Chart
             var w = x.Count == 1 ? 60 : (W - R - L) / (double)(x.Count - 1);
             sb.Append($"<rect class=\"hit\" x=\"{N(X(i) - w / 2)}\" y=\"{T}\" width=\"{N(w)}\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\" data-x=\"{N(X(i))}\"/>");
         }
+        Markers(sb, x, X);
         sb.Append($"<line class=\"cross\" x1=\"0\" x2=\"0\" y1=\"{T}\" y2=\"{H - B}\"/></svg>");
         return new((series.Count >= 2 ? Legend(series).Value : "") + sb);
     }
@@ -121,6 +225,9 @@ public static class Chart
         if (x.Count == 0 || lines.Count == 0 || lines.All(l => l.History.Values.All(v => v is null))) return new(Empty("Not enough history to forecast yet."));
         var top0 = lines.SelectMany(l => l.History.Values.Where(v => v.HasValue).Select(v => v!.Value).Concat(l.High)).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
+        var endLabel = lines.Select(l => TextW(l.History.Name + " " + Format(l.Forecast.Count > 0 ? l.Forecast[^1] : l.History.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
+        var r = (int)Math.Clamp(endLabel + 16, 110, 300);
+        using var layout = new Layout(r, BottomFor(x, W - r - L));
         double X(int i) => x.Count == 1 ? (L + W - R) / 2.0 : L + i * (W - R - L) / (double)(x.Count - 1);
         double Y(double v) => T + (H - T - B) * (1 - Math.Min(v, top) / top);
         var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\" role=\"img\" aria-label=\"{E(aria)}\">");
@@ -147,10 +254,10 @@ public static class Chart
             var endV = fc.Count > 0 ? fc[^1] : last.v!.Value;
             var endX = fc.Count > 0 ? X(historyCount + fc.Count - 1) : X(last.i);
             sb.Append($"<circle class=\"end\" cx=\"{N(endX)}\" cy=\"{N(Y(endV))}\" r=\"4\" style=\"fill:var(--s{s.Slot})\"/>");
-            var ly = Y(endV) + 4;
-            while (labelYs.Any(o => Math.Abs(o - ly) < 13)) ly += 13;
-            labelYs.Add(ly);
-            sb.Append($"<text class=\"dlabel\" x=\"{N(endX + 9)}\" y=\"{N(ly)}\">{E(Trunc(s.Name, 14))} {E(Format(endV, f))}</text>");
+            var ly = Place(labelYs, Y(endV) + 4);
+            var endVal = Format(endV, f);
+            var (endAttr, endBody) = Cut(s.Name, Math.Max(NameRoom(endVal), 60), " " + endVal);
+            sb.Append($"<text class=\"dlabel\" x=\"{N(endX + 9)}\" y=\"{N(ly)}\"{endAttr}>{endBody}</text>");
         }
         for (var i = 0; i < x.Count; i++)
         {
@@ -173,6 +280,7 @@ public static class Chart
             ? series.Sum(s => s.Values.ElementAtOrDefault(i) ?? 0)
             : series.Max(s => s.Values.ElementAtOrDefault(i) ?? 0)).ToList();
         var (top, step) = Nice(totals.DefaultIfEmpty(0).Max(), f);
+        using var layout = new Layout(110, BottomFor(x, (W - 110 + 40 - L) / (double)x.Count * Math.Max(1, x.Count - 1)));
         var band = (W - R + 40 - L) / (double)x.Count;
         var bw = Math.Max(3, band * 0.72);
         double X0(int i) => L + i * band + (band - bw) / 2;
@@ -198,6 +306,7 @@ public static class Chart
                 acc += v;
             }
         }
+        Markers(sb, x, i => X0(i) + bw / 2);
         sb.Append("</svg>");
         return new((series.Count >= 2 ? Legend(series).Value : "") + sb);
     }
@@ -218,26 +327,48 @@ public static class Chart
     {
         if (bars.Count == 0) return new(Empty("Nothing to compare."));
         var top = max ?? bars.Max(b => b.Value ?? 0);
-        if (top <= 0) top = 1;
-        const int rowH = 26, labelW = 190, valueW = 70, BW = 720;
+        var low = Math.Min(0, bars.Min(b => b.Value ?? 0));   // a change can be negative: bars grow left from zero
+        if (top <= 0 && low >= 0) top = 1;
+        top = Math.Max(0, top);
+        const int valueW = 70, BW = 720;
+        /* The label column fits the longest name up to 300; longer names wrap onto a second line. */
+        var labelW = (int)Math.Clamp(bars.Max(b => b.Label.Length * 6.9) + 18, 190, 300);
+        var perLine = Math.Max(10, (int)((labelW - 18) / 6.9));
+        var wrapped = bars.Select(b => WrapLines(b.Label, perLine)).ToList();
+        var lineCount = Math.Min(3, wrapped.Max(w => w.Count));
+        var rowH = lineCount switch { 1 => 26, 2 => 36, _ => 48 };
+        var span = BW - labelW - valueW - (low < 0 ? valueW : 0);
+        var zero = labelW + (low < 0 ? valueW : 0) + span * (-low) / (top - low);
         var h = bars.Count * rowH + 6;
         var sb = new StringBuilder($"<svg class=\"chart bars\" viewBox=\"0 0 {BW} {h}\" role=\"img\" aria-label=\"{E(aria)}\">");
+        if (low < 0) sb.Append($"<line class=\"grid\" x1=\"{N(zero)}\" x2=\"{N(zero)}\" y1=\"0\" y2=\"{h}\"/>");
         for (var i = 0; i < bars.Count; i++)
         {
             var b = bars[i];
             var y = i * rowH + 4;
-            var w = (BW - labelW - valueW) * (b.Value ?? 0) / top;
-            var label = E(Trunc(b.Label, 30));
+            var v = b.Value ?? 0;
+            var w = span * Math.Abs(v) / (top - low);
+            var lines = wrapped[i].Take(3).ToList();
+            if (wrapped[i].Count > 3) lines[2] = string.Concat(wrapped[i].Skip(2));   // never cut: the rest joins the third line
+            var ly = y + 15 - (lines.Count - 1) * 6;
+            var text = Tspans(lines, labelW - 10, 12);
             sb.Append(b.Href is null
-                ? $"<text class=\"blabel\" x=\"{labelW - 10}\" y=\"{y + 15}\" text-anchor=\"end\">{label}</text>"
-                : $"<a href=\"{E(b.Href)}\"><text class=\"blabel link\" x=\"{labelW - 10}\" y=\"{y + 15}\" text-anchor=\"end\">{label}</text></a>");
+                ? $"<text class=\"blabel\" x=\"{labelW - 10}\" y=\"{ly}\" text-anchor=\"end\">{text}</text>"
+                : $"<a href=\"{E(b.Href)}\"><text class=\"blabel link\" x=\"{labelW - 10}\" y=\"{ly}\" text-anchor=\"end\">{text}</text></a>");
+            var tip = E(b.Label + ": " + Format(b.Value, f) + (b.Note is null ? "" : " — " + b.Note));
             if (w > 0.5)
             {
                 var r = Math.Min(4, w / 2);
-                var x0 = labelW; var bh = rowH - 10;
-                sb.Append($"<path class=\"mark\" d=\"M{x0},{y} H{N(x0 + w - r)} Q{N(x0 + w)},{y} {N(x0 + w)},{N(y + r)} V{N(y + bh - r)} Q{N(x0 + w)},{N(y + bh)} {N(x0 + w - r)},{N(y + bh)} H{x0} Z\" style=\"fill:var(--s{b.Slot})\" data-tip=\"{E(b.Label + ": " + Format(b.Value, f) + (b.Note is null ? "" : " — " + b.Note))}\"/>");
+                var bh = 16;
+                /* The data end (away from zero) is rounded; the zero end is square. */
+                var d = v >= 0
+                    ? $"M{N(zero)},{y} H{N(zero + w - r)} Q{N(zero + w)},{y} {N(zero + w)},{N(y + r)} V{N(y + bh - r)} Q{N(zero + w)},{N(y + bh)} {N(zero + w - r)},{N(y + bh)} H{N(zero)} Z"
+                    : $"M{N(zero)},{y} H{N(zero - w + r)} Q{N(zero - w)},{y} {N(zero - w)},{N(y + r)} V{N(y + bh - r)} Q{N(zero - w)},{N(y + bh)} {N(zero - w + r)},{N(y + bh)} H{N(zero)} Z";
+                sb.Append($"<path class=\"mark\" d=\"{d}\" style=\"fill:var(--s{b.Slot})\" data-tip=\"{tip}\"/>");
             }
-            sb.Append($"<text class=\"bvalue\" x=\"{N(labelW + w + 6)}\" y=\"{y + 15}\">{E(Format(b.Value, f))}</text>");
+            sb.Append(v >= 0
+                ? $"<text class=\"bvalue\" x=\"{N(zero + w + 6)}\" y=\"{y + 15}\">{E(Format(b.Value, f))}</text>"
+                : $"<text class=\"bvalue\" x=\"{N(zero - w - 6)}\" y=\"{y + 15}\" text-anchor=\"end\">{E(Format(b.Value, f))}</text>");
         }
         sb.Append("</svg>");
         return new(sb.ToString());
@@ -248,7 +379,8 @@ public static class Chart
     {
         if (rows.Count == 0 || cols.Count == 0) return new(Empty("No data for this period."));
         var top = max ?? values.Cast<double?>().Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
-        const int rowH = 24, labelW = 110, HW = 720;
+        const int rowH = 24, HW = 720;
+        var labelW = (int)Math.Clamp(rows.Max(r => TextW(r)) + 14, 110, 260);
         var cw = (HW - labelW - 8) / (double)cols.Count;
         var h = rows.Count * rowH + 24;
         var sb = new StringBuilder($"<svg class=\"chart heat\" viewBox=\"0 0 {HW} {h}\" role=\"img\" aria-label=\"{E(aria)}\">");
@@ -259,7 +391,8 @@ public static class Chart
         for (var r = 0; r < rows.Count; r++)
         {
             var y = 20 + r * rowH;
-            sb.Append($"<text class=\"blabel\" x=\"{labelW - 8}\" y=\"{y + 15}\" text-anchor=\"end\">{E(Trunc(rows[r], 16))}</text>");
+            var (rowAttr, rowBody) = Cut(rows[r], 60);
+            sb.Append($"<text class=\"blabel\" x=\"{labelW - 8}\" y=\"{y + 15}\" text-anchor=\"end\"{rowAttr}>{rowBody}</text>");
             for (var c = 0; c < cols.Count; c++)
             {
                 var v = values[r, c];
@@ -290,4 +423,33 @@ public static class Chart
     }
 
     static string Trunc(string s, int n) => s.Length <= n ? s : s[..(n - 1)] + "…";
+
+    /// <summary>
+    /// A label cut to <paramref name="n"/> characters: the attributes to put on its &lt;text&gt; and the text itself.
+    /// When it is cut, the full label shows on hover (data-tip for the site's tooltip, &lt;title&gt; for everything else).
+    /// </summary>
+    static (string Attr, string Body) Cut(string s, int n, string suffix = "")
+    {
+        if (s.Length <= n) return ("", E(s) + suffix);
+        return ($" data-tip=\"{E(s + suffix)}\"", E(Trunc(s, n)) + suffix + $"<title>{E(s + suffix)}</title>");
+    }
+
+    /// <summary>
+    /// Where a line-end label goes: as near its line as it can without touching another label,
+    /// trying below then above, and never outside the chart.
+    /// </summary>
+    static double Place(List<double> used, double want)
+    {
+        const double gap = 14, lo = T + 10;
+        double hi = H - B + 12;
+        want = Math.Clamp(want, lo, hi);
+        for (var step = 0; step < 30; step++)
+            foreach (var y in new[] { want + step * gap, want - step * gap })
+                if (y >= lo && y <= hi && !used.Any(o => Math.Abs(o - y) < gap)) { used.Add(y); return y; }
+        used.Add(want);
+        return want;
+    }
+
+    /// <summary>How many characters of a series name fit beside its end value in the right margin (about 6px a character at 11px).</summary>
+    static int NameRoom(string value) => Math.Max(4, (R - 12) / 6 - value.Length - 1);
 }

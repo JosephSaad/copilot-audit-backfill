@@ -63,6 +63,52 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'SkuPartNumber') IS NULL
 IF COL_LENGTH(N'audit.CopilotLicense', N'LicensedSinceUtc') IS NULL
     ALTER TABLE audit.CopilotLicense ADD LicensedSinceUtc DATETIME2(0) NULL;
 
+/* The Entra account's state and hire date, from the same user lookup (User.Read.All):
+   a licence on a disabled account is wasted, and the hire date starts the
+   new-joiner report's clock. AD's own AccountEnabled is in audit.UserDirectory. */
+IF COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL
+    ALTER TABLE audit.CopilotLicense ADD EntraAccountEnabled BIT NULL;
+IF COL_LENGTH(N'audit.CopilotLicense', N'EmployeeHireDate') IS NULL
+    ALTER TABLE audit.CopilotLicense ADD EmployeeHireDate DATE NULL;
+/* Member or Guest, from the same lookup: guests using Copilot are a report of their own. */
+IF COL_LENGTH(N'audit.CopilotLicense', N'UserType') IS NULL
+    ALTER TABLE audit.CopilotLicense ADD UserType NVARCHAR(20) NULL;
+
+/*
+    The tenant's licence pool, from /subscribedSkus (LicenseAssignment.Read.All),
+    which the licence tool already reads to find the Copilot SKUs: seats bought
+    (prepaidUnits) and assigned (consumedUnits) per SKU. LicenseSku is the
+    latest; LicenseSkuDay keeps one row per SKU per day for the trend.
+*/
+IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NULL
+    CREATE TABLE audit.LicenseSku
+    (
+        SkuId          UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_LicenseSku PRIMARY KEY,
+        SkuPartNumber  NVARCHAR(100)    NOT NULL,
+        IsCopilot      BIT              NOT NULL,
+        Enabled        INT              NOT NULL,   -- prepaidUnits.enabled: seats bought and active
+        Warning        INT              NOT NULL,   -- prepaidUnits.warning: in the grace period after expiry
+        Suspended      INT              NOT NULL,
+        LockedOut      INT              NOT NULL,
+        Consumed       INT              NOT NULL,   -- consumedUnits: seats assigned
+        CapabilityStatus NVARCHAR(32)   NULL,
+        CapturedUtc    DATETIME2(0)     NOT NULL CONSTRAINT DF_LicenseSku_Captured DEFAULT (SYSUTCDATETIME())
+    );
+IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NULL
+    CREATE TABLE audit.LicenseSkuDay
+    (
+        SnapshotDate   DATE             NOT NULL,
+        SkuId          UNIQUEIDENTIFIER NOT NULL,
+        SkuPartNumber  NVARCHAR(100)    NOT NULL,
+        IsCopilot      BIT              NOT NULL,
+        Enabled        INT              NOT NULL,
+        Warning        INT              NOT NULL,
+        Suspended      INT              NOT NULL,
+        LockedOut      INT              NOT NULL,
+        Consumed       INT              NOT NULL,
+        CONSTRAINT PK_LicenseSkuDay PRIMARY KEY (SnapshotDate, SkuId)
+    );
+
 /* Enabled | Suspended | Deleted | Warning, from assignedPlans[]. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'CapabilityStatus') IS NULL
     ALTER TABLE audit.CopilotLicense ADD CapabilityStatus NVARCHAR(50) NULL;

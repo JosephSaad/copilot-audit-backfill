@@ -5,9 +5,10 @@ using Microsoft.Extensions.Options;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>A thin wrapper over Dapper: one connection per call, parameters always bound.</summary>
-public sealed class Db(IOptions<InsightsOptions> options)
+public sealed class Db(TenantAccessor tenants)
 {
-    readonly string _cs = options.Value.ConnectionString;
+    /// <summary>The current tenant's database (see TenantAccessor).</summary>
+    string _cs => tenants.Current.ConnectionString;
 
     public SqlConnection Open()
     {

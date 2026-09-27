@@ -163,11 +163,11 @@ $copilotScripts = 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.
                   'Create-CopilotFlattenedSchema.sql', 'Create-CopilotFlattenProcedure.sql', 'Create-CopilotPurgeProcedure.sql',
                   'Create-CopilotEnrichmentSchema.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql',
                   'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql'
-if ($Dashboard) { $copilotScripts += 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql' }
+if ($Dashboard) { $copilotScripts += 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql' }
 foreach ($s in $copilotScripts) { Invoke-SqlFile $Database $s }
 if (-not $SkipLicenceDatabase) {
     Write-Step "Tables, views and procedures in $LicenceDatabase"
-    foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql') { Invoke-SqlFile $LicenceDatabase $s }
+    foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql', 'Create-AgentEventProcedure.sql') { Invoke-SqlFile $LicenceDatabase $s }
 }
 
 # The reporting time zone, stored where every procedure reads it (audit.ReportingTimeZone()).
@@ -215,6 +215,7 @@ if (-not $SkipLicenceDatabase) {
     if ($licRecords -gt 0) {
         Write-Done ("licence events: shredding {0:N0} record(s)..." -f $licRecords)
         Invoke-Sql -Catalog $LicenceDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents;'
+        Invoke-Sql -Catalog $LicenceDatabase -Sql 'EXEC audit.usp_ShredAgentEvents;'
     }
     else { $todo += "Backfill the licence history into $LicenceDatabase (deployment step 7), then run this again." }
 }
@@ -234,12 +235,21 @@ elseif ($fullBuild) {
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
     Write-Done 'bi, in full...'
     Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
-    if ($upgrade) { $todo += 'Refresh the Power BI model in full once, and add the new bi views (AccessedResources, LicenseTypes, SensitivityLabels, ResourceTypes, ResourceActions, Sites) if you want them.' }
+    if ($upgrade) { $todo += 'Refresh the Power BI model in full once. The ready-made model in powerbi\CopilotInsights has every bi view (docs/DEPLOYMENT.md, step 15).' }
 }
 else { Write-Done 'sessions and bi are built; the nightly -Incremental run keeps them current.' }
 
+# 2.3.0: the value catalogue fills as records are flattened; records flattened before it existed are catalogued once here.
+if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.ValueCatalog') -and (Get-Count $Database 'audit.ValueCatalog') -eq 0) {
+    Write-Done ("value catalogue: reading {0:N0} flattened record(s) once..." -f $flattened)
+    Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
+}
+
 if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
-    $since = if ($fullBuild -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
+    # 2.3.0 added Premium-feature use to the rollups: rebuilt in full once, when they have days but none of it.
+    $premiumEmpty = (Get-Count $Database 'dash.UserDay') -gt 0 -and
+        [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE PremiumUse > 0) OR NOT EXISTS (SELECT 1 FROM dash.UserDay WHERE LicensedUse > 0) THEN 1 ELSE 0 END;') -eq 0
+    $since = if ($fullBuild -or $premiumEmpty -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
     Write-Done $(if ($since) { 'dashboard: org chart, and today''s rollups...' } else { 'dashboard: org chart and every day''s rollups...' })
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }

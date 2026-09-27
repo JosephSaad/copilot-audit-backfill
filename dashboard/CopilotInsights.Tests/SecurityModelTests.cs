@@ -98,7 +98,8 @@ public class NavigationTests
     {
         var first = CopilotInsights.Pages.Nav.For(V(5))[0];
         Assert.Equal("My Copilot", first.Persona);
-        Assert.Equal("/me", Assert.Single(first.Pages).Path);
+        Assert.Equal("/me", first.Pages[0].Path);
+        Assert.Equal(["/me", "/me/email", "/me/views"], first.Pages.Select(p => p.Path));
         Assert.Contains("/licensing/changes", Paths(V(5)));   // aggregates; the administrators' names on it need Licensing
     }
 
@@ -109,7 +110,9 @@ public class NavigationTests
     [Fact]
     public void Every_page_is_listed_for_someone_holding_every_role()
     {
-        var all = CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).Count();
-        Assert.Equal(all, Paths(V(1, roles: Roles.All)).Count);
+        var pages = CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).ToList();
+        Assert.Equal(pages.Count(p => !p.ManyTenants), Paths(V(1, roles: Roles.All)).Count);
+        /* With several tenants, the group overview too. */
+        Assert.Equal(pages.Count, CopilotInsights.Pages.Nav.For(V(1, roles: Roles.All), manyTenants: true).SelectMany(g => g.Pages).Count());
     }
 }

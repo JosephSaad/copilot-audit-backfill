@@ -1,0 +1,118 @@
+/// Dates, with the Saturday-to-Friday week used throughout this model.
+table Calendar
+	lineageTag: 586c4220-89e6-5c50-ae24-b6088eac4c0b
+	dataCategory: Time
+
+	column DateKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: edf74203-8425-5f68-bf1b-52290c254ad8
+		summarizeBy: none
+		sourceColumn: DateKey
+
+	column Date
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		isKey
+		lineageTag: 1290f68e-632e-57d5-8a76-0581c0205484
+		summarizeBy: none
+		sourceColumn: Date
+
+	column Year
+		dataType: int64
+		formatString: 0
+		lineageTag: cb8fddbc-3442-53bf-9c25-073a2cfee414
+		summarizeBy: none
+		sourceColumn: Year
+
+	column Quarter
+		dataType: int64
+		formatString: 0
+		lineageTag: a567e764-501e-564b-8426-4c6e16c0c4e4
+		summarizeBy: none
+		sourceColumn: Quarter
+
+	column MonthNumber
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 26fc4bbe-427f-5b2c-bf09-4693aa7288c8
+		summarizeBy: none
+		sourceColumn: MonthNumber
+
+	column MonthName
+		dataType: string
+		lineageTag: c4dd5537-ae3a-53bc-8d96-fbc7bee2d039
+		summarizeBy: none
+		sourceColumn: MonthName
+		sortByColumn: MonthNumber
+
+	/// Year and month as yyyy-MM.
+	column YearMonth
+		dataType: string
+		lineageTag: 6e97cc67-b8c8-55f1-b8d4-5714212d344e
+		summarizeBy: none
+		sourceColumn: YearMonth
+
+	column DayOfWeekNumber
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 388271e0-7589-5777-99da-5d9a28abcd8d
+		summarizeBy: none
+		sourceColumn: DayOfWeekNumber
+
+	column DayOfWeekName
+		dataType: string
+		lineageTag: 2323956f-ce40-51c8-b39d-b9ed199cec80
+		summarizeBy: none
+		sourceColumn: DayOfWeekName
+		sortByColumn: DayOfWeekNumber
+
+	column IsWeekday
+		dataType: boolean
+		lineageTag: b4b6910c-f038-501c-a4ca-32907c981e81
+		summarizeBy: none
+		sourceColumn: IsWeekday
+
+	/// The Friday that ends the date's Saturday-to-Friday week. Weeks in this model are always Saturday to Friday.
+	column WeekEnding
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		lineageTag: 0ddb6803-cbb8-58b2-86d7-c58f6f4633db
+		summarizeBy: none
+		sourceColumn: WeekEnding
+
+	column WeekYear
+		dataType: int64
+		formatString: 0
+		lineageTag: 18a66d3e-2156-5dda-ac75-3d8ecfced408
+		summarizeBy: none
+		sourceColumn: WeekYear
+
+	/// Week of the year; week 1 ends on the year's first Friday.
+	column WeekNumber
+		dataType: int64
+		formatString: 0
+		lineageTag: 7f08b489-5ad1-5e36-a695-6d6ca5ef7ddc
+		summarizeBy: none
+		sourceColumn: WeekNumber
+
+	/// Week name, e.g. 2026-W38, for the Saturday-to-Friday week.
+	column WeekLabel
+		dataType: string
+		lineageTag: f1f4f452-737a-54c2-abb9-914b3628ce6e
+		summarizeBy: none
+		sourceColumn: WeekLabel
+
+	partition Calendar = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "Calendar"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

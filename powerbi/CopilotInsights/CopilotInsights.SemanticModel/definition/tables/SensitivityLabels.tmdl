@@ -1,0 +1,28 @@
+/// Sensitivity labels of content Copilot read. Their names are in ValueNames and in the dashboard's Admin > Value names.
+table SensitivityLabels
+	lineageTag: 244a7502-3840-5dc3-b2de-343a18a41e0f
+
+	column SensitivityLabelKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 031a4565-0d28-586f-b473-1cc6e255dcf9
+		summarizeBy: none
+		sourceColumn: SensitivityLabelKey
+
+	column LabelId
+		dataType: string
+		lineageTag: dbd0774a-ca07-5852-bdb5-747b87dc2ecf
+		summarizeBy: none
+		sourceColumn: LabelId
+
+	partition SensitivityLabels = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "SensitivityLabels"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

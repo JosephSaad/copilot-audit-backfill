@@ -227,7 +227,9 @@ From then on each `-Incremental` run refreshes it after the other derived tables
 | `bi.LicenceChanges` | SKU added (+1) or removed (−1) | Date, User, Sku |
 | `bi.LicensedDays` | user holding a Copilot licence at the end of a day | Date, User |
 | `bi.Calendar` | date, with the rollup's Saturday–Friday week | `DateKey` |
-| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses`, `bi.LicenseTypes`, `bi.SensitivityLabels`, `bi.ResourceTypes`, `bi.ResourceActions`, `bi.Sites` | dimension rows | `UserKey`, `AppKey` … |
+| `bi.AgentEvents` | Copilot Studio authoring event (2.3.0) | Date, User (the maker) |
+| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses`, `bi.LicenseTypes`, `bi.SensitivityLabels`, `bi.ResourceTypes`, `bi.ResourceActions`, `bi.Sites` | dimension rows | `UserKey`, `AppKey`, and the rest |
+| With the dashboard: `bi.OrgSecurity`, `bi.UseCases`, `bi.JobFamilies`, `bi.EventMarkers`, `bi.LicensePool`, `bi.ValueNames`, `bi.DepartmentWeek` | who may see whom, use cases, job families, events, the licence pool, value names, department weeks with small groups hidden (2.3.0) | `UserKey`, `UseCaseKey`, `DateKey` |
 
 - **Relationships:** each fact's `DateKey`, `UserKey`, `AppKey` and so on to the dimension of the same key, one-to-many, single direction. Mark `bi.Calendar` as the date table.
 - **Incremental refresh:** on `bi.Interactions` and `bi.AccessedResources`, filter `ActivityHour` between `RangeStart` and `RangeEnd`. It is local time truncated to the hour, so it has ~8,760 values a year and costs almost nothing in memory. The other facts are small enough to refresh whole.
@@ -235,7 +237,7 @@ From then on each `-Incremental` run refreshes it after the other derived tables
 - **Left out on purpose:** RecordId, ThreadId, ConversationId, app context, whole resource URLs and the JSON. Each is close to one value per row and would cost more memory than the rest of the model together. Resources are in the model by type and site (`bi.AccessedResources`, `bi.Sites`); the rest stays in `audit.RawLogFlattened` and `audit.RawLogAccessedResource` for a DirectQuery drill-through table if you need one.
 - **Keys are stable** across refreshes and rebuilds, so partitions refreshed on different days stay consistent.
 
-Starting-point measures (not yet tried in a model):
+**A ready-made model** ships in `powerbi/CopilotInsights` (2.3.0): a Power BI project over every view here and the dashboard's, with the relationships, measures (adoption, Premium use, rankings by general, free and Premium use, sessions, licences, agents), descriptions and an *Organisation* row-level-security role from the org chart. It has been opened and refreshed in Power BI Desktop against the demo database, where its figures matched the dashboard's. [DEPLOYMENT.md, step 15](docs/DEPLOYMENT.md#step-15-open-the-ready-made-model) sets it up. Some of its measures:
 
 ```dax
 Interactions = COUNTROWS ( Interactions )
@@ -251,6 +253,7 @@ Active licensed users =
     RETURN CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",
                        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )
 Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
+Premium share = DIVIDE ( CALCULATE ( [Interactions], Interactions[PremiumUse] = TRUE () ), [Interactions] )
 ```
 
 `@SinceUtc` (the load's start, from `-Incremental`) rebuilds only the interactions from then on; `NULL` rebuilds them all. Run a full rebuild, and a full refresh of the model, after changing the reporting time zone (a partial refresh in a different zone is refused), after licence history arrives for a period already built, or after purging flattened rows.
@@ -260,9 +263,11 @@ Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
 A web dashboard over the same database, for people who will never open Power BI: an ASP.NET Core 10 site in IIS on Windows Server 2022+, with Windows sign-in. It works with the web servers in one domain and the users in another.
 
 - **Who sees what.** The top of the organisation and their direct reports see everything, as does anyone granted *Organization*; every other manager sees the people under them, at any depth; everyone else sees their own use. The scope comes from the AD manager chain and is enforced on every query.
-- **Pages by persona:** My Copilot (every employee's own use), Leadership, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, Forecasting, Regions, People and App owners, each at the grain its questions need. Forecasting projects licences and use with 95% intervals and turns them into priced recommendations: upgrade proven Copilot Chat users, train light users, revoke unused licences, and the right licence count for the next quarter. Lists of named people (not started, unused licences, flagged interactions, labelled-content access, agent users, champions) need that persona's role, and stay inside the viewer's scope.
-- **Periods** of 7, 14, 30, 90, 180 or 365 days; every list paged in SQL (50 rows, search, sort) and exportable to CSV; groups under five people folded together.
-- **Admin module:** access and roles, reference data (agent and label names, app categories), pipeline health and a manual refresh, and the audit log of every view, refusal, export and change.
+- **Pages by persona:** My Copilot (every employee's own use, their email choices and saved views), Leadership (including use cases and a printable board pack), Adoption (including a department leaderboard), Licensing (including the licence pool, chargeback and a ranking by general, free and Premium use), Security (with triage of flagged interactions, and guests), Compliance (with one person's record for data-subject requests), Agents (with Copilot Studio build and publish activity), Enablement, Governance, Forecasting (with budget and renewal, rollout waves and licence action outcomes), Regions, People (with job families) and App owners. Forecasting turns forecasts into priced recommendations: upgrade proven Copilot Chat users, train light users and revoke licences whose Premium features go unused. Lists of named people need that persona's role, and stay inside the viewer's scope.
+- **Periods** of 7, 14, 30, 90, 180 or 365 days; every list paged in SQL (50 rows, search, sort) and exportable to CSV; groups under five people folded together; every chart label shown whole.
+- **Operations:** email through Exchange Online or any SMTP server; alerts (pipeline, stale data, the app certificate, security signals, drops and spikes, the licence pool, new agents) by email, to Teams or ServiceNow by webhook, and to the Windows event log; scheduled, manager and personal digests; scheduled CSV extracts; a read-only data API; privacy mode and retention.
+- **Admin module:** access and roles, directory quality, email, alerts and digests, targets and assumptions, reference data and value names, classifications and events, extracts, training records, pipeline health, and the audit log of every view, refusal, export and change.
+- **Several tenants:** one dashboard over each tenant's own databases, with a tenant switcher and a group overview.
 
 ```powershell
 .\dashboard\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer SQL01 -Database CopilotAudit `

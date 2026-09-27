@@ -1,0 +1,65 @@
+/// Readable names administrators gave the codes in the audit records (labels, apps, agents, licence types), from the dashboard's Admin > Value names.
+table ValueNames
+	lineageTag: 1208ccd9-44bd-58f5-b43d-4e262278b6d1
+
+	column TableName
+		dataType: string
+		lineageTag: d2de19a1-1d2c-5515-9129-5388273c2cdf
+		summarizeBy: none
+		sourceColumn: TableName
+
+	column ColumnName
+		dataType: string
+		lineageTag: ab765160-6e4d-5eee-a731-5b0497be370d
+		summarizeBy: none
+		sourceColumn: ColumnName
+
+	column ColumnLabel
+		dataType: string
+		lineageTag: 47150658-bdae-5bb2-8608-8556c6632f66
+		summarizeBy: none
+		sourceColumn: ColumnLabel
+
+	column Value
+		dataType: string
+		lineageTag: cf5a456c-9611-56da-8e21-deddb9a29623
+		summarizeBy: none
+		sourceColumn: Value
+
+	column Name
+		dataType: string
+		lineageTag: 4c6bcb67-45d9-57e1-bc3d-49cc7b4a5051
+		summarizeBy: none
+		sourceColumn: Name
+
+	column Records
+		dataType: int64
+		formatString: 0
+		lineageTag: 1f1205f6-360b-51b7-bb14-81dd89ad33ed
+		summarizeBy: none
+		sourceColumn: Records
+
+	column FirstSeenUtc
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		lineageTag: 4ac06bf6-0c9d-5b52-a294-894f6306711e
+		summarizeBy: none
+		sourceColumn: FirstSeenUtc
+
+	column LastSeenUtc
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		lineageTag: 0d828ec3-44e9-5e72-8e76-457b18211e62
+		summarizeBy: none
+		sourceColumn: LastSeenUtc
+
+	partition ValueNames = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "ValueNames"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

@@ -31,6 +31,13 @@
     The app to install: a folder holding CopilotInsights.csproj (published with
     dotnet publish, which needs the .NET 10 SDK), a published folder, or a zip of one.
 
+.PARAMETER Tenant
+    For a group with several Microsoft 365 tenants (tools\Add-CopilotTenant.ps1):
+    each as Name=Database, on -SqlServer, the first being -Database's own name,
+    such as 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam'. Written to
+    Insights:Tenants; the dashboard shows a tenant switcher and a group overview.
+    With -GrantDatabaseAccess, the site's account is given access in each.
+
 .PARAMETER AdminPrincipal
     Bootstrap administrators: UPNs, DOMAIN\user or, better, DOMAIN\Group. They are
     administrators whatever the database says; keep the list short.
@@ -64,6 +71,7 @@ param(
     [switch] $TrustServerCertificate,
     [switch] $GrantDatabaseAccess,
     [string] $OrgTopUpn,
+    [string[]] $Tenant = @(),
     [switch] $SkipFeatureInstall
 )
 
@@ -85,8 +93,9 @@ if ($AppPoolIdentity -and -not $AppPoolIdentity.EndsWith('$') -and -not $AppPool
 # ---- 1. IIS -----------------------------------------------------------------------------------
 if (-not $SkipFeatureInstall) {
     Write-Step 'IIS role services'
+    # Web-AppInit starts the site with IIS, so email alerts and digests go out with nobody signed in.
     $features = 'Web-Server', 'Web-Default-Doc', 'Web-Static-Content', 'Web-Http-Errors', 'Web-Http-Logging',
-                'Web-Filtering', 'Web-Windows-Auth', 'Web-Mgmt-Console'
+                'Web-Filtering', 'Web-Windows-Auth', 'Web-Mgmt-Console', 'Web-AppInit'
     $r = Install-WindowsFeature -Name $features
     if ($r.RestartNeeded -eq 'Yes') { Write-Warning 'Windows asks for a restart to finish installing IIS. Restart, then run this again.' }
 }
@@ -122,6 +131,14 @@ try {
     }
     elseif ($src -like '*.zip') { Expand-Archive -Path $src -DestinationPath $staging -Force }
     else { Copy-Item -Path (Join-Path $src '*') -Destination $staging -Recurse -Force }
+    # The release's zip holds the app in a CopilotInsights folder: use the folder the app is in.
+    if (-not (Test-Path (Join-Path $staging 'CopilotInsights.dll'))) {
+        $inner = Get-ChildItem $staging -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'CopilotInsights.dll') } | Select-Object -First 1
+        if ($inner) {
+            Get-ChildItem $inner.FullName -Force | Move-Item -Destination $staging -Force
+            Remove-Item $inner.FullName -Recurse -Force
+        }
+    }
     if (-not (Test-Path (Join-Path $staging 'CopilotInsights.dll'))) { throw "No CopilotInsights.dll in ${PackagePath}: is it the published app?" }
 
     New-Item -ItemType Directory -Force $PhysicalPath, (Join-Path $PhysicalPath 'logs') | Out-Null
@@ -147,7 +164,19 @@ if ($AdminPrincipal.Count -gt 0) { Set-Prop $settings.Insights 'BootstrapAdmins'
 elseif (-not $settings.Insights.PSObject.Properties['BootstrapAdmins'] -or @($settings.Insights.BootstrapAdmins).Count -eq 0) {
     Write-Warning 'No -AdminPrincipal: nobody can open Admin until a row is added to dash.RoleGrant (see the RUNBOOK).'
 }
-Set-Prop $settings.Insights 'AllowViewAs' $false
+# Several tenants: Name=Database on the same server. Without -Tenant, any list already there is kept.
+$tenantDbs = @()
+if ($Tenant.Count -gt 0) {
+    $list = foreach ($t in $Tenant) {
+        if ($t -notmatch '^\s*([^=]+?)\s*=\s*([A-Za-z0-9_\-]+)\s*$') { throw "-Tenant '$t' is not Name=Database." }
+        $tenantDbs += $Matches[2]
+        [pscustomobject] @{ Name = $Matches[1]; ConnectionString = "Server=$SqlServer;Database=$($Matches[2]);Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust" }
+    }
+    if (@($list.Name | Sort-Object -Unique).Count -ne @($list).Count) { throw '-Tenant names must be different.' }
+    Set-Prop $settings.Insights 'Tenants' @($list)
+}
+# Before 2.3.0 a Development-only setting let an administrator view as someone else; the site no longer has it.
+if ($settings.Insights.PSObject.Properties['AllowViewAs']) { $settings.Insights.PSObject.Properties.Remove('AllowViewAs') }
 $settings | ConvertTo-Json -Depth 5 | Set-Content $settingsPath -Encoding utf8
 
 # ---- 5. App pool and site ---------------------------------------------------------------------
@@ -177,6 +206,13 @@ if (-not (Get-Website -Name $SiteName)) {
 else {
     Set-ItemProperty "IIS:\Sites\$SiteName" -Name physicalPath -Value $PhysicalPath
     Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationPool -Value $SiteName
+}
+# Start the app with IIS, not at the first visit: its background sender runs the alerts and digests.
+Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationDefaults.preloadEnabled -Value $true
+
+# Alerts also go to the Application log under this source; creating a source needs an administrator.
+if (-not [System.Diagnostics.EventLog]::SourceExists('Copilot Insights')) {
+    New-EventLog -LogName Application -Source 'Copilot Insights'
 }
 if ($https) {
     $proto = 'https'
@@ -231,6 +267,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.SensitivityLabel TO [$sqlLogin];
 GRANT INSERT ON dash.AuditLog TO [$sqlLogin];
 GRANT EXECUTE ON dash.usp_RefreshDashboard TO [$sqlLogin];
 GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO [$sqlLogin];
+-- Every grant the site needs, kept up to date by Create-CopilotOperationsSchema.sql.
+IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL ALTER ROLE CopilotInsightsApp ADD MEMBER [$sqlLogin];
 -- Admin > Health reads the pipeline's run logs, where they exist.
 DECLARE @t sysname, @sql nvarchar(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
@@ -244,15 +282,19 @@ BEGIN
     FETCH NEXT FROM t INTO @t;
 END;
 "@
+# The same grants in every tenant's database.
+$databases = @(@($Database) + $tenantDbs | Select-Object -Unique)
+$grantsFor = { param($db) $grants.Replace("USE [$Database];", "USE [$db];") }
 $grantsFile = Join-Path $PhysicalPath 'Grant-CopilotInsightsAccess.sql'
-Set-Content $grantsFile $grants -Encoding utf8
+Set-Content $grantsFile (($databases | ForEach-Object { & $grantsFor $_ }) -join "`r`n") -Encoding utf8
 if ($GrantDatabaseAccess) {
+  foreach ($db in $databases) {
     # The dash schema first: the grants below name its tables.
     $repoSql = Join-Path (Split-Path $PSScriptRoot -Parent) 'sql'
-    $dbConn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
+    $dbConn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=$db;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
     $dbConn.Open()
     try {
-        foreach ($f in 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql') {
+        foreach ($f in 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql') {
             $text = Get-Content -LiteralPath (Join-Path $repoSql $f) -Raw
             foreach ($batch in [regex]::Split($text, '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) {
                 if ($batch.Trim()) { $c = $dbConn.CreateCommand(); $c.CommandText = $batch; $c.CommandTimeout = 0; [void] $c.ExecuteNonQuery() }
@@ -263,14 +305,15 @@ if ($GrantDatabaseAccess) {
             [void] $c.Parameters.AddWithValue('@v', $OrgTopUpn.Trim()); [void] $c.Parameters.AddWithValue('@by', "$env:USERDOMAIN\$env:USERNAME"); [void] $c.ExecuteNonQuery()
         }
         $c = $dbConn.CreateCommand(); $c.CommandText = "IF OBJECT_ID(N'bi.FactInteraction', N'U') IS NOT NULL EXEC dash.usp_RefreshDashboard;"; $c.CommandTimeout = 0; [void] $c.ExecuteNonQuery()
-        Write-Host "Dashboard schema installed in $Database and its rollups built."
+        Write-Host "Dashboard schema installed in $db and its rollups built."
     }
     finally { $dbConn.Dispose() }
     $conn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=master;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
     $conn.Open()
-    try { $cmd = $conn.CreateCommand(); $cmd.CommandText = $grants; $cmd.CommandTimeout = 120; [void] $cmd.ExecuteNonQuery() }
+    try { $cmd = $conn.CreateCommand(); $cmd.CommandText = (& $grantsFor $db); $cmd.CommandTimeout = 120; [void] $cmd.ExecuteNonQuery() }
     finally { $conn.Dispose() }
-    Write-Host "Granted $sqlLogin access to $Database."
+    Write-Host "Granted $sqlLogin access to $db."
+  }
 }
 else {
     Write-Host "Database grants written to $grantsFile. Have a DBA run them, or run this again with -GrantDatabaseAccess."

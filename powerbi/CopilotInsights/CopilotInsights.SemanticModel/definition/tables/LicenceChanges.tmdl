@@ -1,0 +1,71 @@
+/// One row per Copilot SKU added to (+1) or removed from (-1) a person, from the directory audit log.
+table LicenceChanges
+	lineageTag: e294ba14-4e10-571d-8e0d-3dbf3e1074bd
+
+	/// Copilot SKUs assigned in the period.
+	measure 'Licences added' = CALCULATE ( COUNTROWS ( LicenceChanges ), LicenceChanges[Change] = 1 )
+		formatString: #,0
+		lineageTag: 8c879226-1c8b-593f-98b8-02a14e32c41b
+
+	/// Copilot SKUs removed in the period.
+	measure 'Licences removed' = CALCULATE ( COUNTROWS ( LicenceChanges ), LicenceChanges[Change] = -1 )
+		formatString: #,0
+		lineageTag: dc0ecca9-78dd-54ae-ae38-a3b472a6fafc
+
+	/// When the licence changed, UTC.
+	column ChangedUtc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: f83ceedc-4150-5377-9b05-133f513636bd
+		summarizeBy: none
+		sourceColumn: ChangedUtc
+
+	column DateKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: bebf6f0c-5be5-5a79-aada-1f60c5ebe6c8
+		summarizeBy: none
+		sourceColumn: DateKey
+
+	column UserKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 4bd4acc0-1d62-559a-919f-e29b81affbee
+		summarizeBy: none
+		sourceColumn: UserKey
+
+	column SkuKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: de8e435c-d1e1-59c7-8b7b-c27bbb50cd16
+		summarizeBy: none
+		sourceColumn: SkuKey
+
+	/// +1 when the SKU was added, -1 when it was removed.
+	column Change
+		dataType: int64
+		formatString: 0
+		lineageTag: c3953ee6-52bd-5225-90e8-3187a416acdf
+		summarizeBy: none
+		sourceColumn: Change
+
+	/// Who made the change.
+	column ChangedBy
+		dataType: string
+		lineageTag: 590e4cd0-1934-52df-b59e-e91f7c090035
+		summarizeBy: none
+		sourceColumn: ChangedBy
+
+	partition LicenceChanges = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "LicenceChanges"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

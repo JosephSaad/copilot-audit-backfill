@@ -265,3 +265,69 @@ IF OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL
         IsCopilotLic        BIT             NULL,
         UpdatedUtc          DATETIME2(0)    NOT NULL CONSTRAINT DF_CopilotLicense_Updated DEFAULT (SYSUTCDATETIME())
     );
+
+/*
+    The value catalogue: every distinct value of the columns that carry an
+    opaque code or a short list - label ids, agent and app ids, licence types,
+    model names, regions - so an administrator can give each one a readable
+    name (dash.ValueName, Admin > Value names). The flatten procedure adds each
+    batch's values (audit.usp_CatalogValues); a column that passes 10,000
+    distinct values is marked Capped and stops collecting, since a list that
+    long is not one to name by hand.
+
+    Records counts every time a record is flattened, so a record re-flattened
+    by the nightly lookback counts again: good for ranking, not for reporting.
+*/
+IF OBJECT_ID(N'audit.ValueCatalogColumn', N'U') IS NULL
+    CREATE TABLE audit.ValueCatalogColumn
+    (
+        ColumnId     SMALLINT        NOT NULL CONSTRAINT PK_ValueCatalogColumn PRIMARY KEY,
+        TableName    SYSNAME         NOT NULL,   -- in the audit schema
+        ColumnName   SYSNAME         NOT NULL,
+        Label        NVARCHAR(200)   NOT NULL,   -- what an administrator sees
+        DistinctValues INT           NOT NULL CONSTRAINT DF_ValueCatalogColumn_Distinct DEFAULT (0),
+        Capped       BIT             NOT NULL CONSTRAINT DF_ValueCatalogColumn_Capped DEFAULT (0),
+        UpdatedUtc   DATETIME2(0)    NULL,
+        CONSTRAINT UQ_ValueCatalogColumn UNIQUE (TableName, ColumnName)
+    );
+IF OBJECT_ID(N'audit.ValueCatalog', N'U') IS NULL
+    CREATE TABLE audit.ValueCatalog
+    (
+        ColumnId     SMALLINT        NOT NULL,
+        Value        NVARCHAR(400)   NOT NULL,
+        Records      BIGINT          NOT NULL,
+        FirstSeenUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_ValueCatalog_First DEFAULT (SYSUTCDATETIME()),
+        LastSeenUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_ValueCatalog_Last DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_ValueCatalog PRIMARY KEY (ColumnId, Value)
+    );
+/* The ids are stable: names given in dash.ValueName refer to them. */
+MERGE audit.ValueCatalogColumn AS t
+USING (VALUES
+    (1,  N'RawLogFlattened',        N'OrganizationId',                          N'Tenant (OrganizationId)'),
+    (2,  N'RawLogFlattened',        N'App',                                     N'App (AppHost)'),
+    (3,  N'RawLogFlattened',        N'Location',                                N'Region (ClientRegion)'),
+    (4,  N'RawLogFlattened',        N'AppIdentity',                             N'App identity'),
+    (5,  N'RawLogFlattened',        N'ApplicationName',                         N'Application name'),
+    (6,  N'RawLogFlattened',        N'AgentId',                                 N'Agent id'),
+    (7,  N'RawLogFlattened',        N'PlatformAgentId',                         N'Platform agent id'),
+    (8,  N'RawLogFlattened',        N'ResultStatus',                            N'Result status'),
+    (9,  N'RawLogFlattened',        N'AppAccessContext_APIId',                  N'API id (AppAccessContext.APIId)'),
+    (10, N'RawLogFlattened',        N'CopilotEventData_LicenseType',            N'Licence type'),
+    (11, N'RawLogFlattened',        N'CopilotEventData_SensitivityLabelId',     N'Sensitivity label of the interaction'),
+    (12, N'RawLogFlattened',        N'CopilotEventData_TargetAgentName',        N'Agent called (TargetAgentName)'),
+    (13, N'RawLogFlattened',        N'CopilotEventData_TargetPlatformAgentId',  N'Agent called, platform id'),
+    (14, N'RawLogFlattened',        N'CopilotEventData_FabricCapacityId',       N'Fabric capacity'),
+    (15, N'RawLogFlattened',        N'CopilotEventData_PlatformAgentId',        N'Platform agent id (CopilotEventData)'),
+    (16, N'RawLogFlattened',        N'ModelName',                               N'Model'),
+    (17, N'RawLogFlattened',        N'ModelProvider',                           N'Model provider'),
+    (18, N'RawLogFlattened',        N'ModelVersion',                            N'Model version'),
+    (30, N'RawLogAccessedResource', N'SensitivityLabelId',                      N'Sensitivity label of a resource'),
+    (31, N'RawLogAccessedResource', N'Type',                                    N'Resource type'),
+    (32, N'RawLogAccessedResource', N'Action',                                  N'Resource action'),
+    (33, N'RawLogAccessedResource', N'Status',                                  N'Resource status'),
+    (40, N'RawLogContext',          N'Type',                                    N'Context type')
+) AS s (ColumnId, TableName, ColumnName, Label)
+ON t.ColumnId = s.ColumnId
+WHEN MATCHED AND (t.Label <> s.Label OR t.TableName <> s.TableName OR t.ColumnName <> s.ColumnName)
+    THEN UPDATE SET Label = s.Label, TableName = s.TableName, ColumnName = s.ColumnName
+WHEN NOT MATCHED THEN INSERT (ColumnId, TableName, ColumnName, Label) VALUES (s.ColumnId, s.TableName, s.ColumnName, s.Label);

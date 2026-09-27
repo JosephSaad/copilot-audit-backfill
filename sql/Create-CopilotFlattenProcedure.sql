@@ -55,6 +55,98 @@
 */
 SET NOCOUNT ON;
 
+/*
+    audit.usp_CatalogValues: adds the distinct values of the catalogued columns
+    (audit.ValueCatalogColumn) to audit.ValueCatalog. The flatten calls it for
+    each batch while #batch exists, so only that batch's records are read.
+    Called on its own it reads every flattened record; @Rebuild = 1 starts the
+    catalogue again (Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog).
+    A column stops collecting at 10,000 distinct values and is marked Capped.
+*/
+IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NULL
+    EXEC (N'CREATE PROCEDURE audit.usp_CatalogValues AS RETURN 0;');
+GO
+
+ALTER PROCEDURE audit.usp_CatalogValues
+    @Rebuild BIT = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    IF OBJECT_ID(N'audit.ValueCatalogColumn', N'U') IS NULL RETURN;
+
+    DECLARE @cap INT = 10000;
+    DECLARE @inBatch BIT = CASE WHEN OBJECT_ID(N'tempdb..#batch') IS NULL THEN 0 ELSE 1 END;
+    IF @Rebuild = 1 AND @inBatch = 0
+    BEGIN
+        TRUNCATE TABLE audit.ValueCatalog;
+        UPDATE audit.ValueCatalogColumn SET DistinctValues = 0, Capped = 0, UpdatedUtc = NULL;
+    END;
+
+    CREATE TABLE #v (ColumnId SMALLINT NOT NULL, Value NVARCHAR(400) NOT NULL, N BIGINT NOT NULL, PRIMARY KEY (ColumnId, Value));
+
+    DECLARE @t SYSNAME, @vals NVARCHAR(MAX), @sql NVARCHAR(MAX);
+    DECLARE tc CURSOR LOCAL FAST_FORWARD FOR
+        SELECT DISTINCT TableName FROM audit.ValueCatalogColumn
+        WHERE Capped = 0 AND OBJECT_ID(N'audit.' + QUOTENAME(TableName), N'U') IS NOT NULL;
+    OPEN tc;
+    FETCH NEXT FROM tc INTO @t;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        /* One pass over the table for all its columns: each row unpivoted to (column, value). */
+        SELECT @vals = STRING_AGG(CAST(CONCAT(N'(', c.ColumnId, N', ',
+                   CASE WHEN ty.name = N'uniqueidentifier' THEN N'LOWER(CAST(t.' + QUOTENAME(c.ColumnName) + N' AS NVARCHAR(36)))'
+                        ELSE N'LEFT(LTRIM(RTRIM(CAST(t.' + QUOTENAME(c.ColumnName) + N' AS NVARCHAR(400)))), 400)' END,
+                   N')') AS NVARCHAR(MAX)), N', ')
+        FROM audit.ValueCatalogColumn AS c
+        JOIN sys.columns AS sc ON sc.object_id = OBJECT_ID(N'audit.' + QUOTENAME(c.TableName)) AND sc.name = c.ColumnName
+        JOIN sys.types AS ty ON ty.user_type_id = sc.user_type_id
+        WHERE c.TableName = @t AND c.Capped = 0;
+
+        IF @vals IS NOT NULL
+        BEGIN
+            SET @sql = N'INSERT INTO #v (ColumnId, Value, N)
+SELECT v.ColumnId, v.Value, COUNT_BIG(*)
+FROM audit.' + QUOTENAME(@t) + N' AS t '
+                + CASE WHEN @inBatch = 1 THEN N'JOIN #batch AS b ON b.RecordId = t.RecordId ' ELSE N'' END + N'
+CROSS APPLY (VALUES ' + @vals + N') AS v (ColumnId, Value)
+WHERE v.Value IS NOT NULL AND v.Value <> N''''
+GROUP BY v.ColumnId, v.Value;';
+            EXEC sys.sp_executesql @sql;
+        END;
+        FETCH NEXT FROM tc INTO @t;
+    END;
+    CLOSE tc;
+    DEALLOCATE tc;
+
+    BEGIN TRANSACTION;
+    UPDATE t SET Records = t.Records + v.N, LastSeenUtc = SYSUTCDATETIME()
+    FROM audit.ValueCatalog AS t
+    JOIN #v AS v ON v.ColumnId = t.ColumnId AND v.Value = t.Value;
+
+    /* New values, up to the cap: the most frequent first. */
+    WITH n AS
+    (
+        SELECT v.ColumnId, v.Value, v.N, ROW_NUMBER() OVER (PARTITION BY v.ColumnId ORDER BY v.N DESC, v.Value) AS rn
+        FROM #v AS v
+        WHERE NOT EXISTS (SELECT 1 FROM audit.ValueCatalog AS t WHERE t.ColumnId = v.ColumnId AND t.Value = v.Value)
+    )
+    INSERT INTO audit.ValueCatalog (ColumnId, Value, Records)
+    SELECT n.ColumnId, n.Value, n.N
+    FROM n JOIN audit.ValueCatalogColumn AS c ON c.ColumnId = n.ColumnId
+    WHERE n.rn <= @cap - c.DistinctValues;
+
+    UPDATE c
+    SET DistinctValues = ISNULL(k.N, 0),
+        Capped = CASE WHEN ISNULL(k.N, 0) >= @cap THEN 1 ELSE 0 END,
+        UpdatedUtc = SYSUTCDATETIME()
+    FROM audit.ValueCatalogColumn AS c
+    LEFT JOIN (SELECT ColumnId, COUNT(*) AS N FROM audit.ValueCatalog GROUP BY ColumnId) AS k ON k.ColumnId = c.ColumnId
+    WHERE c.ColumnId IN (SELECT ColumnId FROM #v) OR @Rebuild = 1;
+    COMMIT;
+END;
+GO
+
 IF OBJECT_ID(N'audit.usp_FlattenCopilotAudit', N'P') IS NULL
     EXEC (N'CREATE PROCEDURE audit.usp_FlattenCopilotAudit AS BEGIN SET NOCOUNT ON; END;');
 GO
@@ -80,6 +172,7 @@ BEGIN
         IF OBJECT_ID(N'audit.RawLogAccessedResource', N'U') IS NOT NULL TRUNCATE TABLE audit.RawLogAccessedResource;
         IF OBJECT_ID(N'audit.RawLogContext', N'U') IS NOT NULL TRUNCATE TABLE audit.RawLogContext;
         IF OBJECT_ID(N'audit.RawLogRecordShape', N'U') IS NOT NULL TRUNCATE TABLE audit.RawLogRecordShape;
+        IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NOT NULL EXEC audit.usp_CatalogValues @Rebuild = 1;
         SET @SinceUtc = NULL;
     END;
 
@@ -634,6 +727,9 @@ BEGIN
         CROSS APPLY OPENJSON(COALESCE(b.Contexts, N'[]')) AS j
         CROSS APPLY OPENJSON(j.[value]) WITH (Id NVARCHAR(MAX) '$.Id', [Type] NVARCHAR(200) '$.Type', ContainerId NVARCHAR(200) '$.ContainerId') AS c
         WHERE j.[type] = 5;
+
+        /* This batch's values into the catalogue, for Admin > Value names. */
+        IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NOT NULL EXEC audit.usp_CatalogValues;
 
         SET @done += @rows;
         SET @cursor = @maxId;

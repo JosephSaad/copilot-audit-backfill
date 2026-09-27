@@ -1,0 +1,28 @@
+/// The kind of resource read.
+table ResourceTypes
+	lineageTag: cc8d8fa4-3dd4-52ce-8b50-0d827be93698
+
+	column ResourceTypeKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: b784d32f-cbef-50b7-b9a4-41a632cd2003
+		summarizeBy: none
+		sourceColumn: ResourceTypeKey
+
+	column ResourceType
+		dataType: string
+		lineageTag: e3ba2989-90b4-5956-b604-8c95155972b7
+		summarizeBy: none
+		sourceColumn: ResourceType
+
+	partition ResourceTypes = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "ResourceTypes"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

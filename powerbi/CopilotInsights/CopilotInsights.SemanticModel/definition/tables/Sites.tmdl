@@ -1,0 +1,41 @@
+/// SharePoint and OneDrive sites Copilot read from.
+table Sites
+	lineageTag: 25ac8e9f-0d1d-54e0-b512-dcdd13a5e300
+
+	column SiteKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: d2aa5fb7-1e51-5c75-8eb3-81e25ad52a1e
+		summarizeBy: none
+		sourceColumn: SiteKey
+
+	column Site
+		dataType: string
+		lineageTag: 8f47febb-4f0f-5cba-8ba4-698f5712207b
+		summarizeBy: none
+		sourceColumn: Site
+
+	column Host
+		dataType: string
+		lineageTag: e61d31a8-23eb-5f74-9684-8792899e7b75
+		summarizeBy: none
+		sourceColumn: Host
+
+	/// True for a OneDrive (personal) site.
+	column IsPersonal
+		dataType: boolean
+		lineageTag: 0ce0fd43-45cb-52ea-8eab-348d522eaed2
+		summarizeBy: none
+		sourceColumn: IsPersonal
+
+	partition Sites = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "Sites"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

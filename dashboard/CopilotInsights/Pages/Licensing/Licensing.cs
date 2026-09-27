@@ -120,7 +120,7 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
                         r.LastUsed is null ? "Never" : r.LastUsed.Value.Date, r.LastUsed is null ? null : (Ctx.End - r.LastUsed.Value.Date).Days]);
         CsvTable = t;
         Kpis.Add(new($"Unused for {idleDays} days or more", Num(pg.Total), $"licensed at least {idleDays} days ago", pg.Total > 0 ? "crit" : null));
-        var choices = string.Concat(new[] { 7, 14, 30, 60, 90 }.Select(d =>
+        var choices = string.Join(" · ", new[] { 7, 14, 30, 60, 90 }.Select(d =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"idle={d}"))}\"{(d == idleDays ? " class=\"on\"" : "")}>{d} days</a>"));
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Not used for: {choices}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "The period filter does not apply here: this is today's licences against the idle time you choose.", "full", CsvUrl()));

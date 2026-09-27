@@ -12,25 +12,6 @@ public abstract class AdminPage(PageServices s) : InsightsPage(s)
     public override bool AdminOnly => true;
     public override bool UsesFilters => false;
 
-    protected void ShowDone()
-    {
-        if (TempData["done"] is string d) Notice = d;
-    }
-
-    protected string Form(string handler, string body, string? extraQuery = null) =>
-        $"<form class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=" + handler + (extraQuery is null ? "" : "&" + extraQuery))}\">{Token()}{body}</form>";
-
-    protected static string Input(string name, string label, string? value, int size = 24, string type = "text") =>
-        $"<label>{E(label)}<input type=\"{type}\" name=\"{name}\" value=\"{E(value)}\" size=\"{size}\"/></label>";
-
-    protected static string Select(string name, string label, IEnumerable<string> options, string? selected) =>
-        $"<label>{E(label)}<select name=\"{name}\">" +
-        string.Concat(options.Select(o => $"<option{(o == selected ? " selected" : "")}>{E(o)}</option>")) + "</select></label>";
-
-    protected static string Button(string text, string? confirm = null, bool quiet = false) =>
-        $"<button class=\"btn{(quiet ? " quiet" : "")}\" type=\"submit\"{(confirm is null ? "" : $" data-confirm=\"{E(confirm)}\"")}>{E(text)}</button>";
-
-    protected string Form(string handler) => Form(handler, "");
 }
 
 /* ---- Health ------------------------------------------------------------------------------ */
@@ -72,6 +53,18 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
         }
         Panels.Add(new("Pipeline", t.Render(), "Fresh: within 36 hours. The dashboard shows data up to the last complete day in its rollups."));
 
+        /* The runs Invoke-CopilotPipeline.ps1 records, with the failing step and its last lines. */
+        var runs0 = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().PipelineRunsAsync(10);
+        if (runs0.Count > 0)
+        {
+            var pr = new Table { Headers = ["Run", "Started (UTC)", "Took", "Result", "Stopped at", "On", "Last lines"] };
+            foreach (var r in runs0)
+                pr.Rows.Add([r.Kind, r.StartedUtc, r.EndedUtc is null ? null : $"{(r.EndedUtc.Value - r.StartedUtc).TotalMinutes:0} min",
+                    new HtmlString($"<span class=\"{(r.Status == "Succeeded" ? "status-ok" : r.Status == "Running" ? "status-warn" : "status-bad")}\">{E(r.Status)}</span>"),
+                    r.FailedStep, r.Host, r.Detail is null ? null : new HtmlString($"<details><summary>show</summary><pre class=\"log\">{E(r.Detail)}</pre></details>")]);
+            Panels.Add(new("Pipeline runs", pr.Render(), "Recorded by Invoke-CopilotPipeline.ps1 on the job server. A failed or stuck run also raises an alert (Admin > Alerts and digests)."));
+        }
+
         var d = (await Db.QueryAsync<(int Found, int NotFound, int NotLooked, int People, int Levelled, int Enabled, int? LastKey)>(@"
 SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
        (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'NotFound'),
@@ -95,6 +88,43 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
             seen > 0 && d.Found >= seen * 0.95 ? "status-ok" : "status-warn");
         Card("Latest day with data", d.LastKey is null ? "No data yet." : $"{d.LastKey / 10000}-{d.LastKey / 100 % 100:00}-{d.LastKey % 100:00}", d.LastKey is null ? "status-bad" : "status-ok");
         Panels.Add(new("Directory and security model", new HtmlString(sb.Append("</div>").ToString())));
+
+        /* The app certificate the pipeline signs in with, and the audit searches waiting at Microsoft. */
+        var ops = new StringBuilder("<div class=\"cards\">");
+        void OpsCard(string title, string body, string cls) => ops.Append($"<div class=\"card\"><h3 class=\"{cls}\">{E(title)}</h3><p>{body}</p></div>");
+        try
+        {
+            var cert = (await Db.QueryAsync<(string? Thumbprint, DateTime? ExpiresUtc, string? Subject, DateTime StartedUtc)>(
+                "SELECT TOP (1) CertificateThumbprint, CertificateExpiresUtc, CertificateSubject, StartedUtc FROM audit.PipelineRun WHERE CertificateExpiresUtc IS NOT NULL ORDER BY RunId DESC;")).FirstOrDefault();
+            var warn = await S.Settings.IntAsync("CertificateWarnDays", 30);
+            if (cert.ExpiresUtc is null)
+                OpsCard("App certificate", "Not recorded yet: the pipeline records it at the start of each run (2.3.0 or later).", "status-warn");
+            else
+            {
+                var left = (cert.ExpiresUtc.Value - DateTime.UtcNow).TotalDays;
+                OpsCard("App certificate", $"{E(cert.Subject)} expires {cert.ExpiresUtc:yyyy-MM-dd}: {(left <= 0 ? "expired" : $"{Math.Floor(left):0} days left")}. Seen by the run of {cert.StartedUtc:yyyy-MM-dd HH:mm} UTC. Renew with tools\\Install-CopilotJobServer.ps1 -RegisterApp.",
+                    left <= 0 ? "status-bad" : left <= warn ? "status-warn" : "status-ok");
+            }
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { OpsCard("App certificate", "Not recorded in this database (install 2.3.0's audit schema).", "status-warn"); }
+        try
+        {
+            var q = (await Db.QueryAsync<(int Waiting, int Failed, int Last24h, int Resubmitted, DateTime? Oldest)>(@"
+WITH w AS (SELECT Status, SubmittedUtc, Submissions, StartUtc FROM audit.CopilotLoadWindow
+           UNION ALL SELECT Status, SubmittedUtc, Submissions, StartUtc FROM audit.CopilotBackfillWindow)
+SELECT COUNT(CASE WHEN Status IN ('Pending', 'Submitted', 'Ready', 'Downloading') THEN 1 END),
+       COUNT(CASE WHEN Status = 'Failed' THEN 1 END),
+       COUNT(CASE WHEN SubmittedUtc >= DATEADD(HOUR, -24, SYSUTCDATETIME()) THEN 1 END),
+       COUNT(CASE WHEN Submissions > 1 THEN 1 END),
+       MIN(CASE WHEN Status IN ('Pending', 'Submitted', 'Ready', 'Downloading') THEN StartUtc END)
+FROM w;")).Single();
+            OpsCard("Audit searches", $"{q.Last24h:#,0} submitted to Microsoft Purview in the last 24 hours; {q.Waiting:#,0} waiting or downloading" +
+                (q.Oldest is null ? "" : $" (the oldest covers {q.Oldest:yyyy-MM-dd HH:mm} UTC)") + $"; {q.Resubmitted:#,0} had to be resubmitted; {q.Failed:#,0} failed. " +
+                "Microsoft limits how many audit searches a tenant runs at once: many waiting, or many resubmitted, means the load is being throttled, and the next run carries on.",
+                q.Failed > 0 ? "status-bad" : q.Waiting > 20 || q.Resubmitted > 10 ? "status-warn" : "status-ok");
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { OpsCard("Audit searches", "No search windows in this database (the CSV import path, or not installed).", "status-warn"); }
+        Panels.Add(new("Certificate and audit searches", new HtmlString(ops.Append("</div>").ToString())));
 
         var runs = await Db.QueryAsync<(DateTime StartedUtc, DateTime EndedUtc, DateTime? SinceUtc, int People, int ClosureRows, int UserDayRows)>(
             "SELECT TOP (10) StartedUtc, EndedUtc, SinceUtc, People, ClosureRows, UserDayRows FROM dash.RefreshRun ORDER BY RunId DESC;");
@@ -378,7 +408,7 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
     public override string Title => "Audit log";
     public override string Intro => "Every page view, refusal, export and admin change, with who, what they looked at and from where.";
 
-    static readonly string[] Kinds = ["View", "Denied", "Export", "Admin"];
+    static readonly string[] Kinds = ["View", "Denied", "Export", "Api", "Admin"];
 
     sealed class Row
     {

@@ -191,6 +191,8 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
     -SessionLicenceDatabase CopilotLicenseEvents
 ```
 
+**Adding operations to a load (2.3.0).** A database records the operations its backfill asked for, and every `-Incremental` load must ask for the same ones or more. 2.3.0 adds Copilot Studio's authoring operations (`BotCreate`, `BotUpdateOperation-BotPublish`, `BotUpdateOperation-BotShare`, `BotDelete`, `BotComponent*` ...) to the licence-event load: the first 2.3.0 run records the wider set and logs *Loading ... too from now on*. Earlier records of the new operations are not fetched into that database. A load asking for fewer operations, or different ones, is still refused (*holds a backfill of ..., not ...*).
+
 **Exporting.** In the Purview portal, search the audit log for the record type the database holds (*CopilotInteraction*, or the licence operations for a licence-event database) and export all results. Note each search's exact start and end: the importer cannot tell a quiet day from a day that was not exported. Leave the files as they came: a file opened and saved in Excel has its `AuditData` cut at 32,767 characters, and those rows are rejected rather than loaded broken. Both the current export's columns (`RecordId`, `CreationDate`, `RecordType`, `Operation`, `UserId`, `AuditData`, ...) and the older one's (`UserIds`, `Operations`) are read.
 
 **What a run does.**

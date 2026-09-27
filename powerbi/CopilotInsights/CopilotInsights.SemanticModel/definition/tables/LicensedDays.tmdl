@@ -1,0 +1,52 @@
+/// One row per person per day on which they held a Copilot licence at the end of the day. Use for licensed-user counts on a date.
+table LicensedDays
+	lineageTag: 4a6b1eae-e13a-584e-8727-03e8bcd1ba10
+
+	/// People holding a Copilot licence at the end of the period.
+	measure 'Licensed users' =
+			CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),
+			    LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+		formatString: #,0
+		lineageTag: f7b18ab3-e3dc-5c93-b133-1596596c4b7c
+
+	/// Active licensed users divided by people holding a Copilot licence at the end of the period.
+	measure 'Adoption %' = DIVIDE ( [Active licensed users], [Licensed users] )
+		formatString: 0.0%
+		lineageTag: 91b74506-dd6e-500f-9e29-334133db93a0
+
+	/// People licensed at the end of the period with no Copilot interaction in it.
+	measure 'Licensed users not using Copilot' =
+			VAR licensed =
+			    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
+			        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+			VAR active = VALUES ( Interactions[UserKey] )
+			RETURN COUNTROWS ( EXCEPT ( licensed, active ) )
+		formatString: #,0
+		lineageTag: 0465650f-f0be-52a4-89cf-30f38910b8dd
+
+	column DateKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 6260ec51-e9c5-5f58-8f31-083f2576c4b5
+		summarizeBy: none
+		sourceColumn: DateKey
+
+	column UserKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 8e64ede4-5395-50f0-9db6-77a889c1b8ec
+		summarizeBy: none
+		sourceColumn: UserKey
+
+	partition LicensedDays = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "LicensedDays"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

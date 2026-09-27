@@ -1,0 +1,24 @@
+/// SQL Server instance holding the Copilot database (for Azure SQL, its server name).
+expression SqlServer = "localhost" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 9da35c1f-acbd-5dee-9776-60338ee939a2
+
+	annotation PBI_ResultType = Text
+
+/// The audit database with the bi schema.
+expression SqlDatabase = "CopilotAudit" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 9d828761-957c-5651-9b59-5d492f545dd2
+
+	annotation PBI_ResultType = Text
+
+/// Incremental refresh: start of the range loaded.
+expression RangeStart = #datetime(2025, 1, 1, 0, 0, 0) meta [IsParameterQuery=true, Type="DateTime", IsParameterQueryRequired=true]
+	lineageTag: ba07f88c-2f65-5bad-8f4d-40d06680cb35
+
+	annotation PBI_ResultType = DateTime
+
+/// Incremental refresh: end of the range loaded (exclusive).
+expression RangeEnd = #datetime(2027, 1, 1, 0, 0, 0) meta [IsParameterQuery=true, Type="DateTime", IsParameterQueryRequired=true]
+	lineageTag: 50795a9a-916f-53e0-aba8-8fac9ed9665d
+
+	annotation PBI_ResultType = DateTime
+

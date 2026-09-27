@@ -1,0 +1,100 @@
+/// Copilot Studio authoring: agents created, published, shared, changed and deleted, from Copilot Studio's audit records.
+table AgentEvents
+	lineageTag: 7beca9b1-21cb-5f43-a91e-5ed31d70d2f7
+
+	/// Authoring events.
+	measure 'Agent events' = COUNTROWS ( AgentEvents )
+		formatString: #,0
+		lineageTag: 97b07388-e905-511d-ba1e-78f88fdcaa59
+
+	/// Agents published at least once in the period.
+	measure 'Agents published' = CALCULATE ( DISTINCTCOUNT ( AgentEvents[BotSchemaName] ), AgentEvents[Action] = "Published" )
+		formatString: #,0
+		lineageTag: 0980a516-60cd-5a6b-b069-7d4c401ba48f
+
+	/// People who built or changed an agent.
+	measure Makers = DISTINCTCOUNT ( AgentEvents[ActorKey] )
+		formatString: #,0
+		lineageTag: 4583556f-d5ea-50a9-abb2-7ea930f5b2a0
+
+	column RecordId
+		dataType: string
+		isHidden
+		lineageTag: e51c48c4-c983-552d-be2f-5c2b68e2244d
+		summarizeBy: none
+		sourceColumn: RecordId
+
+	/// When it happened, UTC.
+	column EventUtc
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 87b9de0c-51d5-5a33-aaac-4c2db5e8c72b
+		summarizeBy: none
+		sourceColumn: EventUtc
+
+	column DateKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 6891cca0-bed8-521b-a05c-13245be31554
+		summarizeBy: none
+		sourceColumn: DateKey
+
+	/// Created, Published, Shared, Updated, Component or Deleted.
+	column Action
+		dataType: string
+		lineageTag: 82e0e07d-cf4c-5931-bb5d-09f6b0450399
+		summarizeBy: none
+		sourceColumn: Action
+
+	/// The audit operation, such as BotUpdateOperation-BotPublish.
+	column Operation
+		dataType: string
+		lineageTag: 8de10f27-9bcd-590a-8260-a258f0b1f091
+		summarizeBy: none
+		sourceColumn: Operation
+
+	column ActorKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 236b7679-f050-5dd3-825e-fd877de215fa
+		summarizeBy: none
+		sourceColumn: ActorKey
+
+	column BotId
+		dataType: string
+		isHidden
+		lineageTag: 456058be-9d22-5051-b132-d62b12bab2fc
+		summarizeBy: none
+		sourceColumn: BotId
+
+	/// The agent's schema name.
+	column BotSchemaName
+		dataType: string
+		lineageTag: a1ce15ca-2338-565c-923a-c1870ad174fd
+		summarizeBy: none
+		sourceColumn: BotSchemaName
+
+	column ComponentName
+		dataType: string
+		lineageTag: 142f6962-b1ed-5b19-8a42-4b245965b34a
+		summarizeBy: none
+		sourceColumn: ComponentName
+
+	column ComponentType
+		dataType: string
+		lineageTag: e178cfe5-ca14-581a-a45f-99a12f5bd787
+		summarizeBy: none
+		sourceColumn: ComponentType
+
+	partition AgentEvents = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "AgentEvents"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

@@ -229,6 +229,8 @@ GROUP BY {expr};", c.Args());
 
     public static readonly IReadOnlyDictionary<string, string> Attributes = new Dictionary<string, string>
     {
+        ["Department"] = "ISNULL(NULLIF(du.Department, N''), N'(no department)')",
+        ["Company"] = "ISNULL(NULLIF(du.CompanyName, N''), N'(no company)')",
         ["Country"] = "ISNULL(NULLIF(du.Country, N''), N'(no country)')",
         ["City"] = "ISNULL(NULLIF(du.City, N''), N'(no city)')",
         ["Office"] = "ISNULL(NULLIF(du.OfficeLocation, N''), N'(no office)')",

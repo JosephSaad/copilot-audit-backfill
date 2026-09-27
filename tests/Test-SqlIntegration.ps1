@@ -188,7 +188,7 @@ $objects = Invoke-SqlText -As Table -Sql @"
 SELECT name FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'audit' ORDER BY name;
 "@
 $names = @($objects.Rows | ForEach-Object { $_.name })
-Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow,PipelineSetting') `
+Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow,PipelineRun,PipelineRunStep,PipelineSetting') `
     "Create-CopilotAuditSchema.sql built the backfill and incremental-load tables, and is idempotent ($($names -join ', '))"
 
 $heap = Invoke-SqlText -As Scalar -Sql @"
@@ -418,6 +418,21 @@ WHERE c.object_id = OBJECT_ID(N'audit.RawLogFlattened') ORDER BY c.column_id;
     $swl = [System.Diagnostics.Stopwatch]::StartNew()
     Invoke-SqlText -Sql 'EXEC audit.usp_FlattenCopilotAudit @RebuildAll = 1, @BatchSize = 50000' -ShowMessages -TimeoutSeconds 1800
     Write-Host ("  flatten took {0:N1}s" -f $swl.Elapsed.TotalSeconds) -ForegroundColor DarkGray
+
+    # 2.3.0: each batch's codes go into the value catalogue, for Admin > Value names.
+    $vc = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT DistinctValues FROM audit.ValueCatalogColumn WHERE ColumnId = 2) AS Apps,
+       (SELECT COUNT(DISTINCT App) FROM audit.RawLogFlattened WHERE NULLIF(App, N'') IS NOT NULL) AS AppsInData,
+       (SELECT SUM(Records) FROM audit.ValueCatalog WHERE ColumnId = 1) AS TenantRecords,
+       (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE OrganizationId IS NOT NULL) AS WithTenant,
+       (SELECT COUNT(*) FROM audit.ValueCatalog WHERE ColumnId = 1 AND Value = LOWER(Value)) AS LowerGuids;
+"@).Rows[0]
+    Assert-That ([int] $vc.Apps -gt 0 -and [int] $vc.Apps -eq [int] $vc.AppsInData) "the flatten catalogues every distinct app, batch by batch ($($vc.Apps) of $($vc.AppsInData))"
+    Assert-That ([long] $vc.TenantRecords -eq [long] $vc.WithTenant -and [int] $vc.LowerGuids -ge 1) "and counts each record once in a full rebuild, with GUIDs in lower case ($($vc.TenantRecords) of $($vc.WithTenant))"
+    $before = [string] (Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CONCAT(ColumnId, ':', Value, ':', Records), '|') WITHIN GROUP (ORDER BY ColumnId, Value) FROM audit.ValueCatalog;")
+    Invoke-SqlText -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
+    $after = [string] (Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CONCAT(ColumnId, ':', Value, ':', Records), '|') WITHIN GROUP (ORDER BY ColumnId, Value) FROM audit.ValueCatalog;")
+    Assert-That ($before -eq $after -and $after.Length -gt 0) 'a rebuild of the catalogue from every record gives the same values and counts as the batches did'
 
     # What the mock put in the JSON, counted from the day counts it reports.
     $dc = Invoke-RestMethod "$($mock.Base)/_control/daycounts"
@@ -672,6 +687,19 @@ FROM audit.CopilotLicense;
         Assert-That ([int] $l.WithSince -eq 17) "LicensedSinceUtc read from assignedPlans for each ($($l.WithSince))"
         Assert-That ([int] $l.Enabled_ -eq 17) "CapabilityStatus captured ($($l.Enabled_))"
         Assert-That ([int] $l.Gone -eq 1) "the departed user is recorded as NotFound ($($l.Gone))"
+
+        # 2.3.0: the seat counts /subscribedSkus already returns, and each person's Entra account state and hire date.
+        $pool = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.LicenseSku) AS Skus,
+       (SELECT Enabled + Warning FROM audit.LicenseSku WHERE IsCopilot = 1) AS Bought,
+       (SELECT Consumed FROM audit.LicenseSku WHERE IsCopilot = 1) AS Assigned,
+       (SELECT COUNT(*) FROM audit.LicenseSkuDay WHERE SnapshotDate = CAST(SYSUTCDATETIME() AS DATE)) AS Today,
+       (SELECT COUNT(*) FROM audit.CopilotLicense WHERE EntraAccountEnabled = 0) AS Disabled,
+       (SELECT COUNT(*) FROM audit.CopilotLicense WHERE EmployeeHireDate IS NOT NULL) AS Hired;
+"@).Rows[0]
+        Assert-That ([int] $pool.Skus -eq 2 -and [int] $pool.Bought -eq 105 -and [int] $pool.Assigned -eq 17) "the licence pool is kept per SKU: 105 Copilot seats bought (100 + 5 in grace), 17 assigned ($($pool.Bought), $($pool.Assigned))"
+        Assert-That ([int] $pool.Today -eq 2) 'and a snapshot per SKU for today, for the trend'
+        Assert-That ([int] $pool.Disabled -eq 3 -and [int] $pool.Hired -gt 0) "Entra's accountEnabled and employeeHireDate are recorded ($($pool.Disabled) disabled, $($pool.Hired) with a hire date)"
         Assert-That ([int] $l.GoneUnknown -eq 1) 'a departed user is left unknown, NOT reported as unlicensed'
 
         # Licences only: nothing that needs more than User.Read.All and
@@ -1884,6 +1912,227 @@ Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/A
 Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organisation takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
 $refused = try { & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'nobody@contoso.com'; '' } catch { $_.Exception.Message }
 Assert-That ($refused -like '*not in the directory*') 'a top of the organisation not in the directory is refused'
+
+# ---------------------------------------------------------------------------
+# 16. Operations (2.3.0): the operations schema over section 14's dashboard,
+# its secrets, privacy mode, retention, the value catalogue's cap, the
+# pipeline's run record, and the Power BI views.
+# ---------------------------------------------------------------------------
+Write-Host "`n16. Operations (Create-CopilotOperationsSchema.sql, Invoke-CopilotPipeline.ps1 run records)" -ForegroundColor Cyan
+
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotOperationsSchema.sql') -Raw)
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotOperationsSchema.sql') -Raw)   # re-runnable
+$ops = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'dash' AND name IN ('Secret', 'Subscription', 'NotificationLog', 'AlertState', 'Target', 'TimeSaving', 'TrainingAttendance', 'ValueName')) AS Tables_,
+       (SELECT COUNT(*) FROM dash.Setting WHERE Name IN ('MailMode', 'SmtpPort', 'AlertAdminTo', 'FreshnessHours', 'JsonRetentionDays', 'ApiEnabled')) AS Settings_,
+       (SELECT COUNT(*) FROM sys.views WHERE SCHEMA_NAME(schema_id) = 'bi' AND name IN ('OrgSecurity', 'ValueNames', 'LicensePool', 'DepartmentWeek')) AS Views_,
+       DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') AS RoleId;
+"@).Rows[0]
+Assert-That ([int] $ops.Tables_ -eq 8 -and [int] $ops.Settings_ -eq 6 -and [int] $ops.Views_ -eq 4 -and $ops.RoleId -isnot [DBNull]) 'the operations schema installs its tables, settings, Power BI views and the dashboard''s role, and re-runs'
+
+# Secrets: encrypted, and readable by the dashboard's role only through the procedures.
+Invoke-SqlText -Sql @"
+IF USER_ID(N'it_app') IS NULL CREATE USER it_app WITHOUT LOGIN;
+ALTER ROLE CopilotInsightsApp ADD MEMBER it_app;
+EXEC dash.usp_SetSecret @Name = 'SmtpPassword', @Value = N'p@ss wörd 2525', @By = N'test';
+"@
+$sec = (Invoke-SqlText -As Table -Sql @"
+DECLARE @v NVARCHAR(2000), @direct NVARCHAR(400) = N'allowed';
+EXECUTE AS USER = 'it_app';
+EXEC dash.usp_GetSecret @Name = 'SmtpPassword', @Value = @v OUTPUT;
+BEGIN TRY DECLARE @n INT = (SELECT COUNT(*) FROM dash.Secret); END TRY BEGIN CATCH SET @direct = ERROR_MESSAGE(); END CATCH;
+REVERT;
+SELECT @v AS Value, @direct AS Direct, (SELECT CAST(Cipher AS VARBINARY(20)) FROM dash.Secret WHERE Name = 'SmtpPassword') AS Stored;
+"@).Rows[0]
+Assert-That ("$($sec.Value)" -eq 'p@ss wörd 2525') 'a secret round-trips through dash.usp_SetSecret and dash.usp_GetSecret, as the dashboard''s role'
+Assert-That ("$($sec.Direct)" -like '*permission was denied*') 'but the role cannot read dash.Secret itself'
+Assert-That (-not ([Text.Encoding]::Unicode.GetString([byte[]] $sec.Stored)).Contains('p@ss')) 'and it is stored encrypted'
+Invoke-SqlText -Sql "EXEC dash.usp_SetSecret @Name = 'SmtpPassword', @Value = NULL, @By = N'test';"
+Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM dash.Secret WHERE Name = 'SmtpPassword'") -eq 0) 'an empty value removes the secret'
+
+# Privacy mode: bi.Users pseudonymised, the same hash for the same person, counts unchanged.
+$plain = (Invoke-SqlText -As Table -Sql "SELECT COUNT(*) AS N, COUNT(DISTINCT UserPrincipalName) AS D FROM bi.Users;").Rows[0]
+Invoke-SqlText -Sql "EXECUTE AS USER = 'it_app'; EXEC dash.usp_SetPrivacyMode @Mode = N'Pseudonymise', @By = N'test'; REVERT;"
+$hidden = (Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*) AS N, COUNT(DISTINCT UserPrincipalName) AS D,
+       SUM(CASE WHEN UserPrincipalName LIKE N'%@%' OR DisplayName LIKE N'User %' OR ManagerUpn LIKE N'%@%' THEN 1 ELSE 0 END) AS Named,
+       SUM(CASE WHEN UserPrincipalName LIKE N'P-%' THEN 1 ELSE 0 END) AS Hashed
+FROM bi.Users;
+"@).Rows[0]
+Assert-That ([int] $hidden.Named -eq 0 -and [int] $hidden.Hashed -gt 0) "privacy mode names nobody in bi.Users ($($hidden.Hashed) pseudonyms)"
+Assert-That ([int] $hidden.N -eq [int] $plain.N -and [int] $hidden.D -eq [int] $plain.D) 'with the same rows and one distinct pseudonym per person'
+$leak = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM bi.OrgSecurity) AS SecurityRows,
+       (SELECT COUNT(*) FROM bi.LicenceChanges WHERE ChangedBy IS NOT NULL) AS Admins,
+       (SELECT COUNT(*) FROM bi.Sites WHERE IsPersonal = 1 AND Site <> N'OneDrive (personal)') AS OneDrives;
+"@).Rows[0]
+Assert-That ([int] $leak.SecurityRows -eq 0 -and [int] $leak.Admins -eq 0 -and [int] $leak.OneDrives -eq 0) 'and nothing else in bi names anyone: bi.OrgSecurity is empty, administrators and OneDrive owners are hidden'
+Invoke-SqlText -Sql "EXEC dash.usp_SetPrivacyMode @Mode = N'Off', @By = N'test';"
+Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM bi.Users WHERE UserPrincipalName LIKE N'%@%'") -gt 0) 'and off again, names come back'
+
+# Retention: logs past their days go; JSON is never cleared under 200 days.
+Invoke-SqlText -Sql @"
+INSERT INTO dash.AuditLog (AtUtc, Viewer, Kind, Page) VALUES (DATEADD(DAY, -800, SYSUTCDATETIME()), N'old', 'View', N'/'), (SYSUTCDATETIME(), N'new', 'View', N'/');
+INSERT INTO dash.NotificationLog (AtUtc, Kind, Subject, Status) VALUES (DATEADD(DAY, -400, SYSUTCDATETIME()), 'Test', N'old', 'Sent');
+UPDATE dash.Setting SET Value = N'90' WHERE Name = 'JsonRetentionDays';
+"@
+$ret = [string] (Invoke-SqlText -As Scalar -Sql 'EXEC dash.usp_ApplyRetention;')
+$left = (Invoke-SqlText -As Table -Sql "SELECT (SELECT COUNT(*) FROM dash.AuditLog WHERE Viewer = N'old') AS OldAudit, (SELECT COUNT(*) FROM dash.AuditLog WHERE Viewer = N'new') AS NewAudit, (SELECT COUNT(*) FROM dash.NotificationLog WHERE Subject = N'old') AS OldNote;").Rows[0]
+Assert-That ([int] $left.OldAudit -eq 0 -and [int] $left.NewAudit -eq 1 -and [int] $left.OldNote -eq 0) "retention deletes the audit-log and notification rows past their days, and nothing newer ($ret)"
+Assert-That ($ret -like '*JSON kept*') 'and refuses to clear JSON with retention under 200 days'
+Invoke-SqlText -Sql "UPDATE dash.Setting SET Value = N'0' WHERE Name = 'JsonRetentionDays';"
+
+# The value catalogue's cap: a column stops collecting at 10,000 distinct values.
+Invoke-SqlText -Sql @"
+DELETE FROM audit.ValueCatalog WHERE ColumnId = 2;
+INSERT INTO audit.ValueCatalog (ColumnId, Value, Records) SELECT TOP (9999) 2, CONCAT(N'fake-app-', ROW_NUMBER() OVER (ORDER BY (SELECT NULL))), 1 FROM sys.all_objects a CROSS JOIN sys.all_objects b;
+UPDATE audit.ValueCatalogColumn SET DistinctValues = 9999, Capped = 0 WHERE ColumnId = 2;
+EXEC audit.usp_CatalogValues;
+"@
+$cap = (Invoke-SqlText -As Table -Sql "SELECT DistinctValues, Capped, (SELECT COUNT(*) FROM audit.ValueCatalog WHERE ColumnId = 2) AS Rows_ FROM audit.ValueCatalogColumn WHERE ColumnId = 2;").Rows[0]
+Assert-That ([int] $cap.Rows_ -eq 10000 -and [bool] $cap.Capped) "a column stops at 10,000 values and is marked capped ($($cap.Rows_), capped: $($cap.Capped))"
+Invoke-SqlText -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
+Assert-That (-not [bool] (Invoke-SqlText -As Scalar -Sql 'SELECT Capped FROM audit.ValueCatalogColumn WHERE ColumnId = 2')) 'and a rebuild starts it again'
+Invoke-SqlText -Sql "INSERT INTO dash.ValueName (ColumnId, Value, Name, UpdatedBy) SELECT TOP (1) 2, Value, N'Named app', N'test' FROM audit.ValueCatalog WHERE ColumnId = 2 ORDER BY Value;"
+$named = (Invoke-SqlText -As Table -Sql "SELECT (SELECT COUNT(*) FROM bi.ValueNames WHERE ColumnName = N'App' AND Name = N'Named app') AS InView, dash.fnValueName(2, (SELECT TOP (1) Value FROM audit.ValueCatalog WHERE ColumnId = 2 ORDER BY Value)) AS Fn, dash.fnValueName(2, N'unnamed') AS Unnamed;").Rows[0]
+Assert-That ([int] $named.InView -eq 1 -and "$($named.Fn)" -eq 'Named app' -and "$($named.Unnamed)" -eq 'unnamed') 'a name shows in bi.ValueNames and through dash.fnValueName, and an unnamed value stays itself'
+
+# The pipeline's run record, through Invoke-CopilotPipeline.ps1's own functions.
+& {
+    . (Join-Path $root 'Invoke-CopilotPipeline.ps1')
+    $setting = @{ SqlServer = $script:ITServer; Database = $script:ITDatabase; ConnectionString = (New-ConnString $script:ITDatabase) }
+    $log = Join-Path ([IO.Path]::GetTempPath()) "pipeline-it-$([guid]::NewGuid().ToString('N')).log"
+    Set-Content $log "line one`nConnect-MgGraph: the certificate has expired."
+    $id = Write-PipelineRecord $setting -Log $log -Parameters @{ '@k' = 'Nightly'; '@h' = 'TEST'; '@u' = 'me' } -Sql 'INSERT INTO audit.PipelineRun (Kind, Host, RunAs) VALUES (@k, @h, @u); SELECT CAST(SCOPE_IDENTITY() AS INT);'
+    [void] (Write-PipelineRecord $setting -Log $log -Parameters @{ '@r' = $id; '@n' = 1; '@s' = 'Copilot licences from Graph' } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);')
+    [void] (Write-PipelineRecord $setting -Log $log -Parameters @{ '@r' = $id; '@n' = 1; '@c' = 1 } -Sql 'UPDATE audit.PipelineRunStep SET EndedUtc = SYSUTCDATETIME(), ExitCode = @c WHERE RunId = @r AND StepNo = @n;')
+    [void] (Write-PipelineRecord $setting -Log $log -Parameters @{ '@r' = $id; '@f' = 'Copilot licences from Graph'; '@d' = (Get-LogTail $log) } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Failed', FailedStep = @f, Detail = @d WHERE RunId = @r;")
+    $run = (Invoke-SqlText -As Table -Sql "SELECT r.Status, r.FailedStep, r.Detail, s.ExitCode FROM audit.PipelineRun AS r JOIN audit.PipelineRunStep AS s ON s.RunId = r.RunId WHERE r.RunId = $id;").Rows[0]
+    Assert-That ("$($run.Status)" -eq 'Failed' -and [int] $run.ExitCode -eq 1 -and "$($run.Detail)" -like '*certificate has expired*') 'the pipeline records its run, each step''s exit code, and the failed step''s last lines'
+    $bad = @{ SqlServer = 'no-such-server.invalid'; Database = 'x'; ConnectionString = 'Server=no-such-server.invalid;Database=x;Integrated Security=true;Connect Timeout=2' }
+    $threw = try { [void] (Write-PipelineRecord $bad -Log $log -Parameters @{} -Sql 'SELECT 1;'); $false } catch { $true }
+    Assert-That (-not $threw -and (Get-Content $log -Raw) -like '*not recorded in audit.PipelineRun*') 'and a database it cannot reach costs a line in the log, not the run'
+    Remove-Item $log -ErrorAction SilentlyContinue
+}
+
+# Power BI: row-level security from the org chart, and department figures with small groups hidden.
+$sec = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'a@contoso.com') AS AUnder,
+       (SELECT COUNT(DISTINCT u.UserPrincipalName) FROM bi.OrgSecurity AS s JOIN bi.DimUser AS u ON u.UserKey = s.UserKey WHERE s.ViewerUpn = N'a@contoso.com') AS ADistinct,
+       (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'c@contoso.com') AS CSelf,
+       (SELECT COUNT(*) FROM bi.DimUser) AS Everyone,
+       (SELECT COUNT(*) FROM bi.OrgSecurity AS s WHERE s.ViewerUpn = (SELECT TOP (1) Upn FROM dash.Person WHERE Level = 1)) AS TopSees,
+       (SELECT COUNT(*) FROM bi.DepartmentWeek WHERE Hidden = 1 AND ActivePeople IS NOT NULL) AS Leaks;
+"@).Rows[0]
+Assert-That ([int] $sec.CSelf -le 1 -and [int] $sec.AUnder -ge [int] $sec.CSelf) "bi.OrgSecurity: a person sees themselves, a manager their people ($($sec.AUnder) for user A)"
+Assert-That ([int] $sec.TopSees -eq [int] $sec.Everyone) "the top of the organisation sees everyone ($($sec.TopSees) of $($sec.Everyone))"
+Assert-That ([int] $sec.Leaks -eq 0) 'bi.DepartmentWeek hides every figure of a group under the minimum size'
+Invoke-SqlText -Sql "ALTER ROLE CopilotInsightsApp DROP MEMBER it_app; DROP USER it_app;"
+
+# ---------------------------------------------------------------------------
+# 17. Agent build and publish activity, and the second part of 2.3.0's
+# operations tables: Copilot Studio authoring records shredded into
+# audit.AgentEvent (and kept out of the licence events), copied to
+# bi.FactAgentEvent, and the tables behind triage, digests, saved views,
+# contracts, classifications, events and extracts.
+# ---------------------------------------------------------------------------
+Write-Host "`n17. Agent build and publish activity, and the operations tables (audit.usp_ShredAgentEvents)" -ForegroundColor Cyan
+
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-AgentEventProcedure.sql') -Raw)
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-AgentEventProcedure.sql') -Raw)   # re-runnable
+
+$maker = [string] (Invoke-SqlText -As Scalar -Sql "SELECT TOP (1) UserPrincipalName FROM bi.DimUser WHERE UserPrincipalName LIKE N'%@%' ORDER BY UserPrincipalName;")
+$bots = @(
+    @{ Id = 'bot-0001'; Op = 'BotCreate'; At = '2026-09-11T09:00:00' }
+    @{ Id = 'bot-0002'; Op = 'BotComponentCreate'; At = '2026-09-11T09:05:00'; Component = 'cr1_helper.topic.Greeting' }
+    @{ Id = 'bot-0003'; Op = 'BotUpdateOperation-BotPublish'; At = '2026-09-12T10:00:00' }
+    @{ Id = 'bot-0004'; Op = 'BotUpdateOperation-BotShare'; At = '2026-09-12T10:30:00' }
+    @{ Id = 'bot-0005'; Op = 'BotUpdateOperation-BotNameUpdate'; At = '2026-09-13T08:00:00' }
+    @{ Id = 'bot-0006'; Op = 'BotDelete'; At = '2026-09-18T16:00:00' }
+)
+foreach ($b in $bots) {
+    $doc = [ordered]@{ CreationTime = $b.At; Id = $b.Id; Operation = $b.Op; Workload = 'PowerPlatform'; UserId = $maker; ResultStatus = 'Succeeded'
+                       BotId = '00000000-0000-4000-9000-000000000001'; BotSchemaName = 'cr1_helper' }
+    if ($b.Contains('Component')) { $doc.BotComponentSchemaName = $b.Component; $doc.BotComponentType = 'Topic' }
+    Invoke-SqlText -Parameters @{ '@id' = $b.Id; '@op' = $b.Op; '@at' = $b.At; '@u' = $maker; '@json' = ($doc | ConvertTo-Json -Compress) } -Sql @"
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId)
+VALUES (@id, @at, 'powerPlatformAdministratorActivity', @op, @u, @u, COMPRESS(CAST(@json AS NVARCHAR(MAX))), 1);
+"@
+}
+Invoke-SqlText -Sql 'EXEC audit.usp_ShredAgentEvents;'
+Invoke-SqlText -Sql 'EXEC audit.usp_ShredAgentEvents;'   # a second pass merges, never duplicates
+$ae = (Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*) AS N,
+       STRING_AGG(CONCAT(RecordId, '=', Action), ',') WITHIN GROUP (ORDER BY RecordId) AS Actions,
+       SUM(CASE WHEN BotSchemaName = N'cr1_helper' AND ActorUpn = N'$maker' THEN 1 ELSE 0 END) AS Attributed,
+       MAX(CASE WHEN RecordId = 'bot-0002' THEN ComponentName END) AS Component
+FROM audit.AgentEvent WHERE RecordId LIKE 'bot-%';
+"@).Rows[0]
+Assert-That ([int] $ae.N -eq 6) "every Copilot Studio authoring record is shredded once, on a re-run too ($($ae.N))"
+Assert-That ("$($ae.Actions)" -eq 'bot-0001=Created,bot-0002=Component,bot-0003=Published,bot-0004=Shared,bot-0005=Updated,bot-0006=Deleted') "and each operation maps to its action ($($ae.Actions))"
+Assert-That ([int] $ae.Attributed -eq 6 -and "$($ae.Component)" -eq 'cr1_helper.topic.Greeting') 'with the agent, the maker and the component from the record'
+
+Invoke-SqlText -Sql 'EXEC audit.usp_ShredLicenseEvents' -TimeoutSeconds 600
+Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM audit.LicenseEvent WHERE RecordId LIKE 'bot-%' OR Operation LIKE N'Bot%'") -eq 0) 'the licence-event shredder leaves the authoring records alone'
+
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenceEventDatabase = N'$script:ITDatabase';" -TimeoutSeconds 600
+$fe = (Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(*) AS N, COUNT(ActorKey) AS WithUser, MIN(DateKey) AS FirstKey,
+       (SELECT COUNT(*) FROM bi.AgentEvents WHERE RecordId LIKE 'bot-%') AS InView
+FROM bi.FactAgentEvent WHERE RecordId LIKE 'bot-%';
+"@).Rows[0]
+Assert-That ([int] $fe.N -eq 6 -and [int] $fe.InView -eq 6) "bi.usp_RefreshBi copies the authoring records into bi.FactAgentEvent and bi.AgentEvents ($($fe.N))"
+Assert-That ([int] $fe.WithUser -eq 6 -and [int] $fe.FirstKey -eq 20260911) 'each with its maker''s user key and its local day'
+
+# The operations tables of 2.3.0's second part, their defaults, and their rules.
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotOperationsSchema.sql') -Raw)   # once more: nothing doubles
+$t2 = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'dash' AND name IN ('FlagCase', 'DigestPreference', 'DigestSend', 'LicenceAction', 'LicenceContract', 'SavedView', 'JobFamilyRule', 'UseCaseRule', 'EventMarker', 'Extract')) AS Tables_,
+       (SELECT COUNT(*) FROM dash.UseCaseRule WHERE UpdatedBy = N'default') AS Rules,
+       (SELECT COUNT(*) FROM dash.Setting WHERE Name IN ('AlertWebhookFormat', 'ManagerDigest', 'PersonalDigest', 'CertificateWarnDays', 'RolloutWaveSize')) AS Settings_,
+       COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') AS CertCol,
+       COL_LENGTH(N'audit.CopilotLicense', N'UserType') AS UserTypeCol;
+"@).Rows[0]
+Assert-That ([int] $t2.Tables_ -eq 10 -and [int] $t2.Rules -eq 10 -and [int] $t2.Settings_ -eq 5) "the ten new tables, the ten default use-case rules and the new settings install once ($($t2.Tables_), $($t2.Rules), $($t2.Settings_))"
+Assert-That ($t2.CertCol -isnot [DBNull] -and $t2.UserTypeCol -isnot [DBNull]) 'the pipeline run records the certificate, and the licence record the user type'
+
+function Test-Refused([string] $Sql) { try { Invoke-SqlText -Sql $Sql; $false } catch { $true } }
+Assert-That (Test-Refused "INSERT INTO dash.FlagCase (RecordId, Status, UpdatedBy) VALUES ('x', 'Ignored', N'test');") 'a flag''s triage status must be one of the four'
+Assert-That (Test-Refused "INSERT INTO dash.Extract (Name, Dataset, Folder, Frequency, CreatedBy) VALUES (N'x', 'DepartmentWeek', N'D:\x', 'Hourly', N'test');") 'an extract runs daily, weekly or monthly only'
+Invoke-SqlText -Sql "INSERT INTO dash.DigestSend (Upn, Kind, PeriodKey, Status) VALUES (N'a@contoso.com', 'Manager', '2026-10-05', 'Sent');"
+Assert-That (Test-Refused "INSERT INTO dash.DigestSend (Upn, Kind, PeriodKey, Status) VALUES (N'a@contoso.com', 'Manager', '2026-10-05', 'Sent');") 'a digest is recorded once per person, kind and period'
+
+# The dashboard's role can write the new tables (it cannot read dash.Secret, as section 16 showed).
+$w = [string] (Invoke-SqlText -As Scalar -Sql @"
+IF USER_ID(N'it_app2') IS NULL CREATE USER it_app2 WITHOUT LOGIN;
+ALTER ROLE CopilotInsightsApp ADD MEMBER it_app2;
+DECLARE @r NVARCHAR(400) = N'ok';
+EXECUTE AS USER = 'it_app2';
+BEGIN TRY
+    INSERT INTO dash.SavedView (Owner, Name, Url) VALUES (N'a@contoso.com', N'x', N'/adoption?d=30');
+    INSERT INTO dash.EventMarker (Day, Label, Kind, UpdatedBy) VALUES ('2026-10-01', N'x', 'Other', N'test');
+    INSERT INTO dash.LicenceAction (Kind, Upn, ExportedBy) VALUES ('revoke', N'a@contoso.com', N'test');
+    UPDATE dash.DigestSend SET Status = 'Fail1' WHERE Upn = N'a@contoso.com';
+    DELETE FROM dash.SavedView WHERE Owner = N'a@contoso.com';
+END TRY BEGIN CATCH SET @r = ERROR_MESSAGE(); END CATCH;
+REVERT;
+ALTER ROLE CopilotInsightsApp DROP MEMBER it_app2; DROP USER it_app2;
+SELECT @r;
+"@)
+Assert-That ($w -eq 'ok') "the dashboard's role writes saved views, events, licence actions and digest sends ($w)"
+
+# Premium use: the rollup's count of licensed interactions that needed the licence, recomputed from the facts.
+# The rollups first: the bi refresh above has moved on since section 14 built them.
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;'
+$prem = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM dash.UserDay) AS Rolled,
+       (SELECT COUNT_BIG(*) FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+        WHERE f.LicenceStatusKey = 1
+          AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
+               OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))) AS Facts,
+       (SELECT COUNT(*) FROM dash.UserDay WHERE PremiumUse > LicensedUse) AS TooMany;
+"@).Rows[0]
+Assert-That ([long] $prem.Rolled -eq [long] $prem.Facts -and [int] $prem.TooMany -eq 0) "dash.UserDay.PremiumUse counts the licensed interactions that needed the licence ($($prem.Rolled) of the facts' $($prem.Facts)), never more than the licensed use"
 
 # ---------------------------------------------------------------------------
 Write-Host ''

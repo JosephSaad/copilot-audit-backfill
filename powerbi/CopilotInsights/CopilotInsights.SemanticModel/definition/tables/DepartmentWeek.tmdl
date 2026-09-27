@@ -1,0 +1,54 @@
+/// Use by department and week. Figures for departments under the minimum group size are blank (Hidden is true), so this table can be shared more widely than the person-level tables.
+table DepartmentWeek
+	lineageTag: ffb5ae5e-d1e9-58db-890c-454ac87908f3
+
+	column WeekEnding
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		lineageTag: e821238a-e6df-5030-90eb-063fc09d1fc8
+		summarizeBy: none
+		sourceColumn: WeekEnding
+
+	column Department
+		dataType: string
+		lineageTag: aecd74a2-5fb0-5bd8-946b-886af18afeef
+		summarizeBy: none
+		sourceColumn: Department
+
+	column ActivePeople
+		dataType: int64
+		formatString: 0
+		lineageTag: 863821f8-06f2-5947-9606-21a3558ccfa0
+		summarizeBy: none
+		sourceColumn: ActivePeople
+
+	column Interactions
+		dataType: int64
+		formatString: 0
+		lineageTag: 1ee2f95b-8a8b-524f-9768-1537d2ef2b72
+		summarizeBy: none
+		sourceColumn: Interactions
+
+	column Sessions
+		dataType: int64
+		formatString: 0
+		lineageTag: 7e10dee0-b837-5376-bd22-203596960933
+		summarizeBy: none
+		sourceColumn: Sessions
+
+	column Hidden
+		dataType: boolean
+		lineageTag: 5e3cc68b-7a23-5586-9d22-3243f66ad280
+		summarizeBy: none
+		sourceColumn: Hidden
+
+	partition DepartmentWeek = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "DepartmentWeek"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

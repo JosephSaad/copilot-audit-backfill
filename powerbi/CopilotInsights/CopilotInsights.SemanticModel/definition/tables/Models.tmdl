@@ -1,0 +1,34 @@
+/// The AI model that answered.
+table Models
+	lineageTag: d80c62db-8eb8-5a5f-af13-09be7e6366ef
+
+	column ModelKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: ed4947b7-3355-5c74-95f5-04d3ed005890
+		summarizeBy: none
+		sourceColumn: ModelKey
+
+	column ModelProvider
+		dataType: string
+		lineageTag: 82af0964-893e-5c01-bae4-b150a1ffa0b8
+		summarizeBy: none
+		sourceColumn: ModelProvider
+
+	column ModelName
+		dataType: string
+		lineageTag: 07ed6ddf-5c0f-5b2f-9caf-04d70175be43
+		summarizeBy: none
+		sourceColumn: ModelName
+
+	partition Models = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "Models"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

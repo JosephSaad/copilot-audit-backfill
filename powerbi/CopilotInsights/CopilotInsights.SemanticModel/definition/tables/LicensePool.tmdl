@@ -1,0 +1,78 @@
+/// Licences bought, assigned and available per SKU per day, from the tenant's subscriptions.
+table LicensePool
+	lineageTag: f4631d61-f5fd-57cc-8547-7d4cfcb705e7
+
+	/// Copilot seats bought, on the last day in the filter.
+	measure 'Copilot seats bought' = CALCULATE ( SUM ( LicensePool[Bought] ), LicensePool[IsCopilot] = TRUE (), LASTDATE ( LicensePool[SnapshotDate] ) )
+		formatString: #,0
+		lineageTag: 0267637d-fbec-59ed-a6ef-91d46e98de05
+
+	/// Copilot seats assigned, on the last day in the filter.
+	measure 'Copilot seats assigned' = CALCULATE ( SUM ( LicensePool[Assigned] ), LicensePool[IsCopilot] = TRUE (), LASTDATE ( LicensePool[SnapshotDate] ) )
+		formatString: #,0
+		lineageTag: cf60c237-c804-597c-825e-c355c44cfba2
+
+	column SnapshotDate
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		lineageTag: 1c0a622d-f6c7-5fb0-9453-fcc3dd8bd213
+		summarizeBy: none
+		sourceColumn: SnapshotDate
+
+	column SkuPartNumber
+		dataType: string
+		lineageTag: a5cb412a-014c-55d9-94e7-ac2c277df676
+		summarizeBy: none
+		sourceColumn: SkuPartNumber
+
+	column IsCopilot
+		dataType: boolean
+		lineageTag: 5572f14b-983f-5ba2-8c37-70b16765fca1
+		summarizeBy: none
+		sourceColumn: IsCopilot
+
+	column Bought
+		dataType: int64
+		formatString: 0
+		lineageTag: 176d2f04-66ef-5f02-b044-d96d155c063b
+		summarizeBy: none
+		sourceColumn: Bought
+
+	column Assigned
+		dataType: int64
+		formatString: 0
+		lineageTag: 513d769e-df85-5897-b902-db6933d97b0d
+		summarizeBy: none
+		sourceColumn: Assigned
+
+	column Available
+		dataType: int64
+		formatString: 0
+		lineageTag: af274f2f-0045-516b-8a71-9e923db78b1c
+		summarizeBy: none
+		sourceColumn: Available
+
+	column InGracePeriod
+		dataType: int64
+		formatString: 0
+		lineageTag: acf9aec1-8c82-5195-9ef3-776ea764cc01
+		summarizeBy: none
+		sourceColumn: InGracePeriod
+
+	column Suspended
+		dataType: int64
+		formatString: 0
+		lineageTag: dafb8282-bc79-5498-b4a0-05c9423aed0e
+		summarizeBy: none
+		sourceColumn: Suspended
+
+	partition LicensePool = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "LicensePool"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

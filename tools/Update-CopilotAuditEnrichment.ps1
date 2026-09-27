@@ -42,9 +42,10 @@
 
 .PARAMETER Scopes
     Delegated scopes to request. The defaults are the least that works:
-    User.Read.All for each user's assigned licences and plans, and
-    LicenseAssignment.Read.All for the tenant's SKUs (/subscribedSkus).
-    App-only uses the same two as application permissions.
+    User.Read.All for each user's assigned licences and plans, account state
+    and hire date, and LicenseAssignment.Read.All for the tenant's SKUs and
+    their seat counts (/subscribedSkus). App-only uses the same two as
+    application permissions.
 
 .PARAMETER AllLicensedUsers
     Also enumerate every user holding a Copilot licence, including those with
@@ -286,6 +287,75 @@ function Get-Prop {
     return $null
 }
 
+function ConvertTo-LicensePoolRow {
+    <#
+        The licence pool from /subscribedSkus: one row per SKU with the seats
+        bought (prepaidUnits) and assigned (consumedUnits). Pure, for the tests.
+    #>
+    param([object[]] $Sku, [hashtable] $CopilotSku)
+    foreach ($s in @($Sku)) {
+        $id = "$(Get-Prop $s 'skuId')"
+        $guid = [guid]::Empty
+        if (-not [guid]::TryParse($id, [ref] $guid)) {
+            if ($id) { Write-Log "Licence pool: skipped SKU '$id', which is not a GUID." -Level WARN }
+            continue
+        }
+        $pre = Get-Prop $s 'prepaidUnits'
+        [pscustomobject]@{
+            SkuId            = $guid
+            SkuPartNumber    = "$(Get-Prop $s 'skuPartNumber')"
+            IsCopilot        = [bool] $CopilotSku.ContainsKey($id)
+            Enabled          = [int] (Get-Prop $pre 'enabled')
+            Warning          = [int] (Get-Prop $pre 'warning')
+            Suspended        = [int] (Get-Prop $pre 'suspended')
+            LockedOut        = [int] (Get-Prop $pre 'lockedOut')
+            Consumed         = [int] (Get-Prop $s 'consumedUnits')
+            CapabilityStatus = $(if (Get-Prop $s 'capabilityStatus') { "$(Get-Prop $s 'capabilityStatus')" } else { $null })
+        }
+    }
+}
+
+function Save-LicensePool {
+    <# Replaces audit.LicenseSku and today's rows of audit.LicenseSkuDay, in one transaction. #>
+    param([object[]] $Rows)
+    $all = @($Rows)
+    if ($all.Count -eq 0) { return 0 }
+    $conn = [System.Data.SqlClient.SqlConnection]::new($script:SqlConnStr)
+    $conn.Open()
+    $tx = $conn.BeginTransaction()
+    try {
+        $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx
+        $cmd.CommandText = "IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL DELETE FROM audit.LicenseSku; " +
+                           "IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NOT NULL DELETE FROM audit.LicenseSkuDay WHERE SnapshotDate = CAST(SYSUTCDATETIME() AS DATE);"
+        [void] $cmd.ExecuteNonQuery()
+        foreach ($r in $all) {
+            $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx
+            $cmd.CommandText = @'
+IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL
+    INSERT INTO audit.LicenseSku (SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed, CapabilityStatus)
+    VALUES (@id, @part, @cop, @en, @warn, @sus, @lock, @used, @cap);
+IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NOT NULL
+    INSERT INTO audit.LicenseSkuDay (SnapshotDate, SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed)
+    VALUES (CAST(SYSUTCDATETIME() AS DATE), @id, @part, @cop, @en, @warn, @sus, @lock, @used);
+'@
+            $cmd.Parameters.Add('@id', [System.Data.SqlDbType]::UniqueIdentifier).Value = $r.SkuId
+            $cmd.Parameters.Add('@part', [System.Data.SqlDbType]::NVarChar, 100).Value = $r.SkuPartNumber
+            $cmd.Parameters.Add('@cop', [System.Data.SqlDbType]::Bit).Value = $r.IsCopilot
+            $cmd.Parameters.Add('@en', [System.Data.SqlDbType]::Int).Value = $r.Enabled
+            $cmd.Parameters.Add('@warn', [System.Data.SqlDbType]::Int).Value = $r.Warning
+            $cmd.Parameters.Add('@sus', [System.Data.SqlDbType]::Int).Value = $r.Suspended
+            $cmd.Parameters.Add('@lock', [System.Data.SqlDbType]::Int).Value = $r.LockedOut
+            $cmd.Parameters.Add('@used', [System.Data.SqlDbType]::Int).Value = $r.Consumed
+            $cmd.Parameters.Add('@cap', [System.Data.SqlDbType]::NVarChar, 32).Value = $(if ($r.CapabilityStatus) { $r.CapabilityStatus } else { [DBNull]::Value })
+            [void] $cmd.ExecuteNonQuery()
+        }
+        $tx.Commit()
+    }
+    catch { $tx.Rollback(); throw }
+    finally { $conn.Dispose() }
+    $all.Count
+}
+
 function ConvertTo-UtcOrNull {
     param($Value)
     if ($null -eq $Value -or "$Value" -eq '') { return $null }
@@ -329,6 +399,13 @@ function Invoke-Main {
     else {
         Write-Log ('Copilot SKUs in this tenant: ' + (($copilotSkus.Values | Sort-Object -Unique) -join ', ') + '.')
     }
+    # The same response carries the seat counts: bought against assigned, for the licence pool report.
+    $pool = @(ConvertTo-LicensePoolRow -Sku $skus -CopilotSku $copilotSkus)
+    $poolSaved = Save-LicensePool -Rows $pool
+    foreach ($p in @($pool | Where-Object IsCopilot)) {
+        Write-Log ("Licence pool {0}: {1:N0} bought, {2:N0} assigned." -f $p.SkuPartNumber, ($p.Enabled + $p.Warning), $p.Consumed)
+    }
+    Write-Log "Licence pool written: $poolSaved SKU(s)."
 
     # ---- Which users to look up -------------------------------------------
     $upns = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -354,7 +431,7 @@ WHERE UserPrincipalName IS NOT NULL;
     }
 
     # ---- Look each one up --------------------------------------------------
-    $select = 'userPrincipalName,assignedLicenses,assignedPlans'
+    $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType'
     $licRows = New-Object System.Collections.Generic.List[object]
     $notFound = 0
 
@@ -375,6 +452,7 @@ WHERE UserPrincipalName IS NOT NULL;
             $licRows.Add([pscustomobject]@{
                 UserPrincipalName = $upn; IsCopilotLic = $null; SkuPartNumber = $null
                 LicensedSinceUtc = $null; CapabilityStatus = $null; DirectoryStatus = 'NotFound'
+                EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null
             })
             continue
         }
@@ -407,12 +485,16 @@ WHERE UserPrincipalName IS NOT NULL;
             LicensedSinceUtc  = $since
             CapabilityStatus  = $capability
             DirectoryStatus   = 'Found'
+            EntraAccountEnabled = $(if ($null -ne (Get-Prop $user 'accountEnabled')) { [int] [bool] (Get-Prop $user 'accountEnabled') } else { $null })
+            EmployeeHireDate  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeHireDate'))
+            UserType          = $(if (Get-Prop $user 'userType') { "$(Get-Prop $user 'userType')" } else { $null })
         })
     }
 
     $n = Save-Rows -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `
                    -ColumnOrder @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber',
-                                  'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus') `
+                                  'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
+                                  'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') `
                    -ColumnTypes @{
                        UserPrincipalName = [System.Data.SqlDbType]::NVarChar
                        IsCopilotLic      = [System.Data.SqlDbType]::Bit
@@ -420,6 +502,9 @@ WHERE UserPrincipalName IS NOT NULL;
                        LicensedSinceUtc  = [System.Data.SqlDbType]::DateTime2
                        CapabilityStatus  = [System.Data.SqlDbType]::NVarChar
                        DirectoryStatus   = [System.Data.SqlDbType]::NVarChar
+                       EntraAccountEnabled = [System.Data.SqlDbType]::Bit
+                       EmployeeHireDate  = [System.Data.SqlDbType]::Date
+                       UserType          = [System.Data.SqlDbType]::NVarChar
                    }
     Write-Log "Licences written: $n."
 

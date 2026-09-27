@@ -204,3 +204,37 @@ AS
 BEGIN
     RETURN COALESCE((SELECT Value FROM audit.PipelineSetting WHERE Name = N''ReportingTimeZone''), N''Eastern Standard Time'');
 END;');
+
+/*  Pipeline runs: one row per run of Invoke-CopilotPipeline.ps1 and one per
+    step, written by the runner as it goes. Admin > Health shows them, and the
+    dashboard sends a pipeline alert when a run fails or none finishes. A row
+    left Running means the run died without saying so (a reboot). */
+IF OBJECT_ID(N'audit.PipelineRun', N'U') IS NULL
+    CREATE TABLE audit.PipelineRun
+    (
+        RunId      INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PipelineRun PRIMARY KEY,
+        Kind       VARCHAR(16)     NOT NULL,   -- Nightly | History
+        StartedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_PipelineRun_Started DEFAULT (SYSUTCDATETIME()),
+        EndedUtc   DATETIME2(0)    NULL,
+        Status     VARCHAR(16)     NOT NULL CONSTRAINT DF_PipelineRun_Status DEFAULT ('Running'),   -- Running | Succeeded | Failed
+        FailedStep NVARCHAR(200)   NULL,
+        Detail     NVARCHAR(4000)  NULL,       -- the failed step's last lines
+        Host       NVARCHAR(128)   NULL,
+        RunAs      NVARCHAR(256)   NULL
+    );
+IF OBJECT_ID(N'audit.PipelineRunStep', N'U') IS NULL
+    CREATE TABLE audit.PipelineRunStep
+    (
+        RunId      INT             NOT NULL,
+        StepNo     TINYINT         NOT NULL,
+        Name       NVARCHAR(200)   NOT NULL,
+        StartedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_PipelineRunStep_Started DEFAULT (SYSUTCDATETIME()),
+        EndedUtc   DATETIME2(0)    NULL,
+        ExitCode   INT             NULL,
+        CONSTRAINT PK_PipelineRunStep PRIMARY KEY (RunId, StepNo)
+    );
+
+/* The app certificate each run signed in with, and when it expires: the dashboard warns 30, 14
+   and 3 days before (2.3.0). */
+IF COL_LENGTH(N'audit.PipelineRun', N'CertificateThumbprint') IS NULL
+    ALTER TABLE audit.PipelineRun ADD CertificateThumbprint VARCHAR(64) NULL, CertificateExpiresUtc DATETIME2(0) NULL, CertificateSubject NVARCHAR(400) NULL;

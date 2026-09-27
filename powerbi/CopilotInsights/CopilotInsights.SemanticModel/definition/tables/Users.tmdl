@@ -1,0 +1,258 @@
+/// One row per person: directory attributes from on-premises Active Directory and today's Copilot licence.
+table Users
+	lineageTag: 01585f8a-005b-5322-bdde-3755e63dd381
+
+	column UserKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 9203c509-0839-5ada-9d98-c5718e9d7506
+		summarizeBy: none
+		sourceColumn: UserKey
+
+	/// Sign-in name (UPN).
+	column UserPrincipalName
+		dataType: string
+		lineageTag: c5a85fee-e519-5587-a57e-bf0e695eb208
+		summarizeBy: none
+		sourceColumn: UserPrincipalName
+
+	column DisplayName
+		dataType: string
+		isHidden
+		lineageTag: d12ae844-af29-575a-8b75-2e5a737f08fc
+		summarizeBy: none
+		sourceColumn: DisplayName
+
+	column Division
+		dataType: string
+		lineageTag: 5be56f55-5451-5b96-8b4c-880771869d7c
+		summarizeBy: none
+		sourceColumn: Division
+
+	column Department
+		dataType: string
+		lineageTag: a86681ba-ec4e-5545-a507-56b2225db4f3
+		summarizeBy: none
+		sourceColumn: Department
+
+	column JobTitle
+		dataType: string
+		lineageTag: 344db97d-0909-5a94-beff-2dda831643e9
+		summarizeBy: none
+		sourceColumn: JobTitle
+
+	column OfficeLocation
+		dataType: string
+		lineageTag: 084e47aa-f228-522a-b582-1118bcc05061
+		summarizeBy: none
+		sourceColumn: OfficeLocation
+
+	column City
+		dataType: string
+		lineageTag: 4ce4ac49-5117-5aef-a7b3-259c847b16f8
+		summarizeBy: none
+		sourceColumn: City
+
+	column Country
+		dataType: string
+		lineageTag: 87c9a969-fc85-5d89-b2da-38d888c1a472
+		summarizeBy: none
+		sourceColumn: Country
+
+	column CompanyName
+		dataType: string
+		lineageTag: baec7ac5-a279-58bb-abfc-e27b63c6b871
+		summarizeBy: none
+		sourceColumn: CompanyName
+
+	column EmployeeType
+		dataType: string
+		lineageTag: 7753f5ff-c48f-53e8-b600-65f09b67e311
+		summarizeBy: none
+		sourceColumn: EmployeeType
+
+	/// True when someone reports to this person.
+	column IsManager
+		dataType: boolean
+		lineageTag: ebd4c1cd-e543-523a-9495-9883cc2d18b5
+		summarizeBy: none
+		sourceColumn: IsManager
+
+	column AccountEnabled
+		dataType: boolean
+		lineageTag: 8288eebc-d535-5555-b60e-0a6e8e3a0084
+		summarizeBy: none
+		sourceColumn: AccountEnabled
+
+	column ManagerUpn
+		dataType: string
+		isHidden
+		lineageTag: db2e2aa8-91b6-5d50-bb88-0e933e61906a
+		summarizeBy: none
+		sourceColumn: ManagerUpn
+
+	/// Direct manager's display name.
+	column ManagerName
+		dataType: string
+		lineageTag: 9f3f8d0c-974e-559c-9350-ef0c245f451a
+		summarizeBy: none
+		sourceColumn: ManagerName
+
+	/// Number of managers above this person.
+	column OrgDepth
+		dataType: int64
+		formatString: 0
+		lineageTag: 24ef3d16-77a0-5a9a-9a19-0d641068f7f8
+		summarizeBy: none
+		sourceColumn: OrgDepth
+
+	/// Top of the management chain (a display name).
+	column OrgLevel1
+		dataType: string
+		lineageTag: 50d80003-e86d-53cb-b544-87e62ddc6d26
+		summarizeBy: none
+		sourceColumn: OrgLevel1
+
+	/// Manager 2 levels from the top of the chain (a display name).
+	column OrgLevel2
+		dataType: string
+		lineageTag: f84a8080-5967-594a-82d2-29cf1929dd0b
+		summarizeBy: none
+		sourceColumn: OrgLevel2
+
+	/// Manager 3 levels from the top of the chain (a display name).
+	column OrgLevel3
+		dataType: string
+		lineageTag: 7f3c5c87-947d-5d03-b5d3-8de3e0513e66
+		summarizeBy: none
+		sourceColumn: OrgLevel3
+
+	/// Manager 4 levels from the top of the chain (a display name).
+	column OrgLevel4
+		dataType: string
+		lineageTag: 2e617858-0cd3-5ffd-8a8f-070d971531a8
+		summarizeBy: none
+		sourceColumn: OrgLevel4
+
+	/// Manager 5 levels from the top of the chain (a display name).
+	column OrgLevel5
+		dataType: string
+		lineageTag: 20172ab4-140b-5dd7-84e3-704da7905c4c
+		summarizeBy: none
+		sourceColumn: OrgLevel5
+
+	/// Manager 6 levels from the top of the chain (a display name).
+	column OrgLevel6
+		dataType: string
+		lineageTag: 4fec2908-04c0-5f59-82c2-51444048c953
+		summarizeBy: none
+		sourceColumn: OrgLevel6
+
+	/// Manager 7 levels from the top of the chain (a display name).
+	column OrgLevel7
+		dataType: string
+		lineageTag: be2f50bd-9830-58bc-94d5-abde928f5134
+		summarizeBy: none
+		sourceColumn: OrgLevel7
+
+	/// Manager 8 levels from the top of the chain (a display name).
+	column OrgLevel8
+		dataType: string
+		lineageTag: e1f7d05e-7829-5b9b-a106-7527a5f4df45
+		summarizeBy: none
+		sourceColumn: OrgLevel8
+
+	/// Manager 9 levels from the top of the chain (a display name).
+	column OrgLevel9
+		dataType: string
+		lineageTag: 92f31309-813a-5919-8dd9-14ae1bbd3b24
+		summarizeBy: none
+		sourceColumn: OrgLevel9
+
+	/// Manager 10 levels from the top of the chain (a display name).
+	column OrgLevel10
+		dataType: string
+		lineageTag: 56ca4e4d-dbd0-53eb-a613-50ff1eb66950
+		summarizeBy: none
+		sourceColumn: OrgLevel10
+
+	/// Manager 11 levels from the top of the chain (a display name).
+	column OrgLevel11
+		dataType: string
+		lineageTag: bd614d50-1737-5095-84c9-c7f68742240a
+		summarizeBy: none
+		sourceColumn: OrgLevel11
+
+	/// Manager 12 levels from the top of the chain (a display name).
+	column OrgLevel12
+		dataType: string
+		lineageTag: 99b88480-4e1f-556d-ade5-86669f24d2aa
+		summarizeBy: none
+		sourceColumn: OrgLevel12
+
+	/// Manager 13 levels from the top of the chain (a display name).
+	column OrgLevel13
+		dataType: string
+		lineageTag: 72959d72-7fb2-5407-8347-63d49e72dfe9
+		summarizeBy: none
+		sourceColumn: OrgLevel13
+
+	/// Manager 14 levels from the top of the chain (a display name).
+	column OrgLevel14
+		dataType: string
+		lineageTag: 20780346-001e-527f-8a13-91b8fbc5d15d
+		summarizeBy: none
+		sourceColumn: OrgLevel14
+
+	/// Manager 15 levels from the top of the chain (a display name).
+	column OrgLevel15
+		dataType: string
+		lineageTag: 021763ec-47d6-5365-aff1-dae06eac6c7a
+		summarizeBy: none
+		sourceColumn: OrgLevel15
+
+	/// Found when the person is in Active Directory; NotFound usually means they have left.
+	column DirectoryStatus
+		dataType: string
+		lineageTag: 797619bf-17b4-5c33-a0e9-dac1dd67d653
+		summarizeBy: none
+		sourceColumn: DirectoryStatus
+
+	/// Today's Copilot licence: Licensed, Not licensed or Unknown. Not for past periods.
+	column CopilotLicenceToday
+		dataType: string
+		lineageTag: e34f435e-d436-549b-a1d7-88fdd7fb1821
+		summarizeBy: none
+		sourceColumn: CopilotLicenceToday
+
+	column CopilotSku
+		dataType: string
+		lineageTag: f4685d5e-63bc-5482-b68b-a338eca1d353
+		summarizeBy: none
+		sourceColumn: CopilotSku
+
+	/// When the current Copilot licence was assigned, UTC.
+	column LicensedSinceUtc
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		lineageTag: 73c995b8-f4f4-5aa1-9659-d49807cb92c3
+		summarizeBy: none
+		sourceColumn: LicensedSinceUtc
+
+	/// The person's name, or their sign-in name when the directory has none.
+	column User = COALESCE ( Users[DisplayName], Users[UserPrincipalName] )
+		dataType: string
+		lineageTag: 840b3093-750a-5126-a384-d2f20bc6be97
+		summarizeBy: none
+
+	partition Users = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "Users"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

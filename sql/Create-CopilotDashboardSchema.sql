@@ -161,9 +161,14 @@ IF OBJECT_ID(N'dash.UserDay', N'U') IS NULL
         LabelledContent   INT     NOT NULL,   -- interactions that touched sensitivity-labelled content
         Sessions          INT     NOT NULL,   -- sessions that started that day
         MultiTurnSessions INT     NOT NULL,
+        PremiumUse        INT     NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0),   -- licensed interactions that needed the licence (2.3.0)
         CONSTRAINT PK_DashUserDay PRIMARY KEY (DateKey, UserKey),
         INDEX IX_DashUserDay_User (UserKey, DateKey)
     );
+
+/* 2.3.0: use that needs the Premium licence. Zero until the rollups are rebuilt once (dash.usp_RefreshDashboard with no date). */
+IF COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NULL
+    ALTER TABLE dash.UserDay ADD PremiumUse INT NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0);
 
 /*
     Sensitivity labels and SharePoint sites Copilot touched, per person per day:

@@ -4,6 +4,116 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-09-27
+
+The dashboard becomes something a Copilot programme can be run from: alerts and
+digests by email and to Teams or ServiceNow, triage and investigations for
+security and compliance, licence planning from budget to rollout waves, with
+recommendations based on use that needs the Premium licence, and an admin page
+for every setting. A ready-made Power BI model ships with the release, one
+dashboard can span several Microsoft 365 tenants, and Copilot Studio's build
+and publish activity is loaded with the licence events. The pipeline still
+asks for the same three read-only Graph permissions.
+
+### Setting up
+
+The same two commands on the job server as in 2.2.0, then the dashboard and the
+Power BI model:
+
+```powershell
+.\tools\Install-CopilotJobServer.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\gmsa-copilot$' `
+    -TargetDomain users.contoso.com -TenantId contoso.onmicrosoft.com -RegisterApp -Dashboard
+.\Invoke-CopilotPipeline.ps1 -History
+# web server
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.3.0.zip -SqlServer SQLPROD01 `
+    -AdminPrincipal 'USERS\Copilot-Insights-Admins' -GrantDatabaseAccess
+```
+
+Then open `powerbi\CopilotInsights\CopilotInsights.pbip` in Power BI Desktop and
+set its two parameters. `docs/DEPLOYMENT.md` walks through all of it, and
+`docs/OPERATIONS.md` covers everything after.
+
+### Upgrading from 2.2.0
+
+1. Back up the databases, and replace the scripts with this release's (keep `copilot-audit.settings.psd1` and `logs`).
+2. Run `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once. It installs the new objects, catalogues the values of every record flattened before, and rebuilds the dashboard's rollups once with Premium use. Nothing else needs running.
+3. Run the dashboard installer again with the new zip.
+4. Replace a hand-built Power BI model with the one in `powerbi\`, or add the new `bi` views to yours.
+
+From its first run, the nightly licence-event load also asks for Copilot Studio's authoring operations, and records the wider set of operations in the licence-event database. Authoring records from before the upgrade are not fetched.
+
+### Added
+
+**Operations**
+
+- **Email** from the dashboard: Exchange Online with the mailbox's password or OAuth (`SMTP.SendAsApp`), or any SMTP server on any port with STARTTLS or implicit TLS and a user name and password. Passwords and secrets are encrypted by SQL Server and read only through procedures.
+- **Alerts:** pipeline failures and stuck runs, stale data, the app certificate nearing expiry (30, 14 and 3 days), security signals against thresholds and 28-day averages, drops and spikes in a department's use, the licence pool running out, licences on disabled accounts, and agents used for the first time. Each goes to its own recipients, fires once per occurrence, and is written to the Windows Application log.
+- **Webhook:** every alert also posted to Teams (an adaptive card) or as JSON for ServiceNow and the rest.
+- **Digests:** scheduled Leadership, Adoption, Licensing, Security and Value digests (aggregates only); manager digests to every manager of their own organisation; and a weekly personal email anyone can ask for. Failed manager and personal sends are retried.
+- **Scheduled extracts:** aggregate CSV files written to a folder or share.
+- **A read-only data API**, `/api/v1`, with the pages' sign-in, scope and roles.
+- **Privacy mode** (nobody named; Power BI's users pseudonymised) and **retention** of logs and stored JSON.
+
+**Licensing and planning**
+
+- **Premium use:** each licensed interaction is Premium (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Chat over work content) or free (web Copilot Chat, agents). *Train* and *revoke* now look at Premium use, so a licence used only for web Copilot Chat is flagged. **Use ranking** ranks everyone by general, free and Premium use.
+- **Licence pool** (seats bought, assigned and used), **chargeback** by department and other attributes, and **licences on disabled or departed accounts**, from the licence tool's new reads of subscriptions, account state and user type.
+- **Budget and renewal:** contracts, their cost and renewal dates, and the seats the use supports.
+- **Rollout waves:** everyone without a licence, in order, split into waves with their own files.
+- **Licence action outcomes:** every export tracked to whether it was applied, the licences reclaimed and whether new ones are used.
+- Licence changes as an **Entra bulk-members file** or a **PowerShell script** for an administrator to apply.
+
+**Security and compliance**
+
+- **Triage** of flagged interactions: new, investigating, closed or false positive, with an owner and a note.
+- **Guests and external users**, by home organisation.
+- **Person record:** one person's full record and interactions, downloadable, for data-subject requests and investigations; open in privacy mode, and audited with whose record it was.
+- **Oversharing hotspots:** the sites Copilot read from, by reach and sensitivity.
+
+**Leadership, adoption and enablement**
+
+- **Board pack** (printable), **use cases**, **value and time saved**, and **targets** with their progress.
+- **Leaderboard** of departments, **new joiners' time to first use**, **drops and spikes**, **training effect** and **champion** suggestions.
+- **Job families** from job-title rules.
+- **Events** (rollout waves, training, outages) drawn on every trend chart.
+- **Saved views** and a personal start page.
+
+**Agents**
+
+- **Build and publish:** Copilot Studio agents created, published, shared, changed and deleted, from Copilot Studio's own audit records (`audit.AgentEvent`, `bi.FactAgentEvent`), loaded with the licence events at no extra search cost.
+- **Agent inventory** with owners and first use.
+
+**Administration**
+
+- Admin pages for **email**, **alerts and digests**, **targets and assumptions**, **privacy and retention**, **value names**, **classifications and events**, **scheduled extracts**, **training records** and **directory quality**; Health shows the app certificate and the audit searches waiting. Every setting is stored in SQL.
+- **Value names:** a catalogue of every distinct value of 23 coded columns (capped at 10,000 each), named in the dashboard, by CSV or from PowerShell, and shown in Power BI.
+
+**Several tenants**
+
+- Each tenant keeps its own app registration and databases; `tools\Add-CopilotTenant.ps1` adds one, the nightly run loads each in turn, and the dashboard spans them with a tenant switcher and a group overview. The dashboard installer's `-Tenant` writes the list and grants access in every tenant's database.
+
+**Power BI**
+
+- **A ready-made model**, `powerbi/CopilotInsights`: a Power BI project over every `bi` view, with relationships, measures including Premium use and the three rankings, descriptions, and an *Organisation* row-level-security role from the org chart. Opened and refreshed in Power BI Desktop against the demo database, where its figures matched the dashboard's.
+- New views: `AgentEvents`, `OrgSecurity`, `ValueNames`, `LicensePool`, `DepartmentWeek`, `UseCases`, `JobFamilies`, `EventMarkers`; `Interactions` gains `PremiumUse` and `UseCaseKey`.
+
+**Documentation**
+
+- `docs/OPERATIONS.md`, the operations guide, kept complete by `tests/Test-OperationsGuide.ps1`.
+
+### Changed
+
+- **Sign-in:** nothing in a URL changes who the viewer is (the Development-only view-as is removed), and a person with a SID on record can only be the account with that SID.
+- **Charts show every label whole:** margins and label columns fit the labels, and long names wrap instead of being cut short; hover gives each mark's figures.
+- The pipeline records each run and step (`audit.PipelineRun`), with the certificate it signed in with.
+- Incremental loads accept more operations than their database recorded (never fewer), so a release can widen a load.
+
+### Fixed
+
+- **Privacy mode** could be undone in Power BI: `bi.OrgSecurity` paired real sign-ins with the pseudonymised users, and OneDrive site names and licence administrators were shown. All three are now hidden in privacy mode.
+- *Remove* and other confirmed buttons in the admin pages did not ask before acting.
+- The IIS installer now accepts the release's dashboard zip.
+
 ## [2.2.0] - 2026-09-27
 
 Setting up is now two commands on the job server, with nothing typed into SQL
@@ -769,6 +879,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0
 [2.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0
 [2.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.1.0
 [2.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.0.0
