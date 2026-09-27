@@ -112,7 +112,10 @@
             {
                 <p class="sub">@p.Sub</p>
             }
-            @p.Body
+            @* A chart in a half or third panel is drawn narrower, so its text is the size it is in a full panel. *@
+            @(p.Body is CopilotInsights.Charts.ChartSvg chart && p.Size != "full"
+                ? new Microsoft.AspNetCore.Html.HtmlString(chart.Render(p.Size.Contains("third") ? 360 : 440))
+                : p.Body)
         </section>
     }
 </div>
