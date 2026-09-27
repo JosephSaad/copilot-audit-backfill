@@ -108,10 +108,10 @@ $mock = Start-MockGraph @{ days = 8; rotate_after_pages = 40; fail_first_query_c
 try {
     $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
     $end   = [datetime]::new(2026, 8, 9, 0, 0, 0, [DateTimeKind]::Utc)
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
-    $engine = [CopilotAudit.BackfillEngine]::new((New-Options $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
+    $engine = [CopilotAudit.BackfillEngine]::new((New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
 
     # The "token cache" keeps handing back the old token until we sign in again -
     # exactly what happens when a session is revoked but the cached token has not expired.
@@ -145,10 +145,10 @@ $mock = Start-MockGraph @{ days = 12; fail_first_query_covering = '2030-01-01T00
 try {
     $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
     $end   = [datetime]::new(2026, 8, 13, 0, 0, 0, [DateTimeKind]::Utc)
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
     $sink  = [CopilotAudit.Tests.MemorySink]::new()
-    $engine1 = [CopilotAudit.BackfillEngine]::new((New-Options $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
+    $engine1 = [CopilotAudit.BackfillEngine]::new((New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
     $engine1.SetAccessToken((Get-MockToken $mock))
 
     # Run the real monitor loop in its own runspace, then stop that pipeline -
@@ -171,9 +171,9 @@ try {
     $child.Dispose()
 
     Start-Sleep -Milliseconds 1500      # let the mock finish any response the engine already hung up on
-    $pagesAfterStop = (Get-MockStats $mock).pages_served
+    $pagesAfterStop = (Get-MockStatistic $mock).pages_served
     Start-Sleep -Seconds 3
-    $pagesLater = (Get-MockStats $mock).pages_served
+    $pagesLater = (Get-MockStatistic $mock).pages_served
     $snap = $store.Snapshot()
 
     Assert-That ($rowsAtStop -ge 60000) ("stopped mid-run at {0:N0} rows" -f $rowsAtStop)
@@ -182,7 +182,7 @@ try {
     Assert-That (@($snap | Where-Object Status -ne 'Loaded').Count -gt 0) 'work was left for the resume'
     $engine1.Dispose()
 
-    $engine2 = [CopilotAudit.BackfillEngine]::new((New-Options $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
+    $engine2 = [CopilotAudit.BackfillEngine]::new((New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }), $store, $sink, $null)
     $script:CurrentGraphToken = Get-MockToken $mock
     $engine2.SetAccessToken($script:CurrentGraphToken)
     $final = Wait-BackfillEngine -Engine $engine2 -ProgressSeconds 60 -PollMilliseconds 200 -GetToken { Get-MockToken $mock } 6>$null

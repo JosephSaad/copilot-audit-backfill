@@ -18,7 +18,7 @@ jobs:
         os: [windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up PowerShell 7.4
         shell: bash
@@ -39,7 +39,7 @@ jobs:
           pwsh -NoProfile -Command '$PSVersionTable | Format-List'
           python3 --version
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
@@ -67,9 +67,9 @@ jobs:
     name: Copilot Insights dashboard
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -85,7 +85,7 @@ jobs:
     name: PSScriptAnalyzer
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install PSScriptAnalyzer
         shell: pwsh
@@ -100,7 +100,7 @@ jobs:
           Write-Host "Analyzing $($files.Count) file(s)."
           $results = @()
           foreach ($f in $files) {
-              $results += Invoke-ScriptAnalyzer -Path $f.FullName -Severity Error, Warning
+              $results += Invoke-ScriptAnalyzer -Path $f.FullName -Settings ./PSScriptAnalyzerSettings.psd1
           }
 
           $errors   = @($results | Where-Object Severity -eq 'Error')
@@ -115,15 +115,17 @@ jobs:
               Write-Host '::endgroup::'
           }
 
+          # Warnings fail the build too: a rule that does not fit is excluded in PSScriptAnalyzerSettings.psd1, with its reason.
+          $errors = @($errors) + @($warnings)
           if ($errors.Count) {
               $errors | ForEach-Object {
                   Write-Host ("::error file={0},line={1}::{2}: {3}" -f `
                       (Resolve-Path -Relative $_.ScriptPath), $_.Line, $_.RuleName, $_.Message)
               }
-              throw "PSScriptAnalyzer reported $($errors.Count) error(s)."
+              throw "PSScriptAnalyzer reported $($errors.Count) finding(s)."
           }
 
-          Write-Host "No errors. $($warnings.Count) warning(s) reported above."
+          Write-Host "No findings."
 
   sql-integration:
     # ubuntu-latest is the one exception to Windows-only: GitHub service
@@ -150,9 +152,9 @@ jobs:
       SQLIT_DATABASE: CopilotAuditIntegration
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 

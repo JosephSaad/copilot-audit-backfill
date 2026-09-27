@@ -43,7 +43,7 @@ function Get-Conn([string] $Catalog) {
     $c.add_InfoMessage({ param($s, $e) foreach ($m in $e.Errors) { if ($m.Message -notlike 'Warning: Null value*') { Write-Host "    $($m.Message)" -ForegroundColor DarkGray } } })
     $c.Open(); return $c
 }
-function Invoke-Batches([System.Data.SqlClient.SqlConnection] $Conn, [string] $Text) {
+function Invoke-Batch([System.Data.SqlClient.SqlConnection] $Conn, [string] $Text) {
     foreach ($b in [regex]::Split($Text, '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) {
         if ([string]::IsNullOrWhiteSpace($b)) { continue }
         $cmd = $Conn.CreateCommand(); $cmd.CommandText = $b; $cmd.CommandTimeout = 0
@@ -63,9 +63,9 @@ Step "Database $Database" {
         $exists = $m.CreateCommand(); $exists.CommandText = "SELECT DB_ID(N'$Database')"
         if ($exists.ExecuteScalar() -isnot [DBNull]) {
             if (-not $Force) { throw "$Database already exists. Pass -Force to replace it." }
-            Invoke-Batches $m "ALTER DATABASE [$Database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$Database];"
+            Invoke-Batch $m "ALTER DATABASE [$Database] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$Database];"
         }
-        Invoke-Batches $m "CREATE DATABASE [$Database]; ALTER DATABASE [$Database] SET RECOVERY SIMPLE;"
+        Invoke-Batch $m "CREATE DATABASE [$Database]; ALTER DATABASE [$Database] SET RECOVERY SIMPLE;"
     }
     finally { $m.Dispose() }
 }
@@ -78,7 +78,7 @@ try {
                        'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql', 'Create-AgentEventProcedure.sql',
                        'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql') {
             Write-Host "   $s"
-            Invoke-Batches $conn (Get-Content -LiteralPath (Join-Path $sqlDir $s) -Raw)
+            Invoke-Batch $conn (Get-Content -LiteralPath (Join-Path $sqlDir $s) -Raw)
         }
     }
     Step 'Demo company and six months of use' {
@@ -90,14 +90,14 @@ try {
                     $r.People, $r.LicensedToday, $r.LicenseEvents, $r.Sessions, $r.Interactions, $r.ActiveEver)
     }
     $conn.Dispose(); $conn = Get-Conn $Database   # a fresh session: no temp tables left over from the seed
-    Step 'Sessions' { Invoke-Batches $conn "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N'$Database';" }
-    Step 'bi star schema' { Invoke-Batches $conn "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$Database';" }
+    Step 'Sessions' { Invoke-Batch $conn "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N'$Database';" }
+    Step 'bi star schema' { Invoke-Batch $conn "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$Database';" }
     Step 'License pool, pipeline runs, training and targets' {
-        Invoke-Batches $conn (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoOperations.sql') -Raw)
+        Invoke-Batch $conn (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoOperations.sql') -Raw)
     }
     Step 'Dashboard settings, names and demo roles' {
         $admins = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Admin', N'Demo administrator', N'demo')" }) -join ",`n"
-        Invoke-Batches $conn @"
+        Invoke-Batch $conn @"
 UPDATE dash.Setting SET Value = N'avery.morgan@contoso.com', UpdatedBy = N'demo' WHERE Name = 'OrgTopUpn';
 MERGE dash.SensitivityLabel AS t
 USING (VALUES (N'5e1f0c2a-0000-4000-8000-000000000000', N'Public', 1), (N'5e1f0c2a-0000-4000-8000-000000000001', N'General', 2),
@@ -121,7 +121,7 @@ WHERE NOT EXISTS (SELECT 1 FROM dash.RoleGrant AS g WHERE g.Principal = d.UserPr
 $(if ($admins) { "INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES $admins;" })
 "@
     }
-    Step 'Dashboard refresh' { Invoke-Batches $conn 'EXEC dash.usp_RefreshDashboard;' }
+    Step 'Dashboard refresh' { Invoke-Batch $conn 'EXEC dash.usp_RefreshDashboard;' }
     $cmd = $conn.CreateCommand()
     $cmd.CommandText = @'
 SELECT g.Role, g.Principal, p.DisplayName, p.Level FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal

@@ -170,6 +170,7 @@ function Get-PrivateKeyFile {
 }
 
 function Grant-PrivateKeyRead {
+    [CmdletBinding(SupportsShouldProcess)]
     param([System.Security.Cryptography.X509Certificates.X509Certificate2] $Certificate, [string] $Account)
     $file = Get-PrivateKeyFile $Certificate
     $acl = Get-Acl -LiteralPath $file
@@ -199,6 +200,7 @@ function Add-SidToRightLine {
 }
 
 function Grant-BatchLogonRight {
+    [CmdletBinding(SupportsShouldProcess)]
     param([string] $Account)
     $sid = ([System.Security.Principal.NTAccount] $Account).Translate([System.Security.Principal.SecurityIdentifier]).Value
     $dir = Join-Path ([System.IO.Path]::GetTempPath()) "copilot-secedit-$PID"
@@ -221,6 +223,7 @@ function Grant-BatchLogonRight {
 }
 
 function Test-ServiceAccount {
+    [CmdletBinding(SupportsShouldProcess)]
     param([string] $Account)
     if (-not $Account.EndsWith('$')) { return }
     $name = $Account.Split('\')[-1]
@@ -253,6 +256,7 @@ function Test-Endpoint {
 # ===========================================================================
 
 function Register-NightlyTask {
+    [CmdletBinding(SupportsShouldProcess)]
     param([string] $Account, [pscredential] $Credential, [string] $Time)
     $pipeline = Join-Path $script:Root 'Invoke-CopilotPipeline.ps1'
     $pwsh = (Get-Command pwsh -ErrorAction Stop).Source

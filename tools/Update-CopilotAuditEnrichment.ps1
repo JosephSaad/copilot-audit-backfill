@@ -167,7 +167,7 @@ function Invoke-EnrichmentSql {
     finally { $conn.Dispose() }
 }
 
-function Save-Rows {
+function Save-RowBatch {
     <#
         Upserts rows into a lookup table with one MERGE per chunk.
 
@@ -491,7 +491,7 @@ WHERE UserPrincipalName IS NOT NULL;
         })
     }
 
-    $n = Save-Rows -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `
+    $n = Save-RowBatch -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `
                    -ColumnOrder @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber',
                                   'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
                                   'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') `

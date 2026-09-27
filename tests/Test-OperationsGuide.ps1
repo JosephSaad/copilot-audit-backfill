@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Keeps docs/OPERATIONS.md complete: every Admin page in the dashboard's
     navigation, and every -Task of tools/Invoke-CopilotMaintenance.ps1, must be

@@ -245,7 +245,7 @@ function Invoke-Sql {
         [int] $TimeoutSeconds = 120
     )
     $conn = [System.Data.SqlClient.SqlConnection]::new($script:SqlConnStr)
-    $conn.add_InfoMessage({ param($sender, $e) foreach ($m in $e.Errors) { Write-Log ("SQL: " + $m.Message) } })
+    $conn.add_InfoMessage({ param($source, $e) foreach ($m in $e.Errors) { Write-Log ("SQL: " + $m.Message) } })
     try {
         $conn.Open()
         $cmd = $conn.CreateCommand()
@@ -641,7 +641,7 @@ function Connect-AuditGraph {
     else {
         # On Windows the SDK defaults to the WAM account picker; switch to a real
         # browser window. (Persists for this Windows profile.)
-        try { Set-MgGraphOption -DisableLoginByWAM $true -ErrorAction Stop } catch { }
+        try { Set-MgGraphOption -DisableLoginByWAM $true -ErrorAction Stop } catch { Write-Verbose "Older Graph SDK without the WAM option: $($_.Exception.Message)" }
         Write-Log 'Signing in - a browser window will open (username, password, MFA).'
     }
 
@@ -772,7 +772,7 @@ function Wait-BackfillEngine {
         if (-not $task.IsCompleted) {
             Write-Log 'Stopping - letting in-flight SQL batches finish. Progress is saved; run the same command to resume.' -Level WARN
             $Engine.RequestStop()
-            try { [void] $task.Wait([timespan]::FromSeconds(90)) } catch { }
+            try { [void] $task.Wait([timespan]::FromSeconds(90)) } catch { Write-Verbose "The engine stopped with: $($_.Exception.Message)" }
         }
         foreach ($line in $Engine.DrainLog()) { Write-LogLine $line }
         $script:CurrentGraphToken = $current
