@@ -2,12 +2,12 @@
 
 Every table and view copilot-audit-backfill 2.2.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of a copy of the lab database with the 2.2.0 scripts applied (26 September 2026), and of the lab's licence-event database, with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-54 tables (plus 2 left over from 1.x), 27 views, 841 columns, from 16 scripts.
+55 tables (plus 2 left over from 1.x), 27 views, 847 columns, from 16 scripts.
 
 ## Contents
 
 - [The scripts](#the-scripts)
-- [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage)
+- [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
 - [Licences and the user directory](#licences-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
@@ -26,7 +26,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 
 | Script | Database | Run | Creates |
 |---|---|---|---|
-| `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage. The shared function fnShredCopilotInteraction. |
+| `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage, PipelineSetting. The shared function fnShredCopilotInteraction, and ReportingTimeZone(). |
 | `sql/Finalize-CopilotAudit.sql` | Both | By -Finalize or -FinalizeOnly, once, after the backfill | CopilotAudit and CopilotInteraction (dropped and rebuilt from staging), vCopilotDailyUsage, vCopilotAuditRecord. |
 | `sql/Create-CopilotLoadProcedure.sql` | Both | Automatically, by every -Incremental run | usp_MergeCopilotLoad, which appends each nightly load. |
 | `sql/Create-CopilotCsvImport.sql` | Copilot (or licence, if importing there) | Automatically, by tools/Import-CopilotAuditCsv.ps1 | CopilotCsvImport, CopilotCsvFile, CopilotCsvReject, CopilotCsvStage, usp_MergeCopilotCsv. In a database with no backfill, also CopilotAudit, CopilotInteraction and their two views. Adds CopilotAudit.CsvImportId and CopilotBackfillRange.Source. |
@@ -203,6 +203,23 @@ Indexes and constraints:
 | 14 | `AdministrativeUnits` | nvarchar(4000) | yes |  |  |
 | 15 | `AuditDataGz` | varbinary(max) | yes |  |  |
 | 16 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+### audit.PipelineSetting
+
+*Table.* Settings the procedures read, one row each. Today one: `ReportingTimeZone`, the Windows time zone name every procedure cuts days and hours in, read through the function `audit.ReportingTimeZone()` (Eastern Standard Time when unset). Written by `Install-CopilotAudit.ps1 -ReportingTimeZone`, which refuses a change once records are loaded.
+
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and licence-event databases
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Name` | sysname | **no** | **PK** |  |
+| 2 | `Value` | nvarchar(400) | yes |  |  |
+| 3 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 4 | `UpdatedBy` | nvarchar(256) | **no** | `suser_sname` |  |
+
+Indexes and constraints:
+
+- `PK_PipelineSetting`: primary key, clustered (Name)
 
 ## Final records
 
@@ -507,6 +524,7 @@ Indexes and constraints:
 | 30 | `Mgr14` | nvarchar(256) | yes |  |  |
 | 31 | `Mgr15` | nvarchar(256) | yes |  |  |
 | 32 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 33 | `Sid` | varchar(184) | yes |  | the account's Windows SID (S-1-5-21-...), for matching a dashboard sign-in from another domain; added by the 2.2.0 script to an existing table |
 
 Indexes and constraints:
 
@@ -1771,11 +1789,13 @@ Indexes and constraints:
 | 6 | `Level` | tinyint | yes |  | 1 = OrgTopUpn, 2 = reports to them, ...; NULL when not under the top (or no top set) |
 | 7 | `DirectReports` | int | **no** |  |  |
 | 8 | `PeopleBelow` | int | **no** |  | everyone under them, at any depth |
+| 9 | `Sid` | varchar(184) | yes |  | from audit.UserDirectory.Sid: the dashboard matches a Windows sign-in by it |
 
 Indexes and constraints:
 
 - `PK_DashPerson`: primary key, clustered (Upn)
 - `IX_DashPerson_Manager`: nonclustered (ManagerUpn)
+- `IX_DashPerson_Sid`: nonclustered (Sid)
 
 ### dash.OrgClosure
 
