@@ -203,7 +203,7 @@ Write-Host "`n2. Real engine -> SqlWindowStore + SqlBatchSink, stopped and resum
 $connStr = New-ConnString $database
 $mock = Start-MockGraph @{ days = 8 }
 try {
-    $expected = Get-ExpectedIds $mock
+    $expected = Get-ExpectedId $mock
     $expectedTotal = $expected.Count
     Write-Host ("  mock serves {0:N0} records over 8 days" -f $expectedTotal) -ForegroundColor DarkGray
 
@@ -219,7 +219,7 @@ try {
     $stopAt = [math]::Max(1, [int] ($expectedTotal / 3))
     $tick = { param($e) if ($e.GetStatus().RowsWritten -ge $stopAt) { $e.RequestStop() } }
 
-    $run1 = Invoke-EngineRun -Mock $mock -Options (New-Options $mock $start $end) -Store $store -Sink $sink -OnTick $tick -Log $log -TimeoutSec 900
+    $run1 = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -OnTick $tick -Log $log -TimeoutSec 900
     $stagedAfter1 = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAuditStage')
     $windows1 = Invoke-SqlText -As Table -Sql 'SELECT Status, COUNT(*) AS n FROM audit.CopilotBackfillWindow GROUP BY Status'
     $partial1 = @($windows1.Rows | Where-Object { $_.Status -in 'Downloading', 'Ready', 'Submitted', 'Pending' }).Count
@@ -234,7 +234,7 @@ try {
     # resume state has to come back out of SQL.
     $store2 = [CopilotAudit.SqlWindowStore]::new($connStr, '[audit].[CopilotBackfillWindow]')
     $sink2  = [CopilotAudit.SqlBatchSink]::new($connStr, '[audit].[CopilotAuditStage]')
-    $run2 = Invoke-EngineRun -Mock $mock -Options (New-Options $mock $start $end) -Store $store2 -Sink $sink2 -Log $log -TimeoutSec 900
+    $run2 = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store2 -Sink $sink2 -Log $log -TimeoutSec 900
 
     Assert-That ($run2.Task.Status -eq 'RanToCompletion') "run 2 resumed from SQL state and completed ($($run2.Task.Status))"
 
@@ -1232,7 +1232,7 @@ CREATE DATABASE [$($script:ITDatabase)];
     $loadConn = New-ConnString $script:ITDatabase
 
     # Expected record ids per day, from the mock: 'yyyyMMdd-NNNNNN'.
-    $allIds = Get-ExpectedIds $loadMock
+    $allIds = Get-ExpectedId $loadMock
     $idsIn = {
         param([datetime] $From, [datetime] $To)
         @($allIds | Where-Object {
@@ -1245,7 +1245,7 @@ CREATE DATABASE [$($script:ITDatabase)];
     $bStore = [CopilotAudit.SqlWindowStore]::new($loadConn, '[audit].[CopilotBackfillWindow]')
     $bSink  = [CopilotAudit.SqlBatchSink]::new($loadConn, '[audit].[CopilotAuditStage]')
     $bLog  = [System.Collections.Generic.List[string]]::new()
-    $bRun = Invoke-EngineRun -Mock $loadMock -Options (New-Options $loadMock (& $d 1) (& $d 5)) -Store $bStore -Sink $bSink -Log $bLog -TimeoutSec 600
+    $bRun = Invoke-EngineRun -Mock $loadMock -Options (New-EngineOption $loadMock (& $d 1) (& $d 5)) -Store $bStore -Sink $bSink -Log $bLog -TimeoutSec 600
     Assert-That ($bRun.Task.Status -eq 'RanToCompletion') "backfill of Aug 1-5 completed ($($bRun.Task.Status))"
     Invoke-SqlText -Parameters @{ '@s' = (& $d 1); '@e' = (& $d 5) } -Sql @"
 INSERT INTO audit.CopilotBackfillRange (Id, RangeStartUtc, RangeEndUtc, Operations, CompletedUtc)
@@ -1267,7 +1267,7 @@ INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations) OUTPUT IN
         $st = [CopilotAudit.SqlWindowStore]::new($loadConn, '[audit].[CopilotLoadWindow]')
         $sk = [CopilotAudit.SqlBatchSink]::new($loadConn, '[audit].[CopilotLoadStage]')
         $lg = [System.Collections.Generic.List[string]]::new()
-        $run = Invoke-EngineRun -Mock $loadMock -Options (New-Options $loadMock $From $To) -Store $st -Sink $sk -Log $lg -TimeoutSec 600
+        $run = Invoke-EngineRun -Mock $loadMock -Options (New-EngineOption $loadMock $From $To) -Store $st -Sink $sk -Log $lg -TimeoutSec 600
         [void] (Invoke-SqlText -Sql 'UPDATE audit.CopilotLoad SET DownloadedUtc = SYSUTCDATETIME() WHERE LoadId = @id' -Parameters @{ '@id' = $id })
         $m = Invoke-SqlText -As Table -Sql 'EXEC audit.usp_MergeCopilotLoad;' -ShowMessages
         return [pscustomobject]@{ LoadId = [int] $id; Run = $run; Merge = $m.Rows[0] }
@@ -2027,6 +2027,19 @@ SELECT (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'a@contoso.com') 
 Assert-That ([int] $sec.CSelf -le 1 -and [int] $sec.AUnder -ge [int] $sec.CSelf) "bi.OrgSecurity: a person sees themselves, a manager their people ($($sec.AUnder) for user A)"
 Assert-That ([int] $sec.TopSees -eq [int] $sec.Everyone) "the top of the organisation sees everyone ($($sec.TopSees) of $($sec.Everyone))"
 Assert-That ([int] $sec.Leaks -eq 0) 'bi.DepartmentWeek hides every figure of a group under the minimum size'
+# 2.4.0: Organization granted to an AD group reaches its members, once each, through audit.GroupMember.
+$grp = (Invoke-SqlText -As Table -Sql @"
+INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (N'CONTOSO\it-execs', 'Group', 'Organization', N'test', N'test');
+INSERT INTO audit.GroupMember (GroupName, UserPrincipalName) VALUES (N'CONTOSO\it-execs', N'c@contoso.com'), (N'CONTOSO\it-other', N'd@contoso.com');
+SELECT (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'c@contoso.com') AS CSees,
+       (SELECT COUNT(DISTINCT UserKey) FROM bi.OrgSecurity WHERE ViewerUpn = N'c@contoso.com') AS CDistinct,
+       (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'd@contoso.com') AS DSees,
+       (SELECT COUNT(*) FROM bi.DimUser) AS Everyone;
+DELETE FROM audit.GroupMember WHERE GroupName LIKE N'CONTOSO\it-%';
+DELETE FROM dash.RoleGrant WHERE Principal = N'CONTOSO\it-execs';
+"@).Rows[0]
+Assert-That ([int] $grp.CSees -eq [int] $grp.Everyone -and [int] $grp.CDistinct -eq [int] $grp.Everyone) "a member of a group granted Organization sees everyone, once each ($($grp.CSees) of $($grp.Everyone))"
+Assert-That ([int] $grp.DSees -lt [int] $grp.Everyone) 'a member of a group with no Organization grant does not'
 Invoke-SqlText -Sql "ALTER ROLE CopilotInsightsApp DROP MEMBER it_app; DROP USER it_app;"
 
 # ---------------------------------------------------------------------------
@@ -2122,8 +2135,10 @@ SELECT @r;
 Assert-That ($w -eq 'ok') "the dashboard's role writes saved views, events, license actions and digest sends ($w)"
 
 # Premium use: the rollup's count of licensed interactions that needed the license, recomputed from the facts.
-# The rollups first: the bi refresh above has moved on since section 14 built them.
-Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;'
+# Teams moved to Copilot Chat above (SetAppCategory, without -Apply): the next bi refresh corrects the stored
+# flags on every day, and the next dashboard refresh, however recent its start, rolls those days up again.
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2999-01-01', @LicenseEventDatabase = N'$licDb';"
+Invoke-SqlText -Sql "EXEC dash.usp_RefreshDashboard @SinceUtc = '2999-01-01';"
 $prem = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM dash.UserDay) AS Rolled,
        (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM bi.FactInteraction) AS Stored,

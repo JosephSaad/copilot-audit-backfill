@@ -137,6 +137,16 @@ BEGIN
         SET @fromKey = YEAR(@localDay) * 10000 + MONTH(@localDay) * 100 + DAY(@localDay);
     END;
 
+    /* A bi refresh since the last rollup that corrected Premium use on earlier days (an app changed
+       category) moves the start back to the first of them. */
+    DECLARE @biRun INT = (SELECT MAX(RunId) FROM bi.RefreshRun);
+    IF @fromKey IS NOT NULL
+    BEGIN
+        DECLARE @premFrom INT = (SELECT MIN(b.PremiumFromDateKey) FROM bi.RefreshRun AS b
+                                 WHERE b.RunId > ISNULL((SELECT TOP (1) r.BiRunId FROM dash.RefreshRun AS r WHERE r.BiRunId IS NOT NULL ORDER BY r.RunId DESC), 0));
+        IF @premFrom < @fromKey SET @fromKey = @premFrom;
+    END;
+
     DECLARE @noAgent INT = (SELECT AgentKey FROM bi.DimAgent WHERE AgentId = N'(none)');
 
     DROP TABLE IF EXISTS #day;
@@ -234,8 +244,8 @@ BEGIN
     SELECT AgentKey, MIN(DateKey), MAX(DateKey), COUNT_BIG(*) FROM bi.FactInteraction GROUP BY AgentKey;
     COMMIT TRANSACTION;
 
-    INSERT INTO dash.RefreshRun (StartedUtc, EndedUtc, SinceUtc, FromDateKey, People, ClosureRows, UserDayRows)
-    VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @fromKey, @people, @closure, @dayRows);
+    INSERT INTO dash.RefreshRun (StartedUtc, EndedUtc, SinceUtc, FromDateKey, People, ClosureRows, UserDayRows, BiRunId)
+    VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @fromKey, @people, @closure, @dayRows, @biRun);
 
     SET @msg = CONCAT(N'Dashboard refreshed', CASE WHEN @fromKey IS NULL THEN N' (every day)' ELSE CONCAT(N' from ', @fromKey) END,
                       N': ', FORMAT(@people, 'N0'), N' people, ', FORMAT(@closure, 'N0'), N' org pairs, ',

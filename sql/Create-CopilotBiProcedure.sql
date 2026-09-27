@@ -621,10 +621,32 @@ BEGIN
     LEFT JOIN #cur     AS c ON c.Upn = d.UserPrincipalName;
 
     /* The same mapping the sessions use: unmapped apps are In-App Copilot. */
+    DECLARE @recat TABLE (AppKey INT PRIMARY KEY);
     UPDATE d
     SET AppCategory = COALESCE(m.AppCategory, N'In-App Copilot')
+    OUTPUT inserted.AppKey INTO @recat
     FROM bi.DimApp AS d
-    LEFT JOIN audit.SessionAppCategory AS m ON m.App = d.App;
+    LEFT JOIN audit.SessionAppCategory AS m ON m.App = d.App
+    WHERE d.AppCategory <> COALESCE(m.AppCategory, N'In-App Copilot');
+
+    /* Premium use depends on the category, so an app that changed category (or was new in this run
+       and mapped to a category other than the default) has its stored flags set again, on every day. */
+    DECLARE @premFrom INT = NULL;
+    IF EXISTS (SELECT 1 FROM @recat)
+    BEGIN
+        DECLARE @fixed TABLE (DateKey INT NOT NULL);
+        UPDATE f
+        SET PremiumUse = p.PremiumUse
+        OUTPUT inserted.DateKey INTO @fixed
+        FROM bi.FactInteraction AS f
+        JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+        CROSS APPLY (SELECT CAST(CASE WHEN f.LicenseStatusKey = 1
+                                       AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
+                                            OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
+                                      THEN 1 ELSE 0 END AS BIT) AS PremiumUse) AS p
+        WHERE f.AppKey IN (SELECT AppKey FROM @recat) AND f.PremiumUse <> p.PremiumUse;
+        SET @premFrom = (SELECT MIN(DateKey) FROM @fixed);
+    END;
 
     /* ---- 6. The smaller facts, rebuilt whole ------------------------------- */
 
@@ -726,9 +748,9 @@ BEGIN
 
     INSERT INTO bi.RefreshRun
         (StartedUtc, EndedUtc, SinceUtc, ReportingTimeZone, LicenseEventDatabase, InteractionRows, InteractionsSkipped,
-         SessionRows, LicenseChangeRows, LicensedDayRows, SessionRunId, AccessedResourceRows)
+         SessionRows, LicenseChangeRows, LicensedDayRows, SessionRunId, AccessedResourceRows, PremiumFromDateKey)
     VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @ReportingTimeZone, @LicenseEventDatabase, @interactions, @skipped,
-            @sessions, @changes, @days, @sessRun, @resources);
+            @sessions, @changes, @days, @sessRun, @resources, @premFrom);
 
     COMMIT TRANSACTION;
 

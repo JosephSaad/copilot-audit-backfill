@@ -456,6 +456,11 @@ IF COL_LENGTH(N'bi.RefreshRun', N'SessionRunId') IS NULL
 IF COL_LENGTH(N'bi.RefreshRun', N'AccessedResourceRows') IS NULL
     ALTER TABLE bi.RefreshRun ADD AccessedResourceRows BIGINT NULL;
 
+/* 2.4.0: the first day whose stored Premium use this run corrected, after an app changed category
+   (NULL: none). The dashboard's next refresh rolls up again from that day. */
+IF COL_LENGTH(N'bi.RefreshRun', N'PremiumFromDateKey') IS NULL
+    ALTER TABLE bi.RefreshRun ADD PremiumFromDateKey INT NULL;
+
 /*
     PremiumUse (2.3.0): a licensed interaction that needed the Premium license - Copilot inside Word, Excel,
     PowerPoint, Outlook or Teams (Copilot Studio agents can be metered without one), or Copilot Chat reading

@@ -209,6 +209,9 @@ IF OBJECT_ID(N'dash.RefreshRun', N'U') IS NULL
         ClosureRows  INT           NOT NULL,
         UserDayRows  INT           NOT NULL
     );
+/* 2.4.0: the latest bi.RefreshRun the rollups reflect, so the next refresh sees what bi changed since. */
+IF COL_LENGTH(N'dash.RefreshRun', N'BiRunId') IS NULL
+    ALTER TABLE dash.RefreshRun ADD BiRunId INT NULL;
 
 /*
     The people a scope covers, as bi.DimUser keys: @RootUpn and everyone under
