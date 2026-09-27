@@ -91,17 +91,29 @@ BEGIN
     DECLARE @cursor NVARCHAR(450) = N'';
     DECLARE @maxId  NVARCHAR(450);
 
+    /*
+        The records to do, keyed once. Finding each batch's upper bound in the
+        columnstore itself scans and sorts every remaining RecordId: about 95
+        seconds a batch at 40M records, half the flatten. Keyed here it is a
+        seek. Records that arrive while this runs are the next run's.
+    */
+    DROP TABLE IF EXISTS #todo;
+    SELECT r.RecordId
+    INTO #todo
+    FROM audit.vCopilotAuditRecord AS r
+    WHERE @SinceUtc IS NULL OR r.CreationDate >= @SinceUtc;
+    CREATE CLUSTERED INDEX CIX_todo ON #todo (RecordId);
+
     WHILE 1 = 1
     BEGIN
         SET @maxId = NULL;
 
         ;WITH nextBatch AS
         (
-            SELECT TOP (@BatchSize) r.RecordId
-            FROM audit.vCopilotAuditRecord AS r
-            WHERE r.RecordId > @cursor
-              AND (@SinceUtc IS NULL OR r.CreationDate >= @SinceUtc)
-            ORDER BY r.RecordId
+            SELECT TOP (@BatchSize) k.RecordId
+            FROM #todo AS k
+            WHERE k.RecordId > @cursor
+            ORDER BY k.RecordId
         )
         SELECT @maxId = MAX(RecordId) FROM nextBatch;
 
