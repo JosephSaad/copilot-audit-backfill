@@ -1,0 +1,210 @@
+using System.Net;
+using System.Text;
+using CopilotInsights.Charts;
+using CopilotInsights.Infrastructure;
+using Microsoft.AspNetCore.Html;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.RazorPages;
+
+namespace CopilotInsights.Pages;
+
+public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null);
+
+/// <summary>A report panel: a chart or a table, with a title and an optional explanation.</summary>
+public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null);
+
+public sealed record Link(string Text, string Href);
+
+/// <summary>A table: cells are strings, numbers (formatted), Link, or IHtmlContent.</summary>
+public sealed class Table
+{
+    public required IReadOnlyList<string> Headers { get; init; }
+    public IReadOnlySet<int> Numeric { get; init; } = new HashSet<int>();
+    public List<object?[]> Rows { get; } = [];
+    public string? EmptyText { get; init; }
+
+    public HtmlString Render()
+    {
+        if (Rows.Count == 0) return new($"<p class=\"muted\">{WebUtility.HtmlEncode(EmptyText ?? "Nobody here.")}</p>");
+        var sb = new StringBuilder("<div class=\"table-wrap\"><table><thead><tr>");
+        for (var i = 0; i < Headers.Count; i++)
+            sb.Append($"<th{(Numeric.Contains(i) ? " class=\"num\"" : "")}>{WebUtility.HtmlEncode(Headers[i])}</th>");
+        sb.Append("</tr></thead><tbody>");
+        foreach (var r in Rows)
+        {
+            sb.Append("<tr>");
+            for (var i = 0; i < Headers.Count; i++)
+            {
+                var v = i < r.Length ? r[i] : null;
+                var cls = Numeric.Contains(i) ? " class=\"num\"" : "";
+                sb.Append($"<td{cls}>{Cell(v)}</td>");
+            }
+            sb.Append("</tr>");
+        }
+        return new(sb.Append("</tbody></table></div>").ToString());
+    }
+
+    static string Cell(object? v) => v switch
+    {
+        null => "<span class=\"muted\">—</span>",
+        Link l => $"<a href=\"{WebUtility.HtmlEncode(l.Href)}\">{WebUtility.HtmlEncode(l.Text)}</a>",
+        IHtmlContent h => h is HtmlString hs ? hs.Value ?? "" : h.ToString() ?? "",
+        DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm"),
+        double x => x.ToString("#,0.#"),
+        decimal x => x.ToString("#,0.#"),
+        int or long => $"{v:#,0}",
+        _ => WebUtility.HtmlEncode(v.ToString() ?? ""),
+    };
+
+    public string ToCsv()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(string.Join(",", Headers.Select(Q)));
+        foreach (var r in Rows)
+            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select(v => Q(v switch
+            {
+                null => "", Link l => l.Text, IHtmlContent => "", DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss"),
+                _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            }))));
+        return sb.ToString();
+    }
+
+    static string Q(string s)
+    {
+        /* Neutralise spreadsheet formulas, then quote. */
+        if (s.Length > 0 && "=+-@".Contains(s[0])) s = "'" + s;
+        return "\"" + s.Replace("\"", "\"\"") + "\"";
+    }
+}
+
+public sealed class PageServices(Db db, ViewerService viewers, ReportContextFactory contexts, AuditLog audit, Settings settings)
+{
+    public Db Db { get; } = db;
+    public ViewerService Viewers { get; } = viewers;
+    public ReportContextFactory Contexts { get; } = contexts;
+    public AuditLog Audit { get; } = audit;
+    public Settings Settings { get; } = settings;
+}
+
+/// <summary>
+/// Every report page: resolves the viewer and their scope, refuses what they
+/// may not see, builds its panels, and writes the audit log. A page names the
+/// persona role its named detail needs (RequiredRole); aggregate pages need none.
+/// </summary>
+public abstract class InsightsPage(PageServices s) : PageModel
+{
+    protected PageServices S { get; } = s;
+    protected Db Db => S.Db;
+
+    public Viewer Viewer { get; private set; } = null!;
+    public ReportContext Ctx { get; private set; } = null!;
+    public abstract string Title { get; }
+    public abstract string Persona { get; }
+    public virtual string? Intro => null;
+    public virtual string? RequiredRole => null;
+    public virtual bool AdminOnly => false;
+    public virtual bool UsesFilters => true;
+
+    public List<Kpi> Kpis { get; } = [];
+    public List<Panel> Panels { get; } = [];
+    public string? Denied { get; private set; }
+    public string? Notice { get; protected set; }
+
+    /// <summary>Set by pages whose main table can be downloaded (named lists).</summary>
+    protected Table? CsvTable { get; set; }
+
+    protected abstract Task BuildAsync();
+
+    protected async Task<bool> PrepareAsync()
+    {
+        Viewer = await S.Viewers.GetAsync();
+        Ctx = await S.Contexts.CreateAsync(Viewer, Request);
+        if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
+        else if (RequiredRole is not null && !Viewer.Has(RequiredRole))
+            Denied = $"This page lists named people, so it needs the {RequiredRole} role. {Roles.Describe[RequiredRole]} An administrator can grant it.";
+        if (Denied is not null)
+        {
+            await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, Ctx.ScopeLabel, Denied);
+            Response.StatusCode = 403;
+            return false;
+        }
+        return true;
+    }
+
+    public virtual async Task<IActionResult> OnGetAsync()
+    {
+        if (!await PrepareAsync()) return Page();
+        await BuildAsync();
+        await S.Audit.WriteAsync(Viewer, "View", Request.Path, Ctx.ScopeLabel, $"days={Ctx.Days}{Request.QueryString}");
+        return Page();
+    }
+
+    public async Task<IActionResult> OnGetCsvAsync()
+    {
+        if (!await PrepareAsync()) return Page();
+        await BuildAsync();
+        if (CsvTable is null) return NotFound();
+        await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"{CsvTable.Rows.Count} rows{Request.QueryString}");
+        var name = Title.ToLowerInvariant().Replace(' ', '-') + $"-{Ctx.End:yyyyMMdd}.csv";
+        return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(CsvTable.ToCsv())).ToArray(), "text/csv", name);
+    }
+
+    /// <summary>
+    /// An admin change: only for administrators, always audited, then back to the page
+    /// with a message. The action returns what it did, for the audit log and the message.
+    /// </summary>
+    protected async Task<IActionResult> AdminChangeAsync(Func<Task<string>> change)
+    {
+        if (!await PrepareAsync()) return Page();
+        if (!Viewer.IsAdmin || Viewer.ViewingAsBy is not null)
+        {
+            await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, "admin change refused");
+            return StatusCode(403);
+        }
+        string done;
+        try { done = await change(); }
+        catch (ArgumentException ex) { done = "Not changed: " + ex.Message; }
+        await S.Audit.WriteAsync(Viewer, "Admin", Request.Path, null, done);
+        TempData["done"] = done;
+        var q = Request.Query.Where(kv => kv.Key != "handler").Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}").ToList();
+        return Redirect(Request.Path + (q.Count > 0 ? "?" + string.Join("&", q) : ""));
+    }
+
+    /// <summary>A hidden anti-forgery field for forms the page writes itself.</summary>
+    protected string Token()
+    {
+        var af = HttpContext.RequestServices.GetRequiredService<Microsoft.AspNetCore.Antiforgery.IAntiforgery>();
+        var t = af.GetAndStoreTokens(HttpContext);
+        return $"<input type=\"hidden\" name=\"{t.FormFieldName}\" value=\"{WebUtility.HtmlEncode(t.RequestToken)}\"/>";
+    }
+
+    protected static string E(string? s) => WebUtility.HtmlEncode(s ?? "");
+
+    /* ---- helpers for pages ---------------------------------------------------- */
+
+    protected static string Pct(double? v) => Chart.Format(v, Fmt.Percent);
+    protected static string Num(double? v) => Chart.Format(v, Fmt.Count);
+    protected static double? Ratio(double a, double b) => b > 0 ? a / b : null;
+    /// <summary>The trend's points (days or weeks), oldest first, and their labels.</summary>
+    protected IReadOnlyList<Bucket> Buckets() => Ctx.Buckets();
+    protected IReadOnlyList<string> Labels() => Ctx.Buckets().Select(b => b.Label).ToList();
+    protected string TrendNote => Ctx.Daily ? "Each point is a day." : "Each point is a Saturday-to-Friday week, labelled by its Friday; the first and last may be partial.";
+
+    /// <summary>The CSV export of this page's list, with its current search and sort.</summary>
+    protected string CsvUrl()
+    {
+        var q = Request.Query.Where(kv => kv.Key is not ("p" or "handler")).Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}");
+        return Request.Path + "?" + string.Join("&", q.Append("handler=csv"));
+    }
+
+    /// <summary>Folds rows for groups smaller than the minimum into one "Smaller groups" row.</summary>
+    protected List<T> FoldSmall<T>(IEnumerable<T> rows, Func<T, int> people, Func<IReadOnlyList<T>, T> combine, out int folded)
+    {
+        var list = rows.ToList();
+        var small = list.Where(r => people(r) < Ctx.MinGroupSize).ToList();
+        folded = small.Count;
+        var keep = list.Where(r => people(r) >= Ctx.MinGroupSize).ToList();
+        if (small.Count > 0) keep.Add(combine(small));
+        return keep;
+    }
+}

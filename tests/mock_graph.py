@@ -139,21 +139,37 @@ def record_json(rid, t):
     if blocked:
         resource["PolicyDetails"] = [{"PolicyId": "pol-1", "PolicyName": "Restricted site"}]
         resource["Status"] = "Failure"
+    resources = [resource]
+    # Every 19th record reads a second resource that a Purview policy blocked:
+    # PolicyDetails as JSON text inside the JSON, the shape live records use.
+    if n % 19 == 0:
+        resources.append({
+            "Action": "Read", "Type": "EmailMessage", "Name": "Payroll", "XPIADetected": False,
+            "SiteUrl": "https://outlook.office365.com/owa/?ItemID=%06d" % n,
+            "PolicyDetails": json.dumps([{"PolicyType": "Purview", "PolicyOutcomes": ["Blocked"], "AuditLog": ""}]),
+        })
     audit = {
         "CreationTime": ts, "Id": rid, "Operation": "CopilotInteraction", "RecordType": 261,
         "Workload": "Copilot", "UserId": "user%d@contoso.com" % (n % 50),
         "AppIdentity": "Copilot.MicrosoftCopilot.BizChat", "ClientRegion": "CA",
+        "OrganizationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "UserKey": "00000000-0000-0000-0000-%012d" % (n % 50),
+        "UserType": 0, "Version": 1, "ClientIP": "203.0.113.7", "CopilotLogVersion": "1.0.0.0",
         "CopilotEventData": {
             "AppHost": ["Word", "Teams", "BizChat", "Outlook"][n % 4],
             "ThreadId": "19:%s@thread.v2" % rid,
+            "ConversationId": "conv-%06d" % n,
+            "LicenseType": "Premium" if n % 2 else "Starter",
+            "MemoryUpdated": n % 5 == 0,
+            "DLPEvaluationDeferred": 1 if n % 17 == 0 else 0,
+            **({"SensitivityLabelId": "11111111-2222-3333-4444-000000000009"} if n % 4 == 0 else {}),
             "Messages": [
                 dict({"Id": "1", "isPrompt": True}, **({"JailbreakDetected": True} if jailbreak else {})),
                 {"Id": "2", "isPrompt": False},
             ],
-            "AccessedResources": [resource],
+            "AccessedResources": resources,
             "AISystemPlugin": [{"Id": "BingWebSearch", "Name": "BuiltIn"}] if web else [],
             "Contexts": [{"Id": "https://contoso.sharepoint.com/sites/finance/Q3-%06d.xlsx" % n, "Type": "xlsx"}],
-            "ModelTransparencyDetails": [{"ModelName": "gpt-5", "ModelProviderName": "OpenAI"}],
+            "ModelTransparencyDetails": [{"ModelName": "gpt-5", "ModelProviderName": "OpenAI", "ModelVersion": "2025-08-07"}],
         },
     }
     return {

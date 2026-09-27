@@ -119,6 +119,12 @@ IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
                    WHERE object_id = OBJECT_ID(N'audit.UserDirectory') AND name = N'IX_UserDirectory_Mail')
     EXEC (N'CREATE INDEX IX_UserDirectory_Mail ON audit.UserDirectory (Mail);');
 
+/* The account's SID (objectSid, S-1-5-21-...): the dashboard recognises a
+   Windows sign-in by it, with no directory lookup at sign-in - so it works
+   when the web servers are in another domain from the users. */
+IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'Sid') IS NULL
+    ALTER TABLE audit.UserDirectory ADD Sid VARCHAR(184) NULL;
+
 /* ---- Reporting views ---------------------------------------------------- */
 
 /*

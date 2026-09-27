@@ -94,6 +94,153 @@ IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL
                                             CONSTRAINT DF_RawLogFlattened_Flattened DEFAULT (SYSUTCDATETIME())
     );
 
+/*
+    ---- Every other field of the record (2.2.0) --------------------------------
+
+    Each scalar the Copilot audit record carries gets a typed column, named
+    after its JSON path (CopilotEventData.X as CopilotEventData_X), except
+    seventeen that carry no information (audit.RawLogRecordShape, below). Types come
+    from a profile of 19 million production records: identifiers that were
+    GUID text in every row are UNIQUEIDENTIFIER (16 bytes rather than 72), and
+    a value that does not parse as the type is left NULL rather than failing
+    the batch. The small arrays are kept as JSON text (NULL when empty); the
+    two large ones, AccessedResources and Contexts, get a row per element in
+    audit.RawLogAccessedResource and audit.RawLogContext below.
+
+    Added in place, so a 2.1.0 table keeps its rows; the new columns stay NULL
+    until those records are flattened again (EXEC audit.usp_FlattenCopilotAudit
+    once, with no @SinceUtc).
+*/
+DECLARE @cols TABLE (Name SYSNAME, Def NVARCHAR(200));
+INSERT INTO @cols (Name, Def) VALUES
+    /* top-level scalars ($.X) */
+    (N'OrganizationId',                          N'UNIQUEIDENTIFIER NULL'),
+    (N'UserKey',                                 N'UNIQUEIDENTIFIER NULL'),
+    (N'ClientIP',                                N'VARCHAR(64) NULL'),
+    (N'ApplicationName',                         N'NVARCHAR(200) NULL'),
+    (N'PlatformAgentId',                         N'VARCHAR(256) NULL'),
+    (N'ResultStatus',                            N'VARCHAR(64) NULL'),
+    (N'AppAccessContext_APIId',                  N'VARCHAR(64) NULL'),
+    /* $.CopilotEventData.X */
+    (N'CopilotEventData_LicenseType',            N'VARCHAR(32) NULL'),
+    (N'CopilotEventData_ConversationId',         N'VARCHAR(256) NULL'),
+    (N'CopilotEventData_CorrelationId',          N'UNIQUEIDENTIFIER NULL'),
+    (N'CopilotEventData_SensitivityLabelId',     N'UNIQUEIDENTIFIER NULL'),
+    (N'CopilotEventData_TargetAgentName',        N'NVARCHAR(200) NULL'),
+    (N'CopilotEventData_TargetPlatformAgentId',  N'VARCHAR(256) NULL'),
+    (N'CopilotEventData_DLPEvaluationDeferred',  N'TINYINT NULL'),
+    (N'CopilotEventData_MemoryUpdated',          N'BIT NULL'),
+    (N'CopilotEventData_MemoryCorrelationId',    N'VARCHAR(64) NULL'),
+    (N'CopilotEventData_FabricCapacityId',       N'UNIQUEIDENTIFIER NULL'),
+    (N'CopilotEventData_PlatformAgentId',        N'VARCHAR(256) NULL'),
+    (N'CopilotEventData_TaskId',                 N'UNIQUEIDENTIFIER NULL'),
+    (N'ModelVersion',                            N'VARCHAR(32) NULL'),        -- ModelTransparencyDetails[0].ModelVersion
+    (N'MessageCount',                            N'INT NULL'),                -- Messages[*], prompts and responses
+    /* small arrays, as JSON text; NULL when empty */
+    (N'CopilotEventData_AISystemPlugin',         N'NVARCHAR(MAX) NULL'),
+    (N'CopilotEventData_ModelTransparencyDetails', N'NVARCHAR(MAX) NULL'),
+    (N'CopilotEventData_ParticipatingAgents',    N'NVARCHAR(MAX) NULL'),
+    (N'CopilotEventData_SourceThreadIds',        N'NVARCHAR(MAX) NULL');
+
+DECLARE @n SYSNAME, @d NVARCHAR(200), @ddl NVARCHAR(600);
+DECLARE c CURSOR LOCAL FAST_FORWARD FOR SELECT Name, Def FROM @cols;
+OPEN c; FETCH NEXT FROM c INTO @n, @d;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    IF COL_LENGTH(N'audit.RawLogFlattened', @n) IS NULL
+    BEGIN
+        SET @ddl = N'ALTER TABLE audit.RawLogFlattened ADD ' + QUOTENAME(@n) + N' ' + @d + N';';
+        EXEC (@ddl);
+    END;
+    FETCH NEXT FROM c INTO @n, @d;
+END;
+CLOSE c; DEALLOCATE c;
+
+/*
+    Seventeen fields carry no information in a 19-million-record production
+    profile: each has one value on every record where it appears, or is always
+    empty (Operation, RecordType, Workload, UserType, Version,
+    CopilotLogVersion, SubjectType, AgentVersion, AgentPlatform,
+    AgentBlueprintId, AppAccessContext.ClientAppId, CopilotEventData.
+    PlatformAgentType and .IsSpawnTask; AssociatedAdminUnits and its names,
+    and CopilotEventData.MessageIds, .GuardrailDetails and .TargetTaskIds).
+    They are not stored per row. The flattening counts each combination it
+    sees here instead - the empty ones as whether they had anything - and
+    says so if any of them ever takes a second value, so the day one starts
+    to vary it is noticed rather than lost. OrganizationId has one value too,
+    but stays on every row: it is what keeps a database holding more than one
+    tenant correct.
+*/
+IF OBJECT_ID(N'audit.RawLogRecordShape', N'U') IS NULL
+    CREATE TABLE audit.RawLogRecordShape
+    (
+        ShapeHash                           BINARY(32)       NOT NULL CONSTRAINT PK_RawLogRecordShape PRIMARY KEY,
+        RecordType                          SMALLINT         NULL,
+        Operation                           VARCHAR(64)      NULL,
+        Workload                            VARCHAR(32)      NULL,
+        UserType                            TINYINT          NULL,
+        [Version]                           TINYINT          NULL,
+        CopilotLogVersion                   VARCHAR(32)      NULL,
+        SubjectType                         TINYINT          NULL,
+        AgentVersion                        VARCHAR(32)      NULL,
+        AgentPlatform                       VARCHAR(64)      NULL,
+        AgentBlueprintId                    UNIQUEIDENTIFIER NULL,
+        AppAccessContext_ClientAppId        UNIQUEIDENTIFIER NULL,
+        CopilotEventData_PlatformAgentType  VARCHAR(64)      NULL,
+        CopilotEventData_IsSpawnTask        BIT              NULL,
+        HasAdminUnits                       BIT              NOT NULL,   -- AssociatedAdminUnits or its names had a value
+        HasMessageIds                       BIT              NOT NULL,   -- CopilotEventData.MessageIds not empty
+        HasGuardrailDetails                 BIT              NOT NULL,
+        HasTargetTaskIds                    BIT              NOT NULL,
+        Records                             BIGINT           NOT NULL,   -- flattened with this shape since the last full rebuild; a re-flatten counts again
+        FirstSeenUtc                        DATETIME2(0)     NOT NULL CONSTRAINT DF_RawLogRecordShape_First DEFAULT (SYSUTCDATETIME()),
+        LastSeenUtc                         DATETIME2(0)     NOT NULL CONSTRAINT DF_RawLogRecordShape_Last DEFAULT (SYSUTCDATETIME())
+    );
+
+/*
+    One row per element of CopilotEventData.AccessedResources: what Copilot
+    read, where, under which label and policy. 1.8 elements per record in the
+    production profile, so about twice the rows of the flattened table; page
+    compression keeps the repetitive URLs and types small.
+
+    Blocked: the element's Status is present and not Success, or its Purview
+    policy outcome is anything other than None. PolicyDetails arrives as
+    JSON text inside the JSON; PolicyOutcomes lists the outcomes that were
+    not None.
+*/
+IF OBJECT_ID(N'audit.RawLogAccessedResource', N'U') IS NULL
+    CREATE TABLE audit.RawLogAccessedResource
+    (
+        RecordId            NVARCHAR(440)    NOT NULL,   -- audit.RawLogFlattened (440, not 450, so the key stays under 900 bytes)
+        Ordinal             SMALLINT         NOT NULL,   -- position in the array, from 0
+        [Action]            NVARCHAR(450)    NULL,       -- Read, Create ...
+        [Type]              NVARCHAR(200)    NULL,       -- File, EmailMessage, TeamsMessage, a URL scheme ...
+        Id                  NVARCHAR(1000)   NULL,
+        Name                NVARCHAR(4000)   NULL,
+        SiteUrl             NVARCHAR(MAX)    NULL,
+        Site                NVARCHAR(400)    NULL,       -- SiteUrl cut to https://host/sites/name (or /personal/name, /teams/name)
+        ListItemUniqueId    UNIQUEIDENTIFIER NULL,
+        SensitivityLabelId  UNIQUEIDENTIFIER NULL,
+        XPIADetected        BIT              NULL,       -- cross-prompt injection found in this resource
+        [Status]            VARCHAR(64)      NULL,
+        PolicyDetails       NVARCHAR(MAX)    NULL,
+        PolicyOutcomes      NVARCHAR(400)    NULL,       -- the outcomes other than None, '; '-joined
+        IsBlocked           BIT              NOT NULL,
+        CONSTRAINT PK_RawLogAccessedResource PRIMARY KEY (RecordId, Ordinal) WITH (DATA_COMPRESSION = PAGE)
+    );
+
+/* One row per element of CopilotEventData.Contexts: where the user was (the open document, meeting, chat). */
+IF OBJECT_ID(N'audit.RawLogContext', N'U') IS NULL
+    CREATE TABLE audit.RawLogContext
+    (
+        RecordId     NVARCHAR(440)   NOT NULL,
+        Ordinal      SMALLINT        NOT NULL,
+        Id           NVARCHAR(4000)  NULL,
+        [Type]       VARCHAR(64)     NULL,
+        ContainerId  VARCHAR(64)     NULL,
+        CONSTRAINT PK_RawLogContext PRIMARY KEY (RecordId, Ordinal) WITH (DATA_COMPRESSION = PAGE)
+    );
+
 /* Reporting filters hit the timestamp and the user far more than anything
    else. A rowstore table (not columnstore): the procedure MERGEs into it. */
 IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NOT NULL

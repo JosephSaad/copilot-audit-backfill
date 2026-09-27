@@ -20,6 +20,7 @@ function New-Entry {
         company = 'Contoso'; etype = $Type
         mgr = $(if ($Manager) { "CN=$Manager,OU=Users,DC=contoso,DC=com" })
         uac = $(if ($Disabled) { 514 } else { 512 })
+        sid = $(if ($Cn -eq 'ic') { 'S-1-5-21-1111-2222-3333-1001' })
     }
 }
 
@@ -57,6 +58,7 @@ Assert-That (-not $rows.ContainsKey('ceo@contoso.com') -and $ic.Mgr1 -eq 'Name c
 Assert-That ($rows['mgr@contoso.com'].Mgr2 -eq 'Name vp') 'a chain runs through a disabled manager (dir)'
 Assert-That ($rows['dir@contoso.com'].AccountEnabled -eq $false -and $rows['ic@contoso.com'].AccountEnabled -eq $true) `
     'disabled accounts are loaded, flagged AccountEnabled = 0 - there is no filter on it'
+Assert-That ($ic.Sid -eq 'S-1-5-21-1111-2222-3333-1001' -and $rows['mgr@contoso.com'].Sid -is [DBNull]) 'the account SID is carried, for matching a sign-in from another domain'
 Assert-That ($rows['mgr@contoso.com'].IsManager -eq $true -and $ic.IsManager -eq $false) 'IsManager: someone reports to them'
 Assert-That ($rows['ic2@contoso.com'].EmployeeType -eq 'CONTRACTOR' -and $ic.EmployeeType -eq 'EMPLOYEE') 'employeeType codes are mapped (NONW -> CONTRACTOR)'
 Assert-That ($ic.Division -eq 'Corporate' -and $ic.Office -eq 'HQ-4' -and $ic.Country -eq 'Canada' -and $ic.Mail -eq 'ic@mail.contoso.com') `

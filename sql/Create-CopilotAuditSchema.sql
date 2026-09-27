@@ -186,3 +186,21 @@ SELECT
                            WHERE p.Id = N''BingWebSearch'') THEN 1 ELSE 0 END AS BIT)            AS UsedWebSearch
 FROM (SELECT CAST(DECOMPRESS(@AuditDataGz) AS NVARCHAR(MAX)) AS Raw) AS r
 CROSS APPLY (SELECT CASE WHEN ISJSON(r.Raw) = 1 THEN r.Raw END AS Doc) AS j;');
+
+/*  Pipeline settings: the reporting time zone, set once by
+    Install-CopilotAudit.ps1 -ReportingTimeZone before the first load. Every
+    procedure that cuts days reads it through audit.ReportingTimeZone() when
+    no zone is passed; with no row it is Eastern Standard Time. */
+IF OBJECT_ID(N'audit.PipelineSetting', N'U') IS NULL
+    CREATE TABLE audit.PipelineSetting
+    (
+        Name       SYSNAME         NOT NULL CONSTRAINT PK_PipelineSetting PRIMARY KEY,
+        Value      NVARCHAR(400)   NULL,
+        UpdatedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_PipelineSetting_Updated DEFAULT (SYSUTCDATETIME()),
+        UpdatedBy  NVARCHAR(256)   NOT NULL CONSTRAINT DF_PipelineSetting_By DEFAULT (SUSER_SNAME())
+    );
+EXEC (N'CREATE OR ALTER FUNCTION audit.ReportingTimeZone() RETURNS SYSNAME
+AS
+BEGIN
+    RETURN COALESCE((SELECT Value FROM audit.PipelineSetting WHERE Name = N''ReportingTimeZone''), N''Eastern Standard Time'');
+END;');

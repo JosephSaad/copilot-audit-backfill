@@ -1,0 +1,104 @@
+@model InsightsPage
+@{
+    var c = Model.Ctx;
+    var path = Context.Request.Path.Value ?? "/";
+}
+<div class="page-head">
+    <div class="eyebrow">@Model.Persona</div>
+    <h1>@Model.Title</h1>
+    @if (Model.Intro is not null)
+    {
+        <p class="intro">@Model.Intro</p>
+    }
+</div>
+
+@if (Model.Denied is not null)
+{
+    <div class="denied"><b>Not available to you.</b> @Model.Denied</div>
+    return;
+}
+
+@if (Model.UsesFilters)
+{
+    <form class="filters" method="get" action="@path">
+        <label>Period
+            <select name="d" data-autosubmit>
+                @foreach (var d in ReportContext.DayChoices)
+                {
+                    <option value="@d" selected="@(d == c.Days)">Last @d days</option>
+                }
+            </select>
+        </label>
+        @if (c.Root is not null && (c.Root != c.Viewer.Upn || c.Viewer.OrgWide))
+        {
+            <input type="hidden" name="org" value="@c.Root" />
+        }
+        @foreach (var k in Context.Request.Query.Keys.Where(k => k is not ("d" or "org" or "handler" or "p")))
+        {
+            <input type="hidden" name="@k" value="@Context.Request.Query[k]" />
+        }
+        <div class="crumbs" aria-label="Organisation">
+            @if (c.Viewer.OrgWide)
+            {
+                <a href="@c.Url(path, org: null, keepOrg: false)" class="@(c.Root is null ? "on" : "")">Whole organisation</a>
+            }
+            @foreach (var u in c.Breadcrumb)
+            {
+                <span class="sep">›</span><a href="@c.Url(path, org: u.Upn)" class="@(u.Upn == c.Root ? "on" : "")">@u.Name</a>
+            }
+            @if (c.Children.Count > 0)
+            {
+                <select aria-label="Look inside" data-navigate>
+                    <option value="">Look inside…</option>
+                    @foreach (var k in c.Children)
+                    {
+                        <option value="@c.Url(path, org: k.Upn)">@k.Name (@k.PeopleBelow.ToString("#,0"))</option>
+                    }
+                </select>
+            }
+        </div>
+        <span class="period">@c.PeriodLabel</span>
+    </form>
+}
+
+@if (Model.Notice is not null)
+{
+    <div class="notice">@Model.Notice</div>
+}
+
+@if (Model.Kpis.Count > 0)
+{
+    <div class="kpis">
+        @foreach (var k in Model.Kpis)
+        {
+            <div class="kpi @(k.Tone)">
+                <div class="klabel">@k.Label</div>
+                <div class="kvalue">@k.Value</div>
+                @if (k.Note is not null)
+                {
+                    <div class="knote">@k.Note</div>
+                }
+            </div>
+        }
+    </div>
+}
+
+<div class="panels">
+    @foreach (var p in Model.Panels)
+    {
+        <section class="panel @p.Size">
+            <div class="phead">
+                <h2>@p.Title</h2>
+                @if (p.Csv is not null)
+                {
+                    <a class="csv" href="@p.Csv">Download CSV</a>
+                }
+            </div>
+            @if (p.Sub is not null)
+            {
+                <p class="sub">@p.Sub</p>
+            }
+            @p.Body
+        </section>
+    }
+</div>

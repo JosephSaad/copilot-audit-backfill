@@ -188,7 +188,7 @@ $objects = Invoke-SqlText -As Table -Sql @"
 SELECT name FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'audit' ORDER BY name;
 "@
 $names = @($objects.Rows | ForEach-Object { $_.name })
-Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow') `
+Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow,PipelineSetting') `
     "Create-CopilotAuditSchema.sql built the backfill and incremental-load tables, and is idempotent ($($names -join ', '))"
 
 $heap = Invoke-SqlText -As Scalar -Sql @"
@@ -430,6 +430,8 @@ WHERE c.object_id = OBJECT_ID(N'audit.RawLogFlattened') ORDER BY c.column_id;
     $expXpia      = Get-EveryNth 7
     $expBlocked   = Get-EveryNth 11
     $expWeb       = Get-EveryNth 3
+    # Blocked by a failed Status (every 11th) or, since 2.2.0, by a Purview policy outcome (every 19th).
+    $expBlockedAny = $expBlocked + (Get-EveryNth 19) - (Get-EveryNth 209)
 
     $flat = Invoke-SqlText -As Table -Sql @"
 SELECT COUNT_BIG(*)                                                              AS Rows_,
@@ -460,7 +462,7 @@ FROM audit.RawLogFlattened;
     Assert-That ([int] $f.Users -eq 50) "all 50 mock users flattened ($($f.Users))"
     Assert-That ([long] $f.Jailbreak -eq $expJailbreak) ("JailbreakDetected true on exactly the records that carry it ({0:N0} of {1:N0})" -f $f.Jailbreak, $expJailbreak)
     Assert-That ([long] $f.Xpia -eq $expXpia) ("PromptInjectionDetected true on exactly the XPIADetected records ({0:N0} of {1:N0})" -f $f.Xpia, $expXpia)
-    Assert-That ([long] $f.Blocked -eq $expBlocked) ("BlockedResourceUrls set on exactly the policy-blocked records ({0:N0} of {1:N0})" -f $f.Blocked, $expBlocked)
+    Assert-That ([long] $f.Blocked -eq $expBlockedAny) ("BlockedResourceUrls set on exactly the blocked records ({0:N0} of {1:N0})" -f $f.Blocked, $expBlockedAny)
     Assert-That ([long] $f.Web -eq $expWeb) ("AIPlugin captured BingWebSearch on exactly the web-grounded records ({0:N0} of {1:N0})" -f $f.Web, $expWeb)
     Assert-That ([long] $f.WithLic -eq 0) 'IsCopilotLic is NULL while audit.CopilotLicense is empty'
 
@@ -469,10 +471,59 @@ FROM audit.RawLogFlattened;
 SELECT TOP (1) * FROM audit.RawLogFlattened WHERE RecordId = '20260801-000000';
 "@
     $sp = $spot.Rows[0]
-    Assert-That ($sp['Accessed Resources'] -eq 'Q3, "final".xlsx') "a quoted resource name survived the shred ($($sp['Accessed Resources']))"
+    # Record 0 is also a 19th record, so it read a second resource, listed after the first.
+    Assert-That ($sp['Accessed Resources'] -eq 'Q3, "final".xlsx; Payroll') "a quoted resource name survived the shred ($($sp['Accessed Resources']))"
     Assert-That ($sp.JailbreakDetected -eq 'true' -and $sp.PromptInjectionDetected -eq 'true') 'record 0 has both security flags, as the mock built it'
     Assert-That ($sp.Location -eq 'CA') "Location came from ClientRegion ($($sp.Location))"
     Assert-That ($sp.App -eq 'Word') "App came from AppHost ($($sp.App))"
+
+    # 2.2.0: every other field of the record, and the element tables.
+    $exp19 = Get-EveryNth 19; $exp209 = Get-EveryNth 209
+    $expMem = Get-EveryNth 5; $expDlp = Get-EveryNth 17; $expEvLabel = Get-EveryNth 4; $expStarter = Get-EveryNth 2
+    $x = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.RawLogRecordShape)                                AS Shapes,
+       (SELECT SUM(Records) FROM audit.RawLogRecordShape
+        WHERE RecordType = 261 AND Operation = 'CopilotInteraction' AND Workload = 'Copilot' AND UserType = 0
+          AND [Version] = 1 AND CopilotLogVersion = '1.0.0.0')                       AS ShapeRecords,
+       (SELECT SUM(Records) FROM audit.RawLogRecordShape WHERE HasAdminUnits = 1)   AS WithAdminUnits,
+       (SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(N'audit.RawLogFlattened')
+          AND name IN (N'RecordType', N'Operation', N'Workload', N'UserType', N'Version', N'CopilotLogVersion')) AS ConstCols,
+       COUNT(OrganizationId) AS OrgId, COUNT(UserKey) AS UserKey, COUNT(ClientIP) AS ClientIP,
+       SUM(CASE WHEN CopilotEventData_LicenseType = 'Starter' THEN 1 ELSE 0 END)       AS Starter,
+       SUM(CASE WHEN CopilotEventData_LicenseType = 'Premium' THEN 1 ELSE 0 END)       AS Premium,
+       COUNT(CopilotEventData_ConversationId)                                          AS Conv,
+       SUM(CASE WHEN CopilotEventData_MemoryUpdated = 1 THEN 1 ELSE 0 END)             AS Memory,
+       SUM(CASE WHEN CopilotEventData_DLPEvaluationDeferred = 1 THEN 1 ELSE 0 END)     AS Dlp,
+       COUNT(CopilotEventData_SensitivityLabelId)                                      AS EvLabel,
+       SUM(CASE WHEN ModelVersion = '2025-08-07' THEN 1 ELSE 0 END)                    AS ModelVer,
+       SUM(CASE WHEN ISJSON(CopilotEventData_ModelTransparencyDetails) = 1 THEN 1 ELSE 0 END) AS MtdJson,
+       SUM(CASE WHEN MessageCount = 2 THEN 1 ELSE 0 END)                               AS Msgs,
+       SUM(CASE WHEN BlockedResourceUrls IS NOT NULL THEN 1 ELSE 0 END)                AS BlockedRecords,
+       (SELECT COUNT_BIG(*) FROM audit.RawLogAccessedResource)                         AS Elements,
+       (SELECT SUM(CAST(IsBlocked AS INT)) FROM audit.RawLogAccessedResource)          AS BlockedElements,
+       (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE PolicyOutcomes = N'Blocked') AS PolicyBlocked,
+       (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE Site = N'https://contoso.sharepoint.com/sites/finance') AS FinanceSite,
+       (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE Site = N'https://outlook.office365.com' AND [Type] = N'EmailMessage') AS MailSite,
+       (SELECT COUNT(*) FROM audit.RawLogAccessedResource WHERE SensitivityLabelId IS NOT NULL) AS LabelledElements,
+       (SELECT COUNT(*) FROM audit.RawLogContext WHERE [Type] = N'xlsx') AS Contexts
+FROM audit.RawLogFlattened;
+"@).Rows[0]
+    # The mock gives every third record an administrative unit, so two shapes: with and without.
+    Assert-That ([int] $x.Shapes -eq 2 -and [long] $x.ShapeRecords -eq $expectedTotal -and [int] $x.ConstCols -eq 0) `
+        ("the fields that carry no information are counted by shape in audit.RawLogRecordShape, not stored per row ({0:N0} records, {1} shapes)" -f $x.ShapeRecords, $x.Shapes)
+    Assert-That ([long] $x.WithAdminUnits -eq (Get-EveryNth 3)) ("and a field that starts to carry something is seen there ({0:N0} records with an administrative unit)" -f $x.WithAdminUnits)
+    Assert-That ([long] $x.OrgId -eq $expectedTotal -and [long] $x.UserKey -eq $expectedTotal -and [long] $x.ClientIP -eq $expectedTotal) 'OrganizationId and UserKey parsed as GUIDs, and ClientIP, on every row'
+    Assert-That ([long] $x.Starter -eq $expStarter -and [long] $x.Premium -eq ($expectedTotal - $expStarter)) ("CopilotEventData.LicenseType as recorded ({0:N0} Starter, {1:N0} Premium)" -f $x.Starter, $x.Premium)
+    Assert-That ([long] $x.Conv -eq $expectedTotal -and [long] $x.ModelVer -eq $expectedTotal -and [long] $x.MtdJson -eq $expectedTotal) 'ConversationId, ModelVersion and the model details JSON on every row'
+    Assert-That ([long] $x.Memory -eq $expMem -and [long] $x.Dlp -eq $expDlp -and [long] $x.EvLabel -eq $expEvLabel) `
+        ("MemoryUpdated, DLPEvaluationDeferred and the interaction's own label on exactly the records that carry them ({0:N0}, {1:N0}, {2:N0})" -f $x.Memory, $x.Dlp, $x.EvLabel)
+    Assert-That ([long] $x.Msgs -eq $expectedTotal) 'MessageCount counts prompts and responses (2 per record)'
+    Assert-That ([long] $x.Elements -eq ($expectedTotal + $exp19)) ("one element row per accessed resource ({0:N0})" -f $x.Elements)
+    Assert-That ([long] $x.PolicyBlocked -eq $exp19) ("a Purview outcome other than None, in PolicyDetails as JSON text, is read ({0:N0} of {1:N0})" -f $x.PolicyBlocked, $exp19)
+    Assert-That ([long] $x.BlockedElements -eq ($expBlocked + $exp19)) ("blocked: a failed Status or a policy outcome ({0:N0} elements)" -f $x.BlockedElements)
+    Assert-That ([long] $x.BlockedRecords -eq ($expBlocked + $exp19 - $exp209)) ("BlockedResourceUrls now includes policy-blocked resources ({0:N0} records)" -f $x.BlockedRecords)
+    Assert-That ([long] $x.FinanceSite -eq $expectedTotal -and [long] $x.MailSite -eq $exp19) 'sites cut to https://host/sites/name, and to the host elsewhere'
+    Assert-That ([long] $x.LabelledElements -eq $expectedTotal -and [long] $x.Contexts -eq $expectedTotal) 'element labels parsed as GUIDs, and one Contexts row per context'
 
     # IsCopilotLic fills in once the licence table has the user.
     Invoke-SqlText -Sql "INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic) VALUES (N'user0@contoso.com', 1)"
@@ -531,6 +582,18 @@ FROM audit.CopilotAudit;
     $intSurvived  = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotInteraction')
     Assert-That ($flatSurvived -eq $expectedTotal -and $intSurvived -eq $expectedTotal) `
         'the flattened and reporting tables survived the JSON purge intact - the point of the default mode'
+
+    # A full re-flatten after the purge (what the 2.2.0 upgrade asks for) skips the
+    # records whose JSON is gone, rather than blanking what was shredded from it.
+    $keep = { (Invoke-SqlText -As Table -Sql @"
+SELECT COUNT(UserKey) AS UserKey, COUNT([Accessed Resources]) AS Res, (SELECT COUNT_BIG(*) FROM audit.RawLogAccessedResource) AS Elements
+FROM audit.RawLogFlattened;
+"@).Rows[0] }
+    $k0 = & $keep
+    Invoke-SqlText -Sql 'EXEC audit.usp_FlattenCopilotAudit @BatchSize = 50000' -TimeoutSeconds 1800
+    $k1 = & $keep
+    Assert-That ([long] $k1.UserKey -eq [long] $k0.UserKey -and [long] $k1.Res -eq [long] $k0.Res -and [long] $k1.Elements -eq [long] $k0.Elements) `
+        ("re-flattening after the purge keeps every purged record's columns and elements ({0:N0} elements)" -f $k1.Elements)
 
     # The view still returns every row; the purged ones just have no AuditData.
     $viewAfter = Invoke-SqlText -As Table -TimeoutSeconds 900 -Sql @"
@@ -1611,6 +1674,216 @@ finally {
         try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Host "  (could not drop $db)" }
     }
 }
+
+# ---------------------------------------------------------------------------
+# 14. The Copilot Insights dashboard's rollups (dash.usp_RefreshDashboard),
+# over section 12's bi schema in the main database, with an org chart of our
+# own: a CEO who is their own manager, two levels under them, a manager loop
+# and a person whose manager is not in the directory.
+# ---------------------------------------------------------------------------
+Write-Host "`n14. Dashboard rollups (dash.usp_RefreshDashboard)" -ForegroundColor Cyan
+
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotDashboardSchema.sql') -Raw)
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotDashboardProcedure.sql') -Raw)
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotDashboardSchema.sql') -Raw)   # re-runnable
+
+Invoke-SqlText -Sql @"
+DELETE FROM audit.UserDirectory;
+INSERT INTO audit.UserDirectory (UserPrincipalName, FullName, Department, EmployeeType, IsManager, AccountEnabled, ManagerUPN, ManagerName, OrgDepth) VALUES
+    (N'ceo@contoso.com',    N'The CEO',  N'Office',  N'EMPLOYEE', 1, 1, N'ceo@contoso.com',   N'The CEO',  0),
+    (N'boss@contoso.com',   N'The Boss', N'Finance', N'EMPLOYEE', 1, 1, N'ceo@contoso.com',   N'The CEO',  1),
+    (N'b@contoso.com',      N'User B',   N'Sales',   N'EMPLOYEE', 0, 1, N'ceo@contoso.com',   N'The CEO',  1),
+    (N'a@contoso.com',      N'User A',   N'Finance', N'EMPLOYEE', 1, 1, N'boss@contoso.com',  N'The Boss', 2),
+    (N'c@contoso.com',      N'User C',   N'Finance', N'EMPLOYEE', 0, 1, N'a@contoso.com',     N'User A',   3),
+    (N'loop1@contoso.com',  N'Loop 1',   NULL,       N'EMPLOYEE', 1, 1, N'loop2@contoso.com', N'Loop 2',   1),
+    (N'loop2@contoso.com',  N'Loop 2',   NULL,       N'EMPLOYEE', 1, 1, N'loop1@contoso.com', N'Loop 1',   1),
+    (N'orphan@contoso.com', N'Orphan',   NULL,       N'EMPLOYEE', 0, 1, N'ghost@contoso.com', N'Ghost',    1);
+UPDATE audit.UserDirectory SET Sid = 'S-1-5-21-1111-2222-3333-1001' WHERE UserPrincipalName = N'a@contoso.com';
+UPDATE dash.Setting SET Value = N'ceo@contoso.com' WHERE Name = N'OrgTopUpn';
+-- Labels, sites and a blocked resource, to be cut to their sites.
+UPDATE audit.RawLogFlattened SET SensitivityLabelIds = N'label-1; label-2',
+       [Accessed Resource Locations] = N'https://contoso.sharepoint.com/sites/fin/Shared Documents/a.docx; https://contoso-my.sharepoint.com/personal/x_contoso_com/Documents/b.docx'
+WHERE RecordId = N's-05';
+UPDATE audit.RawLogFlattened SET BlockedResourceUrls = N'https://contoso.sharepoint.com/sites/hr/Payroll/pay.xlsx' WHERE RecordId = N's-06';
+UPDATE audit.RawLogFlattened SET CopilotEventData_LicenseType = N'Starter', CopilotEventData_MemoryUpdated = 1,
+       CopilotEventData_SensitivityLabelId = '11111111-0000-0000-0000-000000000003' WHERE RecordId = N's-05';
+-- The same resources as the flattening writes them, one row per element.
+DELETE FROM audit.RawLogAccessedResource;
+INSERT INTO audit.RawLogAccessedResource (RecordId, Ordinal, [Action], [Type], Name, SiteUrl, Site, SensitivityLabelId, XPIADetected, [Status], IsBlocked) VALUES
+    (N's-05', 0, N'Read', N'File', N'a.docx', N'https://contoso.sharepoint.com/sites/fin/Shared Documents/a.docx',
+     N'https://contoso.sharepoint.com/sites/fin', '11111111-0000-0000-0000-000000000001', 0, NULL, 0),
+    (N's-05', 1, N'Read', N'File', N'b.docx', N'https://contoso-my.sharepoint.com/personal/x_contoso_com/Documents/b.docx',
+     N'https://contoso-my.sharepoint.com/personal/x_contoso_com', '11111111-0000-0000-0000-000000000002', 0, NULL, 0),
+    (N's-06', 0, N'Read', N'File', N'pay.xlsx', N'https://contoso.sharepoint.com/sites/hr/Payroll/pay.xlsx',
+     N'https://contoso.sharepoint.com/sites/hr', NULL, 0, 'Failure', 1);
+"@
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'$licDb';"
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;' -ShowMessages
+
+$p = @{}
+foreach ($row in (Invoke-SqlText -As Table -Sql 'SELECT Upn, ISNULL(CAST(Level AS INT), -1) AS Lvl, PeopleBelow, DirectReports FROM dash.Person;').Rows) { $p[$row.Upn] = $row }
+Assert-That ($p['ceo@contoso.com'].Lvl -eq 1 -and $p['boss@contoso.com'].Lvl -eq 2 -and $p['b@contoso.com'].Lvl -eq 2 -and
+             $p['a@contoso.com'].Lvl -eq 3 -and $p['c@contoso.com'].Lvl -eq 4) `
+    'levels count down from the top, and a top who is their own manager is level 1'
+Assert-That ($p['ceo@contoso.com'].PeopleBelow -eq 4 -and $p['boss@contoso.com'].PeopleBelow -eq 2 -and $p['a@contoso.com'].PeopleBelow -eq 1 -and $p['c@contoso.com'].PeopleBelow -eq 0) `
+    "people below count everyone under, at any depth (CEO $($p['ceo@contoso.com'].PeopleBelow), boss $($p['boss@contoso.com'].PeopleBelow))"
+Assert-That ($p['loop1@contoso.com'].Lvl -eq -1 -and $p['orphan@contoso.com'].Lvl -eq -1) 'people outside the top''s tree have no level'
+Assert-That ($p.ContainsKey('ghost@contoso.com') -and $p['ghost@contoso.com'].PeopleBelow -eq 1) 'a manager missing from the directory is added, so they can see their people'
+$bySid = [string] (Invoke-SqlText -As Scalar -Sql "SELECT Upn FROM dash.Person WHERE Sid = 'S-1-5-21-1111-2222-3333-1001';")
+Assert-That ($bySid -eq 'a@contoso.com') "each person carries their account SID from the directory, so a sign-in from another domain is matched without a lookup ($bySid)"
+
+$oc = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT Depth FROM dash.OrgClosure WHERE AncestorUpn = N'boss@contoso.com' AND DescendantUpn = N'c@contoso.com') AS BossC,
+       (SELECT COUNT(*) FROM dash.OrgClosure WHERE AncestorUpn = N'ceo@contoso.com') AS UnderCeo,
+       (SELECT COUNT(*) FROM dash.OrgClosure WHERE DescendantUpn = N'ceo@contoso.com') AS AboveCeo,
+       (SELECT COUNT(*) FROM dash.OrgClosure WHERE AncestorUpn IN (N'loop1@contoso.com', N'loop2@contoso.com')) AS LoopPairs;
+"@).Rows[0]
+Assert-That ([int] $oc.BossC -eq 2 -and [int] $oc.UnderCeo -eq 5 -and [int] $oc.AboveCeo -eq 1) `
+    "the closure holds each (manager, person under them) pair once with its distance, and the self-managed top has only themselves above ($($oc.UnderCeo), $($oc.AboveCeo))"
+Assert-That ([int] $oc.LoopPairs -eq 4) "a manager loop ends: each of the two is under the other, once ($($oc.LoopPairs) pairs)"
+
+$scope = @((Invoke-SqlText -As Table -Sql @"
+SELECT u.UserPrincipalName FROM dash.fnScopeUsers(N'boss@contoso.com') AS s JOIN bi.DimUser AS u ON u.UserKey = s.UserKey ORDER BY 1;
+"@).Rows | ForEach-Object { $_.UserPrincipalName })
+Assert-That (($scope -join ',') -eq 'a@contoso.com,boss@contoso.com,c@contoso.com') "a manager's scope is themselves and the people under them who are in the data ($($scope -join ','))"
+$bScope = (Invoke-SqlText -As Table -Sql "SELECT UserKey FROM dash.fnScopeUsers(N'b@contoso.com');").Rows.Count
+Assert-That ($bScope -le 1) "someone with nobody under them sees at most themselves ($bScope)"
+
+$daySync = {
+    (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT_BIG(*) FROM bi.FactInteraction) AS Facts, (SELECT SUM(CAST(Interactions AS BIGINT)) FROM dash.UserDay) AS Days_,
+       (SELECT COUNT_BIG(*) FROM bi.FactSession) AS FactSessions, (SELECT SUM(CAST(Sessions AS BIGINT)) FROM dash.UserDay) AS DaySessions,
+       (SELECT SUM(CAST(JailbreakDetected AS INT)) FROM bi.FactInteraction) AS FactJb, (SELECT SUM(Jailbreak) FROM dash.UserDay) AS DayJb,
+       (SELECT COUNT(DISTINCT AgentKey) FROM bi.FactInteraction) AS Agents, (SELECT COUNT(*) FROM dash.AgentUse) AS AgentUse;
+"@).Rows[0]
+}
+$ds = & $daySync
+Assert-That ([long] $ds.Days_ -eq [long] $ds.Facts -and [long] $ds.DaySessions -eq [long] $ds.FactSessions -and [long] $ds.DayJb -eq [long] $ds.FactJb) `
+    "the person-day rollup adds up to the facts ($($ds.Days_) of $($ds.Facts) interactions, $($ds.DaySessions) of $($ds.FactSessions) sessions)"
+Assert-That ([int] $ds.AgentUse -eq [int] $ds.Agents) "every agent used has its first and last use ($($ds.AgentUse))"
+
+$res = [string[]] @((Invoke-SqlText -As Table -Sql 'SELECT Kind, Item FROM dash.ResourceDay GROUP BY Kind, Item;').Rows | ForEach-Object { "$($_.Kind)=$($_.Item)" })
+[Array]::Sort($res, [StringComparer]::Ordinal)
+Assert-That (($res -join ' | ') -eq 'Blocked=https://contoso.sharepoint.com/sites/hr | Label=11111111-0000-0000-0000-000000000001 | Label=11111111-0000-0000-0000-000000000002 | Site=https://contoso-my.sharepoint.com/personal/x_contoso_com | Site=https://contoso.sharepoint.com/sites/fin') `
+    "labels, sites of labelled content and blocked sites come from bi.FactAccessedResource ($($res -join ' | '))"
+
+$bx = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM bi.FactAccessedResource) AS Resources,
+       (SELECT COUNT(*) FROM bi.AccessedResources AS r JOIN bi.Sites AS s ON s.SiteKey = r.SiteKey WHERE s.IsPersonal = 1) AS Personal,
+       (SELECT SUM(CAST(IsBlocked AS INT)) FROM bi.FactAccessedResource) AS Blocked,
+       (SELECT l.LicenseType FROM bi.FactInteraction AS f JOIN bi.DimLicenseType AS l ON l.LicenseTypeKey = f.LicenseTypeKey WHERE f.RecordId = N's-05') AS LicType,
+       (SELECT CAST(f.MemoryUpdated AS INT) FROM bi.FactInteraction AS f WHERE f.RecordId = N's-05') AS Memory,
+       (SELECT s.LabelId FROM bi.FactInteraction AS f JOIN bi.SensitivityLabels AS s ON s.SensitivityLabelKey = f.SensitivityLabelKey WHERE f.RecordId = N's-05') AS EvLabel,
+       (SELECT TOP (1) AccessedResourceRows FROM bi.RefreshRun ORDER BY RunId DESC) AS Logged;
+"@).Rows[0]
+Assert-That ([int] $bx.Resources -eq 3 -and [int] $bx.Personal -eq 1 -and [int] $bx.Blocked -eq 1 -and [long] $bx.Logged -eq 3) `
+    "bi.FactAccessedResource has one row per element, with its site and blocked flag ($($bx.Resources) rows)"
+Assert-That ("$($bx.LicType)" -eq 'Starter' -and [int] $bx.Memory -eq 1 -and "$($bx.EvLabel)" -eq '11111111-0000-0000-0000-000000000003') `
+    "the interaction fact carries the record's licence type, memory flag and its own label ($($bx.LicType), $($bx.EvLabel))"
+
+# Incremental: the days from the window on are replaced, the totals unchanged.
+$lastDay = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT MAX(DateKey) FROM dash.UserDay;')
+$since = [datetime]::ParseExact("$lastDay", 'yyyyMMdd', $null).AddDays(-1)
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
+$ds2 = & $daySync
+$run = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) FromDateKey, UserDayRows FROM dash.RefreshRun ORDER BY RunId DESC;').Rows[0]
+Assert-That ([long] $ds2.Days_ -eq [long] $ds.Days_ -and [long] $ds2.DaySessions -eq [long] $ds.DaySessions -and $run.FromDateKey -isnot [DBNull]) `
+    "an incremental refresh rewrites only the days from its window ($($run.UserDayRows) person-days from $($run.FromDateKey)) and the totals still match"
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
+Assert-That ([long] (& $daySync).Days_ -eq [long] $ds.Days_) 'and running it twice changes nothing'
+
+# The dashboard's account, with what Install-CopilotInsights.ps1 grants it that the refresh
+# touches: EXECUTE on it, SELECT on bi, dash and audit.UserDirectory. No ALTER, so no TRUNCATE.
+$lowPriv = (Invoke-SqlText -As Table -Sql @"
+IF USER_ID(N'dash_refresher') IS NULL CREATE USER dash_refresher WITHOUT LOGIN;
+GRANT EXECUTE ON dash.usp_RefreshDashboard TO dash_refresher;
+GRANT SELECT ON SCHEMA::bi TO dash_refresher;
+GRANT SELECT ON SCHEMA::dash TO dash_refresher;
+GRANT SELECT ON audit.UserDirectory TO dash_refresher;
+EXECUTE AS USER = N'dash_refresher';
+EXEC dash.usp_RefreshDashboard;
+REVERT;
+SELECT (SELECT SUM(CAST(Interactions AS BIGINT)) FROM dash.UserDay) AS Days_, (SELECT COUNT(*) FROM dash.Person) AS People;
+"@).Rows[0]
+Assert-That ([long] $lowPriv.Days_ -eq [long] $ds.Days_ -and [int] $lowPriv.People -eq $p.Count) `
+    "the dashboard's account can run a full refresh without ALTER, deleting where it may not truncate ($($lowPriv.People) people)"
+
+# With no top set, the refresh takes it from the org chart: the one person with
+# no manager who has at least half the directory under them.
+Invoke-SqlText -Sql "UPDATE dash.Setting SET Value = NULL WHERE Name = N'OrgTopUpn'; EXEC dash.usp_RefreshDashboard;"
+$auto = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT Value FROM dash.Setting WHERE Name = N'OrgTopUpnDetected') AS Detected,
+       (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'c@contoso.com') AS CLevel;
+"@).Rows[0]
+Assert-That ("$($auto.Detected)" -eq 'ceo@contoso.com' -and [int] $auto.CLevel -eq 4) "with no top set, the org chart's top is found and levels follow it ($($auto.Detected))"
+
+# ---------------------------------------------------------------------------
+# 15. Provisioning and maintenance without SQL: Install-CopilotAudit.ps1 on a
+# new server path and on section 14's database, and Invoke-CopilotMaintenance.ps1.
+# ---------------------------------------------------------------------------
+Write-Host "`n15. Provisioning and maintenance (Install-CopilotAudit.ps1, tools/Invoke-CopilotMaintenance.ps1)" -ForegroundColor Cyan
+
+$installer = Join-Path $root 'Install-CopilotAudit.ps1'
+$maint = Join-Path $root 'tools' 'Invoke-CopilotMaintenance.ps1'
+$conn = @{ SqlServer = $script:ITServer; TrustServerCertificate = $true }
+if (-not $script:ITIntegrated) {
+    $conn.SqlCredential = [pscredential]::new($script:ITUser, [Net.NetworkCredential]::new('', $script:ITPassword).SecurePassword)
+}
+$freshDb = "$($script:ITDatabase)_Fresh"; $freshLic = "$($script:ITDatabase)_FreshLic"
+try {
+    $out = & $installer @conn -Database $freshDb -LicenceDatabase $freshLic -Dashboard -ReportingTimeZone 'GMT Standard Time' 6>&1 | Out-String
+    $made = Invoke-SqlText -Catalog master -As Table -Sql "SELECT name, recovery_model_desc AS Recovery FROM sys.databases WHERE name IN (N'$freshDb', N'$freshLic');"
+    Assert-That ($made.Rows.Count -eq 2 -and @($made.Rows | Where-Object Recovery -eq 'SIMPLE').Count -eq 2) 'a fresh install creates both databases, in SIMPLE recovery'
+    $objs = [int] (Invoke-SqlText -Catalog $freshDb -As Scalar -Sql "SELECT COUNT(*) FROM sys.objects WHERE OBJECT_ID(N'audit.usp_FlattenCopilotAudit') IS NOT NULL AND OBJECT_ID(N'bi.usp_RefreshBi') IS NOT NULL AND OBJECT_ID(N'dash.usp_RefreshDashboard') IS NOT NULL AND object_id = OBJECT_ID(N'audit.RawLogAccessedResource');")
+    $licObjs = [int] (Invoke-SqlText -Catalog $freshLic -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.usp_ShredLicenseEvents') IS NOT NULL THEN 1 ELSE 0 END;")
+    Assert-That ($objs -eq 1 -and $licObjs -eq 1) 'and installs every procedure and table in both'
+    Assert-That ($out -like '*Load Copilot records into*' -and $out -like '*Backfill the licence history*') 'and says what is left to do'
+    $zones = @($freshDb, $freshLic | ForEach-Object { [string] (Invoke-SqlText -Catalog $_ -As Scalar -Sql 'SELECT audit.ReportingTimeZone();') })
+    Assert-That (($zones -join ',') -eq 'GMT Standard Time,GMT Standard Time' -and $out -like '*reporting time zone: GMT Standard Time*') `
+        "-ReportingTimeZone is stored in both databases, where the procedures read it ($($zones -join ','))"
+    $badZone = try { & $installer @conn -Database $freshDb -LicenceDatabase $freshLic -ReportingTimeZone 'Mars Standard Time' 6>$null | Out-Null; '' } catch { $_.Exception.Message }
+    Assert-That ($badZone -like '*not a time zone SQL Server knows*') 'an unknown zone is refused'
+    $again = & $installer @conn -Database $freshDb -LicenceDatabase $freshLic -Dashboard 6>&1 | Out-String
+    Assert-That ($again -like '*Done.*' -and $again -notlike '*flattening*') 'running it again changes nothing and builds nothing'
+}
+finally {
+    foreach ($db in $freshDb, $freshLic) {
+        try { Invoke-SqlText -Catalog master -Sql "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Host "  (could not drop $db)" }
+    }
+}
+
+# Upgrading from 2.1.0: flattened rows without the 2.2.0 fields are flattened again, and bi rebuilt.
+# A 2.1.0 database: flattened rows, but no record shapes (only the 2.2.0 flatten counts them).
+Invoke-SqlText -Sql 'TRUNCATE TABLE audit.RawLogRecordShape;'
+$withJson = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotAudit WHERE AuditDataGz IS NOT NULL;')
+$up = & $installer @conn -Database $script:ITDatabase -SkipLicenceDatabase -LicenceEventDatabases $licDb -Dashboard 6>&1 | Out-String
+$shaped = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT ISNULL(SUM(Records), 0) FROM audit.RawLogRecordShape;')
+Assert-That ($up -like '*gained columns (2.2.0)*' -and $shaped -eq $withJson) "an upgrade from 2.1.0 is detected and every record with its JSON flattened again ($shaped of $withJson)"
+$once = & $installer @conn -Database $script:ITDatabase -SkipLicenceDatabase -LicenceEventDatabases $licDb -Dashboard 6>&1 | Out-String
+Assert-That ($once -notlike '*flattening*') 'and only once: the next run finds nothing to rebuild'
+Assert-That ($up -like '*bi, in full*' -and $up -like '*Refresh the Power BI model in full once*') 'and bi rebuilt in full, with the model refresh left to do'
+$moved = try { & $installer @conn -Database $script:ITDatabase -SkipLicenceDatabase -ReportingTimeZone 'Pacific Standard Time' 6>$null | Out-Null; '' } catch { $_.Exception.Message }
+$still = [string] (Invoke-SqlText -As Scalar -Sql 'SELECT audit.ReportingTimeZone();')
+Assert-That ($moved -like '*already holds records cut in Eastern Standard Time*' -and $still -eq 'Eastern Standard Time') 'the time zone cannot be changed once records are loaded'
+
+$status = & $maint @conn -Database $script:ITDatabase -Task Status | Out-String
+$topNow = [string] (Invoke-SqlText -As Scalar -Sql "SELECT COALESCE(MAX(CASE WHEN Name = N'OrgTopUpn' THEN NULLIF(Value, N'') END), MAX(CASE WHEN Name = N'OrgTopUpnDetected' THEN Value END)) FROM dash.Setting;")
+Assert-That ($status -like '*Flattened*' -and $status -like "*Top of the organisation*$topNow*") "Status reports what is loaded, built, and the top of the organisation ($topNow)"
+& $maint @conn -Database $script:ITDatabase -Task SetAppCategory -App 'Teams' -Category 'Copilot Chat' | Out-Null
+& $maint @conn -Database $script:ITDatabase -Task GrantRole -Principal 'CONTOSO\Insights-Admins' -PrincipalType Group -Role Admin -Note 'test' | Out-Null
+& $maint @conn -Database $script:ITDatabase -Task SetDashboardSetting -Name LicenceMonthlyCost -Value '31.5' | Out-Null
+& $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'boss@contoso.com' | Out-Null
+$mt = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT AppCategory FROM audit.SessionAppCategory WHERE App = N'Teams') AS Teams,
+       (SELECT PrincipalType + N'/' + Role FROM dash.RoleGrant WHERE Principal = N'CONTOSO\Insights-Admins') AS Grant_,
+       (SELECT Value FROM dash.Setting WHERE Name = N'LicenceMonthlyCost') AS Cost,
+       (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'a@contoso.com') AS ALevel,
+       (SELECT COUNT(*) FROM dash.AuditLog WHERE Page = N'Invoke-CopilotMaintenance') AS Logged;
+"@).Rows[0]
+Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/Admin' -and "$($mt.Cost)" -eq '31.5') 'maintenance tasks set an app category, grant a role and change a setting, without SQL'
+Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organisation takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
+$refused = try { & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'nobody@contoso.com'; '' } catch { $_.Exception.Message }
+Assert-That ($refused -like '*not in the directory*') 'a top of the organisation not in the directory is refused'
 
 # ---------------------------------------------------------------------------
 Write-Host ''

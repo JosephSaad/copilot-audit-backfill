@@ -1,0 +1,221 @@
+<#
+.SYNOPSIS
+    Day-to-day tasks on the Copilot audit database, so nobody types SQL by hand.
+
+.DESCRIPTION
+    -Task Status               What is loaded and built, and when each step last ran.
+    -Task Reflatten            Flatten every record again, then rebuild sessions, bi and
+                               the dashboard (after a flattening change).
+    -Task RebuildSessions      Rebuild every session (after a session setting changes), then
+                               bring bi and the dashboard up to date.
+    -Task RebuildBi            Rebuild bi in full (after a time-zone change, licence history
+                               arriving late, or a purge of flattened rows), then the dashboard.
+    -Task RefreshDashboard     Rebuild the dashboard's org chart, and its rollups from -SinceUtc
+                               (every day when omitted).
+    -Task SetAppCategory       Put -App in -Category (Copilot Chat or In-App Copilot). Add -Apply
+                               to rebuild sessions and bi with it now rather than on the next load.
+    -Task GrantRole            Give -Principal (a UPN, DOMAIN\user or DOMAIN\Group) a dashboard -Role.
+    -Task RevokeRole           Take it away again.
+    -Task SetOrgTop            Make -Upn the top of the organisation for the dashboard, or -Clear
+                               to go back to the one found in the org chart. Rebuilds the org chart.
+    -Task SetDashboardSetting  Set MinGroupSize, DefaultDays or InactiveDays to -Value.
+    -Task NameAgent            Give the agent -AgentId (its id in the audit log) a -FriendlyName
+                               (and -Owner). An empty -FriendlyName removes the name.
+    -Task NameLabel            Give the sensitivity label -LabelId a -Name (and -Rank, 0 least sensitive).
+    -Task PurgeJson            Clear the stored JSON of records older than -RetainDays (with
+                               -DeleteRows, remove those records altogether). Reports only,
+                               unless -Apply.
+
+    Most of these are also in the dashboard's Admin pages; this is the same for
+    servers without it, and for scripts.
+
+.EXAMPLE
+    .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task Status
+.EXAMPLE
+    .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task SetAppCategory -App 'Copilot Notebooks' -Category 'Copilot Chat' -Apply
+.EXAMPLE
+    .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task GrantRole -Principal 'CONTOSO\Copilot-Insights-Admins' -Role Admin
+#>
+#Requires -Version 5.1
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][string] $SqlServer,
+    [string] $Database = 'CopilotAudit',
+    [string[]] $LicenceEventDatabases = @('CopilotLicenseEvents'),
+    [pscredential] $SqlCredential,
+    [switch] $TrustServerCertificate,
+    [Parameter(Mandatory)]
+    [ValidateSet('Status', 'Reflatten', 'RebuildSessions', 'RebuildBi', 'RefreshDashboard', 'SetAppCategory', 'GrantRole',
+                 'RevokeRole', 'SetOrgTop', 'SetDashboardSetting', 'NameAgent', 'NameLabel', 'PurgeJson')]
+    [string] $Task,
+    [string] $App,
+    [ValidateSet('Copilot Chat', 'In-App Copilot')][string] $Category,
+    [string] $Principal,
+    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')][string] $Role,
+    [string] $Note,
+    [ValidateSet('User', 'Group')][string] $PrincipalType,
+    [string] $Upn,
+    [switch] $Clear,
+    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenceMonthlyCost', 'LicenceCurrency')][string] $Name,
+    [string] $Value,
+    [string] $AgentId,
+    [string] $FriendlyName,
+    [string] $Owner,
+    [string] $LabelId,
+    [ValidateRange(0, 250)][int] $Rank = -1,
+    [datetime] $SinceUtc,
+    [ValidateRange(1, 3650)][int] $RetainDays = 365,
+    [switch] $Apply,
+    # PurgeJson: remove the old records altogether, not only their JSON.
+    [switch] $DeleteRows
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$licList = if ($LicenceEventDatabases) { $LicenceEventDatabases -join ',' } else { $null }
+$me = "$env:USERDOMAIN\$env:USERNAME"
+
+function Invoke-Sql {
+    param([string] $Sql, [hashtable] $Parameters = @{}, [switch] $Table, [switch] $Scalar)
+    $b = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
+    $b['Data Source'] = $SqlServer; $b['Initial Catalog'] = $Database
+    if ($SqlCredential) { $b['User ID'] = $SqlCredential.UserName; $b['Password'] = $SqlCredential.GetNetworkCredential().Password }
+    else { $b['Integrated Security'] = $true }
+    $b['Encrypt'] = $true; $b['TrustServerCertificate'] = [bool] $TrustServerCertificate; $b['Application Name'] = 'Invoke-CopilotMaintenance'
+    $conn = New-Object System.Data.SqlClient.SqlConnection $b.ConnectionString
+    $conn.add_InfoMessage({ param($s, $e) foreach ($m in $e.Errors) { if ($m.Class -le 10 -and $m.Message -notlike 'Warning: Null value*') { Write-Host "  $($m.Message)" -ForegroundColor DarkGray } } })
+    $conn.Open()
+    try {
+        $cmd = $conn.CreateCommand(); $cmd.CommandText = $Sql; $cmd.CommandTimeout = 0
+        foreach ($k in $Parameters.Keys) { [void] $cmd.Parameters.AddWithValue($k, $(if ($null -eq $Parameters[$k]) { [DBNull]::Value } else { $Parameters[$k] })) }
+        if ($Scalar) { return $cmd.ExecuteScalar() }
+        if ($Table) { $t = New-Object System.Data.DataTable; $r = $cmd.ExecuteReader(); try { $t.Load($r) } finally { $r.Dispose() }; return , $t }
+        [void] $cmd.ExecuteNonQuery()
+    }
+    finally { $conn.Dispose() }
+}
+function Test-Proc([string] $n) { [bool] (Invoke-Sql -Scalar -Sql "SELECT CASE WHEN OBJECT_ID(@n, N'P') IS NULL THEN 0 ELSE 1 END" -Parameters @{ '@n' = $n }) }
+function Need([string] $what, $value) { if (-not $value) { throw "-Task $Task needs -$what." } }
+function Update-Dashboard([object] $since) {
+    if (Test-Proc 'dash.usp_RefreshDashboard') { Invoke-Sql -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since } }
+}
+function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenceEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
+
+switch ($Task) {
+    'Status' {
+        $t = Invoke-Sql -Table -Sql @"
+SELECT 'Records' AS Item, CAST((SELECT SUM(row_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID(N'audit.CopilotAudit') AND index_id IN (0,1)) AS NVARCHAR(40)) AS Value
+UNION ALL SELECT 'Flattened', CAST((SELECT SUM(row_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID(N'audit.RawLogFlattened') AND index_id IN (0,1)) AS NVARCHAR(40))
+UNION ALL SELECT 'Last load merged (UTC)', CASE WHEN OBJECT_ID(N'audit.CopilotLoad') IS NOT NULL THEN (SELECT CONVERT(NVARCHAR(20), MAX(MergedUtc), 120) FROM audit.CopilotLoad) END
+UNION ALL SELECT 'Last session build (UTC)', CASE WHEN OBJECT_ID(N'audit.CopilotSessionRun') IS NOT NULL THEN (SELECT CONVERT(NVARCHAR(20), MAX(RunEndUtc), 120) FROM audit.CopilotSessionRun) END
+UNION ALL SELECT 'Last bi refresh (UTC)', CASE WHEN OBJECT_ID(N'bi.RefreshRun') IS NOT NULL THEN (SELECT CONVERT(NVARCHAR(20), MAX(EndedUtc), 120) FROM bi.RefreshRun) END
+UNION ALL SELECT 'Last dashboard refresh (UTC)', CASE WHEN OBJECT_ID(N'dash.RefreshRun') IS NOT NULL THEN (SELECT CONVERT(NVARCHAR(20), MAX(EndedUtc), 120) FROM dash.RefreshRun) END
+UNION ALL SELECT 'Directory people', CASE WHEN OBJECT_ID(N'audit.UserDirectory') IS NOT NULL THEN CAST((SELECT COUNT(*) FROM audit.UserDirectory) AS NVARCHAR(40)) END
+UNION ALL SELECT 'Top of the organisation', CASE WHEN OBJECT_ID(N'dash.Setting') IS NOT NULL THEN
+    (SELECT COALESCE(MAX(CASE WHEN Name = 'OrgTopUpn' THEN NULLIF(Value, N'') END), MAX(CASE WHEN Name = 'OrgTopUpnDetected' THEN Value + N' (from the org chart)' END)) FROM dash.Setting) END
+UNION ALL SELECT 'Record shapes', CASE WHEN OBJECT_ID(N'audit.RawLogRecordShape') IS NOT NULL THEN CAST((SELECT COUNT(*) FROM audit.RawLogRecordShape) AS NVARCHAR(40)) END;
+"@
+        $t.Rows | ForEach-Object { '{0,-30} {1}' -f $_.Item, $(if ($_.Value -is [DBNull]) { '-' } else { $_.Value }) }
+    }
+    'Reflatten' {
+        Invoke-Sql -Sql 'EXEC audit.usp_FlattenCopilotAudit;'
+        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+        Update-Bi $null; Update-Dashboard $null
+    }
+    'RebuildSessions' {
+        Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+        # After a full session build bi copies every session again; interactions from today on only.
+        Update-Bi ([datetime]::UtcNow.Date); Update-Dashboard $null
+    }
+    'RebuildBi' { Update-Bi $null; Update-Dashboard $null }
+    'RefreshDashboard' { Update-Dashboard $(if ($PSBoundParameters.ContainsKey('SinceUtc')) { $SinceUtc } else { $null }) }
+    'SetAppCategory' {
+        Need 'App' $App; Need 'Category' $Category
+        Invoke-Sql -Parameters @{ '@a' = $App; '@c' = $Category } -Sql @"
+UPDATE audit.SessionAppCategory SET AppCategory = @c WHERE App = @a;
+IF @@ROWCOUNT = 0 INSERT INTO audit.SessionAppCategory (App, AppCategory) VALUES (@a, @c);
+"@
+        Write-Host "$App is $Category."
+        if ($Apply) {
+            Invoke-Sql -Sql 'EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+            Update-Bi $null; Update-Dashboard $null
+        }
+        else { Write-Host 'It applies from the next load; add -Apply to rebuild sessions and bi with it now.' }
+    }
+    'GrantRole' {
+        Need 'Principal' $Principal; Need 'Role' $Role
+        if (-not $Principal.Contains('@') -and -not $Principal.Contains('\')) { throw '-Principal is a UPN, DOMAIN\user or DOMAIN\Group.' }
+        # DOMAIN\name: a group if AD says so, else a user.
+        $type = if ($PrincipalType) { $PrincipalType } else { 'User' }
+        if (-not $PrincipalType -and $Principal.Contains('\')) {
+            try {
+                Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+                $pc = New-Object System.DirectoryServices.AccountManagement.PrincipalContext ([System.DirectoryServices.AccountManagement.ContextType]::Domain), $Principal.Split('\')[0]
+                if ([System.DirectoryServices.AccountManagement.GroupPrincipal]::FindByIdentity($pc, $Principal)) { $type = 'Group' }
+            }
+            catch { Write-Warning "Could not ask AD whether $Principal is a group; recorded as a user (-PrincipalType Group to say otherwise). The dashboard matches it either way." }
+        }
+        Invoke-Sql -Parameters @{ '@p' = $Principal; '@t' = $type; '@r' = $Role; '@n' = $Note; '@by' = $me } -Sql @"
+IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @p AND Role = @r)
+    INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (@p, @t, @r, @n, @by);
+INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'Invoke-CopilotMaintenance', CONCAT(N'Granted ', @r, N' to ', @p));
+"@
+        Write-Host "$Principal ($type) has $Role."
+    }
+    'RevokeRole' {
+        Need 'Principal' $Principal; Need 'Role' $Role
+        Invoke-Sql -Parameters @{ '@p' = $Principal; '@r' = $Role; '@by' = $me } -Sql @"
+DELETE FROM dash.RoleGrant WHERE Principal = @p AND Role = @r;
+INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'Invoke-CopilotMaintenance', CONCAT(N'Removed ', @r, N' from ', @p));
+"@
+        Write-Host "$Principal no longer has $Role."
+    }
+    'SetOrgTop' {
+        if (-not $Clear) {
+            Need 'Upn' $Upn
+            $known = [int] (Invoke-Sql -Scalar -Sql 'SELECT COUNT(*) FROM dash.Person WHERE Upn = @u' -Parameters @{ '@u' = $Upn.Trim() })
+            if ($known -eq 0) { throw "$Upn is not in the directory the dashboard knows (dash.Person). Load the directory first, or check the UPN." }
+        }
+        Invoke-Sql -Parameters @{ '@v' = $(if ($Clear) { $null } else { $Upn.Trim() }); '@by' = $me } -Sql @"
+UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = 'OrgTopUpn';
+INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'Invoke-CopilotMaintenance', CONCAT(N'OrgTopUpn -> ', ISNULL(@v, N'(from the org chart)')));
+"@
+        Update-Dashboard ([datetime]::UtcNow.Date)
+    }
+    'SetDashboardSetting' {
+        Need 'Name' $Name; Need 'Value' $Value
+        Invoke-Sql -Parameters @{ '@n' = $Name; '@v' = $Value; '@by' = $me } -Sql @"
+UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = @n;
+IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (@n, @v, @by);
+INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'Invoke-CopilotMaintenance', CONCAT(@n, N' -> ', @v));
+"@
+        Write-Host "$Name = $Value."
+    }
+    'NameAgent' {
+        Need 'AgentId' $AgentId
+        $key = Invoke-Sql -Scalar -Sql 'SELECT AgentKey FROM bi.DimAgent WHERE AgentId = @a' -Parameters @{ '@a' = $AgentId }
+        if ($null -eq $key -or $key -is [DBNull]) { throw "No agent $AgentId in bi.DimAgent." }
+        Invoke-Sql -Parameters @{ '@k' = $key; '@n' = $FriendlyName; '@o' = $Owner; '@by' = $me } -Sql @"
+IF NULLIF(@n, N'') IS NULL DELETE FROM dash.AgentAlias WHERE AgentKey = @k;
+ELSE BEGIN
+    UPDATE dash.AgentAlias SET FriendlyName = @n, Owner = @o, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE AgentKey = @k;
+    IF @@ROWCOUNT = 0 INSERT INTO dash.AgentAlias (AgentKey, FriendlyName, Owner, UpdatedBy) VALUES (@k, @n, @o, @by);
+END;
+"@
+        Write-Host "Agent $AgentId named."
+    }
+    'NameLabel' {
+        Need 'LabelId' $LabelId; Need 'Name' $FriendlyName
+        Invoke-Sql -Parameters @{ '@i' = $LabelId.ToLowerInvariant(); '@n' = $FriendlyName; '@r' = $(if ($Rank -ge 0) { $Rank } else { $null }); '@by' = $me } -Sql @"
+UPDATE dash.SensitivityLabel SET Name = @n, Rank = @r, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE LabelId = @i;
+IF @@ROWCOUNT = 0 INSERT INTO dash.SensitivityLabel (LabelId, Name, Rank, UpdatedBy) VALUES (@i, @n, @r, @by);
+"@
+        Write-Host "Label $LabelId is $FriendlyName."
+    }
+    'PurgeJson' {
+        $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w, @DeleteRows = @r;' `
+            -Parameters @{ '@d' = $RetainDays; '@w' = [int] (-not $Apply); '@r' = [int] [bool] $DeleteRows }
+        $t.Rows | Format-Table -AutoSize | Out-String | Write-Host
+        if (-not $Apply) { Write-Host 'Nothing was cleared; add -Apply to clear it.' }
+    }
+}

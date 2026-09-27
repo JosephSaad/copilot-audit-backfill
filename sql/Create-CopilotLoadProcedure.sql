@@ -38,11 +38,12 @@ IF OBJECT_ID(N'audit.usp_MergeCopilotLoad', N'P') IS NULL
 GO
 
 ALTER PROCEDURE audit.usp_MergeCopilotLoad
-    @ReportingTimeZone SYSNAME = N'Eastern Standard Time'
+    @ReportingTimeZone SYSNAME = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
+    SET @ReportingTimeZone = COALESCE(@ReportingTimeZone, audit.ReportingTimeZone());   -- the zone Install-CopilotAudit.ps1 -ReportingTimeZone stored
 
     DECLARE @msg NVARCHAR(600), @loadId INT, @start DATETIME2(0), @end DATETIME2(0), @downloaded DATETIME2(0);
 

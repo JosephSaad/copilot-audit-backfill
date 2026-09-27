@@ -113,11 +113,15 @@ function Get-DirectoryEntry {
     $searcher.CacheResults = $false
     foreach ($a in 'userPrincipalName', 'mail', 'displayName', 'title', 'department', 'division',
                    'physicalDeliveryOfficeName', 'l', 'co', 'company', 'employeeType', 'manager',
-                   'distinguishedName', 'userAccountControl') {
+                   'distinguishedName', 'userAccountControl', 'objectSid') {
         [void] $searcher.PropertiesToLoad.Add($a)
     }
 
     function Val($p, $n) { if ($p.Contains($n)) { [string] $p[$n][0] } else { $null } }
+    function Sid($p) {
+        if (-not $p.Contains('objectsid')) { return $null }
+        ([System.Security.Principal.SecurityIdentifier]::new([byte[]] $p['objectsid'][0], 0)).Value
+    }
 
     $all = [System.Collections.Generic.List[object]]::new(100000)
     $results = $searcher.FindAll()
@@ -139,6 +143,7 @@ function Get-DirectoryEntry {
                 etype   = Val $p 'employeetype'
                 mgr     = Val $p 'manager'
                 uac     = [int] (Val $p 'useraccountcontrol')
+                sid     = Sid $p
             })
         }
     }
@@ -175,7 +180,7 @@ function ConvertTo-UserDirectoryTable {
     }
 
     $dt = [System.Data.DataTable]::new()
-    foreach ($c in 'UserPrincipalName', 'Mail', 'FullName', 'EmployeeType') { [void] $dt.Columns.Add($c, [string]) }
+    foreach ($c in 'UserPrincipalName', 'Mail', 'FullName', 'EmployeeType', 'Sid') { [void] $dt.Columns.Add($c, [string]) }
     [void] $dt.Columns.Add('IsManager', [bool])
     [void] $dt.Columns.Add('AccountEnabled', [bool])
     foreach ($c in 'JobTitle', 'Department', 'Division', 'Office', 'City', 'Country', 'Company', 'ManagerUPN', 'ManagerName') {
@@ -221,6 +226,7 @@ function ConvertTo-UserDirectoryTable {
         $row['Mail']              = NZ $u.mail
         $row['FullName']          = NZ $u.disp
         $row['EmployeeType']      = NZ $et
+        $row['Sid']               = NZ $(if ($u.PSObject.Properties['sid']) { $u.sid })
         $row['IsManager']         = $managerDns.Contains([string] $u.dn)
         $row['AccountEnabled']    = $enabled
         $row['JobTitle']          = NZ $u.title

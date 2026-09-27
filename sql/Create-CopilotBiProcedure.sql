@@ -27,7 +27,10 @@
       3. bi.DimDate, extended to cover the data.
       4. bi.FactInteraction: the window from @SinceUtc deleted, then written
          again from audit.RawLogFlattened a month at a time, adding keys for
-         new users, apps, agents and models as it goes.
+         new users, apps, agents, models, licence types and labels as it goes.
+         bi.FactAccessedResource the same way, alongside, from
+         audit.RawLogAccessedResource (2.2.0), with keys for new resource
+         types, actions, sites and labels.
       5. Dimension attributes: directory profile, today's licence, app
          category. Small; rewritten every run.
       6. bi.FactSession: only what the session builds since the last refresh
@@ -69,12 +72,13 @@ GO
 
 ALTER PROCEDURE bi.usp_RefreshBi
     @SinceUtc             DATETIME2(0)   = NULL,
-    @ReportingTimeZone    SYSNAME        = N'Eastern Standard Time',
+    @ReportingTimeZone    SYSNAME        = NULL,
     @LicenceEventDatabase NVARCHAR(1000) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
+    SET @ReportingTimeZone = COALESCE(@ReportingTimeZone, audit.ReportingTimeZone());   -- the zone Install-CopilotAudit.ps1 -ReportingTimeZone stored
 
     DECLARE @started DATETIME2(0) = SYSUTCDATETIME(), @msg NVARCHAR(1000), @sql NVARCHAR(MAX);
 
@@ -379,13 +383,20 @@ BEGIN
     ELSE
         SELECT @lo = @SinceUtc, @hi = MAX(UtcTimeStamp) FROM audit.RawLogFlattened WHERE UtcTimeStamp >= @SinceUtc;
 
+    DECLARE @resources BIGINT = 0;
+    DECLARE @hasResources BIT = CASE WHEN OBJECT_ID(N'audit.RawLogAccessedResource', N'U') IS NULL THEN 0 ELSE 1 END;
+
     IF @SinceUtc IS NOT NULL
     BEGIN
         BEGIN TRANSACTION;
         DELETE FROM bi.FactInteraction WHERE CreatedUtc >= @SinceUtc;
+        DELETE FROM bi.FactAccessedResource WHERE CreatedUtc >= @SinceUtc;
     END
     ELSE
+    BEGIN
         TRUNCATE TABLE bi.FactInteraction;
+        TRUNCATE TABLE bi.FactAccessedResource;
+    END;
 
     WHILE @lo <= @hi
     BEGIN
@@ -405,7 +416,14 @@ BEGIN
                CAST(CASE WHEN f.JailbreakDetected = N'true' THEN 1 ELSE 0 END AS BIT)                AS JailbreakDetected,
                CAST(CASE WHEN f.PromptInjectionDetected = N'true' THEN 1 ELSE 0 END AS BIT)          AS PromptInjectionDetected,
                CAST(CASE WHEN NULLIF(f.BlockedResourceUrls, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasBlockedResource,
-               CAST(CASE WHEN NULLIF(f.SensitivityLabelIds, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasSensitivityLabel
+               CAST(CASE WHEN NULLIF(f.SensitivityLabelIds, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS HasSensitivityLabel,
+               COALESCE(NULLIF(LTRIM(RTRIM(f.CopilotEventData_LicenseType)), N''), N'(not reported)')  AS LicenseType,
+               f.CopilotEventData_SensitivityLabelId                                               AS EventLabelId,
+               ISNULL(f.MessageCount, 0)                                                           AS MessageCount,
+               CAST(ISNULL(f.CopilotEventData_MemoryUpdated, 0) AS BIT)                             AS MemoryUpdated,
+               CAST(CASE WHEN f.CopilotEventData_DLPEvaluationDeferred > 0 THEN 1 ELSE 0 END AS BIT)  AS DlpEvaluationDeferred,
+               CAST(CASE WHEN NULLIF(f.CopilotEventData_TargetAgentName, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS CalledAnotherAgent,
+               NULLIF(LTRIM(RTRIM(LEFT(f.CopilotEventData_TargetAgentName, 400))), N'')              AS TargetAgentName
         INTO #src
         FROM audit.RawLogFlattened AS f
         /* The agent: AgentId when the record has one, else the agent named
@@ -448,6 +466,46 @@ BEGIN
         SELECT DISTINCT s.ModelProvider, s.ModelName FROM #src AS s
         WHERE NOT EXISTS (SELECT 1 FROM bi.DimModel AS d WHERE d.ModelProvider = s.ModelProvider AND d.ModelName = s.ModelName);
 
+        INSERT INTO bi.DimLicenseType (LicenseType)
+        SELECT DISTINCT s.LicenseType FROM #src AS s
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimLicenseType AS d WHERE d.LicenseType = s.LicenseType);
+
+        /* The accessed resources of this month's interactions, from the element table. */
+        DROP TABLE IF EXISTS #rsrc;
+        CREATE TABLE #rsrc (RecordId NVARCHAR(450) NOT NULL, Ordinal SMALLINT NOT NULL, ResourceType NVARCHAR(200) NOT NULL,
+                            ResourceAction NVARCHAR(200) NOT NULL, Site NVARCHAR(400) NOT NULL, LabelId UNIQUEIDENTIFIER NULL,
+                            IsBlocked BIT NOT NULL, XPIADetected BIT NOT NULL);
+        IF @hasResources = 1
+            INSERT INTO #rsrc
+            SELECT r.RecordId, r.Ordinal,
+                   COALESCE(NULLIF(LTRIM(RTRIM(r.[Type])), N''), N'(not reported)'),
+                   COALESCE(NULLIF(LTRIM(RTRIM(r.[Action])), N''), N'(not reported)'),
+                   COALESCE(NULLIF(r.Site, N''), N'(none)'),
+                   r.SensitivityLabelId, r.IsBlocked, ISNULL(r.XPIADetected, 0)
+            FROM #src AS s
+            JOIN audit.RawLogAccessedResource AS r ON r.RecordId = s.RecordId;
+
+        INSERT INTO bi.DimSensitivityLabel (LabelId)
+        SELECT l.LabelId FROM (SELECT EventLabelId AS LabelId FROM #src UNION SELECT LabelId FROM #rsrc) AS l
+        WHERE l.LabelId IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM bi.DimSensitivityLabel AS d WHERE d.LabelId = l.LabelId);
+
+        INSERT INTO bi.DimResourceType (ResourceType)
+        SELECT DISTINCT r.ResourceType FROM #rsrc AS r
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimResourceType AS d WHERE d.ResourceType = r.ResourceType);
+
+        INSERT INTO bi.DimResourceAction (ResourceAction)
+        SELECT DISTINCT r.ResourceAction FROM #rsrc AS r
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimResourceAction AS d WHERE d.ResourceAction = r.ResourceAction);
+
+        INSERT INTO bi.DimSite (Site, Host, IsPersonal)
+        SELECT x.Site,
+               /* https://host */
+               LEFT(x.Site, CASE WHEN CHARINDEX(N'/', x.Site + N'/', 9) > 0 THEN CHARINDEX(N'/', x.Site + N'/', 9) - 1 ELSE LEN(x.Site) END),
+               CASE WHEN x.Site LIKE N'%/personal/%' THEN 1 ELSE 0 END
+        FROM (SELECT DISTINCT Site FROM #rsrc) AS x
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimSite AS d WHERE d.Site = x.Site);
+
         /* An agent keeps its key when renamed; the name is the latest seen.
            Months run in time order, so the last one to write wins. */
         UPDATE d
@@ -461,7 +519,8 @@ BEGIN
         INSERT INTO bi.FactInteraction WITH (TABLOCK)
             (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey,
              PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected,
-             HasBlockedResource, HasSensitivityLabel)
+             HasBlockedResource, HasSensitivityLabel,
+             LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
         SELECT s.RecordId, s.Utc,
                DATEADD(HOUR, DATEPART(HOUR, t.LocalTs), CAST(CAST(t.LocalTs AS DATE) AS DATETIME2(0))),
                YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
@@ -469,18 +528,42 @@ BEGIN
                u.UserKey, a.AppKey, g.AgentKey, m.ModelKey,
                CASE WHEN k.Upn IS NULL THEN 0 WHEN h.Held = 1 THEN 1 ELSE 2 END,
                s.PromptCount, s.AccessedResourceCount, s.UsedWebSearch, s.JailbreakDetected,
-               s.PromptInjectionDetected, s.HasBlockedResource, s.HasSensitivityLabel
+               s.PromptInjectionDetected, s.HasBlockedResource, s.HasSensitivityLabel,
+               lt.LicenseTypeKey, ISNULL(sl.SensitivityLabelKey, 1), s.MessageCount, s.MemoryUpdated,
+               s.DlpEvaluationDeferred, s.CalledAnotherAgent, s.TargetAgentName
         FROM #src AS s
         CROSS APPLY (SELECT CAST(CAST(s.Utc AS DATETIME2(0)) AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
         JOIN bi.DimUser  AS u ON u.UserPrincipalName = s.Upn
         JOIN bi.DimApp   AS a ON a.App = s.App
         JOIN bi.DimAgent AS g ON g.AgentId = s.AgentId
         JOIN bi.DimModel AS m ON m.ModelProvider = s.ModelProvider AND m.ModelName = s.ModelName
+        JOIN bi.DimLicenseType AS lt ON lt.LicenseType = s.LicenseType
+        LEFT JOIN bi.DimSensitivityLabel AS sl ON sl.LabelId = s.EventLabelId
         LEFT JOIN #known AS k ON k.Upn = s.Upn
         OUTER APPLY (SELECT TOP (1) 1 AS Held FROM #held AS x
                      WHERE x.Upn = s.Upn AND x.FromUtc <= s.Utc AND x.ToUtc > s.Utc) AS h
         ORDER BY s.Utc;
         SET @interactions += @@ROWCOUNT;
+
+        INSERT INTO bi.FactAccessedResource WITH (TABLOCK)
+            (RecordId, Ordinal, CreatedUtc, ActivityHour, DateKey, UserKey, AppKey,
+             ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey, IsBlocked, XPIADetected)
+        SELECT r.RecordId, r.Ordinal, s.Utc,
+               DATEADD(HOUR, DATEPART(HOUR, t.LocalTs), CAST(CAST(t.LocalTs AS DATE) AS DATETIME2(0))),
+               YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
+               u.UserKey, a.AppKey,
+               rt.ResourceTypeKey, ra.ResourceActionKey, st.SiteKey, ISNULL(sl.SensitivityLabelKey, 1), r.IsBlocked, r.XPIADetected
+        FROM #rsrc AS r
+        JOIN #src AS s ON s.RecordId = r.RecordId
+        CROSS APPLY (SELECT CAST(CAST(s.Utc AS DATETIME2(0)) AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
+        JOIN bi.DimUser AS u ON u.UserPrincipalName = s.Upn
+        JOIN bi.DimApp  AS a ON a.App = s.App
+        JOIN bi.DimResourceType AS rt ON rt.ResourceType = r.ResourceType
+        JOIN bi.DimResourceAction AS ra ON ra.ResourceAction = r.ResourceAction
+        JOIN bi.DimSite AS st ON st.Site = r.Site
+        LEFT JOIN bi.DimSensitivityLabel AS sl ON sl.LabelId = r.LabelId
+        ORDER BY s.Utc;
+        SET @resources += @@ROWCOUNT;
 
         SET @lo = @next;
     END;
@@ -608,15 +691,16 @@ BEGIN
 
     INSERT INTO bi.RefreshRun
         (StartedUtc, EndedUtc, SinceUtc, ReportingTimeZone, LicenceEventDatabase, InteractionRows, InteractionsSkipped,
-         SessionRows, LicenceChangeRows, LicensedDayRows, SessionRunId)
+         SessionRows, LicenceChangeRows, LicensedDayRows, SessionRunId, AccessedResourceRows)
     VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @ReportingTimeZone, @LicenceEventDatabase, @interactions, @skipped,
-            @sessions, @changes, @days, @sessRun);
+            @sessions, @changes, @days, @sessRun, @resources);
 
     COMMIT TRANSACTION;
 
     SET @msg = CONCAT(N'bi refreshed', CASE WHEN @SinceUtc IS NULL THEN N' (full rebuild)'
                                            ELSE CONCAT(N' from ', CONVERT(NVARCHAR(16), @SinceUtc, 120), N'Z') END,
-                      N': ', FORMAT(@interactions, 'N0'), N' interaction(s), ', FORMAT(@sessions, 'N0'), N' session(s), ',
+                      N': ', FORMAT(@interactions, 'N0'), N' interaction(s), ', FORMAT(@resources, 'N0'), N' accessed resource(s), ',
+                      FORMAT(@sessions, 'N0'), N' session(s), ',
                       FORMAT(@changes, 'N0'), N' licence change(s), ', FORMAT(@days, 'N0'), N' licensed user-day(s).');
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
     IF @skipped > 0

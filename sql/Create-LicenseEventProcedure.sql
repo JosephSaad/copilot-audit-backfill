@@ -27,11 +27,12 @@ ALTER PROCEDURE audit.usp_ShredLicenseEvents
     @SinceUtc       DATETIME2(0) = NULL,
     @RebuildAll     BIT          = 0,
     @BatchSize      INT          = 200000,
-    @ReportingTimeZone SYSNAME   = N'Eastern Standard Time'
+    @ReportingTimeZone SYSNAME   = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
     SET XACT_ABORT ON;
+    SET @ReportingTimeZone = COALESCE(@ReportingTimeZone, audit.ReportingTimeZone());   -- the zone Install-CopilotAudit.ps1 -ReportingTimeZone stored
 
     IF @BatchSize IS NULL OR @BatchSize < 1000 SET @BatchSize = 1000;
 

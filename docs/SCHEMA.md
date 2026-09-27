@@ -1,22 +1,23 @@
 # Schema reference
 
-Every table and view copilot-audit-backfill 2.1.0 creates in SQL Server, column by column, and the script behind each. Generated from the lab databases' own metadata after the 2.1.0 upgrade (26 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
+Every table and view copilot-audit-backfill 2.2.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of a copy of the lab database with the 2.2.0 scripts applied (26 September 2026), and of the lab's licence-event database, with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-34 tables (plus 2 left over from 1.x), 20 views, 632 columns, from 14 scripts.
+55 tables (plus 2 left over from 1.x), 27 views, 848 columns, from 16 scripts.
 
 ## Contents
 
 - [The scripts](#the-scripts)
-- [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage)
+- [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
-- [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened)
+- [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
 - [Licences and the user directory](#licences-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
 - [Licence events (licence-event database)](#licence-events-licence-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
-- [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenceStatus`](#bidimlicencestatus)
-- [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenceChange`](#bifactlicencechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.RefreshRun`](#birefreshrun)
-- [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenceChanges`](#bilicencechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenceStatuses`](#bilicencestatuses)
+- [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenceStatus`](#bidimlicencestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
+- [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenceChange`](#bifactlicencechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.RefreshRun`](#birefreshrun)
+- [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenceChanges`](#bilicencechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenceStatuses`](#bilicencestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.Agent`](#dashagent)
 - [Left over from 1.x](#left-over-from-1x)
 
 ## The scripts
@@ -25,7 +26,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 
 | Script | Database | Run | Creates |
 |---|---|---|---|
-| `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage. The shared function fnShredCopilotInteraction. |
+| `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage, PipelineSetting. The shared function fnShredCopilotInteraction, and ReportingTimeZone(). |
 | `sql/Finalize-CopilotAudit.sql` | Both | By -Finalize or -FinalizeOnly, once, after the backfill | CopilotAudit and CopilotInteraction (dropped and rebuilt from staging), vCopilotDailyUsage, vCopilotAuditRecord. |
 | `sql/Create-CopilotLoadProcedure.sql` | Both | Automatically, by every -Incremental run | usp_MergeCopilotLoad, which appends each nightly load. |
 | `sql/Create-CopilotCsvImport.sql` | Copilot (or licence, if importing there) | Automatically, by tools/Import-CopilotAuditCsv.ps1 | CopilotCsvImport, CopilotCsvFile, CopilotCsvReject, CopilotCsvStage, usp_MergeCopilotCsv. In a database with no backfill, also CopilotAudit, CopilotInteraction and their two views. Adds CopilotAudit.CsvImportId and CopilotBackfillRange.Source. |
@@ -39,10 +40,12 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-CopilotBiProcedure.sql` | Copilot | By hand, once (step 8) | bi.usp_RefreshBi. |
 | `sql/Create-LicenseEventSchema.sql` | Licence events | By hand, once (step 7) | LicenseEvent, LicenseEventChunk, LicenseEventProperty, vLicenseChange, vLicenseSkuChange, vLicenseLifecycle. |
 | `sql/Create-LicenseEventProcedure.sql` | Licence events | By hand, once (step 7) | usp_ShredLicenseEvents. |
+| `sql/Create-CopilotDashboardSchema.sql` | Copilot | By hand, once, for the dashboard (step 22) | The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun; the view dash.Agent and the function dash.fnScopeUsers. |
+| `sql/Create-CopilotDashboardProcedure.sql` | Copilot | By hand, once, for the dashboard (step 22) | dash.usp_RefreshDashboard, which the backfill's -Incremental run and the CSV importer call after bi.usp_RefreshBi. |
 
 **Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the licence-event section. The licence-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the licence-event tables and views.
 
-**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents` and `bi.usp_RefreshBi`, from the scripts above.
+**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organisation to it.
 
 ## Loading and state
 
@@ -201,6 +204,23 @@ Indexes and constraints:
 | 15 | `AuditDataGz` | varbinary(max) | yes |  |  |
 | 16 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 
+### audit.PipelineSetting
+
+*Table.* Settings the procedures read, one row each. Today one: `ReportingTimeZone`, the Windows time zone name every procedure cuts days and hours in, read through the function `audit.ReportingTimeZone()` (Eastern Standard Time when unset). Written by `Install-CopilotAudit.ps1 -ReportingTimeZone`, which refuses a change once records are loaded.
+
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and licence-event databases
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Name` | sysname | **no** | **PK** |  |
+| 2 | `Value` | nvarchar(400) | yes |  |  |
+| 3 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 4 | `UpdatedBy` | nvarchar(256) | **no** | `suser_sname` |  |
+
+Indexes and constraints:
+
+- `PK_PipelineSetting`: primary key, clustered (Name)
+
 ## Final records
 
 Every audit record once, and the slim reporting table. Built by finalize, then appended to by each load and CSV import.
@@ -298,7 +318,7 @@ One row per record with the Copilot event data shredded into columns, for report
 
 ### audit.RawLogFlattened
 
-*Table.* One row per audit record. Column names and types match dbo.RawLogFlattened, so existing reports can point here. Multi-valued parts (accessed resources, sensitivity labels, plugins) are '; '-joined lists. Filled by usp_FlattenCopilotAudit, which MERGEs.
+*Table.* One row per audit record. The first fifteen columns match dbo.RawLogFlattened, so existing reports can point here; multi-valued parts (accessed resources, sensitivity labels, plugins) are '; '-joined lists there. Since 2.2.0 every other field of the record that carries information has its own typed column, named after its JSON path; the small arrays are JSON text, NULL when empty. Filled by usp_FlattenCopilotAudit, which MERGEs.
 
 **Script** `Create-CopilotFlattenedSchema.sql` · **In** Copilot database
 
@@ -329,11 +349,116 @@ One row per record with the Copilot event data shredded into columns, for report
 | 23 | `AccessedResourceCount` | int | yes |  |  |
 | 24 | `PromptCount` | int | yes |  |  |
 | 25 | `FlattenedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 26 | `OrganizationId` | uniqueidentifier | yes |  | $.OrganizationId: the tenant. One value in a single-tenant database; kept on every row so a database can hold more than one. |
+| 27 | `UserKey` | uniqueidentifier | yes |  | $.UserKey |
+| 28 | `ClientIP` | varchar(64) | yes |  | $.ClientIP |
+| 29 | `ApplicationName` | nvarchar(200) | yes |  | $.ApplicationName |
+| 30 | `PlatformAgentId` | varchar(256) | yes |  | $.PlatformAgentId |
+| 31 | `ResultStatus` | varchar(64) | yes |  | $.ResultStatus |
+| 32 | `AppAccessContext_APIId` | varchar(64) | yes |  | $.AppAccessContext.APIId |
+| 33 | `CopilotEventData_LicenseType` | varchar(32) | yes |  | $.CopilotEventData.LicenseType: the licence the record reports (Premium, Starter ...) |
+| 34 | `CopilotEventData_ConversationId` | varchar(256) | yes |  | $.CopilotEventData.ConversationId |
+| 35 | `CopilotEventData_CorrelationId` | uniqueidentifier | yes |  | $.CopilotEventData.CorrelationId |
+| 36 | `CopilotEventData_SensitivityLabelId` | uniqueidentifier | yes |  | $.CopilotEventData.SensitivityLabelId: the interaction's own label |
+| 37 | `CopilotEventData_TargetAgentName` | nvarchar(200) | yes |  | $.CopilotEventData.TargetAgentName: an agent this one handed work to |
+| 38 | `CopilotEventData_TargetPlatformAgentId` | varchar(256) | yes |  | $.CopilotEventData.TargetPlatformAgentId |
+| 39 | `CopilotEventData_DLPEvaluationDeferred` | tinyint | yes |  | $.CopilotEventData.DLPEvaluationDeferred |
+| 40 | `CopilotEventData_MemoryUpdated` | bit | yes |  | $.CopilotEventData.MemoryUpdated |
+| 41 | `CopilotEventData_MemoryCorrelationId` | varchar(64) | yes |  | $.CopilotEventData.MemoryCorrelationId |
+| 42 | `CopilotEventData_FabricCapacityId` | uniqueidentifier | yes |  | $.CopilotEventData.FabricCapacityId |
+| 43 | `CopilotEventData_PlatformAgentId` | varchar(256) | yes |  | $.CopilotEventData.PlatformAgentId |
+| 44 | `CopilotEventData_TaskId` | uniqueidentifier | yes |  | $.CopilotEventData.TaskId |
+| 45 | `ModelVersion` | varchar(32) | yes |  | ModelTransparencyDetails[0].ModelVersion |
+| 46 | `MessageCount` | int | yes |  | Messages[*]: prompts and responses |
+| 47 | `CopilotEventData_AISystemPlugin` | nvarchar(max) | yes |  | $.CopilotEventData.AISystemPlugin as JSON text; NULL when empty |
+| 48 | `CopilotEventData_ModelTransparencyDetails` | nvarchar(max) | yes |  | $.CopilotEventData.ModelTransparencyDetails as JSON text; NULL when empty |
+| 49 | `CopilotEventData_ParticipatingAgents` | nvarchar(max) | yes |  | $.CopilotEventData.ParticipatingAgents as JSON text; NULL when empty |
+| 50 | `CopilotEventData_SourceThreadIds` | nvarchar(max) | yes |  | $.CopilotEventData.SourceThreadIds as JSON text; NULL when empty |
 
 Indexes and constraints:
 
 - `PK_RawLogFlattened_RecordId`: primary key, clustered (RecordId)
 - `IX_RawLogFlattened_UtcTimeStamp`: nonclustered (UtcTimeStamp) include (User, App)
+
+### audit.RawLogAccessedResource
+
+*Table.* One row per element of CopilotEventData.AccessedResources (2.2.0): what Copilot read, its type, site, label and policy, and whether it was blocked (a failed Status, or a Purview policy outcome other than None). Page-compressed.
+
+**Script** `Create-CopilotFlattenedSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | nvarchar(440) | **no** | **PK** | audit.RawLogFlattened (440, not 450, so the key stays under 900 bytes) |
+| 2 | `Ordinal` | smallint | **no** | **PK** | position in the array, from 0 |
+| 3 | `Action` | nvarchar(450) | yes |  | Read, Create ... |
+| 4 | `Type` | nvarchar(200) | yes |  | File, EmailMessage, TeamsMessage, a URL scheme ... |
+| 5 | `Id` | nvarchar(1000) | yes |  |  |
+| 6 | `Name` | nvarchar(4000) | yes |  |  |
+| 7 | `SiteUrl` | nvarchar(max) | yes |  |  |
+| 8 | `Site` | nvarchar(400) | yes |  | SiteUrl cut to https://host/sites/name (or /personal/name, /teams/name) |
+| 9 | `ListItemUniqueId` | uniqueidentifier | yes |  |  |
+| 10 | `SensitivityLabelId` | uniqueidentifier | yes |  |  |
+| 11 | `XPIADetected` | bit | yes |  | cross-prompt injection found in this resource |
+| 12 | `Status` | varchar(64) | yes |  |  |
+| 13 | `PolicyDetails` | nvarchar(max) | yes |  |  |
+| 14 | `PolicyOutcomes` | nvarchar(400) | yes |  | the outcomes other than None, '; '-joined |
+| 15 | `IsBlocked` | bit | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_RawLogAccessedResource`: primary key, clustered (RecordId, Ordinal)
+
+### audit.RawLogContext
+
+*Table.* One row per element of CopilotEventData.Contexts (2.2.0): where the user was during the interaction.
+
+**Script** `Create-CopilotFlattenedSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | nvarchar(440) | **no** | **PK** |  |
+| 2 | `Ordinal` | smallint | **no** | **PK** |  |
+| 3 | `Id` | nvarchar(4000) | yes |  |  |
+| 4 | `Type` | varchar(64) | yes |  |  |
+| 5 | `ContainerId` | varchar(64) | yes |  |  |
+
+Indexes and constraints:
+
+- `PK_RawLogContext`: primary key, clustered (RecordId, Ordinal)
+
+### audit.RawLogRecordShape
+
+*Table.* The seventeen fields that carry no information in a 19-million-record production profile (one value where present, or always empty), counted by combination instead of stored per row (2.2.0). The flattening reports if one of them ever takes a second value.
+
+**Script** `Create-CopilotFlattenedSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ShapeHash` | binary(32) | **no** | **PK** |  |
+| 2 | `RecordType` | smallint | yes |  |  |
+| 3 | `Operation` | varchar(64) | yes |  |  |
+| 4 | `Workload` | varchar(32) | yes |  |  |
+| 5 | `UserType` | tinyint | yes |  |  |
+| 6 | `Version` | tinyint | yes |  |  |
+| 7 | `CopilotLogVersion` | varchar(32) | yes |  |  |
+| 8 | `SubjectType` | tinyint | yes |  |  |
+| 9 | `AgentVersion` | varchar(32) | yes |  |  |
+| 10 | `AgentPlatform` | varchar(64) | yes |  |  |
+| 11 | `AgentBlueprintId` | uniqueidentifier | yes |  |  |
+| 12 | `AppAccessContext_ClientAppId` | uniqueidentifier | yes |  |  |
+| 13 | `CopilotEventData_PlatformAgentType` | varchar(64) | yes |  |  |
+| 14 | `CopilotEventData_IsSpawnTask` | bit | yes |  |  |
+| 15 | `HasAdminUnits` | bit | **no** |  | AssociatedAdminUnits or its names had a value |
+| 16 | `HasMessageIds` | bit | **no** |  | CopilotEventData.MessageIds not empty |
+| 17 | `HasGuardrailDetails` | bit | **no** |  |  |
+| 18 | `HasTargetTaskIds` | bit | **no** |  |  |
+| 19 | `Records` | bigint | **no** |  | flattened with this shape since the last full rebuild; a re-flatten counts again |
+| 20 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 21 | `LastSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_RawLogRecordShape`: primary key, clustered (ShapeHash)
 
 ## Licences and the user directory
 
@@ -399,6 +524,7 @@ Indexes and constraints:
 | 30 | `Mgr14` | nvarchar(256) | yes |  |  |
 | 31 | `Mgr15` | nvarchar(256) | yes |  |  |
 | 32 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 33 | `Sid` | varchar(184) | yes |  | the account's Windows SID (S-1-5-21-...), for matching a dashboard sign-in from another domain; added by the 2.2.0 script to an existing table |
 
 Indexes and constraints:
 
@@ -1026,6 +1152,90 @@ Indexes and constraints:
 
 - `PK_DimLicenceStatus`: primary key, clustered (LicenceStatusKey)
 
+### bi.DimLicenseType
+
+*Table.* The licence type the audit record itself reports (CopilotEventData.LicenseType), 2.2.0. Key 1 is (not reported).
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `LicenseTypeKey` | int | **no** | **PK** identity |  |
+| 2 | `LicenseType` | nvarchar(32) | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DimLicenseType`: primary key, clustered (LicenseTypeKey)
+- `UQ_DimLicenseType`: unique, nonclustered (LicenseType)
+
+### bi.DimSensitivityLabel
+
+*Table.* One row per sensitivity label id seen on an interaction or a resource it read (2.2.0). Key 1 is (none). Names are in dash.SensitivityLabel.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SensitivityLabelKey` | int | **no** | **PK** identity |  |
+| 2 | `LabelId` | uniqueidentifier | yes |  | NULL: the '(none)' row |
+| 3 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DimSensitivityLabel`: primary key, clustered (SensitivityLabelKey)
+- `UQ_DimSensitivityLabel`: unique, nonclustered (LabelId)
+
+### bi.DimResourceType
+
+*Table.* Accessed-resource types: File, EmailMessage, TeamsMessage, WebSearchQuery ... (2.2.0).
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ResourceTypeKey` | int | **no** | **PK** identity |  |
+| 2 | `ResourceType` | nvarchar(200) | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DimResourceType`: primary key, clustered (ResourceTypeKey)
+- `UQ_DimResourceType`: unique, nonclustered (ResourceType)
+
+### bi.DimResourceAction
+
+*Table.* Accessed-resource actions: Read, Create ... (2.2.0).
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ResourceActionKey` | int | **no** | **PK** identity |  |
+| 2 | `ResourceAction` | nvarchar(200) | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DimResourceAction`: primary key, clustered (ResourceActionKey)
+- `UQ_DimResourceAction`: unique, nonclustered (ResourceAction)
+
+### bi.DimSite
+
+*Table.* The site a resource lives on: https://host/sites/name (or /teams/, /personal/), otherwise the host; IsPersonal marks OneDrive (2.2.0).
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SiteKey` | int | **no** | **PK** identity |  |
+| 2 | `Site` | nvarchar(400) | **no** |  |  |
+| 3 | `Host` | nvarchar(400) | **no** |  |  |
+| 4 | `IsPersonal` | bit | **no** |  | a OneDrive (/personal/) site: it names its owner |
+| 5 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DimSite`: primary key, clustered (SiteKey)
+- `UQ_DimSite`: unique, nonclustered (Site)
+
 ## bi: facts and refresh log
 
 Narrow facts with integer keys. FactInteraction is a clustered columnstore and the only one refreshed incrementally in Power BI.
@@ -1055,10 +1265,17 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 | 15 | `PromptInjectionDetected` | bit | **no** |  |  |
 | 16 | `HasBlockedResource` | bit | **no** |  |  |
 | 17 | `HasSensitivityLabel` | bit | **no** |  |  |
+| 18 | `LicenseTypeKey` | int | **no** | `1` | bi.DimLicenseType: the licence the record reports (2.2.0) |
+| 19 | `SensitivityLabelKey` | int | **no** | `1` | bi.DimSensitivityLabel: the interaction's own label (2.2.0) |
+| 20 | `MessageCount` | int | **no** | `0` | prompts and responses (2.2.0) |
+| 21 | `MemoryUpdated` | bit | **no** | `0` | 2.2.0 |
+| 22 | `DlpEvaluationDeferred` | bit | **no** | `0` | 2.2.0 |
+| 23 | `CalledAnotherAgent` | bit | **no** | `0` | TargetAgentName set (2.2.0) |
+| 24 | `TargetAgentName` | nvarchar(400) | yes |  | the agent called, from CopilotEventData.TargetAgentName (2.2.0); the dashboard's hand-off report reads it |
 
 Indexes and constraints:
 
-- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel)
+- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenceStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
 
 ### bi.FactSession
 
@@ -1118,6 +1335,32 @@ Indexes and constraints:
 
 - `PK_FactLicensedDay`: primary key, clustered (DateKey, UserKey)
 
+### bi.FactAccessedResource
+
+*Table.* One row per resource an interaction read (2.2.0), from audit.RawLogAccessedResource: type, action, site, label, blocked and prompt-injection flags. Clustered columnstore, refreshed with the interactions.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | nvarchar(450) | **no** |  | lineage; not imported |
+| 2 | `Ordinal` | smallint | **no** |  | lineage; not imported |
+| 3 | `CreatedUtc` | datetime2(0) | **no** |  | lineage and the refresh window; not imported |
+| 4 | `ActivityHour` | datetime2(0) | **no** |  |  |
+| 5 | `DateKey` | int | **no** |  |  |
+| 6 | `UserKey` | int | **no** |  |  |
+| 7 | `AppKey` | int | **no** |  |  |
+| 8 | `ResourceTypeKey` | int | **no** |  |  |
+| 9 | `ResourceActionKey` | int | **no** |  |  |
+| 10 | `SiteKey` | int | **no** |  |  |
+| 11 | `SensitivityLabelKey` | int | **no** |  |  |
+| 12 | `IsBlocked` | bit | **no** |  |  |
+| 13 | `XPIADetected` | bit | **no** |  |  |
+
+Indexes and constraints:
+
+- `CCI_FactAccessedResource`: clustered columnstore include (RecordId, Ordinal, CreatedUtc, ActivityHour, DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey, IsBlocked, XPIADetected)
+
 ### bi.RefreshRun
 
 *Table.* One row per bi.usp_RefreshBi run: window (SinceUtc NULL is a full rebuild), time zone, licence databases, rows written, and the session build it followed.
@@ -1138,6 +1381,7 @@ Indexes and constraints:
 | 10 | `LicenceChangeRows` | int | **no** |  |  |
 | 11 | `LicensedDayRows` | int | **no** |  |  |
 | 12 | `SessionRunId` | int | yes |  | the latest audit.CopilotSessionRun it reflects |
+| 13 | `AccessedResourceRows` | bigint | yes |  |  |
 
 Indexes and constraints:
 
@@ -1163,13 +1407,19 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 6 | `AgentKey` | int | **no** |  |  |
 | 7 | `ModelKey` | int | **no** |  |  |
 | 8 | `LicenceStatusKey` | tinyint | **no** |  |  |
-| 9 | `PromptCount` | int | **no** |  |  |
-| 10 | `AccessedResourceCount` | int | **no** |  |  |
-| 11 | `UsedWebSearch` | bit | **no** |  |  |
-| 12 | `JailbreakDetected` | bit | **no** |  |  |
-| 13 | `PromptInjectionDetected` | bit | **no** |  |  |
-| 14 | `HasBlockedResource` | bit | **no** |  |  |
-| 15 | `HasSensitivityLabel` | bit | **no** |  |  |
+| 9 | `LicenseTypeKey` | int | **no** |  |  |
+| 10 | `SensitivityLabelKey` | int | **no** |  |  |
+| 11 | `PromptCount` | int | **no** |  |  |
+| 12 | `MessageCount` | int | **no** |  |  |
+| 13 | `AccessedResourceCount` | int | **no** |  |  |
+| 14 | `UsedWebSearch` | bit | **no** |  |  |
+| 15 | `JailbreakDetected` | bit | **no** |  |  |
+| 16 | `PromptInjectionDetected` | bit | **no** |  |  |
+| 17 | `HasBlockedResource` | bit | **no** |  |  |
+| 18 | `HasSensitivityLabel` | bit | **no** |  |  |
+| 19 | `MemoryUpdated` | bit | **no** |  |  |
+| 20 | `DlpEvaluationDeferred` | bit | **no** |  |  |
+| 21 | `CalledAnotherAgent` | bit | **no** |  |  |
 
 ### bi.Sessions
 
@@ -1342,6 +1592,329 @@ One view per table above, leaving out the lineage columns. The model imports the
 |--:|---|---|---|---|---|
 | 1 | `LicenceStatusKey` | tinyint | **no** |  |  |
 | 2 | `LicenceStatus` | nvarchar(20) | **no** |  |  |
+
+### bi.AccessedResources
+
+*View.* bi.FactAccessedResource for the model.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ActivityHour` | datetime2(0) | **no** |  |  |
+| 2 | `DateKey` | int | **no** |  |  |
+| 3 | `UserKey` | int | **no** |  |  |
+| 4 | `AppKey` | int | **no** |  |  |
+| 5 | `ResourceTypeKey` | int | **no** |  |  |
+| 6 | `ResourceActionKey` | int | **no** |  |  |
+| 7 | `SiteKey` | int | **no** |  |  |
+| 8 | `SensitivityLabelKey` | int | **no** |  |  |
+| 9 | `IsBlocked` | bit | **no** |  |  |
+| 10 | `XPIADetected` | bit | **no** |  |  |
+
+### bi.LicenseTypes
+
+*View.* bi.DimLicenseType for the model.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `LicenseTypeKey` | int | **no** | identity |  |
+| 2 | `LicenseType` | nvarchar(32) | **no** |  |  |
+
+### bi.SensitivityLabels
+
+*View.* bi.DimSensitivityLabel for the model, with the id as lower-case text.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SensitivityLabelKey` | int | **no** | identity |  |
+| 2 | `LabelId` | nvarchar(36) | yes |  |  |
+
+### bi.ResourceTypes
+
+*View.* bi.DimResourceType for the model.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ResourceTypeKey` | int | **no** | identity |  |
+| 2 | `ResourceType` | nvarchar(200) | **no** |  |  |
+
+### bi.ResourceActions
+
+*View.* bi.DimResourceAction for the model.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ResourceActionKey` | int | **no** | identity |  |
+| 2 | `ResourceAction` | nvarchar(200) | **no** |  |  |
+
+### bi.Sites
+
+*View.* bi.DimSite for the model.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SiteKey` | int | **no** | identity |  |
+| 2 | `Site` | nvarchar(400) | **no** |  |  |
+| 3 | `Host` | nvarchar(400) | **no** |  |  |
+| 4 | `IsPersonal` | bit | **no** |  |  |
+
+## dash: the Copilot Insights dashboard
+
+What the dashboard (dashboard/CopilotInsights, see DASHBOARD.md) keeps besides the bi schema it reads: its settings, roles, reference names and audit log, which the admin module edits, and the org chart and daily rollups dash.usp_RefreshDashboard rebuilds after each bi refresh.
+
+### dash.Setting
+
+*Table.* Settings the admin module edits: OrgTopUpn (the top of the organisation), MinGroupSize, DefaultDays, InactiveDays. Seeded; edits survive re-running the script.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Name` | varchar(64) | **no** | **PK** |  |
+| 2 | `Value` | nvarchar(400) | yes |  |  |
+| 3 | `Description` | nvarchar(400) | yes |  |  |
+| 4 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 5 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashSetting`: primary key, clustered (Name)
+
+### dash.RoleGrant
+
+*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Organization sees the whole organisation; the persona roles unlock named detail.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `GrantId` | int | **no** | **PK** identity |  |
+| 2 | `Principal` | nvarchar(256) | **no** |  | a UPN, or DOMAIN\\Group |
+| 3 | `PrincipalType` | varchar(8) | **no** |  |  |
+| 4 | `Role` | varchar(32) | **no** |  |  |
+| 5 | `Note` | nvarchar(400) | yes |  |  |
+| 6 | `GrantedBy` | nvarchar(256) | **no** |  |  |
+| 7 | `GrantedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashRoleGrant`: primary key, clustered (GrantId)
+- `UQ_DashRoleGrant`: unique, nonclustered (Principal, Role)
+- `CK_DashRoleGrant_Type`: check `([PrincipalType]='Group' OR [PrincipalType]='User')`
+- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin')`
+
+### dash.AgentAlias
+
+*Table.* Friendly names and owners for agents, which the audit log names by schema name. Edited in Admin &gt; Reference data.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AgentKey` | int | **no** | **PK** | bi.DimAgent, whose keys are stable |
+| 2 | `FriendlyName` | nvarchar(200) | **no** |  |  |
+| 3 | `Owner` | nvarchar(256) | yes |  |  |
+| 4 | `Notes` | nvarchar(400) | yes |  |  |
+| 5 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 6 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashAgentAlias`: primary key, clustered (AgentKey)
+
+### dash.SensitivityLabel
+
+*Table.* Names and order for sensitivity labels, which the audit log records by id only. Edited in Admin &gt; Reference data.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `LabelId` | nvarchar(64) | **no** | **PK** | the label GUID |
+| 2 | `Name` | nvarchar(200) | **no** |  |  |
+| 3 | `Rank` | tinyint | yes |  | ordering, least to most sensitive |
+| 4 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 5 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashSensitivityLabel`: primary key, clustered (LabelId)
+
+### dash.AuditLog
+
+*Table.* Every page view, refusal, export and admin change: who, what page, what scope, what filters or change, and from where.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `LogId` | bigint | **no** | **PK** identity |  |
+| 2 | `AtUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 3 | `Viewer` | nvarchar(256) | **no** |  | the resolved UPN, or the Windows name if none |
+| 4 | `Kind` | varchar(12) | **no** |  | View \| Denied \| Export \| Admin |
+| 5 | `Page` | nvarchar(200) | yes |  |  |
+| 6 | `Scope` | nvarchar(400) | yes |  | Organization, or the subtree root shown |
+| 7 | `Detail` | nvarchar(2000) | yes |  | filters, or what an admin change did |
+| 8 | `ClientIp` | varchar(64) | yes |  |  |
+
+Indexes and constraints:
+
+- `PK_DashAuditLog`: primary key, clustered (LogId)
+- `IX_DashAuditLog_At`: nonclustered (AtUtc)
+- `IX_DashAuditLog_Viewer`: nonclustered (Viewer, AtUtc)
+
+### dash.Person
+
+*Table.* One row per person in the user directory (and each manager missing from it), with their level below the top and how many people are under them. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Upn` | nvarchar(256) | **no** | **PK** |  |
+| 2 | `DisplayName` | nvarchar(256) | yes |  |  |
+| 3 | `ManagerUpn` | nvarchar(256) | yes |  |  |
+| 4 | `Department` | nvarchar(200) | yes |  |  |
+| 5 | `AccountEnabled` | bit | yes |  |  |
+| 6 | `Level` | tinyint | yes |  | 1 = OrgTopUpn, 2 = reports to them, ...; NULL when not under the top (or no top set) |
+| 7 | `DirectReports` | int | **no** |  |  |
+| 8 | `PeopleBelow` | int | **no** |  | everyone under them, at any depth |
+| 9 | `Sid` | varchar(184) | yes |  | from audit.UserDirectory.Sid: the dashboard matches a Windows sign-in by it |
+
+Indexes and constraints:
+
+- `PK_DashPerson`: primary key, clustered (Upn)
+- `IX_DashPerson_Manager`: nonclustered (ManagerUpn)
+- `IX_DashPerson_Sid`: nonclustered (Sid)
+
+### dash.OrgClosure
+
+*Table.* Every (manager, person under them) pair at any depth, and each person with themselves at depth 0: the security model's scope. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AncestorUpn` | nvarchar(256) | **no** | **PK** |  |
+| 2 | `DescendantUpn` | nvarchar(256) | **no** | **PK** |  |
+| 3 | `Depth` | tinyint | **no** |  | 0 = the person themselves |
+
+Indexes and constraints:
+
+- `PK_DashOrgClosure`: primary key, nonclustered (AncestorUpn, DescendantUpn)
+
+### dash.UserDay
+
+*Table.* One row per person per day with any use or session: the daily rollup behind every page, so the 7- to 365-day periods are exact.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `DateKey` | int | **no** | **PK** | bi.DimDate, in the reporting time zone |
+| 2 | `UserKey` | int | **no** | **PK** | bi.DimUser |
+| 3 | `Interactions` | int | **no** |  |  |
+| 4 | `Prompts` | int | **no** |  |  |
+| 5 | `AppsUsed` | tinyint | **no** |  |  |
+| 6 | `AgentInteractions` | int | **no** |  | interactions with an agent, not Copilot itself |
+| 7 | `WebGrounded` | int | **no** |  |  |
+| 8 | `ChatInteractions` | int | **no** |  | in Copilot Chat apps (bi.DimApp.AppCategory) |
+| 9 | `LicensedUse` | int | **no** |  | interactions made while licensed |
+| 10 | `Jailbreak` | int | **no** |  |  |
+| 11 | `PromptInjection` | int | **no** |  |  |
+| 12 | `BlockedResource` | int | **no** |  |  |
+| 13 | `LabelledContent` | int | **no** |  | interactions that touched sensitivity-labelled content |
+| 14 | `Sessions` | int | **no** |  | sessions that started that day |
+| 15 | `MultiTurnSessions` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashUserDay`: primary key, clustered (DateKey, UserKey)
+- `IX_DashUserDay_User`: nonclustered (UserKey, DateKey)
+
+### dash.ResourceDay
+
+*Table.* Labels on content Copilot read, the sites of labelled content, and the sites it was blocked from, per person per day, from bi.FactAccessedResource.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `DateKey` | int | **no** | **PK** |  |
+| 2 | `UserKey` | int | **no** | **PK** |  |
+| 3 | `Kind` | varchar(8) | **no** | **PK** |  |
+| 4 | `Item` | nvarchar(400) | **no** | **PK** |  |
+| 5 | `Interactions` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashResourceDay`: primary key, clustered (DateKey, Kind, UserKey, Item)
+- `CK_DashResourceDay_Kind`: check `([Kind]='Blocked' OR [Kind]='Site' OR [Kind]='Label')`
+
+### dash.AgentUse
+
+*Table.* When each agent was first and last used, from the facts. Rebuilt whole by each refresh.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AgentKey` | int | **no** | **PK** |  |
+| 2 | `FirstDateKey` | int | **no** |  |  |
+| 3 | `LastDateKey` | int | **no** |  |  |
+| 4 | `Interactions` | bigint | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashAgentUse`: primary key, clustered (AgentKey)
+
+### dash.RefreshRun
+
+*Table.* One row per dashboard refresh: when, from which day, and how many people, org pairs and person-days it wrote.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RunId` | int | **no** | **PK** identity |  |
+| 2 | `StartedUtc` | datetime2(0) | **no** |  |  |
+| 3 | `EndedUtc` | datetime2(0) | **no** |  |  |
+| 4 | `SinceUtc` | datetime2(0) | yes |  | NULL: every day rebuilt |
+| 5 | `FromDateKey` | int | yes |  |  |
+| 6 | `People` | int | **no** |  |  |
+| 7 | `ClosureRows` | int | **no** |  |  |
+| 8 | `UserDayRows` | int | **no** |  |  |
+
+Indexes and constraints:
+
+- `PK_DashRefreshRun`: primary key, clustered (RunId)
+
+### dash.Agent
+
+*View.* Agents with their friendly name, owner and first use.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AgentKey` | int | **no** |  |  |
+| 2 | `AgentId` | nvarchar(400) | **no** |  |  |
+| 3 | `AgentSource` | nvarchar(30) | yes |  |  |
+| 4 | `AgentName` | nvarchar(400) | yes |  |  |
+| 5 | `AuditName` | nvarchar(400) | yes |  |  |
+| 6 | `Owner` | nvarchar(256) | yes |  |  |
+| 7 | `FirstSeenUtc` | datetime2(0) | yes |  |  |
 
 ## Left over from 1.x
 

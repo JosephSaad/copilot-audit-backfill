@@ -1,0 +1,57 @@
+@{
+    var page = Model as InsightsPage;
+    var viewer = page?.Viewer;
+    var path = Context.Request.Path.Value?.TrimEnd('/') ?? "";
+    if (path == "") path = "/";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@(page?.Title ?? "Copilot Insights") · Copilot Insights</title>
+    <link rel="stylesheet" href="~/site.css" asp-append-version="true" />
+    <script src="~/theme.js" asp-append-version="true"></script>
+</head>
+<body>
+<header class="top">
+    <a class="brand" href="/">Copilot Insights</a>
+    @if (viewer is not null)
+    {
+        <div class="who">
+            @if (viewer.ViewingAsBy is not null)
+            {
+                <span class="as">Viewing as <b>@viewer.Name</b> · <a href="?as=">stop</a></span>
+            }
+            else
+            {
+                <span>@viewer.Name</span>
+            }
+            <span class="scope-pill">@(viewer.OrgWide ? "Whole organisation" : viewer.InDirectory ? (viewer.PeopleBelow > 0 ? $"You and {viewer.PeopleBelow:#,0} people under you" : "Your own use") : "Not in the directory")</span>
+            <button type="button" class="theme" id="theme-toggle" aria-label="Switch light or dark theme">◐</button>
+        </div>
+    }
+</header>
+<div class="shell">
+    <nav class="side" aria-label="Personas">
+        <a class="home @(path == "/" ? "on" : "")" href="/">Start</a>
+        @foreach (var g in Nav.For(viewer))
+        {
+            <div class="grp">
+                <div class="gname">@g.Persona</div>
+                @foreach (var p in g.Pages)
+                {
+                    var href = page?.Ctx is null || p.Admin ? p.Path : page.Ctx.Url(p.Path);
+                    <a class="@(path == p.Path ? "on" : "")" href="@href">@p.Title</a>
+                }
+            </div>
+        }
+    </nav>
+    <main>
+        @RenderBody()
+    </main>
+</div>
+<div id="tip" role="tooltip" hidden></div>
+<script src="~/site.js" asp-append-version="true"></script>
+</body>
+</html>

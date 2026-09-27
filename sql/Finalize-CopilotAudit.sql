@@ -30,6 +30,9 @@ SET NOCOUNT ON;
 SET XACT_ABORT ON;
 
 DECLARE @ReportingTimeZone SYSNAME = N'Eastern Standard Time';   -- Windows zone name; handles EST/EDT
+-- The zone Install-CopilotAudit.ps1 -ReportingTimeZone stored, when there is one.
+IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
+    EXEC sys.sp_executesql N'SET @z = audit.ReportingTimeZone();', N'@z SYSNAME OUTPUT', @z = @ReportingTimeZone OUTPUT;
 DECLARE @msg NVARCHAR(400);
 
 /* ---- 1. Guard ---------------------------------------------------------- */

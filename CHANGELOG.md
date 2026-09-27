@@ -4,10 +4,121 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-09-27
+
+Setting up is now two commands on the job server, with nothing typed into SQL
+or clicked through in the Entra portal. The rest of the release: every field in
+the audit record is flattened and carried into `bi`, a web dashboard for every
+persona with forecasts and licence recommendations, and sign-in matching when
+the web servers and the users are in different domains.
+
+### Setting up
+
+```powershell
+.\tools\Install-CopilotJobServer.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\gmsa-copilot$' `
+    -TargetDomain users.contoso.com -TenantId contoso.onmicrosoft.com -RegisterApp
+.\Invoke-CopilotPipeline.ps1 -History
+```
+
+`docs/DEPLOYMENT.md` walks through both, step by step.
+
+### Upgrading from 2.1.0
+
+1. Back up both databases.
+2. Replace the scripts with this release's.
+3. Run `.\Install-CopilotAudit.ps1 -SqlServer <server>` once. It upgrades every object, flattens every record again (the flattened table gains columns), and rebuilds sessions and `bi` in full.
+4. Refresh the Power BI model in full, and add the new `bi` views if you want them.
+5. To move from a hand-written `Run-Nightly.ps1` to the shipped runner, run `tools\Install-CopilotJobServer.ps1` with the values that script used. It writes the settings file and re-registers the task.
+
+### Added
+
+- **One-command provisioning.**
+  - `tools/Install-CopilotJobServer.ps1` sets up the job server: the certificate (self-signed, or yours by thumbprint), the service account's Read on its private key, *Log on as a batch job*, the gMSA check, connectivity to Entra and Graph, both databases, the app registration, a settings file (`copilot-audit.settings.psd1`) and the nightly scheduled task. It is idempotent: run it again with no parameters, and it redoes only what is missing, including renewing a certificate within 30 days of expiry.
+  - `tools/New-CopilotAuditApp.ps1` registers the Entra app from PowerShell. It asks for the three Graph application permissions and nothing else, grants their admin consent and uploads the certificate, keeping any certificate already there.
+  - `Invoke-CopilotPipeline.ps1` replaces the hand-written nightly script. It runs the four nightly steps from the settings file, each in its own process, stopping at the first failure. With `-History`, it loads and builds the history in one resumable command.
+- **The reporting time zone is a setting.** `Install-CopilotAudit.ps1 -ReportingTimeZone` stores it in both databases (`audit.PipelineSetting`, read through `audit.ReportingTimeZone()`), and every procedure uses it. It replaces editing the default in five scripts. It is refused once records are loaded, so history can't be cut in two zones.
+- **`Install-CopilotAudit.ps1`**: creates the databases, installs every object in dependency order, grants the service and reporting accounts, and builds whatever the data calls for (licence events, the first full build, the 2.2.0 re-flatten). **`tools/Invoke-CopilotMaintenance.ps1`**: status, rebuilds, app categories, roles, dashboard settings, agent and label names, and JSON retention, each written to the dashboard's audit log. Nothing day to day needs SQL typed by hand.
+- **Every informative field of the audit record is flattened.** Typed columns are named after their JSON paths. Each accessed resource and each context item is a row of its own (`audit.RawLogAccessedResource`, `audit.RawLogContext`). Fields that never carry information are counted per combination in `audit.RawLogRecordShape`, and the flatten raises a note if one ever takes a second value. `OrganizationId` stays on every row for a multi-tenant future.
+- **In `bi`:**
+  - dimensions for licence type, sensitivity label, resource type, resource action and site;
+  - `bi.FactAccessedResource`, one row per resource an interaction read, with its site and whether it was blocked;
+  - on the interaction fact: licence type, label, message count, memory updates, deferred data-loss checks and agent-to-agent calls;
+  - views: `AccessedResources`, `LicenseTypes`, `SensitivityLabels`, `ResourceTypes`, `ResourceActions`, `Sites`.
+- **Forecasting and licence recommendations** in the dashboard. Weekly series are projected 13, 26 or 52 weeks ahead by damped-trend exponential smoothing, with 95% intervals. The recommendations are priced by a monthly licence cost set in Admin:
+  - upgrade proven Copilot Chat users;
+  - train light Premium users;
+  - revoke licences unused for 30 days, and reassign them;
+  - the right licence count for the next quarter.
+
+  Each comes with the named list behind it, for the Licensing role.
+- **More personas and reports:**
+  - *My Copilot*, every employee's own use against the organisation's median;
+  - licence changes: time held before removal, removals from people still using it, licences given back;
+  - a leadership scorecard;
+  - retention and habit cohorts;
+  - signals and labelled content by unit;
+  - agent hand-offs;
+  - conversation depth;
+  - governance controls;
+  - regions and working patterns;
+  - workforce attributes and managers' teams;
+  - app owners' pages.
+
+  All come from the same three Graph permissions and on-premises AD.
+- **Web servers in one domain, users in another.** The directory load keeps each account's SID (`audit.UserDirectory.Sid`, `dash.Person.Sid`), and the dashboard matches a Windows sign-in by it. The users' domain isn't contacted at sign-in.
+- **The top of the organisation is found.** With no `OrgTopUpn`, the dashboard uses the one person with no manager who has at least half the directory under them.
+- **Copilot Insights, a web dashboard** (`dashboard/CopilotInsights`): ASP.NET Core 10
+  Razor Pages in IIS on Windows Server 2022+, Windows sign-in, reading `bi` and a new
+  `dash` schema. Pages for eight personas - Leadership, Adoption, Licensing, Security,
+  Compliance, Agents, Enablement, Governance - with server-drawn charts, periods of 7,
+  14, 30, 90, 180 or 365 days, and every list of people paged in SQL, searchable,
+  sortable and exportable to CSV.
+- **A security model from the org chart.** The top of the organisation (`OrgTopUpn`) and
+  their direct reports see everything, as does anyone granted *Organization*; everyone
+  else sees themselves and the people under them, at any depth, and can look inside
+  their own part only. Named lists need a persona role and stay in scope. Groups smaller
+  than five are folded together. The navigation and start page list only what the
+  viewer can open. Every view, refusal, export and admin change is logged.
+- **An admin module:** settings and the top of the organisation, role grants to people
+  or AD groups, effective-access checks, agent and label names, app categories, pipeline
+  health with a manual refresh, and the audit log. The first administrators come from
+  the site's configuration (`-AdminPrincipal`), so there is always a way in.
+- `sql/Create-CopilotDashboardSchema.sql` and `sql/Create-CopilotDashboardProcedure.sql`:
+  the `dash` tables, `dash.fnScopeUsers`, `dash.Agent`, and `dash.usp_RefreshDashboard`,
+  which rebuilds the org closure from `audit.UserDirectory` and the daily per-person
+  rollups (`dash.UserDay`, `dash.ResourceDay`) from a given day. The backfill's
+  `-Incremental` run and the CSV importer call it after `bi.usp_RefreshBi` when it is
+  installed. The dashboard's account can run it without ALTER on its tables.
+- `dashboard/Install-CopilotInsights.ps1`: IIS role services, the Hosting Bundle check,
+  the site files, `appsettings.Production.json`, app pool and site, Windows
+  authentication, and the database grants. Idempotent.
+- `dashboard/demo/New-InsightsDemo.ps1`: a synthetic 2,317-person company built with the
+  repository's own scripts, with one person per persona role, to try every page and the
+  security model on.
+- Tests: section 14 of `Test-SqlIntegration.ps1` (levels, the closure with a
+  self-managed top, a manager loop and a missing manager, scope, rollups against the
+  facts, labels and sites, incremental refresh, a refresh without ALTER), and
+  `dashboard/CopilotInsights.Tests` for the access rules, paging, periods, CSV export and
+  charts. CI builds, tests and publishes the dashboard.
+
+### Changed
+
+- **Flattening finds its batches faster.** The records to do are keyed once at the start, rather than found in the columnstore for each 200,000-record batch. At 40 million records that search was half the flatten, which now takes about 6½ hours instead of about 10.
+- **Adoption can't pass 100%.** The Power BI starting-point measure `[Active licensed users]`, and the dashboard, count only people who still hold a licence at the end of the period (or of each week) and used Copilot while licensed. Before, someone whose licence was removed during the period counted as active and licensed, but not in `[Licensed users]`.
+
+### Tested at 40 million interactions
+
+70,000 people, 17,692 licensed, a year of records: flattening in 6 h 28 min, sessions in 32 min, `bi` in 43 min, the dashboard's rollups in 96 s; a nightly run from 48 hours back in about 7½ minutes. Counts agreed across `audit`, `bi` and the dashboard. Every dashboard page opened in under 9 seconds for 180 days, viewed as the top of the organisation, after fixes to the pages that took up to 105 seconds. `docs/DEPLOYMENT.md` has the figures and the space each table takes.
 
 ### Documentation
 
+- `docs/DEPLOYMENT.md`: the 40-million-interaction test under *What has run in the lab*, and the space table, step 11's time and the nightly cost updated from it.
+- `docs/DEPLOYMENT.md` leads with the two setup commands. Steps 2-4 and 12-13 now describe what the scripts do, with the manual alternatives for split teams. The certificate, private key, batch-logon right, scheduled task and time zone need no hand steps.
+- `docs/DASHBOARD.md`: servers in one domain and users in another. Which trust direction is needed for what, how sign-ins are matched, grants from the users' domain, and Kerberos across a forest trust.
+- `docs/DASHBOARD.md`: every page by persona, who sees what, periods, paging and
+  exports, the IIS install, enrolling the first administrator, running it, and what is
+  not yet proven. `docs/DEPLOYMENT.md` Phase 7 (steps 22-24), RUNBOOK section 5f, and
+  the `dash` schema in `docs/SCHEMA.md`.
 - `docs/SCHEMA.md`: every table and view, column by column - type, NULL,
   default, key, indexes and the DDL's own notes - with the fourteen scripts
   that create them, what each creates, where it runs and whether it runs by
@@ -658,6 +769,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0
 [2.1.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.1.0
 [2.0.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.0.0
 [1.6.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v1.6.0

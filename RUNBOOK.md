@@ -113,9 +113,9 @@ After the backfill is finalized, schedule `-Incremental`. Each run:
 3. Runs `audit.usp_MergeCopilotLoad`: checks the load covers its range with no gap, appends the records `audit.CopilotAudit` does not already hold (tagged with `LoadId`) and their shredded rows to `audit.CopilotInteraction` in one transaction, and empties the load tables.
 4. Refreshes the derived tables that are installed: `usp_FlattenCopilotAudit` and `usp_ShredLicenseEvents` from the load's start, then `usp_BuildCopilotSessions` from local midnight of the load's start's day, then `bi.usp_RefreshBi`. `-SkipPostProcessing` stops after the merge.
 
-**Sessions are rebuilt incrementally.** A session never crosses midnight, so only the days from the load's start can change: those sessions are replaced, numbering carries on from the ones kept, and the weeks containing those days are recomputed. The result equals a full rebuild over the same rows, except that sessions already built keep the department and licence flag they were built with. It matters at scale: rebuilding every session took 28 minutes and 24 GB of tempdb at 40M interactions, and grows with every day of history kept.
+**Sessions are rebuilt incrementally.** A session never crosses midnight, so only the days from the load's start can change: those sessions are replaced, numbering carries on from the ones kept, and the weeks containing those days are recomputed. The result equals a full rebuild over the same rows, except that sessions already built keep the department and licence flag they were built with. It matters at scale: rebuilding every session took 32 minutes and 25 GB of tempdb at 40M interactions, and grows with every day of history kept.
 
-Rebuild every session (`EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'...';`, no `@SinceUtc`) after changing a session setting - timeout, context fallback, time zone, metric version or licence databases. An incremental build refuses to mix settings, so the nightly load fails with `different settings` until you do. After upgrading from a version before incremental sessions, run `sql/Create-CopilotSessionSchema.sql` and `sql/Create-CopilotBiSchema.sql` again.
+Rebuild every session (`.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task RebuildSessions`) after changing a session setting - timeout, context fallback, time zone, metric version or licence databases. An incremental build refuses to mix settings, so the nightly load fails with `different settings` until you do. After upgrading to any new release, run `.\Install-CopilotAudit.ps1 -SqlServer <server>` once: it upgrades every object and does whatever one-off rebuild the release needs.
 
 `audit.CopilotLoad` keeps one row per load with its range and how many records were new or already there; `-Status` lists the latest. Once a load has been merged, `-Finalize` refuses to run: it rebuilds from the backfill's staging table and would drop the loaded days.
 
@@ -140,29 +140,13 @@ Rebuild every session (`EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabas
 - Not needed on the app: SQL Server access (the task account's Windows or SQL login, section 1), the Power BI gateway and semantic model (they connect to SQL with their own credentials), and the dashboard.
 - Signing in interactively (no `-CertificateThumbprint`) uses *delegated* permissions instead: the same names under **Delegated**, on *Microsoft Graph Command Line Tools* by default or on your own app with `-ClientId`, plus the Purview audit role for the person.
 
-**The scheduled task.** Daily, as a service account with `db_owner` (or the rights in section 1) on the database and read access to the certificate's private key:
-
-```powershell
-$taskArgs = '-NoProfile -File "D:\CopilotAudit\Invoke-CopilotAuditBackfill.ps1" -SqlServer SQLPROD01 -Database CopilotAudit ' +
-            '-Incremental -TenantId contoso.onmicrosoft.com -ClientId <app-id> -CertificateThumbprint <thumbprint> ' +
-            '-LogPath D:\CopilotAudit\logs\incremental.log'
-$cred = Get-Credential 'DOMAIN\svc-copilotaudit'
-Register-ScheduledTask -TaskName 'Copilot audit - incremental' `
-    -Action (New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument $taskArgs) `
-    -Trigger (New-ScheduledTaskTrigger -Daily -At 3am) `
-    -User $cred.UserName -Password $cred.GetNetworkCredential().Password
-```
-
-A group managed service account avoids storing a password at all. Schedule the Power BI refresh after the task. A failed run exits non-zero, so the task history shows it; the next run resumes the same load.
+**The scheduled task.** `tools\Install-CopilotJobServer.ps1` registers it: *Copilot audit - nightly*, daily, as the service account, running `Invoke-CopilotPipeline.ps1`. That script runs the directory load, the licence tool and both `-Incremental` loads, in order, from `copilot-audit.settings.psd1`. The account needs `db_owner` (or the rights in section 1) and read access to the certificate's private key, and the installer grants both. A group managed service account avoids storing a password at all; for any other account, pass `-ServiceAccountCredential`. Schedule the Power BI refresh after the task. A failed run exits non-zero, so the task history shows it; the next run resumes the same load.
 
 ## 5c. The Power BI star schema
 
-The `bi` schema is what a Power BI semantic model imports: narrow facts with integer keys (`bi.Interactions`, `bi.Sessions`, `bi.LicenceChanges`, `bi.LicensedDays`) and their dimensions. The README's [Power BI section](README.md#power-bi-the-bi-schema) describes the model.
+The `bi` schema is what a Power BI semantic model imports: narrow facts with integer keys (`bi.Interactions`, `bi.AccessedResources`, `bi.Sessions`, `bi.LicenceChanges`, `bi.LicensedDays`) and their dimensions. The README's [Power BI section](README.md#power-bi-the-bi-schema) describes the model.
 
-**Install and build it once**, in the audit database, after `sql/Create-CopilotFlattenedSchema.sql` and `sql/Create-CopilotSessionSchema.sql`:
-
-1. Run `sql/Create-CopilotBiSchema.sql`, then `sql/Create-CopilotBiProcedure.sql`.
-2. `EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'<licence database(s)>';` builds everything. It reports what it wrote; `bi.RefreshRun` keeps one row per refresh.
+**Install and build it once:** `.\Install-CopilotAudit.ps1 -SqlServer <server> -LicenceEventDatabases <licence database(s)>` installs it with everything else and builds it the first time there is data. It reports what it wrote; `bi.RefreshRun` keeps one row per refresh.
 
 **Keeping it current.** Once the procedure is installed, every `-Incremental` run calls it last, with the load's start as `@SinceUtc` and `-SessionLicenceDatabase` as `@LicenceEventDatabase`. A partial refresh replaces its window in one transaction, so a model refreshing at the same time never sees it half-written. Sessions follow the session builds: only the days an incremental build rebuilt are copied, and after a full session build (which renumbers every session) all of them. Schedule the model's refresh after the task.
 
@@ -171,14 +155,13 @@ The `bi` schema is what a Power BI semantic model imports: narrow facts with int
 - the reporting time zone changes. A partial refresh in a different zone is refused, because rows already written carry the old zone's dates.
 - licence history arrives for a period already built. A row's licence status is fixed when it is written.
 - flattened rows are purged (`usp_PurgeCopilotAuditJson @PurgeFlattened = 1`). The fact keeps them until rebuilt.
+- the flattened records were re-flattened in full, as the upgrade to 2.2.0 asks. The facts carry what the flattening wrote when they were built.
+
+**Flattening (2.2.0).** `audit.usp_FlattenCopilotAudit` writes every informative field of each record into `audit.RawLogFlattened`, and a row per accessed resource and context into `audit.RawLogAccessedResource` and `audit.RawLogContext`, replacing a record's element rows each time it is flattened. The fields that never vary are counted in `audit.RawLogRecordShape` instead of stored; if the flatten says one of them *now carries information*, look there, and add a column if the difference matters. A full re-flatten (`-Task Reflatten`) is safe after a JSON purge: records with no JSON left are skipped.
 
 A full rebuild commits a month at a time to keep the log small, so don't refresh the model while one runs.
 
-**The gateway's access.** The Power BI gateway's SQL login needs to read the views and nothing else:
-
-```sql
-GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
-```
+**The gateway's access.** The Power BI gateway's SQL login needs to read the views and nothing else: `.\Install-CopilotAudit.ps1 -SqlServer <server> -ReportingAccount 'DOMAIN\svc-pbigateway'` grants it.
 
 ## 5d. The user directory, from on-premises AD
 
@@ -226,6 +209,23 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 
 **Different from the Graph path.** `ClientIp` is filled from `AuditData.ClientIP`, which the Graph path leaves empty; the export's `AssociatedAdminUnitsNames` is not kept. Everything the reports read is the same.
 
+## 5f. The Copilot Insights dashboard
+
+A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `dash` schema. [docs/DASHBOARD.md](docs/DASHBOARD.md) has the pages, the security model and the install; [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) steps 22-24 the order.
+
+- **Refresh:** `dash.usp_RefreshDashboard @SinceUtc` runs last in every `-Incremental` run and CSV import, after `bi.usp_RefreshBi`, from the same day. It rebuilds the org chart (`dash.Person`, `dash.OrgClosure`) from `audit.UserDirectory` in full each time, and the daily rollups (`dash.UserDay`, `dash.ResourceDay`) from that day. `.\tools\Invoke-CopilotMaintenance.ps1 -Task RefreshDashboard` rebuilds everything; so does Admin › Health › Rebuild.
+- **Who sees what:** the person in `dash.Setting` `OrgTopUpn` and their direct reports see the whole organisation, as does anyone granted Organization; everyone else sees themselves and the people under them. Named lists need a persona role. Admin alone shows no data.
+- **Locked out:** the installer's `-AdminPrincipal` (`Insights:BootstrapAdmins` in `appsettings.Production.json`) are always administrators. Failing that, run the installer again with `-AdminPrincipal`, or `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task GrantRole -Principal 'CORP\Copilot-Insights-Admins' -Role Admin`.
+- **Who looked at what:** `dash.AuditLog`, or Admin › Audit log.
+
+| Symptom | Cause and fix |
+|---|---|
+| Everyone sees only their own use, even executives | No top of the organisation: none is set and no one person has half the directory under them, or the one set is not in the directory (Admin › Health says which). Set it in Admin › Access, or `-Task SetOrgTop -Upn ceo@...`; it applies at once. |
+| Someone sees nothing: "not in the directory" | Their sign-in did not resolve to a UPN in `audit.UserDirectory`: another domain, a new starter before tonight's AD export, or an account AD cannot resolve (map it under `Insights:IdentityMap`). |
+| The browser keeps asking for a password | The host name is not in the Local intranet zone, or its SPN is missing or on the wrong account (`setspn -Q HTTP/<host>`). |
+| HTTP 500.19 or 500.30 from IIS | The ASP.NET Core 10 Hosting Bundle is missing, or was installed before IIS: repair it and restart IIS. |
+| A page is slow at a long period | Check `dash.RefreshRun` ran after the last `bi` refresh, and that the `dash` indexes exist (re-run the schema script). |
+
 ## 6. How it stays inside Microsoft's limits
 
 | Published limit (Graph throttling docs) | What the engine does |
@@ -259,7 +259,7 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 | `-Incremental`: `Run a backfill to completion in this database first` | Loads continue from a finalized backfill. Run one (even a single day) and `-FinalizeOnly`. |
 | `-Incremental`: `Merge refused: ... gap(s)` | A load's windows do not cover its range. Inspect `audit.CopilotLoadWindow`; the next run resumes the load. |
 | `-Incremental`: `The last session build used different settings` | A session setting changed. Rebuild every session once (section 5b); the next load continues incrementally. |
-| `bi.usp_RefreshBi`: `needs a full rebuild` | The reporting time zone differs from the last refresh. Run `EXEC bi.usp_RefreshBi @SinceUtc = NULL, ...` once in the new zone. |
+| `bi.usp_RefreshBi`: `needs a full rebuild` | The reporting time zone differs from the last refresh. Run `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task RebuildBi` once in the new zone. |
 | `-Incremental` app-only: `token lacks the application permission` | The app has the delegated permission, or consent was not granted. Add `AuditLogsQuery.Read.All` under **Application** permissions and grant consent. |
 | Licence tool app-only: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. See section 5b. |
 | User directory: `Could not read RootDSE` | The domain name is wrong, the trust does not reach it, or the account running the script is not trusted there. Try `-TargetDomain` with a domain controller's name. |
@@ -281,6 +281,8 @@ GRANT SELECT ON SCHEMA::bi TO [DOMAIN\svc-pbigateway];
 | `sql/Create-CopilotLoadProcedure.sql` | `audit.usp_MergeCopilotLoad`, which appends each `-Incremental` load. Installed automatically. |
 | `sql/Create-CopilotBiSchema.sql` / `sql/Create-CopilotBiProcedure.sql` | The `bi` star schema and `bi.usp_RefreshBi` (section 5c). |
 | `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory from on-premises AD (section 5d). |
+| `sql/Create-CopilotDashboardSchema.sql` / `sql/Create-CopilotDashboardProcedure.sql` | The dashboard's `dash` schema and `dash.usp_RefreshDashboard` (section 5f). |
+| `dashboard/` | The Copilot Insights web dashboard, its IIS installer, demo and tests (section 5f). |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licences, from Microsoft Graph. |
 | `tools/Import-CopilotAuditCsv.ps1` / `sql/Create-CopilotCsvImport.sql` | Purview CSV exports into the same tables (section 5e). |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |

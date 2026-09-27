@@ -11,7 +11,7 @@ Purview audit searches ──► parallel page downloads ──► bounded queue
 
 PowerShell 7 drives it; the pipeline engine is C# compiled in memory at start, so there are no binaries to ship or trust. State lives in SQL, so stopping and restarting is always safe.
 
-**[RUNBOOK.md](RUNBOOK.md) is the full documentation** — limits, tuning, troubleshooting, and what the finalized tables contain. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** walks through a new install step by step, from the app registration to the nightly job, the Power BI model and its Copilot agent. **[docs/SCHEMA.md](docs/SCHEMA.md)** lists every table and view, column by column, and the script that creates it. This README is the short version.
+**[RUNBOOK.md](RUNBOOK.md) is the full documentation** — limits, tuning, troubleshooting, and what the finalized tables contain. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** walks through a new install step by step, from the app registration to the nightly job, the Power BI model and its Copilot agent. **[docs/SCHEMA.md](docs/SCHEMA.md)** lists every table and view, column by column, and the script that creates it. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** covers the Copilot Insights web dashboard. This README is the short version.
 
 ## Prerequisites
 
@@ -40,7 +40,24 @@ PowerShell 7 drives it; the pipeline engine is C# compiled in memory at start, s
 
 ## Quick start
 
-Smoke test one day into a scratch database first, and compare the row count against the same day searched in the Purview portal:
+**A production job server** takes two commands. Run the first in an elevated PowerShell 7 window, as a SQL Server sysadmin; you sign in once as an admin who can grant consent:
+
+```powershell
+.\tools\Install-CopilotJobServer.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\gmsa-copilot$' `
+    -TargetDomain users.contoso.com -TenantId contoso.onmicrosoft.com -RegisterApp
+.\Invoke-CopilotPipeline.ps1 -History
+```
+
+The first command does the setup:
+
+- the certificate, the gMSA's access to its private key, and its *Log on as a batch job* right;
+- both databases and every SQL object;
+- the app registration, with its three permissions, their admin consent and the certificate;
+- a settings file, and the nightly task.
+
+The second loads 180 days of history and builds everything. From then on, the task runs `Invoke-CopilotPipeline.ps1` every night. [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) walks through it step by step, with the alternatives for when a DBA or an identity team does their part separately.
+
+**Trying it interactively,** signed in as yourself: smoke-test one day into a scratch database first, and compare the row count against the same day searched in the Purview portal:
 
 ```powershell
 .\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLDEV01 -Database CopilotAuditTest `
@@ -128,7 +145,8 @@ Each release also carries a prebuilt `...-offline-win-x64.zip` with the module a
 | `audit.vCopilotAuditRecord` | The same records in the **Purview export's shape**, with `AuditData` decompressed. SQL written against the portal CSV import can point here. |
 | `audit.CopilotInteraction` | Slim reporting table: activity date, user, app host, model, prompt and resource counts, web grounding. |
 | `audit.vCopilotDailyUsage` | Interactions, active users, prompts and web-grounded interactions per day per app. Ready for Power BI. |
-| `audit.RawLogFlattened` | One row per record with `CopilotEventData` shredded into columns — accessed resources and their locations, sensitivity labels, plugins, jailbreak and prompt-injection flags. |
+| `audit.RawLogFlattened` | One row per record with `CopilotEventData` shredded into columns — accessed resources and their locations, sensitivity labels, plugins, jailbreak and prompt-injection flags — and every other field of the record that carries information in its own typed column (2.2.0). |
+| `audit.RawLogAccessedResource`, `audit.RawLogContext` | One row per element of the record's `AccessedResources` and `Contexts` arrays: type, site, label, policy outcome, blocked, prompt injection (2.2.0). |
 | `audit.vCopilotAdoption` | Licensed users against actual usage, with `NeverUsed` and `DaysToFirstUse`. Needs the enrichment step below. |
 | `audit.vCopilotUsageByDepartment` | Usage per department, day and app. Needs the enrichment step below. |
 | `bi.*` | A star schema for a Power BI semantic model: interaction, session and licence facts with integer keys, and their dimensions. See [Power BI: the `bi` schema](#power-bi-the-bi-schema). |
@@ -140,20 +158,19 @@ Each release also carries a prebuilt `...-offline-win-x64.zip` with the module a
 
 ### Flattening and retention
 
-Two stored procedures, both re-runnable, are built by the scripts in `sql/`:
+The nightly `-Incremental` run flattens each load, and `Install-CopilotAudit.ps1` flattens everything the first time (and again after an upgrade that adds columns). By hand, and for retention:
 
-```sql
--- Shred the JSON into audit.RawLogFlattened (MERGEs, so it is safe on a schedule)
-EXEC audit.usp_FlattenCopilotAudit;
-EXEC audit.usp_FlattenCopilotAudit @SinceUtc = '2026-09-01', @RebuildAll = 0;
-
--- Retention. @WhatIf defaults to 1 and only reports; pass 0 to actually purge.
-EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 180;
-EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 180, @WhatIf = 0;              -- clear the JSON, keep the rows
-EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 365, @DeleteRows = 1, @WhatIf = 0;  -- remove the records
+```powershell
+$m = '.\tools\Invoke-CopilotMaintenance.ps1'
+& $m -SqlServer SQL01 -Task Reflatten                                  # every record again, then sessions, bi and the dashboard
+& $m -SqlServer SQL01 -Task PurgeJson -RetainDays 180                  # reports what it would clear
+& $m -SqlServer SQL01 -Task PurgeJson -RetainDays 180 -Apply           # clear the JSON, keep the rows
+& $m -SqlServer SQL01 -Task PurgeJson -RetainDays 365 -DeleteRows -Apply   # remove the records
 ```
 
-The JSON is what costs the disk, so the default mode clears `AuditDataGz` past the horizon and leaves the reporting and flattened tables intact.
+The JSON is what costs the disk, so the default mode clears `AuditDataGz` past the horizon and leaves the reporting and flattened tables intact. A re-flatten skips records whose JSON is gone, so it never blanks what was shredded while the JSON existed.
+
+**What the flattening keeps (2.2.0).** Every field of the Copilot audit record that carries information, as a typed column named after its JSON path (`CopilotEventData.LicenseType` is `CopilotEventData_LicenseType`); identifiers that are always GUIDs are stored as `uniqueidentifier`. The small arrays are JSON text, NULL when empty; `AccessedResources` and `Contexts` get a row per element. Seventeen fields that a 19-million-record production profile shows never vary, or are always empty (`Operation`, `RecordType`, `Workload`, `CopilotLogVersion` and the like), are not stored per row: `audit.RawLogRecordShape` counts their combinations, and the flatten reports if one of them ever takes a second value. `OrganizationId` stays on every row, so one database can hold more than one tenant. A resource counts as blocked when its `Status` failed or a Purview policy outcome other than *None* applied; before 2.2.0 the policy outcome, which records carry as JSON text inside the JSON, was not read.
 
 `audit.vCopilotAuditRecord` exposes `AssociatedAdminUnitsNames` to match the portal export's column list, but it is **always NULL**: the Graph `auditLogRecord` resource carries a single `administrativeUnits` collection of IDs with no display names. Resolve them from Entra if you need them.
 
@@ -194,28 +211,28 @@ Two limits are recorded rather than guessed at. Graph gives the date the **curre
 
 ## Power BI: the `bi` schema
 
-A star schema for a Power BI semantic model. The audit tables are shaped for loading and auditing; a model over tens of millions of interactions wants narrow facts with integer keys and small dimensions. Install it once, after the flattened and session scripts (the session tables may stay empty), then build it:
+A star schema for a Power BI semantic model. The audit tables are shaped for loading and auditing; a model over tens of millions of interactions wants narrow facts with integer keys and small dimensions. `Install-CopilotAudit.ps1` installs it and builds it the first time there is data:
 
-```sql
--- sql/Create-CopilotBiSchema.sql, then sql/Create-CopilotBiProcedure.sql, then:
-EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'CopilotLicenseEvents,CopilotLicenseLive';
+```powershell
+.\Install-CopilotAudit.ps1 -SqlServer SQL01 -LicenceEventDatabases CopilotLicenseEvents,CopilotLicenseLive
 ```
 
 From then on each `-Incremental` run refreshes it after the other derived tables (`-SessionLicenceDatabase` is passed through as `@LicenceEventDatabase`). The model imports the views, which leave out the lineage columns:
 
 | View | One row per | Keys |
 |---|---|---|
-| `bi.Interactions` | Copilot interaction | Date, User, App, Agent, Model, LicenceStatus |
+| `bi.Interactions` | Copilot interaction | Date, User, App, Agent, Model, LicenceStatus, LicenseType, SensitivityLabel |
+| `bi.AccessedResources` | resource an interaction read | Date, User, App, ResourceType, ResourceAction, Site, SensitivityLabel |
 | `bi.Sessions` | inferred session | Date, User, App (the first prompt's), LicenceStatus |
 | `bi.LicenceChanges` | SKU added (+1) or removed (−1) | Date, User, Sku |
 | `bi.LicensedDays` | user holding a Copilot licence at the end of a day | Date, User |
 | `bi.Calendar` | date, with the rollup's Saturday–Friday week | `DateKey` |
-| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses` | dimension rows | `UserKey`, `AppKey` … |
+| `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses`, `bi.LicenseTypes`, `bi.SensitivityLabels`, `bi.ResourceTypes`, `bi.ResourceActions`, `bi.Sites` | dimension rows | `UserKey`, `AppKey` … |
 
 - **Relationships:** each fact's `DateKey`, `UserKey`, `AppKey` and so on to the dimension of the same key, one-to-many, single direction. Mark `bi.Calendar` as the date table.
-- **Incremental refresh:** on `bi.Interactions`, filter `ActivityHour` between `RangeStart` and `RangeEnd`. It is local time truncated to the hour, so it has ~8,760 values a year and costs almost nothing in memory. The other facts are small enough to refresh whole.
-- **Licence at the time of use** is on the facts (`LicenceStatusKey`): *Licensed*, *Not licensed*, or *Unknown* when there is neither licence history nor enrichment for the user. `bi.Users.CopilotLicenceToday` is today's licence, which is a different question.
-- **Left out on purpose:** RecordId, ThreadId, app context, accessed resources and their URLs, sensitivity label IDs and the JSON. Each is close to one value per row and would cost more memory than the rest of the model together. They stay in `audit.RawLogFlattened` for a DirectQuery drill-through table if you need one.
+- **Incremental refresh:** on `bi.Interactions` and `bi.AccessedResources`, filter `ActivityHour` between `RangeStart` and `RangeEnd`. It is local time truncated to the hour, so it has ~8,760 values a year and costs almost nothing in memory. The other facts are small enough to refresh whole.
+- **Licence at the time of use** is on the facts (`LicenceStatusKey`): *Licensed*, *Not licensed*, or *Unknown* when there is neither licence history nor enrichment for the user. `bi.Users.CopilotLicenceToday` is today's licence, which is a different question. `LicenseTypeKey` is what the record itself reports (`CopilotEventData.LicenseType`, such as Premium or Starter), from 2.2.0.
+- **Left out on purpose:** RecordId, ThreadId, ConversationId, app context, whole resource URLs and the JSON. Each is close to one value per row and would cost more memory than the rest of the model together. Resources are in the model by type and site (`bi.AccessedResources`, `bi.Sites`); the rest stays in `audit.RawLogFlattened` and `audit.RawLogAccessedResource` for a DirectQuery drill-through table if you need one.
 - **Keys are stable** across refreshes and rebuilds, so partitions refreshed on different days stay consistent.
 
 Starting-point measures (not yet tried in a model):
@@ -224,19 +241,42 @@ Starting-point measures (not yet tried in a model):
 Interactions = COUNTROWS ( Interactions )
 Prompts = SUM ( Interactions[PromptCount] )
 Active users = DISTINCTCOUNT ( Interactions[UserKey] )
-Active licensed users = CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed" )
 Licensed users = CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),
                      LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+// Used it with a licence in the period, and still hold one at its end: always part of
+// [Licensed users], so adoption can't pass 100% when licences are removed mid-period.
+Active licensed users =
+    VAR HeldAtEnd = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
+                        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+    RETURN CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",
+                       KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )
 Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
 ```
 
 `@SinceUtc` (the load's start, from `-Incremental`) rebuilds only the interactions from then on; `NULL` rebuilds them all. Run a full rebuild, and a full refresh of the model, after changing the reporting time zone (a partial refresh in a different zone is refused), after licence history arrives for a period already built, or after purging flattened rows.
+
+## Copilot Insights dashboard
+
+A web dashboard over the same database, for people who will never open Power BI: an ASP.NET Core 10 site in IIS on Windows Server 2022+, with Windows sign-in. It works with the web servers in one domain and the users in another.
+
+- **Who sees what.** The top of the organisation and their direct reports see everything, as does anyone granted *Organization*; every other manager sees the people under them, at any depth; everyone else sees their own use. The scope comes from the AD manager chain and is enforced on every query.
+- **Pages by persona:** My Copilot (every employee's own use), Leadership, Adoption, Licensing, Security, Compliance, Agents, Enablement, Governance, Forecasting, Regions, People and App owners, each at the grain its questions need. Forecasting projects licences and use with 95% intervals and turns them into priced recommendations: upgrade proven Copilot Chat users, train light users, revoke unused licences, and the right licence count for the next quarter. Lists of named people (not started, unused licences, flagged interactions, labelled-content access, agent users, champions) need that persona's role, and stay inside the viewer's scope.
+- **Periods** of 7, 14, 30, 90, 180 or 365 days; every list paged in SQL (50 rows, search, sort) and exportable to CSV; groups under five people folded together.
+- **Admin module:** access and roles, reference data (agent and label names, app categories), pipeline health and a manual refresh, and the audit log of every view, refusal, export and change.
+
+```powershell
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer SQL01 -Database CopilotAudit `
+    -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
+```
+
+`dash.usp_RefreshDashboard` keeps its org chart and daily rollups current: every `-Incremental` run and CSV import calls it after `bi`. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** has every page, the security model, the install and how the first administrator gets in; `dashboard/demo/New-InsightsDemo.ps1` builds a 2,317-person demo company to try it on.
 
 ## Tests
 
 ```bash
 pwsh -NoProfile -File tests/Test-Engine.ps1        # engine against a mock Graph service
 pwsh -NoProfile -File tests/Test-Orchestrator.ps1  # the PowerShell orchestrator's own logic
+pwsh -NoProfile -File tests/Test-Provisioning.ps1  # app registration, the pipeline's plan, the job-server settings
 ```
 
 Both need `python3` on PATH and take a couple of minutes. They run the whole pipeline — adaptive windowing, cap detection and splits, page throttling, token rotation, transient SQL failures, a hard stop and a resume — against `tests/mock_graph.py`, and prove every record lands exactly once.
@@ -249,13 +289,26 @@ docker run -d --name sqlit -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='<pw>' \
 SQLIT_PASSWORD='<pw>' pwsh -NoProfile -File tests/Test-SqlIntegration.ps1
 ```
 
-It creates a database, runs the DDL, backfills 8 days through the real engine, stops and resumes it, finalizes, flattens and purges, and checks the results. It exits 2 and explains itself if `SQLIT_PASSWORD` is not set. CI runs all three on every push.
+It creates a database, runs the DDL, backfills 8 days through the real engine, stops and resumes it, finalizes, flattens and purges, builds sessions, `bi` and the dashboard's rollups, and checks the results. It exits 2 and explains itself if `SQLIT_PASSWORD` is not set.
+
+The dashboard's own tests (the security rules, paging, periods, exports and charts) need the .NET 10 SDK:
+
+```bash
+dotnet test dashboard/CopilotInsights.Tests
+```
+
+CI runs them all on every push.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `Invoke-CopilotAuditBackfill.ps1` | The script you run. |
+| `Invoke-CopilotAuditBackfill.ps1` | The loader: a backfill or an `-Incremental` run. |
+| `Install-CopilotAudit.ps1` | Creates the databases, installs every SQL object and builds what the data calls for. Safe to run again. |
+| `Invoke-CopilotPipeline.ps1` | The nightly run, or the first load with `-History`, from the job server's settings. |
+| `tools/Install-CopilotJobServer.ps1` | Sets up the job server: certificate, service account, databases, app registration, settings and the nightly task. |
+| `tools/New-CopilotAuditApp.ps1` | Registers the Entra app: the three permissions, admin consent and the certificate. |
+| `tools/Invoke-CopilotMaintenance.ps1` | Day-to-day tasks without SQL: status, rebuilds, roles, settings, names, retention. |
 | `CopilotAuditEngine.cs` | The pipeline engine, compiled in memory at start. |
 | `Import-CopilotAuditEngine.ps1` | Compiles the engine. |
 | `sql/Create-CopilotAuditSchema.sql` | DDL, run automatically. Provided for DBA review. |
@@ -275,7 +328,14 @@ It creates a database, runs the DDL, backfills 8 days through the real engine, s
 | `sql/Create-CopilotBiProcedure.sql` | `bi.usp_RefreshBi`, which fills it. |
 | `tools/Import-CopilotAuditCsv.ps1` | Imports a folder of Purview audit log exports (CSV) into the same tables. |
 | `sql/Create-CopilotCsvImport.sql` | The CSV import's tables and `audit.usp_MergeCopilotCsv`. Run by the importer. |
+| `sql/Create-CopilotDashboardSchema.sql` | The dashboard's `dash` schema: settings, roles, reference names, audit log, org chart and daily rollups. |
+| `sql/Create-CopilotDashboardProcedure.sql` | `dash.usp_RefreshDashboard`, which rebuilds the org chart and rollups after `bi`. |
+| `dashboard/CopilotInsights/` | The Copilot Insights web dashboard (ASP.NET Core 10, Razor Pages). |
+| `dashboard/Install-CopilotInsights.ps1` | Installs or updates it on IIS, with Windows authentication and its database grants. |
+| `dashboard/demo/` | A synthetic 2,317-person company to try the dashboard on. |
+| `dashboard/CopilotInsights.Tests/` | The dashboard's unit tests. |
 | `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each. |
+| `docs/DASHBOARD.md` | The dashboard: pages by persona, who sees what, install on IIS, the first administrator. |
 | `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licences, the nightly job, Power BI and Copilot. |
 | `tests/` | Mock Graph service and the test suites. |
 

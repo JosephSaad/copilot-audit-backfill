@@ -1,0 +1,36 @@
+using Dapper;
+using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Options;
+
+namespace CopilotInsights.Infrastructure;
+
+/// <summary>A thin wrapper over Dapper: one connection per call, parameters always bound.</summary>
+public sealed class Db(IOptions<InsightsOptions> options)
+{
+    readonly string _cs = options.Value.ConnectionString;
+
+    public SqlConnection Open()
+    {
+        var c = new SqlConnection(_cs);
+        c.Open();
+        return c;
+    }
+
+    public async Task<List<T>> QueryAsync<T>(string sql, object? args = null, int timeout = 120)
+    {
+        await using var c = new SqlConnection(_cs);
+        return (await c.QueryAsync<T>(new CommandDefinition(sql, args, commandTimeout: timeout))).AsList();
+    }
+
+    public async Task<T?> ScalarAsync<T>(string sql, object? args = null)
+    {
+        await using var c = new SqlConnection(_cs);
+        return await c.ExecuteScalarAsync<T>(sql, args);
+    }
+
+    public async Task<int> ExecuteAsync(string sql, object? args = null, int timeout = 120)
+    {
+        await using var c = new SqlConnection(_cs);
+        return await c.ExecuteAsync(new CommandDefinition(sql, args, commandTimeout: timeout));
+    }
+}
