@@ -30,7 +30,7 @@ WITH u AS (SELECT f.AppKey, f.UserKey, COUNT_BIG(*) AS N, SUM(CAST(f.PromptCount
                   COUNT(DISTINCT f.DateKey) AS Days
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.UserKey)
-SELECT a.AppKey, a.App, a.AppCategory, COUNT(*) AS People, COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning,
+SELECT a.AppKey, dash.fnValueName(2, a.App) AS App, a.AppCategory, COUNT(*) AS People, COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning,
        SUM(u.N) AS N, SUM(u.P) AS Prompts, SUM(u.R) AS Resources
 FROM u JOIN bi.DimApp AS a ON a.AppKey = u.AppKey
 GROUP BY a.AppKey, a.App, a.AppCategory;", Ctx.Args());
@@ -96,7 +96,7 @@ WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql(
         Panels.Add(new("People using Copilot in it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.People)).ToList(), 1)], Fmt.Count, "People by period"), TrendNote, "half"));
 
         var types = await Db.QueryAsync<(string Type, long N)>($@"
-SELECT t.ResourceType, COUNT_BIG(*) FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
+SELECT dash.fnValueName(31, t.ResourceType), COUNT_BIG(*) FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = f.ResourceTypeKey
 WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY t.ResourceType;", args);
         Panels.Add(new("What Copilot read in it", Chart.Bars(types.OrderByDescending(t => t.N).Take(10).Select(t => new Bar(t.Type, t.N)).ToList(), Fmt.Count, "Resources by type"), null, "half"));

@@ -25,6 +25,13 @@
     -Task PurgeJson            Clear the stored JSON of records older than -RetainDays (with
                                -DeleteRows, remove those records altogether). Reports only,
                                unless -Apply.
+    -Task RebuildValueCatalog  List every distinct value of the catalogued columns again, from
+                               every flattened record: once, for data flattened before 2.3.0.
+    -Task ListValues           The catalogued columns, or with -ColumnId one column's values
+                               and names; -Path writes them to a CSV to fill in.
+    -Task ImportValueNames     Readable names for catalogued values from -Path, a CSV of
+                               ColumnId, Value, Name[, Note] (what ListValues -Path writes).
+                               An empty Name removes the name.
 
     Most of these are also in the dashboard's Admin pages; this is the same for
     servers without it, and for scripts.
@@ -46,7 +53,8 @@ param(
     [switch] $TrustServerCertificate,
     [Parameter(Mandatory)]
     [ValidateSet('Status', 'Reflatten', 'RebuildSessions', 'RebuildBi', 'RefreshDashboard', 'SetAppCategory', 'GrantRole',
-                 'RevokeRole', 'SetOrgTop', 'SetDashboardSetting', 'NameAgent', 'NameLabel', 'PurgeJson')]
+                 'RevokeRole', 'SetOrgTop', 'SetDashboardSetting', 'NameAgent', 'NameLabel', 'PurgeJson',
+                 'RebuildValueCatalog', 'ListValues', 'ImportValueNames')]
     [string] $Task,
     [string] $App,
     [ValidateSet('Copilot Chat', 'In-App Copilot')][string] $Category,
@@ -67,7 +75,11 @@ param(
     [ValidateRange(1, 3650)][int] $RetainDays = 365,
     [switch] $Apply,
     # PurgeJson: remove the old records altogether, not only their JSON.
-    [switch] $DeleteRows
+    [switch] $DeleteRows,
+    # ListValues: one column of audit.ValueCatalogColumn.
+    [int] $ColumnId,
+    # ListValues writes, ImportValueNames reads: a CSV of ColumnId, Value, Name, Note.
+    [string] $Path
 )
 
 $ErrorActionPreference = 'Stop'
@@ -211,6 +223,60 @@ UPDATE dash.SensitivityLabel SET Name = @n, Rank = @r, UpdatedBy = @by, UpdatedU
 IF @@ROWCOUNT = 0 INSERT INTO dash.SensitivityLabel (LabelId, Name, Rank, UpdatedBy) VALUES (@i, @n, @r, @by);
 "@
         Write-Host "Label $LabelId is $FriendlyName."
+    }
+    'RebuildValueCatalog' {
+        if (-not (Test-Proc 'audit.usp_CatalogValues')) { throw 'audit.usp_CatalogValues is not installed: run Install-CopilotAudit.ps1 from this release first.' }
+        Write-Host 'Reading every flattened record; on a large database this takes a while.'
+        Invoke-Sql -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
+        (Invoke-Sql -Table -Sql 'SELECT ColumnId, Label, DistinctValues, Capped FROM audit.ValueCatalogColumn WHERE DistinctValues > 0 ORDER BY ColumnId;').Rows |
+            Format-Table -AutoSize | Out-String | Write-Host
+    }
+    'ListValues' {
+        if (-not $PSBoundParameters.ContainsKey('ColumnId')) {
+            (Invoke-Sql -Table -Sql 'SELECT ColumnId, Label, TableName + N''.'' + ColumnName AS [Column], DistinctValues, CASE WHEN Capped = 1 THEN N''10,000 or more'' ELSE N'''' END AS Capped FROM audit.ValueCatalogColumn ORDER BY ColumnId;').Rows |
+                Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host 'Add -ColumnId to list one column''s values, and -Path to write them to a CSV.'
+            break
+        }
+        $t = Invoke-Sql -Table -Parameters @{ '@c' = $ColumnId } -Sql @"
+SELECT v.ColumnId, v.Value, COALESCE(n.Name, CASE WHEN v.ColumnId IN (11, 30) THEN sl.Name END) AS Name, n.Note, v.Records
+FROM audit.ValueCatalog AS v
+LEFT JOIN dash.ValueName AS n ON n.ColumnId = v.ColumnId AND n.Value = v.Value
+LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = v.Value
+WHERE v.ColumnId = @c ORDER BY v.Records DESC;
+"@
+        if ($Path) {
+            $t.Rows | Select-Object ColumnId, Value, Name, Note | Export-Csv -LiteralPath $Path -NoTypeInformation -Encoding utf8
+            Write-Host "$($t.Rows.Count) value(s) written to $Path. Fill in Name, then run -Task ImportValueNames -Path $Path."
+        }
+        else { $t.Rows | Format-Table -AutoSize | Out-String | Write-Host }
+    }
+    'ImportValueNames' {
+        Need 'Path' $Path
+        $n = 0; $cleared = 0
+        # Not $name: PowerShell names are case-insensitive, and -Name only takes the setting names.
+        foreach ($r in Import-Csv -LiteralPath $Path) {
+            $col = [int] $r.ColumnId
+            $valueName = if ($r.PSObject.Properties['Name'] -and "$($r.Name)".Trim()) { "$($r.Name)".Trim() } else { $null }
+            $valueNote = if ($r.PSObject.Properties['Note'] -and "$($r.Note)".Trim()) { "$($r.Note)".Trim() } else { $null }
+            $known = [int] (Invoke-Sql -Scalar -Sql 'SELECT COUNT(*) FROM audit.ValueCatalog WHERE ColumnId = @c AND Value = @v' -Parameters @{ '@c' = $col; '@v' = $r.Value })
+            if (-not $known) { Write-Warning "Skipped: '$($r.Value)' is not a value of column $col."; continue }
+            Invoke-Sql -Parameters @{ '@c' = $col; '@v' = $r.Value; '@n' = $valueName; '@note' = $valueNote; '@by' = $me } -Sql @"
+IF @n IS NULL DELETE FROM dash.ValueName WHERE ColumnId = @c AND Value = @v;
+ELSE BEGIN
+    UPDATE dash.ValueName SET Name = @n, Note = @note, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE ColumnId = @c AND Value = @v;
+    IF @@ROWCOUNT = 0 INSERT INTO dash.ValueName (ColumnId, Value, Name, Note, UpdatedBy) VALUES (@c, @v, @n, @note, @by);
+END;
+/* Label names also live with their order in dash.SensitivityLabel. */
+IF @c IN (11, 30) AND @n IS NOT NULL
+BEGIN
+    UPDATE dash.SensitivityLabel SET Name = @n, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE LabelId = @v;
+    IF @@ROWCOUNT = 0 INSERT INTO dash.SensitivityLabel (LabelId, Name, UpdatedBy) VALUES (@v, @n, @by);
+END;
+"@
+            if ($valueName) { $n++ } else { $cleared++ }
+        }
+        Write-Host "$n name(s) saved, $cleared cleared."
     }
     'PurgeJson' {
         $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w, @DeleteRows = @r;' `

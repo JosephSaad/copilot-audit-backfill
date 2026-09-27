@@ -484,12 +484,39 @@ SELECT DateKey, [Date], [Year], [Quarter], MonthNumber, [MonthName], YearMonth, 
        DayOfWeekName, IsWeekday, WeekEnding, WeekYear, WeekNumber, WeekLabel
 FROM bi.DimDate;');
 
+/*
+    People, with every name and sign-in pseudonymised when privacy mode is on
+    (audit.PipelineSetting PrivacyMode = 'Pseudonymise', set in the dashboard's
+    Admin > Privacy and retention): a salted hash, the same for the same person
+    everywhere, so counts and org slicing still work but nobody is named.
+*/
 EXEC (N'CREATE OR ALTER VIEW bi.Users AS
-SELECT UserKey, UserPrincipalName, DisplayName, Division, Department, JobTitle, OfficeLocation, City,
-       Country, CompanyName, EmployeeType, IsManager, AccountEnabled, ManagerUpn, ManagerName, OrgDepth,
-       OrgLevel1, OrgLevel2, OrgLevel3, OrgLevel4, OrgLevel5, OrgLevel6, OrgLevel7, OrgLevel8, OrgLevel9, OrgLevel10, OrgLevel11, OrgLevel12, OrgLevel13, OrgLevel14, OrgLevel15,
-       DirectoryStatus, CopilotLicenceToday, CopilotSku, LicensedSinceUtc
-FROM bi.DimUser;');
+SELECT u.UserKey,
+       CASE WHEN pm.Pseudonymise = 1 AND u.UserPrincipalName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.UserPrincipalName)), 2) ELSE u.UserPrincipalName END AS UserPrincipalName,
+       CASE WHEN pm.Pseudonymise = 1 AND u.DisplayName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.DisplayName)), 2) ELSE u.DisplayName END AS DisplayName,
+       CASE WHEN pm.Pseudonymise = 1 AND u.ManagerUpn IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.ManagerUpn)), 2) ELSE u.ManagerUpn END AS ManagerUpn,
+       CASE WHEN pm.Pseudonymise = 1 AND u.ManagerName IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.ManagerName)), 2) ELSE u.ManagerName END AS ManagerName,
+       u.Division, u.Department, u.JobTitle, u.OfficeLocation, u.City,
+       u.Country, u.CompanyName, u.EmployeeType, u.IsManager, u.AccountEnabled, u.OrgDepth,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel1 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel1)), 2) ELSE u.OrgLevel1 END AS OrgLevel1,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel2 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel2)), 2) ELSE u.OrgLevel2 END AS OrgLevel2,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel3 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel3)), 2) ELSE u.OrgLevel3 END AS OrgLevel3,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel4 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel4)), 2) ELSE u.OrgLevel4 END AS OrgLevel4,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel5 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel5)), 2) ELSE u.OrgLevel5 END AS OrgLevel5,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel6 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel6)), 2) ELSE u.OrgLevel6 END AS OrgLevel6,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel7 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel7)), 2) ELSE u.OrgLevel7 END AS OrgLevel7,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel8 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel8)), 2) ELSE u.OrgLevel8 END AS OrgLevel8,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel9 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel9)), 2) ELSE u.OrgLevel9 END AS OrgLevel9,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel10 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel10)), 2) ELSE u.OrgLevel10 END AS OrgLevel10,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel11 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel11)), 2) ELSE u.OrgLevel11 END AS OrgLevel11,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel12 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel12)), 2) ELSE u.OrgLevel12 END AS OrgLevel12,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel13 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel13)), 2) ELSE u.OrgLevel13 END AS OrgLevel13,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel14 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel14)), 2) ELSE u.OrgLevel14 END AS OrgLevel14,
+       CASE WHEN pm.Pseudonymise = 1 AND u.OrgLevel15 IS NOT NULL THEN N''P-'' + CONVERT(NVARCHAR(16), HASHBYTES(''SHA2_256'', pm.Salt + LOWER(u.OrgLevel15)), 2) ELSE u.OrgLevel15 END AS OrgLevel15,
+       u.DirectoryStatus, u.CopilotLicenceToday, u.CopilotSku, u.LicensedSinceUtc
+FROM bi.DimUser AS u
+CROSS JOIN (SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'') THEN 1 ELSE 0 END AS BIT) AS Pseudonymise,
+                   COALESCE((SELECT Value FROM audit.PipelineSetting WHERE Name = N''PseudonymSalt''), N'''') AS Salt) AS pm;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Apps AS
 SELECT AppKey, App, AppCategory FROM bi.DimApp;');

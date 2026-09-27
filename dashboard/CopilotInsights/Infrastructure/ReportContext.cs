@@ -19,7 +19,23 @@ public sealed class Settings(Db db, IMemoryCache cache)
     public async Task<string?> StringAsync(string name) =>
         (await AllAsync()).TryGetValue(name, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
 
-    public void Invalidate() => cache.Remove("dash-settings");
+    public void Invalidate()
+    {
+        cache.Remove("dash-settings");
+        cache.Remove("privacy-mode");
+    }
+
+    /// <summary>
+    /// Privacy mode (Admin > Privacy and retention): no page, export, email or API call names
+    /// anyone but the viewer themselves, and bi.Users is pseudonymised for Power BI.
+    /// </summary>
+    public async Task<bool> PrivacyModeAsync() =>
+        await cache.GetOrCreateAsync("privacy-mode", async e =>
+        {
+            e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
+            try { return await db.ScalarAsync<string?>("SELECT Value FROM audit.PipelineSetting WHERE Name = N'PrivacyMode'") == "Pseudonymise"; }
+            catch (Microsoft.Data.SqlClient.SqlException) { return false; }
+        });
 }
 
 /// <summary>An org unit on the breadcrumb or in the drill-down list.</summary>
@@ -107,11 +123,15 @@ public sealed class ReportContext
 
 public sealed class ReportContextFactory(Db db, Settings settings)
 {
-    public async Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request)
+    public Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request) =>
+        CreateAsync(viewer, int.TryParse(request.Query["d"], out var dq) ? dq : null, request.Query["org"].FirstOrDefault());
+
+    /// <summary>The same without a request: for email digests and the data API.</summary>
+    public async Task<ReportContext> CreateAsync(Viewer viewer, int? requestedDays, string? requested)
     {
         var defaultDays = await settings.IntAsync("DefaultDays", 30);
         if (!ReportContext.DayChoices.Contains(defaultDays)) defaultDays = 30;
-        var days = int.TryParse(request.Query["d"], out var dq) && ReportContext.DayChoices.Contains(dq) ? dq : defaultDays;
+        var days = requestedDays is int dq && ReportContext.DayChoices.Contains(dq) ? dq : defaultDays;
         var minGroup = await settings.IntAsync("MinGroupSize", 5);
         var inactive = await settings.IntAsync("InactiveDays", 30);
         /* Set by an admin, or else found in the org chart by the refresh. */
@@ -126,7 +146,6 @@ SELECT COALESCE(
         var start = end.AddDays(-(days - 1));
 
         /* Whose data: whole organisation, or a subtree the viewer may see. */
-        string? requested = request.Query["org"].FirstOrDefault();
         string? root;
         if (viewer.OrgWide)
             root = string.IsNullOrWhiteSpace(requested) ? null : requested;
@@ -178,7 +197,7 @@ public sealed class AuditLog(Db db, IHttpContextAccessor http, ILogger<AuditLog>
     {
         try
         {
-            var who = viewer.ViewingAsBy is null ? (viewer.Upn ?? viewer.WindowsName) : $"{viewer.ViewingAsBy} as {viewer.Upn}";
+            var who = viewer.Upn ?? viewer.WindowsName;
             await db.ExecuteAsync(@"
 INSERT INTO dash.AuditLog (Viewer, Kind, Page, Scope, Detail, ClientIp) VALUES (@who, @kind, @page, @scope, @detail, @ip)",
                 new { who, kind, page, scope, detail = detail is { Length: > 2000 } ? detail[..2000] : detail,

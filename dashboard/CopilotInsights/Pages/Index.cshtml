@@ -19,7 +19,7 @@
         <div class="denied"><b>Set the top of the organisation.</b> Nobody sees the whole organisation by level until the CEO's UPN is set in <a href="/admin/access">Admin › Access</a>. Until then only people granted Organization do.</div>
     }
     <div class="cards">
-        @foreach (var g in Nav.For(Model.Viewer))
+        @foreach (var g in Nav.For(Model.Viewer, Model.PrivacyMode))
         {
             <div class="card">
                 <h3 class="cat">@g.Persona</h3>

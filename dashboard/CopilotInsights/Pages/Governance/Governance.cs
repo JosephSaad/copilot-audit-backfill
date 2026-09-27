@@ -14,12 +14,12 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var tr = await m.TrendAsync(Ctx);
         long all = tr.Sum(w => w.Interactions);
         var models = await Db.QueryAsync<(DateTime Bucket, string Model, long N)>($@"
-SELECT {Ctx.BucketSql("d")}, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + mo.ModelName END, COUNT_BIG(*)
+SELECT {Ctx.BucketSql("d")}, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + dash.fnValueName(16, mo.ModelName) END, COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 JOIN bi.DimModel AS mo ON mo.ModelKey = f.ModelKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY {Ctx.BucketSql("d")}, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + mo.ModelName END;", Ctx.Args());
+GROUP BY {Ctx.BucketSql("d")}, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + dash.fnValueName(16, mo.ModelName) END;", Ctx.Args());
         var agents = await Db.QueryAsync<(DateTime Bucket, string Source, int N)>($@"
 SELECT {Ctx.BucketSql("d")}, a.AgentSource, COUNT(DISTINCT f.AgentKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}

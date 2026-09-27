@@ -72,6 +72,18 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
         }
         Panels.Add(new("Pipeline", t.Render(), "Fresh: within 36 hours. The dashboard shows data up to the last complete day in its rollups."));
 
+        /* The runs Invoke-CopilotPipeline.ps1 records, with the failing step and its last lines. */
+        var runs0 = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().PipelineRunsAsync(10);
+        if (runs0.Count > 0)
+        {
+            var pr = new Table { Headers = ["Run", "Started (UTC)", "Took", "Result", "Stopped at", "On", "Last lines"] };
+            foreach (var r in runs0)
+                pr.Rows.Add([r.Kind, r.StartedUtc, r.EndedUtc is null ? null : $"{(r.EndedUtc.Value - r.StartedUtc).TotalMinutes:0} min",
+                    new HtmlString($"<span class=\"{(r.Status == "Succeeded" ? "status-ok" : r.Status == "Running" ? "status-warn" : "status-bad")}\">{E(r.Status)}</span>"),
+                    r.FailedStep, r.Host, r.Detail is null ? null : new HtmlString($"<details><summary>show</summary><pre class=\"log\">{E(r.Detail)}</pre></details>")]);
+            Panels.Add(new("Pipeline runs", pr.Render(), "Recorded by Invoke-CopilotPipeline.ps1 on the job server. A failed or stuck run also raises an alert (Admin > Alerts and digests)."));
+        }
+
         var d = (await Db.QueryAsync<(int Found, int NotFound, int NotLooked, int People, int Levelled, int Enabled, int? LastKey)>(@"
 SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
        (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'NotFound'),
@@ -378,7 +390,7 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
     public override string Title => "Audit log";
     public override string Intro => "Every page view, refusal, export and admin change, with who, what they looked at and from where.";
 
-    static readonly string[] Kinds = ["View", "Denied", "Export", "Admin"];
+    static readonly string[] Kinds = ["View", "Denied", "Export", "Api", "Admin"];
 
     sealed class Row
     {

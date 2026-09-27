@@ -12,6 +12,11 @@
     }
 </div>
 
+@if (Model.Stale is not null)
+{
+    <div class="stale" role="status"><b>Data may be out of date.</b> @Model.Stale</div>
+}
+
 @if (Model.Denied is not null)
 {
     <div class="denied"><b>Not available to you.</b> @Model.Denied</div>

@@ -191,7 +191,7 @@ SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT)), COUNT_BIG(*
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             var targets = await Db.QueryAsync<(string Target, long N, int People)>($@"
-SELECT f.TargetAgentName, COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
+SELECT dash.fnValueName(12, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1
 GROUP BY f.TargetAgentName;", Ctx.Args());

@@ -1,6 +1,7 @@
 using System.Net;
 using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
+using Microsoft.AspNetCore.Mvc;
 
 namespace CopilotInsights.Pages.Forecasting;
 
@@ -17,7 +18,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     public const int LightMax = 2;      // days of use in 30 with a licence: train
     public const int RevokeAfterDays = 30;
 
-    static readonly Dictionary<string, (string Label, string Where, string Action)> Kinds = new()
+    internal static readonly Dictionary<string, (string Label, string Where, string Action)> Kinds = new()
     {
         ["upgrade"] = ("Upgrade to Premium", $"lic.UserKey IS NULL AND a.D >= {UpgradeDays}", "Upgrade to Premium"),
         ["train"] = ("Train", $"lic.UserKey IS NOT NULL AND a.D BETWEEN 1 AND {LightMax}", "Train, then review"),
@@ -44,6 +45,33 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         public string? RecordedLicence { get; set; }
         public int Strength { get; set; }
         public int TotalRows { get; set; }
+    }
+
+    public Task<IActionResult> OnGetBulkAsync() => ExportAsync(false);
+    public Task<IActionResult> OnGetScriptAsync() => ExportAsync(true);
+
+    async Task<IActionResult> ExportAsync(bool script)
+    {
+        if (!await PrepareAsync()) return Page();
+        var kind = Request.Query["kind"].FirstOrDefault() is "revoke" ? "revoke" : "upgrade";
+        var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
+        var upns = await Db.QueryAsync<string>($@"
+WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, SUM(ud.Interactions) AS I
+           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
+lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
+SELECT du.UserPrincipalName
+FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
+LEFT JOIN a ON a.UserKey = du.UserKey
+LEFT JOIN lic ON lic.UserKey = du.UserKey
+WHERE {Kinds[kind].Where} AND ISNULL(du.AccountEnabled, 1) = 1
+ORDER BY du.UserPrincipalName;", Ctx.Args(new { k30 }));
+        var skuId = (await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().PoolAsync()).FirstOrDefault(p => p.IsCopilot)?.SkuId.ToString();
+        var text = script
+            ? CopilotInsights.Data.LicenceExport.Script(kind, upns, await S.Settings.StringAsync("LicenceGroupId"), skuId, Viewer.Upn ?? Viewer.WindowsName, DateTime.UtcNow)
+            : CopilotInsights.Data.LicenceExport.BulkMembersCsv(upns);
+        await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"{kind} {(script ? "script" : "bulk file")}: {upns.Count} people");
+        var name = $"copilot-{kind}-{DateTime.UtcNow:yyyyMMdd}";
+        return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 
     protected override async Task BuildAsync()
@@ -85,7 +113,7 @@ ORDER BY {Sorts[pg.SortKey]};", Ctx.Args(new { k30, kind, q = pg.Like }));
 WITH used AS (SELECT x.UserKey, MAX(x.DateKey) AS DateKey FROM dash.UserDay AS x WHERE x.UserKey IN @keys AND x.Interactions > 0 GROUP BY x.UserKey),
 rec AS (SELECT f.UserKey, f.LicenseTypeKey, ROW_NUMBER() OVER (PARTITION BY f.UserKey ORDER BY f.DateKey DESC) AS n
         FROM bi.FactInteraction AS f WHERE f.UserKey IN @keys AND f.LicenseTypeKey <> 1)
-SELECT k.UserKey, dl.[Date], t.LicenseType
+SELECT k.UserKey, dl.[Date], dash.fnValueName(10, t.LicenseType)
 FROM (SELECT DISTINCT UserKey FROM (SELECT UserKey FROM used UNION ALL SELECT UserKey FROM rec WHERE n = 1) AS u) AS k
 LEFT JOIN used ON used.UserKey = k.UserKey
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = used.DateKey
@@ -130,7 +158,12 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
             "train" => $"A Premium licence, used on only 1 to {LightMax} days in the last 30: a short session or a champion usually changes that. Review again after 30 days.",
             _ => $"A Premium licence held for at least {RevokeAfterDays} days with no use at all in the last 30. Offer training first if the role needs Copilot; otherwise revoke and reassign.",
         };
-        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        /* Upgrade and revoke change a licence: offer them as files an administrator applies. The dashboard changes nothing. */
+        var exports = kind == "train" || pg.Total == 0 ? "" :
+            $"<p class=\"sub\">Apply it: <a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&handler=bulk"))}\">Entra bulk {(kind == "upgrade" ? "add" : "remove")} members file</a> · " +
+            $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&handler=script"))}\">PowerShell script</a> for a licence administrator to review and run " +
+            $"({(await S.Settings.StringAsync("LicenceGroupId") is null ? "assigns the licence directly; set a licensing group in Admin > Targets and assumptions to use group membership instead" : "through the licensing group")}).</p>";
+        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "The period filter does not apply here: every rule looks at the last 30 days. \"Licence the records report\" is what Copilot wrote into the person's latest audit record.", "full", CsvUrl()));
     }
 }

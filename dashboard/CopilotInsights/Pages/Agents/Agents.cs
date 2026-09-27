@@ -143,7 +143,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", args);
         Panels.Add(new("By department", Chart.Bars(shownDepts.OrderByDescending(d => d.People).Take(15).Select(d => new Bar(d.Dept, d.People, Note: $"{d.N:#,0} interactions")).ToList(), Fmt.Count, "People by department"),
             $"People who used it. Departments where fewer than {Ctx.MinGroupSize} people used it are combined.", "half"));
         var apps = await Db.QueryAsync<(string App, long N)>($@"
-SELECT a.App, COUNT_BIG(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+SELECT dash.fnValueName(2, a.App), COUNT_BIG(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
 WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App;", args);
         Panels.Add(new("Where it is used", Chart.Bars(apps.OrderByDescending(a => a.N).Select(a => new Bar(a.App, a.N)).ToList(), Fmt.Count, "Agent interactions by app"), null, "half"));
 

@@ -184,7 +184,7 @@ def record_json(rid, t):
 
 
 ADMIN_UNIT_ID = "00000000-0000-0000-0000-0000000000ae"
-COPILOT_SKU_ID = "00000000-0000-0000-0000-000000c0p110"
+COPILOT_SKU_ID = "639dec6b-bb19-468b-871c-c5c441c4b0cb"   # Microsoft_365_Copilot
 DIRECTORY_USERS = 50          # user0..user49 appear in the audit data
 DIRECTORY_MISSING = {49}      # ...but this one has left: Graph 404s it
 DEPARTMENTS = ["Retail Banking", "Risk", "Technology", "Operations"]
@@ -209,6 +209,7 @@ def directory_user(n):
         "userType": "Guest" if n % 25 == 0 else "Member",
         "accountEnabled": (n % 17 != 0),
         "createdDateTime": "2024-01-%02dT00:00:00Z" % ((n % 28) + 1),
+        "employeeHireDate": ("2026-%02d-15T00:00:00Z" % ((n % 9) + 1)) if n % 2 == 0 else None,
         "assignedLicenses": ([{"skuId": COPILOT_SKU_ID, "disabledPlans": []}] if licensed else []),
         "assignedPlans": ([{
             "service": "Microsoft365Copilot",
@@ -297,8 +298,8 @@ class Handler(BaseHTTPRequestHandler):
         Returns True when it handled the request."""
         if path == "/v1.0/subscribedSkus":
             self.send_json(200, {"value": [
-                {"skuId": COPILOT_SKU_ID, "skuPartNumber": "Microsoft_365_Copilot",
-                 "consumedUnits": 17, "prepaidUnits": {"enabled": 100}},
+                {"skuId": COPILOT_SKU_ID, "skuPartNumber": "Microsoft_365_Copilot", "capabilityStatus": "Enabled",
+                 "consumedUnits": 17, "prepaidUnits": {"enabled": 100, "warning": 5, "suspended": 0, "lockedOut": 0}},
                 {"skuId": "00000000-0000-0000-0000-0000000e3105", "skuPartNumber": "ENTERPRISEPACK",
                  "consumedUnits": 50, "prepaidUnits": {"enabled": 100}},
             ]})

@@ -68,7 +68,7 @@ GROUP BY rd.Kind, rd.Item;", Ctx.Args());
             "Content whose policy or permissions stopped Copilot. Usually a sign the controls are working; a spike is worth a look.", "half"));
 
         var types = await Db.QueryAsync<(string Type, long N, long Labelled, long Blocked)>($@"
-SELECT t.ResourceType, COUNT_BIG(*), SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END), SUM(CAST(f.IsBlocked AS INT))
+SELECT dash.fnValueName(31, t.ResourceType), COUNT_BIG(*), SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END), SUM(CAST(f.IsBlocked AS INT))
 FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = f.ResourceTypeKey
 WHERE f.DateKey BETWEEN @k0 AND @k1

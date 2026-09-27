@@ -9,10 +9,14 @@
     bi schema and the dashboard tables exactly as a real install would. It
     sets the CEO as the top of the organisation, names the demo's agents and
     sensitivity labels, and grants a persona role to one person per persona,
-    so every page and the security model can be tried by viewing as them.
+    so every page and the security model can be tried as each of them. It also
+    adds a licence pool, pipeline runs (one failed), training records, targets
+    and a digest, for the operations pages.
 
-    Point the dashboard's connection string at this database and, in
-    Development, open any page with ?as=<upn> to see it as that person.
+    Point the dashboard's connection string at this database. To see it as one
+    of its people, map your Windows account to their UPN under
+    Insights:IdentityMap in appsettings.Development.json and restart the site:
+    the demo's people have no SID on record, so the mapping is allowed.
 
 .EXAMPLE
     .\dashboard\demo\New-InsightsDemo.ps1 -SqlServer localhost -Database CopilotInsightsDemo -TrustServerCertificate -Force
@@ -72,7 +76,7 @@ try {
         foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotFlattenedSchema.sql', 'Create-CopilotEnrichmentSchema.sql',
                        'Create-LicenseEventSchema.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql',
                        'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql',
-                       'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql') {
+                       'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql') {
             Write-Host "   $s"
             Invoke-Batches $conn (Get-Content -LiteralPath (Join-Path $sqlDir $s) -Raw)
         }
@@ -88,6 +92,9 @@ try {
     $conn.Dispose(); $conn = Get-Conn $Database   # a fresh session: no temp tables left over from the seed
     Step 'Sessions' { Invoke-Batches $conn "EXEC audit.usp_BuildCopilotSessions @LicenceEventDatabase = N'$Database';" }
     Step 'bi star schema' { Invoke-Batches $conn "EXEC bi.usp_RefreshBi @LicenceEventDatabase = N'$Database';" }
+    Step 'Licence pool, pipeline runs, training and targets' {
+        Invoke-Batches $conn (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoOperations.sql') -Raw)
+    }
     Step 'Dashboard settings, names and demo roles' {
         $admins = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Admin', N'Demo administrator', N'demo')" }) -join ",`n"
         Invoke-Batches $conn @"
@@ -123,7 +130,7 @@ SELECT 'Level ' + CAST(p.Level AS VARCHAR(2)), p.Upn, p.DisplayName, p.Level FRO
 ORDER BY 4, 1;
 '@
     $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
-    Write-Host "`nPeople to view the demo as (?as=<upn> in Development):" -ForegroundColor Green
+    Write-Host "`nPeople to see the demo as (map your account to one in Insights:IdentityMap):" -ForegroundColor Green
     $t | Format-Table Role, Principal, DisplayName, Level -AutoSize | Out-String | Write-Host
     Write-Host 'Any other address in audit.UserDirectory works too: a team manager sees their team, a staff member only themselves.'
 }

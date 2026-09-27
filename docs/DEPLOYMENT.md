@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licences from Microsoft Graph, and the organisation from on-premises Active Directory.
 
-Written for a new install of release 2.2.0. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.3.0. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -286,7 +286,9 @@ Part of the history run, and of every nightly run. Alone:
 .\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit @app -AllLicensedUsers
 ```
 
-Writes `audit.CopilotLicense`: the Copilot SKU, since when, and whether the user still exists in Entra. `-AllLicensedUsers` adds licence holders who have never used Copilot, which is what the "licensed, never used" report needs. A user who has since been deleted is stored as *not known*, which is a different claim from *unlicensed*.
+Writes `audit.CopilotLicense`: the Copilot SKU, since when, whether the user still exists in Entra, whether their Entra account is enabled, and their hire date where Entra has one. `-AllLicensedUsers` adds licence holders who have never used Copilot, which is what the "licensed, never used" report needs. A user who has since been deleted is stored as *not known*, which is a different claim from *unlicensed*.
+
+It also keeps the tenant's licence pool: the seats bought and assigned for every SKU, from the same `/subscribedSkus` call it makes to find the Copilot SKUs (`audit.LicenseSku`, and one row per SKU per day in `audit.LicenseSkuDay`). None of this needs a permission beyond `User.Read.All` and `LicenseAssignment.Read.All`.
 
 A good run lists the tenant's Copilot SKUs, how many users it looked up, and how many are licensed. From the lab run:
 
@@ -330,7 +332,9 @@ Four steps, in this order, each finishing before the next starts:
 - each step in its own PowerShell process, so one step's modules and state can't affect the next;
 - output appended to `logs\nightly-<date>.log`, and logs older than 90 days deleted;
 - at the first failure it stops and exits 1, so Task Scheduler's history shows it; tomorrow's run resumes the same load;
-- if the history hasn't been loaded yet, it says so and exits 1, rather than starting a partial load.
+- if the history hasn't been loaded yet, it says so and exits 1, rather than starting a partial load;
+- every run and step is recorded in `audit.PipelineRun` and `audit.PipelineRunStep`, with the failed step's last log lines, for the dashboard's Health page and its pipeline alert;
+- after a successful night, it applies the retention set in the dashboard's Admin › Privacy and retention (old audit-log and notification rows; the stored JSON of old records, if set).
 
 Run it once by hand before relying on the schedule:
 
@@ -382,11 +386,16 @@ The on-premises data gateway's login needs the `bi` views and nothing else. The 
 | `bi.LicensedDays` | user holding a Copilot licence at the end of a day | DateKey, UserKey |
 | `bi.Calendar` | date, with the Saturday–Friday week | DateKey |
 | `bi.Users`, `bi.Apps`, `bi.Agents`, `bi.Models`, `bi.Skus`, `bi.LicenceStatuses`, `bi.LicenseTypes`, `bi.SensitivityLabels`, `bi.ResourceTypes`, `bi.ResourceActions`, `bi.Sites` | dimension rows | their key |
+| `bi.OrgSecurity` (with the dashboard) | viewer and person they may see | UserKey |
+| `bi.LicensePool` | SKU per day: seats bought, assigned, available | none (a table of its own) |
+| `bi.ValueNames` (with the dashboard) | a catalogued code and the name an administrator gave it | none |
+| `bi.DepartmentWeek` (with the dashboard) | department per week, groups under the minimum size hidden | none |
 
 1. **Relationships:** each fact's key to the dimension with the same key, one-to-many, single direction.
 2. **Mark `Calendar` as the date table**, on its `Date` column.
 3. **Incremental refresh on `Interactions` and `AccessedResources`:** create the `RangeStart` and `RangeEnd` date/time parameters and filter `ActivityHour` between them (on or after `RangeStart`, before `RangeEnd`). Refresh at least the last 4 days: each night reloads from about 72 hours back, the 48-hour lookback plus the day since the last run. `ActivityHour` is local time cut to the hour, so it costs almost nothing in memory. The other facts are small enough to refresh whole.
-4. **Measures**, as a starting point:
+4. **Row-level security from the org chart** (optional, with the dashboard installed): relate `OrgSecurity[UserKey]` to `Users[UserKey]` (many-to-one, filtering both ways, with security filtering in both directions), then add a role *Organisation* with the filter `[ViewerUpn] = USERPRINCIPALNAME()` on `OrgSecurity`, and add everyone who may open the report to it. A manager then sees everyone under them; the top of the organisation, the people reporting to them and anyone granted Organization in the dashboard see everyone. The view resolves people granted Organization directly, not through a group: grant it to people for Power BI. Test with *View as* in Power BI Desktop.
+5. **Measures**, as a starting point:
 
 ```dax
 Interactions = COUNTROWS ( Interactions )
@@ -556,6 +565,35 @@ Freshness
 
 It lists the records loaded and flattened, when the last load was merged, and when sessions, `bi` and the dashboard were last rebuilt. A healthy morning: every time is from last night, and the nightly log ends in *Done.* If the dashboard is installed, **Admin › Health** shows the same with fresh, stale and old marked. After that, the semantic model's refresh history shows a success, and Copilot's answer to "how many people used Copilot yesterday?" matches the Leadership page for yesterday.
 
+## Phase 7: The Copilot Insights dashboard (optional)
+
+The web dashboard, on a Windows Server with IIS: every persona's pages, alerts and digests by email, and an admin section for every setting. [DASHBOARD.md](DASHBOARD.md) is its guide.
+
+### Step 22. Install the site
+
+*Web server, as an administrator, in Windows PowerShell 5.1. About 15 minutes.*
+
+The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.3.0.zip` to the web server, then from the source package's folder:
+
+```powershell
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.3.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+    -AdminPrincipal 'USERS\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
+```
+
+It installs the IIS role services (with Application Initialization, so the site starts with IIS and sends alerts and digests with nobody signed in), checks for the ASP.NET Core 10 Hosting Bundle, copies the site, sets Windows authentication, starts the app pool, registers the *Copilot Insights* event log source for alerts, and adds the app pool's account to the database role `CopilotInsightsApp`, which carries every grant the site needs from here on.
+
+### Step 23. The first administrator and the settings
+
+*Browser.*
+
+A member of `-AdminPrincipal` opens the site and goes to **Admin › Access**: the top of the organisation, the minimum group size, the licence price, and the roles. Then **Admin › Targets and assumptions** (targets, minutes saved, the licensing group) and **Admin › Privacy and retention** if privacy mode or a JSON retention is needed.
+
+### Step 24. Email, alerts and digests
+
+*Browser. Needs a mailbox or an SMTP relay.*
+
+In **Admin › Email**, choose Exchange Online (the mailbox's password, or OAuth with an app holding `SMTP.SendAsApp`) or an SMTP server on any port, with its user name and password. **Send a test**. Then in **Admin › Alerts and digests**, set who hears about pipeline failures, security signals, licences and drops in use, and add the digests. [DASHBOARD.md](DASHBOARD.md#email-alerts-and-digests) has the details, including when Exchange Online stops accepting passwords.
+
 ## Running it
 
 Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01`; `-Task Status` shows what is loaded and when each step last ran.
@@ -569,6 +607,7 @@ Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -Sql
 | The flatten says a field *now carries information* | One of the fields that never varied has a second value: see `audit.RawLogRecordShape`. Nothing is lost from the JSON; if it matters for reporting, it needs a column in a new release. |
 | Disk grows past your horizon | `M -Task PurgeJson -RetainDays 365` reports what it would clear; add `-Apply` to clear the stored JSON and keep the rows. |
 | A new release comes out | Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, and run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once. It upgrades every object and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. Read the release notes' upgrade section. |
+| Upgrading to 2.3.0 | As for any release, then once: `M -Task RebuildValueCatalog`, so the codes flattened before 2.3.0 are in Admin › Value names (new records are catalogued as they are flattened). With the dashboard, run step 22 again with the new package. |
 | The certificate nears expiry | Within 30 days of expiry, `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` creates a new one, gives the gMSA its private key, uploads it to the app next to the old one and puts its thumbprint in the settings. Remove the old one from the app after the next good run. |
 
 **When the nightly run fails:**

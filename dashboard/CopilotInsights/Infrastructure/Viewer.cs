@@ -37,8 +37,6 @@ public sealed class Viewer
     public bool InDirectory { get; init; }
     public int PeopleBelow { get; init; }
     public required IReadOnlySet<string> Roles { get; init; }
-    /// <summary>Set when an administrator is viewing as this person (Development only): the administrator's own name.</summary>
-    public string? ViewingAsBy { get; init; }
 
     public bool IsAdmin => Roles.Contains(Infrastructure.Roles.Admin);
     public bool OrgWide => AccessRules.SeesWholeOrganisation(Level, Roles);
@@ -58,6 +56,13 @@ public static class AccessRules
     /// anyone who sees the whole organisation may; others only at themselves or
     /// someone under them (<paramref name="rootIsUnderViewer"/>, from dash.OrgClosure).
     /// </summary>
+    /// <summary>
+    /// The SID rule: an account may be a person when the directory records no SID for them,
+    /// or records exactly the SID in the account's Windows token. Pure, for the tests.
+    /// </summary>
+    public static bool SidMatches(string? recordedSid, string? tokenSid) =>
+        string.IsNullOrWhiteSpace(recordedSid) || (tokenSid is not null && string.Equals(recordedSid.Trim(), tokenSid, StringComparison.OrdinalIgnoreCase));
+
     public static bool MayViewSubtree(Viewer viewer, string rootUpn, bool rootIsUnderViewer) =>
         viewer.OrgWide
         || (viewer.Upn is not null && string.Equals(viewer.Upn, rootUpn, StringComparison.OrdinalIgnoreCase))
@@ -65,9 +70,14 @@ public static class AccessRules
 }
 
 /// <summary>Resolves the signed-in Windows account to a Viewer, once per request.</summary>
+/// <remarks>
+/// The viewer is always the account Windows authenticated: nothing in the URL, a cookie or a
+/// header can change who they are. The UPN they are matched to is checked against the SID in
+/// their Windows token wherever the directory records one (see <see cref="ResolveUpnAsync"/>).
+/// </remarks>
 public sealed class ViewerService(
     IHttpContextAccessor http, Db db, IMemoryCache cache, IOptions<InsightsOptions> options,
-    IWebHostEnvironment env, ILogger<ViewerService> log)
+    ILogger<ViewerService> log)
 {
     readonly InsightsOptions _o = options.Value;
     Viewer? _viewer;
@@ -82,27 +92,10 @@ public sealed class ViewerService(
 
         var roles = await RolesForAsync(upn, windowsName, user);
         if (IsBootstrapAdmin(upn, windowsName, user)) roles.Add(Roles.Admin);
-
-        /* Development only: an administrator may look through someone else's eyes. */
-        string? viewAs = null;
-        if (env.IsDevelopment() && _o.AllowViewAs && roles.Contains(Roles.Admin))
-        {
-            viewAs = ctx.Request.Query["as"].FirstOrDefault() ?? ctx.Request.Cookies["insights-as"];
-            if (ctx.Request.Query.ContainsKey("as"))
-            {
-                if (string.IsNullOrWhiteSpace(viewAs)) { ctx.Response.Cookies.Delete("insights-as"); viewAs = null; }
-                else ctx.Response.Cookies.Append("insights-as", viewAs, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, IsEssential = true });
-            }
-        }
-        if (!string.IsNullOrWhiteSpace(viewAs))
-        {
-            var asRoles = await RolesForAsync(viewAs, viewAs, null);
-            return _viewer = await BuildAsync(viewAs, viewAs, asRoles, viewingAsBy: windowsName);
-        }
-        return _viewer = await BuildAsync(windowsName, upn, roles, null);
+        return _viewer = await BuildAsync(windowsName, upn, roles);
     }
 
-    async Task<Viewer> BuildAsync(string windowsName, string? upn, HashSet<string> roles, string? viewingAsBy)
+    async Task<Viewer> BuildAsync(string windowsName, string? upn, HashSet<string> roles)
     {
         PersonRow? p = null;
         if (upn is not null)
@@ -111,7 +104,7 @@ public sealed class ViewerService(
         return new Viewer
         {
             WindowsName = windowsName, Upn = upn, DisplayName = p?.DisplayName, Level = p?.Level,
-            InDirectory = p is not null, PeopleBelow = p?.PeopleBelow ?? 0, Roles = roles, ViewingAsBy = viewingAsBy,
+            InDirectory = p is not null, PeopleBelow = p?.PeopleBelow ?? 0, Roles = roles,
         };
     }
 
@@ -148,26 +141,43 @@ public sealed class ViewerService(
     }
 
     /// <summary>
-    /// The viewer's UPN: the configured map first, then the account's SID in the
-    /// directory table (no lookup at sign-in, so it works when the web servers
-    /// are in another domain from the users), then Active Directory by the SID,
-    /// then the sign-in name itself when it already is one. Cached for ten
-    /// minutes per account.
+    /// The viewer's UPN: the account's SID in the directory table first (no lookup at
+    /// sign-in, so it works when the web servers are in another domain from the users),
+    /// then the configured map, then Active Directory by the SID, then the sign-in name
+    /// itself when it already is one. Whichever way it was found, the SID is checked: a
+    /// person whose directory record carries a SID can be signed in as only by the account
+    /// with that SID, so no mapping, name or lookup can land one account on another
+    /// person. Cached for ten minutes per account.
     /// </summary>
     async Task<string?> ResolveUpnAsync(ClaimsPrincipal user, string windowsName)
     {
-        if (_o.IdentityMap.TryGetValue(windowsName, out var mapped)) return mapped;
-        if (cache.TryGetValue("upn:" + windowsName, out string? known)) return known;
         var sid = OperatingSystem.IsWindows() && user.Identity is WindowsIdentity w ? w.User?.Value : null;
+        var key = "upn:" + (sid ?? windowsName);
+        if (cache.TryGetValue(key, out string? known)) return known;
         string? upn = null;
         if (sid is not null)
         {
             try { upn = await db.ScalarAsync<string?>("SELECT TOP (1) Upn FROM dash.Person WHERE Sid = @sid ORDER BY AccountEnabled DESC", new { sid }); }
             catch (Exception ex) { log.LogInformation("No SID match for {Name}: {Message}", windowsName, ex.Message); }
         }
+        if (upn is null && _o.IdentityMap.TryGetValue(windowsName, out var mapped)) upn = mapped;
         upn ??= FromDirectory(user, windowsName);
-        cache.Set("upn:" + windowsName, upn, TimeSpan.FromMinutes(10));
+        if (upn is not null && !await SidAllowsAsync(upn, sid))
+        {
+            log.LogWarning("{Name} (SID {Sid}) resolved to {Upn}, whose directory record carries a different SID: not signed in as them.", windowsName, sid ?? "none", upn);
+            upn = null;
+        }
+        cache.Set(key, upn, TimeSpan.FromMinutes(10));
         return upn;
+    }
+
+    /// <summary>Whether the signed-in account's SID may be this person: yes when the directory records no SID for them, else only when it is theirs.</summary>
+    async Task<bool> SidAllowsAsync(string upn, string? sid)
+    {
+        string? recorded;
+        try { recorded = await db.ScalarAsync<string?>("SELECT TOP (1) Sid FROM dash.Person WHERE Upn = @upn", new { upn }); }
+        catch (Exception ex) { log.LogWarning("Could not check the SID for {Upn}: {Message}", upn, ex.Message); return false; }
+        return AccessRules.SidMatches(recorded, sid);
     }
 
     string? FromDirectory(ClaimsPrincipal user, string windowsName)

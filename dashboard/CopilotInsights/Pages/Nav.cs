@@ -13,21 +13,26 @@ public static class Nav
         new("My Copilot", "Everyone: your own use", [
             new("My use", "/me")]),
         new("Leadership", "Executives and department heads", [
-            new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organisation", "/leadership/org"), new("Apps and agents", "/leadership/mix")]),
+            new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organisation", "/leadership/org"), new("Apps and agents", "/leadership/mix"),
+            new("Value and time saved", "/leadership/value")]),
         new("Adoption", "Copilot programme lead", [
             new("Funnel and trend", "/adoption"), new("Retention and habit", "/adoption/retention"), new("Licence cohorts", "/adoption/cohorts"),
-            new("Departments", "/adoption/departments"), new("Not started", "/adoption/not-started", Roles.Adoption)]),
+            new("Departments", "/adoption/departments"), new("Targets", "/adoption/targets"), new("New joiners", "/adoption/onboarding"),
+            new("Drops and spikes", "/adoption/anomalies"), new("Not started", "/adoption/not-started", Roles.Adoption)]),
         new("Licensing", "Licensing, IT asset and FinOps", [
             new("Inventory", "/licensing"), new("Unused licences", "/licensing/unused", Roles.Licensing),
-            new("Demand", "/licensing/demand"), new("Licence changes", "/licensing/changes")]),
+            new("Demand", "/licensing/demand"), new("Licence changes", "/licensing/changes"), new("Licence pool", "/licensing/pool"),
+            new("Chargeback", "/licensing/chargeback"), new("Licences on disabled accounts", "/licensing/leavers", Roles.Licensing)]),
         new("Security", "Security operations", [
             new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Flagged interactions", "/security/flags", Roles.Security)]),
         new("Compliance", "Data protection and compliance", [
-            new("Sensitive content", "/compliance"), new("Labelled content by unit", "/compliance/units"), new("Resource access", "/compliance/access", Roles.Compliance)]),
+            new("Sensitive content", "/compliance"), new("Labelled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
+            new("Resource access", "/compliance/access", Roles.Compliance)]),
         new("Agents", "Copilot Studio makers and CoE", [
-            new("Agents", "/agents"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")]),
+            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")]),
         new("Enablement", "Training and champions", [
-            new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("People", "/enablement/people", Roles.Enablement)]),
+            new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
+            new("Champions", "/enablement/champions", Roles.Enablement), new("People", "/enablement/people", Roles.Enablement)]),
         new("Forecasting", "Finance, licensing and programme leads", [
             new("Forecast", "/forecasting"), new("Licence optimisation", "/forecasting/optimise"),
             new("Upgrade, train or revoke", "/forecasting/actions", Roles.Licensing)]),
@@ -41,7 +46,10 @@ public static class Nav
             new("Models and grounding", "/governance"), new("Controls", "/governance/controls")]),
         new("Admin", "Dashboard administrators", [
             new("Health", "/admin", Admin: true), new("Access", "/admin/access", Admin: true),
-            new("Reference data", "/admin/reference", Admin: true), new("Audit log", "/admin/audit", Admin: true)]),
+            new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),
+            new("Targets and assumptions", "/admin/assumptions", Admin: true), new("Privacy and retention", "/admin/privacy", Admin: true),
+            new("Reference data", "/admin/reference", Admin: true), new("Value names", "/admin/values", Admin: true),
+            new("Training records", "/admin/training", Admin: true), new("Audit log", "/admin/audit", Admin: true)]),
     ];
 
     /// <summary>
@@ -49,13 +57,13 @@ public static class Nav
     /// of the role, and report pages to anyone with data to see (in the directory, or granted
     /// Organization). The navigation and the start page show only these; the rest are not listed.
     /// </summary>
-    public static bool Allowed(NavPage page, Viewer viewer) =>
+    public static bool Allowed(NavPage page, Viewer viewer, bool privacyMode = false) =>
         page.Admin ? viewer.IsAdmin
-                   : (viewer.OrgWide || viewer.InDirectory) && (page.Role is null || viewer.Has(page.Role));
+                   : (viewer.OrgWide || viewer.InDirectory) && (page.Role is null || (!privacyMode && viewer.Has(page.Role)));
 
     /// <summary>The groups and pages this viewer may open; a group with none is left out.</summary>
-    public static IReadOnlyList<NavGroup> For(Viewer? viewer) =>
+    public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false) =>
         viewer is null ? [] :
-        Groups.Select(g => g with { Pages = g.Pages.Where(p => Allowed(p, viewer)).ToList() })
+        Groups.Select(g => g with { Pages = g.Pages.Where(p => Allowed(p, viewer, privacyMode)).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
 }

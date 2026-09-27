@@ -77,8 +77,9 @@ public sealed class Table
     }
 }
 
-public sealed class PageServices(Db db, ViewerService viewers, ReportContextFactory contexts, AuditLog audit, Settings settings)
+public sealed class PageServices(Db db, ViewerService viewers, ReportContextFactory contexts, AuditLog audit, Settings settings, Freshness freshness)
 {
+    public Freshness Freshness { get; } = freshness;
     public Db Db { get; } = db;
     public ViewerService Viewers { get; } = viewers;
     public ReportContextFactory Contexts { get; } = contexts;
@@ -109,6 +110,10 @@ public abstract class InsightsPage(PageServices s) : PageModel
     public List<Panel> Panels { get; } = [];
     public string? Denied { get; private set; }
     public string? Notice { get; protected set; }
+    /// <summary>Privacy mode: pages that name people are refused (see Settings.PrivacyModeAsync).</summary>
+    public bool PrivacyMode { get; private set; }
+    /// <summary>Set when the data is older than the freshness limit: a banner on every page.</summary>
+    public string? Stale { get; private set; }
 
     /// <summary>Set by pages whose main table can be downloaded (named lists).</summary>
     protected Table? CsvTable { get; set; }
@@ -119,9 +124,13 @@ public abstract class InsightsPage(PageServices s) : PageModel
     {
         Viewer = await S.Viewers.GetAsync();
         Ctx = await S.Contexts.CreateAsync(Viewer, Request);
+        PrivacyMode = await S.Settings.PrivacyModeAsync();
         if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
+        else if (RequiredRole is not null && PrivacyMode)
+            Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin > Privacy and retention.";
         else if (RequiredRole is not null && !Viewer.Has(RequiredRole))
             Denied = $"This page lists named people, so it needs the {RequiredRole} role. {Roles.Describe[RequiredRole]} An administrator can grant it.";
+        Stale = await S.Freshness.BannerAsync();
         if (Denied is not null)
         {
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, Ctx.ScopeLabel, Denied);
@@ -156,7 +165,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
     protected async Task<IActionResult> AdminChangeAsync(Func<Task<string>> change)
     {
         if (!await PrepareAsync()) return Page();
-        if (!Viewer.IsAdmin || Viewer.ViewingAsBy is not null)
+        if (!Viewer.IsAdmin)
         {
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, "admin change refused");
             return StatusCode(403);

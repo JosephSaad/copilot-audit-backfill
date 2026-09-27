@@ -17,6 +17,15 @@
       4. Copilot interactions: -Incremental, which then refreshes the
          flattened table, sessions, bi and the dashboard.
 
+    Then, after a successful night, the retention the dashboard's
+    administrators set (dash.usp_ApplyRetention, where the dashboard is
+    installed).
+
+    Every run and step is recorded in audit.PipelineRun and
+    audit.PipelineRunStep, which Admin > Health shows and the dashboard's
+    pipeline alert watches. If SQL cannot be reached to record it, the run
+    goes on and the log still has everything.
+
     -History (once, from a console; hours):
       1. Copilot interactions for the last HistoryDays days, finalized.
       2. Licence events for the same days, finalized.
@@ -122,19 +131,63 @@ function Invoke-PipelineStep {
     $LASTEXITCODE
 }
 
-function Test-HistoryLoaded {
-    param([System.Collections.IDictionary] $Setting)
+function Invoke-PipelineSql {
+    <# One command against the Copilot database: a scalar back, or nothing. #>
+    param([System.Collections.IDictionary] $Setting, [string] $Sql, [hashtable] $Parameters = @{}, [int] $Timeout = 60)
     $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
     $b['Data Source'] = $Setting.SqlServer; $b['Initial Catalog'] = $Setting.Database; $b['Integrated Security'] = $true
     $b['Encrypt'] = $true; $b['TrustServerCertificate'] = [bool] ($Setting.Contains('TrustServerCertificate') -and $Setting.TrustServerCertificate)
-    $c = [System.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+    # A whole connection string in the settings wins (the tests, or SQL authentication).
+    $cs = if ($Setting.Contains('ConnectionString') -and $Setting.ConnectionString) { [string] $Setting.ConnectionString } else { $b.ConnectionString }
+    $c = [System.Data.SqlClient.SqlConnection]::new($cs)
     $c.Open()
     try {
         $cmd = $c.CreateCommand()
-        $cmd.CommandText = "SELECT CASE WHEN OBJECT_ID(N'audit.CopilotAudit', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.CopilotAudit) THEN 1 ELSE 0 END"
-        [bool] $cmd.ExecuteScalar()
+        $cmd.CommandText = $Sql
+        $cmd.CommandTimeout = $Timeout
+        foreach ($k in $Parameters.Keys) { [void] $cmd.Parameters.AddWithValue($k, $(if ($null -eq $Parameters[$k]) { [DBNull]::Value } else { $Parameters[$k] })) }
+        $cmd.ExecuteScalar()
     }
     finally { $c.Dispose() }
+}
+
+function Test-HistoryLoaded {
+    param([System.Collections.IDictionary] $Setting)
+    [bool] (Invoke-PipelineSql $Setting "SELECT CASE WHEN OBJECT_ID(N'audit.CopilotAudit', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.CopilotAudit) THEN 1 ELSE 0 END")
+}
+
+function Write-PipelineRecord {
+    <#
+        Records the run in audit.PipelineRun / PipelineRunStep. Never fails the
+        run: a database that cannot be reached, or one without the tables yet,
+        leaves only a warning in the log.
+    #>
+    param([System.Collections.IDictionary] $Setting, [string] $Sql, [hashtable] $Parameters, [string] $Log)
+    try { Invoke-PipelineSql $Setting ("IF OBJECT_ID(N'audit.PipelineRun', N'U') IS NOT NULL BEGIN " + $Sql + " END") $Parameters }
+    catch { "$(Get-Date -Format s) (not recorded in audit.PipelineRun: $($_.Exception.Message))" | Out-File -FilePath $Log -Append }
+}
+
+function Get-LogTail {
+    <# The last lines of the log, for the failed run's detail. #>
+    param([string] $Log, [int] $Lines = 25)
+    if (-not (Test-Path -LiteralPath $Log)) { return $null }
+    $t = (Get-Content -LiteralPath $Log -Tail $Lines) -join "`n"
+    if ($t.Length -gt 3900) { $t = $t.Substring($t.Length - 3900) }
+    $t
+}
+
+function Invoke-Retention {
+    <#
+        The retention the dashboard's administrators set (Admin > Privacy and
+        retention): old audit-log and notification rows, and the stored JSON of
+        old records. A failure is logged, not fatal: the data is loaded either way.
+    #>
+    param([System.Collections.IDictionary] $Setting, [string] $Log)
+    try {
+        $r = Invoke-PipelineSql $Setting -Timeout 3600 -Sql "IF OBJECT_ID(N'dash.usp_ApplyRetention', N'P') IS NOT NULL EXEC dash.usp_ApplyRetention;"
+        if ($r) { "$(Get-Date -Format s) Retention: $r" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
+    }
+    catch { "$(Get-Date -Format s) Retention was not applied: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
 }
 
 function Invoke-Main {
@@ -150,14 +203,26 @@ function Invoke-Main {
             Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
         exit 1
     }
+    $runId = Write-PipelineRecord $s -Log $log -Parameters @{ '@k' = $(if ($History) { 'History' } else { 'Nightly' }); '@h' = [Environment]::MachineName; '@u' = "$env:USERDOMAIN\$env:USERNAME" } -Sql `
+        "INSERT INTO audit.PipelineRun (Kind, Host, RunAs) VALUES (@k, @h, @u); SELECT CAST(SCOPE_IDENTITY() AS INT);"
+    $n = 0
     foreach ($step in (Get-PipelineStep -Setting $s -History:$History -Days $Days)) {
+        $n++
+        if ($runId) { [void] (Write-PipelineRecord $s -Log $log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }
         $code = Invoke-PipelineStep -Step $step -Log $log
+        if ($runId) { [void] (Write-PipelineRecord $s -Log $log -Parameters @{ '@r' = $runId; '@n' = $n; '@c' = $code } -Sql 'UPDATE audit.PipelineRunStep SET EndedUtc = SYSUTCDATETIME(), ExitCode = @c WHERE RunId = @r AND StepNo = @n;') }
         if ($code -ne 0) {
             "$(Get-Date -Format s) $($step.Name) failed (exit code $code). Run the same command again to resume." |
                 Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
+            if ($runId) {
+                [void] (Write-PipelineRecord $s -Log $log -Parameters @{ '@r' = $runId; '@f' = $step.Name; '@d' = (Get-LogTail $log) } `
+                    -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Failed', FailedStep = @f, Detail = @d WHERE RunId = @r;")
+            }
             exit 1
         }
     }
+    if (-not $History) { Invoke-Retention -Setting $s -Log $log }
+    if ($runId) { [void] (Write-PipelineRecord $s -Log $log -Parameters @{ '@r' = $runId } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded' WHERE RunId = @r;") }
     "$(Get-Date -Format s) Done." | Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
     if ($History) { Write-Information 'History loaded and built. The nightly task keeps it current from tonight.' -InformationAction Continue }
 }

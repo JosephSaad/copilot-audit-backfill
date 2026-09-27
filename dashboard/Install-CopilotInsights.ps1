@@ -85,8 +85,9 @@ if ($AppPoolIdentity -and -not $AppPoolIdentity.EndsWith('$') -and -not $AppPool
 # ---- 1. IIS -----------------------------------------------------------------------------------
 if (-not $SkipFeatureInstall) {
     Write-Step 'IIS role services'
+    # Web-AppInit starts the site with IIS, so email alerts and digests go out with nobody signed in.
     $features = 'Web-Server', 'Web-Default-Doc', 'Web-Static-Content', 'Web-Http-Errors', 'Web-Http-Logging',
-                'Web-Filtering', 'Web-Windows-Auth', 'Web-Mgmt-Console'
+                'Web-Filtering', 'Web-Windows-Auth', 'Web-Mgmt-Console', 'Web-AppInit'
     $r = Install-WindowsFeature -Name $features
     if ($r.RestartNeeded -eq 'Yes') { Write-Warning 'Windows asks for a restart to finish installing IIS. Restart, then run this again.' }
 }
@@ -122,6 +123,14 @@ try {
     }
     elseif ($src -like '*.zip') { Expand-Archive -Path $src -DestinationPath $staging -Force }
     else { Copy-Item -Path (Join-Path $src '*') -Destination $staging -Recurse -Force }
+    # The release's zip holds the app in a CopilotInsights folder: use the folder the app is in.
+    if (-not (Test-Path (Join-Path $staging 'CopilotInsights.dll'))) {
+        $inner = Get-ChildItem $staging -Directory | Where-Object { Test-Path (Join-Path $_.FullName 'CopilotInsights.dll') } | Select-Object -First 1
+        if ($inner) {
+            Get-ChildItem $inner.FullName -Force | Move-Item -Destination $staging -Force
+            Remove-Item $inner.FullName -Recurse -Force
+        }
+    }
     if (-not (Test-Path (Join-Path $staging 'CopilotInsights.dll'))) { throw "No CopilotInsights.dll in ${PackagePath}: is it the published app?" }
 
     New-Item -ItemType Directory -Force $PhysicalPath, (Join-Path $PhysicalPath 'logs') | Out-Null
@@ -147,7 +156,8 @@ if ($AdminPrincipal.Count -gt 0) { Set-Prop $settings.Insights 'BootstrapAdmins'
 elseif (-not $settings.Insights.PSObject.Properties['BootstrapAdmins'] -or @($settings.Insights.BootstrapAdmins).Count -eq 0) {
     Write-Warning 'No -AdminPrincipal: nobody can open Admin until a row is added to dash.RoleGrant (see the RUNBOOK).'
 }
-Set-Prop $settings.Insights 'AllowViewAs' $false
+# Before 2.3.0 a Development-only setting let an administrator view as someone else; the site no longer has it.
+if ($settings.Insights.PSObject.Properties['AllowViewAs']) { $settings.Insights.PSObject.Properties.Remove('AllowViewAs') }
 $settings | ConvertTo-Json -Depth 5 | Set-Content $settingsPath -Encoding utf8
 
 # ---- 5. App pool and site ---------------------------------------------------------------------
@@ -177,6 +187,13 @@ if (-not (Get-Website -Name $SiteName)) {
 else {
     Set-ItemProperty "IIS:\Sites\$SiteName" -Name physicalPath -Value $PhysicalPath
     Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationPool -Value $SiteName
+}
+# Start the app with IIS, not at the first visit: its background sender runs the alerts and digests.
+Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationDefaults.preloadEnabled -Value $true
+
+# Alerts also go to the Application log under this source; creating a source needs an administrator.
+if (-not [System.Diagnostics.EventLog]::SourceExists('Copilot Insights')) {
+    New-EventLog -LogName Application -Source 'Copilot Insights'
 }
 if ($https) {
     $proto = 'https'
@@ -231,6 +248,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.SensitivityLabel TO [$sqlLogin];
 GRANT INSERT ON dash.AuditLog TO [$sqlLogin];
 GRANT EXECUTE ON dash.usp_RefreshDashboard TO [$sqlLogin];
 GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO [$sqlLogin];
+-- Every grant the site needs, kept up to date by Create-CopilotOperationsSchema.sql.
+IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL ALTER ROLE CopilotInsightsApp ADD MEMBER [$sqlLogin];
 -- Admin > Health reads the pipeline's run logs, where they exist.
 DECLARE @t sysname, @sql nvarchar(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
@@ -252,7 +271,7 @@ if ($GrantDatabaseAccess) {
     $dbConn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
     $dbConn.Open()
     try {
-        foreach ($f in 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql') {
+        foreach ($f in 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql') {
             $text = Get-Content -LiteralPath (Join-Path $repoSql $f) -Raw
             foreach ($batch in [regex]::Split($text, '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) {
                 if ($batch.Trim()) { $c = $dbConn.CreateCommand(); $c.CommandText = $batch; $c.CommandTimeout = 0; [void] $c.ExecuteNonQuery() }
