@@ -75,6 +75,20 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'UserType') IS NULL
     ALTER TABLE audit.CopilotLicense ADD UserType NVARCHAR(20) NULL;
 
 /*
+    2.4.0: members of the AD groups granted Organization in the dashboard (dash.RoleGrant), expanded
+    by the directory load, nested groups included. bi.OrgSecurity gives them the whole organisation,
+    so Power BI honours a group grant the way the dashboard does at sign-in. Replaced whole each load.
+*/
+IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
+    CREATE TABLE audit.GroupMember
+    (
+        GroupName          NVARCHAR(256)  NOT NULL,   -- as granted: DOMAIN\Group
+        UserPrincipalName  NVARCHAR(256)  NOT NULL,
+        LoadedUtc          DATETIME2(0)   NOT NULL CONSTRAINT DF_GroupMember_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_GroupMember PRIMARY KEY (GroupName, UserPrincipalName)
+    );
+
+/*
     The tenant's license pool, from /subscribedSkus (LicenseAssignment.Read.All),
     which the license tool already reads to find the Copilot SKUs: seats bought
     (prepaidUnits) and assigned (consumedUnits) per SKU. LicenseSku is the

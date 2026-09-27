@@ -88,6 +88,20 @@ Assert-That ($a.Skipped.OtherType -eq 0 -and @($a.Table.Rows | Where-Object User
 $none = ConvertTo-UserDirectoryTable -Entries @()
 Assert-That ($none.Table.Rows.Count -eq 0) 'an empty directory gives an empty table, not an error'
 
+# ---------------------------------------------------------------------------
+Write-Host "`n3. Groups granted Organization (2.4.0)" -ForegroundColor Cyan
+
+Assert-That ((ConvertTo-LdapFilterValue 'Execs (EMEA)*\x') -eq 'Execs \28EMEA\29\2a\5cx') 'a group name is escaped for the LDAP filter (RFC 4515)'
+Assert-That ((ConvertTo-LdapFilterValue 'CN=Execs,OU=Groups,DC=contoso,DC=com') -eq 'CN=Execs,OU=Groups,DC=contoso,DC=com') 'a plain distinguished name passes unchanged'
+
+$gt = ConvertTo-GroupMemberTable -Groups @(
+    [pscustomobject]@{ Group = 'CONTOSO\Execs'; Members = @('a@contoso.com', 'A@contoso.com', 'b@contoso.com', '', ('x' * 257)) }
+    [pscustomobject]@{ Group = 'CONTOSO\Board'; Members = @('a@contoso.com') }
+)
+Assert-That ($gt.Rows.Count -eq 3) "each member once per group, blanks and over-long UPNs dropped ($($gt.Rows.Count) rows)"
+Assert-That (@($gt.Rows | Where-Object { $_.GroupName -eq 'CONTOSO\Board' -and $_.UserPrincipalName -eq 'a@contoso.com' }).Count -eq 1) 'a person in two groups is recorded under each'
+Assert-That ((ConvertTo-GroupMemberTable -Groups @()).Rows.Count -eq 0) 'no groups gives an empty table, which clears last night''s members'
+
 Write-Host ''
 if ($script:Failures.Count) { Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red; exit 1 }
 Write-Host 'All user directory tests passed.' -ForegroundColor Green

@@ -120,7 +120,7 @@ An L2 manager, who reports directly to the CEO, sees the whole organisation. The
 
 A viewer can look inside any part of their own scope, one level at a time. The breadcrumb and the "Look inside a team" list offer only what they may open. Each request's `org` value is checked against the org chart on the server, so editing the URL can't widen a scope.
 
-**Roles** are granted in Admin › Access to a person (UPN or `DOMAIN\user`) or an AD group (`DOMAIN\Group`). Group membership is read from the Windows sign-in, so a group grant follows AD with no database change.
+**Roles** are granted in Admin › Access to a person (UPN or `DOMAIN\user`) or an AD group (`DOMAIN\Group`). Group membership is read from the Windows sign-in, so a group grant follows AD with no database change. Power BI has no Windows sign-in to read, so for its *Organisation* role the nightly directory load writes the members of every group granted Organization to `audit.GroupMember`: a change to such a group reaches Power BI the next morning.
 
 | Role | Gives |
 |---|---|

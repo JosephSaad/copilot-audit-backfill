@@ -514,25 +514,32 @@ IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
     see). A manager sees everyone under them; the top of the organisation, the
     people reporting to them and anyone granted Organization see everyone. The
     Power BI model in powerbi/ uses it in its Organisation role:
-    Users[UserKey] IN the viewer's rows, by USERPRINCIPALNAME(). Group grants are
-    resolved at sign-in by the dashboard, not here: grant Organization to people
-    directly for Power BI.
+    Users[UserKey] IN the viewer's rows, by USERPRINCIPALNAME(). Organization
+    granted to an AD group counts for its members too (2.4.0): the nightly
+    directory load expands the group into audit.GroupMember.
 
     Empty in privacy mode: each row pairs a real sign-in with a user key, which
     would undo the pseudonyms in bi.Users. With privacy mode on, share
     bi.DepartmentWeek rather than the person-level model.
 */
+IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
+    CREATE TABLE audit.GroupMember (GroupName NVARCHAR(256) NOT NULL, UserPrincipalName NVARCHAR(256) NOT NULL,
+        LoadedUtc DATETIME2(0) NOT NULL CONSTRAINT DF_GroupMember_Loaded DEFAULT (SYSUTCDATETIME()), CONSTRAINT PK_GroupMember PRIMARY KEY (GroupName, UserPrincipalName));
 EXEC (N'CREATE OR ALTER VIEW bi.OrgSecurity AS
+WITH whole AS (   -- everyone who sees the whole organisation: the top two levels, and Organization granted to them or to a group they are in
+    SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
+    UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization''
+    UNION SELECT gm.UserPrincipalName FROM audit.GroupMember AS gm
+          JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.PrincipalType = ''Group'' AND g.Role = ''Organization''
+)
 SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey
 FROM dash.OrgClosure AS oc
 JOIN bi.DimUser AS u ON u.UserPrincipalName = oc.DescendantUpn
-WHERE NOT EXISTS (SELECT 1 FROM dash.Person AS p WHERE p.Upn = oc.AncestorUpn AND p.Level IN (1, 2))
-  AND NOT EXISTS (SELECT 1 FROM dash.RoleGrant AS g WHERE g.Principal = oc.AncestorUpn AND g.PrincipalType = ''User'' AND g.Role = ''Organization'')
+WHERE NOT EXISTS (SELECT 1 FROM whole WHERE whole.Upn = oc.AncestorUpn)
   AND NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'')
 UNION ALL
 SELECT w.Upn, u.UserKey
-FROM (SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
-      UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization'') AS w
+FROM whole AS w
 CROSS JOIN bi.DimUser AS u
 WHERE NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymise'');');
 

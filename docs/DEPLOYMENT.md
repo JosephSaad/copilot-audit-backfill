@@ -40,7 +40,7 @@ Only the Purview and Graph arrows need the app registration.
 |---|---|---|---|
 | `Invoke-CopilotAuditBackfill.ps1` | Downloads audit records through the Purview Audit Search Graph API and bulk-loads them. With `-Incremental` it keeps them current and refreshes everything derived from them. | Job server, PowerShell 7.2+ | `audit.CopilotAudit`, `audit.CopilotInteraction` |
 | The same script, second database | Collects the license operations (*Change user license*, *Update user*, *Add user*, *Delete user*). They are the only record of license history. | Job server | `audit.LicenseEvent`, `audit.vLicenseSkuChange` |
-| `tools/Export-UsersWithHierarchy-ToSql.ps1` | Reads every user in a trusted AD domain: title, department, division, office, manager, management chain, whether the account is enabled. | A machine that reaches the trusted domain; PowerShell 5.1 or 7 | `audit.UserDirectory` |
+| `tools/Export-UsersWithHierarchy-ToSql.ps1` | Reads every user in a trusted AD domain: title, department, division, office, manager, management chain, whether the account is enabled. | A machine that reaches the trusted domain; PowerShell 5.1 or 7 | `audit.UserDirectory`; `audit.GroupMember` (members of AD groups granted Organization, for Power BI) |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Who holds a Copilot license now, and since when. | Job server | `audit.CopilotLicense` |
 | SQL procedures | Flatten the records, infer sessions and the Saturday–Friday weekly rollup, and fill the `bi` star schema. | SQL Server 2017+ | `audit.RawLogFlattened`, `audit.CopilotSession`, `audit.CopilotWeeklyRollup`, `bi.*` |
 | Power BI | Imports the `bi` views through the on-premises data gateway, refreshing only recent hours of the interaction fact. | Power BI service | — |
@@ -270,7 +270,7 @@ Part of the history run, and of every nightly run. Alone:
     -SqlServer SQLPROD01 -Database CopilotAudit
 ```
 
-One paged search reads every user in the trusted domain, enabled or not, since a user who has left still has interactions to attribute. It replaces `audit.UserDirectory` in one transaction, so readers never see it empty. It binds to AD as whoever runs it, over the trust: the users' domain must trust the job server's domain. It also keeps each account's SID, which the dashboard uses to recognise people signing in from the users' domain.
+One paged search reads every user in the trusted domain, enabled or not, since a user who has left still has interactions to attribute. It replaces `audit.UserDirectory` in one transaction, so readers never see it empty. It binds to AD as whoever runs it, over the trust: the users' domain must trust the job server's domain. It also keeps each account's SID, which the dashboard uses to recognise people signing in from the users' domain. With the dashboard installed, it then reads the AD groups granted Organization in Admin › Access and writes their members, nested groups included, to `audit.GroupMember`, so Power BI's *Organisation* role gives them the whole organisation as the dashboard does. The groups are looked up by name in the trusted domain; one it cannot find is named in the log as a warning.
 
 > **Read the match report.** It ends by saying how many users in the audit data it found by UPN, and how many more only by mail. Everything joins on the UPN. Under 90% means AD's UPNs are not the names people sign in to Microsoft 365 with, and their usage will show without a department. Resolve that before going further.
 
@@ -381,7 +381,7 @@ The release ships the model as a Power BI project: `powerbi\CopilotInsights\Copi
 2. **Transform data › Edit parameters**: `SqlServer` (`SQLPROD01`; for Azure SQL, its server name) and `SqlDatabase` (`CopilotAudit`). Leave `RangeStart` and `RangeEnd` as they are.
 3. **Refresh**. On the lab's 180,000-interaction demo this took about a minute.
 4. **Incremental refresh** on `Interactions` and `AccessedResources` (their queries already filter `ActivityHour` between `RangeStart` and `RangeEnd`): in each table's *Incremental refresh* settings, archive 2 years and refresh the last 4 days, since each night reloads from about 72 hours back.
-5. **Modeling › Manage roles** shows *Organisation*: `Users` filtered to the people the viewer may see in `bi.OrgSecurity`, by `USERPRINCIPALNAME()`. *View as* the role to check it. In privacy mode `bi.OrgSecurity` is empty and the role sees nobody: share `DepartmentWeek` instead.
+5. **Modeling › Manage roles** shows *Organisation*: `Users` filtered to the people the viewer may see in `bi.OrgSecurity`, by `USERPRINCIPALNAME()`. Everyone sees the people under them; the top two levels and anyone granted Organization, by name or through an AD group, see everyone. Group members are refreshed by the nightly directory load. *View as* the role to check it. In privacy mode `bi.OrgSecurity` is empty and the role sees nobody: share `DepartmentWeek` instead.
 6. Build the report pages you want on the measures below, then **File › Save**. The project is plain text, so it can live in source control.
 
 What the model holds, for reference:
