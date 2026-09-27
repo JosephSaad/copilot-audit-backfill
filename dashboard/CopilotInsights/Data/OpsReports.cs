@@ -117,7 +117,7 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", c.Args())).ToD
         var result = new Dictionary<string, int>();
         foreach (var (kind, def) in Pages.Forecasting.ActionsModel.Kinds)
             result[kind] = await db.ScalarAsync<int>($@"
-WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
+WITH {await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT COUNT(*) FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 LEFT JOIN a ON a.UserKey = du.UserKey LEFT JOIN lic ON lic.UserKey = du.UserKey

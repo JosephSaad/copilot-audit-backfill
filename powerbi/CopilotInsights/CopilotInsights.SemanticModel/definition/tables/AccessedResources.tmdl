@@ -1,0 +1,103 @@
+/// One row per resource (file, mail, site, web page) Copilot read for an interaction.
+table AccessedResources
+	lineageTag: 1ff668d5-f4fd-5af8-9e02-ce75a3014e3e
+
+	/// Resources Copilot read.
+	measure 'Resources read' = COUNTROWS ( AccessedResources )
+		formatString: #,0
+		lineageTag: 2c1c786e-5632-5b80-8b52-7ff1dd2ca489
+
+	/// Resources Copilot was blocked from.
+	measure 'Blocked resources' = CALCULATE ( [Resources read], AccessedResources[IsBlocked] = TRUE () )
+		formatString: #,0
+		lineageTag: 9dfef0bc-e643-5f0c-b9c3-b967794b924b
+
+	column ActivityHour
+		dataType: dateTime
+		formatString: General Date
+		isHidden
+		lineageTag: 44173793-a84f-5431-8a42-a4b7238af409
+		summarizeBy: none
+		sourceColumn: ActivityHour
+
+	column DateKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 9f238a91-991d-5ad5-b70e-aa722ffc1c9e
+		summarizeBy: none
+		sourceColumn: DateKey
+
+	column UserKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 412123ce-fef5-5142-9f8c-1030b5d22325
+		summarizeBy: none
+		sourceColumn: UserKey
+
+	column AppKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 8511c5ea-8775-52d9-8032-5e71ab300679
+		summarizeBy: none
+		sourceColumn: AppKey
+
+	column ResourceTypeKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: b233ab3e-b65b-5d1a-86ad-8e90151cb725
+		summarizeBy: none
+		sourceColumn: ResourceTypeKey
+
+	column ResourceActionKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 2ac8399e-e50a-53bc-98f6-c8a2f4943ddd
+		summarizeBy: none
+		sourceColumn: ResourceActionKey
+
+	column SiteKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 3c2c945b-8751-58ca-b78a-2ddbe9af7fab
+		summarizeBy: none
+		sourceColumn: SiteKey
+
+	column SensitivityLabelKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 57c91fa3-c7af-5f13-ab94-783e0c774150
+		summarizeBy: none
+		sourceColumn: SensitivityLabelKey
+
+	/// True when access to the resource was blocked.
+	column IsBlocked
+		dataType: boolean
+		lineageTag: fa099439-14e3-50b5-aca5-1282912f6d66
+		summarizeBy: none
+		sourceColumn: IsBlocked
+
+	/// True when prompt injection was detected in the resource.
+	column XPIADetected
+		dataType: boolean
+		lineageTag: 08741428-72fa-5bdb-8ac6-93464a33059f
+		summarizeBy: none
+		sourceColumn: XPIADetected
+
+	partition AccessedResources = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "AccessedResources"]}[Data],
+				    Filtered = Table.SelectRows(Data, each [ActivityHour] >= RangeStart and [ActivityHour] < RangeEnd)
+				in
+				    Filtered
+
+	annotation PBI_ResultType = Table

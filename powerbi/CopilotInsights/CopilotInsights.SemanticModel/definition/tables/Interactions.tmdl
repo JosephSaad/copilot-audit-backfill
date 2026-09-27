@@ -1,0 +1,207 @@
+/// One row per Microsoft 365 Copilot prompt and response, from the Purview audit log. Contains no prompt or response text.
+table Interactions
+	lineageTag: 5daf90a4-c932-5bb6-b453-d109362802a3
+
+	/// Number of Copilot interactions (prompt and response pairs).
+	measure Interactions = COUNTROWS ( Interactions )
+		formatString: #,0
+		lineageTag: 33112288-03c4-5529-beef-8ea7b3073f36
+
+	/// Sum of the prompt count recorded on each interaction.
+	measure Prompts = SUM ( Interactions[PromptCount] )
+		formatString: #,0
+		lineageTag: 5c1a2571-21fd-537b-a17b-c2e028bfe512
+
+	/// People with at least one Copilot interaction in the period.
+	measure 'Active users' = DISTINCTCOUNT ( Interactions[UserKey] )
+		formatString: #,0
+		lineageTag: 37013666-45f2-5390-be40-388d82fea6e8
+
+	/// People who used Copilot with a licence in the period and still hold one at its end: always part of Licensed users, so adoption cannot pass 100% when licences are removed mid-period (the dashboard's rule).
+	measure 'Active licensed users' =
+			VAR HeldAtEnd =
+			    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
+			        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+			RETURN
+			    CALCULATE ( [Active users], LicenceStatuses[LicenceStatus] = "Licensed",
+			        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )
+		formatString: #,0
+		lineageTag: 8796e483-fa2e-55d0-84a7-edd87daf8c31
+
+	/// Interactions Copilot grounded in a web search.
+	measure 'Web-grounded interactions' = CALCULATE ( [Interactions], Interactions[UsedWebSearch] = TRUE () )
+		formatString: #,0
+		lineageTag: 75fb0aff-7f20-539e-9b04-b08a6b2ed7db
+
+	/// Hour of the interaction, in the reporting time zone. Used by incremental refresh.
+	column ActivityHour
+		dataType: dateTime
+		formatString: General Date
+		isHidden
+		lineageTag: 695c8961-f667-5fb6-ba45-c06a11569a61
+		summarizeBy: none
+		sourceColumn: ActivityHour
+
+	column DateKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 0b491663-19c1-544b-a117-d5233c4fadde
+		summarizeBy: none
+		sourceColumn: DateKey
+
+	/// Hour of the day (0-23), in the reporting time zone.
+	column HourOfDay
+		dataType: int64
+		formatString: 0
+		lineageTag: 6a932af6-6b3e-5566-8354-7e0b3b54af30
+		summarizeBy: none
+		sourceColumn: HourOfDay
+
+	column UserKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 8b18a3a1-154e-5aa8-9ee5-02231cc25956
+		summarizeBy: none
+		sourceColumn: UserKey
+
+	column AppKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 33511863-7883-5bcf-9af0-e3d0df05aad1
+		summarizeBy: none
+		sourceColumn: AppKey
+
+	column AgentKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 929e0255-5310-59bd-9142-14564262dcc8
+		summarizeBy: none
+		sourceColumn: AgentKey
+
+	column ModelKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 0d73ab8b-6c84-58b0-b5eb-6a4aa27cdbd0
+		summarizeBy: none
+		sourceColumn: ModelKey
+
+	column LicenceStatusKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 5ab04725-51a2-57e9-b589-a06e97e05bdb
+		summarizeBy: none
+		sourceColumn: LicenceStatusKey
+
+	column LicenseTypeKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 1016d16c-632c-515a-9ffd-2c76710ffbcc
+		summarizeBy: none
+		sourceColumn: LicenseTypeKey
+
+	column SensitivityLabelKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: e3e37402-75f7-543f-b2ff-f59cf7f0e583
+		summarizeBy: none
+		sourceColumn: SensitivityLabelKey
+
+	column PromptCount
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: e14bc037-fa37-54f3-8191-d6316f09baa1
+		summarizeBy: none
+		sourceColumn: PromptCount
+
+	column MessageCount
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: ebc71d46-db65-5a1a-9ca1-8ca97826d3d3
+		summarizeBy: none
+		sourceColumn: MessageCount
+
+	/// Files, mail, sites and other resources Copilot read for this interaction.
+	column AccessedResourceCount
+		dataType: int64
+		formatString: 0
+		lineageTag: bee022fc-8db2-56b7-ad00-3e1e6a51ceee
+		summarizeBy: none
+		sourceColumn: AccessedResourceCount
+
+	/// True when Copilot grounded the answer in a web search.
+	column UsedWebSearch
+		dataType: boolean
+		lineageTag: ce036923-6222-5dbb-9472-2ae6f50a78ae
+		summarizeBy: none
+		sourceColumn: UsedWebSearch
+
+	/// True when Microsoft flagged a jailbreak attempt.
+	column JailbreakDetected
+		dataType: boolean
+		lineageTag: a96d1075-d23e-5fa5-90b0-eb6d08192917
+		summarizeBy: none
+		sourceColumn: JailbreakDetected
+
+	/// True when Microsoft flagged a prompt injection.
+	column PromptInjectionDetected
+		dataType: boolean
+		lineageTag: 76a527be-e5ae-557e-85ed-ce9f720c2746
+		summarizeBy: none
+		sourceColumn: PromptInjectionDetected
+
+	/// True when a resource Copilot tried to read was blocked.
+	column HasBlockedResource
+		dataType: boolean
+		lineageTag: 883664d2-9a5a-5800-9b11-3d9397627ef1
+		summarizeBy: none
+		sourceColumn: HasBlockedResource
+
+	/// True when a resource Copilot read carried a sensitivity label.
+	column HasSensitivityLabel
+		dataType: boolean
+		lineageTag: 03573bf6-4639-5559-bf98-aa6fecdad907
+		summarizeBy: none
+		sourceColumn: HasSensitivityLabel
+
+	/// True when Copilot updated its memory of the person.
+	column MemoryUpdated
+		dataType: boolean
+		lineageTag: 12c4d7df-bd07-50fa-86b2-3aff769a4680
+		summarizeBy: none
+		sourceColumn: MemoryUpdated
+
+	/// True when the DLP check was deferred.
+	column DlpEvaluationDeferred
+		dataType: boolean
+		lineageTag: 27cc0a47-50ac-59fb-8081-b23a18d0c8c2
+		summarizeBy: none
+		sourceColumn: DlpEvaluationDeferred
+
+	/// True when the agent handed off to another agent.
+	column CalledAnotherAgent
+		dataType: boolean
+		lineageTag: 200310b5-8b1c-5cb0-a079-b4f45c7e2164
+		summarizeBy: none
+		sourceColumn: CalledAnotherAgent
+
+	partition Interactions = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "Interactions"]}[Data],
+				    Filtered = Table.SelectRows(Data, each [ActivityHour] >= RangeStart and [ActivityHour] < RangeEnd)
+				in
+				    Filtered
+
+	annotation PBI_ResultType = Table

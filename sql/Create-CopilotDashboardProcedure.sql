@@ -150,6 +150,13 @@ BEGIN
                SUM(CAST(f.UsedWebSearch AS INT))                                     AS WebGrounded,
                SUM(CASE WHEN a.AppCategory = N'Copilot Chat' THEN 1 ELSE 0 END)      AS ChatInteractions,
                SUM(CASE WHEN f.LicenceStatusKey = 1 THEN 1 ELSE 0 END)               AS LicensedUse,
+               /* Use that needs the Premium licence: Copilot inside Word, Excel, PowerPoint, Outlook or Teams
+                  (Copilot Studio agents can be metered without one), or Copilot Chat reading work content
+                  (files, mail, sites) rather than the web. Web-only Copilot Chat is what the free tier gives. */
+               SUM(CASE WHEN f.LicenceStatusKey = 1
+                         AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
+                              OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
+                        THEN 1 ELSE 0 END)                                           AS PremiumUse,
                SUM(CAST(f.JailbreakDetected AS INT))                                 AS Jailbreak,
                SUM(CAST(f.PromptInjectionDetected AS INT))                           AS PromptInjection,
                SUM(CAST(f.HasBlockedResource AS INT))                                AS BlockedResource,
@@ -170,7 +177,7 @@ BEGIN
            CAST(ISNULL(i.Interactions, 0) AS INT) AS Interactions, ISNULL(i.Prompts, 0) AS Prompts,
            CAST(ISNULL(i.AppsUsed, 0) AS TINYINT) AS AppsUsed,
            ISNULL(i.AgentInteractions, 0) AS AgentInteractions, ISNULL(i.WebGrounded, 0) AS WebGrounded,
-           ISNULL(i.ChatInteractions, 0) AS ChatInteractions, ISNULL(i.LicensedUse, 0) AS LicensedUse,
+           ISNULL(i.ChatInteractions, 0) AS ChatInteractions, ISNULL(i.LicensedUse, 0) AS LicensedUse, ISNULL(i.PremiumUse, 0) AS PremiumUse,
            ISNULL(i.Jailbreak, 0) AS Jailbreak, ISNULL(i.PromptInjection, 0) AS PromptInjection,
            ISNULL(i.BlockedResource, 0) AS BlockedResource, ISNULL(i.LabelledContent, 0) AS LabelledContent,
            ISNULL(s.Sessions, 0) AS Sessions, ISNULL(s.MultiTurnSessions, 0) AS MultiTurnSessions
@@ -215,9 +222,9 @@ BEGIN
         DELETE FROM dash.UserDay WHERE DateKey >= @fromKey;
     INSERT INTO dash.UserDay WITH (TABLOCK)
         (DateKey, UserKey, Interactions, Prompts, AppsUsed, AgentInteractions, WebGrounded, ChatInteractions,
-         LicensedUse, Jailbreak, PromptInjection, BlockedResource, LabelledContent, Sessions, MultiTurnSessions)
+         LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabelledContent, Sessions, MultiTurnSessions)
     SELECT DateKey, UserKey, Interactions, Prompts, AppsUsed, AgentInteractions, WebGrounded, ChatInteractions,
-           LicensedUse, Jailbreak, PromptInjection, BlockedResource, LabelledContent, Sessions, MultiTurnSessions
+           LicensedUse, PremiumUse, Jailbreak, PromptInjection, BlockedResource, LabelledContent, Sessions, MultiTurnSessions
     FROM #day;
     DECLARE @dayRows INT = @@ROWCOUNT;
     IF @fromKey IS NULL AND HAS_PERMS_BY_NAME(N'dash.ResourceDay', N'OBJECT', N'ALTER') = 1

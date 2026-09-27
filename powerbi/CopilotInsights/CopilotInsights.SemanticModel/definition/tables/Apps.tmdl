@@ -1,0 +1,36 @@
+/// The Microsoft 365 app a prompt was made in, and its category.
+table Apps
+	lineageTag: 515b6743-175c-5a2d-a595-a4070932dd7b
+
+	column AppKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: cd70725a-c481-5245-ad79-a0a9f630f5cf
+		summarizeBy: none
+		sourceColumn: AppKey
+
+	/// Where the prompt was made, e.g. Word, Outlook, Microsoft Teams, BizChat.
+	column App
+		dataType: string
+		lineageTag: 94137202-c1b3-5fdf-8b40-a23ecda72ccb
+		summarizeBy: none
+		sourceColumn: App
+
+	/// Copilot Chat or In-App Copilot.
+	column AppCategory
+		dataType: string
+		lineageTag: 003ce185-a854-5631-ba5d-a07e382e8cae
+		summarizeBy: none
+		sourceColumn: AppCategory
+
+	partition Apps = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "Apps"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

@@ -1,0 +1,28 @@
+/// The licence Copilot recorded on the interaction (the licence the records report).
+table LicenseTypes
+	lineageTag: c697154c-1912-5fd0-9885-b8e2c2a41908
+
+	column LicenseTypeKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: e0f58b2a-b450-5acd-aeb7-b0f89549fac9
+		summarizeBy: none
+		sourceColumn: LicenseTypeKey
+
+	column LicenseType
+		dataType: string
+		lineageTag: 81c000a8-2c62-5216-935c-16e08dc1d781
+		summarizeBy: none
+		sourceColumn: LicenseType
+
+	partition LicenseTypes = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "LicenseTypes"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

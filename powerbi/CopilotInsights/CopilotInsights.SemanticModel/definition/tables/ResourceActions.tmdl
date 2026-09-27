@@ -1,0 +1,28 @@
+/// What Copilot did with the resource.
+table ResourceActions
+	lineageTag: da82280e-3c75-5eea-ab25-367fee5aa7fb
+
+	column ResourceActionKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 4cf092c2-f1d7-5e0b-9571-e7fa9fd04eaa
+		summarizeBy: none
+		sourceColumn: ResourceActionKey
+
+	column ResourceAction
+		dataType: string
+		lineageTag: d9641483-5520-575b-a1ad-a5519c9cc47a
+		summarizeBy: none
+		sourceColumn: ResourceAction
+
+	partition ResourceActions = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "ResourceActions"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

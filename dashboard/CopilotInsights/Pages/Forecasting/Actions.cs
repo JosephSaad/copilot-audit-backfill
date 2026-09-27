@@ -18,12 +18,34 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     public const int LightMax = 2;      // days of use in 30 with a licence: train
     public const int RevokeAfterDays = 30;
 
+    /*
+        a.D: days with any Copilot use in the last 30. a.P: days with use that needs the Premium licence
+        (Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content;
+        dash.UserDay.PremiumUse). Train and revoke look at a.P: a licence used only for web Copilot Chat,
+        which the free tier gives, is a licence not used.
+    */
     internal static readonly Dictionary<string, (string Label, string Where, string Action)> Kinds = new()
     {
         ["upgrade"] = ("Upgrade to Premium", $"lic.UserKey IS NULL AND a.D >= {UpgradeDays}", "Upgrade to Premium"),
-        ["train"] = ("Train", $"lic.UserKey IS NOT NULL AND a.D BETWEEN 1 AND {LightMax}", "Train, then review"),
-        ["revoke"] = ("Revoke", $"lic.UserKey IS NOT NULL AND ISNULL(a.D, 0) = 0 AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -{RevokeAfterDays}, @d1))", "Revoke"),
+        ["train"] = ("Train", $"lic.UserKey IS NOT NULL AND a.P BETWEEN 1 AND {LightMax}", "Train, then review"),
+        ["revoke"] = ("Revoke", $"lic.UserKey IS NOT NULL AND ISNULL(a.P, 0) = 0 AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -{RevokeAfterDays}, @d1))", "Revoke"),
     };
+
+    /// <summary>
+    /// The 30-day activity CTE the rules read. Premium days come from dash.UserDay.PremiumUse once the rollups have
+    /// been rebuilt with 2.3.0; before that (no premium use recorded at all) they fall back to any use, the 2.2 rule,
+    /// so an upgrade never turns every licence into a revocation.
+    /// </summary>
+    internal static async Task<string> ActivitySqlAsync(Db db, int k30, int k1)
+    {
+        var ready = await db.ScalarAsync<int>(@"SELECT CASE WHEN COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NOT NULL
+    AND EXISTS (SELECT 1 FROM dash.UserDay WHERE DateKey BETWEEN @k30 AND @k1 AND PremiumUse > 0) THEN 1 ELSE 0 END;", new { k30, k1 }) == 1;
+        var p = ready ? "COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END)" : "COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END)";
+        return $@"a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, {p} AS P, SUM(ud.Interactions) AS I
+           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey)";
+    }
+
+    internal static async Task<bool> PremiumReadyAsync(Db db, int k30, int k1) => (await ActivitySqlAsync(db, k30, k1)).Contains("PremiumUse");
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -39,6 +61,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         public string? Department { get; set; }
         public string? ManagerName { get; set; }
         public int Days { get; set; }
+        public int PremiumDays { get; set; }
         public int Interactions { get; set; }
         public DateTime? LastUsed { get; set; }
         public DateTime? LicensedSinceUtc { get; set; }
@@ -56,8 +79,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         var kind = Request.Query["kind"].FirstOrDefault() is "revoke" ? "revoke" : "upgrade";
         var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
         var upns = await Db.QueryAsync<string>($@"
-WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, SUM(ud.Interactions) AS I
-           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
+WITH {await ActivitySqlAsync(Db, k30, Ctx.EndKey)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
 SELECT du.UserPrincipalName
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
@@ -82,12 +104,12 @@ ORDER BY du.UserPrincipalName;", Ctx.Args(new { k30 }));
         var currency = await S.Settings.StringAsync("LicenceCurrency") ?? "USD";
         var pg = new Paging(Request, Sorts, "strength");
         var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
+        var premiumReady = await PremiumReadyAsync(Db, k30, Ctx.EndKey);
         var rows = await Db.QueryAsync<Row>($@"
-WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, SUM(ud.Interactions) AS I
-           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
+WITH {await ActivitySqlAsync(Db, k30, Ctx.EndKey)},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1),
 base AS (
-    SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, ISNULL(a.D, 0) AS Days, ISNULL(a.I, 0) AS Interactions,
+    SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, ISNULL(a.D, 0) AS Days, ISNULL(a.P, 0) AS PremiumDays, ISNULL(a.I, 0) AS Interactions,
            du.LicensedSinceUtc,
            CASE WHEN @kind = 'upgrade' THEN ISNULL(a.D, 0) * 100000 + ISNULL(a.I, 0)
                 WHEN @kind = 'train' THEN 100000 - ISNULL(a.I, 0)
@@ -126,8 +148,8 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Interactions (30)", "Last used", "Licensed since", "Licence the records report", "Why"],
-            Numeric = new HashSet<int> { 5, 6 },
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Days using Premium features (30)", "Interactions (30)", "Last used", "Licensed since", "Licence the records report", "Why"],
+            Numeric = new HashSet<int> { 5, 6, 7 },
             EmptyText = "No one fits this recommendation.",
         };
         foreach (var r in rows)
@@ -135,12 +157,16 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
             var why = kind switch
             {
                 "upgrade" => $"Used the free Copilot Chat on {r.Days} of the last 30 days",
-                "train" => $"Licensed, but used Copilot on {r.Days} day{(r.Days == 1 ? "" : "s")} in 30",
-                _ => r.LastUsed is null
+                "train" => r.Days > r.PremiumDays
+                    ? $"Licensed; used Premium features on {r.PremiumDays} day{(r.PremiumDays == 1 ? "" : "s")} in 30 (Copilot Chat on {r.Days - r.PremiumDays} more)"
+                    : $"Licensed, but used Copilot on {r.Days} day{(r.Days == 1 ? "" : "s")} in 30",
+                _ => r.Days > 0
+                    ? $"Used only web Copilot Chat ({r.Days} day{(r.Days == 1 ? "" : "s")} in 30), which the free tier gives: nothing that needs the licence"
+                    : r.LastUsed is null
                     ? "Licensed" + (r.LicensedSinceUtc is null ? "" : $" {(Ctx.End - r.LicensedSinceUtc.Value.Date).Days} days ago") + " and never used"
                     : $"No use for {(Ctx.End - r.LastUsed.Value.Date).Days} days",
             };
-            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, Kinds[kind].Action, r.Days, r.Interactions, r.LastUsed, r.LicensedSinceUtc?.Date, r.RecordedLicence, why]);
+            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, Kinds[kind].Action, r.Days, r.PremiumDays, r.Interactions, r.LastUsed, r.LicensedSinceUtc?.Date, r.RecordedLicence, why]);
         }
         CsvTable = t;
 
@@ -156,14 +182,16 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         var rule = kind switch
         {
             "upgrade" => $"No Premium licence, and used the free Copilot Chat on {UpgradeDays} or more of the last 30 days: they already rely on it.",
-            "train" => $"A Premium licence, used on only 1 to {LightMax} days in the last 30: a short session or a champion usually changes that. Review again after 30 days.",
-            _ => $"A Premium licence held for at least {RevokeAfterDays} days with no use at all in the last 30. Offer training first if the role needs Copilot; otherwise revoke and reassign.",
+            "train" => $"A Premium licence whose Premium features (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or chat over work content) were used on only 1 to {LightMax} days in the last 30: a short session or a champion usually changes that. Review again after 30 days.",
+            _ => $"A Premium licence held for at least {RevokeAfterDays} days whose Premium features were not used in the last 30, whether or not the person used web Copilot Chat (which the free tier gives). Offer training first if the role needs Copilot; otherwise revoke and reassign.",
         };
         /* Upgrade and revoke change a licence: offer them as files an administrator applies. The dashboard changes nothing. */
         var exports = kind == "train" || pg.Total == 0 ? "" :
             $"<p class=\"sub\">Apply it: <a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&handler=bulk"))}\">Entra bulk {(kind == "upgrade" ? "add" : "remove")} members file</a> · " +
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&handler=script"))}\">PowerShell script</a> for a licence administrator to review and run " +
             $"({(await S.Settings.StringAsync("LicenceGroupId") is null ? "assigns the licence directly; set a licensing group in Admin > Targets and assumptions to use group membership instead" : "through the licensing group")}).</p>";
+        if (!premiumReady && kind != "upgrade")
+            Notice = "Premium-feature use is not in the rollups yet, so train and revoke count any use, as before 2.3.0. An administrator rebuilds the rollups once (Admin > Health, Rebuild every day) to separate Premium features from web Copilot Chat.";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "The period filter does not apply here: every rule looks at the last 30 days. \"Licence the records report\" is what Copilot wrote into the person's latest audit record.", "full", CsvUrl()));
     }

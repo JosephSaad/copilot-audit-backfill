@@ -1,0 +1,43 @@
+/// The Copilot Studio or Microsoft agent used. (no agent) means Copilot itself.
+table Agents
+	lineageTag: 760ce235-196d-59bb-a88c-a45e367b9c62
+
+	column AgentKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 6ae1f8b9-7cdc-5036-97f3-764f7385e4d6
+		summarizeBy: none
+		sourceColumn: AgentKey
+
+	column AgentId
+		dataType: string
+		isHidden
+		lineageTag: 808ea2d7-6552-528e-9ef6-be5558647add
+		summarizeBy: none
+		sourceColumn: AgentId
+
+	/// Agent name as recorded in the audit log; Copilot Studio agents show their schema name.
+	column AgentName
+		dataType: string
+		lineageTag: b8a99e38-7e19-5c3d-841f-9059b1589b4a
+		summarizeBy: none
+		sourceColumn: AgentName
+
+	/// Copilot Studio, Microsoft, Agent ID or (no agent).
+	column AgentSource
+		dataType: string
+		lineageTag: a0a6320c-da54-5535-99f2-8dcbb18e72e9
+		summarizeBy: none
+		sourceColumn: AgentSource
+
+	partition Agents = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "Agents"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table
