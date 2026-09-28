@@ -101,6 +101,12 @@ public abstract class InsightsPage(PageServices s) : PageModel
     public ReportContext Ctx { get; private set; } = null!;
     public abstract string Title { get; }
     public abstract string Persona { get; }
+
+    public const string Product = "Copilot Insights";
+
+    /// <summary>The browser tab's title: the page, then the product, and the product once where the page is named after it.</summary>
+    public static string BrowserTitle(string? title) =>
+        string.IsNullOrWhiteSpace(title) || title.Trim() == Product ? Product : $"{title.Trim()} · {Product}";
     public virtual string? Intro => null;
     public virtual string? RequiredRole => null;
     public virtual bool AdminOnly => false;

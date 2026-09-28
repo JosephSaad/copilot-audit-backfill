@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - 2026-09-28
+
+### Fixed
+
+- **The home page's browser tab** read "Copilot Insights · Copilot Insights".
+  It now names the product once; every other page still reads
+  "<page> · Copilot Insights".
+
 ## [2.4.0] - 2026-09-27
 
 A consistency release. Each figure is now computed in one place, the product
@@ -1028,6 +1036,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.4.1]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.1
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0
 [2.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0
