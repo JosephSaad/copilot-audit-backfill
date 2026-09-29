@@ -473,7 +473,7 @@ BEGIN
         /* The accessed resources of this month's interactions, from the element table. */
         DROP TABLE IF EXISTS #rsrc;
         CREATE TABLE #rsrc (RecordId NVARCHAR(450) NOT NULL, Ordinal SMALLINT NOT NULL, ResourceType NVARCHAR(200) NOT NULL,
-                            ResourceAction NVARCHAR(200) NOT NULL, Site NVARCHAR(400) NOT NULL, LabelId UNIQUEIDENTIFIER NULL,
+                            ResourceAction NVARCHAR(450) NOT NULL, Site NVARCHAR(400) NOT NULL, LabelId UNIQUEIDENTIFIER NULL,
                             IsBlocked BIT NOT NULL, XPIADetected BIT NOT NULL);
         IF @hasResources = 1
             INSERT INTO #rsrc

@@ -2134,6 +2134,13 @@ SELECT @r;
 "@)
 Assert-That ($w -eq 'ok') "the dashboard's role writes saved views, events, license actions and digest sends ($w)"
 
+# 2.4.1: every bi column is at least as wide as the flattened column it copies (a 450-character action failed the refresh).
+$widths = (Invoke-SqlText -As Table -Sql @"
+SELECT COL_LENGTH('bi.DimResourceAction', 'ResourceAction') - COL_LENGTH('audit.RawLogAccessedResource', 'Action') AS ActionGap,
+       COL_LENGTH('bi.DimResourceType', 'ResourceType') - COL_LENGTH('audit.RawLogAccessedResource', 'Type') AS TypeGap,
+       COL_LENGTH('bi.DimSite', 'Site') - COL_LENGTH('audit.RawLogAccessedResource', 'Site') AS SiteGap;
+"@).Rows[0]
+Assert-That ([int] $widths.ActionGap -ge 0 -and [int] $widths.TypeGap -ge 0 -and [int] $widths.SiteGap -ge 0) 'bi resource dimensions are as wide as the flattened columns they copy'
 # Premium use: the rollup's count of licensed interactions that needed the license, recomputed from the facts.
 # Teams moved to Copilot Chat above (SetAppCategory, without -Apply): the next bi refresh corrects the stored
 # flags on every day, and the next dashboard refresh, however recent its start, rolls those days up again.

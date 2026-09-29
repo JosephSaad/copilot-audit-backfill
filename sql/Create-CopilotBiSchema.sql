@@ -272,9 +272,16 @@ BEGIN
     CREATE TABLE bi.DimResourceAction
     (
         ResourceActionKey  INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimResourceAction PRIMARY KEY,
-        ResourceAction     NVARCHAR(200) NOT NULL CONSTRAINT UQ_DimResourceAction UNIQUE
+        ResourceAction     NVARCHAR(450) NOT NULL CONSTRAINT UQ_DimResourceAction UNIQUE   -- as wide as audit.RawLogAccessedResource.[Action]
     );
     INSERT INTO bi.DimResourceAction (ResourceAction) VALUES (N'(not reported)');
+END;
+/* 2.4.1: 200 was narrower than the flattened [Action] (450), so a longer action failed the refresh. Widened in place. */
+IF COL_LENGTH(N'bi.DimResourceAction', N'ResourceAction') < 900
+BEGIN
+    ALTER TABLE bi.DimResourceAction DROP CONSTRAINT UQ_DimResourceAction;
+    ALTER TABLE bi.DimResourceAction ALTER COLUMN ResourceAction NVARCHAR(450) NOT NULL;
+    ALTER TABLE bi.DimResourceAction ADD CONSTRAINT UQ_DimResourceAction UNIQUE (ResourceAction);
 END;
 
 /* The site a resource lives on: https://host/sites/name (or /teams/, /personal/),

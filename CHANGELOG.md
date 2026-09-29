@@ -8,6 +8,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The `bi` refresh failed on a resource action longer than 200 characters**
+  ("String or binary data would be truncated ... column 'ResourceAction'"),
+  found on a 19-million-record CSV import. Actions are flattened at up to 450
+  characters; `bi.DimResourceAction` and the refresh now take the same, and the
+  installer widens an existing database in place. A test checks every `bi`
+  resource dimension against the column it copies.
 - **The home page's browser tab** read "Copilot Insights · Copilot Insights".
   It now names the product once; every other page still reads
   "<page> · Copilot Insights".
