@@ -6,10 +6,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [2.4.3] - 2026-09-30
 
-Two licensing pages that each end in an action that saves money, and a license tool
-that survives a dropped connection. Install over 2.4.2 by replacing the scripts and
-reinstalling the dashboard from its package (`Install-CopilotInsights.ps1
--PackagePath`). No database change, and no data is reloaded.
+Eight new pages that each end in an action that saves money, every report saying who
+it is for and what to do with it, and a license tool that survives a dropped
+connection. Measured on 70,000 people and 40 million interactions as the head of the
+organization, each new page loads in under 2.5 seconds for a year.
+
+Install over 2.4.2: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once
+(it adds `audit.UserLicenseSku`, two leave-date columns, and the dashboard's read access
+to the new table), and reinstall the dashboard from its package. No data is reloaded.
+The next license tool run fills the SKUs, and the next directory load AD's account
+expiry. Entra's leave date is optional: it needs the Graph permission
+`User-LifeCycleInfo.Read.All` and `IncludeLeaveDates = $true` in the settings file.
+
+### Changed
+- **Every report says who it is for, what it helps with and what to do, with less text on
+  the page.** Two short lines under each title, *Helps you* and *Do*, with the section's
+  audience; the introduction, each panel's explanation and each KPI's wording move behind
+  information icons that open on hover, keyboard focus or a tap, close with Escape, and
+  print in place. Short KPI notes with a figure stay on the card; Admin pages keep their
+  instructions visible. The lines for all 70 reports are in one place (`Pages/Guidance.cs`),
+  and a test fails if a report in the navigation has none.
 
 ### Added
 - **Licensing › Better on pay-as-you-go** (Licensing role): license holders who use

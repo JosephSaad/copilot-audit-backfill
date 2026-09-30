@@ -158,6 +158,20 @@ public class PrivacyNavTests
     }
 
     [Fact]
+    public void Every_report_says_what_it_helps_with_and_what_to_do()
+    {
+        var reports = Nav.Groups.SelectMany(g => g.Pages).Where(p => !p.Admin).Select(p => p.Path).ToList();
+        foreach (var path in reports)
+        {
+            var line = Guidance.For(path);
+            Assert.True(line is not null, $"{path} has no guidance");
+            Assert.False(string.IsNullOrWhiteSpace(line!.Helps) || string.IsNullOrWhiteSpace(line.Do), path);
+            Assert.True(line.Helps.Length <= 110 && line.Do.Length <= 110, $"{path}: keep each line under 110 characters");
+        }
+        foreach (var key in Guidance.All.Keys) Assert.Contains(key, reports);
+    }
+
+    [Fact]
     public void Every_new_page_is_in_the_navigation()
     {
         var paths = Nav.Groups.SelectMany(g => g.Pages).Select(p => p.Path).ToHashSet();

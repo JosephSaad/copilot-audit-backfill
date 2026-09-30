@@ -134,7 +134,19 @@ tr:hover td { background: var(--ground); }
 .flag { color: var(--crit); font-weight: 600; white-space: nowrap; }
 
 #tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--surface); padding: 5px 8px;
-  border-radius: 6px; font-size: 12px; max-width: 360px; }
+  border-radius: 6px; font-size: 12px; line-height: 1.45; max-width: min(360px, calc(100vw - 16px)); }
+
+/* 2.4.3: what a report is for and what to do, and the information icons that hold the longer text. */
+.guide { margin: 4px 0 12px; max-width: 110ch; font-size: 13.5px; }
+.guide p { margin: 2px 0; }
+.guide b { font-weight: 600; margin-right: 4px; }
+.guide .who { display: inline-block; font-size: 12px; color: var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 1px 9px; margin-bottom: 4px; }
+button.infob { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 6px; padding: 0;
+  border: 1px solid var(--faint); border-radius: 50%; background: transparent; color: var(--muted); font: italic 600 11px/1 Georgia, serif;
+  cursor: help; vertical-align: 2px; flex: none; }
+button.infob:hover, button.infob:focus-visible { color: var(--accent); border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+h1 button.infob { width: 18px; height: 18px; font-size: 12px; vertical-align: 5px; }
+.print-note { font-size: 11px; font-weight: 400; color: #333; margin-top: 2px; }
 
 form.admin { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 8px 0; }
 form.admin label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 2px; }

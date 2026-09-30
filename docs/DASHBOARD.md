@@ -176,6 +176,8 @@ The Chat-over-work-content part is an approximation from the audit record: an in
 
 ## Saved views, events and hover text
 
+**Every report says who it is for, what it helps with and what to do** (2.4.3), in two short lines under its title: *Helps you* and *Do*, with the section's audience beside them. The longer explanations sit behind **information icons** (ⓘ): beside the title for what the page shows, beside each panel for how its figures are worked out, and beside a KPI for what it counts. Hover over an icon, focus it with the keyboard or tap it for the text; Escape or a second tap closes it. A KPI's short note with a figure in it stays on the card. Printed pages, the board pack included, show every icon's text in place. Admin pages keep their instructions on the page.
+
 **Save view**, under the filters of every report, keeps the page with its period, part of the organization and filters under a name, in My Copilot › Saved views. One can be the start page: opening the dashboard goes straight to it (*Start* in the navigation always goes to the usual page). A saved view can only point at a report page of this site.
 
 **Events** (Admin › Classifications and events) show on every trend as a dashed line with their name: a rollout wave, a training push, an outage, a policy change. Hover for the day and every event on it.
