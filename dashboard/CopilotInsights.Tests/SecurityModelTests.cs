@@ -78,6 +78,7 @@ public class NavigationTests
         Assert.DoesNotContain("/licensing/swap", paths);
         Assert.DoesNotContain("/licensing/license-for-credits", paths);
         Assert.DoesNotContain("/licensing/fading", paths);
+        Assert.DoesNotContain("/licensing/non-person", paths);
         Assert.DoesNotContain("/security/flags", paths);
         Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(V(4)), g => g.Persona == "Admin");
     }
@@ -127,6 +128,7 @@ public class NavigationTests
         Assert.Contains("/licensing/swap", paths);
         Assert.Contains("/licensing/license-for-credits", paths);
         Assert.Contains("/licensing/fading", paths);
+        Assert.Contains("/licensing/non-person", paths);
         Assert.DoesNotContain("/adoption/not-started", paths);
     }
 

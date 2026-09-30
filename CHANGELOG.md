@@ -32,6 +32,13 @@ reinstalling the dashboard from its package (`Install-CopilotInsights.ps1
   and whose days of use in the last 30 fell by half (or three quarters) but not to
   none: coach them, through the manager each row names, or plan to reclaim before the
   license goes idle. The page shows what their licenses cost a month.
+- **Licensing › Licenses on non-person accounts** (Licensing role): Copilot licenses on
+  enabled accounts that may not be a person, or not one of the organization's: guests
+  (an `#EXT#` sign-in or Entra's user type), sign-ins or display names that read like a
+  service, shared, test or room account, and accounts with no manager outside the org
+  chart. A second table counts license holders by employee type, each type opening
+  its list, for contractors and the like. Disabled and deleted accounts stay on
+  Licenses on disabled accounts.
 - **Licensing › Swap list** (Licensing role): each idle license (the revoke rule of
   Upgrade, train or revoke) paired with someone who wants one (its upgrade rule) in
   the same department, the same division, or anywhere in scope; the least-used
