@@ -145,6 +145,8 @@ public abstract class InsightsPage(PageServices s) : PageModel
         Ctx = await S.Contexts.CreateAsync(Viewer, Request);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
+        else if (Nav.SectionOf(Request.Path) is { Role: { } section } g && !Viewer.Has(section))
+            Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin > Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
             Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin > Privacy and retention.";
         else if (RequiredRole is not null && !Viewer.Has(RequiredRole))

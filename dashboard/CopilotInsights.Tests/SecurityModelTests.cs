@@ -78,6 +78,42 @@ public class NavigationTests
         Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(V(4)), g => g.Persona == "Admin");
     }
 
+    [Theory]
+    [InlineData("Adoption", "Adoption", "/adoption")]
+    [InlineData("Licensing", "Licensing", "/licensing")]
+    [InlineData("Forecasting", "Licensing", "/forecasting")]
+    [InlineData("Security", "Security", "/security")]
+    [InlineData("Compliance", "Compliance", "/compliance")]
+    [InlineData("Agents", "Agents", "/agents")]
+    [InlineData("Enablement", "Enablement", "/enablement")]
+    public void A_section_with_a_role_is_hidden_altogether_without_it(string persona, string role, string aggregatePage)
+    {
+        /* Not even the aggregates, and not for the top of the organization either. */
+        Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(V(1)), g => g.Persona == persona);
+        Assert.DoesNotContain(aggregatePage, Paths(V(1)));
+        Assert.Contains(CopilotInsights.Pages.Nav.For(V(4, roles: role)), g => g.Persona == persona);
+        Assert.Contains(aggregatePage, Paths(V(4, roles: role)));
+        Assert.Equal(role, CopilotInsights.Pages.Nav.SectionOf(aggregatePage)?.Role);
+    }
+
+    [Fact]
+    public void Sections_without_a_role_stay_open_to_everyone_in_the_directory()
+    {
+        var personas = CopilotInsights.Pages.Nav.For(V(5)).Select(g => g.Persona).ToList();
+        Assert.Equal(["My Copilot", "Leadership", "Regions", "People", "App owners", "Governance"], personas);
+        Assert.Null(CopilotInsights.Pages.Nav.SectionOf("/leadership")?.Role);
+    }
+
+    [Fact]
+    public void Several_roles_open_several_sections()
+    {
+        var personas = CopilotInsights.Pages.Nav.For(V(4, roles: [Roles.Licensing, Roles.Enablement])).Select(g => g.Persona).ToList();
+        Assert.Contains("Licensing", personas);
+        Assert.Contains("Forecasting", personas);
+        Assert.Contains("Enablement", personas);
+        Assert.DoesNotContain("Security", personas);
+    }
+
     [Fact]
     public void A_role_shows_its_own_named_list_only()
     {
@@ -100,7 +136,8 @@ public class NavigationTests
         Assert.Equal("My Copilot", first.Persona);
         Assert.Equal("/me", first.Pages[0].Path);
         Assert.Equal(["/me", "/me/email", "/me/views"], first.Pages.Select(p => p.Path));
-        Assert.Contains("/licensing/changes", Paths(V(5)));   // aggregates; the administrators' names on it need Licensing
+        Assert.Contains("/licensing/changes", Paths(V(5, roles: Roles.Licensing)));   // in the Licensing section, which needs the role
+        Assert.DoesNotContain("/licensing/changes", Paths(V(5)));
     }
 
     [Fact]

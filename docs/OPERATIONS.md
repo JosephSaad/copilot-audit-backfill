@@ -55,7 +55,7 @@ When the last run failed, its step and last log lines are on Admin › Health an
 | Agents | Named users of an agent |
 | Enablement | Named champions and engagement segments |
 
-**Grant or remove a role.** Admin › Access › *Grant a role*: a person (their UPN, or `DOMAIN\user`) or an AD group (`DOMAIN\Group`), the role, and why. Grant to groups where you can: membership is read from each sign-in, so it follows AD with no change here. The grants list has a *Remove* button on each.
+**Grant or remove a role.** Admin › Access › *Grant a role*: a person (their UPN, or `DOMAIN\user`) or an AD group (`DOMAIN\Group`), the roles (tick as many as they need), and why. Grant to groups where you can: membership is read from each sign-in, so it follows AD with no change here. The grants list has one row per person or group with all their roles, and a *Remove* button beside each role. The Adoption, Licensing (with Forecasting), Security, Compliance, Agents and Enablement sections are hidden from anyone without their role, whole-organization viewers included, so grant executives the roles whose sections they should see.
 
 ```powershell
 M -Task GrantRole -Principal 'USERS\Copilot-Insights-Licensing' -PrincipalType Group -Role Licensing -Note 'licensing team'
