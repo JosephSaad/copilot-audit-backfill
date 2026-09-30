@@ -11,6 +11,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => "My Copilot";
     public override string Persona => "My Copilot";
+    public override bool ShowsScope => false;
     public override string Intro => "Your own use of Copilot: how often, in which apps, with which agents, and when. Only you, and administrators checking access, see this page as you.";
 
     sealed class Totals
