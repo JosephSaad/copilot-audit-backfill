@@ -24,7 +24,7 @@ public static class Nav
         new("Licensing", "Licensing, IT asset and FinOps", [
             new("Inventory", "/licensing"), new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
-            new("Better with a license", "/licensing/license-for-credits", Roles.Licensing),
+            new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
             new("Demand", "/licensing/demand"), new("License changes", "/licensing/changes"), new("License pool", "/licensing/pool"),
             new("Chargeback", "/licensing/chargeback"), new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [

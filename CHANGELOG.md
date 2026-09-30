@@ -27,6 +27,11 @@ reinstalling the dashboard from its package (`Install-CopilotInsights.ps1
   above the license cost, with the credits, the difference, the total saving and a
   file to license them (recorded for License action outcomes). *Everyone paying in
   credits* lists them all.
+- **Licensing › Fading use** (Licensing role): license holders of at least 90 days
+  who used Copilot on at least 4 days a month over the 60 days before the last 30,
+  and whose days of use in the last 30 fell by half (or three quarters) but not to
+  none: coach them, through the manager each row names, or plan to reclaim before the
+  license goes idle. The page shows what their licenses cost a month.
 - **Licensing › Swap list** (Licensing role): each idle license (the revoke rule of
   Upgrade, train or revoke) paired with someone who wants one (its upgrade rule) in
   the same department, the same division, or anywhere in scope; the least-used
