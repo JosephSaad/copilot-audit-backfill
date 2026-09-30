@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licenses from Microsoft Graph, and the organization from on-premises Active Directory.
 
-Written for a new install of release 2.3.0. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.4.0. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -75,6 +75,28 @@ Three commands on the job server, after the approvals in step 2 and the service 
 
 The steps below explain each command, and give the alternatives where your organization splits the work (a DBA who runs SQL, an identity team who registers apps). Nothing in them is typed into SQL by hand.
 
+### Which PowerShell runs what
+
+Windows PowerShell 5.1 (`powershell.exe`) and PowerShell 7 (`pwsh.exe`) install side by side. Most scripts need 7; the dashboard's installer needs 5.1.
+
+| Script | Runs in |
+|---|---|
+| `Invoke-CopilotAuditBackfill.ps1`, `Invoke-CopilotPipeline.ps1`, `tools\Install-CopilotJobServer.ps1`, `tools\New-CopilotAuditApp.ps1`, `tools\Import-CopilotAuditCsv.ps1`, `tools\Add-CopilotTenant.ps1`, `tools\Save-CopilotAuditModules.ps1` | PowerShell 7.2+ only. The loader compiles its C# engine in memory, against the .NET that PowerShell 7 brings. |
+| `Install-CopilotAudit.ps1`, `tools\Invoke-CopilotMaintenance.ps1`, `tools\Export-UsersWithHierarchy-ToSql.ps1` | Either. Prefer 7: Windows PowerShell 5.1's SQL client may not offer TLS 1.2, which a SQL Server that requires it rejects with *An existing connection was forcibly closed*. |
+| `dashboard\Install-CopilotInsights.ps1` | Windows PowerShell 5.1 only. The IIS provider it uses doesn't exist in 7. |
+
+Run everything else, such as the license tool, in PowerShell 7, as the nightly task does. It calls `pwsh.exe` directly, so PowerShell 7 must be installed on the job server.
+
+### Connecting to SQL Server
+
+Every script connects to SQL Server encrypted. If the instance presents its own self-signed certificate, which is the default, the connection fails with *A connection was successfully established with the server, but then an error occurred during the login process*. The part in brackets after it names the cause:
+
+| In brackets | Cause | Fix |
+|---|---|---|
+| *The certificate chain was issued by an authority that is not trusted* | The client doesn't trust SQL Server's certificate. | Add `-TrustServerCertificate` to every command, the dashboard's installer included. Step 3 saves it for the nightly run. The connection stays encrypted; only the certificate's issuer isn't checked. Or give SQL Server a certificate from your own CA. |
+| *The target principal name is incorrect* | Connected by IP address, alias or `localhost`, and the name doesn't match the certificate. | Use the server's name as its certificate carries it, or `-TrustServerCertificate`. |
+| *An existing connection was forcibly closed by the remote host* | TLS versions don't match, usually Windows PowerShell 5.1 against a SQL Server that requires TLS 1.2. | Run the script in PowerShell 7. |
+
 ## Phase 1: Prepare
 
 Retention, the app registration, the job server and SQL Server. The admin consent and the gMSA usually take the longest to get, so ask for them first.
@@ -121,14 +143,14 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.2.0-offline-win-x64.zip` and its `.sha256` from the [v2.2.0 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.4.0-offline-win-x64.zip` and its `.sha256` from the [v2.4.0 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.2.0-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.4.0-offline-win-x64.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.2.0-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.4.0-offline-win-x64' 'CopilotAudit'
 cd D:\CopilotAudit
 ```
 
@@ -149,7 +171,22 @@ cd D:\CopilotAudit
 6. **Settings.** Writes `copilot-audit.settings.psd1` next to the scripts: the server, databases, tenant, client id, thumbprint, users' domain and log folder. Every later command reads them.
 7. **The nightly task.** Registers *Copilot audit - nightly*, daily at 02:00 (`-At` to change it), as the gMSA, running `Invoke-CopilotPipeline.ps1` (steps 12-13).
 
-It ends by listing what is left. Run it again at any time with no parameters, and it redoes only what is missing. For example, run it after renewing the certificate, with `-RegisterApp` to upload the new one. For a service account that isn't a gMSA, add `-ServiceAccountCredential (Get-Credential)` so the task can store its password.
+It ends by listing what is left. Run it again at any time with no parameters, and it redoes only what is missing. For example, run it after renewing the certificate, with `-RegisterApp` to upload the new one. `-SkipDatabase` and `-RegisterApp` aren't saved in the settings, so pass them again on each run that needs them.
+
+**A service account with a password instead of a gMSA.** Name it without the trailing `$`, and give its password with `-ServiceAccountCredential` so the nightly task can store it:
+
+```powershell
+$cred = Get-Credential -UserName 'CORP\svc-copilot' -Message 'Copilot audit service account'
+.\tools\Install-CopilotJobServer.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\svc-copilot' -ServiceAccountCredential $cred `
+    -TargetDomain users.contoso.com -TenantId contoso.onmicrosoft.com -RegisterApp
+```
+
+The gMSA check is skipped for a name without `$`. Everything else is the same: *Read* on the certificate's private key, *Log on as a batch job*, and a Windows login with `db_owner` in both databases. It must be a Windows account, because the databases grant it through `CREATE LOGIN … FROM WINDOWS`; a SQL login won't do. Two things a gMSA spares you:
+
+- **Password changes.** When the password changes or expires, the nightly task fails at logon. Set it not to expire, or run step 3 again with the new `-ServiceAccountCredential` after each change.
+- **Group Policy.** If a domain policy sets *Log on as a batch job*, add the account there as well, or the next policy refresh takes the right away.
+
+**Running setup as the service account itself.** If you run step 3 signed in as the service account, it creates the databases, so it owns them and appears in them as `dbo`. That is enough: an owner already has every right `db_owner` would give. From 2.4.1 the installer recognizes an account that is already in a database under another name (as `dbo`, or as a user a DBA added) and uses that user. Earlier releases stopped with *The login already has an account under a different user name*. The more usual layout is still an administrator owning the databases and the service account a `db_owner` user in them.
 
 ### Step 4. Prepare SQL Server
 
@@ -249,6 +286,35 @@ When the history already exists as audit log exports from the Purview portal, or
 
 `-CoveredThroughUtc` is the end of the latest export's search range. The import records it, so the nightly `-Incremental` run (step 12) continues from there. Duplicates across the files are removed, files already imported are skipped on the next run, and rows that can't be loaded are listed with their line number. Check its summary: rows read, duplicates, rejected rows. Then carry on with Phase 3, running steps 9, 10 and 11 by their commands (not `-History`, which would search the audit log again). From then on the nightly task continues from the exports' end. For the license-event database, export the license operations the same way and pass `-Operations 'Change user license','Update user','Add user','Delete user'` against `CopilotLicenseEvents`. [RUNBOOK section 5e](../RUNBOOK.md#5e-importing-purview-csv-exports) has the details.
 
+### Starting before the app registration is approved
+
+Admin consent can take weeks. Everything that doesn't call Microsoft Graph works without the app, so reports and the dashboard can be built from Purview exports in the meantime.
+
+| Works without the app | Needs the app |
+|---|---|
+| Copilot interactions and license events from Purview CSV exports (`tools\Import-CopilotAuditCsv.ps1`) | Loading them automatically: `-History` and the nightly `-Incremental` (`AuditLogsQuery.Read.All`) |
+| The user directory from AD (step 9) | Current licenses, since when, seats bought and assigned (step 10: `User.Read.All` and `LicenseAssignment.Read.All`; the second is needed for the tenant's SKUs, so `User.Read.All` alone isn't enough) |
+| Flattening, sessions, `bi`, Power BI and the dashboard | The nightly task, whose first Graph step fails |
+
+Until the app exists:
+
+1. Run step 3 without `-RegisterApp`. Its *Still to do* list names the app; leave it there.
+2. **Disable the nightly task** in Task Scheduler (*Copilot audit - nightly*). Otherwise it fails every night at the license step.
+3. Refresh by hand as often as the reports need, for example weekly:
+
+```powershell
+# license events first, so the session and bi builds see them
+.\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports\Licenses -SqlServer SQLPROD01 -Database CopilotLicenseEvents `
+    -Operations 'Change user license','Update user','Add user','Delete user' -CoveredThroughUtc 2026-09-01
+.\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain users.contoso.com -SqlServer SQLPROD01 -Database CopilotAudit
+.\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports\Copilot -SqlServer SQLPROD01 -Database CopilotAudit `
+    -SessionLicenseDatabase CopilotLicenseEvents -CoveredThroughUtc 2026-09-01
+```
+
+`-CoveredThroughUtc` is the end of the exports' search range, as in the section above. `-SessionLicenseDatabase` is optional: without license history, "licensed at the time of use" falls back to the licenses step 10 records, and with neither it shows *Unknown*. Keep license exports and Copilot exports in separate folders; the file names don't matter, only the `.csv` extension and Purview's columns. The files are read by the importer, so a UNC path such as `\\fileserver\exports` works if the account running it can read the share.
+
+**When the app is approved,** run step 3 again with `-RegisterApp -SkipDatabase` (and `-Dashboard` if the dashboard is installed), re-enable the task, and run it once by hand (step 12). It continues from where the exports end. Exports that end more than 180 days ago leave a gap the API can't fill.
+
 ## Phase 3: Build the reporting layers
 
 Install the SQL objects, load the two directory sources, then build everything once. After this, the nightly job only rebuilds the days that changed.
@@ -275,6 +341,15 @@ One paged search reads every user in the trusted domain, enabled or not, since a
 > **Read the match report.** It ends by saying how many users in the audit data it found by UPN, and how many more only by mail. Everything joins on the UPN. Under 90% means AD's UPNs are not the names people sign in to Microsoft 365 with, and their usage will show without a department. Resolve that before going further.
 
 It also reports the accounts it skipped: other employee types, no UPN, a UPN over 256 characters, or a duplicate UPN.
+
+> **Check the employee types before the first load.** By default only `employeeType` codes `EMP` and `NONW` are loaded. Directories that use other codes, or leave the attribute empty, load few or no users. Count the codes first (the ActiveDirectory module is needed):
+>
+> ```powershell
+> Get-ADUser -Filter * -Server users.contoso.com -Properties employeeType |
+>     Group-Object employeeType | Sort-Object Count -Descending | Select-Object Count, Name
+> ```
+>
+> A blank `Name` is accounts with no type, often service, shared-mailbox or test accounts. Then pass the codes to keep, such as `-EmployeeTypes 'EMP','NONW','OTHER'`, or `-EmployeeTypes @()` for every account, and set `EmployeeTypes` to the same in `copilot-audit.settings.psd1` so the nightly run agrees. Loading more is harmless: the type is a column reports can filter on, and a Copilot user who isn't loaded shows with no department.
 
 ### Step 10. Load current Copilot licenses
 
@@ -592,14 +667,21 @@ The web dashboard, on a Windows Server with IIS: every persona's pages, alerts a
 
 *Web server, as an administrator, in Windows PowerShell 5.1. About 15 minutes.*
 
-The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.3.0.zip` to the web server, then from the source package's folder:
+The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.4.0.zip` to the web server, then from the source package's folder:
 
 ```powershell
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.3.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -AdminPrincipal 'USERS\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
 ```
 
-It installs the IIS role services (with Application Initialization, so the site starts with IIS and sends alerts and digests with nobody signed in), checks for the ASP.NET Core 10 Hosting Bundle, copies the site, sets Windows authentication, starts the app pool, registers the *Copilot Insights* event log source for alerts, and adds the app pool's account to the database role `CopilotInsightsApp`, which carries every grant the site needs from here on.
+Before running it, the web server needs:
+
+- **The ASP.NET Core 10 Hosting Bundle.** From [dotnet.microsoft.com/download/dotnet/10.0](https://dotnet.microsoft.com/download/dotnet/10.0), the download labeled *Hosting Bundle* (not the .NET or ASP.NET Core Runtime, which lack the IIS module). Install it, or pass it with `-HostingBundlePath` and the installer runs it. The pre-built zip spares you only the .NET 10 SDK, which builds the site; the Hosting Bundle, which runs it, is always needed.
+- **A host name and a certificate for it**, such as `insights.contoso.com`: a DNS record that points it at the web server, and a certificate issued for that exact name, with its private key, in the server's LocalMachine\My store. Or use the server's own name to start with. [DASHBOARD.md](DASHBOARD.md#host-name-dns-and-certificate) explains the choices.
+- **`-TrustServerCertificate`**, when SQL Server has its own self-signed certificate, as for every other script. Without it the site starts but every page says *Something went wrong*.
+- **An account for the app pool.** A gMSA, or an account with a password passed as `-AppPoolIdentity 'CORP\svc-insights' -AppPoolCredential (Get-Credential)`. `-AdminPrincipal` is different: the people, or better a group of them, who administer the site in a browser. Don't use a service account there.
+
+The installer installs the IIS role services (with Application Initialization, so the site starts with IIS and sends alerts and digests with nobody signed in), checks for the ASP.NET Core 10 Hosting Bundle, copies the site, sets Windows authentication, starts the app pool, registers the *Copilot Insights* event log source for alerts, and adds the app pool's account to the database role `CopilotInsightsApp`, which carries every grant the site needs from here on.
 
 ### Step 23. The first administrator and the settings
 
@@ -624,7 +706,7 @@ For a group with several Microsoft 365 tenants, each gets its own app registrati
 .\tools\Add-CopilotTenant.ps1 -Name Fabrikam -TenantId fabrikam.onmicrosoft.com -TargetDomain fabrikam.local
 .\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam
 # web server: every tenant, the first one first
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.3.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess
 ```
 

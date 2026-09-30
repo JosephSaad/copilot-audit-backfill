@@ -160,6 +160,16 @@ $settings = if (Test-Path $settingsPath) { Get-Content $settingsPath -Raw | Conv
 if (-not $settings.PSObject.Properties['Insights']) { Set-Prop $settings 'Insights' ([pscustomobject] @{}) }
 $trust = if ($TrustServerCertificate) { 'true' } else { 'false' }
 Set-Prop $settings.Insights 'ConnectionString' "Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
+# The site connects the same way, so a certificate SQL Server's clients do not trust shows here, not as
+# a "Something went wrong" page later. Signed in as whoever runs this, so only the handshake is judged.
+$probe = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=master;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust;Connect Timeout=15"
+try { $probe.Open() }
+catch {
+    if ($_.Exception.Message -match 'certificate|SSL Provider|TLS|principal name') {
+        Write-Warning "The encrypted connection to $SqlServer failed: $($_.Exception.GetBaseException().Message) The site would fail the same way. If SQL Server uses its own self-signed certificate, run this again with -TrustServerCertificate."
+    }
+}
+finally { $probe.Dispose() }
 if ($AdminPrincipal.Count -gt 0) { Set-Prop $settings.Insights 'BootstrapAdmins' @($AdminPrincipal) }
 elseif (-not $settings.Insights.PSObject.Properties['BootstrapAdmins'] -or @($settings.Insights.BootstrapAdmins).Count -eq 0) {
     Write-Warning 'No -AdminPrincipal: nobody can open Admin until a row is added to dash.RoleGrant (see the RUNBOOK).'
@@ -219,12 +229,20 @@ if ($https) {
     if (-not (Get-WebBinding -Name $SiteName -Protocol https -Port $Port -HostHeader $HostName)) {
         New-WebBinding -Name $SiteName -Protocol https -Port $Port -HostHeader $HostName -SslFlags $(if ($HostName) { 1 } else { 0 })
     }
+    elseif ($HostName -and (Get-WebBinding -Name $SiteName -Protocol https -Port $Port -HostHeader $HostName).sslFlags -ne 1) {
+        # New-Website -Ssl makes the binding without SNI; a host-name binding needs it to share port 443.
+        Set-WebBinding -Name $SiteName -BindingInformation "*:${Port}:$HostName" -PropertyName sslFlags -Value 1
+    }
     $cert = Get-Item "Cert:\LocalMachine\My\$CertificateThumbprint" -ErrorAction SilentlyContinue
     if (-not $cert) { throw "No certificate $CertificateThumbprint in LocalMachine\My." }
     (Get-WebBinding -Name $SiteName -Protocol https -Port $Port -HostHeader $HostName).AddSslCertificate($CertificateThumbprint, 'My')
 }
 else {
     $proto = 'http'
+    # New-Website makes the first binding; a site first installed with HTTPS has none for HTTP.
+    if (-not (Get-WebBinding -Name $SiteName -Protocol http -Port $Port -HostHeader $HostName)) {
+        New-WebBinding -Name $SiteName -Protocol http -Port $Port -HostHeader $HostName
+    }
     Write-Warning 'No -CertificateThumbprint: the site answers on HTTP only. Windows authentication still protects it, but use HTTPS in production.'
 }
 
@@ -257,36 +275,47 @@ $grants = @"
 USE [master];
 IF SUSER_ID(N'$sqlLogin') IS NULL CREATE LOGIN [$sqlLogin] FROM WINDOWS;
 USE [$Database];
-IF USER_ID(N'$sqlLogin') IS NULL CREATE USER [$sqlLogin] FOR LOGIN [$sqlLogin];
-GRANT SELECT ON SCHEMA::bi TO [$sqlLogin];
-GRANT SELECT ON SCHEMA::dash TO [$sqlLogin];
-GRANT INSERT, UPDATE, DELETE ON dash.Setting TO [$sqlLogin];
-GRANT INSERT, UPDATE, DELETE ON dash.RoleGrant TO [$sqlLogin];
-GRANT INSERT, UPDATE, DELETE ON dash.AgentAlias TO [$sqlLogin];
-GRANT INSERT, UPDATE, DELETE ON dash.SensitivityLabel TO [$sqlLogin];
-GRANT INSERT ON dash.AuditLog TO [$sqlLogin];
-GRANT EXECUTE ON dash.usp_RefreshDashboard TO [$sqlLogin];
-GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO [$sqlLogin];
--- Every grant the site needs, kept up to date by Create-CopilotOperationsSchema.sql.
-IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL ALTER ROLE CopilotInsightsApp ADD MEMBER [$sqlLogin];
--- Admin > Health reads the pipeline's run logs, where they exist.
-DECLARE @t sysname, @sql nvarchar(400);
-DECLARE t CURSOR LOCAL FAST_FORWARD FOR
-    SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory')) AS v(name)
-    WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
-OPEN t; FETCH NEXT FROM t INTO @t;
-WHILE @@FETCH_STATUS = 0
+-- The login may already be in the database under another name: as dbo when it owns the
+-- database, or as a user a DBA added. The grants go to that user; the owner needs none.
+DECLARE @u sysname = (SELECT name FROM sys.database_principals WHERE sid = SUSER_SID(N'$sqlLogin'));
+IF @u IS NULL BEGIN CREATE USER [$sqlLogin] FOR LOGIN [$sqlLogin]; SET @u = N'$sqlLogin'; END;
+IF @u = N'dbo' PRINT N'$sqlLogin owns this database, so it already has every right the site needs.';
+ELSE
 BEGIN
-    SET @sql = N'GRANT SELECT ON audit.' + QUOTENAME(@t) + N' TO ' + QUOTENAME(N'$sqlLogin') + N';';
-    EXEC (@sql);
-    FETCH NEXT FROM t INTO @t;
+    DECLARE @g nvarchar(max) = N'
+GRANT SELECT ON SCHEMA::bi TO {u};
+GRANT SELECT ON SCHEMA::dash TO {u};
+GRANT INSERT, UPDATE, DELETE ON dash.Setting TO {u};
+GRANT INSERT, UPDATE, DELETE ON dash.RoleGrant TO {u};
+GRANT INSERT, UPDATE, DELETE ON dash.AgentAlias TO {u};
+GRANT INSERT, UPDATE, DELETE ON dash.SensitivityLabel TO {u};
+GRANT INSERT ON dash.AuditLog TO {u};
+GRANT EXECUTE ON dash.usp_RefreshDashboard TO {u};
+GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO {u};
+-- Every grant the site needs, kept up to date by Create-CopilotOperationsSchema.sql.
+IF DATABASE_PRINCIPAL_ID(N''CopilotInsightsApp'') IS NOT NULL ALTER ROLE CopilotInsightsApp ADD MEMBER {u};';
+    SET @g = REPLACE(@g, N'{u}', QUOTENAME(@u));
+    EXEC (@g);
+    -- Admin > Health reads the pipeline's run logs, where they exist.
+    DECLARE @t sysname, @sql nvarchar(400);
+    DECLARE t CURSOR LOCAL FAST_FORWARD FOR
+        SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory')) AS v(name)
+        WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
+    OPEN t; FETCH NEXT FROM t INTO @t;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @sql = N'GRANT SELECT ON audit.' + QUOTENAME(@t) + N' TO ' + QUOTENAME(@u) + N';';
+        EXEC (@sql);
+        FETCH NEXT FROM t INTO @t;
+    END;
 END;
 "@
 # The same grants in every tenant's database.
 $databases = @(@($Database) + $tenantDbs | Select-Object -Unique)
 $grantsFor = { param($db) $grants.Replace("USE [$Database];", "USE [$db];") }
 $grantsFile = Join-Path $PhysicalPath 'Grant-CopilotInsightsAccess.sql'
-Set-Content $grantsFile (($databases | ForEach-Object { & $grantsFor $_ }) -join "`r`n") -Encoding utf8
+# GO between databases: each one's grants declare the same variables.
+Set-Content $grantsFile (($databases | ForEach-Object { & $grantsFor $_ }) -join "`r`nGO`r`n") -Encoding utf8
 if ($GrantDatabaseAccess) {
   foreach ($db in $databases) {
     # The dash schema first: the grants below name its tables.

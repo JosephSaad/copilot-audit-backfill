@@ -304,10 +304,12 @@ Every call is in the audit log (kind *Api*); refusals answer 403 with the reason
 ### Prerequisites
 
 - Windows Server 2022 or later, joined to the users' domain or to a domain that trusts it (see [Servers in one domain, users in another](#servers-in-one-domain-users-in-another)).
-- The ASP.NET Core 10 **Hosting Bundle**, installed beforehand or passed to the installer with `-HostingBundlePath`.
+- The ASP.NET Core 10 **Hosting Bundle**, installed beforehand or passed to the installer with `-HostingBundlePath`. It is the download labeled *Hosting Bundle* on the .NET 10 page; the .NET and ASP.NET Core Runtime installers lack the IIS module. It is needed whichever `-PackagePath` you use. If it was installed before IIS, run it again and choose Repair.
+- The site to install: the release's pre-built `copilot-insights-v<version>.zip`, matching the scripts' version, or the `dashboard\CopilotInsights` source folder on a server with the .NET 10 SDK. Without the SDK, a source folder fails with *dotnet.exe : The command could not be loaded*.
 - The Copilot database with the `bi` schema filled (`Install-CopilotAudit.ps1`, deployment steps 4-11). The installer below adds the dashboard's own `dash` schema to it and builds its rollups when run with `-GrantDatabaseAccess`; nothing needs running by hand. The top of the organization is found in the org chart (the one person with no manager who has at least half the directory under them); `-OrgTopUpn` or Admin › Access names someone else.
-- An account for the app pool. A **group managed service account** is best: it needs no password and can have its own SPN.
-- A certificate for the site's host name, in LocalMachine\My.
+- An account for the app pool. A **group managed service account** is best: it needs no password and can have its own SPN. An account with a password works too, with `-AppPoolCredential`.
+- A certificate for the site's host name, in LocalMachine\My, or a start on HTTP (see [Host name, DNS and certificate](#host-name-dns-and-certificate)).
+- `-TrustServerCertificate` when SQL Server presents its own self-signed certificate. The site connects encrypted, and without it every page says *Something went wrong*. From 2.4.1 the installer tries the connection and warns.
 
 ### Run the installer
 
@@ -322,15 +324,25 @@ In an elevated **Windows PowerShell 5.1** (`powershell.exe`, not PowerShell 7: t
     -GrantDatabaseAccess
 ```
 
-`-PackagePath` is the published app, as a folder or a zip. It can also be the `dashboard\CopilotInsights` source folder, which the installer publishes itself when the .NET 10 SDK is installed. The installer is idempotent. It:
+| Parameter | What it is |
+|---|---|
+| `-PackagePath` | The published app, as a folder or a zip (the release's `copilot-insights-v<version>.zip`; don't unzip it). It can also be the `dashboard\CopilotInsights` source folder, which the installer publishes itself when the .NET 10 SDK is installed. |
+| `-SqlServer`, `-Database` | Where the Copilot database is. Add `-TrustServerCertificate` for an instance with a self-signed certificate. |
+| `-AdminPrincipal` | The **people** who administer the site from the first sign-in: `DOMAIN\Group` (best), `DOMAIN\user` or a UPN, from the domain people sign in with. They are written to `appsettings.Production.json`, not SQL Server. Keep it short and grant everyone else in Admin › Access. A service account doesn't belong here: nobody should sign in to a browser as one. |
+| `-AppPoolIdentity` | The **account the site runs as**, and connects to SQL Server as. A gMSA (`DOMAIN\name$`), or an account with a password given as a credential: `-AppPoolIdentity 'CORP\svc-insights' -AppPoolCredential $cred`, where `$cred = Get-Credential -UserName 'CORP\svc-insights'`. The name is text; the credential is the object. Left out, the site runs as the app pool's own identity, which reaches a remote SQL Server as the web server's computer account. |
+| `-HostName`, `-CertificateThumbprint` | The address people browse to, and the thumbprint of a certificate for it. See [Host name, DNS and certificate](#host-name-dns-and-certificate). |
+| `-GrantDatabaseAccess` | Installs the `dash` schema and grants the app-pool account its rights, which needs rights to create logins. Without it, the grants are written to a file for a DBA, and the `dash` schema comes from `Install-CopilotAudit.ps1 -Dashboard`. |
+| `-HostingBundlePath` | The Hosting Bundle installer, run when the bundle is missing. |
+
+The installer is idempotent. It:
 
 1. Installs the IIS role services: Windows authentication, static content, logging, request filtering and the management console.
 2. Checks for the Hosting Bundle, and installs it from `-HostingBundlePath` when given.
 3. Copies the site to `C:\inetpub\CopilotInsights`, keeping `appsettings.Production.json`. It takes the site offline with `app_offline.htm` while the files change.
 4. Writes `appsettings.Production.json`: the connection string, and the bootstrap administrators under `Insights:BootstrapAdmins`.
-5. Creates the app pool (no managed code, always running) and the site, with an HTTPS binding.
+5. Creates the app pool (no managed code, always running) and the site, with an HTTPS binding for the host name (SNI, so it can share port 443 with other sites), or an HTTP binding without `-CertificateThumbprint`. Run again with a different host name or protocol, it adds that binding and leaves the others; remove one you no longer want with `Remove-WebBinding`.
 6. Turns Windows authentication on and anonymous authentication off.
-7. Writes the database grants for the app-pool account to `Grant-CopilotInsightsAccess.sql`, and runs them with `-GrantDatabaseAccess`, which needs rights to create logins:
+7. Writes the database grants for the app-pool account to `Grant-CopilotInsightsAccess.sql`, and runs them with `-GrantDatabaseAccess`, which needs rights to create logins. An account that owns the database is `dbo` in it and needs no grants; the script says so and moves on. One a DBA already added under another user name is granted under that name. The grants are:
    - SELECT on the `bi` and `dash` schemas;
    - changes to the `dash` settings, roles and reference tables;
    - INSERT on the audit log;
@@ -341,6 +353,59 @@ In an elevated **Windows PowerShell 5.1** (`powershell.exe`, not PowerShell 7: t
 For Kerberos on a host name, register the SPN on the app-pool account: `setspn -S HTTP/insights.contoso.com CONTOSO\gmsa-insights$`. Add the host name to the browsers' Local intranet zone so they sign in silently.
 
 Host it as a site of its own, not as an application under another site: its links are rooted at `/`.
+
+### Host name, DNS and certificate
+
+`-HostName` is the address people type, and IIS answers it only for that name. Two things have to agree with it:
+
+- **DNS.** A record that points the name at the web server. Without one, browsers can't find the site.
+- **The certificate.** Issued for that exact name, installed with its private key in *Local Computer › Personal* (LocalMachine\My) on the web server itself. A certificate for `contoso.com` doesn't cover `insights.contoso.com`, and the job server's `copilot-audit` certificate is for signing in to Graph, not for a website. Copy the thumbprint from PowerShell rather than the certificate dialog, which can paste an invisible character with it:
+
+  ```powershell
+  Get-ChildItem Cert:\LocalMachine\My | Select-Object Thumbprint, @{n='Names';e={$_.DnsNameList -join ', '}}, NotAfter, HasPrivateKey
+  ```
+
+Use a name of its own, such as `insights.contoso.com`, not the organization's main domain. Your DNS and certificate teams usually provide both.
+
+**Starting without them.** The server's own full name already resolves, and many organizations enroll each server a certificate for it:
+
+```powershell
+$fqdn = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName; $fqdn
+Get-ChildItem Cert:\LocalMachine\My | Where-Object { $_.DnsNameList -contains $fqdn } | Select-Object Thumbprint, NotAfter, HasPrivateKey
+```
+
+Pass that name as `-HostName`, with the certificate's thumbprint if there is one, or without `-CertificateThumbprint` to answer on HTTP. `-HostName localhost` without a certificate is for a test on the server itself: nobody else can reach it. Move to a proper name later by running the installer again with it; the settings are kept.
+
+With the server's own name, sign-in works by NTLM, or by Kerberos with the computer account's SPN, which is already registered. The installer sets IIS to use the app-pool account's credentials for Kerberos whenever `-AppPoolIdentity` is given, which suits a dedicated name with its SPN on that account. For the server's name with Kerberos, turn it off afterwards (and again after each run of the installer):
+
+```powershell
+Set-WebConfigurationProperty -PSPath 'IIS:\' -Location CopilotInsights `
+    -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name useAppPoolCredentials -Value $false
+```
+
+### Another site on port 443
+
+IIS picks the most specific binding: IP address and host name, then IP address alone, then host name alone, then neither. The installer's binding is the host name on every address (`*:443:insights.contoso.com`). If another site on the server is bound to the server's IP address with no host name (`10.0.0.5:443:`), it wins, and people browsing to the dashboard reach that site instead. Bind the dashboard to the same address with its host name, which outranks it:
+
+```powershell
+New-WebBinding -Name CopilotInsights -Protocol https -IPAddress 10.0.0.5 -Port 443 -HostHeader insights.contoso.com -SslFlags 1
+(Get-WebBinding -Name CopilotInsights -Protocol https -IPAddress 10.0.0.5 -HostHeader insights.contoso.com).AddSslCertificate('<thumbprint>', 'My')
+```
+
+`netsh http show sslcert` lists every certificate registered for HTTPS on the server. An entry whose *Application ID* isn't IIS's `{4dc3e181-e14b-4a21-b022-59fc669b0914}` belongs to another program; leave it alone.
+
+### NTLM only
+
+To sign in without Kerberos, remove the Negotiate provider and keep NTLM. No SPN is needed then, and `useAppPoolCredentials` no longer matters:
+
+```powershell
+$f = 'system.webServer/security/authentication/windowsAuthentication/providers'
+Remove-WebConfigurationProperty -PSPath 'IIS:\' -Location CopilotInsights -Filter $f -Name '.' -AtElement @{ value = 'Negotiate' }
+Get-WebConfigurationProperty -PSPath 'IIS:\' -Location CopilotInsights -Filter $f -Name Collection | Select-Object value   # NTLM
+iisreset
+```
+
+The installer doesn't change the providers, so this survives running it again. Browsers still sign in silently only to sites in the Local intranet zone. Check first that your organization doesn't restrict NTLM on servers.
 
 ### Servers in one domain, users in another
 

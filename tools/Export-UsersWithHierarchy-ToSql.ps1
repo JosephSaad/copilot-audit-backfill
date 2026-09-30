@@ -476,7 +476,8 @@ function Invoke-Main {
 
     # Organization granted to AD groups: their members, for Power BI's row-level security (bi.OrgSecurity).
     # Written every night, even with no groups, so a revoked grant's members do not linger.
-    $groups = @(Get-OrganizationGroup -ConnString $connStr)
+    # Get-OrganizationGroup returns its array whole (unary comma), so @() here would wrap it in a second array.
+    [string[]] $groups = Get-OrganizationGroup -ConnString $connStr
     $expanded = @(foreach ($g in $groups) {
         $members = Get-GroupMemberUpn -Domain $TargetDomain -Group $g
         if ($null -eq $members) { Write-Log "Group $g, granted Organization, is not in ${TargetDomain}: Power BI will not give its members the whole organization." -Level WARN; continue }

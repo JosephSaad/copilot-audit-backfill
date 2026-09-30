@@ -174,7 +174,7 @@ A full rebuild commits a month at a time to keep the log small, so don't refresh
 ```
 
 - Every account is loaded, enabled or not, with `AccountEnabled`. The audit data covers months, and a user who has since left still has interactions to attribute.
-- `-EmployeeTypes` (default `EMP`, `NONW`) chooses which `employeeType` codes to load and `-EmployeeTypeMap` what to call them (default `EMPLOYEE`, `CONTRACTOR`). Pass `-EmployeeTypes @()` for every type. Managers are resolved for the chain whatever their type.
+- `-EmployeeTypes` (default `EMP`, `NONW`) chooses which `employeeType` codes to load and `-EmployeeTypeMap` what to call them (default `EMPLOYEE`, `CONTRACTOR`). Pass `-EmployeeTypes @()` for every type. Managers are resolved for the chain whatever their type. Check your directory's codes before the first load (`Get-ADUser -Filter * -Properties employeeType | Group-Object employeeType`): a directory with other codes, or none, loads few users under the default. The nightly run takes `EmployeeTypes` from the settings file, so set it there too.
 - `-MaxLevels` (1-15) keeps that many levels of the chain from the top. `OrgDepth` is always the full depth.
 - The table is replaced in one transaction, so reports never see it empty.
 
@@ -226,6 +226,13 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | Someone sees nothing: "not in the directory" | Their sign-in did not resolve to a UPN in `audit.UserDirectory`: another domain, a new starter before tonight's AD export, or an account AD cannot resolve (map it under `Insights:IdentityMap`). |
 | The browser keeps asking for a password | The host name is not in the Local intranet zone, or its SPN is missing or on the wrong account (`setspn -Q HTTP/<host>`). |
 | HTTP 500.19 or 500.30 from IIS | The ASP.NET Core 10 Hosting Bundle is missing, or was installed before IIS: repair it and restart IIS. |
+| Every page: *Something went wrong. The page could not be built* | The error is in the web server's Windows Application log (source *.NET Runtime* or *IIS AspNetCore Module V2*). Most often the SQL connection: *certificate chain … not trusted* needs `-TrustServerCertificate` (or `TrustServerCertificate=true` in `appsettings.Production.json`, then restart the app pool); *Invalid object name 'dash.…'* needs `Install-CopilotAudit.ps1 -Dashboard`; *Login failed* or *permission was denied* needs the grants file run. |
+| Installer: `The ASP.NET Core 10 Hosting Bundle is not installed` | Needed even with the pre-built zip. Download the *Hosting Bundle* for .NET 10 and pass it with `-HostingBundlePath`. |
+| Installer: `dotnet.exe : The command could not be loaded` | `-PackagePath` is the source folder and the server has no .NET 10 SDK. Pass the release's `copilot-insights-v<version>.zip` instead. |
+| Installer: `No certificate <thumbprint> in LocalMachine\My` | The certificate isn't on the web server, or the thumbprint carries an invisible character from the certificate dialog. List the store in PowerShell and copy it from there. |
+| Installer: `Incorrect function. (Exception from HRESULT: 0x80070001)` at `AddSslCertificate` | Most likely, before 2.4.1: a host-name HTTPS binding made on the first run lacked SNI while another certificate held port 443. Remove the binding (`Remove-WebBinding -Name CopilotInsights -Protocol https -Port 443 -HostHeader <name>`) and run the installer again. |
+| Browser: `ERR_CONNECTION_REFUSED` | Nothing listens for that address and port. Check the name, then `Get-WebBinding -Name CopilotInsights`. Before 2.4.1, running the installer again without a certificate added no HTTP binding to a site first made with HTTPS. |
+| Browser reaches another site | A binding on the server's IP address outranks the dashboard's. See [Another site on port 443](docs/DASHBOARD.md#another-site-on-port-443). |
 | A page is slow at a long period | Check `dash.RefreshRun` ran after the last `bi` refresh, and that the `dash` indexes exist (re-run the schema script). |
 
 ## 6. How it stays inside Microsoft's limits
@@ -254,6 +261,9 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | `403` at the first submission | Missing Purview audit role or Graph consent. See section 1. |
 | `Signed in ... but the token lacks AuditLogsQuery.Read.All` | Admin consent not granted for the app. |
 | SQL certificate error | Self-signed certificate on the instance: add `-TrustServerCertificate`. |
+| `A connection was successfully established with the server, but then an error occurred during the login process` | The words in brackets after it name the cause. *certificate chain … not trusted*: add `-TrustServerCertificate`. *target principal name is incorrect*: use the server's name as its certificate carries it. *forcibly closed by the remote host*: a TLS mismatch, usually Windows PowerShell 5.1 against a SQL Server that requires TLS 1.2; run the script in PowerShell 7. See [DEPLOYMENT.md](docs/DEPLOYMENT.md#connecting-to-sql-server). |
+| `The login already has an account under a different user name` | Before 2.4.1: the service account is already in the database under another name, usually `dbo` because it created and so owns the database. From 2.4.1 the installers use that user. On an older release, run `Install-CopilotAudit.ps1` without `-ServiceAccount` (an owner has every right already), and the job-server setup with `-SkipDatabase`. |
+| `#Requires` … `7.2` / `The term 'pwsh' is not recognized` | The script needs PowerShell 7, or it isn't installed. Install it next to Windows PowerShell 5.1; see [Which PowerShell runs what](docs/DEPLOYMENT.md#which-powershell-runs-what). |
 | `Submission budget reached` | Normal. Downloads continue; submissions resume on their own when the 24 h window rolls. |
 | Old windows load 0 rows | Retention boundary (section 1). The summary reports the oldest record found. |
 | `window(s) failed after retries` | Run the same command again. Failed windows are retried; nothing else is redone. |
@@ -265,6 +275,9 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | `-Incremental` app-only: `token lacks the application permission` | The app has the delegated permission, or consent was not granted. Add `AuditLogsQuery.Read.All` under **Application** permissions and grant consent. |
 | License tool app-only: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. See section 5b. |
 | User directory: `Could not read RootDSE` | The domain name is wrong, the trust does not reach it, or the account running the script is not trusted there. Try `-TargetDomain` with a domain controller's name. |
+| User directory: `Cannot process argument transformation on parameter 'Group'` | Before 2.4.1, whenever the number of AD groups granted Organization isn't exactly one: none (always so without the dashboard), or two or more. The users were already loaded; the group step failed, and with it the nightly run. Fixed in 2.4.1. |
+| User directory: far fewer users than AD has | The `employeeType` filter: only `EMP` and `NONW` by default. Count your codes and pass `-EmployeeTypes` (see section 5d). |
+| User directory: `TargetDomain … is the domain this script runs in` | The load reads a trusted domain, not the server's own. Run it from a machine in another domain. |
 | User directory: under 90% of audit users matched | AD's UPNs are not the names users sign in to Microsoft 365 with. The load reports how many match by mail instead. See section 5d. |
 | CSV import: `A Graph backfill has started in this database but is not finalized` | Finish the backfill and run `-FinalizeOnly`, then import. See section 5e. |
 | CSV import: `row(s) were not loaded` | See `audit.CopilotCsvReject` for each row's file, line and reason. Usually a file saved from Excel: export it again and leave it unopened. |

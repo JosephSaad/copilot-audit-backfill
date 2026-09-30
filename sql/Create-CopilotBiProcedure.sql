@@ -478,9 +478,9 @@ BEGIN
         IF @hasResources = 1
             INSERT INTO #rsrc
             SELECT r.RecordId, r.Ordinal,
-                   COALESCE(NULLIF(LTRIM(RTRIM(r.[Type])), N''), N'(not reported)'),
-                   COALESCE(NULLIF(LTRIM(RTRIM(r.[Action])), N''), N'(not reported)'),
-                   COALESCE(NULLIF(r.Site, N''), N'(none)'),
+                   LEFT(COALESCE(NULLIF(LTRIM(RTRIM(r.[Type])), N''), N'(not reported)'), 200),   -- each cut to the width it is stored in
+                   LEFT(COALESCE(NULLIF(LTRIM(RTRIM(r.[Action])), N''), N'(not reported)'), 450),
+                   LEFT(COALESCE(NULLIF(r.Site, N''), N'(none)'), 400),
                    r.SensitivityLabelId, r.IsBlocked, ISNULL(r.XPIADetected, 0)
             FROM #src AS s
             JOIN audit.RawLogAccessedResource AS r ON r.RecordId = s.RecordId;

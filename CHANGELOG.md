@@ -4,19 +4,58 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.1] - 2026-09-28
+## [2.4.1] - Unreleased
+
+Fixes found in a first production install of 2.4.0, and the guides that install
+would have needed. Install over 2.4.0: replace the scripts and run `Install-CopilotAudit.ps1`
+once, which widens one `bi` column in place (below). No data is reloaded.
 
 ### Fixed
+- **The `bi` refresh no longer fails on a long resource action**
+  (*String or binary data would be truncated in table #rsrc, column 'ResourceAction'*),
+  found on a 19-million-record CSV import whose longest action was 436 characters.
+  Actions are flattened at up to 450; `bi.DimResourceAction` and the refresh's work
+  table took 200. Both now take 450, the installer widens an existing
+  `bi.DimResourceAction` in place, and the refresh cuts each resource type, action and
+  site to the width it is stored in. A test checks every `bi` resource dimension
+  against the column it copies.
+- **The home page's browser tab** read "Copilot Insights · Copilot Insights". It now
+  names the product once; every other page still reads "<page> · Copilot Insights".
+- **The user directory load no longer fails after loading.**
+  `tools/Export-UsersWithHierarchy-ToSql.ps1` wrapped the list of AD groups granted
+  Organization in a second array, so with none of them (always so without the
+  dashboard), or with two or more, it stopped with *Cannot process argument
+  transformation on parameter 'Group'*. The users were loaded, but the group step
+  failed, and with it the nightly run.
+- **An account already in a database under another name is used, not added again.**
+  `Install-CopilotAudit.ps1 -ServiceAccount` and the dashboard's database grants stopped
+  with *The login already has an account under a different user name* when the
+  account owned the database (it is `dbo` there, as when setup runs as the service
+  account itself) or a DBA had added it by another name. They now find the user by the
+  login's SID: an owner needs nothing more, and another name gets the rights under
+  that name.
+- **Dashboard installer, run again:**
+  - a host-name HTTPS binding the first run made without SNI (`New-Website -Ssl` does)
+    is switched to SNI, so it can share port 443 with another site's certificate;
+  - without `-CertificateThumbprint`, an HTTP binding is added when the site has none,
+    so a site first made with HTTPS doesn't end up answering on nothing;
+  - `Grant-CopilotInsightsAccess.sql` separates each database's grants with `GO`, so a
+    DBA can run the file for several tenants in one go.
+- **Dashboard installer: the SQL connection is tried before the site is.** A SQL Server
+  certificate the web server doesn't trust now shows as a warning naming
+  `-TrustServerCertificate`, rather than as *Something went wrong* on every page.
 
-- **The `bi` refresh failed on a resource action longer than 200 characters**
-  ("String or binary data would be truncated ... column 'ResourceAction'"),
-  found on a 19-million-record CSV import. Actions are flattened at up to 450
-  characters; `bi.DimResourceAction` and the refresh now take the same, and the
-  installer widens an existing database in place. A test checks every `bi`
-  resource dimension against the column it copies.
-- **The home page's browser tab** read "Copilot Insights · Copilot Insights".
-  It now names the product once; every other page still reads
-  "<page> · Copilot Insights".
+### Documentation
+- DEPLOYMENT.md: which PowerShell runs each script; the SQL Server connection errors
+  and what each means; a service account with a password instead of a gMSA; running
+  setup as the service account; checking `employeeType` codes before the first load;
+  starting from Purview exports before the app registration is approved; what the
+  web server needs before the dashboard's installer. Release links point at 2.4.0.
+- DASHBOARD.md: every installer parameter, including `-AdminPrincipal` (people) against
+  `-AppPoolIdentity` (the site's account); the Hosting Bundle against the SDK; host
+  name, DNS and certificate, and starting on the server's own name or HTTP; another
+  site on port 443; NTLM only.
+- RUNBOOK.md: troubleshooting rows for each of the above.
 
 ## [2.4.0] - 2026-09-27
 
@@ -1042,7 +1081,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
-[2.4.1]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.1
+[2.4.1]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...main
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0
 [2.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0
