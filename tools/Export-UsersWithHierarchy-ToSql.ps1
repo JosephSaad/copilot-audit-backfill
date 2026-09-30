@@ -223,7 +223,9 @@ function ConvertTo-UserDirectoryTable {
         A user is loaded when they have a UPN (the join key to the audit data)
         and pass the employee-type filter, enabled or not. Managers are looked
         up among ALL entries, so a chain runs through a manager of a type that
-        is not loaded.
+        is not loaded. Someone with no UPN cannot have used Copilot and is left
+        out of the chain too (2.4.1): a person whose manager has no UPN reports
+        to the nearest manager above who has one, so the org chart stays joined.
     #>
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Entries,
@@ -232,11 +234,25 @@ function ConvertTo-UserDirectoryTable {
         [string[]] $EmployeeTypes = @()
     )
 
-    $byDn       = [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::OrdinalIgnoreCase)
+    $byDn = [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($e in $Entries) { if ($e.dn) { $byDn[$e.dn] = $e } }
+    $hasUpn = { param($e) -not [string]::IsNullOrWhiteSpace($e.upn) }
+    # The manager a person reports to in the org chart: the nearest one up the chain with a UPN.
+    $upnManager = {
+        param($e)
+        $at = $e.mgr; $been = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        while ($at -and $been.Add($at)) {
+            $n = $null
+            if (-not $byDn.TryGetValue($at, [ref] $n)) { return $null }
+            if (& $hasUpn $n) { return $n }
+            $at = $n.mgr
+        }
+        $null
+    }
+    # Managers in the org chart: whoever someone with a UPN reports to, over any managers without one.
     $managerDns = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($e in $Entries) {
-        if ($e.dn)  { $byDn[$e.dn] = $e }
-        if ($e.mgr) { [void] $managerDns.Add($e.mgr) }
+        if (& $hasUpn $e) { $mm = & $upnManager $e; if ($mm) { [void] $managerDns.Add([string] $mm.dn) } }
     }
 
     $dt = [System.Data.DataTable]::new()
@@ -264,8 +280,7 @@ function ConvertTo-UserDirectoryTable {
         if ($u.upn.Length -gt 256) { $skipped.UpnTooLong++; continue }
         if (-not $loaded.Add($u.upn)) { $skipped.DuplicateUpn++; continue }
 
-        $m = $null
-        if ($u.mgr) { [void] $byDn.TryGetValue($u.mgr, [ref] $m) }
+        $m = & $upnManager $u
 
         $et = if ($u.etype -and $EmployeeTypeMap.ContainsKey($u.etype)) { $EmployeeTypeMap[$u.etype] } else { $u.etype }
 
@@ -276,7 +291,7 @@ function ConvertTo-UserDirectoryTable {
         while ($cur -and $seen.Add($cur) -and $chain.Count -lt 100) {
             $node = $null
             if (-not $byDn.TryGetValue($cur, [ref] $node)) { break }
-            $chain.Add($node.disp)
+            if (& $hasUpn $node) { $chain.Add($node.disp) }   # no UPN: not in the org chart
             $cur = $node.mgr
         }
         $chain.Reverse()
