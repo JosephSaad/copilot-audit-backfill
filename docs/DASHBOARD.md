@@ -69,6 +69,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | Licensing | Inventory | Licenses held over time, assigned and removed, by SKU, idle licenses by unit | Scope, SKU, unit | No |
 | | Unused licenses | People holding a license with no use for 7, 14, 30, 60 or 90 days, and when they last used it | Person | **Licensing** |
 | | Use ranking | Everyone ranked three ways: all use, free use (web Copilot Chat, agents) and Premium use; their Premium share and license | Person | **Licensing** |
+| | Better on pay-as-you-go | License holders whose Premium use is at most 0, 5, 10 or 25% of their use, with what Copilot Credits would cost them a month and the saving against the license | Person | **Licensing** |
 | | Demand | Unlicensed Copilot Chat users over time and by department; the license type each record reports; the list of them | Department; person | List: **Licensing** |
 | | License changes | Licenses assigned and removed: how long each was held, whether it was taken from someone still using it, whether it came back, by department; who made the changes | Scope, department | Who made them: **Licensing** |
 | | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No |
@@ -161,6 +162,8 @@ Every interaction made with a license is either **Premium use**, which needed th
 - **Free:** web Copilot Chat, Copilot Studio agents (they can be paid for per use without a license), and anything done without a license.
 
 The rollups keep both per person per day (`dash.UserDay.PremiumUse`), and `bi.Interactions.PremiumUse` carries the same flag to Power BI, so the two always agree. *Train* and *revoke* in Upgrade, train or revoke look at Premium use: a license holder who only used web Copilot Chat in the last 30 days is a revocation candidate, with the reason given on the row. *Upgrade* looks at any use, since the people it names have no license. Licensing › Use ranking ranks everyone by all three.
+
+**Better on pay-as-you-go** (2.4.3) lists license holders, licensed since before the period, whose Premium use is a small share of their use. Without a license, web Copilot Chat is free, agents and chat over work content are paid per use in Copilot Credits, and Copilot inside the apps is not available. The page prices each person's Premium and agent interactions, scaled to a month, at the pay-as-you-go cost an interaction in Admin › Settings (0.12 by default: 12 credits, a generative answer grounded in tenant data, at 0.01), and sets that against the license cost. An agent grounded only in the web costs nothing, so the estimate errs high on credits and low on the saving.
 
 The Chat-over-work-content part is an approximation from the audit record: an interaction that searched the web and also read work files counts as free. Until the rollups are rebuilt once with 2.3.0 (the installer does this), the rules count any use, as before, and the page says so.
 

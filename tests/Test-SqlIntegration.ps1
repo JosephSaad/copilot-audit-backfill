@@ -1908,15 +1908,17 @@ Assert-That ($status -like '*Flattened*' -and $status -like "*Top of the organiz
 & $maint @conn -Database $script:ITDatabase -Task SetAppCategory -App 'Teams' -Category 'Copilot Chat' | Out-Null
 & $maint @conn -Database $script:ITDatabase -Task GrantRole -Principal 'CONTOSO\Insights-Admins' -PrincipalType Group -Role Admin -Note 'test' | Out-Null
 & $maint @conn -Database $script:ITDatabase -Task SetDashboardSetting -Name LicenseMonthlyCost -Value '31.5' | Out-Null
+& $maint @conn -Database $script:ITDatabase -Task SetDashboardSetting -Name PaygInteractionCost -Value '0.15' | Out-Null
 & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'boss@contoso.com' | Out-Null
 $mt = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT AppCategory FROM audit.SessionAppCategory WHERE App = N'Teams') AS Teams,
        (SELECT PrincipalType + N'/' + Role FROM dash.RoleGrant WHERE Principal = N'CONTOSO\Insights-Admins') AS Grant_,
        (SELECT Value FROM dash.Setting WHERE Name = N'LicenseMonthlyCost') AS Cost,
+       (SELECT Value FROM dash.Setting WHERE Name = N'PaygInteractionCost') AS Payg,
        (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'a@contoso.com') AS ALevel,
        (SELECT COUNT(*) FROM dash.AuditLog WHERE Page = N'Invoke-CopilotMaintenance') AS Logged;
 "@).Rows[0]
-Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/Admin' -and "$($mt.Cost)" -eq '31.5') 'maintenance tasks set an app category, grant a role and change a setting, without SQL'
+Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/Admin' -and "$($mt.Cost)" -eq '31.5' -and "$($mt.Payg)" -eq '0.15') 'maintenance tasks set an app category, grant a role and change settings (the pay-as-you-go cost too), without SQL'
 Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organization takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
 $refused = try { & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'nobody@contoso.com'; '' } catch { $_.Exception.Message }
 Assert-That ($refused -like '*not in the directory*') 'a top of the organization not in the directory is refused'

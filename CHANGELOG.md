@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.3] - Unreleased
+
+### Added
+- **Licensing › Better on pay-as-you-go** (Licensing role): license holders who use
+  Copilot but little of what only the license gives, Copilot in Word, Excel,
+  PowerPoint, Outlook and Teams, or chat over work content. Choose how little: no
+  Premium use, or at most 5, 10 (the default) or 25% of their use. Each person shows
+  their use, their Premium and agent interactions, what Copilot Credits would cost
+  them a month and the saving against the license; the page totals the saving. The
+  credit price is a new setting, **pay-as-you-go cost an interaction** in Admin ›
+  Settings (`PaygInteractionCost`, 0.12 by default: 12 Copilot Credits at 0.01), also
+  settable with `Invoke-CopilotMaintenance.ps1 -Task SetDashboardSetting`.
+
 ## [2.4.2] - 2026-09-30
 
 Page speed for the top of a large organization, sections shown only to the roles
@@ -1136,6 +1149,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.4.3]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.2...main
 [2.4.2]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...v2.4.2
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0

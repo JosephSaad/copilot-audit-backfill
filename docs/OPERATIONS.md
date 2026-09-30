@@ -246,7 +246,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | `GrantRole` | Give `-Principal` (UPN, `DOMAIN\user` or `DOMAIN\Group`) a `-Role` |
 | `RevokeRole` | Take it away |
 | `SetOrgTop` | Make `-Upn` the top of the organization, or `-Clear` |
-| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost or LicenseCurrency to `-Value` |
+| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost, LicenseCurrency or PaygInteractionCost to `-Value` |
 | `NameAgent` | Give agent `-AgentId` a `-FriendlyName` and `-Owner` |
 | `NameLabel` | Give label `-LabelId` a `-FriendlyName` and `-Rank` |
 | `PurgeJson` | Clear the stored JSON of records older than `-RetainDays` (`-Apply` to do it) |

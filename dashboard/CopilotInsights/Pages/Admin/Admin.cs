@@ -179,10 +179,12 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             Input("InactiveDays", "Unused after (days)", set.GetValueOrDefault("InactiveDays"), 4, "number") +
             Input("LicenseMonthlyCost", "License cost a month", set.GetValueOrDefault("LicenseMonthlyCost"), 6) +
             Input("LicenseCurrency", "Currency", set.GetValueOrDefault("LicenseCurrency"), 4) +
+            Input("PaygInteractionCost", "Pay-as-you-go cost an interaction", set.GetValueOrDefault("PaygInteractionCost") ?? "0.12", 6) +
             Button("Save settings"))),
             "The top is usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows" +
             (set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({det})" : "") +
-            ". Groups smaller than the minimum are folded into \"Smaller groups\" in breakdowns. A change takes effect at once."));
+            ". Groups smaller than the minimum are folded into \"Smaller groups\" in breakdowns. The pay-as-you-go cost is what one agent or work-grounded chat interaction costs in Copilot Credits " +
+            "without a license, for Licensing > Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, grounded in tenant data, 10) at 0.01 each. A change takes effect at once."));
 
         Panels.Add(new("Grant a role", new HtmlString(Form("grant",
             Input("principal", "User (UPN) or group (DOMAIN\\Group)", null, 34) +
@@ -256,7 +258,7 @@ WHERE g.Principal IN @list;", new { list });
         Panels.Add(new("People by level", lt.Render(), null, "half"));
     }
 
-    public Task<IActionResult> OnPostSettingsAsync(string? OrgTopUpn, int MinGroupSize, int DefaultDays, int InactiveDays, string? LicenseMonthlyCost, string? LicenseCurrency) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostSettingsAsync(string? OrgTopUpn, int MinGroupSize, int DefaultDays, int InactiveDays, string? LicenseMonthlyCost, string? LicenseCurrency, string? PaygInteractionCost) => AdminChangeAsync(async () =>
     {
         OrgTopUpn = string.IsNullOrWhiteSpace(OrgTopUpn) ? null : OrgTopUpn.Trim();
         if (OrgTopUpn is not null && await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Person WHERE Upn = @OrgTopUpn", new { OrgTopUpn }) == 0)
@@ -266,10 +268,13 @@ WHERE g.Principal IN @list;", new { list });
         if (InactiveDays is < 7 or > 180) throw new ArgumentException("unused-after must be 7 to 180 days.");
         if (!decimal.TryParse(LicenseMonthlyCost, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var cost) || cost < 0 || cost > 10000)
             throw new ArgumentException("the license cost is a number, such as 30 or 31.50.");
+        if (!decimal.TryParse(string.IsNullOrWhiteSpace(PaygInteractionCost) ? "0.12" : PaygInteractionCost, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var payg) || payg < 0 || payg > 100)
+            throw new ArgumentException("the pay-as-you-go cost is a number, such as 0.12.");
         LicenseCurrency = (LicenseCurrency ?? "").Trim().ToUpperInvariant();
         if (LicenseCurrency.Length is < 1 or > 8) throw new ArgumentException("the currency is a short code, such as USD or CAD.");
         var values = new Dictionary<string, string?> { ["OrgTopUpn"] = OrgTopUpn, ["MinGroupSize"] = MinGroupSize.ToString(), ["DefaultDays"] = DefaultDays.ToString(), ["InactiveDays"] = InactiveDays.ToString(),
-                                                        ["LicenseMonthlyCost"] = cost.ToString(System.Globalization.CultureInfo.InvariantCulture), ["LicenseCurrency"] = LicenseCurrency };
+                                                        ["LicenseMonthlyCost"] = cost.ToString(System.Globalization.CultureInfo.InvariantCulture), ["LicenseCurrency"] = LicenseCurrency,
+                                                        ["PaygInteractionCost"] = payg.ToString(System.Globalization.CultureInfo.InvariantCulture) };
         var before = await S.Settings.AllAsync();
         var changed = values.Where(kv => before.GetValueOrDefault(kv.Key) != kv.Value).ToList();
         foreach (var kv in changed)
