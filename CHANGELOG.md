@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.3] - Unreleased
+
+### Fixed
+- **The license tool no longer stops on a dropped connection to Graph.** A run over
+  64,864 users failed after twenty minutes with *An existing connection was forcibly
+  closed by the remote host*, and, since nothing is written until every user has been
+  looked up, lost everything it had read. A failed `$batch` request is now retried,
+  up to seven times with a growing wait, as a throttled one already was; the log
+  shows each retry. The integration test's Graph mock drops its first batch request
+  to prove it.
+
 ## [2.4.2] - 2026-09-30
 
 Page speed for the top of a large organization, sections shown only to the roles
@@ -1136,6 +1147,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.4.3]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.2...main
 [2.4.2]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...v2.4.2
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0
