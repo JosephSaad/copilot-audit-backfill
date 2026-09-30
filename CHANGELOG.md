@@ -4,7 +4,85 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.3] - Unreleased
+## [2.4.3] - 2026-09-30
+
+Eight new pages that each end in an action that saves money, every report saying who
+it is for and what to do with it, and a license tool that survives a dropped
+connection. Measured on 70,000 people and 40 million interactions as the head of the
+organization, each new page loads in under 2.5 seconds for a year.
+
+Install over 2.4.2: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once
+(it adds `audit.UserLicenseSku`, two leave-date columns, and the dashboard's read access
+to the new table), and reinstall the dashboard from its package. No data is reloaded.
+The next license tool run fills the SKUs, and the next directory load AD's account
+expiry. Entra's leave date is optional: it needs the Graph permission
+`User-LifeCycleInfo.Read.All` and `IncludeLeaveDates = $true` in the settings file.
+
+### Changed
+- **Every report says who it is for, what it helps with and what to do, with less text on
+  the page.** Two short lines under each title, *Helps you* and *Do*, with the section's
+  audience; the introduction, each panel's explanation and each KPI's wording move behind
+  information icons that open on hover, keyboard focus or a tap, close with Escape, and
+  print in place. Short KPI notes with a figure stay on the card; Admin pages keep their
+  instructions visible. The lines for all 70 reports are in one place (`Pages/Guidance.cs`),
+  and a test fails if a report in the navigation has none.
+
+### Added
+- **Licensing › Better on pay-as-you-go** (Licensing role): license holders who use
+  Copilot but little of what only the license gives, Copilot in Word, Excel,
+  PowerPoint, Outlook and Teams, or chat over work content. Choose how little: no
+  Premium use, or at most 5, 10 (the default) or 25% of their use. Each person shows
+  their use, their Premium and agent interactions, what Copilot Credits would cost
+  them a month and the saving against the license; the page totals the saving. The
+  credit price is a new setting, **pay-as-you-go cost an interaction** in Admin ›
+  Settings (`PaygInteractionCost`, 0.12 by default: 12 Copilot Credits at 0.01), also
+  settable with `Invoke-CopilotMaintenance.ps1 -Task SetDashboardSetting`.
+- **Licensing › Better with a license** (Licensing role): the reverse of Better on
+  pay-as-you-go. People with no Copilot license whose use is charged in Copilot
+  Credits, through agents or Copilot Chat over work content, at a monthly rate at or
+  above the license cost, with the credits, the difference, the total saving and a
+  file to license them (recorded for License action outcomes). *Everyone paying in
+  credits* lists them all.
+- **Licensing › Fading use** (Licensing role): license holders of at least 90 days
+  who used Copilot on at least 4 days a month over the 60 days before the last 30,
+  and whose days of use in the last 30 fell by half (or three quarters) but not to
+  none: coach them, through the manager each row names, or plan to reclaim before the
+  license goes idle. The page shows what their licenses cost a month.
+- **Licensing › Licenses on non-person accounts** (Licensing role): Copilot licenses on
+  enabled accounts that may not be a person, or not one of the organization's: guests
+  (an `#EXT#` sign-in or Entra's user type), sign-ins or display names that read like a
+  service, shared, test or room account, and accounts with no manager outside the org
+  chart. A second table counts license holders by employee type, each type opening
+  its list, for contractors and the like. Disabled and deleted accounts stay on
+  Licenses on disabled accounts.
+- **Agents › Agents costing credits** (Agents role): each agent's use by people
+  without a Copilot license at the time, what it costs in Copilot Credits a month, and
+  what that comes to a person, with a suggestion: restrict or retire an agent few use
+  that costs a license's worth or more, or license the users of one whose people each
+  cost more than a license (Better with a license).
+- **Licensing › Overlapping licenses** (Licensing role): people holding the Copilot
+  license together with another Copilot-family license: a second Copilot SKU, Copilot
+  Studio or its trial, Copilot for Sales or Service and the like. By SKU, with the
+  tenant's seats of it, and by person, with when they last used Copilot. It reads a
+  new table, `audit.UserLicenseSku`: the license tool now keeps every SKU each person
+  holds, not only Copilot's (the same Graph call, no new permission), and replaces it
+  on each run.
+- **Licensing › Departures ahead** (Licensing role): license holders due to leave in
+  the next 7, 30 or 90 days, and those past their date whose account is still enabled,
+  with a removal file for the past ones (recorded as leavers for License action
+  outcomes). The leave date is the earlier of two new sources: AD's `accountExpires`,
+  which the directory load now reads (`audit.UserDirectory.AccountExpiresUtc`), and
+  Entra's `employeeLeaveDateTime`, which the license tool reads with the new
+  `-IncludeLeaveDates` (`audit.CopilotLicense.EmployeeLeaveUtc`; it needs the optional
+  Graph permission `User-LifeCycleInfo.Read.All`; set `IncludeLeaveDates = $true` in the
+  settings file for the nightly run).
+- **Licensing › Swap list** (Licensing role): each idle license (the revoke rule of
+  Upgrade, train or revoke) paired with someone who wants one (its upgrade rule) in
+  the same department, the same division, or anywhere in scope; the least-used
+  license goes to the keenest user. It counts the swaps, the seats not bought, and
+  the people left over on each side, and offers the take-back and give-out files
+  (Entra bulk members file or PowerShell script) for the matched pairs only, recorded
+  for License action outcomes.
 
 ### Fixed
 - **The license tool no longer stops on a dropped connection to Graph.** A run over
@@ -1147,7 +1225,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
-[2.4.3]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.2...main
+[2.4.3]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...v2.4.2
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0

@@ -23,8 +23,12 @@ public static class Nav
             new("Drops and spikes", "/adoption/anomalies"), new("Not started", "/adoption/not-started", Roles.Adoption)], Roles.Adoption),
         new("Licensing", "Licensing, IT asset and FinOps", [
             new("Inventory", "/licensing"), new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
+            new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
+            new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
             new("Demand", "/licensing/demand"), new("License changes", "/licensing/changes"), new("License pool", "/licensing/pool"),
-            new("Chargeback", "/licensing/chargeback"), new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing)], Roles.Licensing),
+            new("Chargeback", "/licensing/chargeback"), new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing),
+            new("Licenses on non-person accounts", "/licensing/non-person", Roles.Licensing), new("Overlapping licenses", "/licensing/overlap", Roles.Licensing),
+            new("Departures ahead", "/licensing/departures", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [
             new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Guests and external users", "/security/guests"),
             new("Flagged interactions", "/security/flags", Roles.Security)], Roles.Security),
@@ -32,7 +36,8 @@ public static class Nav
             new("Sensitive content", "/compliance"), new("Labeled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
             new("Resource access", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true)], Roles.Compliance),
         new("Agents", "Copilot Studio makers and CoE", [
-            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")], Roles.Agents),
+            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs"),
+            new("Agents costing credits", "/agents/credits")], Roles.Agents),
         new("Enablement", "Training and champions", [
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
             new("Champions", "/enablement/champions", Roles.Enablement), new("People", "/enablement/people", Roles.Enablement)], Roles.Enablement),

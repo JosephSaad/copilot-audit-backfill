@@ -21,6 +21,7 @@ function New-Entry {
         mgr = $(if ($Manager) { "CN=$Manager,OU=Users,DC=contoso,DC=com" })
         uac = $(if ($Disabled) { 514 } else { 512 })
         sid = $(if ($Cn -eq 'ic') { 'S-1-5-21-1111-2222-3333-1001' })
+        expires = $(if ($Cn -eq 'ic2') { ConvertFrom-AccountExpiry ([DateTime]::new(2026, 12, 31, 0, 0, 0, [DateTimeKind]::Utc).ToFileTimeUtc().ToString()) })
     }
 }
 
@@ -66,6 +67,11 @@ Assert-That ($ic.Division -eq 'Corporate' -and $ic.Office -eq 'HQ-4' -and $ic.Co
 Assert-That ($rows['orphan@contoso.com'].OrgDepth -eq 0 -and $rows['orphan@contoso.com'].ManagerUPN -is [DBNull]) `
     'a manager outside the directory ends the chain, with no manager recorded'
 Assert-That ($rows['loopa@contoso.com'].OrgDepth -eq 2) "a loop in the manager attributes ends rather than hanging ($($rows['loopa@contoso.com'].OrgDepth))"
+Assert-That ($rows['ic2@contoso.com'].AccountExpiresUtc -eq [DateTime]::new(2026, 12, 31) -and $ic.AccountExpiresUtc -is [DBNull]) `
+    'AD accountExpires is carried as a date, and left empty for an account that never expires (2.4.3)'
+Assert-That ($null -eq (ConvertFrom-AccountExpiry '0') -and $null -eq (ConvertFrom-AccountExpiry '9223372036854775807') -and $null -eq (ConvertFrom-AccountExpiry '') -and $null -eq (ConvertFrom-AccountExpiry 'x')) `
+    'accountExpires of 0, the largest Int64, empty or not a number all mean never'
+Assert-That ((ConvertFrom-AccountExpiry '134116992000000000') -eq [DateTime]::new(2026, 1, 1)) 'a FILETIME converts to its UTC date (134116992000000000 is 2026-01-01)'
 
 $s = $r.Skipped
 Assert-That ($s.OtherType -eq 2 -and $s.NoUpn -eq 1 -and $s.DuplicateUpn -eq 1) `

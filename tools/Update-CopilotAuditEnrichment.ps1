@@ -51,6 +51,11 @@
     Also enumerate every user holding a Copilot license, including those with
     no interactions. Needed for "licensed but never used".
 
+.PARAMETER IncludeLeaveDates
+    Also read each person's employeeLeaveDateTime, the day HR says they leave, for
+    Licensing > Departures ahead (2.4.3). It needs the Graph application permission
+    User-LifeCycleInfo.Read.All on top of the others; without it Graph refuses.
+
 .PARAMETER SkipProfiles
     No effect since 2.0.0, which reads licenses only. Accepted so existing
     scheduled tasks keep working.
@@ -77,6 +82,7 @@ param(
     [string[]] $Scopes = @('User.Read.All', 'LicenseAssignment.Read.All'),
 
     [switch]   $AllLicensedUsers,
+    [switch]   $IncludeLeaveDates,
     [switch]   $SkipProfiles,
 
     [ValidateRange(1, 20)] [int] $BatchSize = 20,
@@ -356,6 +362,30 @@ IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NOT NULL
     $all.Count
 }
 
+function Save-UserSkus {
+    <# Replaces audit.UserLicenseSku with every SKU each looked-up person holds, in one transaction. #>
+    param([System.Data.DataTable] $Table)
+    $conn = [System.Data.SqlClient.SqlConnection]::new($script:SqlConnStr)
+    $conn.Open()
+    $tx = $conn.BeginTransaction()
+    try {
+        $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx
+        $cmd.CommandText = 'DELETE FROM audit.UserLicenseSku;'
+        $cmd.CommandTimeout = 600
+        [void] $cmd.ExecuteNonQuery()
+        $bulk = [System.Data.SqlClient.SqlBulkCopy]::new($conn, [System.Data.SqlClient.SqlBulkCopyOptions]::Default, $tx)
+        $bulk.DestinationTableName = 'audit.UserLicenseSku'
+        $bulk.BulkCopyTimeout = 600
+        [void] $bulk.ColumnMappings.Add('UserPrincipalName', 'UserPrincipalName')
+        [void] $bulk.ColumnMappings.Add('SkuId', 'SkuId')
+        $bulk.WriteToServer($Table)
+        $tx.Commit()
+    }
+    catch { $tx.Rollback(); throw }
+    finally { $conn.Dispose() }
+    $Table.Rows.Count
+}
+
 function ConvertTo-UtcOrNull {
     param($Value)
     if ($null -eq $Value -or "$Value" -eq '') { return $null }
@@ -431,8 +461,10 @@ WHERE UserPrincipalName IS NOT NULL;
     }
 
     # ---- Look each one up --------------------------------------------------
-    $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType'
+    $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType' + $(if ($IncludeLeaveDates) { ',employeeLeaveDateTime' } else { '' })
     $licRows = New-Object System.Collections.Generic.List[object]
+    $skuRows = [System.Data.DataTable]::new()
+    [void] $skuRows.Columns.Add('UserPrincipalName', [string]); [void] $skuRows.Columns.Add('SkuId', [guid])
     $notFound = 0
 
     # Twenty users to a Graph $batch request (2.4.2): one request a user took hours
@@ -468,7 +500,8 @@ WHERE UserPrincipalName IS NOT NULL;
                 }
                 else {
                     $err = Get-Prop (Get-Prop $r 'body') 'error'
-                    throw "Graph returned $status for $($pending[$id]): $(Get-Prop $err 'message')"
+                    $hint = if ($status -eq 403 -and $IncludeLeaveDates) { ' -IncludeLeaveDates needs the Graph application permission User-LifeCycleInfo.Read.All, with admin consent; run without it until then.' } else { '' }
+                    throw "Graph returned $status for $($pending[$id]): $(Get-Prop $err 'message')$hint"
                 }
             }
             if ($pending.Count -gt 0) {
@@ -484,16 +517,22 @@ WHERE UserPrincipalName IS NOT NULL;
                 $licRows.Add([pscustomobject]@{
                     UserPrincipalName = $upn; IsCopilotLic = $null; SkuPartNumber = $null
                     LicensedSinceUtc = $null; CapabilityStatus = $null; DirectoryStatus = 'NotFound'
-                    EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null
+                    EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null; EmployeeLeaveUtc = $null
                 })
                 continue
             }
 
-            # License
+            # License, and every SKU they hold (2.4.3), for the overlap report
             $matchedSku = $null
+            $held = @{}
             foreach ($al in @(Get-Prop $user 'assignedLicenses')) {
                 $id = "$(Get-Prop $al 'skuId')"
-                if ($id -and $copilotSkus.ContainsKey($id)) { $matchedSku = $copilotSkus[$id]; break }
+                $g = [guid]::Empty
+                if ($id -and [guid]::TryParse($id, [ref] $g) -and -not $held.ContainsKey($g)) {
+                    $held[$g] = $true
+                    [void] $skuRows.Rows.Add("$(Get-Prop $user 'userPrincipalName')", $g)
+                }
+                if ($id -and -not $matchedSku -and $copilotSkus.ContainsKey($id)) { $matchedSku = $copilotSkus[$id] }
             }
             $since = $null; $capability = $null
             if ($matchedSku) {
@@ -520,6 +559,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 EntraAccountEnabled = $(if ($null -ne (Get-Prop $user 'accountEnabled')) { [int] [bool] (Get-Prop $user 'accountEnabled') } else { $null })
                 EmployeeHireDate  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeHireDate'))
                 UserType          = $(if (Get-Prop $user 'userType') { "$(Get-Prop $user 'userType')" } else { $null })
+                EmployeeLeaveUtc  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeLeaveDateTime'))
             })
         }
         $before = $done; $done = [math]::Min($at + 20, $list.Count)
@@ -528,10 +568,11 @@ WHERE UserPrincipalName IS NOT NULL;
         }
     }
 
+    # The leave date only when it was asked for: a run without -IncludeLeaveDates keeps the last one read.
+    $columns = @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber', 'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
+                 'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') + $(if ($IncludeLeaveDates) { @('EmployeeLeaveUtc') } else { @() })
     $n = Save-RowBatch -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `
-                   -ColumnOrder @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber',
-                                  'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
-                                  'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') `
+                   -ColumnOrder $columns `
                    -ColumnTypes @{
                        UserPrincipalName = [System.Data.SqlDbType]::NVarChar
                        IsCopilotLic      = [System.Data.SqlDbType]::Bit
@@ -542,8 +583,12 @@ WHERE UserPrincipalName IS NOT NULL;
                        EntraAccountEnabled = [System.Data.SqlDbType]::Bit
                        EmployeeHireDate  = [System.Data.SqlDbType]::Date
                        UserType          = [System.Data.SqlDbType]::NVarChar
+                       EmployeeLeaveUtc  = [System.Data.SqlDbType]::DateTime2
                    }
     Write-Log "Licenses written: $n."
+    if ((Invoke-EnrichmentSql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL THEN 0 ELSE 1 END") -eq 1) {
+        Write-Log ("Licenses held, every SKU: {0:N0} written." -f (Save-UserSkus -Table $skuRows))
+    }
 
     if ($notFound -gt 0) {
         Write-Log "$notFound user(s) are in the audit data but no longer in the directory; recorded as DirectoryStatus = 'NotFound', not as unlicensed." -Level WARN

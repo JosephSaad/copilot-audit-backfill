@@ -1,0 +1,112 @@
+namespace CopilotInsights.Pages;
+
+/// <summary>
+/// What each report is for and what to do with it (2.4.3): two short lines under the title, written for the
+/// section's audience (NavGroup.Who). The longer explanations sit behind information icons. A test checks
+/// every report in the navigation has both lines.
+/// </summary>
+public static class Guidance
+{
+    public sealed record Line(string Helps, string Do);
+
+    public static Line? For(string? path) => path is not null && All.TryGetValue(path.TrimEnd('/') is { Length: > 0 } p ? p : "/", out var g) ? g : null;
+
+    public static readonly IReadOnlyDictionary<string, Line> All = new Dictionary<string, Line>(StringComparer.OrdinalIgnoreCase)
+    {
+        // My Copilot
+        ["/me"] = new("See how you use Copilot, and where it could do more for you.", "Try Copilot in an app you rarely use it in, or pick up an agent your colleagues use."),
+        ["/me/email"] = new("Choose what Copilot Insights emails you.", "Turn your weekly summary on or off."),
+        ["/me/views"] = new("Get back to the reports you check often, set up the way you like.", "Make the one you open most your start page."),
+
+        // Leadership
+        ["/leadership"] = new("Answer \"is Copilot working here?\" in one screen.", "Look at the units with low use, and ask their leads what is in the way."),
+        ["/leadership/scorecard"] = new("See what moved since the last period, and where.", "Take the largest drops to the next leadership meeting."),
+        ["/leadership/org"] = new("Compare the parts of the organization side by side.", "Open the weakest unit to find the team behind it."),
+        ["/leadership/mix"] = new("See where Copilot earns its place: which apps, and how much through agents.", "Back the apps and agents that carry use; question the ones that do not."),
+        ["/leadership/value"] = new("Put an estimated value on Copilot, with your own assumptions.", "Check the minutes and the hourly cost in Admin before you quote the figure."),
+        ["/leadership/usecases"] = new("Know what people use Copilot for, not just how much.", "Share the common use cases as examples; fund training for the missing ones."),
+        ["/leadership/boardpack"] = new("Report the program to the board on one page.", "Print it or save it as a PDF for the steering group."),
+        ["/group"] = new("See every tenant in the group together.", "Compare the tenants, and share what works in the strongest."),
+
+        // Adoption
+        ["/adoption"] = new("Track the path from license to habit.", "Work on the step where most people drop out."),
+        ["/adoption/retention"] = new("Tell a habit from a trial.", "Follow up with the groups whose use falls away after the first weeks."),
+        ["/adoption/cohorts"] = new("See whether each month's new licenses turn into lasting use.", "Compare a weak month with a strong one, and repeat what the strong one had."),
+        ["/adoption/departments"] = new("Find the departments ahead and behind.", "Pair a department behind with one ahead, through their champions."),
+        ["/adoption/leaderboard"] = new("Celebrate progress and create friendly competition.", "Recognize the most improved groups in your next update."),
+        ["/adoption/targets"] = new("Know whether the program is on track for its goals.", "For a target behind its line, decide the push now, not at the deadline."),
+        ["/adoption/onboarding"] = new("Make sure new license holders and new hires start quickly.", "Welcome each department's new joiners in their first week."),
+        ["/adoption/anomalies"] = new("Catch outages, policy changes and launches from their effect on use.", "Check a sudden drop with IT; learn from a spike."),
+        ["/adoption/not-started"] = new("Find the people who were given a license and never used it.", "Invite them to a session, or hand the license to someone who will use it."),
+
+        // Licensing
+        ["/licensing"] = new("Know how many licenses you have, and how many are in use.", "Compare the unused count with next quarter's demand before buying more."),
+        ["/licensing/unused"] = new("Find licenses nobody is using.", "Follow up or reclaim; export the list for your license team."),
+        ["/licensing/ranking"] = new("See who gets the most from Premium, and who uses only what is free.", "Move licenses from the bottom of the Premium ranking to the top of the free one."),
+        ["/licensing/payg"] = new("Spot license holders that Copilot Credits would serve for less.", "Check their Premium use, then move them to pay-as-you-go."),
+        ["/licensing/swap"] = new("Reassign idle licenses instead of buying new ones.", "Apply the take-back file, then the give-out file."),
+        ["/licensing/license-for-credits"] = new("Spot people whose Copilot Credits cost more than a license.", "License them: the cost falls and they gain Copilot in the apps."),
+        ["/licensing/fading"] = new("Catch license holders drifting away before the license goes idle.", "Ask their managers to check in, or offer a refresher session."),
+        ["/licensing/demand"] = new("See who already relies on the free Copilot Chat.", "License these people first when seats come free."),
+        ["/licensing/changes"] = new("Audit license assignments and removals.", "Look into licenses removed while still in use, and ones that came back."),
+        ["/licensing/pool"] = new("Know the seats you pay for, assigned or not.", "Assign or give up seats bought but not assigned before the renewal."),
+        ["/licensing/chargeback"] = new("Allocate license cost to the budgets that hold the licenses.", "Send each group its cost and its share in use."),
+        ["/licensing/leavers"] = new("Find licenses nobody can use: disabled or deleted accounts.", "Reclaim them all: export the removal file."),
+        ["/licensing/non-person"] = new("Find licenses on guests, service, shared and test accounts.", "Remove the ones that are not meant, or confirm the ones that are."),
+        ["/licensing/overlap"] = new("Find people paying for two licenses that overlap.", "Drop the second license where the first covers the use."),
+        ["/licensing/departures"] = new("Reclaim licenses on the last day, not weeks after.", "Plan the leavers' removals; export the ones past their date now."),
+
+        // Security
+        ["/security"] = new("Watch jailbreak attempts, prompt injection and blocked content.", "Look into a rise, and adjust policy where it clusters."),
+        ["/security/units"] = new("See which units attract the most risk signals.", "Brief the units with the highest rates."),
+        ["/security/guests"] = new("Watch how guest accounts use Copilot.", "Check the home organizations with signals, and review their access."),
+        ["/security/flags"] = new("Triage each flagged interaction.", "Mark each one investigating, closed or a false positive."),
+
+        // Compliance
+        ["/compliance"] = new("See how much Copilot works with sensitive content, and what it is blocked from.", "Review the labels and sites behind the most use."),
+        ["/compliance/units"] = new("See which parts of the organization reach labeled content through Copilot.", "Review access in the units with the most labeled content."),
+        ["/compliance/sites"] = new("Find the sites where oversharing reaches the most people.", "Tighten permissions or add labels on the widest-reaching sites first."),
+        ["/compliance/access"] = new("See who works with labeled content through Copilot.", "Check that each person's access to the most sensitive labels is expected."),
+        ["/compliance/person"] = new("Answer a data-subject request or support an investigation.", "Download the record; every look is audited."),
+
+        // Agents
+        ["/agents"] = new("See which agents people use and come back to.", "Promote the agents with returning users; review the ones nobody returns to."),
+        ["/agents/inventory"] = new("Keep a register of every agent in use.", "Give each agent a friendly name and an owner."),
+        ["/agents/build"] = new("See how much building goes on, and by whom.", "Support the active makers; clean up agents nobody publishes."),
+        ["/agents/detail"] = new("Understand one agent's reach and trend.", "Share the agent more widely, or retire it."),
+        ["/agents/handoffs"] = new("See how agents chain together.", "Check that the agents called are owned and supported."),
+        ["/agents/credits"] = new("See what each agent costs in Copilot Credits.", "Restrict or retire costly agents with few users, or license their heavy users."),
+
+        // Enablement
+        ["/enablement"] = new("Aim training where use stays shallow.", "Plan sessions for the groups with the most one-off use."),
+        ["/enablement/depth"] = new("See whether people hold a conversation with Copilot or ask one-off questions.", "Teach follow-up prompting where sessions stay short."),
+        ["/enablement/training"] = new("Measure whether training changed use.", "Repeat the sessions that worked; rework the ones that did not."),
+        ["/enablement/champions"] = new("Find the people best placed to be champions.", "Ask the top candidates in each department to join the network."),
+        ["/enablement/people"] = new("Know who to recruit and who to invite.", "Recruit power users as champions; invite one-off users to training."),
+
+        // Forecasting
+        ["/forecasting"] = new("See where use and licenses are heading.", "Plan purchases and renewals on the projection, with its range."),
+        ["/forecasting/optimize"] = new("Weigh every license action and what it is worth.", "Start with the action worth the most."),
+        ["/forecasting/budget"] = new("Prepare the renewal with the seats the use supports.", "Renew at the supported seat count, not the current one."),
+        ["/forecasting/actions"] = new("Act on named upgrade, train and revoke recommendations.", "Export each list and hand it to the license team."),
+        ["/forecasting/waves"] = new("Roll out new licenses in the order most likely to pay off.", "Apply the next wave's file when seats come free."),
+        ["/forecasting/outcomes"] = new("Check that license actions happened, and that they paid off.", "Chase the changes not made, and the new licenses not used."),
+
+        // Regions
+        ["/regions"] = new("See where Copilot has landed, by country and office.", "Send support to the offices with low adoption."),
+        ["/regions/patterns"] = new("See when people use Copilot, and how much after hours.", "Plan support hours; watch after-hours use for workload."),
+
+        // People
+        ["/workforce"] = new("Compare adoption across employee groups and levels.", "Close gaps between comparable groups."),
+        ["/workforce/managers"] = new("See whether teams follow their manager's lead.", "Enlist managers who do not use Copilot yet."),
+        ["/workforce/families"] = new("Compare like with like, by job family.", "Share what works in a family's strongest department with the rest."),
+
+        // App owners
+        ["/apps"] = new("See how Copilot does in each Microsoft 365 app.", "Focus on apps with many users but shallow or fading use."),
+        ["/apps/detail"] = new("Understand one app's Copilot use in depth.", "Share the app's strongest examples with its weaker groups."),
+
+        // Governance
+        ["/governance"] = new("See which models answer and how much Copilot relies on the web.", "Review web grounding against your policy."),
+        ["/governance/controls"] = new("Watch memory updates, deferred data-loss checks and web grounding.", "Look into units where the controls behave differently."),
+    };
+}

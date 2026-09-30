@@ -157,7 +157,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 ## Acting on the license recommendations
 
-1. **Forecasting › License optimization** shows the recommendations and what they are worth; **Forecasting › Upgrade, train or revoke** and **Licensing › Licenses on disabled accounts** name the people (Licensing role). *Train* and *revoke* look at Premium use: Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat over work content. Someone who only uses web Copilot Chat, which the free tier gives, is not using their license. **Licensing › Use ranking** ranks everyone by general, free and Premium use.
+1. **Forecasting › License optimization** shows the recommendations and what they are worth; **Forecasting › Upgrade, train or revoke** and **Licensing › Licenses on disabled accounts** name the people (Licensing role). *Train* and *revoke* look at Premium use: Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat over work content. Someone who only uses web Copilot Chat, which the free tier gives, is not using their license. **Licensing › Use ranking** ranks everyone by general, free and Premium use. **Licensing › Swap list** pairs the revoke and upgrade lists within a department (or division, or anywhere), so an idle license goes to someone who wants one instead of a new seat being bought; its two files take the licenses back and give them on, in that order.
 2. On those pages, download the **Entra bulk add or remove members file**, or the **PowerShell script**. If Copilot licenses are assigned through a group, set its object id first in Admin › Targets and assumptions › *Licensing and champions*, so both use the group; otherwise the script assigns or removes the SKU directly.
 3. A license administrator applies it: the bulk file in Entra (Groups › the license group › Bulk operations), or the script in PowerShell with their own rights (`-WhatIf` first). The dashboard changes nothing in Entra.
 4. The next nightly run picks the change up; the lists update the day after.
@@ -246,7 +246,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | `GrantRole` | Give `-Principal` (UPN, `DOMAIN\user` or `DOMAIN\Group`) a `-Role` |
 | `RevokeRole` | Take it away |
 | `SetOrgTop` | Make `-Upn` the top of the organization, or `-Clear` |
-| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost or LicenseCurrency to `-Value` |
+| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost, LicenseCurrency or PaygInteractionCost to `-Value` |
 | `NameAgent` | Give agent `-AgentId` a `-FriendlyName` and `-Owner` |
 | `NameLabel` | Give label `-LabelId` a `-FriendlyName` and `-Rank` |
 | `PurgeJson` | Clear the stored JSON of records older than `-RetainDays` (`-Apply` to do it) |

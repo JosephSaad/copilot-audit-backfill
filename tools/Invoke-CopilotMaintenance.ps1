@@ -18,7 +18,8 @@
     -Task RevokeRole           Take it away again.
     -Task SetOrgTop            Make -Upn the top of the organization for the dashboard, or -Clear
                                to go back to the one found in the org chart. Rebuilds the org chart.
-    -Task SetDashboardSetting  Set MinGroupSize, DefaultDays or InactiveDays to -Value.
+    -Task SetDashboardSetting  Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost,
+                               LicenseCurrency or PaygInteractionCost to -Value.
     -Task NameAgent            Give the agent -AgentId (its id in the audit log) a -FriendlyName
                                (and -Owner). An empty -FriendlyName removes the name.
     -Task NameLabel            Give the sensitivity label -LabelId a -Name (and -Rank, 0 least sensitive).
@@ -64,7 +65,7 @@ param(
     [ValidateSet('User', 'Group')][string] $PrincipalType,
     [string] $Upn,
     [switch] $Clear,
-    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenseMonthlyCost', 'LicenseCurrency')][string] $Name,
+    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenseMonthlyCost', 'LicenseCurrency', 'PaygInteractionCost')][string] $Name,
     [string] $Value,
     [string] $AgentId,
     [string] $FriendlyName,

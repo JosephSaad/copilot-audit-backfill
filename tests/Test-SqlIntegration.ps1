@@ -694,6 +694,8 @@ FROM audit.CopilotLicense;
         Assert-That ([int] $l.WithSince -eq 17) "LicensedSinceUtc read from assignedPlans for each ($($l.WithSince))"
         Assert-That ([int] $l.Enabled_ -eq 17) "CapabilityStatus captured ($($l.Enabled_))"
         Assert-That ([int] $l.Gone -eq 1) "the departed user is recorded as NotFound ($($l.Gone))"
+        $held = (Invoke-SqlText -As Table -Sql "SELECT COUNT(*) AS Rows_, COUNT(DISTINCT UserPrincipalName) AS People, SUM(CASE WHEN s.IsCopilot = 1 THEN 1 ELSE 0 END) AS Copilot FROM audit.UserLicenseSku AS u JOIN audit.LicenseSku AS s ON s.SkuId = u.SkuId;").Rows[0]
+        Assert-That ([int] $held.Rows_ -eq 66 -and [int] $held.People -eq 49 -and [int] $held.Copilot -eq 17) "every SKU each person holds is kept: E3 for the 49 found, Copilot for 17 ($($held.Rows_) rows, $($held.People) people)"
 
         # 2.3.0: the seat counts /subscribedSkus already returns, and each person's Entra account state and hire date.
         $pool = (Invoke-SqlText -As Table -Sql @"
@@ -728,6 +730,16 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseSku) AS Skus,
         Invoke-Main
         $withAll = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense')
         Assert-That ($withAll -eq 50) "-AllLicensedUsers added no phantom users here ($withAll)"
+
+        # 2.4.3: the leave date is written only when asked for, and a run without it keeps it.
+        $leaves = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense WHERE EmployeeLeaveUtc IS NOT NULL')
+        $IncludeLeaveDates = $true
+        Invoke-Main
+        $leavesOn = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense WHERE EmployeeLeaveUtc IS NOT NULL')
+        $IncludeLeaveDates = $false
+        Invoke-Main
+        $leavesKept = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense WHERE EmployeeLeaveUtc IS NOT NULL')
+        Assert-That ($leaves -eq 0 -and $leavesOn -eq 5 -and $leavesKept -eq 5) "-IncludeLeaveDates writes Entra's leave dates, and a run without it keeps them ($leaves, $leavesOn, $leavesKept)"
       }
     }
     finally {
@@ -1908,15 +1920,17 @@ Assert-That ($status -like '*Flattened*' -and $status -like "*Top of the organiz
 & $maint @conn -Database $script:ITDatabase -Task SetAppCategory -App 'Teams' -Category 'Copilot Chat' | Out-Null
 & $maint @conn -Database $script:ITDatabase -Task GrantRole -Principal 'CONTOSO\Insights-Admins' -PrincipalType Group -Role Admin -Note 'test' | Out-Null
 & $maint @conn -Database $script:ITDatabase -Task SetDashboardSetting -Name LicenseMonthlyCost -Value '31.5' | Out-Null
+& $maint @conn -Database $script:ITDatabase -Task SetDashboardSetting -Name PaygInteractionCost -Value '0.15' | Out-Null
 & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'boss@contoso.com' | Out-Null
 $mt = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT AppCategory FROM audit.SessionAppCategory WHERE App = N'Teams') AS Teams,
        (SELECT PrincipalType + N'/' + Role FROM dash.RoleGrant WHERE Principal = N'CONTOSO\Insights-Admins') AS Grant_,
        (SELECT Value FROM dash.Setting WHERE Name = N'LicenseMonthlyCost') AS Cost,
+       (SELECT Value FROM dash.Setting WHERE Name = N'PaygInteractionCost') AS Payg,
        (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'a@contoso.com') AS ALevel,
        (SELECT COUNT(*) FROM dash.AuditLog WHERE Page = N'Invoke-CopilotMaintenance') AS Logged;
 "@).Rows[0]
-Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/Admin' -and "$($mt.Cost)" -eq '31.5') 'maintenance tasks set an app category, grant a role and change a setting, without SQL'
+Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/Admin' -and "$($mt.Cost)" -eq '31.5' -and "$($mt.Payg)" -eq '0.15') 'maintenance tasks set an app category, grant a role and change settings (the pay-as-you-go cost too), without SQL'
 Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organization takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
 $refused = try { & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'nobody@contoso.com'; '' } catch { $_.Exception.Message }
 Assert-That ($refused -like '*not in the directory*') 'a top of the organization not in the directory is refused'

@@ -69,6 +69,13 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | Licensing | Inventory | Licenses held over time, assigned and removed, by SKU, idle licenses by unit | Scope, SKU, unit | No |
 | | Unused licenses | People holding a license with no use for 7, 14, 30, 60 or 90 days, and when they last used it | Person | **Licensing** |
 | | Use ranking | Everyone ranked three ways: all use, free use (web Copilot Chat, agents) and Premium use; their Premium share and license | Person | **Licensing** |
+| | Better on pay-as-you-go | License holders whose Premium use is at most 0, 5, 10 or 25% of their use, with what Copilot Credits would cost them a month and the saving against the license | Person | **Licensing** |
+| | Better with a license | People without a license whose agent and work-grounded chat use costs more in Copilot Credits a month than a license, with a file to license them | Person | **Licensing** |
+| | Fading use | License holders whose days of use in the last 30 fell by half or three quarters against the 60 before, but not to none, with their manager | Person | **Licensing** |
+| | Licenses on non-person accounts | Licenses on enabled accounts that may not be a person: guests, service, shared, test or room names, and accounts outside the org chart; license holders by employee type | Person | **Licensing** |
+| | Overlapping licenses | People holding the Copilot license with another Copilot-family license (a second Copilot SKU, Copilot Studio, Copilot for Sales or Service), by SKU and by person | Person | **Licensing** |
+| | Departures ahead | License holders due to leave in 7, 30 or 90 days, or past their date with the account still enabled, from AD's account expiry and Entra's leave date, with a file to reclaim the past ones | Person | **Licensing** |
+| | Swap list | Idle licenses paired with people who want one in the same department, division or anywhere, with files to take each license back and give it on | Person | **Licensing** |
 | | Demand | Unlicensed Copilot Chat users over time and by department; the license type each record reports; the list of them | Department; person | List: **Licensing** |
 | | License changes | Licenses assigned and removed: how long each was held, whether it was taken from someone still using it, whether it came back, by department; who made the changes | Scope, department | Who made them: **Licensing** |
 | | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No |
@@ -87,6 +94,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Inventory | Every agent seen: where it was built, first and last use, people and interactions in the period, owner and friendly name | Agent | No |
 | | Build and publish | Copilot Studio agents created, published, shared, changed and deleted, from Copilot Studio's own audit records; each agent's lifecycle | Scope, agent | Makers: **Agents** |
 | | Agent hand-offs | How often one agent calls another, and which agents are called | Scope, agent | No |
+| | Agents costing credits | Each agent's use by people without a license, its Copilot Credits a month and per person, and whether to restrict it or license its users | Scope, agent | No |
 | | Agent detail | One agent: people and new people, return rate, trend, by department and app; its users | Agent; person | List: **Agents** |
 | Enablement | Engagement | Segments (power, regular, occasional, one-off, not started) overall and by department; multi-turn share and prompts per session; apps per person | Scope, department | No |
 | | Conversation depth | Sessions by prompts and by length; messages per prompt over time | Scope | No |
@@ -162,9 +170,13 @@ Every interaction made with a license is either **Premium use**, which needed th
 
 The rollups keep both per person per day (`dash.UserDay.PremiumUse`), and `bi.Interactions.PremiumUse` carries the same flag to Power BI, so the two always agree. *Train* and *revoke* in Upgrade, train or revoke look at Premium use: a license holder who only used web Copilot Chat in the last 30 days is a revocation candidate, with the reason given on the row. *Upgrade* looks at any use, since the people it names have no license. Licensing › Use ranking ranks everyone by all three.
 
+**Better on pay-as-you-go** (2.4.3) lists license holders, licensed since before the period, whose Premium use is a small share of their use. Without a license, web Copilot Chat is free, agents and chat over work content are paid per use in Copilot Credits, and Copilot inside the apps is not available. The page prices each person's Premium and agent interactions, scaled to a month, at the pay-as-you-go cost an interaction in Admin › Settings (0.12 by default: 12 credits, a generative answer grounded in tenant data, at 0.01), and sets that against the license cost. An agent grounded only in the web costs nothing, so the estimate errs high on credits and low on the saving. **Better with a license** turns the same price round: people without a license whose metered use (agents, and Copilot Chat that read work content without searching the web) would cost more in credits a month than a license.
+
 The Chat-over-work-content part is an approximation from the audit record: an interaction that searched the web and also read work files counts as free. Until the rollups are rebuilt once with 2.3.0 (the installer does this), the rules count any use, as before, and the page says so.
 
 ## Saved views, events and hover text
+
+**Every report says who it is for, what it helps with and what to do** (2.4.3), in two short lines under its title: *Helps you* and *Do*, with the section's audience beside them. The longer explanations sit behind **information icons** (ⓘ): beside the title for what the page shows, beside each panel for how its figures are worked out, and beside a KPI for what it counts. Hover over an icon, focus it with the keyboard or tap it for the text; Escape or a second tap closes it. A KPI's short note with a figure in it stays on the card. Printed pages, the board pack included, show every icon's text in place. Admin pages keep their instructions on the page.
 
 **Save view**, under the filters of every report, keeps the page with its period, part of the organization and filters under a name, in My Copilot › Saved views. One can be the start page: opening the dashboard goes straight to it (*Start* in the navigation always goes to the usual page). A saved view can only point at a report page of this site.
 

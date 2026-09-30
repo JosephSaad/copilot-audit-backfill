@@ -2,13 +2,33 @@
 @{
     var c = Model.Ctx;
     var path = Context.Request.Path.Value ?? "/";
+    /* A report says who it is for, what it helps with and what to do, in two lines; the longer
+       explanations sit behind information icons (2.4.3). Pages without guidance, the Admin ones,
+       keep their text on the page. */
+    var guide = CopilotInsights.Pages.Guidance.For(path);
+    var who = CopilotInsights.Pages.Nav.SectionOf(path)?.Who;
 }
 <div class="page-head">
     <div class="eyebrow">@Model.Persona</div>
-    <h1>@Model.Title</h1>
-    @if (Model.Intro is not null)
+    @if (guide is not null)
     {
-        <p class="intro">@Model.Intro</p>
+        <h1>@Model.Title@InfoTip.Icon(Model.Intro, "About this page")</h1>
+        <div class="guide">
+            @if (who is not null)
+            {
+                <span class="who">For @(char.ToLowerInvariant(who[0]) + who[1..])</span>
+            }
+            <p><b>Helps you</b> @guide.Helps</p>
+            <p><b>Do</b> @guide.Do</p>
+        </div>
+    }
+    else
+    {
+        <h1>@Model.Title</h1>
+        @if (Model.Intro is not null)
+        {
+            <p class="intro">@Model.Intro</p>
+        }
     }
 </div>
 
@@ -95,10 +115,12 @@
     <div class="kpis">
         @foreach (var k in Model.Kpis)
         {
+            /* A short note with a figure in it ("995 used in the period") stays on the card; words go behind the icon. */
+            var figure = k.Note is { Length: <= 40 } kn && kn.Any(char.IsDigit);
             <div class="kpi @(k.Tone)">
-                <div class="klabel">@k.Label</div>
+                <div class="klabel">@k.Label@(guide is not null && !figure ? InfoTip.Icon(k.Note, k.Label) : null)</div>
                 <div class="kvalue">@k.Value</div>
-                @if (k.Note is not null)
+                @if (k.Note is not null && (guide is null || figure))
                 {
                     <div class="knote">@k.Note</div>
                 }
@@ -112,13 +134,13 @@
     {
         <section class="panel @p.Size">
             <div class="phead">
-                <h2>@p.Title</h2>
+                <h2>@p.Title@(guide is not null ? InfoTip.Icon(p.Sub, p.Title) : null)</h2>
                 @if (p.Csv is not null)
                 {
                     <a class="csv" href="@p.Csv">Download CSV</a>
                 }
             </div>
-            @if (p.Sub is not null)
+            @if (p.Sub is not null && guide is null)
             {
                 <p class="sub">@p.Sub</p>
             }

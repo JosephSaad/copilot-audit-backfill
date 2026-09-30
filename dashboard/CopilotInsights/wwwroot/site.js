@@ -31,6 +31,24 @@
   });
   document.addEventListener('mouseleave', function () { tip.hidden = true; });
 
+  // Information icons (2.4.3): the same tip on keyboard focus or a tap, under the icon and inside the window.
+  function showAt(b) {
+    tip.textContent = b.getAttribute('data-tip');
+    tip.hidden = false;
+    var r = b.getBoundingClientRect(), t = tip.getBoundingClientRect();
+    var x = Math.max(8, Math.min(r.left, window.innerWidth - t.width - 8));
+    var y = r.bottom + 6;
+    if (y + t.height > window.innerHeight - 8) y = Math.max(8, r.top - t.height - 6);
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  }
+  document.querySelectorAll('button.infob').forEach(function (b) {
+    b.addEventListener('focus', function () { showAt(b); });
+    b.addEventListener('blur', function () { tip.hidden = true; });
+    b.addEventListener('click', function (e) { e.preventDefault(); if (tip.hidden) showAt(b); else tip.hidden = true; });
+    b.addEventListener('keydown', function (e) { if (e.key === 'Escape') tip.hidden = true; });
+  });
+
   var toggle = document.getElementById('theme-toggle');
   if (toggle) toggle.addEventListener('click', function () {
     var root = document.documentElement;

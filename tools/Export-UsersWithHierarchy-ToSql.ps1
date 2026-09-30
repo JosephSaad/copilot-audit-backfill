@@ -113,7 +113,7 @@ function Get-DirectoryEntry {
     $searcher.CacheResults = $false
     foreach ($a in 'userPrincipalName', 'mail', 'displayName', 'title', 'department', 'division',
                    'physicalDeliveryOfficeName', 'l', 'co', 'company', 'employeeType', 'manager',
-                   'distinguishedName', 'userAccountControl', 'objectSid') {
+                   'distinguishedName', 'userAccountControl', 'objectSid', 'accountExpires') {
         [void] $searcher.PropertiesToLoad.Add($a)
     }
 
@@ -144,11 +144,20 @@ function Get-DirectoryEntry {
                 mgr     = Val $p 'manager'
                 uac     = [int] (Val $p 'useraccountcontrol')
                 sid     = Sid $p
+                expires = ConvertFrom-AccountExpiry (Val $p 'accountexpires')
             })
         }
     }
     finally { $results.Dispose() }
     return , $all
+}
+
+function ConvertFrom-AccountExpiry {
+    <# AD's accountExpires (a FILETIME, as text) as a UTC date, or $null for never (0 or the largest Int64). Pure, for the tests. #>
+    param([AllowNull()][AllowEmptyString()][string] $Value)
+    $ticks = 0L
+    if (-not [long]::TryParse($Value, [ref] $ticks) -or $ticks -le 0 -or $ticks -eq [long]::MaxValue) { return $null }
+    try { [DateTime]::FromFileTimeUtc($ticks) } catch { $null }
 }
 
 function ConvertTo-LdapFilterValue {
@@ -263,6 +272,7 @@ function ConvertTo-UserDirectoryTable {
         [void] $dt.Columns.Add($c, [string])
     }
     [void] $dt.Columns.Add('OrgDepth', [byte])
+    [void] $dt.Columns.Add('AccountExpiresUtc', [datetime])
     for ($i = 1; $i -le $script:ChainColumns; $i++) { [void] $dt.Columns.Add("Mgr$i", [string]) }
 
     $wantTypes = [System.Collections.Generic.HashSet[string]]::new([string[]] @($EmployeeTypes), [StringComparer]::OrdinalIgnoreCase)
@@ -298,6 +308,7 @@ function ConvertTo-UserDirectoryTable {
 
         $row = $dt.NewRow()
         $row['UserPrincipalName'] = $u.upn
+        $row['AccountExpiresUtc'] = if ($u.PSObject.Properties['expires'] -and $u.expires) { [datetime] $u.expires } else { [DBNull]::Value }
         $row['Mail']              = NZ $u.mail
         $row['FullName']          = NZ $u.disp
         $row['EmployeeType']      = NZ $et
