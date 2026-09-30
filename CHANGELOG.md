@@ -17,6 +17,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Settings (`PaygInteractionCost`, 0.12 by default: 12 Copilot Credits at 0.01), also
   settable with `Invoke-CopilotMaintenance.ps1 -Task SetDashboardSetting`.
 
+### Fixed
+- **The license tool no longer stops on a dropped connection to Graph.** A run over
+  64,864 users failed after twenty minutes with *An existing connection was forcibly
+  closed by the remote host*, and, since nothing is written until every user has been
+  looked up, lost everything it had read. A failed `$batch` request is now retried,
+  up to seven times with a growing wait, as a throttled one already was; the log
+  shows each retry. The integration test's Graph mock drops its first batch request
+  to prove it.
+
 ## [2.4.2] - 2026-09-30
 
 Page speed for the top of a large organization, sections shown only to the roles

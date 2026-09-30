@@ -714,7 +714,7 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseSku) AS Skus,
         $asked = @($script:GraphPaths | Sort-Object -Unique)
         $other = @($asked | Where-Object { $_ -ne '/v1.0/subscribedSkus' -and $_ -notmatch '^/v1\.0/users/[^/]+$' })
         Assert-That ($other.Count -eq 0) "the license tool calls only /subscribedSkus and /users/{upn} - no manager, profile or administrative-unit call ($($other -join ', '))"
-        Assert-That ($script:GraphBatches -ge 3 -and $script:GraphBatches -le 5) "the 50 users are looked up twenty to a `$batch request, one throttled item retried ($($script:GraphBatches) batches)"
+        Assert-That ($script:GraphBatches -eq 5) "the 50 users are looked up twenty to a `$batch request, a dropped request and a throttled item retried ($($script:GraphBatches) batches: 3, and 2 retries)"
         $entraTables = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'audit' AND name IN ('UserProfile', 'AdministrativeUnit');")
         Assert-That ($entraTables -eq 0) 'no Entra profile or administrative-unit table is created'
 
