@@ -149,9 +149,16 @@ if ($ServiceAccount) {
     $sa = $ServiceAccount.Replace(']', ']]')
     Invoke-Sql -Catalog master -Sql "IF SUSER_ID(@a) IS NULL EXEC (N'CREATE LOGIN [$sa] FROM WINDOWS');" -Parameters @{ '@a' = $ServiceAccount }
     foreach ($db in $dbs) {
+        # The login may already be in the database under another name: as dbo when it owns the
+        # database (it created it), or as a user a DBA added. That user is the one to use.
         Invoke-Sql -Catalog $db -Parameters @{ '@a' = $ServiceAccount } -Sql @"
-IF USER_ID(@a) IS NULL EXEC (N'CREATE USER [$sa] FOR LOGIN [$sa]');
-IF IS_ROLEMEMBER(N'db_owner', @a) = 0 EXEC (N'ALTER ROLE db_owner ADD MEMBER [$sa]');
+DECLARE @u sysname = (SELECT name FROM sys.database_principals WHERE sid = SUSER_SID(@a));
+IF @u IS NULL BEGIN EXEC (N'CREATE USER [$sa] FOR LOGIN [$sa]'); SET @u = @a; END;
+IF @u <> N'dbo' AND IS_ROLEMEMBER(N'db_owner', @u) = 0
+BEGIN
+    DECLARE @s nvarchar(400) = N'ALTER ROLE db_owner ADD MEMBER ' + QUOTENAME(@u) + N';';
+    EXEC (@s);
+END;
 "@
     }
     Write-Done "$ServiceAccount has a login and db_owner in $($dbs -join ' and ')"

@@ -26,7 +26,7 @@ PowerShell 7 drives it; the pipeline engine is C# compiled in memory at start, s
 
 **The machine that runs it:**
 
-- PowerShell **7.2+** (7.4 recommended). Windows PowerShell 5.1 will not work.
+- PowerShell **7.2+** (7.4 recommended). Windows PowerShell 5.1 will not run the loader; the one script that needs 5.1 is the dashboard's IIS installer. Both install side by side: [DEPLOYMENT.md](docs/DEPLOYMENT.md#which-powershell-runs-what) says which runs what.
 - `Install-Module Microsoft.Graph.Authentication -Scope CurrentUser` — the only module needed. On a server with no gallery access, see [Servers without gallery access](#servers-without-gallery-access).
 - Outbound HTTPS to `login.microsoftonline.com` and `graph.microsoft.com`.
 - An interactive desktop session for the browser sign-in, or `-AuthMode DeviceCode` to sign in from another device.

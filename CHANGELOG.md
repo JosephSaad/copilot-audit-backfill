@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.1] - Unreleased
+
+Fixes found in a first production install of 2.4.0, and the guides that install
+would have needed. No schema changes: install over 2.4.0 by replacing the scripts.
+
+### Fixed
+- **The user directory load no longer fails after loading.**
+  `tools/Export-UsersWithHierarchy-ToSql.ps1` wrapped the list of AD groups granted
+  Organization in a second array, so with none of them (always so without the
+  dashboard), or with two or more, it stopped with *Cannot process argument
+  transformation on parameter 'Group'*. The users were loaded, but the group step
+  failed, and with it the nightly run.
+- **An account already in a database under another name is used, not added again.**
+  `Install-CopilotAudit.ps1 -ServiceAccount` and the dashboard's database grants stopped
+  with *The login already has an account under a different user name* when the
+  account owned the database (it is `dbo` there, as when setup runs as the service
+  account itself) or a DBA had added it by another name. They now find the user by the
+  login's SID: an owner needs nothing more, and another name gets the rights under
+  that name.
+- **Dashboard installer, run again:**
+  - a host-name HTTPS binding the first run made without SNI (`New-Website -Ssl` does)
+    is switched to SNI, so it can share port 443 with another site's certificate;
+  - without `-CertificateThumbprint`, an HTTP binding is added when the site has none,
+    so a site first made with HTTPS doesn't end up answering on nothing;
+  - `Grant-CopilotInsightsAccess.sql` separates each database's grants with `GO`, so a
+    DBA can run the file for several tenants in one go.
+- **Dashboard installer: the SQL connection is tried before the site is.** A SQL Server
+  certificate the web server doesn't trust now shows as a warning naming
+  `-TrustServerCertificate`, rather than as *Something went wrong* on every page.
+
+### Documentation
+- DEPLOYMENT.md: which PowerShell runs each script; the SQL Server connection errors
+  and what each means; a service account with a password instead of a gMSA; running
+  setup as the service account; checking `employeeType` codes before the first load;
+  starting from Purview exports before the app registration is approved; what the
+  web server needs before the dashboard's installer. Release links point at 2.4.0.
+- DASHBOARD.md: every installer parameter, including `-AdminPrincipal` (people) against
+  `-AppPoolIdentity` (the site's account); the Hosting Bundle against the SDK; host
+  name, DNS and certificate, and starting on the server's own name or HTTP; another
+  site on port 443; NTLM only.
+- RUNBOOK.md: troubleshooting rows for each of the above.
+
 ## [2.4.0] - 2026-09-27
 
 A consistency release. Each figure is now computed in one place, the product
