@@ -4,7 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.3] - Unreleased
+## [2.4.3] - 2026-09-30
+
+Two licensing pages that each end in an action that saves money, and a license tool
+that survives a dropped connection. Install over 2.4.2 by replacing the scripts and
+reinstalling the dashboard from its package (`Install-CopilotInsights.ps1
+-PackagePath`). No database change, and no data is reloaded.
 
 ### Added
 - **Licensing › Better on pay-as-you-go** (Licensing role): license holders who use
@@ -1165,7 +1170,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
-[2.4.3]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.2...main
+[2.4.3]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.2...v2.4.3
 [2.4.2]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...v2.4.2
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0
