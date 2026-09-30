@@ -21,6 +21,12 @@ reinstalling the dashboard from its package (`Install-CopilotInsights.ps1
   credit price is a new setting, **pay-as-you-go cost an interaction** in Admin ›
   Settings (`PaygInteractionCost`, 0.12 by default: 12 Copilot Credits at 0.01), also
   settable with `Invoke-CopilotMaintenance.ps1 -Task SetDashboardSetting`.
+- **Licensing › Better with a license** (Licensing role): the reverse of Better on
+  pay-as-you-go. People with no Copilot license whose use is charged in Copilot
+  Credits, through agents or Copilot Chat over work content, at a monthly rate at or
+  above the license cost, with the credits, the difference, the total saving and a
+  file to license them (recorded for License action outcomes). *Everyone paying in
+  credits* lists them all.
 - **Licensing › Swap list** (Licensing role): each idle license (the revoke rule of
   Upgrade, train or revoke) paired with someone who wants one (its upgrade rule) in
   the same department, the same division, or anywhere in scope; the least-used
