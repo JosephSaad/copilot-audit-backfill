@@ -21,6 +21,14 @@ once, which widens one `bi` column in place (below). No data is reloaded.
   against the column it copies.
 - **The home page's browser tab** read "Copilot Insights · Copilot Insights". It now
   names the product once; every other page still reads "<page> · Copilot Insights".
+- **People with no UPN are left out of the org chart, not only the directory.** They
+  were already not loaded (no UPN, no Copilot use), but a manager with no UPN still
+  broke the chain: the people under them were loaded with no manager, became tops of
+  their own, and dropped out of the scope of everyone above. The directory load now
+  gives each person the nearest manager above who has a UPN, and leaves people with
+  no UPN out of the `Mgr1`…`MgrN` chain. Takes effect at the next directory load.
+- **My Copilot › My use no longer offers "Whole organization" and "Look inside a team".**
+  The page is only ever about the viewer, so its filter bar shows the period alone.
 - **The user directory load no longer fails after loading.**
   `tools/Export-UsersWithHierarchy-ToSql.ps1` wrapped the list of AD groups granted
   Organization in a second array, so with none of them (always so without the

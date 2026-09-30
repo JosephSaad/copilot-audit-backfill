@@ -102,6 +102,28 @@ Assert-That ($gt.Rows.Count -eq 3) "each member once per group, blanks and over-
 Assert-That (@($gt.Rows | Where-Object { $_.GroupName -eq 'CONTOSO\Board' -and $_.UserPrincipalName -eq 'a@contoso.com' }).Count -eq 1) 'a person in two groups is recorded under each'
 Assert-That ((ConvertTo-GroupMemberTable -Groups @()).Rows.Count -eq 0) 'no groups gives an empty table, which clears last night''s members'
 
+# ---------------------------------------------------------------------------
+Write-Host "`n4. People without a UPN are left out of the chain too (2.4.1)" -ForegroundColor Cyan
+
+# top <- boss <- lead (no UPN) <- worker ; lone (no UPN manager at the top) <- orphan
+$e2 = @(
+    New-Entry 'top' $null
+    New-Entry 'boss' 'top'
+    New-Entry 'lead' 'boss' -Upn ''
+    New-Entry 'worker' 'lead'
+    New-Entry 'lone' $null -Upn ''
+    New-Entry 'orphan' 'lone'
+)
+$r2 = ConvertTo-UserDirectoryTable -Entries $e2
+$by = @{}; foreach ($x in $r2.Table.Rows) { $by[$x.UserPrincipalName] = $x }
+Assert-That (-not $by.ContainsKey('') -and $r2.Skipped.NoUpn -eq 2 -and $r2.Table.Rows.Count -eq 4) "people without a UPN are not loaded ($($r2.Skipped.NoUpn) skipped, $($r2.Table.Rows.Count) loaded)"
+Assert-That ($by['worker@contoso.com'].ManagerUPN -eq 'boss@contoso.com' -and $by['worker@contoso.com'].ManagerName -eq 'Name boss') `
+    "a person whose manager has no UPN reports to the nearest manager above with one ($($by['worker@contoso.com'].ManagerUPN))"
+Assert-That ($by['worker@contoso.com'].Mgr1 -eq 'Name top' -and $by['worker@contoso.com'].Mgr2 -eq 'Name boss' -and $by['worker@contoso.com'].Mgr3 -is [DBNull] -and $by['worker@contoso.com'].OrgDepth -eq 2) `
+    'the chain leaves out the manager without a UPN'
+Assert-That ($by['boss@contoso.com'].IsManager -eq $true -and $by['top@contoso.com'].IsManager -eq $true) 'a manager whose report comes through a manager without a UPN is still a manager'
+Assert-That ($by['orphan@contoso.com'].ManagerUPN -is [DBNull] -and $by['orphan@contoso.com'].OrgDepth -eq 0) 'with no one above who has a UPN, there is no manager'
+
 Write-Host ''
 if ($script:Failures.Count) { Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red; exit 1 }
 Write-Host 'All user directory tests passed.' -ForegroundColor Green

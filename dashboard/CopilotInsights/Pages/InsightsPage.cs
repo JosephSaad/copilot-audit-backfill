@@ -112,6 +112,11 @@ public abstract class InsightsPage(PageServices s) : PageModel
     public virtual bool AdminOnly => false;
     public virtual bool UsesFilters => true;
     /// <summary>
+    /// False for a page about the viewer alone (My Copilot): the part of the organization
+    /// has nothing to choose there, so the filter bar shows the period only.
+    /// </summary>
+    public virtual bool ShowsScope => true;
+    /// <summary>
     /// A page whose figures do not follow the period filter says what window they use instead,
     /// shown in the filter bar where the period's dates usually are.
     /// </summary>

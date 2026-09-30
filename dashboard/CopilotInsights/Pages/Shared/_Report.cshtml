@@ -42,6 +42,8 @@
         {
             <input type="hidden" name="@k" value="@Context.Request.Query[k]" />
         }
+        @if (Model.ShowsScope)
+        {
         <div class="crumbs" aria-label="Organization">
             @if (c.Viewer.OrgWide)
             {
@@ -62,6 +64,7 @@
                 </select>
             }
         </div>
+        }
         @if (Model.OwnWindow is { } own)
         {
             <span class="period own" title="The period filter does not change this page">This page: @own</span>
