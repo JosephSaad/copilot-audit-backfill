@@ -567,6 +567,7 @@ Who holds a license (Microsoft Graph) and where they sit in the organization (on
 | 8 | `UserType` | nvarchar(20) | yes |  |  |
 | 9 | `CapabilityStatus` | nvarchar(50) | yes |  |  |
 | 10 | `DirectoryStatus` | nvarchar(20) | yes |  |  |
+| 11 | `EmployeeLeaveUtc` | datetime2(0) | yes |  | Entra's employeeLeaveDateTime, read with -IncludeLeaveDates (2.4.3) |
 
 Indexes and constraints:
 
@@ -613,6 +614,7 @@ Indexes and constraints:
 | 31 | `Mgr15` | nvarchar(256) | yes |  |  |
 | 32 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 33 | `Sid` | varchar(184) | yes |  |  |
+| 34 | `AccountExpiresUtc` | datetime2(0) | yes |  | AD's accountExpires; NULL when the account never expires (2.4.3) |
 
 Indexes and constraints:
 

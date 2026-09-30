@@ -74,6 +74,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Fading use | License holders whose days of use in the last 30 fell by half or three quarters against the 60 before, but not to none, with their manager | Person | **Licensing** |
 | | Licenses on non-person accounts | Licenses on enabled accounts that may not be a person: guests, service, shared, test or room names, and accounts outside the org chart; license holders by employee type | Person | **Licensing** |
 | | Overlapping licenses | People holding the Copilot license with another Copilot-family license (a second Copilot SKU, Copilot Studio, Copilot for Sales or Service), by SKU and by person | Person | **Licensing** |
+| | Departures ahead | License holders due to leave in 7, 30 or 90 days, or past their date with the account still enabled, from AD's account expiry and Entra's leave date, with a file to reclaim the past ones | Person | **Licensing** |
 | | Swap list | Idle licenses paired with people who want one in the same department, division or anywhere, with files to take each license back and give it on | Person | **Licensing** |
 | | Demand | Unlicensed Copilot Chat users over time and by department; the license type each record reports; the list of them | Department; person | List: **Licensing** |
 | | License changes | Licenses assigned and removed: how long each was held, whether it was taken from someone still using it, whether it came back, by department; who made the changes | Scope, department | Who made them: **Licensing** |

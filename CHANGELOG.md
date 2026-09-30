@@ -51,6 +51,15 @@ reinstalling the dashboard from its package (`Install-CopilotInsights.ps1
   new table, `audit.UserLicenseSku`: the license tool now keeps every SKU each person
   holds, not only Copilot's (the same Graph call, no new permission), and replaces it
   on each run.
+- **Licensing › Departures ahead** (Licensing role): license holders due to leave in
+  the next 7, 30 or 90 days, and those past their date whose account is still enabled,
+  with a removal file for the past ones (recorded as leavers for License action
+  outcomes). The leave date is the earlier of two new sources: AD's `accountExpires`,
+  which the directory load now reads (`audit.UserDirectory.AccountExpiresUtc`), and
+  Entra's `employeeLeaveDateTime`, which the license tool reads with the new
+  `-IncludeLeaveDates` (`audit.CopilotLicense.EmployeeLeaveUtc`; it needs the optional
+  Graph permission `User-LifeCycleInfo.Read.All`; set `IncludeLeaveDates = $true` in the
+  settings file for the nightly run).
 - **Licensing › Swap list** (Licensing role): each idle license (the revoke rule of
   Upgrade, train or revoke) paired with someone who wants one (its upgrade rule) in
   the same department, the same division, or anywhere in scope; the least-used

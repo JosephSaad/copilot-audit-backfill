@@ -80,6 +80,7 @@ public class NavigationTests
         Assert.DoesNotContain("/licensing/fading", paths);
         Assert.DoesNotContain("/licensing/non-person", paths);
         Assert.DoesNotContain("/licensing/overlap", paths);
+        Assert.DoesNotContain("/licensing/departures", paths);
         Assert.DoesNotContain("/security/flags", paths);
         Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(V(4)), g => g.Persona == "Admin");
     }
@@ -131,6 +132,7 @@ public class NavigationTests
         Assert.Contains("/licensing/fading", paths);
         Assert.Contains("/licensing/non-person", paths);
         Assert.Contains("/licensing/overlap", paths);
+        Assert.Contains("/licensing/departures", paths);
         Assert.DoesNotContain("/adoption/not-started", paths);
     }
 

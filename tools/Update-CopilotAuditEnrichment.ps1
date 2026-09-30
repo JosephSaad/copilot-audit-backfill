@@ -51,6 +51,11 @@
     Also enumerate every user holding a Copilot license, including those with
     no interactions. Needed for "licensed but never used".
 
+.PARAMETER IncludeLeaveDates
+    Also read each person's employeeLeaveDateTime, the day HR says they leave, for
+    Licensing > Departures ahead (2.4.3). It needs the Graph application permission
+    User-LifeCycleInfo.Read.All on top of the others; without it Graph refuses.
+
 .PARAMETER SkipProfiles
     No effect since 2.0.0, which reads licenses only. Accepted so existing
     scheduled tasks keep working.
@@ -77,6 +82,7 @@ param(
     [string[]] $Scopes = @('User.Read.All', 'LicenseAssignment.Read.All'),
 
     [switch]   $AllLicensedUsers,
+    [switch]   $IncludeLeaveDates,
     [switch]   $SkipProfiles,
 
     [ValidateRange(1, 20)] [int] $BatchSize = 20,
@@ -455,7 +461,7 @@ WHERE UserPrincipalName IS NOT NULL;
     }
 
     # ---- Look each one up --------------------------------------------------
-    $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType'
+    $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType' + $(if ($IncludeLeaveDates) { ',employeeLeaveDateTime' } else { '' })
     $licRows = New-Object System.Collections.Generic.List[object]
     $skuRows = [System.Data.DataTable]::new()
     [void] $skuRows.Columns.Add('UserPrincipalName', [string]); [void] $skuRows.Columns.Add('SkuId', [guid])
@@ -494,7 +500,8 @@ WHERE UserPrincipalName IS NOT NULL;
                 }
                 else {
                     $err = Get-Prop (Get-Prop $r 'body') 'error'
-                    throw "Graph returned $status for $($pending[$id]): $(Get-Prop $err 'message')"
+                    $hint = if ($status -eq 403 -and $IncludeLeaveDates) { ' -IncludeLeaveDates needs the Graph application permission User-LifeCycleInfo.Read.All, with admin consent; run without it until then.' } else { '' }
+                    throw "Graph returned $status for $($pending[$id]): $(Get-Prop $err 'message')$hint"
                 }
             }
             if ($pending.Count -gt 0) {
@@ -510,7 +517,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 $licRows.Add([pscustomobject]@{
                     UserPrincipalName = $upn; IsCopilotLic = $null; SkuPartNumber = $null
                     LicensedSinceUtc = $null; CapabilityStatus = $null; DirectoryStatus = 'NotFound'
-                    EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null
+                    EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null; EmployeeLeaveUtc = $null
                 })
                 continue
             }
@@ -552,6 +559,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 EntraAccountEnabled = $(if ($null -ne (Get-Prop $user 'accountEnabled')) { [int] [bool] (Get-Prop $user 'accountEnabled') } else { $null })
                 EmployeeHireDate  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeHireDate'))
                 UserType          = $(if (Get-Prop $user 'userType') { "$(Get-Prop $user 'userType')" } else { $null })
+                EmployeeLeaveUtc  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeLeaveDateTime'))
             })
         }
         $before = $done; $done = [math]::Min($at + 20, $list.Count)
@@ -560,10 +568,11 @@ WHERE UserPrincipalName IS NOT NULL;
         }
     }
 
+    # The leave date only when it was asked for: a run without -IncludeLeaveDates keeps the last one read.
+    $columns = @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber', 'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
+                 'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') + $(if ($IncludeLeaveDates) { @('EmployeeLeaveUtc') } else { @() })
     $n = Save-RowBatch -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `
-                   -ColumnOrder @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber',
-                                  'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
-                                  'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') `
+                   -ColumnOrder $columns `
                    -ColumnTypes @{
                        UserPrincipalName = [System.Data.SqlDbType]::NVarChar
                        IsCopilotLic      = [System.Data.SqlDbType]::Bit
@@ -574,6 +583,7 @@ WHERE UserPrincipalName IS NOT NULL;
                        EntraAccountEnabled = [System.Data.SqlDbType]::Bit
                        EmployeeHireDate  = [System.Data.SqlDbType]::Date
                        UserType          = [System.Data.SqlDbType]::NVarChar
+                       EmployeeLeaveUtc  = [System.Data.SqlDbType]::DateTime2
                    }
     Write-Log "Licenses written: $n."
     if ((Invoke-EnrichmentSql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL THEN 0 ELSE 1 END") -eq 1) {

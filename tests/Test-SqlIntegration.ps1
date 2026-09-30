@@ -730,6 +730,16 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseSku) AS Skus,
         Invoke-Main
         $withAll = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense')
         Assert-That ($withAll -eq 50) "-AllLicensedUsers added no phantom users here ($withAll)"
+
+        # 2.4.3: the leave date is written only when asked for, and a run without it keeps it.
+        $leaves = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense WHERE EmployeeLeaveUtc IS NOT NULL')
+        $IncludeLeaveDates = $true
+        Invoke-Main
+        $leavesOn = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense WHERE EmployeeLeaveUtc IS NOT NULL')
+        $IncludeLeaveDates = $false
+        Invoke-Main
+        $leavesKept = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense WHERE EmployeeLeaveUtc IS NOT NULL')
+        Assert-That ($leaves -eq 0 -and $leavesOn -eq 5 -and $leavesKept -eq 5) "-IncludeLeaveDates writes Entra's leave dates, and a run without it keeps them ($leaves, $leavesOn, $leavesKept)"
       }
     }
     finally {

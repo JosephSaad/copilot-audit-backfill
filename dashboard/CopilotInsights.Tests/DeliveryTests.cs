@@ -163,7 +163,7 @@ public class PrivacyNavTests
         var paths = Nav.Groups.SelectMany(g => g.Pages).Select(p => p.Path).ToHashSet();
         foreach (var p in new[] { "/me/email", "/me/views", "/leadership/usecases", "/leadership/boardpack", "/adoption/leaderboard", "/security/guests",
                                   "/compliance/person", "/forecasting/budget", "/forecasting/waves", "/forecasting/outcomes", "/workforce/families",
-                                  "/admin/directory", "/admin/classifications", "/admin/extracts", "/licensing/ranking", "/licensing/payg", "/licensing/swap", "/licensing/license-for-credits", "/licensing/fading", "/licensing/non-person", "/agents/credits", "/licensing/overlap" })
+                                  "/admin/directory", "/admin/classifications", "/admin/extracts", "/licensing/ranking", "/licensing/payg", "/licensing/swap", "/licensing/license-for-credits", "/licensing/fading", "/licensing/non-person", "/agents/credits", "/licensing/overlap", "/licensing/departures" })
             Assert.Contains(p, paths);
     }
 }

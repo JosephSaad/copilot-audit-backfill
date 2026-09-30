@@ -150,7 +150,11 @@ function Get-PipelineStep {
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' $a
         }
     }
-    $licenses = { Add 'Copilot licenses from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' ($sql + $app + @{ Database = $Setting.Database; AllLicensedUsers = $true }) }
+    $licenses = {
+        $l = $sql + $app + @{ Database = $Setting.Database; AllLicensedUsers = $true }
+        if (Has 'IncludeLeaveDates') { $l.IncludeLeaveDates = $true }   # 2.4.3: needs User-LifeCycleInfo.Read.All
+        Add 'Copilot licenses from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' $l
+    }
 
     if ($History) {
         $n = if ($Days) { $Days } elseif (Has 'HistoryDays') { [int] $Setting.HistoryDays } else { 180 }

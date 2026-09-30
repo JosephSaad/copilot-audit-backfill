@@ -70,6 +70,11 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL
     ALTER TABLE audit.CopilotLicense ADD EntraAccountEnabled BIT NULL;
 IF COL_LENGTH(N'audit.CopilotLicense', N'EmployeeHireDate') IS NULL
     ALTER TABLE audit.CopilotLicense ADD EmployeeHireDate DATE NULL;
+
+/* 2.4.3: Entra's employeeLeaveDateTime, when the license tool runs with -IncludeLeaveDates (it needs
+   User-LifeCycleInfo.Read.All), for Licensing > Departures ahead. */
+IF COL_LENGTH(N'audit.CopilotLicense', N'EmployeeLeaveUtc') IS NULL
+    ALTER TABLE audit.CopilotLicense ADD EmployeeLeaveUtc DATETIME2(0) NULL;
 /* Member or Guest, from the same lookup: guests using Copilot are a report of their own. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'UserType') IS NULL
     ALTER TABLE audit.CopilotLicense ADD UserType NVARCHAR(20) NULL;
@@ -195,6 +200,10 @@ IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
    when the web servers are in another domain from the users. */
 IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'Sid') IS NULL
     ALTER TABLE audit.UserDirectory ADD Sid VARCHAR(184) NULL;
+
+/* 2.4.3: AD's accountExpires, when the account is set to expire (NULL for never), for Licensing > Departures ahead. */
+IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'AccountExpiresUtc') IS NULL
+    ALTER TABLE audit.UserDirectory ADD AccountExpiresUtc DATETIME2(0) NULL;
 
 /* ---- Reporting views ---------------------------------------------------- */
 

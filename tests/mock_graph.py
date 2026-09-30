@@ -213,6 +213,7 @@ def directory_user(n):
         "accountEnabled": (n % 17 != 0),
         "createdDateTime": "2024-01-%02dT00:00:00Z" % ((n % 28) + 1),
         "employeeHireDate": ("2026-%02d-15T00:00:00Z" % ((n % 9) + 1)) if n % 2 == 0 else None,
+        "employeeLeaveDateTime": "2026-11-30T17:00:00Z" if n % 10 == 3 else None,
         # Everyone holds E3; the licensed hold Copilot too (2.4.3: the license tool keeps every SKU).
         "assignedLicenses": [{"skuId": "00000000-0000-0000-0000-0000000e3105", "disabledPlans": []}]
                             + ([{"skuId": COPILOT_SKU_ID, "disabledPlans": []}] if licensed else []),

@@ -136,6 +136,7 @@ Add `-UseDeviceCode` on a server with no browser. If your identity team register
 | `AuditLogsQuery.Read.All` | The loader: backfill and `-Incremental`, both databases | Copilot interaction records and license operations. Microsoft offers no Copilot-only audit permission, so the all-services one is needed. |
 | `User.Read.All` | License tool | Each user's assigned licenses and plans, and the list of license holders who never used Copilot. |
 | `LicenseAssignment.Read.All` | License tool | The tenant's SKUs, to find the Copilot ones. |
+| `User-LifeCycleInfo.Read.All` (optional, 2.4.3) | License tool with `-IncludeLeaveDates` | Each user's `employeeLeaveDateTime`, for Licensing › Departures ahead. Leave it out and the page uses AD's account expiry alone. |
 
 The app needs no Purview role: the Audit Reader role applies to a person signing in, not to an app. User attributes come from AD, which needs no Graph permission.
 
@@ -364,6 +365,8 @@ Part of the history run, and of every nightly run. Alone:
 It asks Graph about twenty users at a time and logs a line for every 1,000 looked up. Nothing is written until every user has been looked up, so stopping it early saves nothing: let it finish.
 
 Writes `audit.CopilotLicense`: the Copilot SKU, since when, whether the user still exists in Entra, whether their Entra account is enabled, and their hire date where Entra has one. `-AllLicensedUsers` adds license holders who have never used Copilot, which is what the "licensed, never used" report needs. A user who has since been deleted is stored as *not known*, which is a different claim from *unlicensed*.
+
+With `-IncludeLeaveDates` it also reads each person's leave date from Entra (`employeeLeaveDateTime`), which needs the optional `User-LifeCycleInfo.Read.All` permission; for the nightly run, add `IncludeLeaveDates = $true` to `copilot-audit.settings.psd1`. The directory load reads AD's `accountExpires` in any case. Licensing › Departures ahead uses whichever it has.
 
 It also keeps the tenant's license pool: the seats bought and assigned for every SKU, from the same `/subscribedSkus` call it makes to find the Copilot SKUs (`audit.LicenseSku`, and one row per SKU per day in `audit.LicenseSkuDay`). None of this needs a permission beyond `User.Read.All` and `LicenseAssignment.Read.All`.
 
@@ -736,7 +739,7 @@ Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -Sql
 | Log says | Cause and fix |
 |---|---|
 | `token lacks the application permission` | The permission was added as Delegated, or consent wasn't granted. Add it under **Application** and grant consent. |
-| License tool: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. |
+| License tool: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. With `-IncludeLeaveDates`, `User-LifeCycleInfo.Read.All` too: grant it, or run without the switch (remove `IncludeLeaveDates` from the settings file). |
 | `Could not read RootDSE` | The domain name is wrong, the trust doesn't reach it, or the gMSA isn't trusted there. Try a domain controller's name as `-TargetDomain`. |
 | `is the domain this script runs in` | The AD export was pointed at the job server's own domain. It only reads a trusted domain. |
 | `Merge refused: ... gap(s)` | A load's windows don't cover its range. Look at `audit.CopilotLoadWindow`; the next run resumes the load. |
