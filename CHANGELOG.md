@@ -4,13 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.2] - Unreleased
+## [2.4.2] - 2026-09-30
 
 Page speed for the top of a large organization, sections shown only to the roles
-they belong to, and several roles in one grant. Install over 2.4.1 by replacing the
-scripts and the dashboard and running `Install-CopilotAudit.ps1 -Dashboard` once: it
-adds two indexes to the dashboard rollups (below), about a minute at 70,000 people.
-No data is reloaded.
+they belong to, several roles in one grant, and the fixes found in a first
+production install of 2.4.0 (2.4.1, not released on its own). Install over 2.4.0:
+replace the scripts and the dashboard and run `Install-CopilotAudit.ps1 -Dashboard`
+once. It widens one `bi` column in place and adds two indexes to the dashboard
+rollups, a minute or two at 70,000 people. No data is reloaded.
 
 ### Changed
 - **Every page loads in under 7 seconds for a whole organization over a year.** Measured on
@@ -55,12 +56,6 @@ No data is reloaded.
 - **Admin › Access grants several roles at once.** Tick every role the person or group
   should have; the grants list shows one row per person or group with all their
   roles, and a *Remove* beside each.
-
-## [2.4.1] - Unreleased
-
-Fixes found in a first production install of 2.4.0, and the guides that install
-would have needed. Install over 2.4.0: replace the scripts and run `Install-CopilotAudit.ps1`
-once, which widens one `bi` column in place (below). No data is reloaded.
 
 ### Fixed
 - **The `bi` refresh no longer fails on a long resource action**
@@ -110,7 +105,7 @@ once, which widens one `bi` column in place (below). No data is reloaded.
   and what each means; a service account with a password instead of a gMSA; running
   setup as the service account; checking `employeeType` codes before the first load;
   starting from Purview exports before the app registration is approved; what the
-  web server needs before the dashboard's installer. Release links point at 2.4.0.
+  web server needs before the dashboard's installer. Release links point at 2.4.2.
 - DASHBOARD.md: every installer parameter, including `-AdminPrincipal` (people) against
   `-AppPoolIdentity` (the site's account); the Hosting Bundle against the SDK; host
   name, DNS and certificate, and starting on the server's own name or HTTP; another
@@ -1141,8 +1136,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
-[2.4.2]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...main
-[2.4.1]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...main
+[2.4.2]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...v2.4.2
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0
 [2.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0
