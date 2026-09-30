@@ -16,6 +16,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   credit price is a new setting, **pay-as-you-go cost an interaction** in Admin ›
   Settings (`PaygInteractionCost`, 0.12 by default: 12 Copilot Credits at 0.01), also
   settable with `Invoke-CopilotMaintenance.ps1 -Task SetDashboardSetting`.
+- **Licensing › Swap list** (Licensing role): each idle license (the revoke rule of
+  Upgrade, train or revoke) paired with someone who wants one (its upgrade rule) in
+  the same department, the same division, or anywhere in scope; the least-used
+  license goes to the keenest user. It counts the swaps, the seats not bought, and
+  the people left over on each side, and offers the take-back and give-out files
+  (Entra bulk members file or PowerShell script) for the matched pairs only, recorded
+  for License action outcomes.
 
 ### Fixed
 - **The license tool no longer stops on a dropped connection to Graph.** A run over
