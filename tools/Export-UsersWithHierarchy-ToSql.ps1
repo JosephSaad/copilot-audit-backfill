@@ -144,7 +144,7 @@ function Get-DirectoryEntry {
                 mgr     = Val $p 'manager'
                 uac     = [int] (Val $p 'useraccountcontrol')
                 sid     = Sid $p
-                expires = ConvertFrom-AccountExpires (Val $p 'accountexpires')
+                expires = ConvertFrom-AccountExpiry (Val $p 'accountexpires')
             })
         }
     }
@@ -152,7 +152,7 @@ function Get-DirectoryEntry {
     return , $all
 }
 
-function ConvertFrom-AccountExpires {
+function ConvertFrom-AccountExpiry {
     <# AD's accountExpires (a FILETIME, as text) as a UTC date, or $null for never (0 or the largest Int64). Pure, for the tests. #>
     param([AllowNull()][AllowEmptyString()][string] $Value)
     $ticks = 0L
