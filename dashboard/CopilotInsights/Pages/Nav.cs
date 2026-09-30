@@ -27,7 +27,7 @@ public static class Nav
             new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
             new("Demand", "/licensing/demand"), new("License changes", "/licensing/changes"), new("License pool", "/licensing/pool"),
             new("Chargeback", "/licensing/chargeback"), new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing),
-            new("Licenses on non-person accounts", "/licensing/non-person", Roles.Licensing)], Roles.Licensing),
+            new("Licenses on non-person accounts", "/licensing/non-person", Roles.Licensing), new("Overlapping licenses", "/licensing/overlap", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [
             new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Guests and external users", "/security/guests"),
             new("Flagged interactions", "/security/flags", Roles.Security)], Roles.Security),

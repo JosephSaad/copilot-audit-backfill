@@ -44,6 +44,13 @@ reinstalling the dashboard from its package (`Install-CopilotInsights.ps1
   what that comes to a person, with a suggestion: restrict or retire an agent few use
   that costs a license's worth or more, or license the users of one whose people each
   cost more than a license (Better with a license).
+- **Licensing › Overlapping licenses** (Licensing role): people holding the Copilot
+  license together with another Copilot-family license: a second Copilot SKU, Copilot
+  Studio or its trial, Copilot for Sales or Service and the like. By SKU, with the
+  tenant's seats of it, and by person, with when they last used Copilot. It reads a
+  new table, `audit.UserLicenseSku`: the license tool now keeps every SKU each person
+  holds, not only Copilot's (the same Graph call, no new permission), and replaces it
+  on each run.
 - **Licensing › Swap list** (Licensing role): each idle license (the revoke rule of
   Upgrade, train or revoke) paired with someone who wants one (its upgrade rule) in
   the same department, the same division, or anywhere in scope; the least-used

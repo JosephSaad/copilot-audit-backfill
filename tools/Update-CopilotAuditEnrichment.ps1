@@ -356,6 +356,30 @@ IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NOT NULL
     $all.Count
 }
 
+function Save-UserSkus {
+    <# Replaces audit.UserLicenseSku with every SKU each looked-up person holds, in one transaction. #>
+    param([System.Data.DataTable] $Table)
+    $conn = [System.Data.SqlClient.SqlConnection]::new($script:SqlConnStr)
+    $conn.Open()
+    $tx = $conn.BeginTransaction()
+    try {
+        $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx
+        $cmd.CommandText = 'DELETE FROM audit.UserLicenseSku;'
+        $cmd.CommandTimeout = 600
+        [void] $cmd.ExecuteNonQuery()
+        $bulk = [System.Data.SqlClient.SqlBulkCopy]::new($conn, [System.Data.SqlClient.SqlBulkCopyOptions]::Default, $tx)
+        $bulk.DestinationTableName = 'audit.UserLicenseSku'
+        $bulk.BulkCopyTimeout = 600
+        [void] $bulk.ColumnMappings.Add('UserPrincipalName', 'UserPrincipalName')
+        [void] $bulk.ColumnMappings.Add('SkuId', 'SkuId')
+        $bulk.WriteToServer($Table)
+        $tx.Commit()
+    }
+    catch { $tx.Rollback(); throw }
+    finally { $conn.Dispose() }
+    $Table.Rows.Count
+}
+
 function ConvertTo-UtcOrNull {
     param($Value)
     if ($null -eq $Value -or "$Value" -eq '') { return $null }
@@ -433,6 +457,8 @@ WHERE UserPrincipalName IS NOT NULL;
     # ---- Look each one up --------------------------------------------------
     $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType'
     $licRows = New-Object System.Collections.Generic.List[object]
+    $skuRows = [System.Data.DataTable]::new()
+    [void] $skuRows.Columns.Add('UserPrincipalName', [string]); [void] $skuRows.Columns.Add('SkuId', [guid])
     $notFound = 0
 
     # Twenty users to a Graph $batch request (2.4.2): one request a user took hours
@@ -489,11 +515,17 @@ WHERE UserPrincipalName IS NOT NULL;
                 continue
             }
 
-            # License
+            # License, and every SKU they hold (2.4.3), for the overlap report
             $matchedSku = $null
+            $held = @{}
             foreach ($al in @(Get-Prop $user 'assignedLicenses')) {
                 $id = "$(Get-Prop $al 'skuId')"
-                if ($id -and $copilotSkus.ContainsKey($id)) { $matchedSku = $copilotSkus[$id]; break }
+                $g = [guid]::Empty
+                if ($id -and [guid]::TryParse($id, [ref] $g) -and -not $held.ContainsKey($g)) {
+                    $held[$g] = $true
+                    [void] $skuRows.Rows.Add("$(Get-Prop $user 'userPrincipalName')", $g)
+                }
+                if ($id -and -not $matchedSku -and $copilotSkus.ContainsKey($id)) { $matchedSku = $copilotSkus[$id] }
             }
             $since = $null; $capability = $null
             if ($matchedSku) {
@@ -544,6 +576,9 @@ WHERE UserPrincipalName IS NOT NULL;
                        UserType          = [System.Data.SqlDbType]::NVarChar
                    }
     Write-Log "Licenses written: $n."
+    if ((Invoke-EnrichmentSql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL THEN 0 ELSE 1 END") -eq 1) {
+        Write-Log ("Licenses held, every SKU: {0:N0} written." -f (Save-UserSkus -Table $skuRows))
+    }
 
     if ($notFound -gt 0) {
         Write-Log "$notFound user(s) are in the audit data but no longer in the directory; recorded as DirectoryStatus = 'NotFound', not as unlicensed." -Level WARN

@@ -213,7 +213,9 @@ def directory_user(n):
         "accountEnabled": (n % 17 != 0),
         "createdDateTime": "2024-01-%02dT00:00:00Z" % ((n % 28) + 1),
         "employeeHireDate": ("2026-%02d-15T00:00:00Z" % ((n % 9) + 1)) if n % 2 == 0 else None,
-        "assignedLicenses": ([{"skuId": COPILOT_SKU_ID, "disabledPlans": []}] if licensed else []),
+        # Everyone holds E3; the licensed hold Copilot too (2.4.3: the license tool keeps every SKU).
+        "assignedLicenses": [{"skuId": "00000000-0000-0000-0000-0000000e3105", "disabledPlans": []}]
+                            + ([{"skuId": COPILOT_SKU_ID, "disabledPlans": []}] if licensed else []),
         "assignedPlans": ([{
             "service": "Microsoft365Copilot",
             "servicePlanId": COPILOT_SKU_ID,

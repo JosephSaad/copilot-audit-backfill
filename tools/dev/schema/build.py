@@ -89,6 +89,7 @@ AREAS = [
         ('audit.GroupMember', 'The members of each AD group granted Organization in the dashboard, nested groups included (2.4.0): the group as granted (DOMAIN\\Group) and the member\'s UPN. Rewritten by each AD export, so bi.OrgSecurity gives them the whole organization in Power BI as the dashboard does at sign-in.'),
         ('audit.LicenseSku', 'The tenant\'s subscriptions as of the license tool\'s last run (2.3.0): per SKU, seats enabled, in the grace period, suspended and assigned, and whether it is a Copilot SKU.'),
         ('audit.LicenseSkuDay', 'The same per night (2.3.0), for the license pool over time.'),
+        ('audit.UserLicenseSku', 'Every SKU each person the license tool looked up holds (2.4.3), from assignedLicenses; replaced whole by each run. Licensing > Overlapping licenses reads it, with names from audit.LicenseSku.'),
         ('audit.vCopilotAdoption', 'Licensed users against actual use: first and last interaction, interactions, NeverUsed, DaysToFirstUse, with directory attributes.'),
         ('audit.vCopilotUsageByDepartment', 'Interactions and active users per department, day and app.'),
     ]),

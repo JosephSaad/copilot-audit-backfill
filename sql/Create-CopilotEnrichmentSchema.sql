@@ -123,6 +123,17 @@ IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NULL
         CONSTRAINT PK_LicenseSkuDay PRIMARY KEY (SnapshotDate, SkuId)
     );
 
+/* 2.4.3: every SKU each person looked up holds (assignedLicenses), not only Copilot, so the dashboard can find
+   licenses that overlap. Replaced whole by each run; names come from audit.LicenseSku. */
+IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL
+    CREATE TABLE audit.UserLicenseSku
+    (
+        UserPrincipalName   NVARCHAR(512)    NOT NULL,
+        SkuId               UNIQUEIDENTIFIER NOT NULL,
+        CapturedUtc         DATETIME2(0)     NOT NULL CONSTRAINT DF_UserLicenseSku_Captured DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_UserLicenseSku PRIMARY KEY (UserPrincipalName, SkuId)
+    );
+
 /* Enabled | Suspended | Deleted | Warning, from assignedPlans[]. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'CapabilityStatus') IS NULL
     ALTER TABLE audit.CopilotLicense ADD CapabilityStatus NVARCHAR(50) NULL;
