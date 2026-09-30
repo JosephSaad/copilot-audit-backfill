@@ -25,15 +25,18 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
+        /* Days counted as rows of a per-day grouping, and names joined rather than looked up by dash.fnValueName,
+           which kept the whole statement to one thread (2.4.2): 7 seconds to 3 for a year of a whole organization. */
         var rows = await Db.QueryAsync<Row>($@"
-WITH u AS (SELECT f.AppKey, f.UserKey, COUNT_BIG(*) AS N, SUM(CAST(f.PromptCount AS BIGINT)) AS P, SUM(CAST(f.AccessedResourceCount AS BIGINT)) AS R,
-                  COUNT(DISTINCT f.DateKey) AS Days
+WITH d AS (SELECT f.AppKey, f.UserKey, f.DateKey, COUNT_BIG(*) AS N, SUM(CAST(f.PromptCount AS BIGINT)) AS P, SUM(CAST(f.AccessedResourceCount AS BIGINT)) AS R
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.UserKey)
-SELECT a.AppKey, dash.fnValueName(2, a.App) AS App, a.AppCategory, COUNT(*) AS People, COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning,
+           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.UserKey, f.DateKey),
+u AS (SELECT AppKey, UserKey, SUM(N) AS N, SUM(P) AS P, SUM(R) AS R, COUNT(*) AS Days FROM d GROUP BY AppKey, UserKey)
+SELECT a.AppKey, COALESCE(vn.Name, a.App) AS App, a.AppCategory, COUNT(*) AS People, COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning,
        SUM(u.N) AS N, SUM(u.P) AS Prompts, SUM(u.R) AS Resources
 FROM u JOIN bi.DimApp AS a ON a.AppKey = u.AppKey
-GROUP BY a.AppKey, a.App, a.AppCategory;", Ctx.Args());
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
+GROUP BY a.AppKey, a.App, vn.Name, a.AppCategory;", Ctx.Args());
         var trend = await Db.QueryAsync<(int AppKey, DateTime Bucket, int People)>($@"
 SELECT f.AppKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
@@ -96,9 +99,10 @@ WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql(
         Panels.Add(new("People using Copilot in it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.People)).ToList(), 1)], Fmt.Count, "People by period"), TrendNote, "half"));
 
         var types = await Db.QueryAsync<(string Type, long N)>($@"
-SELECT dash.fnValueName(31, t.ResourceType), COUNT_BIG(*) FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
+SELECT COALESCE(vn.Name, t.ResourceType), COUNT_BIG(*) FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = f.ResourceTypeKey
-WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY t.ResourceType;", args);
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
+WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY t.ResourceType, vn.Name;", args);
         Panels.Add(new("What Copilot read in it", Chart.Bars(types.OrderByDescending(t => t.N).Take(10).Select(t => new Bar(t.Type, t.N)).ToList(), Fmt.Count, "Resources by type"), null, "half"));
 
         var depts = await Db.QueryAsync<(string Dept, int People)>($@"

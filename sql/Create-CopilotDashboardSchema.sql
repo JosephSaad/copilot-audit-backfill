@@ -187,6 +187,19 @@ IF OBJECT_ID(N'dash.ResourceDay', N'U') IS NULL
         CONSTRAINT PK_DashResourceDay PRIMARY KEY (DateKey, Kind, UserKey, Item)
     );
 
+/*
+    2.4.2: columnstore copies of the two rollups. The pages read a year of them
+    for a whole organization at a time (6 and 12 million rows at 70,000 people),
+    which the row-store keys scan in seconds and a columnstore in a fraction of
+    one. The refresh truncates and bulk-loads both, which a columnstore takes.
+*/
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.UserDay') AND name = N'NCCI_DashUserDay')
+    EXEC (N'CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_DashUserDay ON dash.UserDay
+          (DateKey, UserKey, Interactions, Prompts, AppsUsed, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse,
+           Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, PremiumUse);');
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.ResourceDay') AND name = N'NCCI_DashResourceDay')
+    EXEC (N'CREATE NONCLUSTERED COLUMNSTORE INDEX NCCI_DashResourceDay ON dash.ResourceDay (DateKey, UserKey, Kind, Item, Interactions);');
+
 /* When each agent was first and last used: bi.DimAgent.FirstSeenUtc is when a refresh first saw it. */
 IF OBJECT_ID(N'dash.AgentUse', N'U') IS NULL
     CREATE TABLE dash.AgentUse

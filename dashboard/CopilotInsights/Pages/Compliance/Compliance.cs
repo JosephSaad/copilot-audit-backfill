@@ -67,12 +67,16 @@ GROUP BY rd.Kind, rd.Item;", Ctx.Args());
         Panels.Add(new("Sites Copilot was blocked from", SiteBars("Blocked", 7),
             "Content whose policy or permissions stopped Copilot. Usually a sign the controls are working; a spike is worth a look.", "half"));
 
+        /* Counted per type key, then named (2.4.2). */
         var types = await Db.QueryAsync<(string Type, long N, long Labeled, long Blocked)>($@"
-SELECT dash.fnValueName(31, t.ResourceType), COUNT_BIG(*), SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END), SUM(CAST(f.IsBlocked AS INT))
-FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = f.ResourceTypeKey
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY t.ResourceType;", Ctx.Args());
+WITH g AS (SELECT f.ResourceTypeKey, COUNT_BIG(*) AS N, SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END) AS L, SUM(CAST(f.IsBlocked AS INT)) AS B
+           FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
+           WHERE f.DateKey BETWEEN @k0 AND @k1
+           GROUP BY f.ResourceTypeKey)
+SELECT COALESCE(vn.Name, t.ResourceType), SUM(g.N), SUM(g.L), SUM(g.B)
+FROM g JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = g.ResourceTypeKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
+GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
         Panels.Add(new("What Copilot read, by type",
             Chart.Bars(types.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Type, t.N, Note: $"{t.Labeled:#,0} labeled, {t.Blocked:#,0} blocked")).ToList(), Fmt.Count, "Accessed resources by type"),
             "Every resource an interaction read: files, mail, Teams messages, web results. Hover for how many were labeled or blocked."));

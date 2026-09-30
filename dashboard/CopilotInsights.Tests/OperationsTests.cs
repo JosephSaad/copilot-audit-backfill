@@ -236,7 +236,12 @@ public class PrivacyNavigationTests
         var paths = Pages.Nav.For(V()).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
         Assert.DoesNotContain("/licensing/leavers", paths);
         Assert.DoesNotContain("/enablement/champions", paths);
-        Assert.Contains("/licensing/pool", paths);
-        Assert.Contains("/compliance/sites", paths);
+        /* 2.4.2: their sections need the role too, aggregates included. */
+        Assert.DoesNotContain("/licensing/pool", paths);
+        Assert.DoesNotContain("/compliance/sites", paths);
+        var withRoles = Pages.Nav.For(V(Roles.Licensing, Roles.Compliance)).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
+        Assert.Contains("/licensing/pool", withRoles);
+        Assert.Contains("/compliance/sites", withRoles);
+
     }
 }

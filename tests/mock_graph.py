@@ -77,6 +77,7 @@ state = {
     "unauthorized": 0,
     "status_calls": 0,
     "records_served": 0,
+    "batch_throttled": 0,
 }
 
 
@@ -291,7 +292,39 @@ class Handler(BaseHTTPRequestHandler):
                                          "status": "notStarted", "records": None}
             return self.send_json(201, {"id": qid, "status": "notStarted"})
 
+        if path == "/v1.0/$batch":
+            # Graph JSON batching, for the license tool's user lookups: each
+            # item is answered as its own GET would be, without a token like the
+            # other directory routes. The first batch has one item throttled,
+            # once, so the caller's retry is exercised.
+            out = []
+            for r in json.loads(raw)["requests"]:
+                u = urlparse("/v1.0" + r["url"])
+                with lock:
+                    throttle = state["batch_throttled"] == 0
+                    if throttle:
+                        state["batch_throttled"] = 1
+                if throttle:
+                    out.append({"id": r["id"], "status": 429, "headers": {"Retry-After": "1"},
+                                "body": {"error": {"code": "TooManyRequests"}}})
+                    continue
+                code, body = self.user_response(u.path)
+                out.append({"id": r["id"], "status": code, "headers": {}, "body": body})
+            return self.send_json(200, {"responses": out})
+
         self.send_json(404, {"error": {"code": "NotFound", "message": path}})
+
+    def user_response(self, path):
+        """One /users/{upn} lookup as (status, body), or None when the path is not one."""
+        m = re.match(r"^/v1\.0/users/([^/]+)$", path)
+        if not m:
+            return None
+        upn = unquote(m.group(1))
+        mm = re.match(r"^user(\d+)@contoso\.com$", upn)
+        u = directory_user(int(mm.group(1))) if mm else None
+        if u is None:
+            return 404, {"error": {"code": "Request_ResourceNotFound", "message": "Resource '%s' does not exist." % upn}}
+        return 200, u
 
     def directory_get(self, path, qs):
         """Directory endpoints used by tools/Update-CopilotAuditEnrichment.ps1.

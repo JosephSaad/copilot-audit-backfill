@@ -23,6 +23,15 @@ public sealed class Db(TenantAccessor tenants)
         return (await c.QueryAsync<T>(new CommandDefinition(sql, args, commandTimeout: timeout))).AsList();
     }
 
+    /// <summary>Two result sets from one batch, for statements that share a temporary table.</summary>
+    public async Task<(List<T1> First, List<T2> Second)> QueryTwoAsync<T1, T2>(string sql, object? args = null, int timeout = 120)
+    {
+        await using var c = new SqlConnection(_cs);
+        await using var r = await c.QueryMultipleAsync(new CommandDefinition(sql, args, commandTimeout: timeout));
+        var first = (await r.ReadAsync<T1>()).AsList();
+        return (first, (await r.ReadAsync<T2>()).AsList());
+    }
+
     public async Task<T?> ScalarAsync<T>(string sql, object? args = null)
     {
         await using var c = new SqlConnection(_cs);

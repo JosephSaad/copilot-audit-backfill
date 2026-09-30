@@ -158,13 +158,17 @@ namespace CopilotInsights.Pages.Compliance
             Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1),
                 $"One level down. Darker is a larger share. {TrendNote}"));
 
+            /* Counted per key pair, then named (2.4.2): grouping on the names worked out a string for each of the rows. */
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
-SELECT t.ResourceType, COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)'), COUNT_BIG(*)
-FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = f.ResourceTypeKey
-JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = f.SensitivityLabelKey
+WITH g AS (SELECT f.ResourceTypeKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N
+           FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
+           WHERE f.DateKey BETWEEN @k0 AND @k1
+           GROUP BY f.ResourceTypeKey, f.SensitivityLabelKey)
+SELECT t.ResourceType, COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)'), SUM(g.N)
+FROM g
+JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = g.ResourceTypeKey
+JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = g.SensitivityLabelKey
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = LOWER(CAST(l.LabelId AS NVARCHAR(36)))
-WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY t.ResourceType, COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)');", Ctx.Args());
             var types = mix.GroupBy(x => x.Type).OrderByDescending(g => g.Sum(x => x.N)).Take(8).Select(g => g.Key).ToList();
             var labels = mix.Where(x => x.Label != "(no label)").GroupBy(x => x.Label).OrderByDescending(g => g.Sum(x => x.N)).Take(6).Select(g => g.Key).ToList();
@@ -191,10 +195,11 @@ SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT)), COUNT_BIG(*
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             var targets = await Db.QueryAsync<(string Target, long N, int People)>($@"
-SELECT dash.fnValueName(12, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
+SELECT COALESCE(vn.Name, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 12 AND vn.Value = f.TargetAgentName
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1
-GROUP BY f.TargetAgentName;", Ctx.Args());
+GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
             long calls = tr.Sum(x => x.Calls), all = tr.Sum(x => x.All);
             Kpis.Add(new("Hand-offs", Num(calls), $"{Pct(Ratio(calls, all))} of interactions"));
             Kpis.Add(new("Agents called", Num(targets.Count)));

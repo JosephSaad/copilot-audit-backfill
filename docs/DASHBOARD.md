@@ -40,7 +40,9 @@ The roadmap's later milestones (M13 to M15) would add changes in Microsoft 365 i
 
 ## What each persona gets
 
-Pages without a role show aggregates only: counts, rates and trends for the viewer's scope, broken down one level at a time. Pages marked with a role list named people. They need that role, and even then they show only people inside the viewer's own scope. The navigation and the start page list only the pages the viewer can open: someone without a role never sees its pages, an administrator's Admin pages are invisible to everyone else, and a persona with nothing open to the viewer is left out.
+**Seven sections belong to a role (2.4.2):** Adoption (the **Adoption** role), Licensing and Forecasting (**Licensing**), Security (**Security**), Compliance (**Compliance**), Agents (**Agents**) and Enablement (**Enablement**). Without the role, the whole section is hidden from the navigation and the start page, its aggregate pages included, and its pages and API calls are refused; this holds for the top of the organization too. My Copilot, Leadership, Regions, People, App owners and Governance are open to everyone in the directory, for their own part of the organization.
+
+Pages without a role mark show aggregates only: counts, rates and trends for the viewer's scope, broken down one level at a time. Pages marked with a role list named people. They need that role, and even then they show only people inside the viewer's own scope. The navigation and the start page list only the pages the viewer can open: someone without a role never sees its section, an administrator's Admin pages are invisible to everyone else, and a persona with nothing open to the viewer is left out.
 
 | Persona | Page | What it answers | Grain | Named people |
 |---|---|---|---|---|
@@ -69,7 +71,7 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 | | Use ranking | Everyone ranked three ways: all use, free use (web Copilot Chat, agents) and Premium use; their Premium share and license | Person | **Licensing** |
 | | Demand | Unlicensed Copilot Chat users over time and by department; the license type each record reports; the list of them | Department; person | List: **Licensing** |
 | | License changes | Licenses assigned and removed: how long each was held, whether it was taken from someone still using it, whether it came back, by department; who made the changes | Scope, department | Who made them: **Licensing** |
-| | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No (whole-organization viewers or **Licensing**) |
+| | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No |
 | | Chargeback | The monthly cost of the licenses each department (or division, company, country, office) holds, its unused share, and the cost per person using Copilot | Attribute | No |
 | | Licenses on disabled accounts | Licenses held today by accounts disabled in AD or Entra, or gone from the directory; with the files to reclaim them | Person | **Licensing** |
 | Security | Signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit | Scope, unit | No |
@@ -95,7 +97,7 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 | | Controls | Memory updates, deferred data-loss checks and web grounding over time; web grounding by unit | Scope, unit | No |
 | Forecasting | Forecast | Licenses held, licensed people using them, Copilot Chat demand, interactions and adoption, 13, 26 or 52 weeks ahead, with 95% intervals | Scope, weekly | No |
 | | License optimization | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right license count for the next quarter; the same by department | Scope, department | No |
-| | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No (whole-organization viewers or **Licensing**) |
+| | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No |
 | | Upgrade, train or revoke | The named people behind each recommendation, with the evidence: days and days with Premium use in the last 30, interactions, last use, license age, the license their records report; for upgrades and revokes, an Entra bulk-members file and a PowerShell script to apply them | Person | **Licensing** |
 | | Rollout waves | Everyone without a license in the order to license them, split into waves, each with its own file and script | Person | **Licensing** |
 | | License action outcomes | Every license export, whether it has been applied, licenses reclaimed and new licenses in use; who is still waiting | Export; person | **Licensing** |
@@ -108,7 +110,7 @@ Pages without a role show aggregates only: counts, rates and trends for the view
 | | App detail | One app: people over time, what Copilot read in it, departments, agents | App | No |
 | Admin | Health, Access, Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Scheduled extracts, Training records, Audit log | See [Running it](#running-it), the sections below and [OPERATIONS.md](OPERATIONS.md) | | **Admin** |
 
-An L2 manager, who reports directly to the CEO, sees the whole organization. The Leadership pages are theirs, and every other aggregate page is open to them too. Whole-organization access doesn't include named lists: those still need the role.
+An L2 manager, who reports directly to the CEO, sees the whole organization. The Leadership pages are theirs, and so are the Regions, People, App owners and Governance pages. Whole-organization access doesn't include a role's section or its named lists: those need the role.
 
 ## Who sees what
 
@@ -120,18 +122,18 @@ An L2 manager, who reports directly to the CEO, sees the whole organization. The
 
 A viewer can look inside any part of their own scope, one level at a time. The breadcrumb and the "Look inside a team" list offer only what they may open. Each request's `org` value is checked against the org chart on the server, so editing the URL can't widen a scope.
 
-**Roles** are granted in Admin › Access to a person (UPN or `DOMAIN\user`) or an AD group (`DOMAIN\Group`). Group membership is read from the Windows sign-in, so a group grant follows AD with no database change. Power BI has no Windows sign-in to read, so for its *Organization* role the nightly directory load writes the members of every group granted Organization to `audit.GroupMember`: a change to such a group reaches Power BI the next morning.
+**Roles** are granted in Admin › Access to a person (UPN or `DOMAIN\user`) or an AD group (`DOMAIN\Group`). One person or group can hold any number of roles: tick them together in one grant, and each shows on their one row in the grants list with its own *Remove*. Group membership is read from the Windows sign-in, so a group grant follows AD with no database change. Power BI has no Windows sign-in to read, so for its *Organization* role the nightly directory load writes the members of every group granted Organization to `audit.GroupMember`: a change to such a group reaches Power BI the next morning.
 
 | Role | Gives |
 |---|---|
 | Admin | The admin module. **No usage data by itself.** |
 | Organization | The whole organization's aggregates, at any level |
-| Adoption | Named people who were licensed but have not started |
-| Licensing | Named unused licenses, unlicensed Copilot Chat users, the use ranking, rollout waves and license action outcomes |
-| Security | Named flagged interactions and their triage; named guests |
-| Compliance | Named people who worked with labeled content; personal OneDrive site names; one person's record |
-| Agents | Named users of an agent |
-| Enablement | Named people by engagement segment |
+| Adoption | The Adoption section; in it, named people who were licensed but have not started |
+| Licensing | The Licensing and Forecasting sections; in them, named unused licenses, unlicensed Copilot Chat users, the use ranking, rollout waves and license action outcomes |
+| Security | The Security section; in it, named flagged interactions and their triage, and named guests |
+| Compliance | The Compliance section; in it, named people who worked with labeled content, personal OneDrive site names, and one person's record |
+| Agents | The Agents section; in it, the named users of an agent |
+| Enablement | The Enablement section; in it, named people by engagement segment |
 
 **Small groups.** A breakdown never shows a group smaller than the minimum group size (default 5): those groups are folded into "Smaller groups" or left out, so no total describes one person.
 

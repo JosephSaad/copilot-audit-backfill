@@ -187,30 +187,47 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         Panels.Add(new("Grant a role", new HtmlString(Form("grant",
             Input("principal", "User (UPN) or group (DOMAIN\\Group)", null, 34) +
             Select("type", "Type", ["User", "Group"], "User") +
-            Select("role", "Role", Roles.All, Roles.Organization) +
+            "<fieldset class=\"roles\"><legend>Roles</legend>" +
+            string.Concat(Roles.All.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}</label>")) + "</fieldset>" +
             Input("note", "Why (optional)", null, 30) + Button("Grant")) +
             "<ul class=\"sub\">" + string.Concat(Roles.All.Select(r => $"<li><b>{E(r)}</b>: {E(Roles.Describe[r])}</li>")) + "</ul>"),
-            "A group grant follows AD membership at sign-in, so it is the easiest to run at scale."));
+            "Tick every role the person or group should have; one grant gives them all. A group grant follows AD membership at sign-in, so it is the easiest to run at scale."));
 
         var roleFilter = Request.Query["role"].FirstOrDefault() is { } rf && Roles.All.Contains(rf) ? rf : null;
+        /* One row per person or group, with every role they hold (2.4.2); paged by principal. */
         var pg = new Paging(Request, new Dictionary<string, string>
         {
-            ["role"] = "g.Role, g.Principal", ["principal"] = "g.Principal, g.Role", ["new"] = "g.GrantedUtc DESC",
-        }, "role");
-        var grants = await Db.QueryAsync<GrantRow>($@"
-SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, p.DisplayName, COUNT(*) OVER () AS TotalRows
+            ["principal"] = "g.Principal", ["new"] = "MAX(g.GrantedUtc) DESC, g.Principal",
+        }, "principal");
+        var principals = await Db.QueryAsync<(string Principal, int TotalRows)>($@"
+SELECT g.Principal, COUNT(*) OVER () AS TotalRows
 FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
-WHERE (@role IS NULL OR g.Role = @role) AND (@q IS NULL OR g.Principal LIKE @q OR p.DisplayName LIKE @q OR g.Note LIKE @q)
+WHERE (@role IS NULL OR EXISTS (SELECT 1 FROM dash.RoleGrant AS r WHERE r.Principal = g.Principal AND r.Role = @role))
+  AND (@q IS NULL OR g.Principal LIKE @q OR p.DisplayName LIKE @q OR g.Note LIKE @q)
+GROUP BY g.Principal
 {pg.OrderAndPage()};", new { role = roleFilter, q = pg.Like });
-        pg.Total = grants.FirstOrDefault()?.TotalRows ?? 0;
-        var t = new Table { Headers = ["Principal", "Name", "Type", "Role", "Why", "Granted by", "When (UTC)", ""], EmptyText = "No grants yet." };
-        foreach (var g in grants)
-            t.Rows.Add([g.Principal, g.DisplayName, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc,
-                        new HtmlString(Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + Button("Remove", $"Remove {g.Role} from {g.Principal}?", quiet: true)))]);
+        pg.Total = principals.FirstOrDefault().TotalRows;
+        var list = principals.Select(x => x.Principal).ToList();
+        var grants = list.Count == 0 ? [] : await Db.QueryAsync<GrantRow>(@"
+SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, p.DisplayName
+FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
+WHERE g.Principal IN @list;", new { list });
+        var t = new Table { Headers = ["Principal", "Name", "Type", "Roles", "Why", "Granted by", "Last granted (UTC)"], EmptyText = "No grants yet." };
+        foreach (var principal in list)
+        {
+            var mine = grants.Where(g => g.Principal == principal).OrderBy(g => Array.IndexOf(Roles.All, g.Role)).ToList();
+            if (mine.Count == 0) continue;
+            var roleCell = string.Concat(mine.Select(g =>
+                $"<span class=\"grant\">{E(g.Role)}" +
+                Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + Button("Remove", $"Remove {g.Role} from {g.Principal}?", quiet: true)) + "</span>"));
+            t.Rows.Add([principal, mine[0].DisplayName, mine[0].PrincipalType, new HtmlString(roleCell),
+                        string.Join("; ", mine.Select(g => g.Note).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct()),
+                        string.Join(", ", mine.Select(g => g.GrantedBy).Distinct()), mine.Max(g => g.GrantedUtc)]);
+        }
         var tabs = "<a href=\"" + E(Request.Path) + "\"" + (roleFilter is null ? " class=\"on\"" : "") + ">All roles</a>" +
             string.Concat(Roles.All.Select(r => $" · <a href=\"{E(Request.Path + "?role=" + r)}\"{(r == roleFilter ? " class=\"on\"" : "")}>{r}</a>"));
         Panels.Add(new("Grants", new HtmlString($"<p class=\"sub\">Role: {tabs}</p>" +
-            pg.Controls(Request, new Dictionary<string, string> { ["role"] = "Role", ["principal"] = "Principal", ["new"] = "Newest" }).Value + t.Render().Value),
+            pg.Controls(Request, new Dictionary<string, string> { ["principal"] = "Principal", ["new"] = "Newest" }).Value + t.Render().Value),
             "Administrators named in the site's configuration (Insights:BootstrapAdmins) are not listed here and cannot be removed from this page."));
 
         /* Effective access for one person. */
@@ -268,19 +285,27 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (@n, 
             (changed.Any(kv => kv.Key == "OrgTopUpn") ? ". The org chart was rebuilt for the new top." : ".");
     });
 
-    public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string? role, string? note) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string? note) => AdminChangeAsync(async () =>
     {
         principal = principal?.Trim();
         if (string.IsNullOrEmpty(principal) || principal.Length > 256) throw new ArgumentException("give a UPN or DOMAIN\\Group.");
         if (type is not ("User" or "Group")) throw new ArgumentException("choose User or Group.");
-        if (role is null || !Roles.All.Contains(role)) throw new ArgumentException("choose a role.");
+        var roles = (role ?? []).Where(r => Roles.All.Contains(r)).Distinct().ToList();
+        if (roles.Count == 0) throw new ArgumentException("tick at least one role.");
         if (type == "User" && !principal.Contains('@') && !principal.Contains('\\')) throw new ArgumentException("a user is a UPN (name@domain) or DOMAIN\\name.");
         if (type == "Group" && !principal.Contains('\\')) throw new ArgumentException("a group is DOMAIN\\Group.");
-        var n = await Db.ExecuteAsync(@"
+        var added = new List<string>();
+        foreach (var r in roles)
+        {
+            var n = await Db.ExecuteAsync(@"
 IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Role = @role)
     INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (@principal, @type, @role, @note, @by);",
-            new { principal, type, role, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by = Viewer.Upn ?? Viewer.WindowsName });
-        return n > 0 ? $"Granted {role} to {type.ToLowerInvariant()} {principal}." : $"{principal} already has {role}.";
+                new { principal, type, role = r, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by = Viewer.Upn ?? Viewer.WindowsName });
+            if (n > 0) added.Add(r);
+        }
+        var had = roles.Except(added).ToList();
+        return (added.Count > 0 ? $"Granted {string.Join(", ", added)} to {type.ToLowerInvariant()} {principal}." : "")
+             + (had.Count > 0 ? $"{(added.Count > 0 ? " " : "")}{principal} already had {string.Join(", ", had)}." : "");
     });
 
     public Task<IActionResult> OnPostRevokeAsync(int id) => AdminChangeAsync(async () =>

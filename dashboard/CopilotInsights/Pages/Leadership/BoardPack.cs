@@ -108,21 +108,21 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
     {
         if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "Use-case rules arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
+        /* In steps (2.4.2): the rules read once into #uc, one row a person and use case in #k, then a plain count.
+           As one statement the optimizer ran the rules per group and counted distinct people: 22 seconds for a year. */
         var byDept = await Db.QueryAsync<G>($@"
-WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
-           FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.UserKey, f.UseCaseKey),
-k AS (SELECT g.UserKey, g.N, uc.UseCase FROM g {UseCase})
-SELECT k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department, SUM(k.N) AS N, COUNT(DISTINCT k.UserKey) AS People
-FROM k JOIN bi.DimUser AS du ON du.UserKey = k.UserKey
-GROUP BY k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(), timeout: 300);
-        var totals = await Db.QueryAsync<G>($@"
+SELECT UseCaseKey, UseCase INTO #uc FROM bi.UseCases;
 WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1
            GROUP BY f.UserKey, f.UseCaseKey)
-SELECT uc.UseCase, SUM(g.N) AS N, COUNT(DISTINCT g.UserKey) AS People FROM g {UseCase} GROUP BY uc.UseCase;", Ctx.Args(), timeout: 300);
+SELECT g.UserKey, uc.UseCase, SUM(g.N) AS N INTO #k FROM g JOIN #uc AS uc ON uc.UseCaseKey = g.UseCaseKey GROUP BY g.UserKey, uc.UseCase;
+SELECT k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department, SUM(k.N) AS N, COUNT(*) AS People
+FROM #k AS k JOIN bi.DimUser AS du ON du.UserKey = k.UserKey
+GROUP BY k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(), timeout: 300);
+        /* The totals add up the departments: each person has one department, so their people add up too.
+           A second pass over the fact for the same numbers doubled the page's time (2.4.2). */
+        var totals = byDept.GroupBy(x => x.UseCase).Select(g => new G { UseCase = g.Key, N = g.Sum(x => x.N), People = g.Sum(x => x.People) }).ToList();
         if (totals.Count == 0) { Notice = $"No Copilot use from {Ctx.PeriodLabel}."; return; }
         var trend = await Db.QueryAsync<G>($@"
 WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, f.UseCaseKey, COUNT_BIG(*) AS N

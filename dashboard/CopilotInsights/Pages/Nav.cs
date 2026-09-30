@@ -3,7 +3,8 @@ using CopilotInsights.Infrastructure;
 namespace CopilotInsights.Pages;
 
 public sealed record NavPage(string Title, string Path, string? Role = null, bool Admin = false, bool ManyTenants = false, bool InPrivacy = false);
-public sealed record NavGroup(string Persona, string Who, IReadOnlyList<NavPage> Pages);
+/// <summary>A persona section. With a Role, the whole section (aggregates too) is for holders of that role only.</summary>
+public sealed record NavGroup(string Persona, string Who, IReadOnlyList<NavPage> Pages, string? Role = null);
 
 /// <summary>The personas and their pages. A page with a Role lists named people and needs that role.</summary>
 public static class Nav
@@ -19,26 +20,26 @@ public static class Nav
         new("Adoption", "Copilot program lead", [
             new("Funnel and trend", "/adoption"), new("Retention and habit", "/adoption/retention"), new("License cohorts", "/adoption/cohorts"),
             new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"), new("Targets", "/adoption/targets"), new("New joiners", "/adoption/onboarding"),
-            new("Drops and spikes", "/adoption/anomalies"), new("Not started", "/adoption/not-started", Roles.Adoption)]),
+            new("Drops and spikes", "/adoption/anomalies"), new("Not started", "/adoption/not-started", Roles.Adoption)], Roles.Adoption),
         new("Licensing", "Licensing, IT asset and FinOps", [
             new("Inventory", "/licensing"), new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Demand", "/licensing/demand"), new("License changes", "/licensing/changes"), new("License pool", "/licensing/pool"),
-            new("Chargeback", "/licensing/chargeback"), new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing)]),
+            new("Chargeback", "/licensing/chargeback"), new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [
             new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Guests and external users", "/security/guests"),
-            new("Flagged interactions", "/security/flags", Roles.Security)]),
+            new("Flagged interactions", "/security/flags", Roles.Security)], Roles.Security),
         new("Compliance", "Data protection and compliance", [
             new("Sensitive content", "/compliance"), new("Labeled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
-            new("Resource access", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true)]),
+            new("Resource access", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true)], Roles.Compliance),
         new("Agents", "Copilot Studio makers and CoE", [
-            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")]),
+            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")], Roles.Agents),
         new("Enablement", "Training and champions", [
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
-            new("Champions", "/enablement/champions", Roles.Enablement), new("People", "/enablement/people", Roles.Enablement)]),
+            new("Champions", "/enablement/champions", Roles.Enablement), new("People", "/enablement/people", Roles.Enablement)], Roles.Enablement),
         new("Forecasting", "Finance, licensing and program leads", [
             new("Forecast", "/forecasting"), new("License optimization", "/forecasting/optimize"), new("Budget and renewal", "/forecasting/budget"),
             new("Upgrade, train or revoke", "/forecasting/actions", Roles.Licensing), new("Rollout waves", "/forecasting/waves", Roles.Licensing),
-            new("License action outcomes", "/forecasting/outcomes", Roles.Licensing)]),
+            new("License action outcomes", "/forecasting/outcomes", Roles.Licensing)], Roles.Licensing),
         new("Regions", "Country, office and site leads", [
             new("Countries and offices", "/regions"), new("Working patterns", "/regions/patterns")]),
         new("People", "HR and people analytics", [
@@ -69,6 +70,11 @@ public static class Nav
     /// <summary>The groups and pages this viewer may open; a group with none is left out.</summary>
     public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false) =>
         viewer is null ? [] :
-        Groups.Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode)).ToList() })
+        Groups.Where(g => g.Role is null || viewer.Has(g.Role))
+              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode)).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
+
+    /// <summary>The role a page's section needs, if any (2.4.2): the section is hidden, and its pages refused, without it.</summary>
+    public static NavGroup? SectionOf(string? path) =>
+        path is null ? null : Groups.FirstOrDefault(g => g.Pages.Any(p => string.Equals(p.Path, path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)));
 }

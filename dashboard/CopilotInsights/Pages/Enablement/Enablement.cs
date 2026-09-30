@@ -89,8 +89,9 @@ SELECT CASE WHEN Apps >= 5 THEN 5 ELSE Apps END, COUNT(*) FROM u GROUP BY CASE W
             "Active people by how many Microsoft 365 apps they used Copilot in. One app often means Copilot Chat only.", "half"));
 
         var apps = await Db.QueryAsync<(string App, int People)>($@"
-SELECT dash.fnValueName(2, a.App), COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App;", Ctx.Args());
+SELECT COALESCE(vn.Name, a.App), COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
+WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", Ctx.Args());
         Panels.Add(new("People per app", Chart.Bars(apps.OrderByDescending(a => a.People).Select(a => new Bar(a.App, Ratio(a.People, t.Active), Note: $"{a.People:#,0} people")).ToList(), Fmt.Percent, "Share of active people per app", 1),
             "The share of active people who used Copilot in each app. Low shares for Excel or PowerPoint suggest where training would help.", "half"));
     }

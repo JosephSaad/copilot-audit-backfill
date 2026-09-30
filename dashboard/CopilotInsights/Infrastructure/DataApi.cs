@@ -21,10 +21,10 @@ public static class DataApi
             {
                 new { path = "/api/v1/usage", what = "totals and the trend (days up to 30, else weeks) for the period and scope" },
                 new { path = "/api/v1/units", what = "people, licenses and use by unit one level down" },
-                new { path = "/api/v1/security", what = "security signals by day or week" },
-                new { path = "/api/v1/license-pool", what = "seats bought and assigned per SKU" },
+                new { path = "/api/v1/security", what = "security signals by day or week (Security role)" },
+                new { path = "/api/v1/license-pool", what = "seats bought and assigned per SKU (Licensing role)" },
                 new { path = "/api/v1/value", what = "estimated hours saved and their value, by app and department" },
-                new { path = "/api/v1/targets", what = "adoption targets and where each stands" },
+                new { path = "/api/v1/targets", what = "adoption targets and where each stands (Adoption role)" },
                 new { path = "/api/v1/license-actions?kind=upgrade|train|revoke", what = "named: the people behind a recommendation (Licensing role)" },
                 new { path = "/api/v1/leavers", what = "named: licenses on disabled or departed accounts (Licensing role)" },
                 new { path = "/api/v1/health", what = "pipeline runs and freshness (administrators)" },
@@ -51,10 +51,10 @@ public static class DataApi
             var t = await x.GetRequiredService<Metrics>().TrendAsync(c);
             return new { scope = c.ScopeLabel, from = c.Start, to = c.End, days = c.Daily,
                          points = t.Select(p => new { p.Bucket, p.Jailbreak, p.Injection, p.Blocked, p.Labeled, p.Interactions }) };
-        }));
+        }, section: Roles.Security));
 
         api.MapGet("/license-pool", (HttpContext h, CancellationToken _) => Run(h, "license-pool", null, async (x, _) =>
-            new { skus = (await x.GetRequiredService<OpsData>().PoolAsync()).Select(p => new { p.SkuPartNumber, p.SkuId, p.IsCopilot, p.Bought, assigned = p.Consumed, p.Available, p.CapturedUtc }) }));
+            new { skus = (await x.GetRequiredService<OpsData>().PoolAsync()).Select(p => new { p.SkuPartNumber, p.SkuId, p.IsCopilot, p.Bought, assigned = p.Consumed, p.Available, p.CapturedUtc }) }, section: Roles.Licensing));
 
         api.MapGet("/value", (HttpContext h, CancellationToken _) => Run(h, "value", null, async (x, c) =>
         {
@@ -63,7 +63,7 @@ public static class DataApi
         }));
 
         api.MapGet("/targets", (HttpContext h, CancellationToken _) => Run(h, "targets", null, async (x, c) =>
-            new { asOf = c.End, targets = await x.GetRequiredService<OpsReports>().TargetsAsync(c) }));
+            new { asOf = c.End, targets = await x.GetRequiredService<OpsReports>().TargetsAsync(c) }, section: Roles.Adoption));
 
         api.MapGet("/license-actions", (HttpContext h, CancellationToken _) => Run(h, "license-actions", Roles.Licensing, async (x, c) =>
         {
@@ -94,7 +94,7 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 = ReportContext.Key(c.End.AddD
 
     /* Each handler takes (HttpContext, CancellationToken) so it is a route handler whose IResult is written, not a bare RequestDelegate. */
     /// <summary>Resolves the viewer and scope, applies the role and privacy rules, audits the call, and returns the JSON.</summary>
-    static async Task<IResult> Run(HttpContext h, string name, string? role, Func<IServiceProvider, ReportContext, Task<object>> body)
+    static async Task<IResult> Run(HttpContext h, string name, string? role, Func<IServiceProvider, ReportContext, Task<object>> body, string? section = null)
     {
         var sp = h.RequestServices;
         var settings = sp.GetRequiredService<Settings>();
@@ -106,6 +106,7 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 = ReportContext.Key(c.End.AddD
         string? refusal = null;
         if (role == Roles.Admin) { if (!viewer.IsAdmin) refusal = "administrators only"; }
         else if (!viewer.OrgWide && !viewer.InDirectory) refusal = "not in the directory, and not granted Organization";
+        else if (section is not null && !viewer.Has(section)) refusal = $"needs the {section} role";   // the page's section needs it too
         else if (role is not null && await settings.PrivacyModeAsync()) refusal = "privacy mode is on: nothing that names people";
         else if (role is not null && !viewer.Has(role)) refusal = $"needs the {role} role";
         if (refusal is not null)

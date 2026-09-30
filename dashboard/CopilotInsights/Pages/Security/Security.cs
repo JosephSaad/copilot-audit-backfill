@@ -120,19 +120,26 @@ public sealed class FlagsModel(PageServices s) : InsightsPage(s)
         var cases = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().HasAsync("dash.FlagCase");
         var triage = cases && Request.Query["status"].FirstOrDefault() is { } st && Triage.ContainsKey(st) ? st : cases ? "open" : "any";
         var pg = new Paging(Request, Sorts, "new");
-        var rows = await Db.QueryAsync<Row>($@"
+        /* The flagged interactions once into #f, for the list and the open count both (2.4.2). Reading RecordId,
+           a unique string, costs a pass over its whole column in the fact: about 4 seconds for a year of 40 million. */
+        var (rows, openCount) = await Db.QueryTwoAsync<Row, int>($@"
+SELECT f.RecordId, f.ActivityHour, f.UserKey, f.AppKey, f.AgentKey, f.JailbreakDetected, f.PromptInjectionDetected, f.HasBlockedResource
+INTO #f
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds["all"].Sql};
 SELECT f.ActivityHour, du.DisplayName, du.UserPrincipalName, du.Department, a.App,
        CASE WHEN ag.AgentSource = N'(no agent)' THEN NULL ELSE ag.AgentName END AS AgentName,
        f.JailbreakDetected, f.PromptInjectionDetected, f.HasBlockedResource, f.RecordId,
        {(cases ? "fc.Status, fc.Owner, fc.Note" : "NULL AS Status, NULL AS Owner, NULL AS Note")}, COUNT(*) OVER () AS TotalRows
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM #f AS f
 JOIN bi.DimUser AS du ON du.UserKey = f.UserKey
 JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
 JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
 {(cases ? "LEFT JOIN dash.FlagCase AS fc ON fc.RecordId = f.RecordId" : "")}
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds[kind].Sql} AND {(cases ? Triage[triage].Sql : "1 = 1")}
+WHERE {Kinds[kind].Sql} AND {(cases ? Triage[triage].Sql : "1 = 1")}
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
-{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
+{pg.OrderAndPage()};
+{(cases ? $"SELECT COUNT(*) FROM #f AS f LEFT JOIN dash.FlagCase AS fc ON fc.RecordId = f.RecordId WHERE {Triage["open"].Sql};" : "SELECT 0;")}", Ctx.Args(new { q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
@@ -157,9 +164,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds[kind].Sql} AND {(cases ? Triage[t
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&status={kv.Key}"))}\"{(kv.Key == triage ? " class=\"on\"" : "")}>{kv.Value.Label}</a>")) + "</p>";
         if (cases)
         {
-            var open = await Db.ScalarAsync<int>($@"
-SELECT COUNT(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} LEFT JOIN dash.FlagCase AS fc ON fc.RecordId = f.RecordId
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1) AND ISNULL(fc.Status, 'New') IN ('New', 'Investigating');", Ctx.Args());
+            var open = openCount.Single();
             Kpis.Add(new("Open", Num(open), "new or being investigated", open > 0 ? "warn" : null));
         }
         Panels.Add(new("Interactions", new HtmlString($"<p class=\"sub\">Show: {tabs}</p>" + tri + pg.Controls(Request, SortLabels).Value + t.Render().Value),

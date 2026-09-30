@@ -161,6 +161,11 @@ form.pager .pages { margin-left: auto; display: flex; gap: 12px; align-items: ce
 .sub a { text-decoration: none; }
 .sub a.on { color: var(--ink); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 form.admin + form.admin { margin-top: 4px; }
+form.admin fieldset.roles { display: flex; flex-wrap: wrap; gap: 4px 12px; border: 1px solid var(--rule); border-radius: 6px; padding: 4px 10px 6px; margin: 0; }
+form.admin fieldset.roles legend { font-size: 12px; color: var(--muted); padding: 0 4px; }
+form.admin fieldset.roles label { flex-direction: row; align-items: center; gap: 4px; color: var(--ink); font-size: 13px; }
+td .grant { display: inline-flex; align-items: center; gap: 4px; margin: 0 10px 2px 0; white-space: nowrap; }
+td .grant form.admin { display: inline-flex; }
 td form.admin { margin: 0; flex-wrap: nowrap; }
 td form.admin label { flex-direction: row; align-items: center; gap: 4px; }
 svg.chart .line.dashed { stroke-dasharray: 6 4; }
