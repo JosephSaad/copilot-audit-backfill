@@ -35,7 +35,8 @@ public static class Nav
             new("Sensitive content", "/compliance"), new("Labeled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
             new("Resource access", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true)], Roles.Compliance),
         new("Agents", "Copilot Studio makers and CoE", [
-            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs")], Roles.Agents),
+            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs"),
+            new("Agents costing credits", "/agents/credits")], Roles.Agents),
         new("Enablement", "Training and champions", [
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
             new("Champions", "/enablement/champions", Roles.Enablement), new("People", "/enablement/people", Roles.Enablement)], Roles.Enablement),

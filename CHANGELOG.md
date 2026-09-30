@@ -39,6 +39,11 @@ reinstalling the dashboard from its package (`Install-CopilotInsights.ps1
   chart. A second table counts license holders by employee type, each type opening
   its list, for contractors and the like. Disabled and deleted accounts stay on
   Licenses on disabled accounts.
+- **Agents › Agents costing credits** (Agents role): each agent's use by people
+  without a Copilot license at the time, what it costs in Copilot Credits a month, and
+  what that comes to a person, with a suggestion: restrict or retire an agent few use
+  that costs a license's worth or more, or license the users of one whose people each
+  cost more than a license (Better with a license).
 - **Licensing › Swap list** (Licensing role): each idle license (the revoke rule of
   Upgrade, train or revoke) paired with someone who wants one (its upgrade rule) in
   the same department, the same division, or anywhere in scope; the least-used

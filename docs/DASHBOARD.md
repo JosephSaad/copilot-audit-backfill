@@ -92,6 +92,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Inventory | Every agent seen: where it was built, first and last use, people and interactions in the period, owner and friendly name | Agent | No |
 | | Build and publish | Copilot Studio agents created, published, shared, changed and deleted, from Copilot Studio's own audit records; each agent's lifecycle | Scope, agent | Makers: **Agents** |
 | | Agent hand-offs | How often one agent calls another, and which agents are called | Scope, agent | No |
+| | Agents costing credits | Each agent's use by people without a license, its Copilot Credits a month and per person, and whether to restrict it or license its users | Scope, agent | No |
 | | Agent detail | One agent: people and new people, return rate, trend, by department and app; its users | Agent; person | List: **Agents** |
 | Enablement | Engagement | Segments (power, regular, occasional, one-off, not started) overall and by department; multi-turn share and prompts per session; apps per person | Scope, department | No |
 | | Conversation depth | Sessions by prompts and by length; messages per prompt over time | Scope | No |
