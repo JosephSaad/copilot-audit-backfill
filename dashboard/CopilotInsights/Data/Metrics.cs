@@ -106,18 +106,20 @@ WITH u AS (
     FROM dash.UserDay AS ud {c.Scope("ud.UserKey")}
     WHERE ud.DateKey BETWEEN @k0 AND @k1
     GROUP BY ud.UserKey)
+/* One pass over u (2.4.2): as nine subqueries, each re-aggregated dash.UserDay. */
 SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.AccountEnabled = 1) AS People,
        (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} WHERE ld.DateKey = @k1) AS LicensedNow,
-       (SELECT COUNT(*) FROM u WHERE I > 0) AS Active,
-       (SELECT COUNT(*) FROM u JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1 WHERE u.L > 0) AS ActiveLicensed,
+       COUNT(CASE WHEN u.I > 0 THEN 1 END) AS Active,
+       COUNT(CASE WHEN u.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
        (SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} WHERE ud.Interactions > 0) AS EverActive,
-       (SELECT ISNULL(SUM(CAST(I AS BIGINT)), 0) FROM u) AS Interactions,
-       (SELECT ISNULL(SUM(P), 0) FROM u) AS Prompts,
-       (SELECT ISNULL(SUM(CAST(S AS BIGINT)), 0) FROM u) AS Sessions,
-       (SELECT ISNULL(SUM(CAST(MT AS BIGINT)), 0) FROM u) AS MultiTurn,
-       (SELECT ISNULL(SUM(CAST(D AS BIGINT)), 0) FROM u) AS ActiveDays,
-       (SELECT COUNT(*) FROM u WHERE Last7 = 1) AS ActiveLast7,
-       (SELECT COUNT(*) FROM u WHERE MT > 0) AS MultiTurnUsers;", c.Args())).Single();
+       ISNULL(SUM(CAST(u.I AS BIGINT)), 0) AS Interactions,
+       ISNULL(SUM(u.P), 0) AS Prompts,
+       ISNULL(SUM(CAST(u.S AS BIGINT)), 0) AS Sessions,
+       ISNULL(SUM(CAST(u.MT AS BIGINT)), 0) AS MultiTurn,
+       ISNULL(SUM(CAST(u.D AS BIGINT)), 0) AS ActiveDays,
+       COUNT(CASE WHEN u.Last7 = 1 THEN 1 END) AS ActiveLast7,
+       COUNT(CASE WHEN u.MT > 0 THEN 1 END) AS MultiTurnUsers
+FROM u LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1;", c.Args())).Single();
 
     /* The members of each unit one level below the root (or the top): a manager with everyone under them,
        people reporting straight to the root as one "direct team"; divisions when there is no top. */

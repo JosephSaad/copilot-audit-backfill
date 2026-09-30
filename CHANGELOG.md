@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.2] - Unreleased
+
+Page speed for the top of a large organization, sections shown only to the roles
+they belong to, and several roles in one grant. Install over 2.4.1 by replacing the
+scripts and the dashboard and running `Install-CopilotAudit.ps1 -Dashboard` once: it
+adds two indexes to the dashboard rollups (below), about a minute at 70,000 people.
+No data is reloaded.
+
+### Changed
+- **Every page loads in under 7 seconds for a whole organization over a year.** Measured on
+  a test database of 70,000 people, 40 million interactions and 70 million resources
+  read, as the head of the organization at 180 and 365 days, 20 pages took over 8
+  seconds and the slowest never loaded (Governance › Models and grounding, stopped
+  by the two-minute query limit). After the fixes the slowest takes 6.6 seconds and 51
+  of the 61 take under 3; together they went from 9 minutes to under 2. Each fix was
+  checked to return the same figures:
+  - **Columnstore indexes on `dash.UserDay` and `dash.ResourceDay`.** Most pages read
+    these rollups for the trend and the totals; a year of them now takes a fraction
+    of the time. The refresh loads them as before.
+  - **The totals behind most pages' headline figures** are aggregated once, not once
+    for each figure: 4 seconds to half a second.
+  - **Names from Admin › Reference data are joined, not looked up by
+    `dash.fnValueName`** in the queries over the facts. The function kept each of those
+    queries to one processor, and where it sat in a `GROUP BY` it ran once a row: the
+    Governance page's model query took over three minutes.
+  - **Use cases** read the classification rules once and count people per use case
+    without a distinct count: 22 seconds to under 2. Its totals come from the same
+    pass rather than a second one over the facts.
+  - **Oversharing hotspots** counts the people per site on its own and the rest per
+    site and label: 11 seconds to 3.
+  - **Resources read, by type and label**, **What Copilot read, by type**, **Models and
+    grounding** and **Apps** group on keys first and name the groups afterwards.
+  - **Flagged interactions** reads the flagged records once for the list and the open
+    count, rather than twice.
+  - **New joiners** finds each person's first use in one pass rather than one lookup a
+    person.
+- **The license tool asks Graph about twenty users at a time** (`$batch`), retrying any
+  Graph throttles, and logs its progress every 1,000 users. One request a user took
+  hours for a large tenant, with nothing in the log until the end.
+
+### Added
+- **A section with a role is hidden altogether without it.** Adoption (the Adoption
+  role), Licensing and Forecasting (Licensing), Security, Compliance, Agents and
+  Enablement are left out of the navigation and the start page for anyone without the
+  role, their aggregate pages included, and the pages and their API calls are
+  refused. This holds for whole-organization viewers too: grant executives the roles
+  whose sections they should see. My Copilot, Leadership, Regions, People, App owners
+  and Governance stay open to everyone for their own part of the organization.
+- **Admin › Access grants several roles at once.** Tick every role the person or group
+  should have; the grants list shows one row per person or group with all their
+  roles, and a *Remove* beside each.
+
 ## [2.4.1] - Unreleased
 
 Fixes found in a first production install of 2.4.0, and the guides that install
@@ -1089,6 +1141,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.4.2]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...main
 [2.4.1]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...main
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0

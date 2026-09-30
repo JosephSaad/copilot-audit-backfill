@@ -71,9 +71,11 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Dept, CAST(du.L
 INTO #c
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc >= @d0 AND du.LicensedSinceUtc < DATEADD(DAY, 1, @d1) AND ISNULL(du.AccountEnabled, 1) = 1;
-SELECT c.Dept, DATEDIFF(DAY, c.Since, (SELECT MIN(d.[Date]) FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-                                      WHERE ud.UserKey = c.UserKey AND ud.Interactions > 0 AND d.[Date] >= c.Since)) AS Days
-FROM #c AS c;", Ctx.Args());
+SELECT c.Dept, DATEDIFF(DAY, c.Since, MIN(d.[Date])) AS Days
+FROM #c AS c
+LEFT JOIN dash.UserDay AS ud ON ud.UserKey = c.UserKey AND ud.Interactions > 0 AND ud.DateKey >= CONVERT(INT, CONVERT(CHAR(8), c.Since, 112))
+LEFT JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+GROUP BY c.UserKey, c.Dept, c.Since;", Ctx.Args());
             var hasHire = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EmployeeHireDate') IS NULL THEN 0 ELSE 1 END") == 1;
             var hired = !hasHire ? [] : await Db.QueryAsync<Row>($@"
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Dept, cl.EmployeeHireDate AS Since, du.UserKey
@@ -81,9 +83,11 @@ INTO #h
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = du.UserPrincipalName
 WHERE cl.EmployeeHireDate BETWEEN @d0 AND @d1 AND ISNULL(du.AccountEnabled, 1) = 1;
-SELECT h.Dept, DATEDIFF(DAY, h.Since, (SELECT MIN(d.[Date]) FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-                                      WHERE ud.UserKey = h.UserKey AND ud.Interactions > 0 AND d.[Date] >= h.Since)) AS Days
-FROM #h AS h;", Ctx.Args());
+SELECT h.Dept, DATEDIFF(DAY, h.Since, MIN(d.[Date])) AS Days
+FROM #h AS h
+LEFT JOIN dash.UserDay AS ud ON ud.UserKey = h.UserKey AND ud.Interactions > 0 AND ud.DateKey >= CONVERT(INT, CONVERT(CHAR(8), h.Since, 112))
+LEFT JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
 
             if (licensed.Count == 0 && hired.Count == 0) { Notice = "Nobody was licensed or hired in the period."; return; }
             var started = licensed.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList();
@@ -204,16 +208,26 @@ namespace CopilotInsights.Pages.Compliance
 
         protected override async Task BuildAsync()
         {
+            /* People per site on their own, then the rest per site and label (2.4.2): a distinct count
+               next to the other totals in one statement took 11 seconds for a year of 70 million reads. */
             var rows = await Db.QueryAsync<Row>($@"
-SELECT f.SiteKey, COUNT_BIG(*) AS Reads, COUNT(DISTINCT f.UserKey) AS People,
-       SUM(CASE WHEN f.SensitivityLabelKey > 1 THEN 1 ELSE 0 END) AS Labeled, SUM(CAST(f.IsBlocked AS INT)) AS Blocked,
-       MAX(ISNULL(sl.Rank, CASE WHEN f.SensitivityLabelKey > 1 THEN 0 END)) AS TopRank
-INTO #s
+SELECT f.SiteKey, COUNT(DISTINCT f.UserKey) AS People
+INTO #p
 FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
-LEFT JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = f.SensitivityLabelKey
-LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = l.LabelId
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.SiteKey > 1
 GROUP BY f.SiteKey;
+WITH g AS (SELECT f.SiteKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N, SUM(CAST(f.IsBlocked AS INT)) AS B
+           FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
+           WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.SiteKey > 1
+           GROUP BY f.SiteKey, f.SensitivityLabelKey)
+SELECT g.SiteKey, SUM(g.N) AS Reads, MAX(p.People) AS People,
+       SUM(CASE WHEN g.SensitivityLabelKey > 1 THEN g.N ELSE 0 END) AS Labeled, SUM(g.B) AS Blocked,
+       MAX(ISNULL(sl.Rank, CASE WHEN g.SensitivityLabelKey > 1 THEN 0 END)) AS TopRank
+INTO #s
+FROM g JOIN #p AS p ON p.SiteKey = g.SiteKey
+LEFT JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = g.SensitivityLabelKey
+LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = l.LabelId
+GROUP BY g.SiteKey;
 SELECT TOP (200) st.Site, st.IsPersonal, s.Reads, s.People, s.Labeled, s.Blocked, s.TopRank,
        (SELECT TOP (1) sl.Name FROM dash.SensitivityLabel AS sl WHERE sl.Rank = s.TopRank ORDER BY sl.Name) AS TopLabel
 FROM #s AS s JOIN bi.DimSite AS st ON st.SiteKey = s.SiteKey

@@ -435,60 +435,89 @@ WHERE UserPrincipalName IS NOT NULL;
     $licRows = New-Object System.Collections.Generic.List[object]
     $notFound = 0
 
-    foreach ($upn in $upns) {
-        $user = $null
-        try {
-            $user = Invoke-MgGraphRequest -Method GET -OutputType PSObject `
-                        -Uri ("/v1.0/users/$([uri]::EscapeDataString($upn))?`$select=$select")
+    # Twenty users to a Graph $batch request (2.4.2): one request a user took hours
+    # for a large tenant and showed nothing until the end.
+    $list = @($upns)
+    $done = 0
+    for ($at = 0; $at -lt $list.Count; $at += 20) {
+        $pending = @{}
+        for ($j = $at; $j -lt [math]::Min($at + 20, $list.Count); $j++) { $pending["$($j - $at)"] = $list[$j] }
+        $answers = @{}
+        for ($try = 1; $pending.Count -gt 0; $try++) {
+            $requests = @($pending.GetEnumerator() | ForEach-Object {
+                @{ id = $_.Key; method = 'GET'; url = "/users/$([uri]::EscapeDataString($_.Value))?`$select=$select" } })
+            $resp = Invoke-MgGraphRequest -Method POST -Uri '/v1.0/$batch' -OutputType PSObject `
+                        -Body (@{ requests = $requests } | ConvertTo-Json -Depth 4) -ContentType 'application/json'
+            $wait = 0
+            foreach ($r in @(Get-Prop $resp 'responses')) {
+                $id = "$(Get-Prop $r 'id')"; $status = [int] (Get-Prop $r 'status')
+                if (-not $pending.ContainsKey($id)) { continue }
+                if ($status -eq 200) { $answers[$pending[$id]] = Get-Prop $r 'body'; $pending.Remove($id) }
+                elseif ($status -eq 404) { $answers[$pending[$id]] = $null; $pending.Remove($id) }   # a departed user is expected, not an error
+                elseif ($status -eq 429 -or $status -ge 500) {
+                    $after = 0; [void] [int]::TryParse("$(Get-Prop (Get-Prop $r 'headers') 'Retry-After')", [ref] $after)
+                    $wait = [math]::Max($wait, $after)
+                }
+                else {
+                    $err = Get-Prop (Get-Prop $r 'body') 'error'
+                    throw "Graph returned $status for $($pending[$id]): $(Get-Prop $err 'message')"
+                }
+            }
+            if ($pending.Count -gt 0) {
+                if ($try -ge 8) { throw "Graph kept throttling the lookup of $($pending.Values -join ', ')." }
+                Start-Sleep -Seconds ([math]::Max($wait, [math]::Min(60, [math]::Pow(2, $try))))
+            }
         }
-        catch {
-            # A departed user is expected, not an error. Anything else is worth seeing.
-            $msg = $_.Exception.Message
-            if ($msg -notmatch '404|NotFound|Resource .* does not exist') { throw }
-        }
+        foreach ($upn in $list[$at..([math]::Min($at + 20, $list.Count) - 1)]) {
+            $user = $answers[$upn]
 
-        if ($null -eq $user) {
-            $notFound++
-            $licRows.Add([pscustomobject]@{
-                UserPrincipalName = $upn; IsCopilotLic = $null; SkuPartNumber = $null
-                LicensedSinceUtc = $null; CapabilityStatus = $null; DirectoryStatus = 'NotFound'
-                EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null
-            })
-            continue
-        }
+            if ($null -eq $user) {
+                $notFound++
+                $licRows.Add([pscustomobject]@{
+                    UserPrincipalName = $upn; IsCopilotLic = $null; SkuPartNumber = $null
+                    LicensedSinceUtc = $null; CapabilityStatus = $null; DirectoryStatus = 'NotFound'
+                    EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null
+                })
+                continue
+            }
 
-        # License
-        $matchedSku = $null
-        foreach ($al in @(Get-Prop $user 'assignedLicenses')) {
-            $id = "$(Get-Prop $al 'skuId')"
-            if ($id -and $copilotSkus.ContainsKey($id)) { $matchedSku = $copilotSkus[$id]; break }
-        }
-        $since = $null; $capability = $null
-        if ($matchedSku) {
-            foreach ($ap in @(Get-Prop $user 'assignedPlans')) {
-                $svc = "$(Get-Prop $ap 'service')"
-                if ($svc -and $svc.ToUpperInvariant().Contains($CopilotSkuMatch.ToUpperInvariant())) {
-                    $cap = "$(Get-Prop $ap 'capabilityStatus')"
-                    $d = ConvertTo-UtcOrNull (Get-Prop $ap 'assignedDateTime')
-                    # Keep the earliest enabled assignment, which is the one that
-                    # answers "since when".
-                    if ($cap -ne 'Deleted' -and ($null -eq $since -or ($d -and $d -lt $since))) {
-                        $since = $d; $capability = $cap
+            # License
+            $matchedSku = $null
+            foreach ($al in @(Get-Prop $user 'assignedLicenses')) {
+                $id = "$(Get-Prop $al 'skuId')"
+                if ($id -and $copilotSkus.ContainsKey($id)) { $matchedSku = $copilotSkus[$id]; break }
+            }
+            $since = $null; $capability = $null
+            if ($matchedSku) {
+                foreach ($ap in @(Get-Prop $user 'assignedPlans')) {
+                    $svc = "$(Get-Prop $ap 'service')"
+                    if ($svc -and $svc.ToUpperInvariant().Contains($CopilotSkuMatch.ToUpperInvariant())) {
+                        $cap = "$(Get-Prop $ap 'capabilityStatus')"
+                        $d = ConvertTo-UtcOrNull (Get-Prop $ap 'assignedDateTime')
+                        # Keep the earliest enabled assignment, which is the one that
+                        # answers "since when".
+                        if ($cap -ne 'Deleted' -and ($null -eq $since -or ($d -and $d -lt $since))) {
+                            $since = $d; $capability = $cap
+                        }
                     }
                 }
             }
+            $licRows.Add([pscustomobject]@{
+                UserPrincipalName = "$(Get-Prop $user 'userPrincipalName')"
+                IsCopilotLic      = [int] [bool] $matchedSku
+                SkuPartNumber     = $matchedSku
+                LicensedSinceUtc  = $since
+                CapabilityStatus  = $capability
+                DirectoryStatus   = 'Found'
+                EntraAccountEnabled = $(if ($null -ne (Get-Prop $user 'accountEnabled')) { [int] [bool] (Get-Prop $user 'accountEnabled') } else { $null })
+                EmployeeHireDate  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeHireDate'))
+                UserType          = $(if (Get-Prop $user 'userType') { "$(Get-Prop $user 'userType')" } else { $null })
+            })
         }
-        $licRows.Add([pscustomobject]@{
-            UserPrincipalName = "$(Get-Prop $user 'userPrincipalName')"
-            IsCopilotLic      = [int] [bool] $matchedSku
-            SkuPartNumber     = $matchedSku
-            LicensedSinceUtc  = $since
-            CapabilityStatus  = $capability
-            DirectoryStatus   = 'Found'
-            EntraAccountEnabled = $(if ($null -ne (Get-Prop $user 'accountEnabled')) { [int] [bool] (Get-Prop $user 'accountEnabled') } else { $null })
-            EmployeeHireDate  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeHireDate'))
-            UserType          = $(if (Get-Prop $user 'userType') { "$(Get-Prop $user 'userType')" } else { $null })
-        })
+        $before = $done; $done = [math]::Min($at + 20, $list.Count)
+        if ([math]::Floor($done / 1000) -gt [math]::Floor($before / 1000) -or $done -eq $list.Count) {
+            Write-Log ("Looked up {0:N0} of {1:N0} user(s)." -f $done, $list.Count)
+        }
     }
 
     $n = Save-RowBatch -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `

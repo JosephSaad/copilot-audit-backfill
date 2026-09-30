@@ -13,13 +13,18 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     {
         var tr = await m.TrendAsync(Ctx);
         long all = tr.Sum(w => w.Interactions);
+        /* Counted per model key first, then named (2.4.2): dash.fnValueName in the GROUP BY over the fact ran once a row. */
         var models = await Db.QueryAsync<(DateTime Bucket, string Model, long N)>($@"
-SELECT {Ctx.BucketSql("d")}, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + dash.fnValueName(16, mo.ModelName) END, COUNT_BIG(*)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-JOIN bi.DimModel AS mo ON mo.ModelKey = f.ModelKey
-WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY {Ctx.BucketSql("d")}, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + dash.fnValueName(16, mo.ModelName) END;", Ctx.Args());
+WITH g AS (
+    SELECT {Ctx.BucketSql("d")} AS Bucket, f.ModelKey, COUNT_BIG(*) AS N
+    FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+    JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+    WHERE f.DateKey BETWEEN @k0 AND @k1
+    GROUP BY {Ctx.BucketSql("d")}, f.ModelKey)
+SELECT g.Bucket, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + COALESCE(vn.Name, mo.ModelName) END, SUM(g.N)
+FROM g JOIN bi.DimModel AS mo ON mo.ModelKey = g.ModelKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 16 AND vn.Value = mo.ModelName
+GROUP BY g.Bucket, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + COALESCE(vn.Name, mo.ModelName) END;", Ctx.Args());
         var agents = await Db.QueryAsync<(DateTime Bucket, string Source, int N)>($@"
 SELECT {Ctx.BucketSql("d")}, a.AgentSource, COUNT(DISTINCT f.AgentKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}

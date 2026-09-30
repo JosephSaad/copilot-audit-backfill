@@ -353,13 +353,15 @@ It also reports the accounts it skipped: other employee types, no UPN, a UPN ove
 
 ### Step 10. Load current Copilot licenses
 
-*Job server. About 5–20 minutes.*
+*Job server. About 5–20 minutes for a few thousand users; allow an hour or more for 60,000.*
 
 Part of the history run, and of every nightly run. Alone:
 
 ```powershell
 .\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit @app -AllLicensedUsers
 ```
+
+It asks Graph about twenty users at a time and logs a line for every 1,000 looked up. Nothing is written until every user has been looked up, so stopping it early saves nothing: let it finish.
 
 Writes `audit.CopilotLicense`: the Copilot SKU, since when, whether the user still exists in Entra, whether their Entra account is enabled, and their hire date where Entra has one. `-AllLicensedUsers` adds license holders who have never used Copilot, which is what the "licensed, never used" report needs. A user who has since been deleted is stored as *not known*, which is a different claim from *unlicensed*.
 
@@ -371,6 +373,7 @@ A good run lists the tenant's Copilot SKUs, how many users it looked up, and how
 [INFO ] Copilot SKUs in this tenant: Microsoft_365_Copilot, MICROSOFT_365_COPILOT_FOR_BUSINESS, MICROSOFT_DRAGON_COPILOT_USCAN.
 [INFO ] 12 distinct user(s) appear in the audit data.
 [INFO ] 14 user(s) after adding license holders with no interactions.
+[INFO ] Looked up 14 of 14 user(s).
 [INFO ] Licenses written: 14.
 [INFO ] Enrichment complete: 10 licensed user(s) recorded.
 ```

@@ -643,12 +643,19 @@ SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)       AS A,
     # asked for is recorded, to prove the license tool asks for nothing else.
     $script:MockBase = $mock.Base
     $script:GraphPaths = [System.Collections.Generic.List[string]]::new()
+    $script:GraphBatches = 0
     function global:Connect-MgGraph { param([hashtable] $Splat) }
     function global:Invoke-MgGraphRequest {
-        param([string] $Method, [string] $Uri, $OutputType, $Body)
-        $script:GraphPaths.Add(($Uri -replace '\?.*$', ''))
+        param([string] $Method, [string] $Uri, $OutputType, $Body, $ContentType)
+        if ($Uri -eq '/v1.0/$batch') {
+            # 2.4.2 looks users up twenty to a batch: record what each item asks for.
+            foreach ($q in ($Body | ConvertFrom-Json).requests) { $script:GraphPaths.Add((('/v1.0' + $q.url) -replace '\?.*$', '')) }
+            $script:GraphBatches++
+        }
+        else { $script:GraphPaths.Add(($Uri -replace '\?.*$', '')) }
         $full = if ($Uri -match '^https?://') { $Uri } else { "$script:MockBase$Uri" }
-        $r = Invoke-WebRequest -Uri $full -Method $Method -SkipHttpErrorCheck -ErrorAction Stop
+        $extra = if ($Body) { @{ Body = $Body; ContentType = 'application/json' } } else { @{} }
+        $r = Invoke-WebRequest -Uri $full -Method $Method -SkipHttpErrorCheck -ErrorAction Stop @extra
         if ([int] $r.StatusCode -ge 400) {
             # The script treats a 404 as "this user has left" and anything else
             # as a real failure, so the message has to say which.
@@ -707,6 +714,7 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseSku) AS Skus,
         $asked = @($script:GraphPaths | Sort-Object -Unique)
         $other = @($asked | Where-Object { $_ -ne '/v1.0/subscribedSkus' -and $_ -notmatch '^/v1\.0/users/[^/]+$' })
         Assert-That ($other.Count -eq 0) "the license tool calls only /subscribedSkus and /users/{upn} - no manager, profile or administrative-unit call ($($other -join ', '))"
+        Assert-That ($script:GraphBatches -ge 3 -and $script:GraphBatches -le 5) "the 50 users are looked up twenty to a `$batch request, one throttled item retried ($($script:GraphBatches) batches)"
         $entraTables = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'audit' AND name IN ('UserProfile', 'AdministrativeUnit');")
         Assert-That ($entraTables -eq 0) 'no Entra profile or administrative-unit table is created'
 
