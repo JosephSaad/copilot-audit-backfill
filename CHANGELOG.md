@@ -7,9 +7,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [2.4.1] - Unreleased
 
 Fixes found in a first production install of 2.4.0, and the guides that install
-would have needed. No schema changes: install over 2.4.0 by replacing the scripts.
+would have needed. Install over 2.4.0: replace the scripts and run `Install-CopilotAudit.ps1`
+once, which widens one `bi` column in place (below). No data is reloaded.
 
 ### Fixed
+- **The `bi` refresh no longer fails on a long resource action**
+  (*String or binary data would be truncated in table #rsrc, column 'ResourceAction'*),
+  found on a 19-million-record CSV import whose longest action was 436 characters.
+  Actions are flattened at up to 450; `bi.DimResourceAction` and the refresh's work
+  table took 200. Both now take 450, the installer widens an existing
+  `bi.DimResourceAction` in place, and the refresh cuts each resource type, action and
+  site to the width it is stored in. A test checks every `bi` resource dimension
+  against the column it copies.
+- **The home page's browser tab** read "Copilot Insights · Copilot Insights". It now
+  names the product once; every other page still reads "<page> · Copilot Insights".
 - **The user directory load no longer fails after loading.**
   `tools/Export-UsersWithHierarchy-ToSql.ps1` wrapped the list of AD groups granted
   Organization in a second array, so with none of them (always so without the
@@ -1070,6 +1081,7 @@ First release.
 - `.github/workflows/release.yml` — runs every suite, then publishes the release
   archive and its SHA-256 checksum on a `v*` tag.
 
+[2.4.1]: https://github.com/JosephSaad/copilot-audit-backfill/compare/v2.4.0...main
 [2.4.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.0
 [2.3.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.3.0
 [2.2.0]: https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.2.0

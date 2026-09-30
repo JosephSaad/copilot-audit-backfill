@@ -123,3 +123,15 @@ public class ChartTests
     public void Labels_are_encoded() =>
         Assert.DoesNotContain("<b>", Chart.Bars([new Bar("<b>x</b>", 1)], Fmt.Count, "x").Value!);
 }
+
+public class BrowserTitleTests
+{
+    [Theory]
+    [InlineData("Adoption", "Adoption · Copilot Insights")]
+    [InlineData("Copilot Insights", "Copilot Insights")]   // the home page: the name once
+    [InlineData(" Copilot Insights ", "Copilot Insights")]
+    [InlineData(null, "Copilot Insights")]                  // a page that is not a report
+    [InlineData("", "Copilot Insights")]
+    public void The_product_name_appears_once(string? title, string expected) =>
+        Assert.Equal(expected, InsightsPage.BrowserTitle(title));
+}
