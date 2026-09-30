@@ -446,9 +446,17 @@ WHERE UserPrincipalName IS NOT NULL;
         for ($try = 1; $pending.Count -gt 0; $try++) {
             $requests = @($pending.GetEnumerator() | ForEach-Object {
                 @{ id = $_.Key; method = 'GET'; url = "/users/$([uri]::EscapeDataString($_.Value))?`$select=$select" } })
-            $resp = Invoke-MgGraphRequest -Method POST -Uri '/v1.0/$batch' -OutputType PSObject `
-                        -Body (@{ requests = $requests } | ConvertTo-Json -Depth 4) -ContentType 'application/json'
-            $wait = 0
+            # A dropped connection or a failed batch is retried like a throttle (2.4.3): a
+            # run of 60,000 users makes thousands of requests, and one reset lost the lot.
+            $resp = $null; $wait = 0
+            try {
+                $resp = Invoke-MgGraphRequest -Method POST -Uri '/v1.0/$batch' -OutputType PSObject `
+                            -Body (@{ requests = $requests } | ConvertTo-Json -Depth 4) -ContentType 'application/json'
+            }
+            catch {
+                if ($try -ge 8) { throw }
+                Write-Log "Graph request failed, retrying ($try of 7): $($_.Exception.Message)" -Level WARN
+            }
             foreach ($r in @(Get-Prop $resp 'responses')) {
                 $id = "$(Get-Prop $r 'id')"; $status = [int] (Get-Prop $r 'status')
                 if (-not $pending.ContainsKey($id)) { continue }
@@ -464,7 +472,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 }
             }
             if ($pending.Count -gt 0) {
-                if ($try -ge 8) { throw "Graph kept throttling the lookup of $($pending.Values -join ', ')." }
+                if ($try -ge 8) { throw "Graph kept throttling or failing the lookup of $($pending.Values -join ', ')." }
                 Start-Sleep -Seconds ([math]::Max($wait, [math]::Min(60, [math]::Pow(2, $try))))
             }
         }

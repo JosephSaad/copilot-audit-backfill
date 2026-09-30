@@ -18,6 +18,7 @@ import json
 import math
 import re
 import random
+import socket
 import sys
 import threading
 import time
@@ -78,6 +79,7 @@ state = {
     "status_calls": 0,
     "records_served": 0,
     "batch_throttled": 0,
+    "batch_dropped": 0,
 }
 
 
@@ -296,7 +298,19 @@ class Handler(BaseHTTPRequestHandler):
             # Graph JSON batching, for the license tool's user lookups: each
             # item is answered as its own GET would be, without a token like the
             # other directory routes. The first batch has one item throttled,
-            # once, so the caller's retry is exercised.
+            # once, so the caller's retry is exercised; and the very first batch
+            # request is dropped without an answer, as a reset connection is.
+            with lock:
+                drop = state["batch_dropped"] == 0
+                if drop:
+                    state["batch_dropped"] = 1
+            if drop:
+                self.close_connection = True
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                return
             out = []
             for r in json.loads(raw)["requests"]:
                 u = urlparse("/v1.0" + r["url"])
