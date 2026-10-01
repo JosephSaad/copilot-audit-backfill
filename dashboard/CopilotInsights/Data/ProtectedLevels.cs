@@ -17,6 +17,14 @@ public static class ProtectedLevels
         $"NOT EXISTS (SELECT 1 FROM dash.Person AS pl WHERE pl.Upn = {upn} AND pl.Level BETWEEN 1 AND " +
         $"ISNULL((SELECT TRY_CAST(ps.Value AS INT) FROM dash.Setting AS ps WHERE ps.Name = N'{Setting}'), {Default}))";
 
+    /// <summary>
+    /// The same rule as a join, for a query that counts inside an aggregate, where SQL Server allows no subquery (2.4.7):
+    /// LEFT JOIN this, and a person is not protected when <paramref name="alias"/>.Upn IS NULL.
+    /// </summary>
+    public static string Join(string alias, string upn) =>
+        $"LEFT JOIN dash.Person AS {alias} ON {alias}.Upn = {upn} AND {alias}.Level BETWEEN 1 AND " +
+        $"ISNULL((SELECT TRY_CAST(ps.Value AS INT) FROM dash.Setting AS ps WHERE ps.Name = N'{Setting}'), {Default})";
+
     /// <summary>What a list says about who it leaves out.</summary>
     public static async Task<string> NoteAsync(Infrastructure.Settings settings)
     {

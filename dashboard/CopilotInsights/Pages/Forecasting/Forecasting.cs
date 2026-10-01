@@ -148,13 +148,14 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
        COUNT(*) AS People,
        COUNT(ld.UserKey) AS Held,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 THEN 1 END) AS Active,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")} THEN 1 END) AS Idle,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")} THEN 1 END) AS Light,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND pl.Upn IS NULL THEN 1 END) AS Idle,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND pl.Upn IS NULL THEN 1 END) AS Light,
        COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy THEN 1 END) AS Demand
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
 LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN ever AS ev ON ev.UserKey = du.UserKey
+{CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}
 WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR ld.UserKey IS NOT NULL OR a.D > 0
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { k30, heavy = 6 }));
 

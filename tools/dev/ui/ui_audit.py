@@ -113,6 +113,8 @@ AUDIT_JS = r"""
     if (n.parentElement && n.parentElement.closest('title, script, style, .intro, .sub, .notice')) continue;
     if ((n.nodeValue || '').includes('…')) issues.push({kind: 'ellipsis', text: n.nodeValue.trim().slice(0, 60)});
   }
+  if (/^Something went wrong/.test(document.title) || /^Something went wrong/.test((document.querySelector('h1') || {}).textContent || ''))
+    issues.push({kind: 'error-page', text: 'The page failed to build: it shows the error page.'});
   return JSON.stringify({title: document.title, status: document.querySelector('.denied') ? 'denied' : 'ok', issues});
 })()
 """
