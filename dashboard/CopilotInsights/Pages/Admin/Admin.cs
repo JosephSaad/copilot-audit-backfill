@@ -136,6 +136,21 @@ FROM w;")).Single();
             Form("refresh", "<input type=\"hidden\" name=\"days\" value=\"7\"/>" + Button("Refresh the last 7 days")) +
             Form("refresh", "<input type=\"hidden\" name=\"days\" value=\"0\"/>" + Button("Rebuild every day", "Rebuild every day of the rollups? On a large tenant this takes minutes.", quiet: true)) +
             rt.Render().Value)));
+
+        /* 2.4.7: the report pages' queries are kept until the data changes, and built ahead for the whole organization. */
+        var qc = HttpContext.RequestServices.GetRequiredService<QueryCache>();
+        var warmer = HttpContext.RequestServices.GetRequiredService<PageWarmer>();
+        var tenant = HttpContext.RequestServices.GetRequiredService<TenantAccessor>().Current.Name;
+        var (hits, misses) = qc.Counts;
+        var warm = warmer.Last.GetValueOrDefault(tenant);
+        var state = !qc.Enabled ? "Off (Insights:QueryCacheMinutes is 0): every page reads the database every time."
+            : warm is null ? "On. The pages have not been built ahead yet on this web server; it starts shortly after the site does."
+            : warm.EndedUtc is null ? $"On. Building the pages ahead now: {warm.Pages:#,0} page views so far, started {warm.StartedUtc:yyyy-MM-dd HH:mm} UTC."
+            : $"On. Built ahead {warm.EndedUtc:yyyy-MM-dd HH:mm} UTC: {warm.Pages:#,0} page views in {warm.Seconds / 60:0.#} minutes{(warm.Failed > 0 ? $", {warm.Failed:#,0} not built" : "")}.";
+        Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
+            "A report page's queries are kept in memory until the data changes: a refresh, a pipeline run, a new license read, or a change to a setting or reference data. " +
+            "After each change every report is built once in the background for the whole organization, at every period, so the top two levels and Organization holders get each page at once. " +
+            "A manager's own part of the organization is kept from the first time someone opens it. Lists that are edited all day (flag triage, exported license actions, confirmed accounts) always read the database.", "half"));
     }
 
     public Task<IActionResult> OnPostRefreshAsync(int days) => AdminChangeAsync(async () =>

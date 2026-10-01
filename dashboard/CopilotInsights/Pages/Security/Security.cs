@@ -126,12 +126,15 @@ public sealed class FlagsModel(PageServices s) : InsightsPage(s)
         var cases = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().HasAsync("dash.FlagCase");
         var triage = cases && Request.Query["status"].FirstOrDefault() is { } st && Triage.ContainsKey(st) ? st : cases ? "open" : "any";
         var pg = new Paging(Request, Sorts, "new");
-        /* The flagged interactions once into #f, for the list and the open count both (2.4.2). Reading RecordId,
-           a unique string, costs a pass over its whole column in the fact: about 4 seconds for a year of 40 million. */
+        /* The flagged interactions once into #f, for the list and the open count both (2.4.2), from the refresh's own
+           list of them (2.4.7): reading RecordId out of the fact costs a pass over its whole column, 4 seconds for a
+           year of 40 million. Before the first refresh with 2.4.7 that list does not exist, and the fact is read. */
+        var flagged = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().HasAsync("dash.FlaggedInteraction")
+            && await Db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.FlaggedInteraction) THEN 1 ELSE 0 END") == 1;
         var (rows, openCount) = await Db.QueryTwoAsync<Row, int>($@"
 SELECT f.RecordId, f.ActivityHour, f.UserKey, f.AppKey, f.AgentKey, f.JailbreakDetected, f.PromptInjectionDetected, f.HasBlockedResource
 INTO #f
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+FROM {(flagged ? "dash.FlaggedInteraction" : "bi.FactInteraction")} AS f {Ctx.Scope("f.UserKey")}
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds["all"].Sql};
 SELECT f.ActivityHour, du.DisplayName, du.UserPrincipalName, du.Department, a.App,
        CASE WHEN ag.AgentSource = N'(no agent)' THEN NULL ELSE ag.AgentName END AS AgentName,

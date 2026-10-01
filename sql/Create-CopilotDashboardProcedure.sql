@@ -239,6 +239,18 @@ BEGIN
         DELETE FROM dash.ResourceDay WHERE DateKey >= @fromKey;
     INSERT INTO dash.ResourceDay WITH (TABLOCK) (DateKey, UserKey, Kind, Item, Interactions)
     SELECT DateKey, UserKey, Kind, Item, Interactions FROM #res;
+    /* 2.4.7: the flagged interactions, for Security > Flagged interactions. From @fromKey on, or all of them when
+       the table is empty, as it is the first time after an upgrade (a refresh of today alone would leave history out). */
+    IF OBJECT_ID(N'dash.FlaggedInteraction', N'U') IS NOT NULL
+    BEGIN
+        DECLARE @flagFrom INT = CASE WHEN EXISTS (SELECT 1 FROM dash.FlaggedInteraction) THEN @fromKey ELSE NULL END;
+        DELETE FROM dash.FlaggedInteraction WHERE @flagFrom IS NULL OR DateKey >= @flagFrom;
+        INSERT INTO dash.FlaggedInteraction (DateKey, UserKey, RecordId, ActivityHour, AppKey, AgentKey, JailbreakDetected, PromptInjectionDetected, HasBlockedResource)
+        SELECT f.DateKey, f.UserKey, f.RecordId, f.ActivityHour, f.AppKey, f.AgentKey, f.JailbreakDetected, f.PromptInjectionDetected, f.HasBlockedResource
+        FROM bi.FactInteraction AS f
+        WHERE (@flagFrom IS NULL OR f.DateKey >= @flagFrom)
+          AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1);
+    END;
     DELETE FROM dash.AgentUse;
     INSERT INTO dash.AgentUse (AgentKey, FirstDateKey, LastDateKey, Interactions)
     SELECT AgentKey, MIN(DateKey), MAX(DateKey), COUNT_BIG(*) FROM bi.FactInteraction GROUP BY AgentKey;

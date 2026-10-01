@@ -16,6 +16,8 @@ builder.Services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolic
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<TenantAccessor>();
+builder.Services.AddSingleton<QueryCache>();
+builder.Services.AddSingleton<DataStamp>();
 builder.Services.AddSingleton<Db>();
 builder.Services.AddSingleton<Settings>();
 builder.Services.AddSingleton<Freshness>();
@@ -31,6 +33,8 @@ builder.Services.AddScoped<OpsData>();
 builder.Services.AddScoped<OpsReports>();
 builder.Services.AddSingleton<Notifier>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Notifier>());
+builder.Services.AddSingleton<PageWarmer>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PageWarmer>());
 builder.Services.AddRazorPages(o => o.Conventions.ConfigureFilter(new Microsoft.AspNetCore.Mvc.AutoValidateAntiforgeryTokenAttribute()));
 
 var app = builder.Build();

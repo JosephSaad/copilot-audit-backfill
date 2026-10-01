@@ -125,8 +125,9 @@ public sealed class Table
     }
 }
 
-public sealed class PageServices(Db db, ViewerService viewers, ReportContextFactory contexts, AuditLog audit, Settings settings, Freshness freshness)
+public sealed class PageServices(Db db, ViewerService viewers, ReportContextFactory contexts, AuditLog audit, Settings settings, Freshness freshness, DataStamp stamp)
 {
+    public DataStamp Stamp { get; } = stamp;
     public Freshness Freshness { get; } = freshness;
     public Db Db { get; } = db;
     public ViewerService Viewers { get; } = viewers;
@@ -184,6 +185,36 @@ public abstract class InsightsPage(PageServices s) : PageModel
 
     protected abstract Task BuildAsync();
 
+    /// <summary>
+    /// Builds a report page with its queries answered from memory where the data has not changed since they last ran
+    /// (2.4.7). Who the viewer is and what they may see were settled before this, from the database; admin pages, the
+    /// CSV and file exports and every form always read the database.
+    /// </summary>
+    /// <summary>
+    /// Builds the page for the warm-up (PageWarmer): the same queries a viewer of the whole organization runs, with
+    /// nothing rendered, logged or sent. Pages that name people are left out in privacy mode, as they are for everyone.
+    /// </summary>
+    internal async Task WarmAsync(Viewer viewer, int days)
+    {
+        Warming = true;
+        Viewer = viewer;
+        Ctx = await S.Contexts.CreateAsync(viewer, days, null);
+        PrivacyMode = await S.Settings.PrivacyModeAsync();
+        if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode) return;
+        await S.Stamp.EnsureAsync();
+        using (QueryCache.Use()) await BuildAsync();
+    }
+
+    /// <summary>True while the warm-up builds the page: there is no request behind it, so no message from a redirect.</summary>
+    protected bool Warming { get; private set; }
+
+    async Task BuildCachedAsync()
+    {
+        if (AdminOnly) { await BuildAsync(); return; }
+        await S.Stamp.EnsureAsync();
+        using (QueryCache.Use()) await BuildAsync();
+    }
+
     protected async Task<bool> PrepareAsync()
     {
         Viewer = await S.Viewers.GetAsync();
@@ -217,7 +248,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
     public virtual async Task<IActionResult> OnGetAsync()
     {
         if (!await PrepareAsync()) return Page();
-        await BuildAsync();
+        await BuildCachedAsync();
         await S.Audit.WriteAsync(Viewer, "View", Request.Path, Ctx.ScopeLabel, $"days={Ctx.Days}{Request.QueryString}");
         return Page();
     }
@@ -284,6 +315,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// <summary>The message a change left for the page it redirected back to.</summary>
     protected void ShowDone()
     {
+        if (Warming) return;
         if (TempData["done"] is string d) Notice = d;
     }
 

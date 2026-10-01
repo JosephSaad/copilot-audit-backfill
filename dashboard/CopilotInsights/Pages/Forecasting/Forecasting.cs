@@ -33,17 +33,23 @@ WITH per AS (SELECT d.WeekEnding, ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.
              JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
              WHERE ud.DateKey BETWEEN @wk0 AND @wk1
              GROUP BY d.WeekEnding, ud.UserKey),
-wk AS (SELECT DISTINCT WeekEnding FROM bi.DimDate WHERE [Date] BETWEEN @w0 AND @w1 AND DayOfWeekNumber = 5)
-SELECT wk.WeekEnding,
-       (SELECT COUNT(*) FROM per WHERE per.WeekEnding = wk.WeekEnding AND per.I > 0) AS Active,
-       (SELECT COUNT(*) FROM per JOIN bi.FactLicensedDay AS la
-          ON la.UserKey = per.UserKey AND la.DateKey = YEAR(wk.WeekEnding) * 10000 + MONTH(wk.WeekEnding) * 100 + DAY(wk.WeekEnding)
-        WHERE per.WeekEnding = wk.WeekEnding AND per.L > 0) AS ActiveLicensed,
-       (SELECT COUNT(*) FROM per WHERE per.WeekEnding = wk.WeekEnding AND per.I > 0 AND per.L = 0) AS ChatOnly,
-       (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")}
-        WHERE ld.DateKey = YEAR(wk.WeekEnding) * 10000 + MONTH(wk.WeekEnding) * 100 + DAY(wk.WeekEnding)) AS Licensed,
-       (SELECT ISNULL(SUM(CAST(I AS BIGINT)), 0) FROM per WHERE per.WeekEnding = wk.WeekEnding) AS Interactions
-FROM wk ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = ReportContext.Key(w0.AddDays(-6)), wk1 = ReportContext.Key(w1) }));
+wk AS (SELECT DISTINCT WeekEnding, YEAR(WeekEnding) * 10000 + MONTH(WeekEnding) * 100 + DAY(WeekEnding) AS EndKey
+       FROM bi.DimDate WHERE [Date] BETWEEN @w0 AND @w1 AND DayOfWeekNumber = 5),
+/* Each week's people in one pass over per (2.4.7: it was read once for each column, 5 seconds at 40 million). */
+agg AS (SELECT per.WeekEnding, COUNT(CASE WHEN per.I > 0 THEN 1 END) AS Active,
+               COUNT(CASE WHEN per.L > 0 AND la.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
+               COUNT(CASE WHEN per.I > 0 AND per.L = 0 THEN 1 END) AS ChatOnly,
+               SUM(CAST(per.I AS BIGINT)) AS Interactions
+        FROM per JOIN wk ON wk.WeekEnding = per.WeekEnding
+        LEFT JOIN bi.FactLicensedDay AS la ON la.UserKey = per.UserKey AND la.DateKey = wk.EndKey
+        GROUP BY per.WeekEnding),
+lic AS (SELECT wk.WeekEnding, COUNT(*) AS Licensed
+        FROM wk JOIN bi.FactLicensedDay AS ld ON ld.DateKey = wk.EndKey {c.Scope("ld.UserKey")}
+        GROUP BY wk.WeekEnding)
+SELECT wk.WeekEnding, ISNULL(a.Active, 0) AS Active, ISNULL(a.ActiveLicensed, 0) AS ActiveLicensed, ISNULL(a.ChatOnly, 0) AS ChatOnly,
+       ISNULL(l.Licensed, 0) AS Licensed, ISNULL(a.Interactions, 0) AS Interactions
+FROM wk LEFT JOIN agg AS a ON a.WeekEnding = wk.WeekEnding LEFT JOIN lic AS l ON l.WeekEnding = wk.WeekEnding
+ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = ReportContext.Key(w0.AddDays(-6)), wk1 = ReportContext.Key(w1) }));
         /* Leading weeks before any data are not history; start at the first week with a license or any use. */
         return rows.SkipWhile(r => r.Active == 0 && r.Licensed == 0).ToList();
     }
@@ -148,13 +154,14 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
        COUNT(*) AS People,
        COUNT(ld.UserKey) AS Held,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 THEN 1 END) AS Active,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")} THEN 1 END) AS Idle,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")} THEN 1 END) AS Light,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND pl.Upn IS NULL THEN 1 END) AS Idle,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND pl.Upn IS NULL THEN 1 END) AS Light,
        COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy THEN 1 END) AS Demand
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
 LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN ever AS ev ON ev.UserKey = du.UserKey
+{CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}
 WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR ld.UserKey IS NOT NULL OR a.D > 0
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { k30, heavy = 6 }));
 
