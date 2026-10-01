@@ -110,12 +110,9 @@ public abstract class InsightsPage(PageServices s) : PageModel
     public virtual string? Intro => null;
     public virtual string? RequiredRole => null;
     public virtual bool AdminOnly => false;
+    /// <summary>A page that shows no usage data and that an administrator outside the dashboard's levels may still open (the start page).</summary>
+    public virtual bool OpenToAdmins => false;
     public virtual bool UsesFilters => true;
-    /// <summary>
-    /// False for a page about the viewer alone (My Copilot): the part of the organization
-    /// has nothing to choose there, so the filter bar shows the period only.
-    /// </summary>
-    public virtual bool ShowsScope => true;
     /// <summary>
     /// A page whose figures do not follow the period filter says what window they use instead,
     /// shown in the filter bar where the period's dates usually are.
@@ -144,7 +141,8 @@ public abstract class InsightsPage(PageServices s) : PageModel
         Viewer = await S.Viewers.GetAsync();
         Ctx = await S.Contexts.CreateAsync(Viewer, Request);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
-        if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
+        if (!Viewer.Admitted && !(Viewer.IsAdmin && (AdminOnly || OpenToAdmins))) Denied = LimitRefusal(Viewer);
+        else if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
         else if (Nav.SectionOf(Request.Path) is { Role: { } section } g && !Viewer.Has(section))
             Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin > Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
@@ -161,6 +159,12 @@ public abstract class InsightsPage(PageServices s) : PageModel
         }
         return true;
     }
+
+    /// <summary>What a viewer outside the dashboard's levels is told (2.4.4), on every page, export and form.</summary>
+    public static string LimitRefusal(Viewer viewer) =>
+        $"This dashboard is for leaders at levels 1 to {viewer.MaxLevel} of the organization" +
+        (viewer.Level is { } l ? $"; you are at level {l}." : ", and your account is not placed in the org chart.") +
+        (viewer.IsAdmin ? " As an administrator, you can open the Admin pages." : " An administrator can grant access in Admin > Access.");
 
     public virtual async Task<IActionResult> OnGetAsync()
     {

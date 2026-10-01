@@ -2124,11 +2124,14 @@ Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-C
 $t2 = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'dash' AND name IN ('FlagCase', 'DigestPreference', 'DigestSend', 'LicenseAction', 'LicenseContract', 'SavedView', 'JobFamilyRule', 'UseCaseRule', 'EventMarker', 'Extract')) AS Tables_,
        (SELECT COUNT(*) FROM dash.UseCaseRule WHERE UpdatedBy = N'default') AS Rules,
-       (SELECT COUNT(*) FROM dash.Setting WHERE Name IN ('AlertWebhookFormat', 'ManagerDigest', 'PersonalDigest', 'CertificateWarnDays', 'RolloutWaveSize')) AS Settings_,
+       (SELECT COUNT(*) FROM dash.Setting WHERE Name IN ('AlertWebhookFormat', 'ManagerDigest', 'CertificateWarnDays', 'RolloutWaveSize')) AS Settings_,
+       (SELECT COUNT(*) FROM dash.Setting WHERE Name = 'PersonalDigest') AS Personal,
+       (SELECT Value FROM dash.Setting WHERE Name = 'MaxViewerLevel') AS MaxLevel,
        COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') AS CertCol,
        COL_LENGTH(N'audit.CopilotLicense', N'UserType') AS UserTypeCol;
 "@).Rows[0]
-Assert-That ([int] $t2.Tables_ -eq 10 -and [int] $t2.Rules -eq 10 -and [int] $t2.Settings_ -eq 5) "the ten new tables, the ten default use-case rules and the new settings install once ($($t2.Tables_), $($t2.Rules), $($t2.Settings_))"
+Assert-That ([int] $t2.Tables_ -eq 10 -and [int] $t2.Rules -eq 10 -and [int] $t2.Settings_ -eq 4) "the ten new tables, the ten default use-case rules and the new settings install once ($($t2.Tables_), $($t2.Rules), $($t2.Settings_))"
+Assert-That ([int] $t2.Personal -eq 0 -and [string] $t2.MaxLevel -eq '0') "2.4.4: the personal email's setting is gone, and the dashboard opens to everyone until a level is chosen ($($t2.Personal), $($t2.MaxLevel))"
 Assert-That ($t2.CertCol -isnot [DBNull] -and $t2.UserTypeCol -isnot [DBNull]) 'the pipeline run records the certificate, and the license record the user type'
 
 function Test-Refused([string] $Sql) { try { Invoke-SqlText -Sql $Sql; $false } catch { $true } }
@@ -2144,17 +2147,18 @@ ALTER ROLE CopilotInsightsApp ADD MEMBER it_app2;
 DECLARE @r NVARCHAR(400) = N'ok';
 EXECUTE AS USER = 'it_app2';
 BEGIN TRY
-    INSERT INTO dash.SavedView (Owner, Name, Url) VALUES (N'a@contoso.com', N'x', N'/adoption?d=30');
+    INSERT INTO dash.DigestPreference (Upn, ManagerDigestOptOut) VALUES (N'a@contoso.com', 1);
+    UPDATE dash.DigestPreference SET ManagerDigestOptOut = 0 WHERE Upn = N'a@contoso.com';
     INSERT INTO dash.EventMarker (Day, Label, Kind, UpdatedBy) VALUES ('2026-10-01', N'x', 'Other', N'test');
     INSERT INTO dash.LicenseAction (Kind, Upn, ExportedBy) VALUES ('revoke', N'a@contoso.com', N'test');
     UPDATE dash.DigestSend SET Status = 'Fail1' WHERE Upn = N'a@contoso.com';
-    DELETE FROM dash.SavedView WHERE Owner = N'a@contoso.com';
+    DELETE FROM dash.DigestPreference WHERE Upn = N'a@contoso.com';
 END TRY BEGIN CATCH SET @r = ERROR_MESSAGE(); END CATCH;
 REVERT;
 ALTER ROLE CopilotInsightsApp DROP MEMBER it_app2; DROP USER it_app2;
 SELECT @r;
 "@)
-Assert-That ($w -eq 'ok') "the dashboard's role writes saved views, events, license actions and digest sends ($w)"
+Assert-That ($w -eq 'ok') "the dashboard's role writes manager opt-outs, events, license actions and digest sends ($w)"
 
 # 2.4.1: every bi column is at least as wide as the flattened column it copies (a 450-character action failed the refresh).
 $widths = (Invoke-SqlText -As Table -Sql @"

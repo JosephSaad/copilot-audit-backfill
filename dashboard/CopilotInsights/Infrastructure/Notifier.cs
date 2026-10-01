@@ -71,7 +71,6 @@ public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<Insig
             await run.DigestsAsync();
             await run.CertificateAsync();
             await run.ManagerDigestsAsync();
-            await run.PersonalDigestsAsync();
             await run.ExtractsAsync();
         }
         finally { await conn.ExecuteAsync("EXEC sp_releaseapplock @Resource = N'CopilotInsightsNotifier', @LockOwner = 'Session';"); }

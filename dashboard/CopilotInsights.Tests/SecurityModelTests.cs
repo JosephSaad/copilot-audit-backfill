@@ -63,6 +63,8 @@ public class SecurityModelTests
 /// <summary>What the navigation and the start page list: only what the viewer can open.</summary>
 public class NavigationTests
 {
+    static HashSet<string> R(params string[] roles) => new(roles, StringComparer.OrdinalIgnoreCase);
+
     static Viewer V(int? level, bool inDirectory = true, params string[] roles) =>
         new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = level, InDirectory = inDirectory, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase) };
 
@@ -107,7 +109,7 @@ public class NavigationTests
     public void Sections_without_a_role_stay_open_to_everyone_in_the_directory()
     {
         var personas = CopilotInsights.Pages.Nav.For(V(5)).Select(g => g.Persona).ToList();
-        Assert.Equal(["My Copilot", "Leadership", "Regions", "People", "App owners", "Governance"], personas);
+        Assert.Equal(["Leadership", "Regions", "People", "App owners", "Governance"], personas);
         Assert.Null(CopilotInsights.Pages.Nav.SectionOf("/leadership")?.Role);
     }
 
@@ -144,14 +146,87 @@ public class NavigationTests
     }
 
     [Fact]
-    public void Everyone_in_the_directory_gets_their_own_page_first()
+    public void There_are_no_personal_pages()
     {
-        var first = CopilotInsights.Pages.Nav.For(V(5))[0];
-        Assert.Equal("My Copilot", first.Persona);
-        Assert.Equal("/me", first.Pages[0].Path);
-        Assert.Equal(["/me", "/me/email", "/me/views"], first.Pages.Select(p => p.Path));
+        /* 2.4.4 removed My Copilot: its use, its email choices and saved views. */
+        Assert.DoesNotContain(CopilotInsights.Pages.Nav.Groups, g => g.Persona == "My Copilot");
+        Assert.DoesNotContain(CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages), p => p.Path == "/me" || p.Path.StartsWith("/me/"));
+        Assert.Equal("Leadership", CopilotInsights.Pages.Nav.For(V(5))[0].Persona);
         Assert.Contains("/licensing/changes", Paths(V(5, roles: Roles.Licensing)));   // in the Licensing section, which needs the role
         Assert.DoesNotContain("/licensing/changes", Paths(V(5)));
+    }
+
+    /* ---- The dashboard's level limit (2.4.4) ------------------------------------------------ */
+
+    [Theory]
+    [InlineData(0, 1, true)]       // no limit: everyone, as before
+    [InlineData(0, 12, true)]
+    [InlineData(0, null, true)]
+    [InlineData(7, 1, true)]       // the top
+    [InlineData(7, 7, true)]       // the last level in
+    [InlineData(7, 8, false)]      // the first level out
+    [InlineData(7, null, false)]   // not under the top, or not in the directory
+    [InlineData(1, 1, true)]
+    [InlineData(1, 2, false)]
+    [InlineData(15, 15, true)]
+    [InlineData(15, 16, false)]
+    public void The_limit_lets_in_levels_one_to_n(int max, int? level, bool expected) =>
+        Assert.Equal(expected, AccessRules.MayUseDashboard(level, R(), max));
+
+    [Theory]
+    [InlineData("Organization")]
+    [InlineData("Licensing")]
+    [InlineData("Security")]
+    [InlineData("enablement")]
+    public void A_role_other_than_admin_lets_anyone_in(string role)
+    {
+        Assert.True(AccessRules.MayUseDashboard(11, R(role), 7));
+        Assert.True(AccessRules.MayUseDashboard(null, R(role), 7));
+    }
+
+    [Fact]
+    public void Admin_alone_does_not_let_anyone_in()
+    {
+        Assert.False(AccessRules.MayUseDashboard(9, R(Roles.Admin), 7));
+        Assert.False(AccessRules.MayUseDashboard(null, R("ADMIN"), 7));
+        Assert.True(AccessRules.MayUseDashboard(9, R(Roles.Admin, Roles.Licensing), 7));
+    }
+
+    static Viewer Outside(params string[] roles) =>
+        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = 9, InDirectory = true, Roles = R(roles), MaxLevel = 7,
+                Admitted = AccessRules.MayUseDashboard(9, R(roles), 7) };
+
+    [Fact]
+    public void Outside_the_levels_nothing_is_listed()
+    {
+        Assert.Empty(CopilotInsights.Pages.Nav.For(Outside()));
+        Assert.Empty(CopilotInsights.Pages.Nav.For(Outside(), privacyMode: true, manyTenants: true));
+    }
+
+    [Fact]
+    public void An_admin_outside_the_levels_keeps_the_admin_pages_only()
+    {
+        var groups = CopilotInsights.Pages.Nav.For(Outside(Roles.Admin));
+        Assert.Equal("Admin", Assert.Single(groups).Persona);
+        Assert.All(groups[0].Pages, p => Assert.True(p.Admin));
+    }
+
+    [Fact]
+    public void A_role_holder_outside_the_levels_gets_the_usual_pages()
+    {
+        var v = Outside(Roles.Licensing);
+        Assert.True(v.Admitted);
+        Assert.Contains("/licensing/unused", Paths(v));
+        Assert.Contains("/leadership", Paths(v));
+    }
+
+    [Fact]
+    public void The_refusal_names_the_levels_and_the_viewers_own()
+    {
+        var text = CopilotInsights.Pages.InsightsPage.LimitRefusal(Outside());
+        Assert.Contains("levels 1 to 7", text);
+        Assert.Contains("level 9", text);
+        Assert.Contains("Admin pages", CopilotInsights.Pages.InsightsPage.LimitRefusal(Outside(Roles.Admin)));
     }
 
     [Fact]

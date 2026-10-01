@@ -151,7 +151,7 @@ FROM w;")).Single();
 public sealed class AccessModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Access and roles";
-    public override string Intro => "Who sees what. Levels 1 and 2 below the top see the whole organization; everyone else their own part of it. Roles add whole-organization access or named detail.";
+    public override string Intro => "Who sees what. The dashboard can be limited to the top levels of the organization. Levels 1 and 2 below the top see the whole organization; everyone else their own part of it. Roles add whole-organization access or named detail.";
 
     static readonly string[] SettingNames = ["OrgTopUpn", "MinGroupSize", "DefaultDays", "InactiveDays"];
 
@@ -185,6 +185,26 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             (set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({det})" : "") +
             ". Groups smaller than the minimum are folded into \"Smaller groups\" in breakdowns. The pay-as-you-go cost is what one agent or work-grounded chat interaction costs in Copilot Credits " +
             "without a license, for Licensing > Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, grounded in tenant data, 10) at 0.01 each. A change takes effect at once."));
+
+        /* Who can open the dashboard (2.4.4): levels 1 to N below the top, with each choice's head count. */
+        var levels = await Db.QueryAsync<(byte? Level, int N)>("SELECT Level, COUNT(*) FROM dash.Person WHERE AccountEnabled = 1 GROUP BY Level ORDER BY Level;");
+        var max = Math.Clamp(int.TryParse(set.GetValueOrDefault("MaxViewerLevel"), out var mv) ? mv : 0, 0, 15);
+        var deepest = Math.Min(15, Math.Max(max, levels.Where(l => l.Level is not null).Select(l => (int)l.Level!.Value).DefaultIfEmpty(0).Max()));
+        var everyone = levels.Sum(l => l.N);
+        var granted = await Db.QueryAsync<(string PrincipalType, int N)>(
+            "SELECT PrincipalType, COUNT(DISTINCT Principal) FROM dash.RoleGrant WHERE Role <> 'Admin' GROUP BY PrincipalType;");
+        int Grants(string type) => granted.FirstOrDefault(g => g.PrincipalType == type).N;
+        var choices = new List<(string Value, string Label)> { ("0", $"Everyone in the directory ({everyone:#,0} people)") };
+        for (var n = 1; n <= deepest; n++)
+            choices.Add((n.ToString(), $"Levels 1 to {n} ({levels.Where(l => l.Level is { } v && v <= n).Sum(l => l.N):#,0} people)"));
+        Panels.Add(new("Who can open the dashboard", new HtmlString(Form("limit",
+            $"<label>Open to<select name=\"MaxViewerLevel\">" +
+            string.Concat(choices.Select(c => $"<option value=\"{c.Value}\"{(c.Value == max.ToString() ? " selected" : "")}>{E(c.Label)}</option>")) + "</select></label>" +
+            Button("Save", "Change who can open the dashboard? It applies to every page, export, the data API and the manager digests within a minute."))),
+            $"Level 1 is the top of the organization, level 2 reports to them, and so on. Whatever their level, anyone granted a role other than Admin (Grant a role, below) is let in too: " +
+            $"{Grants("User"):#,0} people and {Grants("Group"):#,0} groups today. Administrators outside the levels keep the Admin pages, so a wrong choice can be put right here. " +
+            "Managers below the levels stop getting the manager digest. People with no level (not under the top) are left out by any limit." +
+            (max > 0 ? $" Now: levels 1 to {max}." : " Now: everyone.")));
 
         Panels.Add(new("Grant a role", new HtmlString(Form("grant",
             Input("principal", "User (UPN) or group (DOMAIN\\Group)", null, 34) +
@@ -247,14 +267,16 @@ WHERE g.Principal IN @list;", new { list });
                 : $"<p><b>{E(p.DisplayName ?? p.Upn)}</b>, level {(p.Level?.ToString() ?? "not under the top")}, reports to {E(p.ManagerUpn ?? "nobody")}.</p>" +
                   $"<p>Sees: <b>{(org ? "the whole organization" : p.PeopleBelow > 0 ? $"themselves and the {p.PeopleBelow:#,0} people under them" : "their own use")}</b>" +
                   $"{(org && roles.Contains(Roles.Organization) && p.Level is not (1 or 2) ? " (by the Organization role)" : "")}.</p>");
+            if (!AccessRules.MayUseDashboard(p.Level, roles, max))
+                body.Append($"<p><b>Cannot open the dashboard</b>: it is open to levels 1 to {max}, and they hold no role directly{(roles.Contains(Roles.Admin) ? " other than Admin, which gives them the Admin pages only" : "")}. A group grant would still let them in.</p>");
             body.Append($"<p>Roles granted to the account directly: {(roles.Count == 0 ? "none" : E(string.Join(", ", roles)))}. Group grants are resolved when they sign in, so check the groups above too.</p>");
         }
         Panels.Add(new("Check someone's access", new HtmlString(body.ToString()), null, "half"));
 
-        var levels = await Db.QueryAsync<(byte? Level, int N)>("SELECT Level, COUNT(*) FROM dash.Person WHERE AccountEnabled = 1 GROUP BY Level ORDER BY Level;");
         var lt = new Table { Headers = ["Level", "People", "Sees"], Numeric = new HashSet<int> { 1 } };
         foreach (var l in levels)
-            lt.Rows.Add([l.Level?.ToString() ?? "Not under the top", l.N, l.Level is 1 or 2 ? "Whole organization" : "Their own part"]);
+            lt.Rows.Add([l.Level?.ToString() ?? "Not under the top", l.N,
+                         !AccessRules.MayUseDashboard(l.Level, new HashSet<string>(), max) ? "Nothing, unless granted a role" : l.Level is 1 or 2 ? "Whole organization" : "Their own part"]);
         Panels.Add(new("People by level", lt.Render(), null, "half"));
     }
 
@@ -288,6 +310,20 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (@n, 
         return changed.Count == 0 ? "Settings unchanged." :
             "Settings saved: " + string.Join("; ", changed.Select(kv => $"{kv.Key} {before.GetValueOrDefault(kv.Key) ?? "(empty)"} → {kv.Value ?? "(empty)"}")) +
             (changed.Any(kv => kv.Key == "OrgTopUpn") ? ". The org chart was rebuilt for the new top." : ".");
+    });
+
+    public Task<IActionResult> OnPostLimitAsync(int MaxViewerLevel) => AdminChangeAsync(async () =>
+    {
+        if (MaxViewerLevel is < 0 or > 15) throw new ArgumentException("choose everyone, or levels 1 to 15.");
+        var before = (await S.Settings.AllAsync()).GetValueOrDefault("MaxViewerLevel") is { } b && int.TryParse(b, out var bi) ? bi : 0;
+        if (before == MaxViewerLevel) return "Who can open the dashboard is unchanged.";
+        await Db.ExecuteAsync(@"
+UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = N'MaxViewerLevel';
+IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'MaxViewerLevel', @v, @by);",
+            new { v = MaxViewerLevel.ToString(), by = Viewer.Upn ?? Viewer.WindowsName });
+        S.Settings.Invalidate();
+        static string Say(int n) => n == 0 ? "everyone in the directory" : $"levels 1 to {n}";
+        return $"The dashboard was open to {Say(before)}; it is now open to {Say(MaxViewerLevel)}, and to anyone granted a role.";
     });
 
     public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string? note) => AdminChangeAsync(async () =>

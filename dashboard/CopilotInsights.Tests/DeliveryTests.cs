@@ -2,7 +2,6 @@ using System.Text.Json;
 using CopilotInsights.Charts;
 using CopilotInsights.Infrastructure;
 using CopilotInsights.Pages;
-using CopilotInsights.Pages.Personal;
 using Xunit;
 
 namespace CopilotInsights.Tests;
@@ -100,23 +99,6 @@ public class ExtractTests
         Assert.All(ExtractData.Datasets.Values, d => Assert.DoesNotContain("UserPrincipalName", d.Sql));
 }
 
-/// <summary>Saved views can only point at report pages on this site.</summary>
-public class SavedViewTests
-{
-    [Theory]
-    [InlineData("/adoption?d=90", true)]
-    [InlineData("/security/flags?kind=jailbreak&status=open", true)]
-    [InlineData("/leadership/", true)]
-    [InlineData("//evil.com/adoption", false)]
-    [InlineData("https://evil.com/adoption", false)]
-    [InlineData("/adoption?handler=csv", false)]
-    [InlineData("/\\evil.com", false)]
-    [InlineData("/not-a-page", false)]
-    [InlineData("", false)]
-    [InlineData(null, false)]
-    public void Safe(string? url, bool ok) => Assert.Equal(ok, ViewsModel.SafeUrl(url));
-}
-
 /// <summary>Event markers on trend charts.</summary>
 public class MarkerTests
 {
@@ -175,7 +157,7 @@ public class PrivacyNavTests
     public void Every_new_page_is_in_the_navigation()
     {
         var paths = Nav.Groups.SelectMany(g => g.Pages).Select(p => p.Path).ToHashSet();
-        foreach (var p in new[] { "/me/email", "/me/views", "/leadership/usecases", "/leadership/boardpack", "/adoption/leaderboard", "/security/guests",
+        foreach (var p in new[] { "/leadership/usecases", "/leadership/boardpack", "/adoption/leaderboard", "/security/guests",
                                   "/compliance/person", "/forecasting/budget", "/forecasting/waves", "/forecasting/outcomes", "/workforce/families",
                                   "/admin/directory", "/admin/classifications", "/admin/extracts", "/licensing/ranking", "/licensing/payg", "/licensing/swap", "/licensing/license-for-credits", "/licensing/fading", "/licensing/non-person", "/agents/credits", "/licensing/overlap", "/licensing/departures" })
             Assert.Contains(p, paths);

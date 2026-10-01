@@ -4,9 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.4] - Unreleased
+## [2.4.4] - 2026-10-01
 
-Install over 2.4.3: reinstall the dashboard from its package. Nothing else changes.
+The dashboard can be limited to the top levels of the organization, set in the dashboard
+itself, and the personal features are gone: My Copilot, saved views and the personal
+weekly email. No table changes.
+
+Install over 2.4.3: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once
+(it adds the `MaxViewerLevel` setting, off until chosen, and removes the personal email's
+setting), and reinstall the dashboard from its package. Then choose the levels in
+Admin › Access › *Who can open the dashboard*.
+
+### Added
+- **Who can open the dashboard** (Admin › Access): *Everyone in the directory*, as
+  before, or *Levels 1 to N* below the top of the organization, up to 15, each choice
+  showing how many people it lets in. With a limit, everyone else is refused every page,
+  CSV export, file download, form and data API call, with a page that names the levels,
+  and each refusal is in the audit log; the navigation lists nothing for them. Anyone
+  granted a role other than Admin is let in whatever their level, so Admin › Access is
+  the list of exceptions. An administrator outside the levels keeps the start page and
+  the Admin pages, so a wrong limit, or a wrong top, can always be put right. Manager
+  digests go only to managers within the levels. The level comes from the directory
+  record of the SID-checked sign-in, never from the request. Also
+  `Invoke-CopilotMaintenance.ps1 -Task SetDashboardSetting -Name MaxViewerLevel -Value N`
+  (0 for everyone). *Check someone's access* says when the limit keeps a person out.
+- **Managers who do not get the digest** (Admin › Alerts and digests): an administrator
+  stops, or restores, one manager's digest. Opt-outs made before 2.4.4 are kept.
+
+### Removed
+- **My Copilot**: *My use*, *Email* and *Saved views*, with the *Save view* button on
+  every report and the saved start page. Links to `/me` in earlier emails open the start
+  page. `dash.SavedView` and `dash.DigestPreference` are kept as they are, with their rows.
+- **The personal weekly email**, and its switch in Admin › Alerts and digests.
 
 ### Fixed
 - **Admin › Health moves to `/admin/health`.** It was the only page at the bare

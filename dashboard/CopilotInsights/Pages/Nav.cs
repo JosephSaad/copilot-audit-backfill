@@ -11,8 +11,6 @@ public static class Nav
 {
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
-        new("My Copilot", "Everyone: your own use", [
-            new("My use", "/me"), new("Email", "/me/email"), new("Saved views", "/me/views")]),
         new("Leadership", "Executives and department heads", [
             new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Apps and agents", "/leadership/mix"),
             new("Value and time saved", "/leadership/value"), new("Use cases", "/leadership/usecases"), new("Board pack", "/leadership/boardpack"),
@@ -66,9 +64,11 @@ public static class Nav
     /// Whether a page is open to the viewer: admin pages to administrators, role pages to holders
     /// of the role, and report pages to anyone with data to see (in the directory, or granted
     /// Organization). The navigation and the start page show only these; the rest are not listed.
+    /// Outside the dashboard's levels (2.4.4), only an administrator's Admin pages are.
     /// </summary>
     public static bool Allowed(NavPage page, Viewer viewer, bool privacyMode = false) =>
-        page.ManyTenants ? (viewer.OrgWide || viewer.InDirectory)
+        !viewer.Admitted ? page.Admin && viewer.IsAdmin
+        : page.ManyTenants ? (viewer.OrgWide || viewer.InDirectory)
         : page.Admin ? viewer.IsAdmin
                    : (viewer.OrgWide || viewer.InDirectory) && (page.Role is null || ((!privacyMode || page.InPrivacy) && viewer.Has(page.Role)));
 

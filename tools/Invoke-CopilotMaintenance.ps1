@@ -19,7 +19,9 @@
     -Task SetOrgTop            Make -Upn the top of the organization for the dashboard, or -Clear
                                to go back to the one found in the org chart. Rebuilds the org chart.
     -Task SetDashboardSetting  Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost,
-                               LicenseCurrency or PaygInteractionCost to -Value.
+                               LicenseCurrency, PaygInteractionCost or MaxViewerLevel to -Value.
+                               MaxViewerLevel 0 opens the dashboard to everyone; 1 to 15 to
+                               levels 1 to that below the top, and anyone granted a role.
     -Task NameAgent            Give the agent -AgentId (its id in the audit log) a -FriendlyName
                                (and -Owner). An empty -FriendlyName removes the name.
     -Task NameLabel            Give the sensitivity label -LabelId a -Name (and -Rank, 0 least sensitive).
@@ -65,7 +67,7 @@ param(
     [ValidateSet('User', 'Group')][string] $PrincipalType,
     [string] $Upn,
     [switch] $Clear,
-    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenseMonthlyCost', 'LicenseCurrency', 'PaygInteractionCost')][string] $Name,
+    [ValidateSet('MinGroupSize', 'DefaultDays', 'InactiveDays', 'LicenseMonthlyCost', 'LicenseCurrency', 'PaygInteractionCost', 'MaxViewerLevel')][string] $Name,
     [string] $Value,
     [string] $AgentId,
     [string] $FriendlyName,
@@ -197,6 +199,7 @@ INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'I
     }
     'SetDashboardSetting' {
         Need 'Name' $Name; Need 'Value' $Value
+        if ($Name -eq 'MaxViewerLevel' -and $Value -notmatch '^(0|[1-9]|1[0-5])$') { throw 'MaxViewerLevel is 0 (everyone) or a level from 1 to 15.' }
         Invoke-Sql -Parameters @{ '@n' = $Name; '@v' = $Value; '@by' = $me } -Sql @"
 UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = @n;
 IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (@n, @v, @by);

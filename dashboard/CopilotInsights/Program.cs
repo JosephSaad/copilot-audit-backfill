@@ -59,9 +59,28 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use((ctx, next) => TenantAccessor.SelectAsync(ctx, () => next()));
+/* The dashboard's level limit (2.4.4), behind every endpoint that is not a page: pages refuse with
+   their own message (InsightsPage), the data API with its own; anything else added later is covered here. */
+app.Use(async (ctx, next) =>
+{
+    if (ctx.GetEndpoint() is { } ep && ep.Metadata.GetMetadata<Microsoft.AspNetCore.Mvc.RazorPages.PageActionDescriptor>() is null
+        && !ctx.Request.Path.StartsWithSegments("/api"))
+    {
+        var viewer = await ctx.RequestServices.GetRequiredService<ViewerService>().GetAsync();
+        if (!viewer.Admitted && !viewer.IsAdmin)
+        {
+            await ctx.RequestServices.GetRequiredService<AuditLog>().WriteAsync(viewer, "Denied", ctx.Request.Path, null, "outside the dashboard's levels");
+            ctx.Response.StatusCode = 403;
+            return;
+        }
+    }
+    await next();
+});
 app.MapRazorPages();
 /* Health moved from /admin, which servers often block, to /admin/health; old links still arrive. */
 app.MapGet("/admin", () => Results.Redirect("/admin/health"));
+/* My Copilot's pages are gone (2.4.4): links to them in earlier emails land on the start page. */
+app.MapGet("/me/{**rest}", () => Results.Redirect("/"));
 app.MapDataApi();
 
 app.Run();

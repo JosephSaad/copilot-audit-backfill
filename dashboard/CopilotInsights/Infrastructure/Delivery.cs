@@ -179,7 +179,7 @@ public sealed partial class Notifier
             await SetStateAsync("certificate", key);
         }
 
-        /* ---- Manager and personal digests --------------------------------------------------------- */
+        /* ---- Manager digests ------------------------------------------------------------------ */
 
         const int DigestsPerRound = 200;
 
@@ -224,14 +224,17 @@ WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, pe
             if (await _settings.PrivacyModeAsync()) return;   // unit names are people's names
             if (await DigestRoundAsync(freq) is not { } round) return;
             var min = await _settings.IntAsync("ManagerDigestMinPeople", 10);
+            /* Only managers who may open the dashboard (2.4.4): its figures go no further than its pages do. */
+            var max = Math.Clamp(await _settings.IntAsync("MaxViewerLevel", 0), 0, 15);
             var managers = await _db.QueryAsync<(string Upn, string? Mail)>(@"
 SELECT TOP (@take) p.Upn, NULLIF(ud.Mail, N'')
 FROM dash.Person AS p
 LEFT JOIN audit.UserDirectory AS ud ON ud.UserPrincipalName = p.Upn
 LEFT JOIN dash.DigestPreference AS pref ON pref.Upn = p.Upn
 WHERE p.AccountEnabled = 1 AND p.PeopleBelow >= @min AND ISNULL(pref.ManagerDigestOptOut, 0) = 0
+  AND (@max = 0 OR p.Level BETWEEN 1 AND @max)
   AND " + string.Format(Due, "p.Upn") + @"
-ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, period = round.Period, kind = "Manager" });
+ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, period = round.Period, kind = "Manager" });
             int sent = 0, failed = 0;
             foreach (var m in managers)
             {
@@ -248,34 +251,6 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, period = round
                 if (status == "Sent") sent++; else failed++;
             }
             if (sent + failed > 0) done.Add($"Manager digests for {round.Period}: {sent} sent" + (failed > 0 ? $", {failed} not sent (see Admin > Email)" : "") + ".");
-        }
-
-        public async Task PersonalDigestsAsync()
-        {
-            if (await _settings.StringAsync("PersonalDigest") == "Off" || !await _ops.HasAsync("dash.DigestPreference")) return;
-            if (await DigestRoundAsync("Weekly") is not { } round) return;
-            var people = await _db.QueryAsync<(string Upn, string? Mail)>(@"
-SELECT TOP (@take) pref.Upn, NULLIF(ud.Mail, N'')
-FROM dash.DigestPreference AS pref
-LEFT JOIN audit.UserDirectory AS ud ON ud.UserPrincipalName = pref.Upn
-WHERE pref.PersonalDigest = 1
-  AND " + string.Format(Due, "pref.Upn") + ";",
-                new { take = DigestsPerRound, period = round.Period, kind = "Personal" });
-            int sent = 0;
-            foreach (var p in people)
-            {
-                if (!await ClaimAsync(p.Upn, "Personal", round.Period)) continue;
-                string status;
-                try
-                {
-                    var (subject, html, text) = await _reports.PersonalDigestAsync(p.Upn);
-                    status = await _mail.SendAsync("PersonalDigest", MailConfig.Recipients(p.Mail ?? p.Upn), subject, html, text, ct) is null ? "Sent" : "NotSent";
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException) { _log.LogWarning(ex, "Personal digest for {Upn}", p.Upn); status = "Failed"; }
-                await MarkAsync(p.Upn, "Personal", round.Period, status == "Sent");
-                if (status == "Sent") sent++;
-            }
-            if (people.Count > 0) done.Add($"Personal digests for {round.Period}: {sent} of {people.Count} sent.");
         }
 
         /* ---- Scheduled extracts ------------------------------------------------------------------ */
