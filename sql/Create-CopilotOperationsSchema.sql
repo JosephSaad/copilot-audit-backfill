@@ -299,6 +299,17 @@ IF OBJECT_ID(N'dash.LicenseContract', N'U') IS NULL
         UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenseContract_Updated DEFAULT (SYSUTCDATETIME())
     );
 
+/* Accounts a non-human rule matches that an administrator confirmed are a person, with the reason (2.4.5): a Copilot license
+   on a non-human account is a policy breach, and these are not. One row per sign-in; removing it flags the account again. */
+IF OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL
+    CREATE TABLE dash.NonHumanException
+    (
+        Upn          NVARCHAR(256)   NOT NULL CONSTRAINT PK_DashNonHumanException PRIMARY KEY,
+        Reason       NVARCHAR(400)   NOT NULL,
+        ConfirmedBy  NVARCHAR(256)   NOT NULL,
+        ConfirmedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_DashNonHumanException_Confirmed DEFAULT (SYSUTCDATETIME())
+    );
+
 /* Each person's saved views; one may be their start page. Unused since 2.4.4, which removed My Copilot; kept, with its rows. */
 IF OBJECT_ID(N'dash.SavedView', N'U') IS NULL
     CREATE TABLE dash.SavedView
@@ -399,7 +410,14 @@ USING (VALUES
     ('ManagerDigestDay',       N'1',     N'The manager digest''s day: 0 Sunday to 6 Saturday (weekly), or 1 to 28 (monthly).'),
     ('DigestHour',             N'7',     N'The hour the manager digests go out, in the reporting time zone.'),
     ('CertificateWarnDays',    N'30',    N'Alert when the pipeline''s app certificate expires within this many days (and again at 14 and 3).'),
-    ('RolloutWaveSize',        N'50',    N'The default number of people in a rollout wave.')
+    ('RolloutWaveSize',        N'50',    N'The default number of people in a rollout wave.'),
+    ('NonHumanGuests',         N'On',    N'A Copilot license on a guest is a non-human-account breach: On or Off (Admin > Reference data).'),
+    ('NonHumanNames',          N'On',    N'Sign-ins and names that read like a service, shared, test or room account count as non-human: On or Off.'),
+    ('NonHumanNoChart',        N'On',    N'Accounts with no manager and outside the org chart count as non-human: On or Off.'),
+    ('NonHumanPatterns',       NULL,     N'More sign-in patterns that mark a non-human account, comma-separated, * for any text (bot-*, *-svc).'),
+    ('NonHumanEmployeeTypes',  NULL,     N'Employee types that mark a non-human account, comma-separated (SERVICE, RESOURCE).'),
+    ('NonHumanGroups',         NULL,     N'AD groups (DOMAIN\Group) whose members are non-human accounts, comma-separated; the directory load reads their members.'),
+    ('NonHumanAlert',          N'1',     N'1 alerts Security and Licensing the first time a Copilot license is found on a non-human account; 0 does not.')
 ) AS src (Name, Value, Description)
 ON t.Name = src.Name
 WHEN MATCHED AND ISNULL(t.Description, N'') <> src.Description THEN UPDATE SET Description = src.Description
@@ -473,6 +491,7 @@ GRANT INSERT, UPDATE, DELETE ON dash.DigestSend TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.LicenseAction TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.LicenseContract TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.NonHumanException TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.UseCaseRule TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.EventMarker TO CopilotInsightsApp;
@@ -490,12 +509,12 @@ GRANT VIEW DEFINITION ON SYMMETRIC KEY::CopilotInsightsSecretKey TO CopilotInsig
 GRANT CONTROL ON CERTIFICATE::CopilotInsightsSecretCert TO CopilotInsightsApp;
 IF OBJECT_ID(N'audit.SessionAppCategory', N'U') IS NOT NULL
     GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO CopilotInsightsApp;
-/* The pipeline tables Admin > Health, the license reports and the value catalog read. */
+/* The pipeline tables Admin > Health, the license reports and the value catalog read, and the members of the groups that mark non-human accounts (2.4.5). */
 DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),
                              (N'PipelineRunStep'), (N'PipelineSetting'), (N'LicenseSku'), (N'LicenseSkuDay'), (N'CopilotLicense'), (N'UserLicenseSku'),
-                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow')) AS v (name)
+                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;

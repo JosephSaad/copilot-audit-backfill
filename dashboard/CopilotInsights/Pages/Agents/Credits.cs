@@ -19,6 +19,8 @@ public sealed class CreditsModel(PageServices s) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["credits"] = "x.U DESC, x.AgentName", ["users"] = "x.UPeople DESC, x.AgentName", ["name"] = "x.AgentName",
+        ["source"] = "x.AgentSource, x.AgentName, x.AgentKey", ["owner"] = "x.Owner, x.AgentName, x.AgentKey", ["inter"] = "x.I DESC, x.AgentName, x.AgentKey",
+        ["people"] = "x.People DESC, x.AgentName, x.AgentKey", ["each"] = "CASE WHEN x.UPeople > 0 THEN x.U * 1.0 / x.UPeople ELSE 0 END DESC, x.AgentName, x.AgentKey",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["credits"] = "Most credits", ["users"] = "Most unlicensed users", ["name"] = "Name" };
 
@@ -74,6 +76,8 @@ WHERE (@q IS NULL OR x.AgentName LIKE @q OR x.Owner LIKE @q)
             Headers = ["Agent", "Source", "Owner", "Interactions", "Without a license", "People", "Without a license", $"Credits a month ({cur})", $"A person a month ({cur})", "Suggestion"],
             Numeric = new HashSet<int> { 3, 4, 5, 6, 7, 8 },
             EmptyText = "No agent was used in the period.",
+            /* Without a license (interactions) and Credits a month are the same count, so both sort by credits. */
+            Server = new(pg, Request, ["name", "source", "owner", "inter", "credits", "people", "users", "credits", "each", null], new HashSet<int> { 3, 4, 5, 6, 7, 8 }),
         };
         foreach (var r in rows)
         {

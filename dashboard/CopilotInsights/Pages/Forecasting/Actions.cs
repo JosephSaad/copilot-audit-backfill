@@ -51,6 +51,9 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["strength"] = "Strength DESC, DisplayName", ["name"] = "DisplayName", ["dept"] = "Department, DisplayName", ["manager"] = "ManagerName, DisplayName",
+        /* Bare column names: the same list orders the page (in pick) and puts its rows back in order (outside it). */
+        ["upn"] = "UserPrincipalName", ["days"] = "Days DESC, DisplayName, UserPrincipalName", ["premium"] = "PremiumDays DESC, DisplayName, UserPrincipalName",
+        ["inter"] = "Interactions DESC, DisplayName, UserPrincipalName", ["since"] = "LicensedSinceUtc, DisplayName, UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["strength"] = "Strongest case first", ["name"] = "Name", ["dept"] = "Department", ["manager"] = "Manager" };
 
@@ -124,7 +127,7 @@ base AS (
 ),
 pick AS (SELECT base.*, COUNT(*) OVER () AS TotalRows FROM base {pg.OrderAndPage()})
 SELECT pick.* FROM pick
-ORDER BY {Sorts[pg.SortKey]};", Ctx.Args(new { k30, kind, q = pg.Like }));
+ORDER BY {pg.OrderBy};", Ctx.Args(new { k30, kind, q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
         /* The detail only for the page shown, in one pass for all of them: last use, and the
@@ -152,6 +155,8 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
             Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Days using Premium features (30)", "Interactions (30)", "Last used", "Licensed since", "License the records report", "Why"],
             Numeric = new HashSet<int> { 5, 6, 7 },
             EmptyText = "No one fits this recommendation.",
+            /* Last used and the recorded license are looked up after the page query, so they do not sort. */
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", null, "days", "premium", "inter", null, "since", null, null], new HashSet<int> { 5, 6, 7 }),
         };
         foreach (var r in rows)
         {

@@ -93,6 +93,9 @@ public sealed class AccessModel(PageServices s) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["most"] = "x.N DESC, du.DisplayName", ["sens"] = "x.TopRank DESC, x.N DESC", ["name"] = "du.DisplayName", ["dept"] = "du.Department, du.DisplayName",
+        /* x is #x when the page is picked and #pick when its rows are put back in order: both carry these columns. */
+        ["upn"] = "du.UserPrincipalName", ["days"] = "x.Days DESC, du.DisplayName, du.UserPrincipalName",
+        ["sites"] = "x.Sites DESC, du.DisplayName, du.UserPrincipalName", ["blocked"] = "x.Blocked DESC, du.DisplayName, du.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new()
     {
@@ -168,12 +171,13 @@ SELECT du.DisplayName, du.UserPrincipalName, du.Department, x.N, x.Days, toplabe
        x.Sites, x.Blocked, x.TotalRows
 FROM #pick AS x JOIN bi.DimUser AS du ON du.UserKey = x.UserKey
 LEFT JOIN toplabel ON toplabel.UserKey = x.UserKey AND toplabel.n = 1
-ORDER BY {Sorts[pg.SortKey]};", Ctx.Args(new { q = pg.Like, label }));
+ORDER BY {pg.OrderBy};", Ctx.Args(new { q = pg.Like, label }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
             Headers = ["Name", "Sign-in", "Department", "Labeled interactions", "Days", "Most sensitive label", "Sites", "Blocked"],
             Numeric = new HashSet<int> { 3, 4, 6, 7 }, EmptyText = "Nobody touched labeled content in the period.",
+            Server = new(pg, Request, ["name", "upn", "dept", "most", "days", "sens", "sites", "blocked"], new HashSet<int> { 3, 4, 5, 6, 7 }),
         };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.N, r.Days, r.TopLabel, r.Sites, r.Blocked]);
         CsvTable = t;

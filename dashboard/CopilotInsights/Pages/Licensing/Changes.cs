@@ -88,6 +88,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
             if (small.Count > 0) shown.Add(("Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Removed), small.Sum(d => d.Active), small.Sum(d => d.Back)));
             var dt = new Table { Headers = ["Department", "Removed", "Still in use", "Given back"], Numeric = new HashSet<int> { 1, 2, 3 } };
             foreach (var d in shown) dt.Rows.Add([d.Name, d.Removed, d.Active, d.Back]);
+            dt.KeepLast = small.Count > 0 ? 1 : 0;
             CsvTable = dt;
             Panels.Add(new("Removals by department", dt.Render(),
                 small.Count > 0 ? $"{small.Count} department(s) with fewer than {Ctx.MinGroupSize} people affected are combined." : null, "full", CsvUrl()));

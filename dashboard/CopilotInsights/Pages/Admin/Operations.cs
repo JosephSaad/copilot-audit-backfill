@@ -612,24 +612,30 @@ FROM audit.ValueCatalogColumn AS c ORDER BY c.ColumnId;");
         foreach (var c in cols.Where(c => c.DistinctValues > 0 || c.Capped))
             ct.Rows.Add([c.Label, $"{c.TableName}.{c.ColumnName}", c.Capped ? "10,000 or more" : $"{c.DistinctValues:#,0}", c.Named,
                 c.Capped ? "too many to name" : new Link(c.ColumnId == col?.ColumnId ? "Naming" : "Name them", Request.Path + $"?col={c.ColumnId}")]);
-        Panels.Add(new("Columns", ct.Render(), "Columns with no values yet are hidden. The catalog fills as records are flattened; for data flattened before it existed, run Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog once."));
+        /* The mapping file (2.4.5): every column's values and names in one CSV, the format the upload reads. */
+        var mapping = $"<form class=\"admin\" method=\"post\" enctype=\"multipart/form-data\" action=\"{E(Request.Path + "?handler=upload" + (col is null ? "" : $"&col={col.ColumnId}"))}\">{Token()}" +
+                      "<label>Names from a CSV (column id, value, name, note)<input type=\"file\" name=\"file\" accept=\".csv,text/csv\"/></label>" + Button("Upload") + "</form>" +
+                      $"<p class=\"sub\"><a href=\"{E(Request.Path + "?handler=download")}\">Download the mapping file</a>: every value of every column below, with its name and note. Fill in or change the names, and upload it back; an empty name removes one.</p>";
+        Panels.Add(new("Columns", new HtmlString(mapping + ct.Render().Value), "Columns with no values yet are hidden. The catalog fills as records are flattened; for data flattened before it existed, run Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog once."));
         if (col is null || col.Capped) return;
 
-        var pg = new Paging(Request, new Dictionary<string, string> { ["most"] = "v.Records DESC", ["unnamed"] = $"CASE WHEN {NameExpr} IS NULL THEN 0 ELSE 1 END, v.Records DESC", ["value"] = "v.Value", ["new"] = "v.FirstSeenUtc DESC" }, "unnamed");
+        var pg = new Paging(Request, new Dictionary<string, string> { ["most"] = "v.Records DESC", ["unnamed"] = $"CASE WHEN {NameExpr} IS NULL THEN 0 ELSE 1 END, v.Records DESC", ["value"] = "v.Value", ["new"] = "v.FirstSeenUtc DESC", ["last"] = "v.LastSeenUtc DESC, v.Value" }, "unnamed");
         var vals = await Db.QueryAsync<ValRow>($@"
 SELECT v.Value, v.Records, v.FirstSeenUtc, v.LastSeenUtc, {NameExpr} AS Name, n.Note, COUNT(*) OVER () AS TotalRows
 FROM audit.ValueCatalog AS v {Joins}
 WHERE v.ColumnId = @id AND (@q IS NULL OR v.Value LIKE @q OR {NameExpr} LIKE @q)
 {pg.OrderAndPage()};", new { id = col.ColumnId, q = pg.Like });
         pg.Total = vals.FirstOrDefault()?.TotalRows ?? 0;
-        var vt = new Table { Headers = ["Value", "Times seen", "First seen", "Last seen", "Name"], Numeric = new HashSet<int> { 1 }, EmptyText = "No values match." };
+        var vt = new Table
+        {
+            Headers = ["Value", "Times seen", "First seen", "Last seen", "Name"], Numeric = new HashSet<int> { 1 }, EmptyText = "No values match.",
+            Server = new(pg, Request, ["value", "most", "new", "last", null], new HashSet<int> { 1, 2, 3 }),
+        };
         foreach (var v in vals)
             vt.Rows.Add([v.Value, v.Records, v.FirstSeenUtc.Date, v.LastSeenUtc.Date, new HtmlString(Form("name",
                 $"<input type=\"hidden\" name=\"col\" value=\"{col.ColumnId}\"/><input type=\"hidden\" name=\"value\" value=\"{E(v.Value)}\"/>" +
                 Input("name", "Name", v.Name, 26) + Input("note", "Note", v.Note, 20) + Button("Save", quiet: true), $"col={col.ColumnId}"))]);
-        var upload = $"<form class=\"admin\" method=\"post\" enctype=\"multipart/form-data\" action=\"{E(Request.Path + "?handler=upload&col=" + col.ColumnId)}\">{Token()}" +
-                     "<label>Names from a CSV (column id, value, name, note)<input type=\"file\" name=\"file\" accept=\".csv,text/csv\"/></label>" + Button("Upload") + "</form>" +
-                     $"<p class=\"sub\"><a href=\"{E(Request.Path + $"?handler=download&col={col.ColumnId}")}\">Download this column's values and names as CSV</a>, fill in the names, and upload it back.</p>";
+        var upload = $"<p class=\"sub\"><a href=\"{E(Request.Path + $"?handler=download&col={col.ColumnId}")}\">Download the mapping file for this column</a>: its values and names, to fill in and upload back above.</p>";
         Panels.Add(new(col.Label, new HtmlString(upload + pg.Controls(Request, new Dictionary<string, string> { ["unnamed"] = "Unnamed first", ["most"] = "Most seen", ["value"] = "Value", ["new"] = "Newest" }).Value + vt.Render().Value),
             col.ColumnId is 11 or 30 ? "Label names are shared with Admin > Reference data, where their order is set." : col.ColumnId == 6 ? "Agent names are shared with Admin > Reference data." : "Clear a name to remove it."));
     }
@@ -685,15 +691,20 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.ValueName (ColumnId, Value, Name, Note, Updat
         return $"{saved} name(s) saved, {cleared} left without a name." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
     });
 
-    public async Task<IActionResult> OnGetDownloadAsync(short col)
+    /// <summary>The mapping file: one column's values and names, or (no column) every column's but those with too many to name.</summary>
+    public async Task<IActionResult> OnGetDownloadAsync(short? col)
     {
         if (!await PrepareAsync()) return Page();
-        var vals = await Db.QueryAsync<(string Value, string? Name, string? Note)>($@"
-SELECT v.Value, {NameExpr}, n.Note FROM audit.ValueCatalog AS v {Joins} WHERE v.ColumnId = @col ORDER BY v.Records DESC;", new { col });
+        var vals = await Db.QueryAsync<(short ColumnId, string Value, string? Name, string? Note)>($@"
+SELECT v.ColumnId, v.Value, {NameExpr}, n.Note
+FROM audit.ValueCatalog AS v {Joins}
+JOIN audit.ValueCatalogColumn AS c ON c.ColumnId = v.ColumnId AND c.Capped = 0
+WHERE @col IS NULL OR v.ColumnId = @col
+ORDER BY v.ColumnId, v.Records DESC;", new { col });
         var t = new Table { Headers = ["ColumnId", "Value", "Name", "Note"] };
-        foreach (var v in vals) t.Rows.Add([(int)col, v.Value, v.Name, v.Note]);
-        await S.Audit.WriteAsync(Viewer, "Export", Request.Path, null, $"value names, column {col}: {vals.Count} values");
-        return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(t.ToCsv())).ToArray(), "text/csv", $"value-names-{col}.csv");
+        foreach (var v in vals) t.Rows.Add([(int)v.ColumnId, v.Value, v.Name, v.Note]);
+        await S.Audit.WriteAsync(Viewer, "Export", Request.Path, null, $"value names mapping file{(col is null ? "" : $", column {col}")}: {vals.Count} values");
+        return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(t.ToCsv())).ToArray(), "text/csv", col is null ? "value-names-mapping.csv" : $"value-names-mapping-{col}.csv");
     }
 }
 
@@ -716,7 +727,8 @@ public sealed class TrainingRecordsModel(PageServices s) : AdminPage(s)
                 Button("Remove", $"Remove the {x.People} attendance records of {x.Session} on {x.AttendedOn:yyyy-MM-dd}?", quiet: true)))]);
         var upload = $"<form class=\"admin\" method=\"post\" enctype=\"multipart/form-data\" action=\"{E(Request.Path + "?handler=upload")}\">{Token()}" +
                      "<label>Attendance CSV: UPN, session, date (yyyy-MM-dd)<input type=\"file\" name=\"file\" accept=\".csv,text/csv\"/></label>" + Button("Upload") + "</form>" +
-                     $"<p class=\"sub\"><a href=\"{E(Request.Path + "?handler=template")}\">Download a template</a>. A header row is fine; a record already there is skipped.</p>";
+                     $"<p class=\"sub\"><a href=\"{E(Request.Path + "?handler=mapping")}\">Download the mapping file</a>: every attendance record held, in the same columns, to add to and upload back. " +
+                     $"Or <a href=\"{E(Request.Path + "?handler=template")}\">download an empty template</a>. A header row is fine; a record already there is skipped.</p>";
         Panels.Add(new("Sessions", new HtmlString(upload + t.Render().Value), "The effect is measured 28 days after each session, so a session shows on Enablement > Training effect four weeks after it."));
     }
 
@@ -744,6 +756,18 @@ GROUP BY s.Upn, s.Session, s.AttendedOn;",
         var n = await Db.ExecuteAsync("DELETE FROM dash.TrainingAttendance WHERE Session = @session AND AttendedOn = @date", new { session, date });
         return $"{n} attendance record(s) of {session} removed.";
     });
+
+    /// <summary>The mapping file (2.4.5): every attendance record held, as UPN, Session, Date, which the upload reads back.</summary>
+    public async Task<IActionResult> OnGetMappingAsync()
+    {
+        if (!await PrepareAsync()) return Page();
+        var rows = await Db.QueryAsync<(string Upn, string Session, DateTime AttendedOn)>(
+            "SELECT Upn, Session, AttendedOn FROM dash.TrainingAttendance ORDER BY AttendedOn DESC, Session, Upn;");
+        var t = new Table { Headers = ["UPN", "Session", "Date"] };
+        foreach (var r in rows) t.Rows.Add([r.Upn, r.Session, r.AttendedOn.ToString("yyyy-MM-dd")]);
+        await S.Audit.WriteAsync(Viewer, "Export", Request.Path, null, $"training attendance mapping file: {rows.Count} records");
+        return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(t.ToCsv())).ToArray(), "text/csv", "training-attendance-mapping.csv");
+    }
 
     public async Task<IActionResult> OnGetTemplateAsync()
     {

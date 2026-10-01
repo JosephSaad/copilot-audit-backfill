@@ -108,6 +108,8 @@ public sealed class PeopleModel(PageServices s) : InsightsPage(s)
     {
         ["days"] = "p.D DESC, p.I DESC", ["fewest"] = "p.D, du.DisplayName", ["name"] = "du.DisplayName",
         ["dept"] = "du.Department, du.DisplayName", ["manager"] = "du.ManagerName, du.DisplayName",
+        ["upn"] = "du.UserPrincipalName", ["title"] = "du.JobTitle, du.DisplayName, du.UserPrincipalName", ["inter"] = "p.I DESC, du.DisplayName, du.UserPrincipalName",
+        ["mt"] = "CASE WHEN p.S > 0 THEN 1.0 * p.MT / p.S END DESC, du.DisplayName, du.UserPrincipalName", ["recent"] = "p.LastKey DESC, du.DisplayName, du.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new()
     {
@@ -150,6 +152,7 @@ WHERE p.Segment = @seg
         {
             Headers = ["Name", "Sign-in", "Department", "Job title", "Manager", "Days active", "Interactions", "Multi-turn sessions", "Last used"],
             Numeric = new HashSet<int> { 5, 6, 7 }, EmptyText = "Nobody in this segment.",
+            Server = new(pg, Request, ["name", "upn", "dept", "title", "manager", "days", "inter", "mt", "recent"], new HashSet<int> { 5, 6, 7, 8 }),
         };
         foreach (var r in rows)
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.JobTitle, r.ManagerName, r.D, r.I, Pct(Ratio(r.MT, r.S)), r.Last]);

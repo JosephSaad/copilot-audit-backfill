@@ -96,7 +96,7 @@ M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 
 The audit log records many things as codes. Give them names once and the dashboard's pages and Power BI (`bi.ValueNames`) show the names.
 
-**Any cataloged code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top), or **Download** the column as a CSV, fill in the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
+**Any cataloged code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top). Or work in a spreadsheet: **Download the mapping file** (every value of every column, with its name and note, in one CSV; or one column's from that column's view), fill in or change the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
 
 ```powershell
 M -Task ListValues                                  # the columns, and how many values each has
@@ -104,6 +104,8 @@ M -Task ListValues -ColumnId 16 -Path models.csv   # one column's values and nam
 M -Task ImportValueNames -Path models.csv           # read the names back
 M -Task RebuildValueCatalog                         # every value again, from every flattened record
 ```
+
+**Non-human accounts (2.4.5).** A Copilot license on an account that is not a person is a policy breach. Admin › Reference data › *Non-human accounts* sets which accounts count: guests; sign-ins and names that read like a service, shared, test or room account; accounts with no manager outside the org chart; more sign-in patterns of your own (`bot-*`, `*-svc`); employee types that are not people (`SERVICE`, `RESOURCE`); and AD groups of service accounts (`DOMAIN\Group`, whose members the next nightly directory load reads). The breaches are on Security, Compliance and Licensing › *Copilot on non-human accounts*, with an Entra bulk remove file and a PowerShell script to remove every one, recorded for License action outcomes. The first time an account is found, the Security and Licensing alert recipients get an alert (and the webhook and the event log, ID 2002); turn it off on the same panel. **An account that is a person after all:** on the breach page, an administrator enters why and clicks **Confirm a person**; it moves to *Confirmed as people* with who confirmed it and when, raises no alert, and **Flag it again** undoes it. Each change is in the audit log.
 
 **Sensitivity labels.** Admin › Reference data › *Sensitivity labels*: a name and an order (0 least sensitive) for each label id. The order drives "most sensitive label" and the label threshold for security alerts. `Get-Label` in Security & Compliance PowerShell lists your labels and their ids. Label names set in Value names show here too, and the other way round.
 
@@ -143,7 +145,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 **Time saved.** Admin › Targets and assumptions › *Time saved*: the default minutes one interaction saves, what an hour is worth, and the minutes per app. Leadership › Value and time saved and the Value digest follow them.
 
-**Training attendance.** Admin › Training records: upload a CSV of UPN, session and date (`yyyy-MM-dd`; a template is on the page). Lines already there are skipped and bad lines listed. Remove a session with its *Remove* button. Enablement › Training effect shows each session four weeks after it.
+**Training attendance.** Admin › Training records: upload a CSV of UPN, session and date (`yyyy-MM-dd`). **Download the mapping file** for every record held, in the same columns, to add to and upload back, or an empty template. Lines already there are skipped and bad lines listed. Remove a session with its *Remove* button. Enablement › Training effect shows each session four weeks after it.
 
 **Champions.** How many to suggest per department: Admin › Targets and assumptions › *Licensing and champions*. The list is Enablement › Champions, for the Enablement role.
 
@@ -232,11 +234,11 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | Admin › Alerts and digests | Alert recipients and thresholds, digests, manager digests and the managers who do not get them, the webhook, running the checks now |
 | Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size |
 | Admin › Privacy and retention | Privacy mode, retention of logs and JSON, the data API |
-| Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories |
-| Admin › Value names | Names for every cataloged code, one by one or by CSV |
+| Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories, which accounts are not a person (non-human accounts) |
+| Admin › Value names | Names for every cataloged code, one by one or by CSV, with the mapping file to download |
 | Admin › Classifications and events | Job-family rules, use-case rules, and the events marked on trend charts |
 | Admin › Scheduled extracts | Aggregate CSV files written to a folder or share on a schedule |
-| Admin › Training records | Training attendance, by CSV |
+| Admin › Training records | Training attendance, by CSV, with the mapping file to download |
 | Admin › Audit log | Every view, refusal, export, API call and admin change |
 
 | `-Task` of `Invoke-CopilotMaintenance.ps1` | What it does |

@@ -47,7 +47,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | Persona | Page | What it answers | Grain | Named people |
 |---|---|---|---|---|
 | Leadership | Overview | People using Copilot, licensed, adoption, active in the last 7 days; trends; adoption by the next level down | Scope, then one level down | No |
-| | Scorecard | This period against the one before it: people, adoption, licenses, interactions and multi-turn sessions, and each unit one level down with its change | Scope, one level down | No |
+| | Scorecard | This period against the one before it: people, adoption split into Premium (license holders who used what the license pays for) and free only (those who used only what is free without it), licenses, interactions and multi-turn sessions, and each unit one level down with its change | Scope, one level down | No |
 | | Organization | Each unit one level down side by side: people, licensed, active, adoption, days active, interactions, multi-turn share, a trend line; heatmap of share active per week | One level down | No |
 | | Apps and agents | Interactions by app over time, Copilot Chat and agent share, most-used agents | Scope | No |
 | | Value and time saved | Estimated hours saved (interactions times the minutes each app saves) and their worth, by app and department, against the license cost | Scope, app, department | No |
@@ -69,7 +69,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Better on pay-as-you-go | License holders whose Premium use is at most 0, 5, 10 or 25% of their use, with what Copilot Credits would cost them a month and the saving against the license | Person | **Licensing** |
 | | Better with a license | People without a license whose agent and work-grounded chat use costs more in Copilot Credits a month than a license, with a file to license them | Person | **Licensing** |
 | | Fading use | License holders whose days of use in the last 30 fell by half or three quarters against the 60 before, but not to none, with their manager | Person | **Licensing** |
-| | Licenses on non-person accounts | Licenses on enabled accounts that may not be a person: guests, service, shared, test or room names, and accounts outside the org chart; license holders by employee type | Person | **Licensing** |
+| | Copilot on non-human accounts | Copilot licenses on accounts that are not a person, a policy breach: guests, service, shared, test or room accounts, accounts outside the org chart, and the employee types, AD groups and sign-in patterns set in Admin › Reference data; why each was flagged, the files to remove the licenses, and the accounts an administrator confirmed as people, with the reason; license holders by employee type | Person | **Licensing** |
 | | Overlapping licenses | People holding the Copilot license with another Copilot-family license (a second Copilot SKU, Copilot Studio, Copilot for Sales or Service), by SKU and by person | Person | **Licensing** |
 | | Departures ahead | License holders due to leave in 7, 30 or 90 days, or past their date with the account still enabled, from AD's account expiry and Entra's leave date, with a file to reclaim the past ones | Person | **Licensing** |
 | | Swap list | Idle licenses paired with people who want one in the same department, division or anywhere, with files to take each license back and give it on | Person | **Licensing** |
@@ -82,11 +82,13 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Signals by unit | Signals per 1,000 interactions for each unit one level down, over time | Unit | No |
 | | Guests and external users | Copilot use by guest accounts, by home organization: people, interactions, licenses held here, signals; the named list for the Security role | Home organization; person | List: **Security** |
 | | Flagged interactions | Each flagged interaction: when, who, app, agent, the signal and the Purview record id, with its triage (new, investigating, closed, false positive), owner and note | Interaction | **Security** |
+| | Copilot on non-human accounts | The same page as in Licensing, for Security: guests, service, shared, test or room accounts, accounts outside the org chart, and the employee types, AD groups and sign-in patterns set in Admin › Reference data; why each was flagged, the files to remove the licenses, and the accounts an administrator confirmed as people, with the reason; license holders by employee type | Person | **Security** |
 | Compliance | Sensitive content | Interactions with labeled content by label and over time; the sites that content lives on; sites Copilot was blocked from; everything it read, by type. Personal OneDrive sites are grouped | Scope, label, site, type | No |
 | | Labeled content by unit | The share of each unit's interactions that touched labeled content, over time; resources read by type and label | Unit, type, label | No |
 | | Oversharing hotspots | The sites Copilot read from, by how many people reached them through it, with how much of what it read was labeled and its most sensitive label | Site | No (people counts under the minimum group size hidden) |
 | | Resource access | Who worked with labeled content, how often, their most sensitive label, how many sites, how often blocked; filter by label | Person | **Compliance** |
 | | Person record | One person's directory and license record and every interaction in the period with its record id, downloadable, for a data-subject request or an investigation. Open in privacy mode | Person | **Compliance** |
+| | Copilot on non-human accounts | The same page as in Licensing and Security, for Compliance: evidence that Copilot is licensed only to people, and each breach until it is cleared | Person | **Compliance** |
 | Agents | Agents | Every agent used: people, how many came back, interactions, first use, a trend line; the top six over time | Agent | No |
 | | Inventory | Every agent seen: where it was built, first and last use, people and interactions in the period, owner and friendly name | Agent | No |
 | | Build and publish | Copilot Studio agents created, published, shared, changed and deleted, from Copilot Studio's own audit records; each agent's lifecycle | Scope, agent | Makers: **Agents** |
@@ -185,7 +187,7 @@ The Chat-over-work-content part is an approximation from the audit record: an in
 
 **Every report says who it is for, what it helps with and what to do** (2.4.3), in two short lines under its title: *Helps you* and *Do*, with the section's audience beside them. The longer explanations sit behind **information icons** (ⓘ): beside the title for what the page shows, beside each panel for how its figures are worked out, and beside a KPI for what it counts. Hover over an icon, focus it with the keyboard or tap it for the text; Escape or a second tap closes it. A KPI's short note with a figure in it stays on the card. Printed pages, the board pack included, show every icon's text in place. Admin pages keep their instructions on the page.
 
-**Events** (Admin › Classifications and events) show on every trend as a dashed line with their name: a rollout wave, a training push, an outage, a policy change. Hover for the day and every event on it.
+**Events** (Admin › Classifications and events) show on every trend as a numbered badge above the chart with a light dashed line through it: a rollout wave, a training push, an outage, a policy change. Their days and names are in a key under the chart, so nothing is written over the data (2.4.5). Events in the same week or day share a badge; hover a badge for each event and its kind.
 
 **Every label is shown whole.** Chart margins and label columns size themselves to the longest label, and long names wrap onto more lines rather than being cut short. Hover over any mark for its exact figures.
 
@@ -211,7 +213,9 @@ The named lists are on **Forecasting › Upgrade, train or revoke**, for the Lic
 
 ## Long lists and exports
 
-Every list of people is paged on the server: 50 rows per page, a search box (name, sign-in, department), and a fixed set of sorts. Only one page of rows ever leaves the database, so a list of 40,000 people costs the same to show as a list of 50. **Download CSV** exports every row matching the current search and sort, UTF-8 with a BOM for Excel. Cells that would start a spreadsheet formula are prefixed with `'`, and each export is audit-logged with its row count.
+Every list of people is paged on the server: 50 rows per page, a search box (name, sign-in, department), and a fixed set of sorts. Only one page of rows ever leaves the database, so a list of 40,000 people costs the same to show as a list of 50.
+
+**Every table sorts by its column headers (2.4.5).** Click a header to sort by it, and again to reverse; the arrow beside it shows the order, and screen readers announce it. Numbers, percentages, money and dates sort by value, not text: numbers and dates open largest or latest first, text A to Z. A paged list of people is sorted in the database, so the order covers every page and the CSV export, not just the 50 rows on screen; the sort choice beside its search box says when a column, or a reversed order, is in force. Columns of buttons or small trend charts don't sort, nor do tables whose order is their meaning (a funnel's steps, pipeline steps, rules in priority order, levels, rollout waves), and a total or *Smaller groups* row stays at the bottom. **Download CSV** exports every row matching the current search and sort, UTF-8 with a BOM for Excel. Cells that would start a spreadsheet formula are prefixed with `'`, and each export is audit-logged with its row count.
 
 The pages read two rollups rather than the raw facts:
 

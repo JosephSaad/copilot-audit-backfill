@@ -111,13 +111,33 @@ public class MarkerTests
         x.Markers.Add(new Marker(7, "Out of range", "Other"));
         var line = Chart.Line(x, [new Series("People", [1, 2, 3], 1)], Fmt.Count, "t").Value!;
         var cols = Chart.Columns(x, [new Series("People", [1, 2, 3], 1)], Fmt.Count, "t").Value!;
-        foreach (var svg in new[] { line, cols })
+        foreach (var html in new[] { line, cols })
         {
-            Assert.Single(System.Text.RegularExpressions.Regex.Matches(svg, "class=\"marker\""));
-            Assert.Contains("Wave 2 licenses +1", svg);
-            Assert.Contains("Workshop (training)", svg);
-            Assert.DoesNotContain("Out of range", svg);
+            /* One rule and one numbered badge for the two events at the same point, none for the one off the axis. */
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "class=\"marker\""));
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(html, "class=\"mbadge\""));
+            Assert.Contains(">1</text></g>", html);
+            Assert.Contains("Workshop (training)", html);                 // in the badge's tooltip
+            Assert.DoesNotContain("Out of range", html);
+            /* Nothing written over the data: the names are in the key under the chart, after the svg. */
+            var svg = html[..(html.IndexOf("</svg>") + 6)];
+            Assert.DoesNotContain(">Wave 2 licenses<", svg);
+            Assert.DoesNotContain("mlabel", svg);
+            var key = System.Net.WebUtility.HtmlDecode(html[html.IndexOf("</svg>")..]);
+            Assert.Contains("<ol class=\"mkey\"><li><span class=\"k\">1</span>2 Oct Wave 2 licenses · 2 Oct Workshop</li></ol>", key);
         }
+    }
+
+    [Fact]
+    public void Events_too_close_step_their_badges_apart_and_name_their_day()
+    {
+        var x = new Axis(Enumerable.Range(1, 60).Select(d => $"d{d}"));
+        x.Markers.Add(new Marker(10, "Launch", "Rollout", new DateTime(2026, 9, 14)));
+        x.Markers.Add(new Marker(11, "Outage", "Other", new DateTime(2026, 9, 15)));
+        var html = Chart.Line(x, [new Series("People", Enumerable.Range(1, 60).Select(i => (double?)i).ToList(), 1)], Fmt.Count, "t").Value!;
+        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(html, "class=\"mbadge\"").Count);
+        Assert.Contains("class=\"mjoin\"", html);                     // the second badge stepped right, joined to its rule
+        Assert.Contains("<span class=\"k\">2</span>15 Sep Outage</li>", html);
     }
 
     [Fact]
@@ -193,5 +213,24 @@ public class RetryTests
         Assert.True(Retry.Ready(null, Now));
         Assert.False(Retry.Ready(Now.AddMinutes(5), Now));
         Assert.True(Retry.Ready(Now, Now));
+    }
+}
+
+/// <summary>Adoption ranked across groups rests only on groups with enough license holders (2.4.5).</summary>
+public class AdoptionRankingTests
+{
+    [Fact]
+    public void Small_groups_are_combined_last_and_every_bar_shows_its_counts()
+    {
+        var html = Chart.Adoption([
+            new Chart.AdoptionGroup("Marshalls Creek", 2, 2), new Chart.AdoptionGroup("Hamburg Plaza", 1, 1),
+            new Chart.AdoptionGroup("Finance", 30, 60), new Chart.AdoptionGroup("Legal", 5, 5), new Chart.AdoptionGroup("Sales", 45, 45),
+            new Chart.AdoptionGroup("Unlicensed team", 0, 0)], 5, "t").Value!;
+        var order = System.Text.RegularExpressions.Regex.Matches(html, "class=\"blabel\"[^>]*><tspan[^>]*>([^<]+)").Select(m => m.Groups[1].Value).ToList();
+        Assert.Equal(["Sales", "Legal", "Finance", "2 with fewer than 5"], order.Take(4).Select(n => n.StartsWith("2 with") ? "2 with fewer than 5" : n));
+        Assert.Contains("45 of 45", html);                 // shown beside the rate, not only on hover
+        Assert.Contains("3 of 3", html);                   // the combined bar: 2 + 1 of 2 + 1
+        Assert.DoesNotContain("Marshalls Creek", html);
+        Assert.DoesNotContain("Unlicensed team", html);
     }
 }

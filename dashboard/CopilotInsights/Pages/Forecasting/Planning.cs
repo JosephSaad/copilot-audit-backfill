@@ -115,7 +115,12 @@ public sealed class WavesModel(PageServices s, OpsData ops) : InsightsPage(s)
     public override string? RequiredRole => Roles.Licensing;
     public override string Intro => "Everyone without a Premium license, in the order to license them: first those who use the free Copilot Chat most (they already rely on it), then those in departments where licensed people use Copilot most. Split into waves of a set size, each with a file to apply it.";
 
-    static readonly Dictionary<string, string> Sorts = new() { ["rank"] = "c.[Rank]", ["name"] = "c.DisplayName", ["dept"] = "c.Department, c.[Rank]" };
+    static readonly Dictionary<string, string> Sorts = new()
+    {
+        ["rank"] = "c.[Rank]", ["name"] = "c.DisplayName", ["dept"] = "c.Department, c.[Rank]",
+        ["upn"] = "c.UserPrincipalName", ["manager"] = "c.ManagerName, c.[Rank]", ["title"] = "c.JobTitle, c.[Rank]",
+        ["days"] = "c.D DESC, c.[Rank]", ["inter"] = "c.I DESC, c.[Rank]", ["adoption"] = "c.DeptAdoption DESC, c.[Rank]",
+    };
 
     sealed class Row
     {
@@ -181,7 +186,7 @@ SELECT {select} FROM c {tail}";
         Kpis.Add(new("A wave costs", $"{size * price:#,0} {cur}", "a month"));
         Kpis.Add(new("Everyone licensed", $"{all * price:#,0} {cur}", "a month more"));
 
-        var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Adds a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 } };
+        var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Adds a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
         foreach (var w in waves.Take(12))
             wt.Rows.Add([w.Wave, w.People, w.UsingChat, w.People * price, new HtmlString(
                 $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(size, dept, $"wave={w.Wave}&handler=bulk")))}\">bulk add file</a> · " +
@@ -195,6 +200,8 @@ SELECT {select} FROM c {tail}";
         {
             Headers = ["Order", "Wave", "Name", "Sign-in", "Department", "Manager", "Job title", "Days on Copilot Chat (30)", "Interactions (30)", "Department adoption"],
             Numeric = new HashSet<int> { 0, 1, 7, 8, 9 }, EmptyText = "Everyone in scope has a license.",
+            /* A wave follows from the order, so both sort by it. */
+            Server = new(pg, Request, ["rank", "rank", "name", "upn", "dept", "manager", "title", "days", "inter", "adoption"], new HashSet<int> { 7, 8, 9 }),
         };
         foreach (var r in rows)
             t.Rows.Add([r.Rank, r.Wave, r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.JobTitle, r.D, r.I, r.DeptAdoption is null ? null : $"{r.DeptAdoption:0}%"]);
@@ -247,6 +254,12 @@ public sealed class OutcomesModel(PageServices s, OpsData ops) : InsightsPage(s)
         public int UsedSince { get; set; }
     }
 
+    static readonly Dictionary<string, string> PendingSorts = new()
+    {
+        ["new"] = "o.Day DESC, o.DisplayName", ["name"] = "o.DisplayName",
+        ["kind"] = "o.Kind, o.Day DESC, o.DisplayName, o.Upn", ["upn"] = "o.Upn, o.Day DESC, o.Kind", ["dept"] = "o.Department, o.DisplayName, o.Upn",
+    };
+
     const string Base = @"
 WITH x AS (SELECT la.Kind, la.Upn, la.ExportedBy, la.ExportedUtc, CAST(la.ExportedUtc AS DATE) AS Day,
                   ROW_NUMBER() OVER (PARTITION BY la.Kind, la.Upn, CAST(la.ExportedUtc AS DATE) ORDER BY la.ActionId) AS n
@@ -272,7 +285,7 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
         if (batches.Count == 0) { Notice = "No license exports yet. They are recorded when someone downloads a bulk file or script from Upgrade, train or revoke, Licenses on disabled accounts, or Rollout waves."; return; }
 
         int Done(Batch b) => b.Kind is "upgrade" or "wave" ? b.LicensedNow : b.People - b.LicensedNow;
-        var reclaimed = batches.Where(b => b.Kind is "revoke" or "leaver").Sum(Done);
+        var reclaimed = batches.Where(b => b.Kind is "revoke" or "leaver" or "nonhuman").Sum(Done);
         var given = batches.Where(b => b.Kind is "upgrade" or "wave").ToList();
         Kpis.Add(new("Exported", Num(batches.Sum(b => b.People)), $"in {batches.Count} export(s)"));
         Kpis.Add(new("Applied", Pct(Ratio(batches.Sum(Done), batches.Sum(b => b.People))), "the license is where the export said it should be"));
@@ -281,19 +294,23 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
 
         var t = new Table { Headers = ["Exported", "What", "By", "People", "Applied", "Share applied", "Used Copilot since", $"A month ({cur})"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
         foreach (var b in batches)
-            t.Rows.Add([b.Day, b.Kind switch { "upgrade" => "Upgrade", "revoke" => "Revoke unused", "leaver" => "Reclaim from disabled accounts", _ => "Rollout wave" },
+            t.Rows.Add([b.Day, b.Kind switch { "upgrade" => "Upgrade", "revoke" => "Revoke unused", "leaver" => "Reclaim from disabled accounts", "nonhuman" => "Remove from non-human accounts", _ => "Rollout wave" },
                 b.ExportedBy, b.People, Done(b), Pct(Ratio(Done(b), b.People)), b.Kind is "upgrade" or "wave" ? b.UsedSince : null,
                 b.Kind is "upgrade" or "wave" ? Done(b) * price : -Done(b) * price]);
         Panels.Add(new("Exports", t.Render(), "Applied: for an upgrade or wave, the person holds a license today; for a revocation, they no longer do. A month: the cost added (positive) or saved (negative) by what has been applied."));
 
-        var pg = new Paging(Request, new Dictionary<string, string> { ["new"] = "o.Day DESC, o.DisplayName", ["name"] = "o.DisplayName" }, "new");
+        var pg = new Paging(Request, PendingSorts, "new");
         var pending = await Db.QueryAsync<(DateTime Day, string Kind, string Upn, string? DisplayName, string? Department, int Total)>(Base + $@"
 SELECT o.Day, o.Kind, o.Upn, o.DisplayName, o.Department, COUNT(*) OVER ()
 FROM o WHERE ((o.Kind IN ('upgrade', 'wave') AND o.LicensedNow = 0) OR (o.Kind IN ('revoke', 'leaver') AND o.LicensedNow = 1))
   AND (@q IS NULL OR o.DisplayName LIKE @q OR o.Upn LIKE @q OR o.Department LIKE @q)
 {pg.OrderAndPage()};", new { q = pg.Like });
         pg.Total = pending.FirstOrDefault().Total;
-        var pt = new Table { Headers = ["Exported", "What", "Name", "Sign-in", "Department"], EmptyText = "Every exported change has been applied." };
+        var pt = new Table
+        {
+            Headers = ["Exported", "What", "Name", "Sign-in", "Department"], EmptyText = "Every exported change has been applied.",
+            Server = new(pg, Request, ["new", "kind", "name", "upn", "dept"], new HashSet<int> { 0 }),
+        };
         foreach (var r in pending) pt.Rows.Add([r.Day, r.Kind, r.DisplayName, r.Upn, r.Department]);
         CsvTable = pt;
         Panels.Add(new("Not applied yet", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["new"] = "Newest", ["name"] = "Name" }).Value + pt.Render().Value),

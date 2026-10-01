@@ -24,6 +24,17 @@ public sealed class RankingModel(PageServices s) : InsightsPage(s)
         ["premium"] = ("Premium use", "r.P DESC, r.I DESC"),
     };
 
+    /* The list's keys beside "rank", the order of the ranking chosen. */
+    static readonly Dictionary<string, string> Sorts = new()
+    {
+        ["name"] = "x.DisplayName", ["general"] = "x.RankGeneral, x.DisplayName, x.UserPrincipalName", ["free"] = "x.RankFree, x.DisplayName, x.UserPrincipalName",
+        ["premium"] = "x.RankPremium, x.DisplayName, x.UserPrincipalName", ["upn"] = "x.UserPrincipalName", ["dept"] = "x.Department, x.DisplayName",
+        ["licensed"] = "x.Licensed DESC, x.DisplayName, x.UserPrincipalName", ["use"] = "x.I DESC, x.DisplayName, x.UserPrincipalName",
+        ["freeuse"] = "x.F DESC, x.DisplayName, x.UserPrincipalName", ["premiumuse"] = "x.P DESC, x.DisplayName, x.UserPrincipalName",
+        ["share"] = "x.P * 1.0 / x.I DESC, x.DisplayName, x.UserPrincipalName", ["days"] = "x.Days DESC, x.DisplayName, x.UserPrincipalName",
+        ["pdays"] = "x.PremiumDays DESC, x.DisplayName, x.UserPrincipalName",
+    };
+
     sealed class Row
     {
         public long RankGeneral { get; set; }
@@ -49,7 +60,7 @@ public sealed class RankingModel(PageServices s) : InsightsPage(s)
                     && await Db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE DateKey BETWEEN @k0 AND @k1 AND PremiumUse > 0) THEN 1 ELSE 0 END", Ctx.Args()) == 1;
         if (!ready)
             Notice = "Premium-feature use is not in the rollups yet: an administrator rebuilds them once (Admin > Health, Rebuild every day). Until then free and premium use are empty.";
-        var pg = new Paging(Request, new Dictionary<string, string> { ["rank"] = By[by].Order.Replace("r.", "x."), ["name"] = "x.DisplayName" }, "rank");
+        var pg = new Paging(Request, new Dictionary<string, string>(Sorts) { ["rank"] = By[by].Order.Replace("r.", "x.") }, "rank");
         /* Ranked over everyone in scope with any use, before the search and the license filter, so a person's rank does not change with them. */
         var rows = await Db.QueryAsync<Row>($@"
 WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.PremiumUse AS BIGINT)) AS P,
@@ -84,6 +95,10 @@ FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 A
             Headers = ["Rank: general", "Rank: free", "Rank: premium", "Name", "Sign-in", "Department", "Licensed", "Interactions", "Free", "Premium", "Premium share", "Days used", "Days with Premium use"],
             Numeric = new HashSet<int> { 0, 1, 2, 7, 8, 9, 10, 11, 12 },
             EmptyText = "Nobody in scope used Copilot in the period.",
+            /* The chosen ranking's column sorts by "rank", the other two by their own rank; Licensed: Yes first. */
+            Server = new(pg, Request, [by == "general" ? "rank" : "general", by == "free" ? "rank" : "free", by == "premium" ? "rank" : "premium",
+                                       "name", "upn", "dept", "licensed", "use", "freeuse", "premiumuse", "share", "days", "pdays"],
+                         new HashSet<int> { 6, 7, 8, 9, 10, 11, 12 }),
         };
         foreach (var r in rows)
             t.Rows.Add([r.RankGeneral, r.RankFree, r.RankPremium, r.DisplayName, r.UserPrincipalName, r.Department, r.Licensed ? "Yes" : "No",

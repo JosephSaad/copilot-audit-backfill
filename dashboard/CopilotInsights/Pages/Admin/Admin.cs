@@ -43,7 +43,7 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
         await Try("Dashboard rollups", "SELECT TOP (1) EndedUtc, CAST(UserDayRows AS BIGINT), CONCAT(FORMAT(People, 'N0'), N' people, ', FORMAT(ClosureRows, 'N0'), N' org pairs') FROM dash.RefreshRun ORDER BY RunId DESC;", "person-days written");
         await Try("User directory", "SELECT MAX(LoadedUtc), COUNT_BIG(*), NULL FROM audit.UserDirectory;", "people");
 
-        var t = new Table { Headers = ["Step", "Last finished (UTC)", "Age", "Rows", "Detail", "Status"], Numeric = new HashSet<int> { 3 } };
+        var t = new Table { Headers = ["Step", "Last finished (UTC)", "Age", "Rows", "Detail", "Status"], Numeric = new HashSet<int> { 3 }, Sortable = false };
         foreach (var st in steps)
         {
             var age = st.Finished is null ? (TimeSpan?)null : DateTime.UtcNow - st.Finished.Value;
@@ -220,6 +220,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         var pg = new Paging(Request, new Dictionary<string, string>
         {
             ["principal"] = "g.Principal", ["new"] = "MAX(g.GrantedUtc) DESC, g.Principal",
+            ["name"] = "MAX(p.DisplayName), g.Principal", ["type"] = "MAX(g.PrincipalType), g.Principal", ["by"] = "MAX(g.GrantedBy), g.Principal",
         }, "principal");
         var principals = await Db.QueryAsync<(string Principal, int TotalRows)>($@"
 SELECT g.Principal, COUNT(*) OVER () AS TotalRows
@@ -234,7 +235,11 @@ GROUP BY g.Principal
 SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, p.DisplayName
 FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
 WHERE g.Principal IN @list;", new { list });
-        var t = new Table { Headers = ["Principal", "Name", "Type", "Roles", "Why", "Granted by", "Last granted (UTC)"], EmptyText = "No grants yet." };
+        var t = new Table
+        {
+            Headers = ["Principal", "Name", "Type", "Roles", "Why", "Granted by", "Last granted (UTC)"], EmptyText = "No grants yet.",
+            Server = new(pg, Request, ["principal", "name", "type", null, null, "by", "new"], new HashSet<int> { 6 }),
+        };
         foreach (var principal in list)
         {
             var mine = grants.Where(g => g.Principal == principal).OrderBy(g => Array.IndexOf(Roles.All, g.Role)).ToList();
@@ -273,7 +278,7 @@ WHERE g.Principal IN @list;", new { list });
         }
         Panels.Add(new("Check someone's access", new HtmlString(body.ToString()), null, "half"));
 
-        var lt = new Table { Headers = ["Level", "People", "Sees"], Numeric = new HashSet<int> { 1 } };
+        var lt = new Table { Headers = ["Level", "People", "Sees"], Numeric = new HashSet<int> { 1 }, Sortable = false };
         foreach (var l in levels)
             lt.Rows.Add([l.Level?.ToString() ?? "Not under the top", l.N,
                          !AccessRules.MayUseDashboard(l.Level, new HashSet<string>(), max) ? "Nothing, unless granted a role" : l.Level is 1 or 2 ? "Whole organization" : "Their own part"]);
@@ -361,7 +366,7 @@ IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Rol
 public sealed class ReferenceModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Reference data";
-    public override string Intro => "Names the audit log does not carry: friendly agent names and owners, sensitivity label names and their order, and which apps count as Copilot Chat.";
+    public override string Intro => "Names the audit log does not carry: friendly agent names and owners, sensitivity label names and their order, which apps count as Copilot Chat, and which accounts are not a person.";
 
     sealed class AgentRow
     {
@@ -381,6 +386,7 @@ public sealed class ReferenceModel(PageServices s) : AdminPage(s)
         var pg = new Paging(Request, new Dictionary<string, string>
         {
             ["new"] = "a.FirstSeenUtc DESC", ["name"] = "a.AgentName", ["unnamed"] = "CASE WHEN al.AgentKey IS NULL THEN 0 ELSE 1 END, a.FirstSeenUtc DESC",
+            ["audit"] = "ISNULL(a.AuditName, a.AgentId), a.AgentKey", ["source"] = "a.AgentSource, ISNULL(a.AuditName, a.AgentId), a.AgentKey",
         }, "unnamed");
         var agents = await Db.QueryAsync<AgentRow>($@"
 SELECT a.AgentKey, a.AgentId, a.AuditName, a.AgentSource, al.FriendlyName, al.Owner, a.FirstSeenUtc, COUNT(*) OVER () AS TotalRows
@@ -389,7 +395,11 @@ WHERE a.AgentSource <> N'(no agent)'
   AND (@q IS NULL OR a.AgentName LIKE @q OR a.AuditName LIKE @q OR a.AgentId LIKE @q OR al.Owner LIKE @q)
 {pg.OrderAndPage()};", new { q = pg.Like });
         pg.Total = agents.FirstOrDefault()?.TotalRows ?? 0;
-        var t = new Table { Headers = ["Name in the audit log", "Source", "First used", "Friendly name and owner"], EmptyText = "No agents seen yet." };
+        var t = new Table
+        {
+            Headers = ["Name in the audit log", "Source", "First used", "Friendly name and owner"], EmptyText = "No agents seen yet.",
+            Server = new(pg, Request, ["audit", "source", "new", null], new HashSet<int> { 2 }),
+        };
         foreach (var a in agents)
             t.Rows.Add([a.AuditName ?? a.AgentId, a.AgentSource, a.FirstSeenUtc.Date, new HtmlString(Form("alias",
                 $"<input type=\"hidden\" name=\"key\" value=\"{a.AgentKey}\"/>" + Input("name", "Friendly name", a.FriendlyName, 22) + Input("owner", "Owner", a.Owner, 22) + Button("Save")))]);
@@ -402,7 +412,7 @@ FROM (SELECT DISTINCT Item AS LabelId FROM dash.ResourceDay WHERE Kind = 'Label'
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = i.LabelId
 LEFT JOIN dash.ResourceDay AS rd ON rd.Kind = 'Label' AND rd.Item = i.LabelId
 GROUP BY i.LabelId, sl.Name, sl.Rank ORDER BY ISNULL(sl.Rank, 255), i.LabelId;");
-        var lt = new Table { Headers = ["Label id", "Interactions", "Name and order"], Numeric = new HashSet<int> { 1 }, EmptyText = "No labeled content seen yet." };
+        var lt = new Table { Headers = ["Label id", "Interactions", "Name and order"], Numeric = new HashSet<int> { 1 }, EmptyText = "No labeled content seen yet.", Sortable = false };
         foreach (var l in labels)
             lt.Rows.Add([l.LabelId, l.N, new HtmlString(Form("label", $"<input type=\"hidden\" name=\"id\" value=\"{E(l.LabelId)}\"/>" +
                 Input("name", "Name", l.Name, 22) + Input("rank", "Order (0 least)", l.Rank?.ToString(), 4, "number") + Button("Save")))]);
@@ -418,7 +428,47 @@ FROM bi.DimApp AS a LEFT JOIN audit.SessionAppCategory AS c ON c.App = a.App ORD
                 Select("category", "Category", ["Copilot Chat", "In-App Copilot"], a.Category) + Button("Save")))]);
         Panels.Add(new("App categories", at.Render(),
             "Copilot Chat or Copilot inside an app. A change applies to sessions and the bi model at their next refresh, and to the dashboard after that.", "half"));
+
+        /* Which accounts are not a person (2.4.5): a Copilot license on one is a policy breach. */
+        var r = await CopilotInsights.Data.NonHuman.RulesAsync(S.Settings);
+        string Box(string name, string label, bool on) => $"<label><input type=\"checkbox\" name=\"{name}\" value=\"On\"{(on ? " checked" : "")}/> {E(label)}</label>";
+        var set = await S.Settings.AllAsync();
+        Panels.Add(new("Non-human accounts", new HtmlString(Form("nonhuman",
+            Box("guests", "Guests (an #EXT# sign-in, or Entra's user type)", r.Guests) +
+            Box("names", "Sign-ins and names that read like a service, shared, test or room account (svc-, service, admin, test-, noreply, shared, room-, \"shared mailbox\")", r.Names) +
+            Box("nochart", "Accounts with no manager, outside the org chart", r.NoChart) +
+            Input("patterns", "More sign-in patterns (comma-separated, * for any text: bot-*, *-svc)", string.Join(", ", r.Patterns), 50) +
+            Input("types", "Employee types that are not people (comma-separated: SERVICE, RESOURCE)", string.Join(", ", r.EmployeeTypes), 50) +
+            Input("groups", "AD groups of service accounts (DOMAIN\\Group, comma-separated)", string.Join(", ", r.Groups), 50) +
+            Select("alert", "Alert Security and Licensing when one is found", ["Yes", "No"], set.GetValueOrDefault("NonHumanAlert") == "0" ? "No" : "Yes") +
+            Button("Save", "Change which accounts count as not a person? It changes every breach count, the removal files and the alerts."))),
+            "A Copilot license on an account these rules match is a policy breach, on Security, Compliance and Licensing > Copilot on non-human accounts, " +
+            "unless an administrator confirms the account is a person there. The groups' members are read by the next nightly directory load. " +
+            "The alert goes to the Security and Licensing alert recipients (Admin > Alerts and digests), once for each account."));
     }
+
+    public Task<IActionResult> OnPostNonHumanAsync(string? guests, string? names, string? nochart, string? patterns, string? types, string? groups, string? alert) => AdminChangeAsync(async () =>
+    {
+        static string? Clean(string? v, int max, Func<string, bool> ok, string what)
+        {
+            var list = CopilotInsights.Data.NonHuman.Split(v);
+            foreach (var x in list) if (x.Length > max || !ok(x)) throw new ArgumentException($"'{x}' is not {what}.");
+            var joined = string.Join(", ", list);
+            if (joined.Length > 1000) throw new ArgumentException($"the {what} list is longer than 1,000 characters.");
+            return joined.Length == 0 ? null : joined;
+        }
+        var values = new Dictionary<string, string?>
+        {
+            [CopilotInsights.Data.NonHuman.GuestsSetting] = guests == "On" ? "On" : "Off",
+            [CopilotInsights.Data.NonHuman.NamesSetting] = names == "On" ? "On" : "Off",
+            [CopilotInsights.Data.NonHuman.NoChartSetting] = nochart == "On" ? "On" : "Off",
+            [CopilotInsights.Data.NonHuman.PatternsSetting] = Clean(patterns, 64, x => x.Trim('*').Length > 0, "a sign-in pattern"),
+            [CopilotInsights.Data.NonHuman.TypesSetting] = Clean(types, 100, _ => true, "an employee type"),
+            [CopilotInsights.Data.NonHuman.GroupsSetting] = Clean(groups, 256, x => x.Contains('\\') && !x.StartsWith('\\') && !x.EndsWith('\\'), "a DOMAIN\\Group name"),
+            ["NonHumanAlert"] = alert == "No" ? "0" : "1",
+        };
+        return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, values));
+    });
 
     public Task<IActionResult> OnPostAliasAsync(int key, string? name, string? owner) => AdminChangeAsync(async () =>
     {
@@ -495,6 +545,8 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
         var pg = new Paging(Request, new Dictionary<string, string>
         {
             ["new"] = "a.AtUtc DESC, a.LogId DESC", ["old"] = "a.AtUtc, a.LogId", ["who"] = "a.Viewer, a.AtUtc DESC",
+            ["kind"] = "a.Kind, a.AtUtc DESC, a.LogId DESC", ["page"] = "a.Page, a.AtUtc DESC, a.LogId DESC", ["scope"] = "a.Scope, a.AtUtc DESC, a.LogId DESC",
+            ["from"] = "a.ClientIp, a.AtUtc DESC, a.LogId DESC",
         }, "new");
         var rows = await Db.QueryAsync<Row>($@"
 SELECT a.AtUtc, a.Viewer, a.Kind, a.Page, a.Scope, a.Detail, a.ClientIp, COUNT(*) OVER () AS TotalRows
@@ -511,7 +563,11 @@ WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.
             Kpis.Add(new(kn switch { "View" => "Page views", "Denied" => "Refused", "Export" => "Exports", _ => "Admin changes" }, Num(c.N), $"by {c.People:#,0} people",
                 kn == "Denied" && c.N > 0 ? "crit" : null));
         }
-        var t = new Table { Headers = ["When (UTC)", "Who", "Kind", "Page", "Scope", "Detail", "From"], EmptyText = "Nothing logged in this period." };
+        var t = new Table
+        {
+            Headers = ["When (UTC)", "Who", "Kind", "Page", "Scope", "Detail", "From"], EmptyText = "Nothing logged in this period.",
+            Server = new(pg, Request, ["new", "who", "kind", "page", "scope", null, "from"], new HashSet<int> { 0 }),
+        };
         foreach (var r in rows) t.Rows.Add([r.AtUtc, r.Viewer, r.Kind, r.Page, r.Scope, r.Detail, r.ClientIp]);
         CsvTable = t;
         string Link(string label, int dd, string? kk, bool on) =>

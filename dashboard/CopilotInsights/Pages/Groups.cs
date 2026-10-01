@@ -17,10 +17,8 @@ public static class Groups
         return keep;
     }
 
-    public static HtmlString AdoptionBars(IReadOnlyList<GroupRow> rows, string aria, int take = 20) =>
-        Chart.Bars(rows.Where(r => r.Licensed > 0).OrderByDescending(r => (double)r.ActiveLicensed / r.Licensed).Take(take)
-            .Select(r => new Bar(r.Name, r.ActiveLicensed / (double)r.Licensed, Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed; {r.People:#,0} people")).ToList(),
-            Fmt.Percent, aria, 1);
+    public static HtmlString AdoptionBars(IReadOnlyList<GroupRow> rows, string aria, int min, int take = 20) =>
+        Chart.Adoption(rows.Select(r => new Chart.AdoptionGroup(r.Name, r.ActiveLicensed, r.Licensed, Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed; {r.People:#,0} people")), min, aria, take);
 
     public static Table Table(IReadOnlyList<GroupRow> rows, string first)
     {

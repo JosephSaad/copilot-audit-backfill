@@ -152,11 +152,11 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
         {
             Department = "Smaller departments", People = small.Sum(r => r.People), Licensed = small.Sum(r => r.Licensed), Active = small.Sum(r => r.Active),
             ActiveLicensed = small.Sum(r => r.ActiveLicensed), ActiveDays = small.Sum(r => r.ActiveDays), Sessions = small.Sum(r => r.Sessions), MultiTurn = small.Sum(r => r.MultiTurn),
-        }, out var folded).OrderByDescending(r => Ratio(r.ActiveLicensed, r.Licensed) ?? -1).ToList();
+        }, out var folded).OrderByDescending(r => r.Licensed >= Ctx.MinGroupSize).ThenByDescending(r => Ratio(r.ActiveLicensed, r.Licensed) ?? -1).ThenByDescending(r => r.Licensed).ToList();
 
         Panels.Add(new("Adoption by department",
-            Chart.Bars(shown.Take(25).Select(r => new Bar(r.Department, Ratio(r.ActiveLicensed, r.Licensed), Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by department", 1),
-            shown.Count > 25 ? "The 25 highest; the table has them all." : null));
+            Chart.Adoption(shown.Select(r => new Chart.AdoptionGroup(r.Department, r.ActiveLicensed, r.Licensed)), Ctx.MinGroupSize, "Adoption by department", 25),
+            $"Departments with at least {Ctx.MinGroupSize} license holders, highest first; the rest are combined in the last bar, so no bar rests on one or two people. The table has every department."));
         var t = new Table
         {
             Headers = ["Department", "People", "Licensed", "Share licensed", "Active", "Adoption", "Days active per person", "Multi-turn sessions"],
@@ -180,6 +180,7 @@ public sealed class NotStartedModel(PageServices s) : InsightsPage(s)
     {
         ["since"] = "du.LicensedSinceUtc, du.DisplayName", ["name"] = "du.DisplayName, du.UserPrincipalName",
         ["dept"] = "du.Department, du.DisplayName", ["manager"] = "du.ManagerName, du.DisplayName",
+        ["upn"] = "du.UserPrincipalName", ["title"] = "du.JobTitle, du.DisplayName, du.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new()
     {
@@ -212,6 +213,8 @@ WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DA
         {
             Headers = ["Name", "Sign-in", "Department", "Job title", "Manager", "Licensed since", "Days licensed"],
             Numeric = new HashSet<int> { 6 }, EmptyText = "Everyone licensed for 14 days or more has started.",
+            /* Days licensed sorts by the same key as Licensed since: longest first. */
+            Server = new(pg, Request, ["name", "upn", "dept", "title", "manager", "since", "since"], new HashSet<int> { 6 }),
         };
         foreach (var r in rows)
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.JobTitle, r.ManagerName, r.LicensedSinceUtc?.Date,

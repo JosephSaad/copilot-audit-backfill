@@ -242,3 +242,45 @@ public class NavigationTests
         Assert.Equal(pages.Count, CopilotInsights.Pages.Nav.For(V(1, roles: Roles.All), manyTenants: true).SelectMany(g => g.Pages).Count());
     }
 }
+
+/// <summary>A Copilot license on a non-human account is a policy breach (2.4.5): the rules, and who sees the page.</summary>
+public class NonHumanTests
+{
+    [Theory]
+    [InlineData("bot-*", "bot-%")]
+    [InlineData("*-SVC", "%-svc")]
+    [InlineData("svc_app", "svc[_]app")]
+    [InlineData("100%", "100[%]")]
+    [InlineData("robot@contoso.com", "robot")]
+    public void An_admin_pattern_becomes_a_literal_like_with_star_for_any_text(string pattern, string like) =>
+        Assert.Equal(like, CopilotInsights.Data.NonHuman.Like(pattern));
+
+    [Fact]
+    public void Lists_split_on_commas_semicolons_and_lines_without_blanks_or_repeats() =>
+        Assert.Equal(["SERVICE", "RESOURCE", "ROOM"], CopilotInsights.Data.NonHuman.Split("SERVICE, RESOURCE;\n ROOM,,service"));
+
+    [Fact]
+    public void The_reasons_read_in_words() =>
+        Assert.Equal("Guest, In a service-account group", CopilotInsights.Data.NonHuman.Why(true, false, false, false, true));
+
+    static Viewer V(params string[] roles) =>
+        new() { WindowsName = @"CONTOSO\me", Upn = "me@contoso.com", Level = 3, InDirectory = true, Roles = new HashSet<string>(roles, StringComparer.OrdinalIgnoreCase) };
+
+    static List<string> Paths(Viewer v) => CopilotInsights.Pages.Nav.For(v).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
+
+    [Theory]
+    [InlineData("Security", "/security/non-human")]
+    [InlineData("Compliance", "/compliance/non-human")]
+    [InlineData("Licensing", "/licensing/non-person")]
+    public void Security_compliance_and_licensing_each_see_the_breaches(string role, string path)
+    {
+        Assert.Contains(path, Paths(V(role)));
+        Assert.DoesNotContain(path, Paths(V()));
+        Assert.Equal(role, CopilotInsights.Pages.Nav.SectionOf(path)?.Role);
+    }
+
+    [Fact]
+    public void Privacy_mode_hides_the_named_breaches() =>
+        Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(V(Roles.Security, Roles.Compliance, Roles.Licensing), privacyMode: true).SelectMany(g => g.Pages),
+            p => p.Path.Contains("non-"));
+}

@@ -15,7 +15,7 @@ public static class Guidance
     {
         // Leadership
         ["/leadership"] = new("Answer \"is Copilot working here?\" in one screen.", "Look at the units with low use, and ask their leads what is in the way."),
-        ["/leadership/scorecard"] = new("See what moved since the last period, and where.", "Take the largest drops to the next leadership meeting."),
+        ["/leadership/scorecard"] = new("See what moved since the last period, and where, with Premium and free-only adoption.", "Raise the largest drops; send units high on free-only use to Better on pay-as-you-go."),
         ["/leadership/org"] = new("Compare the parts of the organization side by side.", "Open the weakest unit to find the team behind it."),
         ["/leadership/mix"] = new("See where Copilot earns its place: which apps, and how much through agents.", "Back the apps and agents that carry use; question the ones that do not."),
         ["/leadership/value"] = new("Put an estimated value on Copilot, with your own assumptions.", "Check the minutes and the hourly cost in Admin before you quote the figure."),
@@ -47,7 +47,9 @@ public static class Guidance
         ["/licensing/pool"] = new("Know the seats you pay for, assigned or not.", "Assign or give up seats bought but not assigned before the renewal."),
         ["/licensing/chargeback"] = new("Allocate license cost to the budgets that hold the licenses.", "Send each group its cost and its share in use."),
         ["/licensing/leavers"] = new("Find licenses nobody can use: disabled or deleted accounts.", "Reclaim them all: export the removal file."),
-        ["/licensing/non-person"] = new("Find licenses on guests, service, shared and test accounts.", "Remove the ones that are not meant, or confirm the ones that are."),
+        ["/licensing/non-person"] = new("Find Copilot licenses on accounts that are not a person: a policy breach, and money spent on no one.", "Remove them with the file here, or have an administrator confirm the account is a person."),
+        ["/security/non-human"] = new("Find Copilot on service, shared, test and guest accounts, which the license does not allow.", "Have each license removed, or confirmed as a person by an administrator, and watch for the alert."),
+        ["/compliance/non-human"] = new("Show that Copilot is licensed only to people, as policy requires.", "Follow up each breach until its license is removed or the account is confirmed as a person."),
         ["/licensing/overlap"] = new("Find people paying for two licenses that overlap.", "Drop the second license where the first covers the use."),
         ["/licensing/departures"] = new("Reclaim licenses on the last day, not weeks after.", "Plan the leavers' removals; export the ones past their date now."),
 

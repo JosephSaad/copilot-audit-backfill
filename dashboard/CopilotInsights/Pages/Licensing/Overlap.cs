@@ -22,6 +22,11 @@ public sealed class OverlapModel(PageServices s) : InsightsPage(s)
        VIRTUAL_AGENT and CCIBOTS are Copilot Studio's names (it was Power Virtual Agents), trial included. */
     internal static readonly string[] Family = ["%COPILOT%", "%VIRTUAL[_]AGENT%", "%CCIBOTS%"];
 
+    /* Licenses that cost nothing a user (2.4.5), left out as if not held: removing one saves nothing. The Copilot
+       Studio user license (VIRTUAL_AGENT_USL, and its GCC and GCC High forms) is free, its cost being the tenant's
+       Copilot Credits; viral sign-ups and trials are free by definition. */
+    internal static readonly string[] NoCost = ["VIRTUAL[_]AGENT[_]USL%", "%VIRAL%", "%TRIAL%"];
+
     sealed class Row
     {
         public string? DisplayName { get; set; }
@@ -36,6 +41,7 @@ public sealed class OverlapModel(PageServices s) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["name"] = "x.DisplayName, x.UserPrincipalName", ["dept"] = "x.Department, x.DisplayName", ["idle"] = "x.LastKey, x.DisplayName",
+        ["upn"] = "x.UserPrincipalName", ["copilot"] = "x.CopilotSkus, x.DisplayName", ["others"] = "x.Others, x.DisplayName",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["name"] = "Name", ["dept"] = "Department", ["idle"] = "Idle longest" };
 
@@ -50,13 +56,16 @@ public sealed class OverlapModel(PageServices s) : InsightsPage(s)
         var pg = new Paging(Request, Sorts, "name");
         var args = Ctx.Args(new { q = pg.Like, sku });
         for (var i = 0; i < Family.Length; i++) args.Add($"f{i}", Family[i]);
+        for (var i = 0; i < NoCost.Length; i++) args.Add($"n{i}", NoCost[i]);
         var family = string.Join(" OR ", Family.Select((_, i) => $"s.SkuPartNumber LIKE @f{i}"));
+        var free = string.Join(" OR ", NoCost.Select((_, i) => $"s.SkuPartNumber LIKE @n{i}"));
 
         /* h: each person in scope holding a Copilot SKU, with their overlapping SKUs; o: the overlapping ones, one row each. */
         var cte = $@"
 WITH held AS (SELECT u.UserPrincipalName, s.SkuId, s.SkuPartNumber, s.IsCopilot,
                      CAST(CASE WHEN s.IsCopilot = 0 AND ({family}) THEN 1 ELSE 0 END AS BIT) AS Other
-              FROM audit.UserLicenseSku AS u JOIN audit.LicenseSku AS s ON s.SkuId = u.SkuId),
+              FROM audit.UserLicenseSku AS u JOIN audit.LicenseSku AS s ON s.SkuId = u.SkuId
+              WHERE NOT ({free})),
 h AS (SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department
       FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
       WHERE EXISTS (SELECT 1 FROM held WHERE held.UserPrincipalName = du.UserPrincipalName AND held.IsCopilot = 1)
@@ -95,6 +104,8 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         {
             Headers = ["Name", "Sign-in", "Department", "Copilot license", "Also holds", "Last used Copilot"],
             EmptyText = "Nobody holds the Copilot license with another Copilot-family license.",
+            /* Last used: Idle longest, the oldest first. */
+            Server = new(pg, Request, ["name", "upn", "dept", "copilot", "others", "idle"]),
         };
         foreach (var r in rows)
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.CopilotSkus, r.Others ?? "a second Copilot SKU", r.LastUsed is null ? "Never" : r.LastUsed.Value.Date]);
@@ -103,6 +114,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         Panels.Add(new(sku is null ? "People" : $"People holding {bySku.FirstOrDefault(b => b.SkuId == sku).Part}",
             new HtmlString(all + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "From every SKU the license tool read for each person at its last run. Copilot-family: a part number containing COPILOT, or Copilot Studio's (VIRTUAL_AGENT, CCIBOTS). " +
+            "Licenses that cost nothing a user are left out: the Copilot Studio user license (VIRTUAL_AGENT_USL), viral sign-ups and trials. " +
             "Whether the Copilot license covers the other depends on what the person uses it for: check with them or their manager before removing it.", "full", CsvUrl()));
     }
 }

@@ -22,8 +22,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         foreach (var t in types.Where(t => t.Name != "Smaller groups").OrderByDescending(t => t.People).Take(2))
             Kpis.Add(new($"{t.Name}: adoption", Pct(Ratio(t.ActiveLicensed, t.Licensed)), $"{t.People:#,0} people, {Pct(Ratio(t.Licensed, t.People))} licensed"));
 
-        Panels.Add(new("By employee type", Groups.AdoptionBars(types, "Adoption by employee type"), "From the employeeType attribute in AD.", "half"));
-        Panels.Add(new("Managers and individual contributors", Groups.AdoptionBars(roles, "Adoption by role"),
+        Panels.Add(new("By employee type", Groups.AdoptionBars(types, "Adoption by employee type", Ctx.MinGroupSize), "From the employeeType attribute in AD.", "half"));
+        Panels.Add(new("Managers and individual contributors", Groups.AdoptionBars(roles, "Adoption by role", Ctx.MinGroupSize),
             "A manager is anyone with someone reporting to them.", "half"));
         Panels.Add(new("By level in the organization",
             Chart.Bars(levels.Where(l => l.Licensed > 0).OrderBy(l => l.Name).Select(l => new Bar(l.Name, l.ActiveLicensed / (double)l.Licensed, Note: $"{l.ActiveLicensed:#,0} of {l.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by level", 1),

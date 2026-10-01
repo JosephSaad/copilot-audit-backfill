@@ -120,7 +120,11 @@ GROUP BY g.Domain;", Ctx.Args());
             Panels.Add(new("By home organization", t.Render(), "From the guest's sign-in name. Labeled content: interactions that touched content with a sensitivity label."));
 
             if (!named) return;
-            var pg = new Paging(Request, new Dictionary<string, string> { ["most"] = "I DESC", ["name"] = "du.DisplayName" }, "most");
+            var pg = new Paging(Request, new Dictionary<string, string>
+            {
+                ["most"] = "I DESC", ["name"] = "du.DisplayName", ["upn"] = "du.UserPrincipalName", ["org"] = Domain + ", du.DisplayName, du.UserPrincipalName",
+                ["signals"] = "a.F DESC, a.I DESC, du.UserPrincipalName", ["recent"] = "a.LastKey DESC, du.UserPrincipalName",
+            }, "most");
             var people = await Db.QueryAsync<(string Upn, string? Name, string Domain, long I, long F, DateTime? Last, int Total)>($@"
 WITH a AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource AS BIGINT)) AS F, MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
            FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
@@ -130,7 +134,11 @@ LEFT JOIN bi.DimDate AS dl ON dl.DateKey = a.LastKey
 WHERE {guest} AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
             pg.Total = people.FirstOrDefault().Total;
-            var pt = new Table { Headers = ["Name", "Sign-in", "Home organization", "Interactions", "Security signals", "Last used"], Numeric = new HashSet<int> { 3, 4 } };
+            var pt = new Table
+            {
+                Headers = ["Name", "Sign-in", "Home organization", "Interactions", "Security signals", "Last used"], Numeric = new HashSet<int> { 3, 4 },
+                Server = new(pg, Request, ["name", "upn", "org", "most", "signals", "recent"], new HashSet<int> { 3, 4, 5 }),
+            };
             foreach (var r in people) pt.Rows.Add([r.Name, r.Upn, r.Domain, r.I, r.F, r.Last]);
             CsvTable = pt;
             Panels.Add(new("Guests using Copilot", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["most"] = "Most use", ["name"] = "Name" }).Value + pt.Render().Value),
@@ -200,7 +208,7 @@ SELECT du.UserKey, du.UserPrincipalName, du.DisplayName, du.Department, du.JobTi
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @upn;", Ctx.Args(new { upn }))).FirstOrDefault();
             if (who is null) { Notice = $"No Copilot records for {upn} in your scope."; return; }
 
-            var d = new Table { Headers = ["Field", "Value"] };
+            var d = new Table { Headers = ["Field", "Value"], Sortable = false };
             d.Rows.Add(["Name", who.DisplayName]); d.Rows.Add(["Sign-in", who.UserPrincipalName]); d.Rows.Add(["Department", who.Department]);
             d.Rows.Add(["Job title", who.JobTitle]); d.Rows.Add(["Manager", who.ManagerName]); d.Rows.Add(["Company", who.CompanyName]); d.Rows.Add(["Country", who.Country]);
             d.Rows.Add(["In the directory", who.DirectoryStatus]); d.Rows.Add(["Account enabled", who.AccountEnabled is null ? null : who.AccountEnabled.Value ? "Yes" : "No"]);
@@ -210,7 +218,15 @@ FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @up
             if (lic.Updated is not null) { d.Rows.Add(["License (license tool)", $"{lic.Sku} {lic.Status}".Trim()]); d.Rows.Add(["License read", lic.Updated]); }
             Panels.Add(new("Directory and license", d.Render(), null, "half"));
 
-            var pg = new Paging(Request, new Dictionary<string, string> { ["new"] = "f.CreatedUtc DESC, f.RecordId", ["old"] = "f.CreatedUtc, f.RecordId" }, "new");
+            var pg = new Paging(Request, new Dictionary<string, string>
+            {
+                ["new"] = "f.CreatedUtc DESC, f.RecordId", ["old"] = "f.CreatedUtc, f.RecordId", ["app"] = "a.App, f.CreatedUtc DESC, f.RecordId",
+                ["agent"] = "CASE WHEN ag.AgentSource = N'(no agent)' THEN NULL ELSE ag.AgentName END, f.CreatedUtc DESC, f.RecordId",
+                ["web"] = "f.UsedWebSearch DESC, f.CreatedUtc DESC, f.RecordId",
+                ["signals"] = "CAST(f.JailbreakDetected AS INT) + CAST(f.PromptInjectionDetected AS INT) + CAST(f.HasBlockedResource AS INT) DESC, f.CreatedUtc DESC, f.RecordId",
+                ["labeled"] = "f.HasSensitivityLabel DESC, f.CreatedUtc DESC, f.RecordId", ["resources"] = "f.AccessedResourceCount DESC, f.CreatedUtc DESC, f.RecordId",
+                ["record"] = "f.RecordId",
+            }, "new");
             var recs = await Db.QueryAsync<Rec>($@"
 SELECT f.CreatedUtc, a.App, CASE WHEN ag.AgentSource = N'(no agent)' THEN NULL ELSE ag.AgentName END AS Agent, f.UsedWebSearch, f.JailbreakDetected, f.PromptInjectionDetected,
        f.HasBlockedResource, f.HasSensitivityLabel, f.AccessedResourceCount, f.RecordId, COUNT(*) OVER () AS TotalRows
@@ -226,6 +242,7 @@ WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
             {
                 Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labeled content", "Resources read", "Record id"],
                 Numeric = new HashSet<int> { 6 }, EmptyText = "No interactions in the period.",
+                Server = new(pg, Request, ["new", "app", "agent", "web", "signals", "labeled", "resources", "record"], new HashSet<int> { 0, 3, 4, 5, 6 }),
             };
             foreach (var r in recs)
             {
@@ -272,7 +289,7 @@ GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             Kpis.Add(new("Families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {rules} rule(s)"));
             Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in scope" : null, unmatched > 0 && rules > 0 ? "warn" : null));
             if (rules == 0) Notice = "No job family rules yet: everyone is \"(no family)\". An administrator adds them in Admin > Classifications and events, with the titles that need one listed there.";
-            Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family"), "Licensed people who used Copilot, over people licensed.", "half"));
+            Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Licensed people who used Copilot, over people licensed.", "half"));
             var t = Groups.Table(kept, "Job family");
             CsvTable = t;
             Panels.Add(new("Job families", t.Render(), folded > 0 ? $"{folded} family or families smaller than {Ctx.MinGroupSize} people combined." : null, "full", CsvUrl()));

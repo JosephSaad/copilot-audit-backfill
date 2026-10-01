@@ -99,7 +99,11 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             var url = await _settings.StringAsync("DashboardUrl");
             if (url is not null && link is not null) email.Link(url.TrimEnd('/') + link, "Open it in Copilot Insights");
             email.Footer(null);
-            var error = await _mail.SendAsync(kind, MailConfig.Recipients(await _settings.StringAsync(recipientsSetting)), subject, email.Html(), email.Text(), ct);
+            /* One setting, or several separated by commas: their addresses together. */
+            var to = new List<string>();
+            foreach (var setting in recipientsSetting.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+                if (await _settings.StringAsync(setting) is { } v) to.Add(v);
+            var error = await _mail.SendAsync(kind, MailConfig.Recipients(string.Join(";", to)), subject, email.Html(), email.Text(), ct);
             if (await _settings.StringAsync("EventLogAlerts") != "0") WriteEventLog(kind, subject + Environment.NewLine + string.Join(Environment.NewLine, lines));
             await WebhookAsync(kind, subject, lines, url is not null && link is not null ? url.TrimEnd('/') + link : null);
             done.Add(error is null ? $"Alert sent: {subject}" : $"Alert recorded, not emailed ({error}): {subject}");
@@ -110,9 +114,9 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             if (!OperatingSystem.IsWindows()) return;
             try
             {
-                var id = kind switch { "Pipeline" => 1001, "Freshness" => 1002, "Certificate" => 1003, "Security" => 2001, "Anomaly" => 3001, "Pool" => 4001, "Leavers" => 4002, "NewAgent" => 5001, _ => 1000 };
+                var id = kind switch { "Pipeline" => 1001, "Freshness" => 1002, "Certificate" => 1003, "Security" => 2001, "Anomaly" => 3001, "Pool" => 4001, "Leavers" => 4002, "NonHuman" => 2002, "NewAgent" => 5001, _ => 1000 };
                 System.Diagnostics.EventLog.WriteEntry("Copilot Insights", message.Length > 30000 ? message[..30000] : message,
-                    kind == "Security" ? System.Diagnostics.EventLogEntryType.Warning : System.Diagnostics.EventLogEntryType.Information, id);
+                    kind is "Security" or "NonHuman" ? System.Diagnostics.EventLogEntryType.Warning : System.Diagnostics.EventLogEntryType.Information, id);
             }
             catch (Exception ex) { _log.LogDebug(ex, "The Windows event log source 'Copilot Insights' is not registered; the installer creates it."); }
         }
@@ -165,6 +169,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             await AgentsAsync(first);
             await PoolAsync();
             await LeaversAsync(first);
+            await NonHumanAsync();
             await SetStateAsync("refresh", runId.Value.ToString(CultureInfo.InvariantCulture));
         }
 
@@ -240,6 +245,34 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
                     "/licensing/leavers");
             }
             await SetStateAsync("leavers", n.ToString(CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// A Copilot license on a non-human account is a policy breach (2.4.5): each account is alerted once, to the Security and
+        /// Licensing recipients, the first refresh it is found, and again if it is found after it was cleared. Its state is a row per
+        /// account (nonhuman:{hash of the sign-in}), removed when the license goes or an administrator confirms a person.
+        /// </summary>
+        async Task NonHumanAsync()
+        {
+            if (await _settings.StringAsync("NonHumanAlert") == "0") return;
+            var now = await NonHuman.AllAsync(_db, _settings);
+            static string Key(string upn) => "nonhuman:" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(upn.ToLowerInvariant())));
+            var known = (await _db.QueryAsync<string>("SELECT AlertKey FROM dash.AlertState WHERE AlertKey LIKE N'nonhuman:%';")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var fresh = now.Where(b => !known.Contains(Key(b.UserPrincipalName))).ToList();
+            if (fresh.Count > 0)
+            {
+                var named = !await _settings.PrivacyModeAsync();
+                var lines = new List<string> { $"{fresh.Count:#,0} account(s) that are not a person now hold a Copilot license; {now.Count:#,0} in all. The license is for people: remove it, or have an administrator confirm the account is a person." };
+                if (named) lines.AddRange(fresh.Take(25).Select(b => $"{b.UserPrincipalName}{(b.DisplayName is null ? "" : $" ({b.DisplayName})")}: {NonHuman.Why(b.Guest, b.NameLike, b.NoChart, b.TypeMatch, b.GroupMatch)}."));
+                if (named && fresh.Count > 25) lines.Add($"And {fresh.Count - 25:#,0} more.");
+                lines.Add("The list, the removal files and the confirmations are on Security, Compliance and Licensing > Copilot on non-human accounts.");
+                await AlertAsync("NonHuman", "AlertSecurityTo,AlertLicensingTo", $"Policy breach: {fresh.Count:#,0} Copilot license(s) on non-human accounts", lines, "/security/non-human");
+                foreach (var b in fresh) await SetStateAsync(Key(b.UserPrincipalName), b.UserPrincipalName.Length > 400 ? b.UserPrincipalName[..400] : b.UserPrincipalName);
+            }
+            /* Cleared (license removed, confirmed a person, rule changed): forget it, so it alerts again if it comes back. */
+            var current = now.Select(b => Key(b.UserPrincipalName)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var k in known.Where(k => !current.Contains(k)))
+                await _db.ExecuteAsync("DELETE FROM dash.AlertState WHERE AlertKey = @k", new { k });
         }
 
         /* ---- Digests -------------------------------------------------------------------------------- */

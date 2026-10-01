@@ -19,9 +19,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         if (top is not null) Kpis.Add(new("Highest adoption", top.Name, Pct(Ratio(top.ActiveLicensed, top.Licensed))));
         if (low is not null) Kpis.Add(new("Lowest adoption", low.Name, Pct(Ratio(low.ActiveLicensed, low.Licensed))));
 
-        Panels.Add(new("Adoption by country", Groups.AdoptionBars(countries, "Adoption by country"),
+        Panels.Add(new("Adoption by country", Groups.AdoptionBars(countries, "Adoption by country", Ctx.MinGroupSize),
             "Licensed people who used Copilot in the period." + (fc > 0 ? $" {fc} country(ies) under {Ctx.MinGroupSize} people combined." : ""), "half"));
-        Panels.Add(new("Adoption by office", Groups.AdoptionBars(offices, "Adoption by office", 15),
+        Panels.Add(new("Adoption by office", Groups.AdoptionBars(offices, "Adoption by office", Ctx.MinGroupSize, 15),
             "The fifteen offices with the highest adoption." + (fo > 0 ? $" {fo} office(s) under {Ctx.MinGroupSize} people combined." : ""), "half"));
 
         var trend = await Db.QueryAsync<(string Country, DateTime Bucket, int Active)>($@"

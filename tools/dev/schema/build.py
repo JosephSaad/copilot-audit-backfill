@@ -185,6 +185,7 @@ AREAS = [
         ('dash.DigestSend', 'One row per person, kind (Manager or Personal) and period: sent, or the try that failed (Fail1 to Fail3), so a digest is never sent twice and a failure is retried.'),
         ('dash.LicenseAction', 'Each person in each license export (upgrade, revoke, leaver, wave), with who exported it and when, for Forecasting > License action outcomes.'),
         ('dash.LicenseContract', 'License contracts (Forecasting > Budget and renewal): seats, price per seat a month, start and renewal dates.'),
+        ('dash.NonHumanException', 'Accounts a non-human rule matches that an administrator confirmed are a person, with the reason (2.4.5): a Copilot license on a non-human account is a policy breach, and these are not. Removing a row flags the account again.'),
         ('dash.SavedView', 'Unused since 2.4.4, which removed saved views; kept, with its rows. Each was a page and its query, one of which could be the start page.'),
         ('dash.JobFamilyRule', 'Job-title patterns (SQL LIKE) to job families, first matching by priority (Admin > Classifications and events).'),
         ('dash.UseCaseRule', 'App patterns, web search and agent to use cases, first matching by priority; seeded with defaults.'),

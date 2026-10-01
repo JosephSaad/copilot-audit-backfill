@@ -20,6 +20,8 @@ public sealed class LicenseForCreditsModel(PageServices s) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["credits"] = "x.M DESC, x.DisplayName", ["name"] = "x.DisplayName, x.UserPrincipalName", ["dept"] = "x.Department, x.DisplayName",
+        ["upn"] = "x.UserPrincipalName", ["manager"] = "x.ManagerName, x.DisplayName", ["use"] = "x.I DESC, x.DisplayName, x.UserPrincipalName",
+        ["agents"] = "x.A DESC, x.DisplayName, x.UserPrincipalName", ["work"] = "x.W DESC, x.DisplayName, x.UserPrincipalName", ["days"] = "x.Days DESC, x.DisplayName, x.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["credits"] = "Most credits", ["name"] = "Name", ["dept"] = "Department" };
 
@@ -98,6 +100,8 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
                        $"Credits a month ({cur})", $"Against the license ({cur})"],
             Numeric = new HashSet<int> { 4, 5, 6, 7, 8, 9, 10 },
             EmptyText = AllShown ? "Nobody without a license has use charged in credits." : "Nobody without a license uses credits worth more than a license.",
+            /* Metered, credits a month and against the license all follow the metered count: one key. */
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "use", "credits", "agents", "work", "days", "credits", "credits"], new HashSet<int> { 4, 5, 6, 7, 8, 9, 10 }),
         };
         foreach (var r in rows)
         {
