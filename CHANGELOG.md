@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.6] - Unreleased
+## [2.4.6] - 2026-10-01
 
 Install over 2.4.5: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and
 reinstall the dashboard from its package. The installer adds the file type of every
