@@ -6,14 +6,44 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [2.4.5] - 2026-10-01
 
-Every table sorts by its column headers, trend charts keep event names off the data,
-adoption rankings no longer rest on one or two people, and every upload has a mapping
-file to download.
+A Copilot license on an account that is not a person is now reported as a policy breach,
+with an alert, removal files and administrator-confirmed exceptions. The Scorecard splits
+adoption into Premium and free-only use, every table sorts by its column headers, trend
+charts keep event names off the data, adoption rankings no longer rest on one or two
+people, and every upload has a mapping file to download.
 
-Install over 2.4.4: reinstall the dashboard from its package. Nothing else changes: no
-scripts, no SQL.
+Install over 2.4.4 (or 2.4.3): replace the scripts, run `Install-CopilotAudit.ps1
+-Dashboard` once (it adds `dash.NonHumanException`, the non-human rules' settings, and
+the dashboard's read access to `audit.GroupMember`), and reinstall the dashboard from its
+package. Then check the rules in Admin › Reference data › *Non-human accounts*: the
+built-in ones are on, and your service-account employee types and AD groups are yours to
+add. The first check after the install alerts once for every breach it finds.
 
 ### Added
+- **A Copilot license on a non-human account is a policy breach.** The page that listed
+  them for Licensing (*Licenses on non-person accounts*, 2.4.3) is now *Copilot on
+  non-human accounts*, in Security and Compliance as well as Licensing, for each role. It
+  counts the breaches in red, says why each account was flagged, and has an Entra bulk
+  remove file and a PowerShell script to remove every one, recorded for License action
+  outcomes. The board pack's risk table counts them.
+  - **The rules are yours** (Admin › Reference data › *Non-human accounts*): guests;
+    sign-ins and names that read like a service, shared, test or room account; accounts
+    with no manager outside the org chart; and, new, sign-in patterns of your own, the
+    employee types that are not people, and AD groups of service accounts, whose members
+    the nightly directory load now reads.
+  - **An alert** goes to the Security and Licensing recipients, the webhook and the event
+    log (ID 2002) the first time each account is found, and again if it comes back after
+    it was cleared. Account names are left out in privacy mode, where the page is hidden.
+  - **An account that is a person after all** is confirmed by an administrator on the
+    page, with the reason (`dash.NonHumanException`): it stops being a breach and raises
+    no alert, and *Flag it again* undoes it. Both are audited.
+- **Leadership › Scorecard splits adoption into Premium and free only**: license holders
+  who used what the license pays for (Copilot in Word, Excel, PowerPoint, Outlook or
+  Teams, or chat over work content), and those who used only what is free without it.
+  The two add up to Adoption; each has its change on the period before, as KPIs and for
+  each unit. Units high on free-only adoption are candidates for Licensing › Better on
+  pay-as-you-go. Until the rollups are rebuilt with 2.3.0, the page says so and keeps the
+  single figure.
 - **Every report's tables sort by their column headers.** Click a header to sort by it,
   and again to reverse. Numbers, percentages, money and dates sort by their value, not
   their text; numbers and dates open largest or latest first, text A to Z. A long list of

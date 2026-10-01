@@ -29,6 +29,7 @@ public sealed class Totals
     public int LicensedNow { get; set; }       // holding a license on the last day
     public int Active { get; set; }            // used Copilot in the period
     public int ActiveLicensed { get; set; }    // used it while licensed
+    public int PremiumLicensed { get; set; }   // of those, used Premium features (PremiumUse > 0); the rest used only free features
     public int EverActive { get; set; }        // used it at any time
     public long Interactions { get; set; }
     public long Prompts { get; set; }
@@ -48,6 +49,7 @@ public sealed class UnitRow
     public int Licensed { get; set; }
     public int Active { get; set; }
     public int ActiveLicensed { get; set; }
+    public int PremiumLicensed { get; set; }   // of ActiveLicensed, used Premium features (PremiumUse > 0)
     public long Interactions { get; set; }
     public long ActiveDays { get; set; }
     public long Sessions { get; set; }
@@ -100,7 +102,7 @@ ORDER BY e.Bucket;", c.Args());
     public async Task<Totals> TotalsAsync(ReportContext c) =>
         (await db.QueryAsync<Totals>($@"
 WITH u AS (
-    SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, SUM(CAST(ud.Prompts AS BIGINT)) AS P,
+    SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, SUM(ud.PremiumUse) AS PU, SUM(CAST(ud.Prompts AS BIGINT)) AS P,
            SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
            MAX(CASE WHEN ud.DateKey >= @k7 AND ud.Interactions > 0 THEN 1 ELSE 0 END) AS Last7
     FROM dash.UserDay AS ud {c.Scope("ud.UserKey")}
@@ -111,6 +113,7 @@ SELECT (SELECT COUNT(*) FROM dash.Person AS p {c.PersonScope("p.Upn")} WHERE p.A
        (SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} WHERE ld.DateKey = @k1) AS LicensedNow,
        COUNT(CASE WHEN u.I > 0 THEN 1 END) AS Active,
        COUNT(CASE WHEN u.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
+       COUNT(CASE WHEN u.L > 0 AND u.PU > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS PremiumLicensed,
        (SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} WHERE ud.Interactions > 0) AS EverActive,
        ISNULL(SUM(CAST(u.I AS BIGINT)), 0) AS Interactions,
        ISNULL(SUM(u.P), 0) AS Prompts,
@@ -148,7 +151,7 @@ SELECT u.Unit, u.AccountEnabled, u.UserKey INTO #u FROM u;
         var parent = c.Root ?? c.OrgTopUpn;
         var sql = $@"
 {UnitMembersInto(c, parent is not null)}
-WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
+WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, SUM(ud.PremiumUse) AS PU, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
                     SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F,
                     SUM(ud.LabeledContent) AS LB
              FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
@@ -159,6 +162,7 @@ SELECT u.Unit,
        COUNT(ld.UserKey) AS Licensed,
        COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active,
        COUNT(CASE WHEN a.L > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS ActiveLicensed,
+       COUNT(CASE WHEN a.L > 0 AND a.PU > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS PremiumLicensed,
        ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
        ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn,
        ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.LB AS BIGINT)), 0) AS Labeled
@@ -203,8 +207,8 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
     public static UnitRow Combine(IReadOnlyList<UnitRow> rows, string name) => new()
     {
         Unit = "~small", Name = name, People = rows.Sum(r => r.People), Licensed = rows.Sum(r => r.Licensed),
-        Active = rows.Sum(r => r.Active), ActiveLicensed = rows.Sum(r => r.ActiveLicensed), Interactions = rows.Sum(r => r.Interactions),
-        ActiveDays = rows.Sum(r => r.ActiveDays), Sessions = rows.Sum(r => r.Sessions), MultiTurn = rows.Sum(r => r.MultiTurn),
+        Active = rows.Sum(r => r.Active), ActiveLicensed = rows.Sum(r => r.ActiveLicensed), PremiumLicensed = rows.Sum(r => r.PremiumLicensed),
+        Interactions = rows.Sum(r => r.Interactions), ActiveDays = rows.Sum(r => r.ActiveDays), Sessions = rows.Sum(r => r.Sessions), MultiTurn = rows.Sum(r => r.MultiTurn),
         Flags = rows.Sum(r => r.Flags), Labeled = rows.Sum(r => r.Labeled),
     };
     /// <summary>

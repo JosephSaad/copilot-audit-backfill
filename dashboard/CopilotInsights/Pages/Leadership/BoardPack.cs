@@ -75,6 +75,8 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         rt.Rows.Add(["Prompt injection detected", tr.Sum(x => x.Injection), rp.Sum(x => x.Injection)]);
         rt.Rows.Add(["Blocked resources", tr.Sum(x => x.Blocked), rp.Sum(x => x.Blocked)]);
         rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp.Sum(x => x.Labeled)]);
+        /* A policy breach, counted today (2.4.5): there is no earlier figure to set beside it. */
+        rt.Rows.Add(["Copilot licenses on non-human accounts (today)", (await CopilotInsights.Data.NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args())).Count, null]);
         Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance.", "half"));
 
         var units = (await metrics.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize && u.Licensed >= Ctx.MinGroupSize).ToList();

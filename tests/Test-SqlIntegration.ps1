@@ -2127,10 +2127,14 @@ SELECT (SELECT COUNT(*) FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'dash' AN
        (SELECT COUNT(*) FROM dash.Setting WHERE Name IN ('AlertWebhookFormat', 'ManagerDigest', 'CertificateWarnDays', 'RolloutWaveSize')) AS Settings_,
        (SELECT COUNT(*) FROM dash.Setting WHERE Name = 'PersonalDigest') AS Personal,
        (SELECT Value FROM dash.Setting WHERE Name = 'MaxViewerLevel') AS MaxLevel,
+       (SELECT COUNT(*) FROM dash.Setting WHERE Name LIKE 'NonHuman%') AS NonHumanSettings,
+       (SELECT COUNT(*) FROM dash.Setting WHERE Name IN ('NonHumanGuests', 'NonHumanNames', 'NonHumanNoChart') AND Value = N'On') AS NonHumanOn,
+       OBJECT_ID(N'dash.NonHumanException', N'U') AS NonHumanTable,
        COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') AS CertCol,
        COL_LENGTH(N'audit.CopilotLicense', N'UserType') AS UserTypeCol;
 "@).Rows[0]
 Assert-That ([int] $t2.Tables_ -eq 10 -and [int] $t2.Rules -eq 10 -and [int] $t2.Settings_ -eq 4) "the ten new tables, the ten default use-case rules and the new settings install once ($($t2.Tables_), $($t2.Rules), $($t2.Settings_))"
+Assert-That ([int] $t2.NonHumanSettings -eq 7 -and [int] $t2.NonHumanOn -eq 3 -and $t2.NonHumanTable -isnot [DBNull]) "2.4.5: the non-human rules' seven settings, the three built-in rules on, and the confirmations table ($($t2.NonHumanSettings), $($t2.NonHumanOn))"
 Assert-That ([int] $t2.Personal -eq 0 -and [string] $t2.MaxLevel -eq '0') "2.4.4: the personal email's setting is gone, and the dashboard opens to everyone until a level is chosen ($($t2.Personal), $($t2.MaxLevel))"
 Assert-That ($t2.CertCol -isnot [DBNull] -and $t2.UserTypeCol -isnot [DBNull]) 'the pipeline run records the certificate, and the license record the user type'
 
@@ -2149,6 +2153,9 @@ EXECUTE AS USER = 'it_app2';
 BEGIN TRY
     INSERT INTO dash.DigestPreference (Upn, ManagerDigestOptOut) VALUES (N'a@contoso.com', 1);
     UPDATE dash.DigestPreference SET ManagerDigestOptOut = 0 WHERE Upn = N'a@contoso.com';
+    INSERT INTO dash.NonHumanException (Upn, Reason, ConfirmedBy) VALUES (N'svc-a@contoso.com', N'a person', N'test');
+    DELETE FROM dash.NonHumanException WHERE Upn = N'svc-a@contoso.com';
+    DECLARE @gm INT = (SELECT COUNT(*) FROM audit.GroupMember);
     INSERT INTO dash.EventMarker (Day, Label, Kind, UpdatedBy) VALUES ('2026-10-01', N'x', 'Other', N'test');
     INSERT INTO dash.LicenseAction (Kind, Upn, ExportedBy) VALUES ('revoke', N'a@contoso.com', N'test');
     UPDATE dash.DigestSend SET Status = 'Fail1' WHERE Upn = N'a@contoso.com';
@@ -2158,7 +2165,7 @@ REVERT;
 ALTER ROLE CopilotInsightsApp DROP MEMBER it_app2; DROP USER it_app2;
 SELECT @r;
 "@)
-Assert-That ($w -eq 'ok') "the dashboard's role writes manager opt-outs, events, license actions and digest sends ($w)"
+Assert-That ($w -eq 'ok') "the dashboard's role writes manager opt-outs, non-human confirmations, events, license actions and digest sends, and reads group members ($w)"
 
 # 2.4.1: every bi column is at least as wide as the flattened column it copies (a 450-character action failed the refresh).
 $widths = (Invoke-SqlText -As Table -Sql @"

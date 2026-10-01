@@ -11,10 +11,16 @@ namespace CopilotInsights.Pages.Leadership
     {
         public override string Title => "Scorecard";
         public override string Persona => "Leadership";
-        public override string Intro => "This period against the one before it, of the same length: what moved, and in which part of the organization.";
+        public override string Intro => "This period against the one before it, of the same length: what moved, and in which part of the organization. "
+            + "Adoption splits in two: Premium, license holders who used what the license pays for (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or chat over work content); "
+            + "and free only, those who used only what is free without a license (web Copilot Chat, agents).";
 
         protected override async Task BuildAsync()
         {
+            /* Premium use is recorded once the rollups are rebuilt with 2.3.0; before that it is all zero, so the split is left out. */
+            var split = await Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
+            if (!split)
+                Notice = "Premium-feature use is not in the rollups yet: an administrator rebuilds them once (Admin > Health, Rebuild every day). Until then adoption is not split into Premium and free only.";
             var prev = new ReportContext
             {
                 Viewer = Ctx.Viewer, Days = Ctx.Days, Start = Ctx.Start.AddDays(-Ctx.Days), End = Ctx.End.AddDays(-Ctx.Days),
@@ -25,8 +31,16 @@ namespace CopilotInsights.Pages.Leadership
             string Delta(double a, double b, bool pct = false) =>
                 b == 0 ? "no earlier figure" : pct ? $"{(a - b) * 100:+0.0;-0.0;0} points on the {Ctx.Days} days before" : $"{(a - b) / b:+0%;-0%;0%} on the {Ctx.Days} days before";
             double Adopt(Totals t) => t.LicensedNow > 0 ? t.ActiveLicensed / (double)t.LicensedNow : 0;
+            /* Premium + free only = Adoption: every active license holder either used a Premium feature or did not. */
+            double Premium(Totals t) => t.LicensedNow > 0 ? t.PremiumLicensed / (double)t.LicensedNow : 0;
+            double FreeOnly(Totals t) => t.LicensedNow > 0 ? (t.ActiveLicensed - t.PremiumLicensed) / (double)t.LicensedNow : 0;
             Kpis.Add(new("People using Copilot", Num(now.Active), Delta(now.Active, before.Active)));
             Kpis.Add(new("Adoption", Pct(Adopt(now)), Delta(Adopt(now), Adopt(before), pct: true)));
+            if (split)
+            {
+                Kpis.Add(new("Premium adoption", Pct(Premium(now)), Delta(Premium(now), Premium(before), pct: true)));
+                Kpis.Add(new("Free-only adoption", Pct(FreeOnly(now)), Delta(FreeOnly(now), FreeOnly(before), pct: true)));
+            }
             Kpis.Add(new("Licensed", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow)));
             Kpis.Add(new("Interactions", Num(now.Interactions), Delta(now.Interactions, before.Interactions)));
             Kpis.Add(new("Multi-turn sessions", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
@@ -35,8 +49,10 @@ namespace CopilotInsights.Pages.Leadership
             var u0 = (await m.UnitsAsync(prev)).ToDictionary(u => u.Unit);
             var t = new Table
             {
-                Headers = ["Unit", "People", "Adoption", "Change", "Active", "Change", "Interactions per active person", "Change"],
-                Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7 },
+                Headers = split
+                    ? ["Unit", "People", "Adoption", "Premium", "Change", "Free only", "Change", "Active", "Change", "Interactions per active person", "Change"]
+                    : ["Unit", "People", "Adoption", "Change", "Active", "Change", "Interactions per active person", "Change"],
+                Numeric = Enumerable.Range(1, split ? 10 : 7).ToHashSet(),
             };
             var rows = new List<(UnitRow Now, UnitRow? Before)>();
             foreach (var u in u1.Values.Where(u => u.People >= Ctx.MinGroupSize)) rows.Add((u, u0.GetValueOrDefault(u.Unit)));
@@ -46,12 +62,22 @@ namespace CopilotInsights.Pages.Leadership
             {
                 double? a1 = Ratio(n.ActiveLicensed, n.Licensed), a0 = b is null ? null : Ratio(b.ActiveLicensed, b.Licensed);
                 double? i1 = n.Active > 0 ? n.Interactions / (double)n.Active : null, i0 = b is { Active: > 0 } ? b.Interactions / (double)b.Active : null;
-                t.Rows.Add([n.Drillable ? new Link(n.Name, Ctx.Url(Request.Path, org: n.Unit)) : n.Name, n.People, Pct(a1),
-                            Arrow(a1 - a0, true), n.Active, Arrow(b is { Active: > 0 } ? (n.Active - b.Active) / (double)b.Active : null, false),
-                            i1 is null ? null : Math.Round(i1.Value, 1), Arrow(i0 is > 0 ? (i1 - i0) / i0 : null, false)]);
+                var name = n.Drillable ? (object)new Link(n.Name, Ctx.Url(Request.Path, org: n.Unit)) : n.Name;
+                var rest = new object?[] { n.Active, Arrow(b is { Active: > 0 } ? (n.Active - b.Active) / (double)b.Active : null, false),
+                                           i1 is null ? null : Math.Round(i1.Value, 1), Arrow(i0 is > 0 ? (i1 - i0) / i0 : null, false) };
+                if (split)
+                {
+                    double? p1 = Ratio(n.PremiumLicensed, n.Licensed), p0 = b is null ? null : Ratio(b.PremiumLicensed, b.Licensed);
+                    double? f1 = Ratio(n.ActiveLicensed - n.PremiumLicensed, n.Licensed), f0 = b is null ? null : Ratio(b.ActiveLicensed - b.PremiumLicensed, b.Licensed);
+                    t.Rows.Add([name, n.People, Pct(a1), Pct(p1), Arrow(p1 - p0, true), Pct(f1), Arrow(f1 - f0, true), .. rest]);
+                }
+                else
+                    t.Rows.Add([name, n.People, Pct(a1), Arrow(a1 - a0, true), .. rest]);
             }
             Panels.Add(new("By unit, against the period before", t.Render(),
-                $"One level down. Units under {Ctx.MinGroupSize} people are left out. Change in adoption is in percentage points; the others are relative."));
+                $"One level down. Units under {Ctx.MinGroupSize} people are left out. "
+                + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
+                + "Change in adoption is in percentage points; the others are relative."));
         }
     }
 }

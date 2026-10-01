@@ -285,7 +285,7 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
         if (batches.Count == 0) { Notice = "No license exports yet. They are recorded when someone downloads a bulk file or script from Upgrade, train or revoke, Licenses on disabled accounts, or Rollout waves."; return; }
 
         int Done(Batch b) => b.Kind is "upgrade" or "wave" ? b.LicensedNow : b.People - b.LicensedNow;
-        var reclaimed = batches.Where(b => b.Kind is "revoke" or "leaver").Sum(Done);
+        var reclaimed = batches.Where(b => b.Kind is "revoke" or "leaver" or "nonhuman").Sum(Done);
         var given = batches.Where(b => b.Kind is "upgrade" or "wave").ToList();
         Kpis.Add(new("Exported", Num(batches.Sum(b => b.People)), $"in {batches.Count} export(s)"));
         Kpis.Add(new("Applied", Pct(Ratio(batches.Sum(Done), batches.Sum(b => b.People))), "the license is where the export said it should be"));
@@ -294,7 +294,7 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
 
         var t = new Table { Headers = ["Exported", "What", "By", "People", "Applied", "Share applied", "Used Copilot since", $"A month ({cur})"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
         foreach (var b in batches)
-            t.Rows.Add([b.Day, b.Kind switch { "upgrade" => "Upgrade", "revoke" => "Revoke unused", "leaver" => "Reclaim from disabled accounts", _ => "Rollout wave" },
+            t.Rows.Add([b.Day, b.Kind switch { "upgrade" => "Upgrade", "revoke" => "Revoke unused", "leaver" => "Reclaim from disabled accounts", "nonhuman" => "Remove from non-human accounts", _ => "Rollout wave" },
                 b.ExportedBy, b.People, Done(b), Pct(Ratio(Done(b), b.People)), b.Kind is "upgrade" or "wave" ? b.UsedSince : null,
                 b.Kind is "upgrade" or "wave" ? Done(b) * price : -Done(b) * price]);
         Panels.Add(new("Exports", t.Render(), "Applied: for an upgrade or wave, the person holds a license today; for a revocation, they no longer do. A month: the cost added (positive) or saved (negative) by what has been applied."));

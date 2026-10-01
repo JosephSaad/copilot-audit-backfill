@@ -366,7 +366,7 @@ IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Rol
 public sealed class ReferenceModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Reference data";
-    public override string Intro => "Names the audit log does not carry: friendly agent names and owners, sensitivity label names and their order, and which apps count as Copilot Chat.";
+    public override string Intro => "Names the audit log does not carry: friendly agent names and owners, sensitivity label names and their order, which apps count as Copilot Chat, and which accounts are not a person.";
 
     sealed class AgentRow
     {
@@ -428,7 +428,47 @@ FROM bi.DimApp AS a LEFT JOIN audit.SessionAppCategory AS c ON c.App = a.App ORD
                 Select("category", "Category", ["Copilot Chat", "In-App Copilot"], a.Category) + Button("Save")))]);
         Panels.Add(new("App categories", at.Render(),
             "Copilot Chat or Copilot inside an app. A change applies to sessions and the bi model at their next refresh, and to the dashboard after that.", "half"));
+
+        /* Which accounts are not a person (2.4.5): a Copilot license on one is a policy breach. */
+        var r = await CopilotInsights.Data.NonHuman.RulesAsync(S.Settings);
+        string Box(string name, string label, bool on) => $"<label><input type=\"checkbox\" name=\"{name}\" value=\"On\"{(on ? " checked" : "")}/> {E(label)}</label>";
+        var set = await S.Settings.AllAsync();
+        Panels.Add(new("Non-human accounts", new HtmlString(Form("nonhuman",
+            Box("guests", "Guests (an #EXT# sign-in, or Entra's user type)", r.Guests) +
+            Box("names", "Sign-ins and names that read like a service, shared, test or room account (svc-, service, admin, test-, noreply, shared, room-, \"shared mailbox\")", r.Names) +
+            Box("nochart", "Accounts with no manager, outside the org chart", r.NoChart) +
+            Input("patterns", "More sign-in patterns (comma-separated, * for any text: bot-*, *-svc)", string.Join(", ", r.Patterns), 50) +
+            Input("types", "Employee types that are not people (comma-separated: SERVICE, RESOURCE)", string.Join(", ", r.EmployeeTypes), 50) +
+            Input("groups", "AD groups of service accounts (DOMAIN\\Group, comma-separated)", string.Join(", ", r.Groups), 50) +
+            Select("alert", "Alert Security and Licensing when one is found", ["Yes", "No"], set.GetValueOrDefault("NonHumanAlert") == "0" ? "No" : "Yes") +
+            Button("Save", "Change which accounts count as not a person? It changes every breach count, the removal files and the alerts."))),
+            "A Copilot license on an account these rules match is a policy breach, on Security, Compliance and Licensing > Copilot on non-human accounts, " +
+            "unless an administrator confirms the account is a person there. The groups' members are read by the next nightly directory load. " +
+            "The alert goes to the Security and Licensing alert recipients (Admin > Alerts and digests), once for each account."));
     }
+
+    public Task<IActionResult> OnPostNonHumanAsync(string? guests, string? names, string? nochart, string? patterns, string? types, string? groups, string? alert) => AdminChangeAsync(async () =>
+    {
+        static string? Clean(string? v, int max, Func<string, bool> ok, string what)
+        {
+            var list = CopilotInsights.Data.NonHuman.Split(v);
+            foreach (var x in list) if (x.Length > max || !ok(x)) throw new ArgumentException($"'{x}' is not {what}.");
+            var joined = string.Join(", ", list);
+            if (joined.Length > 1000) throw new ArgumentException($"the {what} list is longer than 1,000 characters.");
+            return joined.Length == 0 ? null : joined;
+        }
+        var values = new Dictionary<string, string?>
+        {
+            [CopilotInsights.Data.NonHuman.GuestsSetting] = guests == "On" ? "On" : "Off",
+            [CopilotInsights.Data.NonHuman.NamesSetting] = names == "On" ? "On" : "Off",
+            [CopilotInsights.Data.NonHuman.NoChartSetting] = nochart == "On" ? "On" : "Off",
+            [CopilotInsights.Data.NonHuman.PatternsSetting] = Clean(patterns, 64, x => x.Trim('*').Length > 0, "a sign-in pattern"),
+            [CopilotInsights.Data.NonHuman.TypesSetting] = Clean(types, 100, _ => true, "an employee type"),
+            [CopilotInsights.Data.NonHuman.GroupsSetting] = Clean(groups, 256, x => x.Contains('\\') && !x.StartsWith('\\') && !x.EndsWith('\\'), "a DOMAIN\\Group name"),
+            ["NonHumanAlert"] = alert == "No" ? "0" : "1",
+        };
+        return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, values));
+    });
 
     public Task<IActionResult> OnPostAliasAsync(int key, string? name, string? owner) => AdminChangeAsync(async () =>
     {

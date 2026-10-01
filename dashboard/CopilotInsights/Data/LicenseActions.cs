@@ -10,7 +10,7 @@ namespace CopilotInsights.Data;
 /// </summary>
 public static class LicenseActions
 {
-    public static readonly string[] Kinds = ["upgrade", "revoke", "leaver", "wave"];
+    public static readonly string[] Kinds = ["upgrade", "revoke", "leaver", "wave", "nonhuman"];
 
     public static async Task RecordAsync(Db db, string kind, IReadOnlyCollection<string> upns, string by)
     {

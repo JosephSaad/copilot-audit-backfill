@@ -404,13 +404,23 @@ function Write-UserDirectory {
 }
 
 function Get-OrganizationGroup {
-    <# The AD groups granted Organization in the dashboard, if it is installed. #>
+    <#
+        The AD groups whose members the dashboard needs, if it is installed: those granted Organization (for
+        Power BI's row-level security), and those an administrator listed as marking non-human accounts (2.4.5,
+        the NonHumanGroups setting, separated by commas, semicolons or lines).
+    #>
     param([Parameter(Mandatory)][string] $ConnString)
     $conn = [System.Data.SqlClient.SqlConnection]::new($ConnString)
     $conn.Open()
     try {
         $cmd = $conn.CreateCommand()
-        $cmd.CommandText = "IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NOT NULL EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE PrincipalType = ''Group'' AND Role = ''Organization'';');"
+        $cmd.CommandText = @'
+IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NOT NULL
+    EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE PrincipalType = ''Group'' AND Role = ''Organization''
+            UNION SELECT LTRIM(RTRIM(g.value)) FROM dash.Setting AS s
+            CROSS APPLY STRING_SPLIT(REPLACE(REPLACE(ISNULL(s.Value, N''''), N'';'', N'',''), CHAR(10), N'',''), N'','') AS g
+            WHERE s.Name = N''NonHumanGroups'' AND LTRIM(RTRIM(g.value)) <> N'''';');
+'@
         $r = $cmd.ExecuteReader()
         $list = [System.Collections.Generic.List[string]]::new()
         try { while ($r.Read()) { $list.Add($r.GetString(0)) } } finally { $r.Dispose() }
@@ -500,17 +510,18 @@ function Invoke-Main {
     $n = Write-UserDirectory -ConnString $connStr -Table $rows.Table -BatchRows $BatchSize
     Write-Log ("Loaded {0:N0} row(s) into audit.UserDirectory." -f $n)
 
-    # Organization granted to AD groups: their members, for Power BI's row-level security (bi.OrgSecurity).
+    # Organization granted to AD groups: their members, for Power BI's row-level security (bi.OrgSecurity);
+    # and the groups that mark non-human accounts (2.4.5), for the dashboard's policy-breach check.
     # Written every night, even with no groups, so a revoked grant's members do not linger.
     # Get-OrganizationGroup returns its array whole (unary comma), so @() here would wrap it in a second array.
     [string[]] $groups = Get-OrganizationGroup -ConnString $connStr
     $expanded = @(foreach ($g in $groups) {
         $members = Get-GroupMemberUpn -Domain $TargetDomain -Group $g
-        if ($null -eq $members) { Write-Log "Group $g, granted Organization, is not in ${TargetDomain}: Power BI will not give its members the whole organization." -Level WARN; continue }
+        if ($null -eq $members) { Write-Log "Group $g, granted Organization or listed as marking non-human accounts, is not in ${TargetDomain}: its members are not recorded." -Level WARN; continue }
         [pscustomobject]@{ Group = $g; Members = $members }
     })
     $gm = Write-GroupMember -ConnString $connStr -Table (ConvertTo-GroupMemberTable -Groups $expanded)
-    if ($groups.Count -gt 0) { Write-Log ("{0:N0} member(s) of {1} group(s) granted Organization recorded for Power BI." -f $gm, $expanded.Count) }
+    if ($groups.Count -gt 0) { Write-Log ("{0:N0} member(s) of {1} group(s) recorded (granted Organization, or marking non-human accounts)." -f $gm, $expanded.Count) }
 
     $m = Get-DirectoryMatch -ConnString $connStr
     if ($m.AuditUsers -gt 0) {
