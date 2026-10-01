@@ -188,6 +188,8 @@ def record_json(rid, t):
 
 ADMIN_UNIT_ID = "00000000-0000-0000-0000-0000000000ae"
 COPILOT_SKU_ID = "639dec6b-bb19-468b-871c-c5c441c4b0cb"   # Microsoft_365_Copilot
+COPILOT_PLAN_IDS = ["00000000-0000-0000-0000-00000c0a0001", "00000000-0000-0000-0000-00000c0a0002"]
+SHARED_PLAN_ID = "00000000-0000-0000-0000-0000005ba4ed"
 DIRECTORY_USERS = 50          # user0..user49 appear in the audit data
 DIRECTORY_MISSING = {49}      # ...but this one has left: Graph 404s it
 DEPARTMENTS = ["Retail Banking", "Risk", "Technology", "Operations"]
@@ -217,12 +219,17 @@ def directory_user(n):
         # Everyone holds E3; the licensed hold Copilot too (2.4.3: the license tool keeps every SKU).
         "assignedLicenses": [{"skuId": "00000000-0000-0000-0000-0000000e3105", "disabledPlans": []}]
                             + ([{"skuId": COPILOT_SKU_ID, "disabledPlans": []}] if licensed else []),
-        "assignedPlans": ([{
-            "service": "Microsoft365Copilot",
-            "servicePlanId": COPILOT_SKU_ID,
-            "capabilityStatus": "Enabled",
-            "assignedDateTime": "2026-0%d-01T00:00:00Z" % ((n % 6) + 1),
-        }] if licensed else []),
+        # As Entra returns them: each plan by its id and the service behind it, which is not named for Copilot.
+        # The Copilot SKU's own two plans (the earlier is "since when"), an earlier assignment since deleted, and
+        # a plan E3 carries too, older than either: only the first two answer since when (2.4.8).
+        "assignedPlans": [{"service": "exchange", "servicePlanId": SHARED_PLAN_ID, "capabilityStatus": "Enabled",
+                           "assignedDateTime": "2024-01-01T00:00:00Z"}]
+                         + ([{"service": "MicrosoftOffice", "servicePlanId": COPILOT_PLAN_IDS[0], "capabilityStatus": "Enabled",
+                              "assignedDateTime": "2026-0%d-09T00:00:00Z" % ((n % 6) + 1)},
+                             {"service": "TeamspaceAPI", "servicePlanId": COPILOT_PLAN_IDS[1], "capabilityStatus": "Enabled",
+                              "assignedDateTime": "2026-0%d-01T00:00:00Z" % ((n % 6) + 1)},
+                             {"service": "MicrosoftOffice", "servicePlanId": COPILOT_PLAN_IDS[0], "capabilityStatus": "Deleted",
+                              "assignedDateTime": "2025-01-01T00:00:00Z"}] if licensed else []),
     }
     return u
 
@@ -349,9 +356,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/v1.0/subscribedSkus":
             self.send_json(200, {"value": [
                 {"skuId": COPILOT_SKU_ID, "skuPartNumber": "Microsoft_365_Copilot", "capabilityStatus": "Enabled",
-                 "consumedUnits": 17, "prepaidUnits": {"enabled": 100, "warning": 5, "suspended": 0, "lockedOut": 0}},
+                 "consumedUnits": 17, "prepaidUnits": {"enabled": 100, "warning": 5, "suspended": 0, "lockedOut": 0},
+                 "servicePlans": [{"servicePlanId": COPILOT_PLAN_IDS[0], "servicePlanName": "M365_COPILOT_APPS"},
+                                  {"servicePlanId": COPILOT_PLAN_IDS[1], "servicePlanName": "M365_COPILOT_TEAMS"},
+                                  {"servicePlanId": SHARED_PLAN_ID, "servicePlanName": "EXCHANGE_S_FOUNDATION"}]},
                 {"skuId": "00000000-0000-0000-0000-0000000e3105", "skuPartNumber": "ENTERPRISEPACK",
-                 "consumedUnits": 50, "prepaidUnits": {"enabled": 100}},
+                 "consumedUnits": 50, "prepaidUnits": {"enabled": 100},
+                 "servicePlans": [{"servicePlanId": SHARED_PLAN_ID, "servicePlanName": "EXCHANGE_S_FOUNDATION"}]},
             ]})
             return True
 

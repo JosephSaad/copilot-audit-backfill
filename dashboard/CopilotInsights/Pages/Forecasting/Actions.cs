@@ -21,9 +21,9 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
 
     /*
         a.D: days with any Copilot use in the last 30. a.P: days with use that needs the Premium license
-        (Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content;
-        dash.UserDay.PremiumUse). Train and revoke look at a.P: a license used only for web Copilot Chat,
-        which the free tier gives, is a license not used.
+        (Copilot inside an app, Copilot Chat in work mode, or work content read; dash.UserDay.PremiumUse, whose
+        rule is bi.FactInteraction.UseKind's). Train and revoke look at a.P: a license used only for web Copilot
+        Chat or agents, which need none, is a license not used.
     */
     public static readonly Dictionary<string, (string Label, string Where, string Action)> Kinds = new()
     {
@@ -168,7 +168,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
                     ? $"Licensed; used Premium features on {r.PremiumDays} day{(r.PremiumDays == 1 ? "" : "s")} in 30 (Copilot Chat on {r.Days - r.PremiumDays} more)"
                     : $"Licensed, but used Copilot on {r.Days} day{(r.Days == 1 ? "" : "s")} in 30",
                 _ => r.Days > 0
-                    ? $"Used only web Copilot Chat ({r.Days} day{(r.Days == 1 ? "" : "s")} in 30), which the free tier gives: nothing that needs the license"
+                    ? $"No licensed use in the records: {r.Days} day{(r.Days == 1 ? "" : "s")} in 30 of web Copilot Chat or agents only"
                     : r.LastUsed is null
                     ? "Licensed" + (r.LicensedSinceUtc is null ? "" : $" {(Ctx.End - r.LicensedSinceUtc.Value.Date).Days} days ago") + " and never used"
                     : $"No use for {(Ctx.End - r.LastUsed.Value.Date).Days} days",
@@ -189,8 +189,8 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         var rule = kind switch
         {
             "upgrade" => $"No Premium license, and used the free Copilot Chat on {UpgradeDays} or more of the last 30 days: they already rely on it.",
-            "train" => $"A Premium license whose Premium features (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or chat over work content) were used on only 1 to {LightMax} days in the last 30: a short session or a champion usually changes that. Review again after 30 days.",
-            _ => $"A Premium license held for at least {RevokeAfterDays} days whose Premium features were not used in the last 30, whether or not the person used web Copilot Chat (which the free tier gives). Offer training first if the role needs Copilot; otherwise revoke and reassign.",
+            "train" => $"A Premium license whose Premium features (Copilot in Word, Excel, PowerPoint, Outlook or Teams, Copilot Chat in work mode, or work content read) were used on only 1 to {LightMax} days in the last 30: a short session or a champion usually changes that. Review again after 30 days.",
+            _ => $"A Premium license held for at least {RevokeAfterDays} days with no licensed use in the last 30: no record shows Copilot in an app, Copilot Chat in work mode, or work content read. Web Copilot Chat and agents need no license, so they do not count. Offer training first if the role needs Copilot; otherwise revoke and reassign.",
         };
         /* Upgrade and revoke change a license: offer them as files an administrator applies. The dashboard changes nothing. */
         var exports = kind == "train" || pg.Total == 0 ? "" :

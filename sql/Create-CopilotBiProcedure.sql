@@ -423,7 +423,8 @@ BEGIN
                CAST(ISNULL(f.CopilotEventData_MemoryUpdated, 0) AS BIT)                             AS MemoryUpdated,
                CAST(CASE WHEN f.CopilotEventData_DLPEvaluationDeferred > 0 THEN 1 ELSE 0 END AS BIT)  AS DlpEvaluationDeferred,
                CAST(CASE WHEN NULLIF(f.CopilotEventData_TargetAgentName, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS CalledAnotherAgent,
-               NULLIF(LTRIM(RTRIM(LEFT(f.CopilotEventData_TargetAgentName, 400))), N'')              AS TargetAgentName
+               NULLIF(LTRIM(RTRIM(LEFT(f.CopilotEventData_TargetAgentName, 400))), N'')              AS TargetAgentName,
+               ai.Ident                                                                            AS Ident
         INTO #src
         FROM audit.RawLogFlattened AS f
         /* The agent: AgentId when the record has one, else the agent named
@@ -491,6 +492,22 @@ BEGIN
             JOIN audit.RawLogAccessedResource AS r ON r.RecordId = s.RecordId
             CROSS APPLY (SELECT RTRIM(r.Name) AS N) AS nm;
 
+        /* 2.4.8: the interactions that read work content - a resource in SharePoint or OneDrive, Outlook or Teams,
+           or a mail, a Teams message, a meeting or a connector item. The web pages a web search cites are listed as
+           resources too, so "read a resource" alone does not say work content. Without the element table (a load
+           from a CSV export), the count and the web search flag are all there is, as before 2.4.8. */
+        DROP TABLE IF EXISTS #work;
+        CREATE TABLE #work (RecordId NVARCHAR(450) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
+        IF @hasResources = 1
+            INSERT INTO #work (RecordId)
+            SELECT DISTINCT r.RecordId FROM #rsrc AS r
+            WHERE r.Site LIKE N'https://%.sharepoint.%' OR r.Site LIKE N'https://%.sharepoint-mil.%'
+               OR r.Site LIKE N'https://outlook.office%' OR r.Site LIKE N'https://teams.microsoft.%'
+               OR r.ResourceType IN (N'EmailMessage', N'TeamsMessage', N'Event', N'External');
+        ELSE
+            INSERT INTO #work (RecordId)
+            SELECT s.RecordId FROM #src AS s WHERE s.AccessedResourceCount > 0 AND s.UsedWebSearch = 0;
+
         INSERT INTO bi.DimFileType (FileType)
         SELECT DISTINCT r.FileType FROM #rsrc AS r
         WHERE NOT EXISTS (SELECT 1 FROM bi.DimFileType AS d WHERE d.FileType = r.FileType);
@@ -531,7 +548,7 @@ BEGIN
              PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected,
              HasBlockedResource, HasSensitivityLabel,
              LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName,
-             PremiumUse, UseCaseKey)
+             PremiumUse, UseCaseKey, UseKind)
         SELECT s.RecordId, s.Utc,
                DATEADD(HOUR, DATEPART(HOUR, t.LocalTs), CAST(CAST(t.LocalTs AS DATE) AS DATETIME2(0))),
                YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
@@ -544,10 +561,12 @@ BEGIN
                s.DlpEvaluationDeferred, s.CalledAnotherAgent, s.TargetAgentName,
                /* Premium use and the use-case key: defined here once (see bi.FactInteraction). */
                CASE WHEN ls.LicenseStatusKey = 1
-                     AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
-                          OR (a.AppCategory = N'Copilot Chat' AND s.AccessedResourceCount > 0 AND s.UsedWebSearch = 0))
+                     AND (uk.UseKind = 1
+                          OR (uk.UseKind IN (2, 3) AND a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
+                          OR (uk.UseKind = 3 AND a.AppCategory = N'Copilot Chat'))
                     THEN 1 ELSE 0 END,
-               a.AppKey * 4 + CAST(s.UsedWebSearch AS INT) * 2 + CASE WHEN g.AgentId = N'(none)' THEN 0 ELSE 1 END
+               a.AppKey * 4 + CAST(s.UsedWebSearch AS INT) * 2 + CASE WHEN g.AgentId = N'(none)' THEN 0 ELSE 1 END,
+               uk.UseKind
         FROM #src AS s
         CROSS APPLY (SELECT CAST(CAST(s.Utc AS DATETIME2(0)) AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
         JOIN bi.DimUser  AS u ON u.UserPrincipalName = s.Upn
@@ -557,9 +576,16 @@ BEGIN
         JOIN bi.DimLicenseType AS lt ON lt.LicenseType = s.LicenseType
         LEFT JOIN bi.DimSensitivityLabel AS sl ON sl.LabelId = s.EventLabelId
         LEFT JOIN #known AS k ON k.Upn = s.Upn
+        LEFT JOIN #work AS w ON w.RecordId = s.RecordId
         OUTER APPLY (SELECT TOP (1) 1 AS Held FROM #held AS x
                      WHERE x.Upn = s.Upn AND x.FromUtc <= s.Utc AND x.ToUtc > s.Utc) AS h
-        CROSS APPLY (SELECT CAST(CASE WHEN k.Upn IS NULL THEN 0 WHEN h.Held = 1 THEN 1 ELSE 2 END AS TINYINT) AS LicenseStatusKey) AS ls
+        /* 2.4.8: a record Copilot itself marked Premium was written under a license, whatever the dates say: the
+           date Entra gives is when the current assignment began, which a reassignment moves forward. */
+        CROSS APPLY (SELECT CAST(CASE WHEN s.LicenseType = N'Premium' THEN 1 WHEN k.Upn IS NULL THEN 0 WHEN h.Held = 1 THEN 1 ELSE 2 END AS TINYINT) AS LicenseStatusKey) AS ls
+        CROSS APPLY (SELECT CAST(CASE WHEN s.Ident LIKE N'Copilot.Studio.%' THEN 0
+                                      WHEN s.Ident LIKE N'Copilot.%.WebChat%' THEN CASE WHEN w.RecordId IS NOT NULL THEN 1 ELSE 0 END
+                                      WHEN s.Ident LIKE N'Copilot.%.Bizchat%' OR s.Ident LIKE N'Copilot.%.Apps%' OR s.Ident LIKE N'MicrosoftAgent.%' THEN 1
+                                      WHEN w.RecordId IS NOT NULL THEN 3 ELSE 2 END AS TINYINT) AS UseKind) AS uk
         ORDER BY s.Utc;
         SET @interactions += @@ROWCOUNT;
 
@@ -651,10 +677,13 @@ BEGIN
         SET PremiumUse = p.PremiumUse
         FROM bi.FactInteraction AS f
         JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+        /* A row from before 2.4.8 has no UseKind: the category decides, as it did (the installer rebuilds bi once). */
+        CROSS APPLY (SELECT ISNULL(f.UseKind, CASE WHEN f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0 THEN 3 ELSE 2 END) AS UseKind) AS uk
         CROSS APPLY (SELECT CAST(CASE WHEN f.LicenseStatusKey = 1
-                                       AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
-                                            OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
-                                      THEN 1 ELSE 0 END AS BIT) AS PremiumUse) AS p
+                     AND (uk.UseKind = 1
+                          OR (uk.UseKind IN (2, 3) AND a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
+                          OR (uk.UseKind = 3 AND a.AppCategory = N'Copilot Chat'))
+                    THEN 1 ELSE 0 END AS BIT) AS PremiumUse) AS p
         WHERE f.AppKey IN (SELECT AppKey FROM @recat) AND f.PremiumUse <> p.PremiumUse;
     END;
 

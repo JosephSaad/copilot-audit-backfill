@@ -293,6 +293,54 @@ function Get-Prop {
     return $null
 }
 
+function Get-CopilotPlanId {
+    <#
+        The service plans that belong to the Copilot SKUs alone, by id. A user's assignedPlans names each plan by
+        this id and by the service behind it ("MicrosoftOffice", "exchange" ...), never by the plan's name, so the
+        id is the only way to tell which of a user's plans came with Copilot (2.4.8; before, the service's name was
+        searched for "COPILOT", which most Copilot plans' services do not contain, and the date was left empty).
+        A plan another SKU in the tenant carries too is left out: its date says nothing about Copilot.
+    #>
+    param([object[]] $Sku, [hashtable] $CopilotSku)
+    $mine = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $others = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($s in @($Sku)) {
+        # Not "$into = if ...": an empty set through the pipeline comes out as nothing.
+        $isCopilot = $CopilotSku.ContainsKey("$(Get-Prop $s 'skuId')")
+        foreach ($p in @(Get-Prop $s 'servicePlans')) {
+            if ($null -eq $p) { continue }
+            $id = "$(Get-Prop $p 'servicePlanId')"
+            if (-not $id) { continue }
+            if ($isCopilot) { [void] $mine.Add($id) } else { [void] $others.Add($id) }
+        }
+    }
+    $mine.ExceptWith($others)
+    , $mine
+}
+
+function Get-LicensedSince {
+    <#
+        Since when a user has held Copilot: the earliest assignment, not deleted, among their plans that belong
+        to a Copilot SKU (by plan id), or whose service is named for Copilot (the rule before 2.4.8, kept beside it).
+    #>
+    param([object[]] $AssignedPlan, [System.Collections.Generic.HashSet[string]] $CopilotPlan, [string] $ServiceMatch)
+    $since = $null; $capability = $null
+    foreach ($ap in @($AssignedPlan)) {
+        if ($null -eq $ap) { continue }
+        $svc = "$(Get-Prop $ap 'service')"
+        $id = "$(Get-Prop $ap 'servicePlanId')"
+        $isCopilot = ($id -and $CopilotPlan -and $CopilotPlan.Contains($id)) -or
+            ($svc -and $ServiceMatch -and $svc.ToUpperInvariant().Contains($ServiceMatch.ToUpperInvariant()))
+        if (-not $isCopilot) { continue }
+        $cap = "$(Get-Prop $ap 'capabilityStatus')"
+        if ($cap -eq 'Deleted') { continue }
+        $d = ConvertTo-UtcOrNull (Get-Prop $ap 'assignedDateTime')
+        if ($null -eq $capability) { $capability = $cap }
+        if ($d -and ($null -eq $since -or $d -lt $since)) { $since = $d; $capability = $cap }
+    }
+    [pscustomobject]@{ Since = $since; Capability = $capability }
+}
+
 function ConvertTo-LicensePoolRow {
     <#
         The license pool from /subscribedSkus: one row per SKU with the seats
@@ -429,6 +477,8 @@ function Invoke-Main {
     else {
         Write-Log ('Copilot SKUs in this tenant: ' + (($copilotSkus.Values | Sort-Object -Unique) -join ', ') + '.')
     }
+    $copilotPlans = Get-CopilotPlanId -Sku $skus -CopilotSku $copilotSkus
+    Write-Log "The Copilot SKUs carry $($copilotPlans.Count) service plan(s) of their own: a user's 'licensed since' is the earliest of them."
     # The same response carries the seat counts: bought against assigned, for the license pool report.
     $pool = @(ConvertTo-LicensePoolRow -Sku $skus -CopilotSku $copilotSkus)
     $poolSaved = Save-LicensePool -Rows $pool
@@ -536,18 +586,8 @@ WHERE UserPrincipalName IS NOT NULL;
             }
             $since = $null; $capability = $null
             if ($matchedSku) {
-                foreach ($ap in @(Get-Prop $user 'assignedPlans')) {
-                    $svc = "$(Get-Prop $ap 'service')"
-                    if ($svc -and $svc.ToUpperInvariant().Contains($CopilotSkuMatch.ToUpperInvariant())) {
-                        $cap = "$(Get-Prop $ap 'capabilityStatus')"
-                        $d = ConvertTo-UtcOrNull (Get-Prop $ap 'assignedDateTime')
-                        # Keep the earliest enabled assignment, which is the one that
-                        # answers "since when".
-                        if ($cap -ne 'Deleted' -and ($null -eq $since -or ($d -and $d -lt $since))) {
-                            $since = $d; $capability = $cap
-                        }
-                    }
-                }
+                $found = Get-LicensedSince -AssignedPlan @(Get-Prop $user 'assignedPlans') -CopilotPlan $copilotPlans -ServiceMatch $CopilotSkuMatch
+                $since = $found.Since; $capability = $found.Capability
             }
             $licRows.Add([pscustomobject]@{
                 UserPrincipalName = "$(Get-Prop $user 'userPrincipalName')"
