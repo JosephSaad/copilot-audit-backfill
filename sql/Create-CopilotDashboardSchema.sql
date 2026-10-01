@@ -190,6 +190,28 @@ IF OBJECT_ID(N'dash.ResourceDay', N'U') IS NULL
     );
 
 /*
+    2.4.7: the interactions with a security signal, a few in every thousand, each with the record id the triage
+    is kept under. Security > Flagged interactions lists them from here: reading the record ids of the flagged
+    rows out of bi.FactInteraction costs a pass over that column for the whole fact (4 seconds at 40 million).
+*/
+IF OBJECT_ID(N'dash.FlaggedInteraction', N'U') IS NULL
+BEGIN
+    CREATE TABLE dash.FlaggedInteraction
+    (
+        DateKey                 INT           NOT NULL,
+        UserKey                 INT           NOT NULL,
+        RecordId                NVARCHAR(450) NOT NULL,
+        ActivityHour            DATETIME2(0)  NOT NULL,
+        AppKey                  INT           NOT NULL,
+        AgentKey                INT           NOT NULL,
+        JailbreakDetected       BIT           NOT NULL,
+        PromptInjectionDetected BIT           NOT NULL,
+        HasBlockedResource      BIT           NOT NULL
+    );
+    CREATE CLUSTERED INDEX CX_DashFlaggedInteraction ON dash.FlaggedInteraction (DateKey, UserKey);
+END;
+
+/*
     2.4.2: columnstore copies of the two rollups. The pages read a year of them
     for a whole organization at a time (6 and 12 million rows at 70,000 people),
     which the row-store keys scan in seconds and a columnstore in a fraction of

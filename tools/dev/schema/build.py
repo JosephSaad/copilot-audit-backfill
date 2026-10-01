@@ -167,6 +167,7 @@ AREAS = [
         ('dash.Person', 'One row per person in the user directory (and each manager missing from it), with their level below the top and how many people are under them. Rebuilt whole by each refresh.'),
         ('dash.OrgClosure', 'Every (manager, person under them) pair at any depth, and each person with themselves at depth 0: the security model\'s scope. Rebuilt whole by each refresh.'),
         ('dash.UserDay', 'One row per person per day with any use or session: the daily rollup behind every page, so the 7- to 365-day periods are exact.'),
+        ('dash.FlaggedInteraction', 'The interactions with a security signal (2.4.7), a few in every thousand, each with the record id its triage is kept under: Security > Flagged interactions lists them from here. Kept by dash.usp_RefreshDashboard from bi.FactInteraction.'),
         ('dash.ResourceDay', 'Labels on content Copilot read, the sites of labeled content, and the sites it was blocked from, per person per day, from bi.FactAccessedResource.'),
         ('dash.AgentUse', 'When each agent was first and last used, from the facts. Rebuilt whole by each refresh.'),
         ('dash.RefreshRun', 'One row per dashboard refresh: when, from which day, how many people, org pairs and person-days it wrote, and from 2.4.0 the latest bi refresh it reflects (BiRunId).'),

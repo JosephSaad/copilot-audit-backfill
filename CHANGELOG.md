@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.7] - 2026-10-01
+
+Every page loads in under 2 seconds for a year, measured as the head of an organization of
+70,000 people with 40 million interactions; and Forecasting › License optimization, which
+2.4.6 broke, builds again.
+
+Install over 2.4.6: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once (it
+adds `dash.FlaggedInteraction`, which the next refresh fills), and reinstall the dashboard
+from its package. The site builds its reports in the background a few seconds after it
+starts; Admin › Health › *Report speed* shows when it has finished.
+
+### Fixed
+- **Forecasting › License optimization failed for everyone in 2.4.6** (*Cannot perform an
+  aggregate function on an expression containing an aggregate or a subquery*): the protected
+  levels are now joined instead of tested inside its counts. The layout audit that should
+  have caught it now fails on a page that shows the error page.
+
+### Changed
+- **Report pages keep their query results until the data changes, and are built ahead.** The
+  data changes at the nightly refresh and when an administrator changes a setting or
+  reference data; in between, the same query gives the same rows. Results are kept in memory
+  under the tenant, the query's text and every parameter (the scope among them), and
+  dropped when the dashboard is refreshed, a pipeline run is recorded, the licenses are read,
+  or a setting or reference table changes, here, on another web server or from
+  `Invoke-CopilotMaintenance.ps1`, and at midnight UTC. After each change the site builds
+  every report for the whole organization at every period in the background (426 page
+  views in under 5 minutes at 40 million interactions), so the top two levels and
+  Organization holders get every page from memory; a manager's own part of the
+  organization is kept from its first view. Who the viewer is and what they may see are
+  settled from the database on every request, as before. Admin pages, exports, the data
+  API, forms, and lists edited all day (flag triage, exported license actions, confirmed
+  accounts) always read the database. `Insights:QueryCacheMinutes` (720; 0 turns it off) and
+  `Insights:WarmPages` are in the site's settings; Admin › Health has a *Report speed* panel.
+- **Security › Flagged interactions reads a list of the flagged interactions the refresh now
+  keeps** (`dash.FlaggedInteraction`), instead of reading their record ids out of the whole
+  interaction fact: 4.4 seconds to under one for a year at 40 million. This page is never
+  answered from memory, since its triage changes all day.
+- **Forecasting's weekly history is read in one pass** instead of once for each of its five
+  columns: 4.9 seconds to about one, for Forecast and License optimization.
+
 ## [2.4.6] - 2026-10-01
 
 Install over 2.4.5: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and

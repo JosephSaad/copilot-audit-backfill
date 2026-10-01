@@ -28,6 +28,22 @@ public sealed class InsightsOptions
 
 
     /// <summary>
+    /// How long a report page's query results are kept in memory, in minutes (2.4.7). They are dropped sooner whenever
+    /// the data changes: a refresh, a pipeline run, a setting, a grant. 0 turns the cache, and the warm-up after each
+    /// refresh, off: every page then reads the database every time.
+    /// </summary>
+    public int QueryCacheMinutes { get; set; } = 720;
+
+    /// <summary>
+    /// Build every report page for the whole organization in the background whenever the data changes, so its queries
+    /// are in the cache before anyone opens it (2.4.7). On by default; off for a test copy of the site.
+    /// </summary>
+    public bool WarmPages { get; set; } = true;
+
+    /// <summary>Seconds after the site starts before the first warm-up.</summary>
+    public int WarmStartDelaySeconds { get; set; } = 20;
+
+    /// <summary>
     /// The background sender: alerts and scheduled digests (Admin > Alerts and digests). On by
     /// default; with several web servers it runs on one at a time. Off for a test copy of the site.
     /// </summary>

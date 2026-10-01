@@ -1767,6 +1767,14 @@ INSERT INTO audit.RawLogAccessedResource (RecordId, Ordinal, [Action], [Type], N
 "@
 Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$licDb';"
 Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;' -ShowMessages
+# 2.4.7: the refresh keeps the flagged interactions for Security > Flagged interactions, each once, and again on a rerun.
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard;'
+$fl = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM dash.FlaggedInteraction) AS Kept,
+       (SELECT COUNT(*) FROM bi.FactInteraction WHERE JailbreakDetected = 1 OR PromptInjectionDetected = 1 OR HasBlockedResource = 1) AS Flagged,
+       (SELECT COUNT(DISTINCT RecordId) FROM dash.FlaggedInteraction) AS Records;
+"@).Rows[0]
+Assert-That ([int] $fl.Kept -eq [int] $fl.Flagged -and [int] $fl.Records -eq [int] $fl.Kept) "2.4.7: dash.FlaggedInteraction holds every flagged interaction once ($($fl.Kept) of $($fl.Flagged))"
 
 $p = @{}
 foreach ($row in (Invoke-SqlText -As Table -Sql 'SELECT Upn, ISNULL(CAST(Level AS INT), -1) AS Lvl, PeopleBelow, DirectReports FROM dash.Person;').Rows) { $p[$row.Upn] = $row }
