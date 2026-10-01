@@ -1,0 +1,28 @@
+/// What a resource read was: a file by its extension (docx, xlsx, pptx ...), anything else by its kind (2.4.6).
+table FileTypes
+	lineageTag: 23a36491-824a-4c07-a912-5a24a471ac97
+
+	column FileTypeKey
+		dataType: int64
+		formatString: 0
+		isHidden
+		lineageTag: 57dd709c-1eae-46fc-aa1c-df49ac910763
+		summarizeBy: none
+		sourceColumn: FileTypeKey
+
+	column FileType
+		dataType: string
+		lineageTag: ecad969d-ace3-4709-a5a9-94bb78059a2b
+		summarizeBy: none
+		sourceColumn: FileType
+
+	partition FileTypes = m
+		mode: import
+		source =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "FileTypes"]}[Data]
+				in
+				    Data
+
+	annotation PBI_ResultType = Table

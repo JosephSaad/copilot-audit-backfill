@@ -82,6 +82,10 @@ relationship 0b8fc58a-8615-54a0-9109-a434e366a91a
 	fromColumn: AccessedResources.ResourceTypeKey
 	toColumn: ResourceTypes.ResourceTypeKey
 
+relationship 611b2c1f-5e94-4960-a75e-24fcc67a98bd
+	fromColumn: AccessedResources.FileTypeKey
+	toColumn: FileTypes.FileTypeKey
+
 relationship 6d1e1a4a-a756-57a9-a42e-6e0e938980c5
 	fromColumn: AccessedResources.ResourceActionKey
 	toColumn: ResourceActions.ResourceActionKey

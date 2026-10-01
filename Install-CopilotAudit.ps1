@@ -246,6 +246,15 @@ elseif ($fullBuild) {
 }
 else { Write-Done 'sessions and bi are built; the nightly -Incremental run keeps them current.' }
 
+# 2.4.6: each resource Copilot read carries its file type. Resources loaded before have none, so bi is refreshed in full
+# once - decided from the data, not from this run, so an install stopped part way finishes it the next time.
+if ($flattened -gt 0 -and -not $fullBuild -and (Get-Count $Database 'bi.FactAccessedResource') -gt 0 -and
+    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM bi.FactAccessedResource WHERE FileTypeKey > 1) THEN 1 ELSE 0 END;') -eq 0) {
+    Write-Done 'bi, in full once: the resources Copilot read gain their file type (2.4.6). This takes as long as a full bi refresh...'
+    Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
+    $todo += 'Refresh the Power BI model once: bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.'
+}
+
 # 2.3.0: the value catalog fills as records are flattened; records flattened before it existed are cataloged once here.
 if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.ValueCatalog') -and (Get-Count $Database 'audit.ValueCatalog') -eq 0) {
     Write-Done ("value catalog: reading {0:N0} flattened record(s) once..." -f $flattened)

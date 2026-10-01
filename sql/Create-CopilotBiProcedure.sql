@@ -474,16 +474,26 @@ BEGIN
         DROP TABLE IF EXISTS #rsrc;
         CREATE TABLE #rsrc (RecordId NVARCHAR(450) NOT NULL, Ordinal SMALLINT NOT NULL, ResourceType NVARCHAR(200) NOT NULL,
                             ResourceAction NVARCHAR(450) NOT NULL, Site NVARCHAR(400) NOT NULL, LabelId UNIQUEIDENTIFIER NULL,
-                            IsBlocked BIT NOT NULL, XPIADetected BIT NOT NULL);
+                            IsBlocked BIT NOT NULL, XPIADetected BIT NOT NULL, FileType NVARCHAR(64) NOT NULL);
         IF @hasResources = 1
             INSERT INTO #rsrc
             SELECT r.RecordId, r.Ordinal,
                    LEFT(COALESCE(NULLIF(LTRIM(RTRIM(r.[Type])), N''), N'(not reported)'), 200),   -- each cut to the width it is stored in
                    LEFT(COALESCE(NULLIF(LTRIM(RTRIM(r.[Action])), N''), N'(not reported)'), 450),
                    LEFT(COALESCE(NULLIF(r.Site, N''), N'(none)'), 400),
-                   r.SensitivityLabelId, r.IsBlocked, ISNULL(r.XPIADetected, 0)
+                   r.SensitivityLabelId, r.IsBlocked, ISNULL(r.XPIADetected, 0),
+                   /* 2.4.6: a file's extension, 1 to 8 letters and digits after the last dot of its name (not the first character); else its Type. */
+                   CASE WHEN CHARINDEX(N'.', REVERSE(nm.N)) BETWEEN 2 AND 9 AND CHARINDEX(N'.', REVERSE(nm.N)) < LEN(nm.N)
+                             AND RIGHT(nm.N, CHARINDEX(N'.', REVERSE(nm.N)) - 1) NOT LIKE N'%[^A-Za-z0-9]%'
+                            THEN LOWER(RIGHT(nm.N, CHARINDEX(N'.', REVERSE(nm.N)) - 1))
+                            ELSE LEFT(COALESCE(NULLIF(LTRIM(RTRIM(r.[Type])), N''), N'(not reported)'), 64) END
             FROM #src AS s
-            JOIN audit.RawLogAccessedResource AS r ON r.RecordId = s.RecordId;
+            JOIN audit.RawLogAccessedResource AS r ON r.RecordId = s.RecordId
+            CROSS APPLY (SELECT RTRIM(r.Name) AS N) AS nm;
+
+        INSERT INTO bi.DimFileType (FileType)
+        SELECT DISTINCT r.FileType FROM #rsrc AS r
+        WHERE NOT EXISTS (SELECT 1 FROM bi.DimFileType AS d WHERE d.FileType = r.FileType);
 
         INSERT INTO bi.DimSensitivityLabel (LabelId)
         SELECT l.LabelId FROM (SELECT EventLabelId AS LabelId FROM #src UNION SELECT LabelId FROM #rsrc) AS l
@@ -555,12 +565,12 @@ BEGIN
 
         INSERT INTO bi.FactAccessedResource WITH (TABLOCK)
             (RecordId, Ordinal, CreatedUtc, ActivityHour, DateKey, UserKey, AppKey,
-             ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey, IsBlocked, XPIADetected)
+             ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey, IsBlocked, XPIADetected, FileTypeKey)
         SELECT r.RecordId, r.Ordinal, s.Utc,
                DATEADD(HOUR, DATEPART(HOUR, t.LocalTs), CAST(CAST(t.LocalTs AS DATE) AS DATETIME2(0))),
                YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
                u.UserKey, a.AppKey,
-               rt.ResourceTypeKey, ra.ResourceActionKey, st.SiteKey, ISNULL(sl.SensitivityLabelKey, 1), r.IsBlocked, r.XPIADetected
+               rt.ResourceTypeKey, ra.ResourceActionKey, st.SiteKey, ISNULL(sl.SensitivityLabelKey, 1), r.IsBlocked, r.XPIADetected, ft.FileTypeKey
         FROM #rsrc AS r
         JOIN #src AS s ON s.RecordId = r.RecordId
         CROSS APPLY (SELECT CAST(CAST(s.Utc AS DATETIME2(0)) AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS LocalTs) AS t
@@ -569,6 +579,7 @@ BEGIN
         JOIN bi.DimResourceType AS rt ON rt.ResourceType = r.ResourceType
         JOIN bi.DimResourceAction AS ra ON ra.ResourceAction = r.ResourceAction
         JOIN bi.DimSite AS st ON st.Site = r.Site
+        JOIN bi.DimFileType AS ft ON ft.FileType = r.FileType
         LEFT JOIN bi.DimSensitivityLabel AS sl ON sl.LabelId = r.LabelId
         ORDER BY s.Utc;
         SET @resources += @@ROWCOUNT;

@@ -134,7 +134,13 @@ FROM x JOIN bi.DimDate AS d ON d.DateKey = x.DateKey JOIN bi.DimApp AS a ON a.Ap
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 GROUP BY {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App);", Ctx.Args());
 
-        var sourcesTask = Db.QueryAsync<(string Type, long N)>($@"
+        /* By file type (2.4.6: docx, xlsx, pptx ... and, for what is not a file, its kind), or by kind before that column exists. */
+        var fileTypes = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'bi.FactAccessedResource', N'FileTypeKey') IS NULL THEN 0 ELSE 1 END") == 1;
+        var sourcesTask = Db.QueryAsync<(string Type, long N)>(fileTypes ? $@"
+WITH {pop},
+x AS (SELECT f.FileTypeKey, COUNT_BIG(*) AS N FROM bi.FactAccessedResource AS f JOIN p ON p.UserKey = f.UserKey
+      WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.FileTypeKey)
+SELECT t.FileType, x.N FROM x JOIN bi.DimFileType AS t ON t.FileTypeKey = x.FileTypeKey;" : $@"
 WITH {pop},
 x AS (SELECT f.ResourceTypeKey, COUNT_BIG(*) AS N FROM bi.FactAccessedResource AS f JOIN p ON p.UserKey = f.UserKey
       WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.ResourceTypeKey)
@@ -224,12 +230,16 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
             $"Each app's share of the {interactions:#,0} interactions of {licName.ToLowerInvariant()} people in the period, with the count beside it. " +
             "Office, BizChat and Edge are Copilot Chat.", "half"));
 
-        /* What Copilot read for them, by kind of resource. */
+        /* What Copilot read for them, by file type: the twelve most read, the rest together. */
         var read = sources.Sum(x => x.N);
-        Panels.Add(new("Copilot use by source",
-            Chart.Bars(sources.OrderByDescending(x => x.N).Select(x => new Bar(x.Type, x.N, Note: Pct(Ratio(x.N, read)) + " of what Copilot read", Shown: Pct(Ratio(x.N, read)))).ToList(), Fmt.Count, "Resources Copilot read, by type"),
-            "The resources Copilot read to answer them, by the kind the audit record gives: a file, a mail, a Teams message, a web search. " +
-            "The audit data does not keep a file's extension in the reporting tables, so files are not split into Word, Excel or PowerPoint here.", "half"));
+        var ranked = sources.OrderByDescending(x => x.N).ToList();
+        var shownSources = ranked.Take(12).Select(x => new Bar(x.Type, x.N, Note: Pct(Ratio(x.N, read)) + " of what Copilot read", Shown: Pct(Ratio(x.N, read)))).ToList();
+        if (ranked.Count > 12) { var rest = ranked.Skip(12).Sum(x => x.N); shownSources.Add(new Bar($"{ranked.Count - 12:#,0} other types", rest, Note: Pct(Ratio(rest, read)) + " of what Copilot read", Slot: 2, Shown: Pct(Ratio(rest, read)))); }
+        Panels.Add(new("Copilot use by source", Chart.Bars(shownSources, Fmt.Count, "Resources Copilot read, by file type"),
+            fileTypes
+                ? "The resources Copilot read to answer them: a file by its extension (docx, xlsx, pptx, csv ...), and anything else by its kind (a mail, a Teams message, a Stream video, a whiteboard, a web search). " +
+                  "Resources read before 2.4.6 show as (not reported) until bi is refreshed in full once, which the 2.4.6 installer does."
+                : "The resources Copilot read to answer them, by the kind the audit record gives. Install 2.4.6's scripts to split files by type.", "half"));
 
         /* The most and least active people of the type. */
         static string Who(Person p) => p.DisplayName ?? p.UserPrincipalName;
