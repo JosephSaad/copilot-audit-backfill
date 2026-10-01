@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.8] - 2026-10-01
+
+Licensed use is read from what Microsoft writes into each record instead of being inferred, and
+"licensed since" is filled.
+
+Install over 2.4.7: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once (it
+rebuilds the reporting tables and every day of the rollups, once, which takes as long as a full
+refresh), run `tools\Update-CopilotAuditEnrichment.ps1 -AllLicensedUsers` once to fill the dates,
+and reinstall the dashboard from its package.
+
+### Fixed
+- **A license used for Copilot Chat in work mode could be listed for revocation as "used only web
+  Copilot Chat".** Premium use in chat was inferred: the record listed a resource and did not
+  search the web. That was wrong three ways. A chat that read work files and also searched the
+  web counted as free. A work-mode chat that read nothing counted as free. And the web pages a web
+  search cites are themselves listed as resources, so the test did not separate web from work.
+  The rule now reads the record's app identity: `Copilot.M365Copilot.Bizchat` (work mode) and
+  `Copilot.M365Copilot.Apps` (inside an app) are licensed use, `Copilot.M365Copilot.WebChat` is
+  not unless it read work content, and `Copilot.Studio.*` agents are not. Work content is a
+  resource in SharePoint or OneDrive, Outlook or Teams, or a mail, a Teams message, a meeting or a
+  connector item. A record without one of these identities is decided by its app's category and
+  work content, as before. `bi.FactInteraction.UseKind` keeps the answer for each interaction.
+  Web Copilot Chat opened inside Teams or Outlook, which counted as Premium, no longer does.
+- **Use before the "licensed since" date counted as unlicensed.** Entra's date is when the
+  current assignment began, which a reassignment moves forward. A record Copilot itself marked
+  Premium now counts as licensed at the time, whatever the dates say.
+- **"Licensed since" was empty.** The license tool looked for the word Copilot in the name of the
+  service behind each of a person's plans, which most Copilot plans' services do not contain. It
+  now matches the Copilot SKU's own service plans by id (those no other SKU in the tenant
+  carries) and keeps the earliest live assignment. With the date filled, the revoke list's
+  "licensed for at least 30 days" rule applies again.
+
+### Changed
+- **Upgrade, train or revoke says what it found.** A revocation candidate who used Copilot reads
+  "No licensed use in the records: N days in 30 of web Copilot Chat or agents only", and the rule
+  above the list names what counts.
+
 ## [2.4.7] - 2026-10-01
 
 Every page loads in under 2 seconds for a year, measured as the head of an organization of

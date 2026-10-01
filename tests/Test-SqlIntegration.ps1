@@ -692,6 +692,11 @@ FROM audit.CopilotLicense;
         Assert-That ([int] $l.Licensed -eq 17) "exactly the licensed users are marked ($($l.Licensed) of 17)"
         Assert-That ([int] $l.WithSku -eq 17) "SkuPartNumber recorded for each ($($l.WithSku))"
         Assert-That ([int] $l.WithSince -eq 17) "LicensedSinceUtc read from assignedPlans for each ($($l.WithSince))"
+        # 2.4.8: by the Copilot SKU's own plan ids - their services are not named for Copilot - and the earliest of them:
+        # not a deleted assignment, and not a plan another SKU carries too.
+        $sinceDays = "$(Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CAST(d AS varchar(2)), ',') WITHIN GROUP (ORDER BY d) FROM (SELECT DISTINCT DAY(LicensedSinceUtc) AS d, YEAR(LicensedSinceUtc) AS y FROM audit.CopilotLicense WHERE IsCopilotLic = 1) AS x WHERE y = 2026;")"
+        $sinceOther = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense WHERE LicensedSinceUtc IS NOT NULL AND (IsCopilotLic = 0 OR YEAR(LicensedSinceUtc) <> 2026);')
+        Assert-That ($sinceDays -eq '1' -and $sinceOther -eq 0) "licensed since is the earliest live plan of the Copilot SKU's own (day $sinceDays of the month; $sinceOther from a deleted or shared plan)"
         Assert-That ([int] $l.Enabled_ -eq 17) "CapabilityStatus captured ($($l.Enabled_))"
         Assert-That ([int] $l.Gone -eq 1) "the departed user is recorded as NotFound ($($l.Gone))"
         $held = (Invoke-SqlText -As Table -Sql "SELECT COUNT(*) AS Rows_, COUNT(DISTINCT UserPrincipalName) AS People, SUM(CASE WHEN s.IsCopilot = 1 THEN 1 ELSE 0 END) AS Copilot FROM audit.UserLicenseSku AS u JOIN audit.LicenseSku AS s ON s.SkuId = u.SkuId;").Rows[0]
@@ -2197,10 +2202,11 @@ SELECT (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM dash.UserDay) AS 
        (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM bi.FactInteraction) AS Stored,
        (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM bi.Interactions) AS Viewed,
        (SELECT COUNT_BIG(*) FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-        WHERE f.PremiumUse <> CASE WHEN f.LicenseStatusKey = 1
-                                    AND ((a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
-                                         OR (a.AppCategory = N'Copilot Chat' AND f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0))
-                                   THEN 1 ELSE 0 END) AS Wrong,
+        WHERE f.UseKind IS NULL OR f.PremiumUse <> CASE WHEN f.LicenseStatusKey = 1
+                     AND (f.UseKind = 1
+                          OR (f.UseKind IN (2, 3) AND a.AppCategory = N'In-App Copilot' AND a.App <> N'Copilot Studio')
+                          OR (f.UseKind = 3 AND a.AppCategory = N'Copilot Chat'))
+                    THEN 1 ELSE 0 END) AS Wrong,
        (SELECT COUNT(*) FROM dash.UserDay WHERE PremiumUse > LicensedUse) AS TooMany,
        (SELECT ISNULL(SUM(CAST(ChatInteractions AS BIGINT)), 0) FROM dash.UserDay) AS ChatRolled,
        (SELECT COUNT_BIG(*) FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey WHERE a.AppCategory = N'Copilot Chat') AS ChatFacts,

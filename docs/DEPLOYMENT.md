@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licenses from Microsoft Graph, and the organization from on-premises Active Directory.
 
-Written for a new install of release 2.4.7. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.4.8. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -144,14 +144,14 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.4.7-offline-win-x64.zip` and its `.sha256` from the [v2.4.7 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.7). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.4.8-offline-win-x64.zip` and its `.sha256` from the [v2.4.8 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.8). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.4.7-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.4.8-offline-win-x64.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.4.7-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.4.8-offline-win-x64' 'CopilotAudit'
 cd D:\CopilotAudit
 ```
 
@@ -486,7 +486,7 @@ What the model holds, for reference:
 | `bi.EventMarkers` (with the dashboard) | event marked on the trends | DateKey |
 
 - **Relationships:** each fact's key to the dimension with the same key, one-to-many, single direction; `JobFamilies` one-to-one with `Users`, both ways. `Calendar` is the date table.
-- **Premium use:** `Interactions[PremiumUse]` is true when the interaction needed the Premium license (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat over work content), the same rule as the dashboard's train and revoke lists.
+- **Premium use:** `Interactions[PremiumUse]` is true when the interaction needed the Premium license (Copilot in Word, Excel, PowerPoint, Outlook or Teams, Copilot Chat in work mode, or work content read), the same rule as the dashboard's train and revoke lists.
 - **Row-level security:** the *Organization* role. A manager sees everyone under them; the top of the organization, the people reporting to them and anyone granted Organization in the dashboard see everyone. The view resolves people granted Organization directly, not through a group: grant it to people for Power BI.
 - **To change the model's shape** after a release changes a view, run `python powerbi\generate_model.py` from the source package (it rewrites the project; lineage tags are stable, so reports keep their bindings), or edit it in Desktop.
 - **Measures** in the model (a selection):
@@ -554,7 +554,7 @@ The ready-made model already hides every key column and `ActivityHour`, and desc
 |---|---|
 | Interactions (table) | One row per Microsoft 365 Copilot prompt and response, from the Purview audit log. Contains no prompt or response text. |
 | Sessions (table) | One row per session: a person's prompts with less than 60 minutes between them, within one day in the reporting time zone. |
-| Interactions[PremiumUse] | True when the interaction needed the Premium license: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat reading work content. |
+| Interactions[PremiumUse] | True when the interaction needed the Premium license: Copilot inside Word, Excel, PowerPoint, Outlook or Teams, Copilot Chat in work mode, or work content read. |
 | LicensedDays (table) | One row per person per day on which they held a Copilot license at the end of the day. Use for licensed-user counts on a date. |
 | LicenseStatuses[LicenseStatus] | Whether the person held a Copilot license when the interaction happened: Licensed, Not licensed, or Unknown (no record either way). |
 | Users[CopilotLicenseToday] | Today's Copilot license. Not for past periods; use LicenseStatus for those. |
@@ -673,10 +673,10 @@ The web dashboard, on a Windows Server with IIS: every persona's pages, alerts a
 
 *Web server, as an administrator, in Windows PowerShell 5.1. About 15 minutes.*
 
-The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.4.7.zip` to the web server, then from the source package's folder:
+The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.4.8.zip` to the web server, then from the source package's folder:
 
 ```powershell
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.7.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.8.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -AdminPrincipal 'USERS\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
 ```
 
@@ -712,7 +712,7 @@ For a group with several Microsoft 365 tenants, each gets its own app registrati
 .\tools\Add-CopilotTenant.ps1 -Name Fabrikam -TenantId fabrikam.onmicrosoft.com -TargetDomain fabrikam.local
 .\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam
 # web server: every tenant, the first one first
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.7.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.8.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess
 ```
 

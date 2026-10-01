@@ -352,17 +352,32 @@ END;
     PremiumUse and UseCaseKey (2.4.0), set by bi.usp_RefreshBi and nowhere else: every other place
     (the dashboard's rollups and pages, the bi views, Power BI) reads these columns, so each rule
     has one definition.
-      PremiumUse  a licensed interaction that needed the Premium license: Copilot inside Word, Excel,
-                  PowerPoint, Outlook or Teams (bi.DimApp.AppCategory In-App Copilot, but not
-                  Copilot Studio, whose agents can be metered without one), or Copilot Chat that
-                  read work content (resources read, no web search).
+      PremiumUse  a licensed interaction that needed the Premium license (see UseKind, below).
       UseCaseKey  AppKey x 4 + web search x 2 + agent: the key into bi.UseCases.
     An app's category changes PremiumUse, so set categories before a build, or rebuild bi after.
+
+    UseKind (2.4.8): what the record itself says about where Copilot ran, from its AppIdentity, and
+    whether it read work content. NULL on a row written before 2.4.8 (the installer rebuilds bi once).
+      0  not licensed use: web Copilot Chat (Copilot.M365Copilot.WebChat) that read no work content,
+         or a Copilot Studio agent (Copilot.Studio.*), which can be metered without a license
+      1  licensed use: Copilot inside an app (Copilot.M365Copilot.Apps), Copilot Chat in work mode
+         (Copilot.M365Copilot.Bizchat) whether or not it read anything, a Microsoft agent
+         (MicrosoftAgent.*), or web Copilot Chat that read work content
+      2  the record names no such identity, and it read no work content: the app's category decides
+         (In-App Copilot other than Copilot Studio is licensed use; Copilot Chat is not)
+      3  as 2, but it read work content: licensed use in Copilot Chat too
+    Work content is a resource in SharePoint or OneDrive, Outlook or Teams, or a mail, a Teams
+    message, a meeting or a connector item. The web pages web search cites are listed as resources
+    too, which is why "read a resource" alone says nothing.
+    PremiumUse = licensed at the time AND (UseKind 1, or UseKind 2 or 3 in an in-app category, or
+    UseKind 3 in Copilot Chat).
 */
 IF COL_LENGTH(N'bi.FactInteraction', N'PremiumUse') IS NULL
     ALTER TABLE bi.FactInteraction ADD
         PremiumUse  BIT NOT NULL CONSTRAINT DF_FactInteraction_Premium DEFAULT (0),
         UseCaseKey  INT NOT NULL CONSTRAINT DF_FactInteraction_UseCase DEFAULT (0);
+IF COL_LENGTH(N'bi.FactInteraction', N'UseKind') IS NULL
+    ALTER TABLE bi.FactInteraction ADD UseKind TINYINT NULL;
 
 /* 2.2.0 columns, added in place; rows written before them carry the defaults
    until the next full rebuild. */
@@ -486,7 +501,7 @@ IF COL_LENGTH(N'bi.RefreshRun', N'RecategorizedFromDateKey') IS NULL
     ALTER TABLE bi.RefreshRun ADD RecategorizedFromDateKey INT NULL;
 
 /*
-    PremiumUse (2.3.0): a licensed interaction that needed the Premium license - Copilot inside Word, Excel,
+    PremiumUse (2.3.0; the rule is bi.FactInteraction.UseKind's since 2.4.8): a licensed interaction that needed the Premium license - Copilot inside Word, Excel,
     PowerPoint, Outlook or Teams (Copilot Studio agents can be metered without one), or Copilot Chat reading
     work content (files, mail, sites) rather than the web. The same rule as dash.UserDay.PremiumUse, which the
     dashboard's train and revoke recommendations use. UseCaseKey (2.3.0): the app, whether it searched the web,

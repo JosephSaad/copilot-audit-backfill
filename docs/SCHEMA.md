@@ -1484,6 +1484,7 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 | 24 | `DlpEvaluationDeferred` | bit | **no** | `0` | 2.2.0 |
 | 25 | `CalledAnotherAgent` | bit | **no** | `0` | TargetAgentName set (2.2.0) |
 | 26 | `TargetAgentName` | nvarchar(400) | yes |  |  |
+| 27 | `UseKind` | tinyint | yes |  | what the record says about licensed use (2.4.8): 0 web Copilot Chat or a Copilot Studio agent, 1 inside an app, Copilot Chat in work mode, a Microsoft agent, or work content read, 2 no identity and no work content, 3 no identity, work content read; NULL before 2.4.8 |
 
 Indexes and constraints:
 

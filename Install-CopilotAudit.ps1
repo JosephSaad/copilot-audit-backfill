@@ -248,11 +248,17 @@ else { Write-Done 'sessions and bi are built; the nightly -Incremental run keeps
 
 # 2.4.6: each resource Copilot read carries its file type. Resources loaded before have none, so bi is refreshed in full
 # once - decided from the data, not from this run, so an install stopped part way finishes it the next time.
-if ($flattened -gt 0 -and -not $fullBuild -and (Get-Count $Database 'bi.FactAccessedResource') -gt 0 -and
-    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM bi.FactAccessedResource WHERE FileTypeKey > 1) THEN 1 ELSE 0 END;') -eq 0) {
-    Write-Done 'bi, in full once: the resources Copilot read gain their file type (2.4.6). This takes as long as a full bi refresh...'
+# 2.4.8: each interaction carries what its record says about licensed use (UseKind), which Premium use is now decided
+# from. Interactions loaded before have none: the same one full refresh, and every day of the rollups after it.
+$noFileType = $flattened -gt 0 -and -not $fullBuild -and (Get-Count $Database 'bi.FactAccessedResource') -gt 0 -and
+    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM bi.FactAccessedResource WHERE FileTypeKey > 1) THEN 1 ELSE 0 END;') -eq 0
+$noUseKind = $flattened -gt 0 -and -not $fullBuild -and
+    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM bi.FactInteraction WHERE UseKind IS NULL) THEN 1 ELSE 0 END;') -eq 1
+if ($noFileType -or $noUseKind) {
+    $gain = @($(if ($noFileType) { 'the resources Copilot read gain their file type (2.4.6)' }), $(if ($noUseKind) { 'Premium use is decided from each record''s own identity (2.4.8)' })) | Where-Object { $_ }
+    Write-Done "bi, in full once: $($gain -join '; '). This takes as long as a full bi refresh..."
     Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
-    $todo += 'Refresh the Power BI model once: bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.'
+    if ($noFileType) { $todo += 'Refresh the Power BI model once: bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.' }
 }
 
 # 2.3.0: the value catalog fills as records are flattened; records flattened before it existed are cataloged once here.
@@ -265,7 +271,7 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     # 2.3.0 added Premium-feature use to the rollups: rebuilt in full once, when they have days but none of it.
     $premiumEmpty = (Get-Count $Database 'dash.UserDay') -gt 0 -and
         [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE PremiumUse > 0) OR NOT EXISTS (SELECT 1 FROM dash.UserDay WHERE LicensedUse > 0) THEN 1 ELSE 0 END;') -eq 0
-    $since = if ($fullBuild -or $premiumEmpty -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
+    $since = if ($fullBuild -or $premiumEmpty -or $noUseKind -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
     Write-Done $(if ($since) { 'dashboard: org chart, and today''s rollups...' } else { 'dashboard: org chart and every day''s rollups...' })
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }
