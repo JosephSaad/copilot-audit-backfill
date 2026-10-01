@@ -305,10 +305,13 @@ function Get-CopilotPlanId {
     $mine = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $others = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($s in @($Sku)) {
-        $into = if ($CopilotSku.ContainsKey("$(Get-Prop $s 'skuId')")) { $mine } else { $others }
+        # Not "$into = if ...": an empty set through the pipeline comes out as nothing.
+        $isCopilot = $CopilotSku.ContainsKey("$(Get-Prop $s 'skuId')")
         foreach ($p in @(Get-Prop $s 'servicePlans')) {
+            if ($null -eq $p) { continue }
             $id = "$(Get-Prop $p 'servicePlanId')"
-            if ($id) { [void] $into.Add($id) }
+            if (-not $id) { continue }
+            if ($isCopilot) { [void] $mine.Add($id) } else { [void] $others.Add($id) }
         }
     }
     $mine.ExceptWith($others)
