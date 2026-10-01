@@ -71,7 +71,8 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
       JOIN bi.DimUser AS du ON du.UserKey = a.UserKey
       LEFT JOIN bi.DimDate AS dl ON dl.DateKey = a.LastKey
       WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -89, @d1))
-        AND a.PD >= 2 * @minDays AND a.RD >= 1 AND a.RD * 200 <= a.PD * (100 - @drop))
+        AND a.PD >= 2 * @minDays AND a.RD >= 1 AND a.RD * 200 <= a.PD * (100 - @drop)
+        AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
 SELECT x.*, COUNT(*) OVER () AS TotalRows FROM x
 WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, k90, k30, drop, minDays = MinDaysBefore }));
@@ -96,7 +97,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         CsvTable = t;
         var choices = string.Join(" · ", Drops.Select(x =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"drop={x}"))}\"{(x == drop ? " class=\"on\"" : "")}>Down {x}% or more</a>"));
-        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {choices}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {choices}</p>" + await ProtectedNoteAsync() + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"License holders for at least 90 days who used Copilot on at least {MinDaysBefore} days a month over the 60 days before the last 30, and on at least one of the last 30. " +
             "\"A month before\" is those 60 days halved. People who stopped altogether are on Unused licenses.", "full", CsvUrl()));
     }

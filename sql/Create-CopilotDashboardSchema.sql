@@ -53,7 +53,8 @@ USING (VALUES
     ('InactiveDays', N'30', N'A licensed person with no Copilot use for this many days counts as not using their license.'),
     ('LicenseMonthlyCost', N'30', N'What one Copilot license costs a month, for the license recommendations.'),
     ('LicenseCurrency', N'USD', N'The currency LicenseMonthlyCost is in.'),
-    ('MaxViewerLevel', N'0', N'Who can open the dashboard (2.4.4): 0 everyone in the directory; N levels 1 to N below the top, and anyone granted a role other than Admin. Set in Admin > Access.')
+    ('MaxViewerLevel', N'0', N'Who can open the dashboard (2.4.4): 0 everyone in the directory; N levels 1 to N below the top, and anyone granted a role other than Admin. Set in Admin > Access.'),
+    ('ProtectedLevels', N'5', N'Levels 1 to N of the organization are never on a revoke, reclaim, pay-as-you-go or training list (2.4.6); 0 for none. Set in Admin > Access.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);

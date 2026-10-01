@@ -16,7 +16,7 @@ public static class Nav
             new("Value and time saved", "/leadership/value"), new("Use cases", "/leadership/usecases"), new("Board pack", "/leadership/boardpack"),
             new("Group overview", "/group", ManyTenants: true)]),
         new("Adoption", "Copilot program lead", [
-            new("Funnel and trend", "/adoption"), new("Retention and habit", "/adoption/retention"), new("License cohorts", "/adoption/cohorts"),
+            new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Retention and habit", "/adoption/retention"), new("License cohorts", "/adoption/cohorts"),
             new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"), new("Targets", "/adoption/targets"), new("New joiners", "/adoption/onboarding"),
             new("Drops and spikes", "/adoption/anomalies"), new("Not started", "/adoption/not-started", Roles.Adoption)], Roles.Adoption),
         new("Licensing", "Licensing, IT asset and FinOps", [

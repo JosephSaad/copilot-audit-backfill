@@ -206,6 +206,7 @@ SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.JobTitle, du.Mana
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DAY, -14, @d1)
   AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0)
+  AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")}
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
@@ -221,6 +222,6 @@ WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DA
                         r.LicensedSinceUtc is null ? null : (Ctx.End - r.LicensedSinceUtc.Value.Date).Days]);
         CsvTable = t;
         Kpis.Add(new("Licensed, not started", Num(pg.Total), "licensed at least 14 days ago, never used Copilot"));
-        Panels.Add(new("People", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));
+        Panels.Add(new("People", new HtmlString(await ProtectedNoteAsync() + pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));
     }
 }

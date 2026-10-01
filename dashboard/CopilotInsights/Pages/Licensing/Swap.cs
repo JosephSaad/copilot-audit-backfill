@@ -115,7 +115,7 @@ SELECT (SELECT COUNT(*) FROM g) AS Idle, (SELECT COUNT(*) FROM t) AS Wanting,
             $"<p class=\"sub\">Apply it, in this order: 1. take the licenses back, {Link("take", "bulk", "Entra bulk remove members file")} · {Link("take", "script", "PowerShell script")}; " +
             $"2. give them out, {Link("give", "bulk", "Entra bulk add members file")} · {Link("give", "script", "PowerShell script")}. " +
             "Both are recorded, so License action outcomes shows whether each change happened.</p>";
-        Panels.Add(new("Pairs", new HtmlString($"<p class=\"sub\">Match: {choices}</p>" + exports + t.Render().Value),
+        Panels.Add(new("Pairs", new HtmlString($"<p class=\"sub\">Match: {choices}</p>" + await ProtectedNoteAsync() + exports + t.Render().Value),
             $"Take from: a Copilot license held at least {ActionsModel.RevokeAfterDays} days whose Premium features were not used in the last 30 days (the revoke rule). " +
             $"Give to: no license, and the free Copilot Chat used on {ActionsModel.UpgradeDays} or more of the last 30 days (the upgrade rule). " +
             "Within each unit the least-used license goes to the keenest user; people on either side left over are in the figures above.", "full", CsvUrl()));

@@ -255,6 +255,18 @@ BEGIN
     INSERT INTO bi.DimSensitivityLabel (LabelId) VALUES (NULL);
 END;
 
+/* What a resource Copilot read was, as a person would name it (2.4.6): a file's extension (docx, xlsx, pptx, csv ...)
+   from AccessedResources[].Name, and for anything else its Type (EmailMessage, TeamsMessage, StreamVideo, whiteboard ...). */
+IF OBJECT_ID(N'bi.DimFileType', N'U') IS NULL
+BEGIN
+    CREATE TABLE bi.DimFileType
+    (
+        FileTypeKey  INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimFileType PRIMARY KEY,
+        FileType     NVARCHAR(64) NOT NULL CONSTRAINT UQ_DimFileType UNIQUE
+    );
+    INSERT INTO bi.DimFileType (FileType) VALUES (N'(not reported)');
+END;
+
 /* AccessedResources[].Type: File, EmailMessage, TeamsMessage, WebSearchQuery, a URL ... */
 IF OBJECT_ID(N'bi.DimResourceType', N'U') IS NULL
 BEGIN
@@ -390,10 +402,14 @@ BEGIN
         SiteKey              INT           NOT NULL,
         SensitivityLabelKey  INT           NOT NULL,
         IsBlocked            BIT           NOT NULL,
-        XPIADetected         BIT           NOT NULL
+        XPIADetected         BIT           NOT NULL,
+        FileTypeKey          INT           NOT NULL CONSTRAINT DF_FactAccessedResource_FileType DEFAULT (1)   -- 2.4.6
     );
     CREATE CLUSTERED COLUMNSTORE INDEX CCI_FactAccessedResource ON bi.FactAccessedResource;
 END;
+/* The file type (2.4.6): rows loaded before it are '(not reported)' until the installer refreshes bi in full once. */
+IF COL_LENGTH(N'bi.FactAccessedResource', N'FileTypeKey') IS NULL
+    ALTER TABLE bi.FactAccessedResource ADD FileTypeKey INT NOT NULL CONSTRAINT DF_FactAccessedResource_FileType DEFAULT (1);
 
 /* One row per session in audit.CopilotSession. A session never crosses
    midnight (a new day starts a new one), so its start date is its only date. */
@@ -486,8 +502,11 @@ FROM bi.FactInteraction AS f;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.AccessedResources AS
 SELECT ActivityHour, DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey,
-       IsBlocked, XPIADetected
+       IsBlocked, XPIADetected, FileTypeKey
 FROM bi.FactAccessedResource;');
+
+EXEC (N'CREATE OR ALTER VIEW bi.FileTypes AS
+SELECT FileTypeKey, FileType FROM bi.DimFileType;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.LicenseTypes AS
 SELECT LicenseTypeKey, LicenseType FROM bi.DimLicenseType;');

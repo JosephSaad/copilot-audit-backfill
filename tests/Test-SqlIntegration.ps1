@@ -1826,6 +1826,11 @@ SELECT (SELECT COUNT(*) FROM bi.FactAccessedResource) AS Resources,
 "@).Rows[0]
 Assert-That ([int] $bx.Resources -eq 3 -and [int] $bx.Personal -eq 1 -and [int] $bx.Blocked -eq 1 -and [long] $bx.Logged -eq 3) `
     "bi.FactAccessedResource has one row per element, with its site and blocked flag ($($bx.Resources) rows)"
+$ft = [string] (Invoke-SqlText -As Scalar -Sql @"
+SELECT STRING_AGG(CONCAT(t.FileType, N'=', x.N), N' | ') WITHIN GROUP (ORDER BY t.FileType)
+FROM (SELECT FileTypeKey, COUNT(*) AS N FROM bi.AccessedResources GROUP BY FileTypeKey) AS x JOIN bi.FileTypes AS t ON t.FileTypeKey = x.FileTypeKey;
+"@)
+Assert-That ($ft -eq 'docx=2 | xlsx=1') "2.4.6: each resource read carries its file type, from its name ($ft)"
 Assert-That ("$($bx.LicType)" -eq 'Starter' -and [int] $bx.Memory -eq 1 -and "$($bx.EvLabel)" -eq '11111111-0000-0000-0000-000000000003') `
     "the interaction fact carries the record's license type, memory flag and its own label ($($bx.LicType), $($bx.EvLabel))"
 

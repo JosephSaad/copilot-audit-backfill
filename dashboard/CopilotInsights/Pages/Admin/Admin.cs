@@ -206,6 +206,20 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             "Managers below the levels stop getting the manager digest. People with no level (not under the top) are left out by any limit." +
             (max > 0 ? $" Now: levels 1 to {max}." : " Now: everyone.")));
 
+        /* Levels never on a revoke, reclaim or training list (2.4.6), with each choice's head count. */
+        var keep = await CopilotInsights.Data.ProtectedLevels.LevelsAsync(S.Settings);
+        var keepChoices = new List<(string Value, string Label)> { ("0", "None: anyone can be listed") };
+        for (var n = 1; n <= Math.Max(deepest, keep); n++)
+            keepChoices.Add((n.ToString(), $"Levels 1 to {n} ({levels.Where(l => l.Level is { } v && v <= n).Sum(l => l.N):#,0} people)"));
+        Panels.Add(new("Never on revoke or train lists", new HtmlString(Form("protect",
+            $"<label>Leave out<select name=\"ProtectedLevels\">" +
+            string.Concat(keepChoices.Select(c => $"<option value=\"{c.Value}\"{(c.Value == keep.ToString() ? " selected" : "")}>{E(c.Label)}</option>")) + "</select></label>" +
+            Button("Save", "Change who is never listed to revoke or train? It applies to every such list, its files, the counts, the digests and the data API."))),
+            "People at these levels of the organization are never on Upgrade, train or revoke (train and revoke), Swap list, Unused licenses, Better on pay-as-you-go, " +
+            "Fading use, Not started, Enablement's one-off and not-started people, or License optimization's counts, nor in their files, digests and the data API. " +
+            "Lists of accounts nobody can use keep everyone: disabled and departed accounts, departures ahead and non-human accounts." +
+            $" Now: {(keep == 0 ? "none" : $"levels 1 to {keep}")}."));
+
         Panels.Add(new("Grant a role", new HtmlString(Form("grant",
             Input("principal", "User (UPN) or group (DOMAIN\\Group)", null, 34) +
             Select("type", "Type", ["User", "Group"], "User") +
@@ -329,6 +343,20 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Ma
         S.Settings.Invalidate();
         static string Say(int n) => n == 0 ? "everyone in the directory" : $"levels 1 to {n}";
         return $"The dashboard was open to {Say(before)}; it is now open to {Say(MaxViewerLevel)}, and to anyone granted a role.";
+    });
+
+    public Task<IActionResult> OnPostProtectAsync(int ProtectedLevels) => AdminChangeAsync(async () =>
+    {
+        if (ProtectedLevels is < 0 or > 15) throw new ArgumentException("choose none, or levels 1 to 15.");
+        var before = await CopilotInsights.Data.ProtectedLevels.LevelsAsync(S.Settings);
+        if (before == ProtectedLevels) return "The levels left off revoke and train lists are unchanged.";
+        await Db.ExecuteAsync(@"
+UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = N'ProtectedLevels';
+IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'ProtectedLevels', @v, @by);",
+            new { v = ProtectedLevels.ToString(), by = Viewer.Upn ?? Viewer.WindowsName });
+        S.Settings.Invalidate();
+        static string Say(int n) => n == 0 ? "nobody" : $"levels 1 to {n}";
+        return $"Left off revoke and train lists: {Say(before)} before, {Say(ProtectedLevels)} now.";
     });
 
     public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string? note) => AdminChangeAsync(async () =>

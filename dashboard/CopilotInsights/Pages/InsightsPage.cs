@@ -274,6 +274,13 @@ public abstract class InsightsPage(PageServices s) : PageModel
         return Redirect(Request.Path + (q.Count > 0 ? "?" + string.Join("&", q) : ""));
     }
 
+    /// <summary>The line a revoke, reclaim or training list opens with, saying which levels it never lists (2.4.6); empty when none are.</summary>
+    protected async Task<string> ProtectedNoteAsync()
+    {
+        var note = await CopilotInsights.Data.ProtectedLevels.NoteAsync(S.Settings);
+        return note.Length == 0 ? "" : $"<p class=\"sub protected\">{E(note.Trim())}</p>";
+    }
+
     /// <summary>The message a change left for the page it redirected back to.</summary>
     protected void ShowDone()
     {
