@@ -148,8 +148,8 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
        COUNT(*) AS People,
        COUNT(ld.UserKey) AS Held,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 THEN 1 END) AS Active,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL THEN 1 END) AS Idle,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 THEN 1 END) AS Light,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")} THEN 1 END) AS Idle,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")} THEN 1 END) AS Light,
        COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy THEN 1 END) AS Demand
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
@@ -199,7 +199,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
             $"On the forecast, about {projectedActive:#,0} licensed people will use Copilot each week in 13 weeks. With a 10% margin and today's heavy demand, "
             + $"{target:#,0} licenses cover it: {(change >= 0 ? "a cost of " + Money(change * price) : "a saving of " + Money(-change * price))} a month against today.");
         recs.Append("</div>");
-        Panels.Add(new("Recommendations", new HtmlString(recs.ToString()),
+        Panels.Add(new("Recommendations", new HtmlString(recs.ToString() + await ProtectedNoteAsync()),
             $"At {Money(price)} a license a month (set in Admin › Access). Links to named lists appear for people with the role."));
 
         var shown = FoldSmall(rows, r => r.People, small => new DeptRow

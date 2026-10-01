@@ -51,7 +51,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days"));
         Kpis.Add(new("Multi-turn sessions", Pct(Ratio(t.MultiTurn, t.Sessions)), "sessions with a follow-up prompt"));
         Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—"));
-        Kpis.Add(new("Need a nudge", Num(Seg("One-off") + Seg("Not started")), "licensed or active, but one day or none"));
+        var nudge = await Db.ScalarAsync<int>($@"WITH {Segments.People(Ctx)}
+SELECT COUNT(*) FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey WHERE p.Segment IN (N'One-off', N'Not started') AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")};", Ctx.Args(new { w }));
+        Kpis.Add(new("Need a nudge", Num(nudge), "licensed or active, but one day or none"));
 
         Panels.Add(new("Engagement segments",
             Chart.Bars(Segments.Order.Select((name, i) => new Bar(name, Seg(name), Viewer.Has(Roles.Enablement) ? Ctx.Url("/enablement/people", extra: "seg=" + name) : null, Slot: Segments.Slots[i])).ToList(), Fmt.Count, "People by segment"),
@@ -145,6 +147,7 @@ SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.JobTitle, du.Mana
 FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = p.LastKey
 WHERE p.Segment = @seg
+  AND (@seg NOT IN (N'One-off', N'Not started') OR {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { w, seg, q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
@@ -160,7 +163,7 @@ WHERE p.Segment = @seg
         Kpis.Add(new(seg, Num(pg.Total), $"people, out of {w} working days in the period"));
         var tabs = string.Join(" · ", Segments.Order.Select(sg =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "seg=" + Uri.EscapeDataString(sg)))}\"{(sg == seg ? " class=\"on\"" : "")}>{sg}</a>"));
-        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Segment: {tabs}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Segment: {tabs}</p>" + (seg is "One-off" or "Not started" ? await ProtectedNoteAsync() : "") + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "Segments are defined on the Engagement page.", "full", CsvUrl()));
     }
 }

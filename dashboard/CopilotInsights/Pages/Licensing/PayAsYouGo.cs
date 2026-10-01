@@ -81,7 +81,8 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
       JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
       JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
       LEFT JOIN bi.DimDate AS dl ON dl.DateKey = u.LastKey
-      WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < @d0) AND u.P * 100 <= @max * u.I)
+      WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < @d0) AND u.P * 100 <= @max * u.I
+        AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
 SELECT x.*, COUNT(*) OVER () AS TotalRows FROM x
 WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, max }));
@@ -114,7 +115,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         CsvTable = t;
         var choices = string.Join(" · ", Shares.Select(sh =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"max={sh}"))}\"{(sh == max ? " class=\"on\"" : "")}>{(sh == 0 ? "None" : $"{sh}% or less")}</a>"));
-        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Premium use: {choices}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Premium use: {choices}</p>" + await ProtectedNoteAsync() + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"License holders since before the period with any use in it. Credits a month: their Premium and agent interactions, scaled to 30 days, at {rate:#,0.00##} {cur} each; " +
             "an agent grounded only in the web costs nothing, so this errs high. Anyone here with Premium use would lose Copilot in the apps: check the Premium column before moving them. " +
             "People with no use at all are on Unused licenses.", "full", CsvUrl()));

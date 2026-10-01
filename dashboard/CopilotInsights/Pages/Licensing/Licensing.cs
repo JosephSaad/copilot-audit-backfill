@@ -18,7 +18,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var unused = await Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 WHERE ld.DateKey = @k1
-  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0);", Ctx.Args());
+  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0)
+  AND {CopilotInsights.Data.ProtectedLevels.Not("(SELECT du.UserPrincipalName FROM bi.DimUser AS du WHERE du.UserKey = ld.UserKey)")};", Ctx.Args());
         var changes = await Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END)
 FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")}
@@ -108,6 +109,7 @@ OUTER APPLY (SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE ud.
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
 WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
   AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
+  AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")}
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, idle = idleDays, idleKey = ReportContext.Key(Ctx.End.AddDays(-(idleDays - 1))) }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
@@ -126,7 +128,7 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
         Kpis.Add(new($"Unused for {idleDays} days or more", Num(pg.Total), $"licensed at least {idleDays} days ago", pg.Total > 0 ? "crit" : null));
         var choices = string.Join(" · ", new[] { 7, 14, 30, 60, 90 }.Select(d =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"idle={d}"))}\"{(d == idleDays ? " class=\"on\"" : "")}>{d} days</a>"));
-        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Not used for: {choices}</p>" + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Not used for: {choices}</p>" + await ProtectedNoteAsync() + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "Today's licenses against the idle time you choose.", "full", CsvUrl()));
     }
 }

@@ -64,6 +64,8 @@ M -Task RevokeRole -Principal 'ada.lovelace@contoso.com' -Role Licensing
 
 **Check what someone sees.** Admin › Access › *Check someone's access*: their level, their scope, whether the level limit keeps them out, and the roles granted to their account directly (group grants are resolved when they sign in).
 
+**Keep leaders off revoke and train lists (2.4.6).** Admin › Access › *Never on revoke or train lists*: levels 1 to N of the organization (5 by default; *None* lists anyone), each choice with how many people it protects. People at those levels are never on Upgrade, train or revoke (train and revoke), the Swap list (take side), Unused licenses, Better on pay-as-you-go, Fading use, Not started, Enablement's one-off and not-started people, or License optimization's counts, nor in their CSVs, removal files, the Licensing digest's counts, the Board pack, Budget and renewal, or the data API. Each of those lists says so at the top. Lists of accounts nobody can use keep everyone: Licenses on disabled accounts, Departures ahead and Copilot on non-human accounts. From the job server: `M -Task SetDashboardSetting -Name ProtectedLevels -Value 5` (0 for none).
+
 **Limit the dashboard to the top levels (2.4.4).** Admin › Access › *Who can open the dashboard*: *Everyone in the directory*, or *Levels 1 to N* below the top of the organization, each choice with how many people it lets in. Anyone granted a role other than Admin is let in whatever their level, so grant a role to an analyst who needs it. Everyone else is refused every page, export and API call. Administrators outside the levels keep the Admin pages, so a wrong choice can be undone here. Managers outside the levels stop getting the manager digest. It applies within a minute. The same, from the job server:
 
 ```powershell
@@ -228,7 +230,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | Admin page | What it is for |
 |---|---|
 | Admin › Health | Pipeline runs and each step's freshness, directory coverage, the latest day with data, the app certificate, audit searches waiting, and a manual refresh |
-| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the top of the organization, the access settings and license price, granting and removing roles, checking someone's access |
+| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles, checking someone's access |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, and everything sent or not |
 | Admin › Alerts and digests | Alert recipients and thresholds, digests, manager digests and the managers who do not get them, the webhook, running the checks now |
@@ -252,7 +254,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | `GrantRole` | Give `-Principal` (UPN, `DOMAIN\user` or `DOMAIN\Group`) a `-Role` |
 | `RevokeRole` | Take it away |
 | `SetOrgTop` | Make `-Upn` the top of the organization, or `-Clear` |
-| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost, LicenseCurrency, PaygInteractionCost or MaxViewerLevel (who can open the dashboard: 0 everyone, else levels 1 to N) to `-Value` |
+| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost, LicenseCurrency, PaygInteractionCost, MaxViewerLevel (who can open the dashboard: 0 everyone, else levels 1 to N) or ProtectedLevels (levels 1 to N never on a revoke or train list: 5 by default, 0 none) to `-Value` |
 | `NameAgent` | Give agent `-AgentId` a `-FriendlyName` and `-Owner` |
 | `NameLabel` | Give label `-LabelId` a `-FriendlyName` and `-Rank` |
 | `PurgeJson` | Clear the stored JSON of records older than `-RetainDays` (`-Apply` to do it) |

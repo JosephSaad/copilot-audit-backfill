@@ -25,6 +25,7 @@ public static class Guidance
 
         // Adoption
         ["/adoption"] = new("Track the path from license to habit.", "Work on the step where most people drop out."),
+        ["/adoption/by-license"] = new("See who of each license type uses Copilot, in which apps, for how long and on how many days.", "Follow up with the license holders at the bottom; learn from the apps and habits of the ones at the top."),
         ["/adoption/retention"] = new("Tell a habit from a trial.", "Follow up with the groups whose use falls away after the first weeks."),
         ["/adoption/cohorts"] = new("See whether each month's new licenses turn into lasting use.", "Compare a weak month with a strong one, and repeat what the strong one had."),
         ["/adoption/departments"] = new("Find the departments ahead and behind.", "Pair a department behind with one ahead, through their champions."),

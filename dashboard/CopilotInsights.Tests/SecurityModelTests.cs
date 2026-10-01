@@ -284,3 +284,25 @@ public class NonHumanTests
         Assert.DoesNotContain(CopilotInsights.Pages.Nav.For(V(Roles.Security, Roles.Compliance, Roles.Licensing), privacyMode: true).SelectMany(g => g.Pages),
             p => p.Path.Contains("non-"));
 }
+
+/// <summary>Levels 1 to N are never on a revoke or train list (2.4.6).</summary>
+public class ProtectedLevelsTests
+{
+    [Fact]
+    public void Train_and_revoke_leave_out_the_protected_levels_but_upgrade_does_not()
+    {
+        var kinds = CopilotInsights.Pages.Forecasting.ActionsModel.Kinds;
+        Assert.Contains("dash.Person AS pl", kinds["train"].Where);
+        Assert.Contains("dash.Person AS pl", kinds["revoke"].Where);
+        Assert.DoesNotContain("dash.Person AS pl", kinds["upgrade"].Where);
+    }
+
+    [Fact]
+    public void The_rule_reads_the_setting_with_five_as_its_default()
+    {
+        var sql = CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName");
+        Assert.Contains("pl.Upn = du.UserPrincipalName", sql);
+        Assert.Contains("pl.Level BETWEEN 1 AND ISNULL((SELECT TRY_CAST(ps.Value AS INT) FROM dash.Setting AS ps WHERE ps.Name = N'ProtectedLevels'), 5)", sql);
+        Assert.StartsWith("NOT EXISTS", sql);
+    }
+}

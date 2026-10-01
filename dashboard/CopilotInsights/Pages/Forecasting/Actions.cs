@@ -25,11 +25,12 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         dash.UserDay.PremiumUse). Train and revoke look at a.P: a license used only for web Copilot Chat,
         which the free tier gives, is a license not used.
     */
-    internal static readonly Dictionary<string, (string Label, string Where, string Action)> Kinds = new()
+    public static readonly Dictionary<string, (string Label, string Where, string Action)> Kinds = new()
     {
         ["upgrade"] = ("Upgrade to Premium", $"lic.UserKey IS NULL AND a.D >= {UpgradeDays}", "Upgrade to Premium"),
-        ["train"] = ("Train", $"lic.UserKey IS NOT NULL AND a.P BETWEEN 1 AND {LightMax}", "Train, then review"),
-        ["revoke"] = ("Revoke", $"lic.UserKey IS NOT NULL AND ISNULL(a.P, 0) = 0 AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -{RevokeAfterDays}, @d1))", "Revoke"),
+        /* Train and revoke leave out the protected levels (2.4.6): everyone who reads Kinds, the page, its files, Swap, the counts, the digest and the API, does too. */
+        ["train"] = ("Train", $"lic.UserKey IS NOT NULL AND a.P BETWEEN 1 AND {LightMax} AND {Data.ProtectedLevels.Not("du.UserPrincipalName")}", "Train, then review"),
+        ["revoke"] = ("Revoke", $"lic.UserKey IS NOT NULL AND ISNULL(a.P, 0) = 0 AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -{RevokeAfterDays}, @d1)) AND {Data.ProtectedLevels.Not("du.UserPrincipalName")}", "Revoke"),
     };
 
     /// <summary>
@@ -198,7 +199,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
             $"({(await S.Settings.StringAsync("LicenseGroupId") is null ? "assigns the license directly; set a licensing group in Admin > Targets and assumptions to use group membership instead" : "through the licensing group")}).</p>";
         if (!premiumReady && kind != "upgrade")
             Notice = "Premium-feature use is not in the rollups yet, so train and revoke count any use, as before 2.3.0. An administrator rebuilds the rollups once (Admin > Health, Rebuild every day) to separate Premium features from web Copilot Chat.";
-        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + (kind == "upgrade" ? "" : await ProtectedNoteAsync()) + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "\"License the records report\" is what Copilot wrote into the person's latest audit record.", "full", CsvUrl()));
     }
 }

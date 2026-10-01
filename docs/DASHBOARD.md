@@ -55,6 +55,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Board pack | One printable page for the board: use and adoption against the period before, the trend, targets, estimated value against license cost, licenses and risk signals | Scope | No |
 | | Group overview | With several tenants: each tenant's people, adoption and interactions side by side, for the tenants the viewer can see | Tenant | No |
 | Adoption | Funnel and trend | Licensed → started → active → active this week → multi-turn; first-time users over time | Scope | No |
+| | Usage by license | For licensed, unlicensed or everyone in scope: people, active and inactive; use by app and by the kind of resource read; the highest and lowest users; minutes used (the span of each conversation, first prompt to last) by person, by app, with averages for Outlook, Teams and Copilot Chat, and every conversation, downloadable; interactions by app over the period with each app's lowest, highest and mean point; people by days active; the last database update and the latest audit record | Person | **Adoption** |
 | | Retention and habit | Of everyone active in a week, how many come back in each of the next eight weeks; how many of the last twelve weeks people used it | Weekly cohorts | No |
 | | License cohorts | Of the people licensed each month, the share active in weeks 1 to 12 after; time from license to first use | Monthly cohorts | No |
 | | Departments | Licensed, active and adoption per AD department; small departments combined | Department | No |
@@ -120,6 +121,8 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 An L2 manager, who reports directly to the CEO, sees the whole organization. The Leadership pages are theirs, and so are the Regions, People, App owners and Governance pages. Whole-organization access doesn't include a role's section or its named lists: those need the role.
 
 ## Who sees what
+
+**Leaders are never on a revoke or train list (2.4.6).** Levels 1 to N of the organization (Admin › Access › *Never on revoke or train lists*; 5 unless changed) are left out of every list that recommends taking a license away, moving to pay-as-you-go, or training: the pages, their CSVs and removal files, the counts in the digests, Board pack and Budget and renewal, and the data API. Each such list says so above it. Lists of accounts nobody can use (disabled and departed accounts, departures ahead, non-human accounts) keep everyone.
 
 **Who can open the dashboard (2.4.4).** In Admin › Access › *Who can open the dashboard*, an administrator chooses *Everyone in the directory* (the default, as before) or *Levels 1 to N*: level 1 is the top of the organization (`OrgTopUpn`), level 2 reports to them, and so on, to 15. Each choice shows how many people it lets in. With a limit set:
 

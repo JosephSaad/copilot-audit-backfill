@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.6] - Unreleased
+
+Install over 2.4.5: reinstall the dashboard from its package, and run
+`Install-CopilotAudit.ps1 -Dashboard` once to add the `ProtectedLevels` setting (5 until
+changed; without it the dashboard uses 5 as well).
+
+### Added
+- **Adoption › Usage by license** (Adoption role), one page for licensed, unlicensed or
+  everyone in the part of the organization chosen in the filter bar: people, active and
+  inactive, as counts and shares; Copilot use by app, and by the kind of resource it read;
+  the highest and lowest users; minutes used, by person and by app, with average cards for
+  Outlook, Teams and Copilot Chat, and every conversation longer than one prompt in a
+  sortable, searchable list with its CSV; interactions by app over the period, with each
+  app's lowest, highest and mean point; and people by days active. It shows when the
+  database was last updated and the latest audit record it holds. Minutes are the span of
+  each conversation from its first prompt to its last, so they are a floor on the time
+  spent. Measured at 40 million interactions over a year, each of its queries takes under
+  3 seconds and they run side by side.
+- **Leaders are never on a revoke or train list.** Levels 1 to 5 of the organization (Admin ›
+  Access › *Never on revoke or train lists*, any number from 1 to 15, or none; also
+  `Invoke-CopilotMaintenance.ps1 -Task SetDashboardSetting -Name ProtectedLevels`) are left
+  out of Upgrade, train or revoke (train and revoke), the Swap list's take side, Unused
+  licenses, Better on pay-as-you-go, Fading use, Not started, Enablement's one-off and
+  not-started people and License optimization's counts, and so out of their CSVs, the Entra
+  bulk files and scripts, the Licensing digest's counts, the Board pack, Budget and renewal,
+  and the data API. Each list says which levels it leaves out. Lists of accounts nobody can
+  use keep everyone: Licenses on disabled accounts, Departures ahead and Copilot on
+  non-human accounts.
+
+### Fixed
+- **The data API's `/api/v1/license-actions?kind=train` and `kind=revoke` failed** with
+  *Invalid column name 'P'*: they now read the same activity as the page, so they list the
+  same people.
+
 ## [2.4.5] - 2026-10-01
 
 A Copilot license on an account that is not a person is now reported as a policy breach,
