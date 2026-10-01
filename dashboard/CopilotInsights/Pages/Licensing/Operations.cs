@@ -120,7 +120,12 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
     public override bool UsesFilters => true;
     public override string Intro => "People holding a Copilot license today whose account is disabled in AD or Entra, or who have left the directory. Nobody can use these licenses: reclaim them.";
 
-    static readonly Dictionary<string, string> Sorts = new() { ["name"] = "u.DisplayName", ["dept"] = "u.Department, u.DisplayName", ["since"] = "u.LicensedSinceUtc" };
+    static readonly Dictionary<string, string> Sorts = new()
+    {
+        ["name"] = "u.DisplayName", ["dept"] = "u.Department, u.DisplayName", ["since"] = "u.LicensedSinceUtc",
+        /* Reason and LastUsed are columns of OpsData.LeaversAsync's select list, which its ORDER BY may name. */
+        ["upn"] = "u.UserPrincipalName", ["manager"] = "u.ManagerName, u.DisplayName", ["why"] = "Reason, u.DisplayName", ["recent"] = "LastUsed DESC, u.DisplayName, u.UserPrincipalName",
+    };
 
     protected override async Task BuildAsync()
     {
@@ -129,7 +134,11 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
         var rows = await ops.LeaversAsync(Ctx.Root, pg.Like, pg.OrderAndPage());
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         Kpis.Add(new("Licenses on disabled or departed accounts", Num(pg.Total), $"{pg.Total * price:#,0} {cur} a month", pg.Total > 0 ? "crit" : null));
-        var t = new Table { Headers = ["Name", "Sign-in", "Department", "Manager", "Why", "Licensed since", "Last used"], EmptyText = "No licenses on disabled accounts." };
+        var t = new Table
+        {
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Why", "Licensed since", "Last used"], EmptyText = "No licenses on disabled accounts.",
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "why", "since", "recent"], new HashSet<int> { 6 }),
+        };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.Reason, r.LicensedSinceUtc?.Date, r.LastUsed]);
         CsvTable = t;
         var exports = pg.Total == 0 ? "" :

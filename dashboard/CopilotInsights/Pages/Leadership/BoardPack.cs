@@ -61,7 +61,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 
         var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
         var counts = await reports.ActionCountsAsync(Ctx);
-        var lt = new Table { Headers = ["Licenses", ""], Numeric = new HashSet<int> { 1 } };
+        var lt = new Table { Headers = ["Licenses", ""], Numeric = new HashSet<int> { 1 }, Sortable = false };
         if (pool.Count > 0) { lt.Rows.Add(["Bought", pool.Sum(x => x.Bought)]); lt.Rows.Add(["Assigned", pool.Sum(x => x.Consumed)]); }
         lt.Rows.Add(["Held in scope", t.LicensedNow]);
         lt.Rows.Add(["Used in the period", t.ActiveLicensed]);
@@ -70,7 +70,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         Panels.Add(new("Licenses", lt.Render(), $"At {price:#,0.##} {cur} a license a month, the unused licenses cost {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month.", "half"));
 
         var rp = await metrics.TrendAsync(prev);
-        var rt = new Table { Headers = ["Risk signal", "This period", "Period before"], Numeric = new HashSet<int> { 1, 2 } };
+        var rt = new Table { Headers = ["Risk signal", "This period", "Period before"], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };
         rt.Rows.Add(["Jailbreak attempts", tr.Sum(x => x.Jailbreak), rp.Sum(x => x.Jailbreak)]);
         rt.Rows.Add(["Prompt injection detected", tr.Sum(x => x.Injection), rp.Sum(x => x.Injection)]);
         rt.Rows.Add(["Blocked resources", tr.Sum(x => x.Blocked), rp.Sum(x => x.Blocked)]);
@@ -79,8 +79,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 
         var units = (await metrics.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize && u.Licensed >= Ctx.MinGroupSize).ToList();
         if (units.Count > 1)
-            Panels.Add(new("Adoption by unit", Chart.Bars(units.OrderByDescending(u => (double)u.ActiveLicensed / u.Licensed).Take(12)
-                .Select(u => new Bar(u.Name, (double)u.ActiveLicensed / u.Licensed, Note: $"{u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by unit", 1),
+            Panels.Add(new("Adoption by unit", Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed)), Ctx.MinGroupSize, "Adoption by unit", 12),
                 "Units with at least the minimum group size of people and licenses.", "half"));
     }
 }

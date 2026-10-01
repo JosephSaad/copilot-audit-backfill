@@ -83,6 +83,7 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["most"] = "x.N DESC", ["recent"] = "x.LastKey DESC", ["name"] = "du.DisplayName", ["dept"] = "du.Department, du.DisplayName",
+        ["upn"] = "du.UserPrincipalName", ["days"] = "x.Days DESC, du.DisplayName, du.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["most"] = "Most interactions", ["recent"] = "Most recent", ["name"] = "Name", ["dept"] = "Department" };
 
@@ -158,7 +159,8 @@ FROM x JOIN bi.DimUser AS du ON du.UserKey = x.UserKey JOIN bi.DimDate AS dl ON 
 WHERE (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { agent = key, q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-        var t = new Table { Headers = ["Name", "Sign-in", "Department", "Interactions", "Days", "Last used"], Numeric = new HashSet<int> { 3, 4 } };
+        var t = new Table { Headers = ["Name", "Sign-in", "Department", "Interactions", "Days", "Last used"], Numeric = new HashSet<int> { 3, 4 },
+            Server = new(pg, Request, ["name", "upn", "dept", "most", "days", "recent"], new HashSet<int> { 3, 4, 5 }) };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.N, r.Days, r.Last]);
         CsvTable = t;
         Panels.Add(new("Users", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));

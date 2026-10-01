@@ -76,6 +76,7 @@ public sealed class UnusedModel(PageServices s) : InsightsPage(s)
         ["idle"] = "CASE WHEN x.LastKey IS NULL THEN 0 ELSE 1 END, x.LastKey, du.DisplayName",
         ["since"] = "du.LicensedSinceUtc, du.DisplayName", ["name"] = "du.DisplayName, du.UserPrincipalName",
         ["dept"] = "du.Department, du.DisplayName", ["manager"] = "du.ManagerName, du.DisplayName",
+        ["upn"] = "du.UserPrincipalName", ["sku"] = "du.CopilotSku, du.DisplayName", ["recent"] = "x.LastKey DESC, du.DisplayName, du.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new()
     {
@@ -115,6 +116,8 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
         {
             Headers = ["Name", "Sign-in", "Department", "Manager", "SKU", "Licensed since", "Last used", "Days since last use"],
             Numeric = new HashSet<int> { 7 }, EmptyText = "Every license is in use.",
+            /* Idle longest puts the most days since last use first: never used, then the oldest. */
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "sku", "since", "recent", "idle"], new HashSet<int> { 6, 7 }),
         };
         foreach (var r in rows)
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.CopilotSku, r.LicensedSinceUtc?.Date,
@@ -148,6 +151,7 @@ public sealed class DemandModel(PageServices s, Metrics m) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["days"] = "a.D DESC, a.I DESC", ["use"] = "a.I DESC", ["name"] = "du.DisplayName", ["dept"] = "du.Department, du.DisplayName",
+        ["upn"] = "du.UserPrincipalName", ["manager"] = "du.ManagerName, du.DisplayName",
     };
     static readonly Dictionary<string, string> SortLabels = new()
     {
@@ -205,7 +209,11 @@ WHERE du.CopilotLicenseToday <> N'Licensed'
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-        var t = new Table { Headers = ["Name", "Sign-in", "Department", "Manager", "Days active", "Interactions"], Numeric = new HashSet<int> { 4, 5 } };
+        var t = new Table
+        {
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Days active", "Interactions"], Numeric = new HashSet<int> { 4, 5 },
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "days", "use"], new HashSet<int> { 4, 5 }),
+        };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.ActiveDays, r.Interactions]);
         CsvTable = t;
         Panels.Add(new("Unlicensed users", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));

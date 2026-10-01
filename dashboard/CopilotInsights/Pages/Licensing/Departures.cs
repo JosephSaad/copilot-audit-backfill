@@ -24,6 +24,8 @@ public sealed class DeparturesModel(PageServices s) : InsightsPage(s)
     {
         ["date"] = "x.LeaveUtc, x.DisplayName", ["name"] = "x.DisplayName, x.UserPrincipalName",
         ["dept"] = "x.Department, x.DisplayName", ["manager"] = "x.ManagerName, x.DisplayName",
+        ["upn"] = "x.UserPrincipalName", ["source"] = "x.Source, x.DisplayName", ["since"] = "x.LicensedSinceUtc, x.DisplayName",
+        ["recent"] = "x.LastKey DESC, x.DisplayName, x.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["date"] = "Soonest", ["name"] = "Name", ["dept"] = "Department", ["manager"] = "Manager" };
 
@@ -99,6 +101,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
             Headers = ["Name", "Sign-in", "Department", "Manager", "Leaves", "From", "Days to go", "Licensed since", "Last used"],
             Numeric = new HashSet<int> { 6 },
             EmptyText = $"Nobody with a license is due to leave in the next {ahead} days.",
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "date", "source", "date", "since", "recent"], new HashSet<int> { 8 }),
         };
         var today = DateTime.UtcNow.Date;
         foreach (var r in rows)

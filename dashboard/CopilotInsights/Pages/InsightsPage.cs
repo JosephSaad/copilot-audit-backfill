@@ -15,40 +15,88 @@ public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, 
 
 public sealed record Link(string Text, string Href);
 
-/// <summary>A table: cells are strings, numbers (formatted), Link, or IHtmlContent.</summary>
+/// <summary>
+/// A table: cells are strings, numbers (formatted), Link, or IHtmlContent. Its column headers sort it
+/// (2.4.5): a list paged on the server through its Paging keys (ServerSort), any other table in the
+/// browser (site.js), by the cells' values rather than their text. Columns of buttons don't sort, nor does
+/// a table whose order is its meaning (Sortable = false), and the last KeepLast rows (a total, "Smaller
+/// groups") stay at the bottom.
+/// </summary>
 public sealed class Table
 {
     public required IReadOnlyList<string> Headers { get; init; }
     public IReadOnlySet<int> Numeric { get; init; } = new HashSet<int>();
     public List<object?[]> Rows { get; } = [];
     public string? EmptyText { get; init; }
+    /// <summary>False where the rows' order is the point: steps, a time series, levels, a single row.</summary>
+    public bool Sortable { get; init; } = true;
+    /// <summary>The number of rows at the end that stay there whatever the sort: a total, or "Smaller groups".</summary>
+    public int KeepLast { get; set; }
+    /// <summary>For a list paged on the server: each column's Paging key (null: not sortable), and whether the key's own order descends.</summary>
+    public ServerSort? Server { get; init; }
+
+    public sealed record ServerSort(Paging Pager, HttpRequest Request, IReadOnlyList<string?> Keys, IReadOnlySet<int>? Descending = null);
+
+    /// <summary>A column sorts when it has a header and no cell in it is a control (a form or a button) or a chart (a sparkline).</summary>
+    bool ColumnSorts(int i) =>
+        !string.IsNullOrWhiteSpace(Headers[i])
+        && !Rows.Any(r => i < r.Length && r[i] is IHtmlContent h && Html(h) is var x
+                          && (x.Contains("<form", StringComparison.OrdinalIgnoreCase) || x.Contains("<button", StringComparison.OrdinalIgnoreCase) || x.Contains("<svg", StringComparison.OrdinalIgnoreCase)));
+
+    static string Html(IHtmlContent h) => h is HtmlString hs ? hs.Value ?? "" : h.ToString() ?? "";
 
     public HtmlString Render()
     {
         if (Rows.Count == 0) return new($"<p class=\"muted\">{WebUtility.HtmlEncode(EmptyText ?? "Nobody here.")}</p>");
-        var sb = new StringBuilder("<div class=\"table-wrap\"><table><thead><tr>");
+        var client = Server is null && Sortable && Rows.Count - KeepLast > 1;
+        var sb = new StringBuilder($"<div class=\"table-wrap\"><table{(client ? " class=\"sortable\"" : "")}><thead><tr>");
         for (var i = 0; i < Headers.Count; i++)
-            sb.Append($"<th{(Numeric.Contains(i) ? " class=\"num\"" : "")}>{WebUtility.HtmlEncode(Headers[i])}</th>");
-        sb.Append("</tr></thead><tbody>");
-        foreach (var r in Rows)
         {
-            sb.Append("<tr>");
+            var cls = Numeric.Contains(i) ? " class=\"num\"" : "";
+            var text = WebUtility.HtmlEncode(Headers[i]);
+            if (Server is { } sv && i < sv.Keys.Count && sv.Keys[i] is { } key && sv.Pager.Has(key))
+            {
+                var aria = sv.Pager.AriaSort(key, sv.Descending?.Contains(i) ?? false);
+                sb.Append($"<th{cls}{(aria is null ? "" : $" aria-sort=\"{aria}\"")}><a class=\"sort\" href=\"{WebUtility.HtmlEncode(sv.Pager.SortLink(sv.Request, key))}\">{text}</a></th>");
+            }
+            else if (client && ColumnSorts(i))
+                sb.Append($"<th{cls}><button type=\"button\" class=\"sort\">{text}</button></th>");
+            else
+                sb.Append($"<th{cls}>{text}</th>");
+        }
+        sb.Append("</tr></thead><tbody>");
+        for (var n = 0; n < Rows.Count; n++)
+        {
+            var r = Rows[n];
+            sb.Append(n >= Rows.Count - KeepLast ? "<tr data-keep=\"1\">" : "<tr>");
             for (var i = 0; i < Headers.Count; i++)
             {
                 var v = i < r.Length ? r[i] : null;
                 var cls = Numeric.Contains(i) ? " class=\"num\"" : "";
-                sb.Append($"<td{cls}>{Cell(v)}</td>");
+                var sortValue = client ? SortValue(v) : null;
+                sb.Append($"<td{cls}{(sortValue is null ? "" : $" data-v=\"{sortValue}\"")}>{Cell(v)}</td>");
             }
             sb.Append("</tr>");
         }
         return new(sb.Append("</tbody></table></div>").ToString());
     }
 
+    /// <summary>What a cell sorts by, where its text would mislead: a number's value, a date as yyyyMMddHHmm.</summary>
+    static string? SortValue(object? v) => v switch
+    {
+        int or long or short or byte => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture),
+        double d => double.IsFinite(d) ? d.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : null,
+        decimal m => m.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        float f => float.IsFinite(f) ? f.ToString("R", System.Globalization.CultureInfo.InvariantCulture) : null,
+        DateTime d => d.ToString("yyyyMMddHHmm", System.Globalization.CultureInfo.InvariantCulture),
+        _ => null,
+    };
+
     static string Cell(object? v) => v switch
     {
         null => "<span class=\"muted\">—</span>",
         Link l => $"<a href=\"{WebUtility.HtmlEncode(l.Href)}\">{WebUtility.HtmlEncode(l.Text)}</a>",
-        IHtmlContent h => h is HtmlString hs ? hs.Value ?? "" : h.ToString() ?? "",
+        IHtmlContent h => Html(h),
         DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm"),
         double x => x.ToString("#,0.#"),
         decimal x => x.ToString("#,0.#"),
@@ -281,7 +329,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         {
             var key = Ctx.Daily ? m.Day.Date : ReportContext.WeekEnding(m.Day);
             var i = buckets.ToList().FindIndex(b => b.Key == key);
-            if (i >= 0) axis.Markers.Add(new(i, m.Label, m.Kind));
+            if (i >= 0) axis.Markers.Add(new(i, m.Label, m.Kind, m.Day));
         }
         return axis;
     }

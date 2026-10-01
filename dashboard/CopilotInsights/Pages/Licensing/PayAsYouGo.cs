@@ -23,6 +23,11 @@ public sealed class PayAsYouGoModel(PageServices s) : InsightsPage(s)
     {
         ["saving"] = "x.Metered, x.DisplayName", ["share"] = "x.Share, x.DisplayName",
         ["name"] = "x.DisplayName, x.UserPrincipalName", ["dept"] = "x.Department, x.DisplayName",
+        ["upn"] = "x.UserPrincipalName", ["manager"] = "x.ManagerName, x.DisplayName", ["sku"] = "x.CopilotSku, x.DisplayName",
+        ["since"] = "x.LicensedSinceUtc, x.DisplayName", ["use"] = "x.I DESC, x.DisplayName, x.UserPrincipalName", ["premium"] = "x.P DESC, x.DisplayName, x.UserPrincipalName",
+        ["agent"] = "x.A DESC, x.DisplayName, x.UserPrincipalName", ["days"] = "x.Days DESC, x.DisplayName, x.UserPrincipalName",
+        ["pdays"] = "x.PremiumDays DESC, x.DisplayName, x.UserPrincipalName", ["recent"] = "x.LastUsed DESC, x.DisplayName, x.UserPrincipalName",
+        ["credits"] = "x.Metered DESC, x.DisplayName, x.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["saving"] = "Largest saving", ["share"] = "Lowest Premium share", ["name"] = "Name", ["dept"] = "Department" };
 
@@ -95,6 +100,9 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
                        "Days used", "Days with Premium use", "Last used", $"Credits a month ({cur})", $"Saving a month ({cur})"],
             Numeric = new HashSet<int> { 6, 7, 8, 9, 10, 11, 13, 14 },
             EmptyText = "No license holder in scope uses Copilot this little outside the free tier.",
+            /* Largest saving is the fewest metered interactions, so its own order puts the saving column descending. */
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "sku", "since", "use", "premium", "share", "agent", "days", "pdays", "recent", "credits", "saving"],
+                         new HashSet<int> { 6, 7, 9, 10, 11, 12, 13, 14 }),
         };
         foreach (var r in rows)
         {

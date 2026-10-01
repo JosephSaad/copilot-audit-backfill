@@ -135,3 +135,101 @@ public class BrowserTitleTests
     public void The_product_name_appears_once(string? title, string expected) =>
         Assert.Equal(expected, InsightsPage.BrowserTitle(title));
 }
+
+/// <summary>Column headers sort a table (2.4.5): on the server for a paged list, in the page for the rest.</summary>
+public class ColumnSortTests
+{
+    static readonly Dictionary<string, string> Sorts = new() { ["name"] = "du.DisplayName", ["idle"] = "x.LastKey, x.DisplayName", ["most"] = "SUM(CASE WHEN a = 1 THEN 1 ELSE 0 END) DESC, du.DisplayName ASC" };
+
+    static HttpRequest Q(string query)
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = "/licensing/unused";
+        ctx.Request.QueryString = new QueryString(query);
+        return ctx.Request;
+    }
+
+    [Theory]
+    [InlineData("du.DisplayName", "du.DisplayName DESC")]
+    [InlineData("x.LastKey, x.DisplayName", "x.LastKey DESC, x.DisplayName DESC")]
+    [InlineData("v.Records DESC", "v.Records")]
+    [InlineData("SUM(CASE WHEN a = 1 THEN 1 ELSE 0 END) DESC, du.DisplayName ASC", "SUM(CASE WHEN a = 1 THEN 1 ELSE 0 END), du.DisplayName DESC")]
+    [InlineData("COALESCE(a, b), c desc", "COALESCE(a, b) DESC, c")]
+    public void Reverse_turns_every_term(string order, string reversed) => Assert.Equal(reversed, Paging.Reverse(order));
+
+    [Fact]
+    public void A_leading_minus_reverses_a_listed_key_only()
+    {
+        Assert.Equal("ORDER BY x.LastKey DESC, x.DisplayName DESC OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY", new Paging(Q("?s=-idle"), Sorts, "name").OrderAndPage());
+        var bad = new Paging(Q("?s=-du.DisplayName;DROP"), Sorts, "name");
+        Assert.Equal("name", bad.SortKey);
+        Assert.False(bad.Reversed);
+        Assert.False(new Paging(Q("?s=-"), Sorts, "name").Reversed);
+    }
+
+    [Fact]
+    public void A_header_link_sorts_then_reverses_and_starts_at_page_one()
+    {
+        var first = new Paging(Q("?d=90&p=4"), Sorts, "name");
+        Assert.Equal("/licensing/unused?d=90&s=idle", first.SortLink(Q("?d=90&p=4"), "idle"));
+        Assert.Equal("/licensing/unused?d=90&s=-name", first.SortLink(Q("?d=90&p=4"), "name"));
+        var reversed = new Paging(Q("?s=-name"), Sorts, "idle");
+        Assert.Equal("/licensing/unused?s=name", reversed.SortLink(Q("?s=-name"), "name"));
+        Assert.Equal("descending", reversed.AriaSort("name", keyDescends: false));
+        Assert.Equal("ascending", reversed.AriaSort("name", keyDescends: true));
+        Assert.Null(reversed.AriaSort("idle", false));
+    }
+
+    [Fact]
+    public void The_sort_choice_says_when_a_column_or_a_reversal_is_in_force()
+    {
+        var html = new Paging(Q("?s=-name"), Sorts, "idle").Controls(Q("?s=-name"), new Dictionary<string, string> { ["name"] = "Name", ["idle"] = "Idle longest" }).Value!;
+        Assert.Contains("<option value=\"-name\" selected>Name, reversed</option>", html);
+        var column = new Paging(Q("?s=most"), Sorts, "idle").Controls(Q("?s=most"), new Dictionary<string, string> { ["idle"] = "Idle longest" }).Value!;
+        Assert.Contains("<option value=\"most\" selected>By the column chosen</option>", column);
+    }
+
+    [Fact]
+    public void A_full_table_sorts_in_the_page_by_value_and_keeps_its_last_rows()
+    {
+        var t = new Table { Headers = ["Unit", "People", "Last used", ""] , KeepLast = 1 };
+        t.Rows.Add(["Finance", 1200, new DateTime(2026, 9, 3), new Microsoft.AspNetCore.Html.HtmlString("<form><button>Go</button></form>")]);
+        t.Rows.Add(["Legal", 35.5, new DateTime(2026, 9, 3, 14, 5, 0), null]);
+        t.Rows.Add(["Smaller groups", 7, null, null]);
+        var html = t.Render().Value!;
+        Assert.Contains("<table class=\"sortable\">", html);
+        Assert.Contains("<th><button type=\"button\" class=\"sort\">Unit</button></th>", html);
+        Assert.Contains("<th><button type=\"button\" class=\"sort\">Last used</button></th>", html);
+        Assert.Contains("<th></th>", html);                                   // the column of buttons does not sort
+        Assert.Contains("data-v=\"1200\"", html);
+        Assert.Contains("data-v=\"35.5\"", html);
+        Assert.Contains("data-v=\"202609031405\"", html);
+        Assert.Contains("<tr data-keep=\"1\"><td>Smaller groups</td>", html);
+    }
+
+    [Fact]
+    public void A_table_whose_order_is_its_meaning_or_too_short_does_not_sort()
+    {
+        var steps = new Table { Headers = ["Step", "People"], Sortable = false };
+        steps.Rows.Add(["Licensed", 10]); steps.Rows.Add(["Started", 8]); steps.Rows.Add(["Habit", 3]);
+        Assert.DoesNotContain("sort", steps.Render().Value!);
+        var one = new Table { Headers = ["Unit", "People"] };
+        one.Rows.Add(["Finance", 10]);
+        Assert.DoesNotContain("sort", one.Render().Value!);
+    }
+
+    [Fact]
+    public void A_paged_list_sorts_through_its_keys()
+    {
+        var req = Q("?s=idle");
+        var pg = new Paging(req, Sorts, "name");
+        var t = new Table { Headers = ["Name", "Department", "Last used"], Server = new(pg, req, ["name", null, "idle"]) };
+        t.Rows.Add(["A", "Finance", new DateTime(2026, 9, 1)]); t.Rows.Add(["B", "Legal", null]); t.Rows.Add(["C", "HR", null]);
+        var html = t.Render().Value!;
+        Assert.DoesNotContain("class=\"sortable\"", html);
+        Assert.DoesNotContain("data-v", html);
+        Assert.Contains("<th><a class=\"sort\" href=\"/licensing/unused?s=name\">Name</a></th>", html);
+        Assert.Contains("<th>Department</th>", html);
+        Assert.Contains("<th aria-sort=\"ascending\"><a class=\"sort\" href=\"/licensing/unused?s=-idle\">Last used</a></th>", html);
+    }
+}

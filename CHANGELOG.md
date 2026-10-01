@@ -4,6 +4,55 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.5] - 2026-10-01
+
+Every table sorts by its column headers, trend charts keep event names off the data,
+adoption rankings no longer rest on one or two people, and every upload has a mapping
+file to download.
+
+Install over 2.4.4: reinstall the dashboard from its package. Nothing else changes: no
+scripts, no SQL.
+
+### Added
+- **Every report's tables sort by their column headers.** Click a header to sort by it,
+  and again to reverse. Numbers, percentages, money and dates sort by their value, not
+  their text; numbers and dates open largest or latest first, text A to Z. A long list of
+  people, which comes 50 rows at a time, is sorted in the database, so the order covers
+  every page of it and its CSV export, not only the rows on screen. The sort choice beside
+  its search box says when a column or a reversed order is in force. Columns of buttons
+  don't sort, nor do tables whose order is their meaning, such as a funnel's steps or
+  weeks in sequence, and a *Smaller groups* or total row stays at the bottom. The arrow
+  beside each header shows the sort, and screen readers announce it.
+
+- **Download the mapping file** beside every upload. Admin › Value names: every value of
+  every column with its name and note in one CSV (or one column's from its view), in
+  exactly the columns the upload reads. Admin › Training records: every attendance record
+  held, as UPN, session and date. Download, edit, and upload it back; values a download
+  guarded against spreadsheet formulas (a leading `'`) are read back as they were.
+
+### Changed
+- **Adoption rankings rest only on groups with at least the minimum group size of license
+  holders** (5 by default): Adoption › Departments, Leadership › Organization and Board
+  pack, Regions (countries and offices) and People (job families, employee types,
+  managers and individual contributors). A department whose 2 license holders both used
+  Copilot showed as 100% and, with many like it, filled the top of the chart. Those groups
+  are now one combined bar at the end, ties are broken by the number of license holders,
+  and every bar shows its "36 of 40" beside the rate, not only on hover. The Departments
+  table lists such departments after the ranked ones.
+- **Events on trend charts are numbered badges above the chart, with a key below it.** Their
+  names were written inside the plot, over the lines, where they collided with each other
+  and, on half-width charts, piled up over the data. The dashed line stays, lighter; events
+  in the same week share a badge; hovering a badge shows each event and its kind.
+- **Licensing › Overlapping licenses leaves out licenses that cost nothing a user**: the
+  Copilot Studio user license (`VIRTUAL_AGENT_USL`, and its GCC and GCC High forms), viral
+  sign-ups and trials. Removing one saves nothing, so they are no longer listed as
+  overlaps.
+
+### Fixed
+- **Information icons' text is no longer covered by the pointer.** It now opens under the
+  icon instead of following the pointer, and the icon uses the hand pointer rather than
+  the help pointer, whose large question mark sat on top of the text.
+
 ## [2.4.4] - 2026-10-01
 
 The dashboard can be limited to the top levels of the organization, set in the dashboard

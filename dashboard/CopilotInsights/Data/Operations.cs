@@ -192,7 +192,13 @@ public static class CsvUpload
 
     static IEnumerable<(int Line, List<string> Cells)> Rows(string text) =>
         text.Replace("\r\n", "\n").Split('\n').Select((l, i) => (Line: i + 1, Text: l.TrimStart('﻿')))
-            .Where(x => !string.IsNullOrWhiteSpace(x.Text)).Select(x => (x.Line, Split(x.Text)));
+            .Where(x => !string.IsNullOrWhiteSpace(x.Text)).Select(x => (x.Line, Split(x.Text).Select(Unguard).ToList()));
+
+    /// <summary>
+    /// A cell as it was before a download guarded it against spreadsheet formulas ("'=x" back to "=x"), so a
+    /// mapping file downloaded, edited and uploaded again matches the values it came from (2.4.5).
+    /// </summary>
+    public static string Unguard(string cell) => cell.Length > 1 && cell[0] == '\'' &&"=+-@".Contains(cell[1]) ? cell[1..] : cell;
 
     /// <summary>Training attendance: UPN, session, date (yyyy-MM-dd). A header row is skipped.</summary>
     public static (List<(string Upn, string Session, DateTime Date)> Rows, List<string> Errors) Training(string text)

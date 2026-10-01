@@ -185,7 +185,7 @@ The Chat-over-work-content part is an approximation from the audit record: an in
 
 **Every report says who it is for, what it helps with and what to do** (2.4.3), in two short lines under its title: *Helps you* and *Do*, with the section's audience beside them. The longer explanations sit behind **information icons** (ⓘ): beside the title for what the page shows, beside each panel for how its figures are worked out, and beside a KPI for what it counts. Hover over an icon, focus it with the keyboard or tap it for the text; Escape or a second tap closes it. A KPI's short note with a figure in it stays on the card. Printed pages, the board pack included, show every icon's text in place. Admin pages keep their instructions on the page.
 
-**Events** (Admin › Classifications and events) show on every trend as a dashed line with their name: a rollout wave, a training push, an outage, a policy change. Hover for the day and every event on it.
+**Events** (Admin › Classifications and events) show on every trend as a numbered badge above the chart with a light dashed line through it: a rollout wave, a training push, an outage, a policy change. Their days and names are in a key under the chart, so nothing is written over the data (2.4.5). Events in the same week or day share a badge; hover a badge for each event and its kind.
 
 **Every label is shown whole.** Chart margins and label columns size themselves to the longest label, and long names wrap onto more lines rather than being cut short. Hover over any mark for its exact figures.
 
@@ -211,7 +211,9 @@ The named lists are on **Forecasting › Upgrade, train or revoke**, for the Lic
 
 ## Long lists and exports
 
-Every list of people is paged on the server: 50 rows per page, a search box (name, sign-in, department), and a fixed set of sorts. Only one page of rows ever leaves the database, so a list of 40,000 people costs the same to show as a list of 50. **Download CSV** exports every row matching the current search and sort, UTF-8 with a BOM for Excel. Cells that would start a spreadsheet formula are prefixed with `'`, and each export is audit-logged with its row count.
+Every list of people is paged on the server: 50 rows per page, a search box (name, sign-in, department), and a fixed set of sorts. Only one page of rows ever leaves the database, so a list of 40,000 people costs the same to show as a list of 50.
+
+**Every table sorts by its column headers (2.4.5).** Click a header to sort by it, and again to reverse; the arrow beside it shows the order, and screen readers announce it. Numbers, percentages, money and dates sort by value, not text: numbers and dates open largest or latest first, text A to Z. A paged list of people is sorted in the database, so the order covers every page and the CSV export, not just the 50 rows on screen; the sort choice beside its search box says when a column, or a reversed order, is in force. Columns of buttons or small trend charts don't sort, nor do tables whose order is their meaning (a funnel's steps, pipeline steps, rules in priority order, levels, rollout waves), and a total or *Smaller groups* row stays at the bottom. **Download CSV** exports every row matching the current search and sort, UTF-8 with a BOM for Excel. Cells that would start a spreadsheet formula are prefixed with `'`, and each export is audit-logged with its row count.
 
 The pages read two rollups rather than the raw facts:
 

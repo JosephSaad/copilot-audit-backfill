@@ -85,6 +85,12 @@ public sealed class FlagsModel(PageServices s) : InsightsPage(s)
     {
         ["new"] = "f.ActivityHour DESC, f.RecordId", ["old"] = "f.ActivityHour, f.RecordId", ["name"] = "du.DisplayName, f.ActivityHour DESC",
         ["dept"] = "du.Department, f.ActivityHour DESC",
+        ["upn"] = "du.UserPrincipalName, f.ActivityHour DESC, f.RecordId", ["app"] = "a.App, f.ActivityHour DESC, f.RecordId",
+        ["agent"] = "CASE WHEN ag.AgentSource = N'(no agent)' THEN 1 ELSE 0 END, ag.AgentName, f.ActivityHour DESC, f.RecordId",
+        ["signals"] = "f.JailbreakDetected DESC, f.PromptInjectionDetected DESC, f.HasBlockedResource DESC, f.ActivityHour DESC, f.RecordId",
+        ["record"] = "f.RecordId",
+        /* The select list's Owner: fc.Owner, or NULL before the triage table exists. */
+        ["owner"] = "Owner, f.ActivityHour DESC, f.RecordId",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["new"] = "Newest", ["old"] = "Oldest", ["name"] = "Name", ["dept"] = "Department" };
     static readonly Dictionary<string, (string Label, string Sql)> Kinds = new()
@@ -145,6 +151,8 @@ WHERE {Kinds[kind].Sql} AND {(cases ? Triage[triage].Sql : "1 = 1")}
         {
             Headers = ["When (hour)", "Name", "Sign-in", "Department", "App", "Agent", "Signals", "Record id", "Triage", "Owner", "Note"],
             EmptyText = "No flagged interactions in the period.",
+            /* Triage and Note are the inline form. */
+            Server = new(pg, Request, ["new", "name", "upn", "dept", "app", "agent", "signals", "record", null, "owner", null], new HashSet<int> { 0 }),
         };
         foreach (var r in rows)
         {

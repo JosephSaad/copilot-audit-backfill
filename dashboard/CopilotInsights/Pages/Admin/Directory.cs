@@ -66,20 +66,28 @@ public sealed class DirectoryModel(PageServices s) : AdminPage(s)
         Kpis.Add(new("Copilot users not in the directory", Num(notInDir), "in the audit records but not found in AD", notInDir > 0 ? "warn" : null));
 
         var check = Checks.FirstOrDefault(c => c.Key == Request.Query["check"]);
-        var t = new Table { Headers = ["Check", "People", "Share", "Why it matters", ""], Numeric = new HashSet<int> { 1, 2 } };
+        var t = new Table { Headers = ["Check", "People", "Share", "Why it matters", ""], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };
         foreach (var c in Checks)
             t.Rows.Add([c.Label, counts[c.Key], Pct(Ratio(counts[c.Key], people)), c.Why,
                 counts[c.Key] == 0 ? null : PrivacyMode ? "privacy mode: counts only" : new Link(c.Key == check.Key ? "Listed below" : "List them", Request.Path + "?check=" + c.Key)]);
         Panels.Add(new("Checks", t.Render(), "From the nightly directory load (audit.UserDirectory) and the org chart built from it (dash.Person)."));
         if (check.Key is null || PrivacyMode) return;
 
-        var pg = new Paging(Request, new Dictionary<string, string> { ["name"] = "p.DisplayName", ["dept"] = "p.Department, p.DisplayName" }, "name");
+        var pg = new Paging(Request, new Dictionary<string, string>
+        {
+            ["name"] = "p.DisplayName", ["dept"] = "p.Department, p.DisplayName", ["upn"] = "p.Upn", ["title"] = "ud.JobTitle, p.DisplayName, p.Upn",
+            ["manager"] = "p.ManagerUpn, p.DisplayName, p.Upn", ["reports"] = "p.DirectReports DESC, p.DisplayName, p.Upn",
+        }, "name");
         var rows = await Db.QueryAsync<Row>($@"
 SELECT p.Upn, p.DisplayName, p.Department, p.ManagerUpn, ud.JobTitle, p.DirectReports, COUNT(*) OVER () AS TotalRows
 {From} WHERE {check.Where} AND (@q IS NULL OR p.DisplayName LIKE @q OR p.Upn LIKE @q OR p.Department LIKE @q)
 {pg.OrderAndPage()};", new { top, q = pg.Like });
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-        var lt = new Table { Headers = ["Name", "Sign-in", "Department", "Job title", "Manager (UPN in AD)", "Direct reports"], Numeric = new HashSet<int> { 5 } };
+        var lt = new Table
+        {
+            Headers = ["Name", "Sign-in", "Department", "Job title", "Manager (UPN in AD)", "Direct reports"], Numeric = new HashSet<int> { 5 },
+            Server = new(pg, Request, ["name", "upn", "dept", "title", "manager", "reports"], new HashSet<int> { 5 }),
+        };
         foreach (var r in rows) lt.Rows.Add([r.DisplayName, r.Upn, r.Department, r.JobTitle, r.ManagerUpn, r.DirectReports]);
         CsvTable = lt;
         Panels.Add(new(check.Label, new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["name"] = "Name", ["dept"] = "Department" }).Value + lt.Render().Value),
@@ -102,7 +110,7 @@ public sealed class ClassificationsModel(PageServices s) : AdminPage(s)
     {
         ShowDone();
         var families = await Db.QueryAsync<(int RuleId, string Pattern, string Family, int Priority, string UpdatedBy)>("SELECT RuleId, Pattern, Family, Priority, UpdatedBy FROM dash.JobFamilyRule ORDER BY Priority, RuleId;");
-        var ft = new Table { Headers = ["Priority", "Job title like", "Family", "Set by", ""], Numeric = new HashSet<int> { 0 }, EmptyText = "No rules: everyone is \"(no family)\"." };
+        var ft = new Table { Headers = ["Priority", "Job title like", "Family", "Set by", ""], Numeric = new HashSet<int> { 0 }, EmptyText = "No rules: everyone is \"(no family)\".", Sortable = false };
         foreach (var f in families)
             ft.Rows.Add([f.Priority, f.Pattern, f.Family, f.UpdatedBy, new HtmlString(Form("delfamily", Hidden("id", f.RuleId) + Button("Remove", quiet: true)))]);
         var min = await S.Settings.IntAsync("MinGroupSize", 5);
@@ -120,7 +128,7 @@ GROUP BY du.JobTitle HAVING COUNT(*) >= @min ORDER BY COUNT(*) DESC;", new { min
         var cases = await Db.QueryAsync<(int RuleId, string AppPattern, bool? WebGrounded, bool? WithAgent, string UseCase, int Priority)>(
             "SELECT RuleId, AppPattern, WebGrounded, WithAgent, UseCase, Priority FROM dash.UseCaseRule ORDER BY Priority, RuleId;");
         static string T(bool? b) => b is null ? "Either" : b.Value ? "Yes" : "No";
-        var ct = new Table { Headers = ["Priority", "App like", "Searched the web", "With an agent", "Use case", ""], Numeric = new HashSet<int> { 0 } };
+        var ct = new Table { Headers = ["Priority", "App like", "Searched the web", "With an agent", "Use case", ""], Numeric = new HashSet<int> { 0 }, Sortable = false };
         foreach (var c in cases)
             ct.Rows.Add([c.Priority, c.AppPattern, T(c.WebGrounded), T(c.WithAgent), c.UseCase, new HtmlString(Form("delcase", Hidden("id", c.RuleId) + Button("Remove", quiet: true)))]);
         var apps = await Db.QueryAsync<string>("SELECT App FROM bi.DimApp ORDER BY App;");

@@ -55,7 +55,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
             tb.Rows.Add(r.T is null
                 ? [r.Tenant, null, null, null, null, null, new HtmlString($"<span class=\"muted\">{E(r.Why)}</span>")]
                 : [new Link(r.Tenant, $"?tenant={Uri.EscapeDataString(r.Tenant)}"), r.T.People, r.T.LicensedNow, r.T.Active, Pct(Ratio(r.T.ActiveLicensed, r.T.LicensedNow)), r.T.Interactions, r.T.ActiveLast7]);
-        if (shown.Count > 1) tb.Rows.Add(["Group", people, licensed, active, Pct(Ratio(activeLic, licensed)), shown.Sum(r => r.T.Interactions), shown.Sum(r => r.T.ActiveLast7)]);
+        if (shown.Count > 1) { tb.Rows.Add(["Group", people, licensed, active, Pct(Ratio(activeLic, licensed)), shown.Sum(r => r.T.Interactions), shown.Sum(r => r.T.ActiveLast7)]); tb.KeepLast = 1; }
         CsvTable = tb;
         Panels.Add(new("Every tenant", tb.Render(), "Each tenant's figures come from its own database, for its own last complete day.", "full", CsvUrl()));
     }

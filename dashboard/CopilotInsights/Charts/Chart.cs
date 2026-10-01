@@ -10,7 +10,8 @@ public enum Fmt { Count, Percent, Decimal1, Days }
 /// <summary>One series. Slot is the categorical color (1-8, fixed per entity, never by rank).</summary>
 public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot);
 
-public sealed record Bar(string Label, double? Value, string? Href = null, string? Note = null, int Slot = 1);
+/// <summary>A bar: Note goes in its tooltip; Shown is printed beside its value (2.4.5), such as "2 of 2" under a rate.</summary>
+public sealed record Bar(string Label, double? Value, string? Href = null, string? Note = null, int Slot = 1, string? Shown = null);
 
 /// <summary>
 /// A chart that can draw itself again at another width. Drawn at 720 units by default; a page
@@ -22,10 +23,13 @@ public sealed class ChartSvg(string value, Func<string> draw) : HtmlString(value
     public string Render(int width) => Chart.At(width, draw);
 }
 
-/// <summary>An event on a trend: a rollout wave, a training push, an outage (dash.EventMarker), at the point it falls in.</summary>
-public sealed record Marker(int Index, string Label, string Kind);
+/// <summary>An event on a trend: a rollout wave, a training push, an outage (dash.EventMarker), at the point it falls in, and its day.</summary>
+public sealed record Marker(int Index, string Label, string Kind, DateTime? Day = null);
 
-/// <summary>A trend's labels, with the events that fall in it. Line and Columns draw the events as dashed rules.</summary>
+/// <summary>
+/// A trend's labels, with the events that fall in it. Line and Columns draw each event as a numbered badge above
+/// the plot and a dashed rule through it, with a key under the chart: nothing is written over the data (2.4.5).
+/// </summary>
 public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
 {
     public List<Marker> Markers { get; } = [];
@@ -40,7 +44,7 @@ public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
 public static class Chart
 {
     static readonly CultureInfo Ci = CultureInfo.InvariantCulture;
-    const int L = 52, T = 14;
+    const int L = 52;
     [ThreadStatic] static int _w;
     /// <summary>The drawing width in viewBox units: 720, or the panel's (see ChartSvg).</summary>
     static int W => _w == 0 ? 720 : _w;
@@ -66,15 +70,17 @@ public static class Chart
         the labels it draws, so every label is shown whole: nothing on a page is cut short with "…".
         Charts render synchronously, so a thread's layout belongs to the chart being drawn.
     */
-    [ThreadStatic] static int _r, _b, _h;
+    [ThreadStatic] static int _r, _b, _h, _t;
     static int R => _r == 0 ? 110 : _r;
+    /// <summary>The top margin: 14, or 34 with a strip for event badges above the plot.</summary>
+    static int T => _t == 0 ? 14 : _t;
     static int B => _b == 0 ? 30 : _b;
     static int H => _h == 0 ? 250 : _h;
 
     sealed class Layout : IDisposable
     {
-        public Layout(int r = 110, int b = 30) { _r = r; _b = b; _h = 220 + b; }
-        public void Dispose() { _r = 0; _b = 0; _h = 0; }
+        public Layout(int r = 110, int b = 30, int t = 14) { _r = r; _b = b; _t = t; _h = 220 + b + (t - 14); }
+        public void Dispose() { _r = 0; _b = 0; _h = 0; _t = 0; }
     }
 
     /// <summary>Approximate width of a label at 11-12px, in viewBox units.</summary>
@@ -171,28 +177,62 @@ public static class Chart
             sb.Append($"<text class=\"tick\" x=\"{N(xpos(i))}\" y=\"{H - B + 20}\" text-anchor=\"middle\">{Tspans(lines.Take(4).ToList(), xpos(i))}</text>");
     }
 
-    /// <summary>The events on the axis, as dashed rules with a short label and a tooltip.</summary>
-    static void Markers(StringBuilder sb, IReadOnlyList<string> x, Func<int, double> xpos)
+    /// <summary>The top margin a trend needs: room for the event badges when it has any.</summary>
+    static int TopFor(IReadOnlyList<string> x) => x is Axis a && a.Markers.Any(m => m.Index >= 0 && m.Index < x.Count) ? 34 : 14;
+
+    /// <summary>
+    /// The events on the axis (2.4.5): a numbered badge each in the strip above the plot, a light dashed rule
+    /// through the plot where it falls, and the key under the chart, which this returns. Events at one point
+    /// share a badge; badges too close to tell apart step to the right, joined to their rule by a short line.
+    /// </summary>
+    static string Markers(StringBuilder sb, IReadOnlyList<string> x, Func<int, double> xpos)
     {
-        if (x is not Axis a || a.Markers.Count == 0) return;
-        var rows = new List<double>();   // the right end of the last label on each row
-        foreach (var g in a.Markers.Where(m => m.Index >= 0 && m.Index < x.Count).GroupBy(m => m.Index))
+        if (x is not Axis a) return "";
+        var groups = a.Markers.Where(m => m.Index >= 0 && m.Index < x.Count).GroupBy(m => m.Index).OrderBy(g => g.Key).ToList();
+        if (groups.Count == 0) return "";
+        var key = new StringBuilder("<ol class=\"mkey\">");
+        var last = double.MinValue;
+        var by = T - 15;
+        for (var n = 0; n < groups.Count; n++)
         {
+            var g = groups[n];
             var xx = xpos(g.Key);
-            var tip = x[g.Key] + ": " + string.Join("; ", g.Select(m => $"{m.Label} ({m.Kind.ToLowerInvariant()})"));
-            var more = g.Count() > 1 ? $" +{g.Count() - 1}" : "";
-            var label = g.First().Label + more;
-            var width = label.Length * 5.5;
-            /* Whole names: near the right edge the label sits left of its rule. */
-            var left = xx + 3 + width > W - R - 2;   // inside the plot, clear of the line-end labels
-            var x0 = left ? xx - 3 - width : xx + 3;
-            var row = rows.FindIndex(end => end < x0);
-            if (row < 0) { rows.Add(0); row = rows.Count - 1; }
-            rows[row] = x0 + width + 6;
+            var bx = Math.Min(Math.Max(xx, last + 19), W - 10);
+            last = bx;
+            string Day(Marker m) => m.Day?.ToString("d MMM", Ci) ?? x[g.Key];
+            var tip = string.Join("; ", g.Select(m => $"{Day(m)}: {m.Label} ({m.Kind.ToLowerInvariant()})"));
             sb.Append($"<line class=\"marker\" x1=\"{N(xx)}\" x2=\"{N(xx)}\" y1=\"{T}\" y2=\"{H - B}\"/>");
+            if (Math.Abs(bx - xx) > 0.5) sb.Append($"<line class=\"mjoin\" x1=\"{N(bx)}\" y1=\"{by + 8}\" x2=\"{N(xx)}\" y2=\"{T}\"/>");
             sb.Append($"<rect class=\"mhit\" x=\"{N(xx - 4)}\" y=\"{T}\" width=\"8\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\"/>");
-            sb.Append($"<text class=\"mlabel\" x=\"{N(left ? xx - 3 : xx + 3)}\" y=\"{T + 9 + row * 13}\"{(left ? " text-anchor=\"end\"" : "")} data-tip=\"{E(tip)}\">{E(label)}<title>{E(tip)}</title></text>");
+            sb.Append($"<g class=\"mbadge\" data-tip=\"{E(tip)}\"><title>{E(tip)}</title><circle cx=\"{N(bx)}\" cy=\"{by}\" r=\"8\"/>" +
+                      $"<text x=\"{N(bx)}\" y=\"{by + 3.5}\" text-anchor=\"middle\">{n + 1}</text></g>");
+            key.Append($"<li><span class=\"k\">{n + 1}</span>{E(string.Join(" · ", g.Select(m => $"{Day(m)} {m.Label}")))}</li>");
         }
+        return key.Append("</ol>").ToString();
+    }
+
+    /// <summary>One group in an adoption ranking: licensed people who used Copilot, of those licensed.</summary>
+    public sealed record AdoptionGroup(string Name, int Active, int Licensed, string? Href = null, string? Note = null);
+
+    /// <summary>
+    /// Adoption ranked across groups (2.4.5): only groups with at least <paramref name="min"/> license holders are
+    /// ranked, highest first and, at the same rate, the larger first; the rest are one bar at the end, so no bar
+    /// rests on one or two people. Each bar shows its "a of b" beside the rate.
+    /// </summary>
+    public static HtmlString Adoption(IEnumerable<AdoptionGroup> groups, int min, string aria, int take = 20)
+    {
+        var list = groups.Where(g => g.Licensed > 0).ToList();
+        var bars = list.Where(g => g.Licensed >= min)
+            .OrderByDescending(g => g.Active / (double)g.Licensed).ThenByDescending(g => g.Licensed).Take(take)
+            .Select(g => new Bar(g.Name, g.Active / (double)g.Licensed, g.Href, g.Note ?? $"{g.Active:#,0} of {g.Licensed:#,0} licensed", Shown: $"{g.Active:#,0} of {g.Licensed:#,0}"))
+            .ToList();
+        var few = list.Where(g => g.Licensed < min).ToList();
+        if (few.Count > 0)
+        {
+            int a = few.Sum(g => g.Active), l = few.Sum(g => g.Licensed);
+            bars.Add(new Bar($"{few.Count:#,0} with fewer than {min} license holders, combined", a / (double)l, Note: $"{a:#,0} of {l:#,0} licensed, across {few.Count:#,0}", Slot: 2, Shown: $"{a:#,0} of {l:#,0}"));
+        }
+        return Bars(bars, Fmt.Percent, aria, 1);
     }
 
     public static HtmlString Legend(IEnumerable<Series> series) =>
@@ -210,7 +250,7 @@ public static class Chart
         var (top, step) = Nice(top0, f);
         var endLabel = series.Count > 4 ? 0 : series.Select(s => TextW(s.Name + " " + Format(s.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
         var r = (int)Math.Clamp(endLabel + 16, 110, Math.Max(110, W * 0.42));
-        using var layout = new Layout(r, BottomFor(x, W - r - L));
+        using var layout = new Layout(r, BottomFor(x, W - r - L), TopFor(x));
         double X(int i) => x.Count == 1 ? (L + W - R) / 2.0 : L + i * (W - R - L) / (double)(x.Count - 1);
         double Y(double v) => T + (H - T - B) * (1 - v / top);
         var sb = new StringBuilder($"<svg class=\"chart\" viewBox=\"0 0 {W} {H}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
@@ -240,9 +280,9 @@ public static class Chart
             var w = x.Count == 1 ? 60 : (W - R - L) / (double)(x.Count - 1);
             sb.Append($"<rect class=\"hit\" x=\"{N(X(i) - w / 2)}\" y=\"{T}\" width=\"{N(w)}\" height=\"{H - T - B}\" data-tip=\"{E(tip)}\" data-x=\"{N(X(i))}\"/>");
         }
-        Markers(sb, x, X);
+        var events = Markers(sb, x, X);
         sb.Append($"<line class=\"cross\" x1=\"0\" x2=\"0\" y1=\"{T}\" y2=\"{H - B}\"/></svg>");
-        return new((series.Count >= 2 ? Legend(series).Value : "") + sb);
+        return new((series.Count >= 2 ? Legend(series).Value : "") + sb + events);
     }
 
     /// <summary>
@@ -319,7 +359,7 @@ public static class Chart
             ? series.Sum(s => s.Values.ElementAtOrDefault(i) ?? 0)
             : series.Max(s => s.Values.ElementAtOrDefault(i) ?? 0)).ToList();
         var (top, step) = Nice(totals.DefaultIfEmpty(0).Max(), f);
-        using var layout = new Layout(110, BottomFor(x, (W - 110 + 40 - L) / (double)x.Count * Math.Max(1, x.Count - 1)));
+        using var layout = new Layout(110, BottomFor(x, (W - 110 + 40 - L) / (double)x.Count * Math.Max(1, x.Count - 1)), TopFor(x));
         var band = (W - R + 40 - L) / (double)x.Count;
         var bw = Math.Max(3, band * 0.72);
         double X0(int i) => L + i * band + (band - bw) / 2;
@@ -345,9 +385,9 @@ public static class Chart
                 acc += v;
             }
         }
-        Markers(sb, x, i => X0(i) + bw / 2);
+        var events = Markers(sb, x, i => X0(i) + bw / 2);
         sb.Append("</svg>");
-        return new((series.Count >= 2 ? Legend(series).Value : "") + sb);
+        return new((series.Count >= 2 ? Legend(series).Value : "") + sb + events);
     }
 
     /// <summary>A rectangle with its data end (the top) rounded 4px, anchored square at the baseline.</summary>
@@ -372,7 +412,8 @@ public static class Chart
         var low = Math.Min(0, bars.Min(b => b.Value ?? 0));   // a change can be negative: bars grow left from zero
         if (top <= 0 && low >= 0) top = 1;
         top = Math.Max(0, top);
-        const int valueW = 70;
+        /* The value column fits the widest value and what is shown beside it. */
+        var valueW = (int)Math.Clamp(bars.Max(b => TextW(Format(b.Value, f) + (b.Shown is null ? "" : "  " + b.Shown))) + 12, 70, 200);
         var BW = W;
         /* The label column fits the longest name up to 300; longer names wrap onto a second line. */
         var labelW = (int)Math.Clamp(bars.Max(b => b.Label.Length * 6.9) + 18, Math.Min(190, BW * 0.3), BW * 0.42);
@@ -409,9 +450,10 @@ public static class Chart
                     : $"M{N(zero)},{y} H{N(zero - w + r)} Q{N(zero - w)},{y} {N(zero - w)},{N(y + r)} V{N(y + bh - r)} Q{N(zero - w)},{N(y + bh)} {N(zero - w + r)},{N(y + bh)} H{N(zero)} Z";
                 sb.Append($"<path class=\"mark\" d=\"{d}\" style=\"fill:var(--s{b.Slot})\" data-tip=\"{tip}\"/>");
             }
+            var shown = b.Shown is null ? "" : $"<tspan class=\"bshown\">  {E(b.Shown)}</tspan>";
             sb.Append(v >= 0
-                ? $"<text class=\"bvalue\" x=\"{N(zero + w + 6)}\" y=\"{y + 15}\">{E(Format(b.Value, f))}</text>"
-                : $"<text class=\"bvalue\" x=\"{N(zero - w - 6)}\" y=\"{y + 15}\" text-anchor=\"end\">{E(Format(b.Value, f))}</text>");
+                ? $"<text class=\"bvalue\" x=\"{N(zero + w + 6)}\" y=\"{y + 15}\">{E(Format(b.Value, f))}{shown}</text>"
+                : $"<text class=\"bvalue\" x=\"{N(zero - w - 6)}\" y=\"{y + 15}\" text-anchor=\"end\">{E(Format(b.Value, f))}{shown}</text>");
         }
         sb.Append("</svg>");
         return new(sb.ToString());
@@ -487,7 +529,8 @@ public static class Chart
     /// </summary>
     static double Place(List<double> used, double want)
     {
-        const double gap = 14, lo = T + 10;
+        const double gap = 14;
+        double lo = T + 10;
         double hi = H - B - 2;   // above the axis labels
         want = Math.Clamp(want, lo, hi);
         for (var step = 0; step < 30; step++)

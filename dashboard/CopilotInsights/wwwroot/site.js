@@ -27,7 +27,9 @@
         } else { cross.style.visibility = 'hidden'; }
       }
     }
-    if (t) show(e, t.getAttribute('data-tip')); else tip.hidden = true;
+    // An information icon's text sits under the icon, not under the pointer (2.4.5).
+    if (t && t.classList.contains('infob')) { if (tip.hidden || tip.textContent !== t.getAttribute('data-tip')) showAt(t); }
+    else if (t) show(e, t.getAttribute('data-tip')); else tip.hidden = true;
   });
   document.addEventListener('mouseleave', function () { tip.hidden = true; });
 
@@ -71,6 +73,53 @@
   document.querySelectorAll('form[data-confirm]').forEach(function (f) {
     f.addEventListener('submit', function (e) { if (!window.confirm(f.getAttribute('data-confirm'))) e.preventDefault(); });
   });
+  // Column headers sort a table in the page (2.4.5): by each cell's data-v when it has one (numbers,
+  // dates), else by a number at the start of its text ("45%", "$1,200"), else by its text. Numbers and
+  // dates open largest or latest first, text A to Z; a second click reverses. Rows marked data-keep stay last.
+  function key(td) {
+    if (!td) return { n: null, t: '' };
+    var v = td.getAttribute('data-v');
+    if (v !== null && v !== '') return { n: parseFloat(v), t: v };
+    var t = td.textContent.trim();
+    // A leading arrow carries the sign of a change ("▼ 12%" is -12); so does a minus, plain or typographic.
+    var m = /^([▲▼↑↓]?)\s*([-+−]?)\s*[$€£]?\s?(\d[\d,]*(\.\d+)?)/.exec(t);
+    var n = m ? parseFloat(m[3].replace(/,/g, '')) : null;
+    if (m && (m[1] === '▼' || m[1] === '↓' || m[2] === '-' || m[2] === '−')) n = -n;
+    return { n: n, t: t.toLowerCase() };
+  }
+  document.querySelectorAll('table.sortable').forEach(function (table) {
+    var heads = table.tHead.rows[0].cells;
+    Array.prototype.forEach.call(heads, function (th, col) {
+      var b = th.querySelector('button.sort');
+      if (!b) return;
+      b.addEventListener('click', function () {
+        var body = table.tBodies[0];
+        var rows = Array.prototype.slice.call(body.rows);
+        var keep = rows.filter(function (r) { return r.hasAttribute('data-keep'); });
+        rows = rows.filter(function (r) { return !r.hasAttribute('data-keep'); });
+        var keys = rows.map(function (r) { return key(r.cells[col]); });
+        var filled = keys.filter(function (k) { return k.t !== '' && k.t !== '—'; });
+        var numeric = filled.length > 0 && filled.every(function (k) { return k.n !== null && !isNaN(k.n); });
+        var was = th.getAttribute('aria-sort');
+        var desc = was ? was === 'ascending' : numeric;
+        var order = rows.map(function (r, i) { return { r: r, k: keys[i], i: i }; });
+        order.sort(function (a, b) {
+          var x, y, c;
+          if (numeric) {
+            x = isNaN(a.k.n) || a.k.n === null ? -Infinity : a.k.n;
+            y = isNaN(b.k.n) || b.k.n === null ? -Infinity : b.k.n;
+            c = x < y ? -1 : x > y ? 1 : 0;
+          } else c = a.k.t.localeCompare(b.k.t, undefined, { numeric: true, sensitivity: 'base' });
+          return (desc ? -c : c) || a.i - b.i;
+        });
+        order.forEach(function (o) { body.appendChild(o.r); });
+        keep.forEach(function (r) { body.appendChild(r); });
+        Array.prototype.forEach.call(heads, function (h) { h.removeAttribute('aria-sort'); });
+        th.setAttribute('aria-sort', desc ? 'descending' : 'ascending');
+      });
+    });
+  });
+
   // The admin forms put the question on the button.
   document.querySelectorAll('button[data-confirm]').forEach(function (b) {
     b.addEventListener('click', function (e) { if (!window.confirm(b.getAttribute('data-confirm'))) e.preventDefault(); });

@@ -96,7 +96,7 @@ M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 
 The audit log records many things as codes. Give them names once and the dashboard's pages and Power BI (`bi.ValueNames`) show the names.
 
-**Any cataloged code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top), or **Download** the column as a CSV, fill in the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
+**Any cataloged code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top). Or work in a spreadsheet: **Download the mapping file** (every value of every column, with its name and note, in one CSV; or one column's from that column's view), fill in or change the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
 
 ```powershell
 M -Task ListValues                                  # the columns, and how many values each has
@@ -143,7 +143,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 **Time saved.** Admin › Targets and assumptions › *Time saved*: the default minutes one interaction saves, what an hour is worth, and the minutes per app. Leadership › Value and time saved and the Value digest follow them.
 
-**Training attendance.** Admin › Training records: upload a CSV of UPN, session and date (`yyyy-MM-dd`; a template is on the page). Lines already there are skipped and bad lines listed. Remove a session with its *Remove* button. Enablement › Training effect shows each session four weeks after it.
+**Training attendance.** Admin › Training records: upload a CSV of UPN, session and date (`yyyy-MM-dd`). **Download the mapping file** for every record held, in the same columns, to add to and upload back, or an empty template. Lines already there are skipped and bad lines listed. Remove a session with its *Remove* button. Enablement › Training effect shows each session four weeks after it.
 
 **Champions.** How many to suggest per department: Admin › Targets and assumptions › *Licensing and champions*. The list is Enablement › Champions, for the Enablement role.
 
@@ -233,10 +233,10 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size |
 | Admin › Privacy and retention | Privacy mode, retention of logs and JSON, the data API |
 | Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories |
-| Admin › Value names | Names for every cataloged code, one by one or by CSV |
+| Admin › Value names | Names for every cataloged code, one by one or by CSV, with the mapping file to download |
 | Admin › Classifications and events | Job-family rules, use-case rules, and the events marked on trend charts |
 | Admin › Scheduled extracts | Aggregate CSV files written to a folder or share on a schedule |
-| Admin › Training records | Training attendance, by CSV |
+| Admin › Training records | Training attendance, by CSV, with the mapping file to download |
 | Admin › Audit log | Every view, refusal, export, API call and admin change |
 
 | `-Task` of `Invoke-CopilotMaintenance.ps1` | What it does |

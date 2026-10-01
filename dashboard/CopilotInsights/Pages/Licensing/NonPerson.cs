@@ -38,6 +38,7 @@ public sealed class NonPersonModel(PageServices s) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["name"] = "x.DisplayName, x.UserPrincipalName", ["since"] = "x.LicensedSinceUtc, x.DisplayName", ["idle"] = "x.LastKey, x.DisplayName",
+        ["upn"] = "x.UserPrincipalName", ["dept"] = "x.Department, x.DisplayName", ["type"] = "x.EmployeeType, x.DisplayName",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["name"] = "Name", ["since"] = "Licensed longest", ["idle"] = "Idle longest" };
 
@@ -103,6 +104,8 @@ SELECT ISNULL(x.EmployeeType, N'(not set)'), COUNT(*) FROM x GROUP BY x.Employee
         {
             Headers = ["Name", "Sign-in", "Department", "Employee type", "Why", "Licensed since", "Last used"],
             EmptyText = type is null ? "No license on an account like these." : $"No license holder has employee type {type}.",
+            /* Last used: Idle longest, the oldest first. Why is a list of reasons: no sort. */
+            Server = new(pg, Request, ["name", "upn", "dept", "type", null, "since", "idle"]),
         };
         foreach (var r in rows)
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.EmployeeType,

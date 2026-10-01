@@ -245,3 +245,37 @@ public class PrivacyNavigationTests
 
     }
 }
+
+/// <summary>A mapping file downloaded, edited and uploaded again lands on the values it came from (2.4.5).</summary>
+public class MappingFileTests
+{
+    [Fact]
+    public void Value_names_survive_the_round_trip_through_a_download()
+    {
+        var t = new CopilotInsights.Pages.Table { Headers = ["ColumnId", "Value", "Name", "Note"] };
+        t.Rows.Add([6, "-agent:7", "Travel helper", "from the CoE"]);
+        t.Rows.Add([11, "@label", "Confidential", null]);
+        t.Rows.Add([3, "Word, desktop", "Word", null]);
+        var (rows, errors) = CopilotInsights.Data.CsvUpload.ValueNames(t.ToCsv());
+        Assert.Empty(errors);
+        Assert.Equal([("-agent:7", "Travel helper"), ("@label", "Confidential"), ("Word, desktop", "Word")], rows.Select(r => (r.Value, r.Name)));
+        Assert.Equal((short)6, rows[0].ColumnId);
+    }
+
+    [Fact]
+    public void Training_records_survive_the_round_trip_through_a_download()
+    {
+        var t = new CopilotInsights.Pages.Table { Headers = ["UPN", "Session", "Date"] };
+        t.Rows.Add(["ada@contoso.com", "=Copilot in Excel", "2026-09-30"]);
+        var (rows, errors) = CopilotInsights.Data.CsvUpload.Training(t.ToCsv());
+        Assert.Empty(errors);
+        Assert.Equal(("ada@contoso.com", "=Copilot in Excel", new DateTime(2026, 9, 30)), Assert.Single(rows));
+    }
+
+    [Theory]
+    [InlineData("'=SUM(A1)", "=SUM(A1)")]
+    [InlineData("'-3", "-3")]
+    [InlineData("'quoted", "'quoted")]
+    [InlineData("'", "'")]
+    public void Unguard_removes_only_the_formula_guard(string cell, string expected) => Assert.Equal(expected, CopilotInsights.Data.CsvUpload.Unguard(cell));
+}

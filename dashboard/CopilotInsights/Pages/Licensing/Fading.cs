@@ -24,6 +24,9 @@ public sealed class FadingModel(PageServices s) : InsightsPage(s)
     {
         ["drop"] = "x.RD * 1.0 / x.PD, x.DisplayName", ["name"] = "x.DisplayName, x.UserPrincipalName",
         ["dept"] = "x.Department, x.DisplayName", ["manager"] = "x.ManagerName, x.DisplayName",
+        ["upn"] = "x.UserPrincipalName", ["before"] = "x.PD DESC, x.DisplayName, x.UserPrincipalName", ["days"] = "x.RD DESC, x.DisplayName, x.UserPrincipalName",
+        ["ibefore"] = "x.PI DESC, x.DisplayName, x.UserPrincipalName", ["use"] = "x.RI DESC, x.DisplayName, x.UserPrincipalName",
+        ["premium"] = "x.RP DESC, x.DisplayName, x.UserPrincipalName", ["recent"] = "x.LastUsed DESC, x.DisplayName, x.UserPrincipalName",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["drop"] = "Largest fall", ["name"] = "Name", ["dept"] = "Department", ["manager"] = "Manager" };
 
@@ -85,6 +88,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
                        "Interactions a month before", "Interactions, last 30", "Days with Premium use, last 30", "Last used"],
             Numeric = new HashSet<int> { 4, 5, 6, 7, 8, 9 },
             EmptyText = "Nobody's use is falling away.",
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "before", "days", "drop", "ibefore", "use", "premium", "recent"], new HashSet<int> { 4, 5, 7, 8, 9, 10 }),
         };
         foreach (var r in rows)
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, Math.Round(r.PD / 2.0, 1), r.RD,

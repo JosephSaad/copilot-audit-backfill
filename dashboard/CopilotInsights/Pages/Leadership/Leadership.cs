@@ -37,10 +37,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
         var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
         Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption by organization",
-            Chart.Bars(units.OrderByDescending(u => Ratio(u.ActiveLicensed, u.Licensed) ?? -1)
-                .Select(u => new Bar(u.Name, Ratio(u.ActiveLicensed, u.Licensed), u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
-                    $"{u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by unit", 1),
-            "Licensed people active in the period, per unit one level down. Select a name to look inside." +
+            Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null)),
+                Ctx.MinGroupSize, "Adoption by unit", 40),
+            $"Licensed people active in the period, per unit one level down, for units with at least {Ctx.MinGroupSize} license holders; the rest are combined in the last bar. Select a name to look inside." +
             (folded > 0 ? $" {folded} unit(s) under {Ctx.MinGroupSize} people are combined." : "")));
     }
 }
@@ -73,6 +72,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
                 u.Unit == "~small" ? null : Chart.Sparkline(series, $"{u.Name}: active people"),
             ]);
         }
+        t.KeepLast = folded > 0 ? 1 : 0;
         Panels.Add(new("Units", t.Render(),
             folded > 0 ? $"{folded} unit(s) with fewer than {Ctx.MinGroupSize} people are combined as Smaller groups, so no total describes one person." : null));
 
