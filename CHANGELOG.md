@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.4] - Unreleased
+
+Install over 2.4.3: reinstall the dashboard from its package. Nothing else changes.
+
+### Fixed
+- **Admin › Health moves to `/admin/health`.** It was the only page at the bare
+  `/admin`, an address web servers commonly block with a server-wide rule (URL Rewrite
+  or Request Filtering matching `^.*/admin/?$`). There it answered IIS's *404.0 - Not
+  Found* from *IIS Web Core* while every other Admin page, all below `/admin/…`, worked.
+  The menu and the links in the pipeline, stale-data and certificate alerts point at
+  the new address, and `/admin` redirects to it where nothing blocks it, so bookmarks
+  and earlier alerts still arrive.
+
 ## [2.4.3] - 2026-09-30
 
 Eight new pages that each end in an action that saves money, every report saying who

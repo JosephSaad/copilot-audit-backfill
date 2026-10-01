@@ -54,7 +54,7 @@ public static class Nav
         new("Governance", "AI governance and architecture", [
             new("Models and grounding", "/governance"), new("Controls", "/governance/controls")]),
         new("Admin", "Dashboard administrators", [
-            new("Health", "/admin", Admin: true), new("Access", "/admin/access", Admin: true), new("Directory quality", "/admin/directory", Admin: true),
+            new("Health", "/admin/health", Admin: true), new("Access", "/admin/access", Admin: true), new("Directory quality", "/admin/directory", Admin: true),
             new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),
             new("Targets and assumptions", "/admin/assumptions", Admin: true), new("Privacy and retention", "/admin/privacy", Admin: true),
             new("Reference data", "/admin/reference", Admin: true), new("Value names", "/admin/values", Admin: true),

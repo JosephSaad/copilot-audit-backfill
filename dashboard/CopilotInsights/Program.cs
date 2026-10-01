@@ -60,6 +60,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.Use((ctx, next) => TenantAccessor.SelectAsync(ctx, () => next()));
 app.MapRazorPages();
+/* Health moved from /admin, which servers often block, to /admin/health; old links still arrive. */
+app.MapGet("/admin", () => Results.Redirect("/admin/health"));
 app.MapDataApi();
 
 app.Run();

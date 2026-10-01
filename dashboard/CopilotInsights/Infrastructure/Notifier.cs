@@ -128,12 +128,12 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             foreach (var r in runs.Where(r => r.RunId > seen && r.Status == "Failed").OrderBy(r => r.RunId))
                 await AlertAsync("Pipeline", "AlertAdminTo", $"Copilot pipeline failed: {r.FailedStep}",
                     [$"The {r.Kind.ToLowerInvariant()} run that started {r.StartedUtc:yyyy-MM-dd HH:mm} UTC on {r.Host} stopped at \"{r.FailedStep}\". The next run resumes it; to resume now, run Invoke-CopilotPipeline.ps1 on the job server.",
-                     r.Detail is null ? "" : "Its last lines:\n" + r.Detail], "/admin");
+                     r.Detail is null ? "" : "Its last lines:\n" + r.Detail], "/admin/health");
             var stuck = runs.FirstOrDefault(r => r.Status == "Running" && r.StartedUtc < DateTime.UtcNow.AddHours(-12));
             if (stuck is not null && await StateAsync("pipeline-stuck") != stuck.RunId.ToString(CultureInfo.InvariantCulture))
             {
                 await AlertAsync("Pipeline", "AlertAdminTo", "Copilot pipeline has not finished in 12 hours",
-                    [$"The {stuck.Kind.ToLowerInvariant()} run that started {stuck.StartedUtc:yyyy-MM-dd HH:mm} UTC on {stuck.Host} is still marked as running. A reboot or a killed task leaves it like this; check the log on the job server."], "/admin");
+                    [$"The {stuck.Kind.ToLowerInvariant()} run that started {stuck.StartedUtc:yyyy-MM-dd HH:mm} UTC on {stuck.Host} is still marked as running. A reboot or a killed task leaves it like this; check the log on the job server."], "/admin/health");
                 await SetStateAsync("pipeline-stuck", stuck.RunId.ToString(CultureInfo.InvariantCulture));
             }
             var max = runs.Where(r => r.Status != "Running").Select(r => r.RunId).DefaultIfEmpty(seen).Max();
@@ -147,7 +147,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
             var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
             if (await StateAsync("freshness") == today) return;
             await AlertAsync("Freshness", "AlertAdminTo", $"Copilot Insights data is {age:0} hours old",
-                [$"The dashboard's data was last refreshed {last:yyyy-MM-dd HH:mm} UTC, more than {limit} hours ago. The nightly task on the job server may not be running: check Task Scheduler and Admin > Health."], "/admin");
+                [$"The dashboard's data was last refreshed {last:yyyy-MM-dd HH:mm} UTC, more than {limit} hours ago. The nightly task on the job server may not be running: check Task Scheduler and Admin > Health."], "/admin/health");
             await SetStateAsync("freshness", today);
         }
 

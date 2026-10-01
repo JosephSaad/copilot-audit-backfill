@@ -175,7 +175,7 @@ public sealed partial class Notifier
             var subject = left <= 0 ? "The Copilot pipeline's certificate has expired" : $"The Copilot pipeline's certificate expires in {Math.Ceiling(left):0} day(s)";
             await AlertAsync("Certificate", "AlertAdminTo", subject,
                 [$"The app certificate {cert.Subject} ({cert.Thumbprint}) that the job server signs in to Microsoft Graph with expires {cert.ExpiresUtc:yyyy-MM-dd HH:mm} UTC. When it does, the nightly load stops.",
-                 "Renew it: run tools\\Install-CopilotJobServer.ps1 -RegisterApp on the job server as an administrator (a new certificate, uploaded to the app, its thumbprint in the settings). The operations guide has the steps."], "/admin");
+                 "Renew it: run tools\\Install-CopilotJobServer.ps1 -RegisterApp on the job server as an administrator (a new certificate, uploaded to the app, its thumbprint in the settings). The operations guide has the steps."], "/admin/health");
             await SetStateAsync("certificate", key);
         }
 

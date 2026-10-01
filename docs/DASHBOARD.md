@@ -465,7 +465,7 @@ Admin shows no usage data by itself. An administrator who should also see the re
 
 **Refresh.** Nothing extra to schedule. `Invoke-CopilotAuditBackfill.ps1 -Incremental` and the CSV importer run `dash.usp_RefreshDashboard` last, after `bi.usp_RefreshBi`, from the same day. Each refresh rebuilds the org chart from `audit.UserDirectory` in full, so the scopes follow AD from the night after a move. **Admin › Health** can refresh the last 7 days, or rebuild everything, by hand.
 
-**Admin › Health.** Each pipeline step's last run and its age, marked fresh, stale or old. It also shows:
+**Admin › Health** (`/admin/health`; before 2.4.4, `/admin`). Each pipeline step's last run and its age, marked fresh, stale or old. It also shows:
 
 - whether the top of the organization is set and found;
 - how many people sit under it;
