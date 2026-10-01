@@ -105,6 +105,7 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 = ReportContext.Key(c.End.AddD
         var path = "/api/v1/" + name;
         string? refusal = null;
         if (role == Roles.Admin) { if (!viewer.IsAdmin) refusal = "administrators only"; }
+        else if (!viewer.Admitted) refusal = $"the dashboard is for levels 1 to {viewer.MaxLevel} of the organization";
         else if (!viewer.OrgWide && !viewer.InDirectory) refusal = "not in the directory, and not granted Organization";
         else if (section is not null && !viewer.Has(section)) refusal = $"needs the {section} role";   // the page's section needs it too
         else if (role is not null && await settings.PrivacyModeAsync()) refusal = "privacy mode is on: nothing that names people";

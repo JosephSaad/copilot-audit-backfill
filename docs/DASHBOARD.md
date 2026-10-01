@@ -24,7 +24,7 @@ The roadmap's later milestones (M13 to M15) would add changes in Microsoft 365 i
 - [Who sees what](#who-sees-what)
 - [Periods](#periods)
 - [Premium use and the license rules](#premium-use-and-the-license-rules)
-- [Saved views, events and hover text](#saved-views-events-and-hover-text)
+- [Events and hover text](#events-and-hover-text)
 - [More than one tenant](#more-than-one-tenant)
 - [Long lists and exports](#long-lists-and-exports)
 - [Email, alerts and digests](#email-alerts-and-digests)
@@ -40,15 +40,12 @@ The roadmap's later milestones (M13 to M15) would add changes in Microsoft 365 i
 
 ## What each persona gets
 
-**Seven sections belong to a role (2.4.2):** Adoption (the **Adoption** role), Licensing and Forecasting (**Licensing**), Security (**Security**), Compliance (**Compliance**), Agents (**Agents**) and Enablement (**Enablement**). Without the role, the whole section is hidden from the navigation and the start page, its aggregate pages included, and its pages and API calls are refused; this holds for the top of the organization too. My Copilot, Leadership, Regions, People, App owners and Governance are open to everyone in the directory, for their own part of the organization.
+**Seven sections belong to a role (2.4.2):** Adoption (the **Adoption** role), Licensing and Forecasting (**Licensing**), Security (**Security**), Compliance (**Compliance**), Agents (**Agents**) and Enablement (**Enablement**). Without the role, the whole section is hidden from the navigation and the start page, its aggregate pages included, and its pages and API calls are refused; this holds for the top of the organization too. Leadership, Regions, People, App owners and Governance are open to everyone who may use the dashboard, for their own part of the organization. Who may use it at all can be limited to the top levels of the organization ([Who sees what](#who-sees-what)).
 
 Pages without a role mark show aggregates only: counts, rates and trends for the viewer's scope, broken down one level at a time. Pages marked with a role list named people. They need that role, and even then they show only people inside the viewer's own scope. The navigation and the start page list only the pages the viewer can open: someone without a role never sees its section, an administrator's Admin pages are invisible to everyone else, and a persona with nothing open to the viewer is left out.
 
 | Persona | Page | What it answers | Grain | Named people |
 |---|---|---|---|---|
-| My Copilot | My use | Your own use: days and interactions against the organization's median, conversations, apps, agents, the hours you use it, and ideas drawn from your own patterns | You | Only you |
-| | Email | Ask for a weekly email of your own use; managers can stop their team digest | You | Only you |
-| | Saved views | The pages you saved with their period, scope and filters; one can be your start page | You | Only you |
 | Leadership | Overview | People using Copilot, licensed, adoption, active in the last 7 days; trends; adoption by the next level down | Scope, then one level down | No |
 | | Scorecard | This period against the one before it: people, adoption, licenses, interactions and multi-turn sessions, and each unit one level down with its change | Scope, one level down | No |
 | | Organization | Each unit one level down side by side: people, licensed, active, adoption, days active, interactions, multi-turn share, a trend line; heatmap of share active per week | One level down | No |
@@ -122,6 +119,16 @@ An L2 manager, who reports directly to the CEO, sees the whole organization. The
 
 ## Who sees what
 
+**Who can open the dashboard (2.4.4).** In Admin › Access › *Who can open the dashboard*, an administrator chooses *Everyone in the directory* (the default, as before) or *Levels 1 to N*: level 1 is the top of the organization (`OrgTopUpn`), level 2 reports to them, and so on, to 15. Each choice shows how many people it lets in. With a limit set:
+
+- people at levels 1 to N use the dashboard as before;
+- anyone granted a role other than Admin is let in too, whatever their level: Admin › Access is the list of exceptions, for an analyst below the levels;
+- everyone else, and anyone the org chart does not place under the top, is refused every page, CSV export, file download, form and data API call, with a page that says which levels it is for, and each refusal is in the audit log. The navigation lists nothing for them;
+- an administrator outside the levels keeps the start page and the Admin pages only, so a wrong limit, or a wrong top, can always be put right from the dashboard;
+- manager digests go only to managers within the levels.
+
+The level is read from the directory record of the SID-checked sign-in, never from the request. The limit applies within a minute of saving, on every web server. It is also `Invoke-CopilotMaintenance.ps1 -Task SetDashboardSetting -Name MaxViewerLevel -Value N` (0 for everyone).
+
 **Scope.** Every query is restricted to one part of the organization before anything is counted:
 
 - **The whole organization** for the person set as its top (`OrgTopUpn`, usually the CEO), everyone who reports directly to them, and anyone granted the **Organization** role, wherever they sit.
@@ -174,11 +181,9 @@ The rollups keep both per person per day (`dash.UserDay.PremiumUse`), and `bi.In
 
 The Chat-over-work-content part is an approximation from the audit record: an interaction that searched the web and also read work files counts as free. Until the rollups are rebuilt once with 2.3.0 (the installer does this), the rules count any use, as before, and the page says so.
 
-## Saved views, events and hover text
+## Events and hover text
 
 **Every report says who it is for, what it helps with and what to do** (2.4.3), in two short lines under its title: *Helps you* and *Do*, with the section's audience beside them. The longer explanations sit behind **information icons** (ⓘ): beside the title for what the page shows, beside each panel for how its figures are worked out, and beside a KPI for what it counts. Hover over an icon, focus it with the keyboard or tap it for the text; Escape or a second tap closes it. A KPI's short note with a figure in it stays on the card. Printed pages, the board pack included, show every icon's text in place. Admin pages keep their instructions on the page.
-
-**Save view**, under the filters of every report, keeps the page with its period, part of the organization and filters under a name, in My Copilot › Saved views. One can be the start page: opening the dashboard goes straight to it (*Start* in the navigation always goes to the usual page). A saved view can only point at a report page of this site.
 
 **Events** (Admin › Classifications and events) show on every trend as a dashed line with their name: a rollout wave, a training push, an outage, a policy change. Hover for the day and every event on it.
 
@@ -246,11 +251,9 @@ An alert fires once per occurrence (`dash.AlertState` remembers what it last saw
 
 **Digests** are scheduled emails: *Leadership*, *Adoption*, *Licensing*, *Security* or *Value*, daily, weekly or monthly at an hour in the reporting time zone, for the whole organization or one manager's, over a period of 7 to 365 days. They carry aggregates only, never a named person, so they can go to anyone the scope suits. **Preview** shows one as it would arrive; **Send now** sends one today.
 
-**Manager digests** go to every manager with at least a set number of people under them, weekly or monthly: the Leadership digest for their own organization, to the email address AD holds for them. Each manager can stop theirs in My Copilot › Email. They are not sent in privacy mode, since a unit is named after its manager.
+**Manager digests** go to every manager with at least a set number of people under them, weekly or monthly: the Leadership digest for their own organization, to the email address AD holds for them. An administrator stops one manager's in Admin › Alerts and digests › *Managers who do not get the digest* (opt-outs made before 2.4.4 are kept). When the dashboard is limited to levels, only managers within them get it. They are not sent in privacy mode, since a unit is named after its manager.
 
-**Personal digests** are a weekly email a person asks for in My Copilot › Email: their own days and interactions against the week before, their apps, and one idea. They go only to that person, so privacy mode does not stop them.
-
-A manager or personal digest that fails is tried again an hour later, three times in all (`dash.DigestSend` records each person's send for the period). Scheduled digests set up in Admin are marked sent either way and wait for their next period, so a broken setting fails once per period.
+A manager digest that fails is tried again an hour later, three times in all (`dash.DigestSend` records each person's send for the period). Scheduled digests set up in Admin are marked sent either way and wait for their next period, so a broken setting fails once per period.
 
 **The webhook**: every alert is also posted to one https address, stored encrypted like the email password: to Teams as an adaptive card (a Workflows "post to a channel when a webhook request is received" address, or an incoming webhook), or as JSON (`source`, `kind`, `subject`, `lines`, `link`, `atUtc`) for ServiceNow, Splunk or anything else. Addresses on this server or link-local ones are refused.
 
@@ -276,7 +279,7 @@ A manager or personal digest that fails is tried again an hour later, three time
 
 **Privacy mode** (Admin › Privacy and retention), for organizations that must not report on named people, such as under a works council agreement:
 
-- every page, export, digest and API call that names people is refused, and hidden from the navigation. My Copilot still shows each person their own use, and Compliance › Person record stays open to the Compliance role, for data-subject requests;
+- every page, export, digest and API call that names people is refused, and hidden from the navigation. Compliance › Person record stays open to the Compliance role, for data-subject requests;
 - Power BI's `bi.Users` shows a salted hash (`P-…`) instead of every name, sign-in, manager and org level, the same for the same person everywhere, so counts and org slicing still work;
 - `bi.OrgSecurity` is empty (its rows would pair real sign-ins with the pseudonyms), and OneDrive site names and the administrators in `bi.LicenseChanges` are hidden;
 - `bi.DepartmentWeek` gives weekly department figures with any group under the minimum size hidden, for a model that must not show individuals.

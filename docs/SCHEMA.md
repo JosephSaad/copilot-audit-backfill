@@ -2450,7 +2450,7 @@ Indexes and constraints:
 
 ### dash.DigestPreference
 
-*Table.* Each person's email choices (My Copilot &gt; Email): the weekly personal digest, and a manager's opt-out of their team digest.
+*Table.* Managers who do not get their team digest, kept by administrators (Admin &gt; Alerts and digests). PersonalDigest is unused since 2.4.4.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -2527,7 +2527,7 @@ Indexes and constraints:
 
 ### dash.SavedView
 
-*Table.* Each person's saved views: a page and its query, one of which can be their start page.
+*Table.* Unused since 2.4.4, which removed saved views; kept, with its rows. Each was a page and its query, one of which could be the start page.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 

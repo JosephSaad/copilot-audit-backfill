@@ -230,13 +230,23 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Form("webhooktest", Button("Post a test alert", quiet: true))),
             "Every alert is also posted here. Teams: a Workflows \"Post to a channel when a webhook request is received\" address (or an incoming webhook). Json: {source, kind, subject, lines, link, atUtc} for ServiceNow, Splunk or anything else. The address is stored encrypted, like the email password.", "half"));
 
-        Panels.Add(new("Manager and personal digests", new HtmlString(Form("digests",
+        Panels.Add(new("Manager digests", new HtmlString(Form("digests",
             Select("ManagerDigest", "Every manager gets their organization's digest", ["Off", "Weekly", "Monthly"], V("ManagerDigest") is "" ? "Off" : V("ManagerDigest")) +
             Input("ManagerDigestMinPeople", "Managers with at least this many people under them", V("ManagerDigestMinPeople"), 5, "number") +
             Select("ManagerDigestDay", "Weekly on", days, days[Math.Clamp(int.TryParse(V("ManagerDigestDay"), out var md) ? md : 1, 0, 6)]) +
-            Input("DigestHour", $"At (hour, {zone.StandardName})", V("DigestHour") is "" ? "7" : V("DigestHour"), 4, "number") +
-            Select("PersonalDigest", "People may ask for a weekly email of their own use", ["On", "Off"], V("PersonalDigest") is "Off" ? "Off" : "On") + Button("Save"))),
-            "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD; each manager can opt out in My Copilot > Email. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
+            Input("DigestHour", $"At (hour, {zone.StandardName})", V("DigestHour") is "" ? "7" : V("DigestHour"), 4, "number") + Button("Save"))),
+            "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD. " +
+            "When the dashboard is limited to levels (Admin > Access), only managers at those levels get it. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
+
+        /* Managers who asked not to get the digest (2.4.4): kept by administrators, now that the dashboard has no personal pages. */
+        var optedOut = await Db.QueryAsync<(string Upn, string? DisplayName, DateTime UpdatedUtc)>(@"
+SELECT pref.Upn, p.DisplayName, pref.UpdatedUtc FROM dash.DigestPreference AS pref LEFT JOIN dash.Person AS p ON p.Upn = pref.Upn
+WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
+        var ot = new Table { Headers = ["Manager", "Sign-in", "Since (UTC)", ""], EmptyText = "Every eligible manager gets the digest." };
+        foreach (var o in optedOut)
+            ot.Rows.Add([o.DisplayName, o.Upn, o.UpdatedUtc, new HtmlString(Form("optin", Hidden("upn", o.Upn) + Button("Send it again", quiet: true)))]);
+        Panels.Add(new("Managers who do not get the digest", new HtmlString(Form("optout", Input("upn", "Manager (UPN)", null, 34) + Button("Stop their digest")) + ot.Render().Value),
+            "For a manager who asks not to get it. Earlier opt-outs are kept.", "half"));
 
         var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();
         Panels.Add(new("Run the checks now", new HtmlString(
@@ -302,7 +312,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return "The webhook could not be reached: " + ex.Message; }
     });
 
-    public Task<IActionResult> OnPostDigestsAsync(string? ManagerDigest, string? ManagerDigestMinPeople, string? ManagerDigestDay, string? DigestHour, string? PersonalDigest) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostDigestsAsync(string? ManagerDigest, string? ManagerDigestMinPeople, string? ManagerDigestDay, string? DigestHour) => AdminChangeAsync(async () =>
     {
         if (ManagerDigest is not ("Off" or "Weekly" or "Monthly")) throw new ArgumentException("choose Off, Weekly or Monthly.");
         var day = Array.IndexOf(new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }, ManagerDigestDay);
@@ -313,9 +323,23 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             ["ManagerDigestMinPeople"] = SettingWriter.Int(ManagerDigestMinPeople, "The number of people", 1, 1000000).ToString(CultureInfo.InvariantCulture),
             ["ManagerDigestDay"] = day.ToString(CultureInfo.InvariantCulture),
             ["DigestHour"] = SettingWriter.Int(DigestHour, "The hour", 0, 23).ToString(CultureInfo.InvariantCulture),
-            ["PersonalDigest"] = PersonalDigest is "Off" ? "Off" : "On",
         }));
     });
+
+    public Task<IActionResult> OnPostOptoutAsync(string? upn) => AdminChangeAsync(async () =>
+    {
+        upn = upn?.Trim();
+        if (string.IsNullOrEmpty(upn) || await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Person WHERE Upn = @upn", new { upn }) == 0)
+            throw new ArgumentException($"{upn} is not in the directory.");
+        await Db.ExecuteAsync(@"
+UPDATE dash.DigestPreference SET ManagerDigestOptOut = 1, UpdatedUtc = SYSUTCDATETIME() WHERE Upn = @upn;
+IF @@ROWCOUNT = 0 INSERT INTO dash.DigestPreference (Upn, ManagerDigestOptOut) VALUES (@upn, 1);", new { upn });
+        return $"{upn} no longer gets the manager digest.";
+    });
+
+    public Task<IActionResult> OnPostOptinAsync(string? upn) => AdminChangeAsync(async () =>
+        await Db.ExecuteAsync("UPDATE dash.DigestPreference SET ManagerDigestOptOut = 0, UpdatedUtc = SYSUTCDATETIME() WHERE Upn = @upn;", new { upn }) > 0
+            ? $"{upn} gets the manager digest again." : $"{upn} was not opted out.");
 
     public Task<IActionResult> OnPostAddAsync(string? name, string? report, string? recipients, string? frequency, string? dow, int? dom, int? hour, int? days, string? root) => AdminChangeAsync(async () =>
     {
@@ -492,7 +516,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         Kpis.Add(new("Privacy mode", on ? "On" : "Off", on ? "nobody is named but the viewer themselves" : null));
         Panels.Add(new("Privacy mode", new HtmlString(Form("privacy",
             Select("mode", "Privacy mode", ["Off", "Pseudonymize"], on ? "Pseudonymize" : "Off") + Button("Save", "Change privacy mode? It applies to every viewer and to Power BI at its next refresh."))),
-            "On: every page, export, digest and API call that names people is refused (My Copilot still shows each person their own use), and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. Aggregates keep the minimum group size (Admin > Access)."));
+            "On: every page, export, digest and API call that names people is refused, and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. Aggregates keep the minimum group size (Admin > Access)."));
 
         Panels.Add(new("Retention", new HtmlString(Form("retention",
             Input("AuditLogRetentionDays", "Keep the dashboard's audit log (days; 0 keeps it)", V("AuditLogRetentionDays"), 6, "number") +

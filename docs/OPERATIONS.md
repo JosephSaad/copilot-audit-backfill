@@ -62,7 +62,13 @@ M -Task GrantRole -Principal 'USERS\Copilot-Insights-Licensing' -PrincipalType G
 M -Task RevokeRole -Principal 'ada.lovelace@contoso.com' -Role Licensing
 ```
 
-**Check what someone sees.** Admin › Access › *Check someone's access*: their level, their scope, and the roles granted to their account directly (group grants are resolved when they sign in).
+**Check what someone sees.** Admin › Access › *Check someone's access*: their level, their scope, whether the level limit keeps them out, and the roles granted to their account directly (group grants are resolved when they sign in).
+
+**Limit the dashboard to the top levels (2.4.4).** Admin › Access › *Who can open the dashboard*: *Everyone in the directory*, or *Levels 1 to N* below the top of the organization, each choice with how many people it lets in. Anyone granted a role other than Admin is let in whatever their level, so grant a role to an analyst who needs it. Everyone else is refused every page, export and API call. Administrators outside the levels keep the Admin pages, so a wrong choice can be undone here. Managers outside the levels stop getting the manager digest. It applies within a minute. The same, from the job server:
+
+```powershell
+M -Task SetDashboardSetting -Name MaxViewerLevel -Value 7   # 0 opens it to everyone again
+```
 
 **The top of the organization** decides who sees everything by level. Admin › Access › *Settings*, or leave it empty to use the one person with no manager who has at least half the directory under them:
 
@@ -85,8 +91,6 @@ M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 **An account the directory cannot match.** Sign-ins are matched to people by the account's SID, which the nightly directory load copies from AD. An account with no match (a local or Entra-joined account) is "not in the directory" and sees nothing unless granted Organization. To map one, add it to `Insights:IdentityMap` in `appsettings.Production.json` (`"CONTOSO\\svc-report": "report.owner@contoso.com"`) and recycle the app pool. A mapping cannot land an account on a person whose directory record carries a different SID, and nothing in a URL changes who is signed in.
 
 **Power BI.** The ready-made model in `powerbi\CopilotInsights` has an *Organization* role that follows the same org chart through `bi.OrgSecurity` ([DEPLOYMENT.md](DEPLOYMENT.md), step 15): add the report's viewers to it in the Power BI service. Organization granted to an AD group reaches Power BI after the next nightly directory load, which expands the group into its members (nested groups included) in `audit.GroupMember`; the load's log names any granted group it cannot find in the target domain. In privacy mode `bi.OrgSecurity` is empty (it would pair real sign-ins with the pseudonyms), so share `bi.DepartmentWeek` rather than the person-level model.
-
-**Each person's own choices.** Everyone sets what they are emailed in **My Copilot › Email** (their weekly email; managers can stop their team digest) and keeps their own **saved views**, one of them as their start page. Nothing about these needs an administrator.
 
 ## Names for codes and ids
 
@@ -125,7 +129,7 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 **Digests.** Admin › Alerts and digests › *Digests*: add one (report, recipients, daily, weekly or monthly, the hour, the period, and optionally one manager's organization); **Preview** it, **Send now**, **Pause** or **Remove** it. Digests carry aggregates only.
 
-**Manager and personal digests.** Admin › Alerts and digests › *Manager and personal digests*: *Weekly* or *Monthly* sends every manager with at least the given number of people under them the Leadership digest for their own organization, to their email address in AD (managers can opt out in My Copilot › Email; not sent in privacy mode). *People may ask for a weekly email of their own use* lets anyone opt in from My Copilot › Email. Both go out on the day and hour set here; a send that fails is tried again an hour later, three times in all.
+**Manager digests.** Admin › Alerts and digests › *Manager digests*: *Weekly* or *Monthly* sends every manager with at least the given number of people under them the Leadership digest for their own organization, to their email address in AD, on the day and hour set here (not sent in privacy mode; with the dashboard limited to levels, only to managers within them). A send that fails is tried again an hour later, three times in all. **A manager who asks not to get it:** *Managers who do not get the digest*, enter their UPN and **Stop their digest**; **Send it again** undoes it.
 
 **Teams, ServiceNow or any webhook.** Admin › Alerts and digests › *Teams, ServiceNow or any webhook*: an https address (stored encrypted) and a format. *Teams* posts an adaptive card (use a Teams Workflows "post to a channel when a webhook request is received" address, or an incoming webhook); *Json* posts `{source, kind, subject, lines, link, atUtc}` for ServiceNow, Splunk or anything else. **Post a test alert** checks it. Every alert then goes to the webhook as well as email.
 
@@ -222,10 +226,10 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | Admin page | What it is for |
 |---|---|
 | Admin › Health | Pipeline runs and each step's freshness, directory coverage, the latest day with data, the app certificate, audit searches waiting, and a manual refresh |
-| Admin › Access | The top of the organization, the access settings and license price, granting and removing roles, checking someone's access |
+| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the top of the organization, the access settings and license price, granting and removing roles, checking someone's access |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, and everything sent or not |
-| Admin › Alerts and digests | Alert recipients and thresholds, digests, manager and personal digests, the webhook, running the checks now |
+| Admin › Alerts and digests | Alert recipients and thresholds, digests, manager digests and the managers who do not get them, the webhook, running the checks now |
 | Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size |
 | Admin › Privacy and retention | Privacy mode, retention of logs and JSON, the data API |
 | Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories |
@@ -246,7 +250,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | `GrantRole` | Give `-Principal` (UPN, `DOMAIN\user` or `DOMAIN\Group`) a `-Role` |
 | `RevokeRole` | Take it away |
 | `SetOrgTop` | Make `-Upn` the top of the organization, or `-Clear` |
-| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost, LicenseCurrency or PaygInteractionCost to `-Value` |
+| `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost, LicenseCurrency, PaygInteractionCost or MaxViewerLevel (who can open the dashboard: 0 everyone, else levels 1 to N) to `-Value` |
 | `NameAgent` | Give agent `-AgentId` a `-FriendlyName` and `-Owner` |
 | `NameLabel` | Give label `-LabelId` a `-FriendlyName` and `-Rank` |
 | `PurgeJson` | Clear the stored JSON of records older than `-RetainDays` (`-Apply` to do it) |

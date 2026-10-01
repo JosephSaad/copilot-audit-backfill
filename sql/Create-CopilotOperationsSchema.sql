@@ -250,7 +250,7 @@ IF OBJECT_ID(N'dash.FlagCase', N'U') IS NULL
         UpdatedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashFlagCase_Updated DEFAULT (SYSUTCDATETIME())
     );
 
-/* Each person's email choices: managers can opt out of their team digest, anyone can opt in to their own. */
+/* Managers who do not get their team digest, kept by administrators (Admin > Alerts and digests). PersonalDigest is unused since 2.4.4. */
 IF OBJECT_ID(N'dash.DigestPreference', N'U') IS NULL
     CREATE TABLE dash.DigestPreference
     (
@@ -299,7 +299,7 @@ IF OBJECT_ID(N'dash.LicenseContract', N'U') IS NULL
         UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenseContract_Updated DEFAULT (SYSUTCDATETIME())
     );
 
-/* Each person's saved views; one may be their start page. */
+/* Each person's saved views; one may be their start page. Unused since 2.4.4, which removed My Copilot; kept, with its rows. */
 IF OBJECT_ID(N'dash.SavedView', N'U') IS NULL
     CREATE TABLE dash.SavedView
     (
@@ -352,7 +352,7 @@ BEGIN
 END;
 
 /* 2.4.0: one retry policy. A scheduled digest or extract that fails is tried again an hour later, three tries in all,
-   before it waits for its next period (as manager and personal digests do, through dash.DigestSend). dash.Extract's
+   before it waits for its next period (as manager digests do, through dash.DigestSend). dash.Extract's
    columns follow its CREATE TABLE below. */
 IF COL_LENGTH(N'dash.Subscription', N'FailedTries') IS NULL
     ALTER TABLE dash.Subscription ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashSubscription_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
@@ -397,14 +397,15 @@ USING (VALUES
     ('ManagerDigest',          N'Off',   N'Off, Weekly or Monthly: every manager with enough people under them gets their team''s leadership digest.'),
     ('ManagerDigestMinPeople', N'10',    N'Managers with at least this many people under them get the manager digest.'),
     ('ManagerDigestDay',       N'1',     N'The manager digest''s day: 0 Sunday to 6 Saturday (weekly), or 1 to 28 (monthly).'),
-    ('DigestHour',             N'7',     N'The hour the manager and personal digests go out, in the reporting time zone.'),
-    ('PersonalDigest',         N'On',    N'On lets people opt in to a weekly email of their own use (My Copilot > Email); Off hides the choice.'),
+    ('DigestHour',             N'7',     N'The hour the manager digests go out, in the reporting time zone.'),
     ('CertificateWarnDays',    N'30',    N'Alert when the pipeline''s app certificate expires within this many days (and again at 14 and 3).'),
     ('RolloutWaveSize',        N'50',    N'The default number of people in a rollout wave.')
 ) AS src (Name, Value, Description)
 ON t.Name = src.Name
 WHEN MATCHED AND ISNULL(t.Description, N'') <> src.Description THEN UPDATE SET Description = src.Description
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (src.Name, src.Value, src.Description);
+/* 2.4.4 removed the personal weekly email, and with it its setting. */
+DELETE FROM dash.Setting WHERE Name = 'PersonalDigest';
 
 /* ---- Privacy and retention ------------------------------------------------ */
 

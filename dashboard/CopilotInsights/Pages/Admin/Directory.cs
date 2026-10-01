@@ -29,7 +29,7 @@ public sealed class DirectoryModel(PageServices s) : AdminPage(s)
             "p.AccountEnabled = 1 AND NULLIF(p.Department, N'') IS NULL"),
         ("notitle", "No job title", "Job families cannot place them.",
             "p.AccountEnabled = 1 AND NULLIF(ud.JobTitle, N'') IS NULL"),
-        ("nomail", "No email address", "Manager and personal digests go to their sign-in name instead, which may not be a mailbox.",
+        ("nomail", "No email address", "Manager digests go to their sign-in name instead, which may not be a mailbox.",
             "p.AccountEnabled = 1 AND NULLIF(ud.Mail, N'') IS NULL"),
         ("nosid", "No SID recorded", "Sign-in cannot be checked against the account's SID for them (the directory load records it from AD).",
             "p.AccountEnabled = 1 AND p.Sid IS NULL"),

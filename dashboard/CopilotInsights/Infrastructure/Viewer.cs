@@ -37,6 +37,13 @@ public sealed class Viewer
     public bool InDirectory { get; init; }
     public int PeopleBelow { get; init; }
     public required IReadOnlySet<string> Roles { get; init; }
+    /// <summary>
+    /// Whether the dashboard's limit (Admin > Access, MaxViewerLevel, 2.4.4) lets them in. An administrator
+    /// who is not still reaches the Admin pages, so a wrong limit can always be put right.
+    /// </summary>
+    public bool Admitted { get; init; } = true;
+    /// <summary>The limit in force when they signed in: 0 for none, else levels 1 to this.</summary>
+    public int MaxLevel { get; init; }
 
     public bool IsAdmin => Roles.Contains(Infrastructure.Roles.Admin);
     public bool OrgWide => AccessRules.SeesWholeOrganization(Level, Roles);
@@ -52,10 +59,17 @@ public static class AccessRules
         roles.Contains(Roles.Organization) || level is 1 or 2;
 
     /// <summary>
-    /// Whether a viewer may look at the subtree under <paramref name="rootUpn"/>:
-    /// anyone who sees the whole organization may; others only at themselves or
-    /// someone under them (<paramref name="rootIsUnderViewer"/>, from dash.OrgClosure).
+    /// The dashboard's limit (2.4.4): with <paramref name="maxLevel"/> 0 everyone may use it, as before;
+    /// otherwise only levels 1 to <paramref name="maxLevel"/> below the configured top, and anyone granted
+    /// a role other than Admin (Admin > Access is the list of exceptions). Administrators alone are not
+    /// admitted: they keep the Admin pages, which show no usage data. The level comes from the directory
+    /// record of the SID-checked sign-in, never from the request.
     /// </summary>
+    public static bool MayUseDashboard(int? level, IReadOnlySet<string> roles, int maxLevel) =>
+        maxLevel <= 0
+        || level is { } l && l >= 1 && l <= maxLevel
+        || roles.Any(r => !string.Equals(r, Roles.Admin, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>
     /// The SID rule: an account may be a person when the directory records no SID for them,
     /// or records exactly the SID in the account's Windows token. Pure, for the tests.
@@ -63,6 +77,11 @@ public static class AccessRules
     public static bool SidMatches(string? recordedSid, string? tokenSid) =>
         string.IsNullOrWhiteSpace(recordedSid) || (tokenSid is not null && string.Equals(recordedSid.Trim(), tokenSid, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// Whether a viewer may look at the subtree under <paramref name="rootUpn"/>:
+    /// anyone who sees the whole organization may; others only at themselves or
+    /// someone under them (<paramref name="rootIsUnderViewer"/>, from dash.OrgClosure).
+    /// </summary>
     public static bool MayViewSubtree(Viewer viewer, string rootUpn, bool rootIsUnderViewer) =>
         viewer.OrgWide
         || (viewer.Upn is not null && string.Equals(viewer.Upn, rootUpn, StringComparison.OrdinalIgnoreCase))
@@ -77,7 +96,7 @@ public static class AccessRules
 /// </remarks>
 public sealed class ViewerService(
     IHttpContextAccessor http, Db db, IMemoryCache cache, IOptions<InsightsOptions> options,
-    TenantAccessor tenants, ILogger<ViewerService> log)
+    TenantAccessor tenants, Settings settings, ILogger<ViewerService> log)
 {
     readonly InsightsOptions _o = options.Value;
     Viewer? _viewer;
@@ -107,10 +126,12 @@ public sealed class ViewerService(
         if (upn is not null)
             p = (await db.QueryAsync<PersonRow>(
                 "SELECT DisplayName, Level, PeopleBelow FROM dash.Person WHERE Upn = @upn", new { upn })).FirstOrDefault();
+        var max = Math.Clamp(await settings.IntAsync("MaxViewerLevel", 0), 0, 15);
         return new Viewer
         {
             WindowsName = windowsName, Upn = upn, DisplayName = p?.DisplayName, Level = p?.Level,
             InDirectory = p is not null, PeopleBelow = p?.PeopleBelow ?? 0, Roles = roles,
+            MaxLevel = max, Admitted = AccessRules.MayUseDashboard(p?.Level, roles, max),
         };
     }
 

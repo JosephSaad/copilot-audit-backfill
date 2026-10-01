@@ -226,7 +226,7 @@ public class PrivacyNavigationTests
         var paths = Pages.Nav.For(V(Roles.All), privacyMode: true).SelectMany(g => g.Pages).ToList();
         /* The person record stays: a data-subject request is about one named person, on request. */
         Assert.Equal(["/compliance/person"], paths.Where(p => p.Role is not null).Select(p => p.Path));
-        Assert.Contains(paths, p => p.Path == "/me");
+        Assert.Contains(paths, p => p.Path == "/leadership");
         Assert.Contains(paths, p => p.Path == "/admin/privacy");
     }
 

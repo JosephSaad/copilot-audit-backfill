@@ -13,11 +13,6 @@ public static class Guidance
 
     public static readonly IReadOnlyDictionary<string, Line> All = new Dictionary<string, Line>(StringComparer.OrdinalIgnoreCase)
     {
-        // My Copilot
-        ["/me"] = new("See how you use Copilot, and where it could do more for you.", "Try Copilot in an app you rarely use it in, or pick up an agent your colleagues use."),
-        ["/me/email"] = new("Choose what Copilot Insights emails you.", "Turn your weekly summary on or off."),
-        ["/me/views"] = new("Get back to the reports you check often, set up the way you like.", "Make the one you open most your start page."),
-
         // Leadership
         ["/leadership"] = new("Answer \"is Copilot working here?\" in one screen.", "Look at the units with low use, and ask their leads what is in the way."),
         ["/leadership/scorecard"] = new("See what moved since the last period, and where.", "Take the largest drops to the next leadership meeting."),
