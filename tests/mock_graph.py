@@ -122,6 +122,10 @@ def seq(rid):
     return int(rid.split("-")[1])
 
 
+AGENT_APP_IDENTITY = "Copilot.Studio.Declarative.T_0a1b2c3d-1111-2222-3333-444455556666"
+AGENT_ID = "CopilotStudio.Declarative.T_0a1b2c3d-1111-2222-3333-444455556666.9f8e7d6c-aaaa-bbbb-cccc-ddddeeeeffff"
+
+
 def record_json(rid, t):
     ts = t.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     n = seq(rid)
@@ -151,10 +155,15 @@ def record_json(rid, t):
             "SiteUrl": "https://outlook.office365.com/owa/?ItemID=%06d" % n,
             "PolicyDetails": json.dumps([{"PolicyType": "Purview", "PolicyOutcomes": ["Blocked"], "AuditLog": ""}]),
         })
+    # Every 23rd record is a declarative agent's (Agent Builder, Copilot Studio), as live records carry one: named in
+    # AppIdentity, with its id and friendly name at the top of the record, not in CopilotEventData. Its maker renamed
+    # it on the 5th.
+    agent = (n % 23 == 0)
     audit = {
         "CreationTime": ts, "Id": rid, "Operation": "CopilotInteraction", "RecordType": 261,
         "Workload": "Copilot", "UserId": "user%d@contoso.com" % (n % 50),
-        "AppIdentity": "Copilot.MicrosoftCopilot.BizChat", "ClientRegion": "CA",
+        "AppIdentity": AGENT_APP_IDENTITY if agent else "Copilot.MicrosoftCopilot.BizChat", "ClientRegion": "CA",
+        **({"AgentId": AGENT_ID, "AgentName": "Expense helper" if t.day < 5 else "Expense Policy Helper"} if agent else {}),
         "OrganizationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "UserKey": "00000000-0000-0000-0000-%012d" % (n % 50),
         "UserType": 0, "Version": 1, "ClientIP": "203.0.113.7", "CopilotLogVersion": "1.0.0.0",
         "CopilotEventData": {

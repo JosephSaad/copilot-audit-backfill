@@ -563,7 +563,7 @@ WHERE a.AgentSource <> N'(no agent)'
             t.Rows.Add([a.AuditName ?? a.AgentId, a.AgentSource, a.FirstSeenUtc.Date, new HtmlString(Form("alias",
                 $"<input type=\"hidden\" name=\"key\" value=\"{a.AgentKey}\"/>" + Input("name", "Friendly name", a.FriendlyName, 22) + Input("owner", "Owner", a.Owner, 22) + Button("Save")))]);
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["unnamed"] = "Unnamed first", ["new"] = "Newest", ["name"] = "Name" }).Value + t.Render().Value),
-            "Copilot Studio agents appear under their schema name. A friendly name shows everywhere instead; clear it to go back."));
+            "An agent appears under the friendly name the audit log gives it, the latest when its maker renames it; where the log gives none, under a name read from its id (a Copilot Studio agent's schema name). A name given here shows everywhere instead; clear it to go back."));
 
         /* The labels seen and how often (2.4.11): one pass over the rollup instead of two, and kept until the data
            changes, as a report's queries are. It reads every day there is: 1.4 seconds at 120 million interactions on

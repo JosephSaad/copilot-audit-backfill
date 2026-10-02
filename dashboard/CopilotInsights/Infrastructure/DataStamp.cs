@@ -10,8 +10,9 @@ namespace CopilotInsights.Infrastructure;
 /// database at most every 30 seconds for each tenant. It changes when the dashboard is refreshed, when a pipeline run
 /// is recorded, when the licenses are read, when a setting or a reference table changes (here or on another web
 /// server, or from Invoke-CopilotMaintenance.ps1), and at midnight UTC, since some reports count from today.
-/// Tables that change all day (triage, exported actions, confirmations) are not in the stamp: a query that reads one
-/// is never cached (<see cref="Volatile"/>).
+/// Tables that change all day (triage, exported actions, confirmations) are not in the stamp: a change to one would
+/// end everything kept. A query that reads one is kept under that table's own version, read from the database for
+/// every page that asks (2.4.11, <see cref="Live"/>).
 /// </summary>
 public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, ILogger<DataStamp> log)
 {
@@ -22,8 +23,23 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
         "dash.JobFamilyRule", "dash.UseCaseRule", "dash.EventMarker", "dash.LicenseContract", "audit.PipelineSetting", "audit.SessionAppCategory",
     ];
 
-    /// <summary>Tables written all day by people working in the dashboard: a query that names one always reads the database.</summary>
-    public static readonly string[] VolatileTables = ["dash.FlagCase", "dash.LicenseAction", "dash.NonHumanException"];
+    /// <summary>A table people change all day, and the query that gives its version: one short string that differs after any change.</summary>
+    public sealed record LiveTable(string Table, string Version);
+
+    /// <summary>
+    /// Tables written all day by people working in the dashboard. Each is small, and its version is its row count, its
+    /// latest change and a checksum of every row (the exports are only ever added to: the count and the last number).
+    /// A table the database does not have yet has the version "none".
+    /// </summary>
+    public static readonly LiveTable[] Live =
+    [
+        new("dash.FlagCase", "IF OBJECT_ID(N'dash.FlagCase', N'U') IS NULL SELECT N'none' ELSE SELECT CONCAT(COUNT_BIG(*), N':', CONVERT(NVARCHAR(30), MAX(UpdatedUtc), 126), N':', CHECKSUM_AGG(BINARY_CHECKSUM(*))) FROM dash.FlagCase;"),
+        new("dash.LicenseAction", "IF OBJECT_ID(N'dash.LicenseAction', N'U') IS NULL SELECT N'none' ELSE SELECT CONCAT(COUNT_BIG(*), N':', MAX(ActionId)) FROM dash.LicenseAction;"),
+        new("dash.NonHumanException", "IF OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL SELECT N'none' ELSE SELECT CONCAT(COUNT_BIG(*), N':', CONVERT(NVARCHAR(30), MAX(ConfirmedUtc), 126), N':', CHECKSUM_AGG(BINARY_CHECKSUM(*))) FROM dash.NonHumanException;"),
+    ];
+
+    /// <summary>The names of the tables in <see cref="Live"/>: a query that names one is kept only under that table's version.</summary>
+    public static readonly string[] VolatileTables = [.. Live.Select(t => t.Table)];
 
     /// <summary>Tables a write to which changes nothing a cached report query reads: logs, send records, and the volatile ones.</summary>
     static readonly string[] NoEffect =
@@ -35,8 +51,11 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
     readonly ConcurrentDictionary<string, DateTime> _checked = new();
     readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
-    /// <summary>Whether a query reads a table that changes too often to cache.</summary>
+    /// <summary>Whether a query reads a table that changes all day: it is kept only under that table's version.</summary>
     public static bool Volatile(string sql) => VolatileTables.Any(t => sql.Contains(t, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The tables that change all day that a query names, in a fixed order.</summary>
+    public static IReadOnlyList<LiveTable> LiveIn(string sql) => [.. Live.Where(t => sql.Contains(t.Table, StringComparison.OrdinalIgnoreCase))];
 
     [GeneratedRegex(@"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE(?:\s+INTO)?|TRUNCATE\s+TABLE)\s+(\[?\w+\]?\.\[?\w+\]?)", RegexOptions.IgnoreCase)]
     private static partial Regex Targets();

@@ -158,21 +158,28 @@ BEGIN
 END;
 
 /*
-    The agent an interaction went to. The record's CopilotEventData.AgentId
-    is often empty - on a live tenant it was empty on every row, Copilot
-    Studio agents included - and the agent is named in AppIdentity instead:
-    Copilot.Studio.<environment>-<tenant id>-<schema name> for a Copilot
-    Studio agent, MicrosoftAgent.<...>.<name> for one of Microsoft's. So the
-    procedure takes AgentId when there is one and AppIdentity otherwise, and
-    AgentSource says which.
+    The agent an interaction went to. A record names its agent in AppIdentity:
+    Copilot.Studio.<environment>-<tenant id>-<schema name> or
+    Copilot.Studio.Declarative.T_<id> for a Copilot Studio agent,
+    MicrosoftAgent.<name>.<...> for one of Microsoft's. Some records carry an
+    AgentId as well and some of the same agent's do not (seen on two live
+    tenants), so the agent is the one AppIdentity names, and AgentId only where
+    AppIdentity names none (2.4.11; before, AgentId came first, which no real
+    record had). AgentSource says which: bi.fnAgentIdentity, below, is the rule.
+
+    AgentName is a label, not the identity: the friendly name the audit log
+    gave the agent on its latest record that carries one ($.AgentName, kept for
+    every agent in audit.AgentCatalog), else a name read from the id. A maker
+    renaming an agent changes the label of the same AgentKey, so its history
+    stays in one piece. bi.usp_NameAgents sets it, at the end of every refresh.
 */
 IF OBJECT_ID(N'bi.DimAgent', N'U') IS NULL
 BEGIN
     CREATE TABLE bi.DimAgent
     (
         AgentKey      INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DimAgent PRIMARY KEY,
-        AgentId       NVARCHAR(400) NOT NULL CONSTRAINT UQ_DimAgent_Id UNIQUE,   -- AgentId, else AppIdentity
-        AgentName     NVARCHAR(400) NULL,   -- the latest name seen; agents get renamed
+        AgentId       NVARCHAR(400) NOT NULL CONSTRAINT UQ_DimAgent_Id UNIQUE,   -- the AppIdentity that names the agent, else AgentId
+        AgentName     NVARCHAR(400) NULL,   -- the latest friendly name the audit log gave it, else one read from the id
         AgentSource   NVARCHAR(30)  NULL,   -- Copilot Studio | Microsoft | Agent ID | (no agent)
         FirstSeenUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DimAgent_FirstSeen DEFAULT (SYSUTCDATETIME())
     );
@@ -188,6 +195,44 @@ BEGIN
     ALTER TABLE bi.DimAgent ADD AgentSource NVARCHAR(30) NULL;
     EXEC (N'UPDATE bi.DimAgent SET AgentSource = N''(no agent)'' WHERE AgentId = N''(none)'';');
 END;
+
+/* 2.4.11: whether AgentName is the audit log's own name for the agent (1), or one read from its id (0). */
+IF COL_LENGTH(N'bi.DimAgent', N'NamedInAudit') IS NULL
+    ALTER TABLE bi.DimAgent ADD NamedInAudit BIT NOT NULL CONSTRAINT DF_DimAgent_NamedInAudit DEFAULT (0);
+
+/*
+    bi.fnAgentIdentity: who the agent of a record is, from its AppIdentity and
+    AgentId. One row: the id bi.DimAgent keys on, where it came from, and the
+    name to show when the audit log gives none.
+
+      AppIdentity Copilot.Studio.<...>   that AppIdentity, 'Copilot Studio'. The name is the schema name after the
+                                         tenant id (Copilot.Studio.Default-<tenant id>-crd20_expenseClaims gives
+                                         crd20_expenseClaims); where the identity ends in an id instead
+                                         (Copilot.Studio.Declarative.T_<id>), everything after Copilot.Studio.
+      AppIdentity MicrosoftAgent.<...>   that AppIdentity, 'Microsoft'. The name is Microsoft's own, the part after
+                                         MicrosoftAgent. (MicrosoftAgent.OutlookDraftsChatSteering.BuiltIn_<...>
+                                         gives OutlookDraftsChatSteering).
+      any other AppIdentity, an AgentId  the AgentId, 'Agent ID', no name of its own.
+      neither                            '(none)', '(no agent)': Copilot itself.
+*/
+EXEC (N'CREATE OR ALTER FUNCTION bi.fnAgentIdentity (@AppIdentity NVARCHAR(400), @AgentId NVARCHAR(400))
+RETURNS TABLE
+AS
+RETURN
+SELECT COALESCE(CASE WHEN s.Src IS NOT NULL THEN a.Ident END, a.Aid, N''(none)'') AS AgentId,
+       COALESCE(s.Src, CASE WHEN a.Aid IS NOT NULL THEN N''Agent ID'' END, N''(no agent)'') AS AgentSource,
+       CAST(NULLIF(CASE s.Src
+            WHEN N''Copilot Studio'' THEN
+                CASE WHEN CHARINDEX(N''-'', r.Rest) > 0 AND r.Tail NOT LIKE REPLICATE(N''[0-9a-fA-F]'', 12) THEN r.Tail ELSE r.Rest END
+            WHEN N''Microsoft'' THEN
+                CASE WHEN CHARINDEX(N''.'', r.Rest) > 1 THEN LEFT(r.Rest, CHARINDEX(N''.'', r.Rest) - 1) ELSE r.Rest END
+            END, N'''') AS NVARCHAR(400)) AS DerivedName
+FROM (SELECT NULLIF(LTRIM(RTRIM(@AgentId)), N'''') AS Aid, NULLIF(LTRIM(RTRIM(@AppIdentity)), N'''') AS Ident) AS a
+CROSS APPLY (SELECT CASE WHEN a.Ident LIKE N''Copilot.Studio.%''  THEN N''Copilot Studio''
+                         WHEN a.Ident LIKE N''MicrosoftAgent.%''  THEN N''Microsoft'' END AS Src) AS s
+/* Both prefixes are 15 characters. Rest: what follows the prefix. Tail: what follows the last hyphen. */
+CROSS APPLY (SELECT STUFF(a.Ident, 1, 15, N'''') AS Rest,
+                    CASE WHEN CHARINDEX(N''-'', REVERSE(a.Ident)) > 1 THEN RIGHT(a.Ident, CHARINDEX(N''-'', REVERSE(a.Ident)) - 1) END AS Tail) AS r;');
 
 IF OBJECT_ID(N'bi.DimModel', N'U') IS NULL
 BEGIN
@@ -627,7 +672,7 @@ EXEC (N'CREATE OR ALTER VIEW bi.Apps AS
 SELECT AppKey, App, AppCategory FROM bi.DimApp;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Agents AS
-SELECT AgentKey, AgentId, AgentName, AgentSource FROM bi.DimAgent;');
+SELECT AgentKey, AgentId, AgentName, AgentSource, NamedInAudit FROM bi.DimAgent;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Models AS
 SELECT ModelKey, ModelProvider, ModelName FROM bi.DimModel;');

@@ -81,6 +81,7 @@ AREAS = [
         ('audit.RawLogContext', 'One row per element of CopilotEventData.Contexts (2.2.0): where the user was during the interaction.'),
         ('audit.ValueCatalog', 'Every distinct value of 23 low-cardinality columns (2.3.0): label ids, tenant, app, agent and platform ids, models, capacities, license types, resource types. How often and when first and last seen; a column stops collecting at 10,000 values. Filled by each flatten batch; names are in dash.ValueName.'),
         ('audit.ValueCatalogColumn', 'The cataloged columns (2.3.0): which table and column, a label, how many distinct values, and whether the column passed 10,000 and was capped.'),
+        ('audit.AgentCatalog', 'Every agent the audit log names (2.4.11), one row per pair of AppIdentity and AgentId as records carry them, with the friendly name ($.AgentName) of the latest record that has one and when the agent was first and last seen. Kept by the flatten for each batch, so an agent\'s name is known from its whole history; bi.usp_NameAgents names bi.DimAgent from it.'),
         ('audit.RawLogRecordShape', 'The seventeen fields that carry no information in a 19-million-record production profile (one value where present, or always empty), counted by combination instead of stored per row (2.2.0). The flattening reports if one of them ever takes a second value.'),
     ]),
     ('enrich', 'Licenses and the user directory', 'Who holds a license (Microsoft Graph) and where they sit in the organization (on-premises AD).', [
@@ -120,7 +121,7 @@ AREAS = [
         ('bi.DimDate', 'One row per date, with the Saturday-to-Friday week the rollup uses. Key: DateKey (yyyymmdd).'),
         ('bi.DimUser', 'One row per person seen in the audit data, licenses or license history: directory attributes from AD, the org chain as OrgLevel1..15, and today\'s license. Restated from the sources on every refresh.'),
         ('bi.DimApp', 'One row per app, with its category from SessionAppCategory.'),
-        ('bi.DimAgent', 'One row per agent: AgentId when the record carries one, otherwise the identity parsed from AppIdentity. (no agent) is Copilot itself.'),
+        ('bi.DimAgent', 'One row per agent: the one the record\'s AppIdentity names (a Copilot Studio or Agent Builder agent, one of Microsoft\'s), else its AgentId (2.4.11; bi.fnAgentIdentity is the rule). AgentName is a label on the key: the friendly name the audit log gave the agent last, else one read from its id, so a renamed agent keeps its key and its history. (no agent) is Copilot itself.'),
         ('bi.DimModel', 'One row per model provider and name.'),
         ('bi.DimSku', 'One row per license SKU seen in the license history, flagged when it is a Copilot SKU.'),
         ('bi.DimLicenseStatus', 'Three rows: 0 Unknown, 1 Licensed, 2 Not licensed.'),

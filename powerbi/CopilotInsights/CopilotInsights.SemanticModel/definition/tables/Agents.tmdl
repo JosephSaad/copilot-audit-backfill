@@ -1,4 +1,4 @@
-/// The Copilot Studio or Microsoft agent used. (no agent) means Copilot itself.
+/// The Copilot Studio or Microsoft agent used, under its friendly name. (no agent) means Copilot itself. An agent keeps its row when a maker renames it: the name is a label on the agent, and all its history carries the latest one.
 table Agents
 	lineageTag: 760ce235-196d-59bb-a88c-a45e367b9c62
 
@@ -10,14 +10,14 @@ table Agents
 		summarizeBy: none
 		sourceColumn: AgentKey
 
+	/// What identifies the agent in the audit log (its AppIdentity, else its AgentId). It does not change when the agent is renamed: use it to tell apart two agents with the same name.
 	column AgentId
 		dataType: string
-		isHidden
 		lineageTag: 808ea2d7-6552-528e-9ef6-be5558647add
 		summarizeBy: none
 		sourceColumn: AgentId
 
-	/// Agent name as recorded in the audit log; Copilot Studio agents show their schema name.
+	/// The agent's friendly name: the latest the audit log gave it (AgentName). Where the log gives none, a name read from the id: a Copilot Studio agent's schema name, or Microsoft's own name for one of its agents.
 	column AgentName
 		dataType: string
 		lineageTag: b8a99e38-7e19-5c3d-841f-9059b1589b4a
@@ -30,6 +30,13 @@ table Agents
 		lineageTag: a0a6320c-da54-5535-99f2-8dcbb18e72e9
 		summarizeBy: none
 		sourceColumn: AgentSource
+
+	/// True when Agent Name is the audit log's own name for the agent; false when it was read from the id.
+	column NamedInAudit
+		dataType: boolean
+		lineageTag: 4a0c4a1e-5422-5141-87cb-6543dfd0688a
+		summarizeBy: none
+		sourceColumn: NamedInAudit
 
 	partition Agents = m
 		mode: import

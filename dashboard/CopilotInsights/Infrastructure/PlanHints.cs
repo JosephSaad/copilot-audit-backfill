@@ -17,29 +17,44 @@ namespace CopilotInsights.Infrastructure;
 /// for the whole organization, OPTIMIZE FOR UNKNOWN (one plan, built for a typical range, never for an empty one);
 /// inside a manager's part of it (@root), RECOMPILE (ten people or seventy thousand: planned for the ones asked for).
 /// A hint changes how a query runs, never what it returns.
+///
+/// Inside a manager's part there is a second way to go wrong: SQL Server has to guess how many people that is, from a
+/// sample of the org chart, and for some managers it guesses one. Planned for one person, a query reads the facts
+/// again for each person who is really there: for a team of 584 at 120 million interactions, 100 seconds and a
+/// timeout, where the same page for the team next to it took a second. So the people in scope are listed first, into
+/// a temporary table (<see cref="ScopeFirst"/>), and every statement reads that list: it is counted, not guessed.
 /// </summary>
 public static partial class PlanHints
 {
     public const string Typical = "OPTION (OPTIMIZE FOR UNKNOWN)";
     public const string Exact = "OPTION (RECOMPILE)";
 
+    /// <summary>How a report query names the people in the viewer's scope (ReportContext.Scope), and what it reads instead.</summary>
+    public const string ScopeCall = "dash.fnScopeUsers(@root)", ScopeTable = "#scope";
+
+    /// <summary>The people in scope, listed once at the head of the batch. It returns no rows, so the batch's results are the ones it had.</summary>
+    public const string ScopeFirst = "SELECT sc.UserKey INTO #scope FROM dash.fnScopeUsers(@root) AS sc;\n";
+
     /// <summary>A yyyymmdd key, as bi.DimDate numbers its days: what a report passes as @k0, @k1, @k7 and the like.</summary>
     public static bool IsDateKey(object? value) =>
         value is int k && k is >= 19000101 and <= 22001231 && k / 100 % 100 is >= 1 and <= 12 && k % 100 is >= 1 and <= 31;
 
     /// <summary>
-    /// <paramref name="sql"/> with a hint on each statement that reads between date keys. Unchanged when it has no
-    /// date-key parameter, when its parameters cannot be read, or where a statement already carries a hint.
+    /// <paramref name="sql"/> with the people in scope listed first where it reads inside a manager's part, and a hint on
+    /// each statement that reads between date keys. Unchanged when its parameters cannot be read; a statement that
+    /// already carries a hint keeps it.
     /// </summary>
     public static string Apply(string sql, object? args)
     {
         var values = QueryCache.Values(args);
         if (values is null) return sql;
+        var scoped = values.TryGetValue("root", out var root) && root is string;
+        if (scoped && sql.Contains(ScopeCall, StringComparison.OrdinalIgnoreCase) && !sql.Contains(ScopeTable, StringComparison.OrdinalIgnoreCase))
+            sql = ScopeFirst + sql.Replace(ScopeCall, ScopeTable, StringComparison.OrdinalIgnoreCase);
         var keys = values.Where(kv => IsDateKey(kv.Value)).Select(kv => kv.Key).ToList();
         if (keys.Count == 0) return sql;
         var dates = new Regex(@"@(?:" + string.Join("|", keys.Select(Regex.Escape)) + @")(?![\w@#$])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         if (!dates.IsMatch(sql)) return sql;
-        var scoped = values.TryGetValue("root", out var root) && root is string;
 
         var plain = Blank(sql);   // the same text with strings and comments spaced out: positions agree
         var sb = new StringBuilder(sql.Length + 64);
@@ -69,7 +84,8 @@ public static partial class PlanHints
     [GeneratedRegex(@"\bOPTION\s*\(", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Hinted();
 
-    [GeneratedRegex(@"@root(?![\w@#$])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    /// <summary>A statement inside a manager's part: it names the root, or the list of the people in scope.</summary>
+    [GeneratedRegex(@"(?:@root|#scope)(?![\w@#$])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Root();
 
     /// <summary>The text with every string literal, quoted name and comment replaced by spaces, so a semicolon or a word inside one is not read as SQL.</summary>

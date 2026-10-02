@@ -262,6 +262,17 @@ elseif ($fullBuild) {
 }
 else { Write-Done 'sessions and bi are built; the nightly -Incremental run keeps them current.' }
 
+# 2.4.11: the flatten reads an agent's id and friendly name where the audit log puts them, at the top of the record.
+# Records flattened before have neither. They are read here once, from the records of agents only (minutes, where a
+# re-flatten takes hours), decided from the mark the read leaves, so an install stopped part way reads them the next time.
+if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp_BackfillAgentNames' 'P') -and
+    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtc';") -eq 0) {
+    Write-Done 'agent names: reading the id and friendly name from the records of agents, once (2.4.11)...'
+    Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_BackfillAgentNames;'
+    if (Test-Object $Database 'bi.usp_NameAgents' 'P') { Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_NameAgents;' }
+    $todo += 'Refresh the Power BI model once: agents carry the friendly names the audit log gives them, and bi.Agents gained NamedInAudit.'
+}
+
 # 2.4.6: each resource Copilot read carries its file type. Resources loaded before have none, so bi is refreshed in full
 # once - decided from the data, not from this run, so an install stopped part way finishes it the next time.
 # 2.4.8: each interaction carries what its record says about licensed use (UseKind), which Premium use is now decided
