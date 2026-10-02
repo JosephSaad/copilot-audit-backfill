@@ -88,6 +88,16 @@ nav.side .grp.mine { border-bottom: 1px solid var(--rule); padding-bottom: 3px; 
 nav.side.finding .grp.mine { display: none; }
 .card.mine { border-color: var(--accent); }
 html:not(.js) .gname::after, html:not(.js) .gabout { display: none; }
+/* A narrow window: the sections fold behind one button, so the page starts on the first screen. */
+.navtog { display: none; }
+@media (max-width: 900px) {
+  html.js .navtog { display: flex; width: 100%; box-sizing: border-box; justify-content: space-between; align-items: center; gap: 8px; text-align: left; font: inherit; font-weight: 600;
+    padding: 7px 10px; margin: 2px 0 4px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
+  html.js .navtog::after { content: "\25BE"; color: var(--faint); }
+  html.js .navtog[aria-expanded="true"]::after { content: "\25B4"; }
+  html.js nav.side:not(.shown):not(.finding) #nav-sections { display: none; }
+  nav.side { padding-bottom: 10px; }
+}
 /* Finding: every section shows the links that match, and only those. */
 nav.side.finding .grp > .glinks { display: block !important; }
 nav.side.finding .gname::after, nav.side.finding .gabout { display: none; }
@@ -208,6 +218,8 @@ h1 button.infob { width: 18px; height: 18px; font-size: 12px; vertical-align: 5p
 
 form.admin { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 8px 0; }
 form.admin label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 2px; }
+form.admin label { max-width: 100%; min-width: 0; }
+form.admin select { max-width: 100%; min-width: 0; }
 form.admin input, form.admin select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px; }
 button.btn { font: inherit; background: var(--accent); color: var(--surface); border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
 button.btn.quiet { background: none; color: var(--crit); border: 1px solid var(--rule); padding: 2px 8px; }

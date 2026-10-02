@@ -123,6 +123,10 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   *Licensed* and *Active*. They are *License holders* and *Used Copilot* everywhere (and
   *Share licensed* is *Share with a license*), matching the charts above them. On Use ranking
   the Yes/No column is *Has a license*. The same names head the CSV files.
+- **On a phone the report comes first.** On a narrow window the list of reports sits above the
+  page and filled the first screen. It now folds behind one button that says where you are
+  ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs
+  off a narrow screen.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its

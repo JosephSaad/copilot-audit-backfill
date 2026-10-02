@@ -140,6 +140,15 @@
       g.classList.toggle('open', open);
       g.querySelector('.gname').setAttribute('aria-expanded', open ? 'true' : 'false');
     }
+    // A narrow window: one button shows or hides the sections.
+    var tog = nav.querySelector('.navtog');
+    if (tog) tog.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var on = !nav.classList.contains('shown');
+      nav.classList.toggle('shown', on);
+      tog.setAttribute('aria-expanded', on ? 'true' : 'false');
+    });
+
     // A click on a section opens it, or folds it if it is open, and changes nothing else: the row clicked stays where
     // it is, under the pointer (folding the section above it would move it away). Every page starts with the section
     // it belongs to open and the rest folded, a page come back to with Back too; nothing is remembered between pages.
