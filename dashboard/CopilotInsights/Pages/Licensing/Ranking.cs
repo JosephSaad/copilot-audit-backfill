@@ -59,7 +59,7 @@ public sealed class RankingModel(PageServices s) : InsightsPage(s)
         var ready = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NULL THEN 0 ELSE 1 END") == 1
                     && await Db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE DateKey BETWEEN @k0 AND @k1 AND PremiumUse > 0) THEN 1 ELSE 0 END", Ctx.Args()) == 1;
         if (!ready)
-            Notice = "Premium-feature use is not in the rollups yet: an administrator rebuilds them once (Admin > Health, Rebuild every day). Until then free and premium use are empty.";
+            Notice = "Free and Premium use are not told apart here yet, so those columns are empty. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
         var pg = new Paging(Request, new Dictionary<string, string>(Sorts) { ["rank"] = By[by].Order.Replace("r.", "x.") }, "rank");
         /* Ranked over everyone in scope with any use, before the search and the license filter, so a person's rank does not change with them. */
         var rows = await Db.QueryAsync<Row>($@"

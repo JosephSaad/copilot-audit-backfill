@@ -107,7 +107,7 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "Use-case rules arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "The board pack needs use cases, which are not set up here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
         /* In steps (2.4.2): the rules read once into #uc, one row a person and use case in #k, then a plain count.
            As one statement the optimizer ran the rules per group and counted distinct people: 22 seconds for a year. */

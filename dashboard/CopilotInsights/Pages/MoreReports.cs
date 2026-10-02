@@ -20,7 +20,7 @@ namespace CopilotInsights.Pages.Leadership
             /* Premium use is recorded once the rollups are rebuilt with 2.3.0; before that it is all zero, so the split is left out. */
             var split = await Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
             if (!split)
-                Notice = "Premium-feature use is not in the rollups yet: an administrator rebuilds them once (Admin > Health, Rebuild every day). Until then adoption is not split into Premium and free only.";
+                Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
             var prev = new ReportContext
             {
                 Viewer = Ctx.Viewer, Days = Ctx.Days, Start = Ctx.Start.AddDays(-Ctx.Days), End = Ctx.End.AddDays(-Ctx.Days),

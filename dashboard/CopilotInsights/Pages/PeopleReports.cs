@@ -267,7 +267,7 @@ namespace CopilotInsights.Pages.Workforce
 
         protected override async Task BuildAsync()
         {
-            if (!await ops.HasAsync("dash.JobFamilyRule")) { Notice = "Job family rules arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+            if (!await ops.HasAsync("dash.JobFamilyRule")) { Notice = "Job families are not set up here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
             var rules = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.JobFamilyRule;");
             var rows = await Db.QueryAsync<GroupRow>($@"
 WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,

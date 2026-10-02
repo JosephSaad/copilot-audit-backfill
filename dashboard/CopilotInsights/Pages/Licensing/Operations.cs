@@ -40,7 +40,7 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         var pool = await ops.PoolAsync();
         if (pool.Count == 0)
         {
-            Notice = "No license pool yet. It is written by the license tool each night (tools/Update-CopilotAuditEnrichment.ps1, 2.3.0 or later).";
+            Notice = "No license pool has been loaded yet. The license tool writes it each night; an administrator can run it now (tools\\Update-CopilotAuditEnrichment.ps1).";
             return;
         }
         var (price, cur) = await Price.GetAsync(S.Settings);

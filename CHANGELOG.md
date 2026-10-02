@@ -167,6 +167,10 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   app*), is drawn like the dashboard's other boxes, and links to the report where one can be
   picked by name. Messages that said "in your scope" say "among the people you can see", and
   the Leaderboard by country or company no longer counts "countrys" and "companys".
+- **"Not set up yet" messages are written for the reader.** A report whose data is not there
+  yet said so in installer's terms ("arrive with 2.3.0's operations schema", "not in the
+  rollups yet"). Each now says what is missing in plain words, then what an administrator
+  does about it.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs

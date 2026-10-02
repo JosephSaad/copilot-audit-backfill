@@ -198,7 +198,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&handler=script"))}\">PowerShell script</a> for a license administrator to review and run " +
             $"({(await S.Settings.StringAsync("LicenseGroupId") is null ? "assigns the license directly; set a licensing group in Admin > Targets and assumptions to use group membership instead" : "through the licensing group")}).</p>";
         if (!premiumReady && kind != "upgrade")
-            Notice = "Premium-feature use is not in the rollups yet, so train and revoke count any use, as before 2.3.0. An administrator rebuilds the rollups once (Admin > Health, Rebuild every day) to separate Premium features from web Copilot Chat.";
+            Notice = "Use of Premium features is not yet told apart from free Copilot Chat here, so the train and revoke lists count any use. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + (kind == "upgrade" ? "" : await ProtectedNoteAsync()) + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "License type Copilot recorded: what Copilot itself wrote into the person's latest record (Premium, or Starter for the free Copilot Chat).", "full", CsvUrl()));
     }

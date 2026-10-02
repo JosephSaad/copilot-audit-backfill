@@ -210,7 +210,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
             $"<p class=\"sub\">License: {choices}</p>" +
             $"<p class=\"sub\">Last database update: {E(When(facts.Refreshed))} · Latest audit record: {E(When(facts.Latest))}</p>"),
             "Licensed: holding a Copilot license on the last day of the period. Unlicensed: not holding one that day. " +
-            "Last database update: when the dashboard's rollups last finished. Latest audit record: the newest Copilot interaction loaded."));
+            "Last database update: when the dashboard's figures were last rebuilt. Latest audit record: the newest Copilot interaction loaded."));
 
         /* KPIs: the people of the type, and how many used Copilot in the period. */
         var total = days.Sum(d => d.People);
@@ -237,8 +237,8 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         Panels.Add(new("Copilot use by source", Chart.Bars(shownSources, Fmt.Count, "Resources Copilot read, by file type"),
             fileTypes
                 ? "The resources Copilot read to answer them: a file by its extension (docx, xlsx, pptx, csv ...), and anything else by its kind (a mail, a Teams message, a Stream video, a whiteboard, a web search). " +
-                  "Resources read before 2.4.6 show as (not reported) until bi is refreshed in full once, which the 2.4.6 installer does."
-                : "The resources Copilot read to answer them, by the kind the audit record gives. Install 2.4.6's scripts to split files by type.", "half"));
+                  "Records loaded by an earlier release show as (not reported) until the report tables are rebuilt once, which the installer does."
+                : "The resources Copilot read to answer them, by the kind the audit record gives. Files are split by type once an administrator installs the current release's scripts.", "half"));
 
         /* The most and least active people of the type. */
         static string Who(Person p) => p.DisplayName ?? p.UserPrincipalName;

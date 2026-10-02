@@ -38,7 +38,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
             Notice = "The budget is the whole tenant's, so it needs the whole-organization view or the Licensing role.";
             return;
         }
-        if (!await ops.HasAsync("dash.LicenseContract")) { Notice = "Contracts arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        if (!await ops.HasAsync("dash.LicenseContract")) { Notice = "Contracts cannot be recorded here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
         var contracts = await Db.QueryAsync<Contract>("SELECT ContractId, Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note FROM dash.LicenseContract ORDER BY RenewalDate;");
         var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
@@ -276,7 +276,7 @@ o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
 
     protected override async Task BuildAsync()
     {
-        if (!await ops.HasAsync("dash.LicenseAction")) { Notice = "License exports are recorded from 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        if (!await ops.HasAsync("dash.LicenseAction")) { Notice = "License exports are not recorded here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
         var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var batches = await Db.QueryAsync<Batch>(Base + @"
