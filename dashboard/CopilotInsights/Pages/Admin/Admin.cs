@@ -256,14 +256,20 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             Input("LicenseCurrency", "Currency", set.GetValueOrDefault("LicenseCurrency"), 4) +
             Input("PaygInteractionCost", "Pay-as-you-go cost an interaction", set.GetValueOrDefault("PaygInteractionCost") ?? "0.12", 6) +
             ZonePicker(set.GetValueOrDefault(Zones.Setting), reportingZone) +
-            Button("Save settings"))),
-            "The top is usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows" +
-            (set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({det})" : "") +
-            ". Groups smaller than the minimum are folded into \"Smaller groups\" in breakdowns. The pay-as-you-go cost is what one agent or work-grounded chat interaction costs in Copilot Credits " +
-            "without a license, for Licensing > Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, grounded in tenant data, 10) at 0.01 each. " +
-            $"Time zone: every time the dashboard shows, and the hour digests, alerts and extracts go out, is in it. It is {Zones.Label(Zone)} now ({Zones.Source(set.GetValueOrDefault(Zones.Setting), reportingZone)}). Left on Default, it is the zone the data's days are cut in, which a new install takes from its server. " +
-            (reportingZone is null ? "" : $"The days in the reports are cut in {reportingZone}, set when the data was installed; choosing a zone here does not move them. ") +
-            "A change takes effect at once."));
+            Button("Save settings")) +
+            /* What each setting does, one line a setting (2.4.10: it was one paragraph for all of them). */
+            "<ul class=\"tips sub\">" +
+            $"<li><b>Top of the organization.</b> Usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows{(set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({E(det)})" : "")}.</li>" +
+            "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, so no figure describes one or two people.</li>" +
+            "<li><b>Default period.</b> The period every report opens with.</li>" +
+            "<li><b>Unused after.</b> The days without any use after which a license counts as unused.</li>" +
+            "<li><b>License cost a month, and currency.</b> Used wherever a cost or a saving is shown.</li>" +
+            "<li><b>Pay-as-you-go cost an interaction.</b> What one agent or work-grounded chat interaction costs in Copilot Credits without a license, for Licensing &gt; Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, and tenant data, 10) at 0.01 each.</li>" +
+            $"<li><b>Time zone.</b> Every time the dashboard shows, and the hour digests, alerts and extracts go out, is in it. It is {E(Zones.Label(Zone))} now ({E(Zones.Source(set.GetValueOrDefault(Zones.Setting), reportingZone))}). " +
+            "Left on Default, it is the zone the data's days are cut in, which a new install takes from its server. " +
+            (reportingZone is null ? "" : $"The days in the reports are cut in {E(reportingZone)}, set when the data was installed; choosing a zone here does not move them.") + "</li>" +
+            "</ul>"),
+            "A change takes effect at once, and is recorded in the audit log."));
 
         /* Who can open the dashboard (2.4.4): levels 1 to N below the top, with each choice's head count. */
         var levels = await Db.QueryAsync<(byte? Level, int N)>("SELECT Level, COUNT(*) FROM dash.Person WHERE AccountEnabled = 1 GROUP BY Level ORDER BY Level;");

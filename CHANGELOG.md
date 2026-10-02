@@ -102,6 +102,8 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   grounding* and *Web grounded* are *Interactions that searched the web* and *Searched the
   web*; *Agent sprawl* is *Every agent seen, by where it was built*, with what sprawl looks
   like in its note; the deferred data-loss check says what the mark is and who sets it.
+- **Admin › Access explains each setting on its own line,** under the form, instead of in one
+  paragraph for all of them.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its
