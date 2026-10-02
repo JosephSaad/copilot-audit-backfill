@@ -15,11 +15,14 @@ namespace CopilotInsights.Infrastructure;
 /// stamp, the query's text and every parameter's name and value: everything that decides who sees what (the scope
 /// root, the role-gated SQL) is in those, so a result is only ever given to a request that would have run the very
 /// same query. Only report pages opt in (see <see cref="Use"/>); admin pages, exports, the data API, forms and the
-/// background checks always read the database.
+/// background checks always read the database. A query that reads a table people change all day (triage, exported
+/// actions, confirmations) is kept under that table's version as well, read from the database for each page that asks
+/// (2.4.11): a change there ends only the results that read it, and is seen by the very next page.
 /// </summary>
 public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> options, ILogger<QueryCache> log)
 {
     static readonly AsyncLocal<bool> _on = new();
+    static readonly AsyncLocal<System.Collections.Concurrent.ConcurrentDictionary<string, string>?> _seen = new();
     static readonly FieldInfo? _templates = typeof(Dapper.DynamicParameters).GetField("templates", BindingFlags.Instance | BindingFlags.NonPublic);
     readonly int _minutes = options.Value.QueryCacheMinutes;
     long _hits, _misses;
@@ -27,6 +30,7 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
     /// <summary>The data's stamp for each tenant: anything cached under an older one is never read again.</summary>
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _stamps = new();
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _writes = new();
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _liveWrites = new();
 
     public bool Enabled => _minutes > 0;
     public (long Hits, long Misses) Counts => (Interlocked.Read(ref _hits), Interlocked.Read(ref _misses));
@@ -38,14 +42,27 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
     public static IDisposable Use()
     {
         var before = _on.Value;
+        var seen = _seen.Value;
         _on.Value = true;
-        return new Scope(before);
+        _seen.Value ??= new();
+        return new Scope(before, seen);
     }
 
-    sealed class Scope(bool before) : IDisposable
+    sealed class Scope(bool before, System.Collections.Concurrent.ConcurrentDictionary<string, string>? seen) : IDisposable
     {
-        public void Dispose() => _on.Value = before;
+        public void Dispose() { _on.Value = before; _seen.Value = seen; }
     }
+
+    /// <summary>
+    /// The versions of the tables that change all day, as the page building itself now first read them: one read of
+    /// each for a page, however many of its queries name the table. Null outside <see cref="Use"/>.
+    /// </summary>
+    public static System.Collections.Concurrent.ConcurrentDictionary<string, string>? Seen => _seen.Value;
+
+    /// <summary>This server wrote to a table that changes all day: part of that table's version, with what the database says.</summary>
+    public void WroteLive(string tenant, string table) => _liveWrites.AddOrUpdate(tenant + "|" + table.ToLowerInvariant(), 1, (_, n) => n + 1);
+
+    public long LiveWrites(string tenant, string table) => _liveWrites.GetValueOrDefault(tenant + "|" + table.ToLowerInvariant(), 0);
 
     /// <summary>The stamp of the tenant's data, set by <see cref="DataStamp"/> and bumped by every write the dashboard makes.</summary>
     public string Stamp(string tenant) => _stamps.GetValueOrDefault(tenant, "0") + ":" + _writes.GetValueOrDefault(tenant, 0);
@@ -55,10 +72,11 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
     /// <summary>The dashboard wrote something (a setting, a grant, a triage): nothing cached before it is read again.</summary>
     public void Wrote(string tenant) => _writes.AddOrUpdate(tenant, 1, (_, n) => n + 1);
 
-    public async Task<T> GetAsync<T>(string tenant, string kind, string sql, object? args, Func<Task<T>> read)
+    /// <param name="live">The versions of the tables that change all day that the query names; without them such a query is not kept.</param>
+    public async Task<T> GetAsync<T>(string tenant, string kind, string sql, object? args, Func<Task<T>> read, string? live = null)
     {
-        if (!Enabled || !On || DataStamp.Volatile(sql) || Key(sql, args) is not { } k) return await read();
-        var key = $"q:{tenant}:{Stamp(tenant)}:{kind}:{typeof(T).FullName}:{k}";
+        if (!Enabled || !On || (live is null && DataStamp.Volatile(sql)) || Key(sql, args) is not { } k) return await read();
+        var key = $"q:{tenant}:{Stamp(tenant)}:{kind}:{typeof(T).FullName}:{k}" + (live is null ? "" : ":" + live);
         if (cache.TryGetValue(key, out object? found) && found is Lazy<Task<T>> lazy)
         {
             Interlocked.Increment(ref _hits);
@@ -85,6 +103,17 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
             var sb = new StringBuilder(sql).Append('\u0001');
             foreach (var (name, value) in values) sb.Append(name).Append('=').Append(Text(value)).Append('\u0002');
             return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sb.ToString())));
+        }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>A query's parameters by name, or null when they cannot be read (see <see cref="Key"/>).</summary>
+    public static IReadOnlyDictionary<string, object?>? Values(object? args)
+    {
+        try
+        {
+            var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            return Collect(args, values) ? values : null;
         }
         catch (Exception) { return null; }
     }

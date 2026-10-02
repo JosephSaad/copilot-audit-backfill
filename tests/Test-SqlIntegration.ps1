@@ -540,6 +540,44 @@ FROM audit.RawLogFlattened;
     Assert-That ([long] $x.FinanceSite -eq $expectedTotal -and [long] $x.MailSite -eq $exp19) 'sites cut to https://host/sites/name, and to the host elsewhere'
     Assert-That ([long] $x.LabeledElements -eq $expectedTotal -and [long] $x.Contexts -eq $expectedTotal) 'element labels parsed as GUIDs, and one Contexts row per context'
 
+    # 2.4.11: an agent's id and friendly name sit at the top of the record. Every 23rd mock record is a declarative
+    # agent's, renamed on the 5th.
+    $exp23 = Get-EveryNth 23
+    $agentSql = @"
+SELECT (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AgentName IS NOT NULL) AS Named,
+       (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AgentId LIKE N'CopilotStudio.Declarative.T[_]%') AS WithId,
+       (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AppIdentity LIKE N'Copilot.Studio.Declarative.%') AS AgentRecords,
+       (SELECT COUNT(DISTINCT AgentName) FROM audit.RawLogFlattened) AS Names,
+       (SELECT TOP (1) AgentName FROM audit.RawLogFlattened WHERE AgentName IS NOT NULL ORDER BY UtcTimeStamp DESC, RecordId DESC) AS LatestName,
+       (SELECT COUNT(*) FROM audit.AgentCatalog) AS Agents,
+       (SELECT MAX(AgentName) FROM audit.AgentCatalog) AS CatalogName,
+       (SELECT CASE WHEN MAX(NameSeenUtc) = (SELECT MAX(UtcTimeStamp) FROM audit.RawLogFlattened WHERE AgentName IS NOT NULL)
+                     AND MIN(FirstSeenUtc) = (SELECT MIN(UtcTimeStamp) FROM audit.RawLogFlattened WHERE AppIdentity LIKE N'Copilot.Studio.%') THEN 1 ELSE 0 END
+        FROM audit.AgentCatalog) AS Times,
+       (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtc') AS Mark;
+"@
+    $ag = (Invoke-SqlText -As Table -Sql $agentSql).Rows[0]
+    Assert-That ([long] $ag.Named -eq $exp23 -and [long] $ag.WithId -eq $exp23 -and [long] $ag.AgentRecords -eq $exp23) `
+        ("2.4.11: the agent's id and friendly name are read from the top of the record ({0:N0} named, {1:N0} with an id, of {2:N0} agent records)" -f $ag.Named, $ag.WithId, $ag.AgentRecords)
+    Assert-That ([int] $ag.Agents -eq 1 -and [int] $ag.Names -eq 2 -and "$($ag.CatalogName)" -eq 'Expense Policy Helper' -and "$($ag.CatalogName)" -eq "$($ag.LatestName)" -and [int] $ag.Times -eq 1) `
+        "the agent catalog holds the agent once, under the name its latest record gave it, though the batches came in no order of time ($($ag.CatalogName))"
+    Assert-That ([int] $ag.Mark -eq 1) 'and a flatten of every record leaves the mark that no record is left to read for agent names'
+
+    # Records flattened before 2.4.11 have neither: the one-time read fills them from the stored JSON, and only them.
+    $flatStamp = { [string] (Invoke-SqlText -As Scalar -Sql "SELECT CONCAT(COUNT_BIG(*), N':', CHECKSUM_AGG(CHECKSUM(RecordId, [User], App, ThreadId, FlattenedUtc, AccessedResourceCount, UserKey))) FROM audit.RawLogFlattened;") }
+    $stamp0 = & $flatStamp
+    Invoke-SqlText -Sql "UPDATE audit.RawLogFlattened SET AgentId = NULL, AgentName = NULL; DELETE FROM audit.AgentCatalog; DELETE FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtc';"
+    Invoke-SqlText -Sql 'EXEC audit.usp_BackfillAgentNames @BatchSize = 1000;' -ShowMessages
+    $ag2 = (Invoke-SqlText -As Table -Sql $agentSql).Rows[0]
+    Assert-That ([long] $ag2.Named -eq $exp23 -and [long] $ag2.WithId -eq $exp23 -and "$($ag2.CatalogName)" -eq 'Expense Policy Helper' -and [int] $ag2.Agents -eq 1 -and [int] $ag2.Times -eq 1 -and [int] $ag2.Mark -eq 1) `
+        ("audit.usp_BackfillAgentNames gives records flattened before 2.4.11 their agent's id and name, from the JSON ({0:N0} of {1:N0})" -f $ag2.Named, $exp23)
+    Assert-That ((& $flatStamp) -eq $stamp0) 'and touches nothing else of any record'
+    Invoke-SqlText -Sql "UPDATE audit.RawLogFlattened SET AgentName = N'kept' WHERE RecordId = (SELECT MIN(RecordId) FROM audit.RawLogFlattened WHERE AgentName = N'Expense helper');"
+    Invoke-SqlText -Sql 'EXEC audit.usp_BackfillAgentNames;'
+    $kept = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AgentName = N'kept';")
+    Assert-That ($kept -eq 1) 'run again, it reads only what is still empty: a name already there is kept'
+    Invoke-SqlText -Sql "UPDATE audit.RawLogFlattened SET AgentName = N'Expense helper' WHERE AgentName = N'kept'; UPDATE audit.AgentCatalog SET AgentName = N'Expense Policy Helper';"
+
     # IsCopilotLic fills in once the license table has the user.
     Invoke-SqlText -Sql "INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic) VALUES (N'user0@contoso.com', 1)"
     Invoke-SqlText -Sql 'EXEC audit.usp_FlattenCopilotAudit @BatchSize = 50000' -TimeoutSeconds 1800
@@ -1395,13 +1433,19 @@ INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], 
 UPDATE audit.RawLogFlattened SET ModelProvider = N'OpenAI', ModelName = N'gpt-5' WHERE RecordId = N's-01';
 UPDATE audit.RawLogFlattened SET AIPlugin = N'BingWebSearch' WHERE RecordId = N's-02';
 UPDATE audit.RawLogFlattened SET JailbreakDetected = N'true', PromptInjectionDetected = N'false' WHERE RecordId = N's-03';
+-- An agent the record names only by AgentId, with its friendly name.
 UPDATE audit.RawLogFlattened SET AgentId = N'agent-1', AgentName = N'Old name' WHERE RecordId = N's-08';
--- A Copilot Studio agent named only in AppIdentity, as on a live tenant; and
--- an AgentId, where there is one, wins over AppIdentity.
+-- A Copilot Studio agent named in AppIdentity, as on a live tenant. Its earlier record (s-09, 14:05) carries an
+-- AgentId too and the name its maker first gave it; its later one (s-10, 14:20) no id, and the name after a rename.
 UPDATE audit.RawLogFlattened SET AppIdentity = N'Copilot.Studio.Default-7d53f522-72db-4957-aa26-2d1fe476b96f-crd20_expenseAgent' WHERE RecordId IN (N's-10', N's-09');
+UPDATE audit.RawLogFlattened SET AgentId = N'agent-1', AgentName = N'Expense bot' WHERE RecordId = N's-09';
+UPDATE audit.RawLogFlattened SET AgentName = N'Expense agent' WHERE RecordId = N's-10';
+-- One of Microsoft's, which the log never names here.
 UPDATE audit.RawLogFlattened SET AppIdentity = N'MicrosoftAgent.OutlookDraftsChatSteering.BuiltIn_DraftsAgent' WHERE RecordId = N's-04';
 UPDATE audit.RawLogFlattened SET AppIdentity = N'Copilot.M365Copilot.WebChat' WHERE RecordId = N's-01';
-UPDATE audit.RawLogFlattened SET AgentId = N'agent-1', AgentName = N'New name' WHERE RecordId = N's-09';
+-- The flatten catalogs each batch's agents; these rows were written here, so the catalog is read from them.
+DELETE FROM audit.AgentCatalog;
+EXEC audit.usp_CatalogAgents;
 "@
 
 $biRefused = { param([string] $Sql) try { [void] (Invoke-SqlText -As Table -Sql $Sql); return '' } catch { return $_.Exception.GetBaseException().Message } }
@@ -1455,10 +1499,16 @@ Assert-That ([int] $tr['s-02'].UsedWebSearch -eq 1 -and [int] $flags.Web -eq 1 -
 $dims = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT AppCategory FROM bi.DimApp WHERE App = N'Office') AS OfficeCat,
        (SELECT AppCategory FROM bi.DimApp WHERE App = N'Word') AS WordCat,
-       (SELECT AgentName FROM bi.DimAgent WHERE AgentId = N'agent-1') AS AgentName,
-       (SELECT CONCAT(g.AgentName, '/', g.AgentSource) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-10') AS StudioAgent,
-       (SELECT CONCAT(g.AgentName, '/', g.AgentSource) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-04') AS MsAgent,
-       (SELECT CONCAT(g.AgentId, '/', g.AgentSource) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-09') AS S09Agent,
+       (SELECT CONCAT(AgentName, '/', AgentSource, '/', CAST(NamedInAudit AS INT)) FROM bi.DimAgent WHERE AgentId = N'agent-1') AS IdAgent,
+       (SELECT CONCAT(g.AgentName, '/', g.AgentSource, '/', CAST(g.NamedInAudit AS INT)) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-10') AS StudioAgent,
+       (SELECT CONCAT(g.AgentName, '/', g.AgentSource, '/', CAST(g.NamedInAudit AS INT)) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-04') AS MsAgent,
+       (SELECT CONCAT(g.AgentName, '/', g.AgentSource) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId = N's-09') AS S09Agent,
+       (SELECT COUNT(DISTINCT f.AgentKey) FROM bi.FactInteraction AS f WHERE f.RecordId IN (N's-09', N's-10')) AS StudioKeys,
+       (SELECT STRING_AGG(CONCAT(i.AgentId, '|', i.AgentSource, '|', ISNULL(i.DerivedName, N'-')), ' ; ') WITHIN GROUP (ORDER BY v.n)
+        FROM (VALUES (1, N'Copilot.Studio.Declarative.T_0a1b2c3d-1111-2222-3333-444455556666', CAST(NULL AS NVARCHAR(400))),
+                     (2, N'Copilot.MicrosoftCopilot.BizChat', N'CopilotStudio.Declarative.9f8e7d6c'),
+                     (3, N'MicrosoftAgent.Researcher', NULL), (4, NULL, NULL)) AS v (n, App, Id)
+        CROSS APPLY bi.fnAgentIdentity(v.App, v.Id) AS i) AS Identities,
        (SELECT COUNT(*) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS g ON g.AgentKey = f.AgentKey WHERE g.AgentId = N'(none)') AS NoAgent,
        (SELECT m.ModelName FROM bi.FactInteraction AS f JOIN bi.DimModel AS m ON m.ModelKey = f.ModelKey WHERE f.RecordId = N's-01') AS S01Model,
        (SELECT Department FROM bi.DimUser WHERE UserPrincipalName = N'a@contoso.com') AS ADept,
@@ -1469,11 +1519,32 @@ SELECT (SELECT AppCategory FROM bi.DimApp WHERE App = N'Office') AS OfficeCat,
 "@).Rows[0]
 Assert-That ("$($dims.OfficeCat)" -eq 'Copilot Chat' -and "$($dims.WordCat)" -eq 'In-App Copilot') `
     "apps carry the sessions' category mapping ($($dims.OfficeCat), $($dims.WordCat))"
-Assert-That ("$($dims.AgentName)" -eq 'New name' -and [int] $dims.NoAgent -eq ($flatRows - 4)) `
-    "an agent is named by its latest name, and interactions without one - a non-agent AppIdentity included - map to '(no agent)' ($($dims.AgentName), $($dims.NoAgent))"
-Assert-That ("$($dims.StudioAgent)" -eq 'crd20_expenseAgent/Copilot Studio' -and "$($dims.MsAgent)" -eq 'BuiltIn_DraftsAgent/Microsoft') `
-    "with no AgentId, the agent comes from AppIdentity: Copilot Studio and Microsoft agents ($($dims.StudioAgent), $($dims.MsAgent))"
-Assert-That ("$($dims.S09Agent)" -eq 'agent-1/Agent ID') "an AgentId wins over AppIdentity ($($dims.S09Agent))"
+Assert-That ("$($dims.IdAgent)" -eq 'Old name/Agent ID/1' -and [int] $dims.NoAgent -eq ($flatRows - 4)) `
+    "an agent the record names only by AgentId is keyed on it and carries its friendly name; interactions without one - a non-agent AppIdentity included - map to '(no agent)' ($($dims.IdAgent), $($dims.NoAgent))"
+Assert-That ("$($dims.StudioAgent)" -eq 'Expense agent/Copilot Studio/1') `
+    "2.4.11: a Copilot Studio agent shows the friendly name the audit log gave it last, not its schema name ($($dims.StudioAgent))"
+Assert-That ([int] $dims.StudioKeys -eq 1 -and "$($dims.S09Agent)" -eq 'Expense agent/Copilot Studio') `
+    "the agent AppIdentity names stays one agent whether or not a record carries an AgentId, and its earlier record shows the later name ($($dims.S09Agent))"
+Assert-That ("$($dims.MsAgent)" -eq 'OutlookDraftsChatSteering/Microsoft/0') "an agent the log never names is named from its id: Microsoft's own name for it ($($dims.MsAgent))"
+Assert-That ("$($dims.Identities)" -eq 'Copilot.Studio.Declarative.T_0a1b2c3d-1111-2222-3333-444455556666|Copilot Studio|Declarative.T_0a1b2c3d-1111-2222-3333-444455556666 ; CopilotStudio.Declarative.9f8e7d6c|Agent ID|- ; MicrosoftAgent.Researcher|Microsoft|Researcher ; (none)|(no agent)|-') `
+    "bi.fnAgentIdentity: an identity ending in an id is not cut to its last twelve characters; an AgentId names the agent only where AppIdentity names none ($($dims.Identities))"
+
+# A rename: the agent's next record carries a new name. The catalog takes it, and the same key is relabeled, in facts
+# no refresh touches; an older record arriving late changes nothing.
+$studioKey = [int] (Invoke-SqlText -As Scalar -Sql "SELECT AgentKey FROM bi.FactInteraction WHERE RecordId = N's-10';")
+Invoke-SqlText -Sql @"
+UPDATE audit.RawLogFlattened SET AgentName = N'Expense desk' WHERE RecordId = N's-10';
+UPDATE audit.RawLogFlattened SET AgentName = N'Ancient name' WHERE RecordId = N's-09';
+EXEC audit.usp_CatalogAgents;
+EXEC bi.usp_NameAgents;
+"@
+$ren = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT STRING_AGG(CONCAT(g.AgentKey, ':', g.AgentName), ',') WITHIN GROUP (ORDER BY f.RecordId)
+        FROM bi.FactInteraction AS f JOIN bi.Agents AS g ON g.AgentKey = f.AgentKey WHERE f.RecordId IN (N's-09', N's-10')) AS Named,
+       (SELECT COUNT(*) FROM bi.DimAgent) AS Agents;
+"@).Rows[0]
+Assert-That ("$($ren.Named)" -eq "${studioKey}:Expense desk,${studioKey}:Expense desk" -and [int] $ren.Agents -eq 4) `
+    "a renamed agent keeps its key and all its history takes the new name; a name on an older record does not undo it ($($ren.Named); $($ren.Agents) agents)"
 Assert-That ("$($dims.S01Model)" -eq 'gpt-5') "the model dimension carries provider and name ($($dims.S01Model))"
 Assert-That ("$($dims.ADept)" -eq 'Finance' -and "$($dims.BToday)" -eq 'Not licensed' -and "$($dims.UnknownDir)" -eq 'Not looked up') `
     "users carry the AD attributes and today's license ($($dims.ADept), $($dims.BToday), $($dims.UnknownDir))"
@@ -1939,6 +2010,43 @@ Assert-That ($up -like '*bi, in full*' -and $up -like '*Refresh the Power BI mod
 $moved = try { & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -ReportingTimeZone 'Pacific Standard Time' 6>$null | Out-Null; '' } catch { $_.Exception.Message }
 $still = [string] (Invoke-SqlText -As Scalar -Sql 'SELECT audit.ReportingTimeZone();')
 Assert-That ($moved -like '*already holds records cut in Eastern Standard Time*' -and $still -eq 'Eastern Standard Time') 'the time zone cannot be changed once records are loaded'
+
+# Upgrading from 2.4.10: the records of agents were flattened without their id and friendly name. The installer reads
+# them once, from those records' JSON, and names the agents in bi; the next run has nothing to read.
+# The state 2.4.10 leaves: two records of a declarative agent with their JSON, flattened with AppIdentity alone, and
+# the agent in bi under a name read from its id. (c-01 and c-02 stand in for them, and are put back after.)
+$declId = 'Copilot.Studio.Declarative.T_0a1b2c3d-1111-2222-3333-444455556666'
+Invoke-SqlText -Sql @"
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId) VALUES
+    ('c-01', '2026-09-15T15:00:00', 'copilotInteraction', 'CopilotInteraction', N'c@contoso.com', N'c@contoso.com',
+     COMPRESS(N'{"CreationTime":"2026-09-15T15:00:00Z","Id":"c-01","Operation":"CopilotInteraction","UserId":"c@contoso.com","AppIdentity":"$declId","AgentId":"CopilotStudio.Declarative.T_0a1b2c3d-1111-2222-3333-444455556666.9f8e7d6c","AgentName":"Expense helper","CopilotEventData":{"AppHost":"Teams"}}'), 0),
+    ('c-02', '2026-09-17T15:00:00', 'copilotInteraction', 'CopilotInteraction', N'c@contoso.com', N'c@contoso.com',
+     COMPRESS(N'{"CreationTime":"2026-09-17T15:00:00Z","Id":"c-02","Operation":"CopilotInteraction","UserId":"c@contoso.com","AppIdentity":"$declId","AgentId":"CopilotStudio.Declarative.T_0a1b2c3d-1111-2222-3333-444455556666.9f8e7d6c","AgentName":"Expense Policy Helper","CopilotEventData":{"AppHost":"Teams"}}'), 0);
+UPDATE audit.RawLogFlattened SET AppIdentity = N'$declId', AgentId = NULL, AgentName = NULL WHERE RecordId IN (N'c-01', N'c-02');
+INSERT INTO bi.DimAgent (AgentId, AgentSource) VALUES (N'$declId', N'Copilot Studio');
+DELETE FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtc';
+EXEC bi.usp_NameAgents;
+"@
+$declSql = "SELECT CONCAT(AgentName, '/', CAST(NamedInAudit AS INT)) FROM bi.DimAgent WHERE AgentId = N'$declId';"
+$unnamed = [string] (Invoke-SqlText -As Scalar -Sql $declSql)
+$others0 = [string] (Invoke-SqlText -As Scalar -Sql "SELECT CONCAT(COUNT(*), ':', COUNT(AgentName), ':', COUNT(AgentId)) FROM audit.RawLogFlattened WHERE RecordId NOT IN (N'c-01', N'c-02');")
+$names = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
+$named = [string] (Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CONCAT(RecordId, '=', AgentName, '/', RIGHT(AgentId, 8)), ';') WITHIN GROUP (ORDER BY RecordId) FROM audit.RawLogFlattened WHERE RecordId IN (N'c-01', N'c-02');")
+$renamed = [string] (Invoke-SqlText -As Scalar -Sql $declSql)
+$others1 = [string] (Invoke-SqlText -As Scalar -Sql "SELECT CONCAT(COUNT(*), ':', COUNT(AgentName), ':', COUNT(AgentId)) FROM audit.RawLogFlattened WHERE RecordId NOT IN (N'c-01', N'c-02');")
+Assert-That ($unnamed -eq 'Declarative.T_0a1b2c3d-1111-2222-3333-444455556666/0') "before the upgrade a declarative agent is named from its id, whole, not by its last twelve characters ($unnamed)"
+Assert-That ($names -like '*agent names: reading*' -and $names -notlike '*flattening*' -and $named -eq 'c-01=Expense helper/9f8e7d6c;c-02=Expense Policy Helper/9f8e7d6c' -and $others1 -eq $others0) `
+    "an upgrade from 2.4.10 reads the agents' ids and friendly names once, from their records' JSON, without flattening again ($named)"
+Assert-That ($renamed -eq 'Expense Policy Helper/1') "and bi shows the name the agent's latest record gave it ($renamed)"
+Assert-That ($names -like '*Refresh the Power BI model once: agents carry the friendly names*') 'with the model refresh left to do'
+$namesOnce = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
+Assert-That ($namesOnce -notlike '*agent names: reading*') 'and only once'
+Invoke-SqlText -Sql @"
+DELETE FROM audit.CopilotAudit WHERE RecordId IN ('c-01', 'c-02');
+UPDATE audit.RawLogFlattened SET AppIdentity = NULL, AgentId = NULL, AgentName = NULL WHERE RecordId IN (N'c-01', N'c-02');
+DELETE FROM audit.AgentCatalog WHERE AppIdentity = N'$declId';
+DELETE FROM bi.DimAgent WHERE AgentId = N'$declId';
+"@
 
 $status = & $maint @conn -Database $script:ITDatabase -Task Status | Out-String
 $topNow = [string] (Invoke-SqlText -As Scalar -Sql "SELECT COALESCE(MAX(CASE WHEN Name = N'OrgTopUpn' THEN NULLIF(Value, N'') END), MAX(CASE WHEN Name = N'OrgTopUpnDetected' THEN Value END)) FROM dash.Setting;")

@@ -84,8 +84,8 @@ IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL
         UtcTimeStamp                    DATETIME2(0)    NULL,   -- $.CreationTime, typed
         AppIdentity                     NVARCHAR(200)   NULL,   -- $.AppIdentity
         ThreadId                        NVARCHAR(400)   NULL,   -- $.CopilotEventData.ThreadId
-        AgentId                         NVARCHAR(400)   NULL,   -- $.CopilotEventData.AgentId
-        AgentName                       NVARCHAR(400)   NULL,   -- $.CopilotEventData.AgentName
+        AgentId                         NVARCHAR(400)   NULL,   -- $.AgentId (2.4.11), else $.CopilotEventData.AgentId
+        AgentName                       NVARCHAR(400)   NULL,   -- $.AgentName, the agent's friendly name (2.4.11), else $.CopilotEventData.AgentName
         ModelName                       NVARCHAR(200)   NULL,   -- ModelTransparencyDetails[0].ModelName
         ModelProvider                   NVARCHAR(200)   NULL,   -- ModelTransparencyDetails[0].ModelProviderName
         AccessedResourceCount           INT             NULL,
@@ -300,6 +300,33 @@ IF OBJECT_ID(N'audit.ValueCatalog', N'U') IS NULL
         LastSeenUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_ValueCatalog_Last DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT PK_ValueCatalog PRIMARY KEY (ColumnId, Value)
     );
+/*
+    The agent catalog (2.4.11): every agent the audit log names, with the
+    friendly name the log gave it last. A record names its agent in AppIdentity
+    (Copilot.Studio.<...>, MicrosoftAgent.<...>), in AgentId, or in both, and
+    carries the agent's readable name in AgentName - on some records, not all,
+    and makers rename agents. One row per pair of AppIdentity and AgentId as
+    they appear together (N'' where a record has none), kept by the flatten
+    procedure for each batch (audit.usp_CatalogAgents), so the name is known
+    from the whole history however short the window a later step reads.
+    bi.usp_NameAgents names bi.DimAgent from it.
+
+    Nothing here counts records: a record re-flattened by the nightly lookback
+    would count again. FirstSeenUtc and LastSeenUtc are the records' own times.
+*/
+IF OBJECT_ID(N'audit.AgentCatalog', N'U') IS NULL
+    CREATE TABLE audit.AgentCatalog
+    (
+        AgentCatalogId INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_AgentCatalog PRIMARY KEY,
+        AppIdentity    NVARCHAR(200)   NOT NULL,   -- $.AppIdentity; N'' when the record has none
+        AgentId        NVARCHAR(400)   NOT NULL,   -- $.AgentId; N'' when the record has none
+        AgentName      NVARCHAR(400)   NULL,       -- $.AgentName on the latest record that carried one
+        NameSeenUtc    DATETIME2(0)    NULL,       -- that record's time
+        FirstSeenUtc   DATETIME2(0)    NULL,       -- the earliest record of this agent
+        LastSeenUtc    DATETIME2(0)    NULL,       -- the latest
+        CONSTRAINT UQ_AgentCatalog UNIQUE (AppIdentity, AgentId)
+    );
+
 /* The ids are stable: names given in dash.ValueName refer to them. */
 MERGE audit.ValueCatalogColumn AS t
 USING (VALUES

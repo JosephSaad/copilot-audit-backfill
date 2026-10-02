@@ -292,7 +292,7 @@ SELECT CONCAT(N'demo-', p.SessionId, N'-', p.PromptNo),
        p.LicensedToday,
        CASE WHEN p.AgentSource = N'Copilot Studio'
             THEN CONCAT(N'Copilot.Studio.Default-5e1f0c2a-1111-4000-8000-000000000000-', p.AgentName)
-            WHEN p.AgentSource = N'Microsoft' THEN CONCAT(N'MicrosoftAgent.BuiltIn.', p.AgentName)
+            WHEN p.AgentSource = N'Microsoft' THEN CONCAT(N'MicrosoftAgent.', p.AgentName, N'.BuiltIn_', p.AgentName, N'Agent')
             ELSE CONCAT(N'Copilot.M365Copilot.', REPLACE(p.App, N' ', N'')) END,
        CONCAT(N'thread-demo-', p.SessionId),
        p.Model, p.Provider,
@@ -306,8 +306,8 @@ JOIN #files AS fl ON fl.f = CASE WHEN p.d = 4 AND p.hp % 9 = 0 THEN 8 WHEN p.d =
 UPDATE audit.RawLogFlattened
 SET CopilotEventData_LicenseType = CASE WHEN IsCopilotLic = 1 THEN N'Premium' ELSE N'Starter' END,
     CopilotEventData_MemoryUpdated = CASE WHEN ABS(CHECKSUM(RecordId)) % 40 = 0 THEN 1 ELSE 0 END,
-    CopilotEventData_TargetAgentName = CASE WHEN AppIdentity IN (N'MicrosoftAgent.BuiltIn.Researcher', N'MicrosoftAgent.BuiltIn.Analyst')
-                                            THEN SUBSTRING(AppIdentity, 24, 40) END,
+    CopilotEventData_TargetAgentName = CASE WHEN AppIdentity LIKE N'MicrosoftAgent.Researcher.%' THEN N'Researcher'
+                                            WHEN AppIdentity LIKE N'MicrosoftAgent.Analyst.%' THEN N'Analyst' END,
     OrganizationId = '5e1f0c2a-1111-4000-8000-000000000000',
     MessageCount = 2 * PromptCount;
 

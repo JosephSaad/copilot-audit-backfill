@@ -198,7 +198,8 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// <summary>
     /// Builds a report page with its queries answered from memory where the data has not changed since they last ran
     /// (2.4.7). Who the viewer is and what they may see were settled before this, from the database; admin pages, the
-    /// CSV and file exports and every form always read the database.
+    /// CSV and file exports and every form always read the database. A page that reads a list edited through the day
+    /// is kept under that list's version, read for every page (2.4.11, see <see cref="Db"/>).
     /// </summary>
     /// <summary>
     /// Builds the page for the warm-up (PageWarmer): the same queries a viewer of the whole organization runs, with

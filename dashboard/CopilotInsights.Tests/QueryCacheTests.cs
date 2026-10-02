@@ -6,6 +6,82 @@ using Xunit;
 
 namespace CopilotInsights.Tests;
 
+public class PlanHintTests
+{
+    static string H(string sql, object? args) => PlanHints.Apply(sql, args).Replace("\r", "");
+
+    [Fact]
+    public void A_read_between_date_keys_is_planned_for_a_typical_range()
+    {
+        var sql = "SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1;";
+        Assert.Equal("SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1\nOPTION (OPTIMIZE FOR UNKNOWN);", H(sql, new { k0 = 20250925, k1 = 20260924 }));
+        // No final semicolon, and a CTE: the hint still ends the statement.
+        Assert.EndsWith("ORDER BY 1\nOPTION (OPTIMIZE FOR UNKNOWN)", H("WITH b AS (SELECT 1 AS x WHERE @k1 > 0) SELECT x FROM b ORDER BY 1  ", new { k1 = 20260924 }));
+    }
+
+    [Fact]
+    public void Inside_a_managers_part_it_is_planned_for_the_people_asked_for()
+    {
+        var sql = "SELECT COUNT(*) FROM dash.UserDay AS ud JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = ud.UserKey WHERE ud.DateKey BETWEEN @k0 AND @k1";
+        Assert.EndsWith("\nOPTION (RECOMPILE)", H(sql, new { root = "ada@contoso.com", k0 = 20260901, k1 = 20260924 }));
+        Assert.EndsWith("\nOPTION (RECOMPILE)", H("SELECT COUNT(*) FROM dash.Person AS p WHERE p.Upn = @root AND @k1 > 0", new { root = "ada@contoso.com", k1 = 20260924 }));
+        // The whole organization passes a root of null, and its queries do not name @root.
+        Assert.EndsWith("\nOPTION (OPTIMIZE FOR UNKNOWN)", H("SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1", new { root = (string?)null, k0 = 20260901, k1 = 20260924 }));
+    }
+
+    [Fact]
+    public void Inside_a_managers_part_the_people_are_listed_first_and_every_statement_reads_the_list()
+    {
+        var args = new { root = "ada@contoso.com", k0 = 20260901, k1 = 20260924 };
+        var sql = "SELECT COUNT(*) FROM bi.FactInteraction AS f JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = f.UserKey WHERE f.DateKey BETWEEN @k0 AND @k1;\n" +
+                  "SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.UserKey IN (SELECT UserKey FROM DASH.fnScopeUsers(@Root));";
+        Assert.Equal("SELECT sc.UserKey INTO #scope FROM dash.fnScopeUsers(@root) AS sc;\n" +
+                     "SELECT COUNT(*) FROM bi.FactInteraction AS f JOIN #scope AS sc ON sc.UserKey = f.UserKey WHERE f.DateKey BETWEEN @k0 AND @k1\nOPTION (RECOMPILE);\n" +
+                     "SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.UserKey IN (SELECT UserKey FROM #scope);", H(sql, args));
+        // With no dates in it either: the list is still counted, not guessed.
+        Assert.Equal("SELECT sc.UserKey INTO #scope FROM dash.fnScopeUsers(@root) AS sc;\nSELECT COUNT(*) FROM #scope",
+                     H("SELECT COUNT(*) FROM dash.fnScopeUsers(@root)", new { root = "ada@contoso.com" }));
+        // The whole organization (no root), a query that does not name the scope, and one that already lists it: as written.
+        Assert.Equal("SELECT COUNT(*) FROM dash.fnScopeUsers(@root)", H("SELECT COUNT(*) FROM dash.fnScopeUsers(@root)", new { root = (string?)null }));
+        Assert.Equal("SELECT 1 FROM dash.Person WHERE Upn = @root", H("SELECT 1 FROM dash.Person WHERE Upn = @root", new { root = "ada@contoso.com" }));
+        var own = "SELECT UserKey INTO #scope FROM dash.fnScopeUsers(@root); SELECT COUNT(*) FROM #scope";
+        Assert.Equal(own, H(own, new { root = "ada@contoso.com" }));
+    }
+
+    [Fact]
+    public void Only_statements_that_read_between_dates_take_a_hint()
+    {
+        var args = new { k0 = 20260901, k1 = 20260924, top = 50 };
+        var sql = "DECLARE @n INT = @top; SELECT f.SiteKey INTO #p FROM bi.FactAccessedResource AS f WHERE f.DateKey BETWEEN @k0 AND @k1; SELECT TOP (@n) * FROM #p; DROP TABLE #p;";
+        Assert.Equal("DECLARE @n INT = @top; SELECT f.SiteKey INTO #p FROM bi.FactAccessedResource AS f WHERE f.DateKey BETWEEN @k0 AND @k1\nOPTION (OPTIMIZE FOR UNKNOWN); SELECT TOP (@n) * FROM #p; DROP TABLE #p;", H(sql, args));
+        // Nothing to do: no date key among the parameters, or none in the text, or a hint already there.
+        Assert.Equal("SELECT * FROM dash.Person WHERE Upn = @upn", H("SELECT * FROM dash.Person WHERE Upn = @upn", new { upn = "ada@contoso.com", max = 20260924L }));
+        Assert.Equal("SELECT 1 WHERE @top > 0", H("SELECT 1 WHERE @top > 0", args));
+        Assert.Equal("SELECT 1 WHERE @k1 > 0 OPTION (RECOMPILE)", H("SELECT 1 WHERE @k1 > 0 OPTION (RECOMPILE)", args));
+        Assert.Equal("SELECT 1", H("SELECT 1", null));
+    }
+
+    [Fact]
+    public void A_semicolon_or_a_keyword_inside_text_or_a_comment_is_not_sql()
+    {
+        var args = new { k1 = 20260924, k10 = 20260101 };
+        // A comment that runs to the end of the line: the hint goes on a line of its own, after it.
+        Assert.Equal("SELECT N'a;b' AS x, @k1 AS k -- the day; OPTION (none)\nOPTION (OPTIMIZE FOR UNKNOWN)", H("SELECT N'a;b' AS x, @k1 AS k -- the day; OPTION (none)", args));
+        Assert.Equal("/* first; */ SELECT [a;b] FROM t WHERE d = @k1\nOPTION (OPTIMIZE FOR UNKNOWN); SELECT 'it''s @k1; fine' AS s;", H("/* first; */ SELECT [a;b] FROM t WHERE d = @k1; SELECT 'it''s @k1; fine' AS s;", args));
+        // @k10 is not @k1.
+        Assert.Equal("SELECT 1 WHERE @k100 > 0", H("SELECT 1 WHERE @k100 > 0", args));
+    }
+
+    [Theory]
+    [InlineData(20260924, true)]
+    [InlineData(20240229, true)]
+    [InlineData(20261301, false)]
+    [InlineData(20260900, false)]
+    [InlineData(30, false)]
+    [InlineData(70000, false)]
+    public void A_date_key_is_a_day_written_as_a_number(int value, bool expected) => Assert.Equal(expected, PlanHints.IsDateKey(value));
+}
+
 /// <summary>
 /// The query cache (2.4.7): a result is found again only by the very same query with the very same parameters, in the
 /// same tenant, while the data's stamp stands. The scope root is a parameter, so one viewer's rows can never answer another's.
@@ -96,11 +172,14 @@ public class QueryCacheTests
     [InlineData("SELECT 1 FROM x LEFT JOIN DASH.NONHUMANEXCEPTION AS ex ON 1 = 1", true)]
     [InlineData("SELECT 1 FROM dash.LicenseAction", true)]
     [InlineData("SELECT 1 FROM dash.UserDay", false)]
-    public void A_query_that_reads_a_table_changed_all_day_is_never_cached(string sql, bool isVolatile) =>
+    public void A_query_that_reads_a_table_changed_all_day_is_known(string sql, bool isVolatile)
+    {
         Assert.Equal(isVolatile, DataStamp.Volatile(sql));
+        Assert.Equal(isVolatile, DataStamp.LiveIn(sql).Count == 1);
+    }
 
     [Fact]
-    public async Task A_volatile_query_always_reads_the_database()
+    public async Task A_volatile_query_without_its_tables_version_always_reads_the_database()
     {
         var cache = New();
         var runs = 0;
@@ -110,6 +189,53 @@ public class QueryCacheTests
             await cache.GetAsync("T", "s", "SELECT COUNT(*) FROM dash.FlagCase", null, () => Task.FromResult(++runs));
         }
         Assert.Equal(2, runs);
+    }
+
+    [Fact]
+    public async Task A_volatile_query_is_kept_under_its_tables_version_and_read_again_when_that_changes()
+    {
+        var cache = New();
+        var runs = 0;
+        Task<int> Read(string live) => cache.GetAsync("T", "s", "SELECT COUNT(*) FROM dash.FlagCase", null, () => Task.FromResult(++runs), live);
+        using (QueryCache.Use())
+        {
+            Assert.Equal(1, await Read("dash.FlagCase=0/3:2026-10-02T09:00:00:77;"));
+            Assert.Equal(1, await Read("dash.FlagCase=0/3:2026-10-02T09:00:00:77;"));       // nothing triaged since: from memory
+            Assert.Equal(2, await Read("dash.FlagCase=0/3:2026-10-02T09:00:05:91;"));       // a triage, seen in the database
+            Assert.Equal(3, await Read("dash.FlagCase=1/3:2026-10-02T09:00:05:91;"));       // a write by this server
+            Assert.Equal(1, await Read("dash.FlagCase=0/3:2026-10-02T09:00:00:77;"));
+            cache.Wrote("T");
+            Assert.Equal(4, await Read("dash.FlagCase=1/3:2026-10-02T09:00:05:91;"));       // the data's stamp still ends everything
+        }
+    }
+
+    [Fact]
+    public void A_write_to_a_table_changed_all_day_moves_only_that_tables_count()
+    {
+        var cache = New();
+        var stamp = cache.Stamp("T");
+        cache.WroteLive("T", "dash.FlagCase");
+        cache.WroteLive("T", "DASH.FlagCase");
+        Assert.Equal(2, cache.LiveWrites("T", "dash.FlagCase"));
+        Assert.Equal(0, cache.LiveWrites("T", "dash.NonHumanException"));
+        Assert.Equal(0, cache.LiveWrites("Other tenant", "dash.FlagCase"));
+        Assert.Equal(stamp, cache.Stamp("T"));
+    }
+
+    [Fact]
+    public void The_versions_a_page_saw_are_its_own()
+    {
+        Assert.Null(QueryCache.Seen);
+        using (QueryCache.Use())
+        {
+            var seen = QueryCache.Seen;
+            Assert.NotNull(seen);
+            seen!["T|dash.FlagCase"] = "0/none";
+            using (QueryCache.Use()) Assert.Same(seen, QueryCache.Seen);                    // a part of the same page
+            Assert.Same(seen, QueryCache.Seen);
+        }
+        Assert.Null(QueryCache.Seen);
+        using (QueryCache.Use()) Assert.Empty(QueryCache.Seen!);                            // the next page reads them again
     }
 
     [Theory]

@@ -13,8 +13,17 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CopilotInsights"
 NAME = "CopilotInsights"
 T = "\t"
 
+# The file types (2.4.6) were added to the model by hand, with tags of their own: kept, so Power BI keeps its bindings.
+FIXED_TAGS = {
+    ("FileTypes",): "23a36491-824a-4c07-a912-5a24a471ac97",
+    ("FileTypes", "FileTypeKey"): "57dd709c-1eae-46fc-aa1c-df49ac910763",
+    ("FileTypes", "FileType"): "ecad969d-ace3-4709-a5a9-94bb78059a2b",
+    ("AccessedResources", "FileTypeKey"): "cb33e208-1785-44e9-8626-764519a1ac08",
+    ("rel", "AccessedResources", "FileTypeKey"): "611b2c1f-5e94-4960-a75e-24fcc67a98bd",
+}
+
 def lt(*parts):  # stable lineage tags
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, "copilotinsights/" + "/".join(parts)))
+    return FIXED_TAGS.get(parts) or str(uuid.uuid5(uuid.NAMESPACE_URL, "copilotinsights/" + "/".join(parts)))
 
 def desc(text, indent):
     return "".join(f"{indent}/// {line}\n" for line in text.split("\n"))
@@ -204,13 +213,14 @@ TABLES = {
             ("AppCategory", "string", dict(desc="Copilot Chat or In-App Copilot.")),
         ]),
     "Agents": dict(
-        desc="The Copilot Studio or Microsoft agent used. (no agent) means Copilot itself.",
+        desc="The Copilot Studio or Microsoft agent used, under its friendly name. (no agent) means Copilot itself. An agent keeps its row when a maker renames it: the name is a label on the agent, and all its history carries the latest one.",
         view="Agents",
         cols=[
             ("AgentKey", "int64", dict(hidden=True)),
-            ("AgentId", "string", dict(hidden=True)),
-            ("AgentName", "string", dict(desc="Agent name as recorded in the audit log; Copilot Studio agents show their schema name.")),
+            ("AgentId", "string", dict(desc="What identifies the agent in the audit log (its AppIdentity, else its AgentId). It does not change when the agent is renamed: use it to tell apart two agents with the same name.")),
+            ("AgentName", "string", dict(desc="The agent's friendly name: the latest the audit log gave it (AgentName). Where the log gives none, a name read from the id: a Copilot Studio agent's schema name, or Microsoft's own name for one of its agents.")),
             ("AgentSource", "string", dict(desc="Copilot Studio, Microsoft, Agent ID or (no agent).")),
+            ("NamedInAudit", "boolean", dict(desc="True when Agent Name is the audit log's own name for the agent; false when it was read from the id.")),
         ]),
     "Models": dict(
         desc="The AI model that answered.",
@@ -242,7 +252,7 @@ TABLES = {
         cols=[
             ("ActivityHour", "dateTime", dict(hidden=True, fmt="General Date")),
             ("DateKey", "int64", dict(hidden=True)), ("UserKey", "int64", dict(hidden=True)), ("AppKey", "int64", dict(hidden=True)),
-            ("ResourceTypeKey", "int64", dict(hidden=True)), ("ResourceActionKey", "int64", dict(hidden=True)),
+            ("ResourceTypeKey", "int64", dict(hidden=True)), ("FileTypeKey", "int64", dict(hidden=True)), ("ResourceActionKey", "int64", dict(hidden=True)),
             ("SiteKey", "int64", dict(hidden=True)), ("SensitivityLabelKey", "int64", dict(hidden=True)),
             ("IsBlocked", "boolean", dict(desc="True when access to the resource was blocked.")),
             ("XPIADetected", "boolean", dict(desc="True when prompt injection was detected in the resource.")),
@@ -251,6 +261,8 @@ TABLES = {
                   ("Blocked resources", "CALCULATE ( [Resources read], AccessedResources[IsBlocked] = TRUE () )", "#,0", "Resources Copilot was blocked from.")]),
     "ResourceTypes": dict(desc="The kind of resource read.", view="ResourceTypes",
         cols=[("ResourceTypeKey", "int64", dict(hidden=True)), ("ResourceType", "string", {})]),
+    "FileTypes": dict(desc="What a resource read was: a file by its extension (docx, xlsx, pptx ...), anything else by its kind (2.4.6).", view="FileTypes",
+        cols=[("FileTypeKey", "int64", dict(hidden=True)), ("FileType", "string", {})]),
     "ResourceActions": dict(desc="What Copilot did with the resource.", view="ResourceActions",
         cols=[("ResourceActionKey", "int64", dict(hidden=True)), ("ResourceAction", "string", {})]),
     "Sites": dict(desc="SharePoint and OneDrive sites Copilot read from.", view="Sites",
@@ -333,7 +345,8 @@ RELATIONSHIPS = [
     ("LicensedDays", "DateKey", "Calendar"), ("LicensedDays", "UserKey", "Users"),
     ("Interactions", "LicenseTypeKey", "LicenseTypes"), ("Interactions", "SensitivityLabelKey", "SensitivityLabels"),
     ("AccessedResources", "DateKey", "Calendar"), ("AccessedResources", "UserKey", "Users"), ("AccessedResources", "AppKey", "Apps"),
-    ("AccessedResources", "ResourceTypeKey", "ResourceTypes"), ("AccessedResources", "ResourceActionKey", "ResourceActions"),
+    ("AccessedResources", "ResourceTypeKey", "ResourceTypes"), ("AccessedResources", "FileTypeKey", "FileTypes"),
+    ("AccessedResources", "ResourceActionKey", "ResourceActions"),
     ("AccessedResources", "SiteKey", "Sites"), ("AccessedResources", "SensitivityLabelKey", "SensitivityLabels"),
     ("AgentEvents", "DateKey", "Calendar"), ("AgentEvents", "ActorKey", "Users", "UserKey"),
     ("Interactions", "UseCaseKey", "UseCases"), ("EventMarkers", "DateKey", "Calendar"),

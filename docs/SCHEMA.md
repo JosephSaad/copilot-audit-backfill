@@ -2,14 +2,14 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-82 tables (plus 2 left over from 1.x), 35 views, 1101 columns, from 18 scripts.
+87 tables (plus 2 left over from 1.x), 36 views, 1124 columns, from 18 scripts.
 
 ## Contents
 
 - [The scripts](#the-scripts)
 - [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
-- [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
+- [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.AgentCatalog`](#auditagentcatalog), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
 - [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
@@ -388,8 +388,8 @@ One row per record with the Copilot event data shredded into columns, for report
 | 16 | `UtcTimeStamp` | datetime2(0) | yes |  | Beyond the source table's columns, cheap to carry and hard to reconstruct later. Drop them if the shape has to match exactly. $.CreationTime, typed |
 | 17 | `AppIdentity` | nvarchar(200) | yes |  | $.AppIdentity |
 | 18 | `ThreadId` | nvarchar(400) | yes |  | $.CopilotEventData.ThreadId |
-| 19 | `AgentId` | nvarchar(400) | yes |  | $.CopilotEventData.AgentId |
-| 20 | `AgentName` | nvarchar(400) | yes |  | $.CopilotEventData.AgentName |
+| 19 | `AgentId` | nvarchar(400) | yes |  | $.AgentId (2.4.11), else $.CopilotEventData.AgentId |
+| 20 | `AgentName` | nvarchar(400) | yes |  | $.AgentName, the agent's friendly name (2.4.11), else $.CopilotEventData.AgentName |
 | 21 | `ModelName` | nvarchar(200) | yes |  | ModelTransparencyDetails[0].ModelName |
 | 22 | `ModelProvider` | nvarchar(200) | yes |  | ModelTransparencyDetails[0].ModelProviderName |
 | 23 | `AccessedResourceCount` | int | yes |  |  |
@@ -510,6 +510,27 @@ Indexes and constraints:
 
 - `PK_ValueCatalogColumn`: primary key, clustered (ColumnId)
 - `UQ_ValueCatalogColumn`: unique, nonclustered (TableName, ColumnName)
+
+### audit.AgentCatalog
+
+*Table.* Every agent the audit log names (2.4.11), one row per pair of AppIdentity and AgentId as records carry them, with the friendly name ($.AgentName) of the latest record that has one and when the agent was first and last seen. Kept by the flatten for each batch, so an agent's name is known from its whole history; bi.usp_NameAgents names bi.DimAgent from it.
+
+**Script** `Create-CopilotFlattenedSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `AgentCatalogId` | int | **no** | **PK** identity |  |
+| 2 | `AppIdentity` | nvarchar(200) | **no** |  | $.AppIdentity; N'' when the record has none |
+| 3 | `AgentId` | nvarchar(400) | **no** |  | $.AgentId; N'' when the record has none |
+| 4 | `AgentName` | nvarchar(400) | yes |  | $.AgentName on the latest record that carried one |
+| 5 | `NameSeenUtc` | datetime2(0) | yes |  | that record's time |
+| 6 | `FirstSeenUtc` | datetime2(0) | yes |  | the earliest record of this agent |
+| 7 | `LastSeenUtc` | datetime2(0) | yes |  | the latest |
+
+Indexes and constraints:
+
+- `PK_AgentCatalog`: primary key, clustered (AgentCatalogId)
+- `UQ_AgentCatalog`: unique, nonclustered (AppIdentity, AgentId)
 
 ### audit.RawLogRecordShape
 
@@ -1278,17 +1299,18 @@ Indexes and constraints:
 
 ### bi.DimAgent
 
-*Table.* One row per agent: AgentId when the record carries one, otherwise the identity parsed from AppIdentity. (no agent) is Copilot itself.
+*Table.* One row per agent: the one the record's AppIdentity names (a Copilot Studio or Agent Builder agent, one of Microsoft's), else its AgentId (2.4.11; bi.fnAgentIdentity is the rule). AgentName is a label on the key: the friendly name the audit log gave the agent last, else one read from its id, so a renamed agent keeps its key and its history. (no agent) is Copilot itself.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
 | 1 | `AgentKey` | int | **no** | **PK** identity |  |
-| 2 | `AgentId` | nvarchar(400) | **no** |  | AgentId, else AppIdentity |
-| 3 | `AgentName` | nvarchar(400) | yes |  | the latest name seen; agents get renamed |
+| 2 | `AgentId` | nvarchar(400) | **no** |  | the AppIdentity that names the agent, else AgentId |
+| 3 | `AgentName` | nvarchar(400) | yes |  | the latest friendly name the audit log gave it, else one read from the id |
 | 5 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
-| 6 | `AgentSource` | nvarchar(30) | yes |  | Copilot Studio \| Microsoft \| Agent ID \| (no agent) |
+| 6 | `NamedInAudit` | bit | **no** | `0` | 1 when AgentName is the audit log's own name for the agent, 0 when it was read from the id (2.4.11) |
+| 7 | `AgentSource` | nvarchar(30) | yes |  | Copilot Studio \| Microsoft \| Agent ID \| (no agent) |
 
 Indexes and constraints:
 
@@ -1809,6 +1831,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 2 | `AgentId` | nvarchar(400) | **no** |  |  |
 | 3 | `AgentName` | nvarchar(400) | yes |  |  |
 | 4 | `AgentSource` | nvarchar(30) | yes |  |  |
+| 5 | `NamedInAudit` | bit | **no** |  |  |
 
 ### bi.Models
 

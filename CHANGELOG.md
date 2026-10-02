@@ -4,6 +4,110 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.11] - 2026-10-02
+
+Agents under their own names, and page speed at three times the size. An agent now shows the
+friendly name the audit log gives it, and stays one agent when its maker renames it. Measured
+as the head of an organization of 210,000 people with 120 million interactions, every page
+loads in under 1.5 seconds once built ahead, building ahead takes 14 minutes instead of 37,
+and 200 people clicking at once are served without an error
+([the figures](docs/DEPLOYMENT.md#120-million-interactions-the-2411-test)).
+
+To upgrade: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, install the
+dashboard package over 2.4.10, and refresh the Power BI model once. The installer reads the
+agents' names from the records already loaded, in minutes, without flattening anything again.
+One new table (`audit.AgentCatalog`) and one new column (`bi.DimAgent.NamedInAudit`). No
+figure changes; agents change name, never count.
+
+### Added
+- **Agents show the friendly name the audit log gives them.** A Copilot interaction record
+  carries its agent's id and readable name (`AgentId`, `AgentName`) at the top of the record.
+  The flatten looked for them inside `CopilotEventData`, where no record has them, so every
+  agent appeared under a name cut from its identity: a Copilot Studio agent under its schema
+  name, and a declarative agent (built in Agent Builder or Copilot Studio) under the last
+  twelve characters of an id. Both fields are read now, from either place. A new table,
+  `audit.AgentCatalog`, keeps for every agent the log names the name its latest record gave
+  it, and `bi.usp_NameAgents` names `bi.DimAgent` from it at the end of every refresh. The
+  dashboard, the digests, the new-agent alert and the Power BI model all show that name. A
+  name an administrator gave in Admin › Reference data still shows instead of it.
+- **A renamed agent stays one agent.** An agent is its id; its name is a label on the id. The
+  night the first record under a new name arrives, the same agent is relabeled, in every
+  period, and nothing is split or rebuilt. The catalog takes a name only from a record at
+  least as recent as the one it has, so records that arrive late or out of order never undo
+  a rename. `bi.DimAgent.NamedInAudit` (and `bi.Agents`, and the model) says whether a name
+  is the log's own or one read from the id.
+- **Records already loaded get their names without a re-flatten.** On the upgrade,
+  `Install-CopilotAudit.ps1` runs `audit.usp_BackfillAgentNames` once: it reads `AgentId` and
+  `AgentName` from the stored JSON of the records of agents only, writes them to
+  `audit.RawLogFlattened`, fills the catalog and names the agents in `bi`. It takes minutes
+  where flattening every record again takes hours, and leaves a mark so it is not done twice.
+  A record whose JSON was purged keeps what it has; its agent is still named from its others.
+
+### Changed
+- **An agent is the one `AppIdentity` names.** Some records of an agent carry an `AgentId` and
+  others of the same agent do not (seen on two live tenants), so keying on `AgentId` first, as
+  the rule read, would have split one agent in two the day the flatten began to read it. The
+  agent is the one `AppIdentity` names (`Copilot.Studio.<...>`, `MicrosoftAgent.<...>`), and
+  `AgentId` only where `AppIdentity` names none. No real record was keyed the other way, so no
+  agent changes key. The rule is in one place, `bi.fnAgentIdentity`.
+- **The name read from an id, where the log gives none.** A declarative agent shows everything
+  after `Copilot.Studio.` (`Declarative.T_<id>`), not the last twelve characters of the id. One
+  of Microsoft's shows Microsoft's own name for it, the part after `MicrosoftAgent.`
+  (`OutlookDraftsChatSteering`), not the internal name that follows.
+- **Pages that read a list edited through the day are kept, too.** Flagged interactions, the
+  three non-human account pages and the board pack read lists people change all day (triage,
+  confirmations, exported license actions), so they were never kept and ran their queries on
+  every visit: 0.4 to 1.2 seconds alone, and the first pages to queue under load. Each list
+  now has a version of its own, read from the database for every page that shows it; a page is
+  kept under it, and an edit, made on this web server or another, shows on the very next page.
+  With 100 people clicking at once on whole-organization pages: 194 requests a second with a
+  median of 5 ms and none failed, from 63 a second with a median of 152 ms, one in a hundred
+  over 20 seconds, and two failed.
+- **Retention and habit** counts in the database. The page read every person-week (2.5
+  million rows at 210,000 people) and looped over them, 3 seconds on every visit, kept or
+  not. It now reads how many people share each pattern of weeks: 2 seconds the first time,
+  0.1 after.
+- **Copilot on non-human accounts** (Licensing, Security and Compliance) works the rules out
+  once a visit, not four times, compares names as plain lowercase text, and looks up the last
+  day of use only for the rows it shows: 0.4 seconds, from 2.5. The alert, the board pack and
+  the removal files use the same query and gain the same.
+- **Security › Flagged interactions** picks its 50 rows before joining them to people, apps
+  and agents when it is sorted by something the flag itself holds, as it opens: 0.8 to 1.2
+  seconds for a year, from 1.5 to 1.9.
+- **Admin › Reference data** reads the labels' totals in one pass and keeps them until the
+  data changes: 1.5 seconds the first time and 0.02 after, from 2.7 every time.
+
+### Fixed
+- **A report could run with a query plan built for other dates.** SQL Server plans a query for
+  the values of whoever runs it first and reuses the plan for everyone after. The same report
+  query runs for a week and for a year, for the period and for the one before it; the period
+  before a year of data is empty, and a plan built for that was then used for the year itself.
+  At 120 million interactions the trend behind most pages took 77 seconds that way and timed
+  out at 180 days, so ten pages failed with an error at that period and building the pages
+  ahead took 37 minutes. Every read between dates now says how it wants to be planned: for a
+  typical range across the whole organization, and afresh inside a manager's part of it (ten
+  people or seventy thousand). The same query takes 4 to 6 seconds, the ten pages load, and
+  building ahead takes 14 minutes. A plan changes how a query runs, never what it returns.
+  It can happen at any size: the larger the data, the worse the wrong plan.
+- **A page inside one manager's part could take two minutes and fail.** To plan a query inside
+  a manager's part of the organization SQL Server has to guess how many people that is, from a
+  sample of the org chart, and for some managers it guessed one. Planned for one person, the
+  query read the facts again for each person really there: for a team of 584 at 120 million
+  interactions, Leadership › Value and the board pack ran for two minutes and failed, every
+  time, while the same pages for the team beside it took a second. The people in scope are now
+  listed first, in a temporary table, and every query reads that list: counted, not guessed.
+  Both pages load in 2 seconds for that team, and every page for it in 24 seconds in all.
+  Found by the load test: it was the only error left at 50 and 100 people at once, and with
+  it fixed no request failed at any size of crowd.
+- **The CSV of Upgrade, train or revoke failed for a long list.** The people on the list were
+  sent to SQL Server as one parameter each, twice, and the server takes 2,100: a page of 50
+  was fine, and the download failed past about 1,050 people. They go as one list now.
+- **`powerbi/generate_model.py` dropped the file types.** `FileTypes` was added to the model by
+  hand in 2.4.6 and not to the generator, so running it removed the table and its
+  relationship. It writes them now, with the tags they shipped with.
+- **The example for naming an agent from the command line** (`-Task NameAgent`) passed the
+  schema name as `-AgentId`; the task takes the agent's id, which is its `AppIdentity`.
+
 ## [2.4.10] - 2026-10-02
 
 Clearer names, less clutter, and times in your own time zone. Nothing to rebuild: replace the

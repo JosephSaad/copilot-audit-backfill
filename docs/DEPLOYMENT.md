@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licenses from Microsoft Graph, and the organization from on-premises Active Directory.
 
-Written for a new install of release 2.4.10. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.4.11. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -144,14 +144,14 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.4.10-offline-win-x64.zip` and its `.sha256` from the [v2.4.10 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.10). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.4.11-offline-win-x64.zip` and its `.sha256` from the [v2.4.11 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.11). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.4.10-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.4.11-offline-win-x64.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.4.10-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.4.11-offline-win-x64' 'CopilotAudit'
 cd D:\CopilotAudit
 ```
 
@@ -673,10 +673,10 @@ The web dashboard, on a Windows Server with IIS: every persona's pages, alerts a
 
 *Web server, as an administrator, in Windows PowerShell 5.1. About 15 minutes.*
 
-The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.4.10.zip` to the web server, then from the source package's folder:
+The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.4.11.zip` to the web server, then from the source package's folder:
 
 ```powershell
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.10.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.11.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -AdminPrincipal 'USERS\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
 ```
 
@@ -712,7 +712,7 @@ For a group with several Microsoft 365 tenants, each gets its own app registrati
 .\tools\Add-CopilotTenant.ps1 -Name Fabrikam -TenantId fabrikam.onmicrosoft.com -TargetDomain fabrikam.local
 .\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam
 # web server: every tenant, the first one first
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.10.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.11.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess
 ```
 
@@ -820,11 +820,45 @@ The test found three problems, fixed before release:
 - **Dashboard pages over 180 days**, viewed as the top of the organization, took up to 48 seconds, and the license recommendations list 105 seconds. After the fixes, all 44 page views tested opened in under 9 seconds at 180 days (half of them in under 2), and in under 5 seconds at 30 days (half in about 1).
 - **Adoption above 100%.** People whose license was removed during the period counted as active and licensed, but not as licensed at its end. Adoption now counts only the people licensed at the end of the period (or of each week) who used Copilot while licensed, in the dashboard and in the Power BI measures under step 15.
 
+### 120 million interactions (the 2.4.11 test)
+
+On 2 October 2026 the reporting layer of the 40-million database was grown to three times its size, to time the dashboard: 120,000,000 interactions, 208,886,277 accessed resources, 22,147,905 sessions and 210,000 people in an eight-level organization, which is 18,065,997 person-days in the dashboard's rollups. The raw records stayed at 40 million, so flattening and the first builds were not timed at this size. Same server: 8 cores, 31 GB of RAM, with SQL Server and the site on it together.
+
+| What ran | Time | Result |
+|---|---:|---|
+| Dashboard rollups, every day of history | 13 min 22 s | 210,000 people, 1,481,606 manager-to-person pairs, 18,065,997 person-days, 35,351,763 resource-days |
+| Building every report page ahead after a refresh (432 page views) | 14 min 9 s | None failed. On 2.4.10: 37 minutes, and 10 failed |
+| Every page as the head of the organization, at six periods, once built (518 page views) | | None over 1.5 seconds. Report pages: 0.09 seconds at most. Slowest: Admin › Audit log, 1.16 seconds (admin pages are never kept) |
+| A first visit inside one manager's part: all 66 report pages, 30 days | 24 to 71 s in all | A team of 584: median 0.25 s a page, slowest 2.1 s. A division of 70,000: median 0.76 s, slowest 7.4 s. The second visit: 0.1 s at most |
+
+Then people at once: simulated viewers on connections of their own, each opening a page about every half second, which is many times faster than a person does, for three minutes a stage. Whole-organization pages are built ahead; a look inside a manager's part is not, so 30% of requests were made a first visit to one of 300 managers' parts.
+
+| People at once | Requests a second | Whole-organization pages | Inside a manager's part, first visit | Failed |
+|---:|---:|---|---|---:|
+| 10, 30% inside | 12 | median 8 ms, 99 in 100 under 0.12 s | median 0.65 s, 95 in 100 under 3.4 s | 0 |
+| 25, 30% inside | 26 | median 29 ms, 99 in 100 under 0.23 s | median 0.74 s, 95 in 100 under 4.5 s | 0 |
+| 50, 30% inside | 36 | median 0.11 s, 99 in 100 under 0.51 s | median 1.4 s, 95 in 100 under 8.3 s | 0 |
+| 100, 30% inside | 39 | median 0.29 s, 99 in 100 under 0.91 s | median 2.7 s, 95 in 100 under 19 s | 0 |
+| 100, whole organization only | 194 | median 5 ms, 99 in 100 under 0.09 s, slowest 0.68 s | | 0 |
+| 200, whole organization only | 378 | median 7 ms, 99 in 100 under 0.14 s, slowest 0.60 s | | 0 |
+
+The site itself stayed small (527 MB, under two cores at 378 requests a second); SQL Server is what first visits inside a manager's part wait for. At 12 of those a second it is saturated on eight cores, and they queue: that is the last row but two, and a real organization does not make 12 first visits a second.
+
+The test found five problems, fixed in 2.4.11:
+
+- **A plan built for other dates.** A query planned for an empty range and reused for a year took 77 seconds and timed out at 180 days: ten pages failed, and building ahead took 37 minutes. Every read between dates now says how to plan it.
+- **A plan built for one person.** Inside some managers' parts SQL Server guessed the number of people at one, and two pages ran for two minutes and failed for a team of 584. The people in scope are listed first now, so they are counted, not guessed.
+- **Five pages that were never kept** (flagged interactions, the three non-human account pages, the board pack), because they read lists edited through the day. Under 100 people at once they queued to a median of 10 seconds and were the only failures on whole-organization pages. Each list has a version now, and the pages are kept under it.
+- **Three slow pages** (Retention and habit, the non-human account pages, Admin › Reference data), each rewritten to do its counting once, in the database.
+- **The CSV of Upgrade, train or revoke** failed past about 1,050 people.
+
+Upgrading the 40-million database from before 2.4.8 to 2.4.10 took 70 minutes, 63 of them the one full `bi` refresh that release asks for.
+
 ## Not yet proven in a live deployment
 
-Nothing runs at a client site yet. These parts have not run against the real thing:
+One site has run it since 2.4.0 (29 September 2026). These parts are still not proven against the real thing:
 
-- **The AD search itself.** Everything after the search is tested, but the search has not run against a real trusted domain. Run step 9 by hand first and read its match report.
+- **The AD search beyond one domain.** It has run against one real domain. Run step 9 by hand first and read its match report.
 - **The Power BI model in the service, and its Copilot setup.** The model has been opened and refreshed in Power BI Desktop against the demo database (see above), but not published, and not refreshed through a gateway. The AI instructions and verified answers in Phase 6 are a starting point from Microsoft's documentation; test them as step 20 describes.
 - **Agent authoring history on an existing install.** The license-event load asks for Copilot Studio's operations from the night 2.3.0 is installed; records from before are not fetched into that database. A new install's history load includes them.
 - **The CSV importer on a real portal export.** It has been tested on lab records reshaped to the export's format, not on a file downloaded from the Purview portal. Import one real export and check its summary before loading the rest.

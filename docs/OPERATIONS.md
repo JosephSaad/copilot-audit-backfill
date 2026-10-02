@@ -118,10 +118,10 @@ M -Task RebuildValueCatalog                         # every value again, from ev
 M -Task NameLabel -LabelId 5e1f0c2a-0000-4000-8000-000000000002 -FriendlyName 'Highly Confidential' -Rank 4
 ```
 
-**Agents.** Admin › Reference data › *Agents*: a friendly name and an owner for each agent (Copilot Studio agents appear under their schema name). *Unnamed first* lists new ones; the new-agent alert and Agents › Agent inventory point here.
+**Agents.** Admin › Reference data › *Agents*: a friendly name and an owner for each agent. An agent already appears under the friendly name the audit log gives it (2.4.11), the latest when its maker renames it, so a name here is only needed where the log gives none (the agent then appears under a name read from its id, such as a Copilot Studio agent's schema name) or where you want another. *Unnamed first* lists new ones; the new-agent alert and Agents › Agent inventory point here.
 
 ```powershell
-M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr-digital@contoso.com'
+M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr-digital@contoso.com'
 ```
 
 **Which apps count as Copilot Chat.** Admin › Reference data › *App categories*, or `M -Task SetAppCategory -App 'Copilot Notebooks' -Category 'Copilot Chat' -Apply` (`-Apply` rebuilds sessions and `bi` with it now instead of at the next load). An app not set counts as In-App Copilot.

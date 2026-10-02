@@ -70,19 +70,35 @@ namespace CopilotInsights.Pages
             var pg = new Paging(Request, Sorts, "name");
             var args = Ctx.Args(new { q = pg.Like, type });
             var cte = await NonHuman.CteAsync(Db, rules, Ctx.Scope("ld.UserKey"), args);
-            var rows = await Db.QueryAsync<Row>($@"{cte}
-SELECT x.DisplayName, x.UserPrincipalName, x.Department, x.EmployeeType, x.Guest, x.NameLike, x.NoChart, x.TypeMatch, x.GroupMatch, x.LicensedSinceUtc,
-       dl.[Date] AS LastUsed, COUNT(*) OVER () AS TotalRows
-FROM x LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
-WHERE {(type is null ? Why[why].Sql : "x.EmployeeType = @type")}
-  AND (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
-{pg.OrderAndPage()};", args);
-            pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-            var c = (await Db.QueryAsync<(int Any, int Guest, int Name, int Chart, int Type, int Group, int Confirmed)>($@"{cte}
+            /* Every license holder against the rules once, into #x; the list, the counts, the employee types and the
+               confirmed accounts are all read from it in the same batch (2.4.11). Each used to work the rules out
+               again: four passes over every license holder on every visit, 2.5 seconds at 210,000 people. */
+            /* The last day of use is looked up for the rows the list shows; sorted by it, for every row the filter leaves. */
+            var filter = $@"{(type is null ? Why[why].Sql : "x.EmployeeType = @type")}
+  AND (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)";
+            const string columns = "x.DisplayName, x.UserPrincipalName, x.Department, x.EmployeeType, x.Guest, x.NameLike, x.NoChart, x.TypeMatch, x.GroupMatch, x.LicensedSinceUtc";
+            var list = pg.SortKey == "idle"
+                ? $@"SELECT {columns}, dl.[Date] AS LastUsed, COUNT(*) OVER () AS TotalRows
+FROM (SELECT x.*, {NonHuman.LastUsed("x.UserKey")} AS LastKey FROM #x AS x WHERE {filter}) AS x
+LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
+{pg.OrderAndPage()};"
+                : $@"WITH pick AS (SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x WHERE {filter} {pg.OrderAndPage()})
+SELECT {columns}, dl.[Date] AS LastUsed, x.TotalRows
+FROM pick AS x LEFT JOIN bi.DimDate AS dl ON dl.DateKey = {NonHuman.LastUsed("x.UserKey")}
+ORDER BY {pg.OrderBy};";
+            var (rows, c, types, confirmed) = await Db.ReadAsync($@"{cte}
+SELECT x.* INTO #x FROM x;
+{list}
 SELECT COUNT(CASE WHEN Breach = 1 THEN 1 END), COUNT(CASE WHEN Breach = 1 AND Guest = 1 THEN 1 END), COUNT(CASE WHEN Breach = 1 AND NameLike = 1 THEN 1 END),
        COUNT(CASE WHEN Breach = 1 AND NoChart = 1 THEN 1 END), COUNT(CASE WHEN Breach = 1 AND TypeMatch = 1 THEN 1 END),
-       COUNT(CASE WHEN Breach = 1 AND GroupMatch = 1 THEN 1 END), COUNT(CASE WHEN Confirmed = 1 THEN 1 END) FROM x;", args)).Single();
-            var types = await Db.QueryAsync<(string Type, int N)>($"{cte} SELECT ISNULL(x.EmployeeType, N'(not set)'), COUNT(*) FROM x GROUP BY x.EmployeeType ORDER BY COUNT(*) DESC;", args);
+       COUNT(CASE WHEN Breach = 1 AND GroupMatch = 1 THEN 1 END), COUNT(CASE WHEN Confirmed = 1 THEN 1 END) FROM #x;
+SELECT ISNULL(x.EmployeeType, N'(not set)'), COUNT(*) FROM #x AS x GROUP BY x.EmployeeType ORDER BY COUNT(*) DESC;
+SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedUtc FROM #x AS x WHERE x.Confirmed = 1 ORDER BY x.ConfirmedUtc DESC;", args, async r =>
+                ((await r.ReadAsync<Row>()).ToList(),
+                 (await r.ReadAsync<(int Any, int Guest, int Name, int Chart, int Type, int Group, int Confirmed)>()).Single(),
+                 (await r.ReadAsync<(string Type, int N)>()).ToList(),
+                 (await r.ReadAsync<Confirmation>()).ToList()));
+            pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
             Kpis.Add(new("Policy breaches", Num(c.Any), "Copilot licenses on accounts that are not a person", c.Any > 0 ? "crit" : null));
             Kpis.Add(new("Guests", Num(c.Guest)));
@@ -123,8 +139,6 @@ SELECT COUNT(CASE WHEN Breach = 1 THEN 1 END), COUNT(CASE WHEN Breach = 1 AND Gu
 
             if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL THEN 0 ELSE 1 END") == 1)
             {
-                var confirmed = await Db.QueryAsync<Confirmation>($@"{cte}
-SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedUtc FROM x WHERE x.Confirmed = 1 ORDER BY x.ConfirmedUtc DESC;", args);
                 var ct = new Table
                 {
                     Zone = Zone, Headers = admin ? ["Name", "Sign-in", "Why it is a person", "Confirmed by", "When (UTC)", ""] : ["Name", "Sign-in", "Why it is a person", "Confirmed by", "When (UTC)"],

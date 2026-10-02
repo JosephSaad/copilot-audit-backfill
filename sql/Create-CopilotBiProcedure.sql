@@ -66,6 +66,67 @@
 */
 SET NOCOUNT ON;
 
+/*
+    bi.usp_NameAgents (2.4.11): the name of every agent in bi.DimAgent.
+
+    The friendly name the audit log gave the agent on its latest record that
+    carries one, from audit.AgentCatalog, which the flatten keeps from every
+    record ever flattened: so a refresh of two days names an agent last used
+    a month ago as well as one used today, and a maker's rename shows the
+    night its first record arrives. Where the log never named the agent, the
+    name read from its id (bi.fnAgentIdentity). NamedInAudit says which.
+
+    The name is a label on the agent's key, never the key: a rename changes
+    what the same AgentKey is called, in every period, and nothing else. The
+    dashboard shows an administrator's own name for the agent first, where
+    one was given (dash.AgentAlias).
+
+    bi.usp_RefreshBi runs it at the end of every refresh; on its own it takes
+    a moment, and Install-CopilotAudit.ps1 runs it after reading the names of
+    records flattened before 2.4.11.
+*/
+IF OBJECT_ID(N'bi.usp_NameAgents', N'P') IS NULL
+    EXEC (N'CREATE PROCEDURE bi.usp_NameAgents AS BEGIN SET NOCOUNT ON; END;');
+GO
+
+ALTER PROCEDURE bi.usp_NameAgents
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    IF OBJECT_ID(N'bi.DimAgent', N'U') IS NULL RETURN;
+
+    /* One name for each agent as bi keys it: several catalog rows can be one agent (records with and without an AgentId). */
+    CREATE TABLE #names (AgentId NVARCHAR(400) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY, AgentName NVARCHAR(400) COLLATE DATABASE_DEFAULT NOT NULL);
+    IF OBJECT_ID(N'audit.AgentCatalog', N'U') IS NOT NULL
+        INSERT INTO #names (AgentId, AgentName)
+        SELECT x.AgentId, x.AgentName
+        FROM (SELECT i.AgentId, c.AgentName,
+                     ROW_NUMBER() OVER (PARTITION BY i.AgentId ORDER BY c.NameSeenUtc DESC, c.AgentCatalogId DESC) AS rn
+              FROM audit.AgentCatalog AS c
+              CROSS APPLY bi.fnAgentIdentity(c.AppIdentity, c.AgentId) AS i
+              WHERE c.AgentName IS NOT NULL AND i.AgentId <> N'(none)') AS x
+        WHERE x.rn = 1;
+
+    UPDATE d
+    SET AgentName    = v.AgentName,
+        NamedInAudit = v.NamedInAudit,
+        AgentSource  = i.AgentSource
+    FROM bi.DimAgent AS d
+    CROSS APPLY bi.fnAgentIdentity(d.AgentId, d.AgentId) AS i
+    LEFT JOIN #names AS n ON n.AgentId = d.AgentId
+    CROSS APPLY (SELECT COALESCE(n.AgentName, i.DerivedName) AS AgentName,
+                        CAST(CASE WHEN n.AgentName IS NULL THEN 0 ELSE 1 END AS BIT) AS NamedInAudit) AS v
+    WHERE d.AgentId <> N'(none)'
+      AND (ISNULL(d.AgentName, N'') <> ISNULL(v.AgentName, N'') COLLATE Latin1_General_100_BIN2
+           OR d.NamedInAudit <> v.NamedInAudit OR ISNULL(d.AgentSource, N'') <> i.AgentSource);
+
+    DECLARE @msg NVARCHAR(200) = CONCAT(N'Agents: ', (SELECT COUNT(*) FROM bi.DimAgent WHERE NamedInAudit = 1), N' of ',
+                                        (SELECT COUNT(*) FROM bi.DimAgent WHERE AgentId <> N'(none)'), N' named by the audit log.');
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END;
+GO
+
 IF OBJECT_ID(N'bi.usp_RefreshBi', N'P') IS NULL
     EXEC (N'CREATE PROCEDURE bi.usp_RefreshBi AS BEGIN SET NOCOUNT ON; END;');
 GO
@@ -416,7 +477,7 @@ BEGIN
                f.UtcTimeStamp                                                                     AS Utc,
                COALESCE(NULLIF(LTRIM(RTRIM(LEFT(f.[User], 512))), N''), N'(unknown user)')          AS Upn,
                COALESCE(NULLIF(LTRIM(RTRIM(LEFT(f.App, 200))), N''), N'(unknown)')                 AS App,
-               ag.AgentId, ag.AgentName, ag.AgentSource,
+               ag.AgentId, ag.AgentSource,
                COALESCE(NULLIF(LTRIM(RTRIM(f.ModelProvider)), N''), N'(not reported)')             AS ModelProvider,
                COALESCE(NULLIF(LTRIM(RTRIM(f.ModelName)), N''), N'(not reported)')                 AS ModelName,
                ISNULL(f.PromptCount, 0)                                                            AS PromptCount,
@@ -433,27 +494,13 @@ BEGIN
                CAST(CASE WHEN f.CopilotEventData_DLPEvaluationDeferred > 0 THEN 1 ELSE 0 END AS BIT)  AS DlpEvaluationDeferred,
                CAST(CASE WHEN NULLIF(f.CopilotEventData_TargetAgentName, N'') IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS CalledAnotherAgent,
                NULLIF(LTRIM(RTRIM(LEFT(f.CopilotEventData_TargetAgentName, 400))), N'')              AS TargetAgentName,
-               ai.Ident                                                                            AS Ident
+               NULLIF(LTRIM(RTRIM(f.AppIdentity)), N'')                                            AS Ident
         INTO #src
         FROM audit.RawLogFlattened AS f
-        /* The agent: AgentId when the record has one, else the agent named
-           in AppIdentity (see bi.DimAgent in Create-CopilotBiSchema.sql). */
-        CROSS APPLY (SELECT NULLIF(LTRIM(RTRIM(f.AgentId)), N'')     AS Aid,
-                            NULLIF(LTRIM(RTRIM(f.AppIdentity)), N'') AS Ident,
-                            NULLIF(LTRIM(RTRIM(f.AgentName)), N'')   AS Aname) AS ai
-        CROSS APPLY (SELECT CASE WHEN ai.Aid IS NOT NULL                   THEN N'Agent ID'
-                                 WHEN ai.Ident LIKE N'Copilot.Studio.%'    THEN N'Copilot Studio'
-                                 WHEN ai.Ident LIKE N'MicrosoftAgent.%'    THEN N'Microsoft'
-                            END AS Src) AS asrc
-        CROSS APPLY (SELECT COALESCE(ai.Aid, CASE WHEN asrc.Src IS NOT NULL THEN ai.Ident END, N'(none)') AS AgentId,
-                            COALESCE(ai.Aname,
-                                     /* the schema name after the tenant id, e.g. crd20_expenseClaimAutomation */
-                                     CASE WHEN asrc.Src = N'Copilot Studio' AND CHARINDEX(N'-', REVERSE(ai.Ident)) > 1
-                                          THEN RIGHT(ai.Ident, CHARINDEX(N'-', REVERSE(ai.Ident)) - 1) END,
-                                     /* the last dotted part, e.g. BuiltIn_OutlookDraftsChatSteeringAgent */
-                                     CASE WHEN asrc.Src = N'Microsoft' AND CHARINDEX(N'.', REVERSE(ai.Ident)) > 1
-                                          THEN RIGHT(ai.Ident, CHARINDEX(N'.', REVERSE(ai.Ident)) - 1) END) AS AgentName,
-                            COALESCE(asrc.Src, N'(no agent)') AS AgentSource) AS ag
+        /* The agent: the one AppIdentity names, else the record's AgentId
+           (bi.fnAgentIdentity in Create-CopilotBiSchema.sql). Its name is set
+           after the months, from every record's, not this window's. */
+        CROSS APPLY bi.fnAgentIdentity(f.AppIdentity, f.AgentId) AS ag
         WHERE f.UtcTimeStamp >= @lo AND f.UtcTimeStamp < @next
         /* Planned per window: a plan cached from a month-sized full rebuild
            would scan the table for a two-day refresh. */
@@ -542,15 +589,7 @@ BEGIN
         FROM (SELECT DISTINCT Site FROM #rsrc) AS x
         WHERE NOT EXISTS (SELECT 1 FROM bi.DimSite AS d WHERE d.Site = x.Site);
 
-        /* An agent keeps its key when renamed; the name is the latest seen.
-           Months run in time order, so the last one to write wins. */
-        UPDATE d
-        SET AgentName = n.AgentName, AgentSource = n.AgentSource
-        FROM bi.DimAgent AS d
-        JOIN (SELECT AgentId, AgentName, AgentSource,
-                     ROW_NUMBER() OVER (PARTITION BY AgentId ORDER BY Utc DESC, RecordId DESC) AS rn
-              FROM #src WHERE AgentName IS NOT NULL) AS n
-          ON n.AgentId = d.AgentId AND n.rn = 1;
+        /* An agent keeps its key when renamed: bi.usp_NameAgents, after the months, sets the names. */
 
         INSERT INTO bi.FactInteraction WITH (TABLOCK)
             (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenseStatusKey,
@@ -626,6 +665,9 @@ BEGIN
         COMMIT TRANSACTION;
 
     /* ---- 5. Dimension attributes ------------------------------------------ */
+
+    /* Every agent's name, from the whole history's records rather than this window's (2.4.11). */
+    EXEC bi.usp_NameAgents;
 
     UPDATE d
     SET DisplayName         = p.DisplayName,

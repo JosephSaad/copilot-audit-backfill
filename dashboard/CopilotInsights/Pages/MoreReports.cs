@@ -96,25 +96,28 @@ namespace CopilotInsights.Pages.Adoption
         {
             var w1 = Forecasting.Weekly.LastCompleteWeek(Ctx.End);
             var start = w1.AddDays(-7 * 19 - 6);
-            var weeks = await Db.QueryAsync<(int UserKey, DateTime WeekEnding)>($@"
-SELECT DISTINCT ud.UserKey, d.WeekEnding FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0;", Ctx.Args(new { a = ReportContext.Key(start), b = ReportContext.Key(w1) }));
-            var byUser = weeks.GroupBy(w => w.UserKey).ToDictionary(g => g.Key, g => g.Select(x => x.WeekEnding).ToHashSet());
-            /* Cohorts: the 12 weeks that have 8 weeks after them in the 20-week window. */
+            /* Each person's twenty weeks as bits (week 0 the oldest), and how many people share each pattern: the curve
+               and the weeks-active count are worked out from the patterns (2.4.11). The page used to read every
+               person-week (2.5 million rows at 210,000 people) and loop over them, 3 seconds on every visit.
+               Cohorts: the 12 weeks that have 8 weeks after them in the 20-week window. */
+            var patterns = await Db.QueryAsync<(int Weeks, int People)>($@"
+WITH w AS (SELECT DISTINCT ud.UserKey, DATEDIFF(DAY, @first, d.WeekEnding) / 7 AS W
+           FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
+           JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+           WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0),
+     m AS (SELECT w.UserKey, SUM(POWER(2, w.W)) AS Weeks FROM w GROUP BY w.UserKey)
+SELECT m.Weeks, COUNT(*) AS People FROM m GROUP BY m.Weeks;", Ctx.Args(new { a = ReportContext.Key(start), b = ReportContext.Key(w1), first = start.AddDays(6) }));
             var curve = new double?[8];
             for (var lag = 1; lag <= 8; lag++)
             {
                 long active = 0, back = 0;
                 for (var c = 0; c < 12; c++)
-                {
-                    var wk = start.AddDays(6 + 7 * c);
-                    foreach (var set in byUser.Values.Where(v => v.Contains(wk)))
+                    foreach (var (weeks, people) in patterns)
                     {
-                        active++;
-                        if (set.Contains(wk.AddDays(7 * lag))) back++;
+                        if ((weeks & (1 << c)) == 0) continue;
+                        active += people;
+                        if ((weeks & (1 << (c + lag))) != 0) back += people;
                     }
-                }
                 curve[lag - 1] = active > 0 ? back / (double)active : null;
             }
             Kpis.Add(new("Back the next week", Pct(curve[0]), "of people active in a week"));
@@ -124,8 +127,9 @@ WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0;", Ctx.Args(new { a =
                 Chart.Line(Enumerable.Range(1, 8).Select(i => $"+{i} wk").ToList(), [new Series("Came back", curve, 3)], Fmt.Percent, "Weekly retention", 1),
                 "Each line follows the people who used Copilot in one week, over the weeks after it: twelve starting weeks, ending with the last complete week. A flattening line is a habit forming; one that keeps falling is novelty wearing off.", "half"));
 
-            var last12 = Enumerable.Range(0, 12).Select(i => w1.AddDays(-7 * i)).ToHashSet();
-            var counts = byUser.Values.Select(v => v.Count(last12.Contains)).Where(n => n > 0).GroupBy(n => n).ToDictionary(g => g.Key, g => g.Count());
+            /* Weeks 8 to 19 are the last twelve. */
+            var counts = patterns.Select(x => (N: System.Numerics.BitOperations.PopCount((uint)x.Weeks >> 8), x.People)).Where(x => x.N > 0)
+                .GroupBy(x => x.N).ToDictionary(g => g.Key, g => g.Sum(x => x.People));
             Panels.Add(new("Weeks active out of the last twelve",
                 Chart.Columns(Enumerable.Range(1, 12).Select(i => i.ToString()).ToList(), [new Series("People", Enumerable.Range(1, 12).Select(i => (double?)counts.GetValueOrDefault(i)).ToList(), 1)], Fmt.Count, "People by weeks active"),
                 "People who used Copilot at least once in the last twelve weeks, by how many of those weeks. A pile on the right is habit; on the left, trial.", "half"));
