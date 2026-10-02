@@ -107,6 +107,10 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
 - **A refused page says who to ask and where to go.** "An administrator can grant it" named
   no one. A page you may not open now lists up to three of the dashboard's administrators by
   name (people granted Admin directly; none in privacy mode) and links to the start page.
+- **The start page says how current the data is, and what a role is for.** Under *Your
+  access*: "The reports hold Copilot use up to 26 Sep 2026, and were last refreshed 2026-10-01
+  16:49 Eastern Time", and what holding a role (or none) means for the reports listed. Its
+  introduction says how to find a report, not where the data comes from.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its
