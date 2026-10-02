@@ -243,7 +243,15 @@ form.admin label { display: flex; flex-direction: column; font-size: 12px; color
 form.admin label { max-width: 100%; min-width: 0; }
 form.admin select { max-width: 100%; min-width: 0; }
 form.admin input, form.admin select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px; }
-button.btn { font: inherit; background: var(--accent); color: var(--surface); border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+/* A heading or a paragraph inside a form takes a line to itself, above the fields it is about (2.4.10: it sat beside them). */
+form.admin > h3, form.admin > p, form.admin > ul { flex: 0 0 100%; margin: 0; }
+.panel form.admin > p { max-width: none; box-sizing: border-box; padding-right: max(0px, calc(100% - 660px)); }   /* the whole line, the text at its usual measure */
+form.admin > h3 { margin-top: 10px; }
+/* A checkbox sits before its words, on their line (2.4.10: it sat on a line of its own above them). */
+form.admin label:has(> input[type=checkbox]) { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); }
+form.admin input[type=checkbox] { flex: none; margin: 0; padding: 0; }
+button.btn { font: inherit; background: var(--accent); color: var(--surface); border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+td .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }   /* a row's actions, side by side */
 button.btn.quiet { background: none; color: var(--crit); border: 1px solid var(--rule); padding: 2px 8px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
 .card { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; }

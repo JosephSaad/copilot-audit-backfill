@@ -75,7 +75,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         Kpis.Add(new("Ready", problems.Count == 0 ? "Yes" : "No", problems.Count == 0 ? null : string.Join(" ", problems), problems.Count == 0 ? null : "warn"));
 
         Panels.Add(new("How to send", new HtmlString(Form("mail",
-            Select("MailMode", "Send email", ["Off", "ExchangeOnline", "Smtp"], V("MailMode") is "" ? "Off" : V("MailMode")) +
+            Select("MailMode", "Send email", [("Off", "Off"), ("ExchangeOnline", "Through Exchange Online"), ("Smtp", "Through an SMTP server")], V("MailMode") is "" ? "Off" : V("MailMode")) +
             Input("MailFrom", "From address", V("MailFrom"), 30) + Input("MailReplyTo", "Reply-To (optional)", V("MailReplyTo"), 30) +
             Input("DashboardUrl", "The dashboard's address, for links", V("DashboardUrl"), 36) +
             "<h3>Exchange Online</h3><p class=\"sub\">smtp.office365.com, port 587, STARTTLS. <b>Password</b>: SMTP AUTH with the mailbox's own password; the mailbox needs Authenticated SMTP allowed, and Microsoft turns SMTP AUTH with passwords off by default from the end of 2026. <b>OAuth</b>: an app registration (it can be a separate one) with the Office 365 Exchange Online permission SMTP.SendAsApp, registered in Exchange Online with New-ServicePrincipal and given Send As on the mailbox; no Microsoft Graph permission is involved.</p>" +
@@ -207,11 +207,11 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         var t = new Table { Zone = Zone, Headers = ["Name", "Report", "To", "When", "For", "Days", "Last sent (UTC)", "Result", ""], EmptyText = "No digests yet." };
         foreach (var sub in subs)
             t.Rows.Add([sub.Name, sub.Report, sub.Recipients, When(sub), sub.RootUpn ?? "Whole organization", sub.Days, sub.LastSentUtc, sub.LastStatus,
-                new HtmlString(
+                new HtmlString("<div class=\"acts\">" +
                     $"<a href=\"{E(Request.Path + $"?handler=preview&report={sub.Report}&days={sub.Days}&root={Uri.EscapeDataString(sub.RootUpn ?? "")}")}\">Preview</a> " +
                     Form("sendnow", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button("Send now", quiet: true)) +
                     Form("toggle", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button(sub.Enabled ? "Pause" : "Resume", quiet: true)) +
-                    Form("remove", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button("Remove", $"Remove the digest {sub.Name}?", quiet: true)))]);
+                    Form("remove", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button("Remove", $"Remove the digest {sub.Name}?", quiet: true)) + "</div>")]);
         var days = new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
         Panels.Add(new("Digests", new HtmlString(t.Render().Value + "<h3>Add a digest</h3>" + Form("add",
             Input("name", "Name", null, 24) + Select("report", "Report", OpsReports.DigestKinds.Keys, "Leadership") + Input("recipients", "To", null, 40) +
@@ -425,10 +425,13 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 new HtmlString(Form("deltarget", $"<input type=\"hidden\" name=\"id\" value=\"{x.TargetId}\"/>" + Button("Remove", "Remove this target?", quiet: true)))]);
         Panels.Add(new("Adoption targets", new HtmlString(t.Render().Value + "<h3>Add a target</h3>" + Form("target",
             Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) +
-            Select("metric", "Measure", ["Adoption", "ActiveShare", "ActivePeople"], "Adoption") + Input("value", "Target (% or people)", null, 6, "number") +
+            /* The measures by the names the table above and Adoption > Targets give them (2.4.10: the box showed their codes). */
+            Select("metric", "Measure", new[] { "Adoption", "ActiveShare", "ActivePeople" }.Select(m => (m, Adoption.TargetsModel.Label(m))), "Adoption") +
+            Input("value", "Target (% or people)", null, 6, "number") +
             Input("start", "From", DateTime.Today.ToString("yyyy-MM-dd"), 10, "date") + Input("due", "Due", DateTime.Today.AddMonths(3).ToString("yyyy-MM-dd"), 10, "date") +
             Input("note", "Note", null, 30) + Button("Add"))),
-            "Adoption: licensed people using it, over people licensed. ActiveShare: people using it, over everyone. ActivePeople: a count. Progress is on Adoption > Targets."));
+            "Adoption: license holders who used Copilot, as a share of all license holders. Share of people active: everyone who used Copilot, as a share of everyone. " +
+            "People active: a number of people, not a share. Progress is on Adoption > Targets."));
 
         var apps = await Db.QueryAsync<(string App, decimal? Minutes)>("SELECT a.App, ts.Minutes FROM bi.DimApp AS a LEFT JOIN dash.TimeSaving AS ts ON ts.App = a.App ORDER BY a.App;");
         var at = new Table { Headers = ["App", "Minutes saved per interaction"] };

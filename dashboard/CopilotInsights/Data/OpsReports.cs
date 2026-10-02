@@ -129,11 +129,11 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
 
     public static readonly Dictionary<string, string> DigestKinds = new()
     {
-        ["Leadership"] = "Leadership summary: use, adoption and the units, against the period before",
-        ["Adoption"] = "Adoption: the funnel, targets, and days that stood out",
-        ["Licensing"] = "Licensing: the pool, recommendations, and licenses on disabled accounts",
-        ["Security"] = "Security and compliance signals, against the period before",
-        ["Value"] = "Value: hours saved and what they are worth",
+        ["Leadership"] = "use, adoption and each part of the organization, against the period before",
+        ["Adoption"] = "the funnel, targets, and days that stood out",
+        ["Licensing"] = "the pool, recommendations, and licenses on disabled accounts",
+        ["Security"] = "security and compliance signals, against the period before",
+        ["Value"] = "hours saved and what they are worth",
     };
 
     /// <summary>A digest's subject, HTML and plain text. Aggregates only: no named person appears in email.</summary>

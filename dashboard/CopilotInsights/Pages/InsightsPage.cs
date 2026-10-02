@@ -406,6 +406,11 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         $"<label>{E(label)}<select name=\"{name}\">" +
         string.Concat(options.Select(o => $"<option{(o == selected ? " selected" : "")}>{E(o)}</option>")) + "</select></label>";
 
+    /// <summary>A choice whose stored value is not what the reader should see: "ActiveShare" is offered as "Share of people active".</summary>
+    protected static string Select(string name, string label, IEnumerable<(string Value, string Label)> options, string? selected) =>
+        $"<label>{E(label)}<select name=\"{name}\">" +
+        string.Concat(options.Select(o => $"<option value=\"{E(o.Value)}\"{(o.Value == selected ? " selected" : "")}>{E(o.Label)}</option>")) + "</select></label>";
+
     protected static string Button(string text, string? confirm = null, bool quiet = false) =>
         $"<button class=\"btn{(quiet ? " quiet" : "")}\" type=\"submit\"{(confirm is null ? "" : $" data-confirm=\"{E(confirm)}\"")}>{E(text)}</button>";
 

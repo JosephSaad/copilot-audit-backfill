@@ -150,6 +150,11 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   *Dashboard totals*, *People directory*) with a line on what each does, a way of loading
   records that a site never uses reads *Not used* instead of a warning, and the page follows
   the *Data is stale after* setting instead of a fixed 36 hours.
+- **Admin forms are tidier.** A checkbox sat on a line of its own above its words; it now sits
+  before them. A button's words no longer break onto two lines, a digest's actions sit side
+  by side, and on Admin › Email the *Exchange Online* and *SMTP server* headings and their
+  notes sit above their fields instead of beside whichever field came next. Adding a target offers the measures by the names the reports use (*Share of
+  people active*, not *ActiveShare*), and the list of digests no longer says each name twice.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs
