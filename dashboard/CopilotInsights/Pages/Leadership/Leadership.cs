@@ -62,7 +62,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
 
         var t = new Table
         {
-            Headers = ["Unit", "Department", "People", "Licensed", "Active", "Adoption", "Days active per person", "Interactions per active person", "Sessions with a follow-up", "Trend (active people)"],
+            Headers = ["Unit", "Department", "People", "License holders", "Used Copilot", "Adoption", "Days active per person", "Interactions per active person", "Sessions with a follow-up", "Trend (people using Copilot)"],
             Numeric = new HashSet<int> { 2, 3, 4, 5, 6, 7, 8 },
         };
         foreach (var u in shown)

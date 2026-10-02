@@ -92,7 +92,7 @@ FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 A
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"by={by}&license={l.Item1}"))}\"{(l.Item1 == license ? " class=\"on\"" : "")}>{l.Item2}</a>"));
         var t = new Table
         {
-            Headers = ["Rank: general", "Rank: free", "Rank: premium", "Name", "Sign-in", "Department", "Licensed", "Interactions", "Free interactions", "Premium interactions", "Premium share", "Days used", "Days with Premium use"],
+            Headers = ["Rank: general", "Rank: free", "Rank: premium", "Name", "Sign-in", "Department", "Has a license", "Interactions", "Free interactions", "Premium interactions", "Premium share", "Days used", "Days with Premium use"],
             Numeric = new HashSet<int> { 0, 1, 2, 7, 8, 9, 10, 11, 12 },
             EmptyText = "Nobody here used Copilot in the period.",
             /* The chosen ranking's column sorts by "rank", the other two by their own rank; Licensed: Yes first. */

@@ -29,7 +29,7 @@ namespace CopilotInsights.Pages.Adoption
 
             var t = new Table
             {
-                Headers = ["Rank", by, "People", "Licensed", "Adoption", "Change (points)", "Share of everyone active", "Interactions per active person", "Days active per person"],
+                Headers = ["Rank", by, "People", "License holders", "Adoption", "Change (points)", "Share of everyone using Copilot", "Interactions per active person", "Days active per person"],
                 Numeric = new HashSet<int> { 0, 2, 3, 4, 5, 6, 7, 8 },
             };
             var changes = new List<(string Name, double Points)>();
@@ -115,7 +115,7 @@ GROUP BY g.Domain;", Ctx.Args());
             var small = rows.Except(shown).ToList();
             if (small.Count > 0)
                 shown.Add(new Row { Domain = $"{small.Count} smaller home organizations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labeled = small.Sum(r => r.Labeled), Licensed = small.Sum(r => r.Licensed) });
-            var t = new Table { Headers = ["Home organization", "Guests", "Active", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
+            var t = new Table { Headers = ["Home organization", "Guests", "Used Copilot", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
             foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labeled]);
             Panels.Add(new("By home organization", t.Render(), "From the guest's sign-in name. Labeled content: interactions that touched content with a sensitivity label."));
 

@@ -161,7 +161,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             $"Departments with at least {Ctx.MinGroupSize} license holders, highest first; the rest are combined in the last bar, so no bar rests on one or two people. The table has every department."));
         var t = new Table
         {
-            Headers = ["Department", "People", "Licensed", "Share licensed", "Active", "Adoption", "Days active per person", "Sessions with a follow-up"],
+            Headers = ["Department", "People", "License holders", "Share with a license", "Used Copilot", "Adoption", "Days active per person", "Sessions with a follow-up"],
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7 },
         };
         foreach (var r in shown)

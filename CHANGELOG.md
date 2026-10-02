@@ -118,6 +118,11 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
 - **The filter bar says what the names in it are.** The path down the organization starts
   with *Showing*, and the part being shown says how many people it covers ("Alex Saleh and 54
   people under them"); the teams in *Look inside a team* say "people" after their count.
+- **One set of column names in the comparison tables.** The tables that compare departments,
+  units, countries, offices, job titles, job families and tenants called the same two things
+  *Licensed* and *Active*. They are *License holders* and *Used Copilot* everywhere (and
+  *Share licensed* is *Share with a license*), matching the charts above them. On Use ranking
+  the Yes/No column is *Has a license*. The same names head the CSV files.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its
