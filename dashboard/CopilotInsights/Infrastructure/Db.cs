@@ -7,7 +7,8 @@ namespace CopilotInsights.Infrastructure;
 
 /// <summary>
 /// A thin wrapper over Dapper: one connection per call, parameters always bound. A report page's reads are answered
-/// from the query cache when it has them (2.4.7, see <see cref="QueryCache"/>); every write tells the cache.
+/// from the query cache when it has them (2.4.7, see <see cref="QueryCache"/>); every write tells the cache. A read
+/// between date keys is sent with a plan hint (2.4.11, see <see cref="PlanHints"/>); the cache keys on the text as written.
 /// </summary>
 public sealed class Db(TenantAccessor tenants, QueryCache cache)
 {
@@ -28,7 +29,7 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         return Copy(await cache.GetAsync(Tenant, "q", sql, args, async () =>
         {
             await using var c = new SqlConnection(cs);
-            return (await c.QueryAsync<T>(new CommandDefinition(sql, args, commandTimeout: timeout))).AsList();
+            return (await c.QueryAsync<T>(new CommandDefinition(PlanHints.Apply(sql, args), args, commandTimeout: timeout))).AsList();
         }));
     }
 
@@ -39,11 +40,22 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         var (first, second) = await cache.GetAsync(Tenant, "q2", sql, args, async () =>
         {
             await using var c = new SqlConnection(cs);
-            await using var r = await c.QueryMultipleAsync(new CommandDefinition(sql, args, commandTimeout: timeout));
+            await using var r = await c.QueryMultipleAsync(new CommandDefinition(PlanHints.Apply(sql, args), args, commandTimeout: timeout));
             var a = (await r.ReadAsync<T1>()).AsList();
             return (a, (await r.ReadAsync<T2>()).AsList());
         });
         return (Copy(first), Copy(second));
+    }
+
+    /// <summary>
+    /// Several result sets from one batch, read by the caller (2.4.11): for a page whose lists and counts all come from
+    /// one temporary table, so the work behind them is done once. Always reads the database; nothing is kept.
+    /// </summary>
+    public async Task<T> ReadAsync<T>(string sql, object? args, Func<SqlMapper.GridReader, Task<T>> read, int timeout = 120)
+    {
+        await using var c = new SqlConnection(_cs);
+        await using var r = await c.QueryMultipleAsync(new CommandDefinition(PlanHints.Apply(sql, args), args, commandTimeout: timeout));
+        return await read(r);
     }
 
     public async Task<T?> ScalarAsync<T>(string sql, object? args = null)
@@ -52,7 +64,7 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         return await cache.GetAsync(Tenant, "s", sql, args, async () =>
         {
             await using var c = new SqlConnection(cs);
-            return await c.ExecuteScalarAsync<T>(sql, args);
+            return await c.ExecuteScalarAsync<T>(PlanHints.Apply(sql, args), args);
         });
     }
 

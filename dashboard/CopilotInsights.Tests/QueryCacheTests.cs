@@ -6,6 +6,62 @@ using Xunit;
 
 namespace CopilotInsights.Tests;
 
+public class PlanHintTests
+{
+    static string H(string sql, object? args) => PlanHints.Apply(sql, args).Replace("\r", "");
+
+    [Fact]
+    public void A_read_between_date_keys_is_planned_for_a_typical_range()
+    {
+        var sql = "SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1;";
+        Assert.Equal("SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1\nOPTION (OPTIMIZE FOR UNKNOWN);", H(sql, new { k0 = 20250925, k1 = 20260924 }));
+        // No final semicolon, and a CTE: the hint still ends the statement.
+        Assert.EndsWith("ORDER BY 1\nOPTION (OPTIMIZE FOR UNKNOWN)", H("WITH b AS (SELECT 1 AS x WHERE @k1 > 0) SELECT x FROM b ORDER BY 1  ", new { k1 = 20260924 }));
+    }
+
+    [Fact]
+    public void Inside_a_managers_part_it_is_planned_for_the_people_asked_for()
+    {
+        var sql = "SELECT COUNT(*) FROM dash.UserDay AS ud JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = ud.UserKey WHERE ud.DateKey BETWEEN @k0 AND @k1";
+        Assert.EndsWith("\nOPTION (RECOMPILE)", H(sql, new { root = "ada@contoso.com", k0 = 20260901, k1 = 20260924 }));
+        // The whole organization passes a root of null, and its queries do not name @root.
+        Assert.EndsWith("\nOPTION (OPTIMIZE FOR UNKNOWN)", H("SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1", new { root = (string?)null, k0 = 20260901, k1 = 20260924 }));
+    }
+
+    [Fact]
+    public void Only_statements_that_read_between_dates_take_a_hint()
+    {
+        var args = new { k0 = 20260901, k1 = 20260924, top = 50 };
+        var sql = "DECLARE @n INT = @top; SELECT f.SiteKey INTO #p FROM bi.FactAccessedResource AS f WHERE f.DateKey BETWEEN @k0 AND @k1; SELECT TOP (@n) * FROM #p; DROP TABLE #p;";
+        Assert.Equal("DECLARE @n INT = @top; SELECT f.SiteKey INTO #p FROM bi.FactAccessedResource AS f WHERE f.DateKey BETWEEN @k0 AND @k1\nOPTION (OPTIMIZE FOR UNKNOWN); SELECT TOP (@n) * FROM #p; DROP TABLE #p;", H(sql, args));
+        // Nothing to do: no date key among the parameters, or none in the text, or a hint already there.
+        Assert.Equal("SELECT * FROM dash.Person WHERE Upn = @upn", H("SELECT * FROM dash.Person WHERE Upn = @upn", new { upn = "ada@contoso.com", max = 20260924L }));
+        Assert.Equal("SELECT 1 WHERE @top > 0", H("SELECT 1 WHERE @top > 0", args));
+        Assert.Equal("SELECT 1 WHERE @k1 > 0 OPTION (RECOMPILE)", H("SELECT 1 WHERE @k1 > 0 OPTION (RECOMPILE)", args));
+        Assert.Equal("SELECT 1", H("SELECT 1", null));
+    }
+
+    [Fact]
+    public void A_semicolon_or_a_keyword_inside_text_or_a_comment_is_not_sql()
+    {
+        var args = new { k1 = 20260924, k10 = 20260101 };
+        // A comment that runs to the end of the line: the hint goes on a line of its own, after it.
+        Assert.Equal("SELECT N'a;b' AS x, @k1 AS k -- the day; OPTION (none)\nOPTION (OPTIMIZE FOR UNKNOWN)", H("SELECT N'a;b' AS x, @k1 AS k -- the day; OPTION (none)", args));
+        Assert.Equal("/* first; */ SELECT [a;b] FROM t WHERE d = @k1\nOPTION (OPTIMIZE FOR UNKNOWN); SELECT 'it''s @k1; fine' AS s;", H("/* first; */ SELECT [a;b] FROM t WHERE d = @k1; SELECT 'it''s @k1; fine' AS s;", args));
+        // @k10 is not @k1.
+        Assert.Equal("SELECT 1 WHERE @k100 > 0", H("SELECT 1 WHERE @k100 > 0", args));
+    }
+
+    [Theory]
+    [InlineData(20260924, true)]
+    [InlineData(20240229, true)]
+    [InlineData(20261301, false)]
+    [InlineData(20260900, false)]
+    [InlineData(30, false)]
+    [InlineData(70000, false)]
+    public void A_date_key_is_a_day_written_as_a_number(int value, bool expected) => Assert.Equal(expected, PlanHints.IsDateKey(value));
+}
+
 /// <summary>
 /// The query cache (2.4.7): a result is found again only by the very same query with the very same parameters, in the
 /// same tenant, while the data's stamp stands. The scope root is a parameter, so one viewer's rows can never answer another's.

@@ -565,12 +565,20 @@ WHERE a.AgentSource <> N'(no agent)'
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["unnamed"] = "Unnamed first", ["new"] = "Newest", ["name"] = "Name" }).Value + t.Render().Value),
             "Copilot Studio agents appear under their schema name. A friendly name shows everywhere instead; clear it to go back."));
 
-        var labels = await Db.QueryAsync<(string LabelId, string? Name, byte? Rank, long N)>(@"
-SELECT i.LabelId, sl.Name, sl.Rank, ISNULL(SUM(CAST(rd.Interactions AS BIGINT)), 0)
-FROM (SELECT DISTINCT Item AS LabelId FROM dash.ResourceDay WHERE Kind = 'Label' UNION SELECT LabelId FROM dash.SensitivityLabel) AS i
-LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = i.LabelId
-LEFT JOIN dash.ResourceDay AS rd ON rd.Kind = 'Label' AND rd.Item = i.LabelId
-GROUP BY i.LabelId, sl.Name, sl.Rank ORDER BY ISNULL(sl.Rank, 255), i.LabelId;");
+        /* The labels seen and how often (2.4.11): one pass over the rollup instead of two, and kept until the data
+           changes, as a report's queries are. It reads every day there is: 1.4 seconds at 120 million interactions on
+           each visit to this page otherwise. The names and their order are read as they are now. */
+        List<(string LabelId, long N)> seen;
+        await S.Stamp.EnsureAsync();
+        using (QueryCache.Use())
+            seen = await Db.QueryAsync<(string LabelId, long N)>(
+                "SELECT rd.Item, SUM(CAST(rd.Interactions AS BIGINT)) FROM dash.ResourceDay AS rd WHERE rd.Kind = 'Label' GROUP BY rd.Item;");
+        var named = await Db.QueryAsync<(string LabelId, string? Name, byte? Rank)>("SELECT LabelId, Name, Rank FROM dash.SensitivityLabel;");
+        var labels = seen.Select(x => x.LabelId).Union(named.Select(x => x.LabelId), StringComparer.OrdinalIgnoreCase)
+            .Select(id => (LabelId: id, Named: named.FirstOrDefault(x => string.Equals(x.LabelId, id, StringComparison.OrdinalIgnoreCase)),
+                           N: seen.Where(x => string.Equals(x.LabelId, id, StringComparison.OrdinalIgnoreCase)).Sum(x => x.N)))
+            .Select(x => (x.LabelId, x.Named.Name, x.Named.Rank, x.N))
+            .OrderBy(x => x.Rank ?? 255).ThenBy(x => x.LabelId, StringComparer.OrdinalIgnoreCase).ToList();
         var lt = new Table { Headers = ["Label id", "Interactions", "Name and order"], Numeric = new HashSet<int> { 1 }, EmptyText = "No labeled content seen yet.", Sortable = false };
         foreach (var l in labels)
             lt.Rows.Add([l.LabelId, l.N, new HtmlString(Form("label", $"<input type=\"hidden\" name=\"id\" value=\"{E(l.LabelId)}\"/>" +

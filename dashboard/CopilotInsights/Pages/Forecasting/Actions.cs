@@ -136,11 +136,14 @@ ORDER BY {pg.OrderBy};", Ctx.Args(new { k30, kind, q = pg.Like }));
            (a columnstore) was scanned once per row: 100 seconds a page at 40M interactions. */
         if (rows.Count > 0)
         {
-            var keys = rows.Select(r => r.UserKey).ToList();
+            /* The people as one parameter, a JSON list (2.4.11). One parameter each was SQL Server's limit of 2,100 at
+               about 1,050 people, twice named here: a page of 50 was fine, and the CSV of a longer list failed. */
+            var keys = System.Text.Json.JsonSerializer.Serialize(rows.Select(r => r.UserKey));
             var detail = (await Db.QueryAsync<(int UserKey, DateTime? LastUsed, string? RecordedLicense)>(@"
-WITH used AS (SELECT x.UserKey, MAX(x.DateKey) AS DateKey FROM dash.UserDay AS x WHERE x.UserKey IN @keys AND x.Interactions > 0 GROUP BY x.UserKey),
+SELECT CAST(j.[value] AS INT) AS UserKey INTO #keys FROM OPENJSON(@keys) AS j;
+WITH used AS (SELECT x.UserKey, MAX(x.DateKey) AS DateKey FROM dash.UserDay AS x WHERE x.UserKey IN (SELECT UserKey FROM #keys) AND x.Interactions > 0 GROUP BY x.UserKey),
 rec AS (SELECT f.UserKey, f.LicenseTypeKey, ROW_NUMBER() OVER (PARTITION BY f.UserKey ORDER BY f.DateKey DESC) AS n
-        FROM bi.FactInteraction AS f WHERE f.UserKey IN @keys AND f.LicenseTypeKey <> 1)
+        FROM bi.FactInteraction AS f WHERE f.UserKey IN (SELECT UserKey FROM #keys) AND f.LicenseTypeKey <> 1)
 SELECT k.UserKey, dl.[Date], dash.fnValueName(10, t.LicenseType)
 FROM (SELECT DISTINCT UserKey FROM (SELECT UserKey FROM used UNION ALL SELECT UserKey FROM rec WHERE n = 1) AS u) AS k
 LEFT JOIN used ON used.UserKey = k.UserKey

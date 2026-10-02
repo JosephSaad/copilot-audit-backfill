@@ -89,6 +89,17 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         catch (Exception) { return null; }
     }
 
+    /// <summary>A query's parameters by name, or null when they cannot be read (see <see cref="Key"/>).</summary>
+    public static IReadOnlyDictionary<string, object?>? Values(object? args)
+    {
+        try
+        {
+            var values = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            return Collect(args, values) ? values : null;
+        }
+        catch (Exception) { return null; }
+    }
+
     static bool Collect(object? args, IDictionary<string, object?> into)
     {
         switch (args)
