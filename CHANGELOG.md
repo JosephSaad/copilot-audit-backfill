@@ -175,6 +175,9 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   *Skip to the page*, past the list of reports; before, the report was a hundred links away.
   Every table's column headings are marked as such, so a screen reader reads each figure
   with its column's name.
+- **A wide table shows that it continues.** A table wider than its panel scrolls sideways, and
+  on a phone its last columns were simply cut off at the edge. A soft shadow now marks the
+  edge a table continues past, and goes when that end is reached.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs
