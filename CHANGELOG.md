@@ -83,6 +83,19 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   *Share labeled*, *Times blocked* (they were *OneDrive*, *People*, *Reads*, *Labeled*,
   *Blocked*); on Access to labeled content, *Days with one*, *Sites reached*, *Times blocked*.
 
+- **Agents and Enablement.** An agent's *Source* is *Built in*, as Agent inventory calls it.
+  Agents costing credits had two columns named *Without a license*: they are *Interactions
+  without a license* and *People without a license*. Training effect had two named *After*:
+  each column now says whose it is (*Attendees before*, *Attendees after*, *Colleagues before*, *Colleagues after*). On Champions the
+  rank column has a heading, and *Back-and-forth conversations* is *Sessions with a
+  follow-up*, the name the other reports use. Agent hand-offs and Messages per prompt explain
+  themselves without a field name or a release number.
+
+- **Long column headings wrap instead of making the table scroll sideways.** A heading now
+  breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
+  costing credits, Training effect) show more of their columns at once; a figure with its
+  arrow or unit stays on one line.
+
 ### Fixed
 - **Pointers to a page that does not exist.** Five places sent the reader to *Admin >
   Settings* for the pay-as-you-go price, and the license export script to *Admin > License

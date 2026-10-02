@@ -53,7 +53,7 @@ GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
 
         var buckets = Buckets();
         Series S(string action, int slot) => new(action, buckets.Select(b => (double?)byAction.Where(x => x.Bucket == b.Key && x.Action == action).Sum(x => x.N)).ToList(), slot);
-        Panels.Add(new("Authoring over time", Chart.Columns(Labels(), [S("Created", 1), S("Published", 3), S("Shared", 5), S("Component", 2), S("Updated", 4), S("Deleted", 6)], Fmt.Count, "Agent authoring events"),
+        Panels.Add(new("Building activity over time", Chart.Columns(Labels(), [S("Created", 1), S("Published", 3), S("Shared", 5), S("Component", 2), S("Updated", 4), S("Deleted", 6)], Fmt.Count, "Agent authoring events"),
             TrendNote + " Component: topics, skills and other parts added, changed or removed."));
 
         var life = await Db.QueryAsync<Life>($@"

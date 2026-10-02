@@ -380,13 +380,13 @@ ORDER BY AttendedOn DESC;", Ctx.Args(), timeout: 300);
                 Fmt.Decimal1, "Change in active days against colleagues"), "Active days in the 28 days after, less the 28 before, less the same change for colleagues in the same departments.", "half"));
             var tb = new Table
             {
-                Headers = ["Session", "Date", "Attendees", "Active days before", "After", "Colleagues before", "After", "Colleagues", "Effect (days)"],
+                Headers = ["Session", "Date", "Attendees", "Attendees before", "Attendees after", "Colleagues before", "Colleagues after", "Colleagues compared", "Effect (days)"],
                 Numeric = new HashSet<int> { 2, 3, 4, 5, 6, 7, 8 },
             };
             foreach (var (r, e) in shown.Zip(effect))
                 tb.Rows.Add([r.Session, r.AttendedOn, r.Attendees, Math.Round(r.DaysBefore, 1), Math.Round(r.DaysAfter, 1), Math.Round(r.OthersBefore, 1), Math.Round(r.OthersAfter, 1), r.Others, Math.Round(e, 1)]);
             CsvTable = tb;
-            Panels.Add(new("Every session", tb.Render(), $"Sessions with fewer than {Ctx.MinGroupSize} attendees you may see are left out. Averages per person.", "full", CsvUrl()));
+            Panels.Add(new("Every session", tb.Render(), $"Before and after: active days per person in the 28 days before the session and the 28 days after it, for the attendees and for colleagues in the same departments who did not attend. Colleagues compared: how many colleagues that is. Sessions with fewer than {Ctx.MinGroupSize} attendees you may see are left out.", "full", CsvUrl()));
         }
     }
 
@@ -433,10 +433,10 @@ WITH scored AS
 SELECT * FROM scored WHERE Rank <= @per ORDER BY Dept, Rank;", Ctx.Args(new { per }));
             Kpis.Add(new("Departments", Num(rows.Select(r => r.Dept).Distinct().Count())));
             Kpis.Add(new("Candidates", Num(rows.Count), $"up to {per} per department (Admin > Targets and assumptions)"));
-            var tb = new Table { Headers = ["Department", "", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Back-and-forth conversations", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
+            var tb = new Table { Headers = ["Department", "Rank", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Sessions with a follow-up", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
             foreach (var r in rows) tb.Rows.Add([r.Dept, r.Rank, r.DisplayName, r.UserPrincipalName, r.JobTitle, r.Days, r.Apps, Pct(r.MultiTurnShare), r.Interactions]);
             CsvTable = tb;
-            Panels.Add(new("Candidates by department", tb.Render(), "Ranked by days active, then breadth, then conversation depth.", "full", CsvUrl()));
+            Panels.Add(new("Candidates by department", tb.Render(), "Ranked within each department by days active, then by apps used, then by the share of their sessions with a follow-up.", "full", CsvUrl()));
         }
     }
 }

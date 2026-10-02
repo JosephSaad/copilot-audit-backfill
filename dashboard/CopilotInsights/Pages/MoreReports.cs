@@ -213,7 +213,7 @@ namespace CopilotInsights.Pages.Agents
     {
         public override string Title => "Agent hand-offs";
         public override string Persona => "Agents";
-        public override string Intro => "When one agent calls another (CopilotEventData.TargetAgentName): how often, and to which agents.";
+        public override string Intro => "When one agent hands a request to another agent: how often, and to which agents.";
 
         protected override async Task BuildAsync()
         {
@@ -273,7 +273,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
                 "From the first prompt to the last.", "half"));
             var buckets = Buckets();
             Panels.Add(new("Messages per prompt", Chart.Line(Labels(), [new Series("Messages per prompt", buckets.Select(b => { var r = tr.FirstOrDefault(x => x.Bucket == b.Key); return r.Prompts > 0 ? r.Messages / (double?)r.Prompts : null; }).ToList(), 2)], Fmt.Decimal1, "Messages per prompt"),
-                $"Prompts and Copilot's replies together, per prompt. From 2.2.0 flattening. {TrendNote}"));
+                $"Prompts and Copilot's replies together, per prompt: above 2, Copilot answered some prompts in more than one message. {TrendNote}"));
         }
     }
 }

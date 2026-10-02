@@ -73,7 +73,7 @@ WHERE (@q IS NULL OR x.AgentName LIKE @q OR x.Owner LIKE @q)
 
         var t = new Table
         {
-            Headers = ["Agent", "Source", "Owner", "Interactions", "Without a license", "People", "Without a license", $"Credits a month ({cur})", $"A person a month ({cur})", "Suggestion"],
+            Headers = ["Agent", "Built in", "Owner", "Interactions", "Interactions without a license", "People", "People without a license", $"Credits a month ({cur})", $"Credits a person a month ({cur})", "Suggestion"],
             Numeric = new HashSet<int> { 3, 4, 5, 6, 7, 8 },
             EmptyText = "No agent was used in the period.",
             /* Without a license (interactions) and Credits a month are the same count, so both sort by credits. */

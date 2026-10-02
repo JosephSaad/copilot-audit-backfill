@@ -59,7 +59,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
 
         var t = new Table
         {
-            Headers = ["Agent", "Source", "Owner", "First used", "People", "Came back", "Interactions", "Per person", "Trend (people)"],
+            Headers = ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
             Numeric = new HashSet<int> { 4, 5, 6, 7 }, EmptyText = "No agents were used in the period.",
         };
         foreach (var r in rows.OrderByDescending(r => r.People))
@@ -106,7 +106,7 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         var options = string.Concat(agents.Select(a =>
             $"<option value=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"agent={a.AgentKey}"))}\"{(a.AgentKey == key ? " selected" : "")}>{System.Net.WebUtility.HtmlEncode(a.AgentName)} ({System.Net.WebUtility.HtmlEncode(a.AgentSource)})</option>"));
         Panels.Add(new("Agent", new HtmlString($"<select aria-label=\"Agent\" data-navigate><option value=\"\">Choose an agent</option>{options}</select>")));
-        if (key is null) { Notice = "Choose an agent, or select one on the Agents page."; return; }
+        if (key is null) { Notice = "Choose an agent above, or select one on Agents in use."; return; }
         AgentName = agents.First(a => a.AgentKey == key).AgentName;
         var args = Ctx.Args(new { agent = key });
 

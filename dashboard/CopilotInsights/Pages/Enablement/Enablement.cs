@@ -77,7 +77,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ct
 
         Panels.Add(new("Conversations, not one-off questions",
             Chart.Line(Labels(), [new Series("With a follow-up", tr.Select(x => Ratio(x.MultiTurn, x.Sessions)).ToList(), 1)], Fmt.Percent, "Share of sessions with a follow-up"),
-            "Sessions with more than one prompt, as a share of all sessions. A rising line means people are learning to iterate.", "half"));
+            "Sessions with a follow-up (the person replied to Copilot at least once), as a share of all sessions. A rising line means people are learning to refine an answer instead of starting over.", "half"));
         Panels.Add(new("Prompts per session",
             Chart.Line(Labels(), [new Series("Prompts per session", tr.Select(x => x.Sessions > 0 ? x.Prompts / (double?)x.Sessions : null).ToList(), 2)], Fmt.Decimal1, "Prompts per session"),
             TrendNote, "half"));
