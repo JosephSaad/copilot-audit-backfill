@@ -167,16 +167,16 @@ namespace CopilotInsights.Pages.Leadership
             var t = await HttpContext.RequestServices.GetRequiredService<Metrics>().TotalsAsync(Ctx);
             var hours = v.ByApp.Sum(x => x.Hours);
             var value = v.ByApp.Sum(x => x.Value);
-            var licenseCost = t.LicensedNow * price * (decimal)(Ctx.Days / 30.4);
+            var licenseCost = Licensing.Price.ForPeriod(t.LicensedNow, price, Ctx.Days);
             Kpis.Add(new("Hours saved (estimate)", Num(hours), $"{v.DefaultMinutes:0.#} minutes an interaction unless set per app"));
-            Kpis.Add(new($"Worth ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour"));
+            Kpis.Add(new($"Estimated value ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour"));
             Kpis.Add(new("Per person using Copilot", t.Active > 0 ? $"{hours / t.Active:0.#} h" : "—", "in the period"));
-            Kpis.Add(new("Against the license cost", licenseCost > 0 ? $"{value / licenseCost:0.#}×" : "—", $"licenses for the period: {licenseCost:#,0} {cur}"));
+            Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", $"license cost in the period: {licenseCost:#,0} {cur}"));
             Panels.Add(new("Hours saved by app", Chart.Bars(v.ByApp.Take(12).Select(a => new Bar(a.Name, a.Hours, Note: $"{a.Interactions:#,0} interactions")).ToList(), Fmt.Count, "Hours saved by app"),
                 "Set the minutes each app saves in Admin > Targets and assumptions.", "half"));
             var shown = v.ByDepartment.Where(d => d.People >= Ctx.MinGroupSize).ToList();
             var small = v.ByDepartment.Where(d => d.People < Ctx.MinGroupSize).ToList();
-            var tb = new Table { Headers = ["Department", "People using it", "Interactions", "Hours saved", $"Worth ({cur})", "Hours per person"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5 } };
+            var tb = new Table { Headers = ["Department", "People using Copilot", "Interactions", "Hours saved", $"Estimated value ({cur})", "Hours per person"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Interactions, Math.Round(d.Hours), Math.Round(d.Value), d.People > 0 ? Math.Round(d.Hours / d.People, 1) : null]);
             if (small.Count > 0) { tb.Rows.Add(["Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Interactions), Math.Round(small.Sum(d => d.Hours)), Math.Round(small.Sum(d => d.Value)), null]); tb.KeepLast = 1; }
             CsvTable = tb;

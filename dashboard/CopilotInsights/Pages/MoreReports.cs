@@ -41,7 +41,7 @@ namespace CopilotInsights.Pages.Leadership
                 Kpis.Add(new("Premium adoption", Pct(Premium(now)), Delta(Premium(now), Premium(before), pct: true)));
                 Kpis.Add(new("Free-only adoption", Pct(FreeOnly(now)), Delta(FreeOnly(now), FreeOnly(before), pct: true)));
             }
-            Kpis.Add(new("Licensed", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow)));
+            Kpis.Add(new("Premium license holders", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow)));
             Kpis.Add(new("Interactions", Num(now.Interactions), Delta(now.Interactions, before.Interactions)));
             Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
 
@@ -50,8 +50,8 @@ namespace CopilotInsights.Pages.Leadership
             var t = new Table
             {
                 Headers = split
-                    ? ["Unit", "People", "Adoption", "Premium", "Change", "Free only", "Change", "Active", "Change", "Interactions per active person", "Change"]
-                    : ["Unit", "People", "Adoption", "Change", "Active", "Change", "Interactions per active person", "Change"],
+                    ? ["Unit", "People", "Adoption", "Premium", "Premium change", "Free only", "Free-only change", "Active people", "Active change", "Interactions per active person", "Interactions change"]
+                    : ["Unit", "People", "Adoption", "Adoption change", "Active people", "Active change", "Interactions per active person", "Interactions change"],
                 Numeric = Enumerable.Range(1, split ? 10 : 7).ToHashSet(),
             };
             var rows = new List<(UnitRow Now, UnitRow? Before)>();

@@ -15,6 +15,12 @@ static class Price
     public static async Task<(decimal Monthly, string Currency)> GetAsync(Settings s) =>
         (decimal.TryParse(await s.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
          await s.StringAsync("LicenseCurrency") ?? "USD");
+
+    /// <summary>
+    /// What licenses cost over a period of days, at a price a month: a month is a twelfth of a year (2.4.10; Value and time
+    /// saved took a month for 30.4 days and the Board pack for 30, so the same licenses cost two amounts).
+    /// </summary>
+    public static decimal ForPeriod(int licenses, decimal monthly, int days) => licenses * monthly * days * 12m / 365m;
 }
 
 /// <summary>Seats bought against seats assigned against seats used: the renewal question.</summary>

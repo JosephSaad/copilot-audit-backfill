@@ -19,16 +19,16 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in {Here}" : "in the period"));
         Kpis.Add(new("Premium licenses today", Num(t.LicensedNow), t.People > 0 ? $"{Pct(Ratio(t.LicensedNow, t.People))} of people" : null));
         Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), "Premium license holders who used Copilot in the period"));
-        Kpis.Add(new("Active in the last 7 days", Num(t.ActiveLast7), t.LicensedNow > 0 ? $"{Pct(Ratio(t.ActiveLast7, t.LicensedNow))} of licensed people" : null));
+        Kpis.Add(new("Active in the last 7 days", Num(t.ActiveLast7), t.LicensedNow > 0 ? $"{Pct(Ratio(t.ActiveLast7, t.LicensedNow))} of Premium license holders" : null));
         Kpis.Add(new("Interactions", Num(t.Interactions), t.Active > 0 ? $"{t.Interactions / (double)t.Active:#,0.0} per active person" : null));
 
         Panels.Add(new("People using Copilot",
             Chart.Line(x, [
-                new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1),
-                new Series("Active, licensed", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
-                new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2),
-            ], Fmt.Count, "People licensed and active"),
-            $"Licensed: holding a Premium Copilot license at the end of the day or week. Copilot Chat only: people without a license using the free Copilot Chat. {TrendNote}"));
+                new Series("Premium license holders", tr.Select(w => (double?)w.Licensed).ToList(), 1),
+                new Series("Used Copilot, with a license", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
+                new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2),
+            ], Fmt.Count, "Premium license holders, how many of them used Copilot, and people on the free Copilot Chat"),
+            $"Premium license holders: holding a Premium Copilot license at the end of the day or week. Free Copilot Chat only: people without a license who used the free Copilot Chat. {TrendNote}"));
         Panels.Add(new("Adoption rate: Premium license holders",
             Chart.Line(x, [new Series("Adoption", tr.Select(w => Ratio(adopted.GetValueOrDefault(w.Bucket), w.Licensed)).ToList(), 1)], Fmt.Percent, "Adoption rate of Premium license holders"),
             $"Premium license holders only. Of the people holding a Premium license at each point, the share who used Copilot in the {Metrics.AdoptionDays} days up to it. " +
@@ -36,13 +36,13 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
             $"The first {Metrics.AdoptionDays} days of the data read low, with less than {Metrics.AdoptionDays} days behind them.", "half"));
         Panels.Add(new("Interactions",
             Chart.Columns(x, [new Series("Interactions", tr.Select(w => (double?)w.Interactions).ToList(), 1)], Fmt.Count, "Interactions"),
-            null, "half"));
+            $"An interaction is one prompt to Copilot and its answer, by anyone, licensed or not. {TrendNote}", "half"));
 
         var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
-        Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption by organization",
+        Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption in each part of the organization",
             Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null)),
                 Ctx.MinGroupSize, "Adoption by unit", 40),
-            $"Licensed people active in the period, per unit one level down, for units with at least {Ctx.MinGroupSize} license holders; the rest are combined in the last bar. Select a name to look inside." +
+            $"Premium license holders who used Copilot in the period, for each part of the organization one level below. Parts with fewer than {Ctx.MinGroupSize} license holders are combined in the last bar. Select a name to look inside it." +
             (folded > 0 ? $" {Count(folded, "unit")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : "")));
     }
 }

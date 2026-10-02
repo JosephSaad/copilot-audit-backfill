@@ -35,7 +35,21 @@ Clearer names and less clutter. No change to the database: install the dashboard
   "Totals only: no one is named". Counts read as a sentence: "1 unit is combined", "3 units
   are combined", not "1 unit(s) are combined".
 
+- **Leadership reports say Premium license where they mean it.** On Overview the chart's lines
+  are *Premium license holders*, *Used Copilot, with a license* and *Free Copilot Chat only*
+  (they were *Licensed*, *Active, licensed*, *Copilot Chat only*), and *Adoption by
+  organization* is *Adoption in each part of the organization*. The Interactions chart says
+  what an interaction is. On Scorecard each *Change* column names what changed (*Premium
+  change*, *Free-only change*, *Active change*, *Interactions change*). *Worth* is *Estimated
+  value* and *Against the license cost* / *Return* is *Return on license cost*, the same on
+  Value and time saved and the Board pack. On Use cases, *With an agent* is *Interactions
+  through an agent*.
+
 ### Fixed
+- **The license cost of a period was two amounts.** Value and time saved took a month for 30.4
+  days and the Board pack for 30, so 1,269 licenses over 30 days cost 37,569 on one and 38,070
+  on the other. Both now take a month for a twelfth of a year (37,548 for that example; a full
+  year is exactly twelve months' cost).
 - **"For copilot program lead".** The line under a report's title lowercased the first word
   of its audience whatever it was: *For copilot program lead*, *For hR and people analytics*,
   *For aI governance and architecture*. Names and abbreviations keep their capitals.
