@@ -105,8 +105,12 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         var key = int.TryParse(Request.Query["agent"], out var k) && agents.Any(a => a.AgentKey == k) ? k : (int?)null;
         var options = string.Concat(agents.Select(a =>
             $"<option value=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"agent={a.AgentKey}"))}\"{(a.AgentKey == key ? " selected" : "")}>{System.Net.WebUtility.HtmlEncode(a.AgentName)} ({System.Net.WebUtility.HtmlEncode(a.AgentSource)})</option>"));
-        Panels.Add(new("Agent", new HtmlString($"<select aria-label=\"Agent\" data-navigate><option value=\"\">Choose an agent</option>{options}</select>")));
-        if (key is null) { Notice = "Choose an agent above, or select one on Agents in use."; return; }
+        /* With none chosen the box is the page: it says what to do, and where else an agent can be picked (2.4.10: the
+           hint sat above it and said "above"). */
+        Panels.Add(new(key is null ? "Choose an agent" : "Agent", new HtmlString(
+            $"<select class=\"pick\" aria-label=\"Agent\" data-navigate><option value=\"\">Choose an agent</option>{options}</select>" +
+            (key is null ? $"<p class=\"sub\">Or select an agent's name on <a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url("/agents"))}\">Agents in use</a>.</p>" : ""))));
+        if (key is null) return;
         AgentName = agents.First(a => a.AgentKey == key).AgentName;
         var args = Ctx.Args(new { agent = key });
 

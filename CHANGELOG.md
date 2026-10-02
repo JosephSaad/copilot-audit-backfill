@@ -162,6 +162,11 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   now gets *Page not found*, with the address, the reports nearest to it among those the
   person can open, and the way to the start page. The answer is still a 404; the data API and
   files are answered as before.
+- **Agent detail and App detail say what to do.** With nothing chosen the page said "Choose an
+  agent above" over a box that was below it. The box is now headed *Choose an agent* (or *an
+  app*), is drawn like the dashboard's other boxes, and links to the report where one can be
+  picked by name. Messages that said "in your scope" say "among the people you can see", and
+  the Leaderboard by country or company no longer counts "countrys" and "companys".
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs

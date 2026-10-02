@@ -220,7 +220,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Select("days", "Covering", ReportContext.DayChoices.Select(d => $"{d}"), "30") +
             Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) + Button("Add")) +
             "<ul class=\"sub\">" + string.Concat(OpsReports.DigestKinds.Select(k => $"<li><b>{E(k.Key)}</b>: {E(k.Value)}</li>")) + "</ul>"),
-            "Digests hold aggregates only, never a named person, so they can go to anyone the scope is right for. Each covers the period chosen up to the last complete day."));
+            "Digests hold aggregates only, never a named person, so they can go to anyone who may see that part of the organization. Each covers the period chosen up to the last complete day."));
 
         var webhook = await HttpContext.RequestServices.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
         Panels.Add(new("Teams, ServiceNow or any webhook", new HtmlString(Form("webhook",

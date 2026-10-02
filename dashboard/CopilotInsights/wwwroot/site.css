@@ -130,7 +130,9 @@ h1 { font-size: 26px; margin: 2px 0 4px; letter-spacing: -0.01em; }
 
 .filters { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; background: var(--surface); border: 1px solid var(--rule);
   border-radius: 8px; padding: 8px 12px; margin: 10px 0 14px; font-size: 13px; }
-.filters select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 3px 6px; }
+.filters select, select.pick { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 3px 6px; }
+select.pick { max-width: 100%; padding: 5px 8px; }   /* the box a page is chosen with (an agent, an app): the dashboard's own, not the browser's */
+select.pick + .sub { margin-top: 8px; }
 .filters label { color: var(--muted); display: flex; gap: 6px; align-items: center; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .crumbs a { text-decoration: none; color: var(--muted); }

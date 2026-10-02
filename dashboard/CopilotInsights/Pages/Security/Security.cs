@@ -191,7 +191,7 @@ WHERE {Kinds[kind].Sql} AND {(cases ? Triage[triage].Sql : "1 = 1")}
         if (string.IsNullOrEmpty(recordId) || recordId.Length > 64) throw new ArgumentException("no record.");
         if (await Db.ScalarAsync<int>($@"SELECT COUNT(*) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 WHERE f.RecordId = @recordId AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1);", Ctx.Args(new { recordId })) == 0)
-            throw new ArgumentException("that record is not a flagged interaction in your scope.");
+            throw new ArgumentException("that record is not a flagged interaction among the people you can see.");
         note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(2000, note.Trim().Length)];
         var by = Viewer.Upn ?? Viewer.WindowsName;
         await Db.ExecuteAsync(@"

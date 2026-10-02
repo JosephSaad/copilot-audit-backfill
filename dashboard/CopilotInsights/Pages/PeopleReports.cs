@@ -25,7 +25,7 @@ namespace CopilotInsights.Pages.Adoption
             double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
             var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
             var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
-            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses in scope."; return; }
+            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} in {Here} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses."; return; }
 
             var t = new Table
             {
@@ -48,7 +48,7 @@ namespace CopilotInsights.Pages.Adoption
                 var best = changes.MaxBy(c => c.Points);
                 Kpis.Add(new("Most improved", best.Name, $"{best.Points:+0.#;-0.#;0} points on the period before"));
             }
-            Kpis.Add(new("Ranked", Num(ranked.Count), $"of the {by.ToLowerInvariant()}s here"));
+            Kpis.Add(new("Ranked", Num(ranked.Count), $"of the {by switch { "Company" => "companies", "Country" => "countries", _ => by.ToLowerInvariant() + "s" }} here"));
 
             Panels.Add(new("Adoption", Chart.Bars(ranked.Take(20).Select(r => new Bar(r.Name, Adopt(r), Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed people used it")).ToList(),
                 Fmt.Percent, "Adoption by group", 1), null, "half"));
@@ -206,7 +206,7 @@ namespace CopilotInsights.Pages.Compliance
 SELECT du.UserKey, du.UserPrincipalName, du.DisplayName, du.Department, du.JobTitle, du.ManagerName, du.CompanyName, du.Country, du.DirectoryStatus,
        du.AccountEnabled, du.LicensedSinceUtc, du.FirstSeenUtc
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @upn;", Ctx.Args(new { upn }))).FirstOrDefault();
-            if (who is null) { Notice = $"No Copilot records for {upn} in your scope."; return; }
+            if (who is null) { Notice = $"No Copilot records for {upn} among the people you can see. Check the sign-in; someone outside your part of the organization is not shown."; return; }
 
             var d = new Table { Headers = ["Field", "Value"], Sortable = false };
             d.Rows.Add(["Name", who.DisplayName]); d.Rows.Add(["Sign-in", who.UserPrincipalName]); d.Rows.Add(["Department", who.Department]);
