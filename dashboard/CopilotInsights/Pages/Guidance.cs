@@ -104,7 +104,7 @@ public static class Guidance
         ["/apps/detail"] = new("Understand one app's Copilot use in depth.", "Share the app's strongest examples with its weaker groups."),
 
         // Governance
-        ["/governance"] = new("See which models answer and how much Copilot relies on the web.", "Review web grounding against your policy."),
-        ["/governance/controls"] = new("Watch memory updates, deferred data-loss checks and web grounding.", "Look into units where the controls behave differently."),
+        ["/governance"] = new("See which models answer and how much Copilot relies on the web.", "Check the share of web search against your policy."),
+        ["/governance/controls"] = new("Watch memory updates, deferred data-loss checks and web search.", "Look into units where the controls behave differently."),
     };
 }

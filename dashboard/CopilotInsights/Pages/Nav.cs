@@ -52,7 +52,7 @@ public static class Nav
         new("App owners", "Microsoft 365 workload owners", [
             new("Apps", "/apps"), new("App detail", "/apps/detail")]),
         new("Governance", "AI governance and architecture", [
-            new("Models and grounding", "/governance"), new("Copilot controls", "/governance/controls")]),
+            new("Models and web search", "/governance"), new("Copilot controls", "/governance/controls")]),
         new("Admin", "Dashboard administrators", [
             new("Health", "/admin/health", Admin: true), new("Access", "/admin/access", Admin: true), new("Directory quality", "/admin/directory", Admin: true),
             new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),

@@ -98,6 +98,10 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   *Unused*, *Light users* and *Heavy demand*. *A month (USD)* is *Cost a month*, *Added cost a
   month* or *Cost change a month*, whichever it is; on License action outcomes *What* and *By*
   are *Action* and *Exported by*.
+- **Governance without "grounding".** *Models and grounding* is *Models and web search*; *Web
+  grounding* and *Web grounded* are *Interactions that searched the web* and *Searched the
+  web*; *Agent sprawl* is *Every agent seen, by where it was built*, with what sprawl looks
+  like in its note; the deferred data-loss check says what the mark is and who sets it.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its

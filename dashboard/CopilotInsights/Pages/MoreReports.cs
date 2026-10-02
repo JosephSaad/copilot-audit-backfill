@@ -284,7 +284,7 @@ namespace CopilotInsights.Pages.Governance
     {
         public override string Title => "Copilot controls";
         public override string Persona => "Governance";
-        public override string Intro => "The controls around Copilot at work: memory updates, deferred data-loss checks, and grounding on the public web, over time and by unit.";
+        public override string Intro => "The controls around Copilot at work: memory updates, deferred data-loss checks, and searches of the public web, over time and by unit.";
 
         protected override async Task BuildAsync()
         {
@@ -297,18 +297,18 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
             Kpis.Add(new("Memory updated", Pct(Ratio(tr.Sum(x => x.Memory), tr.Sum(x => x.All))), "of interactions"));
             Kpis.Add(new("DLP check deferred", Num(tr.Sum(x => x.Dlp))));
             Kpis.Add(new("Grounded on the web", Pct(Ratio(tr.Sum(x => x.Web), tr.Sum(x => x.All)))));
-            Panels.Add(new("Memory and web grounding", Chart.Line(Labels(), [
+            Panels.Add(new("Memory updates and web search", Chart.Line(Labels(), [
                 new Series("Memory updated", buckets.Select(b => Ratio(At(b.Key).Memory, At(b.Key).All)).ToList(), 5),
-                new Series("Web grounded", buckets.Select(b => Ratio(At(b.Key).Web, At(b.Key).All)).ToList(), 1),
+                new Series("Searched the web", buckets.Select(b => Ratio(At(b.Key).Web, At(b.Key).All)).ToList(), 1),
             ], Fmt.Percent, "Memory and web share"), $"Shares of interactions. {TrendNote}", "half"));
             Panels.Add(new("Deferred data-loss checks", Chart.Columns(Labels(), [new Series("Deferred", buckets.Select(b => (double?)At(b.Key).Dlp).ToList(), 4)], Fmt.Count, "DLP deferred"),
-                "Interactions whose DLP evaluation Copilot recorded as deferred.", "half"));
+                "Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising share is worth raising with them.", "half"));
 
             var units = (await m.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize).ToDictionary(u => u.Unit);
             var series = await m.UnitSeriesAsync(Ctx);
             var web = series.GroupBy(x => x.Unit).Where(g => units.ContainsKey(g.Key))
                 .Select(g => (Unit: units[g.Key], Web: g.Sum(x => x.Web), All: g.Sum(x => x.Interactions))).Where(x => x.All > 0).OrderByDescending(x => x.Web / (double)x.All).ToList();
-            Panels.Add(new("Web grounding by unit", Chart.Bars(web.Take(15).Select(x => new Bar(x.Unit.Name, x.Web / (double)x.All, x.Unit.Drillable ? Ctx.Url(Request.Path, org: x.Unit.Unit) : null, $"{x.Web:#,0} of {x.All:#,0}")).ToList(), Fmt.Percent, "Web grounding by unit", 1),
+            Panels.Add(new("Web search by unit", Chart.Bars(web.Take(15).Select(x => new Bar(x.Unit.Name, x.Web / (double)x.All, x.Unit.Drillable ? Ctx.Url(Request.Path, org: x.Unit.Unit) : null, $"{x.Web:#,0} of {x.All:#,0}")).ToList(), Fmt.Percent, "Web grounding by unit", 1),
                 $"Each part of the organization one level below; units under {Ctx.MinGroupSize} people are left out."));
         }
     }

@@ -5,9 +5,9 @@ namespace CopilotInsights.Pages.Governance;
 
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Models and grounding";
+    public override string Title => "Models and web search";
     public override string Persona => "Governance";
-    public override string Intro => "Which models answer, how much Copilot grounds on the public web, Copilot Chat against Copilot in the apps, and how many agents are in play.";
+    public override string Intro => "Which models answer, how often Copilot searches the public web, Copilot Chat against Copilot in the apps, and how many agents are in play.";
 
     protected override async Task BuildAsync()
     {
@@ -34,9 +34,9 @@ WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, a.AgentSource;", Ctx.Args());
         var buckets = Buckets();
 
-        Kpis.Add(new("Grounded on the web", Pct(Ratio(tr.Sum(w => w.Web), all)), "of interactions used web search"));
+        Kpis.Add(new("Searched the web", Pct(Ratio(tr.Sum(w => w.Web), all)), "of interactions used web search"));
         Kpis.Add(new("In Copilot Chat", Pct(Ratio(tr.Sum(w => w.Chat), all)), "the rest is Copilot inside the apps"));
-        Kpis.Add(new("Through an agent", Pct(Ratio(tr.Sum(w => w.Agent), all))));
+        Kpis.Add(new("Through an agent", Pct(Ratio(tr.Sum(w => w.Agent), all)), "of interactions were answered by an agent"));
         Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count())));
         var flags = (await Db.QueryAsync<(long N, long Memory, long AgentCalls, long Dlp)>($@"
 SELECT COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.CalledAnotherAgent AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT))
@@ -44,7 +44,7 @@ FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
         Kpis.Add(new("Updated Copilot memory", Pct(Ratio(flags.Memory, flags.N)), "of interactions saved something to memory"));
         Kpis.Add(new("Called another agent", Pct(Ratio(flags.AgentCalls, flags.N)), "handed work to a second agent"));
-        Kpis.Add(new("DLP check deferred", Num(flags.Dlp), "interactions whose data-loss check ran later"));
+        Kpis.Add(new("Data-loss check deferred", Num(flags.Dlp), "interactions Copilot marked as having their data-loss prevention (DLP) check deferred"));
 
         var top = models.GroupBy(x => x.Model).OrderByDescending(g => g.Sum(x => x.N)).Select(g => g.Key).Take(6).ToList();
         var series = top.Select((mdl, i) => new Series(mdl, buckets.Select(b =>
@@ -55,8 +55,8 @@ WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
         Panels.Add(new("Model mix", Chart.Line(Labels(), series, Fmt.Percent, "Share of interactions by model", 1),
             $"Each model's share of interactions, from the audit record's model details. A step change is usually a Microsoft rollout. {TrendNote}"));
 
-        Panels.Add(new("Web grounding",
-            Chart.Line(Labels(), [new Series("Web grounded", tr.Select(w => Ratio(w.Web, w.Interactions)).ToList(), 1)], Fmt.Percent, "Web-grounded share"),
+        Panels.Add(new("Interactions that searched the web",
+            Chart.Line(Labels(), [new Series("Searched the web", tr.Select(w => Ratio(w.Web, w.Interactions)).ToList(), 1)], Fmt.Percent, "Share of interactions that searched the web"),
             "Interactions where Copilot searched the public web. Worth watching if web search should be off for some people.", "half"));
         Panels.Add(new("Copilot Chat and Copilot in the apps",
             Chart.Line(Labels(), [
@@ -67,13 +67,13 @@ WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
         var sources = agents.Select(a => a.Source).Distinct().OrderBy(x => x).ToList();
         Panels.Add(new("Agents in use",
             Chart.Columns(Labels(), sources.Select((src, i) => new Series(src, buckets.Select(b => (double?)agents.Where(a => a.Source == src && a.Bucket == b.Key).Sum(a => a.N)).ToList(), i + 1)).ToList(),
-                Fmt.Count, "Distinct agents used"), "Distinct agents used in each day or week, by where they come from.", "half"));
+                Fmt.Count, "Distinct agents used"), "How many different agents were used in each day or week, by where they were built.", "half"));
         var born = await Db.QueryAsync<(string Source, int N, int New)>(@"
 SELECT a.AgentSource, COUNT(*), COUNT(CASE WHEN a.FirstSeenUtc >= @d0 THEN 1 END)
 FROM dash.Agent AS a WHERE a.AgentSource <> N'(no agent)' AND a.FirstSeenUtc < DATEADD(DAY, 1, @d1)
 GROUP BY a.AgentSource;", Ctx.Args());
-        Panels.Add(new("Agent sprawl",
+        Panels.Add(new("Every agent seen, by where it was built",
             Chart.Bars(born.OrderByDescending(b => b.N).Select(b => new Bar(b.Source, b.N, Note: $"{b.New:#,0} first used in the period")).ToList(), Fmt.Count, "Agents known"),
-            "Every agent the audit log has seen, whoever used it, by source. This one is organization-wide: agents are not owned by a part of the org chart.", "half"));
+            "Every agent the audit log has seen, whoever used it. A growing count with few users each is agent sprawl. This panel covers the whole organization whatever you are looking at: an agent does not belong to a part of the org chart.", "half"));
     }
 }

@@ -108,8 +108,8 @@ public static class NavText
         ["/apps"] = ("Copilot in each Microsoft 365 app: how many people, how deeply, and whether they return.", null),
         ["/apps/detail"] = ("One app: who uses Copilot in it, what they read, and which agents run there.", null),
 
-        ["/governance"] = ("Which models answer, how much grounds on the public web, and agents in play.", null),
-        ["/governance/controls"] = ("Memory updates, deferred data-loss checks and web grounding, over time.", null),
+        ["/governance"] = ("Which models answer, how often Copilot searches the web, and agents in play.", null),
+        ["/governance/controls"] = ("Memory updates, deferred data-loss checks and web search, over time.", null),
 
         ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),
         ["/admin/access"] = ("Who sees what: the top of the organization, levels, and roles.", null),
