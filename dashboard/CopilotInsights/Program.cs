@@ -58,6 +58,25 @@ app.Use(async (context, next) =>
     await next();
 });
 
+/* 2.4.10: an address with no page behind it (mistyped, or a bookmark to a page since moved) got an empty response, which
+   a browser shows as a blank page. It is asked again as /not-found, which says so and offers the nearest reports; the
+   answer is still 404. Only a page someone asked for: not the data API, not a file, not a form, and not a 404 that
+   already came with a page of its own (a report turned off). */
+app.Use(async (ctx, next) =>
+{
+    await next();
+    var r = ctx.Response;
+    if (r.StatusCode != StatusCodes.Status404NotFound || r.HasStarted || r.ContentLength is not null || !string.IsNullOrEmpty(r.ContentType)
+        || !HttpMethods.IsGet(ctx.Request.Method) || ctx.Request.Path.StartsWithSegments("/api")
+        || Path.HasExtension(ctx.Request.Path.Value) || ctx.Items.ContainsKey(CopilotInsights.Pages.NotFoundModel.AskedKey)) return;
+    ctx.Items[CopilotInsights.Pages.NotFoundModel.AskedKey] = ctx.Request.Path.Value;
+    ctx.SetEndpoint(null);
+    ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IRouteValuesFeature>()?.RouteValues?.Clear();
+    ctx.Request.Path = "/not-found";
+    ctx.Request.QueryString = QueryString.Empty;
+    await next();
+});
+
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();

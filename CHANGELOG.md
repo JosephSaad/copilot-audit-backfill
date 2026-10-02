@@ -157,6 +157,11 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   offers the measures by the names the reports use (*Share of people active*, not
   *ActiveShare*), and the list of digests no longer says each name twice. On Admin ›
   Classifications a rule's pattern is called a pattern, not "Job title like".
+- **A wrong address gets an answer.** An address with no page behind it (mistyped, or a
+  bookmark to a page since moved) returned nothing, which a browser shows as a blank page. It
+  now gets *Page not found*, with the address, the reports nearest to it among those the
+  person can open, and the way to the start page. The answer is still a 404; the data API and
+  files are answered as before.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs

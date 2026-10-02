@@ -398,6 +398,23 @@ public class MappingFileTests
     }
 
     [Fact]
+    public void An_address_with_no_page_is_answered_with_the_reports_nearest_to_it()
+    {
+        var all = CopilotInsights.Pages.Nav.Groups;
+        // A page that is not there, under a section that is: that section's reports.
+        var near = CopilotInsights.Pages.Nav.Near(all, "/adoption/nope");
+        Assert.Equal(6, near.Count);
+        Assert.All(near, p => Assert.StartsWith("/adoption", p.Path));
+        // A word of a report's name, wherever it sits: the unused-licenses report comes first.
+        Assert.Equal("/licensing/unused", CopilotInsights.Pages.Nav.Near(all, "/reports/unused-licenses")[0].Path);
+        // Nothing to go on: nothing is offered. And only what this person is offered is.
+        Assert.Empty(CopilotInsights.Pages.Nav.Near(all, "/zz"));
+        Assert.Empty(CopilotInsights.Pages.Nav.Near(all, null));
+        var open = all.Where(g => g.Role is null).ToList();
+        Assert.Empty(CopilotInsights.Pages.Nav.Near(open, "/licensing/unused").Where(p => p.Path.StartsWith("/licensing")));
+    }
+
+    [Fact]
     public void Every_kind_in_the_audit_log_has_its_own_name()
     {
         string[] kinds = ["View", "Denied", "Export", "Api", "Admin"];

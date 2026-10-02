@@ -1,0 +1,55 @@
+@page "/not-found"
+@model NotFoundModel
+@inject CopilotInsights.Infrastructure.TenantAccessor Tenants
+<div class="page-head">
+    <div class="eyebrow">Copilot Insights</div>
+    <h1>Page not found</h1>
+    @if (Model.Denied is null)
+    {
+        <p class="intro">
+            @if (Model.Asked is not null)
+            {
+                <span>There is no page at <b>@Model.Asked</b>.</span>
+            }
+            else
+            {
+                <span>There is no page at that address.</span>
+            }
+            The address may be mistyped, or the page may have moved.
+        </p>
+    }
+</div>
+
+@if (Model.Denied is not null)
+{
+    <div class="denied"><b>Not available to you.</b> @Model.Denied
+        @if (Model.Administrators.Count > 0)
+        {
+            <p>The dashboard's administrators: @string.Join(", ", Model.Administrators).</p>
+        }
+    </div>
+}
+else
+{
+    var groups = Nav.For(Model.Viewer, Model.PrivacyMode, Tenants.Many, Model.HiddenReports);
+    var near = Nav.Near(groups, Model.Asked);
+    @if (near.Count > 0)
+    {
+        <div class="cards">
+            <div class="card">
+                <h3 class="cat">Closest reports</h3>
+                <p>The reports you can open whose names or addresses are nearest to that one</p>
+                <ul>
+                    @foreach (var p in near)
+                    {
+                        <li><a href="@p.Path"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small></span></a></li>
+                    }
+                </ul>
+            </div>
+        </div>
+    }
+    <div class="notice">
+        <a href="/?home=1">Go to the start page</a> for every report you can open, or type a word in <i>Find a report</i> at the top of the list of reports.
+        A report an administrator has turned off, or one that needs a role you do not hold, is not listed there.
+    </div>
+}

@@ -95,6 +95,23 @@ public static class Nav
         return (null, null, null);
     }
 
+    /// <summary>
+    /// The pages nearest to an address that has no page (2.4.10), among the pages offered: those in the section the
+    /// address begins with, and those whose name, address or section holds a word of it. Best first, the list's order
+    /// among equals.
+    /// </summary>
+    public static IReadOnlyList<NavPage> Near(IReadOnlyList<NavGroup> groups, string? path, int top = 6)
+    {
+        var words = (path ?? "").Split(['/', '-', '_', '.', ' ', '+'], StringSplitOptions.RemoveEmptyEntries).Where(w => w.Length >= 3).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (words.Count == 0) return [];
+        var first = "/" + (path ?? "").Trim('/').Split('/')[0];
+        return [.. groups.SelectMany(g => g.Pages.Select(p => (Page: p, Score:
+                (p.Path.Equals(first, StringComparison.OrdinalIgnoreCase) || p.Path.StartsWith(first + "/", StringComparison.OrdinalIgnoreCase) ? 2 : 0) +
+                words.Count(w => p.Path.Contains(w, StringComparison.OrdinalIgnoreCase) || p.Title.Contains(w, StringComparison.OrdinalIgnoreCase)
+                    || g.Persona.Contains(w, StringComparison.OrdinalIgnoreCase)))))
+            .Where(x => x.Score > 0).OrderByDescending(x => x.Score).Select(x => x.Page).DistinctBy(p => p.Path).Take(top)];
+    }
+
     public static NavGroup? SectionOf(string? path) =>
         path is null ? null : Groups.FirstOrDefault(g => g.Pages.Any(p => string.Equals(p.Path, path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)));
 }
