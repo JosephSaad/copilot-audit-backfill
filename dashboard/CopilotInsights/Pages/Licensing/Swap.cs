@@ -17,14 +17,14 @@ public sealed class SwapModel(PageServices s) : InsightsPage(s)
     public override string Title => "Swap list";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string? OwnWindow => "the last 30 days, whatever the period";
+    public override string? OwnWindow => "the last 30 days";
     public override string Intro => "Idle Copilot licenses paired with the people who want one, in the same part of the organization: take the license from the first, give it to the second, and no new seat is bought.";
 
     internal static readonly Dictionary<string, (string Label, string Sql)> Within = new()
     {
         ["department"] = ("Same department", "ISNULL(NULLIF(du.Department, N''), N'(no department)')"),
         ["division"] = ("Same division", "ISNULL(NULLIF(du.Division, N''), N'(no division)')"),
-        ["any"] = ("Anywhere in scope", "N'(anywhere)'"),
+        ["any"] = ("Anywhere", "N'(anywhere)'"),
     };
 
     sealed class Pair

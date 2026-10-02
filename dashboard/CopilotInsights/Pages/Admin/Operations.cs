@@ -75,7 +75,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         Kpis.Add(new("Ready", problems.Count == 0 ? "Yes" : "No", problems.Count == 0 ? null : string.Join(" ", problems), problems.Count == 0 ? null : "warn"));
 
         Panels.Add(new("How to send", new HtmlString(Form("mail",
-            Select("MailMode", "Send email", ["Off", "ExchangeOnline", "Smtp"], V("MailMode") is "" ? "Off" : V("MailMode")) +
+            Select("MailMode", "Send email", [("Off", "Off"), ("ExchangeOnline", "Through Exchange Online"), ("Smtp", "Through an SMTP server")], V("MailMode") is "" ? "Off" : V("MailMode")) +
             Input("MailFrom", "From address", V("MailFrom"), 30) + Input("MailReplyTo", "Reply-To (optional)", V("MailReplyTo"), 30) +
             Input("DashboardUrl", "The dashboard's address, for links", V("DashboardUrl"), 36) +
             "<h3>Exchange Online</h3><p class=\"sub\">smtp.office365.com, port 587, STARTTLS. <b>Password</b>: SMTP AUTH with the mailbox's own password; the mailbox needs Authenticated SMTP allowed, and Microsoft turns SMTP AUTH with passwords off by default from the end of 2026. <b>OAuth</b>: an app registration (it can be a separate one) with the Office 365 Exchange Online permission SMTP.SendAsApp, registered in Exchange Online with New-ServicePrincipal and given Send As on the mailbox; no Microsoft Graph permission is involved.</p>" +
@@ -96,7 +96,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
 
         var log = await Db.QueryAsync<(DateTime AtUtc, string Kind, string Subject, string? Recipients, string Status, string? Error)>(
             "SELECT TOP (50) AtUtc, Kind, Subject, Recipients, Status, Error FROM dash.NotificationLog ORDER BY LogId DESC;");
-        var t = new Table { Headers = ["When (UTC)", "Kind", "Subject", "To", "Result", "Why not"], EmptyText = "Nothing sent yet." };
+        var t = new Table { Zone = Zone, Headers = ["When (UTC)", "Kind", "Subject", "To", "Result", "Why not"], EmptyText = "Nothing sent yet." };
         foreach (var l in log) t.Rows.Add([l.AtUtc, l.Kind, l.Subject, l.Recipients, new HtmlString($"<span class=\"{(l.Status == "Sent" ? "status-ok" : "status-warn")}\">{E(l.Status)}</span>"), l.Error]);
         Panels.Add(new("Recently sent", t.Render(), "Kept for the days set in Admin > Privacy and retention."));
     }
@@ -204,14 +204,14 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
 
         var subs = await Db.QueryAsync<SubRow>("SELECT * FROM dash.Subscription ORDER BY Name;");
         var zone = await HttpContext.RequestServices.GetRequiredService<OpsData>().ZoneAsync();
-        var t = new Table { Headers = ["Name", "Report", "To", "When", "For", "Days", "Last sent (UTC)", "Result", ""], EmptyText = "No digests yet." };
+        var t = new Table { Zone = Zone, Headers = ["Name", "Report", "To", "When", "For", "Days", "Last sent (UTC)", "Result", ""], EmptyText = "No digests yet." };
         foreach (var sub in subs)
             t.Rows.Add([sub.Name, sub.Report, sub.Recipients, When(sub), sub.RootUpn ?? "Whole organization", sub.Days, sub.LastSentUtc, sub.LastStatus,
-                new HtmlString(
+                new HtmlString("<div class=\"acts\">" +
                     $"<a href=\"{E(Request.Path + $"?handler=preview&report={sub.Report}&days={sub.Days}&root={Uri.EscapeDataString(sub.RootUpn ?? "")}")}\">Preview</a> " +
                     Form("sendnow", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button("Send now", quiet: true)) +
                     Form("toggle", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button(sub.Enabled ? "Pause" : "Resume", quiet: true)) +
-                    Form("remove", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button("Remove", $"Remove the digest {sub.Name}?", quiet: true)))]);
+                    Form("remove", $"<input type=\"hidden\" name=\"id\" value=\"{sub.SubscriptionId}\"/>" + Button("Remove", $"Remove the digest {sub.Name}?", quiet: true)) + "</div>")]);
         var days = new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" };
         Panels.Add(new("Digests", new HtmlString(t.Render().Value + "<h3>Add a digest</h3>" + Form("add",
             Input("name", "Name", null, 24) + Select("report", "Report", OpsReports.DigestKinds.Keys, "Leadership") + Input("recipients", "To", null, 40) +
@@ -220,7 +220,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Select("days", "Covering", ReportContext.DayChoices.Select(d => $"{d}"), "30") +
             Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) + Button("Add")) +
             "<ul class=\"sub\">" + string.Concat(OpsReports.DigestKinds.Select(k => $"<li><b>{E(k.Key)}</b>: {E(k.Value)}</li>")) + "</ul>"),
-            "Digests hold aggregates only, never a named person, so they can go to anyone the scope is right for. Each covers the period chosen up to the last complete day."));
+            "Digests hold aggregates only, never a named person, so they can go to anyone who may see that part of the organization. Each covers the period chosen up to the last complete day."));
 
         var webhook = await HttpContext.RequestServices.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
         Panels.Add(new("Teams, ServiceNow or any webhook", new HtmlString(Form("webhook",
@@ -242,7 +242,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         var optedOut = await Db.QueryAsync<(string Upn, string? DisplayName, DateTime UpdatedUtc)>(@"
 SELECT pref.Upn, p.DisplayName, pref.UpdatedUtc FROM dash.DigestPreference AS pref LEFT JOIN dash.Person AS p ON p.Upn = pref.Upn
 WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
-        var ot = new Table { Headers = ["Manager", "Sign-in", "Since (UTC)", ""], EmptyText = "Every eligible manager gets the digest." };
+        var ot = new Table { Zone = Zone, Headers = ["Manager", "Sign-in", "Since (UTC)", ""], EmptyText = "Every eligible manager gets the digest." };
         foreach (var o in optedOut)
             ot.Rows.Add([o.DisplayName, o.Upn, o.UpdatedUtc, new HtmlString(Form("optin", Hidden("upn", o.Upn) + Button("Send it again", quiet: true)))]);
         Panels.Add(new("Managers who do not get the digest", new HtmlString(Form("optout", Input("upn", "Manager (UPN)", null, 34) + Button("Stop their digest")) + ot.Render().Value),
@@ -256,7 +256,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
                 ? "Runs one round of the alert checks and any digests that are due, for this tenant or for every tenant (the background checks cover every tenant every five minutes)."
                 : "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
         var state = await Db.QueryAsync<(string AlertKey, string? LastValue, DateTime LastFiredUtc)>("SELECT AlertKey, LastValue, LastFiredUtc FROM dash.AlertState ORDER BY AlertKey;");
-        var st = new Table { Headers = ["Check", "Last seen", "When (UTC)"], EmptyText = "The checks have not run yet." };
+        var st = new Table { Zone = Zone, Headers = ["Check", "Last seen", "When (UTC)"], EmptyText = "The checks have not run yet." };
         foreach (var x in state) st.Rows.Add([x.AlertKey, x.LastValue, x.LastFiredUtc]);
         Panels.Add(new("Where the checks stand", st.Render(), "What each check last saw, so it does not repeat itself.", "half"));
     }
@@ -425,10 +425,13 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 new HtmlString(Form("deltarget", $"<input type=\"hidden\" name=\"id\" value=\"{x.TargetId}\"/>" + Button("Remove", "Remove this target?", quiet: true)))]);
         Panels.Add(new("Adoption targets", new HtmlString(t.Render().Value + "<h3>Add a target</h3>" + Form("target",
             Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) +
-            Select("metric", "Measure", ["Adoption", "ActiveShare", "ActivePeople"], "Adoption") + Input("value", "Target (% or people)", null, 6, "number") +
+            /* The measures by the names the table above and Adoption > Targets give them (2.4.10: the box showed their codes). */
+            Select("metric", "Measure", new[] { "Adoption", "ActiveShare", "ActivePeople" }.Select(m => (m, Adoption.TargetsModel.Label(m))), "Adoption") +
+            Input("value", "Target (% or people)", null, 6, "number") +
             Input("start", "From", DateTime.Today.ToString("yyyy-MM-dd"), 10, "date") + Input("due", "Due", DateTime.Today.AddMonths(3).ToString("yyyy-MM-dd"), 10, "date") +
             Input("note", "Note", null, 30) + Button("Add"))),
-            "Adoption: licensed people using it, over people licensed. ActiveShare: people using it, over everyone. ActivePeople: a count. Progress is on Adoption > Targets."));
+            "Adoption: license holders who used Copilot, as a share of all license holders. Share of people active: everyone who used Copilot, as a share of everyone. " +
+            "People active: a number of people, not a share. Progress is on Adoption > Targets."));
 
         var apps = await Db.QueryAsync<(string App, decimal? Minutes)>("SELECT a.App, ts.Minutes FROM bi.DimApp AS a LEFT JOIN dash.TimeSaving AS ts ON ts.App = a.App ORDER BY a.App;");
         var at = new Table { Headers = ["App", "Minutes saved per interaction"] };
@@ -688,7 +691,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.ValueName (ColumnId, Value, Name, Note, Updat
             }
             catch (ArgumentException ex) { errors.Add(ex.Message); }
         }
-        return $"{saved} name(s) saved, {cleared} left without a name." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
+        return $"{Count(saved, "name")} saved, {cleared} left without a name." + (errors.Count == 0 ? "" : $" {Count(errors.Count, "line")} skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
     });
 
     /// <summary>The mapping file: one column's values and names, or (no column) every column's but those with too many to name.</summary>
@@ -720,7 +723,7 @@ public sealed class TrainingRecordsModel(PageServices s) : AdminPage(s)
         ShowDone();
         var sessions = await Db.QueryAsync<(string Session, DateTime AttendedOn, int People, DateTime Imported)>(
             "SELECT Session, AttendedOn, COUNT(*), MAX(ImportedUtc) FROM dash.TrainingAttendance GROUP BY Session, AttendedOn ORDER BY AttendedOn DESC;");
-        var t = new Table { Headers = ["Session", "Date", "Attendees", "Imported (UTC)", ""], Numeric = new HashSet<int> { 2 }, EmptyText = "No training records yet." };
+        var t = new Table { Zone = Zone, Headers = ["Session", "Date", "Attendees", "Imported (UTC)", ""], Numeric = new HashSet<int> { 2 }, EmptyText = "No training records yet." };
         foreach (var x in sessions)
             t.Rows.Add([x.Session, x.AttendedOn, x.People, x.Imported, new HtmlString(Form("remove",
                 $"<input type=\"hidden\" name=\"session\" value=\"{E(x.Session)}\"/><input type=\"hidden\" name=\"date\" value=\"{x.AttendedOn:yyyy-MM-dd}\"/>" +
@@ -748,13 +751,13 @@ FROM OPENJSON(@json) WITH (Upn NVARCHAR(256) '$.u', Session NVARCHAR(190) '$.s',
 WHERE NOT EXISTS (SELECT 1 FROM dash.TrainingAttendance AS t WHERE t.Upn = s.Upn AND t.Session = s.Session AND t.AttendedOn = s.AttendedOn)
 GROUP BY s.Upn, s.Session, s.AttendedOn;",
                 new { by, json = System.Text.Json.JsonSerializer.Serialize(chunk.Select(x => new { u = x.Upn, s = x.Session, d = x.Date.ToString("yyyy-MM-dd") })) });
-        return $"{added} attendance record(s) added from {rows.Count} line(s)." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
+        return $"{Count(added, "attendance record")} added from {Count(rows.Count, "line")}." + (errors.Count == 0 ? "" : $" {Count(errors.Count, "line")} skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
     });
 
     public Task<IActionResult> OnPostRemoveAsync(string? session, DateTime? date) => AdminChangeAsync(async () =>
     {
         var n = await Db.ExecuteAsync("DELETE FROM dash.TrainingAttendance WHERE Session = @session AND AttendedOn = @date", new { session, date });
-        return $"{n} attendance record(s) of {session} removed.";
+        return $"{Count(n, "attendance record")} of {session} removed.";
     });
 
     /// <summary>The mapping file (2.4.5): every attendance record held, as UPN, Session, Date, which the upload reads back.</summary>

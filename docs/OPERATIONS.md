@@ -31,6 +31,7 @@ Nothing needs doing while it is healthy: the nightly task loads and builds every
 
 | Check | Where | Healthy |
 |---|---|---|
+| Is the data current, and did the last run work | **Admin › Health**, the three figures at the top (2.4.10): *Reports show data up to*, *Last pipeline run*, *Steps behind* | Yesterday or the day before; *Succeeded*; 0 |
 | Last night's run | **Admin › Health**, *Pipeline runs*; or `M -Task Status` | *Succeeded*, finished within the last day |
 | Data freshness | Every page shows a yellow banner when the data is older than *FreshnessHours* (36) or the last run failed | No banner |
 | Alerts sent, and any that could not be | **Admin › Email**, *Recently sent* | *Sent* |
@@ -61,6 +62,8 @@ When the last run failed, its step and last log lines are on Admin › Health an
 M -Task GrantRole -Principal 'USERS\Copilot-Insights-Licensing' -PrincipalType Group -Role Licensing -Note 'licensing team'
 M -Task RevokeRole -Principal 'ada.lovelace@contoso.com' -Role Licensing
 ```
+
+**Set the time zone.** Admin › Access › *Settings* › *Time zone* (2.4.10). Every time the dashboard shows (the audit log, pipeline runs, when a license was read, when an alert went out) and the hour digests, alerts and extracts are sent is in this zone, and each column says which ("When (Eastern Time)"); before, they were in UTC. Left on *Default* it is the zone the data's days are cut in, which a new install takes from its server (and an install made before 2.4.10 without `-ReportingTimeZone` has as Eastern time); on a database without one, the web server's own. Choosing a zone here changes what is shown and when things are sent, at once. It does not move the days in the reports: those are cut when the data is loaded and cannot be changed afterwards.
 
 **Check what someone sees.** Admin › Access › *Check someone's access*: their level, their scope, whether the level limit keeps them out, and the roles granted to their account directly (group grants are resolved when they sign in).
 
@@ -115,7 +118,7 @@ M -Task RebuildValueCatalog                         # every value again, from ev
 M -Task NameLabel -LabelId 5e1f0c2a-0000-4000-8000-000000000002 -FriendlyName 'Highly Confidential' -Rank 4
 ```
 
-**Agents.** Admin › Reference data › *Agents*: a friendly name and an owner for each agent (Copilot Studio agents appear under their schema name). *Unnamed first* lists new ones; the new-agent alert and Agents › Inventory point here.
+**Agents.** Admin › Reference data › *Agents*: a friendly name and an owner for each agent (Copilot Studio agents appear under their schema name). *Unnamed first* lists new ones; the new-agent alert and Agents › Agent inventory point here.
 
 ```powershell
 M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr-digital@contoso.com'

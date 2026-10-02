@@ -206,17 +206,16 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         /* The license type, and how fresh the data is. */
         var choices = string.Join(" · ", Licenses.Select(l =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"lic={l.Key}"))}\"{(l.Key == lic ? " class=\"on\"" : "")}>{l.Name}</a>"));
-        static string Utc(DateTime? t) => t is null ? "not yet" : $"{t:yyyy-MM-dd HH:mm} UTC";
         Panels.Add(new("License type", new HtmlString(
             $"<p class=\"sub\">License: {choices}</p>" +
-            $"<p class=\"sub\">Last database update: {E(Utc(facts.Refreshed))} · Latest audit record: {E(Utc(facts.Latest))}</p>"),
+            $"<p class=\"sub\">Last database update: {E(When(facts.Refreshed))} · Latest audit record: {E(When(facts.Latest))}</p>"),
             "Licensed: holding a Copilot license on the last day of the period. Unlicensed: not holding one that day. " +
-            "Last database update: when the dashboard's rollups last finished. Latest audit record: the newest Copilot interaction loaded."));
+            "Last database update: when the dashboard's figures were last rebuilt. Latest audit record: the newest Copilot interaction loaded."));
 
         /* KPIs: the people of the type, and how many used Copilot in the period. */
         var total = days.Sum(d => d.People);
         var active = days.Where(d => d.Days > 0).Sum(d => d.People);
-        Kpis.Add(new(lic == "all" ? "People" : $"{licName} people", Num(total), "enabled accounts in scope"));
+        Kpis.Add(new(lic == "all" ? "People" : $"{licName} people", Num(total), $"enabled accounts in {Here}"));
         Kpis.Add(new("Active", Pct(Ratio(active, total)), $"{active:#,0} used Copilot in the period"));
         Kpis.Add(new("Inactive", Pct(Ratio(total - active, total)), $"{total - active:#,0} did not use it"));
         Kpis.Add(new("Active people", Num(active), "at least one interaction in the period"));
@@ -238,8 +237,8 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         Panels.Add(new("Copilot use by source", Chart.Bars(shownSources, Fmt.Count, "Resources Copilot read, by file type"),
             fileTypes
                 ? "The resources Copilot read to answer them: a file by its extension (docx, xlsx, pptx, csv ...), and anything else by its kind (a mail, a Teams message, a Stream video, a whiteboard, a web search). " +
-                  "Resources read before 2.4.6 show as (not reported) until bi is refreshed in full once, which the 2.4.6 installer does."
-                : "The resources Copilot read to answer them, by the kind the audit record gives. Install 2.4.6's scripts to split files by type.", "half"));
+                  "Records loaded by an earlier release show as (not reported) until the report tables are rebuilt once, which the installer does."
+                : "The resources Copilot read to answer them, by the kind the audit record gives. Files are split by type once an administrator installs the current release's scripts.", "half"));
 
         /* The most and least active people of the type. */
         static string Who(Person p) => p.DisplayName ?? p.UserPrincipalName;
@@ -274,7 +273,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         var appBars = Chart.Bars(byAppMinutes.Select(m => new Bar(m.Name ?? "", (double)Math.Round(m.Total / m.People), Note: $"{m.People:#,0} people · {Math.Round(m.Total):#,0} minutes in all",
             Shown: Hours(m.Total / m.People))).ToList(), Fmt.Count, "Average minutes a person by app");
         /* Drawn at a half panel's width, as _Report draws a chart that is a half panel's whole body. */
-        sb.Append(appBars is ChartSvg cs ? cs.Render(440) : appBars.Value);
+        sb.Append(Sized(appBars, 440));
         Panels.Add(new("Total average minutes used (by app)", new HtmlString(sb.ToString()),
             "For each app, the minutes of the conversations that started in it, divided by the people who had one there, in the period. " +
             $"Copilot Chat includes Office, BizChat and Edge. {minutesNote}", "half"));
@@ -291,7 +290,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
             t.Rows.Add([Math.Round(r.SpanMinutes, 1), r.PromptCount, r.App, r.DisplayName, r.UserPrincipalName, r.SessionStart]);
         CsvTable = t;
         Panels.Add(new("Minutes used (by user)", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            $"Each conversation of more than one prompt in the period, with the app of its first prompt; times are in the reporting time zone. {minutesNote} " +
+            $"Each conversation of more than one prompt in the period, with the app of its first prompt; times are in {DataZone}. {minutesNote} " +
             $"The download holds up to {ExportMax:#,0} conversations, in the order chosen.", "full", CsvUrl()));
 
         /* The trend: interactions by app over the period, with each app's lowest, highest and mean point. */
@@ -308,7 +307,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
             legend.Rows.Add([sr.Name, (long)v.DefaultIfEmpty(0).Min(), (long)v.DefaultIfEmpty(0).Max(), Math.Round(v.DefaultIfEmpty(0).Average(), 1)]);
         }
         Panels.Add(new("Interaction trends by app",
-            new HtmlString(Chart.Line(Labels(), series, Fmt.Count, "Interactions by app over the period").Value + legend.Render().Value),
+            new HtmlString(Sized(Chart.Line(Labels(), series, Fmt.Count, "Interactions by app over the period")) + legend.Render().Value),
             $"Interactions of {licName.ToLowerInvariant()} people in each app; the busiest apps are drawn and the rest combined. " +
             $"The table gives each line's lowest, highest and mean point. {TrendNote}"));
 

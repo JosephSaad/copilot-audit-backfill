@@ -151,11 +151,6 @@ WHERE (u.AccountEnabled = 0 OR u.DirectoryStatus = N'NotFound' OR cl.DirectorySt
         await db.QueryAsync<(string, string, DateTime)>(
             "SELECT AgentName, AgentSource, FirstSeenUtc FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc > @sinceUtc ORDER BY FirstSeenUtc;", new { sinceUtc });
 
-    /// <summary>The reporting time zone, as the pipeline cuts days in.</summary>
-    public async Task<TimeZoneInfo> ZoneAsync()
-    {
-        string? name = null;
-        try { name = await db.ScalarAsync<string?>("SELECT audit.ReportingTimeZone();"); } catch (Microsoft.Data.SqlClient.SqlException) { }
-        return Schedule.Zone(name ?? "Eastern Standard Time");
-    }
+    /// <summary>The zone schedules run by and times are shown in: the TimeZone setting, else the zone the data's days are cut in, else the server's (2.4.10).</summary>
+    public Task<TimeZoneInfo> ZoneAsync() => settings.ZoneAsync();
 }

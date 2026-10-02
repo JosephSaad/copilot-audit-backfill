@@ -49,7 +49,7 @@ public sealed class OverlapModel(PageServices s) : InsightsPage(s)
     {
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL OR NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku) THEN 0 ELSE 1 END") == 0)
         {
-            Notice = "Every SKU each person holds arrives with the license tool of 2.4.3: install this release's scripts, then run tools\\Update-CopilotAuditEnrichment.ps1 (or wait for tonight's run).";
+            Notice = "This report needs the full list of licenses each person holds, which has not been loaded yet. It fills on the next nightly run; an administrator can load it now with tools\\Update-CopilotAuditEnrichment.ps1.";
             return;
         }
         var sku = Guid.TryParse(Request.Query["sku"], out var g) ? g : (Guid?)null;

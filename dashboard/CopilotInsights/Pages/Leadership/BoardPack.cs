@@ -11,7 +11,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 {
     public override string Title => "Board pack";
     public override string Persona => "Leadership";
-    public override string Intro => "The program on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licenses and risk signals. Print it, or save it as a PDF from the print dialog. Aggregates only.";
+    public override string Intro => "The program on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licenses and risk signals. Print it, or save it as a PDF from the print dialog. Totals only: no one is named.";
 
     protected override async Task BuildAsync()
     {
@@ -31,8 +31,8 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 
         var tr = await metrics.TrendAsync(Ctx);
         Panels.Add(new("People using Copilot", Chart.Line(Labels(), [
-            new Series("Licensed", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 1),
-            new Series("Copilot Chat (free)", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People using Copilot"),
+            new Series("With a Premium license", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 1),
+            new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People using Copilot"),
             TrendNote + " Dashed rules mark events (Admin > Classifications and events)."));
 
         var targets = await reports.TargetsAsync(Ctx);
@@ -51,19 +51,19 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
         var hours = v.ByApp.Sum(x => x.Hours);
         var worth = v.ByApp.Sum(x => x.Value);
-        var cost = t.LicensedNow * price * Ctx.Days / 30m;
+        var cost = Licensing.Price.ForPeriod(t.LicensedNow, price, Ctx.Days);
         Panels.Add(new("Estimated value", new HtmlString(
             $"<div class=\"kpis\"><div class=\"kpi\"><div class=\"klabel\">Hours saved (estimate)</div><div class=\"kvalue\">{hours:#,0}</div></div>" +
-            $"<div class=\"kpi\"><div class=\"klabel\">Worth ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
+            $"<div class=\"kpi\"><div class=\"klabel\">Estimated value ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">License cost in the period ({E(cur)})</div><div class=\"kvalue\">{cost:#,0}</div></div>" +
-            $"<div class=\"kpi\"><div class=\"klabel\">Return</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
+            $"<div class=\"kpi\"><div class=\"klabel\">Return on license cost</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
             $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin > Targets and assumptions).", "half"));
 
         var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
         var counts = await reports.ActionCountsAsync(Ctx);
         var lt = new Table { Headers = ["Licenses", ""], Numeric = new HashSet<int> { 1 }, Sortable = false };
         if (pool.Count > 0) { lt.Rows.Add(["Bought", pool.Sum(x => x.Bought)]); lt.Rows.Add(["Assigned", pool.Sum(x => x.Consumed)]); }
-        lt.Rows.Add(["Held in scope", t.LicensedNow]);
+        lt.Rows.Add(["Premium licenses held", t.LicensedNow]);
         lt.Rows.Add(["Used in the period", t.ActiveLicensed]);
         lt.Rows.Add(["Unused for 30 days, to revoke", counts.GetValueOrDefault("revoke")]);
         lt.Rows.Add(["Free Copilot Chat users ready to upgrade", counts.GetValueOrDefault("upgrade")]);
@@ -107,7 +107,7 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "Use-case rules arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "The board pack needs use cases, which are not set up here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
         /* In steps (2.4.2): the rules read once into #uc, one row a person and use case in #k, then a plain count.
            As one statement the optimizer ran the rules per group and counted distinct people: 22 seconds for a year. */
@@ -138,7 +138,7 @@ SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase,
         Kpis.Add(new("Most common", ranked[0].UseCase, $"{Pct(Ratio(ranked[0].N, all))} of interactions"));
         Kpis.Add(new("Use cases seen", Num(ranked.Count)));
         var agents = totals.Where(x => x.UseCase == "Working with an agent").Sum(x => x.N);
-        Kpis.Add(new("With an agent", Pct(Ratio(agents, all)), "of interactions"));
+        Kpis.Add(new("Interactions through an agent", Pct(Ratio(agents, all)), "of all interactions in the period"));
 
         /* Fixed colors per use case, by overall size (the chart shows at most eight). */
         var top = ranked.Take(7).Select(x => x.UseCase).ToList();
@@ -149,7 +149,7 @@ SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase,
             names.Select((n, i) => new Series(n, buckets.Select(b => (double?)trend.Where(x => x.Bucket == b.Key && Key(x.UseCase) == n).Sum(x => x.N)).ToList(), i + 1)).ToList(),
             Fmt.Count, "Interactions by use case"), TrendNote));
 
-        var t = new Table { Headers = ["Use case", "Interactions", "Share", "People", "Interactions a person"], Numeric = new HashSet<int> { 1, 2, 3, 4 } };
+        var t = new Table { Headers = ["Use case", "Interactions", "Share of interactions", "People", "Interactions per person"], Numeric = new HashSet<int> { 1, 2, 3, 4 } };
         foreach (var x in ranked) t.Rows.Add([x.UseCase, x.N, Pct(Ratio(x.N, all)), x.People, x.People > 0 ? Math.Round(x.N / (double)x.People, 1) : null]);
         Panels.Add(new("Use cases", t.Render(), "People: used Copilot for this at least once in the period; one person counts under every use case they had.", "half"));
 

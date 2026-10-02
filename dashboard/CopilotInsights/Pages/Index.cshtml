@@ -4,7 +4,7 @@
 <div class="page-head">
     <div class="eyebrow">Microsoft 365 Copilot usage</div>
     <h1>Copilot Insights</h1>
-    <p class="intro">How your organization uses Copilot, from the audit log, with licenses from Microsoft Graph and the organization from Active Directory. Pick the view that matches your role; every page shows only what you may see.</p>
+    <p class="intro">How your organization uses Microsoft 365 Copilot. Pick a report below, or type its name in <i>Find a report</i> on the left. Every report shows only the people you may see.</p>
 </div>
 
 @if (Model.Denied is null)
@@ -12,7 +12,15 @@
     <div class="notice"><b>Your access.</b> @Model.AccessSummary
         @if (Model.Viewer.Roles.Count > 0)
         {
-            <span> Roles: @string.Join(", ", Model.Viewer.Roles.OrderBy(r => r)).</span>
+            <span> Your roles: @string.Join(", ", Model.Viewer.Roles.OrderBy(r => r)). A role opens the reports that name people.</span>
+        }
+        else if (Model.Viewer.Admitted)
+        {
+            <span> You hold no roles, so the reports that name people are not listed; an administrator can grant one.</span>
+        }
+        @if (Model.Freshness is not null)
+        {
+            <p>@Model.Freshness</p>
         }
     </div>
     @if (Model.Viewer.IsAdmin && Model.OrgTop is null)
@@ -56,5 +64,10 @@
 }
 else
 {
-    <div class="denied">@Model.Denied</div>
+    <div class="denied"><b>Not available to you.</b> @Model.Denied
+        @if (Model.Administrators.Count > 0)
+        {
+            <p>The dashboard's administrators: @string.Join(", ", Model.Administrators).</p>
+        }
+    </div>
 }

@@ -50,7 +50,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
             Panels.Add(new("Adoption by tenant", Chart.Bars(shown.Select(r => new Bar(r.Tenant, Ratio(r.T.ActiveLicensed, r.T.LicensedNow),
                 $"?tenant={Uri.EscapeDataString(r.Tenant)}", $"{r.T.ActiveLicensed:#,0} of {r.T.LicensedNow:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by tenant", 1),
                 "Select a tenant to switch to it.", "half"));
-        var tb = new Table { Headers = ["Tenant", "People", "Licensed", "Using Copilot", "Adoption", "Interactions", "Active in the last 7 days"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
+        var tb = new Table { Headers = ["Tenant", "People", "License holders", "Used Copilot", "Adoption", "Interactions", "Used Copilot in the last 7 days"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
         foreach (var r in rows)
             tb.Rows.Add(r.T is null
                 ? [r.Tenant, null, null, null, null, null, new HtmlString($"<span class=\"muted\">{E(r.Why)}</span>")]

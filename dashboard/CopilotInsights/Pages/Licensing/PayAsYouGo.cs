@@ -93,14 +93,14 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         Kpis.Add(new("Candidates", Num(candidates), max == 0 ? "no Premium use in the period" : $"Premium use {max}% or less of their use"));
         Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, saving)),
             $"{candidates:#,0} licenses at {price:#,0.##} less the credits their use would cost"));
-        Kpis.Add(new("Credits assumed", $"{rate:#,0.00##} {cur}", "for each metered interaction (Admin > Settings)"));
+        Kpis.Add(new("Credits assumed", $"{rate:#,0.00##} {cur}", "for each metered interaction (set in Admin > Access)"));
 
         var t = new Table
         {
             Headers = ["Name", "Sign-in", "Department", "Manager", "SKU", "Licensed since", "Interactions", "Premium", "Premium share", "Agent",
                        "Days used", "Days with Premium use", "Last used", $"Credits a month ({cur})", $"Saving a month ({cur})"],
             Numeric = new HashSet<int> { 6, 7, 8, 9, 10, 11, 13, 14 },
-            EmptyText = "No license holder in scope uses Copilot this little outside the free tier.",
+            EmptyText = "No license holder here uses Copilot this little outside the free tier.",
             /* Largest saving is the fewest metered interactions, so its own order puts the saving column descending. */
             Server = new(pg, Request, ["name", "upn", "dept", "manager", "sku", "since", "use", "premium", "share", "agent", "days", "pdays", "recent", "credits", "saving"],
                          new HashSet<int> { 6, 7, 9, 10, 11, 12, 13, 14 }),

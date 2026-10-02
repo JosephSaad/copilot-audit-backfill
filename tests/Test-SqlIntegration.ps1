@@ -1897,6 +1897,14 @@ if (-not $script:ITIntegrated) {
 }
 $freshDb = "$($script:ITDatabase)_Fresh"; $freshLic = "$($script:ITDatabase)_FreshLic"
 try {
+    # 2.4.10: with no zone named, databases with no records take this server's own time zone; naming one after, while
+    # they are still empty, moves them.
+    & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>$null | Out-Null
+    $serverZone = [TimeZoneInfo]::Local.Id
+    if ([TimeZoneInfo]::Local.HasIanaId) { $w = $null; $serverZone = if ([TimeZoneInfo]::TryConvertIanaIdToWindowsId($serverZone, [ref] $w)) { $w } else { 'Eastern Standard Time' } }
+    if (-not [int] (Invoke-SqlText -Catalog master -As Scalar -Sql "SELECT COUNT(*) FROM sys.time_zone_info WHERE name = N'$($serverZone.Replace("'", "''"))';")) { $serverZone = 'Eastern Standard Time' }
+    $zones0 = @($freshDb, $freshLic | ForEach-Object { [string] (Invoke-SqlText -Catalog $_ -As Scalar -Sql 'SELECT audit.ReportingTimeZone();') })
+    Assert-That (($zones0 | Select-Object -Unique) -join ',' -eq $serverZone) "2.4.10: with no zone named, new databases take the server's time zone ($($zones0 -join ','); the server is in $serverZone)"
     $out = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic -Dashboard -ReportingTimeZone 'GMT Standard Time' 6>&1 | Out-String
     $made = Invoke-SqlText -Catalog master -As Table -Sql "SELECT name, recovery_model_desc AS Recovery FROM sys.databases WHERE name IN (N'$freshDb', N'$freshLic');"
     Assert-That ($made.Rows.Count -eq 2 -and @($made.Rows | Where-Object Recovery -eq 'SIMPLE').Count -eq 2) 'a fresh install creates both databases, in SIMPLE recovery'

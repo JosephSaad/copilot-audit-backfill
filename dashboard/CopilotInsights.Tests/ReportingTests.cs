@@ -198,9 +198,9 @@ public class ColumnSortTests
         t.Rows.Add(["Smaller groups", 7, null, null]);
         var html = t.Render().Value!;
         Assert.Contains("<table class=\"sortable\">", html);
-        Assert.Contains("<th><button type=\"button\" class=\"sort\">Unit</button></th>", html);
-        Assert.Contains("<th><button type=\"button\" class=\"sort\">Last used</button></th>", html);
-        Assert.Contains("<th></th>", html);                                   // the column of buttons does not sort
+        Assert.Contains("<th scope=\"col\"><button type=\"button\" class=\"sort\">Unit</button></th>", html);
+        Assert.Contains("<th scope=\"col\"><button type=\"button\" class=\"sort\">Last used</button></th>", html);
+        Assert.Contains("<th scope=\"col\"></th>", html);                                   // the column of buttons does not sort
         Assert.Contains("data-v=\"1200\"", html);
         Assert.Contains("data-v=\"35.5\"", html);
         Assert.Contains("data-v=\"202609031405\"", html);
@@ -228,8 +228,8 @@ public class ColumnSortTests
         var html = t.Render().Value!;
         Assert.DoesNotContain("class=\"sortable\"", html);
         Assert.DoesNotContain("data-v", html);
-        Assert.Contains("<th><a class=\"sort\" href=\"/licensing/unused?s=name\">Name</a></th>", html);
-        Assert.Contains("<th>Department</th>", html);
-        Assert.Contains("<th aria-sort=\"ascending\"><a class=\"sort\" href=\"/licensing/unused?s=-idle\">Last used</a></th>", html);
+        Assert.Contains("<th scope=\"col\"><a class=\"sort\" href=\"/licensing/unused?s=name\">Name</a></th>", html);
+        Assert.Contains("<th scope=\"col\">Department</th>", html);
+        Assert.Contains("<th scope=\"col\" aria-sort=\"ascending\"><a class=\"sort\" href=\"/licensing/unused?s=-idle\">Last used</a></th>", html);
     }
 }

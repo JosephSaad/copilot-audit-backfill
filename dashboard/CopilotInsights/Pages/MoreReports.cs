@@ -20,7 +20,7 @@ namespace CopilotInsights.Pages.Leadership
             /* Premium use is recorded once the rollups are rebuilt with 2.3.0; before that it is all zero, so the split is left out. */
             var split = await Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
             if (!split)
-                Notice = "Premium-feature use is not in the rollups yet: an administrator rebuilds them once (Admin > Health, Rebuild every day). Until then adoption is not split into Premium and free only.";
+                Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
             var prev = new ReportContext
             {
                 Viewer = Ctx.Viewer, Days = Ctx.Days, Start = Ctx.Start.AddDays(-Ctx.Days), End = Ctx.End.AddDays(-Ctx.Days),
@@ -41,17 +41,17 @@ namespace CopilotInsights.Pages.Leadership
                 Kpis.Add(new("Premium adoption", Pct(Premium(now)), Delta(Premium(now), Premium(before), pct: true)));
                 Kpis.Add(new("Free-only adoption", Pct(FreeOnly(now)), Delta(FreeOnly(now), FreeOnly(before), pct: true)));
             }
-            Kpis.Add(new("Licensed", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow)));
+            Kpis.Add(new("Premium license holders", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow)));
             Kpis.Add(new("Interactions", Num(now.Interactions), Delta(now.Interactions, before.Interactions)));
-            Kpis.Add(new("Multi-turn sessions", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
+            Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
 
             var u1 = (await m.UnitsAsync(Ctx)).ToDictionary(u => u.Unit);
             var u0 = (await m.UnitsAsync(prev)).ToDictionary(u => u.Unit);
             var t = new Table
             {
                 Headers = split
-                    ? ["Unit", "People", "Adoption", "Premium", "Change", "Free only", "Change", "Active", "Change", "Interactions per active person", "Change"]
-                    : ["Unit", "People", "Adoption", "Change", "Active", "Change", "Interactions per active person", "Change"],
+                    ? ["Unit", "People", "Adoption", "Premium", "Premium change", "Free only", "Free-only change", "Active people", "Active change", "Interactions per active person", "Interactions change"]
+                    : ["Unit", "People", "Adoption", "Adoption change", "Active people", "Active change", "Interactions per active person", "Interactions change"],
                 Numeric = Enumerable.Range(1, split ? 10 : 7).ToHashSet(),
             };
             var rows = new List<(UnitRow Now, UnitRow? Before)>();
@@ -75,7 +75,7 @@ namespace CopilotInsights.Pages.Leadership
                     t.Rows.Add([name, n.People, Pct(a1), Arrow(a1 - a0, true), .. rest]);
             }
             Panels.Add(new("By unit, against the period before", t.Render(),
-                $"One level down. Units under {Ctx.MinGroupSize} people are left out. "
+                $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out. "
                 + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
                 + "Change in adoption is in percentage points; the others are relative."));
         }
@@ -88,6 +88,7 @@ namespace CopilotInsights.Pages.Adoption
     {
         public override string Title => "Retention and habit";
         public override string Persona => "Adoption";
+        public override string? OwnWindow => "the last 12 complete weeks";
         public override string Intro => "Do people keep using Copilot once they start? Of everyone active in a week, how many come back in each of the eight weeks after; and how many weeks of the last twelve people used it.";
         public override bool UsesFilters => true;
 
@@ -121,7 +122,7 @@ WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0;", Ctx.Args(new { a =
             Kpis.Add(new("Still there 8 weeks on", Pct(curve[7])));
             Panels.Add(new("Share of a week's users active again, weeks later",
                 Chart.Line(Enumerable.Range(1, 8).Select(i => $"+{i} wk").ToList(), [new Series("Came back", curve, 3)], Fmt.Percent, "Weekly retention", 1),
-                "Own window: twelve starting weeks, ending with the last complete week, whatever the period. A flattening line is a habit forming; one that keeps falling is novelty wearing off.", "half"));
+                "Each line follows the people who used Copilot in one week, over the weeks after it: twelve starting weeks, ending with the last complete week. A flattening line is a habit forming; one that keeps falling is novelty wearing off.", "half"));
 
             var last12 = Enumerable.Range(0, 12).Select(i => w1.AddDays(-7 * i)).ToHashSet();
             var counts = byUser.Values.Select(v => v.Count(last12.Contains)).Where(n => n > 0).GroupBy(n => n).ToDictionary(g => g.Key, g => g.Count());
@@ -136,9 +137,9 @@ namespace CopilotInsights.Pages.Security
 {
     public sealed class UnitsModel(PageServices s, Metrics m) : InsightsPage(s)
     {
-        public override string Title => "Signals by unit";
+        public override string Title => "Security signals by unit";
         public override string Persona => "Security";
-        public override string Intro => "Where jailbreak attempts, prompt injection and blocked content cluster, one level down, over time. Rates per 1,000 interactions, so big and small units compare fairly.";
+        public override string Intro => "Where jailbreak attempts, prompt injection and blocked content cluster, in each part of the organization one level below, over time. Rates per 1,000 interactions, so big and small units compare fairly.";
 
         protected override async Task BuildAsync()
         {
@@ -154,8 +155,8 @@ namespace CopilotInsights.Pages.Security
                 }
             var worst = units.OrderByDescending(u => u.Flags * 1000.0 / u.Interactions).FirstOrDefault();
             if (worst is not null) Kpis.Add(new("Highest rate", worst.Name, $"{worst.Flags * 1000.0 / worst.Interactions:0.0} per 1,000 interactions", "crit"));
-            Kpis.Add(new("Signals in scope", Num(units.Sum(u => u.Flags)), $"in {Num(units.Sum(u => u.Interactions))} interactions"));
-            Panels.Add(new("Signals per 1,000 interactions, by unit", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Decimal1, "Signal rate by unit"),
+            Kpis.Add(new("Security signals", Num(units.Sum(u => u.Flags)), $"in {Num(units.Sum(u => u.Interactions))} interactions"));
+            Panels.Add(new("Signals per 1,000 interactions, by unit", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Decimal1, "Signal rate by unit", unit: "signals per 1,000 interactions"),
                 $"Jailbreak, prompt injection and blocked resources together. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
         }
     }
@@ -181,8 +182,8 @@ namespace CopilotInsights.Pages.Compliance
                     var p = series.FirstOrDefault(x => x.Unit == units[r].Unit && x.Bucket == buckets[c].Key);
                     grid[r, c] = p is { Interactions: > 0 } ? p.Labeled / (double)p.Interactions : null;
                 }
-            Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1),
-                $"One level down. Darker is a larger share. {TrendNote}"));
+            Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions touched labeled content"),
+                $"Each part of the organization one level below. Darker is a larger share. {TrendNote}"));
 
             /* Counted per key pair, then named (2.4.2): grouping on the names worked out a string for each of the rows. */
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
@@ -212,7 +213,7 @@ namespace CopilotInsights.Pages.Agents
     {
         public override string Title => "Agent hand-offs";
         public override string Persona => "Agents";
-        public override string Intro => "When one agent calls another (CopilotEventData.TargetAgentName): how often, and to which agents.";
+        public override string Intro => "When one agent hands a request to another agent: how often, and to which agents.";
 
         protected override async Task BuildAsync()
         {
@@ -272,7 +273,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
                 "From the first prompt to the last.", "half"));
             var buckets = Buckets();
             Panels.Add(new("Messages per prompt", Chart.Line(Labels(), [new Series("Messages per prompt", buckets.Select(b => { var r = tr.FirstOrDefault(x => x.Bucket == b.Key); return r.Prompts > 0 ? r.Messages / (double?)r.Prompts : null; }).ToList(), 2)], Fmt.Decimal1, "Messages per prompt"),
-                $"Prompts and Copilot's replies together, per prompt. From 2.2.0 flattening. {TrendNote}"));
+                $"Prompts and Copilot's replies together, per prompt: above 2, Copilot answered some prompts in more than one message. {TrendNote}"));
         }
     }
 }
@@ -281,9 +282,9 @@ namespace CopilotInsights.Pages.Governance
 {
     public sealed class ControlsModel(PageServices s, Metrics m) : InsightsPage(s)
     {
-        public override string Title => "Controls";
+        public override string Title => "Copilot controls";
         public override string Persona => "Governance";
-        public override string Intro => "The controls around Copilot at work: memory updates, deferred data-loss checks, and grounding on the public web, over time and by unit.";
+        public override string Intro => "The controls around Copilot at work: memory updates, deferred data-loss checks, and searches of the public web, over time and by unit.";
 
         protected override async Task BuildAsync()
         {
@@ -296,19 +297,19 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
             Kpis.Add(new("Memory updated", Pct(Ratio(tr.Sum(x => x.Memory), tr.Sum(x => x.All))), "of interactions"));
             Kpis.Add(new("DLP check deferred", Num(tr.Sum(x => x.Dlp))));
             Kpis.Add(new("Grounded on the web", Pct(Ratio(tr.Sum(x => x.Web), tr.Sum(x => x.All)))));
-            Panels.Add(new("Memory and web grounding", Chart.Line(Labels(), [
+            Panels.Add(new("Memory updates and web search", Chart.Line(Labels(), [
                 new Series("Memory updated", buckets.Select(b => Ratio(At(b.Key).Memory, At(b.Key).All)).ToList(), 5),
-                new Series("Web grounded", buckets.Select(b => Ratio(At(b.Key).Web, At(b.Key).All)).ToList(), 1),
+                new Series("Searched the web", buckets.Select(b => Ratio(At(b.Key).Web, At(b.Key).All)).ToList(), 1),
             ], Fmt.Percent, "Memory and web share"), $"Shares of interactions. {TrendNote}", "half"));
             Panels.Add(new("Deferred data-loss checks", Chart.Columns(Labels(), [new Series("Deferred", buckets.Select(b => (double?)At(b.Key).Dlp).ToList(), 4)], Fmt.Count, "DLP deferred"),
-                "Interactions whose DLP evaluation Copilot recorded as deferred.", "half"));
+                "Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising share is worth raising with them.", "half"));
 
             var units = (await m.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize).ToDictionary(u => u.Unit);
             var series = await m.UnitSeriesAsync(Ctx);
             var web = series.GroupBy(x => x.Unit).Where(g => units.ContainsKey(g.Key))
                 .Select(g => (Unit: units[g.Key], Web: g.Sum(x => x.Web), All: g.Sum(x => x.Interactions))).Where(x => x.All > 0).OrderByDescending(x => x.Web / (double)x.All).ToList();
-            Panels.Add(new("Web grounding by unit", Chart.Bars(web.Take(15).Select(x => new Bar(x.Unit.Name, x.Web / (double)x.All, x.Unit.Drillable ? Ctx.Url(Request.Path, org: x.Unit.Unit) : null, $"{x.Web:#,0} of {x.All:#,0}")).ToList(), Fmt.Percent, "Web grounding by unit", 1),
-                $"One level down; units under {Ctx.MinGroupSize} people left out."));
+            Panels.Add(new("Web search by unit", Chart.Bars(web.Take(15).Select(x => new Bar(x.Unit.Name, x.Web / (double)x.All, x.Unit.Drillable ? Ctx.Url(Request.Path, org: x.Unit.Unit) : null, $"{x.Web:#,0} of {x.All:#,0}")).ToList(), Fmt.Percent, "Web grounding by unit", 1),
+                $"Each part of the organization one level below; units under {Ctx.MinGroupSize} people are left out."));
         }
     }
 }

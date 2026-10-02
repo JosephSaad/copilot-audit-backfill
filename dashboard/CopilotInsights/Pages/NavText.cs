@@ -31,7 +31,7 @@ public static class NavText
     {
         ["/leadership"] = ("Is Copilot being used, by how many of the people who have it, and where.", "At a glance"),
         ["/leadership/scorecard"] = ("This period against the one before: what moved, and in which part of the organization.", "At a glance"),
-        ["/leadership/org"] = ("Each part of the organization one level down, side by side.", "At a glance"),
+        ["/leadership/org"] = ("Each part of the organization one level below, side by side.", "At a glance"),
         ["/group"] = ("Each tenant's headline figures for the period, and the group's totals.", "At a glance"),
         ["/leadership/mix"] = ("Where people use Copilot: which apps, chat or in-app, and how much through agents.", "What it is used for"),
         ["/leadership/usecases"] = ("What Copilot is used for: email, meetings, writing, analysis, research and agents.", "What it is used for"),
@@ -108,8 +108,8 @@ public static class NavText
         ["/apps"] = ("Copilot in each Microsoft 365 app: how many people, how deeply, and whether they return.", null),
         ["/apps/detail"] = ("One app: who uses Copilot in it, what they read, and which agents run there.", null),
 
-        ["/governance"] = ("Which models answer, how much grounds on the public web, and agents in play.", null),
-        ["/governance/controls"] = ("Memory updates, deferred data-loss checks and web grounding, over time.", null),
+        ["/governance"] = ("Which models answer, how often Copilot searches the web, and agents in play.", null),
+        ["/governance/controls"] = ("Memory updates, deferred data-loss checks and web search, over time.", null),
 
         ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),
         ["/admin/access"] = ("Who sees what: the top of the organization, levels, and roles.", null),

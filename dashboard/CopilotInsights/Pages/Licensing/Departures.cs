@@ -76,7 +76,7 @@ x AS (SELECT l.*, CASE WHEN l.LeaveUtc < SYSUTCDATETIME() THEN 1 ELSE 0 END AS P
         var (ad, entra) = await SourcesAsync();
         if (ad is null && entra is null)
         {
-            Notice = "Leave dates arrive with the scripts of 2.4.3: install them, then run the directory load (AD account expiry) or the license tool with -IncludeLeaveDates (Entra's leave date).";
+            Notice = "No leave dates have been loaded yet. An administrator loads them with the directory load (the AD account expiry date) or the license tool with -IncludeLeaveDates (Entra's leave date), from the current release's scripts.";
             return;
         }
         var ahead = Ahead();
@@ -98,7 +98,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Leaves", "From", "Days to go", "Licensed since", "Last used"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Leaves", "Date from", "Days to go", "Licensed since", "Last used"],
             Numeric = new HashSet<int> { 6 },
             EmptyText = $"Nobody with a license is due to leave in the next {ahead} days.",
             Server = new(pg, Request, ["name", "upn", "dept", "manager", "date", "source", "date", "since", "recent"], new HashSet<int> { 8 }),

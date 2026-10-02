@@ -7,7 +7,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Overview";
     public override string Persona => "Leadership";
-    public override string Intro => "Is Copilot being used, by how many of the people who have it, and where. Aggregates only.";
+    public override string Intro => "Is Copilot being used, by how many of the people who have it, and where. Totals only: no one is named.";
 
     protected override async Task BuildAsync()
     {
@@ -16,19 +16,19 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var adopted = await m.AdoptedAsync(Ctx);
         var x = Labels();
 
-        Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in scope" : "in the period"));
+        Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in {Here}" : "in the period"));
         Kpis.Add(new("Premium licenses today", Num(t.LicensedNow), t.People > 0 ? $"{Pct(Ratio(t.LicensedNow, t.People))} of people" : null));
         Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), "Premium license holders who used Copilot in the period"));
-        Kpis.Add(new("Active in the last 7 days", Num(t.ActiveLast7), t.LicensedNow > 0 ? $"{Pct(Ratio(t.ActiveLast7, t.LicensedNow))} of licensed people" : null));
+        Kpis.Add(new("Active in the last 7 days", Num(t.ActiveLast7), t.LicensedNow > 0 ? $"{Pct(Ratio(t.ActiveLast7, t.LicensedNow))} of Premium license holders" : null));
         Kpis.Add(new("Interactions", Num(t.Interactions), t.Active > 0 ? $"{t.Interactions / (double)t.Active:#,0.0} per active person" : null));
 
         Panels.Add(new("People using Copilot",
             Chart.Line(x, [
-                new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1),
-                new Series("Active, licensed", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
-                new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2),
-            ], Fmt.Count, "People licensed and active"),
-            $"Licensed: holding a Premium Copilot license at the end of the day or week. Copilot Chat only: people without a license using the free Copilot Chat. {TrendNote}"));
+                new Series("Premium license holders", tr.Select(w => (double?)w.Licensed).ToList(), 1),
+                new Series("Used Copilot, with a license", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
+                new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2),
+            ], Fmt.Count, "Premium license holders, how many of them used Copilot, and people on the free Copilot Chat"),
+            $"Premium license holders: holding a Premium Copilot license at the end of the day or week. Free Copilot Chat only: people without a license who used the free Copilot Chat. {TrendNote}"));
         Panels.Add(new("Adoption rate: Premium license holders",
             Chart.Line(x, [new Series("Adoption", tr.Select(w => Ratio(adopted.GetValueOrDefault(w.Bucket), w.Licensed)).ToList(), 1)], Fmt.Percent, "Adoption rate of Premium license holders"),
             $"Premium license holders only. Of the people holding a Premium license at each point, the share who used Copilot in the {Metrics.AdoptionDays} days up to it. " +
@@ -36,14 +36,14 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
             $"The first {Metrics.AdoptionDays} days of the data read low, with less than {Metrics.AdoptionDays} days behind them.", "half"));
         Panels.Add(new("Interactions",
             Chart.Columns(x, [new Series("Interactions", tr.Select(w => (double?)w.Interactions).ToList(), 1)], Fmt.Count, "Interactions"),
-            null, "half"));
+            $"An interaction is one prompt to Copilot and its answer, by anyone, licensed or not. {TrendNote}", "half"));
 
         var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
-        Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption by organization",
+        Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption in each part of the organization",
             Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null)),
                 Ctx.MinGroupSize, "Adoption by unit", 40),
-            $"Licensed people active in the period, per unit one level down, for units with at least {Ctx.MinGroupSize} license holders; the rest are combined in the last bar. Select a name to look inside." +
-            (folded > 0 ? $" {folded} unit(s) under {Ctx.MinGroupSize} people are combined." : "")));
+            $"Premium license holders who used Copilot in the period, for each part of the organization one level below. Parts with fewer than {Ctx.MinGroupSize} license holders are combined in the last bar. Select a name to look inside it." +
+            (folded > 0 ? $" {Count(folded, "unit")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : "")));
     }
 }
 
@@ -51,7 +51,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Organization";
     public override string Persona => "Leadership";
-    public override string Intro => "Each part of the organization one level down, side by side. Select a name to look inside it.";
+    public override string Intro => "Each part of the organization one level below, side by side. Select a name to look inside it.";
 
     protected override async Task BuildAsync()
     {
@@ -62,7 +62,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
 
         var t = new Table
         {
-            Headers = ["Unit", "Department", "People", "Licensed", "Active", "Adoption", "Days active per person", "Interactions per active person", "Multi-turn sessions", "Trend (active people)"],
+            Headers = ["Unit", "Department", "People", "License holders", "Used Copilot", "Adoption", "Days active per person", "Interactions per active person", "Sessions with a follow-up", "Trend (people using Copilot)"],
             Numeric = new HashSet<int> { 2, 3, 4, 5, 6, 7, 8 },
         };
         foreach (var u in shown)
@@ -77,7 +77,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         }
         t.KeepLast = folded > 0 ? 1 : 0;
         Panels.Add(new("Units", t.Render(),
-            folded > 0 ? $"{folded} unit(s) with fewer than {Ctx.MinGroupSize} people are combined as Smaller groups, so no total describes one person." : null));
+            folded > 0 ? $"{Count(folded, "unit")} with fewer than {Ctx.MinGroupSize} people {Are(folded)} combined as Smaller groups, so no total describes one person." : null));
 
         var big = shown.Where(u => u.Unit != "~small").ToList();
         var grid = new double?[big.Count, buckets.Count];
@@ -88,7 +88,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
                 grid[r, c] = big[r].People > 0 ? a / (double)big[r].People : null;
             }
         Panels.Add(new("Share of people active",
-            Chart.Heatmap(big.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Share of each unit active", 1),
+            Chart.Heatmap(big.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Share of each unit active", 1, unit: "of its people used Copilot"),
             $"Darker is a larger share of the unit's people using Copilot. {TrendNote}"));
     }
 }

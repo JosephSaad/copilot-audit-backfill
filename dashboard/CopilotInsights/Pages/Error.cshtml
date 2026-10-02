@@ -1,6 +1,21 @@
 @page "/Error"
 @{
     ViewData["Title"] = "Something went wrong";
+    /* 2.4.10: what to do, and what to tell an administrator: the page that failed and when, which is how the error is
+       found in the site's log. The error itself is never shown here. */
+    var failed = HttpContext.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerPathFeature>()?.Path;
+    var at = DateTime.UtcNow;
 }
-<div class="page-head"><h1>Something went wrong</h1></div>
-<p class="intro">The page could not be built. The error is in the site's log; try again, or tell a dashboard administrator.</p>
+<div class="page-head">
+    <h1>Something went wrong</h1>
+    <p class="intro">The page could not be built. Try it again in a moment; a second try often works when the database was busy.</p>
+</div>
+<div class="notice">
+    If it keeps happening, tell a dashboard administrator
+    @if (failed is not null)
+    {
+        <span>which page it was (<b>@failed</b>) and</span>
+    }
+    when: <b>@at.ToString("yyyy-MM-dd HH:mm") UTC</b>. The error is in the site's log at that time.
+    <p><a href="/?home=1">Go to the start page</a></p>
+</div>

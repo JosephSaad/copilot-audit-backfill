@@ -22,7 +22,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Panels.Add(new("Adoption by country", Groups.AdoptionBars(countries, "Adoption by country", Ctx.MinGroupSize),
             "Licensed people who used Copilot in the period." + (fc > 0 ? $" {fc} country(ies) under {Ctx.MinGroupSize} people combined." : ""), "half"));
         Panels.Add(new("Adoption by office", Groups.AdoptionBars(offices, "Adoption by office", Ctx.MinGroupSize, 15),
-            "The fifteen offices with the highest adoption." + (fo > 0 ? $" {fo} office(s) under {Ctx.MinGroupSize} people combined." : ""), "half"));
+            "The fifteen offices with the highest adoption." + (fo > 0 ? $" {Count(fo, "office")} under {Ctx.MinGroupSize} people {Are(fo)} combined." : ""), "half"));
 
         var trend = await Db.QueryAsync<(string Country, DateTime Bucket, int Active)>($@"
 SELECT ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")}, COUNT(DISTINCT ud.UserKey)
@@ -47,7 +47,7 @@ public sealed class PatternsModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => "Working patterns";
     public override string Persona => "Regions";
-    public override string Intro => "When people use Copilot: by hour and weekday, in the reporting time zone, and how much of it falls outside working hours.";
+    public override string Intro => $"When people use Copilot: by hour and weekday, in {DataZone}, and how much of it falls outside working hours.";
 
     protected override async Task BuildAsync()
     {
@@ -68,8 +68,9 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
 
         var cells = new double?[7, 24];
         foreach (var g in grid) cells[g.Dow - 1, g.Hour] = g.N;
-        Panels.Add(new("Interactions by weekday and hour", Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), cells, Fmt.Count, "Interactions by weekday and hour"),
-            "Darker is busier. Local time in the reporting time zone, so offices in other zones appear shifted."));
+        Panels.Add(new("Interactions by weekday and hour", Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), cells, Fmt.Count, "Interactions by weekday and hour",
+            unit: "interactions", unitOne: "interaction", column: h => $"{h}:00 to {h}:59"),
+            $"Darker is busier. Hours are in {DataZone} for everyone, so offices in other time zones appear shifted."));
 
         var trend = await Db.QueryAsync<(DateTime Bucket, long All, long After)>($@"
 SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CASE WHEN d.DayOfWeekNumber >= 6 OR f.HourOfDay < 8 OR f.HourOfDay >= 18 THEN 1 ELSE 0 END)

@@ -14,7 +14,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     public override string Intro => "Named recommendations from the last 30 days: free Copilot Chat users to upgrade to a Premium license, "
         + "license holders who barely use Copilot to train, and licenses unused long enough to revoke.";
 
-    public override string? OwnWindow => "the last 30 days, whatever the period";
+    public override string? OwnWindow => "the last 30 days";
     public const int UpgradeDays = 6;   // of the last 30, on the free Copilot Chat
     public const int LightMax = 2;      // days of use in 30 with a license: train
     public const int RevokeAfterDays = 30;
@@ -153,7 +153,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Days using Premium features (30)", "Interactions (30)", "Last used", "Licensed since", "License the records report", "Why"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Days using Premium features (30)", "Interactions (30)", "Last used", "Licensed since", "License type Copilot recorded", "Why"],
             Numeric = new HashSet<int> { 5, 6, 7 },
             EmptyText = "No one fits this recommendation.",
             /* Last used and the recorded license are looked up after the page query, so they do not sort. */
@@ -198,8 +198,8 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&handler=script"))}\">PowerShell script</a> for a license administrator to review and run " +
             $"({(await S.Settings.StringAsync("LicenseGroupId") is null ? "assigns the license directly; set a licensing group in Admin > Targets and assumptions to use group membership instead" : "through the licensing group")}).</p>";
         if (!premiumReady && kind != "upgrade")
-            Notice = "Premium-feature use is not in the rollups yet, so train and revoke count any use, as before 2.3.0. An administrator rebuilds the rollups once (Admin > Health, Rebuild every day) to separate Premium features from web Copilot Chat.";
+            Notice = "Use of Premium features is not yet told apart from free Copilot Chat here, so the train and revoke lists count any use. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + (kind == "upgrade" ? "" : await ProtectedNoteAsync()) + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "\"License the records report\" is what Copilot wrote into the person's latest audit record.", "full", CsvUrl()));
+            "License type Copilot recorded: what Copilot itself wrote into the person's latest record (Premium, or Starter for the free Copilot Chat).", "full", CsvUrl()));
     }
 }

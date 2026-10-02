@@ -22,14 +22,14 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         foreach (var t in types.Where(t => t.Name != "Smaller groups").OrderByDescending(t => t.People).Take(2))
             Kpis.Add(new($"{t.Name}: adoption", Pct(Ratio(t.ActiveLicensed, t.Licensed)), $"{t.People:#,0} people, {Pct(Ratio(t.Licensed, t.People))} licensed"));
 
-        Panels.Add(new("By employee type", Groups.AdoptionBars(types, "Adoption by employee type", Ctx.MinGroupSize), "From the employeeType attribute in AD.", "half"));
+        Panels.Add(new("By employee type", Groups.AdoptionBars(types, "Adoption by employee type", Ctx.MinGroupSize), "The employee type recorded for each person in Active Directory.", "half"));
         Panels.Add(new("Managers and individual contributors", Groups.AdoptionBars(roles, "Adoption by role", Ctx.MinGroupSize),
             "A manager is anyone with someone reporting to them.", "half"));
         Panels.Add(new("By level in the organization",
             Chart.Bars(levels.Where(l => l.Licensed > 0).OrderBy(l => l.Name).Select(l => new Bar(l.Name, l.ActiveLicensed / (double)l.Licensed, Note: $"{l.ActiveLicensed:#,0} of {l.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by level", 1),
             "Level 1 is the top of the organization.", "half"));
         Panels.Add(new("By job title", Groups.AdoptionBars(titles, "Adoption by job title", 15),
-            "The fifteen titles with the highest adoption." + (ft > 0 ? $" {ft} title(s) under {Ctx.MinGroupSize} people combined." : ""), "half"));
+            "The fifteen titles with the highest adoption." + (ft > 0 ? $" {Count(ft, "title")} under {Ctx.MinGroupSize} people {Are(ft)} combined." : ""), "half"));
         var tt = Groups.Table(titles, "Job title");
         CsvTable = tt;
         Panels.Add(new("Every job title", tt.Render(), null, "full", CsvUrl()));
@@ -74,7 +74,7 @@ GROUP BY m.Upn, m.DisplayName;", Ctx.Args());
         var on = withLic.Where(t => t.ManagerActive).ToList(); var off = withLic.Where(t => !t.ManagerActive).ToList();
         Kpis.Add(new("Teams with a manager using Copilot", Pct(Rate(on)), $"adoption across {on.Count:#,0} teams"));
         Kpis.Add(new("Teams whose manager does not", Pct(Rate(off)), $"across {off.Count:#,0} teams"));
-        Kpis.Add(new("Managers using Copilot", Pct(Ratio(teams.Count(t => t.ManagerActive), teams.Count)), $"of {teams.Count:#,0} managers in scope"));
+        Kpis.Add(new("Managers using Copilot", Pct(Ratio(teams.Count(t => t.ManagerActive), teams.Count)), $"of {Count(teams.Count, "manager")} in {Here}"));
 
         Panels.Add(new("Team adoption, by whether the manager uses Copilot",
             Chart.Bars([new Bar("Manager uses Copilot", Rate(on), Note: $"{on.Sum(t => t.ActiveLicensed):#,0} of {on.Sum(t => t.Licensed):#,0} licensed direct reports", Slot: 3),

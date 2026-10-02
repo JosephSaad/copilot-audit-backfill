@@ -25,11 +25,11 @@ namespace CopilotInsights.Pages.Adoption
             double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
             var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
             var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
-            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses in scope."; return; }
+            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} in {Here} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses."; return; }
 
             var t = new Table
             {
-                Headers = ["Rank", by, "People", "Licensed", "Adoption", "Change (points)", "Share of everyone active", "Interactions per active person", "Days active per person"],
+                Headers = ["Rank", by, "People", "License holders", "Adoption", "Change (points)", "Share of everyone using Copilot", "Interactions per active person", "Days active per person"],
                 Numeric = new HashSet<int> { 0, 2, 3, 4, 5, 6, 7, 8 },
             };
             var changes = new List<(string Name, double Points)>();
@@ -48,7 +48,7 @@ namespace CopilotInsights.Pages.Adoption
                 var best = changes.MaxBy(c => c.Points);
                 Kpis.Add(new("Most improved", best.Name, $"{best.Points:+0.#;-0.#;0} points on the period before"));
             }
-            Kpis.Add(new("Ranked", Num(ranked.Count), $"of {by.ToLowerInvariant()}s in scope"));
+            Kpis.Add(new("Ranked", Num(ranked.Count), $"of the {by switch { "Company" => "companies", "Country" => "countries", _ => by.ToLowerInvariant() + "s" }} here"));
 
             Panels.Add(new("Adoption", Chart.Bars(ranked.Take(20).Select(r => new Bar(r.Name, Adopt(r), Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed people used it")).ToList(),
                 Fmt.Percent, "Adoption by group", 1), null, "half"));
@@ -108,14 +108,14 @@ GROUP BY g.Domain;", Ctx.Args());
             Kpis.Add(new("Used Copilot in the period", Num(rows.Sum(r => r.Active)), $"{rows.Sum(r => r.Interactions):#,0} interactions"));
             Kpis.Add(new("Holding a Copilot license", Num(rows.Sum(r => r.Licensed)), "licenses in this tenant assigned to guests", rows.Sum(r => r.Licensed) > 0 ? "warn" : null));
             Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
-            if (rows.Count == 0) { Notice = "No guest or external accounts in Copilot's records for this scope."; return; }
+            if (rows.Count == 0) { Notice = $"No guest or external accounts used Copilot in {Here} in the period."; return; }
 
             var named = Viewer.Has(Roles.Security) && !PrivacyMode;
             var shown = named ? rows : rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();
             var small = rows.Except(shown).ToList();
             if (small.Count > 0)
                 shown.Add(new Row { Domain = $"{small.Count} smaller home organizations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labeled = small.Sum(r => r.Labeled), Licensed = small.Sum(r => r.Licensed) });
-            var t = new Table { Headers = ["Home organization", "Guests", "Active", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
+            var t = new Table { Headers = ["Home organization", "Guests", "Used Copilot", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
             foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labeled]);
             Panels.Add(new("By home organization", t.Render(), "From the guest's sign-in name. Labeled content: interactions that touched content with a sensitivity label."));
 
@@ -206,7 +206,7 @@ namespace CopilotInsights.Pages.Compliance
 SELECT du.UserKey, du.UserPrincipalName, du.DisplayName, du.Department, du.JobTitle, du.ManagerName, du.CompanyName, du.Country, du.DirectoryStatus,
        du.AccountEnabled, du.LicensedSinceUtc, du.FirstSeenUtc
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @upn;", Ctx.Args(new { upn }))).FirstOrDefault();
-            if (who is null) { Notice = $"No Copilot records for {upn} in your scope."; return; }
+            if (who is null) { Notice = $"No Copilot records for {upn} among the people you can see. Check the sign-in; someone outside your part of the organization is not shown."; return; }
 
             var d = new Table { Headers = ["Field", "Value"], Sortable = false };
             d.Rows.Add(["Name", who.DisplayName]); d.Rows.Add(["Sign-in", who.UserPrincipalName]); d.Rows.Add(["Department", who.Department]);
@@ -240,7 +240,7 @@ WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
             Kpis.Add(new("With a security signal", Num(recs.Count(r => r.JailbreakDetected || r.PromptInjectionDetected || r.HasBlockedResource)), pg.ForExport || pg.Total <= Paging.PageSize ? null : "on this page"));
             var t = new Table
             {
-                Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labeled content", "Resources read", "Record id"],
+                Zone = Zone, Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labeled content", "Resources read", "Record id"],
                 Numeric = new HashSet<int> { 6 }, EmptyText = "No interactions in the period.",
                 Server = new(pg, Request, ["new", "app", "agent", "web", "signals", "labeled", "resources", "record"], new HashSet<int> { 0, 3, 4, 5, 6 }),
             };
@@ -267,7 +267,7 @@ namespace CopilotInsights.Pages.Workforce
 
         protected override async Task BuildAsync()
         {
-            if (!await ops.HasAsync("dash.JobFamilyRule")) { Notice = "Job family rules arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+            if (!await ops.HasAsync("dash.JobFamilyRule")) { Notice = "Job families are not set up here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
             var rules = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.JobFamilyRule;");
             var rows = await Db.QueryAsync<GroupRow>($@"
 WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
@@ -286,8 +286,8 @@ LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = fam.UserKey AND ld.DateKey = 
 GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             var kept = Groups.Fold(this, rows, Ctx.MinGroupSize, out var folded);
             var unmatched = rows.FirstOrDefault(r => r.Name == "(no family)")?.People ?? 0;
-            Kpis.Add(new("Families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {rules} rule(s)"));
-            Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in scope" : null, unmatched > 0 && rules > 0 ? "warn" : null));
+            Kpis.Add(new("Families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {Count(rules, "rule")}"));
+            Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));
             if (rules == 0) Notice = "No job family rules yet: everyone is \"(no family)\". An administrator adds them in Admin > Classifications and events, with the titles that need one listed there.";
             Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Licensed people who used Copilot, over people licensed.", "half"));
             var t = Groups.Table(kept, "Job family");

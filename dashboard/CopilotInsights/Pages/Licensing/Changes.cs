@@ -91,7 +91,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
             dt.KeepLast = small.Count > 0 ? 1 : 0;
             CsvTable = dt;
             Panels.Add(new("Removals by department", dt.Render(),
-                small.Count > 0 ? $"{small.Count} department(s) with fewer than {Ctx.MinGroupSize} people affected are combined." : null, "full", CsvUrl()));
+                small.Count > 0 ? $"{Count(small.Count, "department")} with fewer than {Ctx.MinGroupSize} people affected {Are(small.Count)} combined." : null, "full", CsvUrl()));
         }
 
         /* Who made the changes names administrators, so it is for the Licensing role. */

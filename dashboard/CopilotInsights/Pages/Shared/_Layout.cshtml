@@ -15,6 +15,9 @@
     <script src="~/theme.js" asp-append-version="true"></script>
 </head>
 <body>
+@* 2.4.10: the first thing the Tab key reaches. With a keyboard or a screen reader the page was a hundred links away,
+   past the whole list of reports, on every page. *@
+<a class="skip" href="#main">Skip to the page</a>
 <header class="top">
     <a class="brand" href="/">Copilot Insights</a>
     @if (viewer is not null)
@@ -44,9 +47,16 @@
         @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports); }
         @if (groups.Count > 0)
         {
-            <input type="search" class="find" id="nav-find" placeholder="Find a report" aria-label="Find a report" autocomplete="off" spellcheck="false" />
-            <p class="none" id="nav-none" hidden>No report matches.</p>
+            <input type="search" class="find" id="nav-find" placeholder="Find a report (press /)" aria-label="Find a report" aria-keyshortcuts="/" autocomplete="off" spellcheck="false" />
+            <p class="none" id="nav-none" hidden>No report matches. Try a word from what it shows, such as "unused" or "training".</p>
+            <p class="none" id="nav-count" role="status" hidden></p>
+            @* On a narrow window (a phone, a tablet upright) the list is above the page, and would fill the first screen:
+               there it folds behind one button that says where you are (2.4.10). Finding still shows its matches. *@
+            var at = groups.SelectMany(g => g.Pages.Select(p => (g, p))).FirstOrDefault(x => x.p.Path == path);
+            <button type="button" class="navtog" aria-expanded="false" aria-controls="nav-sections"
+                    aria-label="Show or hide the list of reports">@(at.p is null ? "All reports" : $"{at.g.Persona} › {at.p.Title}")</button>
         }
+        <div id="nav-sections">
         @{ var mine = CopilotInsights.Infrastructure.MostUsed.Pick(page?.MostUsedPaths ?? [], groups); }
         @if (mine.Count > 0)
         {
@@ -66,7 +76,7 @@
         {
             var here = g.Pages.Any(p => p.Path == path);
             var id = "nav-" + g.Persona.ToLowerInvariant().Replace(' ', '-');
-            <div class="grp @(here ? "here open" : "")" data-grp="@g.Persona">
+            <div class="grp @(here ? "here open" : "")" data-grp="@g.Persona" data-who="@g.Who">
                 <button type="button" class="gname" aria-expanded="@(here ? "true" : "false")" aria-controls="@(id)-links"><span>@g.Persona</span><span class="n">@g.Pages.Count</span></button>
                 <div class="glinks" id="@(id)-links">
                     @foreach (var p in g.Pages)
@@ -92,9 +102,32 @@
                 </div>
             </div>
         }
+        </div>
     </nav>
-    <main>
+    <main id="main" tabindex="-1">
         @RenderBody()
+        @{
+            /* 2.4.10: the report before this one in its section and the one after, at the foot of the page, among those
+               this person can open. By the end of a report the list is a long way up, and on a phone it is folded away. */
+            var (before, after, sect) = Nav.Beside(groups, path);
+        }
+        @if (sect is not null && page is { Denied: null } && (before ?? after) is not null)
+        {
+            <nav class="pager" aria-label="More in @sect.Persona">
+                @if (before is not null)
+                {
+                    <a class="prev" href="@(page.Ctx is null ? before.Path : page.Ctx.Url(before.Path))">
+                        <span class="dir">Previous in @sect.Persona</span><b>@before.Title</b><span class="what">@NavText.What(before)</span>
+                    </a>
+                }
+                @if (after is not null)
+                {
+                    <a class="next" href="@(page.Ctx is null ? after.Path : page.Ctx.Url(after.Path))">
+                        <span class="dir">Next in @sect.Persona</span><b>@after.Title</b><span class="what">@NavText.What(after)</span>
+                    </a>
+                }
+            </nav>
+        }
     </main>
 </div>
 <div id="tip" role="tooltip" hidden></div>

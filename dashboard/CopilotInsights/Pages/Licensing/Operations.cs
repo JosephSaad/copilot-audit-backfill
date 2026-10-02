@@ -15,6 +15,12 @@ static class Price
     public static async Task<(decimal Monthly, string Currency)> GetAsync(Settings s) =>
         (decimal.TryParse(await s.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
          await s.StringAsync("LicenseCurrency") ?? "USD");
+
+    /// <summary>
+    /// What licenses cost over a period of days, at a price a month: a month is a twelfth of a year (2.4.10; Value and time
+    /// saved took a month for 30.4 days and the Board pack for 30, so the same licenses cost two amounts).
+    /// </summary>
+    public static decimal ForPeriod(int licenses, decimal monthly, int days) => licenses * monthly * days * 12m / 365m;
 }
 
 /// <summary>Seats bought against seats assigned against seats used: the renewal question.</summary>
@@ -22,7 +28,7 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
 {
     public override string Title => "License pool";
     public override string Persona => "Licensing";
-    public override string Intro => "Copilot seats bought, assigned and used, from the tenant's subscriptions (/subscribedSkus, read each night with the licenses). Seats bought but not assigned are paid for and idle; seats assigned but not used are the unused-license list.";
+    public override string Intro => "Copilot seats bought, assigned and used, from the tenant's subscriptions, read from Microsoft 365 each night. Seats bought but not assigned are paid for and idle; seats assigned but not used are the unused-license list.";
 
     protected override async Task BuildAsync()
     {
@@ -34,7 +40,7 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         var pool = await ops.PoolAsync();
         if (pool.Count == 0)
         {
-            Notice = "No license pool yet. It is written by the license tool each night (tools/Update-CopilotAuditEnrichment.ps1, 2.3.0 or later).";
+            Notice = "No license pool has been loaded yet. The license tool writes it each night; an administrator can run it now (tools\\Update-CopilotAuditEnrichment.ps1).";
             return;
         }
         var (price, cur) = await Price.GetAsync(S.Settings);
@@ -63,7 +69,7 @@ WHERE IsCopilot = 1 AND SnapshotDate BETWEEN @d0 AND @d1 GROUP BY SnapshotDate O
                 [new Series("Bought", days.Select(d => (double?)d.Bought).ToList(), 1), new Series("Assigned", days.Select(d => (double?)d.Assigned).ToList(), 3)],
                 Fmt.Count, "Copilot seats bought and assigned"), "One point per night the license tool ran.", "half"));
 
-        var tb = new Table { Headers = ["License (SKU)", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Read (UTC)"], Numeric = new HashSet<int> { 2, 3, 4, 5, 6 } };
+        var tb = new Table { Zone = Zone, Headers = ["License (SKU)", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Last read (UTC)"], Numeric = new HashSet<int> { 2, 3, 4, 5, 6 } };
         foreach (var p in pool) tb.Rows.Add([p.SkuPartNumber, p.IsCopilot ? "Yes" : "", p.Bought, p.Consumed, p.Available, p.Warning, p.Suspended, p.CapturedUtc]);
         CsvTable = tb;
         Panels.Add(new("Every subscription in the tenant", tb.Render(), $"Copilot SKU ids, for the license export script: {string.Join(", ", copilot.Select(p => $"{p.SkuPartNumber} {p.SkuId}"))}.", "full", CsvUrl()));
@@ -105,7 +111,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
             .Select(r => new Bar(r.Name, (double)((r.Licensed - r.ActiveLicensed) * price), Note: $"{r.Licensed - r.ActiveLicensed:#,0} of {r.Licensed:#,0} licenses unused")).ToList(), Fmt.Count, "Unused spend by group"),
             $"A month, in {cur}, at {price:#,0.##} a license (Admin > Access).", "half"));
         Panels.Add(new("By " + by.ToLowerInvariant(), new HtmlString($"<p class=\"sub\">Group by: {choices}</p>" + t.Render().Value),
-            (folded > 0 ? $"{folded} group(s) smaller than {Ctx.MinGroupSize} people are combined. " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
+            (folded > 0 ? $"{Count(folded, "group")} smaller than {Ctx.MinGroupSize} people {Are(folded)} combined. " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
             "full", CsvUrl()));
     }
 }

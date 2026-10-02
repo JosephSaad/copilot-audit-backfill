@@ -34,7 +34,7 @@ public sealed class BuildModel(PageServices s) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NULL THEN 0 ELSE 1 END") == 0)
-        { Notice = "Agent build and publish records arrive with 2.3.0's license-event load. Run Install-CopilotAudit.ps1 from this release."; return; }
+        { Notice = "Nothing has been recorded yet about agents being built and published. An administrator sets this up by running Install-CopilotAudit.ps1 from the current release; the records then arrive with the nightly load."; return; }
         var named = Viewer.Has(Roles.Agents) && !PrivacyMode;
         /* Makers in scope: a manager sees the building their own people do; whole-organization viewers see all of it. */
         var scope = Ctx.Root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = e.ActorKey";
@@ -53,7 +53,7 @@ GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
 
         var buckets = Buckets();
         Series S(string action, int slot) => new(action, buckets.Select(b => (double?)byAction.Where(x => x.Bucket == b.Key && x.Action == action).Sum(x => x.N)).ToList(), slot);
-        Panels.Add(new("Authoring over time", Chart.Columns(Labels(), [S("Created", 1), S("Published", 3), S("Shared", 5), S("Component", 2), S("Updated", 4), S("Deleted", 6)], Fmt.Count, "Agent authoring events"),
+        Panels.Add(new("Building activity over time", Chart.Columns(Labels(), [S("Created", 1), S("Published", 3), S("Shared", 5), S("Component", 2), S("Updated", 4), S("Deleted", 6)], Fmt.Count, "Agent authoring events"),
             TrendNote + " Component: topics, skills and other parts added, changed or removed."));
 
         var life = await Db.QueryAsync<Life>($@"

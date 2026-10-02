@@ -4,6 +4,225 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.10] - 2026-10-02
+
+Clearer names, less clutter, and times in your own time zone. Nothing to rebuild: replace the
+scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and install the dashboard package
+over 2.4.9. No table changes, and an existing database keeps the time zone its days were cut in.
+
+### Added
+- **A time zone setting, the server's by default.** Admin › Access › Settings has a *Time
+  zone*. Every time the dashboard shows is in it, and each column says which: *When (Eastern
+  Time)*, not *When (UTC)*, on the audit log, pipeline runs, license reads, alerts, digests,
+  extracts and training imports, in their CSV files, in the stale-data banner and in the
+  pipeline and freshness alerts. Digests, alerts and extracts go out by its clock. Left on
+  *Default* it is the zone the data's days are cut in; with none, the web server's own.
+- **A new install cuts its days in the server's time zone.** With no `-ReportingTimeZone`,
+  `Install-CopilotAudit.ps1` gave every database Eastern time, whatever the server. A database
+  with no records yet now takes the installing server's own zone. A database that holds
+  records keeps its zone: its days are already cut, and that cannot be changed.
+- **On to the next report.** The foot of every report offers the one before it in its section
+  and the one after, each with what it answers, and keeps the period and the part of the
+  organization being looked at. Only reports the person can open are offered. By the end of a
+  report the list of reports is a long way up, and on a phone it is folded away.
+- **A wrong address gets an answer.** An address with no page behind it (mistyped, or a
+  bookmark to a page since moved) returned nothing, which a browser shows as a blank page. It
+  now gets *Page not found*, with the address, the reports nearest to it among those the
+  person can open, and the way to the start page. The answer is still a 404; the data API and
+  files are answered as before.
+
+### Changed
+- **No Period box on a report it does not change.** Reports with a window of their own
+  (today's licenses, the last 30 or 90 days, all history) showed the Period box although
+  choosing a period changed nothing on them. The box is left out there, and the bar says what
+  the report covers ("Covers today's licenses"). The period chosen elsewhere is kept.
+- **Report names that say what the report is.** *Inventory* was two reports and is now
+  *License inventory* and *Agent inventory*; *Agents* (a report in the Agents section) is
+  *Agents in use*; *People* (a report in Enablement, beside the People section) is *People by
+  engagement*; *Signals* and *Signals by unit* are *Security signals* and *Security signals by
+  unit*; *Demand* is *Demand for licenses*; *Resource access* is *Access to labeled content*;
+  *Controls* is *Copilot controls*; *License cohorts* is *Retention by license month*. The
+  name in the list is the title on the page (Admin › Access was titled *Access and roles*).
+  Addresses are unchanged, so links and bookmarks still work.
+- **Four more reports say what they cover.** Retention and habit (the last 12 complete weeks),
+  Retention by license month (licenses that began in the last 12 months), Not started (today's
+  licenses) and License optimization (the last 30 days and the 13-week forecast) ignored the
+  period too, and now say so in place of the Period box. Every report was checked at 30 and at
+  365 days for this.
+
+- **Plain words.** *Multi-turn sessions* is *Sessions with a follow-up* everywhere (the share
+  of sessions where the person replied to Copilot at least once), and *Multi-turn users* is
+  *People who followed up*. "In scope" is gone: figures are "of 2,274 people in the
+  organization", or "in this part of the organization" for a manager. "Aggregates only" is
+  "Totals only: no one is named". Counts read as a sentence: "1 unit is combined", "3 units
+  are combined", not "1 unit(s) are combined".
+
+- **Leadership reports say Premium license where they mean it.** On Overview the chart's lines
+  are *Premium license holders*, *Used Copilot, with a license* and *Free Copilot Chat only*
+  (they were *Licensed*, *Active, licensed*, *Copilot Chat only*), and *Adoption by
+  organization* is *Adoption in each part of the organization*. The Interactions chart says
+  what an interaction is. On Scorecard each *Change* column names what changed (*Premium
+  change*, *Free-only change*, *Active change*, *Interactions change*). *Worth* is *Estimated
+  value* and *Against the license cost* / *Return* is *Return on license cost*, the same on
+  Value and time saved and the Board pack. On Use cases, *With an agent* is *Interactions
+  through an agent*.
+
+- **Adoption reports use the same names as Leadership.** On Funnel and trend, *Licensed today*
+  is *Premium licenses today* and *Active in the period* is *Adoption* (it is the same figure
+  as Overview's); the funnel's bars say who each one counts (*License holders who used it in
+  the period*, *Anyone using Copilot in the last 7 days*). Retention by license month no longer
+  says "cohort". On Targets the second *Target* column, the value aimed for, is *Goal*. On
+  Drops and spikes, *Kind* is *Drop or spike*. Under each title, the audience reads as people:
+  *For Copilot program leads*, *For Copilot Studio makers and the center of excellence*.
+
+- **Licensing reports in plain words.** *Licenses by SKU* is *Licenses by product (SKU)*, with
+  what a SKU is; *Licensed but not active in the period* is *License holders who did not use
+  Copilot*; *License the audit record reports* (and *License the records report* on Upgrade,
+  train or revoke) is *License type Copilot recorded*, explained without field names; on Use
+  ranking the *Free* and *Premium* columns say they count interactions, and its note gives
+  the 2.4.8 rule for Premium; *Read (UTC)* is *Last read (UTC)*; on Departures ahead *From* is
+  *Date from*. Overlapping licenses, before its data has loaded, says what is missing and when
+  it fills, not which release brought it.
+
+- **Security and Compliance say what their words mean.** Security signals explains a
+  jailbreak, a prompt injection and a blocked resource in a sentence each. "In the reporting
+  time zone" names the zone ("in Eastern Time") on the five reports that show an hour of the
+  day. "One level down" is "each part of the organization one level below". On Oversharing
+  hotspots the columns are *A person's OneDrive*, *People who reached it*, *Times read*,
+  *Share labeled*, *Times blocked* (they were *OneDrive*, *People*, *Reads*, *Labeled*,
+  *Blocked*); on Access to labeled content, *Days with one*, *Sites reached*, *Times blocked*.
+
+- **Agents and Enablement.** An agent's *Source* is *Built in*, as Agent inventory calls it.
+  Agents costing credits had two columns named *Without a license*: they are *Interactions
+  without a license* and *People without a license*. Training effect had two named *After*:
+  each column now says whose it is (*Attendees before*, *Attendees after*, *Colleagues before*, *Colleagues after*). On Champions the
+  rank column has a heading, and *Back-and-forth conversations* is *Sessions with a
+  follow-up*, the name the other reports use. Agent hand-offs and Messages per prompt explain
+  themselves without a field name or a release number.
+
+- **Forecasting in plain words.** The forecast explains its method and its shaded band in a
+  sentence ("where the figure should fall 19 times in 20") before naming the statistics. Its
+  lines are *License holders*, *Used Copilot* and *Free Copilot Chat only*, as on the other
+  reports. License optimization's columns say they count licenses, and its note defines
+  *Unused*, *Light users* and *Heavy demand*. *A month (USD)* is *Cost a month*, *Added cost a
+  month* or *Cost change a month*, whichever it is; on License action outcomes *What* and *By*
+  are *Action* and *Exported by*.
+- **Governance without "grounding".** *Models and grounding* is *Models and web search*; *Web
+  grounding* and *Web grounded* are *Interactions that searched the web* and *Searched the
+  web*; *Agent sprawl* is *Every agent seen, by where it was built*, with what sprawl looks
+  like in its note; the deferred data-loss check says what the mark is and who sets it.
+- **Admin › Access explains each setting on its own line,** under the form, instead of in one
+  paragraph for all of them.
+- **A refused page says who to ask and where to go.** "An administrator can grant it" named
+  no one. A page you may not open now lists up to three of the dashboard's administrators by
+  name (people granted Admin directly; none in privacy mode) and links to the start page.
+- **The start page says how current the data is, and what a role is for.** Under *Your
+  access*: "The reports hold Copilot use up to 26 Sep 2026, and were last refreshed 2026-10-01
+  16:49 Eastern Time", and what holding a role (or none) means for the reports listed. Its
+  introduction says how to find a report, not where the data comes from.
+- **Find a report finds more, from the keyboard.** A section's name or its audience brings
+  all its reports ("licensing", "finance"); the box says how many matched; the down and up
+  arrows walk the matches and Enter opens one; pressing / anywhere on a page puts the cursor
+  in the box. With no match it suggests what to type.
+- **The filter bar says what the names in it are.** The path down the organization starts
+  with *Showing*, and the part being shown says how many people it covers ("Alex Saleh and 54
+  people under them"); the teams in *Look inside a team* say "people" after their count.
+- **One set of column names in the comparison tables.** The tables that compare departments,
+  units, countries, offices, job titles, job families and tenants called the same two things
+  *Licensed* and *Active*. They are *License holders* and *Used Copilot* everywhere (and
+  *Share licensed* is *Share with a license*), matching the charts above them. On Use ranking
+  the Yes/No column is *Has a license*. The same names head the CSV files.
+- **Charts are readable on a phone.** A chart was drawn for a wide screen and shrunk to fit, so
+  on a phone its text was a few pixels high. On a narrow screen every chart is now drawn for
+  that width: its text is about 10 pixels, a line's end carries its value alone (the names
+  are in the legend above it), a bar's name wraps onto as many as five lines, and a heatmap
+  labels fewer columns. The browser tells the server the screen is narrow with a cookie that
+  holds nothing else, and fetches the page once more when that changes. Six label problems
+  remain at phone width, on four reports with long site addresses or their own charts.
+- **A long name beside the first bar stays inside its chart.** A name of three lines or more
+  (a site address, on a phone most names) rose above the top of the chart on the first row and
+  lost the top of its first line. The first row now has the room.
+- **Usage by license reads on a phone.** Its two charts were still drawn wide and shrunk; they
+  are drawn at the narrow size like the rest.
+- **On a phone the headline figures sit two to a row.** They were stacked one under another,
+  so a report with five of them opened with three screens of figures before its first chart.
+- **An information icon stays with its label.** Where a title or a figure's label wrapped, the
+  icon could land on a line by itself. It now goes with the label's last word.
+- **Admin › Health answers first.** It listed the steps and left the reader to work out
+  whether the data was current. Three figures now open the page: the day the reports show data
+  up to, whether the last pipeline run succeeded (and where it stopped if not), and how many
+  steps are behind, by name. The steps have names that say what they are (*Report tables*,
+  *Dashboard totals*, *People directory*) with a line on what each does, a way of loading
+  records that a site never uses reads *Not used* instead of a warning, and the page follows
+  the *Data is stale after* setting instead of a fixed 36 hours.
+- **Admin forms are tidier.** A checkbox sat on a line of its own above its words; it now sits
+  before them. A button's words no longer break onto two lines, a digest's actions sit side
+  by side, and on Admin › Email the *Exchange Online* and *SMTP server* headings and their
+  notes sit above their fields instead of beside whichever field came next. Adding a target
+  offers the measures by the names the reports use (*Share of people active*, not
+  *ActiveShare*), and the list of digests no longer says each name twice. On Admin ›
+  Classifications a rule's pattern is called a pattern, not "Job title like".
+- **Agent detail and App detail say what to do.** With nothing chosen the page said "Choose an
+  agent above" over a box that was below it. The box is now headed *Choose an agent* (or *an
+  app*), is drawn like the dashboard's other boxes, and links to the report where one can be
+  picked by name. Messages that said "in your scope" say "among the people you can see", and
+  the Leaderboard by country or company no longer counts "countrys" and "companys".
+- **"Not set up yet" messages are written for the reader.** A report whose data is not there
+  yet said so in installer's terms ("arrive with 2.3.0's operations schema", "not in the
+  rollups yet"). Each now says what is missing in plain words, then what an administrator
+  does about it.
+- **Easier with a keyboard or a screen reader.** The first press of Tab on any page offers
+  *Skip to the page*, past the list of reports; before, the report was a hundred links away.
+  Every table's column headings are marked as such, so a screen reader reads each figure
+  with its column's name.
+- **A wide table shows that it continues.** A table wider than its panel scrolls sideways, and
+  on a phone its last columns were simply cut off at the edge. A soft shadow now marks the
+  edge a table continues past, and goes when that end is reached.
+- **The error page says what to do.** *Something went wrong* now says to try again, names
+  the page that failed and the time to give an administrator (which is how the error is found
+  in the site's log), and links to the start page. The error itself is still never shown.
+- **A heat map's cells say what their figure counts.** Resting on a cell showed "Wed, 14: 20".
+  It now reads "Wed, 14:00 to 14:59: 20 interactions", and likewise on the other six heat
+  maps: the share of a unit's people who used Copilot, signals per 1,000 interactions, the
+  share of interactions that touched labeled content, a month's license holders week by week.
+- **On a phone the report comes first.** On a narrow window the list of reports sits above the
+  page and filled the first screen. It now folds behind one button that says where you are
+  ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs
+  off a narrow screen.
+- **Long column headings wrap instead of making the table scroll sideways.** A heading now
+  breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
+  costing credits, Training effect) show more of their columns at once; a figure with its
+  arrow or unit stays on one line.
+
+### Fixed
+- **An old link to someone's organization showed zeros under "Whole organization".** A link
+  with a manager who is no longer in the directory (`?org=` with a sign-in nobody has) opened
+  a report that said *Whole organization* and showed nothing. A page now shows the whole
+  organization and says why. Someone who sees only their own part, following a link to a part
+  that is not theirs, got their own part with no word of it; the page now says so, in the
+  same words whether or not such a person exists. The data API and the digests are unchanged:
+  they keep to what was asked for.
+- **The audit log counted data API calls as admin changes.** Admin › Audit log showed two
+  figures named *Admin changes*; the second was the data API's calls. Each kind now has its
+  own name (*Page views*, *Refused*, *Exports*, *Data API calls*, *Admin changes*), used by
+  the figures, the filter and the Kind column alike; the download keeps the words the log
+  stores (View, Denied, Export, Api, Admin). "by 1 people" is "by 1 person".
+- **Pointers to a page that does not exist.** Five places sent the reader to *Admin >
+  Settings* for the pay-as-you-go price, and the license export script to *Admin > License
+  pool*. The price is set in Admin > Access, and the pool is Licensing > License pool.
+- **Date labels ran into each other on the Forecast charts** with a 52-week forecast (a year of
+  history and a year ahead in one chart). A chart now draws fewer date labels when they would
+  not fit beside each other.
+- **The license cost of a period was two amounts.** Value and time saved took a month for 30.4
+  days and the Board pack for 30, so 1,269 licenses over 30 days cost 37,569 on one and 38,070
+  on the other. Both now take a month for a twelfth of a year (37,548 for that example; a full
+  year is exactly twelve months' cost).
+- **"For copilot program lead".** The line under a report's title lowercased the first word
+  of its audience whatever it was: *For copilot program lead*, *For hR and people analytics*,
+  *For aI governance and architecture*. Names and abbreviations keep their capitals.
+- **License optimization drew departments in a different order from one visit to the next**
+  when two had the same gap between unused licenses and demand. Ties are now in name order.
+
 ## [2.4.9] - 2026-10-02
 
 Adoption no longer dips at weekends, an administrator can turn any report off, and a rebuild

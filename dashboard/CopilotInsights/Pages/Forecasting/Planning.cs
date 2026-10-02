@@ -38,7 +38,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
             Notice = "The budget is the whole tenant's, so it needs the whole-organization view or the Licensing role.";
             return;
         }
-        if (!await ops.HasAsync("dash.LicenseContract")) { Notice = "Contracts arrive with 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        if (!await ops.HasAsync("dash.LicenseContract")) { Notice = "Contracts cannot be recorded here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
         var contracts = await Db.QueryAsync<Contract>("SELECT ContractId, Name, Seats, MonthlyPrice, StartDate, RenewalDate, Note FROM dash.LicenseContract ORDER BY RenewalDate;");
         var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
@@ -54,7 +54,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         var keep = Math.Max(0, (pool.Count > 0 ? assigned : totals.LicensedNow) - counts.GetValueOrDefault("revoke") - leavers + counts.GetValueOrDefault("upgrade"));
         var avgPrice = seats > 0 ? monthly / seats : price;
 
-        Kpis.Add(new("Seats under contract", Num(seats), contracts.Count == 0 ? "no contracts entered yet" : $"{contracts.Count} contract(s); the tenant shows {bought:#,0} bought"));
+        Kpis.Add(new("Seats under contract", Num(seats), contracts.Count == 0 ? "no contracts entered yet" : $"{Count(contracts.Count, "contract")}; the tenant shows {bought:#,0} bought"));
         Kpis.Add(new("Cost", $"{monthly:#,0} {cur}", $"a month; {monthly * 12:#,0} a year"));
         Kpis.Add(new("Next renewal", next is null ? "—" : next.RenewalDate.ToString("d MMM yyyy"),
             next is null ? null : $"{next.Name}, in {(next.RenewalDate - DateTime.Today).Days} days", next is not null && (next.RenewalDate - DateTime.Today).Days <= 90 ? "warn" : null));
@@ -71,7 +71,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         ], Fmt.Count, "Seats at renewal"),
             $"From the last 30 days: {totals.ActiveLicensed:#,0} licensed people used Copilot. Growth beyond today's use is on Forecasting > Forecast; rollout waves on Forecasting > Rollout waves.", "half"));
 
-        var t = new Table { Headers = ["Contract", "Seats", $"Price a seat a month ({cur})", $"A month ({cur})", $"A year ({cur})", "Started", "Renews", "Days to renewal", "Note", ""], Numeric = new HashSet<int> { 1, 2, 3, 4, 7 }, EmptyText = "No contracts yet." };
+        var t = new Table { Headers = ["Contract", "Seats", $"Price a seat a month ({cur})", $"Cost a month ({cur})", $"Cost a year ({cur})", "Started", "Renews", "Days to renewal", "Note", ""], Numeric = new HashSet<int> { 1, 2, 3, 4, 7 }, EmptyText = "No contracts yet." };
         foreach (var c in contracts)
         {
             var days = (c.RenewalDate - DateTime.Today).Days;
@@ -109,7 +109,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
 /// <summary>Who to license next, in waves: the people already relying on the free Copilot Chat first, then those in departments where Copilot has taken hold.</summary>
 public sealed class WavesModel(PageServices s, OpsData ops) : InsightsPage(s)
 {
-    public override string? OwnWindow => "the last 30 days, whatever the period";
+    public override string? OwnWindow => "the last 30 days";
     public override string Title => "Rollout waves";
     public override string Persona => "Forecasting";
     public override string? RequiredRole => Roles.Licensing;
@@ -186,7 +186,7 @@ SELECT {select} FROM c {tail}";
         Kpis.Add(new("A wave costs", $"{size * price:#,0} {cur}", "a month"));
         Kpis.Add(new("Everyone licensed", $"{all * price:#,0} {cur}", "a month more"));
 
-        var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Adds a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
+        var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Added cost a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
         foreach (var w in waves.Take(12))
             wt.Rows.Add([w.Wave, w.People, w.UsingChat, w.People * price, new HtmlString(
                 $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(size, dept, $"wave={w.Wave}&handler=bulk")))}\">bulk add file</a> · " +
@@ -199,7 +199,7 @@ SELECT {select} FROM c {tail}";
         var t = new Table
         {
             Headers = ["Order", "Wave", "Name", "Sign-in", "Department", "Manager", "Job title", "Days on Copilot Chat (30)", "Interactions (30)", "Department adoption"],
-            Numeric = new HashSet<int> { 0, 1, 7, 8, 9 }, EmptyText = "Everyone in scope has a license.",
+            Numeric = new HashSet<int> { 0, 1, 7, 8, 9 }, EmptyText = "Everyone here has a license.",
             /* A wave follows from the order, so both sort by it. */
             Server = new(pg, Request, ["rank", "rank", "name", "upn", "dept", "manager", "title", "days", "inter", "adoption"], new HashSet<int> { 7, 8, 9 }),
         };
@@ -207,7 +207,7 @@ SELECT {select} FROM c {tail}";
             t.Rows.Add([r.Rank, r.Wave, r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.JobTitle, r.D, r.I, r.DeptAdoption is null ? null : $"{r.DeptAdoption:0}%"]);
         CsvTable = t;
         Panels.Add(new("People, in order", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["rank"] = "Order", ["name"] = "Name", ["dept"] = "Department" }).Value + t.Render().Value),
-            "Department adoption: of the department's licensed people, the share who used Copilot in the last 30 days (shown for departments of at least the minimum group size). Filter to one department with ?dept=.", "full", CsvUrl()));
+            "Department adoption: of the department's licensed people, the share who used Copilot in the last 30 days (shown for departments of at least the minimum group size).", "full", CsvUrl()));
     }
 
     static string Extra(int size, string? dept, string? more) =>
@@ -276,7 +276,7 @@ o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
 
     protected override async Task BuildAsync()
     {
-        if (!await ops.HasAsync("dash.LicenseAction")) { Notice = "License exports are recorded from 2.3.0's operations schema: run Install-CopilotAudit.ps1 -Dashboard from this release."; return; }
+        if (!await ops.HasAsync("dash.LicenseAction")) { Notice = "License exports are not recorded here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
         var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var batches = await Db.QueryAsync<Batch>(Base + @"
@@ -287,12 +287,12 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
         int Done(Batch b) => b.Kind is "upgrade" or "wave" ? b.LicensedNow : b.People - b.LicensedNow;
         var reclaimed = batches.Where(b => b.Kind is "revoke" or "leaver" or "nonhuman").Sum(Done);
         var given = batches.Where(b => b.Kind is "upgrade" or "wave").ToList();
-        Kpis.Add(new("Exported", Num(batches.Sum(b => b.People)), $"in {batches.Count} export(s)"));
+        Kpis.Add(new("Exported", Num(batches.Sum(b => b.People)), $"in {Count(batches.Count, "export")}"));
         Kpis.Add(new("Applied", Pct(Ratio(batches.Sum(Done), batches.Sum(b => b.People))), "the license is where the export said it should be"));
         Kpis.Add(new("Licenses reclaimed", Num(reclaimed), $"{reclaimed * price:#,0} {cur} a month saved"));
         Kpis.Add(new("New licenses in use", Pct(Ratio(given.Sum(b => b.UsedSince), given.Sum(b => b.LicensedNow))), "of those licensed from an upgrade or wave export, used Copilot since"));
 
-        var t = new Table { Headers = ["Exported", "What", "By", "People", "Applied", "Share applied", "Used Copilot since", $"A month ({cur})"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
+        var t = new Table { Headers = ["Exported", "Action", "Exported by", "People", "Applied", "Share applied", "Used Copilot since", $"Cost change a month ({cur})"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
         foreach (var b in batches)
             t.Rows.Add([b.Day, b.Kind switch { "upgrade" => "Upgrade", "revoke" => "Revoke unused", "leaver" => "Reclaim from disabled accounts", "nonhuman" => "Remove from non-human accounts", _ => "Rollout wave" },
                 b.ExportedBy, b.People, Done(b), Pct(Ratio(Done(b), b.People)), b.Kind is "upgrade" or "wave" ? b.UsedSince : null,
@@ -308,7 +308,7 @@ FROM o WHERE ((o.Kind IN ('upgrade', 'wave') AND o.LicensedNow = 0) OR (o.Kind I
         pg.Total = pending.FirstOrDefault().Total;
         var pt = new Table
         {
-            Headers = ["Exported", "What", "Name", "Sign-in", "Department"], EmptyText = "Every exported change has been applied.",
+            Headers = ["Exported", "Action", "Name", "Sign-in", "Department"], EmptyText = "Every exported change has been applied.",
             Server = new(pg, Request, ["new", "kind", "name", "upn", "dept"], new HashSet<int> { 0 }),
         };
         foreach (var r in pending) pt.Rows.Add([r.Day, r.Kind, r.DisplayName, r.Upn, r.Department]);

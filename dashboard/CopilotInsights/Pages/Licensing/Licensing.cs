@@ -7,7 +7,7 @@ namespace CopilotInsights.Pages.Licensing;
 
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Inventory";
+    public override string Title => "License inventory";
     public override string Persona => "Licensing";
     public override string Intro => "How many Copilot licenses are assigned, how that changed, and how many are in use.";
 
@@ -52,15 +52,15 @@ SELECT ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)'), COUNT(*)
 FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)') ORDER BY 2 DESC;", Ctx.Args());
-        Panels.Add(new("Licenses by SKU", Chart.Bars(skus.Select(k => new Bar(k.Sku, k.N)).ToList(), Fmt.Count, "Licenses by SKU"), null, "half"));
+        Panels.Add(new("Licenses by product (SKU)", Chart.Bars(skus.Select(k => new Bar(k.Sku, k.N)).ToList(), Fmt.Count, "Licenses by product"), "A SKU is the product name Microsoft sells the license under.", "half"));
 
         var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
             .Where(u => u.Licensed > 0).OrderByDescending(u => u.Licensed - u.ActiveLicensed).ToList();
-        Panels.Add(new("Licensed but not active in the period, by unit",
+        Panels.Add(new("License holders who did not use Copilot, by unit",
             Chart.Bars(units.Take(20).Select(u => new Bar(u.Name, u.Licensed - u.ActiveLicensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
                 $"{u.Licensed - u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed", 2)).ToList(), Fmt.Count, "Idle licenses by unit"),
-            "Licenses held today by people who did not use Copilot in the selected period, one level down." +
-            (folded > 0 ? $" {folded} unit(s) under {Ctx.MinGroupSize} people are combined." : ""), "half"));
+            "Licenses held today by people who did not use Copilot in the period, for each part of the organization one level below." +
+            (folded > 0 ? $" {Count(folded, "unit")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : ""), "half"));
     }
 }
 
@@ -135,7 +135,7 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
 
 public sealed class DemandModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Demand";
+    public override string Title => "Demand for licenses";
     public override string Persona => "Licensing";
     public override string Intro => "People without a license who use the free Copilot Chat: where demand for a license is.";
 
@@ -180,10 +180,10 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         var heavy = depts.Sum(d => d.Heavy);
         Kpis.Add(new("Unlicensed Copilot Chat users", Num(users), "in the period"));
         Kpis.Add(new($"Used it on {Heavy}+ days", Num(heavy), "the strongest candidates for a license"));
-        Kpis.Add(new("People without a license", Num(depts.Sum(d => d.People)), "enabled accounts in scope"));
+        Kpis.Add(new("People without a license", Num(depts.Sum(d => d.People)), $"enabled accounts in {Here}"));
 
         Panels.Add(new("Copilot Chat users without a license",
-            Chart.Line(Labels(), [new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "Unlicensed users"),
+            Chart.Line(Labels(), [new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People without a license using Copilot Chat"),
             TrendNote, "half"));
         var byDept = FoldSmall(depts, d => d.People, small => ("Smaller departments", small.Sum(x => x.People), small.Sum(x => x.Users), small.Sum(x => x.Heavy)), out _)
             .Where(d => d.Users > 0).OrderByDescending(d => d.Heavy).ThenByDescending(d => d.Users).Take(20).ToList();
@@ -197,9 +197,9 @@ FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimLicenseType AS l ON l.LicenseTypeKey = f.LicenseTypeKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY l.LicenseType;", Ctx.Args());
-        Panels.Add(new("License the audit record reports",
+        Panels.Add(new("License type Copilot recorded",
             Chart.Bars(recorded.OrderByDescending(r => r.N).Select(r => new Bar(r.LicenseType, r.People, Note: $"{r.N:#,0} interactions", Slot: r.LicenseType == "Premium" ? 1 : 2)).ToList(), Fmt.Count, "People by recorded license type"),
-            "People by the license type Copilot wrote into each audit record (CopilotEventData.LicenseType, such as Premium or Starter), beside the license history. A person can appear under more than one.", "half"));
+            "People by the license type Copilot itself wrote into each of their records: Premium, or Starter for the free Copilot Chat. It is Copilot's own view at the moment of use, beside the license history. A person can appear under more than one.", "half"));
 
         if (!Viewer.Has(Roles.Licensing)) return;   // the named list is for the Licensing role only
         var pg = new Paging(Request, Sorts, "days");
@@ -218,7 +218,7 @@ WHERE du.CopilotLicenseToday <> N'Licensed'
         };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.ActiveDays, r.Interactions]);
         CsvTable = t;
-        Panels.Add(new("Unlicensed users", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));
+        Panels.Add(new("People without a license using Copilot Chat", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));
     }
 
     int Heavy => Math.Max(2, Ctx.Days * 5 / 7 / 4);   // a quarter of the working days in the period

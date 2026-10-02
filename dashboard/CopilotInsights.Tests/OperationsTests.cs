@@ -270,6 +270,56 @@ public class PrivacyNavigationTests
     }
 
     [Fact]
+    public void Times_are_shown_in_the_zone_chosen_else_the_data_s_else_the_server_s()
+    {
+        var eastern = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        Assert.Equal("Pacific Standard Time", Data.Zones.Resolve("Pacific Standard Time", "Eastern Standard Time").Id);
+        Assert.Equal("Eastern Standard Time", Data.Zones.Resolve(null, "Eastern Standard Time").Id);
+        Assert.Equal("Eastern Standard Time", Data.Zones.Resolve("No such zone", "Eastern Standard Time").Id);
+        Assert.Equal(TimeZoneInfo.Local.Id, Data.Zones.Resolve(" ", null).Id);
+        Assert.Equal("Eastern Time", Data.Zones.Label(eastern));
+        Assert.Equal("UTC", Data.Zones.Label(TimeZoneInfo.Utc));
+        /* Summer and winter: the offset is the zone's on that day, not today's. */
+        Assert.Equal("2026-07-01 08:45 Eastern Time", Data.Zones.Stamp(new DateTime(2026, 7, 1, 12, 45, 0), eastern));
+        Assert.Equal("2026-01-15 07:45 Eastern Time", Data.Zones.Stamp(new DateTime(2026, 1, 15, 12, 45, 0), eastern));
+
+        /* A table's (UTC) column is shown in the zone and says so, on the page and in its CSV; other columns are left alone. */
+        var t = new Pages.Table { Headers = ["When (UTC)", "Day", "Who"], Zone = eastern };
+        t.Rows.Add([new DateTime(2026, 10, 2, 3, 30, 0), new DateTime(2026, 10, 2), "a"]);
+        var html = t.Render().Value!;
+        Assert.Contains("When (Eastern Time)", html);
+        Assert.Contains("2026-10-01 23:30", html);
+        Assert.Contains("2026-10-02</td>", html);
+        var csv = t.ToCsv();
+        Assert.Contains("\"When (Eastern Time)\"", csv);
+        Assert.Contains("\"2026-10-01 23:30:00\"", csv);
+        /* With no zone given, it stays UTC, as its header says. */
+        var u = new Pages.Table { Headers = ["When (UTC)"] };
+        u.Rows.Add([new DateTime(2026, 10, 2, 3, 30, 0)]);
+        Assert.Contains("When (UTC)", u.Render().Value);
+        Assert.Contains("2026-10-02 03:30", u.Render().Value);
+
+        /* The stale-data banner names the zone too. */
+        Assert.Contains("(2026-10-01 20:00 Eastern Time)", Freshness.Describe(new DateTime(2026, 10, 2, 0, 0, 0), 36, null, null, null, new DateTime(2026, 10, 4, 0, 0, 0), eastern));
+    }
+
+    [Fact]
+    public void A_report_has_one_name_that_no_other_report_or_section_has()
+    {
+        var pages = Pages.Nav.Groups.SelectMany(g => g.Pages).ToList();
+        var sections = Pages.Nav.Groups.Select(g => g.Persona).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        /* Not the name of a section ("People" the report beside People the section), and no two alike but the one breach
+           report that Licensing, Security and Compliance each carry. */
+        Assert.DoesNotContain(pages, p => sections.Contains(p.Title));
+        var twice = pages.GroupBy(p => p.Title).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+        Assert.Equal(["Copilot on non-human accounts"], twice);
+        /* The name in the list is the title on the page: every name is some page's own title. */
+        var titles = typeof(Pages.InsightsPage).Assembly.GetTypes().Where(t => !t.IsAbstract && typeof(Pages.InsightsPage).IsAssignableFrom(t))
+            .Select(t => ((Pages.InsightsPage) System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(t)).Title).ToHashSet();
+        Assert.DoesNotContain(pages, p => !titles.Contains(p.Title));
+    }
+
+    [Fact]
     public void Your_most_used_offers_only_reports_the_viewer_may_open_now()
     {
         var groups = Pages.Nav.For(V(Roles.Adoption), hidden: new HashSet<string>(["/adoption/cohorts"], StringComparer.OrdinalIgnoreCase));
@@ -329,4 +379,93 @@ public class MappingFileTests
     [InlineData("'quoted", "'quoted")]
     [InlineData("'", "'")]
     public void Unguard_removes_only_the_formula_guard(string cell, string expected) => Assert.Equal(expected, CopilotInsights.Data.CsvUpload.Unguard(cell));
+
+    [Fact]
+    public void The_reports_beside_a_report_are_the_ones_offered_in_its_section()
+    {
+        var all = CopilotInsights.Pages.Nav.Groups;
+        var adoption = all.Single(g => g.Persona == "Adoption");
+        var (before, after, section) = CopilotInsights.Pages.Nav.Beside(all, adoption.Pages[1].Path);
+        Assert.Equal((adoption.Pages[0], adoption.Pages[2], adoption), (before, after, section));
+        // The first has nothing before it, the last nothing after; neither reaches into the next section.
+        Assert.Null(CopilotInsights.Pages.Nav.Beside(all, adoption.Pages[0].Path).Before);
+        Assert.Null(CopilotInsights.Pages.Nav.Beside(all, adoption.Pages[^1].Path).After);
+        // A page left out of what is offered (hidden, or not this person's) is stepped over, and is beside nothing.
+        var without = all.Select(g => g == adoption ? g with { Pages = [.. g.Pages.Where((_, i) => i != 1)] } : g).ToList();
+        Assert.Equal(adoption.Pages[2], CopilotInsights.Pages.Nav.Beside(without, adoption.Pages[0].Path).After);
+        Assert.Null(CopilotInsights.Pages.Nav.Beside(without, adoption.Pages[1].Path).Section);
+        Assert.Null(CopilotInsights.Pages.Nav.Beside(all, "/").Section);
+    }
+
+    [Fact]
+    public void An_address_with_no_page_is_answered_with_the_reports_nearest_to_it()
+    {
+        var all = CopilotInsights.Pages.Nav.Groups;
+        // A page that is not there, under a section that is: that section's reports.
+        var near = CopilotInsights.Pages.Nav.Near(all, "/adoption/nope");
+        Assert.Equal(6, near.Count);
+        Assert.All(near, p => Assert.StartsWith("/adoption", p.Path));
+        // A word of a report's name, wherever it sits: the unused-licenses report comes first.
+        Assert.Equal("/licensing/unused", CopilotInsights.Pages.Nav.Near(all, "/reports/unused-licenses")[0].Path);
+        // Nothing to go on: nothing is offered. And only what this person is offered is.
+        Assert.Empty(CopilotInsights.Pages.Nav.Near(all, "/zz"));
+        Assert.Empty(CopilotInsights.Pages.Nav.Near(all, null));
+        var open = all.Where(g => g.Role is null).ToList();
+        Assert.Empty(CopilotInsights.Pages.Nav.Near(open, "/licensing/unused").Where(p => p.Path.StartsWith("/licensing")));
+    }
+
+    [Fact]
+    public void A_part_of_the_organization_that_is_not_shown_is_said_so()
+    {
+        static ReportContext C(string? root, string? asked) => new()
+        {
+            Viewer = new Viewer { WindowsName = "x", Roles = new HashSet<string>() }, Days = 30, Start = new DateTime(2026, 9, 1), End = new DateTime(2026, 9, 30),
+            Root = root, OrgAsked = asked, MinGroupSize = 5, InactiveDays = 30,
+        };
+        Assert.Null(C(null, null).OrgNote);
+        Assert.Null(C("ada@contoso.com", null).OrgNote);
+        // Someone who sees everything, an old link: the whole organization, and why.
+        Assert.StartsWith("No one in the organization directory has the sign-in gone@contoso.com, so this shows the whole organization.", C(null, "gone@contoso.com").OrgNote);
+        // Someone who sees their own part: the same words whether or not there is such a person.
+        Assert.Equal("ceo@contoso.com is not in your part of the organization, so this shows yours.", C("ada@contoso.com", "ceo@contoso.com").OrgNote);
+    }
+
+    [Fact]
+    public void A_heat_map_cell_says_what_its_figure_counts()
+    {
+        Assert.Equal("Wed, 14:00 to 14:59: 20 interactions", CopilotInsights.Charts.Chart.CellTip("Wed", "14:00 to 14:59", 20, CopilotInsights.Charts.Fmt.Count, "interactions", "interaction"));
+        Assert.Equal("Wed, 03:00 to 03:59: 1 interaction", CopilotInsights.Charts.Chart.CellTip("Wed", "03:00 to 03:59", 1, CopilotInsights.Charts.Fmt.Count, "interactions", "interaction"));
+        Assert.Equal("Finance, 1 Sep: 45% of its people used Copilot", CopilotInsights.Charts.Chart.CellTip("Finance", "1 Sep", 0.45, CopilotInsights.Charts.Fmt.Percent, "of its people used Copilot"));
+        // No figure, no unit; and a chart that names none reads as before.
+        Assert.Equal("Finance, 1 Sep: —", CopilotInsights.Charts.Chart.CellTip("Finance", "1 Sep", null, CopilotInsights.Charts.Fmt.Percent, "of its people used Copilot"));
+        Assert.Equal("Finance, 1 Sep: 3", CopilotInsights.Charts.Chart.CellTip("Finance", "1 Sep", 3, CopilotInsights.Charts.Fmt.Count));
+    }
+
+    [Fact]
+    public void Every_kind_in_the_audit_log_has_its_own_name()
+    {
+        string[] kinds = ["View", "Denied", "Export", "Api", "Admin"];
+        // 2.4.10: the data API's calls were counted under a second "Admin changes".
+        Assert.Equal(kinds.Length, kinds.Select(k => CopilotInsights.Pages.Admin.AuditModel.KindName(k, many: true)).Distinct().Count());
+        Assert.Equal(kinds.Length, kinds.Select(k => CopilotInsights.Pages.Admin.AuditModel.KindName(k)).Distinct().Count());
+        Assert.Equal("Data API calls", CopilotInsights.Pages.Admin.AuditModel.KindName("Api", many: true));
+        Assert.Equal("Admin change", CopilotInsights.Pages.Admin.AuditModel.KindName("Admin"));
+    }
+
+    [Fact]
+    public void An_information_icon_is_tied_to_the_last_word_of_its_label()
+    {
+        static string Html(Microsoft.AspNetCore.Html.IHtmlContent c)
+        {
+            using var w = new StringWriter();
+            c.WriteTo(w, System.Text.Encodings.Web.HtmlEncoder.Default);
+            return w.ToString();
+        }
+        var h = Html(InfoTip.After("Hours saved (estimate)", "From the minutes in Admin."));
+        Assert.StartsWith("Hours saved <span class=\"nb\">(estimate)<button", h);
+        Assert.Contains("aria-label=\"Hours saved (estimate): From the minutes in Admin.\"", h);
+        // One word: the whole label goes with the icon. No text: no icon, and the label is only encoded.
+        Assert.StartsWith("<span class=\"nb\">Adoption<button", Html(InfoTip.After("Adoption", "x")));
+        Assert.Equal("R&amp;D use", Html(InfoTip.After("R&D use", null)));
+    }
 }

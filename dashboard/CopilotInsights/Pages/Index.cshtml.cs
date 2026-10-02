@@ -11,10 +11,21 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
     public override bool OpenToAdmins => true;
     public string? OrgTop { get; private set; }
 
+    /// <summary>How current the reports are (2.4.10): the last day with any Copilot use, and when the rollups last finished.</summary>
+    public string? Freshness { get; private set; }
+
     protected override async Task BuildAsync()
     {
         OrgTop = Ctx.OrgTopUpn;
-        await Task.CompletedTask;
+        try
+        {
+            var (day, refreshed) = (await Db.QueryAsync<(DateTime? Day, DateTime? Refreshed)>(@"
+SELECT (SELECT d.[Date] FROM bi.DimDate AS d WHERE d.DateKey = (SELECT MAX(ud.DateKey) FROM dash.UserDay AS ud)),
+       (SELECT MAX(EndedUtc) FROM dash.RefreshRun);")).Single();
+            if (day is not null)
+                Freshness = $"The reports hold Copilot use up to {day:d MMM yyyy}" + (refreshed is null ? "." : $", and were last refreshed {When(refreshed)}.");
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { /* a database not built yet: the page says nothing about dates */ }
     }
 
     public string AccessSummary =>
@@ -24,6 +35,6 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
             : !Viewer.InDirectory
                 ? "Your account is not in the organization directory, so there is no data you may see yet. An administrator can grant you access."
                 : Viewer.PeopleBelow > 0
-                    ? $"You see yourself and the {Viewer.PeopleBelow:#,0} people who report up to you."
+                    ? $"You see yourself and the {Viewer.PeopleBelow:#,0} people who report up to you, directly or through their managers."
                     : "You see your own use of Copilot.";
 }

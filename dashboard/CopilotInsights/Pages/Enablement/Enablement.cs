@@ -49,7 +49,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var tr = await m.TrendAsync(Ctx);
 
         Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days"));
-        Kpis.Add(new("Multi-turn sessions", Pct(Ratio(t.MultiTurn, t.Sessions)), "sessions with a follow-up prompt"));
+        Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), "of sessions, the person replied to Copilot at least once"));
         Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—"));
         var nudge = await Db.ScalarAsync<int>($@"WITH {Segments.People(Ctx)}
 SELECT COUNT(*) FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey WHERE p.Segment IN (N'One-off', N'Not started') AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")};", Ctx.Args(new { w }));
@@ -76,8 +76,8 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ct
         Panels.Add(new("Segments by department", tbl.Render(), $"The twelve largest departments, as a share of each one's people. Departments under {Ctx.MinGroupSize} are left out.", "half"));
 
         Panels.Add(new("Conversations, not one-off questions",
-            Chart.Line(Labels(), [new Series("Multi-turn share", tr.Select(x => Ratio(x.MultiTurn, x.Sessions)).ToList(), 1)], Fmt.Percent, "Multi-turn share"),
-            "Sessions with more than one prompt, as a share of all sessions. A rising line means people are learning to iterate.", "half"));
+            Chart.Line(Labels(), [new Series("With a follow-up", tr.Select(x => Ratio(x.MultiTurn, x.Sessions)).ToList(), 1)], Fmt.Percent, "Share of sessions with a follow-up"),
+            "Sessions with a follow-up (the person replied to Copilot at least once), as a share of all sessions. A rising line means people are learning to refine an answer instead of starting over.", "half"));
         Panels.Add(new("Prompts per session",
             Chart.Line(Labels(), [new Series("Prompts per session", tr.Select(x => x.Sessions > 0 ? x.Prompts / (double?)x.Sessions : null).ToList(), 2)], Fmt.Decimal1, "Prompts per session"),
             TrendNote, "half"));
@@ -101,7 +101,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", Ctx.Args());
 
 public sealed class PeopleModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "People";
+    public override string Title => "People by engagement";
     public override string Persona => "Enablement";
     public override string? RequiredRole => Roles.Enablement;
     public override string Intro => "Named people by engagement segment: power users to recruit as champions, and one-off or not-started people to invite to training.";
@@ -153,7 +153,7 @@ WHERE p.Segment = @seg
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Job title", "Manager", "Days active", "Interactions", "Multi-turn sessions", "Last used"],
+            Headers = ["Name", "Sign-in", "Department", "Job title", "Manager", "Days active", "Interactions", "Sessions with a follow-up", "Last used"],
             Numeric = new HashSet<int> { 5, 6, 7 }, EmptyText = "Nobody in this segment.",
             Server = new(pg, Request, ["name", "upn", "dept", "title", "manager", "days", "inter", "mt", "recent"], new HashSet<int> { 5, 6, 7, 8 }),
         };

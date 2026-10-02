@@ -15,7 +15,7 @@ public sealed class RankingModel(PageServices s) : InsightsPage(s)
     public override string Title => "Use ranking";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "Everyone in scope ranked three ways in the period: all their Copilot use, use the free tier covers (web Copilot Chat and agents), and use that needs the Premium license (Copilot in Word, Excel, PowerPoint, Outlook and Teams, or Copilot Chat over work files, mail and sites). A license holder low on the Premium ranking is paying for what they do not use; someone without a license high on the free ranking is ready for one.";
+    public override string Intro => "Everyone you can see, ranked three ways in the period: all their Copilot use, use the free tier covers (web Copilot Chat and agents), and use that needs the Premium license (Copilot in Word, Excel, PowerPoint, Outlook and Teams, or Copilot Chat over work files, mail and sites). A license holder low on the Premium ranking is paying for what they do not use; someone without a license high on the free ranking is ready for one.";
 
     internal static readonly Dictionary<string, (string Label, string Order)> By = new()
     {
@@ -59,7 +59,7 @@ public sealed class RankingModel(PageServices s) : InsightsPage(s)
         var ready = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NULL THEN 0 ELSE 1 END") == 1
                     && await Db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE DateKey BETWEEN @k0 AND @k1 AND PremiumUse > 0) THEN 1 ELSE 0 END", Ctx.Args()) == 1;
         if (!ready)
-            Notice = "Premium-feature use is not in the rollups yet: an administrator rebuilds them once (Admin > Health, Rebuild every day). Until then free and premium use are empty.";
+            Notice = "Free and Premium use are not told apart here yet, so those columns are empty. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
         var pg = new Paging(Request, new Dictionary<string, string>(Sorts) { ["rank"] = By[by].Order.Replace("r.", "x.") }, "rank");
         /* Ranked over everyone in scope with any use, before the search and the license filter, so a person's rank does not change with them. */
         var rows = await Db.QueryAsync<Row>($@"
@@ -92,9 +92,9 @@ FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 A
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"by={by}&license={l.Item1}"))}\"{(l.Item1 == license ? " class=\"on\"" : "")}>{l.Item2}</a>"));
         var t = new Table
         {
-            Headers = ["Rank: general", "Rank: free", "Rank: premium", "Name", "Sign-in", "Department", "Licensed", "Interactions", "Free", "Premium", "Premium share", "Days used", "Days with Premium use"],
+            Headers = ["Rank: general", "Rank: free", "Rank: premium", "Name", "Sign-in", "Department", "Has a license", "Interactions", "Free interactions", "Premium interactions", "Premium share", "Days used", "Days with Premium use"],
             Numeric = new HashSet<int> { 0, 1, 2, 7, 8, 9, 10, 11, 12 },
-            EmptyText = "Nobody in scope used Copilot in the period.",
+            EmptyText = "Nobody here used Copilot in the period.",
             /* The chosen ranking's column sorts by "rank", the other two by their own rank; Licensed: Yes first. */
             Server = new(pg, Request, [by == "general" ? "rank" : "general", by == "free" ? "rank" : "free", by == "premium" ? "rank" : "premium",
                                        "name", "upn", "dept", "licensed", "use", "freeuse", "premiumuse", "share", "days", "pdays"],
@@ -106,7 +106,7 @@ FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 A
         CsvTable = t;
         Panels.Add(new("Ranking", new HtmlString($"<p class=\"sub\">Rank by: {tabs}</p><p class=\"sub\">Show: {lic}</p>" +
             pg.Controls(Request, new Dictionary<string, string> { ["rank"] = "Rank", ["name"] = "Name" }).Value + t.Render().Value),
-            "Ranks are among everyone in scope with any use in the period (1 is the most); ties share a rank. Premium: licensed interactions in Word, Excel, PowerPoint, Outlook or Teams, or Copilot Chat that read work content rather than the web. Free: the rest. The Upgrade, train or revoke page uses the same split.",
+            "Ranks are among everyone you can see with any use in the period (1 is the most); ties share a rank. Premium: a license holder's interactions inside Word, Excel, PowerPoint, Outlook or Teams, in Copilot Chat in work mode, or that read work content. Free: the rest. The Upgrade, train or revoke page uses the same split.",
             "full", CsvUrl()));
     }
 }

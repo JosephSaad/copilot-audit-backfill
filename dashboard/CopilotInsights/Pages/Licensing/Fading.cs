@@ -14,7 +14,7 @@ public sealed class FadingModel(PageServices s) : InsightsPage(s)
     public override string Title => "Fading use";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string? OwnWindow => "the last 90 days, whatever the period";
+    public override string? OwnWindow => "the last 90 days";
     public override string Intro => "License holders who used Copilot regularly and now use it much less, though not yet never: the last 30 days against the 60 before. Coach them, or plan to reclaim the license, before it goes idle.";
 
     const int MinDaysBefore = 4;   // days of use a 30 days before, at least: a habit to lose

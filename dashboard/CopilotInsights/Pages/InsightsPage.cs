@@ -34,6 +34,15 @@ public sealed class Table
     public int KeepLast { get; set; }
     /// <summary>For a list paged on the server: each column's Paging key (null: not sortable), and whether the key's own order descends.</summary>
     public ServerSort? Server { get; init; }
+    /// <summary>
+    /// The zone to show times in (2.4.10): a column whose header ends "(UTC)" holds UTC times, and with a zone set they are
+    /// shown in it, the header saying which ("When (Eastern Time)"). Without one they stay UTC, as the header says.
+    /// </summary>
+    public TimeZoneInfo? Zone { get; init; }
+
+    bool InZone(int i) => Zone is not null && i < Headers.Count && Headers[i].EndsWith("(UTC)", StringComparison.Ordinal);
+    string Header(int i) => InZone(i) ? Headers[i][..^"(UTC)".Length] + $"({CopilotInsights.Data.Zones.Label(Zone!)})" : Headers[i];
+    object? Shown(int i, object? v) => v is DateTime d && InZone(i) ? CopilotInsights.Data.Zones.FromUtc(d, Zone!) : v;
 
     public sealed record ServerSort(Paging Pager, HttpRequest Request, IReadOnlyList<string?> Keys, IReadOnlySet<int>? Descending = null);
 
@@ -52,8 +61,9 @@ public sealed class Table
         var sb = new StringBuilder($"<div class=\"table-wrap\"><table{(client ? " class=\"sortable\"" : "")}><thead><tr>");
         for (var i = 0; i < Headers.Count; i++)
         {
-            var cls = Numeric.Contains(i) ? " class=\"num\"" : "";
-            var text = WebUtility.HtmlEncode(Headers[i]);
+            /* scope: a screen reader reads each cell with its column's heading (2.4.10). */
+            var cls = " scope=\"col\"" + (Numeric.Contains(i) ? " class=\"num\"" : "");
+            var text = WebUtility.HtmlEncode(Header(i));
             if (Server is { } sv && i < sv.Keys.Count && sv.Keys[i] is { } key && sv.Pager.Has(key))
             {
                 var aria = sv.Pager.AriaSort(key, sv.Descending?.Contains(i) ?? false);
@@ -71,7 +81,7 @@ public sealed class Table
             sb.Append(n >= Rows.Count - KeepLast ? "<tr data-keep=\"1\">" : "<tr>");
             for (var i = 0; i < Headers.Count; i++)
             {
-                var v = i < r.Length ? r[i] : null;
+                var v = Shown(i, i < r.Length ? r[i] : null);
                 var cls = Numeric.Contains(i) ? " class=\"num\"" : "";
                 var sortValue = client ? SortValue(v) : null;
                 sb.Append($"<td{cls}{(sortValue is null ? "" : $" data-v=\"{sortValue}\"")}>{Cell(v)}</td>");
@@ -107,9 +117,9 @@ public sealed class Table
     public string ToCsv()
     {
         var sb = new StringBuilder();
-        sb.AppendLine(string.Join(",", Headers.Select(Q)));
+        sb.AppendLine(string.Join(",", Headers.Select((_, i) => Q(Header(i)))));
         foreach (var r in Rows)
-            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select(v => Q(v switch
+            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select((x, i) => Shown(i, x)).Select(v => Q(v switch
             {
                 null => "", Link l => l.Text, IHtmlContent => "", DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss"),
                 _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "",
@@ -200,6 +210,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         Viewer = viewer;
         Ctx = await S.Contexts.CreateAsync(viewer, days, null);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
+        Zone = await S.Settings.ZoneAsync();
         if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode) return;
         if (Pages.HiddenReports.Is(await Pages.HiddenReports.GetAsync(S.Settings), Request.Path)) return;
         await S.Stamp.EnsureAsync();
@@ -216,6 +227,49 @@ public abstract class InsightsPage(PageServices s) : PageModel
         using (QueryCache.Use()) await BuildAsync();
     }
 
+    /// <summary>The zone times are shown in (2.4.10): Admin > Access, else the data's own, else the server's.</summary>
+    public TimeZoneInfo Zone { get; private set; } = TimeZoneInfo.Utc;
+
+    /// <summary>
+    /// The zone the data's days and hours were cut in when it was loaded, by name ("Eastern Time"): for the reports that
+    /// show an hour of the day or a weekday. The pages said "the reporting time zone", which named nothing.
+    /// </summary>
+    public string DataZone { get; private set; } = "the server's time zone";
+
+    /// <summary>
+    /// A chart a page puts inside its own HTML, drawn for where it will sit (2.4.10): on a phone (the narrow cookie
+    /// theme.js sets) at the phone's width, else at <paramref name="width"/>, or as drawn when that is null. A chart a
+    /// panel holds on its own is sized by the page layout; this is for the ones it cannot see.
+    /// </summary>
+    protected string Sized(Microsoft.AspNetCore.Html.HtmlString chart, int? width = null)
+    {
+        var narrow = !Warming && Request.Cookies["narrow"] == "1";
+        return chart is CopilotInsights.Charts.ChartSvg c && (narrow || width is not null) ? c.Render(narrow ? 320 : width!.Value) : chart.Value ?? "";
+    }
+
+    /// <summary>A UTC time in that zone, with its name: "2026-10-02 08:45 Eastern Time".</summary>
+    protected string When(DateTime? utc, string none = "not yet") => utc is null ? none : CopilotInsights.Data.Zones.Stamp(utc, Zone);
+
+    /// <summary>
+    /// Who to ask, on a page that was refused (2.4.10): up to three people granted the Admin role by name, so "an
+    /// administrator can grant it" names someone. Nobody is named in privacy mode, and a group grant names no one.
+    /// </summary>
+    public IReadOnlyList<string> Administrators { get; private set; } = [];
+
+    async Task<IReadOnlyList<string>> AdministratorsAsync()
+    {
+        if (PrivacyMode) return [];
+        try
+        {
+            return await Db.QueryAsync<string>(@"
+SELECT TOP (3) COALESCE(p.DisplayName, g.Principal)
+FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
+WHERE g.Role = N'Admin' AND g.PrincipalType = N'User'
+ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { return []; }
+    }
+
     /// <summary>The reports this viewer opens most (2.4.9), by path, most opened first; see <see cref="MostUsed"/>.</summary>
     public IReadOnlyList<string> MostUsedPaths { get; private set; } = [];
 
@@ -225,8 +279,10 @@ public abstract class InsightsPage(PageServices s) : PageModel
     protected async Task<bool> PrepareAsync()
     {
         Viewer = await S.Viewers.GetAsync();
-        Ctx = await S.Contexts.CreateAsync(Viewer, Request);
+        Ctx = await S.Contexts.CreateAsync(Viewer, Request, forPage: true);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
+        Zone = await S.Settings.ZoneAsync();
+        DataZone = CopilotInsights.Data.Zones.Label(CopilotInsights.Data.Zones.Resolve(null, await S.Settings.ReportingTimeZoneAsync()));
         HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
         if (HttpContext.RequestServices.GetService<MostUsed>() is { } most) MostUsedPaths = await most.PathsAsync(Viewer);
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */
@@ -244,6 +300,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         if (UsesFilters) await LoadMarkersAsync();
         if (Denied is not null)
         {
+            Administrators = await AdministratorsAsync();
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, Ctx.ScopeLabel, Denied);
             Response.StatusCode = turnedOff ? 404 : 403;
             return false;
@@ -350,6 +407,11 @@ public abstract class InsightsPage(PageServices s) : PageModel
         $"<label>{E(label)}<select name=\"{name}\">" +
         string.Concat(options.Select(o => $"<option{(o == selected ? " selected" : "")}>{E(o)}</option>")) + "</select></label>";
 
+    /// <summary>A choice whose stored value is not what the reader should see: "ActiveShare" is offered as "Share of people active".</summary>
+    protected static string Select(string name, string label, IEnumerable<(string Value, string Label)> options, string? selected) =>
+        $"<label>{E(label)}<select name=\"{name}\">" +
+        string.Concat(options.Select(o => $"<option value=\"{E(o.Value)}\"{(o.Value == selected ? " selected" : "")}>{E(o.Label)}</option>")) + "</select></label>";
+
     protected static string Button(string text, string? confirm = null, bool quiet = false) =>
         $"<button class=\"btn{(quiet ? " quiet" : "")}\" type=\"submit\"{(confirm is null ? "" : $" data-confirm=\"{E(confirm)}\"")}>{E(text)}</button>";
 
@@ -366,6 +428,15 @@ public abstract class InsightsPage(PageServices s) : PageModel
     protected static string E(string? s) => WebUtility.HtmlEncode(s ?? "");
 
     /* ---- helpers for pages ---------------------------------------------------- */
+
+    /// <summary>"1 unit", "3 units": a count with its noun (2.4.10; the pages wrote "3 unit(s)").</summary>
+    protected static string Count(int n, string noun, string? plural = null) => $"{n:#,0} {(n == 1 ? noun : plural ?? noun + "s")}";
+
+    /// <summary>"is" for one, "are" for more: "1 unit is combined", "3 units are combined".</summary>
+    protected static string Are(int n) => n == 1 ? "is" : "are";
+
+    /// <summary>Where the figures are from, in a sentence: "the organization", or "this part of the organization".</summary>
+    protected string Here => Ctx.Root is null && Viewer.OrgWide ? "the organization" : "this part of the organization";
 
     protected static string Pct(double? v) => Chart.Format(v, Fmt.Percent);
     protected static string Num(double? v) => Chart.Format(v, Fmt.Count);

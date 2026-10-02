@@ -38,7 +38,7 @@ namespace CopilotInsights.Pages.Adoption
                 Note: $"{t.Current:#,0.#}{Unit(t)} of {t.TargetValue:#,0.#}{Unit(t)} by {t.DueDate:d MMM yyyy}; {t.Status}",
                 Slot: t.Status switch { "Met" or "On track" => 3, "Behind" => 5, "Missed" => 6, _ => 1 })).ToList(), Fmt.Percent, "Progress to each target", 1),
                 "The share of the target reached."));
-            var tb = new Table { Headers = ["Target", "For", "Before it started", "Now", "Should be by now", "Target", "Due", "Status", "Note"], Numeric = new HashSet<int> { 2, 3, 4, 5 } };
+            var tb = new Table { Headers = ["Target", "For", "Before it started", "Now", "Should be by now", "Goal", "Due", "Status", "Note"], Numeric = new HashSet<int> { 2, 3, 4, 5 } };
             foreach (var t in mine)
                 tb.Rows.Add([Label(t.Metric), t.RootName ?? t.RootUpn ?? "Whole organization", Round(t.Baseline), Round(t.Current), Round(t.Expected), (double)t.TargetValue,
                              t.DueDate, new HtmlString($"<span class=\"status-{(t.Status is "Met" or "On track" ? "ok" : t.Status == "Behind" ? "warn" : t.Status == "Missed" ? "bad" : "warn")}\">{E(t.Status)}</span>"), t.Note]);
@@ -102,7 +102,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
                 "People licensed in the period, by how soon they first used Copilot. The Adoption role sees who has not started (Adoption > Not started).", "half"));
             if (hired.Count > 0)
                 Panels.Add(new("From hire to first use", Chart.Bars(Dist(hired), Fmt.Count, "Days from hire to first use"),
-                    "People with an Entra hire date (employeeHireDate) in the period.", "half"));
+                    "People whose hire date in Entra falls in the period. Entra's hire date is filled in by HR systems; where it is empty, nobody is counted here.", "half"));
 
             var depts = licensed.GroupBy(r => r.Dept).Select(g => (Name: g.Key, People: g.Count(), Started: g.Count(r => r.Days is not null),
                     Median: g.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList())).ToList();
@@ -111,7 +111,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             var tb = new Table { Headers = ["Department", "Licensed in the period", "Have used it", "Median days to first use"], Numeric = new HashSet<int> { 1, 2, 3 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Started, d.Median.Count >= Ctx.MinGroupSize ? d.Median[d.Median.Count / 2] : null]);
             if (small.Count > 0) { tb.Rows.Add(["Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Started), null]); tb.KeepLast = 1; }
-            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{small.Count} department(s) with fewer than {Ctx.MinGroupSize} new licenses are combined." : null));
+            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{Count(small.Count, "department")} with fewer than {Ctx.MinGroupSize} new licenses {Are(small.Count)} combined." : null));
         }
     }
 
@@ -132,7 +132,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             Kpis.Add(new("Departments watched", Num(series.Count), $"with at least {Ctx.MinGroupSize} people"));
             Kpis.Add(new("Drops", Num(found.Count(a => a.Kind == "Drop")), $"{drop}% or more below usual", found.Any(a => a.Kind == "Drop") ? "warn" : null));
             Kpis.Add(new("Spikes", Num(found.Count(a => a.Kind == "Spike")), $"{spike}% or more above usual"));
-            var tb = new Table { Headers = ["Day", "Department", "Kind", "Interactions", "Usual for the weekday", "Change"], Numeric = new HashSet<int> { 3, 4 }, EmptyText = "Nothing stood out in the last two weeks." };
+            var tb = new Table { Headers = ["Day", "Department", "Drop or spike", "Interactions", "Usual for the weekday", "Change"], Numeric = new HashSet<int> { 3, 4 }, EmptyText = "Nothing stood out in the last two weeks." };
             foreach (var a in found) tb.Rows.Add([a.Day, a.Unit, a.Kind, a.Value, Math.Round(a.Baseline), $"{a.Change:+0%;-0%}"]);
             Panels.Add(new("Days that stood out", tb.Render(), $"The thresholds are set in Admin > Alerts and digests, which can also email them. Up to {Ctx.End:d MMM yyyy}."));
             var top = found.Select(a => a.Unit).Distinct().Take(8).ToList();
@@ -143,7 +143,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
                 for (var i = 0; i < top.Count; i++)
                     for (var j = 0; j < days.Count; j++)
                         cells[i, j] = series[top[i]].TryGetValue(days[j], out var v) ? v : null;
-                Panels.Add(new("Six weeks of the departments that stood out", Chart.Heatmap(top, days.Select(d => d.ToString("d/M")).ToList(), cells, Fmt.Count, "Daily interactions by department"),
+                Panels.Add(new("Six weeks of the departments that stood out", Chart.Heatmap(top, days.Select(d => d.ToString("d/M")).ToList(), cells, Fmt.Count, "Daily interactions by department", unit: "interactions", unitOne: "interaction"),
                     "Darker is busier. Weekends are usually light."));
             }
         }
@@ -167,20 +167,20 @@ namespace CopilotInsights.Pages.Leadership
             var t = await HttpContext.RequestServices.GetRequiredService<Metrics>().TotalsAsync(Ctx);
             var hours = v.ByApp.Sum(x => x.Hours);
             var value = v.ByApp.Sum(x => x.Value);
-            var licenseCost = t.LicensedNow * price * (decimal)(Ctx.Days / 30.4);
+            var licenseCost = Licensing.Price.ForPeriod(t.LicensedNow, price, Ctx.Days);
             Kpis.Add(new("Hours saved (estimate)", Num(hours), $"{v.DefaultMinutes:0.#} minutes an interaction unless set per app"));
-            Kpis.Add(new($"Worth ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour"));
+            Kpis.Add(new($"Estimated value ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour"));
             Kpis.Add(new("Per person using Copilot", t.Active > 0 ? $"{hours / t.Active:0.#} h" : "—", "in the period"));
-            Kpis.Add(new("Against the license cost", licenseCost > 0 ? $"{value / licenseCost:0.#}×" : "—", $"licenses for the period: {licenseCost:#,0} {cur}"));
+            Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", $"license cost in the period: {licenseCost:#,0} {cur}"));
             Panels.Add(new("Hours saved by app", Chart.Bars(v.ByApp.Take(12).Select(a => new Bar(a.Name, a.Hours, Note: $"{a.Interactions:#,0} interactions")).ToList(), Fmt.Count, "Hours saved by app"),
                 "Set the minutes each app saves in Admin > Targets and assumptions.", "half"));
             var shown = v.ByDepartment.Where(d => d.People >= Ctx.MinGroupSize).ToList();
             var small = v.ByDepartment.Where(d => d.People < Ctx.MinGroupSize).ToList();
-            var tb = new Table { Headers = ["Department", "People using it", "Interactions", "Hours saved", $"Worth ({cur})", "Hours per person"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5 } };
+            var tb = new Table { Headers = ["Department", "People using Copilot", "Interactions", "Hours saved", $"Estimated value ({cur})", "Hours per person"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Interactions, Math.Round(d.Hours), Math.Round(d.Value), d.People > 0 ? Math.Round(d.Hours / d.People, 1) : null]);
             if (small.Count > 0) { tb.Rows.Add(["Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Interactions), Math.Round(small.Sum(d => d.Hours)), Math.Round(small.Sum(d => d.Value)), null]); tb.KeepLast = 1; }
             CsvTable = tb;
-            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{small.Count} department(s) with fewer than {Ctx.MinGroupSize} people using Copilot are combined." : null, "half", CsvUrl()));
+            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{Count(small.Count, "department")} with fewer than {Ctx.MinGroupSize} people using Copilot {Are(small.Count)} combined." : null, "half", CsvUrl()));
         }
     }
 }
@@ -242,7 +242,7 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
             Panels.Add(new("The widest-reaching sites", Chart.Bars(wide.Take(15).Select(r => new Bar(Short(r.Site), r.People,
                 Note: $"{r.Reads:#,0} reads, {Pct(Ratio(r.Labeled, r.Reads))} labeled{(r.TopLabel is null ? "" : $", up to {r.TopLabel}")}", Slot: r.Labeled < r.Reads * 0.1 ? 5 : 1)).ToList(),
                 Fmt.Count, "People reaching each site through Copilot"), "Orange: under 10% of what Copilot read there carried a label.", "half"));
-            var tb = new Table { Headers = ["Site", "OneDrive", "People", "Reads", "Labeled", "Most sensitive label", "Blocked"], Numeric = new HashSet<int> { 2, 3, 5 } };
+            var tb = new Table { Headers = ["Site", "A person's OneDrive", "People who reached it", "Times read", "Share labeled", "Most sensitive label", "Times blocked"], Numeric = new HashSet<int> { 2, 3, 5 } };
             foreach (var r in rows)
                 tb.Rows.Add([r.Site, r.IsPersonal ? "Yes" : "", r.People < Ctx.MinGroupSize ? null : r.People, r.Reads, Pct(Ratio(r.Labeled, r.Reads)),
                              r.TopLabel ?? (r.TopRank is not null ? "(unnamed label)" : null), r.Blocked]);
@@ -380,13 +380,13 @@ ORDER BY AttendedOn DESC;", Ctx.Args(), timeout: 300);
                 Fmt.Decimal1, "Change in active days against colleagues"), "Active days in the 28 days after, less the 28 before, less the same change for colleagues in the same departments.", "half"));
             var tb = new Table
             {
-                Headers = ["Session", "Date", "Attendees", "Active days before", "After", "Colleagues before", "After", "Colleagues", "Effect (days)"],
+                Headers = ["Session", "Date", "Attendees", "Attendees before", "Attendees after", "Colleagues before", "Colleagues after", "Colleagues compared", "Effect (days)"],
                 Numeric = new HashSet<int> { 2, 3, 4, 5, 6, 7, 8 },
             };
             foreach (var (r, e) in shown.Zip(effect))
                 tb.Rows.Add([r.Session, r.AttendedOn, r.Attendees, Math.Round(r.DaysBefore, 1), Math.Round(r.DaysAfter, 1), Math.Round(r.OthersBefore, 1), Math.Round(r.OthersAfter, 1), r.Others, Math.Round(e, 1)]);
             CsvTable = tb;
-            Panels.Add(new("Every session", tb.Render(), $"Sessions with fewer than {Ctx.MinGroupSize} attendees you may see are left out. Averages per person.", "full", CsvUrl()));
+            Panels.Add(new("Every session", tb.Render(), $"Before and after: active days per person in the 28 days before the session and the 28 days after it, for the attendees and for colleagues in the same departments who did not attend. Colleagues compared: how many colleagues that is. Sessions with fewer than {Ctx.MinGroupSize} attendees you may see are left out.", "full", CsvUrl()));
         }
     }
 
@@ -433,10 +433,10 @@ WITH scored AS
 SELECT * FROM scored WHERE Rank <= @per ORDER BY Dept, Rank;", Ctx.Args(new { per }));
             Kpis.Add(new("Departments", Num(rows.Select(r => r.Dept).Distinct().Count())));
             Kpis.Add(new("Candidates", Num(rows.Count), $"up to {per} per department (Admin > Targets and assumptions)"));
-            var tb = new Table { Headers = ["Department", "", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Back-and-forth conversations", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
+            var tb = new Table { Headers = ["Department", "Rank", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Sessions with a follow-up", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
             foreach (var r in rows) tb.Rows.Add([r.Dept, r.Rank, r.DisplayName, r.UserPrincipalName, r.JobTitle, r.Days, r.Apps, Pct(r.MultiTurnShare), r.Interactions]);
             CsvTable = tb;
-            Panels.Add(new("Candidates by department", tb.Render(), "Ranked by days active, then breadth, then conversation depth.", "full", CsvUrl()));
+            Panels.Add(new("Candidates by department", tb.Render(), "Ranked within each department by days active, then by apps used, then by the share of their sessions with a follow-up.", "full", CsvUrl()));
         }
     }
 }

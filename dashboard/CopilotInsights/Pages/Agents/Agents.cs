@@ -7,7 +7,7 @@ namespace CopilotInsights.Pages.Agents;
 
 public sealed class IndexModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "Agents";
+    public override string Title => "Agents in use";
     public override string Persona => "Agents";
     public override string Intro => "Every agent people used in the period: how many people, how often, whether they come back, and which agents are new.";
 
@@ -59,7 +59,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
 
         var t = new Table
         {
-            Headers = ["Agent", "Source", "Owner", "First used", "People", "Came back", "Interactions", "Per person", "Trend (people)"],
+            Headers = ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
             Numeric = new HashSet<int> { 4, 5, 6, 7 }, EmptyText = "No agents were used in the period.",
         };
         foreach (var r in rows.OrderByDescending(r => r.People))
@@ -105,8 +105,12 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         var key = int.TryParse(Request.Query["agent"], out var k) && agents.Any(a => a.AgentKey == k) ? k : (int?)null;
         var options = string.Concat(agents.Select(a =>
             $"<option value=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"agent={a.AgentKey}"))}\"{(a.AgentKey == key ? " selected" : "")}>{System.Net.WebUtility.HtmlEncode(a.AgentName)} ({System.Net.WebUtility.HtmlEncode(a.AgentSource)})</option>"));
-        Panels.Add(new("Agent", new HtmlString($"<select aria-label=\"Agent\" data-navigate><option value=\"\">Choose an agent</option>{options}</select>")));
-        if (key is null) { Notice = "Choose an agent, or select one on the Agents page."; return; }
+        /* With none chosen the box is the page: it says what to do, and where else an agent can be picked (2.4.10: the
+           hint sat above it and said "above"). */
+        Panels.Add(new(key is null ? "Choose an agent" : "Agent", new HtmlString(
+            $"<select class=\"pick\" aria-label=\"Agent\" data-navigate><option value=\"\">Choose an agent</option>{options}</select>" +
+            (key is null ? $"<p class=\"sub\">Or select an agent's name on <a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url("/agents"))}\">Agents in use</a>.</p>" : ""))));
+        if (key is null) return;
         AgentName = agents.First(a => a.AgentKey == key).AgentName;
         var args = Ctx.Args(new { agent = key });
 
