@@ -36,17 +36,47 @@
     }
 </header>
 <div class="shell">
-    <nav class="side" aria-label="Personas">
+    @* 2.4.9: sections fold, with the one you are in open; a section's name opens a panel of its reports under their
+       headings, each with what it answers; the box at the top finds a report by name. Without script every section is open. *@
+    <nav class="side" aria-label="Reports">
         <a class="home @(path == "/" ? "on" : "")" href="/?home=1">Start</a>
-        @foreach (var g in Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports))
+        @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports); }
+        @if (groups.Count > 0)
         {
-            <div class="grp">
-                <div class="gname">@g.Persona</div>
-                @foreach (var p in g.Pages)
-                {
-                    var href = page?.Ctx is null || p.Admin ? p.Path : page.Ctx.Url(p.Path);
-                    <a class="@(path == p.Path ? "on" : "")" href="@href">@p.Title</a>
-                }
+            <input type="search" class="find" id="nav-find" placeholder="Find a report" aria-label="Find a report" autocomplete="off" spellcheck="false" />
+            <p class="none" id="nav-none" hidden>No report matches.</p>
+        }
+        @foreach (var g in groups)
+        {
+            var here = g.Pages.Any(p => p.Path == path);
+            var id = "nav-" + g.Persona.ToLowerInvariant().Replace(' ', '-');
+            <div class="grp @(here ? "here open" : "")" data-grp="@g.Persona">
+                <div class="ghead">
+                    <button type="button" class="gname" aria-haspopup="dialog" aria-expanded="false" aria-controls="@(id)-panel"
+                            data-what="@g.Who: @g.Pages.Count report@(g.Pages.Count == 1 ? "" : "s"). Select to see them all.">@g.Persona<span class="n">@g.Pages.Count</span></button>
+                    <button type="button" class="gtog" aria-expanded="@(here ? "true" : "false")" aria-controls="@(id)-links" aria-label="Show or hide the @g.Persona reports in this list"></button>
+                </div>
+                <div class="glinks" id="@(id)-links">
+                    @foreach (var p in g.Pages)
+                    {
+                        var href = page?.Ctx is null || p.Admin ? p.Path : page.Ctx.Url(p.Path);
+                        <a class="@(path == p.Path ? "on" : "")" href="@href" data-what="@NavText.Tip(p)" aria-description="@NavText.Tip(p)">@p.Title</a>
+                    }
+                </div>
+                <div class="gpanel" id="@(id)-panel" role="dialog" aria-label="@g.Persona reports" hidden>
+                    <div class="phead"><h2>@g.Persona</h2><p>@g.Who</p><button type="button" class="pclose" aria-label="Close">×</button></div>
+                    @foreach (var sub in NavText.Sub(g.Pages))
+                    {
+                        @if (sub.Heading is not null) { <h3>@sub.Heading</h3> }
+                        <ul>
+                            @foreach (var p in sub.Pages)
+                            {
+                                var href = page?.Ctx is null || p.Admin ? p.Path : page.Ctx.Url(p.Path);
+                                <li><a class="@(path == p.Path ? "on" : "")" href="@href"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small>@if (p.Role is not null) { <em>@p.Role role</em> }</span></a></li>
+                            }
+                        </ul>
+                    }
+                </div>
             </div>
         }
     </nav>

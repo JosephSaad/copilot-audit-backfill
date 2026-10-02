@@ -250,6 +250,26 @@ public class PrivacyNavigationTests
     }
 
     [Fact]
+    public void Every_page_says_what_it_answers_and_a_section_keeps_its_headings_together()
+    {
+        foreach (var g in Pages.Nav.Groups)
+        {
+            foreach (var p in g.Pages)
+            {
+                var what = Pages.NavText.What(p);
+                Assert.False(string.IsNullOrWhiteSpace(what), $"{p.Path} has no description in NavText");
+                Assert.True(what!.Length <= 100 && what.EndsWith('.') || what.EndsWith('?'), $"{p.Path}: one short sentence ({what.Length} characters)");
+                if (p.Role is not null) Assert.Contains($"Needs the {p.Role} role.", Pages.NavText.Tip(p));
+            }
+            /* Under headings, or under none: and each heading once, its pages side by side in the list. */
+            var subs = Pages.NavText.Sub(g.Pages).ToList();
+            Assert.True(subs.All(x => x.Heading is null) ? subs.Count == 1 : subs.All(x => x.Heading is not null), g.Persona);
+            Assert.Equal(subs.Count, subs.Select(x => x.Heading).Distinct().Count());
+            Assert.Equal(g.Pages.Count, subs.Sum(x => x.Pages.Count));
+        }
+    }
+
+    [Fact]
     public void The_new_named_lists_need_their_roles()
     {
         var paths = Pages.Nav.For(V()).SelectMany(g => g.Pages).Select(p => p.Path).ToList();

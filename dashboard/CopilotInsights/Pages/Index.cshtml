@@ -25,12 +25,16 @@
             <div class="card">
                 <h3 class="cat">@g.Persona</h3>
                 <p>@g.Who</p>
-                <ul>
-                    @foreach (var p in g.Pages)
-                    {
-                        <li><a href="@p.Path">@p.Title</a></li>
-                    }
-                </ul>
+                @foreach (var sub in NavText.Sub(g.Pages))
+                {
+                    @if (sub.Heading is not null) { <h4>@sub.Heading</h4> }
+                    <ul>
+                        @foreach (var p in sub.Pages)
+                        {
+                            <li><a href="@p.Path"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small></span></a></li>
+                        }
+                    </ul>
+                }
             </div>
         }
     </div>

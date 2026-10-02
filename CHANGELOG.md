@@ -22,6 +22,16 @@ were flattened, the installer rebuilds them in full, with every day of the rollu
   cannot be turned off. Digests, extracts, the board pack and the data API are not changed by
   it. Kept in `dash.Setting` (one row a report), so there is no schema change.
 
+- **The navigation fits one screen, and says what each report is.** The list on the left
+  was every report at once, three screens long. Sections now fold, with the one you are in
+  open; the mark beside a section's name opens it in the list, and what you open stays open.
+  A section's name opens a panel of its reports under headings (Licensing: inventory and
+  pool, cost savings, policy breaches, changes ahead), each with a sentence on what it
+  answers. *Find a report* narrows the list as you type, by name or by what a report
+  answers. Resting on a link, or reaching it by keyboard, shows that sentence beside the
+  list. The start page is the full index, with the same headings and sentences. Licensing,
+  Adoption and Leadership list their reports in the order of their headings.
+
 ### Fixed
 - **The adoption rate on Leadership › Overview fell every weekend.** It showed the share of
   license holders active on each day, which is use, not adoption. It is now, at each point, the
