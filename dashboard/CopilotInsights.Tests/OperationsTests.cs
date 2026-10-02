@@ -431,6 +431,17 @@ public class MappingFileTests
     }
 
     [Fact]
+    public void A_heat_map_cell_says_what_its_figure_counts()
+    {
+        Assert.Equal("Wed, 14:00 to 14:59: 20 interactions", CopilotInsights.Charts.Chart.CellTip("Wed", "14:00 to 14:59", 20, CopilotInsights.Charts.Fmt.Count, "interactions", "interaction"));
+        Assert.Equal("Wed, 03:00 to 03:59: 1 interaction", CopilotInsights.Charts.Chart.CellTip("Wed", "03:00 to 03:59", 1, CopilotInsights.Charts.Fmt.Count, "interactions", "interaction"));
+        Assert.Equal("Finance, 1 Sep: 45% of its people used Copilot", CopilotInsights.Charts.Chart.CellTip("Finance", "1 Sep", 0.45, CopilotInsights.Charts.Fmt.Percent, "of its people used Copilot"));
+        // No figure, no unit; and a chart that names none reads as before.
+        Assert.Equal("Finance, 1 Sep: —", CopilotInsights.Charts.Chart.CellTip("Finance", "1 Sep", null, CopilotInsights.Charts.Fmt.Percent, "of its people used Copilot"));
+        Assert.Equal("Finance, 1 Sep: 3", CopilotInsights.Charts.Chart.CellTip("Finance", "1 Sep", 3, CopilotInsights.Charts.Fmt.Count));
+    }
+
+    [Fact]
     public void Every_kind_in_the_audit_log_has_its_own_name()
     {
         string[] kinds = ["View", "Denied", "Export", "Api", "Admin"];

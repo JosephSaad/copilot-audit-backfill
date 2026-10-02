@@ -156,7 +156,7 @@ namespace CopilotInsights.Pages.Security
             var worst = units.OrderByDescending(u => u.Flags * 1000.0 / u.Interactions).FirstOrDefault();
             if (worst is not null) Kpis.Add(new("Highest rate", worst.Name, $"{worst.Flags * 1000.0 / worst.Interactions:0.0} per 1,000 interactions", "crit"));
             Kpis.Add(new("Security signals", Num(units.Sum(u => u.Flags)), $"in {Num(units.Sum(u => u.Interactions))} interactions"));
-            Panels.Add(new("Signals per 1,000 interactions, by unit", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Decimal1, "Signal rate by unit"),
+            Panels.Add(new("Signals per 1,000 interactions, by unit", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Decimal1, "Signal rate by unit", unit: "signals per 1,000 interactions"),
                 $"Jailbreak, prompt injection and blocked resources together. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
         }
     }
@@ -182,7 +182,7 @@ namespace CopilotInsights.Pages.Compliance
                     var p = series.FirstOrDefault(x => x.Unit == units[r].Unit && x.Bucket == buckets[c].Key);
                     grid[r, c] = p is { Interactions: > 0 } ? p.Labeled / (double)p.Interactions : null;
                 }
-            Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1),
+            Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions touched labeled content"),
                 $"Each part of the organization one level below. Darker is a larger share. {TrendNote}"));
 
             /* Counted per key pair, then named (2.4.2): grouping on the names worked out a string for each of the rows. */

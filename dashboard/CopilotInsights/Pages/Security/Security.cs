@@ -43,7 +43,8 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
         var grid = new double?[7, 24];
         foreach (var h in hours) grid[h.Dow - 1, h.Hour] = h.N;
         Panels.Add(new("When jailbreak and injection happen",
-            Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), grid, Fmt.Count, "Flags by weekday and hour"),
+            Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), grid, Fmt.Count, "Flags by weekday and hour",
+                unit: "flagged interactions", unitOne: "flagged interaction", column: h => $"{h}:00 to {h}:59"),
             $"Flagged interactions by weekday and hour, in {DataZone}. Out-of-hours clusters are worth a look."));
 
         var apps = await Db.QueryAsync<(string App, int Jb, int Inj, int Blk)>($@"

@@ -181,6 +181,10 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
 - **The error page says what to do.** *Something went wrong* now says to try again, names
   the page that failed and the time to give an administrator (which is how the error is found
   in the site's log), and links to the start page. The error itself is still never shown.
+- **A heat map's cells say what their figure counts.** Resting on a cell showed "Wed, 14: 20".
+  It now reads "Wed, 14:00 to 14:59: 20 interactions", and likewise on the other six heat
+  maps: the share of a unit's people who used Copilot, signals per 1,000 interactions, the
+  share of interactions that touched labeled content, a month's license holders week by week.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs

@@ -143,7 +143,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
                 for (var i = 0; i < top.Count; i++)
                     for (var j = 0; j < days.Count; j++)
                         cells[i, j] = series[top[i]].TryGetValue(days[j], out var v) ? v : null;
-                Panels.Add(new("Six weeks of the departments that stood out", Chart.Heatmap(top, days.Select(d => d.ToString("d/M")).ToList(), cells, Fmt.Count, "Daily interactions by department"),
+                Panels.Add(new("Six weeks of the departments that stood out", Chart.Heatmap(top, days.Select(d => d.ToString("d/M")).ToList(), cells, Fmt.Count, "Daily interactions by department", unit: "interactions", unitOne: "interaction"),
                     "Darker is busier. Weekends are usually light."));
             }
         }

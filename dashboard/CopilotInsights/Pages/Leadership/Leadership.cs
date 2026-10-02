@@ -88,7 +88,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
                 grid[r, c] = big[r].People > 0 ? a / (double)big[r].People : null;
             }
         Panels.Add(new("Share of people active",
-            Chart.Heatmap(big.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Share of each unit active", 1),
+            Chart.Heatmap(big.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Share of each unit active", 1, unit: "of its people used Copilot"),
             $"Darker is a larger share of the unit's people using Copilot. {TrendNote}"));
     }
 }

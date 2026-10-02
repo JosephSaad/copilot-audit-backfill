@@ -94,7 +94,7 @@ GROUP BY c.Cohort, k.K;", Ctx.Args());
             }
         Panels.Add(new("Share of each month's new license holders active, week by week",
             Chart.Heatmap(cohortsShown.Select(c => $"{c:MMM yyyy} ({rows.First(r => r.Cohort == c).Size:#,0})").ToList(),
-                Enumerable.Range(1, weeks).Select(k => $"Wk {k}").ToList(), grid, Fmt.Percent, "Cohort retention", 1),
+                Enumerable.Range(1, weeks).Select(k => $"Wk {k}").ToList(), grid, Fmt.Percent, "Cohort retention", 1, unit: "used Copilot that week", column: w => "week " + w[3..] + " after the license"),
             $"People licensed today, by the month their current license began, over the last 12 months. Each row is one month's new license holders; each column a week after their license began. Empty cells are weeks that have not happened yet for enough of them. Months with fewer than {Ctx.MinGroupSize} people are left out."));
 
         var ttf = await Db.QueryAsync<(string Bucket, int N)>($@"

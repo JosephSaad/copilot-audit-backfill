@@ -479,10 +479,19 @@ public static class Chart
     }
 
     /// <summary>A grid of cells shaded on the blue sequential ramp (q0 lightest to q8 darkest).</summary>
-    public static HtmlString Heatmap(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max = null) =>
-        Svg(() => HeatmapAt(rows, cols, values, f, aria, max));
+    /// <param name="unit">What a cell's figure counts, said after it in the cell's hover text (2.4.10): "20 interactions", "45% active".</param>
+    /// <param name="unitOne">The same for a count of one: "1 interaction".</param>
+    /// <param name="column">A column's label in full for the hover text, where the axis has room only for a short one: "14" is "14:00 to 14:59".</param>
+    public static HtmlString Heatmap(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max = null,
+        string? unit = null, string? unitOne = null, Func<string, string>? column = null) =>
+        Svg(() => HeatmapAt(rows, cols, values, f, aria, max, unit, unitOne, column));
 
-    static HtmlString HeatmapAt(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max)
+    /// <summary>A cell's hover text: its row, its column, its figure and what the figure counts.</summary>
+    public static string CellTip(string row, string col, double? v, Fmt f, string? unit = null, string? unitOne = null) =>
+        $"{row}, {col}: {Format(v, f)}" + (v is null || unit is null ? "" : " " + (f == Fmt.Count && v == 1 ? unitOne ?? unit : unit));
+
+    static HtmlString HeatmapAt(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max,
+        string? unit, string? unitOne, Func<string, string>? column)
     {
         if (rows.Count == 0 || cols.Count == 0) return new(Empty("No data for this period."));
         var top = max ?? values.Cast<double?>().Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
@@ -508,7 +517,7 @@ public static class Chart
                 var q = v is null || top <= 0 ? -1 : Math.Min(8, (int)Math.Floor(v.Value / top * 8.999));
                 var cls = q < 0 ? "cell none" : $"cell";
                 var fill = q < 0 ? "" : $" style=\"fill:var(--q{q})\"";
-                sb.Append($"<rect class=\"{cls}\" x=\"{N(labelW + c * cw + 1)}\" y=\"{y}\" width=\"{N(cw - 2)}\" height=\"{rowH - 2}\" rx=\"2\"{fill} data-tip=\"{E($"{rows[r]}, {cols[c]}: {Format(v, f)}")}\"/>");
+                sb.Append($"<rect class=\"{cls}\" x=\"{N(labelW + c * cw + 1)}\" y=\"{y}\" width=\"{N(cw - 2)}\" height=\"{rowH - 2}\" rx=\"2\"{fill} data-tip=\"{E(CellTip(rows[r], column?.Invoke(cols[c]) ?? cols[c], v, f, unit, unitOne))}\"/>");
             }
         }
         sb.Append("</svg>");

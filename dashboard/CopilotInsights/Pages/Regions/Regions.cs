@@ -68,7 +68,8 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
 
         var cells = new double?[7, 24];
         foreach (var g in grid) cells[g.Dow - 1, g.Hour] = g.N;
-        Panels.Add(new("Interactions by weekday and hour", Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), cells, Fmt.Count, "Interactions by weekday and hour"),
+        Panels.Add(new("Interactions by weekday and hour", Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), cells, Fmt.Count, "Interactions by weekday and hour",
+            unit: "interactions", unitOne: "interaction", column: h => $"{h}:00 to {h}:59"),
             $"Darker is busier. Hours are in {DataZone} for everyone, so offices in other time zones appear shifted."));
 
         var trend = await Db.QueryAsync<(DateTime Bucket, long All, long After)>($@"
