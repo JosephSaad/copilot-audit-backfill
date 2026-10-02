@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.9] - 2026-10-02
+
+Adoption no longer dips at weekends, and a rebuild that was stopped part way finishes itself.
+
+Install over 2.4.8: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and
+reinstall the dashboard from its package. If the reporting tables hold fewer interactions than
+were flattened, the installer rebuilds them in full, with every day of the rollups.
+
+### Fixed
+- **The adoption rate on Leadership › Overview fell every weekend.** It showed the share of
+  license holders active on each day, which is use, not adoption. It is now, at each point, the
+  share of the people holding a Premium license who used Copilot in the 28 days up to it: a
+  rolling four weeks, so weekends and holidays do not move it. How many used it each day stays
+  in *People using Copilot*, beside it. The first 28 days of the data read low.
+- **A full rebuild of the reporting tables that was stopped part way left months missing, and
+  nothing noticed.** The rebuild empties `bi.FactInteraction` and fills it month by month; an
+  interrupted run left the later months out, the installer saw nothing to do, and the nightly
+  refresh added new days after the gap. `bi.usp_RefreshBi` now leaves a mark
+  (`bi.RebuildInProgress`) while a full rebuild runs, and any refresh that finds it rebuilds in
+  full. The installer also rebuilds, with every day of the rollups, when the mark is there or
+  when the fact holds fewer than 99 in 100 of the flattened records (a rebuild cut short before
+  2.4.9).
+
+### Changed
+- **Leadership › Overview names the license.** The adoption chart is titled *Adoption rate:
+  Premium license holders* and its note starts with it; *Licensed today* is *Premium licenses
+  today*.
+
 ## [2.4.8] - 2026-10-01
 
 Licensed use is read from what Microsoft writes into each record instead of being inferred, and

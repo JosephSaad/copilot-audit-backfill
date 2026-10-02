@@ -99,6 +99,37 @@ ORDER BY e.Bucket;", c.Args());
         return c.Buckets().Select(bk => rows.FirstOrDefault(r => r.Bucket == bk.Key) ?? new TrendRow { Bucket = bk.Key }).ToList();
     }
 
+    /// <summary>The days adoption looks back over at each trend point.</summary>
+    public const int AdoptionDays = 28;
+
+    /// <summary>
+    /// Adoption at each trend point: of the people holding a license at its end, how many used Copilot with it in the
+    /// 28 days up to then. A rolling four weeks, so a weekend or a holiday does not dip it (2.4.9; the share active on
+    /// the day itself is use, not adoption).
+    /// </summary>
+    public async Task<Dictionary<DateTime, int>> AdoptedAsync(ReportContext c)
+    {
+        /* Each day of use keeps a person adopted until their next one, or for 28 days: so a person is counted at a
+           point by one row, and the points are met by equality, not by a range (4 seconds a year at 70,000 people
+           against 20 the plain way). */
+        var k = string.Join(",", Enumerable.Range(0, AdoptionDays).Select(i => $"({i})"));
+        var rows = await db.QueryAsync<(DateTime Bucket, int Adopted)>($@"
+WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1),
+ends AS (SELECT b.Bucket, MAX(b.DateKey) AS EndKey FROM b GROUP BY b.Bucket),
+endn AS (SELECT e.Bucket, e.EndKey, DATEDIFF(DAY, 0, dd.[Date]) AS EndN FROM ends AS e JOIN bi.DimDate AS dd ON dd.DateKey = e.EndKey),
+used AS (SELECT ud.UserKey, DATEDIFF(DAY, 0, d.[Date]) AS N
+         FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
+         WHERE ud.DateKey BETWEEN @kw AND @k1 AND ud.LicensedUse > 0),
+iv AS (SELECT u.UserKey, u.N, ISNULL(LEAD(u.N) OVER (PARTITION BY u.UserKey ORDER BY u.N) - u.N, {AdoptionDays}) AS Gap FROM used AS u),
+k AS (SELECT n FROM (VALUES {k}) AS v (n))
+SELECT e.Bucket, COUNT(*) AS Adopted
+FROM iv JOIN k ON k.n < iv.Gap
+JOIN endn AS e ON e.EndN = iv.N + k.n
+JOIN bi.FactLicensedDay AS ld ON ld.DateKey = e.EndKey AND ld.UserKey = iv.UserKey
+GROUP BY e.Bucket;", c.Args(new { kw = ReportContext.Key(c.Start.AddDays(1 - AdoptionDays)) }));
+        return rows.ToDictionary(r => r.Bucket, r => r.Adopted);
+    }
+
     public async Task<Totals> TotalsAsync(ReportContext c) =>
         (await db.QueryAsync<Totals>($@"
 WITH u AS (

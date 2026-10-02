@@ -485,6 +485,15 @@ IF OBJECT_ID(N'bi.RefreshRun', N'U') IS NULL
         SessionRunId          INT            NULL        -- the latest audit.CopilotSessionRun it reflects
     );
 
+/*
+    2.4.9: a full rebuild empties bi.FactInteraction and fills it month by month, outside a transaction (it is
+    too large for one). Stopped part way, it leaves the months it did not reach missing, and nothing said so.
+    bi.usp_RefreshBi puts a row here before it empties the fact and takes it out when it has finished; while
+    a row is here, every refresh is a full one.
+*/
+IF OBJECT_ID(N'bi.RebuildInProgress', N'U') IS NULL
+    CREATE TABLE bi.RebuildInProgress (StartedUtc DATETIME2(0) NOT NULL);
+
 /* Incremental sessions: which session build a refresh caught up to. */
 IF COL_LENGTH(N'bi.RefreshRun', N'SessionRunId') IS NULL
     ALTER TABLE bi.RefreshRun ADD SessionRunId INT NULL;

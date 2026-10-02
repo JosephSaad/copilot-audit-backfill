@@ -115,6 +115,13 @@ BEGIN
         SET @SinceUtc = NULL;
     END;
 
+    /* 2.4.9: a full rebuild that was stopped part way left months missing: this run finishes it. */
+    IF @SinceUtc IS NOT NULL AND OBJECT_ID(N'bi.RebuildInProgress', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM bi.RebuildInProgress)
+    BEGIN
+        RAISERROR('A full rebuild of the bi schema did not finish: building every interaction, not only the window asked for.', 0, 1) WITH NOWAIT;
+        SET @SinceUtc = NULL;
+    END;
+
     /* Dates and hours already written were computed in the last run's zone;
        mixing zones inside one table would misplace every row near midnight. */
     DECLARE @lastZone SYSNAME = (SELECT TOP (1) ReportingTimeZone FROM bi.RefreshRun ORDER BY RunId DESC);
@@ -394,6 +401,8 @@ BEGIN
     END
     ELSE
     BEGIN
+        IF OBJECT_ID(N'bi.RebuildInProgress', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM bi.RebuildInProgress)
+            INSERT INTO bi.RebuildInProgress (StartedUtc) VALUES (SYSUTCDATETIME());
         TRUNCATE TABLE bi.FactInteraction;
         TRUNCATE TABLE bi.FactAccessedResource;
     END;
@@ -790,6 +799,8 @@ BEGIN
          SessionRows, LicenseChangeRows, LicensedDayRows, SessionRunId, AccessedResourceRows, RecategorizedFromDateKey)
     VALUES (@started, SYSUTCDATETIME(), @SinceUtc, @ReportingTimeZone, @LicenseEventDatabase, @interactions, @skipped,
             @sessions, @changes, @days, @sessRun, @resources, @recatFrom);
+    IF OBJECT_ID(N'bi.RebuildInProgress', N'U') IS NOT NULL AND @SinceUtc IS NULL
+        DELETE FROM bi.RebuildInProgress;
 
     COMMIT TRANSACTION;
 

@@ -15,7 +15,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
 - [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
-- [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RefreshRun`](#birefreshrun)
+- [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
 - [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.Agent`](#dashagent)
 - [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
@@ -1599,6 +1599,16 @@ Indexes and constraints:
 
 - `PK_FactAgentEvent`: primary key, clustered (RecordId)
 - `IX_FactAgentEvent_Date`: nonclustered (DateKey)
+
+### bi.RebuildInProgress
+
+*Table.* A row while a full rebuild of bi.FactInteraction runs (2.4.9): bi.usp_RefreshBi puts it there before it empties the fact and takes it out when it has finished. While a row is here every refresh is a full one, so a rebuild stopped part way is finished by the next run.
+
+**Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `StartedUtc` | datetime2(0) | **no** |  |  |
 
 ### bi.RefreshRun
 
