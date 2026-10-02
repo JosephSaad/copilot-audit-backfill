@@ -115,6 +115,9 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   all its reports ("licensing", "finance"); the box says how many matched; the down and up
   arrows walk the matches and Enter opens one; pressing / anywhere on a page puts the cursor
   in the box. With no match it suggests what to type.
+- **The filter bar says what the names in it are.** The path down the organization starts
+  with *Showing*, and the part being shown says how many people it covers ("Alex Saleh and 54
+  people under them"); the teams in *Look inside a team* say "people" after their count.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its

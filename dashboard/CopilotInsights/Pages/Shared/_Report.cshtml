@@ -80,22 +80,28 @@
         {
             <input type="hidden" name="@k" value="@Context.Request.Query[k]" />
         }
-        <div class="crumbs" aria-label="Organization">
+        @* Whose figures the page shows (2.4.10: the names stood with no word saying what they were): the path down the
+           organization, each step a link back up, the last one with how many people it covers, then the teams one step further in. *@
+        <div class="crumbs" aria-label="Part of the organization shown">
+            <span class="lbl">Showing</span>
             @if (c.Viewer.OrgWide)
             {
                 <a href="@c.Url(path, org: null, keepOrg: false)" class="@(c.Root is null ? "on" : "")">Whole organization</a>
             }
+            @{ var first = !c.Viewer.OrgWide; }
             @foreach (var u in c.Breadcrumb)
             {
-                <span class="sep">›</span><a href="@c.Url(path, org: u.Upn)" class="@(u.Upn == c.Root ? "on" : "")">@u.Name</a>
+                @if (!first) { <span class="sep">›</span> }
+                first = false;
+                <a href="@c.Url(path, org: u.Upn)" class="@(u.Upn == c.Root ? "on" : "")">@u.Name@(u.Upn == c.Root && u.PeopleBelow > 0 ? $" and {u.PeopleBelow:#,0} {(u.PeopleBelow == 1 ? "person" : "people")} under them" : "")</a>
             }
             @if (c.Children.Count > 0)
             {
-                <select aria-label="Look inside" data-navigate>
+                <select aria-label="Look inside a team" data-navigate>
                     <option value="">Look inside a team</option>
                     @foreach (var k in c.Children)
                     {
-                        <option value="@c.Url(path, org: k.Upn)">@k.Name (@k.PeopleBelow.ToString("#,0"))</option>
+                        <option value="@c.Url(path, org: k.Upn)">@k.Name (@k.PeopleBelow.ToString("#,0") @(k.PeopleBelow == 1 ? "person" : "people"))</option>
                     }
                 </select>
             }
