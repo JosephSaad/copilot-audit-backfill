@@ -61,7 +61,8 @@ public sealed class Table
         var sb = new StringBuilder($"<div class=\"table-wrap\"><table{(client ? " class=\"sortable\"" : "")}><thead><tr>");
         for (var i = 0; i < Headers.Count; i++)
         {
-            var cls = Numeric.Contains(i) ? " class=\"num\"" : "";
+            /* scope: a screen reader reads each cell with its column's heading (2.4.10). */
+            var cls = " scope=\"col\"" + (Numeric.Contains(i) ? " class=\"num\"" : "");
             var text = WebUtility.HtmlEncode(Header(i));
             if (Server is { } sv && i < sv.Keys.Count && sv.Keys[i] is { } key && sv.Pager.Has(key))
             {

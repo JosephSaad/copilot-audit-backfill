@@ -35,6 +35,11 @@ body { margin: 0; background: var(--ground); color: var(--ink); font: 14px/1.5 v
 a { color: var(--accent); text-underline-offset: 2px; }
 a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* The way past the list of reports for a keyboard: out of sight until the Tab key reaches it (2.4.10). */
+a.skip { position: absolute; top: 6px; left: 6px; z-index: 50; padding: 6px 12px; border-radius: 6px; background: var(--accent); color: var(--surface);
+  font-weight: 600; text-decoration: none; transform: translateY(-200%); }
+a.skip:focus { transform: none; }
+main:focus { outline: none; }
 header.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--rule); }
 .brand { font-weight: 700; font-size: 16px; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; }

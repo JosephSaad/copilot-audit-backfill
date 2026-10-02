@@ -15,6 +15,9 @@
     <script src="~/theme.js" asp-append-version="true"></script>
 </head>
 <body>
+@* 2.4.10: the first thing the Tab key reaches. With a keyboard or a screen reader the page was a hundred links away,
+   past the whole list of reports, on every page. *@
+<a class="skip" href="#main">Skip to the page</a>
 <header class="top">
     <a class="brand" href="/">Copilot Insights</a>
     @if (viewer is not null)
@@ -101,7 +104,7 @@
         }
         </div>
     </nav>
-    <main>
+    <main id="main" tabindex="-1">
         @RenderBody()
         @{
             /* 2.4.10: the report before this one in its section and the one after, at the foot of the page, among those
