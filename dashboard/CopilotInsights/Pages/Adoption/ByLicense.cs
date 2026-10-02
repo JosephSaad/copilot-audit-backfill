@@ -273,7 +273,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         var appBars = Chart.Bars(byAppMinutes.Select(m => new Bar(m.Name ?? "", (double)Math.Round(m.Total / m.People), Note: $"{m.People:#,0} people · {Math.Round(m.Total):#,0} minutes in all",
             Shown: Hours(m.Total / m.People))).ToList(), Fmt.Count, "Average minutes a person by app");
         /* Drawn at a half panel's width, as _Report draws a chart that is a half panel's whole body. */
-        sb.Append(appBars is ChartSvg cs ? cs.Render(440) : appBars.Value);
+        sb.Append(Sized(appBars, 440));
         Panels.Add(new("Total average minutes used (by app)", new HtmlString(sb.ToString()),
             "For each app, the minutes of the conversations that started in it, divided by the people who had one there, in the period. " +
             $"Copilot Chat includes Office, BizChat and Edge. {minutesNote}", "half"));
@@ -307,7 +307,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
             legend.Rows.Add([sr.Name, (long)v.DefaultIfEmpty(0).Min(), (long)v.DefaultIfEmpty(0).Max(), Math.Round(v.DefaultIfEmpty(0).Average(), 1)]);
         }
         Panels.Add(new("Interaction trends by app",
-            new HtmlString(Chart.Line(Labels(), series, Fmt.Count, "Interactions by app over the period").Value + legend.Render().Value),
+            new HtmlString(Sized(Chart.Line(Labels(), series, Fmt.Count, "Interactions by app over the period")) + legend.Render().Value),
             $"Interactions of {licName.ToLowerInvariant()} people in each app; the busiest apps are drawn and the rest combined. " +
             $"The table gives each line's lowest, highest and mean point. {TrendNote}"));
 

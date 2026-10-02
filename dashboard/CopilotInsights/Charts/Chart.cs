@@ -439,13 +439,16 @@ public static class Chart
         var rowH = lineCount switch { 1 => 26, 2 => 36, 3 => 48, _ => 48 + (lineCount - 3) * 12 };
         var span = BW - labelW - valueW - (low < 0 ? valueW : 0);
         var zero = labelW + (low < 0 ? valueW : 0) + span * (-low) / (top - low);
-        var h = bars.Count * rowH + 6;
+        /* A name sits around the middle of its bar, so one of three lines or more starts above the bar: the first row
+           is given that room, or its name left the top of the chart (2.4.10). */
+        var pad = Math.Max(4, (lineCount - 1) * 6 - 2);
+        var h = bars.Count * rowH + pad + 2;
         var sb = new StringBuilder($"<svg class=\"chart bars\" viewBox=\"0 0 {BW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
         if (low < 0) sb.Append($"<line class=\"grid\" x1=\"{N(zero)}\" x2=\"{N(zero)}\" y1=\"0\" y2=\"{h}\"/>");
         for (var i = 0; i < bars.Count; i++)
         {
             var b = bars[i];
-            var y = i * rowH + 4;
+            var y = i * rowH + pad;
             var v = b.Value ?? 0;
             var w = span * Math.Abs(v) / (top - low);
             var lines = wrapped[i].Take(maxLines).ToList();

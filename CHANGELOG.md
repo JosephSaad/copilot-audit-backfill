@@ -130,6 +130,11 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   labels fewer columns. The browser tells the server the screen is narrow with a cookie that
   holds nothing else, and fetches the page once more when that changes. Six label problems
   remain at phone width, on four reports with long site addresses or their own charts.
+- **A long name beside the first bar stays inside its chart.** A name of three lines or more
+  (a site address, on a phone most names) rose above the top of the chart on the first row and
+  lost the top of its first line. The first row now has the room.
+- **Usage by license reads on a phone.** Its two charts were still drawn wide and shrunk; they
+  are drawn at the narrow size like the rest.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs

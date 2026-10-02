@@ -235,6 +235,17 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// </summary>
     public string DataZone { get; private set; } = "the server's time zone";
 
+    /// <summary>
+    /// A chart a page puts inside its own HTML, drawn for where it will sit (2.4.10): on a phone (the narrow cookie
+    /// theme.js sets) at the phone's width, else at <paramref name="width"/>, or as drawn when that is null. A chart a
+    /// panel holds on its own is sized by the page layout; this is for the ones it cannot see.
+    /// </summary>
+    protected string Sized(Microsoft.AspNetCore.Html.HtmlString chart, int? width = null)
+    {
+        var narrow = !Warming && Request.Cookies["narrow"] == "1";
+        return chart is CopilotInsights.Charts.ChartSvg c && (narrow || width is not null) ? c.Render(narrow ? 320 : width!.Value) : chart.Value ?? "";
+    }
+
     /// <summary>A UTC time in that zone, with its name: "2026-10-02 08:45 Eastern Time".</summary>
     protected string When(DateTime? utc, string none = "not yet") => utc is null ? none : CopilotInsights.Data.Zones.Stamp(utc, Zone);
 
