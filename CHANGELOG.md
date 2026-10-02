@@ -135,6 +135,10 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   lost the top of its first line. The first row now has the room.
 - **Usage by license reads on a phone.** Its two charts were still drawn wide and shrunk; they
   are drawn at the narrow size like the rest.
+- **On a phone the headline figures sit two to a row.** They were stacked one under another,
+  so a report with five of them opened with three screens of figures before its first chart.
+- **An information icon stays with its label.** Where a title or a figure's label wrapped, the
+  icon could land on a line by itself. It now goes with the label's last word.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs

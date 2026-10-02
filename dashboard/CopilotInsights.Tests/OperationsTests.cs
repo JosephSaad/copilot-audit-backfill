@@ -379,4 +379,21 @@ public class MappingFileTests
     [InlineData("'quoted", "'quoted")]
     [InlineData("'", "'")]
     public void Unguard_removes_only_the_formula_guard(string cell, string expected) => Assert.Equal(expected, CopilotInsights.Data.CsvUpload.Unguard(cell));
+
+    [Fact]
+    public void An_information_icon_is_tied_to_the_last_word_of_its_label()
+    {
+        static string Html(Microsoft.AspNetCore.Html.IHtmlContent c)
+        {
+            using var w = new StringWriter();
+            c.WriteTo(w, System.Text.Encodings.Web.HtmlEncoder.Default);
+            return w.ToString();
+        }
+        var h = Html(InfoTip.After("Hours saved (estimate)", "From the minutes in Admin."));
+        Assert.StartsWith("Hours saved <span class=\"nb\">(estimate)<button", h);
+        Assert.Contains("aria-label=\"Hours saved (estimate): From the minutes in Admin.\"", h);
+        // One word: the whole label goes with the icon. No text: no icon, and the label is only encoded.
+        Assert.StartsWith("<span class=\"nb\">Adoption<button", Html(InfoTip.After("Adoption", "x")));
+        Assert.Equal("R&amp;D use", Html(InfoTip.After("R&D use", null)));
+    }
 }

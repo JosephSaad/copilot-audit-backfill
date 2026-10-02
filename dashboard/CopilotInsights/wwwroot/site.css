@@ -150,6 +150,15 @@ h1 { font-size: 26px; margin: 2px 0 4px; letter-spacing: -0.01em; }
 .klabel { font-size: 12px; color: var(--muted); }
 .kvalue { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .knote { font-size: 12px; color: var(--faint); }
+.nb { white-space: nowrap; }   /* a label's last word and its icon: they wrap together */
+/* A phone: the headline figures two to a row, so the first chart is one screen down, not three; an odd last one
+   takes the whole row (2.4.10). */
+@media (max-width: 640px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .kpis .kpi:last-child:nth-child(odd) { grid-column: span 2; }
+  .kpi { padding: 10px 12px; }
+  .kvalue { font-size: 22px; overflow-wrap: anywhere; }
+}
 .kpi.crit .kvalue { color: var(--crit); }
 .kpi.crit .klabel::before { content: "▲ "; color: var(--crit); }
 .kpi.warn .kvalue { color: var(--warn); }

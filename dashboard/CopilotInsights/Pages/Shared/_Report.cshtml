@@ -16,7 +16,7 @@
     <div class="eyebrow">@Model.Persona</div>
     @if (guide is not null)
     {
-        <h1>@Model.Title@InfoTip.Icon(Model.Intro, "About this page")</h1>
+        <h1>@InfoTip.After(Model.Title, Model.Intro, "About this page")</h1>
         <div class="guide">
             @if (who is not null)
             {
@@ -132,7 +132,7 @@
             /* A short note with a figure in it ("995 used in the period") stays on the card; words go behind the icon. */
             var figure = k.Note is { Length: <= 40 } kn && kn.Any(char.IsDigit);
             <div class="kpi @(k.Tone)">
-                <div class="klabel">@k.Label@(guide is not null && !figure ? InfoTip.Icon(k.Note, k.Label) : null)</div>
+                <div class="klabel">@InfoTip.After(k.Label, guide is not null && !figure ? k.Note : null)</div>
                 <div class="kvalue">@k.Value</div>
                 @if (k.Note is not null && (guide is null || figure))
                 {
@@ -148,7 +148,7 @@
     {
         <section class="panel @p.Size">
             <div class="phead">
-                <h2>@p.Title@(guide is not null ? InfoTip.Icon(p.Sub, p.Title) : null)</h2>
+                <h2>@InfoTip.After(p.Title, guide is not null ? p.Sub : null)</h2>
                 @if (p.Csv is not null)
                 {
                     <a class="csv" href="@p.Csv">Download CSV</a>
