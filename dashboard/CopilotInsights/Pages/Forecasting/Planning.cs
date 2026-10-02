@@ -71,7 +71,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         ], Fmt.Count, "Seats at renewal"),
             $"From the last 30 days: {totals.ActiveLicensed:#,0} licensed people used Copilot. Growth beyond today's use is on Forecasting > Forecast; rollout waves on Forecasting > Rollout waves.", "half"));
 
-        var t = new Table { Headers = ["Contract", "Seats", $"Price a seat a month ({cur})", $"A month ({cur})", $"A year ({cur})", "Started", "Renews", "Days to renewal", "Note", ""], Numeric = new HashSet<int> { 1, 2, 3, 4, 7 }, EmptyText = "No contracts yet." };
+        var t = new Table { Headers = ["Contract", "Seats", $"Price a seat a month ({cur})", $"Cost a month ({cur})", $"Cost a year ({cur})", "Started", "Renews", "Days to renewal", "Note", ""], Numeric = new HashSet<int> { 1, 2, 3, 4, 7 }, EmptyText = "No contracts yet." };
         foreach (var c in contracts)
         {
             var days = (c.RenewalDate - DateTime.Today).Days;
@@ -186,7 +186,7 @@ SELECT {select} FROM c {tail}";
         Kpis.Add(new("A wave costs", $"{size * price:#,0} {cur}", "a month"));
         Kpis.Add(new("Everyone licensed", $"{all * price:#,0} {cur}", "a month more"));
 
-        var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Adds a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
+        var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Added cost a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
         foreach (var w in waves.Take(12))
             wt.Rows.Add([w.Wave, w.People, w.UsingChat, w.People * price, new HtmlString(
                 $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(size, dept, $"wave={w.Wave}&handler=bulk")))}\">bulk add file</a> · " +
@@ -207,7 +207,7 @@ SELECT {select} FROM c {tail}";
             t.Rows.Add([r.Rank, r.Wave, r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.JobTitle, r.D, r.I, r.DeptAdoption is null ? null : $"{r.DeptAdoption:0}%"]);
         CsvTable = t;
         Panels.Add(new("People, in order", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["rank"] = "Order", ["name"] = "Name", ["dept"] = "Department" }).Value + t.Render().Value),
-            "Department adoption: of the department's licensed people, the share who used Copilot in the last 30 days (shown for departments of at least the minimum group size). Filter to one department with ?dept=.", "full", CsvUrl()));
+            "Department adoption: of the department's licensed people, the share who used Copilot in the last 30 days (shown for departments of at least the minimum group size).", "full", CsvUrl()));
     }
 
     static string Extra(int size, string? dept, string? more) =>
@@ -292,7 +292,7 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
         Kpis.Add(new("Licenses reclaimed", Num(reclaimed), $"{reclaimed * price:#,0} {cur} a month saved"));
         Kpis.Add(new("New licenses in use", Pct(Ratio(given.Sum(b => b.UsedSince), given.Sum(b => b.LicensedNow))), "of those licensed from an upgrade or wave export, used Copilot since"));
 
-        var t = new Table { Headers = ["Exported", "What", "By", "People", "Applied", "Share applied", "Used Copilot since", $"A month ({cur})"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
+        var t = new Table { Headers = ["Exported", "Action", "Exported by", "People", "Applied", "Share applied", "Used Copilot since", $"Cost change a month ({cur})"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
         foreach (var b in batches)
             t.Rows.Add([b.Day, b.Kind switch { "upgrade" => "Upgrade", "revoke" => "Revoke unused", "leaver" => "Reclaim from disabled accounts", "nonhuman" => "Remove from non-human accounts", _ => "Rollout wave" },
                 b.ExportedBy, b.People, Done(b), Pct(Ratio(Done(b), b.People)), b.Kind is "upgrade" or "wave" ? b.UsedSince : null,
@@ -308,7 +308,7 @@ FROM o WHERE ((o.Kind IN ('upgrade', 'wave') AND o.LicensedNow = 0) OR (o.Kind I
         pg.Total = pending.FirstOrDefault().Total;
         var pt = new Table
         {
-            Headers = ["Exported", "What", "Name", "Sign-in", "Department"], EmptyText = "Every exported change has been applied.",
+            Headers = ["Exported", "Action", "Name", "Sign-in", "Department"], EmptyText = "Every exported change has been applied.",
             Server = new(pg, Request, ["new", "kind", "name", "upn", "dept"], new HashSet<int> { 0 }),
         };
         foreach (var r in pending) pt.Rows.Add([r.Day, r.Kind, r.DisplayName, r.Upn, r.Department]);

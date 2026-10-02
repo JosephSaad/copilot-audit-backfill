@@ -72,8 +72,8 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
         var links = string.Join(" · ", new[] { 13, 26, 52 }.Select(h =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"h={h}"))}\"{(h == horizon ? " class=\"on\"" : "")}>{h} weeks</a>"));
         Panels.Add(new("How far ahead", new HtmlString($"<p class=\"sub\">Forecast: {links}</p>"),
-            "Damped-trend exponential smoothing, fitted to each weekly series separately. The shaded band is the 95% interval: it widens the further out it goes. "
-            + "This projects history; a planned rollout or reclaim will move it."));
+            "Each line continues its own recent trend, counting recent weeks more than old ones and leveling the trend off the further ahead it goes (damped-trend exponential smoothing). "
+            + "The shaded band is where the figure should fall 19 times in 20; it widens the further ahead it goes. This projects history: a planned rollout or reclaim will move it."));
         if (hist.Count < 8)
         {
             Notice = $"A forecast needs at least 8 weeks of history; there are {hist.Count}.";
@@ -89,26 +89,26 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
             return (new Series(name, y.Select(v => (double?)v).ToList(), slot), p.Forecast, p.Low, p.High);
         }
 
-        var licensed = Line("Licenses held", 1, h => h.Licensed);
-        var active = Line("Active, licensed", 3, h => h.ActiveLicensed);
-        var chat = Line("Copilot Chat only", 2, h => h.ChatOnly);
+        var licensed = Line("License holders", 1, h => h.Licensed);
+        var active = Line("Used Copilot", 3, h => h.ActiveLicensed);
+        var chat = Line("Free Copilot Chat only", 2, h => h.ChatOnly);
         var inter = Line("Interactions", 1, h => h.Interactions);
 
         double Ahead((Series, IReadOnlyList<double> F, IReadOnlyList<double>, IReadOnlyList<double>) l) => l.F[^1];
         var nowHeld = hist[^1].Licensed; var nowActive = hist[^1].ActiveLicensed;
-        Kpis.Add(new($"Licenses held in {horizon} weeks", Num(Math.Round(Ahead(licensed))), $"now {nowHeld:#,0}, on the current trend"));
-        Kpis.Add(new($"Active licensed people in {horizon} weeks", Num(Math.Round(Ahead(active))), $"now {nowActive:#,0} a week"));
+        Kpis.Add(new($"Premium licenses in {horizon} weeks", Num(Math.Round(Ahead(licensed))), $"now {nowHeld:#,0}, on the current trend"));
+        Kpis.Add(new($"License holders using Copilot in {horizon} weeks", Num(Math.Round(Ahead(active))), $"now {nowActive:#,0} a week"));
         Kpis.Add(new("Weekly adoption then", Pct(Ratio(Ahead(active), Ahead(licensed))), $"now {Pct(Ratio(nowActive, nowHeld))}"));
-        Kpis.Add(new($"Copilot Chat-only users in {horizon} weeks", Num(Math.Round(Ahead(chat))), $"now {hist[^1].ChatOnly:#,0} a week: demand for a license"));
+        Kpis.Add(new($"People on the free Copilot Chat in {horizon} weeks", Num(Math.Round(Ahead(chat))), $"now {hist[^1].ChatOnly:#,0} a week: demand for a license"));
 
-        Panels.Add(new("Licenses held and licensed people using them",
+        Panels.Add(new("Premium license holders, and how many use Copilot each week",
             Chart.Projection(labels, hist.Count, [licensed, active], Fmt.Count, "Licenses and active licensed people, forecast"),
             "Each point is a Saturday-to-Friday week. The gap between the lines is licenses not used that week; if it widens, licenses are being bought faster than they are taken up."));
-        Panels.Add(new("Copilot Chat without a license",
+        Panels.Add(new("People on the free Copilot Chat",
             Chart.Projection(labels, hist.Count, [chat], Fmt.Count, "Unlicensed Copilot Chat users, forecast"),
             "People using the free Copilot Chat each week. A rising line is demand the license count does not yet meet.", "half"));
         Panels.Add(new("Interactions",
-            Chart.Projection(labels, hist.Count, [inter], Fmt.Count, "Weekly interactions, forecast"), null, "half"));
+            Chart.Projection(labels, hist.Count, [inter], Fmt.Count, "Weekly interactions, forecast"), "Prompts and their answers each week, by anyone, licensed or not.", "half"));
 
         /* Adoption rate, projected as a ratio of the two projections. */
         var rateHist = hist.Select(h => Ratio(h.ActiveLicensed, h.Licensed)).ToList();
@@ -223,7 +223,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
             "Where licenses sit idle and where people without one use Copilot most. The departments with the biggest gap either way come first."));
         var t = new Table
         {
-            Headers = ["Department", "People", "Held", "Used (30 days)", "Unused", "Light users", "Heavy demand", "Suggested change", "Monthly effect"],
+            Headers = ["Department", "People", "Licenses held", "Licenses used (30 days)", "Unused licenses", "Light users", "Heavy demand", "Suggested change in licenses", "Monthly effect"],
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7, 8 },
         };
         foreach (var r in shown)
@@ -234,7 +234,8 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         }
         CsvTable = t;
         Panels.Add(new("By department", t.Render(),
-            "Suggested change: heavy demand less unused licenses, within the department. Negative is licenses to release." +
+            "Unused licenses: held by someone who has not used Copilot within the unused-after days (Admin > Access). Light users: license holders who used it on 1 or 2 days in the last 30. " +
+            "Heavy demand: people without a license who used the free Copilot Chat on 6 or more of the last 30 days. Suggested change: heavy demand less unused licenses, within the department; negative is licenses to release." +
             (folded > 0 ? $" {Count(folded, "department")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : ""), "full", CsvUrl()));
     }
 }

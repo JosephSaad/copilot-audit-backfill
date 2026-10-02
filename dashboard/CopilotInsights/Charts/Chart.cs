@@ -118,10 +118,20 @@ public static class Chart
     static List<(int I, List<string> Lines)> AxisLabels(IReadOnlyList<string> x, double spacing)
     {
         var every = Math.Max(1, (int)Math.Ceiling(x.Count / 8.0));
-        var room = Math.Max(6, (int)(spacing * every / 6.3) - 1);
+        /* Fewer labels where even wrapped they would run into each other (2.4.10: a year of weeks and a year of forecast
+           in a half-width chart drew "w/e 22 May" over its neighbor). A word does not break, so the widest line decides. */
+        int Room(int e) => Math.Max(6, (int)(spacing * e / 6.3) - 1);
+        while (every < x.Count)
+        {
+            var e = every;
+            var widest = Enumerable.Range(0, x.Count).Where(i => i % e == 0 || i == x.Count - 1).Max(i => WrapLines(x[i], Room(e)).Max(l => l.Length));
+            if ((widest + 1) * 6.3 <= spacing * every) break;
+            every++;
+        }
+        var room = Room(every);
         var list = new List<(int, List<string>)>();
         for (var i = 0; i < x.Count; i++)
-            if ((i % every == 0 && (i == x.Count - 1 || x.Count - 1 - i >= Math.Max(2, every * 0.6))) || i == x.Count - 1)
+            if ((i % every == 0 && (i == x.Count - 1 || x.Count - 1 - i >= Math.Max(2, every * 0.85))) || i == x.Count - 1)
                 list.Add((i, WrapLines(x[i], room)));
         return list;
     }

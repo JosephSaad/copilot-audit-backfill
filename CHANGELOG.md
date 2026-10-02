@@ -91,6 +91,13 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   follow-up*, the name the other reports use. Agent hand-offs and Messages per prompt explain
   themselves without a field name or a release number.
 
+- **Forecasting in plain words.** The forecast explains its method and its shaded band in a
+  sentence ("where the figure should fall 19 times in 20") before naming the statistics. Its
+  lines are *License holders*, *Used Copilot* and *Free Copilot Chat only*, as on the other
+  reports. License optimization's columns say they count licenses, and its note defines
+  *Unused*, *Light users* and *Heavy demand*. *A month (USD)* is *Cost a month*, *Added cost a
+  month* or *Cost change a month*, whichever it is; on License action outcomes *What* and *By*
+  are *Action* and *Exported by*.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its
@@ -100,6 +107,9 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
 - **Pointers to a page that does not exist.** Five places sent the reader to *Admin >
   Settings* for the pay-as-you-go price, and the license export script to *Admin > License
   pool*. The price is set in Admin > Access, and the pool is Licensing > License pool.
+- **Date labels ran into each other on the Forecast charts** with a 52-week forecast (a year of
+  history and a year ahead in one chart). A chart now draws fewer date labels when they would
+  not fit beside each other.
 - **The license cost of a period was two amounts.** Value and time saved took a month for 30.4
   days and the Board pack for 30, so 1,269 licenses over 30 days cost 37,569 on one and 38,070
   on the other. Both now take a month for a twelfth of a year (37,548 for that example; a full
