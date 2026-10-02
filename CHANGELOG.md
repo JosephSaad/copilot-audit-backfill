@@ -53,7 +53,19 @@ Clearer names and less clutter. No change to the database: install the dashboard
   Drops and spikes, *Kind* is *Drop or spike*. Under each title, the audience reads as people:
   *For Copilot program leads*, *For Copilot Studio makers and the center of excellence*.
 
+- **Licensing reports in plain words.** *Licenses by SKU* is *Licenses by product (SKU)*, with
+  what a SKU is; *Licensed but not active in the period* is *License holders who did not use
+  Copilot*; *License the audit record reports* (and *License the records report* on Upgrade,
+  train or revoke) is *License type Copilot recorded*, explained without field names; on Use
+  ranking the *Free* and *Premium* columns say they count interactions, and its note gives
+  the 2.4.8 rule for Premium; *Read (UTC)* is *Last read (UTC)*; on Departures ahead *From* is
+  *Date from*. Overlapping licenses, before its data has loaded, says what is missing and when
+  it fills, not which release brought it.
+
 ### Fixed
+- **Pointers to a page that does not exist.** Five places sent the reader to *Admin >
+  Settings* for the pay-as-you-go price, and the license export script to *Admin > License
+  pool*. The price is set in Admin > Access, and the pool is Licensing > License pool.
 - **The license cost of a period was two amounts.** Value and time saved took a month for 30.4
   days and the Board pack for 30, so 1,269 licenses over 30 days cost 37,569 on one and 38,070
   on the other. Both now take a month for a twelfth of a year (37,548 for that example; a full

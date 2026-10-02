@@ -150,7 +150,7 @@ public static class LicenseExport
         }
         else
         {
-            sb.AppendLine($"$skuId = '{(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE").Replace("'", "")}'   # the Copilot SKU (Admin > License pool shows it)");
+            sb.AppendLine($"$skuId = '{(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE").Replace("'", "")}'   # the Copilot SKU (Licensing > License pool shows it)");
             sb.AppendLine("Connect-MgGraph -Scopes 'User.ReadWrite.All' -NoWelcome");
             sb.AppendLine("foreach ($upn in $people) {");
             sb.AppendLine($"    if ($PSCmdlet.ShouldProcess($upn, '{(add ? "Assign" : "Remove")} the Copilot license')) {{");

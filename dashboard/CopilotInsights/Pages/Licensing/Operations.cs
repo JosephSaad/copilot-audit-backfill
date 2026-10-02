@@ -28,7 +28,7 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
 {
     public override string Title => "License pool";
     public override string Persona => "Licensing";
-    public override string Intro => "Copilot seats bought, assigned and used, from the tenant's subscriptions (/subscribedSkus, read each night with the licenses). Seats bought but not assigned are paid for and idle; seats assigned but not used are the unused-license list.";
+    public override string Intro => "Copilot seats bought, assigned and used, from the tenant's subscriptions, read from Microsoft 365 each night. Seats bought but not assigned are paid for and idle; seats assigned but not used are the unused-license list.";
 
     protected override async Task BuildAsync()
     {
@@ -69,7 +69,7 @@ WHERE IsCopilot = 1 AND SnapshotDate BETWEEN @d0 AND @d1 GROUP BY SnapshotDate O
                 [new Series("Bought", days.Select(d => (double?)d.Bought).ToList(), 1), new Series("Assigned", days.Select(d => (double?)d.Assigned).ToList(), 3)],
                 Fmt.Count, "Copilot seats bought and assigned"), "One point per night the license tool ran.", "half"));
 
-        var tb = new Table { Headers = ["License (SKU)", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Read (UTC)"], Numeric = new HashSet<int> { 2, 3, 4, 5, 6 } };
+        var tb = new Table { Headers = ["License (SKU)", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Last read (UTC)"], Numeric = new HashSet<int> { 2, 3, 4, 5, 6 } };
         foreach (var p in pool) tb.Rows.Add([p.SkuPartNumber, p.IsCopilot ? "Yes" : "", p.Bought, p.Consumed, p.Available, p.Warning, p.Suspended, p.CapturedUtc]);
         CsvTable = tb;
         Panels.Add(new("Every subscription in the tenant", tb.Render(), $"Copilot SKU ids, for the license export script: {string.Join(", ", copilot.Select(p => $"{p.SkuPartNumber} {p.SkuId}"))}.", "full", CsvUrl()));

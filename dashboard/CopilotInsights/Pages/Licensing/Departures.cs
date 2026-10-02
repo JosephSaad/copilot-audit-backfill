@@ -98,7 +98,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Leaves", "From", "Days to go", "Licensed since", "Last used"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Leaves", "Date from", "Days to go", "Licensed since", "Last used"],
             Numeric = new HashSet<int> { 6 },
             EmptyText = $"Nobody with a license is due to leave in the next {ahead} days.",
             Server = new(pg, Request, ["name", "upn", "dept", "manager", "date", "source", "date", "since", "recent"], new HashSet<int> { 8 }),

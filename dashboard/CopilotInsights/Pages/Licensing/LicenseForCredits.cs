@@ -116,7 +116,7 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "handler=script"))}\">PowerShell script</a>, recorded for License action outcomes.</p>";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {show}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Metered: interactions through an agent, or in Copilot Chat that read work content without searching the web, by people with no Copilot license today. " +
-            $"Credits a month: those interactions, scaled to 30 days, at {rate:#,0.00##} {cur} each (Admin > Settings); an agent grounded only in public data costs nothing, so this errs high. " +
+            $"Credits a month: those interactions, scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access); an agent grounded only in public data costs nothing, so this errs high. " +
             "Against the license: the credits less the license cost; above zero, the license is cheaper.", "full", CsvUrl()));
     }
 

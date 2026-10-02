@@ -7,7 +7,7 @@ namespace CopilotInsights.Pages.Agents;
 
 /// <summary>
 /// What each agent costs in Copilot Credits (2.4.3): its use by people who held no Copilot license at the
-/// time, which pay-as-you-go charges for, at the price in Admin > Settings. An agent with few users and a
+/// time, which pay-as-you-go charges for, at the price in Admin > Access. An agent with few users and a
 /// high bill is one to restrict or retire; one whose users each spend more than a license is cheaper licensed.
 /// </summary>
 public sealed class CreditsModel(PageServices s) : InsightsPage(s)
@@ -93,7 +93,7 @@ WHERE (@q IS NULL OR x.AgentName LIKE @q OR x.Owner LIKE @q)
         CsvTable = t;
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Without a license: interactions by people who held no Copilot license at the time; pay-as-you-go charges for these in Copilot Credits. Credits a month: those interactions, " +
-            $"scaled to 30 days, at {rate:#,0.00##} {cur} each (Admin > Settings). An agent grounded only in public data is not charged, so this errs high. " +
+            $"scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access). An agent grounded only in public data is not charged, so this errs high. " +
             $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}.", "full", CsvUrl()));
     }
 }

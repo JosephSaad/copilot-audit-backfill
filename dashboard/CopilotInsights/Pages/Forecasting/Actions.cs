@@ -153,7 +153,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Days using Premium features (30)", "Interactions (30)", "Last used", "Licensed since", "License the records report", "Why"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Days using Premium features (30)", "Interactions (30)", "Last used", "Licensed since", "License type Copilot recorded", "Why"],
             Numeric = new HashSet<int> { 5, 6, 7 },
             EmptyText = "No one fits this recommendation.",
             /* Last used and the recorded license are looked up after the page query, so they do not sort. */
@@ -200,6 +200,6 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         if (!premiumReady && kind != "upgrade")
             Notice = "Premium-feature use is not in the rollups yet, so train and revoke count any use, as before 2.3.0. An administrator rebuilds the rollups once (Admin > Health, Rebuild every day) to separate Premium features from web Copilot Chat.";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + (kind == "upgrade" ? "" : await ProtectedNoteAsync()) + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "\"License the records report\" is what Copilot wrote into the person's latest audit record.", "full", CsvUrl()));
+            "License type Copilot recorded: what Copilot itself wrote into the person's latest record (Premium, or Starter for the free Copilot Chat).", "full", CsvUrl()));
     }
 }
