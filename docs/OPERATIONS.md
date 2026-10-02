@@ -31,6 +31,7 @@ Nothing needs doing while it is healthy: the nightly task loads and builds every
 
 | Check | Where | Healthy |
 |---|---|---|
+| Is the data current, and did the last run work | **Admin › Health**, the three figures at the top (2.4.10): *Reports show data up to*, *Last pipeline run*, *Steps behind* | Yesterday or the day before; *Succeeded*; 0 |
 | Last night's run | **Admin › Health**, *Pipeline runs*; or `M -Task Status` | *Succeeded*, finished within the last day |
 | Data freshness | Every page shows a yellow banner when the data is older than *FreshnessHours* (36) or the last run failed | No banner |
 | Alerts sent, and any that could not be | **Admin › Email**, *Recently sent* | *Sent* |

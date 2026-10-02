@@ -20,39 +20,50 @@ public abstract class AdminPage(PageServices s) : InsightsPage(s)
 public sealed class HealthModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Health";
-    public override string Intro => "Is the data fresh and complete? Each step of the pipeline, the directory behind the security model, and a manual refresh.";
+    public override string Intro => "Is the data current, and did the last run work? The three figures answer that; below them, each step of the pipeline, the directory behind who sees what, and a manual refresh.";
 
-    sealed record Step(string Name, DateTime? Finished, string Rows, string? Note);
+    /* A step by a name that says what it is, with a line on what it does (2.4.10: "bi star schema" and "Dashboard rollups"
+       told an administrator nothing). Optional: one of the two ways records arrive, which a site may never use. */
+    sealed record Step(string Name, string What, DateTime? Finished, string Rows, string? Note, bool Optional = false);
+    const string NotInstalled = "Not installed in this database";
 
     protected override async Task BuildAsync()
     {
         ShowDone();
         var steps = new List<Step>();
-        async Task Try(string name, string sql, string note)
+        async Task Try(string name, string what, string sql, string note, bool optional = false)
         {
             try
             {
                 var r = (await Db.QueryAsync<(DateTime? At, long? Rows, string? Extra)>(sql)).FirstOrDefault();
-                steps.Add(new(name, r.At, r.Rows?.ToString("#,0") ?? "—", r.Extra ?? note));
+                steps.Add(new(name, what, r.At, r.Rows?.ToString("#,0") ?? "—", r.Extra ?? note, optional));
             }
-            catch (Microsoft.Data.SqlClient.SqlException) { steps.Add(new(name, null, "—", "Not installed in this database")); }
+            catch (Microsoft.Data.SqlClient.SqlException) { steps.Add(new(name, what, null, "—", NotInstalled, optional)); }
         }
-        await Try("Audit download (backfill)", "SELECT TOP (1) MergedUtc, RowsAdded, CONCAT(N'range to ', FORMAT(RangeEndUtc, 'yyyy-MM-dd HH:mm')) FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL ORDER BY MergedUtc DESC;", "rows added");
-        await Try("CSV import", "SELECT TOP (1) MergedUtc, RowsAdded, FolderPath FROM audit.CopilotCsvImport WHERE MergedUtc IS NOT NULL ORDER BY MergedUtc DESC;", "rows added");
-        await Try("Sessions", "SELECT TOP (1) RunEndUtc, CAST(SessionsWritten AS BIGINT), ReportingTimeZone FROM audit.CopilotSessionRun ORDER BY RunId DESC;", "sessions written");
-        await Try("bi star schema", "SELECT TOP (1) EndedUtc, InteractionRows, CASE WHEN SinceUtc IS NULL THEN N'full rebuild' ELSE CONCAT(N'since ', FORMAT(SinceUtc, 'yyyy-MM-dd')) END FROM bi.RefreshRun ORDER BY RunId DESC;", "interactions written");
-        await Try("Dashboard rollups", "SELECT TOP (1) EndedUtc, CAST(UserDayRows AS BIGINT), CONCAT(FORMAT(People, 'N0'), N' people, ', FORMAT(ClosureRows, 'N0'), N' org pairs') FROM dash.RefreshRun ORDER BY RunId DESC;", "person-days written");
-        await Try("User directory", "SELECT MAX(LoadedUtc), COUNT_BIG(*), NULL FROM audit.UserDirectory;", "people");
+        await Try("Audit download", "Copilot audit records fetched from Microsoft Purview", "SELECT TOP (1) MergedUtc, RowsAdded, CONCAT(N'range to ', FORMAT(RangeEndUtc, 'yyyy-MM-dd HH:mm')) FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL ORDER BY MergedUtc DESC;", "rows added", optional: true);
+        await Try("CSV import", "Copilot audit records loaded from exported CSV files", "SELECT TOP (1) MergedUtc, RowsAdded, FolderPath FROM audit.CopilotCsvImport WHERE MergedUtc IS NOT NULL ORDER BY MergedUtc DESC;", "rows added", optional: true);
+        await Try("Sessions", "Records grouped into sessions, for session counts and lengths", "SELECT TOP (1) RunEndUtc, CAST(SessionsWritten AS BIGINT), ReportingTimeZone FROM audit.CopilotSessionRun ORDER BY RunId DESC;", "sessions written");
+        await Try("Report tables", "The tables every report and Power BI read (bi.usp_RefreshBi)", "SELECT TOP (1) EndedUtc, InteractionRows, CASE WHEN SinceUtc IS NULL THEN N'full rebuild' ELSE CONCAT(N'since ', FORMAT(SinceUtc, 'yyyy-MM-dd')) END FROM bi.RefreshRun ORDER BY RunId DESC;", "interactions written");
+        await Try("Dashboard totals", "Daily totals for each person and the org chart, which these pages read (dash.usp_RefreshDashboard)", "SELECT TOP (1) EndedUtc, CAST(UserDayRows AS BIGINT), CONCAT(FORMAT(People, 'N0'), N' people, ', FORMAT(ClosureRows, 'N0'), N' org pairs') FROM dash.RefreshRun ORDER BY RunId DESC;", "person-days written");
+        await Try("People directory", "People, managers and departments from Active Directory", "SELECT MAX(LoadedUtc), COUNT_BIG(*), NULL FROM audit.UserDirectory;", "people");
 
         var t = new Table { Zone = Zone, Headers = ["Step", "Last finished (UTC)", "Age", "Rows", "Detail", "Status"], Numeric = new HashSet<int> { 3 }, Sortable = false };
+        var fresh = await S.Settings.IntAsync("FreshnessHours", 36);
+        var behind = new List<string>();
+        var old = false;
         foreach (var st in steps)
         {
             var age = st.Finished is null ? (TimeSpan?)null : DateTime.UtcNow - st.Finished.Value;
-            var status = st.Finished is null ? ("status-warn", "No run") : age!.Value.TotalHours <= 36 ? ("status-ok", "Fresh") : age.Value.TotalDays <= 7 ? ("status-warn", "Stale") : ("status-bad", "Old");
-            t.Rows.Add([st.Name, st.Finished, age is null ? null : age.Value.TotalHours < 48 ? $"{age.Value.TotalHours:0} h" : $"{age.Value.TotalDays:0} days",
-                        st.Rows, st.Note, new HtmlString($"<span class=\"{status.Item1}\">{status.Item2}</span>")]);
+            var status = st.Finished is null ? (st.Optional ? ("muted", "Not used") : ("status-warn", "Never ran"))
+                : age!.Value.TotalHours <= fresh ? ("status-ok", "Fresh") : age.Value.TotalDays <= 7 ? ("status-warn", "Stale") : ("status-bad", "Old");
+            if (status.Item2 is "Never ran" or "Stale" or "Old") behind.Add(st.Name);
+            old |= status.Item2 == "Old";
+            t.Rows.Add([new HtmlString($"{E(st.Name)}<span class=\"cellnote\">{E(st.What)}</span>"), st.Finished,
+                        age is null ? null : age.Value.TotalHours < 48 ? $"{age.Value.TotalHours:0} h" : $"{age.Value.TotalDays:0} days",
+                        st.Rows, st.Finished is null && st.Note != NotInstalled ? null : st.Note, new HtmlString($"<span class=\"{status.Item1}\">{status.Item2}</span>")]);
         }
-        Panels.Add(new("Pipeline", t.Render(), "Fresh: within 36 hours. The dashboard shows data up to the last complete day in its rollups."));
+        Panels.Add(new("Pipeline", t.Render(),
+            $"Fresh: finished in the last {fresh} hours. Stale: in the last 7 days. Old: longer ago. Not used: this way of loading records has never run here."));
 
         /* The runs Invoke-CopilotPipeline.ps1 records, with the failing step and its last lines. */
         var runs0 = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().PipelineRunsAsync(10);
@@ -73,6 +84,27 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
        (SELECT COUNT(*) FROM dash.Person), (SELECT COUNT(*) FROM dash.Person WHERE Level IS NOT NULL),
        (SELECT COUNT(*) FROM dash.Person WHERE AccountEnabled = 1),
        (SELECT MAX(DateKey) FROM dash.UserDay);")).Single();
+        /* 2.4.10: the answer first. How current the reports are, whether the last run worked, and how many steps are behind;
+           the tables below are the detail. */
+        var today = CopilotInsights.Data.Zones.FromUtc(DateTime.UtcNow, Zone).Date;
+        var lastDay = d.LastKey is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : (DateTime?)null;
+        var daysBack = lastDay is null ? 0 : (int)(today - lastDay.Value).TotalDays;
+        Kpis.Add(new("Reports show data up to", lastDay?.ToString("d MMM yyyy") ?? "No data yet",
+            lastDay is null ? "nothing has been loaded" : daysBack <= 1 ? "the last complete day" : daysBack == 2 ? "2 days ago" : $"{daysBack} days ago: newer records have not been loaded",
+            lastDay is null ? "crit" : daysBack > 2 ? "warn" : null));
+        var last = runs0.FirstOrDefault();
+        if (last is null)
+            Kpis.Add(new("Last pipeline run", "None recorded", "Invoke-CopilotPipeline.ps1 records each run; a load started another way is not listed"));
+        else
+        {
+            var quiet = last.Status != "Running" && last.StartedUtc < DateTime.UtcNow.AddHours(-fresh);
+            Kpis.Add(new("Last pipeline run", last.Status,
+                $"{last.Kind}, started {When(last.StartedUtc)}" + (last.FailedStep is null ? "" : $"; stopped at {last.FailedStep}") + (quiet ? "; none since" : ""),
+                last.Status is "Succeeded" or "Running" ? (quiet ? "warn" : null) : "crit"));
+        }
+        Kpis.Add(new("Steps behind", Num(behind.Count), behind.Count == 0 ? $"every step in use finished in the last {fresh} hours" : string.Join(", ", behind),
+            behind.Count == 0 ? null : old ? "crit" : "warn"));
+
         var top = Ctx.OrgTopUpn;
         var topName = top is null ? null : await Db.ScalarAsync<string>("SELECT DisplayName FROM dash.Person WHERE Upn = @top", new { top });
         var sb = new StringBuilder("<div class=\"cards\">");

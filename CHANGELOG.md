@@ -143,6 +143,13 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   and the one after, each with what it answers, and keeps the period and the part of the
   organization being looked at. Only reports the person can open are offered. By the end of a
   report the list of reports is a long way up, and on a phone it is folded away.
+- **Admin › Health answers first.** It listed the steps and left the reader to work out
+  whether the data was current. Three figures now open the page: the day the reports show data
+  up to, whether the last pipeline run succeeded (and where it stopped if not), and how many
+  steps are behind, by name. The steps have names that say what they are (*Report tables*,
+  *Dashboard totals*, *People directory*) with a line on what each does, a way of loading
+  records that a site never uses reads *Not used* instead of a warning, and the page follows
+  the *Data is stale after* setting instead of a fixed 36 hours.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs
