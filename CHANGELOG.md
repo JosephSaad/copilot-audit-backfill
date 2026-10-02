@@ -4,13 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.11] - unreleased
+## [2.4.11] - 2026-10-02
 
 Agents under their own names, and page speed at three times the size. An agent now shows the
 friendly name the audit log gives it, and stays one agent when its maker renames it. Measured
 as the head of an organization of 210,000 people with 120 million interactions, every page
-loads in under 1.5 seconds once built ahead, building ahead takes 15 minutes instead of 37,
-and 200 people clicking at once are served without an error.
+loads in under 1.5 seconds once built ahead, building ahead takes 14 minutes instead of 37,
+and 200 people clicking at once are served without an error
+([the figures](docs/DEPLOYMENT.md#120-million-interactions-the-2411-test)).
 
 To upgrade: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, install the
 dashboard package over 2.4.10, and refresh the Power BI model once. The installer reads the
@@ -59,7 +60,7 @@ figure changes; agents change name, never count.
   every visit: 0.4 to 1.2 seconds alone, and the first pages to queue under load. Each list
   now has a version of its own, read from the database for every page that shows it; a page is
   kept under it, and an edit, made on this web server or another, shows on the very next page.
-  With 100 people clicking at once on whole-organization pages: 193 requests a second with a
+  With 100 people clicking at once on whole-organization pages: 194 requests a second with a
   median of 5 ms and none failed, from 63 a second with a median of 152 ms, one in a hundred
   over 20 seconds, and two failed.
 - **Retention and habit** counts in the database. The page read every person-week (2.5
@@ -86,7 +87,7 @@ figure changes; agents change name, never count.
   ahead took 37 minutes. Every read between dates now says how it wants to be planned: for a
   typical range across the whole organization, and afresh inside a manager's part of it (ten
   people or seventy thousand). The same query takes 4 to 6 seconds, the ten pages load, and
-  building ahead takes 15 minutes. A plan changes how a query runs, never what it returns.
+  building ahead takes 14 minutes. A plan changes how a query runs, never what it returns.
   It can happen at any size: the larger the data, the worse the wrong plan.
 - **A page inside one manager's part could take two minutes and fail.** To plan a query inside
   a manager's part of the organization SQL Server has to guess how many people that is, from a
@@ -96,7 +97,8 @@ figure changes; agents change name, never count.
   time, while the same pages for the team beside it took a second. The people in scope are now
   listed first, in a temporary table, and every query reads that list: counted, not guessed.
   Both pages load in 2 seconds for that team, and every page for it in 24 seconds in all.
-  Found by the load test: it was the only error left at 50 and 100 people at once.
+  Found by the load test: it was the only error left at 50 and 100 people at once, and with
+  it fixed no request failed at any size of crowd.
 - **The CSV of Upgrade, train or revoke failed for a long list.** The people on the list were
   sent to SQL Server as one parameter each, twice, and the server takes 2,100: a page of 50
   was fine, and the download failed past about 1,050 people. They go as one list now.
