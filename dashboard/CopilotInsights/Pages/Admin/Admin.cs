@@ -586,7 +586,7 @@ FROM bi.DimApp AS a LEFT JOIN audit.SessionAppCategory AS c ON c.App = a.App ORD
             at.Rows.Add([a.App + (a.Mapped ? "" : " (default)"), new HtmlString(Form("app", $"<input type=\"hidden\" name=\"app\" value=\"{E(a.App)}\"/>" +
                 Select("category", "Category", ["Copilot Chat", "In-App Copilot"], a.Category) + Button("Save")))]);
         Panels.Add(new("App categories", at.Render(),
-            "Copilot Chat or Copilot inside an app. A change applies to sessions and the bi model at their next refresh, and to the dashboard after that.", "half"));
+            "Copilot Chat or Copilot inside an app. A change applies the next time the pipeline builds sessions and the report tables, and shows on the dashboard after that.", "half"));
 
         /* Which accounts are not a person (2.4.5): a Copilot license on one is a policy breach. */
         var r = await CopilotInsights.Data.NonHuman.RulesAsync(S.Settings);
@@ -681,9 +681,23 @@ IF @@ROWCOUNT = 0 INSERT INTO audit.SessionAppCategory (App, AppCategory) VALUES
 public sealed class AuditModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Audit log";
-    public override string Intro => "Every page view, refusal, export and admin change, with who, what they looked at and from where.";
+    public override string Intro => "Every page view, refusal, export, data API call and admin change, with who, what they looked at and from where.";
 
     static readonly string[] Kinds = ["View", "Denied", "Export", "Api", "Admin"];
+
+    /// <summary>
+    /// A kind in words, one entry or many (2.4.10). The log stores View, Denied, Export, Api and Admin; the page showed
+    /// those, and counted the data API's calls under a second "Admin changes". The download keeps the stored words.
+    /// </summary>
+    public static string KindName(string kind, bool many = false) => kind switch
+    {
+        "View" => many ? "Page views" : "Page view",
+        "Denied" => "Refused",
+        "Export" => many ? "Exports" : "Export",
+        "Api" => many ? "Data API calls" : "Data API call",
+        "Admin" => many ? "Admin changes" : "Admin change",
+        _ => kind,
+    };
 
     sealed class Row
     {
@@ -719,7 +733,7 @@ WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.
         foreach (var kn in Kinds)
         {
             var c = counts.FirstOrDefault(x => x.Kind == kn);
-            Kpis.Add(new(kn switch { "View" => "Page views", "Denied" => "Refused", "Export" => "Exports", _ => "Admin changes" }, Num(c.N), $"by {c.People:#,0} people",
+            Kpis.Add(new(KindName(kn, many: true), Num(c.N), c.N == 0 ? "none in this period" : $"by {Count(c.People, "person", "people")}",
                 kn == "Denied" && c.N > 0 ? "crit" : null));
         }
         var t = new Table
@@ -727,13 +741,19 @@ WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.
             Zone = Zone, Headers = ["When (UTC)", "Who", "Kind", "Page", "Scope", "Detail", "From"], EmptyText = "Nothing logged in this period.",
             Server = new(pg, Request, ["new", "who", "kind", "page", "scope", null, "from"], new HashSet<int> { 0 }),
         };
-        foreach (var r in rows) t.Rows.Add([r.AtUtc, r.Viewer, r.Kind, r.Page, r.Scope, r.Detail, r.ClientIp]);
-        CsvTable = t;
+        /* The page says each kind in words; the download keeps the words the log stores, which a tool reading it may match on. */
+        var csv = new Table { Zone = Zone, Headers = t.Headers };
+        foreach (var r in rows)
+        {
+            t.Rows.Add([r.AtUtc, r.Viewer, KindName(r.Kind), r.Page, r.Scope, r.Detail, r.ClientIp]);
+            csv.Rows.Add([r.AtUtc, r.Viewer, r.Kind, r.Page, r.Scope, r.Detail, r.ClientIp]);
+        }
+        CsvTable = csv;
         string Link(string label, int dd, string? kk, bool on) =>
             $"<a href=\"{E(Request.Path + $"?d={dd}" + (kk is null ? "" : "&kind=" + kk))}\"{(on ? " class=\"on\"" : "")}>{label}</a>";
         var periodLinks = string.Join(" · ", ReportContext.DayChoices.Select(x => Link($"{x} days", x, kind, x == days)));
-        var kindLinks = Link("All", days, null, kind is null) + string.Concat(Kinds.Select(x => " · " + Link(x, days, x, x == kind)));
-        Panels.Add(new("Entries", new HtmlString($"<p class=\"sub\">Last: {periodLinks}</p><p class=\"sub\">Kind: {kindLinks}</p>" +
+        var kindLinks = Link("All", days, null, kind is null) + string.Concat(Kinds.Select(x => " · " + Link(KindName(x, many: true), days, x, x == kind)));
+        Panels.Add(new("Entries", new HtmlString($"<p class=\"sub\">Last: {periodLinks}</p><p class=\"sub\">Show: {kindLinks}</p>" +
             pg.Controls(Request, new Dictionary<string, string> { ["new"] = "Newest", ["old"] = "Oldest", ["who"] = "Who" }).Value + t.Render().Value),
             "Viewing-as entries (development only) show both accounts.", "full", CsvUrl()));
     }

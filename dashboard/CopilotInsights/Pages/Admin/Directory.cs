@@ -110,7 +110,7 @@ public sealed class ClassificationsModel(PageServices s) : AdminPage(s)
     {
         ShowDone();
         var families = await Db.QueryAsync<(int RuleId, string Pattern, string Family, int Priority, string UpdatedBy)>("SELECT RuleId, Pattern, Family, Priority, UpdatedBy FROM dash.JobFamilyRule ORDER BY Priority, RuleId;");
-        var ft = new Table { Headers = ["Priority", "Job title like", "Family", "Set by", ""], Numeric = new HashSet<int> { 0 }, EmptyText = "No rules: everyone is \"(no family)\".", Sortable = false };
+        var ft = new Table { Headers = ["Priority", "Job title pattern", "Family", "Set by", ""], Numeric = new HashSet<int> { 0 }, EmptyText = "No rules: everyone is \"(no family)\".", Sortable = false };
         foreach (var f in families)
             ft.Rows.Add([f.Priority, f.Pattern, f.Family, f.UpdatedBy, new HtmlString(Form("delfamily", Hidden("id", f.RuleId) + Button("Remove", quiet: true)))]);
         var min = await S.Settings.IntAsync("MinGroupSize", 5);
@@ -122,18 +122,18 @@ GROUP BY du.JobTitle HAVING COUNT(*) >= @min ORDER BY COUNT(*) DESC;", new { min
         var tt = new Table { Headers = ["Title without a family", "People"], Numeric = new HashSet<int> { 1 }, EmptyText = "Every common title has a family." };
         foreach (var x in titles) tt.Rows.Add([x.Title, x.People]);
         Panels.Add(new("Job families", new HtmlString(ft.Render().Value + "<h3>Add a rule</h3>" + Form("family",
-            Input("pattern", "Job title like", "%engineer%", 24) + Input("family", "Family", "Engineering", 24) + Input("priority", "Priority (lower first)", "100", 5, "number") + Button("Add")) +
+            Input("pattern", "Job title pattern (% matches anything)", "%engineer%", 24) + Input("family", "Family", "Engineering", 24) + Input("priority", "Priority (lower first)", "100", 5, "number") + Button("Add")) +
             "<h3>The most common titles no rule covers</h3>" + tt.Render().Value), $"Titles held by fewer than {min} people are not listed."));
 
         var cases = await Db.QueryAsync<(int RuleId, string AppPattern, bool? WebGrounded, bool? WithAgent, string UseCase, int Priority)>(
             "SELECT RuleId, AppPattern, WebGrounded, WithAgent, UseCase, Priority FROM dash.UseCaseRule ORDER BY Priority, RuleId;");
         static string T(bool? b) => b is null ? "Either" : b.Value ? "Yes" : "No";
-        var ct = new Table { Headers = ["Priority", "App like", "Searched the web", "With an agent", "Use case", ""], Numeric = new HashSet<int> { 0 }, Sortable = false };
+        var ct = new Table { Headers = ["Priority", "App pattern", "Searched the web", "With an agent", "Use case", ""], Numeric = new HashSet<int> { 0 }, Sortable = false };
         foreach (var c in cases)
             ct.Rows.Add([c.Priority, c.AppPattern, T(c.WebGrounded), T(c.WithAgent), c.UseCase, new HtmlString(Form("delcase", Hidden("id", c.RuleId) + Button("Remove", quiet: true)))]);
         var apps = await Db.QueryAsync<string>("SELECT App FROM bi.DimApp ORDER BY App;");
         Panels.Add(new("Use cases", new HtmlString(ct.Render().Value + "<h3>Add a rule</h3>" + Form("usecase",
-            Input("app", "App like", "%", 16) + Select("web", "Searched the web", Tri, "Either") + Select("agent", "With an agent", Tri, "Either") +
+            Input("app", "App pattern (% is any app)", "%", 16) + Select("web", "Searched the web", Tri, "Either") + Select("agent", "With an agent", Tri, "Either") +
             Input("usecase", "Use case", null, 24) + Input("priority", "Priority (lower first)", "50", 5, "number") + Button("Add")) +
             Form("resetcases", Button("Put back the default rules", "Replace every use-case rule with the defaults?", quiet: true)) +
             $"<p class=\"sub\">Apps in the data: {E(string.Join(", ", apps))}.</p>"),

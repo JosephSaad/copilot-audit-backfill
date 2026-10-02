@@ -398,6 +398,17 @@ public class MappingFileTests
     }
 
     [Fact]
+    public void Every_kind_in_the_audit_log_has_its_own_name()
+    {
+        string[] kinds = ["View", "Denied", "Export", "Api", "Admin"];
+        // 2.4.10: the data API's calls were counted under a second "Admin changes".
+        Assert.Equal(kinds.Length, kinds.Select(k => CopilotInsights.Pages.Admin.AuditModel.KindName(k, many: true)).Distinct().Count());
+        Assert.Equal(kinds.Length, kinds.Select(k => CopilotInsights.Pages.Admin.AuditModel.KindName(k)).Distinct().Count());
+        Assert.Equal("Data API calls", CopilotInsights.Pages.Admin.AuditModel.KindName("Api", many: true));
+        Assert.Equal("Admin change", CopilotInsights.Pages.Admin.AuditModel.KindName("Admin"));
+    }
+
+    [Fact]
     public void An_information_icon_is_tied_to_the_last_word_of_its_label()
     {
         static string Html(Microsoft.AspNetCore.Html.IHtmlContent c)
