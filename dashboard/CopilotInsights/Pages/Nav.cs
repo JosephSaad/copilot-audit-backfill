@@ -15,11 +15,11 @@ public static class Nav
             new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Group overview", "/group", ManyTenants: true),
             new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"),
             new("Board pack", "/leadership/boardpack")]),
-        new("Adoption", "Copilot program lead", [
+        new("Adoption", "Copilot program leads", [
             new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"),
             new("Retention and habit", "/adoption/retention"), new("Retention by license month", "/adoption/cohorts"), new("New joiners", "/adoption/onboarding"), new("Not started", "/adoption/not-started", Roles.Adoption),
             new("Targets", "/adoption/targets"), new("Drops and spikes", "/adoption/anomalies")], Roles.Adoption),
-        new("Licensing", "Licensing, IT asset and FinOps", [
+        new("Licensing", "Licensing, IT asset management and FinOps", [
             new("License inventory", "/licensing"), new("License pool", "/licensing/pool"), new("License changes", "/licensing/changes"),
             new("Chargeback", "/licensing/chargeback"), new("Demand for licenses", "/licensing/demand"),
             new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
@@ -35,10 +35,10 @@ public static class Nav
             new("Sensitive content", "/compliance"), new("Labeled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
             new("Access to labeled content", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true),
             new("Copilot on non-human accounts", "/compliance/non-human", Roles.Compliance)], Roles.Compliance),
-        new("Agents", "Copilot Studio makers and CoE", [
+        new("Agents", "Copilot Studio makers and the center of excellence", [
             new("Agents in use", "/agents"), new("Agent inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs"),
             new("Agents costing credits", "/agents/credits")], Roles.Agents),
-        new("Enablement", "Training and champions", [
+        new("Enablement", "Training leads and champions", [
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
             new("Champions", "/enablement/champions", Roles.Enablement), new("People by engagement", "/enablement/people", Roles.Enablement)], Roles.Enablement),
         new("Forecasting", "Finance, licensing and program leads", [

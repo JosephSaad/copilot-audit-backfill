@@ -19,22 +19,23 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.Interactions > 0);", Ctx.Args());
 
-        Kpis.Add(new("Licensed today", Num(t.LicensedNow)));
-        Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} licensed people have used it at least once"));
-        Kpis.Add(new("Active in the period", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), $"{t.ActiveLicensed:#,0} licensed people"));
+        /* The same names as Leadership > Overview: the license is the Premium one, and its use in the period is Adoption. */
+        Kpis.Add(new("Premium licenses today", Num(t.LicensedNow)));
+        Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} license holders have used Copilot at least once, at any time"));
+        Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), $"{t.ActiveLicensed:#,0} license holders used it in the period"));
         Kpis.Add(new("People who followed up", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of active people replied to Copilot at least once, not only one-off prompts"));
 
         var stages = new List<Bar>
         {
             new("People", t.People, Note: "enabled accounts in the directory"),
-            new("Licensed today", t.LicensedNow, Slot: 1),
-            new("Licensed and started", started, Slot: 1),
-            new("Licensed, active in the period", t.ActiveLicensed, Slot: 1),
-            new("Active in the last 7 days", t.ActiveLast7, Slot: 1),
-            new("Followed up on an answer", t.MultiTurnUsers, Slot: 1),
+            new("Premium license holders today", t.LicensedNow, Slot: 1),
+            new("License holders who ever used Copilot", started, Slot: 1),
+            new("License holders who used it in the period", t.ActiveLicensed, Slot: 1),
+            new("Anyone using Copilot in the last 7 days", t.ActiveLast7, Slot: 1),
+            new("Anyone who followed up on an answer", t.MultiTurnUsers, Slot: 1),
         };
         Panels.Add(new("Adoption funnel", Chart.Bars(stages, Fmt.Count, "Adoption funnel"),
-            "Each stage is a count of people. The last two include anyone active, licensed or on Copilot Chat."));
+            "Each bar is a count of people. The first four narrow from everyone to the license holders who used Copilot in the period. The last two count anyone who used Copilot, with a license or on the free Copilot Chat."));
 
         var firsts = await Db.QueryAsync<(DateTime Bucket, int N)>($@"
 WITH f AS (SELECT ud.UserKey, MIN(ud.DateKey) AS FirstKey FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.Interactions > 0 GROUP BY ud.UserKey)
@@ -44,10 +45,10 @@ WHERE f.FirstKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args()
         Panels.Add(new("People using Copilot for the first time",
             Chart.Columns(Labels(), [new Series("First-time users", buckets.Select(b => (double?)firsts.Where(f => f.Bucket == b.Key).Sum(f => f.N)).ToList(), 3)], Fmt.Count, "First-time users"),
             TrendNote, "half"));
-        Panels.Add(new("Licensed and active",
+        Panels.Add(new("Premium license holders, and how many used Copilot",
             Chart.Line(Labels(), [
-                new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1),
-                new Series("Active, licensed", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
+                new Series("License holders", tr.Select(w => (double?)w.Licensed).ToList(), 1),
+                new Series("Used Copilot", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
             ], Fmt.Count, "Licensed and active"), null, "half"));
     }
 }
@@ -91,10 +92,10 @@ GROUP BY c.Cohort, k.K;", Ctx.Args());
                 var r = rows.FirstOrDefault(x => x.Cohort == cohortsShown[i] && x.K == k);
                 grid[i, k] = r.People >= Ctx.MinGroupSize ? r.Active / (double)r.People : null;
             }
-        Panels.Add(new("Share of each cohort active, week by week after their license",
+        Panels.Add(new("Share of each month's new license holders active, week by week",
             Chart.Heatmap(cohortsShown.Select(c => $"{c:MMM yyyy} ({rows.First(r => r.Cohort == c).Size:#,0})").ToList(),
                 Enumerable.Range(1, weeks).Select(k => $"Wk {k}").ToList(), grid, Fmt.Percent, "Cohort retention", 1),
-            $"People licensed today, by the month their current license began, over the last 12 months. Empty cells are weeks that have not happened yet for enough of the cohort. Cohorts under {Ctx.MinGroupSize} people are left out. This view ignores the period filter."));
+            $"People licensed today, by the month their current license began, over the last 12 months. Each row is one month's new license holders; each column a week after their license began. Empty cells are weeks that have not happened yet for enough of them. Months with fewer than {Ctx.MinGroupSize} people are left out."));
 
         var ttf = await Db.QueryAsync<(string Bucket, int N)>($@"
 WITH f AS (SELECT du.UserKey, CAST(du.LicensedSinceUtc AS DATE) AS Since,

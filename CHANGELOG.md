@@ -45,6 +45,14 @@ Clearer names and less clutter. No change to the database: install the dashboard
   Value and time saved and the Board pack. On Use cases, *With an agent* is *Interactions
   through an agent*.
 
+- **Adoption reports use the same names as Leadership.** On Funnel and trend, *Licensed today*
+  is *Premium licenses today* and *Active in the period* is *Adoption* (it is the same figure
+  as Overview's); the funnel's bars say who each one counts (*License holders who used it in
+  the period*, *Anyone using Copilot in the last 7 days*). Retention by license month no longer
+  says "cohort". On Targets the second *Target* column, the value aimed for, is *Goal*. On
+  Drops and spikes, *Kind* is *Drop or spike*. Under each title, the audience reads as people:
+  *For Copilot program leads*, *For Copilot Studio makers and the center of excellence*.
+
 ### Fixed
 - **The license cost of a period was two amounts.** Value and time saved took a month for 30.4
   days and the Board pack for 30, so 1,269 licenses over 30 days cost 37,569 on one and 38,070

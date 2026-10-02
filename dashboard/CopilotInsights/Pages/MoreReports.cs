@@ -122,7 +122,7 @@ WHERE ud.DateKey BETWEEN @a AND @b AND ud.Interactions > 0;", Ctx.Args(new { a =
             Kpis.Add(new("Still there 8 weeks on", Pct(curve[7])));
             Panels.Add(new("Share of a week's users active again, weeks later",
                 Chart.Line(Enumerable.Range(1, 8).Select(i => $"+{i} wk").ToList(), [new Series("Came back", curve, 3)], Fmt.Percent, "Weekly retention", 1),
-                "Own window: twelve starting weeks, ending with the last complete week, whatever the period. A flattening line is a habit forming; one that keeps falling is novelty wearing off.", "half"));
+                "Each line follows the people who used Copilot in one week, over the weeks after it: twelve starting weeks, ending with the last complete week. A flattening line is a habit forming; one that keeps falling is novelty wearing off.", "half"));
 
             var last12 = Enumerable.Range(0, 12).Select(i => w1.AddDays(-7 * i)).ToHashSet();
             var counts = byUser.Values.Select(v => v.Count(last12.Contains)).Where(n => n > 0).GroupBy(n => n).ToDictionary(g => g.Key, g => g.Count());

@@ -38,7 +38,7 @@ namespace CopilotInsights.Pages.Adoption
                 Note: $"{t.Current:#,0.#}{Unit(t)} of {t.TargetValue:#,0.#}{Unit(t)} by {t.DueDate:d MMM yyyy}; {t.Status}",
                 Slot: t.Status switch { "Met" or "On track" => 3, "Behind" => 5, "Missed" => 6, _ => 1 })).ToList(), Fmt.Percent, "Progress to each target", 1),
                 "The share of the target reached."));
-            var tb = new Table { Headers = ["Target", "For", "Before it started", "Now", "Should be by now", "Target", "Due", "Status", "Note"], Numeric = new HashSet<int> { 2, 3, 4, 5 } };
+            var tb = new Table { Headers = ["Target", "For", "Before it started", "Now", "Should be by now", "Goal", "Due", "Status", "Note"], Numeric = new HashSet<int> { 2, 3, 4, 5 } };
             foreach (var t in mine)
                 tb.Rows.Add([Label(t.Metric), t.RootName ?? t.RootUpn ?? "Whole organization", Round(t.Baseline), Round(t.Current), Round(t.Expected), (double)t.TargetValue,
                              t.DueDate, new HtmlString($"<span class=\"status-{(t.Status is "Met" or "On track" ? "ok" : t.Status == "Behind" ? "warn" : t.Status == "Missed" ? "bad" : "warn")}\">{E(t.Status)}</span>"), t.Note]);
@@ -102,7 +102,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
                 "People licensed in the period, by how soon they first used Copilot. The Adoption role sees who has not started (Adoption > Not started).", "half"));
             if (hired.Count > 0)
                 Panels.Add(new("From hire to first use", Chart.Bars(Dist(hired), Fmt.Count, "Days from hire to first use"),
-                    "People with an Entra hire date (employeeHireDate) in the period.", "half"));
+                    "People whose hire date in Entra falls in the period. Entra's hire date is filled in by HR systems; where it is empty, nobody is counted here.", "half"));
 
             var depts = licensed.GroupBy(r => r.Dept).Select(g => (Name: g.Key, People: g.Count(), Started: g.Count(r => r.Days is not null),
                     Median: g.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList())).ToList();
@@ -132,7 +132,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             Kpis.Add(new("Departments watched", Num(series.Count), $"with at least {Ctx.MinGroupSize} people"));
             Kpis.Add(new("Drops", Num(found.Count(a => a.Kind == "Drop")), $"{drop}% or more below usual", found.Any(a => a.Kind == "Drop") ? "warn" : null));
             Kpis.Add(new("Spikes", Num(found.Count(a => a.Kind == "Spike")), $"{spike}% or more above usual"));
-            var tb = new Table { Headers = ["Day", "Department", "Kind", "Interactions", "Usual for the weekday", "Change"], Numeric = new HashSet<int> { 3, 4 }, EmptyText = "Nothing stood out in the last two weeks." };
+            var tb = new Table { Headers = ["Day", "Department", "Drop or spike", "Interactions", "Usual for the weekday", "Change"], Numeric = new HashSet<int> { 3, 4 }, EmptyText = "Nothing stood out in the last two weeks." };
             foreach (var a in found) tb.Rows.Add([a.Day, a.Unit, a.Kind, a.Value, Math.Round(a.Baseline), $"{a.Change:+0%;-0%}"]);
             Panels.Add(new("Days that stood out", tb.Render(), $"The thresholds are set in Admin > Alerts and digests, which can also email them. Up to {Ctx.End:d MMM yyyy}."));
             var top = found.Select(a => a.Unit).Distinct().Take(8).ToList();
