@@ -235,6 +235,6 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         CsvTable = t;
         Panels.Add(new("By department", t.Render(),
             "Suggested change: heavy demand less unused licenses, within the department. Negative is licenses to release." +
-            (folded > 0 ? $" {folded} department(s) under {Ctx.MinGroupSize} people are combined." : ""), "full", CsvUrl()));
+            (folded > 0 ? $" {Count(folded, "department")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : ""), "full", CsvUrl()));
     }
 }

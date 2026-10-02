@@ -24,7 +24,7 @@ public static class Groups
     {
         var t = new Table
         {
-            Headers = [first, "People", "Licensed", "Share licensed", "Active", "Adoption", "Days active per person", "Interactions per active person", "Multi-turn sessions"],
+            Headers = [first, "People", "Licensed", "Share licensed", "Active", "Adoption", "Days active per person", "Interactions per active person", "Sessions with a follow-up"],
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7, 8 },
         };
         foreach (var r in rows.OrderByDescending(r => r.People))

@@ -24,7 +24,7 @@ public sealed class SwapModel(PageServices s) : InsightsPage(s)
     {
         ["department"] = ("Same department", "ISNULL(NULLIF(du.Department, N''), N'(no department)')"),
         ["division"] = ("Same division", "ISNULL(NULLIF(du.Division, N''), N'(no division)')"),
-        ["any"] = ("Anywhere in scope", "N'(anywhere)'"),
+        ["any"] = ("Anywhere", "N'(anywhere)'"),
     };
 
     sealed class Pair

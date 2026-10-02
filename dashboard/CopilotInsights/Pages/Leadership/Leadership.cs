@@ -7,7 +7,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Overview";
     public override string Persona => "Leadership";
-    public override string Intro => "Is Copilot being used, by how many of the people who have it, and where. Aggregates only.";
+    public override string Intro => "Is Copilot being used, by how many of the people who have it, and where. Totals only: no one is named.";
 
     protected override async Task BuildAsync()
     {
@@ -16,7 +16,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var adopted = await m.AdoptedAsync(Ctx);
         var x = Labels();
 
-        Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in scope" : "in the period"));
+        Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in {Here}" : "in the period"));
         Kpis.Add(new("Premium licenses today", Num(t.LicensedNow), t.People > 0 ? $"{Pct(Ratio(t.LicensedNow, t.People))} of people" : null));
         Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), "Premium license holders who used Copilot in the period"));
         Kpis.Add(new("Active in the last 7 days", Num(t.ActiveLast7), t.LicensedNow > 0 ? $"{Pct(Ratio(t.ActiveLast7, t.LicensedNow))} of licensed people" : null));
@@ -43,7 +43,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
             Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null)),
                 Ctx.MinGroupSize, "Adoption by unit", 40),
             $"Licensed people active in the period, per unit one level down, for units with at least {Ctx.MinGroupSize} license holders; the rest are combined in the last bar. Select a name to look inside." +
-            (folded > 0 ? $" {folded} unit(s) under {Ctx.MinGroupSize} people are combined." : "")));
+            (folded > 0 ? $" {Count(folded, "unit")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : "")));
     }
 }
 
@@ -62,7 +62,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
 
         var t = new Table
         {
-            Headers = ["Unit", "Department", "People", "Licensed", "Active", "Adoption", "Days active per person", "Interactions per active person", "Multi-turn sessions", "Trend (active people)"],
+            Headers = ["Unit", "Department", "People", "Licensed", "Active", "Adoption", "Days active per person", "Interactions per active person", "Sessions with a follow-up", "Trend (active people)"],
             Numeric = new HashSet<int> { 2, 3, 4, 5, 6, 7, 8 },
         };
         foreach (var u in shown)
@@ -77,7 +77,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         }
         t.KeepLast = folded > 0 ? 1 : 0;
         Panels.Add(new("Units", t.Render(),
-            folded > 0 ? $"{folded} unit(s) with fewer than {Ctx.MinGroupSize} people are combined as Smaller groups, so no total describes one person." : null));
+            folded > 0 ? $"{Count(folded, "unit")} with fewer than {Ctx.MinGroupSize} people {Are(folded)} combined as Smaller groups, so no total describes one person." : null));
 
         var big = shown.Where(u => u.Unit != "~small").ToList();
         var grid = new double?[big.Count, buckets.Count];

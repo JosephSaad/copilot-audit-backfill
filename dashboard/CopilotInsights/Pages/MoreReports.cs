@@ -43,7 +43,7 @@ namespace CopilotInsights.Pages.Leadership
             }
             Kpis.Add(new("Licensed", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow)));
             Kpis.Add(new("Interactions", Num(now.Interactions), Delta(now.Interactions, before.Interactions)));
-            Kpis.Add(new("Multi-turn sessions", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
+            Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
 
             var u1 = (await m.UnitsAsync(Ctx)).ToDictionary(u => u.Unit);
             var u0 = (await m.UnitsAsync(prev)).ToDictionary(u => u.Unit);
@@ -155,7 +155,7 @@ namespace CopilotInsights.Pages.Security
                 }
             var worst = units.OrderByDescending(u => u.Flags * 1000.0 / u.Interactions).FirstOrDefault();
             if (worst is not null) Kpis.Add(new("Highest rate", worst.Name, $"{worst.Flags * 1000.0 / worst.Interactions:0.0} per 1,000 interactions", "crit"));
-            Kpis.Add(new("Signals in scope", Num(units.Sum(u => u.Flags)), $"in {Num(units.Sum(u => u.Interactions))} interactions"));
+            Kpis.Add(new("Security signals", Num(units.Sum(u => u.Flags)), $"in {Num(units.Sum(u => u.Interactions))} interactions"));
             Panels.Add(new("Signals per 1,000 interactions, by unit", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Decimal1, "Signal rate by unit"),
                 $"Jailbreak, prompt injection and blocked resources together. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
         }

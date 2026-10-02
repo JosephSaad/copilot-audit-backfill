@@ -48,7 +48,7 @@ namespace CopilotInsights.Pages.Adoption
                 var best = changes.MaxBy(c => c.Points);
                 Kpis.Add(new("Most improved", best.Name, $"{best.Points:+0.#;-0.#;0} points on the period before"));
             }
-            Kpis.Add(new("Ranked", Num(ranked.Count), $"of {by.ToLowerInvariant()}s in scope"));
+            Kpis.Add(new("Ranked", Num(ranked.Count), $"of the {by.ToLowerInvariant()}s here"));
 
             Panels.Add(new("Adoption", Chart.Bars(ranked.Take(20).Select(r => new Bar(r.Name, Adopt(r), Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed people used it")).ToList(),
                 Fmt.Percent, "Adoption by group", 1), null, "half"));
@@ -286,8 +286,8 @@ LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = fam.UserKey AND ld.DateKey = 
 GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             var kept = Groups.Fold(this, rows, Ctx.MinGroupSize, out var folded);
             var unmatched = rows.FirstOrDefault(r => r.Name == "(no family)")?.People ?? 0;
-            Kpis.Add(new("Families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {rules} rule(s)"));
-            Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in scope" : null, unmatched > 0 && rules > 0 ? "warn" : null));
+            Kpis.Add(new("Families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {Count(rules, "rule")}"));
+            Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));
             if (rules == 0) Notice = "No job family rules yet: everyone is \"(no family)\". An administrator adds them in Admin > Classifications and events, with the titles that need one listed there.";
             Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Licensed people who used Copilot, over people licensed.", "half"));
             var t = Groups.Table(kept, "Job family");

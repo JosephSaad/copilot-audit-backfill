@@ -688,7 +688,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.ValueName (ColumnId, Value, Name, Note, Updat
             }
             catch (ArgumentException ex) { errors.Add(ex.Message); }
         }
-        return $"{saved} name(s) saved, {cleared} left without a name." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
+        return $"{Count(saved, "name")} saved, {cleared} left without a name." + (errors.Count == 0 ? "" : $" {Count(errors.Count, "line")} skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
     });
 
     /// <summary>The mapping file: one column's values and names, or (no column) every column's but those with too many to name.</summary>
@@ -748,13 +748,13 @@ FROM OPENJSON(@json) WITH (Upn NVARCHAR(256) '$.u', Session NVARCHAR(190) '$.s',
 WHERE NOT EXISTS (SELECT 1 FROM dash.TrainingAttendance AS t WHERE t.Upn = s.Upn AND t.Session = s.Session AND t.AttendedOn = s.AttendedOn)
 GROUP BY s.Upn, s.Session, s.AttendedOn;",
                 new { by, json = System.Text.Json.JsonSerializer.Serialize(chunk.Select(x => new { u = x.Upn, s = x.Session, d = x.Date.ToString("yyyy-MM-dd") })) });
-        return $"{added} attendance record(s) added from {rows.Count} line(s)." + (errors.Count == 0 ? "" : $" {errors.Count} line(s) skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
+        return $"{Count(added, "attendance record")} added from {Count(rows.Count, "line")}." + (errors.Count == 0 ? "" : $" {Count(errors.Count, "line")} skipped: " + string.Join(" ", errors.Take(5)) + (errors.Count > 5 ? $" And {errors.Count - 5} more." : ""));
     });
 
     public Task<IActionResult> OnPostRemoveAsync(string? session, DateTime? date) => AdminChangeAsync(async () =>
     {
         var n = await Db.ExecuteAsync("DELETE FROM dash.TrainingAttendance WHERE Session = @session AND AttendedOn = @date", new { session, date });
-        return $"{n} attendance record(s) of {session} removed.";
+        return $"{Count(n, "attendance record")} of {session} removed.";
     });
 
     /// <summary>The mapping file (2.4.5): every attendance record held, as UPN, Session, Date, which the upload reads back.</summary>

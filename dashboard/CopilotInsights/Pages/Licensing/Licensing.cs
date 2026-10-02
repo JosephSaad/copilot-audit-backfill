@@ -60,7 +60,7 @@ WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SK
             Chart.Bars(units.Take(20).Select(u => new Bar(u.Name, u.Licensed - u.ActiveLicensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
                 $"{u.Licensed - u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed", 2)).ToList(), Fmt.Count, "Idle licenses by unit"),
             "Licenses held today by people who did not use Copilot in the selected period, one level down." +
-            (folded > 0 ? $" {folded} unit(s) under {Ctx.MinGroupSize} people are combined." : ""), "half"));
+            (folded > 0 ? $" {Count(folded, "unit")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : ""), "half"));
     }
 }
 
@@ -180,7 +180,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         var heavy = depts.Sum(d => d.Heavy);
         Kpis.Add(new("Unlicensed Copilot Chat users", Num(users), "in the period"));
         Kpis.Add(new($"Used it on {Heavy}+ days", Num(heavy), "the strongest candidates for a license"));
-        Kpis.Add(new("People without a license", Num(depts.Sum(d => d.People)), "enabled accounts in scope"));
+        Kpis.Add(new("People without a license", Num(depts.Sum(d => d.People)), $"enabled accounts in {Here}"));
 
         Panels.Add(new("Copilot Chat users without a license",
             Chart.Line(Labels(), [new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "Unlicensed users"),

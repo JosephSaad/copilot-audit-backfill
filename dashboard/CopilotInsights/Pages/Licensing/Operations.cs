@@ -105,7 +105,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
             .Select(r => new Bar(r.Name, (double)((r.Licensed - r.ActiveLicensed) * price), Note: $"{r.Licensed - r.ActiveLicensed:#,0} of {r.Licensed:#,0} licenses unused")).ToList(), Fmt.Count, "Unused spend by group"),
             $"A month, in {cur}, at {price:#,0.##} a license (Admin > Access).", "half"));
         Panels.Add(new("By " + by.ToLowerInvariant(), new HtmlString($"<p class=\"sub\">Group by: {choices}</p>" + t.Render().Value),
-            (folded > 0 ? $"{folded} group(s) smaller than {Ctx.MinGroupSize} people are combined. " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
+            (folded > 0 ? $"{Count(folded, "group")} smaller than {Ctx.MinGroupSize} people {Are(folded)} combined. " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
             "full", CsvUrl()));
     }
 }

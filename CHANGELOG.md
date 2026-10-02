@@ -28,6 +28,13 @@ Clearer names and less clutter. No change to the database: install the dashboard
   period too, and now say so in place of the Period box. Every report was checked at 30 and at
   365 days for this.
 
+- **Plain words.** *Multi-turn sessions* is *Sessions with a follow-up* everywhere (the share
+  of sessions where the person replied to Copilot at least once), and *Multi-turn users* is
+  *People who followed up*. "In scope" is gone: figures are "of 2,274 people in the
+  organization", or "in this part of the organization" for a manager. "Aggregates only" is
+  "Totals only: no one is named". Counts read as a sentence: "1 unit is combined", "3 units
+  are combined", not "1 unit(s) are combined".
+
 ### Fixed
 - **"For copilot program lead".** The line under a report's title lowercased the first word
   of its audience whatever it was: *For copilot program lead*, *For hR and people analytics*,

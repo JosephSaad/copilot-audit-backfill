@@ -11,7 +11,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 {
     public override string Title => "Board pack";
     public override string Persona => "Leadership";
-    public override string Intro => "The program on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licenses and risk signals. Print it, or save it as a PDF from the print dialog. Aggregates only.";
+    public override string Intro => "The program on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licenses and risk signals. Print it, or save it as a PDF from the print dialog. Totals only: no one is named.";
 
     protected override async Task BuildAsync()
     {
@@ -63,7 +63,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var counts = await reports.ActionCountsAsync(Ctx);
         var lt = new Table { Headers = ["Licenses", ""], Numeric = new HashSet<int> { 1 }, Sortable = false };
         if (pool.Count > 0) { lt.Rows.Add(["Bought", pool.Sum(x => x.Bought)]); lt.Rows.Add(["Assigned", pool.Sum(x => x.Consumed)]); }
-        lt.Rows.Add(["Held in scope", t.LicensedNow]);
+        lt.Rows.Add(["Premium licenses held", t.LicensedNow]);
         lt.Rows.Add(["Used in the period", t.ActiveLicensed]);
         lt.Rows.Add(["Unused for 30 days, to revoke", counts.GetValueOrDefault("revoke")]);
         lt.Rows.Add(["Free Copilot Chat users ready to upgrade", counts.GetValueOrDefault("upgrade")]);

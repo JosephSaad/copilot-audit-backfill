@@ -10,7 +10,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Security signals";
     public override string Persona => "Security";
-    public override string Intro => "Jailbreak attempts, prompt injection in content Copilot read, and resources Copilot was blocked from: how many, when and where. Aggregates only.";
+    public override string Intro => "Jailbreak attempts, prompt injection in content Copilot read, and resources Copilot was blocked from: how many, when and where. Totals only: no one is named.";
 
     protected override async Task BuildAsync()
     {
@@ -60,7 +60,7 @@ GROUP BY a.App;", Ctx.Args());
         Panels.Add(new("By unit, per 1,000 interactions",
             Chart.Bars(units.Select(u => new Bar(u.Name, u.Flags * 1000.0 / u.Interactions, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
                 $"{u.Flags:#,0} signals in {u.Interactions:#,0} interactions", 7)).ToList(), Fmt.Decimal1, "Signal rate by unit"),
-            "All three signals together, as a rate so large and small units compare fairly." + (folded > 0 ? $" {folded} small unit(s) combined." : ""), "half"));
+            "All three signals together, as a rate so large and small units compare fairly." + (folded > 0 ? $" {Count(folded, "small unit")} {Are(folded)} combined." : ""), "half"));
     }
 }
 

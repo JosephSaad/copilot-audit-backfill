@@ -22,7 +22,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Panels.Add(new("Adoption by country", Groups.AdoptionBars(countries, "Adoption by country", Ctx.MinGroupSize),
             "Licensed people who used Copilot in the period." + (fc > 0 ? $" {fc} country(ies) under {Ctx.MinGroupSize} people combined." : ""), "half"));
         Panels.Add(new("Adoption by office", Groups.AdoptionBars(offices, "Adoption by office", Ctx.MinGroupSize, 15),
-            "The fifteen offices with the highest adoption." + (fo > 0 ? $" {fo} office(s) under {Ctx.MinGroupSize} people combined." : ""), "half"));
+            "The fifteen offices with the highest adoption." + (fo > 0 ? $" {Count(fo, "office")} under {Ctx.MinGroupSize} people {Are(fo)} combined." : ""), "half"));
 
         var trend = await Db.QueryAsync<(string Country, DateTime Bucket, int Active)>($@"
 SELECT ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")}, COUNT(DISTINCT ud.UserKey)

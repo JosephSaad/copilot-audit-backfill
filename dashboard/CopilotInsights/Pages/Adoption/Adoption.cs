@@ -22,16 +22,16 @@ WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.Use
         Kpis.Add(new("Licensed today", Num(t.LicensedNow)));
         Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} licensed people have used it at least once"));
         Kpis.Add(new("Active in the period", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), $"{t.ActiveLicensed:#,0} licensed people"));
-        Kpis.Add(new("Multi-turn users", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of active people had a conversation, not only one-off prompts"));
+        Kpis.Add(new("People who followed up", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of active people replied to Copilot at least once, not only one-off prompts"));
 
         var stages = new List<Bar>
         {
-            new("People in scope", t.People, Note: "enabled accounts in the directory"),
+            new("People", t.People, Note: "enabled accounts in the directory"),
             new("Licensed today", t.LicensedNow, Slot: 1),
             new("Licensed and started", started, Slot: 1),
             new("Licensed, active in the period", t.ActiveLicensed, Slot: 1),
             new("Active in the last 7 days", t.ActiveLast7, Slot: 1),
-            new("Had a multi-turn session", t.MultiTurnUsers, Slot: 1),
+            new("Followed up on an answer", t.MultiTurnUsers, Slot: 1),
         };
         Panels.Add(new("Adoption funnel", Chart.Bars(stages, Fmt.Count, "Adoption funnel"),
             "Each stage is a count of people. The last two include anyone active, licensed or on Copilot Chat."));
@@ -160,13 +160,13 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             $"Departments with at least {Ctx.MinGroupSize} license holders, highest first; the rest are combined in the last bar, so no bar rests on one or two people. The table has every department."));
         var t = new Table
         {
-            Headers = ["Department", "People", "Licensed", "Share licensed", "Active", "Adoption", "Days active per person", "Multi-turn sessions"],
+            Headers = ["Department", "People", "Licensed", "Share licensed", "Active", "Adoption", "Days active per person", "Sessions with a follow-up"],
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7 },
         };
         foreach (var r in shown)
             t.Rows.Add([r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, Pct(Ratio(r.ActiveLicensed, r.Licensed)),
                         r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null, Pct(Ratio(r.MultiTurn, r.Sessions))]);
-        Panels.Add(new("All departments", t.Render(), folded > 0 ? $"{folded} department(s) under {Ctx.MinGroupSize} people are combined." : null));
+        Panels.Add(new("All departments", t.Render(), folded > 0 ? $"{Count(folded, "department")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : null));
     }
 }
 

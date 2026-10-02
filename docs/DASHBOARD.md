@@ -49,15 +49,15 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | Persona | Page | What it answers | Grain | Named people |
 |---|---|---|---|---|
 | Leadership | Overview | People using Copilot, licensed, adoption, active in the last 7 days; trends; adoption by the next level down | Scope, then one level down | No |
-| | Scorecard | This period against the one before it: people, adoption split into Premium (license holders who used what the license pays for) and free only (those who used only what is free without it), licenses, interactions and multi-turn sessions, and each unit one level down with its change | Scope, one level down | No |
-| | Organization | Each unit one level down side by side: people, licensed, active, adoption, days active, interactions, multi-turn share, a trend line; heatmap of share active per week | One level down | No |
+| | Scorecard | This period against the one before it: people, adoption split into Premium (license holders who used what the license pays for) and free only (those who used only what is free without it), licenses, interactions and sessions with a follow-up, and each unit one level down with its change | Scope, one level down | No |
+| | Organization | Each unit one level down side by side: people, licensed, active, adoption, days active, interactions, share of sessions with a follow-up, a trend line; heatmap of share active per week | One level down | No |
 | | Apps and agents | Interactions by app over time, Copilot Chat and agent share, most-used agents | Scope | No |
 | | Value and time saved | Estimated hours saved (interactions times the minutes each app saves) and their worth, by app and department, against the license cost | Scope, app, department | No |
 | | Use cases | What Copilot is used for (email, meetings, writing, analysis, research, agents...) from the app, web search and agent, by the rules in Admin › Classifications and events; over time and by department | Scope, department | No |
 | | Board pack | One printable page for the board: use and adoption against the period before, the trend, targets, estimated value against license cost, licenses and risk signals | Scope | No |
 | | Group overview | With several tenants: each tenant's people, adoption and interactions side by side, for the tenants the viewer can see | Tenant | No |
-| Adoption | Funnel and trend | Licensed → started → active → active this week → multi-turn; first-time users over time | Scope | No |
-| | Usage by license | For licensed, unlicensed or everyone in scope: people, active and inactive; use by app and by the file type read (docx, xlsx, pptx ..., or a mail, a Teams message); the highest and lowest users; minutes used (the span of each conversation, first prompt to last) by person, by app, with averages for Outlook, Teams and Copilot Chat, and every conversation, downloadable; interactions by app over the period with each app's lowest, highest and mean point; people by days active; the last database update and the latest audit record | Person | **Adoption** |
+| Adoption | Funnel and trend | Licensed → started → active → active this week → followed up on an answer; first-time users over time | Scope | No |
+| | Usage by license | For licensed, unlicensed or everyone you can see: people, active and inactive; use by app and by the file type read (docx, xlsx, pptx ..., or a mail, a Teams message); the highest and lowest users; minutes used (the span of each conversation, first prompt to last) by person, by app, with averages for Outlook, Teams and Copilot Chat, and every conversation, downloadable; interactions by app over the period with each app's lowest, highest and mean point; people by days active; the last database update and the latest audit record | Person | **Adoption** |
 | | Retention and habit | Of everyone active in a week, how many come back in each of the next eight weeks; how many of the last twelve weeks people used it | Weekly cohorts | No |
 | | Retention by license month | Of the people licensed each month, the share active in weeks 1 to 12 after; time from license to first use | Monthly cohorts | No |
 | | Departments | Licensed, active and adoption per AD department; small departments combined | Department | No |
@@ -98,7 +98,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Agent hand-offs | How often one agent calls another, and which agents are called | Scope, agent | No |
 | | Agents costing credits | Each agent's use by people without a license, its Copilot Credits a month and per person, and whether to restrict it or license its users | Scope, agent | No |
 | | Agent detail | One agent: people and new people, return rate, trend, by department and app; its users | Agent; person | List: **Agents** |
-| Enablement | Engagement | Segments (power, regular, occasional, one-off, not started) overall and by department; multi-turn share and prompts per session; apps per person | Scope, department | No |
+| Enablement | Engagement | Segments (power, regular, occasional, one-off, not started) overall and by department; share of sessions with a follow-up and prompts per session; apps per person | Scope, department | No |
 | | Conversation depth | Sessions by prompts and by length; messages per prompt over time | Scope | No |
 | | Training effect | For each training session: attendees' active days in the 28 days before and after, against colleagues in the same departments | Session | No (sessions under the minimum group size hidden) |
 | | Champions | The most regular and broadest users in each department, as champion candidates | Person | **Enablement** |

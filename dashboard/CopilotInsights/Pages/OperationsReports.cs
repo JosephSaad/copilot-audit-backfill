@@ -111,7 +111,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             var tb = new Table { Headers = ["Department", "Licensed in the period", "Have used it", "Median days to first use"], Numeric = new HashSet<int> { 1, 2, 3 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Started, d.Median.Count >= Ctx.MinGroupSize ? d.Median[d.Median.Count / 2] : null]);
             if (small.Count > 0) { tb.Rows.Add(["Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Started), null]); tb.KeepLast = 1; }
-            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{small.Count} department(s) with fewer than {Ctx.MinGroupSize} new licenses are combined." : null));
+            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{Count(small.Count, "department")} with fewer than {Ctx.MinGroupSize} new licenses {Are(small.Count)} combined." : null));
         }
     }
 
@@ -180,7 +180,7 @@ namespace CopilotInsights.Pages.Leadership
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Interactions, Math.Round(d.Hours), Math.Round(d.Value), d.People > 0 ? Math.Round(d.Hours / d.People, 1) : null]);
             if (small.Count > 0) { tb.Rows.Add(["Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Interactions), Math.Round(small.Sum(d => d.Hours)), Math.Round(small.Sum(d => d.Value)), null]); tb.KeepLast = 1; }
             CsvTable = tb;
-            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{small.Count} department(s) with fewer than {Ctx.MinGroupSize} people using Copilot are combined." : null, "half", CsvUrl()));
+            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{Count(small.Count, "department")} with fewer than {Ctx.MinGroupSize} people using Copilot {Are(small.Count)} combined." : null, "half", CsvUrl()));
         }
     }
 }

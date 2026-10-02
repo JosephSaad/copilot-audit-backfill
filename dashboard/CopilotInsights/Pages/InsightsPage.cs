@@ -367,6 +367,15 @@ public abstract class InsightsPage(PageServices s) : PageModel
 
     /* ---- helpers for pages ---------------------------------------------------- */
 
+    /// <summary>"1 unit", "3 units": a count with its noun (2.4.10; the pages wrote "3 unit(s)").</summary>
+    protected static string Count(int n, string noun, string? plural = null) => $"{n:#,0} {(n == 1 ? noun : plural ?? noun + "s")}";
+
+    /// <summary>"is" for one, "are" for more: "1 unit is combined", "3 units are combined".</summary>
+    protected static string Are(int n) => n == 1 ? "is" : "are";
+
+    /// <summary>Where the figures are from, in a sentence: "the organization", or "this part of the organization".</summary>
+    protected string Here => Ctx.Root is null && Viewer.OrgWide ? "the organization" : "this part of the organization";
+
     protected static string Pct(double? v) => Chart.Format(v, Fmt.Percent);
     protected static string Num(double? v) => Chart.Format(v, Fmt.Count);
     protected static double? Ratio(double a, double b) => b > 0 ? a / b : null;
