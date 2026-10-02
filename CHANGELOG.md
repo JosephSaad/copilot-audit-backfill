@@ -173,6 +173,13 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
 
 ### Fixed
 
+- **An old link to someone's organization showed zeros under "Whole organization".** A link
+  with a manager who is no longer in the directory (`?org=` with a sign-in nobody has) opened
+  a report that said *Whole organization* and showed nothing. A page now shows the whole
+  organization and says why. Someone who sees only their own part, following a link to a part
+  that is not theirs, got their own part with no word of it; the page now says so, in the
+  same words whether or not such a person exists. The data API and the digests are unchanged:
+  they keep to what was asked for.
 - **The audit log counted data API calls as admin changes.** Admin › Audit log showed two
   figures named *Admin changes*; the second was the data API's calls. Each kind now has its
   own name (*Page views*, *Refused*, *Exports*, *Data API calls*, *Admin changes*), used by

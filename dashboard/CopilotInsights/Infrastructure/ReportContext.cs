@@ -73,6 +73,17 @@ public sealed class ReportContext
     /// <summary>The subtree shown; null = the whole organization (allowed only for whole-organization viewers).</summary>
     public string? Root { get; init; }
     public string? RootName { get; init; }
+    /// <summary>
+    /// The part of the organization the address asked for, when it is not the one shown (2.4.10): nobody in the directory
+    /// has that sign-in (an old link, someone who has left), or it is outside the viewer's own part. The page says so;
+    /// it used to show "Whole organization" over a report of zeros, or the viewer's own part with no word of why.
+    /// </summary>
+    public string? OrgAsked { get; init; }
+
+    /// <summary>What the page says about <see cref="OrgAsked"/>. The same words whether or not such a person exists, to someone who may not see them.</summary>
+    public string? OrgNote => OrgAsked is null ? null
+        : Root is null ? $"No one in the organization directory has the sign-in {OrgAsked}, so this shows the whole organization. They may have left, or the link may be an old one."
+        : $"{OrgAsked} is not in your part of the organization, so this shows yours.";
     public required int MinGroupSize { get; init; }
     public required int InactiveDays { get; init; }
     public string? OrgTopUpn { get; init; }
@@ -135,12 +146,19 @@ public sealed class ReportContext
 
 public sealed class ReportContextFactory(Db db, Settings settings)
 {
-    public Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request) =>
-        CreateAsync(viewer, int.TryParse(request.Query["d"], out var dq) ? dq : null, request.Query["org"].FirstOrDefault());
+    /// <param name="forPage">
+    /// A page a person is looking at: a part of the organization that is not in the directory falls back to the whole
+    /// organization, with a note (2.4.10). The data API and the digests keep to what was asked for, and so to nothing:
+    /// a digest for a manager who has left must not start showing everyone.
+    /// </param>
+    public Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request, bool forPage = false) =>
+        CreateAsync(viewer, int.TryParse(request.Query["d"], out var dq) ? dq : null, request.Query["org"].FirstOrDefault(), forPage);
 
     /// <summary>The same without a request: for email digests and the data API.</summary>
-    public async Task<ReportContext> CreateAsync(Viewer viewer, int? requestedDays, string? requested)
+    public async Task<ReportContext> CreateAsync(Viewer viewer, int? requestedDays, string? requested, bool forPage = false)
     {
+        requested = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
+        string? asked = null;
         var defaultDays = await settings.IntAsync("DefaultDays", 30);
         if (!ReportContext.DayChoices.Contains(defaultDays)) defaultDays = 30;
         var days = requestedDays is int dq && ReportContext.DayChoices.Contains(dq) ? dq : defaultDays;
@@ -160,17 +178,24 @@ SELECT COALESCE(
         /* Whose data: whole organization, or a subtree the viewer may see. */
         string? root;
         if (viewer.OrgWide)
-            root = string.IsNullOrWhiteSpace(requested) ? null : requested;
+        {
+            root = requested;
+            if (root is not null && forPage && await db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Person WHERE Upn = @root", new { root }) == 0)
+                (asked, root) = (root, null);
+        }
         else
         {
             root = viewer.Upn ?? "(nobody)";
-            if (!string.IsNullOrWhiteSpace(requested) && viewer.Upn is not null)
+            if (requested is not null && viewer.Upn is not null)
             {
                 var under = await db.ScalarAsync<int>(
                     "SELECT COUNT(*) FROM dash.OrgClosure WHERE AncestorUpn = @v AND DescendantUpn = @r", new { v = viewer.Upn, r = requested });
                 if (AccessRules.MayViewSubtree(viewer, requested, under > 0)) root = requested;
             }
+            if (requested is not null && !string.Equals(root, requested, StringComparison.OrdinalIgnoreCase)) asked = requested;
         }
+        /* What was asked for is shown back in the note: no longer than a sign-in can be. */
+        if (asked is { Length: > 256 }) asked = asked[..256];
 
         string? rootName = null;
         var crumbs = new List<OrgUnit>();
@@ -196,7 +221,7 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
 
         return new ReportContext
         {
-            Viewer = viewer, Days = days, Start = start, End = end, Root = root, RootName = rootName,
+            Viewer = viewer, Days = days, Start = start, End = end, Root = root, RootName = rootName, OrgAsked = asked,
             MinGroupSize = minGroup, InactiveDays = inactive, OrgTopUpn = top, Breadcrumb = crumbs, Children = children,
         };
     }

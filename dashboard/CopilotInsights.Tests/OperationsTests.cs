@@ -415,6 +415,22 @@ public class MappingFileTests
     }
 
     [Fact]
+    public void A_part_of_the_organization_that_is_not_shown_is_said_so()
+    {
+        static ReportContext C(string? root, string? asked) => new()
+        {
+            Viewer = new Viewer { WindowsName = "x", Roles = new HashSet<string>() }, Days = 30, Start = new DateTime(2026, 9, 1), End = new DateTime(2026, 9, 30),
+            Root = root, OrgAsked = asked, MinGroupSize = 5, InactiveDays = 30,
+        };
+        Assert.Null(C(null, null).OrgNote);
+        Assert.Null(C("ada@contoso.com", null).OrgNote);
+        // Someone who sees everything, an old link: the whole organization, and why.
+        Assert.StartsWith("No one in the organization directory has the sign-in gone@contoso.com, so this shows the whole organization.", C(null, "gone@contoso.com").OrgNote);
+        // Someone who sees their own part: the same words whether or not there is such a person.
+        Assert.Equal("ceo@contoso.com is not in your part of the organization, so this shows yours.", C("ada@contoso.com", "ceo@contoso.com").OrgNote);
+    }
+
+    [Fact]
     public void Every_kind_in_the_audit_log_has_its_own_name()
     {
         string[] kinds = ["View", "Denied", "Export", "Api", "Admin"];

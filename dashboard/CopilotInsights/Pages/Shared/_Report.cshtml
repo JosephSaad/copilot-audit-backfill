@@ -54,6 +54,12 @@
     return;
 }
 
+@if (Model.UsesFilters && c.OrgNote is not null)
+{
+    @* The address asked for a part of the organization that is not the one shown (2.4.10): say so, above the figures. *@
+    <div class="notice" role="status">@c.OrgNote</div>
+}
+
 @if (Model.UsesFilters)
 {
     <form class="filters" method="get" action="@path">

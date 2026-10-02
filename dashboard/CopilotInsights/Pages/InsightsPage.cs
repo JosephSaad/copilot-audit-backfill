@@ -278,7 +278,7 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     protected async Task<bool> PrepareAsync()
     {
         Viewer = await S.Viewers.GetAsync();
-        Ctx = await S.Contexts.CreateAsync(Viewer, Request);
+        Ctx = await S.Contexts.CreateAsync(Viewer, Request, forPage: true);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
         DataZone = CopilotInsights.Data.Zones.Label(CopilotInsights.Data.Zones.Resolve(null, await S.Settings.ReportingTimeZoneAsync()));
