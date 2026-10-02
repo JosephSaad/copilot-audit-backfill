@@ -75,7 +75,7 @@ namespace CopilotInsights.Pages.Leadership
                     t.Rows.Add([name, n.People, Pct(a1), Arrow(a1 - a0, true), .. rest]);
             }
             Panels.Add(new("By unit, against the period before", t.Render(),
-                $"One level down. Units under {Ctx.MinGroupSize} people are left out. "
+                $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out. "
                 + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
                 + "Change in adoption is in percentage points; the others are relative."));
         }
@@ -139,7 +139,7 @@ namespace CopilotInsights.Pages.Security
     {
         public override string Title => "Security signals by unit";
         public override string Persona => "Security";
-        public override string Intro => "Where jailbreak attempts, prompt injection and blocked content cluster, one level down, over time. Rates per 1,000 interactions, so big and small units compare fairly.";
+        public override string Intro => "Where jailbreak attempts, prompt injection and blocked content cluster, in each part of the organization one level below, over time. Rates per 1,000 interactions, so big and small units compare fairly.";
 
         protected override async Task BuildAsync()
         {
@@ -183,7 +183,7 @@ namespace CopilotInsights.Pages.Compliance
                     grid[r, c] = p is { Interactions: > 0 } ? p.Labeled / (double)p.Interactions : null;
                 }
             Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1),
-                $"One level down. Darker is a larger share. {TrendNote}"));
+                $"Each part of the organization one level below. Darker is a larger share. {TrendNote}"));
 
             /* Counted per key pair, then named (2.4.2): grouping on the names worked out a string for each of the rows. */
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
@@ -309,7 +309,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
             var web = series.GroupBy(x => x.Unit).Where(g => units.ContainsKey(g.Key))
                 .Select(g => (Unit: units[g.Key], Web: g.Sum(x => x.Web), All: g.Sum(x => x.Interactions))).Where(x => x.All > 0).OrderByDescending(x => x.Web / (double)x.All).ToList();
             Panels.Add(new("Web grounding by unit", Chart.Bars(web.Take(15).Select(x => new Bar(x.Unit.Name, x.Web / (double)x.All, x.Unit.Drillable ? Ctx.Url(Request.Path, org: x.Unit.Unit) : null, $"{x.Web:#,0} of {x.All:#,0}")).ToList(), Fmt.Percent, "Web grounding by unit", 1),
-                $"One level down; units under {Ctx.MinGroupSize} people left out."));
+                $"Each part of the organization one level below; units under {Ctx.MinGroupSize} people are left out."));
         }
     }
 }

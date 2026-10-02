@@ -175,7 +175,7 @@ ORDER BY {pg.OrderBy};", Ctx.Args(new { q = pg.Like, label }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Labeled interactions", "Days", "Most sensitive label", "Sites", "Blocked"],
+            Headers = ["Name", "Sign-in", "Department", "Labeled interactions", "Days with one", "Most sensitive label", "Sites reached", "Times blocked"],
             Numeric = new HashSet<int> { 3, 4, 6, 7 }, EmptyText = "Nobody touched labeled content in the period.",
             Server = new(pg, Request, ["name", "upn", "dept", "most", "days", "sens", "sites", "blocked"], new HashSet<int> { 3, 4, 5, 6, 7 }),
         };

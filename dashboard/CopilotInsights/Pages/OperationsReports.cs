@@ -242,7 +242,7 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
             Panels.Add(new("The widest-reaching sites", Chart.Bars(wide.Take(15).Select(r => new Bar(Short(r.Site), r.People,
                 Note: $"{r.Reads:#,0} reads, {Pct(Ratio(r.Labeled, r.Reads))} labeled{(r.TopLabel is null ? "" : $", up to {r.TopLabel}")}", Slot: r.Labeled < r.Reads * 0.1 ? 5 : 1)).ToList(),
                 Fmt.Count, "People reaching each site through Copilot"), "Orange: under 10% of what Copilot read there carried a label.", "half"));
-            var tb = new Table { Headers = ["Site", "OneDrive", "People", "Reads", "Labeled", "Most sensitive label", "Blocked"], Numeric = new HashSet<int> { 2, 3, 5 } };
+            var tb = new Table { Headers = ["Site", "A person's OneDrive", "People who reached it", "Times read", "Share labeled", "Most sensitive label", "Times blocked"], Numeric = new HashSet<int> { 2, 3, 5 } };
             foreach (var r in rows)
                 tb.Rows.Add([r.Site, r.IsPersonal ? "Yes" : "", r.People < Ctx.MinGroupSize ? null : r.People, r.Reads, Pct(Ratio(r.Labeled, r.Reads)),
                              r.TopLabel ?? (r.TopRank is not null ? "(unnamed label)" : null), r.Blocked]);

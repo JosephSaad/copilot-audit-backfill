@@ -31,7 +31,7 @@ public static class NavText
     {
         ["/leadership"] = ("Is Copilot being used, by how many of the people who have it, and where.", "At a glance"),
         ["/leadership/scorecard"] = ("This period against the one before: what moved, and in which part of the organization.", "At a glance"),
-        ["/leadership/org"] = ("Each part of the organization one level down, side by side.", "At a glance"),
+        ["/leadership/org"] = ("Each part of the organization one level below, side by side.", "At a glance"),
         ["/group"] = ("Each tenant's headline figures for the period, and the group's totals.", "At a glance"),
         ["/leadership/mix"] = ("Where people use Copilot: which apps, chat or in-app, and how much through agents.", "What it is used for"),
         ["/leadership/usecases"] = ("What Copilot is used for: email, meetings, writing, analysis, research and agents.", "What it is used for"),

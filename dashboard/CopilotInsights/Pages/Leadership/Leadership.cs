@@ -51,7 +51,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
 {
     public override string Title => "Organization";
     public override string Persona => "Leadership";
-    public override string Intro => "Each part of the organization one level down, side by side. Select a name to look inside it.";
+    public override string Intro => "Each part of the organization one level below, side by side. Select a name to look inside it.";
 
     protected override async Task BuildAsync()
     {

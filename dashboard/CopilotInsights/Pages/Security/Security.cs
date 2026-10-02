@@ -29,7 +29,9 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND (ud.Jailbreak > 0 OR ud.PromptInjection
                 new Series("Jailbreak", tr.Select(w => (double?)w.Jailbreak).ToList(), 8),
                 new Series("Prompt injection", tr.Select(w => (double?)w.Injection).ToList(), 2),
                 new Series("Blocked resource", tr.Select(w => (double?)w.Blocked).ToList(), 7),
-            ], Fmt.Count, "Security signals", stacked: false), TrendNote));
+            ], Fmt.Count, "Security signals", stacked: false),
+            "Jailbreak: a prompt written to make Copilot ignore its rules. Prompt injection: instructions hidden in something Copilot read (a file, a mail, a web page) that try to steer it. " +
+            $"Blocked resource: content a policy or permissions stopped Copilot from reading. Microsoft flags each in the audit record. {TrendNote}"));
 
         var hours = await Db.QueryAsync<(int Dow, int Hour, int N)>($@"
 SELECT d.DayOfWeekNumber, f.HourOfDay, COUNT(*)
@@ -42,7 +44,7 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
         foreach (var h in hours) grid[h.Dow - 1, h.Hour] = h.N;
         Panels.Add(new("When jailbreak and injection happen",
             Chart.Heatmap(days, Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList(), grid, Fmt.Count, "Flags by weekday and hour"),
-            "Flagged interactions by weekday and hour, in the reporting time zone. Out-of-hours clusters are worth a look."));
+            $"Flagged interactions by weekday and hour, in {DataZone}. Out-of-hours clusters are worth a look."));
 
         var apps = await Db.QueryAsync<(string App, int Jb, int Inj, int Blk)>($@"
 SELECT a.App, SUM(CAST(f.JailbreakDetected AS INT)), SUM(CAST(f.PromptInjectionDetected AS INT)), SUM(CAST(f.HasBlockedResource AS INT))
@@ -179,7 +181,7 @@ WHERE {Kinds[kind].Sql} AND {(cases ? Triage[triage].Sql : "1 = 1")}
             Kpis.Add(new("Open", Num(open), "new or being investigated", open > 0 ? "warn" : null));
         }
         Panels.Add(new("Interactions", new HtmlString($"<p class=\"sub\">Show: {tabs}</p>" + tri + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "Times are the hour of the interaction in the reporting time zone. Saving a triage records you as its owner, with the time, in the audit log.", "full", CsvUrl()));
+            $"Times are the hour of the interaction, in {DataZone}. Saving a triage records you as its owner, with the time, in the audit log.", "full", CsvUrl()));
     }
 
     /// <summary>Security's triage of one flagged interaction: status and a note, owned by whoever saved it.</summary>

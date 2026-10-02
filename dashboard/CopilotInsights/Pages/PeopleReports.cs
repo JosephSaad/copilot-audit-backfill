@@ -108,7 +108,7 @@ GROUP BY g.Domain;", Ctx.Args());
             Kpis.Add(new("Used Copilot in the period", Num(rows.Sum(r => r.Active)), $"{rows.Sum(r => r.Interactions):#,0} interactions"));
             Kpis.Add(new("Holding a Copilot license", Num(rows.Sum(r => r.Licensed)), "licenses in this tenant assigned to guests", rows.Sum(r => r.Licensed) > 0 ? "warn" : null));
             Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
-            if (rows.Count == 0) { Notice = "No guest or external accounts in Copilot's records for this scope."; return; }
+            if (rows.Count == 0) { Notice = $"No guest or external accounts used Copilot in {Here} in the period."; return; }
 
             var named = Viewer.Has(Roles.Security) && !PrivacyMode;
             var shown = named ? rows : rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();

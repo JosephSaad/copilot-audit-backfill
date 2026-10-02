@@ -75,6 +75,14 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   *Date from*. Overlapping licenses, before its data has loaded, says what is missing and when
   it fills, not which release brought it.
 
+- **Security and Compliance say what their words mean.** Security signals explains a
+  jailbreak, a prompt injection and a blocked resource in a sentence each. "In the reporting
+  time zone" names the zone ("in Eastern Time") on the five reports that show an hour of the
+  day. "One level down" is "each part of the organization one level below". On Oversharing
+  hotspots the columns are *A person's OneDrive*, *People who reached it*, *Times read*,
+  *Share labeled*, *Times blocked* (they were *OneDrive*, *People*, *Reads*, *Labeled*,
+  *Blocked*); on Access to labeled content, *Days with one*, *Sites reached*, *Times blocked*.
+
 ### Fixed
 - **Pointers to a page that does not exist.** Five places sent the reader to *Admin >
   Settings* for the pay-as-you-go price, and the license export script to *Admin > License

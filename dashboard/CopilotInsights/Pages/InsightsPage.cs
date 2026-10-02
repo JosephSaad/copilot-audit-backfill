@@ -229,6 +229,12 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// <summary>The zone times are shown in (2.4.10): Admin > Access, else the data's own, else the server's.</summary>
     public TimeZoneInfo Zone { get; private set; } = TimeZoneInfo.Utc;
 
+    /// <summary>
+    /// The zone the data's days and hours were cut in when it was loaded, by name ("Eastern Time"): for the reports that
+    /// show an hour of the day or a weekday. The pages said "the reporting time zone", which named nothing.
+    /// </summary>
+    public string DataZone { get; private set; } = "the server's time zone";
+
     /// <summary>A UTC time in that zone, with its name: "2026-10-02 08:45 Eastern Time".</summary>
     protected string When(DateTime? utc, string none = "not yet") => utc is null ? none : CopilotInsights.Data.Zones.Stamp(utc, Zone);
 
@@ -244,6 +250,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         Ctx = await S.Contexts.CreateAsync(Viewer, Request);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
+        DataZone = CopilotInsights.Data.Zones.Label(CopilotInsights.Data.Zones.Resolve(null, await S.Settings.ReportingTimeZoneAsync()));
         HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
         if (HttpContext.RequestServices.GetService<MostUsed>() is { } most) MostUsedPaths = await most.PathsAsync(Viewer);
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */

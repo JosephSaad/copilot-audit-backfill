@@ -290,7 +290,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
             t.Rows.Add([Math.Round(r.SpanMinutes, 1), r.PromptCount, r.App, r.DisplayName, r.UserPrincipalName, r.SessionStart]);
         CsvTable = t;
         Panels.Add(new("Minutes used (by user)", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            $"Each conversation of more than one prompt in the period, with the app of its first prompt; times are in the reporting time zone. {minutesNote} " +
+            $"Each conversation of more than one prompt in the period, with the app of its first prompt; times are in {DataZone}. {minutesNote} " +
             $"The download holds up to {ExportMax:#,0} conversations, in the order chosen.", "full", CsvUrl()));
 
         /* The trend: interactions by app over the period, with each app's lowest, highest and mean point. */
