@@ -270,6 +270,18 @@ public class PrivacyNavigationTests
     }
 
     [Fact]
+    public void Your_most_used_offers_only_reports_the_viewer_may_open_now()
+    {
+        var groups = Pages.Nav.For(V(Roles.Adoption), hidden: new HashSet<string>(["/adoption/cohorts"], StringComparer.OrdinalIgnoreCase));
+        /* Most opened first: an admin page, the start page, a report turned off, one of a section they do not hold, and one twice. */
+        var picked = MostUsed.Pick(["/admin/health", "/adoption/", "/", "/adoption/cohorts", "/licensing/unused", "/leadership", "/adoption", "/regions"], groups);
+        Assert.Equal(["/adoption", "/leadership", "/regions"], picked.Select(p => p.Path));
+        /* Fewer than three is no section at all; and never more than ten. */
+        Assert.Empty(MostUsed.Pick(["/adoption", "/leadership"], groups));
+        Assert.Equal(10, MostUsed.Pick(groups.SelectMany(g => g.Pages).Select(p => p.Path).ToList(), groups).Count);
+    }
+
+    [Fact]
     public void The_new_named_lists_need_their_roles()
     {
         var paths = Pages.Nav.For(V()).SelectMany(g => g.Pages).Select(p => p.Path).ToList();

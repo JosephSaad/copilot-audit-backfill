@@ -55,31 +55,42 @@ nav.side a:hover::after { opacity: 1; }
 nav.side a.on { color: var(--accent); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
 nav.side a.home { margin: 0 0 4px; border-left: 0; border-radius: 6px; padding-left: 10px; font-weight: 600; }
 /* Categories are labels, not links: small caps, a rule to their right, no pointer and no hover. */
-/* 2.4.9. A section is its name (which opens the panel of its reports) and a mark that folds its links in the list.
-   The section you are in is open; the rest fold when script runs. */
+/* 2.4.9. A section is one button, its name and how many reports it has: selecting it opens its links, or folds them.
+   The section you are in is open to begin with. The list stays in view while the page scrolls, with its own scroll
+   when it is taller than the window. */
+@media (min-width: 901px) {
+  .shell { background: linear-gradient(to right, var(--surface) 0 219px, var(--rule) 219px 220px, transparent 220px); }
+  nav.side { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; overflow-anchor: none; border-right: 0; background: none; scrollbar-width: thin; }
+}
 nav.side .find { width: 100%; margin: 4px 0 6px; font: inherit; font-size: 13px; color: var(--ink); background: var(--ground);
   border: 1px solid var(--rule); border-radius: 6px; padding: 5px 9px; }
 nav.side .find:focus { outline: 2px solid var(--accent); outline-offset: 1px; background: var(--surface); }
 nav.side .none { margin: 6px 4px; color: var(--muted); font-size: 12.5px; }
 .grp { margin-top: 1px; }
-.ghead { display: flex; align-items: stretch; gap: 2px; }
-.gname, .gtog { font: inherit; background: none; border: 0; cursor: pointer; color: var(--muted); border-radius: 6px; }
-.gname { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; font-size: 11px; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase; padding: 5px 8px; }
+.gname { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; font: inherit; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); background: none; border: 0; border-radius: 6px; padding: 5px 8px; cursor: pointer; }
+.gname > span:first-child { flex: 1; }
 .gname .n { font-weight: 600; letter-spacing: 0; color: var(--faint); font-variant-numeric: tabular-nums; }
-.gtog { width: 28px; flex: none; }
-.gtog::before { content: "▸"; display: inline-block; transition: transform .12s; }
-.grp.open > .ghead .gtog::before { transform: rotate(90deg); }
-.gname:hover, .gtog:hover, .gname[aria-expanded="true"] { background: var(--ground); color: var(--ink); }
-.gname:focus-visible, .gtog:focus-visible, nav.side a:focus-visible, .gpanel a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.grp.here > .ghead .gname { color: var(--accent); }
+.gname::after { content: "\25B8"; width: 12px; text-align: center; color: var(--faint); transition: transform .12s; }
+.grp.open > .gname::after { transform: rotate(90deg); }
+.gname:hover { background: var(--ground); color: var(--ink); }
+.grp.open > .gname { color: var(--ink); }
+.grp.here > .gname { color: var(--accent); }
+.gname:focus-visible, .gabout:focus-visible, nav.side a:focus-visible, .gpanel a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .glinks { padding: 0 0 4px; }
 .glinks a { padding-top: 4px !important; padding-bottom: 4px !important; }
+.gabout { display: block; margin: 1px 0 0 8px; padding: 3px 10px; font: inherit; font-size: 12px; color: var(--accent); background: none; border: 0; border-radius: 6px;
+  cursor: pointer; text-align: left; }
+.gabout:hover { background: var(--accent-soft); text-decoration: underline; }
 html.js nav.side .grp:not(.open) > .glinks { display: none; }
-html:not(.js) .gtog { display: none; }
+/* Your most used: the same reports are in their own sections, so finding shows each once. */
+nav.side .grp.mine { border-bottom: 1px solid var(--rule); padding-bottom: 3px; margin-bottom: 3px; }
+nav.side.finding .grp.mine { display: none; }
+.card.mine { border-color: var(--accent); }
+html:not(.js) .gname::after, html:not(.js) .gabout { display: none; }
 /* Finding: every section shows the links that match, and only those. */
 nav.side.finding .grp > .glinks { display: block !important; }
-nav.side.finding .gtog { visibility: hidden; }
+nav.side.finding .gname::after, nav.side.finding .gabout { display: none; }
 nav.side [hidden] { display: none !important; }
 
 /* The panel of one section: beside the list, its reports under their headings, each with what it answers. */

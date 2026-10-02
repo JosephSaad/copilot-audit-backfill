@@ -136,53 +136,91 @@
   var nav = document.querySelector('nav.side');
   if (nav) (function () {
     var grps = Array.prototype.slice.call(nav.querySelectorAll('.grp'));
-    var KEY = 'insights-nav-open';
-    function stored() { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { return []; } }
     function fold(g, open) {
       g.classList.toggle('open', open);
-      g.querySelector('.gtog').setAttribute('aria-expanded', open ? 'true' : 'false');
+      g.querySelector('.gname').setAttribute('aria-expanded', open ? 'true' : 'false');
     }
-    // The sections a person opened stay open on the next page; the one they are in always is.
-    var keep = stored();
+    // A click on a section opens it, or folds it if it is open, and changes nothing else: the row clicked stays where
+    // it is, under the pointer (folding the section above it would move it away). Every page starts with the section
+    // it belongs to open and the rest folded, a page come back to with Back too; nothing is remembered between pages.
+    // Where the list scrolls on its own, folding a section near its end would pull the rows down (there is less to
+    // scroll): the list's scroll is put back so the row clicked stays put, with room left under the last section if needed.
+    var room = document.createElement('div');
+    room.setAttribute('aria-hidden', 'true');
+    nav.appendChild(room);
+    function steady(row, was) {
+      if (getComputedStyle(nav).overflowY !== 'auto') return;   // a narrow window: the list is part of the page, and nothing above the row changes
+      var left = row.getBoundingClientRect().top - was;
+      if (Math.abs(left) > 0.5) {
+        nav.scrollTop += left;
+        left = row.getBoundingClientRect().top - was;
+        if (left > 0.5) {   // nothing left to scroll: make room under the last section, then scroll
+          room.style.height = (room.offsetHeight + left + nav.clientHeight) + 'px';
+          nav.scrollTop += left;
+        }
+      }
+      // No more room than the scroll position needs.
+      var need = nav.scrollTop + nav.clientHeight - (nav.scrollHeight - room.offsetHeight);
+      room.style.height = Math.max(0, Math.ceil(need)) + 'px';
+    }
     grps.forEach(function (g) {
-      if (keep.indexOf(g.getAttribute('data-grp')) >= 0) fold(g, true);
-      g.querySelector('.gtog').addEventListener('click', function () {
+      var b = g.querySelector('.gname');
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        close(false);
+        var was = b.getBoundingClientRect().top;
         fold(g, !g.classList.contains('open'));
-        try {
-          localStorage.setItem(KEY, JSON.stringify(grps.filter(function (x) { return x.classList.contains('open') && !x.classList.contains('here'); })
-            .map(function (x) { return x.getAttribute('data-grp'); })));
-        } catch (e) { }
+        steady(b, was);
       });
     });
+    window.addEventListener('pageshow', function (e) {
+      if (!e.persisted) return;
+      close(false);
+      grps.forEach(function (g) { fold(g, g.classList.contains('here') || (g.classList.contains('mine') && location.pathname === '/')); });
+      var f = document.getElementById('nav-find');
+      if (f && f.value) { f.value = ''; f.dispatchEvent(new Event('input')); }
+    });
 
-    // A section's name opens its panel, on a click, never on hover. Escape, the close button or a click elsewhere closes it.
-    var shown = null;
+    // "About these reports" opens the section's panel. Escape, its close button or a click elsewhere closes it.
+    var shown = null, at = [0, 0];
+    // A scroll closes the panel: a real one, not the last event of a scroll that ended before it opened.
+    function scrolled() { if (shown && (Math.abs(window.scrollY - at[0]) > 2 || Math.abs(nav.scrollTop - at[1]) > 2)) close(false); }
     function close(focus) {
       if (!shown) return;
-      var b = shown.querySelector('.gname');
+      var b = shown.querySelector('.gabout');
       shown.querySelector('.gpanel').hidden = true;
       b.setAttribute('aria-expanded', 'false');
       shown = null;
-      if (focus) b.focus();
+      if (focus) b.focus({ preventScroll: true });
     }
     grps.forEach(function (g) {
-      var b = g.querySelector('.gname'), panel = g.querySelector('.gpanel');
+      var b = g.querySelector('.gabout'), panel = g.querySelector('.gpanel');
+      if (!b || !panel) return;   // Your most used has no panel: its reports are described in their own sections
       b.addEventListener('click', function (e) {
         e.stopPropagation();
         var mine = shown === g;
         close(false);
         if (mine) return;
         tip.hidden = true;
+        at = [window.scrollY, nav.scrollTop];
         panel.hidden = false;
+        // Beside the section it belongs to, level with its name, and wholly inside the window.
+        if (window.innerWidth > 900) {
+          var top = g.getBoundingClientRect().top, h = panel.getBoundingClientRect().height;
+          panel.style.top = Math.max(58, Math.min(top, window.innerHeight - h - 8)) + 'px';
+        } else panel.style.top = '';
         b.setAttribute('aria-expanded', 'true');
         shown = g;
         var first = panel.querySelector('a.on') || panel.querySelector('a');
-        if (first) first.focus();
+        if (first) first.focus({ preventScroll: true });
       });
       panel.addEventListener('click', function (e) { e.stopPropagation(); });
       panel.querySelector('.pclose').addEventListener('click', function () { close(true); });
     });
     document.addEventListener('click', function () { close(false); });
+    window.addEventListener('scroll', scrolled, { passive: true });
+    nav.addEventListener('scroll', function () { scrolled(); tip.hidden = true; }, { passive: true });
+    window.addEventListener('resize', function () { close(false); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && shown) close(true); });
 
     // Find a report: by its name or by what it answers. Enter opens the first that matches.
@@ -201,8 +239,8 @@
             a.hidden = !m;
             if (m) hit = true;
           });
-          g.hidden = q !== '' && !hit;
-          if (hit) any = true;
+          g.hidden = q !== '' && (!hit || g.classList.contains('mine'));
+          if (hit && !g.classList.contains('mine')) any = true;
         });
         if (none) none.hidden = q === '' || any;
       }
@@ -228,7 +266,7 @@
       tip.style.left = x + 'px';
       tip.style.top = y + 'px';
     }
-    Array.prototype.forEach.call(nav.querySelectorAll('.ghead [data-what], .glinks [data-what]'), function (el) {
+    Array.prototype.forEach.call(nav.querySelectorAll('.glinks [data-what]'), function (el) {
       el.addEventListener('mouseenter', function () { clearTimeout(wait); wait = setTimeout(function () { what(el); }, 450); });
       el.addEventListener('mouseleave', function () { clearTimeout(wait); tip.hidden = true; });
       el.addEventListener('focus', function () { clearTimeout(wait); what(el); });

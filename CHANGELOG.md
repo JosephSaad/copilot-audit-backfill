@@ -22,14 +22,18 @@ were flattened, the installer rebuilds them in full, with every day of the rollu
   cannot be turned off. Digests, extracts, the board pack and the data API are not changed by
   it. Kept in `dash.Setting` (one row a report), so there is no schema change.
 
-- **The navigation fits one screen, and says what each report is.** The list on the left
-  was every report at once, three screens long. Sections now fold, with the one you are in
-  open; the mark beside a section's name opens it in the list, and what you open stays open.
-  A section's name opens a panel of its reports under headings (Licensing: inventory and
-  pool, cost savings, policy breaches, changes ahead), each with a sentence on what it
-  answers. *Find a report* narrows the list as you type, by name or by what a report
-  answers. Resting on a link, or reaching it by keyboard, shows that sentence beside the
-  list. The start page is the full index, with the same headings and sentences. Licensing,
+- **The navigation is short, and says what each report is.** The list on the left was every
+  report at once, three screens long. Sections now fold, with the one you are in open:
+  selecting a section opens its reports under it or folds them, and moves nothing else in the
+  list. The list stays on screen while a report scrolls. *About these reports*, under an
+  open section, opens a panel of its reports under headings (Licensing: inventory and pool,
+  cost savings, policy breaches, changes ahead), each with a sentence on what it answers.
+  *Find a report* narrows the list as you type, by name or by what a report answers. Resting
+  on a link, or reaching it by keyboard, shows that sentence beside the list.
+- **Your most used.** The first section of the list, and the first card of the start page:
+  up to ten reports the person opened most in the last 90 days, once they have opened three.
+  Counted from the page views already in the audit log, once a day; nothing is saved for it
+  and no table is added. A report they can no longer open, or one turned off, is left out. The start page is the full index, with the same headings and sentences. Licensing,
   Adoption and Leadership list their reports in the order of their headings.
 
 ### Fixed

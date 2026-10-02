@@ -36,8 +36,9 @@
     }
 </header>
 <div class="shell">
-    @* 2.4.9: sections fold, with the one you are in open; a section's name opens a panel of its reports under their
-       headings, each with what it answers; the box at the top finds a report by name. Without script every section is open. *@
+    @* 2.4.9: sections fold, with the one you are in open to begin with: selecting a section opens it or folds it, and
+       moves nothing else. "About these reports", under an open section's links, opens a panel of them under their headings,
+       each with what it answers; the box at the top finds a report. Without script every section is open. *@
     <nav class="side" aria-label="Reports">
         <a class="home @(path == "/" ? "on" : "")" href="/?home=1">Start</a>
         @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports); }
@@ -46,22 +47,34 @@
             <input type="search" class="find" id="nav-find" placeholder="Find a report" aria-label="Find a report" autocomplete="off" spellcheck="false" />
             <p class="none" id="nav-none" hidden>No report matches.</p>
         }
+        @{ var mine = CopilotInsights.Infrastructure.MostUsed.Pick(page?.MostUsedPaths ?? [], groups); }
+        @if (mine.Count > 0)
+        {
+            @* The reports this person opens most: a section like the others, open on the start page. *@
+            <div class="grp mine @(path == "/" ? "open" : "")" data-grp="Your most used">
+                <button type="button" class="gname" aria-expanded="@(path == "/" ? "true" : "false")" aria-controls="nav-mine-links"><span>Your most used</span><span class="n">@mine.Count</span></button>
+                <div class="glinks" id="nav-mine-links">
+                    @foreach (var p in mine)
+                    {
+                        var href = page?.Ctx is null ? p.Path : page.Ctx.Url(p.Path);
+                        <a class="@(path == p.Path ? "on" : "")" href="@href" data-what="@NavText.Tip(p)" aria-description="@NavText.Tip(p)">@p.Title</a>
+                    }
+                </div>
+            </div>
+        }
         @foreach (var g in groups)
         {
             var here = g.Pages.Any(p => p.Path == path);
             var id = "nav-" + g.Persona.ToLowerInvariant().Replace(' ', '-');
             <div class="grp @(here ? "here open" : "")" data-grp="@g.Persona">
-                <div class="ghead">
-                    <button type="button" class="gname" aria-haspopup="dialog" aria-expanded="false" aria-controls="@(id)-panel"
-                            data-what="@g.Who: @g.Pages.Count report@(g.Pages.Count == 1 ? "" : "s"). Select to see them all.">@g.Persona<span class="n">@g.Pages.Count</span></button>
-                    <button type="button" class="gtog" aria-expanded="@(here ? "true" : "false")" aria-controls="@(id)-links" aria-label="Show or hide the @g.Persona reports in this list"></button>
-                </div>
+                <button type="button" class="gname" aria-expanded="@(here ? "true" : "false")" aria-controls="@(id)-links"><span>@g.Persona</span><span class="n">@g.Pages.Count</span></button>
                 <div class="glinks" id="@(id)-links">
                     @foreach (var p in g.Pages)
                     {
                         var href = page?.Ctx is null || p.Admin ? p.Path : page.Ctx.Url(p.Path);
                         <a class="@(path == p.Path ? "on" : "")" href="@href" data-what="@NavText.Tip(p)" aria-description="@NavText.Tip(p)">@p.Title</a>
                     }
+                    <button type="button" class="gabout" aria-haspopup="dialog" aria-expanded="false" aria-controls="@(id)-panel">About these reports</button>
                 </div>
                 <div class="gpanel" id="@(id)-panel" role="dialog" aria-label="@g.Persona reports" hidden>
                     <div class="phead"><h2>@g.Persona</h2><p>@g.Who</p><button type="button" class="pclose" aria-label="Close">×</button></div>

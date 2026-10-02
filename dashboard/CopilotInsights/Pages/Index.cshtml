@@ -19,8 +19,23 @@
     {
         <div class="denied"><b>Set the top of the organization.</b> Nobody sees the whole organization by level until the CEO's UPN is set in <a href="/admin/access">Admin › Access</a>. Until then only people granted Organization do.</div>
     }
+    var groups = Nav.For(Model.Viewer, Model.PrivacyMode, Tenants.Many, Model.HiddenReports);
+    var mine = CopilotInsights.Infrastructure.MostUsed.Pick(Model.MostUsedPaths, groups);
     <div class="cards">
-        @foreach (var g in Nav.For(Model.Viewer, Model.PrivacyMode, Tenants.Many, Model.HiddenReports))
+        @if (mine.Count > 0)
+        {
+            <div class="card mine">
+                <h3 class="cat">Your most used</h3>
+                <p>The reports you opened most in the last @CopilotInsights.Infrastructure.MostUsed.Days days</p>
+                <ul>
+                    @foreach (var p in mine)
+                    {
+                        <li><a href="@p.Path"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small></span></a></li>
+                    }
+                </ul>
+            </div>
+        }
+        @foreach (var g in groups)
         {
             <div class="card">
                 <h3 class="cat">@g.Persona</h3>
