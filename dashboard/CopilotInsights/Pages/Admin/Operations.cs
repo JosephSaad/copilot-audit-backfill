@@ -96,7 +96,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
 
         var log = await Db.QueryAsync<(DateTime AtUtc, string Kind, string Subject, string? Recipients, string Status, string? Error)>(
             "SELECT TOP (50) AtUtc, Kind, Subject, Recipients, Status, Error FROM dash.NotificationLog ORDER BY LogId DESC;");
-        var t = new Table { Headers = ["When (UTC)", "Kind", "Subject", "To", "Result", "Why not"], EmptyText = "Nothing sent yet." };
+        var t = new Table { Zone = Zone, Headers = ["When (UTC)", "Kind", "Subject", "To", "Result", "Why not"], EmptyText = "Nothing sent yet." };
         foreach (var l in log) t.Rows.Add([l.AtUtc, l.Kind, l.Subject, l.Recipients, new HtmlString($"<span class=\"{(l.Status == "Sent" ? "status-ok" : "status-warn")}\">{E(l.Status)}</span>"), l.Error]);
         Panels.Add(new("Recently sent", t.Render(), "Kept for the days set in Admin > Privacy and retention."));
     }
@@ -204,7 +204,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
 
         var subs = await Db.QueryAsync<SubRow>("SELECT * FROM dash.Subscription ORDER BY Name;");
         var zone = await HttpContext.RequestServices.GetRequiredService<OpsData>().ZoneAsync();
-        var t = new Table { Headers = ["Name", "Report", "To", "When", "For", "Days", "Last sent (UTC)", "Result", ""], EmptyText = "No digests yet." };
+        var t = new Table { Zone = Zone, Headers = ["Name", "Report", "To", "When", "For", "Days", "Last sent (UTC)", "Result", ""], EmptyText = "No digests yet." };
         foreach (var sub in subs)
             t.Rows.Add([sub.Name, sub.Report, sub.Recipients, When(sub), sub.RootUpn ?? "Whole organization", sub.Days, sub.LastSentUtc, sub.LastStatus,
                 new HtmlString(
@@ -242,7 +242,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         var optedOut = await Db.QueryAsync<(string Upn, string? DisplayName, DateTime UpdatedUtc)>(@"
 SELECT pref.Upn, p.DisplayName, pref.UpdatedUtc FROM dash.DigestPreference AS pref LEFT JOIN dash.Person AS p ON p.Upn = pref.Upn
 WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
-        var ot = new Table { Headers = ["Manager", "Sign-in", "Since (UTC)", ""], EmptyText = "Every eligible manager gets the digest." };
+        var ot = new Table { Zone = Zone, Headers = ["Manager", "Sign-in", "Since (UTC)", ""], EmptyText = "Every eligible manager gets the digest." };
         foreach (var o in optedOut)
             ot.Rows.Add([o.DisplayName, o.Upn, o.UpdatedUtc, new HtmlString(Form("optin", Hidden("upn", o.Upn) + Button("Send it again", quiet: true)))]);
         Panels.Add(new("Managers who do not get the digest", new HtmlString(Form("optout", Input("upn", "Manager (UPN)", null, 34) + Button("Stop their digest")) + ot.Render().Value),
@@ -256,7 +256,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
                 ? "Runs one round of the alert checks and any digests that are due, for this tenant or for every tenant (the background checks cover every tenant every five minutes)."
                 : "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
         var state = await Db.QueryAsync<(string AlertKey, string? LastValue, DateTime LastFiredUtc)>("SELECT AlertKey, LastValue, LastFiredUtc FROM dash.AlertState ORDER BY AlertKey;");
-        var st = new Table { Headers = ["Check", "Last seen", "When (UTC)"], EmptyText = "The checks have not run yet." };
+        var st = new Table { Zone = Zone, Headers = ["Check", "Last seen", "When (UTC)"], EmptyText = "The checks have not run yet." };
         foreach (var x in state) st.Rows.Add([x.AlertKey, x.LastValue, x.LastFiredUtc]);
         Panels.Add(new("Where the checks stand", st.Render(), "What each check last saw, so it does not repeat itself.", "half"));
     }
@@ -720,7 +720,7 @@ public sealed class TrainingRecordsModel(PageServices s) : AdminPage(s)
         ShowDone();
         var sessions = await Db.QueryAsync<(string Session, DateTime AttendedOn, int People, DateTime Imported)>(
             "SELECT Session, AttendedOn, COUNT(*), MAX(ImportedUtc) FROM dash.TrainingAttendance GROUP BY Session, AttendedOn ORDER BY AttendedOn DESC;");
-        var t = new Table { Headers = ["Session", "Date", "Attendees", "Imported (UTC)", ""], Numeric = new HashSet<int> { 2 }, EmptyText = "No training records yet." };
+        var t = new Table { Zone = Zone, Headers = ["Session", "Date", "Attendees", "Imported (UTC)", ""], Numeric = new HashSet<int> { 2 }, EmptyText = "No training records yet." };
         foreach (var x in sessions)
             t.Rows.Add([x.Session, x.AttendedOn, x.People, x.Imported, new HtmlString(Form("remove",
                 $"<input type=\"hidden\" name=\"session\" value=\"{E(x.Session)}\"/><input type=\"hidden\" name=\"date\" value=\"{x.AttendedOn:yyyy-MM-dd}\"/>" +

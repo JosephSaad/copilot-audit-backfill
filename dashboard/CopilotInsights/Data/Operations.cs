@@ -50,6 +50,48 @@ public static class Schedule
     }
 }
 
+/// <summary>
+/// The time zone the dashboard shows times in and runs its schedules by (2.4.10). An administrator's choice (Admin >
+/// Access, the TimeZone setting); with none, the zone the data's days were cut in when it was installed, which is the
+/// job server's unless one was named; with neither, this web server's own. Before, times were shown in UTC.
+/// </summary>
+public static class Zones
+{
+    public const string Setting = "TimeZone";
+
+    public static TimeZoneInfo Resolve(string? setting, string? reporting)
+    {
+        foreach (var name in new[] { setting, reporting })
+        {
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            try { return TimeZoneInfo.FindSystemTimeZoneById(name.Trim()); }
+            catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException) { }
+        }
+        return TimeZoneInfo.Local;
+    }
+
+    /// <summary>Where the zone in use came from, for the settings page.</summary>
+    public static string Source(string? setting, string? reporting)
+    {
+        bool Known(string? n) { try { return !string.IsNullOrWhiteSpace(n) && TimeZoneInfo.FindSystemTimeZoneById(n.Trim()) is not null; } catch (Exception) { return false; } }
+        return Known(setting) ? "chosen here" : Known(reporting) ? "the zone the data's days are cut in" : "this web server's own";
+    }
+
+    /// <summary>A short name for a column header or a sentence: "Eastern Time", "UTC".</summary>
+    public static string Label(TimeZoneInfo zone)
+    {
+        if (zone.BaseUtcOffset == TimeSpan.Zero && !zone.SupportsDaylightSavingTime) return "UTC";
+        var name = zone.StandardName;
+        return name.EndsWith(" Standard Time", StringComparison.Ordinal) ? name[..^" Standard Time".Length] + " Time" : name;
+    }
+
+    public static DateTime FromUtc(DateTime utc, TimeZoneInfo zone) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone);
+
+    /// <summary>"2026-10-02 08:45 Eastern Time".</summary>
+    public static string Stamp(DateTime? utc, TimeZoneInfo zone, string format = "yyyy-MM-dd HH:mm") =>
+        utc is null ? "" : $"{FromUtc(utc.Value, zone).ToString(format, System.Globalization.CultureInfo.InvariantCulture)} {Label(zone)}";
+}
+
 /// <summary>One kind of security signal on one day, with its 28-day daily average.</summary>
 public sealed record SignalDay(string Signal, long Count, double Average, int Threshold);
 

@@ -1,4 +1,5 @@
 using System.Text;
+using CopilotInsights.Data;
 using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
 using Microsoft.AspNetCore.Mvc;
@@ -43,7 +44,7 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
         await Try("Dashboard rollups", "SELECT TOP (1) EndedUtc, CAST(UserDayRows AS BIGINT), CONCAT(FORMAT(People, 'N0'), N' people, ', FORMAT(ClosureRows, 'N0'), N' org pairs') FROM dash.RefreshRun ORDER BY RunId DESC;", "person-days written");
         await Try("User directory", "SELECT MAX(LoadedUtc), COUNT_BIG(*), NULL FROM audit.UserDirectory;", "people");
 
-        var t = new Table { Headers = ["Step", "Last finished (UTC)", "Age", "Rows", "Detail", "Status"], Numeric = new HashSet<int> { 3 }, Sortable = false };
+        var t = new Table { Zone = Zone, Headers = ["Step", "Last finished (UTC)", "Age", "Rows", "Detail", "Status"], Numeric = new HashSet<int> { 3 }, Sortable = false };
         foreach (var st in steps)
         {
             var age = st.Finished is null ? (TimeSpan?)null : DateTime.UtcNow - st.Finished.Value;
@@ -57,7 +58,7 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
         var runs0 = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().PipelineRunsAsync(10);
         if (runs0.Count > 0)
         {
-            var pr = new Table { Headers = ["Run", "Started (UTC)", "Took", "Result", "Stopped at", "On", "Last lines"] };
+            var pr = new Table { Zone = Zone, Headers = ["Run", "Started (UTC)", "Took", "Result", "Stopped at", "On", "Last lines"] };
             foreach (var r in runs0)
                 pr.Rows.Add([r.Kind, r.StartedUtc, r.EndedUtc is null ? null : $"{(r.EndedUtc.Value - r.StartedUtc).TotalMinutes:0} min",
                     new HtmlString($"<span class=\"{(r.Status == "Succeeded" ? "status-ok" : r.Status == "Running" ? "status-warn" : "status-bad")}\">{E(r.Status)}</span>"),
@@ -119,7 +120,7 @@ SELECT COUNT(CASE WHEN Status IN ('Pending', 'Submitted', 'Ready', 'Downloading'
        MIN(CASE WHEN Status IN ('Pending', 'Submitted', 'Ready', 'Downloading') THEN StartUtc END)
 FROM w;")).Single();
             OpsCard("Audit searches", $"{q.Last24h:#,0} submitted to Microsoft Purview in the last 24 hours; {q.Waiting:#,0} waiting or downloading" +
-                (q.Oldest is null ? "" : $" (the oldest covers {q.Oldest:yyyy-MM-dd HH:mm} UTC)") + $"; {q.Resubmitted:#,0} had to be resubmitted; {q.Failed:#,0} failed. " +
+                (q.Oldest is null ? "" : $" (the oldest covers {When(q.Oldest)})") + $"; {q.Resubmitted:#,0} had to be resubmitted; {q.Failed:#,0} failed. " +
                 "Microsoft limits how many audit searches a tenant runs at once: many waiting, or many resubmitted, means the load is being throttled, and the next run carries on.",
                 q.Failed > 0 ? "status-bad" : q.Waiting > 20 || q.Resubmitted > 10 ? "status-warn" : "status-ok");
         }
@@ -128,7 +129,7 @@ FROM w;")).Single();
 
         var runs = await Db.QueryAsync<(DateTime StartedUtc, DateTime EndedUtc, DateTime? SinceUtc, int People, int ClosureRows, int UserDayRows)>(
             "SELECT TOP (10) StartedUtc, EndedUtc, SinceUtc, People, ClosureRows, UserDayRows FROM dash.RefreshRun ORDER BY RunId DESC;");
-        var rt = new Table { Headers = ["Started (UTC)", "Took", "From", "People", "Org pairs", "Person-days"], Numeric = new HashSet<int> { 3, 4, 5 }, EmptyText = "Never refreshed." };
+        var rt = new Table { Zone = Zone, Headers = ["Started (UTC)", "Took", "From", "People", "Org pairs", "Person-days"], Numeric = new HashSet<int> { 3, 4, 5 }, EmptyText = "Never refreshed." };
         foreach (var r in runs)
             rt.Rows.Add([r.StartedUtc, $"{(r.EndedUtc - r.StartedUtc).TotalSeconds:0} s", r.SinceUtc is null ? "Every day" : r.SinceUtc.Value, r.People, r.ClosureRows, r.UserDayRows]);
         Panels.Add(new("Refresh the dashboard", new HtmlString(
@@ -145,8 +146,8 @@ FROM w;")).Single();
         var warm = warmer.Last.GetValueOrDefault(tenant);
         var state = !qc.Enabled ? "Off (Insights:QueryCacheMinutes is 0): every page reads the database every time."
             : warm is null ? "On. The pages have not been built ahead yet on this web server; it starts shortly after the site does."
-            : warm.EndedUtc is null ? $"On. Building the pages ahead now: {warm.Pages:#,0} page views so far, started {warm.StartedUtc:yyyy-MM-dd HH:mm} UTC."
-            : $"On. Built ahead {warm.EndedUtc:yyyy-MM-dd HH:mm} UTC: {warm.Pages:#,0} page views in {warm.Seconds / 60:0.#} minutes{(warm.Failed > 0 ? $", {warm.Failed:#,0} not built" : "")}.";
+            : warm.EndedUtc is null ? $"On. Building the pages ahead now: {warm.Pages:#,0} page views so far, started {When(warm.StartedUtc)}."
+            : $"On. Built ahead {When(warm.EndedUtc)}: {warm.Pages:#,0} page views in {warm.Seconds / 60:0.#} minutes{(warm.Failed > 0 ? $", {warm.Failed:#,0} not built" : "")}.";
         Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
             "A report page's queries are kept in memory until the data changes: a refresh, a pipeline run, a new license read, or a change to a setting or reference data. " +
             "After each change every report is built once in the background for the whole organization, at every period, so the top two levels and Organization holders get each page at once. " +
@@ -245,6 +246,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
     {
         ShowDone();
         var set = await S.Settings.AllAsync();
+        var reportingZone = await S.Settings.ReportingTimeZoneAsync();
         Panels.Add(new("Settings", new HtmlString(Form("settings",
             Input("OrgTopUpn", "Top of the organization (UPN)", set.GetValueOrDefault("OrgTopUpn"), 34) +
             Input("MinGroupSize", "Minimum group size", set.GetValueOrDefault("MinGroupSize"), 4, "number") +
@@ -253,11 +255,15 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             Input("LicenseMonthlyCost", "License cost a month", set.GetValueOrDefault("LicenseMonthlyCost"), 6) +
             Input("LicenseCurrency", "Currency", set.GetValueOrDefault("LicenseCurrency"), 4) +
             Input("PaygInteractionCost", "Pay-as-you-go cost an interaction", set.GetValueOrDefault("PaygInteractionCost") ?? "0.12", 6) +
+            ZonePicker(set.GetValueOrDefault(Zones.Setting), reportingZone) +
             Button("Save settings"))),
             "The top is usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows" +
             (set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({det})" : "") +
             ". Groups smaller than the minimum are folded into \"Smaller groups\" in breakdowns. The pay-as-you-go cost is what one agent or work-grounded chat interaction costs in Copilot Credits " +
-            "without a license, for Licensing > Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, grounded in tenant data, 10) at 0.01 each. A change takes effect at once."));
+            "without a license, for Licensing > Better on pay-as-you-go: 0.12 is 12 credits (a generative answer, 2, grounded in tenant data, 10) at 0.01 each. " +
+            $"Time zone: every time the dashboard shows, and the hour digests, alerts and extracts go out, is in it. It is {Zones.Label(Zone)} now ({Zones.Source(set.GetValueOrDefault(Zones.Setting), reportingZone)}). Left on Default, it is the zone the data's days are cut in, which a new install takes from its server. " +
+            (reportingZone is null ? "" : $"The days in the reports are cut in {reportingZone}, set when the data was installed; choosing a zone here does not move them. ") +
+            "A change takes effect at once."));
 
         /* Who can open the dashboard (2.4.4): levels 1 to N below the top, with each choice's head count. */
         var levels = await Db.QueryAsync<(byte? Level, int N)>("SELECT Level, COUNT(*) FROM dash.Person WHERE AccountEnabled = 1 GROUP BY Level ORDER BY Level;");
@@ -324,7 +330,7 @@ FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
 WHERE g.Principal IN @list;", new { list });
         var t = new Table
         {
-            Headers = ["Principal", "Name", "Type", "Roles", "Why", "Granted by", "Last granted (UTC)"], EmptyText = "No grants yet.",
+            Zone = Zone, Headers = ["Principal", "Name", "Type", "Roles", "Why", "Granted by", "Last granted (UTC)"], EmptyText = "No grants yet.",
             Server = new(pg, Request, ["principal", "name", "type", null, null, "by", "new"], new HashSet<int> { 6 }),
         };
         foreach (var principal in list)
@@ -372,8 +378,22 @@ WHERE g.Principal IN @list;", new { list });
         Panels.Add(new("People by level", lt.Render(), null, "half"));
     }
 
-    public Task<IActionResult> OnPostSettingsAsync(string? OrgTopUpn, int MinGroupSize, int DefaultDays, int InactiveDays, string? LicenseMonthlyCost, string? LicenseCurrency, string? PaygInteractionCost) => AdminChangeAsync(async () =>
+    /// <summary>The time zone box: the default first, then every zone this server knows, by its offset.</summary>
+    static string ZonePicker(string? chosen, string? reporting)
     {
+        var fallback = Zones.Resolve(null, reporting);
+        var options = $"<option value=\"\"{(string.IsNullOrWhiteSpace(chosen) ? " selected" : "")}>Default: {E(fallback.DisplayName)}</option>" +
+            string.Concat(TimeZoneInfo.GetSystemTimeZones().Select(z =>
+                $"<option value=\"{E(z.Id)}\"{(string.Equals(z.Id, chosen, StringComparison.OrdinalIgnoreCase) ? " selected" : "")}>{E(z.DisplayName)}</option>"));
+        return $"<label>Time zone<select name=\"TimeZone\">{options}</select></label>";
+    }
+
+    public Task<IActionResult> OnPostSettingsAsync(string? OrgTopUpn, int MinGroupSize, int DefaultDays, int InactiveDays, string? LicenseMonthlyCost, string? LicenseCurrency, string? PaygInteractionCost, string? TimeZone) => AdminChangeAsync(async () =>
+    {
+        TimeZone = string.IsNullOrWhiteSpace(TimeZone) ? null : TimeZone.Trim();
+        if (TimeZone is not null)
+            try { TimeZone = TimeZoneInfo.FindSystemTimeZoneById(TimeZone).Id; }
+            catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException) { throw new ArgumentException("the time zone is not one this server knows."); }
         OrgTopUpn = string.IsNullOrWhiteSpace(OrgTopUpn) ? null : OrgTopUpn.Trim();
         if (OrgTopUpn is not null && await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Person WHERE Upn = @OrgTopUpn", new { OrgTopUpn }) == 0)
             throw new ArgumentException($"{OrgTopUpn} is not in the directory.");
@@ -388,7 +408,7 @@ WHERE g.Principal IN @list;", new { list });
         if (LicenseCurrency.Length is < 1 or > 8) throw new ArgumentException("the currency is a short code, such as USD or CAD.");
         var values = new Dictionary<string, string?> { ["OrgTopUpn"] = OrgTopUpn, ["MinGroupSize"] = MinGroupSize.ToString(), ["DefaultDays"] = DefaultDays.ToString(), ["InactiveDays"] = InactiveDays.ToString(),
                                                         ["LicenseMonthlyCost"] = cost.ToString(System.Globalization.CultureInfo.InvariantCulture), ["LicenseCurrency"] = LicenseCurrency,
-                                                        ["PaygInteractionCost"] = payg.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+                                                        ["PaygInteractionCost"] = payg.ToString(System.Globalization.CultureInfo.InvariantCulture), [Zones.Setting] = TimeZone };
         var before = await S.Settings.AllAsync();
         var changed = values.Where(kv => before.GetValueOrDefault(kv.Key) != kv.Value).ToList();
         foreach (var kv in changed)
@@ -666,7 +686,7 @@ WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.
         }
         var t = new Table
         {
-            Headers = ["When (UTC)", "Who", "Kind", "Page", "Scope", "Detail", "From"], EmptyText = "Nothing logged in this period.",
+            Zone = Zone, Headers = ["When (UTC)", "Who", "Kind", "Page", "Scope", "Detail", "From"], EmptyText = "Nothing logged in this period.",
             Server = new(pg, Request, ["new", "who", "kind", "page", "scope", null, "from"], new HashSet<int> { 0 }),
         };
         foreach (var r in rows) t.Rows.Add([r.AtUtc, r.Viewer, r.Kind, r.Page, r.Scope, r.Detail, r.ClientIp]);

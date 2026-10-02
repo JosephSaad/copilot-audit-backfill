@@ -270,6 +270,40 @@ public class PrivacyNavigationTests
     }
 
     [Fact]
+    public void Times_are_shown_in_the_zone_chosen_else_the_data_s_else_the_server_s()
+    {
+        var eastern = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        Assert.Equal("Pacific Standard Time", Data.Zones.Resolve("Pacific Standard Time", "Eastern Standard Time").Id);
+        Assert.Equal("Eastern Standard Time", Data.Zones.Resolve(null, "Eastern Standard Time").Id);
+        Assert.Equal("Eastern Standard Time", Data.Zones.Resolve("No such zone", "Eastern Standard Time").Id);
+        Assert.Equal(TimeZoneInfo.Local.Id, Data.Zones.Resolve(" ", null).Id);
+        Assert.Equal("Eastern Time", Data.Zones.Label(eastern));
+        Assert.Equal("UTC", Data.Zones.Label(TimeZoneInfo.Utc));
+        /* Summer and winter: the offset is the zone's on that day, not today's. */
+        Assert.Equal("2026-07-01 08:45 Eastern Time", Data.Zones.Stamp(new DateTime(2026, 7, 1, 12, 45, 0), eastern));
+        Assert.Equal("2026-01-15 07:45 Eastern Time", Data.Zones.Stamp(new DateTime(2026, 1, 15, 12, 45, 0), eastern));
+
+        /* A table's (UTC) column is shown in the zone and says so, on the page and in its CSV; other columns are left alone. */
+        var t = new Pages.Table { Headers = ["When (UTC)", "Day", "Who"], Zone = eastern };
+        t.Rows.Add([new DateTime(2026, 10, 2, 3, 30, 0), new DateTime(2026, 10, 2), "a"]);
+        var html = t.Render().Value!;
+        Assert.Contains("When (Eastern Time)", html);
+        Assert.Contains("2026-10-01 23:30", html);
+        Assert.Contains("2026-10-02</td>", html);
+        var csv = t.ToCsv();
+        Assert.Contains("\"When (Eastern Time)\"", csv);
+        Assert.Contains("\"2026-10-01 23:30:00\"", csv);
+        /* With no zone given, it stays UTC, as its header says. */
+        var u = new Pages.Table { Headers = ["When (UTC)"] };
+        u.Rows.Add([new DateTime(2026, 10, 2, 3, 30, 0)]);
+        Assert.Contains("When (UTC)", u.Render().Value);
+        Assert.Contains("2026-10-02 03:30", u.Render().Value);
+
+        /* The stale-data banner names the zone too. */
+        Assert.Contains("(2026-10-01 20:00 Eastern Time)", Freshness.Describe(new DateTime(2026, 10, 2, 0, 0, 0), 36, null, null, null, new DateTime(2026, 10, 4, 0, 0, 0), eastern));
+    }
+
+    [Fact]
     public void A_report_has_one_name_that_no_other_report_or_section_has()
     {
         var pages = Pages.Nav.Groups.SelectMany(g => g.Pages).ToList();

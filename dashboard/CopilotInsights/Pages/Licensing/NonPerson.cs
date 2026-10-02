@@ -127,7 +127,7 @@ SELECT COUNT(CASE WHEN Breach = 1 THEN 1 END), COUNT(CASE WHEN Breach = 1 AND Gu
 SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedUtc FROM x WHERE x.Confirmed = 1 ORDER BY x.ConfirmedUtc DESC;", args);
                 var ct = new Table
                 {
-                    Headers = admin ? ["Name", "Sign-in", "Why it is a person", "Confirmed by", "When (UTC)", ""] : ["Name", "Sign-in", "Why it is a person", "Confirmed by", "When (UTC)"],
+                    Zone = Zone, Headers = admin ? ["Name", "Sign-in", "Why it is a person", "Confirmed by", "When (UTC)", ""] : ["Name", "Sign-in", "Why it is a person", "Confirmed by", "When (UTC)"],
                     EmptyText = "No account confirmed as a person.",
                 };
                 foreach (var x in confirmed)

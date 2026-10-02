@@ -206,10 +206,9 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         /* The license type, and how fresh the data is. */
         var choices = string.Join(" · ", Licenses.Select(l =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"lic={l.Key}"))}\"{(l.Key == lic ? " class=\"on\"" : "")}>{l.Name}</a>"));
-        static string Utc(DateTime? t) => t is null ? "not yet" : $"{t:yyyy-MM-dd HH:mm} UTC";
         Panels.Add(new("License type", new HtmlString(
             $"<p class=\"sub\">License: {choices}</p>" +
-            $"<p class=\"sub\">Last database update: {E(Utc(facts.Refreshed))} · Latest audit record: {E(Utc(facts.Latest))}</p>"),
+            $"<p class=\"sub\">Last database update: {E(When(facts.Refreshed))} · Latest audit record: {E(When(facts.Latest))}</p>"),
             "Licensed: holding a Copilot license on the last day of the period. Unlicensed: not holding one that day. " +
             "Last database update: when the dashboard's rollups last finished. Latest audit record: the newest Copilot interaction loaded."));
 

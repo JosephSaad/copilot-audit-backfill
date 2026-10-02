@@ -34,6 +34,15 @@ public sealed class Table
     public int KeepLast { get; set; }
     /// <summary>For a list paged on the server: each column's Paging key (null: not sortable), and whether the key's own order descends.</summary>
     public ServerSort? Server { get; init; }
+    /// <summary>
+    /// The zone to show times in (2.4.10): a column whose header ends "(UTC)" holds UTC times, and with a zone set they are
+    /// shown in it, the header saying which ("When (Eastern Time)"). Without one they stay UTC, as the header says.
+    /// </summary>
+    public TimeZoneInfo? Zone { get; init; }
+
+    bool InZone(int i) => Zone is not null && i < Headers.Count && Headers[i].EndsWith("(UTC)", StringComparison.Ordinal);
+    string Header(int i) => InZone(i) ? Headers[i][..^"(UTC)".Length] + $"({CopilotInsights.Data.Zones.Label(Zone!)})" : Headers[i];
+    object? Shown(int i, object? v) => v is DateTime d && InZone(i) ? CopilotInsights.Data.Zones.FromUtc(d, Zone!) : v;
 
     public sealed record ServerSort(Paging Pager, HttpRequest Request, IReadOnlyList<string?> Keys, IReadOnlySet<int>? Descending = null);
 
@@ -53,7 +62,7 @@ public sealed class Table
         for (var i = 0; i < Headers.Count; i++)
         {
             var cls = Numeric.Contains(i) ? " class=\"num\"" : "";
-            var text = WebUtility.HtmlEncode(Headers[i]);
+            var text = WebUtility.HtmlEncode(Header(i));
             if (Server is { } sv && i < sv.Keys.Count && sv.Keys[i] is { } key && sv.Pager.Has(key))
             {
                 var aria = sv.Pager.AriaSort(key, sv.Descending?.Contains(i) ?? false);
@@ -71,7 +80,7 @@ public sealed class Table
             sb.Append(n >= Rows.Count - KeepLast ? "<tr data-keep=\"1\">" : "<tr>");
             for (var i = 0; i < Headers.Count; i++)
             {
-                var v = i < r.Length ? r[i] : null;
+                var v = Shown(i, i < r.Length ? r[i] : null);
                 var cls = Numeric.Contains(i) ? " class=\"num\"" : "";
                 var sortValue = client ? SortValue(v) : null;
                 sb.Append($"<td{cls}{(sortValue is null ? "" : $" data-v=\"{sortValue}\"")}>{Cell(v)}</td>");
@@ -107,9 +116,9 @@ public sealed class Table
     public string ToCsv()
     {
         var sb = new StringBuilder();
-        sb.AppendLine(string.Join(",", Headers.Select(Q)));
+        sb.AppendLine(string.Join(",", Headers.Select((_, i) => Q(Header(i)))));
         foreach (var r in Rows)
-            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select(v => Q(v switch
+            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select((x, i) => Shown(i, x)).Select(v => Q(v switch
             {
                 null => "", Link l => l.Text, IHtmlContent => "", DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss"),
                 _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "",
@@ -200,6 +209,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         Viewer = viewer;
         Ctx = await S.Contexts.CreateAsync(viewer, days, null);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
+        Zone = await S.Settings.ZoneAsync();
         if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode) return;
         if (Pages.HiddenReports.Is(await Pages.HiddenReports.GetAsync(S.Settings), Request.Path)) return;
         await S.Stamp.EnsureAsync();
@@ -216,6 +226,12 @@ public abstract class InsightsPage(PageServices s) : PageModel
         using (QueryCache.Use()) await BuildAsync();
     }
 
+    /// <summary>The zone times are shown in (2.4.10): Admin > Access, else the data's own, else the server's.</summary>
+    public TimeZoneInfo Zone { get; private set; } = TimeZoneInfo.Utc;
+
+    /// <summary>A UTC time in that zone, with its name: "2026-10-02 08:45 Eastern Time".</summary>
+    protected string When(DateTime? utc, string none = "not yet") => utc is null ? none : CopilotInsights.Data.Zones.Stamp(utc, Zone);
+
     /// <summary>The reports this viewer opens most (2.4.9), by path, most opened first; see <see cref="MostUsed"/>.</summary>
     public IReadOnlyList<string> MostUsedPaths { get; private set; } = [];
 
@@ -227,6 +243,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         Viewer = await S.Viewers.GetAsync();
         Ctx = await S.Contexts.CreateAsync(Viewer, Request);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
+        Zone = await S.Settings.ZoneAsync();
         HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
         if (HttpContext.RequestServices.GetService<MostUsed>() is { } most) MostUsedPaths = await most.PathsAsync(Viewer);
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */

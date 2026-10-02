@@ -25,6 +25,18 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants)
         cache.Remove(tenants.Key("privacy-mode"));
     }
 
+    /// <summary>The time zone the data's days were cut in (audit.ReportingTimeZone()), or null on a database without it.</summary>
+    public async Task<string?> ReportingTimeZoneAsync() =>
+        await cache.GetOrCreateAsync(tenants.Key("reporting-zone"), async e =>
+        {
+            e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+            try { return await db.ScalarAsync<string?>("SELECT audit.ReportingTimeZone();"); }
+            catch (Microsoft.Data.SqlClient.SqlException) { return null; }
+        });
+
+    /// <summary>The zone times are shown in and schedules run by (2.4.10): see <see cref="CopilotInsights.Data.Zones"/>.</summary>
+    public async Task<TimeZoneInfo> ZoneAsync() => CopilotInsights.Data.Zones.Resolve(await StringAsync(CopilotInsights.Data.Zones.Setting), await ReportingTimeZoneAsync());
+
     /// <summary>
     /// Privacy mode (Admin > Privacy and retention): no page, export, email or API call names
     /// anyone but the viewer themselves, and bi.Users is pseudonymized for Power BI.

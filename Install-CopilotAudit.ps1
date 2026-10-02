@@ -195,6 +195,22 @@ WHEN NOT MATCHED THEN INSERT (Name, Value) VALUES (s.Name, s.Value);
 "@
     }
 }
+else {
+    # 2.4.10: with no zone named, a database that holds no records yet takes this server's own time zone (it was
+    # Eastern whatever the server). One that holds records, or that has a zone set, keeps it: its days are already cut.
+    $serverZone = [TimeZoneInfo]::Local.Id
+    if ([TimeZoneInfo]::Local.HasIanaId) {
+        $windowsId = $null
+        $serverZone = if ([TimeZoneInfo]::TryConvertIanaIdToWindowsId($serverZone, [ref] $windowsId)) { $windowsId } else { $null }
+    }
+    if ($serverZone -and [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT COUNT(*) FROM sys.time_zone_info WHERE name = @z' -Parameters @{ '@z' = $serverZone })) {
+        foreach ($db in $zoneDbs) {
+            if ([int] (Invoke-Sql -Catalog $db -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'ReportingTimeZone';") -gt 0) { continue }
+            if ((Get-Count $db 'audit.CopilotAudit') -gt 0 -or (Get-Count $db 'audit.CopilotInteraction') -gt 0) { continue }
+            Invoke-Sql -Catalog $db -Parameters @{ '@z' = $serverZone } -Sql "INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'ReportingTimeZone', @z);"
+        }
+    }
+}
 Write-Done ("reporting time zone: {0}" -f (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT audit.ReportingTimeZone();'))
 
 foreach ($acct in $ReportingAccount) {

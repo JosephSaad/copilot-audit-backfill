@@ -6,8 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [2.4.10] - unreleased
 
-Clearer names and less clutter. No change to the database: install the dashboard package over
-2.4.9; the scripts are unchanged in behavior.
+Clearer names, less clutter, and times in your own time zone. Nothing to rebuild: replace the
+scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and install the dashboard package
+over 2.4.9. No table changes, and an existing database keeps the time zone its days were cut in.
+
+### Added
+- **A time zone setting, the server's by default.** Admin › Access › Settings has a *Time
+  zone*. Every time the dashboard shows is in it, and each column says which: *When (Eastern
+  Time)*, not *When (UTC)*, on the audit log, pipeline runs, license reads, alerts, digests,
+  extracts and training imports, in their CSV files, in the stale-data banner and in the
+  pipeline and freshness alerts. Digests, alerts and extracts go out by its clock. Left on
+  *Default* it is the zone the data's days are cut in; with none, the web server's own.
+- **A new install cuts its days in the server's time zone.** With no `-ReportingTimeZone`,
+  `Install-CopilotAudit.ps1` gave every database Eastern time, whatever the server. A database
+  with no records yet now takes the installing server's own zone. A database that holds
+  records keeps its zone: its days are already cut, and that cannot be changed.
 
 ### Changed
 - **No Period box on a report it does not change.** Reports with a window of their own

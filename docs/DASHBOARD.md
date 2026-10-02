@@ -286,6 +286,8 @@ A manager digest that fails is tried again an hour later, three times in all (`d
 
 **Contracts** (entered by an administrator on Forecasting › Budget and renewal): each agreement's seats, price and renewal date. The page compares them with the seats the use supports: seats assigned today, less licenses to revoke and on disabled accounts, plus people ready to upgrade.
 
+**Time zone** (2.4.10, Admin › Access › Settings): the zone every time is shown in and schedules run by; by default the server's, as the data's days are cut. See [OPERATIONS.md](OPERATIONS.md).
+
 **Reports shown** (2.4.9, Admin › Reports shown): an administrator turns any report off, and it is gone for everyone, administrators too: from the navigation, the start page, and at its address. The page lists the reports by section as the start page does, each with a box to tick. See [OPERATIONS.md](OPERATIONS.md).
 
 **Classifications** (Admin › Classifications and events): job-title patterns to job families (People › Job families), and app, web-search and agent patterns to use cases (Leadership › Use cases). The first matching rule by priority wins; both apply at once, to past data too, and to Power BI through `bi.JobFamilies` and `bi.UseCases`.
