@@ -17,11 +17,11 @@ public static class Nav
             new("Board pack", "/leadership/boardpack")]),
         new("Adoption", "Copilot program lead", [
             new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"),
-            new("Retention and habit", "/adoption/retention"), new("License cohorts", "/adoption/cohorts"), new("New joiners", "/adoption/onboarding"), new("Not started", "/adoption/not-started", Roles.Adoption),
+            new("Retention and habit", "/adoption/retention"), new("Retention by license month", "/adoption/cohorts"), new("New joiners", "/adoption/onboarding"), new("Not started", "/adoption/not-started", Roles.Adoption),
             new("Targets", "/adoption/targets"), new("Drops and spikes", "/adoption/anomalies")], Roles.Adoption),
         new("Licensing", "Licensing, IT asset and FinOps", [
-            new("Inventory", "/licensing"), new("License pool", "/licensing/pool"), new("License changes", "/licensing/changes"),
-            new("Chargeback", "/licensing/chargeback"), new("Demand", "/licensing/demand"),
+            new("License inventory", "/licensing"), new("License pool", "/licensing/pool"), new("License changes", "/licensing/changes"),
+            new("Chargeback", "/licensing/chargeback"), new("Demand for licenses", "/licensing/demand"),
             new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
             new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
@@ -29,18 +29,18 @@ public static class Nav
             new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing), new("Copilot on non-human accounts", "/licensing/non-person", Roles.Licensing),
             new("Departures ahead", "/licensing/departures", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [
-            new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Guests and external users", "/security/guests"),
+            new("Security signals", "/security"), new("Security signals by unit", "/security/units"), new("Guests and external users", "/security/guests"),
             new("Flagged interactions", "/security/flags", Roles.Security), new("Copilot on non-human accounts", "/security/non-human", Roles.Security)], Roles.Security),
         new("Compliance", "Data protection and compliance", [
             new("Sensitive content", "/compliance"), new("Labeled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
-            new("Resource access", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true),
+            new("Access to labeled content", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true),
             new("Copilot on non-human accounts", "/compliance/non-human", Roles.Compliance)], Roles.Compliance),
         new("Agents", "Copilot Studio makers and CoE", [
-            new("Agents", "/agents"), new("Inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs"),
+            new("Agents in use", "/agents"), new("Agent inventory", "/agents/inventory"), new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs"),
             new("Agents costing credits", "/agents/credits")], Roles.Agents),
         new("Enablement", "Training and champions", [
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
-            new("Champions", "/enablement/champions", Roles.Enablement), new("People", "/enablement/people", Roles.Enablement)], Roles.Enablement),
+            new("Champions", "/enablement/champions", Roles.Enablement), new("People by engagement", "/enablement/people", Roles.Enablement)], Roles.Enablement),
         new("Forecasting", "Finance, licensing and program leads", [
             new("Forecast", "/forecasting"), new("License optimization", "/forecasting/optimize"), new("Budget and renewal", "/forecasting/budget"),
             new("Upgrade, train or revoke", "/forecasting/actions", Roles.Licensing), new("Rollout waves", "/forecasting/waves", Roles.Licensing),
@@ -52,7 +52,7 @@ public static class Nav
         new("App owners", "Microsoft 365 workload owners", [
             new("Apps", "/apps"), new("App detail", "/apps/detail")]),
         new("Governance", "AI governance and architecture", [
-            new("Models and grounding", "/governance"), new("Controls", "/governance/controls")]),
+            new("Models and grounding", "/governance"), new("Copilot controls", "/governance/controls")]),
         new("Admin", "Dashboard administrators", [
             new("Health", "/admin/health", Admin: true), new("Access", "/admin/access", Admin: true), new("Directory quality", "/admin/directory", Admin: true),
             new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),

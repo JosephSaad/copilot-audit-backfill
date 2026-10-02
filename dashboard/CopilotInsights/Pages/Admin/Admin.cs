@@ -223,7 +223,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy)
 
 public sealed class AccessModel(PageServices s) : AdminPage(s)
 {
-    public override string Title => "Access and roles";
+    public override string Title => "Access";
     public override string Intro => "Who sees what. The dashboard can be limited to the top levels of the organization. Levels 1 and 2 below the top see the whole organization; everyone else their own part of it. Roles add whole-organization access or named detail.";
 
     static readonly string[] SettingNames = ["OrgTopUpn", "MinGroupSize", "DefaultDays", "InactiveDays"];

@@ -115,7 +115,7 @@ M -Task RebuildValueCatalog                         # every value again, from ev
 M -Task NameLabel -LabelId 5e1f0c2a-0000-4000-8000-000000000002 -FriendlyName 'Highly Confidential' -Rank 4
 ```
 
-**Agents.** Admin › Reference data › *Agents*: a friendly name and an owner for each agent (Copilot Studio agents appear under their schema name). *Unnamed first* lists new ones; the new-agent alert and Agents › Inventory point here.
+**Agents.** Admin › Reference data › *Agents*: a friendly name and an owner for each agent (Copilot Studio agents appear under their schema name). *Unnamed first* lists new ones; the new-agent alert and Agents › Agent inventory point here.
 
 ```powershell
 M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr-digital@contoso.com'

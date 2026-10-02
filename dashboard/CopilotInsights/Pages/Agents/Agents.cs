@@ -7,7 +7,7 @@ namespace CopilotInsights.Pages.Agents;
 
 public sealed class IndexModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "Agents";
+    public override string Title => "Agents in use";
     public override string Persona => "Agents";
     public override string Intro => "Every agent people used in the period: how many people, how often, whether they come back, and which agents are new.";
 

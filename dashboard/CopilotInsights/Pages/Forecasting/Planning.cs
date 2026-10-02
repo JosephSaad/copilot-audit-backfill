@@ -109,7 +109,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
 /// <summary>Who to license next, in waves: the people already relying on the free Copilot Chat first, then those in departments where Copilot has taken hold.</summary>
 public sealed class WavesModel(PageServices s, OpsData ops) : InsightsPage(s)
 {
-    public override string? OwnWindow => "the last 30 days, whatever the period";
+    public override string? OwnWindow => "the last 30 days";
     public override string Title => "Rollout waves";
     public override string Persona => "Forecasting";
     public override string? RequiredRole => Roles.Licensing;

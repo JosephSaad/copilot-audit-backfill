@@ -8,7 +8,7 @@ namespace CopilotInsights.Pages.Security;
 
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Signals";
+    public override string Title => "Security signals";
     public override string Persona => "Security";
     public override string Intro => "Jailbreak attempts, prompt injection in content Copilot read, and resources Copilot was blocked from: how many, when and where. Aggregates only.";
 

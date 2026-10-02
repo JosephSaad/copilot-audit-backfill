@@ -54,8 +54,9 @@ WHERE f.FirstKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args()
 
 public sealed class CohortsModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "License cohorts";
+    public override string Title => "Retention by license month";
     public override string Persona => "Adoption";
+    public override string? OwnWindow => "licenses that began in the last 12 months";
     public override string Intro => "Do people keep using Copilot after they get it? Each row is the people licensed in one month; each column a week after their license.";
 
     protected override async Task BuildAsync()
@@ -173,6 +174,7 @@ public sealed class NotStartedModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => "Not started";
     public override string Persona => "Adoption";
+    public override string? OwnWindow => "today's licenses";
     public override string? RequiredRole => Roles.Adoption;
     public override string Intro => "People licensed for at least 14 days who have never used Copilot: who to invite to training or a champion session.";
 

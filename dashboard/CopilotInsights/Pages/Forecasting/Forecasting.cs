@@ -125,6 +125,7 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => "License optimization";
     public override string Persona => "Forecasting";
+    public override string? OwnWindow => "the last 30 days and the 13-week forecast";
     public override string Intro => "What to do with Copilot licenses: reclaim, reassign, coach or buy, with what each is worth. Based on the last 30 days and the 13-week forecast.";
     public override bool UsesFilters => true;
 
@@ -213,7 +214,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         {
             Department = "Smaller departments", People = small.Sum(r => r.People), Held = small.Sum(r => r.Held), Active = small.Sum(r => r.Active),
             Idle = small.Sum(r => r.Idle), Light = small.Sum(r => r.Light), Demand = small.Sum(r => r.Demand),
-        }, out var folded).OrderByDescending(r => Math.Abs(r.Demand - r.Idle)).ToList();
+        }, out var folded).OrderByDescending(r => Math.Abs(r.Demand - r.Idle)).ThenBy(r => r.Department, StringComparer.Ordinal).ToList();
         Panels.Add(new("Unused licenses against demand, by department",
             Chart.Columns(shown.Take(15).Select(r => r.Department).ToList(), [
                 new Series("Unused", shown.Take(15).Select(r => (double?)r.Idle).ToList(), 2),

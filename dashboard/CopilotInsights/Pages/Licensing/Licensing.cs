@@ -7,7 +7,7 @@ namespace CopilotInsights.Pages.Licensing;
 
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Inventory";
+    public override string Title => "License inventory";
     public override string Persona => "Licensing";
     public override string Intro => "How many Copilot licenses are assigned, how that changed, and how many are in use.";
 
@@ -135,7 +135,7 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
 
 public sealed class DemandModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Demand";
+    public override string Title => "Demand for licenses";
     public override string Persona => "Licensing";
     public override string Intro => "People without a license who use the free Copilot Chat: where demand for a license is.";
 

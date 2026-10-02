@@ -88,6 +88,7 @@ namespace CopilotInsights.Pages.Adoption
     {
         public override string Title => "Retention and habit";
         public override string Persona => "Adoption";
+        public override string? OwnWindow => "the last 12 complete weeks";
         public override string Intro => "Do people keep using Copilot once they start? Of everyone active in a week, how many come back in each of the eight weeks after; and how many weeks of the last twelve people used it.";
         public override bool UsesFilters => true;
 
@@ -136,7 +137,7 @@ namespace CopilotInsights.Pages.Security
 {
     public sealed class UnitsModel(PageServices s, Metrics m) : InsightsPage(s)
     {
-        public override string Title => "Signals by unit";
+        public override string Title => "Security signals by unit";
         public override string Persona => "Security";
         public override string Intro => "Where jailbreak attempts, prompt injection and blocked content cluster, one level down, over time. Rates per 1,000 interactions, so big and small units compare fairly.";
 
@@ -281,7 +282,7 @@ namespace CopilotInsights.Pages.Governance
 {
     public sealed class ControlsModel(PageServices s, Metrics m) : InsightsPage(s)
     {
-        public override string Title => "Controls";
+        public override string Title => "Copilot controls";
         public override string Persona => "Governance";
         public override string Intro => "The controls around Copilot at work: memory updates, deferred data-loss checks, and grounding on the public web, over time and by unit.";
 

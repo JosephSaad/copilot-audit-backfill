@@ -14,7 +14,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     public override string Intro => "Named recommendations from the last 30 days: free Copilot Chat users to upgrade to a Premium license, "
         + "license holders who barely use Copilot to train, and licenses unused long enough to revoke.";
 
-    public override string? OwnWindow => "the last 30 days, whatever the period";
+    public override string? OwnWindow => "the last 30 days";
     public const int UpgradeDays = 6;   // of the last 30, on the free Copilot Chat
     public const int LightMax = 2;      // days of use in 30 with a license: train
     public const int RevokeAfterDays = 30;

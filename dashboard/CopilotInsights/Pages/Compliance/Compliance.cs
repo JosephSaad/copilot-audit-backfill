@@ -85,7 +85,7 @@ GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
 
 public sealed class AccessModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "Resource access";
+    public override string Title => "Access to labeled content";
     public override string Persona => "Compliance";
     public override string? RequiredRole => Roles.Compliance;
     public override string Intro => "Who worked with labeled content through Copilot in the period, how often, and the most sensitive label they touched.";

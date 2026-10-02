@@ -101,7 +101,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", Ctx.Args());
 
 public sealed class PeopleModel(PageServices s) : InsightsPage(s)
 {
-    public override string Title => "People";
+    public override string Title => "People by engagement";
     public override string Persona => "Enablement";
     public override string? RequiredRole => Roles.Enablement;
     public override string Intro => "Named people by engagement segment: power users to recruit as champions, and one-off or not-started people to invite to training.";

@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.10] - unreleased
+
+Clearer names and less clutter. No change to the database: install the dashboard package over
+2.4.9; the scripts are unchanged in behavior.
+
+### Changed
+- **No Period box on a report it does not change.** Reports with a window of their own
+  (today's licenses, the last 30 or 90 days, all history) showed the Period box although
+  choosing a period changed nothing on them. The box is left out there, and the bar says what
+  the report covers ("Covers today's licenses"). The period chosen elsewhere is kept.
+- **Report names that say what the report is.** *Inventory* was two reports and is now
+  *License inventory* and *Agent inventory*; *Agents* (a report in the Agents section) is
+  *Agents in use*; *People* (a report in Enablement, beside the People section) is *People by
+  engagement*; *Signals* and *Signals by unit* are *Security signals* and *Security signals by
+  unit*; *Demand* is *Demand for licenses*; *Resource access* is *Access to labeled content*;
+  *Controls* is *Copilot controls*; *License cohorts* is *Retention by license month*. The
+  name in the list is the title on the page (Admin › Access was titled *Access and roles*).
+  Addresses are unchanged, so links and bookmarks still work.
+- **Four more reports say what they cover.** Retention and habit (the last 12 complete weeks),
+  Retention by license month (licenses that began in the last 12 months), Not started (today's
+  licenses) and License optimization (the last 30 days and the 13-week forecast) ignored the
+  period too, and now say so in place of the Period box. Every report was checked at 30 and at
+  365 days for this.
+
+### Fixed
+- **"For copilot program lead".** The line under a report's title lowercased the first word
+  of its audience whatever it was: *For copilot program lead*, *For hR and people analytics*,
+  *For aI governance and architecture*. Names and abbreviations keep their capitals.
+- **License optimization drew departments in a different order from one visit to the next**
+  when two had the same gap between unused licenses and demand. Ties are now in name order.
+
 ## [2.4.9] - 2026-10-02
 
 Adoption no longer dips at weekends, an administrator can turn any report off, and a rebuild

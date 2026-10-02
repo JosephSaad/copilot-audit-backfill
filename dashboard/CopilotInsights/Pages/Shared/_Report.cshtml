@@ -7,6 +7,8 @@
        keep their text on the page. */
     var guide = CopilotInsights.Pages.Guidance.For(path);
     var who = CopilotInsights.Pages.Nav.SectionOf(path)?.Who;
+    /* "For executives and department heads", but a name or an abbreviation keeps its capital: Copilot, Microsoft 365, HR, AI. */
+    if (who is { Length: > 1 } && !char.IsUpper(who[1]) && who.Split(' ')[0] is not ("Copilot" or "Microsoft")) who = char.ToLowerInvariant(who[0]) + who[1..];
 }
 <div class="page-head">
     <div class="eyebrow">@Model.Persona</div>
@@ -16,7 +18,7 @@
         <div class="guide">
             @if (who is not null)
             {
-                <span class="who">For @(char.ToLowerInvariant(who[0]) + who[1..])</span>
+                <span class="who">For @who</span>
             }
             <p><b>Helps you</b> @guide.Helps</p>
             <p><b>Do</b> @guide.Do</p>
@@ -46,14 +48,23 @@
 @if (Model.UsesFilters)
 {
     <form class="filters" method="get" action="@path">
-        <label>Period
-            <select name="d" data-autosubmit>
-                @foreach (var d in ReportContext.DayChoices)
-                {
-                    <option value="@d" selected="@(d == c.Days)">Last @d days</option>
-                }
-            </select>
-        </label>
+        @* A page with a window of its own (today's licenses, the last 30 days whatever the period) has no period to choose
+           (2.4.10): the box is left out, and the page says what it covers instead. The period chosen elsewhere is kept. *@
+        @if (Model.OwnWindow is null)
+        {
+            <label>Period
+                <select name="d" data-autosubmit>
+                    @foreach (var d in ReportContext.DayChoices)
+                    {
+                        <option value="@d" selected="@(d == c.Days)">Last @d days</option>
+                    }
+                </select>
+            </label>
+        }
+        else
+        {
+            <input type="hidden" name="d" value="@c.Days" />
+        }
         @if (c.Root is not null && (c.Root != c.Viewer.Upn || c.Viewer.OrgWide))
         {
             <input type="hidden" name="org" value="@c.Root" />
@@ -84,7 +95,7 @@
         </div>
         @if (Model.OwnWindow is { } own)
         {
-            <span class="period own" title="The period filter does not change this page">This page: @own</span>
+            <span class="period own">Covers @own</span>
         }
         else
         {

@@ -59,14 +59,14 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | Adoption | Funnel and trend | Licensed → started → active → active this week → multi-turn; first-time users over time | Scope | No |
 | | Usage by license | For licensed, unlicensed or everyone in scope: people, active and inactive; use by app and by the file type read (docx, xlsx, pptx ..., or a mail, a Teams message); the highest and lowest users; minutes used (the span of each conversation, first prompt to last) by person, by app, with averages for Outlook, Teams and Copilot Chat, and every conversation, downloadable; interactions by app over the period with each app's lowest, highest and mean point; people by days active; the last database update and the latest audit record | Person | **Adoption** |
 | | Retention and habit | Of everyone active in a week, how many come back in each of the next eight weeks; how many of the last twelve weeks people used it | Weekly cohorts | No |
-| | License cohorts | Of the people licensed each month, the share active in weeks 1 to 12 after; time from license to first use | Monthly cohorts | No |
+| | Retention by license month | Of the people licensed each month, the share active in weeks 1 to 12 after; time from license to first use | Monthly cohorts | No |
 | | Departments | Licensed, active and adoption per AD department; small departments combined | Department | No |
 | | Leaderboard | Departments (or divisions, companies, countries, offices) ranked by adoption, with the change on the period before and the most improved | Attribute | No |
 | | Targets | Each adoption target against where it started, where it is now and where it should be by now | Target | No |
 | | New joiners | Days from getting a license (or joining, with an Entra hire date) to first use; how many have not started; by department | Scope, department | No |
 | | Drops and spikes | Days in the last two weeks when a department's use was far from its usual level for that weekday | Department, day | No |
 | | Not started | People licensed 14 days or more who have never used Copilot | Person | **Adoption** |
-| Licensing | Inventory | Licenses held over time, assigned and removed, by SKU, idle licenses by unit | Scope, SKU, unit | No |
+| Licensing | License inventory | Licenses held over time, assigned and removed, by SKU, idle licenses by unit | Scope, SKU, unit | No |
 | | Unused licenses | People holding a license with no use for 7, 14, 30, 60 or 90 days, and when they last used it | Person | **Licensing** |
 | | Use ranking | Everyone ranked three ways: all use, free use (web Copilot Chat, agents) and Premium use; their Premium share and license | Person | **Licensing** |
 | | Better on pay-as-you-go | License holders whose Premium use is at most 0, 5, 10 or 25% of their use, with what Copilot Credits would cost them a month and the saving against the license | Person | **Licensing** |
@@ -76,24 +76,24 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Overlapping licenses | People holding the Copilot license with another Copilot-family license (a second Copilot SKU, Copilot Studio, Copilot for Sales or Service), by SKU and by person | Person | **Licensing** |
 | | Departures ahead | License holders due to leave in 7, 30 or 90 days, or past their date with the account still enabled, from AD's account expiry and Entra's leave date, with a file to reclaim the past ones | Person | **Licensing** |
 | | Swap list | Idle licenses paired with people who want one in the same department, division or anywhere, with files to take each license back and give it on | Person | **Licensing** |
-| | Demand | Unlicensed Copilot Chat users over time and by department; the license type each record reports; the list of them | Department; person | List: **Licensing** |
+| | Demand for licenses | Unlicensed Copilot Chat users over time and by department; the license type each record reports; the list of them | Department; person | List: **Licensing** |
 | | License changes | Licenses assigned and removed: how long each was held, whether it was taken from someone still using it, whether it came back, by department; who made the changes | Scope, department | Who made them: **Licensing** |
 | | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No |
 | | Chargeback | The monthly cost of the licenses each department (or division, company, country, office) holds, its unused share, and the cost per person using Copilot | Attribute | No |
 | | Licenses on disabled accounts | Licenses held today by accounts disabled in AD or Entra, or gone from the directory; with the files to reclaim them | Person | **Licensing** |
-| Security | Signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit | Scope, unit | No |
-| | Signals by unit | Signals per 1,000 interactions for each unit one level down, over time | Unit | No |
+| Security | Security signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit | Scope, unit | No |
+| | Security signals by unit | Signals per 1,000 interactions for each unit one level down, over time | Unit | No |
 | | Guests and external users | Copilot use by guest accounts, by home organization: people, interactions, licenses held here, signals; the named list for the Security role | Home organization; person | List: **Security** |
 | | Flagged interactions | Each flagged interaction: when, who, app, agent, the signal and the Purview record id, with its triage (new, investigating, closed, false positive), owner and note | Interaction | **Security** |
 | | Copilot on non-human accounts | The same page as in Licensing, for Security: guests, service, shared, test or room accounts, accounts outside the org chart, and the employee types, AD groups and sign-in patterns set in Admin › Reference data; why each was flagged, the files to remove the licenses, and the accounts an administrator confirmed as people, with the reason; license holders by employee type | Person | **Security** |
 | Compliance | Sensitive content | Interactions with labeled content by label and over time; the sites that content lives on; sites Copilot was blocked from; everything it read, by type. Personal OneDrive sites are grouped | Scope, label, site, type | No |
 | | Labeled content by unit | The share of each unit's interactions that touched labeled content, over time; resources read by type and label | Unit, type, label | No |
 | | Oversharing hotspots | The sites Copilot read from, by how many people reached them through it, with how much of what it read was labeled and its most sensitive label | Site | No (people counts under the minimum group size hidden) |
-| | Resource access | Who worked with labeled content, how often, their most sensitive label, how many sites, how often blocked; filter by label | Person | **Compliance** |
+| | Access to labeled content | Who worked with labeled content, how often, their most sensitive label, how many sites, how often blocked; filter by label | Person | **Compliance** |
 | | Person record | One person's directory and license record and every interaction in the period with its record id, downloadable, for a data-subject request or an investigation. Open in privacy mode | Person | **Compliance** |
 | | Copilot on non-human accounts | The same page as in Licensing and Security, for Compliance: evidence that Copilot is licensed only to people, and each breach until it is cleared | Person | **Compliance** |
-| Agents | Agents | Every agent used: people, how many came back, interactions, first use, a trend line; the top six over time | Agent | No |
-| | Inventory | Every agent seen: where it was built, first and last use, people and interactions in the period, owner and friendly name | Agent | No |
+| Agents | Agents in use | Every agent used: people, how many came back, interactions, first use, a trend line; the top six over time | Agent | No |
+| | Agent inventory | Every agent seen: where it was built, first and last use, people and interactions in the period, owner and friendly name | Agent | No |
 | | Build and publish | Copilot Studio agents created, published, shared, changed and deleted, from Copilot Studio's own audit records; each agent's lifecycle | Scope, agent | Makers: **Agents** |
 | | Agent hand-offs | How often one agent calls another, and which agents are called | Scope, agent | No |
 | | Agents costing credits | Each agent's use by people without a license, its Copilot Credits a month and per person, and whether to restrict it or license its users | Scope, agent | No |
@@ -102,9 +102,9 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Conversation depth | Sessions by prompts and by length; messages per prompt over time | Scope | No |
 | | Training effect | For each training session: attendees' active days in the 28 days before and after, against colleagues in the same departments | Session | No (sessions under the minimum group size hidden) |
 | | Champions | The most regular and broadest users in each department, as champion candidates | Person | **Enablement** |
-| | People | Named people in a segment: champions to recruit, one-off users to train | Person | **Enablement** |
+| | People by engagement | Named people in a segment: champions to recruit, one-off users to train | Person | **Enablement** |
 | Governance | Models and grounding | Model mix over time, web grounding, Copilot Chat against in-app, memory updates, calls to another agent, deferred DLP checks, distinct agents in use, agents known by source | Scope; organization-wide for agents known | No |
-| | Controls | Memory updates, deferred data-loss checks and web grounding over time; web grounding by unit | Scope, unit | No |
+| | Copilot controls | Memory updates, deferred data-loss checks and web grounding over time; web grounding by unit | Scope, unit | No |
 | Forecasting | Forecast | Licenses held, licensed people using them, Copilot Chat demand, interactions and adoption, 13, 26 or 52 weeks ahead, with 95% intervals | Scope, weekly | No |
 | | License optimization | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right license count for the next quarter; the same by department | Scope, department | No |
 | | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No |
@@ -171,7 +171,7 @@ Every report has the same choice: the last **7, 14, 30, 90, 180 or 365 days**, e
 
 A few views set their own window, and each one says so on the page:
 
-- **License cohorts:** the last 12 months of license starts.
+- **Retention by license month:** the last 12 months of license starts.
 - **Unused licenses:** today's licenses against an idle time chosen on the page.
 - **Agents known:** every agent the log has ever seen.
 
