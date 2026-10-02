@@ -223,31 +223,63 @@
     window.addEventListener('resize', function () { close(false); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && shown) close(true); });
 
-    // Find a report: by its name or by what it answers. Enter opens the first that matches.
-    var find = document.getElementById('nav-find'), none = document.getElementById('nav-none');
+    // Find a report: by its name, by what it answers, or by its section ("licensing", "finance"). Enter opens the first
+    // that matches; the arrow keys walk the matches; "/" from anywhere on the page puts the cursor in the box.
+    var find = document.getElementById('nav-find'), none = document.getElementById('nav-none'), count = document.getElementById('nav-count');
     if (find) {
       var links = Array.prototype.slice.call(nav.querySelectorAll('.glinks a'));
+      function matches() { return links.filter(function (x) { return !x.hidden && x.offsetParent !== null; }); }
       function apply() {
         var q = find.value.trim().toLowerCase();
         close(false);
         nav.classList.toggle('finding', q !== '');
-        var any = false;
-        grps.forEach(function (g) {
-          var hit = false;
-          Array.prototype.forEach.call(g.querySelectorAll('.glinks a'), function (a) {
-            var m = q === '' || (a.textContent + ' ' + (a.getAttribute('data-what') || '')).toLowerCase().indexOf(q) >= 0;
-            a.hidden = !m;
-            if (m) hit = true;
+        // A report matches by its name or by what it answers; a section's own name brings all its reports; and when
+        // nothing matches at all, a section's audience does ("finops" for Licensing), so the box is forgiving but exact first.
+        function pass(audience) {
+          var n = 0;
+          grps.forEach(function (g) {
+            var mine = g.classList.contains('mine');
+            var words = (g.getAttribute('data-grp') || '') + (audience ? ' ' + (g.getAttribute('data-who') || '') : '');
+            var whole = q !== '' && !mine && words.toLowerCase().indexOf(q) >= 0;
+            var hit = 0;
+            Array.prototype.forEach.call(g.querySelectorAll('.glinks a'), function (a) {
+              var m = q === '' || whole || (a.textContent + ' ' + (a.getAttribute('data-what') || '')).toLowerCase().indexOf(q) >= 0;
+              a.hidden = !m;
+              if (m) hit++;
+            });
+            g.hidden = q !== '' && (hit === 0 || mine);
+            if (!mine) n += hit;
           });
-          g.hidden = q !== '' && (!hit || g.classList.contains('mine'));
-          if (hit && !g.classList.contains('mine')) any = true;
-        });
-        if (none) none.hidden = q === '' || any;
+          return n;
+        }
+        var n = pass(false);
+        if (n === 0 && q !== '') n = pass(true);
+        if (none) none.hidden = q === '' || n > 0;
+        if (count) { count.hidden = q === '' || n === 0; count.textContent = n === 1 ? '1 report' : n + ' reports'; }
       }
       find.addEventListener('input', apply);
       find.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') { var a = links.filter(function (x) { return !x.hidden; })[0]; if (a && find.value.trim() !== '') location.href = a.href; }
-        if (e.key === 'Escape') { find.value = ''; apply(); }
+        var m = matches();
+        if (e.key === 'Enter') { if (m[0] && find.value.trim() !== '') location.href = m[0].href; }
+        else if (e.key === 'Escape') { find.value = ''; apply(); }
+        else if (e.key === 'ArrowDown' && m[0]) { e.preventDefault(); m[0].focus(); }
+      });
+      // Down and up move through the links showing, in the list or among the matches; up from the first goes back to the box.
+      nav.addEventListener('keydown', function (e) {
+        if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || e.target === find) return;
+        var m = matches(), i = m.indexOf(document.activeElement);
+        if (i < 0) return;
+        e.preventDefault();
+        if (e.key === 'ArrowDown') { if (m[i + 1]) m[i + 1].focus(); }
+        else if (i === 0) find.focus(); else m[i - 1].focus();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+        var t = e.target, tag = t && t.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+        e.preventDefault();
+        find.focus();
+        find.select();
       });
     }
 

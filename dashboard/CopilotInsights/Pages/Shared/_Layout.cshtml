@@ -44,8 +44,9 @@
         @{ var groups = Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports); }
         @if (groups.Count > 0)
         {
-            <input type="search" class="find" id="nav-find" placeholder="Find a report" aria-label="Find a report" autocomplete="off" spellcheck="false" />
-            <p class="none" id="nav-none" hidden>No report matches.</p>
+            <input type="search" class="find" id="nav-find" placeholder="Find a report (press /)" aria-label="Find a report" aria-keyshortcuts="/" autocomplete="off" spellcheck="false" />
+            <p class="none" id="nav-none" hidden>No report matches. Try a word from what it shows, such as "unused" or "training".</p>
+            <p class="none" id="nav-count" role="status" hidden></p>
         }
         @{ var mine = CopilotInsights.Infrastructure.MostUsed.Pick(page?.MostUsedPaths ?? [], groups); }
         @if (mine.Count > 0)
@@ -66,7 +67,7 @@
         {
             var here = g.Pages.Any(p => p.Path == path);
             var id = "nav-" + g.Persona.ToLowerInvariant().Replace(' ', '-');
-            <div class="grp @(here ? "here open" : "")" data-grp="@g.Persona">
+            <div class="grp @(here ? "here open" : "")" data-grp="@g.Persona" data-who="@g.Who">
                 <button type="button" class="gname" aria-expanded="@(here ? "true" : "false")" aria-controls="@(id)-links"><span>@g.Persona</span><span class="n">@g.Pages.Count</span></button>
                 <div class="glinks" id="@(id)-links">
                     @foreach (var p in g.Pages)

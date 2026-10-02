@@ -111,6 +111,10 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   access*: "The reports hold Copilot use up to 26 Sep 2026, and were last refreshed 2026-10-01
   16:49 Eastern Time", and what holding a role (or none) means for the reports listed. Its
   introduction says how to find a report, not where the data comes from.
+- **Find a report finds more, from the keyboard.** A section's name or its audience brings
+  all its reports ("licensing", "finance"); the box says how many matched; the down and up
+  arrows walk the matches and Enter opens one; pressing / anywhere on a page puts the cursor
+  in the box. With no match it suggests what to type.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its
