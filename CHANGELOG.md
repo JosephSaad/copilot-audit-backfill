@@ -139,6 +139,10 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   so a report with five of them opened with three screens of figures before its first chart.
 - **An information icon stays with its label.** Where a title or a figure's label wrapped, the
   icon could land on a line by itself. It now goes with the label's last word.
+- **On to the next report.** The foot of every report offers the one before it in its section
+  and the one after, each with what it answers, and keeps the period and the part of the
+  organization being looked at. Only reports the person can open are offered. By the end of a
+  report the list of reports is a long way up, and on a phone it is folded away.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs

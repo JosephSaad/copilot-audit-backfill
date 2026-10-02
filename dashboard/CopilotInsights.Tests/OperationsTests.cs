@@ -381,6 +381,23 @@ public class MappingFileTests
     public void Unguard_removes_only_the_formula_guard(string cell, string expected) => Assert.Equal(expected, CopilotInsights.Data.CsvUpload.Unguard(cell));
 
     [Fact]
+    public void The_reports_beside_a_report_are_the_ones_offered_in_its_section()
+    {
+        var all = CopilotInsights.Pages.Nav.Groups;
+        var adoption = all.Single(g => g.Persona == "Adoption");
+        var (before, after, section) = CopilotInsights.Pages.Nav.Beside(all, adoption.Pages[1].Path);
+        Assert.Equal((adoption.Pages[0], adoption.Pages[2], adoption), (before, after, section));
+        // The first has nothing before it, the last nothing after; neither reaches into the next section.
+        Assert.Null(CopilotInsights.Pages.Nav.Beside(all, adoption.Pages[0].Path).Before);
+        Assert.Null(CopilotInsights.Pages.Nav.Beside(all, adoption.Pages[^1].Path).After);
+        // A page left out of what is offered (hidden, or not this person's) is stepped over, and is beside nothing.
+        var without = all.Select(g => g == adoption ? g with { Pages = [.. g.Pages.Where((_, i) => i != 1)] } : g).ToList();
+        Assert.Equal(adoption.Pages[2], CopilotInsights.Pages.Nav.Beside(without, adoption.Pages[0].Path).After);
+        Assert.Null(CopilotInsights.Pages.Nav.Beside(without, adoption.Pages[1].Path).Section);
+        Assert.Null(CopilotInsights.Pages.Nav.Beside(all, "/").Section);
+    }
+
+    [Fact]
     public void An_information_icon_is_tied_to_the_last_word_of_its_label()
     {
         static string Html(Microsoft.AspNetCore.Html.IHtmlContent c)

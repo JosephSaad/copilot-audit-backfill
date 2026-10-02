@@ -103,6 +103,28 @@
     </nav>
     <main>
         @RenderBody()
+        @{
+            /* 2.4.10: the report before this one in its section and the one after, at the foot of the page, among those
+               this person can open. By the end of a report the list is a long way up, and on a phone it is folded away. */
+            var (before, after, sect) = Nav.Beside(groups, path);
+        }
+        @if (sect is not null && page is { Denied: null } && (before ?? after) is not null)
+        {
+            <nav class="pager" aria-label="More in @sect.Persona">
+                @if (before is not null)
+                {
+                    <a class="prev" href="@(page.Ctx is null ? before.Path : page.Ctx.Url(before.Path))">
+                        <span class="dir">Previous in @sect.Persona</span><b>@before.Title</b><span class="what">@NavText.What(before)</span>
+                    </a>
+                }
+                @if (after is not null)
+                {
+                    <a class="next" href="@(page.Ctx is null ? after.Path : page.Ctx.Url(after.Path))">
+                        <span class="dir">Next in @sect.Persona</span><b>@after.Title</b><span class="what">@NavText.What(after)</span>
+                    </a>
+                }
+            </nav>
+        }
     </main>
 </div>
 <div id="tip" role="tooltip" hidden></div>

@@ -82,6 +82,19 @@ public static class Nav
               .Where(g => g.Pages.Count > 0).ToList();
 
     /// <summary>The role a page's section needs, if any (2.4.2): the section is hidden, and its pages refused, without it.</summary>
+    /// <summary>
+    /// The page before <paramref name="path"/> in its section and the one after (2.4.10), among the pages offered:
+    /// <paramref name="groups"/> is what <see cref="For"/> returned for this person, so neither is one they cannot open.
+    /// </summary>
+    public static (NavPage? Before, NavPage? After, NavGroup? Section) Beside(IReadOnlyList<NavGroup> groups, string? path)
+    {
+        foreach (var g in groups)
+            for (var i = 0; i < g.Pages.Count; i++)
+                if (string.Equals(g.Pages[i].Path, path, StringComparison.OrdinalIgnoreCase))
+                    return (i > 0 ? g.Pages[i - 1] : null, i < g.Pages.Count - 1 ? g.Pages[i + 1] : null, g);
+        return (null, null, null);
+    }
+
     public static NavGroup? SectionOf(string? path) =>
         path is null ? null : Groups.FirstOrDefault(g => g.Pages.Any(p => string.Equals(p.Path, path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)));
 }

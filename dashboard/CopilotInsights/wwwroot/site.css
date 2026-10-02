@@ -150,6 +150,18 @@ h1 { font-size: 26px; margin: 2px 0 4px; letter-spacing: -0.01em; }
 .klabel { font-size: 12px; color: var(--muted); }
 .kvalue { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .knote { font-size: 12px; color: var(--faint); }
+/* The report before this one in its section and the one after, at the foot of the page (2.4.10). */
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+.pager a { display: block; min-width: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px;
+  color: inherit; text-decoration: none; }
+.pager a:hover, .pager a:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.pager a.next { grid-column: 2; text-align: right; }
+.pager .dir, .pager .what { display: block; font-size: 12px; color: var(--muted); }
+.pager b { display: block; margin: 1px 0; color: var(--accent); }
+.pager .prev .dir::before { content: "\2190\00a0"; }
+.pager .next .dir::after { content: "\00a0\2192"; }
+@media (max-width: 640px) { .pager { grid-template-columns: 1fr; } .pager a.next { grid-column: 1; text-align: left; } }
+@media print { .pager { display: none; } }
 .nb { white-space: nowrap; }   /* a label's last word and its icon: they wrap together */
 /* A phone: the headline figures two to a row, so the first chart is one screen down, not three; an odd last one
    takes the whole row (2.4.10). */
