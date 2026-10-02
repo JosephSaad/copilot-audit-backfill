@@ -258,8 +258,11 @@ public static class Chart
         if (x.Count == 0 || series.All(s => s.Values.All(v => v is null))) return new(Empty("No data for this period."));
         var top0 = max ?? series.SelectMany(s => s.Values).Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
-        var endLabel = series.Count > 4 ? 0 : series.Select(s => TextW(s.Name + " " + Format(s.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
-        var r = (int)Math.Clamp(endLabel + 16, 110, Math.Max(110, W * 0.42));
+        /* Drawn narrow (a phone, 2.4.10) with a legend above it, a line's end carries its value alone: the name is in the
+           legend, and beside the line it took half the chart. */
+        var compact = W <= 380 && series.Count is >= 2 and <= 4;
+        var endLabel = series.Count > 4 ? 0 : series.Select(s => TextW((compact ? "" : s.Name + " ") + Format(s.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
+        var r = (int)Math.Clamp(endLabel + 16, compact ? 48 : 110, Math.Max(110, W * 0.42));
         using var layout = new Layout(r, BottomFor(x, W - r - L), TopFor(x));
         double X(int i) => x.Count == 1 ? (L + W - R) / 2.0 : L + i * (W - R - L) / (double)(x.Count - 1);
         double Y(double v) => T + (H - T - B) * (1 - v / top);
@@ -279,7 +282,7 @@ public static class Chart
             {
                 var ly = Place(labelYs, Y(last.v!.Value) + 4);
                 var val = Format(last.v, f);
-                var (attr, body) = Cut(s.Name, Math.Max(NameRoom(val), 60), " " + val);
+                var (attr, body) = compact ? ("", E(val)) : Cut(s.Name, Math.Max(NameRoom(val), 60), " " + val);
                 sb.Append($"<text class=\"dlabel\" x=\"{N(X(last.i) + 9)}\" y=\"{N(ly)}\"{attr}>{body}</text>");
             }
         }
@@ -311,8 +314,9 @@ public static class Chart
         if (x.Count == 0 || lines.Count == 0 || lines.All(l => l.History.Values.All(v => v is null))) return new(Empty("Not enough history to forecast yet."));
         var top0 = lines.SelectMany(l => l.History.Values.Where(v => v.HasValue).Select(v => v!.Value).Concat(l.High)).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
-        var endLabel = lines.Select(l => TextW(l.History.Name + " " + Format(l.Forecast.Count > 0 ? l.Forecast[^1] : l.History.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
-        var r = (int)Math.Clamp(endLabel + 16, 110, Math.Max(110, W * 0.42));
+        var compact = W <= 380 && lines.Count >= 2;
+        var endLabel = lines.Select(l => TextW((compact ? "" : l.History.Name + " ") + Format(l.Forecast.Count > 0 ? l.Forecast[^1] : l.History.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
+        var r = (int)Math.Clamp(endLabel + 16, compact ? 48 : 110, Math.Max(110, W * 0.42));
         using var layout = new Layout(r, BottomFor(x, W - r - L));
         double X(int i) => x.Count == 1 ? (L + W - R) / 2.0 : L + i * (W - R - L) / (double)(x.Count - 1);
         double Y(double v) => T + (H - T - B) * (1 - Math.Min(v, top) / top);
@@ -342,7 +346,7 @@ public static class Chart
             sb.Append($"<circle class=\"end\" cx=\"{N(endX)}\" cy=\"{N(Y(endV))}\" r=\"4\" style=\"fill:var(--s{s.Slot})\"/>");
             var ly = Place(labelYs, Y(endV) + 4);
             var endVal = Format(endV, f);
-            var (endAttr, endBody) = Cut(s.Name, Math.Max(NameRoom(endVal), 60), " " + endVal);
+            var (endAttr, endBody) = compact ? ("", E(endVal)) : Cut(s.Name, Math.Max(NameRoom(endVal), 60), " " + endVal);
             sb.Append($"<text class=\"dlabel\" x=\"{N(endX + 9)}\" y=\"{N(ly)}\"{endAttr}>{endBody}</text>");
         }
         for (var i = 0; i < x.Count; i++)
@@ -429,8 +433,10 @@ public static class Chart
         var labelW = (int)Math.Clamp(bars.Max(b => b.Label.Length * 6.9) + 18, Math.Min(190, BW * 0.3), BW * 0.42);
         var perLine = Math.Max(10, (int)((labelW - 18) / 6.9));
         var wrapped = bars.Select(b => WrapLines(b.Label, perLine)).ToList();
-        var lineCount = Math.Min(3, wrapped.Max(w => w.Count));
-        var rowH = lineCount switch { 1 => 26, 2 => 36, _ => 48 };
+        /* Up to three lines of name; drawn narrow (a phone), where a line holds little, up to five (2.4.10). */
+        var maxLines = BW <= 380 ? 5 : 3;
+        var lineCount = Math.Min(maxLines, wrapped.Max(w => w.Count));
+        var rowH = lineCount switch { 1 => 26, 2 => 36, 3 => 48, _ => 48 + (lineCount - 3) * 12 };
         var span = BW - labelW - valueW - (low < 0 ? valueW : 0);
         var zero = labelW + (low < 0 ? valueW : 0) + span * (-low) / (top - low);
         var h = bars.Count * rowH + 6;
@@ -442,8 +448,8 @@ public static class Chart
             var y = i * rowH + 4;
             var v = b.Value ?? 0;
             var w = span * Math.Abs(v) / (top - low);
-            var lines = wrapped[i].Take(3).ToList();
-            if (wrapped[i].Count > 3) lines[2] = string.Concat(wrapped[i].Skip(2));   // never cut: the rest joins the third line
+            var lines = wrapped[i].Take(maxLines).ToList();
+            if (wrapped[i].Count > maxLines) lines[maxLines - 1] = string.Concat(wrapped[i].Skip(maxLines - 1));   // never cut: the rest joins the last line
             var ly = y + 15 - (lines.Count - 1) * 6;
             var text = Tspans(lines, labelW - 10, 12);
             sb.Append(b.Href is null
@@ -483,7 +489,8 @@ public static class Chart
         var cw = (HW - labelW - 8) / (double)cols.Count;
         var h = rows.Count * rowH + 24;
         var sb = new StringBuilder($"<svg class=\"chart heat\" viewBox=\"0 0 {HW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
-        var every = Math.Max(1, (int)Math.Ceiling(cols.Count / 12.0));
+        /* A label over every so many columns: twelve across at most, and fewer where the columns are narrower than a label (2.4.10). */
+        var every = Math.Max(Math.Max(1, (int)Math.Ceiling(cols.Count / 12.0)), (int)Math.Ceiling((cols.Max(c => TextW(c)) + 6) / Math.Max(1, cw)));
         for (var c = 0; c < cols.Count; c++)
             if (c % every == 0)
                 sb.Append($"<text class=\"tick\" x=\"{N(labelW + c * cw + cw / 2)}\" y=\"14\" text-anchor=\"middle\">{E(cols[c])}</text>");

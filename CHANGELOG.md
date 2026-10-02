@@ -123,6 +123,13 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   *Licensed* and *Active*. They are *License holders* and *Used Copilot* everywhere (and
   *Share licensed* is *Share with a license*), matching the charts above them. On Use ranking
   the Yes/No column is *Has a license*. The same names head the CSV files.
+- **Charts are readable on a phone.** A chart was drawn for a wide screen and shrunk to fit, so
+  on a phone its text was a few pixels high. On a narrow screen every chart is now drawn for
+  that width: its text is about 10 pixels, a line's end carries its value alone (the names
+  are in the legend above it), a bar's name wraps onto as many as five lines, and a heatmap
+  labels fewer columns. The browser tells the server the screen is narrow with a cookie that
+  holds nothing else, and fetches the page once more when that changes. Six label problems
+  remain at phone width, on four reports with long site addresses or their own charts.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs
