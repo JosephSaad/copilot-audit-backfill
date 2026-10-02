@@ -201,6 +201,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         Ctx = await S.Contexts.CreateAsync(viewer, days, null);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode) return;
+        if (Pages.HiddenReports.Is(await Pages.HiddenReports.GetAsync(S.Settings), Request.Path)) return;
         await S.Stamp.EnsureAsync();
         using (QueryCache.Use()) await BuildAsync();
     }
@@ -215,12 +216,23 @@ public abstract class InsightsPage(PageServices s) : PageModel
         using (QueryCache.Use()) await BuildAsync();
     }
 
+    /// <summary>The reports this viewer opens most (2.4.9), by path, most opened first; see <see cref="MostUsed"/>.</summary>
+    public IReadOnlyList<string> MostUsedPaths { get; private set; } = [];
+
+    /// <summary>The reports turned off in Admin > Reports shown (2.4.9), by path.</summary>
+    public IReadOnlySet<string> HiddenReports { get; private set; } = new HashSet<string>();
+
     protected async Task<bool> PrepareAsync()
     {
         Viewer = await S.Viewers.GetAsync();
         Ctx = await S.Contexts.CreateAsync(Viewer, Request);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
-        if (!Viewer.Admitted && !(Viewer.IsAdmin && (AdminOnly || OpenToAdmins))) Denied = LimitRefusal(Viewer);
+        HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
+        if (HttpContext.RequestServices.GetService<MostUsed>() is { } most) MostUsedPaths = await most.PathsAsync(Viewer);
+        /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */
+        var turnedOff = !AdminOnly && Pages.HiddenReports.Is(HiddenReports, Request.Path);
+        if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin > Reports shown.";
+        else if (!Viewer.Admitted && !(Viewer.IsAdmin && (AdminOnly || OpenToAdmins))) Denied = LimitRefusal(Viewer);
         else if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
         else if (Nav.SectionOf(Request.Path) is { Role: { } section } g && !Viewer.Has(section))
             Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin > Access.";
@@ -233,7 +245,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         if (Denied is not null)
         {
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, Ctx.ScopeLabel, Denied);
-            Response.StatusCode = 403;
+            Response.StatusCode = turnedOff ? 404 : 403;
             return false;
         }
         return true;

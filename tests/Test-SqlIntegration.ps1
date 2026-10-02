@@ -2192,6 +2192,12 @@ SELECT COL_LENGTH('bi.DimResourceAction', 'ResourceAction') - COL_LENGTH('audit.
        COL_LENGTH('bi.DimSite', 'Site') - COL_LENGTH('audit.RawLogAccessedResource', 'Site') AS SiteGap;
 "@).Rows[0]
 Assert-That ([int] $widths.ActionGap -ge 0 -and [int] $widths.TypeGap -ge 0 -and [int] $widths.SiteGap -ge 0) 'bi resource dimensions are as wide as the flattened columns they copy'
+# 2.4.9: a full rebuild stopped part way is finished by the next refresh, whatever window that one asks for.
+Invoke-SqlText -Sql "INSERT INTO bi.RebuildInProgress (StartedUtc) VALUES (SYSUTCDATETIME()); DELETE FROM bi.FactInteraction WHERE RecordId IN (SELECT TOP (3) RecordId FROM bi.FactInteraction ORDER BY CreatedUtc);"
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = '2999-01-01', @LicenseEventDatabase = N'$licDb';"
+$cut = (Invoke-SqlText -As Table -Sql 'SELECT (SELECT COUNT_BIG(*) FROM bi.FactInteraction) AS F, (SELECT COUNT_BIG(*) FROM audit.RawLogFlattened) AS R, (SELECT COUNT(*) FROM bi.RebuildInProgress) AS M, (SELECT TOP (1) CASE WHEN SinceUtc IS NULL THEN 1 ELSE 0 END FROM bi.RefreshRun ORDER BY RunId DESC) AS Full_;').Rows[0]
+Assert-That ([long] $cut.F -eq [long] $cut.R -and [int] $cut.M -eq 0 -and [int] $cut.Full_ -eq 1) "2.4.9: a full rebuild that was cut short is finished by the next refresh ($($cut.F) of $($cut.R) interactions), which then clears the mark"
+
 # Premium use: the rollup's count of licensed interactions that needed the license, recomputed from the facts.
 # Teams moved to Copilot Chat above (SetAppCategory, without -Apply): the next bi refresh corrects the stored
 # flags on every day, and the next dashboard refresh, however recent its start, rolls those days up again.

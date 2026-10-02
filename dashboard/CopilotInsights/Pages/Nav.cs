@@ -12,20 +12,21 @@ public static class Nav
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
         new("Leadership", "Executives and department heads", [
-            new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Apps and agents", "/leadership/mix"),
-            new("Value and time saved", "/leadership/value"), new("Use cases", "/leadership/usecases"), new("Board pack", "/leadership/boardpack"),
-            new("Group overview", "/group", ManyTenants: true)]),
+            new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Group overview", "/group", ManyTenants: true),
+            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"),
+            new("Board pack", "/leadership/boardpack")]),
         new("Adoption", "Copilot program lead", [
-            new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Retention and habit", "/adoption/retention"), new("License cohorts", "/adoption/cohorts"),
-            new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"), new("Targets", "/adoption/targets"), new("New joiners", "/adoption/onboarding"),
-            new("Drops and spikes", "/adoption/anomalies"), new("Not started", "/adoption/not-started", Roles.Adoption)], Roles.Adoption),
+            new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"),
+            new("Retention and habit", "/adoption/retention"), new("License cohorts", "/adoption/cohorts"), new("New joiners", "/adoption/onboarding"), new("Not started", "/adoption/not-started", Roles.Adoption),
+            new("Targets", "/adoption/targets"), new("Drops and spikes", "/adoption/anomalies")], Roles.Adoption),
         new("Licensing", "Licensing, IT asset and FinOps", [
-            new("Inventory", "/licensing"), new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
+            new("Inventory", "/licensing"), new("License pool", "/licensing/pool"), new("License changes", "/licensing/changes"),
+            new("Chargeback", "/licensing/chargeback"), new("Demand", "/licensing/demand"),
+            new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
             new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
-            new("Demand", "/licensing/demand"), new("License changes", "/licensing/changes"), new("License pool", "/licensing/pool"),
-            new("Chargeback", "/licensing/chargeback"), new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing),
-            new("Copilot on non-human accounts", "/licensing/non-person", Roles.Licensing), new("Overlapping licenses", "/licensing/overlap", Roles.Licensing),
+            new("Overlapping licenses", "/licensing/overlap", Roles.Licensing),
+            new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing), new("Copilot on non-human accounts", "/licensing/non-person", Roles.Licensing),
             new("Departures ahead", "/licensing/departures", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [
             new("Signals", "/security"), new("Signals by unit", "/security/units"), new("Guests and external users", "/security/guests"),
@@ -57,7 +58,7 @@ public static class Nav
             new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),
             new("Targets and assumptions", "/admin/assumptions", Admin: true), new("Privacy and retention", "/admin/privacy", Admin: true),
             new("Reference data", "/admin/reference", Admin: true), new("Value names", "/admin/values", Admin: true),
-            new("Classifications and events", "/admin/classifications", Admin: true), new("Scheduled extracts", "/admin/extracts", Admin: true),
+            new("Classifications and events", "/admin/classifications", Admin: true), new("Reports shown", "/admin/reports", Admin: true), new("Scheduled extracts", "/admin/extracts", Admin: true),
             new("Training records", "/admin/training", Admin: true), new("Audit log", "/admin/audit", Admin: true)]),
     ];
 
@@ -74,13 +75,34 @@ public static class Nav
                    : (viewer.OrgWide || viewer.InDirectory) && (page.Role is null || ((!privacyMode || page.InPrivacy) && viewer.Has(page.Role)));
 
     /// <summary>The groups and pages this viewer may open; a group with none is left out.</summary>
-    public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false) =>
+    public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false, IReadOnlySet<string>? hidden = null) =>
         viewer is null ? [] :
         Groups.Where(g => g.Role is null || viewer.Has(g.Role))
-              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode)).ToList() })
+              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode) && !HiddenReports.Is(hidden, p.Path)).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
 
     /// <summary>The role a page's section needs, if any (2.4.2): the section is hidden, and its pages refused, without it.</summary>
     public static NavGroup? SectionOf(string? path) =>
         path is null ? null : Groups.FirstOrDefault(g => g.Pages.Any(p => string.Equals(p.Path, path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)));
+}
+
+/// <summary>
+/// The reports an administrator has turned off (2.4.9, Admin > Reports shown): gone from the navigation and the start
+/// page, and not found at their address, for everyone, administrators too. Kept in dash.Setting, one row a report,
+/// named Hide: and its path. Admin pages cannot be turned off.
+/// </summary>
+public static class HiddenReports
+{
+    public const string Prefix = "Hide:";
+
+    /// <summary>Every report that can be turned off, by section: all but the Admin pages.</summary>
+    public static IEnumerable<NavGroup> Choices =>
+        Nav.Groups.Select(g => g with { Pages = g.Pages.Where(p => !p.Admin).ToList() }).Where(g => g.Pages.Count > 0);
+
+    public static async Task<IReadOnlySet<string>> GetAsync(Settings settings) =>
+        (await settings.AllAsync()).Where(kv => kv.Key.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) && kv.Value == "1")
+            .Select(kv => kv.Key[Prefix.Length..]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    public static bool Is(IReadOnlySet<string>? hidden, string? path) =>
+        hidden is { Count: > 0 } && path is not null && hidden.Contains(path.Length > 1 ? path.TrimEnd('/') : path);
 }

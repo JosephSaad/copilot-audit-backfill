@@ -13,11 +13,12 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     {
         var t = await m.TotalsAsync(Ctx);
         var tr = await m.TrendAsync(Ctx);
+        var adopted = await m.AdoptedAsync(Ctx);
         var x = Labels();
 
         Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in scope" : "in the period"));
-        Kpis.Add(new("Licensed today", Num(t.LicensedNow), t.People > 0 ? $"{Pct(Ratio(t.LicensedNow, t.People))} of people" : null));
-        Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), "licensed people who used it in the period"));
+        Kpis.Add(new("Premium licenses today", Num(t.LicensedNow), t.People > 0 ? $"{Pct(Ratio(t.LicensedNow, t.People))} of people" : null));
+        Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), "Premium license holders who used Copilot in the period"));
         Kpis.Add(new("Active in the last 7 days", Num(t.ActiveLast7), t.LicensedNow > 0 ? $"{Pct(Ratio(t.ActiveLast7, t.LicensedNow))} of licensed people" : null));
         Kpis.Add(new("Interactions", Num(t.Interactions), t.Active > 0 ? $"{t.Interactions / (double)t.Active:#,0.0} per active person" : null));
 
@@ -27,10 +28,12 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
                 new Series("Active, licensed", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
                 new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2),
             ], Fmt.Count, "People licensed and active"),
-            $"Licensed: holding a Copilot license at the end of the day or week. Copilot Chat only: people without a license using the free Copilot Chat. {TrendNote}"));
-        Panels.Add(new("Adoption rate",
-            Chart.Line(x, [new Series("Adoption", tr.Select(w => Ratio(w.ActiveLicensed, w.Licensed)).ToList(), 1)], Fmt.Percent, "Adoption rate"),
-            "Licensed people who used Copilot, as a share of people licensed at the end of the day or week.", "half"));
+            $"Licensed: holding a Premium Copilot license at the end of the day or week. Copilot Chat only: people without a license using the free Copilot Chat. {TrendNote}"));
+        Panels.Add(new("Adoption rate: Premium license holders",
+            Chart.Line(x, [new Series("Adoption", tr.Select(w => Ratio(adopted.GetValueOrDefault(w.Bucket), w.Licensed)).ToList(), 1)], Fmt.Percent, "Adoption rate of Premium license holders"),
+            $"Premium license holders only. Of the people holding a Premium license at each point, the share who used Copilot in the {Metrics.AdoptionDays} days up to it. " +
+            $"A rolling {Metrics.AdoptionDays} days, so weekends and holidays do not dip it; how many used it each day is in People using Copilot. " +
+            $"The first {Metrics.AdoptionDays} days of the data read low, with less than {Metrics.AdoptionDays} days behind them.", "half"));
         Panels.Add(new("Interactions",
             Chart.Columns(x, [new Series("Interactions", tr.Select(w => (double?)w.Interactions).ToList(), 1)], Fmt.Count, "Interactions"),
             null, "half"));

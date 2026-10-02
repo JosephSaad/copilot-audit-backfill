@@ -29,7 +29,8 @@
     }
     // An information icon's text sits under the icon, not under the pointer (2.4.5).
     if (t && t.classList.contains('infob')) { if (tip.hidden || tip.textContent !== t.getAttribute('data-tip')) showAt(t); }
-    else if (t) show(e, t.getAttribute('data-tip')); else tip.hidden = true;
+    else if (t) show(e, t.getAttribute('data-tip'));
+    else if (!(e.target.closest && e.target.closest('nav.side [data-what]'))) tip.hidden = true;   // the navigation shows its own
   });
   document.addEventListener('mouseleave', function () { tip.hidden = true; });
 
@@ -119,6 +120,159 @@
       });
     });
   });
+
+  // Admin > Reports shown: a section's own box ticks or clears every report in it, and follows them.
+  document.querySelectorAll('.card.pick').forEach(function (card) {
+    var all = card.querySelector('input[data-all]');
+    var boxes = card.querySelectorAll('input[name="show"]');
+    if (!all) return;
+    all.addEventListener('change', function () { Array.prototype.forEach.call(boxes, function (b) { b.checked = all.checked; }); });
+    Array.prototype.forEach.call(boxes, function (b) {
+      b.addEventListener('change', function () { all.checked = Array.prototype.every.call(boxes, function (x) { return x.checked; }); });
+    });
+  });
+
+  // ---- The navigation (2.4.9) ----------------------------------------------------------------------
+  var nav = document.querySelector('nav.side');
+  if (nav) (function () {
+    var grps = Array.prototype.slice.call(nav.querySelectorAll('.grp'));
+    function fold(g, open) {
+      g.classList.toggle('open', open);
+      g.querySelector('.gname').setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    // A click on a section opens it, or folds it if it is open, and changes nothing else: the row clicked stays where
+    // it is, under the pointer (folding the section above it would move it away). Every page starts with the section
+    // it belongs to open and the rest folded, a page come back to with Back too; nothing is remembered between pages.
+    // Where the list scrolls on its own, folding a section near its end would pull the rows down (there is less to
+    // scroll): the list's scroll is put back so the row clicked stays put, with room left under the last section if needed.
+    var room = document.createElement('div');
+    room.setAttribute('aria-hidden', 'true');
+    nav.appendChild(room);
+    function steady(row, was) {
+      if (getComputedStyle(nav).overflowY !== 'auto') return;   // a narrow window: the list is part of the page, and nothing above the row changes
+      var left = row.getBoundingClientRect().top - was;
+      if (Math.abs(left) > 0.5) {
+        nav.scrollTop += left;
+        left = row.getBoundingClientRect().top - was;
+        if (left > 0.5) {   // nothing left to scroll: make room under the last section, then scroll
+          room.style.height = (room.offsetHeight + left + nav.clientHeight) + 'px';
+          nav.scrollTop += left;
+        }
+      }
+      // No more room than the scroll position needs.
+      var need = nav.scrollTop + nav.clientHeight - (nav.scrollHeight - room.offsetHeight);
+      room.style.height = Math.max(0, Math.ceil(need)) + 'px';
+    }
+    grps.forEach(function (g) {
+      var b = g.querySelector('.gname');
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        close(false);
+        var was = b.getBoundingClientRect().top;
+        fold(g, !g.classList.contains('open'));
+        steady(b, was);
+      });
+    });
+    window.addEventListener('pageshow', function (e) {
+      if (!e.persisted) return;
+      close(false);
+      grps.forEach(function (g) { fold(g, g.classList.contains('here') || (g.classList.contains('mine') && location.pathname === '/')); });
+      var f = document.getElementById('nav-find');
+      if (f && f.value) { f.value = ''; f.dispatchEvent(new Event('input')); }
+    });
+
+    // "About these reports" opens the section's panel. Escape, its close button or a click elsewhere closes it.
+    var shown = null, at = [0, 0];
+    // A scroll closes the panel: a real one, not the last event of a scroll that ended before it opened.
+    function scrolled() { if (shown && (Math.abs(window.scrollY - at[0]) > 2 || Math.abs(nav.scrollTop - at[1]) > 2)) close(false); }
+    function close(focus) {
+      if (!shown) return;
+      var b = shown.querySelector('.gabout');
+      shown.querySelector('.gpanel').hidden = true;
+      b.setAttribute('aria-expanded', 'false');
+      shown = null;
+      if (focus) b.focus({ preventScroll: true });
+    }
+    grps.forEach(function (g) {
+      var b = g.querySelector('.gabout'), panel = g.querySelector('.gpanel');
+      if (!b || !panel) return;   // Your most used has no panel: its reports are described in their own sections
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var mine = shown === g;
+        close(false);
+        if (mine) return;
+        tip.hidden = true;
+        at = [window.scrollY, nav.scrollTop];
+        panel.hidden = false;
+        // Beside the section it belongs to, level with its name, and wholly inside the window.
+        if (window.innerWidth > 900) {
+          var top = g.getBoundingClientRect().top, h = panel.getBoundingClientRect().height;
+          panel.style.top = Math.max(58, Math.min(top, window.innerHeight - h - 8)) + 'px';
+        } else panel.style.top = '';
+        b.setAttribute('aria-expanded', 'true');
+        shown = g;
+        var first = panel.querySelector('a.on') || panel.querySelector('a');
+        if (first) first.focus({ preventScroll: true });
+      });
+      panel.addEventListener('click', function (e) { e.stopPropagation(); });
+      panel.querySelector('.pclose').addEventListener('click', function () { close(true); });
+    });
+    document.addEventListener('click', function () { close(false); });
+    window.addEventListener('scroll', scrolled, { passive: true });
+    nav.addEventListener('scroll', function () { scrolled(); tip.hidden = true; }, { passive: true });
+    window.addEventListener('resize', function () { close(false); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && shown) close(true); });
+
+    // Find a report: by its name or by what it answers. Enter opens the first that matches.
+    var find = document.getElementById('nav-find'), none = document.getElementById('nav-none');
+    if (find) {
+      var links = Array.prototype.slice.call(nav.querySelectorAll('.glinks a'));
+      function apply() {
+        var q = find.value.trim().toLowerCase();
+        close(false);
+        nav.classList.toggle('finding', q !== '');
+        var any = false;
+        grps.forEach(function (g) {
+          var hit = false;
+          Array.prototype.forEach.call(g.querySelectorAll('.glinks a'), function (a) {
+            var m = q === '' || (a.textContent + ' ' + (a.getAttribute('data-what') || '')).toLowerCase().indexOf(q) >= 0;
+            a.hidden = !m;
+            if (m) hit = true;
+          });
+          g.hidden = q !== '' && (!hit || g.classList.contains('mine'));
+          if (hit && !g.classList.contains('mine')) any = true;
+        });
+        if (none) none.hidden = q === '' || any;
+      }
+      find.addEventListener('input', apply);
+      find.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { var a = links.filter(function (x) { return !x.hidden; })[0]; if (a && find.value.trim() !== '') location.href = a.href; }
+        if (e.key === 'Escape') { find.value = ''; apply(); }
+      });
+    }
+
+    // What a report answers, beside its link: after a moment under the pointer, at once on keyboard focus.
+    // To the right of the list, so it covers no other link; the pointer keeps its own shape.
+    var wait = null;
+    function what(el) {
+      var text = el.getAttribute('data-what');
+      if (!text || shown) return;
+      tip.textContent = text;
+      tip.hidden = false;
+      var r = el.getBoundingClientRect(), n = nav.getBoundingClientRect(), t = tip.getBoundingClientRect();
+      var x = n.right + 8, y = r.top;
+      if (x + t.width > window.innerWidth - 8) { x = Math.max(8, r.left); y = r.bottom + 6; }   // a narrow window: under the link
+      if (y + t.height > window.innerHeight - 8) y = Math.max(8, window.innerHeight - t.height - 8);
+      tip.style.left = x + 'px';
+      tip.style.top = y + 'px';
+    }
+    Array.prototype.forEach.call(nav.querySelectorAll('.glinks [data-what]'), function (el) {
+      el.addEventListener('mouseenter', function () { clearTimeout(wait); wait = setTimeout(function () { what(el); }, 450); });
+      el.addEventListener('mouseleave', function () { clearTimeout(wait); tip.hidden = true; });
+      el.addEventListener('focus', function () { clearTimeout(wait); what(el); });
+      el.addEventListener('blur', function () { clearTimeout(wait); tip.hidden = true; });
+    });
+  })();
 
   // The admin forms put the question on the button.
   document.querySelectorAll('button[data-confirm]').forEach(function (b) {

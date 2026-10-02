@@ -138,6 +138,7 @@ AREAS = [
         ('bi.FactLicensedDay', 'One row per person per day on which they held a Copilot license at the end of the day.'),
         ('bi.FactAccessedResource', 'One row per resource an interaction read (2.2.0), from audit.RawLogAccessedResource: type, action, site, label, blocked and prompt-injection flags. Clustered columnstore, refreshed with the interactions.'),
         ('bi.FactAgentEvent', 'One row per Copilot Studio authoring event (2.3.0), copied from audit.AgentEvent in every license-event database by each refresh, with the day in the reporting time zone and the maker\'s user key.'),
+        ('bi.RebuildInProgress', 'A row while a full rebuild of bi.FactInteraction runs (2.4.9): bi.usp_RefreshBi puts it there before it empties the fact and takes it out when it has finished. While a row is here every refresh is a full one, so a rebuild stopped part way is finished by the next run.'),
         ('bi.RefreshRun', 'One row per bi.usp_RefreshBi run: window (SinceUtc NULL is a full rebuild), time zone, license databases, rows written, the session build it followed, and from 2.4.0 the first day with use of an app whose category it changed (RecategorizedFromDateKey), from which the dashboard rolls up again.'),
     ]),
     ('biviews', 'bi: views Power BI imports', 'One view per table above, leaving out the lineage columns. The model imports these, not the tables.', [

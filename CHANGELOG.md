@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.9] - 2026-10-02
+
+Adoption no longer dips at weekends, an administrator can turn any report off, and a rebuild
+that was stopped part way finishes itself.
+
+Install over 2.4.8: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and
+reinstall the dashboard from its package. If the reporting tables hold fewer interactions than
+were flattened, the installer rebuilds them in full, with every day of the rollups.
+
+### Added
+- **Admin › Reports shown: turn any report off.** Every report is listed by section, laid out
+  as the start page is, each with a box to tick; a section's own box ticks or clears all of it.
+  A report that is off is gone for everyone, administrators too: from the navigation, from the
+  start page, and at its address (404), with its exports and forms. Ticking it brings it back;
+  nothing is deleted. Roles and levels still apply to the reports that are on, and Admin pages
+  cannot be turned off. Digests, extracts, the board pack and the data API are not changed by
+  it. Kept in `dash.Setting` (one row a report), so there is no schema change.
+
+- **The navigation is short, and says what each report is.** The list on the left was every
+  report at once, three screens long. Sections now fold, with the one you are in open:
+  selecting a section opens its reports under it or folds them, and moves nothing else in the
+  list. The list stays on screen while a report scrolls. *About these reports*, under an
+  open section, opens a panel of its reports under headings (Licensing: inventory and pool,
+  cost savings, policy breaches, changes ahead), each with a sentence on what it answers.
+  *Find a report* narrows the list as you type, by name or by what a report answers. Resting
+  on a link, or reaching it by keyboard, shows that sentence beside the list.
+- **Your most used.** The first section of the list, and the first card of the start page:
+  up to ten reports the person opened most in the last 90 days, once they have opened three.
+  Counted from the page views already in the audit log, once a day; nothing is saved for it
+  and no table is added. A report they can no longer open, or one turned off, is left out. The start page is the full index, with the same headings and sentences. Licensing,
+  Adoption and Leadership list their reports in the order of their headings.
+
+### Fixed
+- **The adoption rate on Leadership › Overview fell every weekend.** It showed the share of
+  license holders active on each day, which is use, not adoption. It is now, at each point, the
+  share of the people holding a Premium license who used Copilot in the 28 days up to it: a
+  rolling four weeks, so weekends and holidays do not move it. How many used it each day stays
+  in *People using Copilot*, beside it. The first 28 days of the data read low.
+- **A full rebuild of the reporting tables that was stopped part way left months missing, and
+  nothing noticed.** The rebuild empties `bi.FactInteraction` and fills it month by month; an
+  interrupted run left the later months out, the installer saw nothing to do, and the nightly
+  refresh added new days after the gap. `bi.usp_RefreshBi` now leaves a mark
+  (`bi.RebuildInProgress`) while a full rebuild runs, and any refresh that finds it rebuilds in
+  full. The installer also rebuilds, with every day of the rollups, when the mark is there or
+  when the fact holds fewer than 99 in 100 of the flattened records (a rebuild cut short before
+  2.4.9).
+
+### Changed
+- **Leadership › Overview names the license.** The adoption chart is titled *Adoption rate:
+  Premium license holders* and its note starts with it; *Licensed today* is *Premium licenses
+  today*.
+
 ## [2.4.8] - 2026-10-01
 
 Licensed use is read from what Microsoft writes into each record instead of being inferred, and

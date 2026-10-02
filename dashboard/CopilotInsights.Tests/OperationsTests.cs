@@ -231,6 +231,57 @@ public class PrivacyNavigationTests
     }
 
     [Fact]
+    public void A_report_turned_off_is_gone_for_everyone_and_an_admin_page_cannot_be()
+    {
+        var hidden = new HashSet<string>(["/adoption/cohorts", "/Leadership/", "/admin/health"], StringComparer.OrdinalIgnoreCase);
+        var paths = Pages.Nav.For(V(Roles.All), hidden: hidden).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
+        Assert.DoesNotContain("/adoption/cohorts", paths);
+        Assert.Contains("/adoption", paths);
+        Assert.True(Pages.HiddenReports.Is(hidden, "/adoption/cohorts/"));
+        Assert.False(Pages.HiddenReports.Is(hidden, "/adoption"));
+        Assert.False(Pages.HiddenReports.Is(null, "/adoption/cohorts"));
+        /* Every report can be chosen, and no Admin page: an administrator can always get back to turn one on. */
+        var choices = Pages.HiddenReports.Choices.SelectMany(g => g.Pages).ToList();
+        Assert.DoesNotContain(choices, p => p.Admin);
+        Assert.Equal(Pages.Nav.Groups.SelectMany(g => g.Pages).Count(p => !p.Admin), choices.Count);
+        Assert.Contains(Pages.Nav.Groups.SelectMany(g => g.Pages), p => p.Path == "/admin/reports" && p.Admin);
+        /* A name for the setting fits its column (64). */
+        Assert.All(choices, p => Assert.True((Pages.HiddenReports.Prefix + p.Path).Length <= 64));
+    }
+
+    [Fact]
+    public void Every_page_says_what_it_answers_and_a_section_keeps_its_headings_together()
+    {
+        foreach (var g in Pages.Nav.Groups)
+        {
+            foreach (var p in g.Pages)
+            {
+                var what = Pages.NavText.What(p);
+                Assert.False(string.IsNullOrWhiteSpace(what), $"{p.Path} has no description in NavText");
+                Assert.True(what!.Length <= 100 && what.EndsWith('.') || what.EndsWith('?'), $"{p.Path}: one short sentence ({what.Length} characters)");
+                if (p.Role is not null) Assert.Contains($"Needs the {p.Role} role.", Pages.NavText.Tip(p));
+            }
+            /* Under headings, or under none: and each heading once, its pages side by side in the list. */
+            var subs = Pages.NavText.Sub(g.Pages).ToList();
+            Assert.True(subs.All(x => x.Heading is null) ? subs.Count == 1 : subs.All(x => x.Heading is not null), g.Persona);
+            Assert.Equal(subs.Count, subs.Select(x => x.Heading).Distinct().Count());
+            Assert.Equal(g.Pages.Count, subs.Sum(x => x.Pages.Count));
+        }
+    }
+
+    [Fact]
+    public void Your_most_used_offers_only_reports_the_viewer_may_open_now()
+    {
+        var groups = Pages.Nav.For(V(Roles.Adoption), hidden: new HashSet<string>(["/adoption/cohorts"], StringComparer.OrdinalIgnoreCase));
+        /* Most opened first: an admin page, the start page, a report turned off, one of a section they do not hold, and one twice. */
+        var picked = MostUsed.Pick(["/admin/health", "/adoption/", "/", "/adoption/cohorts", "/licensing/unused", "/leadership", "/adoption", "/regions"], groups);
+        Assert.Equal(["/adoption", "/leadership", "/regions"], picked.Select(p => p.Path));
+        /* Fewer than three is no section at all; and never more than ten. */
+        Assert.Empty(MostUsed.Pick(["/adoption", "/leadership"], groups));
+        Assert.Equal(10, MostUsed.Pick(groups.SelectMany(g => g.Pages).Select(p => p.Path).ToList(), groups).Count);
+    }
+
+    [Fact]
     public void The_new_named_lists_need_their_roles()
     {
         var paths = Pages.Nav.For(V()).SelectMany(g => g.Pages).Select(p => p.Path).ToList();

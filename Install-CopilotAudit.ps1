@@ -254,8 +254,13 @@ $noFileType = $flattened -gt 0 -and -not $fullBuild -and (Get-Count $Database 'b
     [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM bi.FactAccessedResource WHERE FileTypeKey > 1) THEN 1 ELSE 0 END;') -eq 0
 $noUseKind = $flattened -gt 0 -and -not $fullBuild -and
     [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM bi.FactInteraction WHERE UseKind IS NULL) THEN 1 ELSE 0 END;') -eq 1
-if ($noFileType -or $noUseKind) {
-    $gain = @($(if ($noFileType) { 'the resources Copilot read gain their file type (2.4.6)' }), $(if ($noUseKind) { 'Premium use is decided from each record''s own identity (2.4.8)' })) | Where-Object { $_ }
+# 2.4.9: a full refresh that was stopped part way (bi.usp_RefreshBi leaves a mark while one runs), or, for one stopped
+# before 2.4.9, a fact with fewer than 99 in 100 of the flattened records: finished here, with every day of the rollups.
+$cutShort = $flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'bi.FactInteraction') -and
+    ((Get-Count $Database 'bi.RebuildInProgress') -gt 0 -or (Get-Count $Database 'bi.FactInteraction') * 100 -lt $flattened * 99)
+if ($noFileType -or $noUseKind -or $cutShort) {
+    $gain = @($(if ($noFileType) { 'the resources Copilot read gain their file type (2.4.6)' }), $(if ($noUseKind) { 'Premium use is decided from each record''s own identity (2.4.8)' }),
+        $(if ($cutShort) { ('an earlier full refresh did not finish ({0:N0} of {1:N0} interactions are there)' -f (Get-Count $Database 'bi.FactInteraction'), $flattened) })) | Where-Object { $_ }
     Write-Done "bi, in full once: $($gain -join '; '). This takes as long as a full bi refresh..."
     Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
     if ($noFileType) { $todo += 'Refresh the Power BI model once: bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.' }
@@ -271,7 +276,7 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     # 2.3.0 added Premium-feature use to the rollups: rebuilt in full once, when they have days but none of it.
     $premiumEmpty = (Get-Count $Database 'dash.UserDay') -gt 0 -and
         [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE PremiumUse > 0) OR NOT EXISTS (SELECT 1 FROM dash.UserDay WHERE LicensedUse > 0) THEN 1 ELSE 0 END;') -eq 0
-    $since = if ($fullBuild -or $premiumEmpty -or $noUseKind -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
+    $since = if ($fullBuild -or $premiumEmpty -or $noUseKind -or $cutShort -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
     Write-Done $(if ($since) { 'dashboard: org chart, and today''s rollups...' } else { 'dashboard: org chart and every day''s rollups...' })
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }

@@ -161,6 +161,64 @@ FROM w;")).Single();
     });
 }
 
+/* ---- Reports shown ----------------------------------------------------------------------- */
+
+/// <summary>Which reports the dashboard shows (2.4.9): laid out as the start page is, a box to tick for each.</summary>
+public sealed class ReportsModel(PageServices s) : AdminPage(s)
+{
+    public override string Title => "Reports shown";
+    public override string Intro => "Turn a report off and it is gone for everyone, administrators too: from the navigation, from the start page, and at its address. Turn it back on here at any time. Nothing is deleted.";
+
+    protected override async Task BuildAsync()
+    {
+        ShowDone();
+        var hidden = HiddenReports;
+        var all = CopilotInsights.Pages.HiddenReports.Choices.ToList();
+        var total = all.Sum(g => g.Pages.Count);
+        var off = all.Sum(g => g.Pages.Count(p => CopilotInsights.Pages.HiddenReports.Is(hidden, p.Path)));
+        Kpis.Add(new("Reports shown", Num(total - off), $"of {total:#,0}"));
+        Kpis.Add(new("Turned off", Num(off), off == 0 ? "every report is shown" : "gone for everyone", off > 0 ? "warn" : null));
+
+        var cards = string.Concat(all.Select(g =>
+            $"<div class=\"card pick\"><h3 class=\"cat\">{E(g.Persona)}</h3><p>{E(g.Who)}</p>" +
+            $"<label class=\"all\"><input type=\"checkbox\" data-all{(g.Pages.All(p => !CopilotInsights.Pages.HiddenReports.Is(hidden, p.Path)) ? " checked" : "")}/> All of {E(g.Persona)}</label><ul>" +
+            string.Concat(g.Pages.Select(p =>
+                $"<li><label><input type=\"checkbox\" name=\"show\" value=\"{E(p.Path)}\"{(CopilotInsights.Pages.HiddenReports.Is(hidden, p.Path) ? "" : " checked")}/> {E(p.Title)}" +
+                (p.Role is null ? "" : $" <span class=\"sub\">{E(p.Role)} role</span>") + "</label></li>")) +
+            "</ul></div>"));
+        Panels.Add(new("Reports", new HtmlString(
+            "<p class=\"sub\">A ticked report is shown to the people who may open it; its roles and levels still apply. Untick a report to turn it off for everyone.</p>" +
+            Form("save", $"<div class=\"cards\">{cards}</div><p>{Button("Save")}</p>")),
+            "A report that is turned off is not found at its address, and its exports and forms are refused. Links to it from other reports stop working, so turn off a detail page (Agent detail, App detail, Person record) together with the lists that open it. " +
+            "Scheduled digests, extracts, the board pack and the data API are set on their own pages and are not changed here. Admin pages cannot be turned off.", "full"));
+    }
+
+    public Task<IActionResult> OnPostSaveAsync(string[] show) => AdminChangeAsync(async () =>
+    {
+        var shown = new HashSet<string>(show ?? [], StringComparer.OrdinalIgnoreCase);
+        var pages = CopilotInsights.Pages.HiddenReports.Choices.SelectMany(g => g.Pages).ToList();
+        var before = await CopilotInsights.Pages.HiddenReports.GetAsync(S.Settings);
+        var by = Viewer.Upn ?? Viewer.WindowsName;
+        var off = new List<string>(); var on = new List<string>();
+        foreach (var p in pages)
+        {
+            var hide = !shown.Contains(p.Path);
+            if (hide == CopilotInsights.Pages.HiddenReports.Is(before, p.Path)) continue;
+            (hide ? off : on).Add(p.Title);
+            var name = CopilotInsights.Pages.HiddenReports.Prefix + p.Path;
+            if (hide)
+                await Db.ExecuteAsync(@"
+UPDATE dash.Setting SET Value = N'1', UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = @name;
+IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy) VALUES (@name, N'1', N'This report is turned off (Admin > Reports shown).', @by);", new { name, by });
+            else
+                await Db.ExecuteAsync("DELETE FROM dash.Setting WHERE Name = @name;", new { name });
+        }
+        S.Settings.Invalidate();
+        if (off.Count == 0 && on.Count == 0) return "The reports shown are unchanged.";
+        return "Reports shown changed." + (off.Count > 0 ? $" Turned off: {string.Join(", ", off)}." : "") + (on.Count > 0 ? $" Turned on: {string.Join(", ", on)}." : "");
+    });
+}
+
 /* ---- Access ------------------------------------------------------------------------------ */
 
 public sealed class AccessModel(PageServices s) : AdminPage(s)

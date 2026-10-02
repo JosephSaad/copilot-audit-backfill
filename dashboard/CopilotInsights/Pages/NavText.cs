@@ -1,0 +1,129 @@
+namespace CopilotInsights.Pages;
+
+/// <summary>
+/// One sentence on what each page answers (2.4.9), and, in the larger sections, the heading it sits under.
+/// Written once and shown wherever a page is offered: the hover text of its link in the navigation, the section's
+/// panel, the start page, the search, and Admin > Reports shown. A page with no entry here fails a test.
+/// </summary>
+public static class NavText
+{
+    public static string? What(NavPage page) => Text.TryGetValue(page.Path, out var t) ? t.What : null;
+    public static string? Heading(NavPage page) => Text.TryGetValue(page.Path, out var t) ? t.Heading : null;
+
+    /// <summary>The hover text of a link: what the page answers, and the role it needs.</summary>
+    public static string? Tip(NavPage page) =>
+        What(page) is { } w ? w + (page.Role is null ? "" : $" Needs the {page.Role} role.") : null;
+
+    /// <summary>A section's pages under their headings, in the section's own order; one group with no heading where it has none.</summary>
+    public static IEnumerable<(string? Heading, List<NavPage> Pages)> Sub(IEnumerable<NavPage> pages)
+    {
+        var groups = new List<(string? Heading, List<NavPage> Pages)>();
+        foreach (var p in pages)
+        {
+            var h = Heading(p);
+            if (groups.Count > 0 && groups[^1].Heading == h) groups[^1].Pages.Add(p);
+            else groups.Add((h, [p]));
+        }
+        return groups;
+    }
+
+    static readonly Dictionary<string, (string What, string? Heading)> Text = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["/leadership"] = ("Is Copilot being used, by how many of the people who have it, and where.", "At a glance"),
+        ["/leadership/scorecard"] = ("This period against the one before: what moved, and in which part of the organization.", "At a glance"),
+        ["/leadership/org"] = ("Each part of the organization one level down, side by side.", "At a glance"),
+        ["/group"] = ("Each tenant's headline figures for the period, and the group's totals.", "At a glance"),
+        ["/leadership/mix"] = ("Where people use Copilot: which apps, chat or in-app, and how much through agents.", "What it is used for"),
+        ["/leadership/usecases"] = ("What Copilot is used for: email, meetings, writing, analysis, research and agents.", "What it is used for"),
+        ["/leadership/value"] = ("An estimate of the hours Copilot saved and what they are worth.", "What it is used for"),
+        ["/leadership/boardpack"] = ("The program on one page for the board: use, targets, value, licenses and risk.", "Reporting"),
+
+        ["/adoption"] = ("From license to habit: how many licensed people started, are active, and keep going.", "Overview"),
+        ["/adoption/by-license"] = ("How the people of one license type use Copilot: who, which apps, how long.", "Overview"),
+        ["/adoption/departments"] = ("Adoption in each department, side by side.", "Overview"),
+        ["/adoption/leaderboard"] = ("Groups ranked by adoption, with the change on the period before.", "Overview"),
+        ["/adoption/retention"] = ("Do people keep using Copilot once they start? Week by week.", "Who is and is not using it"),
+        ["/adoption/cohorts"] = ("Do people keep using Copilot after they get a license? By the month licensed.", "Who is and is not using it"),
+        ["/adoption/onboarding"] = ("People newly licensed or hired: how long until they first used Copilot.", "Who is and is not using it"),
+        ["/adoption/not-started"] = ("People licensed for 14 days or more who have never used Copilot.", "Who is and is not using it"),
+        ["/adoption/targets"] = ("Each adoption target: where it started, where it stands, and whether it is on track.", "Targets and trends"),
+        ["/adoption/anomalies"] = ("Days when a department's Copilot use was far from usual for that weekday.", "Targets and trends"),
+
+        ["/licensing"] = ("How many Copilot licenses are assigned, how that changed, and how many are in use.", "Inventory and pool"),
+        ["/licensing/pool"] = ("Copilot seats bought, assigned and used, from the tenant's subscriptions.", "Inventory and pool"),
+        ["/licensing/changes"] = ("Every Copilot license assigned and removed in the period.", "Inventory and pool"),
+        ["/licensing/chargeback"] = ("The monthly license cost each group holds, and how much of it is used.", "Inventory and pool"),
+        ["/licensing/demand"] = ("People without a license who use the free Copilot Chat: where demand is.", "Inventory and pool"),
+        ["/licensing/unused"] = ("License holders who have not used Copilot recently: reclaim or follow up.", "Cost savings"),
+        ["/licensing/ranking"] = ("Everyone ranked by all use, free use, and use that needs the license.", "Cost savings"),
+        ["/licensing/payg"] = ("License holders whose use would cost less on pay-as-you-go credits.", "Cost savings"),
+        ["/licensing/swap"] = ("Idle licenses paired with people who want one, so no new seat is bought.", "Cost savings"),
+        ["/licensing/license-for-credits"] = ("People without a license whose credits cost more than a license would.", "Cost savings"),
+        ["/licensing/fading"] = ("License holders who used Copilot regularly and now use it much less.", "Cost savings"),
+        ["/licensing/overlap"] = ("People holding the Copilot license and another Copilot-family license too.", "Cost savings"),
+        ["/licensing/leavers"] = ("Licenses on accounts that are disabled or have left: nobody can use them.", "Policy breaches"),
+        ["/licensing/non-person"] = ("Copilot licenses on service, shared, test and other accounts that are not a person.", "Policy breaches"),
+        ["/licensing/departures"] = ("License holders due to leave: reclaim each license on the last day.", "Changes ahead"),
+
+        ["/security"] = ("Jailbreak attempts, prompt injection and blocked resources: how many, when and where.", null),
+        ["/security/units"] = ("Where security signals cluster in the organization, per 1,000 interactions.", null),
+        ["/security/guests"] = ("Copilot use by guest accounts, and the organizations they come from.", null),
+        ["/security/flags"] = ("Each flagged interaction, who and where, with its triage.", null),
+        ["/security/non-human"] = ("Copilot licenses on accounts that are not a person: a policy breach.", null),
+
+        ["/compliance"] = ("How often Copilot works with labeled content, which labels, and what was blocked.", null),
+        ["/compliance/units"] = ("Which parts of the organization have Copilot working with labeled content.", null),
+        ["/compliance/sites"] = ("The sites Copilot read from most: where to check permissions first.", null),
+        ["/compliance/access"] = ("Who worked with labeled content through Copilot, and the most sensitive label.", null),
+        ["/compliance/person"] = ("Everything recorded about one person's Copilot use, for an access request.", null),
+        ["/compliance/non-human"] = ("Copilot licenses on accounts that are not a person: a policy breach.", null),
+
+        ["/agents"] = ("Every agent people used: how many people, how often, and which are new.", null),
+        ["/agents/inventory"] = ("Every agent the audit log has shown, with its first and last use and owner.", null),
+        ["/agents/build"] = ("Copilot Studio agents created, published, shared, changed and deleted.", null),
+        ["/agents/detail"] = ("One agent: who uses it, where, and how that is changing.", null),
+        ["/agents/handoffs"] = ("When one agent calls another: how often, and to which agents.", null),
+        ["/agents/credits"] = ("What each agent's use by people without a license costs in credits a month.", null),
+
+        ["/enablement"] = ("How deeply people use Copilot: habit, conversation and breadth across apps.", null),
+        ["/enablement/depth"] = ("How far people take a conversation: prompts per session and session length.", null),
+        ["/enablement/training"] = ("Each training session: attendees' use before and after, against their colleagues.", null),
+        ["/enablement/champions"] = ("The most regular and broad users in each department, as champion candidates.", null),
+        ["/enablement/people"] = ("Named people by engagement: power users, and those to invite to training.", null),
+
+        ["/forecasting"] = ("Where use and licenses are heading, from the last year of weekly history.", "Forecast and budget"),
+        ["/forecasting/optimize"] = ("What to do with licenses: reclaim, reassign, coach or buy, and what each is worth.", "Forecast and budget"),
+        ["/forecasting/budget"] = ("The Copilot contracts, their cost, renewal dates, and the seats use supports.", "Forecast and budget"),
+        ["/forecasting/actions"] = ("Named people to upgrade to a license, to train, or to take a license back from.", "Actions"),
+        ["/forecasting/waves"] = ("Everyone without a license, in the order to license them, split into waves.", "Actions"),
+        ["/forecasting/outcomes"] = ("Each license export from the dashboard, and whether the change happened.", "Actions"),
+
+        ["/regions"] = ("Adoption by country, city and office: where Copilot has landed.", null),
+        ["/regions/patterns"] = ("When people use Copilot, by hour and weekday, and how much is out of hours.", null),
+
+        ["/workforce"] = ("Adoption across employees and contractors, managers, job titles and levels.", null),
+        ["/workforce/managers"] = ("Do teams follow their manager? Adoption where the manager uses Copilot or not.", null),
+        ["/workforce/families"] = ("Copilot use by job family, for comparing like with like.", null),
+
+        ["/apps"] = ("Copilot in each Microsoft 365 app: how many people, how deeply, and whether they return.", null),
+        ["/apps/detail"] = ("One app: who uses Copilot in it, what they read, and which agents run there.", null),
+
+        ["/governance"] = ("Which models answer, how much grounds on the public web, and agents in play.", null),
+        ["/governance/controls"] = ("Memory updates, deferred data-loss checks and web grounding, over time.", null),
+
+        ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),
+        ["/admin/access"] = ("Who sees what: the top of the organization, levels, and roles.", null),
+        ["/admin/directory"] = ("The gaps in Active Directory that weaken the reports and who sees what.", null),
+        ["/admin/email"] = ("How the dashboard sends alerts and digests.", null),
+        ["/admin/notifications"] = ("Who hears about what, when to raise an alert, and the scheduled digests.", null),
+        ["/admin/assumptions"] = ("Adoption targets, minutes saved per interaction, costs, and the licensing group.", null),
+        ["/admin/privacy"] = ("Privacy mode, how long logs and stored records are kept, and the data API.", null),
+        ["/admin/reference"] = ("Agent names and owners, label names, chat apps, and accounts that are not a person.", null),
+        ["/admin/values"] = ("Readable names for the codes the audit log records.", null),
+        ["/admin/classifications"] = ("Job-family rules, use-case rules, and the events drawn on trend charts.", null),
+        ["/admin/reports"] = ("Turn any report off for everyone, or back on.", null),
+        ["/admin/extracts"] = ("CSV files of aggregate figures written to a folder on a schedule.", null),
+        ["/admin/training"] = ("Who attended which Copilot training, loaded from a CSV.", null),
+        ["/admin/audit"] = ("Every page view, refusal, export and admin change.", null),
+    };
+}

@@ -24,6 +24,7 @@ builder.Services.AddSingleton<Freshness>();
 builder.Services.AddScoped<ViewerService>();
 builder.Services.AddScoped<ReportContextFactory>();
 builder.Services.AddScoped<AuditLog>();
+builder.Services.AddScoped<MostUsed>();
 builder.Services.AddScoped<Metrics>();
 builder.Services.AddScoped<PageServices>();
 builder.Services.AddHttpClient();
