@@ -178,6 +178,9 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
 - **A wide table shows that it continues.** A table wider than its panel scrolls sideways, and
   on a phone its last columns were simply cut off at the edge. A soft shadow now marks the
   edge a table continues past, and goes when that end is reached.
+- **The error page says what to do.** *Something went wrong* now says to try again, names
+  the page that failed and the time to give an administrator (which is how the error is found
+  in the site's log), and links to the start page. The error itself is still never shown.
 - **On a phone the report comes first.** On a narrow window the list of reports sits above the
   page and filled the first screen. It now folds behind one button that says where you are
   ("Leadership › Overview"); *Find a report* stays in view. The time zone box no longer runs
