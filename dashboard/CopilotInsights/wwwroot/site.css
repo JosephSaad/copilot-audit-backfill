@@ -131,6 +131,7 @@ h1 { font-size: 26px; margin: 2px 0 4px; letter-spacing: -0.01em; }
 .notice, .denied, .stale { border-radius: 8px; padding: 10px 14px; margin: 10px 0; max-width: 90ch; }
 .notice { background: var(--accent-soft); }
 .denied { background: var(--warn-soft); }
+.denied p { margin: 6px 0 0; }
 .stale { background: var(--warn-soft); border-left: 4px solid var(--warn, #b7791f); }
 
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }

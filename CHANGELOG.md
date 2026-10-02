@@ -104,6 +104,9 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   like in its note; the deferred data-loss check says what the mark is and who sets it.
 - **Admin › Access explains each setting on its own line,** under the form, instead of in one
   paragraph for all of them.
+- **A refused page says who to ask and where to go.** "An administrator can grant it" named
+  no one. A page you may not open now lists up to three of the dashboard's administrators by
+  name (people granted Admin directly; none in privacy mode) and links to the start page.
 - **Long column headings wrap instead of making the table scroll sideways.** A heading now
   breaks onto a second line between words, so wide tables (Scorecard, Use ranking, Agents
   costing credits, Training effect) show more of their columns at once; a figure with its

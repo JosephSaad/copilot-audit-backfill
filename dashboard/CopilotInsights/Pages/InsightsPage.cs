@@ -238,6 +238,26 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// <summary>A UTC time in that zone, with its name: "2026-10-02 08:45 Eastern Time".</summary>
     protected string When(DateTime? utc, string none = "not yet") => utc is null ? none : CopilotInsights.Data.Zones.Stamp(utc, Zone);
 
+    /// <summary>
+    /// Who to ask, on a page that was refused (2.4.10): up to three people granted the Admin role by name, so "an
+    /// administrator can grant it" names someone. Nobody is named in privacy mode, and a group grant names no one.
+    /// </summary>
+    public IReadOnlyList<string> Administrators { get; private set; } = [];
+
+    async Task<IReadOnlyList<string>> AdministratorsAsync()
+    {
+        if (PrivacyMode) return [];
+        try
+        {
+            return await Db.QueryAsync<string>(@"
+SELECT TOP (3) COALESCE(p.DisplayName, g.Principal)
+FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
+WHERE g.Role = N'Admin' AND g.PrincipalType = N'User'
+ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { return []; }
+    }
+
     /// <summary>The reports this viewer opens most (2.4.9), by path, most opened first; see <see cref="MostUsed"/>.</summary>
     public IReadOnlyList<string> MostUsedPaths { get; private set; } = [];
 
@@ -268,6 +288,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         if (UsesFilters) await LoadMarkersAsync();
         if (Denied is not null)
         {
+            Administrators = await AdministratorsAsync();
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, Ctx.ScopeLabel, Denied);
             Response.StatusCode = turnedOff ? 404 : 403;
             return false;

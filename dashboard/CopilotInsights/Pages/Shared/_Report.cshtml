@@ -41,7 +41,14 @@
 
 @if (Model.Denied is not null)
 {
-    <div class="denied"><b>Not available to you.</b> @Model.Denied</div>
+    @* What was refused and why, who to ask, and a way on (2.4.10: it stopped at the reason). *@
+    <div class="denied"><b>Not available to you.</b> @Model.Denied
+        @if (Model.Administrators.Count > 0)
+        {
+            <p>The dashboard's administrators: @string.Join(", ", Model.Administrators).</p>
+        }
+        <p><a href="/?home=1">Go to the start page</a> for the reports you can open.</p>
+    </div>
     return;
 }
 

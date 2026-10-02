@@ -56,5 +56,10 @@
 }
 else
 {
-    <div class="denied">@Model.Denied</div>
+    <div class="denied"><b>Not available to you.</b> @Model.Denied
+        @if (Model.Administrators.Count > 0)
+        {
+            <p>The dashboard's administrators: @string.Join(", ", Model.Administrators).</p>
+        }
+    </div>
 }
