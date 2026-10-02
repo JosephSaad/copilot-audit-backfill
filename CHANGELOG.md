@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.10] - unreleased
+## [2.4.10] - 2026-10-02
 
 Clearer names, less clutter, and times in your own time zone. Nothing to rebuild: replace the
 scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and install the dashboard package
@@ -21,6 +21,15 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   `Install-CopilotAudit.ps1` gave every database Eastern time, whatever the server. A database
   with no records yet now takes the installing server's own zone. A database that holds
   records keeps its zone: its days are already cut, and that cannot be changed.
+- **On to the next report.** The foot of every report offers the one before it in its section
+  and the one after, each with what it answers, and keeps the period and the part of the
+  organization being looked at. Only reports the person can open are offered. By the end of a
+  report the list of reports is a long way up, and on a phone it is folded away.
+- **A wrong address gets an answer.** An address with no page behind it (mistyped, or a
+  bookmark to a page since moved) returned nothing, which a browser shows as a blank page. It
+  now gets *Page not found*, with the address, the reports nearest to it among those the
+  person can open, and the way to the start page. The answer is still a 404; the data API and
+  files are answered as before.
 
 ### Changed
 - **No Period box on a report it does not change.** Reports with a window of their own
@@ -139,10 +148,6 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   so a report with five of them opened with three screens of figures before its first chart.
 - **An information icon stays with its label.** Where a title or a figure's label wrapped, the
   icon could land on a line by itself. It now goes with the label's last word.
-- **On to the next report.** The foot of every report offers the one before it in its section
-  and the one after, each with what it answers, and keeps the period and the part of the
-  organization being looked at. Only reports the person can open are offered. By the end of a
-  report the list of reports is a long way up, and on a phone it is folded away.
 - **Admin › Health answers first.** It listed the steps and left the reader to work out
   whether the data was current. Three figures now open the page: the day the reports show data
   up to, whether the last pipeline run succeeded (and where it stopped if not), and how many
@@ -157,11 +162,6 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   offers the measures by the names the reports use (*Share of people active*, not
   *ActiveShare*), and the list of digests no longer says each name twice. On Admin ›
   Classifications a rule's pattern is called a pattern, not "Job title like".
-- **A wrong address gets an answer.** An address with no page behind it (mistyped, or a
-  bookmark to a page since moved) returned nothing, which a browser shows as a blank page. It
-  now gets *Page not found*, with the address, the reports nearest to it among those the
-  person can open, and the way to the start page. The answer is still a 404; the data API and
-  files are answered as before.
 - **Agent detail and App detail say what to do.** With nothing chosen the page said "Choose an
   agent above" over a box that was below it. The box is now headed *Choose an agent* (or *an
   app*), is drawn like the dashboard's other boxes, and links to the report where one can be
@@ -195,7 +195,6 @@ over 2.4.9. No table changes, and an existing database keeps the time zone its d
   arrow or unit stays on one line.
 
 ### Fixed
-
 - **An old link to someone's organization showed zeros under "Whole organization".** A link
   with a manager who is no longer in the directory (`?org=` with a sign-in nobody has) opened
   a report that said *Whole organization* and showed nothing. A page now shows the whole
