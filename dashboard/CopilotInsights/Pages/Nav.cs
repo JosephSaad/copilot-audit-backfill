@@ -57,7 +57,7 @@ public static class Nav
             new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),
             new("Targets and assumptions", "/admin/assumptions", Admin: true), new("Privacy and retention", "/admin/privacy", Admin: true),
             new("Reference data", "/admin/reference", Admin: true), new("Value names", "/admin/values", Admin: true),
-            new("Classifications and events", "/admin/classifications", Admin: true), new("Scheduled extracts", "/admin/extracts", Admin: true),
+            new("Classifications and events", "/admin/classifications", Admin: true), new("Reports shown", "/admin/reports", Admin: true), new("Scheduled extracts", "/admin/extracts", Admin: true),
             new("Training records", "/admin/training", Admin: true), new("Audit log", "/admin/audit", Admin: true)]),
     ];
 
@@ -74,13 +74,34 @@ public static class Nav
                    : (viewer.OrgWide || viewer.InDirectory) && (page.Role is null || ((!privacyMode || page.InPrivacy) && viewer.Has(page.Role)));
 
     /// <summary>The groups and pages this viewer may open; a group with none is left out.</summary>
-    public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false) =>
+    public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false, IReadOnlySet<string>? hidden = null) =>
         viewer is null ? [] :
         Groups.Where(g => g.Role is null || viewer.Has(g.Role))
-              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode)).ToList() })
+              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode) && !HiddenReports.Is(hidden, p.Path)).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
 
     /// <summary>The role a page's section needs, if any (2.4.2): the section is hidden, and its pages refused, without it.</summary>
     public static NavGroup? SectionOf(string? path) =>
         path is null ? null : Groups.FirstOrDefault(g => g.Pages.Any(p => string.Equals(p.Path, path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)));
+}
+
+/// <summary>
+/// The reports an administrator has turned off (2.4.9, Admin > Reports shown): gone from the navigation and the start
+/// page, and not found at their address, for everyone, administrators too. Kept in dash.Setting, one row a report,
+/// named Hide: and its path. Admin pages cannot be turned off.
+/// </summary>
+public static class HiddenReports
+{
+    public const string Prefix = "Hide:";
+
+    /// <summary>Every report that can be turned off, by section: all but the Admin pages.</summary>
+    public static IEnumerable<NavGroup> Choices =>
+        Nav.Groups.Select(g => g with { Pages = g.Pages.Where(p => !p.Admin).ToList() }).Where(g => g.Pages.Count > 0);
+
+    public static async Task<IReadOnlySet<string>> GetAsync(Settings settings) =>
+        (await settings.AllAsync()).Where(kv => kv.Key.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) && kv.Value == "1")
+            .Select(kv => kv.Key[Prefix.Length..]).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    public static bool Is(IReadOnlySet<string>? hidden, string? path) =>
+        hidden is { Count: > 0 } && path is not null && hidden.Contains(path.Length > 1 ? path.TrimEnd('/') : path);
 }

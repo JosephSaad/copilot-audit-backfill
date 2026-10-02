@@ -116,7 +116,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Job families | Adoption and use by job family, from the job-title rules in Admin › Classifications and events | Family | No |
 | App owners | Apps | Each app's reach, return visits, prompts per person and resources read, with a trend line | App | No |
 | | App detail | One app: people over time, what Copilot read in it, departments, agents | App | No |
-| Admin | Health, Access, Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Scheduled extracts, Training records, Audit log | See [Running it](#running-it), the sections below and [OPERATIONS.md](OPERATIONS.md) | | **Admin** |
+| Admin | Health, Access, Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Reports shown, Scheduled extracts, Training records, Audit log | See [Running it](#running-it), the sections below and [OPERATIONS.md](OPERATIONS.md) | | **Admin** |
 
 An L2 manager, who reports directly to the CEO, sees the whole organization. The Leadership pages are theirs, and so are the Regions, People, App owners and Governance pages. Whole-organization access doesn't include a role's section or its named lists: those need the role.
 
@@ -283,6 +283,8 @@ A manager digest that fails is tried again an hour later, three times in all (`d
 **License exports**: Upgrade, train or revoke, Licenses on disabled accounts and Rollout waves offer the list as an **Entra bulk add or remove members file** (Groups › Bulk operations) and as a **PowerShell script** for a license administrator to review and run with their own rights. With the Object id of the group that assigns Copilot licenses set in Admin › Targets and assumptions, the script adds and removes its members; without it, it assigns or removes the SKU itself. The script confirms each change and takes `-WhatIf`. The dashboard changes nothing in Entra. Each export is recorded (`dash.LicenseAction`) so Forecasting › License action outcomes can show whether it was applied and what followed.
 
 **Contracts** (entered by an administrator on Forecasting › Budget and renewal): each agreement's seats, price and renewal date. The page compares them with the seats the use supports: seats assigned today, less licenses to revoke and on disabled accounts, plus people ready to upgrade.
+
+**Reports shown** (2.4.9, Admin › Reports shown): an administrator turns any report off, and it is gone for everyone, administrators too: from the navigation, the start page, and at its address. The page lists the reports by section as the start page does, each with a box to tick. See [OPERATIONS.md](OPERATIONS.md).
 
 **Classifications** (Admin › Classifications and events): job-title patterns to job families (People › Job families), and app, web-search and agent patterns to use cases (Leadership › Use cases). The first matching rule by priority wins; both apply at once, to past data too, and to Power BI through `bi.JobFamilies` and `bi.UseCases`.
 

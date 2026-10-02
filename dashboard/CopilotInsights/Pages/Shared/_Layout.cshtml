@@ -38,7 +38,7 @@
 <div class="shell">
     <nav class="side" aria-label="Personas">
         <a class="home @(path == "/" ? "on" : "")" href="/?home=1">Start</a>
-        @foreach (var g in Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many))
+        @foreach (var g in Nav.For(viewer, page?.PrivacyMode ?? false, Tenants.Many, page?.HiddenReports))
         {
             <div class="grp">
                 <div class="gname">@g.Persona</div>

@@ -120,6 +120,17 @@
     });
   });
 
+  // Admin > Reports shown: a section's own box ticks or clears every report in it, and follows them.
+  document.querySelectorAll('.card.pick').forEach(function (card) {
+    var all = card.querySelector('input[data-all]');
+    var boxes = card.querySelectorAll('input[name="show"]');
+    if (!all) return;
+    all.addEventListener('change', function () { Array.prototype.forEach.call(boxes, function (b) { b.checked = all.checked; }); });
+    Array.prototype.forEach.call(boxes, function (b) {
+      b.addEventListener('change', function () { all.checked = Array.prototype.every.call(boxes, function (x) { return x.checked; }); });
+    });
+  });
+
   // The admin forms put the question on the button.
   document.querySelectorAll('button[data-confirm]').forEach(function (b) {
     b.addEventListener('click', function (e) { if (!window.confirm(b.getAttribute('data-confirm'))) e.preventDefault(); });

@@ -162,6 +162,17 @@ button.btn.quiet { background: none; color: var(--crit); border: 1px solid var(-
   border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 13px; }
 .card li a::after { content: "→"; color: var(--accent); }
 .card li a:hover { border-color: var(--accent); background: var(--accent-soft); }
+/* Admin > Reports shown: the start page's cards, a box to tick for each report. */
+form.admin:has(.cards) { display: block; }
+form.admin .cards { margin: 8px 0 12px; }
+form.admin .card.pick label { flex-direction: row; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--rule); border-radius: 6px;
+  cursor: pointer; color: var(--ink); font-size: 13px; }
+form.admin .card.pick label:hover { border-color: var(--accent); background: var(--accent-soft); }
+form.admin .card.pick label.all { border: 0; padding: 0 0 6px; font-size: 12.5px; color: var(--muted); }
+form.admin .card.pick label.all:hover { background: none; }
+form.admin .card.pick label .sub { margin-left: auto; white-space: nowrap; }
+form.admin .card.pick li label:has(input:not(:checked)) { color: var(--muted); }
+form.admin .card.pick input[type=checkbox] { padding: 0; margin: 0; flex: none; }
 .status-ok { color: var(--good); } .status-warn { color: var(--warn); } .status-bad { color: var(--crit); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 

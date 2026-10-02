@@ -155,6 +155,8 @@ M -Task NameAgent -AgentId 'cr123_hrHelper' -FriendlyName 'HR helper' -Owner 'hr
 
 ## Classifications, events and extracts
 
+**Turn a report off, or back on.** Admin › Reports shown lists every report by section, laid out as the start page is, each with a box. Untick the ones your organization should not have and choose **Save**; a section's own box ticks or clears all of it. A report that is off is gone from the navigation and the start page and is not found at its address (404), for everyone, administrators included; its exports and forms are refused too. Tick it and save to bring it back: nothing is deleted. Roles and levels still decide who sees a report that is on. Admin pages cannot be turned off. Links to a report that is off stop working, so turn a detail page (Agent detail, App detail, Person record) off together with the lists that open it. Scheduled digests and extracts, the board pack and the data API are set on their own pages and are not changed here. Each change is in the audit log. The choice is kept in `dash.Setting`, one row a report, named `Hide:` and its path.
+
 **Job families.** Admin › Classifications and events › *Job families*: a job-title pattern (`%engineer%` is any title containing engineer), the family, and a priority (lower first). *The most common titles no rule covers* shows what is left. People › Job families and Power BI's `JobFamilies` table follow the rules at once.
 
 **Use cases.** Admin › Classifications and events › *Use cases*: rules from the app (a pattern), whether the interaction searched the web, and whether an agent answered, to a use case. The defaults cover the Microsoft 365 apps; **Put back the default rules** restores them. Leadership › Use cases and Power BI's `UseCases` table follow them.
@@ -239,6 +241,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories, which accounts are not a person (non-human accounts) |
 | Admin › Value names | Names for every cataloged code, one by one or by CSV, with the mapping file to download |
 | Admin › Classifications and events | Job-family rules, use-case rules, and the events marked on trend charts |
+| Admin › Reports shown | Which reports the dashboard has: a box to tick for each, by section. A report turned off is gone for everyone, administrators too |
 | Admin › Scheduled extracts | Aggregate CSV files written to a folder or share on a schedule |
 | Admin › Training records | Training attendance, by CSV, with the mapping file to download |
 | Admin › Audit log | Every view, refusal, export, API call and admin change |

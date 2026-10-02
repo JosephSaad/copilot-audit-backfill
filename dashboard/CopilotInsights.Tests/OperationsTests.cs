@@ -231,6 +231,25 @@ public class PrivacyNavigationTests
     }
 
     [Fact]
+    public void A_report_turned_off_is_gone_for_everyone_and_an_admin_page_cannot_be()
+    {
+        var hidden = new HashSet<string>(["/adoption/cohorts", "/Leadership/", "/admin/health"], StringComparer.OrdinalIgnoreCase);
+        var paths = Pages.Nav.For(V(Roles.All), hidden: hidden).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
+        Assert.DoesNotContain("/adoption/cohorts", paths);
+        Assert.Contains("/adoption", paths);
+        Assert.True(Pages.HiddenReports.Is(hidden, "/adoption/cohorts/"));
+        Assert.False(Pages.HiddenReports.Is(hidden, "/adoption"));
+        Assert.False(Pages.HiddenReports.Is(null, "/adoption/cohorts"));
+        /* Every report can be chosen, and no Admin page: an administrator can always get back to turn one on. */
+        var choices = Pages.HiddenReports.Choices.SelectMany(g => g.Pages).ToList();
+        Assert.DoesNotContain(choices, p => p.Admin);
+        Assert.Equal(Pages.Nav.Groups.SelectMany(g => g.Pages).Count(p => !p.Admin), choices.Count);
+        Assert.Contains(Pages.Nav.Groups.SelectMany(g => g.Pages), p => p.Path == "/admin/reports" && p.Admin);
+        /* A name for the setting fits its column (64). */
+        Assert.All(choices, p => Assert.True((Pages.HiddenReports.Prefix + p.Path).Length <= 64));
+    }
+
+    [Fact]
     public void The_new_named_lists_need_their_roles()
     {
         var paths = Pages.Nav.For(V()).SelectMany(g => g.Pages).Select(p => p.Path).ToList();

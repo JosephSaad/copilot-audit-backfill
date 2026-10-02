@@ -6,11 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [2.4.9] - 2026-10-02
 
-Adoption no longer dips at weekends, and a rebuild that was stopped part way finishes itself.
+Adoption no longer dips at weekends, an administrator can turn any report off, and a rebuild
+that was stopped part way finishes itself.
 
 Install over 2.4.8: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and
 reinstall the dashboard from its package. If the reporting tables hold fewer interactions than
 were flattened, the installer rebuilds them in full, with every day of the rollups.
+
+### Added
+- **Admin › Reports shown: turn any report off.** Every report is listed by section, laid out
+  as the start page is, each with a box to tick; a section's own box ticks or clears all of it.
+  A report that is off is gone for everyone, administrators too: from the navigation, from the
+  start page, and at its address (404), with its exports and forms. Ticking it brings it back;
+  nothing is deleted. Roles and levels still apply to the reports that are on, and Admin pages
+  cannot be turned off. Digests, extracts, the board pack and the data API are not changed by
+  it. Kept in `dash.Setting` (one row a report), so there is no schema change.
 
 ### Fixed
 - **The adoption rate on Leadership › Overview fell every weekend.** It showed the share of
