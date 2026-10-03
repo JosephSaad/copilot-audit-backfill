@@ -522,6 +522,19 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     /// </summary>
     protected int? AtLeastMin(int people) => people >= Ctx.MinGroupSize ? people : null;
 
+    /// <summary>
+    /// The same for a point on a trend (2.4.12): nobody is shown as 0, a count under the minimum as a gap. A day when two
+    /// people used an agent is those two people's use, as much as the period's total is.
+    /// </summary>
+    protected double? PointAtMin(int people) => people == 0 ? 0 : AtLeastMin(people);
+
+    /// <summary>
+    /// A group's adoption, shown only where its license holders reach the minimum group size (2.4.12), as the charts and
+    /// the digests rank it: a team of twelve with one license holder is that one person's use. Blank below it.
+    /// </summary>
+    protected string AdoptionAtMin(int activeLicensed, int licensed) =>
+        Pct(licensed >= Ctx.MinGroupSize ? Ratio(activeLicensed, licensed) : null);
+
     /// <summary>The same, in words: "12 people", or "fewer than 5 people".</summary>
     protected string AgentPeople(int people) => people >= Ctx.MinGroupSize ? $"{people:#,0} people" : $"fewer than {Ctx.MinGroupSize} people";
 

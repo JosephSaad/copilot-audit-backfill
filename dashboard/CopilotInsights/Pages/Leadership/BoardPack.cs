@@ -80,13 +80,21 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 
         var rp = full ? await metrics.TrendAsync(prev) : null;
         var rt = new Table { Headers = ["Risk signal", "This period", "Period before"], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };
-        rt.Rows.Add(["Jailbreak attempts", tr.Sum(x => x.Jailbreak), rp?.Sum(x => x.Jailbreak)]);
-        rt.Rows.Add(["Prompt injection detected", tr.Sum(x => x.Injection), rp?.Sum(x => x.Injection)]);
-        rt.Rows.Add(["Blocked resources", tr.Sum(x => x.Blocked), rp?.Sum(x => x.Blocked)]);
-        rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp?.Sum(x => x.Labeled)]);
+        /* The security signals are the Security section's and labeled content the Compliance section's (2.4.12), as on the
+           data API: every viewer of the board pack had them, whatever their roles. */
+        if (Viewer.Has(Roles.Security))
+        {
+            rt.Rows.Add(["Jailbreak attempts", tr.Sum(x => x.Jailbreak), rp?.Sum(x => x.Jailbreak)]);
+            rt.Rows.Add(["Prompt injection detected", tr.Sum(x => x.Injection), rp?.Sum(x => x.Injection)]);
+            rt.Rows.Add(["Blocked resources", tr.Sum(x => x.Blocked), rp?.Sum(x => x.Blocked)]);
+        }
+        if (Viewer.Has(Roles.Compliance))
+            rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp?.Sum(x => x.Labeled)]);
         /* A policy breach, counted today (2.4.5): there is no earlier figure to set beside it. */
         rt.Rows.Add(["Copilot licenses on non-human accounts (today)", (await CopilotInsights.Data.NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args())).Count, null]);
         Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance." +
+            (Viewer.Has(Roles.Security) ? "" : " The security signals are shown to people with the Security role.") +
+            (Viewer.Has(Roles.Compliance) ? "" : " Labeled content is shown to people with the Compliance role.") +
             (full ? "" : $" The period before is left blank: {OpsReports.NotCovered(first)}."), "half"));
 
         var units = SmallGroups.Shown(await metrics.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();

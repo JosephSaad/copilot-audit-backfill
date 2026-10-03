@@ -165,7 +165,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7 },
         };
         foreach (var r in shown)
-            t.Rows.Add([r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, Pct(Ratio(r.ActiveLicensed, r.Licensed)),
+            t.Rows.Add([r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, AdoptionAtMin(r.ActiveLicensed, r.Licensed),
                         r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null, Pct(Ratio(r.MultiTurn, r.Sessions))]);
         Panels.Add(new("All departments", t.Render(), folded > 0 ? FoldNote(folded, "department") : null));
     }

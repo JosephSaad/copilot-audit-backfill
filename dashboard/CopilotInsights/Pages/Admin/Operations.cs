@@ -380,6 +380,9 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.DigestPreference (Upn, ManagerDigestOptOut) V
         name = name?.Trim();
         if (string.IsNullOrEmpty(name) || name.Length > 200) throw new ArgumentException("give the digest a name.");
         if (report is null || !OpsReports.DigestKinds.ContainsKey(report)) throw new ArgumentException("choose a report.");
+        /* Held to the same rule as Send now and Preview (2.4.12): an administrator without the section's role set up a
+           Security digest to their own address, and it went out on its schedule. */
+        if (DigestRefusal(report) is { } no) throw new ArgumentException(no);
         var to = SettingWriter.Emails(recipients, "To") ?? throw new ArgumentException("give at least one address.");
         if (frequency is null || !Schedule.Frequencies.Contains(frequency)) throw new ArgumentException("choose how often.");
         var dayIndex = Array.IndexOf(new[] { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" }, dow);
@@ -421,6 +424,9 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
 
     public Task<IActionResult> OnPostToggleAsync(int id) => AdminChangeAsync(async () =>
     {
+        /* Resuming one is held to the rule for adding one (2.4.12); pausing one never is. */
+        var sub = (await Db.QueryAsync<(string Report, bool Enabled)>("SELECT Report, Enabled FROM dash.Subscription WHERE SubscriptionId = @id", new { id })).FirstOrDefault();
+        if (sub.Report is not null && !sub.Enabled && DigestRefusal(sub.Report) is { } no) throw new ArgumentException(no);
         var n = await Db.ScalarAsync<string?>("UPDATE dash.Subscription SET Enabled = 1 - Enabled OUTPUT inserted.Name WHERE SubscriptionId = @id", new { id });
         return n is null ? "That digest was already gone." : $"Digest \"{n}\" paused or resumed.";
     });

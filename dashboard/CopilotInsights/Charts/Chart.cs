@@ -237,7 +237,9 @@ public static class Chart
             .OrderByDescending(g => g.Active / (double)g.Licensed).ThenByDescending(g => g.Licensed).Take(take)
             .Select(g => new Bar(g.Name, g.Active / (double)g.Licensed, g.Href, g.Note ?? $"{g.Active:#,0} of {g.Licensed:#,0} licensed", Shown: $"{g.Active:#,0} of {g.Licensed:#,0}"))
             .ToList();
-        if (few.Count > 0)
+        /* Not drawn when even all of them together are under the minimum (2.4.12): with nothing ranked to join it, that
+           bar was the rate of one or two license holders. */
+        if (few.Count > 0 && few.Sum(g => g.Licensed) >= min)
         {
             int a = few.Sum(g => g.Active), l = few.Sum(g => g.Licensed);
             bars.Add(new Bar(few.Count == 1 ? "A smaller group" : $"{few.Count:#,0} smaller groups, combined", a / (double)l, Note: $"{a:#,0} of {l:#,0} licensed, across {few.Count:#,0}", Slot: 2, Shown: $"{a:#,0} of {l:#,0}"));
