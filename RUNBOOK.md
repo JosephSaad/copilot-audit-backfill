@@ -250,6 +250,50 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | Browser reaches another site | A binding on the server's IP address outranks the dashboard's. See [Another site on port 443](docs/DASHBOARD.md#another-site-on-port-443). |
 | A page is slow at a long period | Check `dash.RefreshRun` ran after the last `bi` refresh, and that the `dash` indexes exist (re-run the schema script). |
 
+## 5g. Checking what is loaded, and rebuilding from the stored records
+
+**The health check.** `tools\Test-CopilotDataHealth.ps1` reads both databases and says what is loaded, from where, and what is missing or behind. It runs SELECT statements only and takes no lock, so it is safe beside the nightly task:
+
+```powershell
+.\tools\Test-CopilotDataHealth.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -LicenseDatabase CopilotLicenseEvents
+```
+
+It checks:
+
+1. **Coverage**: the ranges the CSV files and the API loads covered, any gap of more than 12 hours between them, and days in `bi` with no interactions, or under a tenth of a median weekday.
+2. **The refresh chain**: loads and imports still owed a refresh; whether every record was flattened once; the agent-id read; sessions (and the license databases they read); `bi`, against the data end; the dashboard rollups, against `bi`.
+3. **The license-event database**: whether it holds the 18 operations or the 4 license ones only; the last load; license events and Copilot Studio's authoring records, loaded and shredded.
+4. **Agents**: names, makers, and owners. An agent's owner is set by hand only (Admin › Reference data, or `-Task NameAgent -Owner`): no audit record names it. Its makers, who created, published and changed it, come from Copilot Studio's records.
+5. **The directory and the nightly runs.**
+
+Each finding ends with OK, WARN or ACTION, and the check closes with what to run, in order. Run it again after doing so.
+
+**The license operations.** Don't run `-Incremental` by hand into the license database with the four license operations alone. A database holding the pipeline's 18 refuses fewer. One holding the four takes them, but stays without Copilot Studio's records. The nightly task passes all 18, and the database takes the larger list from its first such run. A CSV import into the license database uses the list the database holds, so leave out `-Operations`: rows of other operations are counted and left out.
+
+**Rebuilding everything from the stored records.** The JSON of every record is kept in `audit.CopilotAudit`, so everything after it can be built again without searching the audit log: the flattened table, sessions, `bi` and the dashboard. With the nightly task disabled:
+
+1. `Disable-ScheduledTask -TaskName 'Copilot audit - nightly'`, and back up both databases.
+2. **The directory**, so the rebuild reads today's organization (deployment step 9). Pass the employee types the settings have:
+   ```powershell
+   .\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain users.contoso.com -SqlServer SQLPROD01 -Database CopilotAudit
+   ```
+3. **Current licenses**, from Microsoft Graph's users, not the audit log (deployment step 10):
+   ```powershell
+   .\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit `
+       -TenantId contoso.onmicrosoft.com -ClientId <app-id> -CertificateThumbprint <thumbprint> -AllLicensedUsers
+   ```
+4. **Only if the agents' history is missing** (the check's section 3): import Purview exports of the Copilot Studio operations into the license database, after the nightly task has run once with the 18 operations, so the database holds them:
+   ```powershell
+   .\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports\Agents -SqlServer SQLPROD01 -Database CopilotLicenseEvents
+   ```
+5. **The rebuild.** It shreds every license event and Copilot Studio record in the license database, flattens every record again, reads the agent ids, then builds sessions, `bi` and the dashboard in full:
+   ```powershell
+   .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard -Rebuild -LicenseEventDatabases CopilotLicenseEvents
+   ```
+   Allow about 8 hours at 40 million records, most of it flattening; about half that at 20 million. Records whose JSON was purged (`-Task PurgeJson`) keep the rows they were flattened to.
+6. `Enable-ScheduledTask -TaskName 'Copilot audit - nightly'`. The next night loads from where the data ends, as every night does.
+7. Refresh the Power BI model in full ([DEPLOYMENT.md](docs/DEPLOYMENT.md), step 16, item 4), and run the health check again.
+
 ## 6. How it stays inside Microsoft's limits
 
 | Published limit (Graph throttling docs) | What the engine does |
@@ -316,5 +360,6 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | `sql/Create-CopilotDashboardSchema.sql` / `sql/Create-CopilotDashboardProcedure.sql` | The dashboard's `dash` schema and `dash.usp_RefreshDashboard` (section 5f). |
 | `dashboard/` | The Copilot Insights web dashboard, its IIS installer, demo and tests (section 5f). |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |
+| `tools/Test-CopilotDataHealth.ps1` | A read-only check of what is loaded and built, with what to run (section 5g). |
 | `tools/Import-CopilotAuditCsv.ps1` / `sql/Create-CopilotCsvImport.sql` | Purview CSV exports into the same tables (section 5e). |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |

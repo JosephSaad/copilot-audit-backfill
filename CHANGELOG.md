@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **A read-only health check.** `tools\Test-CopilotDataHealth.ps1` reads both databases and says
+  what is loaded and from where (CSV files or API loads, and any gap between them), what is owed
+  or behind (flattening, sessions, `bi`, the dashboard), whether the license database holds
+  Copilot Studio's operations and has shredded them, and which agents have no maker or owner. It
+  ends with what to run, in order. RUNBOOK section 5g says how to read it, and how to rebuild
+  everything from the stored records without searching the audit log again.
+
 ## [2.4.12] - 2026-10-03
 
 Every finding of an adversarial review of 2.4.11, 107 of them: the privacy rules hold on every
