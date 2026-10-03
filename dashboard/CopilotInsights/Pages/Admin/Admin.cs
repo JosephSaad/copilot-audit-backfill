@@ -23,7 +23,7 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
     public override string Intro => "Is the data current, and did the last run work? The three figures answer that; below them, each step of the pipeline, the directory behind who sees what, and a manual refresh.";
 
     /* A step by a name that says what it is, with a line on what it does (2.4.10: "bi star schema" and "Dashboard rollups"
-       told an administrator nothing). Optional: one of the two ways records arrive, which a site may never use. */
+       told an administrator nothing). Optional: the way records are fetched from the audit log, which a site loaded from files may never use. */
     sealed record Step(string Name, string What, DateTime? Finished, string Rows, string? Note, bool Optional = false);
     const string NotInstalled = "Not installed in this database";
 
@@ -41,7 +41,6 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
             catch (Microsoft.Data.SqlClient.SqlException) { steps.Add(new(name, what, null, "—", NotInstalled, optional)); }
         }
         await Try("Audit download", "Copilot audit records fetched from Microsoft Purview", "SELECT TOP (1) MergedUtc, RowsAdded, CONCAT(N'range to ', FORMAT(RangeEndUtc, 'yyyy-MM-dd HH:mm')) FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL ORDER BY MergedUtc DESC;", "rows added", optional: true);
-        await Try("CSV import", "Copilot audit records loaded from exported CSV files", "SELECT TOP (1) MergedUtc, RowsAdded, FolderPath FROM audit.CopilotCsvImport WHERE MergedUtc IS NOT NULL ORDER BY MergedUtc DESC;", "rows added", optional: true);
         await Try("Sessions", "Records grouped into sessions, for session counts and lengths", "SELECT TOP (1) RunEndUtc, CAST(SessionsWritten AS BIGINT), ReportingTimeZone FROM audit.CopilotSessionRun ORDER BY RunId DESC;", "sessions written");
         await Try("Report tables", "The tables every report and Power BI read (bi.usp_RefreshBi)", "SELECT TOP (1) EndedUtc, InteractionRows, CASE WHEN SinceUtc IS NULL THEN N'full rebuild' ELSE CONCAT(N'since ', FORMAT(SinceUtc, 'yyyy-MM-dd')) END FROM bi.RefreshRun ORDER BY RunId DESC;", "interactions written");
         await Try("Dashboard totals", "Daily totals for each person and the org chart, which these pages read (dash.usp_RefreshDashboard)", "SELECT TOP (1) EndedUtc, CAST(UserDayRows AS BIGINT), CONCAT(FORMAT(People, 'N0'), N' people, ', FORMAT(ClosureRows, 'N0'), N' org pairs') FROM dash.RefreshRun ORDER BY RunId DESC;", "person-days written");
@@ -156,7 +155,7 @@ FROM w;")).Single();
                 "Microsoft limits how many audit searches a tenant runs at once: many waiting, or many resubmitted, means the load is being throttled, and the next run carries on.",
                 q.Failed > 0 ? "status-bad" : q.Waiting > 20 || q.Resubmitted > 10 ? "status-warn" : "status-ok");
         }
-        catch (Microsoft.Data.SqlClient.SqlException) { OpsCard("Audit searches", "No search windows in this database (the CSV import path, or not installed).", "status-warn"); }
+        catch (Microsoft.Data.SqlClient.SqlException) { OpsCard("Audit searches", "No search windows in this database (records were not fetched from the audit log here, or this is not installed).", "status-warn"); }
         Panels.Add(new("Certificate and audit searches", new HtmlString(ops.Append("</div>").ToString())));
 
         var runs = await Db.QueryAsync<(DateTime StartedUtc, DateTime EndedUtc, DateTime? SinceUtc, int People, int ClosureRows, int UserDayRows)>(

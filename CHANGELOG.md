@@ -4,7 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.5.0] - Unreleased
+
+### Changed
+- **Admin › Health no longer has a *CSV import* step.** Loading from Purview exports is mostly a
+  first-time job, so its row in the Pipeline table, a *Not used* line on nearly every site, is
+  gone. *Audit download* stays, and `tools\Test-CopilotDataHealth.ps1` still reads CSV imports.
 
 ### Added
 - **A read-only health check.** `tools\Test-CopilotDataHealth.ps1` reads both databases and says
