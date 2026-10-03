@@ -42,7 +42,7 @@ $script:Server = $SqlServer
 $script:DataEnd = $null
 $script:botSince = $null
 # Every installer finding comes to the same one run, which does all of them (upgrade, shred, flatten, agent ids).
-$script:Install = ".\Install-CopilotAudit.ps1 -SqlServer $SqlServer -Dashboard -LicenseEventDatabases $LicenseDatabase, with the nightly task disabled. It upgrades to 2.4.12, shreds every license and Copilot Studio record, flattens any record never flattened and reads the agent ids, as the findings above need. Add -ReportingAccount <gateway account> on the first 2.4.12 run."
+$script:Install = ".\Install-CopilotAudit.ps1 -SqlServer $SqlServer -Dashboard -LicenseEventDatabases $LicenseDatabase, with the nightly task disabled. It brings both databases to 2.4.12 where they aren't, shreds every license and Copilot Studio record, flattens any record never flattened and reads the agent ids, as the findings above need. Add -ReportingAccount <gateway account> on the first 2.4.12 run."
 
 function New-Conn([string] $Db) {
     $b = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
@@ -172,7 +172,11 @@ Write-Info ("API loads (-Incremental): {0} merged, {1} -> {2}, {3:N0} rows added
     (Fmt ($(if (($null -eq $ls.F)) { $null } else { $ls.F }))), (Fmt ($(if (($null -eq $ls.T)) { $null } else { $ls.T }))), [long]$ls.Added)
 
 $gaps = Get-CoverageGap $intervals 12
-if ($intervals.Count -eq 0) { Write-Act 'Nothing has been loaded into the Copilot database.' $null }
+if ($intervals.Count -eq 0) {
+    $flatRows = [long](Get-Value $cp "SELECT SUM(p.row_count) FROM sys.dm_db_partition_stats AS p WHERE p.object_id = OBJECT_ID(N'audit.RawLogFlattened') AND p.index_id IN (0, 1)")
+    if ($flatRows -gt 0) { Write-Warn ("No CSV import or API load is recorded, though {0:N0} flattened rows exist: they were loaded another way (a release before 2.4, or demo data), so coverage can't be checked here." -f $flatRows) }
+    else { Write-Act 'Nothing has been loaded into the Copilot database.' "Load the history: a Purview CSV import (RUNBOOK section 5e) or .\Invoke-CopilotPipeline.ps1 -History." }
+}
 elseif ($gaps.Count -eq 0) {
     $first = ($intervals | Sort-Object From | Select-Object -First 1).From
     $last = ($intervals | Sort-Object To -Descending | Select-Object -First 1).To
@@ -241,14 +245,17 @@ SELECT (SELECT SUM(p.row_count) FROM sys.dm_db_partition_stats AS p WHERE p.obje
 '@
 $rec = [long]$counts.Rows[0].Records; $flat = [long]$counts.Rows[0].Flattened
 Write-Info ("audit.CopilotAudit {0:N0} records; audit.RawLogFlattened {1:N0} rows." -f $rec, $flat)
-if (-not $m.ContainsKey('FullFlattenUtc')) {
+if ($rec -eq 0) {
+    Write-Info 'No stored records (their JSON) in audit.CopilotAudit: nothing to flatten or read agent ids from, and a rebuild can only rebuild from the flattened rows.'
+} elseif (-not $m.ContainsKey('FullFlattenUtc')) {
     Write-Act 'No record that every record was flattened once (FullFlattenUtc).' $script:Install
 } elseif ($rec -gt 0 -and ($rec - $flat) -gt [math]::Max(1000, $rec * 0.001)) {
     Write-Warn ("{0:N0} more records than flattened rows (an estimate from the row counts). A record can flatten to nothing, but a large difference means records were left out." -f ($rec - $flat))
     $script:Actions.Add("If the flattened table is behind: .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer $SqlServer -Database $Database -Task Reflatten (with the nightly task disabled; it takes hours at 40 million records).")
 } else { Write-Ok 'Flattened, and the row counts agree.' }
 
-if ($m.ContainsKey('AgentIdsReadUtcCursor')) {
+if ($rec -eq 0) { }
+elseif ($m.ContainsKey('AgentIdsReadUtcCursor')) {
     Write-Act 'The one-off read of agent ids stopped part way.' $script:Install
 } elseif (-not $m.ContainsKey('AgentIdsReadUtc')) {
     Write-Act 'The 2.4.12 one-off read of agent ids has not run, so some agents used in Copilot Chat have no id or name.' $script:Install
@@ -293,6 +300,10 @@ if (Test-Object $cp 'dash.RefreshRun') {
 Invoke-Section "3. License-event database $LicenseDatabase" {
 $script:botSince = $null
 if ($lic) {
+    if (-not (Test-Object $lic 'audit.LicenseEvent')) {
+        Write-Act "$LicenseDatabase has no audit.LicenseEvent: it is not a license-event database, or the installer has not run on it." "Check -LicenseDatabase names the database the nightly loads license events into (LicenseDatabase in copilot-audit.settings.psd1), then run the check again."
+        return
+    }
     $lr = Get-Table $lic 'SELECT RangeStartUtc, RangeEndUtc, Operations, CompletedUtc FROM audit.CopilotBackfillRange WHERE Id = 1'
     $recorded = ''
     if ($lr.Rows.Count) {
@@ -318,13 +329,17 @@ if ($lic) {
     }
 
     $raw = Get-Table $lic @"
-SELECT CASE WHEN Operation LIKE N'Bot%' THEN 'Copilot Studio' ELSE 'License' END AS Kind,
-       COUNT_BIG(*) AS Records, MIN(CreatedDateTime) AS F, MAX(CreatedDateTime) AS T
-FROM audit.CopilotAudit GROUP BY CASE WHEN Operation LIKE N'Bot%' THEN 'Copilot Studio' ELSE 'License' END;
+SELECT k.Kind, COUNT_BIG(*) AS Records, MIN(a.CreatedDateTime) AS F, MAX(a.CreatedDateTime) AS T
+FROM audit.CopilotAudit AS a
+CROSS APPLY (SELECT CASE WHEN a.Operation LIKE N'Bot%' THEN 'Copilot Studio'
+                         WHEN a.Operation IN (N'Change user license', N'Update user', N'Add user', N'Delete user') THEN 'License'
+                         ELSE 'Other' END AS Kind) AS k
+GROUP BY k.Kind;
 "@
     $rawBot = 0; $rawLic = 0
     foreach ($x in $raw.Rows) {
         Write-Info ("Raw {0} records: {1:N0}, {2} -> {3}." -f $x.Kind, $x.Records, (Fmt $x.F), (Fmt $x.T))
+        if ($x.Kind -eq 'Other') { Write-Warn ("{0:N0} record(s) of other operations: is -LicenseDatabase the license-event database?" -f $x.Records) }
         if ($x.Kind -eq 'Copilot Studio') { $rawBot = [long]$x.Records; $script:botSince = [datetime]$x.F } else { $rawLic = [long]$x.Records }
     }
     $le = Get-Table $lic 'SELECT COUNT_BIG(*) AS N, MIN(CreatedDateTime) AS F, MAX(CreatedDateTime) AS T FROM audit.LicenseEvent'
