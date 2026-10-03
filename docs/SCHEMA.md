@@ -1977,7 +1977,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 
 ### bi.OrgSecurity
 
-*View.* Who may see whom (2.3.0): each viewer's sign-in with the user key of everyone at or under them, and everyone for the top of the organization, the people reporting to them and people granted Organization. The Power BI model's Organization role filters Users by it. Empty in privacy mode.
+*View.* Who may see whom (2.3.0): each viewer's sign-in with the user key of everyone at or under them, and everyone for the top of the organization, the people reporting to them and people granted Organization. The Power BI model's Organization role filters Users by it, and shows each viewer only their own rows. Empty in privacy mode.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -1985,6 +1985,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 |--:|---|---|---|---|---|
 | 1 | `ViewerUpn` | nvarchar(256) | **no** |  |  |
 | 2 | `UserKey` | int | **no** |  |  |
+| 3 | `WholeOrganization` | bit | yes |  | 2.4.12: true when the viewer sees the whole organization. The model's Organization role shows LicensePool, ValueNames and DepartmentWeek to them alone. |
 
 ### bi.ValueNames
 

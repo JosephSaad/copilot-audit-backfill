@@ -309,7 +309,7 @@ A manager digest that fails is tried again an hour later, three times in all (`d
 - if the setting cannot be read, privacy mode counts as on until it can (2.4.12): before, a failed read turned it off for a minute;
 - Power BI's `bi.Users` shows a salted hash (`P-…`) instead of every name, sign-in, manager and org level, the same for the same person everywhere, so counts and org slicing still work;
 - `bi.OrgSecurity` is empty (its rows would pair real sign-ins with the pseudonyms), and OneDrive site names and the administrators in `bi.LicenseChanges` are hidden;
-- `bi.DepartmentWeek` gives weekly department figures with any group under the minimum size hidden, for a model that must not show individuals.
+- `bi.DepartmentWeek` gives weekly department figures with any group under the minimum size hidden, for a model that must not show individuals: the ready-made model's *Departments* role shows it and nothing that names anyone.
 
 **Retention**, applied each night after a successful run and on demand: the dashboard's audit log (730 days by default), the notification log (365), and the stored JSON of old records (off by default; at least 200 days, since past Purview's 180 days it cannot be fetched again; the reports keep working without it).
 

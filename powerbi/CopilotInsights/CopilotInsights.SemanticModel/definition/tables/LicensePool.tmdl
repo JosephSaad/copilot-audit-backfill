@@ -1,4 +1,4 @@
-/// Licenses bought, assigned and available per SKU per day, from the tenant's subscriptions.
+/// Licenses bought, assigned and available per SKU per day, from the tenant's subscriptions. Under the Organization role, only for viewers who see the whole organization.
 table LicensePool
 	lineageTag: f4631d61-f5fd-57cc-8547-7d4cfcb705e7
 

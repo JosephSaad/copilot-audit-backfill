@@ -162,6 +162,14 @@ $licOps = @($n[2].Arguments.Operations)
 Assert-That ((($licOps | Select-Object -First 4) -join ',') -eq 'Change user license,Update user,Add user,Delete user' -and
              'BotCreate' -in $licOps -and 'BotUpdateOperation-BotPublish' -in $licOps -and $n[2].Arguments.Database -eq 'CopilotLicenseEvents') `
     'nightly license events: the four license operations, and Copilot Studio''s authoring ones (2.3.0)'
+# 2.4.12: DEPLOYMENT.md step 7, the license history by hand, passes the same list. It gave the four license operations
+# alone, and a backfill refuses a different list, so a hand run and -History stopped each other.
+$guide = [System.IO.File]::ReadAllText((Join-Path $root 'docs' 'DEPLOYMENT.md'))
+$listed = [regex]::Match($guide, '(?s)\$licenseOps = (.+?)\r?\n\.\\Invoke-CopilotAuditBackfill\.ps1')
+$docOps = @([regex]::Matches($listed.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+$hOps = @((Get-PipelineStep -Setting $s -History -Today $today)[1].Arguments.Operations)
+Assert-That ($listed.Success -and (($docOps | Sort-Object) -join ',') -eq (($licOps | Sort-Object) -join ',') -and (($hOps | Sort-Object) -join ',') -eq (($licOps | Sort-Object) -join ',')) `
+    "DEPLOYMENT.md step 7 loads the license history with the pipeline's own $($licOps.Count) operations, as -History does ($($docOps.Count) listed)"
 Assert-That ((@($n[0].Arguments.EmployeeTypes) -join ',') -eq 'EMP' -and $n[0].Arguments.TargetDomain -eq 'users.contoso.com' -and -not $n[0].Arguments.ContainsKey('ClientId')) `
     'the directory step reads AD with no Graph sign-in'
 
@@ -256,6 +264,19 @@ Assert-That ($bad -like '*its own*') 'two tenants cannot share a database'
     $f = Join-Path $tmp 'multi.psd1'; Set-Content -LiteralPath $f -Value $text
     $read = Import-PowerShellDataFile -LiteralPath $f
     Assert-That (@($read.Tenants).Count -eq 2 -and $read.Tenants[1].Database -eq 'CopilotAudit_Northwind' -and $read.TenantName -eq 'Contoso') 'the settings file keeps every tenant through a rewrite'
+}
+# 2.4.12: the guides' upgrade ran the installer once, which upgrades only the databases it is given (the first
+# tenant's), and nothing else upgrades the others. The command they now give, run against a settings file with two
+# further tenants, installs into each of their pairs.
+$two = Join-Path $tmp 'two.psd1'
+Set-Content -LiteralPath $two -Value "@{ Database = 'CopilotAudit'; Tenants = @(@{ Name = 'Fabrikam'; Database = 'CopilotAudit_Fabrikam'; LicenseDatabase = 'CopilotLicenseEvents_Fabrikam' }, @{ Name = 'Northwind'; Database = 'CopilotAudit_Northwind'; LicenseDatabase = 'CopilotLicenseEvents_Northwind' }) }"
+foreach ($guide in (Join-Path $root 'docs' 'OPERATIONS.md'), (Join-Path $root 'docs' 'DEPLOYMENT.md')) {
+    $loop = [regex]::Match([System.IO.File]::ReadAllText($guide), '`(foreach \(\$t in \(Import-PowerShellDataFile \.\\copilot-audit\.settings\.psd1\)\.Tenants\) \{[^`]+\})`').Groups[1].Value
+    $script:installed = [System.Collections.Generic.List[string]]::new()
+    function Install-Stub { param($SqlServer, $Database, $LicenseDatabase, [switch] $Dashboard) $script:installed.Add("$Database/$LicenseDatabase") }
+    if ($loop) { & ([scriptblock]::Create($loop.Replace('.\copilot-audit.settings.psd1', "'$two'").Replace('.\Install-CopilotAudit.ps1', 'Install-Stub'))) }
+    Assert-That (($script:installed -join ',') -eq 'CopilotAudit_Fabrikam/CopilotLicenseEvents_Fabrikam,CopilotAudit_Northwind/CopilotLicenseEvents_Northwind') `
+        "$(Split-Path $guide -Leaf)'s upgrade installs into every further tenant's databases ($($script:installed -join ', '))"
 }
 }
 finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }

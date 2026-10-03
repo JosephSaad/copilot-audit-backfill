@@ -89,7 +89,7 @@ Every 30 seconds it prints a progress line:
 | `audit.CopilotInteraction` | Slim reporting table: `ActivityDate`, `UserPrincipalName`, `AppHost`, `AppIdentity`, `ModelName`, `ModelProvider`, `ThreadId`, `PromptCount`, `AccessedResourceCount`, `UsedWebSearch`. |
 | `audit.vCopilotDailyUsage` | Interactions, active users, prompts and web-grounded interactions per day per app. Ready for Power BI. |
 
-`ActivityDate` uses **Eastern time** for day boundaries (`@ReportingTimeZone` at the top of `sql/Finalize-CopilotAudit.sql`; it handles daylight saving). Every other timestamp stays UTC.
+`ActivityDate` uses the **reporting time zone** for day boundaries, with daylight saving: the zone stored in the database, which `SELECT audit.ReportingTimeZone();` shows. `Install-CopilotAudit.ps1 -ReportingTimeZone` sets it; left out, a new database gets the installing server's own zone (2.4.10), and one the installer never set falls back to Eastern time. `@ReportingTimeZone` at the top of `sql/Finalize-CopilotAudit.sql` is only that fallback: the stored zone replaces it, so editing it changes nothing. Every other timestamp stays UTC.
 
 **Before repointing existing views at `vCopilotAuditRecord`**, take one record from the smoke test and diff its `AuditData` against the same record in a portal CSV export. This pipeline reads the Graph API's `auditData`, and I could not verify against a live tenant that its JSON is byte-for-byte identical to the portal export's.
 
@@ -115,7 +115,7 @@ After the backfill is finalized, schedule `-Incremental`. Each run:
 
 **Sessions are rebuilt incrementally.** A session never crosses midnight, so only the days from the load's start can change: those sessions are replaced, numbering carries on from the ones kept, and the weeks containing those days are recomputed. The result equals a full rebuild over the same rows, except that sessions already built keep the department and license flag they were built with. It matters at scale: rebuilding every session took 32 minutes and 25 GB of tempdb at 40M interactions, and grows with every day of history kept.
 
-Rebuild every session (`.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task RebuildSessions`) after changing a session setting - timeout, context fallback, time zone, metric version or license databases. An incremental build refuses to mix settings, so the nightly load fails with `different settings` until you do. After upgrading to any new release, run `.\Install-CopilotAudit.ps1 -SqlServer <server>` once: it upgrades every object and does whatever one-off rebuild the release needs.
+Rebuild every session (`.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer <server> -Task RebuildSessions`) after changing a session setting - timeout, context fallback, time zone, metric version or license databases. An incremental build refuses to mix settings, so the nightly load fails with `different settings` until you do. After upgrading to any new release, run `.\Install-CopilotAudit.ps1 -SqlServer <server>` once: it upgrades every object in the databases it is given (`-Database`, `-LicenseDatabase`; the first tenant's by default) and does whatever one-off rebuild the release needs. With several tenants, run it again for each further tenant's pair, `-Database CopilotAudit_Fabrikam -LicenseDatabase CopilotLicenseEvents_Fabrikam`: nothing else upgrades them, and the nightly run keeps calling the procedures each database already has.
 
 `audit.CopilotLoad` keeps one row per load with its range and how many records were new or already there; `-Status` lists the latest. Once a load has been merged, `-Finalize` refuses to run: it rebuilds from the backfill's staging table and would drop the loaded days.
 
@@ -156,6 +156,8 @@ The `bi` schema is what a Power BI semantic model imports: narrow facts with int
 - license history arrives for a period already built. A row's license status is fixed when it is written.
 - flattened rows are purged (`usp_PurgeCopilotAuditJson @PurgeFlattened = 1`). The fact keeps them until rebuilt.
 - the flattened records were re-flattened in full, as the upgrade to 2.2.0 asks. The facts carry what the flattening wrote when they were built.
+
+**Refresh the model fully, without a rebuild,** when an app's category changes (Admin › Reference data, or `-Task SetAppCategory`). The next `bi` refresh sets `PremiumUse` again on every past interaction of that app and tells the dashboard to roll up from its first day, but the model's incremental refresh reloads only the last 4 days, so its older partitions keep the old flags until a full refresh.
 
 **Flattening (2.2.0).** `audit.usp_FlattenCopilotAudit` writes every informative field of each record into `audit.RawLogFlattened`, and a row per accessed resource and context into `audit.RawLogAccessedResource` and `audit.RawLogContext`, replacing a record's element rows each time it is flattened. The fields that never vary are counted in `audit.RawLogRecordShape` instead of stored; if the flatten says one of them *now carries information*, look there, and add a column if the difference matters. A full re-flatten (`-Task Reflatten`) is safe after a JSON purge: records with no JSON left are skipped.
 

@@ -5,8 +5,10 @@ on:
     tags:
       - 'v*'
 
+# Read for every job; only publish, which creates the release, may write (2.4.12: before, every job's token
+# could push, move tags and replace release assets, including the jobs that run downloaded code).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -18,8 +20,10 @@ jobs:
         # Windows only: the tool targets Windows Server x64.
         os: [windows-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.x'
       - name: Test-Engine
@@ -37,6 +41,18 @@ jobs:
       - name: Test-OperationsGuide
         shell: pwsh
         run: pwsh -NoProfile -File tests/Test-OperationsGuide.ps1
+      - name: Test-Spelling
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-Spelling.ps1
+      - name: Test-SqlScriptOrder
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-SqlScriptOrder.ps1
+      - name: Test-PowerBiModel
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-PowerBiModel.ps1
+      - name: Test-Workflows
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-Workflows.ps1
       - name: Test-CsvImport
         shell: bash
         run: pwsh -NoProfile -File tests/Test-CsvImport.ps1
@@ -47,7 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
+        # 2022-latest as of 3 October 2026, by digest: a tag can be moved.
+        image: mcr.microsoft.com/mssql/server:2022-latest@sha256:4402d880dd4c34bfa7d8705e56a86cd6c88da80a1f6bbbe741f999e76264a090
         env:
           ACCEPT_EULA: Y
           MSSQL_SA_PASSWORD: ${{ format('Ci-{0}-Qz9', github.run_id) }}
@@ -60,8 +77,10 @@ jobs:
       SQLIT_PASSWORD: ${{ format('Ci-{0}-Qz9', github.run_id) }}
       SQLIT_DATABASE: CopilotAuditIntegration
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.x'
       - name: Wait for SQL Server
@@ -81,13 +100,57 @@ jobs:
         shell: bash
         run: pwsh -NoProfile -File tests/Test-SqlIntegration.ps1
 
+  analyze:
+    # The same analysis as ci.yml's (2.4.12: the release ran without it). The analyzer is saved at a fixed
+    # version and its signatures checked before it is loaded, as the bundle's module is.
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'analyzer'
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          foreach ($try in 1..3) {
+              try { Save-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Path $dir -Repository PSGallery -Force -ErrorAction Stop; break }
+              catch { if ($try -eq 3) { throw }; Write-Host "Try $try failed: $($_.Exception.Message)"; Start-Sleep 20 }
+          }
+          . ./tools/Save-CopilotAuditModules.ps1
+          $unsigned = @(Get-UnsignedModuleFile -Path $dir)
+          if ($unsigned.Count) { $unsigned | Format-Table -AutoSize | Out-String -Width 300; throw "$($unsigned.Count) file(s) of PSScriptAnalyzer are not signed by their publisher." }
+          Import-Module (Join-Path $dir 'PSScriptAnalyzer' '1.25.0' 'PSScriptAnalyzer.psd1') -Force
+
+          $files = Get-ChildItem -Path . -Filter *.ps1 -Recurse -File |
+                   Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }
+          Write-Host "Analyzing $($files.Count) file(s)."
+          $results = @()
+          foreach ($f in $files) {
+              $results += Invoke-ScriptAnalyzer -Path $f.FullName -Settings ./PSScriptAnalyzerSettings.psd1
+          }
+          # Warnings fail the release too, as in ci.yml.
+          $found = @($results | Where-Object { $_.Severity -in 'Error', 'Warning' })
+          if ($found.Count) {
+              $found | ForEach-Object {
+                  Write-Host ("::error file={0},line={1}::{2}: {3}" -f `
+                      (Resolve-Path -Relative $_.ScriptPath), $_.Line, $_.RuleName, $_.Message)
+              }
+              throw "PSScriptAnalyzer reported $($found.Count) finding(s)."
+          }
+          Write-Host "No findings."
 
   dashboard:
     name: Copilot Insights dashboard
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
       - name: Test
@@ -104,7 +167,7 @@ jobs:
           Compress-Archive -Path publish/CopilotInsights -DestinationPath "$name.zip" -CompressionLevel Optimal
           Get-Item "$name.zip" | Select-Object Name, Length
       - name: Upload the site for the publish job
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dashboard-site
           path: copilot-insights-*.zip
@@ -115,7 +178,9 @@ jobs:
     name: Offline module bundle (Windows x64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Stage the tool and save the modules
         shell: pwsh
@@ -131,8 +196,10 @@ jobs:
             Copy-Item -Destination $stage -Recurse -Force
 
           # The same script that ships in tools/, so the release exercises the
-          # documented path rather than a CI-only copy of it. It verifies the
-          # saved module resolves from the bundle alone and writes a manifest.
+          # documented path rather than a CI-only copy of it. It checks every
+          # file that can run is signed by the module's publisher before loading
+          # it, verifies the saved module resolves from the bundle alone and
+          # writes a manifest.
           ./tools/Save-CopilotAuditModules.ps1 -Path $stage -Force
 
           $psd1 = Get-ChildItem -Path (Join-Path $stage 'Modules') -Recurse -Filter 'Microsoft.Graph.Authentication.psd1' |
@@ -166,7 +233,7 @@ jobs:
           Get-Item "$name.zip" | Select-Object Name, Length
 
       - name: Upload the bundle for the publish job
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: offline-bundle
           path: copilot-audit-backfill-*-offline-win-x64.zip
@@ -175,19 +242,23 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [test, sql-integration, dashboard, bundle]
+    needs: [test, sql-integration, analyze, dashboard, bundle]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download the offline bundle
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: offline-bundle
           path: dist
 
       - name: Download the dashboard site
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dashboard-site
           path: dist
@@ -245,7 +316,9 @@ jobs:
           echo "--- checksums ---"
           cat "${NAME}.zip.sha256" "${OFFLINE}.zip.sha256"
 
-      - name: Verify the checksum
+      # This proves only that nothing changed between two steps of this job. Where the files came
+      # from rests on the pinned actions, the read-only tokens and the bundle's signature check.
+      - name: Read the archives back against their checksums
         shell: bash
         run: |
           set -euo pipefail

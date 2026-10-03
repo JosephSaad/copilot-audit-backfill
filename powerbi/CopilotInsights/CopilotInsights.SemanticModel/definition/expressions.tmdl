@@ -10,14 +10,14 @@ expression SqlDatabase = "CopilotAudit" meta [IsParameterQuery=true, Type="Text"
 
 	annotation PBI_ResultType = Text
 
-/// Incremental refresh: start of the range loaded.
-expression RangeStart = #datetime(2025, 1, 1, 0, 0, 0) meta [IsParameterQuery=true, Type="DateTime", IsParameterQueryRequired=true]
+/// Incremental refresh: start of the range Power BI Desktop loads. The service replaces it with each partition's own start.
+expression RangeStart = #datetime(2000, 1, 1, 0, 0, 0) meta [IsParameterQuery=true, Type="DateTime", IsParameterQueryRequired=true]
 	lineageTag: ba07f88c-2f65-5bad-8f4d-40d06680cb35
 
 	annotation PBI_ResultType = DateTime
 
-/// Incremental refresh: end of the range loaded (exclusive).
-expression RangeEnd = #datetime(2027, 1, 1, 0, 0, 0) meta [IsParameterQuery=true, Type="DateTime", IsParameterQueryRequired=true]
+/// Incremental refresh: end of the range Power BI Desktop loads (exclusive). The service replaces it with each partition's own end.
+expression RangeEnd = #datetime(2100, 1, 1, 0, 0, 0) meta [IsParameterQuery=true, Type="DateTime", IsParameterQueryRequired=true]
 	lineageTag: 50795a9a-916f-53e0-aba8-8fac9ed9665d
 
 	annotation PBI_ResultType = DateTime

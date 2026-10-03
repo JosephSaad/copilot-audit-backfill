@@ -97,7 +97,7 @@ M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 
 **People with no SID on record (2.4.12).** Active Directory's answer, or a sign-in name that is a UPN, makes an account a person only when the directory records that person's SID: an account in another domain or forest can carry anyone's UPN. Admin › Directory quality › *No SID recorded* lists who this leaves out, managers outside the directory table included (a manager whose employee type the directory load skips is one). For each: load them with their SID (in `EmployeeTypes`, for a manager), or map their account in `Insights:IdentityMap`. Grant a role or bootstrap administration to an account outside the directory as `DOMAIN\name` or through a group, not by UPN.
 
-**Power BI.** The ready-made model in `powerbi\CopilotInsights` has an *Organization* role that follows the same org chart through `bi.OrgSecurity` ([DEPLOYMENT.md](DEPLOYMENT.md), step 15): add the report's viewers to it in the Power BI service. Organization granted to an AD group reaches Power BI after the next nightly directory load, which expands the group into its members (nested groups included) in `audit.GroupMember`; the load's log names any granted group it cannot find in the target domain. In privacy mode `bi.OrgSecurity` is empty (it would pair real sign-ins with the pseudonyms), so share `bi.DepartmentWeek` rather than the person-level model.
+**Power BI.** The ready-made model in `powerbi\CopilotInsights` has an *Organization* role that follows the same org chart through `bi.OrgSecurity` ([DEPLOYMENT.md](DEPLOYMENT.md), step 15): add the report's viewers to it in the Power BI service. Organization granted to an AD group reaches Power BI after the next nightly directory load, which expands the group into its members (nested groups included) in `audit.GroupMember`; the load's log names any granted group it cannot find in the target domain. The role reaches every table a viewer can read: the sites and agents of their own people only, and the license pool, value names and department figures only for those who see the whole organization (2.4.12; before, it filtered the people alone). In privacy mode `bi.OrgSecurity` is empty (it would pair real sign-ins with the pseudonyms), so share `bi.DepartmentWeek` through the model's *Departments* role rather than the person-level model.
 
 ## Names for codes and ids
 
@@ -209,6 +209,7 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 | A change to the directory, the top of the organization or the app categories, wanted on the dashboard now | Admin › Health › *Refresh the last 7 days*, or `M -Task RefreshDashboard` (every day) or `-SinceUtc 2026-10-01` |
 | A session setting changes (timeout, time zone, license databases) | `M -Task RebuildSessions` |
 | License history arrives for a period already built, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the Power BI model |
+| An app's category changes (Admin › Reference data, or `M -Task SetAppCategory`) | After the next `bi` refresh, a full refresh of the Power BI model: the category sets Premium use on every past interaction of the app, and the model's incremental refresh reloads only the last 4 days |
 | A release changes the flattening | `M -Task Reflatten` (every record flattened again, then sessions, `bi` and the dashboard) |
 | The flatten says a field *now carries information* | Nothing breaks; see `audit.RawLogRecordShape` and [RUNBOOK.md](../RUNBOOK.md) |
 
@@ -229,6 +230,10 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 ## Upgrades and renewals
 
 **A new release.** Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1` again with the new `copilot-insights` zip.
+
+With more than one tenant, the installer upgrades only the pair of databases it is given, the first tenant's by default, and nothing else upgrades the others: back up and upgrade each further tenant's pair too, `foreach ($t in (Import-PowerShellDataFile .\copilot-audit.settings.psd1).Tenants) { .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Database $t.Database -LicenseDatabase $t.LicenseDatabase -Dashboard }`, and run the dashboard installer with every tenant in `-Tenant`, as when one was added.
+
+**A new Power BI model.** When the release notes say the model changed, don't run `powerbi\generate_model.py` over the copy you work in: write the new one beside it with `--out` and bring the changes across in Power BI Desktop ([DEPLOYMENT.md](DEPLOYMENT.md), step 15). Run over a copy with your pages or changes in it, the generator stops and changes nothing.
 
 **Running the job-server setup again** keeps every setting in `copilot-audit.settings.psd1`, those added by hand (`IncludeLeaveDates`) and empty ones (`EmployeeTypes = @()`) too, and the task's time set with `-At` (2.4.12; before, a re-run put `EmployeeTypes` back to EMP and NONW, dropped `IncludeLeaveDates`, and moved the task to 02:00).
 

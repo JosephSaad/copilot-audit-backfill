@@ -42,7 +42,8 @@
 
 .PARAMETER ReportingTimeZone
     The zone days and weeks are cut in (a name from sys.time_zone_info).
-    Default Eastern Standard Time. Set it before the history is loaded.
+    Default: this server's own zone, which the database installer stores
+    (2.4.10). Set it before the history is loaded.
 
 .PARAMETER RegisterApp
     Register the Entra app too: you sign in as an administrator who can grant
