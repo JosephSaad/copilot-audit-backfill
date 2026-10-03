@@ -6,19 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [2.4.12] - unreleased
 
-Fixes from an adversarial review of 2.4.11: the privacy rules hold on every page, digest and
-API call; a re-run can no longer empty the audit table; a slow mail server can no longer stop
-the site; the license scripts carry only plain sign-ins; and a re-run of the job-server setup
-keeps its settings. Two 2.4.11 regressions are put right.
+Every finding of an adversarial review of 2.4.11, 107 of them: the privacy rules hold on every
+page, digest, extract and API call; a re-run can no longer empty the audit table or count
+interactions twice; a slow mail server can no longer stop the site; the license scripts carry
+only plain sign-ins; only one run works on a database at a time; refreshes that fail are made
+up; several tenants and several web servers each act on their own; and the installers keep
+what they are not given again. Two 2.4.11 regressions are put right.
 
-To upgrade: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and install
-the dashboard package over 2.4.11 with the parameters it was installed with. Before you do,
-check Admin › Directory quality › *No SID recorded*: from 2.4.12 the people it lists cannot
-sign in until their SID is loaded or their account is mapped in `Insights:IdentityMap` (see
-*Changed*). The installer counts once that every record has been flattened (minutes at 40
-million records), and reads the agent ids of other apps' records once; only when some gain one
-does it rebuild `bi` and the dashboard's rollups, and say to refresh the Power BI model. No
-schema change.
+To upgrade:
+
+1. Disable the nightly task. Before you start, check Admin › Directory quality › *No SID
+   recorded*: from 2.4.12 the people it lists cannot sign in until their SID is loaded or their
+   account is mapped in `Insights:IdentityMap` (see *Changed*).
+2. Back up the databases, replace the scripts, and run `Install-CopilotAudit.ps1 -Dashboard`
+   once, adding `-ReportingAccount` with the Power BI gateway's account so it can read the `bi`
+   views and no longer the tables under them. With several tenants, run it for each tenant's
+   databases too (OPERATIONS.md, *Upgrades and renewals*). The installer counts once that every
+   record has been flattened (minutes at 40 million records), and reads the agent ids of other
+   apps' records once; only when some gain one does it rebuild `bi` and the rollups.
+3. Run `M -Task RefreshDashboard` once, so the rollups of labeled content and blocked sites
+   count interactions, not resources.
+4. Install the dashboard package over 2.4.11. A re-run now keeps what it is not given, so
+   `-PackagePath` and `-SqlServer` are enough. With more than one web server, set
+   `Insights:DataProtectionKeysPath` to a share first (DASHBOARD.md, *Several web servers*), and
+   point scheduled extracts at a share.
+5. Publish the Power BI model from `powerbi\` again (it carries its refresh policy and an
+   Organization role that now covers every table), then refresh it in full once.
+6. Enable the nightly task.
+
+Two new columns (`audit.CopilotLoad.DerivedRefreshedUtc`, `audit.CopilotCsvImport.DerivedRefreshedUtc`)
+and a database role for reporting accounts (`CopilotReporting`), all added by the installer.
 
 ### Fixed
 - **A report can no longer be narrowed to one person.** Any sign-in in `?org=` was taken, so
@@ -100,6 +117,317 @@ schema change.
   stopped at a .NET 6 property, before any rebuild ran.
 - A digest that may not be sent as set up says why, in its status, Send now and the preview.
 
+- **Targets keep to the part of the organization a report covers.** Only Adoption › Targets
+  filtered them. The Board pack, `/api/v1/targets` and a manager's Adoption digest listed every
+  target, the whole organization's and other executives' parts, to people who may see neither.
+  One rule now serves all four. A target for a part smaller than the minimum group size shows no
+  figures, except to that manager.
+- **The Board pack's seats bought and assigned are for those License pool shows them to.** Every
+  viewer of the board pack, scoped or outside the directory, saw the tenant's pool. It is now
+  shown to the whole-organization view and the Licensing role, marked as the whole tenant's. A
+  manager's Licensing digest leaves the pool out too.
+- **License pool and Budget and renewal are the tenant's in every figure.** For a viewer with
+  the Licensing role and their own part only, they set that part's use, revocations and upgrades
+  against the tenant's seats: 36 used of 1,269 assigned, and a renewal figure that was neither.
+- **The period before is compared only where the data covers it.** A 180-day period on 182 days
+  of data was set against the two days before it, so the Scorecard and the Board pack read
+  "+3997%". The Scorecard, the Board pack, the Leaderboard and the digests now say there is no
+  full period before, and when the data starts.
+- **The license cost of a period is the licenses held each day.** It was today's licenses times
+  every day of the period, so a rollout, or a period reaching back before the licenses, was
+  charged in full. On the demo data the return on license cost fell from 3.6× to 1.1× between
+  180 and 365 days, on the same value.
+- **A month is scaled from the days the data covers.** Better with a license, Better on
+  pay-as-you-go and Agents costing credits divided by the period's length, so a 365-day period
+  over 182 days of data halved everyone's credits a month and dropped people from the lists.
+  Engagement counted working days from 1 January of the first year with data.
+- **Licenses on disabled accounts exports the part shown.** Its file and script were built from
+  the bare address. A division's 5 accounts on the page became the organization's 27 in the file
+  and in License action outcomes.
+- **License exports are buttons, not links.** Each export records the people it names and writes
+  an audit entry, and it was a GET. A link opened by a Licensing role holder could record an
+  export in their name. The exports now post with the page's anti-forgery token.
+- **An export is recorded whole or not made.** The record was written a thousand people at a
+  time and any database error was ignored, so a timeout gave out the whole file with part of it
+  recorded, or none. It is now one statement: if it fails, the download fails and can be tried
+  again. Only a database without the table goes on without the record. A repeat of the same
+  export that day is recorded once.
+- **The Leadership and manager digests rank adoption as the Overview does.** They applied the
+  minimum to a unit's people, not its license holders, and sent a team of twelve with one
+  license holder as "12 | 1 | 100%". Units under the minimum of license holders are now one
+  combined row.
+- **The data API's list of endpoints keeps to the API's rules.** `/api/v1` answered with the API
+  turned off and to anyone outside the dashboard's levels, and was not in the audit log.
+- **Headline figures no longer drop to 0 on an empty page.** Better with a license, Better on
+  pay-as-you-go and Agents costing credits read their totals from the page's first row, so a
+  search that matched nobody, or a stale page number, showed 0. Upgrade, train or revoke lost
+  its count and its files the same way. The pager no longer reads "4,999,951–10,568 of 10,568",
+  and Previous leads back to the last page.
+- **CSV exports carry what the page shows.** A cell the page builds as formatted text exported
+  empty, so Flagged interactions came without their signals, Agents costing credits without the
+  agent's name, and Budget and renewal without the days to renewal. Each now exports its text; a
+  column of buttons still exports nothing.
+- **Negative figures in a CSV are numbers.** The formula guard put an apostrophe before every
+  negative value, so a spreadsheet read '-28.68 as text and left it out of its totals. Numbers
+  in page exports and scheduled extracts are now written as numbers; text that would start a
+  formula is still guarded.
+- **What is not in the audit log is not served.** A failed audit write was logged and the page,
+  file or API answer went out anyway. A full log or disk, a read-only database or a missing
+  grant removed the trail silently, and an org= value longer than its column did it on demand.
+  Values are now cut to their columns, a failed write is tried again, and the request is then
+  answered 503 with the reason. On the data API, an org= naming no one in the directory is
+  nobody.
+- **Several web servers can share their form keys.** Each server kept its own keys, so behind a
+  load balancer a form drawn by one server and posted to another was refused (HTTP 400), and the
+  message after a save was lost. Insights:DataProtectionKeysPath names a share for every
+  server's keys, protected for the site's domain account or with
+  Insights:DataProtectionCertificate. A site that cannot protect them does not start, and its
+  log says why. DASHBOARD.md has a new section, Several web servers.
+- **A huge page number no longer breaks a list.** From p=42949674 the offset overflowed into a
+  negative OFFSET, and every paged list answered 500, unaudited. The page number is now capped.
+- **Long non-human rule lists are refused before anything is saved.** The form accepted 1,000
+  characters for a column that holds 400, so a long list failed in SQL Server after the boxes
+  before it were saved, with no audit row. Each list is now held to 400 characters, with a clear
+  message.
+- **Group overview reads grants from the database.** It settled each tenant's viewer from cached
+  grants, so a revoked Organization grant kept showing that tenant's whole organization for up
+  to 12 hours.
+- **The report cache is bounded.** Every new search or page number stayed in memory for 12
+  hours, and each data change left the whole previous set behind. The cache now keeps at most
+  Insights:QueryCacheEntries results (20,000) and drops a tenant's results as soon as its data
+  changes.
+- **Cached pages follow the whole license read.** Only the license pool was watched, and it is
+  written first, so pages cached during the read kept yesterday's licenses and service-account
+  groups when no refresh followed. Every table the read writes now counts.
+- **The pages are built ahead when they need it.** A pipeline run's first row threw away every
+  cached page and started a build before any data had changed; a run now counts when it ends.
+  And nothing was built again when the night's results expired 12 hours later; the pages are now
+  rebuilt then too.
+- **Admin > Health describes the cache as it is.** It still said the lists edited all day always
+  read the database; since 2.4.11 they are kept under a version of their own.
+- **The last complete day is cut in the reporting time zone.** It used SQL Server's own date, so
+  with the server on UTC and days in Eastern Time, a day still loading counted as complete from
+  8 p.m. Every period ended on it, and the security and drop alerts judged it once and never
+  again.
+- **Settings apply on every web server from the next page.** Privacy mode, the minimum group
+  size, Reports shown and the level limit were kept for a minute on each server, and a save
+  cleared them only where it was made. They are now read once per page; digests and alerts still
+  read them at most a minute old.
+- **Several web servers are documented.** Each server keeps its own report cache and builds its
+  own pages. The guide now says so, and recommends session affinity and a shared key folder.
+- **A follow-up says what it counts.** Sessions with a follow-up were explained as the person
+  replying to Copilot, but they count any two prompts less than an hour apart on one day, in any
+  app. Engagement and Adoption now say that.
+- **A form acts on the tenant its page showed.** With several tenants, a post went to whichever
+  tenant the switcher's cookie named when it was sent, so with another tenant chosen in a second
+  tab, Remove on one tenant's Admin › Access removed the other's grant with that number. A form
+  now names its page's tenant, a post never changes the switcher, and a post that names no
+  tenant changes nothing.
+- **Run the checks for every tenant runs only where you are an administrator.** An administrator
+  of one tenant ran the round in every tenant and read back their results; each other tenant now
+  has the run in its own audit log.
+- **A digest preview needs the digest's role and is audited.** Any administrator could preview
+  the Security, Licensing or Adoption digest without that section's role, and nothing was
+  recorded. Preview and Send now need the role the section's pages need, and every preview is in
+  the audit log.
+- **Stored secrets can be entered again after a restore to another instance.** The database
+  master key's password was thrown away, so on another SQL Server instance the secrets could be
+  neither read nor stored again, and re-running the installer kept the keys that could not be
+  opened; saving ended on the error page. The installer now makes the keys again and removes the
+  secrets it cannot read, and a secret SQL Server cannot store is refused in words.
+- **Schedules on the days the clock changes.** A digest or extract set in the hour the clock
+  skips threw, which stopped every check after it until the next day (a week for a weekly one),
+  and one in the hour it repeats was sent about 13 times. The skipped hour now goes when the
+  clock reaches the other side, and the repeated hour goes once, the first time round.
+- **A stored password goes only where it was entered for.** An administrator could point Admin ›
+  Email at a server of their own, leave the password empty, and have the site sign in there with
+  the stored mailbox or relay password, in clear text with security None. The password is now
+  sent only to the server, port, security and user name it was typed in with; change any of them
+  and type it again. Email saves are audited with old and new values.
+- **Alerts and digests are marked sent before they go.** They were marked after the email, so a
+  database that could be read but not written (a full log) sent the same digest or alert every
+  five minutes, and two web servers whose lock had slipped could both send it. A webhook log
+  that cannot be written no longer has the alert sent again.
+- **An alert email that fails is tried again.** It was marked raised whatever happened, so a few
+  minutes of mail-server trouble lost that day's security or pipeline-failure email for good.
+  With no webhook to take it either, it is emailed again an hour later, three tries in all.
+- **A manager digest cut off by a restart is sent later.** A stop during a manager's digest left
+  it "being sent" for good, and that manager never got that period's digest, with nothing to say
+  so. The claim is given back, and a message on its way is no longer cancelled part-way.
+- **The Exchange Online token answers only its own secret.** It was kept under the tenant and
+  app id alone, so an administrator of another dashboard tenant who typed in those ids with any
+  secret was handed it, and a mistyped new secret passed Send a test for an hour.
+- **Teams alert cards show text as text.** A card read its lines as Markdown, so an agent named
+  `[Approve](https://…)` became a link in the alert channel.
+- **Value names keeps a name with a comma or semicolon whole.** A mapping file saved again in
+  Excel lost the quotes around such a name, and the upload cut it there and stored its tail as
+  the note. A line with more cells than it should have is now refused.
+- **The audit log is kept at least a year.** An administrator could set its retention to one day
+  and apply it, erasing the record of their own actions. It is 0 (keep) or at least 365 days,
+  and the change is audited with its old and new values.
+- **Scheduled extracts are planned for their own dates,** as every other read between dates has
+  been since 2.4.11.
+- **Value names no longer claims agent ids name agents.** Since 2.4.11 an agent is known by its
+  app identity, so a name given to an agent id reached no page; agents are named in Admin ›
+  Reference data.
+- **Extracts and several web servers.** A round runs on whichever web server holds the lock, so
+  an extract to a local folder was split between the servers' disks while the page said each was
+  written. It now fails, saying why, once another server runs the checks, and its result names
+  the server.
+- **Two `bi` refreshes no longer run at once.** A full rebuild commits a month at a time and
+  holds nothing on the fact between months. A refresh that started meanwhile (the nightly run
+  during an upgrade's rebuild, say) found its mark, emptied the fact under it, and filled it
+  alongside it, so every month after that point was counted twice in `bi`, the rollups and Power
+  BI. A second refresh now waits for the first to finish.
+- **The rollups follow a full `bi` rebuild.** The dashboard rolled up only the window it was
+  asked for, so after a full rebuild finished by the nightly run, or an upgrade whose last step
+  was stopped, every older day kept the figures of the old facts for good. Among those figures
+  were 2.4.0's Premium rule and the revoke list built on it. The first rollup after a full
+  rebuild now covers every day. While a full rebuild has not finished, a dashboard refresh
+  leaves the rollups as they are, instead of rolling up a half-written fact and losing the
+  months it had not reached.
+- **Licenses on renamed and deleted accounts end.** The license history knows a person by the
+  sign-in of the time, so an account the directory no longer finds stayed licensed every day to
+  today. That made it a reclaim candidate on an account that no longer exists, and after a
+  rename the same person was licensed twice. Its licensed days now end with its last use. A user
+  the directory finds licensed, whose history leaves nothing held (another Copilot SKU added and
+  removed), is now licensed.
+- **`-DeleteRows` removes the records altogether.** The purge deleted the records but kept each
+  one's shredded row (user, app, thread, time), and the maintenance task kept the flattened row
+  too, with the resources and contexts it read (file names, sites, links). They now go with the
+  record. `bi` and the rollups keep theirs until `RebuildBi`.
+- **A database in another collation works.** The flatten, the license shred and the `bi` refresh
+  failed at once with a collation conflict on a database whose collation differs from the
+  server's, such as one a DBA created or restored elsewhere.
+- **An interrupted read of agent names reads its last batch again.** Stopped in a batch's
+  catalog step, the read kept the records' names but not their agents, and the next run skipped
+  them, so those agents kept the name read from their id.
+- **Compliance counts interactions.** The label and site charts, the Access page's
+  labeled-interaction and times-blocked columns, and the label alert counted each resource read.
+  An answer drawn from six files with one label counted six, against one in the page's own count
+  of labeled interactions. Rebuild the rollups once after upgrading (`M -Task
+  RefreshDashboard`).
+- **Power BI honors every Organization grant the dashboard does.** A grant to `DOMAIN\name`
+  recorded as a user (a person, or a group `GrantRole` could not look up) gave the whole
+  organization on the dashboard but only the viewer's own people in Power BI. The nightly
+  directory load now records who each such grant is.
+- **A full re-flatten no longer blanks purged records.** `usp_FlattenCopilotAudit @RebuildAll =
+  1` emptied the tables first, so every record whose JSON had been purged came back blank. It is
+  now refused once any record's JSON has been cleared; the default re-flatten keeps them.
+- **A refresh that fails after the nightly merge is made up.** A load was marked merged before
+  the flattened table, sessions, `bi` and the dashboard were refreshed, and each run refreshed
+  from its own load's start only. A failure that lasted past the 48-hour lookback (three nights
+  of *different settings*, or one long catch-up load), or a re-run that found nothing new to
+  load, left those days out of `bi` and the dashboard for good, security flags included, while
+  the pipeline reported success. Each load now records when its refresh finished, and the next
+  run refreshes from the earliest load still owed, even with nothing new to load.
+- **A CSV import's refresh is never lost.** An import whose refresh failed or was skipped with
+  `-SkipPostProcessing` was never refreshed: a second run skipped the merged files, and the
+  nightly refreshes only its own days. Running the import again, or the next nightly, now makes
+  it up from the import's earliest record. Left out, `-SessionLicenseDatabase` now reads the
+  license databases of the last session build; it read none, so a database built with license
+  history refused the session build after the merge.
+- **A history backfill with failed windows fails the run.** It logged the failed windows and
+  exited 0, so `-History` carried on with the range neither complete nor finalized and reported
+  the history loaded and built; the nightly run then failed at *License events* every night. It
+  now fails, so the pipeline stops at that step; running it again retries only the failed
+  windows.
+- **Two merges at once no longer store records twice.** The nightly merge and a CSV import each
+  looked for records already loaded and then appended the rest with no lock between, so two at
+  once (a console run beside the nightly, or an import beside it) could append the same records
+  twice, after which every flatten over those days failed. The merges now take turns under one
+  lock.
+- **Several license databases work with the nightly run.** The session build compared the
+  license list as text, so the same databases in another order or spacing were *different
+  settings*, and the nightly could pass only one database: a database built with several, as the
+  installer's example shows, failed every night. The list is compared as a set, and the new
+  `SessionLicenseDatabases` setting gives the nightly run the list.
+- **The session export's `-Build` no longer stops the nightly run.** It rebuilt the production
+  sessions under its own defaults (the User rule, no license history), after which every nightly
+  session build was refused. It now builds with the last build's settings and refuses others
+  without `-Force`.
+- **Sessions build on a database whose collation is not tempdb's.** One temp table took tempdb's
+  collation, so every session build failed there with a collation conflict.
+- **Daylight-saving changes no longer join, split or reorder sessions.** Prompts were ordered,
+  and the 60-minute gap measured, on local clock time: in the repeated autumn hour prompts 110
+  minutes apart counted as one session and a later prompt could start it, and in spring a
+  10-minute gap split one. Order and gap are now in UTC and the day is still cut in the
+  reporting time zone. Only sessions in the hours around a change come out differently; `-Task
+  RebuildSessions` applies it to sessions built before.
+- **A license taken back is recorded.** The license tool looked up only the people in the audit
+  data and today's license holders, so someone who never used Copilot stayed *Licensed* after
+  their license was reclaimed, and a leaver stayed *Found*. Everyone recorded as licensed is now
+  looked up again each night.
+- **A manager without a UPN no longer lifts their people a level.** The AD load reported them to
+  the manager above, and levels came from that chart alone, so the people under such a manager
+  right below the top were level 2 and saw the whole organization. `OrgDepth` now counts every
+  manager above, and the dashboard's levels take the deeper of the two.
+- **The Power BI account reads the `bi` views and nothing else.** `-ReportingAccount` was given
+  SELECT on the whole `bi` schema, tables included, so privacy mode's pseudonyms could be
+  matched to `bi.DimUser`'s names. It now joins the role `CopilotReporting`, which each run
+  grants every `bi` view to; give the account to `-ReportingAccount` once more to narrow it.
+- **Re-running the dashboard installer keeps the site's settings.** A run without every
+  first-run parameter put the app pool back on its own identity, the connection string back to
+  `CopilotAudit` without `TrustServerCertificate`, turned Kerberos off and added HTTP on port
+  80. What is not given again is now kept, the bindings included.
+- **A failed dashboard install no longer leaves the site offline.** `app_offline.htm` was
+  removed only by the last step; it is now removed whatever happens, and the certificate,
+  `-Tenant` and the settings file are checked before the site goes offline.
+- **The job-server setup no longer switches to a certificate no app has.** Any run within 30
+  days of expiry made a new certificate and put it in the settings, uploaded nowhere without
+  `-RegisterApp`. A new one is now made only with `-RegisterApp`, which uploads it to every
+  tenant's app, not the first alone.
+- **The app registration is not taken on its name alone.** An app someone else had named
+  "Copilot audit pipeline" was given admin consent to the whole audit log. The setup now finds
+  the app by the client id in its settings; by name it takes only the one app of that name with
+  no secret and no owner but you.
+- **One run at a time on a database.** Nothing kept the nightly, a run by hand, the installer
+  and the maintenance rebuilds apart, so two could load the same windows twice or rebuild `bi`
+  under each other and count interactions twice. Each now holds the database while it works, and
+  one started beside another stops at once and changes nothing; two downloads into one window
+  table are refused the same way. Disable the nightly task before an upgrade, a rebuild or a
+  `-History` load.
+- **A window split is written whole.** It was three writes, and a run stopped between them left
+  a hole that merge or finalize refused for good. It is now one transaction, and a split an
+  earlier version left part way is finished when the load resumes.
+- **A page that stalls mid-download no longer hangs the run.** HttpClient's timeout ended with
+  the headers, so a connection that went silent was awaited until Task Scheduler stopped the
+  task 20 hours later. Each page now has its own time limit, and is fetched again.
+- **One tenant that cannot run no longer stops the others.** An unreachable tenant database
+  ended the nightly run, and a database with no history yet threw instead of saying to load it.
+  That tenant now fails alone and the next one runs.
+- **Step 7 loads the license history the nightly run reads.** DEPLOYMENT step 7 named four
+  license operations, where the pipeline loads eighteen, and the loader refuses to mix them, so
+  following it left Agents › Build and publish without history.
+- **The upgrade upgrades every tenant.** The guides ran the installer once, which upgrades the
+  first tenant's databases alone, and nothing upgraded the others, whose nightly runs went on
+  with the procedures they had. They now loop over every tenant in the settings.
+- **The Power BI role covers every table a member can read.** The Organization role filtered
+  only Users, so Sites, Agents, the organization's security figures and the standalone tables
+  were readable whole by every member. Each now follows the role, a viewer who sees everyone is
+  marked in `bi.OrgSecurity`, and a Departments role serves department figures alone.
+- **`generate_model.py` no longer overwrites a model someone has worked on.** It deleted the
+  report pages and every change saved in the project, and the guides named it as the upgrade
+  step. It now writes only a project it wrote itself, and the guides say how to take a release's
+  model into one you have changed.
+- **Licensed users and adoption in Power BI take one period end for every row.** Each group took
+  the end of the period that was its own last date, so anyone whose license was removed
+  mid-period still counted as licensed.
+- **The model carries its refresh policy.** Incremental refresh shipped as a fixed 2025 to 2027
+  window with no policy, so history rewritten in SQL never reached the archived partitions. The
+  policy is in the model, and the guides say when a full refresh is needed (a rebuild, or an
+  app's category changed).
+- **The release workflow runs with least privilege.** Every job had a write token and actions
+  were pinned by movable tags, and a gallery module was bundled with no check. Tokens are
+  read-only but for publishing, actions are pinned by commit, and module signatures are checked.
+- **The Power BI security test can fail.** It passed on an empty or over-wide result, and its
+  manager saw everyone. It now uses a manager below the top two levels with exact counts, and
+  the model is checked in CI.
+- **Stale statements corrected:** days are cut in the reporting time zone set at install, not
+  Eastern time at the top of the finalize script, and `bi.OrgSecurity` does resolve group
+  grants.
+- **Admin › Value names, Directory and the guides** say what the dashboard does now;
+  DASHBOARD.md's table of API endpoints names the roles they need.
 ### Changed
 - **The SID is checked whichever way a sign-in is matched.** An answer from Active Directory, or a
   sign-in name that is a UPN, made the account any person with no SID on record: a manager outside
