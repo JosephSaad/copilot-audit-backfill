@@ -49,6 +49,38 @@ namespace CopilotAudit.Tests
             return Task.CompletedTask;
         }
 
+        public Task SplitAsync(AuditWindow parent, AuditWindow older, AuditWindow newer, CancellationToken ct)
+        {
+            lock (_lock)
+            {
+                if (!_rows.ContainsKey(parent.WindowId)) throw new InvalidOperationException("split of unknown window " + parent.WindowId);
+                _rows[parent.WindowId] = Copy(parent);
+                older.WindowId = ++_next; _rows[older.WindowId] = Copy(older);
+                newer.WindowId = ++_next; _rows[newer.WindowId] = Copy(newer);
+            }
+            return Task.CompletedTask;
+        }
+
+        // Like the SQL store's application lock: one run at a time.
+        int _claimed;
+        public Task<IDisposable> ClaimAsync(CancellationToken ct)
+        {
+            if (Interlocked.CompareExchange(ref _claimed, 1, 0) != 0)
+                throw new WindowTableInUseException("Another run is loading this window table now.");
+            return Task.FromResult<IDisposable>(new Claim(this));
+        }
+
+        sealed class Claim : IDisposable
+        {
+            MemoryWindowStore _store;
+            public Claim(MemoryWindowStore store) { _store = store; }
+            public void Dispose()
+            {
+                var s = Interlocked.Exchange(ref _store, null);
+                if (s != null) Volatile.Write(ref s._claimed, 0);
+            }
+        }
+
         public AuditWindow[] Snapshot() { lock (_lock) return _rows.Values.Select(Copy).OrderBy(w => w.StartUtc).ToArray(); }
     }
 

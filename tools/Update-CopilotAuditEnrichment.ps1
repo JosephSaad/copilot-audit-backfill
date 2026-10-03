@@ -18,9 +18,10 @@
 
     Only the users that actually appear in audit.CopilotInteraction are looked
     up, not the whole directory - at most a few thousand lookups rather than
-    every account in the tenant. Pass -AllLicensedUsers to also pull in users
-    who hold a license but have never interacted, which is what the shelfware
-    report needs.
+    every account in the tenant - and everyone already recorded as licensed,
+    so a license taken back is recorded too (2.4.12). Pass -AllLicensedUsers
+    to also pull in users who hold a license but have never interacted, which
+    is what the shelfware report needs.
 
     Two things Graph cannot tell you, and which this records honestly rather
     than guessing (the license-event databases fill in the first):
@@ -496,6 +497,14 @@ WHERE UserPrincipalName IS NOT NULL;
 '@
     foreach ($r in $seen.Rows) { [void] $upns.Add([string] $r.UserPrincipalName) }
     Write-Log ("{0:N0} distinct user(s) appear in the audit data." -f $upns.Count)
+
+    # And everyone recorded as holding a license (2.4.12). A row is written only for someone looked up, so a license
+    # taken back from a person who never used Copilot, or a person who left, was never looked up again: Licensed for
+    # good, on the unused-license list and in the licensed counts, after every reclaim the page recommends.
+    $recorded = Invoke-EnrichmentSql -As Table -Sql 'SELECT UserPrincipalName FROM audit.CopilotLicense WHERE IsCopilotLic = 1;'
+    $inAudit = $upns.Count
+    foreach ($r in $recorded.Rows) { [void] $upns.Add([string] $r.UserPrincipalName) }
+    if ($upns.Count -gt $inAudit) { Write-Log ("{0:N0} more recorded as licensed, looked up again." -f ($upns.Count - $inAudit)) }
 
     if ($AllLicensedUsers) {
         # Everyone holding a Copilot license, including users who never

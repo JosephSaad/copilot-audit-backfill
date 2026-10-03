@@ -253,6 +253,40 @@ WHERE NOT (w.Status = 'Loaded' AND w.Attempts = s.Attempt);
     $errors = @($log | Where-Object { $_ -match '\[ERROR\]' })
     Assert-That ($errors.Count -eq 0) "no ERROR log lines ($($errors.Count))"
 
+    # 2.4.12: one run at a time on a window table. Two at once planned the same windows twice and wrote over each
+    # other's rows; the second now stops before touching the table, and the table is free once the first has ended.
+    # On the load window table, which section 11 starts from empty.
+    $none = [System.Threading.CancellationToken]::None
+    $holder = [CopilotAudit.SqlWindowStore]::new($connStr, '[audit].[CopilotLoadWindow]')
+    $held = $holder.ClaimAsync($none).GetAwaiter().GetResult()
+    $other = [CopilotAudit.SqlWindowStore]::new($connStr, '[audit].[CopilotLoadWindow]')
+    $logBusy = [System.Collections.Generic.List[string]]::new()
+    $busy = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $other -Sink $sink2 -Log $logBusy -TimeoutSec 60
+    $busyWhy = if ($busy.Task.Exception) { $busy.Task.Exception.GetBaseException().Message } else { '' }
+    $planned = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLoadWindow;')
+    Assert-That ($busy.Task.IsFaulted -and $busyWhy.StartsWith('Another run is loading [audit].[CopilotLoadWindow]') -and $planned -eq 0) `
+        "2.4.12: a second run on a window table in use stops before planning anything ($busyWhy)"
+    $held.Dispose()
+    $freed = try { $other.ClaimAsync($none).GetAwaiter().GetResult().Dispose(); $true } catch { $false }
+    Assert-That $freed 'and the table is free once the first run lets it go'
+
+    # 2.4.12: a split is one transaction. The parent marked Split and its two halves were three writes, and a run that
+    # stopped between them left a hole nothing planned again. A split whose second half cannot be written (an end
+    # before its start, which the table's check refuses) now leaves the parent as it was, and no half.
+    $parent = [CopilotAudit.AuditWindow]@{ StartUtc = $start; EndUtc = $start.AddHours(2); Status = 'Submitted'; QueryId = 'q-split' }
+    [void] $holder.InsertAsync($parent, $none).GetAwaiter().GetResult()
+    $parent.Status = 'Split'
+    $older = [CopilotAudit.AuditWindow]@{ ParentWindowId = $parent.WindowId; StartUtc = $start; EndUtc = $start.AddHours(1) }
+    $bad   = [CopilotAudit.AuditWindow]@{ ParentWindowId = $parent.WindowId; StartUtc = $start.AddHours(2); EndUtc = $start.AddHours(1) }
+    $splitErr = try { [void] $holder.SplitAsync($parent, $older, $bad, $none).GetAwaiter().GetResult(); '' } catch { $_.Exception.Message }
+    $kept = (Invoke-SqlText -As Table -Sql 'SELECT (SELECT Status FROM audit.CopilotLoadWindow WHERE ParentWindowId IS NULL) AS Parent, (SELECT COUNT(*) FROM audit.CopilotLoadWindow WHERE ParentWindowId IS NOT NULL) AS Halves;').Rows[0]
+    Assert-That ($splitErr -ne '' -and "$($kept.Parent)" -eq 'Submitted' -and [int] $kept.Halves -eq 0) "2.4.12: a split that fails part way writes nothing: the parent is still $($kept.Parent), with $($kept.Halves) halves"
+    $newer = [CopilotAudit.AuditWindow]@{ ParentWindowId = $parent.WindowId; StartUtc = $start.AddHours(1); EndUtc = $start.AddHours(2) }
+    [void] $holder.SplitAsync($parent, $older, $newer, $none).GetAwaiter().GetResult()
+    $done = (Invoke-SqlText -As Table -Sql 'SELECT (SELECT Status FROM audit.CopilotLoadWindow WHERE ParentWindowId IS NULL) AS Parent, (SELECT COUNT(*) FROM audit.CopilotLoadWindow WHERE ParentWindowId IS NOT NULL) AS Halves;').Rows[0]
+    Assert-That ("$($done.Parent)" -eq 'Split' -and [int] $done.Halves -eq 2 -and $older.WindowId -gt 0 -and $newer.WindowId -gt $older.WindowId) 'and one that succeeds writes all three'
+    Invoke-SqlText -Sql 'TRUNCATE TABLE audit.CopilotLoadWindow;'
+
     # -----------------------------------------------------------------------
     Write-Host "`n3. Finalize" -ForegroundColor Cyan
 
@@ -828,6 +862,23 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseSku) AS Skus,
         Invoke-Main
         $leavesKept = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLicense WHERE EmployeeLeaveUtc IS NOT NULL')
         Assert-That ($leaves -eq 0 -and $leavesOn -eq 5 -and $leavesKept -eq 5) "-IncludeLeaveDates writes Entra's leave dates, and a run without it keeps them ($leaves, $leavesOn, $leavesKept)"
+
+        # 2.4.12: a license taken back from someone who never used Copilot is recorded, and so is a person who left.
+        # Only the users in the audit data and today's license holders were looked up, so their rows said Licensed for
+        # good. user50 has no interactions and, in the mock, no Copilot license now; gone@ is no longer in the directory.
+        Invoke-SqlText -Sql @"
+INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic, SkuPartNumber, LicensedSinceUtc, DirectoryStatus) VALUES
+    (N'user50@contoso.com', 1, N'Microsoft_365_Copilot', '2026-01-01T00:00:00', N'Found'),
+    (N'gone@contoso.com',   1, N'Microsoft_365_Copilot', '2026-01-01T00:00:00', N'Found');
+"@
+        Invoke-Main
+        $reclaim = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT CONCAT(ISNULL(CAST(IsCopilotLic AS VARCHAR(4)), 'NULL'), '/', DirectoryStatus) FROM audit.CopilotLicense WHERE UserPrincipalName = N'user50@contoso.com') AS Reclaimed,
+       (SELECT CONCAT(ISNULL(CAST(IsCopilotLic AS VARCHAR(4)), 'NULL'), '/', DirectoryStatus) FROM audit.CopilotLicense WHERE UserPrincipalName = N'gone@contoso.com') AS Gone_;
+"@).Rows[0]
+        Assert-That ("$($reclaim.Reclaimed)" -eq '0/Found' -and "$($reclaim.Gone_)" -eq 'NULL/NotFound') `
+            "2.4.12: a reclaimed license is recorded as unlicensed ($($reclaim.Reclaimed)), and a person who left as not found ($($reclaim.Gone_))"
+        Invoke-SqlText -Sql "DELETE FROM audit.CopilotLicense WHERE UserPrincipalName IN (N'user50@contoso.com', N'gone@contoso.com'); DELETE FROM audit.UserLicenseSku WHERE UserPrincipalName = N'user50@contoso.com';"
       }
     }
     finally {
@@ -2123,6 +2174,23 @@ SELECT (SELECT Value FROM dash.Setting WHERE Name = N'OrgTopUpnDetected') AS Det
 "@).Rows[0]
 Assert-That ("$($auto.Detected)" -eq 'ceo@contoso.com' -and [int] $auto.CLevel -eq 4) "with no top set, the org chart's top is found and levels follow it ($($auto.Detected))"
 
+# 2.4.12: a manager without a UPN right below the top. The AD load reports their people to the top (ManagerUPN), so the
+# chart stays joined, and records the real depth (OrgDepth). Levels came from the chart alone, which made the director
+# level 2, and level 2 sees the whole organization; they are level 3, and the clerk under them level 4.
+$skip = (Invoke-SqlText -As Table -Sql @"
+INSERT INTO audit.UserDirectory (UserPrincipalName, FullName, Department, EmployeeType, IsManager, AccountEnabled, ManagerUPN, ManagerName, OrgDepth) VALUES
+    (N'dirx@contoso.com',   N'Director X', N'Risk', N'EMPLOYEE', 1, 1, N'ceo@contoso.com',  N'The CEO',    2),
+    (N'clerkx@contoso.com', N'Clerk X',    N'Risk', N'EMPLOYEE', 0, 1, N'dirx@contoso.com', N'Director X', 3);
+EXEC dash.usp_RefreshDashboard;
+SELECT (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'dirx@contoso.com') AS Dir,
+       (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'clerkx@contoso.com') AS Clerk,
+       (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'boss@contoso.com') AS Boss,
+       (SELECT COUNT(*) FROM dash.OrgClosure WHERE AncestorUpn = N'ceo@contoso.com' AND DescendantUpn = N'clerkx@contoso.com') AS UnderTop;
+"@).Rows[0]
+Invoke-SqlText -Sql "DELETE FROM audit.UserDirectory WHERE UserPrincipalName IN (N'dirx@contoso.com', N'clerkx@contoso.com'); EXEC dash.usp_RefreshDashboard;"
+Assert-That ([int] $skip.Dir -eq 3 -and [int] $skip.Clerk -eq 4 -and [int] $skip.Boss -eq 2 -and [int] $skip.UnderTop -eq 1) `
+    "2.4.12: under a manager without a UPN below the top, levels count that manager (director $($skip.Dir), clerk $($skip.Clerk)), and the top still sees them"
+
 # ---------------------------------------------------------------------------
 # 15. Provisioning and maintenance without SQL: Install-CopilotAudit.ps1 on a
 # new server path and on section 14's database, and Invoke-CopilotMaintenance.ps1.
@@ -2159,6 +2227,39 @@ try {
     Assert-That ($badZone -like '*not a time zone SQL Server knows*') 'an unknown zone is refused'
     $again = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic -Dashboard 6>&1 | Out-String
     Assert-That ($again -like '*Done.*' -and $again -notlike '*flattening*') 'running it again changes nothing and builds nothing'
+
+    # 2.4.12: a reporting account reads the bi views and nothing else. It was given SELECT on the whole bi schema, the
+    # tables under the views included, so bi.DimUser's real names sat beside privacy mode's pseudonyms. it_report stands
+    # in for an account given -ReportingAccount before 2.4.12 (a user without a login: no server login is made here),
+    # it_other for another that reads the whole schema.
+    Invoke-SqlText -Catalog $freshDb -Sql 'CREATE USER it_report WITHOUT LOGIN; GRANT SELECT ON SCHEMA::bi TO it_report; CREATE USER it_other WITHOUT LOGIN; GRANT SELECT ON SCHEMA::bi TO it_other;'
+    $rep = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic -Dashboard -ReportingAccount 'it_report' -WarningVariable repWarn 3>$null 6>&1 | Out-String
+    $reads = (Invoke-SqlText -Catalog $freshDb -As Table -Sql @"
+DECLARE @list TABLE (name SYSNAME);
+INSERT INTO @list SELECT name FROM sys.views WHERE schema_id = SCHEMA_ID(N'bi');   -- listed before: it_report sees only what it may read
+DECLARE @views NVARCHAR(MAX) = N'read', @table NVARCHAR(400) = N'read', @n INT, @v SYSNAME, @s NVARCHAR(400);
+EXECUTE AS USER = N'it_report';
+DECLARE v CURSOR LOCAL FAST_FORWARD FOR SELECT name FROM @list;
+OPEN v; FETCH NEXT FROM v INTO @v;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @s = N'DECLARE @c INT = (SELECT COUNT(*) FROM (SELECT TOP (1) * FROM bi.' + QUOTENAME(@v) + N') AS x);';
+    BEGIN TRY EXEC (@s); END TRY BEGIN CATCH SET @views = CONCAT(NULLIF(@views, N'read'), @v, N': ', ERROR_MESSAGE(), N' '); END CATCH;
+    FETCH NEXT FROM v INTO @v;
+END;
+CLOSE v; DEALLOCATE v;
+BEGIN TRY SET @n = (SELECT COUNT(*) FROM bi.DimUser); END TRY BEGIN CATCH SET @table = ERROR_MESSAGE(); END CATCH;
+REVERT;
+SELECT @views AS Views_, @table AS Table_,
+       (SELECT COUNT(*) FROM sys.views WHERE schema_id = SCHEMA_ID(N'bi')) AS BiViews,
+       (SELECT COUNT(*) FROM sys.database_permissions AS p JOIN sys.views AS v ON v.object_id = p.major_id
+        WHERE p.class = 1 AND p.permission_name = N'SELECT' AND p.state = 'G' AND v.schema_id = SCHEMA_ID(N'bi')
+          AND p.grantee_principal_id = DATABASE_PRINCIPAL_ID(N'CopilotReporting')) AS Granted;
+"@).Rows[0]
+    Assert-That ("$($reads.Views_)" -eq 'read' -and "$($reads.Table_)" -like '*permission was denied*') "2.4.12: a reporting account reads every bi view, those the Power BI model imports among them, and not the tables under them ($($reads.Views_); $($reads.Table_))"
+    Assert-That ([int] $reads.Granted -eq [int] $reads.BiViews -and [int] $reads.BiViews -gt 20) "every bi view is granted to CopilotReporting ($($reads.Granted) of $($reads.BiViews))"
+    Assert-That ($rep -like '*it_report can read the bi views*and nothing else*' -and "$repWarn" -like '*does not hide names from them: it_other. Give*') `
+        'an account given -ReportingAccount before is narrowed to them; another that reads the whole schema is named, not changed'
 }
 finally {
     foreach ($db in $freshDb, $freshLic) {
@@ -2454,6 +2555,31 @@ Assert-That ([int] $named.InView -eq 1 -and "$($named.Fn)" -eq 'Named app' -and 
     $threw = try { [void] (Write-PipelineRecord $bad -Log $log -Parameters @{} -Sql 'SELECT 1;'); $false } catch { $true }
     Assert-That (-not $threw -and (Get-Content $log -Raw) -like '*not recorded in audit.PipelineRun*') 'and a database it cannot reach costs a line in the log, not the run'
     Remove-Item $log -ErrorAction SilentlyContinue
+
+    # 2.4.12: a database with no audit.CopilotAudit yet (its history not loaded) is "not loaded". The check named the
+    # missing table in the statement that tested for it, and threw instead of saying to load the history. master has none.
+    $notLoaded = try { -not (Test-HistoryLoaded @{ SqlServer = $script:ITServer; Database = 'master'; ConnectionString = (New-ConnString 'master') }) } catch { $false }
+    Assert-That $notLoaded '2.4.12: a database whose history is not loaded yet is reported as such, not as an error'
+
+    # 2.4.12: one run at a time. The pipeline, the installer and the maintenance rebuilds each hold the database while
+    # they work; one that finds it held stops at once and changes nothing. Before, a manual run during the nightly, or
+    # the nightly during an upgrade's full bi rebuild, loaded windows twice or counted interactions twice.
+    $first = Enter-PipelineRun $setting
+    $second = Enter-PipelineRun $setting
+    Assert-That ($null -ne $first -and $null -eq $second) '2.4.12: a second pipeline run on a database in use is refused'
+    $heldFor = $env:CopilotAuditRunLock
+    Remove-Item Env:\CopilotAuditRunLock      # as another process sees it
+    $instRefused = try { & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>$null | Out-Null; '' } catch { $_.Exception.Message }
+    $maintRefused = try { & $maint @conn -Database $script:ITDatabase -Task RebuildBi 6>$null | Out-Null; '' } catch { $_.Exception.Message }
+    Assert-That ($instRefused -like 'Another run is using*Nothing was changed*' -and $maintRefused -like 'Another run is using*Nothing was changed*') `
+        'and so are the installer and a maintenance rebuild, which stop before changing anything'
+    $env:CopilotAuditRunLock = $heldFor       # the history's build step, started by the run that holds the lock
+    $underRun = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
+    Assert-That ($underRun -like '*Done.*') "but the installer the pipeline's own history step starts runs under its lock"
+    Exit-PipelineRun $first
+    $after = Enter-PipelineRun $setting
+    Exit-PipelineRun $after
+    Assert-That ($null -ne $after -and -not (Test-Path Env:\CopilotAuditRunLock)) 'and once the run ends, the database is free'
 }
 
 # Power BI: row-level security from the org chart, and department figures with small groups hidden.

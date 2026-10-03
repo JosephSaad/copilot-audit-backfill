@@ -239,6 +239,8 @@ function ConvertTo-UserDirectoryTable {
         is not loaded. Someone with no UPN cannot have used Copilot and is left
         out of the chain too (2.4.1): a person whose manager has no UPN reports
         to the nearest manager above who has one, so the org chart stays joined.
+        OrgDepth still counts that manager (2.4.12), so the person keeps their
+        real level.
     #>
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Entries,
@@ -300,11 +302,15 @@ function ConvertTo-UserDirectoryTable {
 
         # The chain, walked up from the direct manager and reversed so the top
         # comes first. $seen stops a loop in the manager attributes.
-        $chain.Clear(); $seen.Clear()
+        # OrgDepth counts every manager above, those without a UPN too (2.4.12): it counted only the chain's, so a
+        # person under a manager without a UPN looked a level higher than they are, and the dashboard takes levels
+        # from that depth, where level 2 sees the whole organization.
+        $chain.Clear(); $seen.Clear(); $depth = 0
         $cur = $u.mgr
-        while ($cur -and $seen.Add($cur) -and $chain.Count -lt 100) {
+        while ($cur -and $seen.Add($cur) -and $depth -lt 100) {
             $node = $null
             if (-not $byDn.TryGetValue($cur, [ref] $node)) { break }
+            $depth++
             if (& $hasUpn $node) { $chain.Add($node.disp) }   # no UPN: not in the org chart
             $cur = $node.mgr
         }
@@ -328,7 +334,7 @@ function ConvertTo-UserDirectoryTable {
         $row['Company']           = NZ $u.company
         $row['ManagerUPN']        = NZ $(if ($m) { $m.upn })
         $row['ManagerName']       = NZ $(if ($m) { $m.disp })
-        $row['OrgDepth']          = [byte] [math]::Min($chain.Count, 255)
+        $row['OrgDepth']          = [byte] [math]::Min($depth, 255)
         for ($i = 0; $i -lt $MaxLevels -and $i -lt $chain.Count; $i++) { $row["Mgr$($i + 1)"] = NZ $chain[$i] }
         $dt.Rows.Add($row)
     }
