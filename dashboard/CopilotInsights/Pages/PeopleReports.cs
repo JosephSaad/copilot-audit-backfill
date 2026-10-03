@@ -21,7 +21,9 @@ namespace CopilotInsights.Pages.Adoption
             var by = Request.Query["by"].FirstOrDefault() is { } b && By.Contains(b) ? b : "Department";
             var prevCtx = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
             var now = (await metrics.ByAttributeAsync(Ctx, by)).Where(r => r.People >= Ctx.MinGroupSize && r.Licensed >= Ctx.MinGroupSize).ToList();
-            var before = (await metrics.ByAttributeAsync(prevCtx, by)).ToDictionary(r => r.Name);
+            /* Only where the data covers all of the period before (2.4.12, see OpsReports.Covers). */
+            var before = OpsReports.Covers(prevCtx, await OpsReports.FirstDayAsync(Db))
+                ? (await metrics.ByAttributeAsync(prevCtx, by)).ToDictionary(r => r.Name) : new Dictionary<string, GroupRow>();
             double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
             var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
             var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));

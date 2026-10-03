@@ -43,10 +43,12 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
-        var whole = await S.Contexts.CreateAsync(Viewer, 30, null);
+        /* Every term the tenant's (2.4.12, see OpsReports.Tenant): for a viewer with the Licensing role and their own part
+           only, the tenant's seats less its disabled accounts were set against their own part's revocations and upgrades. */
+        var whole = OpsReports.Tenant(Ctx);
         var totals = await metrics.TotalsAsync(whole);
         var counts = await reports.ActionCountsAsync(whole);
-        var leavers = (await ops.LeaversAsync()).Count;
+        var leavers = (await ops.LeaversAsync(whole.Root)).Count;
 
         int seats = contracts.Sum(c => c.Seats), assigned = pool.Sum(x => x.Consumed), bought = pool.Sum(x => x.Bought);
         var monthly = contracts.Sum(c => c.Seats * c.MonthlyPrice);
@@ -189,8 +191,8 @@ SELECT {select} FROM c {tail}";
         var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Added cost a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
         foreach (var w in waves.Take(12))
             wt.Rows.Add([w.Wave, w.People, w.UsingChat, w.People * price, new HtmlString(
-                $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(size, dept, $"wave={w.Wave}&handler=bulk")))}\">bulk add file</a> · " +
-                $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(size, dept, $"wave={w.Wave}&handler=script")))}\">PowerShell script</a>")]);
+                $"<span class=\"acts\">{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=bulk"), Token(), "Bulk add file")} · " +
+                $"{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=script"), Token(), "PowerShell script")}</span>")]);
         var sizes = string.Join(" · ", new[] { 25, 50, 100, 250, 500, 1000 }.Select(n =>
             $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(n, dept, null)))}\"{(n == size ? " class=\"on\"" : "")}>{n}</a>"));
         Panels.Add(new("Waves", new HtmlString($"<p class=\"sub\">People a wave: {sizes} (the default is set in Admin > Targets and assumptions).</p>" + wt.Render().Value),
@@ -213,8 +215,9 @@ SELECT {select} FROM c {tail}";
     static string Extra(int size, string? dept, string? more) =>
         $"size={size}" + (dept is null ? "" : "&dept=" + Uri.EscapeDataString(dept)) + (more is null ? "" : "&" + more);
 
-    public Task<IActionResult> OnGetBulkAsync() => ExportAsync(false);
-    public Task<IActionResult> OnGetScriptAsync() => ExportAsync(true);
+    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
+    public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 
     async Task<IActionResult> ExportAsync(bool script)
     {

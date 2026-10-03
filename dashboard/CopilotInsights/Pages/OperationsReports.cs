@@ -16,16 +16,13 @@ namespace CopilotInsights.Pages.Adoption
 
         protected override async Task BuildAsync()
         {
-            var all = await reports.TargetsAsync(Ctx);
-            /* A target for part of the organization is shown to people who may see that part. */
-            var mine = Viewer.OrgWide ? all : Viewer.Upn is null ? [] :
-                all.Where(t => t.RootUpn is not null).ToList() is var scoped && scoped.Count > 0
-                    ? (await Db.QueryAsync<string>("SELECT DescendantUpn FROM dash.OrgClosure WHERE AncestorUpn = @v", new { v = Viewer.Upn })).ToHashSet(StringComparer.OrdinalIgnoreCase) is var under
-                        ? scoped.Where(t => under.Contains(t.RootUpn!)).ToList() : []
-                    : [];
+            /* A target for part of the organization is shown to people who may see that part: the rule is in TargetsAsync
+               (2.4.12), which the Board pack, the data API and the digests share; it used to be here alone. */
+            var mine = await reports.TargetsAsync(Ctx);
             if (mine.Count == 0)
             {
-                Notice = all.Count == 0 ? "No targets yet. An administrator sets them in Admin > Targets and assumptions." : "No target covers the part of the organization you see.";
+                Notice = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Target;") == 0
+                    ? "No targets yet. An administrator sets them in Admin > Targets and assumptions." : "No target covers the part of the organization you see.";
                 return;
             }
             Kpis.Add(new("Targets", Num(mine.Count)));
@@ -167,7 +164,7 @@ namespace CopilotInsights.Pages.Leadership
             var t = await HttpContext.RequestServices.GetRequiredService<Metrics>().TotalsAsync(Ctx);
             var hours = v.ByApp.Sum(x => x.Hours);
             var value = v.ByApp.Sum(x => x.Value);
-            var licenseCost = Licensing.Price.ForPeriod(t.LicensedNow, price, Ctx.Days);
+            var licenseCost = Licensing.Price.ForLicenseDays(await reports.LicenseDaysAsync(Ctx), price);
             Kpis.Add(new("Hours saved (estimate)", Num(hours), $"{v.DefaultMinutes:0.#} minutes an interaction unless set per app"));
             Kpis.Add(new($"Estimated value ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour"));
             Kpis.Add(new("Per person using Copilot", t.Active > 0 ? $"{hours / t.Active:0.#} h" : "—", "in the period"));

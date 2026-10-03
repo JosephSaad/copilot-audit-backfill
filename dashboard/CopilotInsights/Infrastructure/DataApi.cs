@@ -15,7 +15,9 @@ public static class DataApi
     {
         var api = app.MapGroup("/api/v1");
 
-        api.MapGet("/", () => Results.Ok(new
+        /* The list of endpoints goes through Run as every call does (2.4.12): it answered with the API turned off, to anyone
+           outside the dashboard's levels, and wrote nothing to the audit log. */
+        api.MapGet("/", (HttpContext h, CancellationToken _) => Run(h, "", null, (_, _) => Task.FromResult<object>(new
         {
             endpoints = new object[]
             {
@@ -29,7 +31,7 @@ public static class DataApi
                 new { path = "/api/v1/leavers", what = "named: licenses on disabled or departed accounts (Licensing role)" },
                 new { path = "/api/v1/health", what = "pipeline runs and freshness (administrators)" },
             },
-        }));
+        })));
 
         /* The security signals are the Security section's and labeled content the Compliance section's (2.4.12): the
            usage trend and the units carry them only for those roles, as /security and the section pages do. */
@@ -81,6 +83,8 @@ public static class DataApi
             return new { scope = c.ScopeLabel, from = c.Start, to = c.End, minGroupSize = c.MinGroupSize, hourlyCost = v.HourlyCost, defaultMinutes = v.DefaultMinutes, byApp = v.ByApp, byDepartment };
         }));
 
+        /* The targets for the caller's part of the organization, as the Targets page shows them (2.4.12, see OpsReports.Visible):
+           every target went to anyone with the Adoption role, the whole organization's and other executives' parts too. */
         api.MapGet("/targets", (HttpContext h, CancellationToken _) => Run(h, "targets", null, async (x, c) =>
             new { asOf = c.End, targets = await x.GetRequiredService<OpsReports>().TargetsAsync(c) }, section: Roles.Adoption));
 
