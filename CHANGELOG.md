@@ -24,14 +24,21 @@ To upgrade:
    databases too (OPERATIONS.md, *Upgrades and renewals*). The installer counts once that every
    record has been flattened (minutes at 40 million records), and reads the agent ids of other
    apps' records once; only when some gain one does it rebuild `bi` and the rollups.
-3. Run `M -Task RefreshDashboard` once, so the rollups of labeled content and blocked sites
-   count interactions, not resources.
+3. Run `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -Task
+   RefreshDashboard` once for each tenant's database (its `-Database`), so the rollups of labeled
+   content and blocked sites count interactions, not resources.
 4. Install the dashboard package over 2.4.11. A re-run now keeps what it is not given, so
    `-PackagePath` and `-SqlServer` are enough. With more than one web server, set
    `Insights:DataProtectionKeysPath` to a share first (DASHBOARD.md, *Several web servers*), and
    point scheduled extracts at a share.
-5. Publish the Power BI model from `powerbi\` again (it carries its refresh policy and an
-   Organization role that now covers every table), then refresh it in full once.
+5. Take the new Power BI model into yours (it carries its refresh policy and an Organization
+   role that now covers every table). Don't publish the copy in `powerbi\`: it points at
+   `localhost` and has none of your pages or measures. Write the release's model beside your
+   working copy with `python powerbi\generate_model.py --out D:\PowerBI\CopilotInsights-new`,
+   bring the changes across in Power BI Desktop (DEPLOYMENT.md, step 15; OPERATIONS.md, *A new
+   Power BI model*), publish your working copy, then refresh it in full (DEPLOYMENT.md, step 16,
+   item 4). Desktop loads the whole history before it publishes, since `RangeStart` and
+   `RangeEnd` span every date: on a large database, narrow them first.
 6. Enable the nightly task.
 
 Two new columns (`audit.CopilotLoad.DerivedRefreshedUtc`, `audit.CopilotCsvImport.DerivedRefreshedUtc`)
@@ -305,8 +312,8 @@ and a database role for reporting accounts (`CopilotReporting`), all added by th
 - **Compliance counts interactions.** The label and site charts, the Access page's
   labeled-interaction and times-blocked columns, and the label alert counted each resource read.
   An answer drawn from six files with one label counted six, against one in the page's own count
-  of labeled interactions. Rebuild the rollups once after upgrading (`M -Task
-  RefreshDashboard`).
+  of labeled interactions. Rebuild the rollups once after upgrading (`-Task
+  RefreshDashboard`, upgrade step 3).
 - **Power BI honors every Organization grant the dashboard does.** A grant to `DOMAIN\name`
   recorded as a user (a person, or a group `GrantRole` could not look up) gave the whole
   organization on the dashboard but only the viewer's own people in Power BI. The nightly
@@ -401,7 +408,10 @@ and a database role for reporting accounts (`CopilotReporting`), all added by th
   following it left Agents › Build and publish without history.
 - **The upgrade upgrades every tenant.** The guides ran the installer once, which upgrades the
   first tenant's databases alone, and nothing upgraded the others, whose nightly runs went on
-  with the procedures they had. They now loop over every tenant in the settings.
+  with the procedures they had. They now loop over every tenant in the settings, and read each
+  one's license databases as the nightly run does: a tenant without its own `LicenseDatabase` or
+  `SessionLicenseDatabases` takes the top-level one, and a blank license database is skipped
+  (`-SkipLicenseDatabase`).
 - **The Power BI role covers every table a member can read.** The Organization role filtered
   only Users, so Sites, Agents, the organization's security figures and the standalone tables
   were readable whole by every member. Each now follows the role, a viewer who sees everyone is
@@ -417,6 +427,21 @@ and a database role for reporting accounts (`CopilotReporting`), all added by th
   window with no policy, so history rewritten in SQL never reached the archived partitions. The
   policy is in the model, and the guides say when a full refresh is needed (a rebuild, or an
   app's category changed).
+- **A catch-up run is followed by a full refresh of the model.** The model refreshes the last 4
+  days, so a night that caught up two or more missed nights (a load refreshes from 48 hours
+  before where the data ended), or made up an owed refresh from further back, rewrote days that
+  never reached Power BI. The guides now say to refresh the model in full after such a run, and
+  the installer says so where its agent-id rebuild rewrote every day; it said "once".
+- **What a full refresh is, said once.** *Refresh now* and the scheduled refresh apply the
+  refresh policy, so a full refresh asked for by the guides and done that way reloaded 4 days
+  only. DEPLOYMENT step 16 now says how: a
+  refresh with `applyRefreshPolicy` false on Premium, Premium Per User or Fabric, or the model
+  published again on Pro; the other guides point there.
+- **The upgrade publishes your own model.** Upgrade step 5 said to publish the model from
+  `powerbi\`, which points at `localhost` and has none of your pages or measures. It now takes
+  the release's model into your working copy, as DEPLOYMENT and OPERATIONS do, and warns that
+  Desktop loads the whole history before it publishes. Step 3 spells out the maintenance
+  command, run for each tenant's database, and DEPLOYMENT.md is written for 2.4.12.
 - **The release workflow runs with least privilege.** Every job had a write token and actions
   were pinned by movable tags, and a gallery module was bundled with no check. Tokens are
   read-only but for publishing, actions are pinned by commit, and module signatures are checked.

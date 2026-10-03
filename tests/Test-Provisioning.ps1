@@ -425,16 +425,27 @@ Assert-That ($checks.Count -eq 3 -and @($checks | Where-Object { $_.Extent.Start
 
 # 2.4.12: the guides' upgrade ran the installer once, which upgrades only the databases it is given (the first
 # tenant's), and nothing else upgrades the others. The command they now give, run against a settings file with two
-# further tenants, installs into each of their pairs.
+# further tenants, installs into each of their pairs. A tenant without its own LicenseDatabase or
+# SessionLicenseDatabases takes the top-level one, as Get-PipelineTenant gives the nightly run, and a blank
+# license database is skipped (-SkipLicenseDatabase), not created with an empty name.
 $two = Join-Path $tmp 'two.psd1'
-Set-Content -LiteralPath $two -Value "@{ Database = 'CopilotAudit'; Tenants = @(@{ Name = 'Fabrikam'; Database = 'CopilotAudit_Fabrikam'; LicenseDatabase = 'CopilotLicenseEvents_Fabrikam' }, @{ Name = 'Northwind'; Database = 'CopilotAudit_Northwind'; LicenseDatabase = 'CopilotLicenseEvents_Northwind' }) }"
+Set-Content -LiteralPath $two -Value ("@{ Database = 'CopilotAudit'; LicenseDatabase = 'CopilotLicenseEvents'; SessionLicenseDatabases = @('CopilotLicenseEvents', 'CopilotLicenseArchive'); Tenants = @(" +
+    "@{ Name = 'Fabrikam'; Database = 'CopilotAudit_Fabrikam'; LicenseDatabase = 'CopilotLicenseEvents_Fabrikam'; SessionLicenseDatabases = @('CopilotLicenseEvents_Fabrikam') }, " +
+    "@{ Name = 'Northwind'; Database = 'CopilotAudit_Northwind' }, " +
+    "@{ Name = 'Tailspin'; Database = 'CopilotAudit_Tailspin'; LicenseDatabase = ''; SessionLicenseDatabases = @() }) }")
+$want = 'CopilotAudit_Fabrikam/CopilotLicenseEvents_Fabrikam/False/CopilotLicenseEvents_Fabrikam,' +
+        'CopilotAudit_Northwind/CopilotLicenseEvents/False/CopilotLicenseEvents+CopilotLicenseArchive,' +
+        'CopilotAudit_Tailspin//True/'
 foreach ($guide in (Join-Path $root 'docs' 'OPERATIONS.md'), (Join-Path $root 'docs' 'DEPLOYMENT.md')) {
-    $loop = [regex]::Match([System.IO.File]::ReadAllText($guide), '`(foreach \(\$t in \(Import-PowerShellDataFile \.\\copilot-audit\.settings\.psd1\)\.Tenants\) \{[^`]+\})`').Groups[1].Value
+    $loop = [regex]::Match([System.IO.File]::ReadAllText($guide),
+        '(\$s = Import-PowerShellDataFile \.\\copilot-audit\.settings\.psd1[;\s]+foreach \(\$t in \$s\.Tenants\) \{.+?\.\\Install-CopilotAudit\.ps1 @a\s*\})',
+        [System.Text.RegularExpressions.RegexOptions]::Singleline).Groups[1].Value
     $script:installed = [System.Collections.Generic.List[string]]::new()
-    function Install-Stub { param($SqlServer, $Database, $LicenseDatabase, [switch] $Dashboard) $script:installed.Add("$Database/$LicenseDatabase") }
+    function Install-Stub { param($SqlServer, $Database, $LicenseDatabase, [switch] $SkipLicenseDatabase, [string[]] $LicenseEventDatabases, [switch] $Dashboard)
+        $script:installed.Add("$Database/$LicenseDatabase/$([bool] $SkipLicenseDatabase)/$($LicenseEventDatabases -join '+')") }
     if ($loop) { & ([scriptblock]::Create($loop.Replace('.\copilot-audit.settings.psd1', "'$two'").Replace('.\Install-CopilotAudit.ps1', 'Install-Stub'))) }
-    Assert-That (($script:installed -join ',') -eq 'CopilotAudit_Fabrikam/CopilotLicenseEvents_Fabrikam,CopilotAudit_Northwind/CopilotLicenseEvents_Northwind') `
-        "$(Split-Path $guide -Leaf)'s upgrade installs into every further tenant's databases ($($script:installed -join ', '))"
+    Assert-That (($script:installed -join ',') -eq $want) `
+        "$(Split-Path $guide -Leaf)'s upgrade installs into every further tenant's databases, with the license databases the nightly run reads ($($script:installed -join ', '))"
 }
 }
 finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }

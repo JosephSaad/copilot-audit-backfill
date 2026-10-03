@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licenses from Microsoft Graph, and the organization from on-premises Active Directory.
 
-Written for a new install of release 2.4.11. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.4.12. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -144,14 +144,14 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.4.11-offline-win-x64.zip` and its `.sha256` from the [v2.4.11 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.11). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.4.12-offline-win-x64.zip` and its `.sha256` from the [v2.4.12 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.12). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.4.11-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.4.12-offline-win-x64.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.4.11-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.4.12-offline-win-x64' 'CopilotAudit'
 cd D:\CopilotAudit
 ```
 
@@ -409,7 +409,7 @@ Four steps, in this order, each finishing before the next starts:
 1. **User directory from AD**, so tonight's session and `bi` builds pick up today's organization.
 2. **Copilot licenses from Graph**: current license holders and since when.
 3. **License events**: `-Incremental` into `CopilotLicenseEvents`; it shreds the new events itself.
-4. **Copilot interactions**: `-Incremental` into `CopilotAudit`. It loads from where the data ends, minus a 48-hour lookback for records Purview delivers late. Then it refreshes the flattened table, sessions and `bi`, reading the license history the step before brought up to date. A refresh that fails after the load is merged is owed, and the next run makes it up from where it was owed, even with nothing new to load (2.4.12).
+4. **Copilot interactions**: `-Incremental` into `CopilotAudit`. It loads from where the data ends, minus a 48-hour lookback for records Purview delivers late. Then it refreshes the flattened table, sessions and `bi`, reading the license history the step before brought up to date. A refresh that fails after the load is merged is owed, and the next run makes it up from where it was owed, even with nothing new to load (2.4.12). A run that refreshes from more than 4 days back, a made-up refresh or the first good night after two or more missed ones, is followed by a full refresh of the Power BI model ([step 16](#step-16-publish-and-schedule-the-refresh), item 4): its scheduled refresh redoes only the last 4 days.
 
 ### Step 12. The nightly run
 
@@ -471,7 +471,7 @@ The release ships the model as a Power BI project: `powerbi\CopilotInsights\Copi
 1. Copy the `powerbi\CopilotInsights` folder out of the release to where you keep your own work, such as `D:\PowerBI\CopilotInsights` or a source-control repository, and open `CopilotInsights.pbip` there in Power BI Desktop. The copy in the release folder is the release's, and the next release replaces it.
 2. **Transform data › Edit parameters**: `SqlServer` (`SQLPROD01`; for Azure SQL, its server name) and `SqlDatabase` (`CopilotAudit`). `RangeStart` and `RangeEnd` span every date, so Desktop loads the whole history; on a large one, narrow them to a recent month to keep the file light. The service replaces them with the refresh policy's own ranges.
 3. **Refresh**. On the lab's 180,000-interaction demo this took about a minute.
-4. **Incremental refresh** is already set on `Interactions` and `AccessedResources`, whose queries filter `ActivityHour` between `RangeStart` and `RangeEnd`: archive 2 years and refresh the last 4 days, since each night reloads from about 72 hours back. Change it in each table's *Incremental refresh* settings if you keep more history.
+4. **Incremental refresh** is already set on `Interactions` and `AccessedResources`, whose queries filter `ActivityHour` between `RangeStart` and `RangeEnd`: archive 2 years and refresh the last 4 days, since each night reloads from about 72 hours back. Change it in each table's *Incremental refresh* settings if you keep more history. Days older than 4 that SQL rewrites (a rebuild, a night that caught up two or more missed nights, a refresh made up from further back) reach the model only through a full refresh ([step 16](#step-16-publish-and-schedule-the-refresh), item 4).
 5. **Modeling › Manage roles** shows two roles:
    - *Organization*: `Users` filtered to the people the viewer may see in `bi.OrgSecurity`, by `USERPRINCIPALNAME()`. Everyone sees the people under them; the top two levels and anyone granted Organization, by name or through an AD group, see everyone. Group members are refreshed by the nightly directory load. Every fact follows `Users`, and so do `Sites` and `Agents`: a viewer sees only the sites their people read and the agents they used. `OrgSecurity` shows each viewer only their own rows. `LicensePool`, `ValueNames` and `DepartmentWeek` hold figures for the whole organization, so they show only to viewers who see the whole organization. *View as* the role to check it.
    - *Departments*: `DepartmentWeek` alone, where a department under the minimum group size is blank, with the calendar and the reference tables; no one's own figures. Use it to share department figures more widely, and in privacy mode, where `bi.OrgSecurity` is empty and *Organization* sees nobody.
@@ -539,7 +539,12 @@ Licenses are counted on one day for every row of a table, *Period end*, as the d
 
 1. Publish to the workspace. On the gateway, add a SQL Server data source for `SQLPROD01` / `CopilotAudit` with the account from step 14, and map the semantic model to it.
 2. Schedule the refresh after the nightly job has finished, for example 05:00 against a 02:00 job. Check the job's usual duration in its logs and leave a margin.
-3. The first refresh loads the whole history; later ones reload only the incremental window.
+3. The first refresh loads the whole history; later ones reload only the incremental window, the last 4 days.
+4. **A full refresh.** *Refresh now* and the scheduled refresh apply the refresh policy: they reload the last 4 days and leave every older partition as it was. Where these guides say to refresh the model *in full*, every partition is loaded again, in one of two ways:
+   - On Premium, Premium Per User or Fabric capacity, a refresh that does not apply the policy: the enhanced refresh REST API (`POST .../refreshes` with `"type": "full", "applyRefreshPolicy": false`), or a TMSL refresh with `applyRefreshPolicy` false over the workspace's XMLA endpoint, from SQL Server Management Studio say. The partitions are kept, and each is loaded again.
+   - On Pro, publish the model from Desktop again over the one in the service, then refresh it: a model published again loads the whole history on its next refresh, as the first one did.
+
+   A model needs one after a full `bi` rebuild, after an app's category changes, and after any run that rewrote days older than 4: a nightly run after two or more nights in a row without a good one (an `-Incremental` load refreshes from 48 hours before where the data ended, so it reaches back past 4 days), a run that made up an owed refresh from further back (its log says *The derived tables were not brought up to date after an earlier load or import: refreshing them from* that date; see [Phase 4](#phase-4-run-it-every-night), item 4), or a CSV import of older days ([from Purview CSV exports](#alternative-to-steps-6-and-7-start-from-purview-csv-exports)).
 
 ## Phase 6: Add the Copilot agent in Power BI
 
@@ -691,10 +696,10 @@ The web dashboard, on a Windows Server with IIS: every persona's pages, alerts a
 
 *Web server, as an administrator, in Windows PowerShell 5.1. About 15 minutes.*
 
-The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.4.11.zip` to the web server, then from the source package's folder:
+The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.4.12.zip` to the web server, then from the source package's folder:
 
 ```powershell
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.11.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.12.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -AdminPrincipal 'USERS\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
 ```
 
@@ -731,7 +736,7 @@ For a group with several Microsoft 365 tenants, each gets its own app registrati
 .\tools\Add-CopilotTenant.ps1 -Name Fabrikam -TenantId fabrikam.onmicrosoft.com -TargetDomain fabrikam.local
 .\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam
 # web server: every tenant, the first one first
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.11.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.12.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess
 ```
 
@@ -746,12 +751,13 @@ The nightly run, the installer and the rebuilds below hold the database while th
 | When | Do this |
 |---|---|
 | A session setting changes (timeout, time zone, license databases) | `M -Task RebuildSessions`. Until then the nightly run stops with *different settings*. |
-| License history arrives for a period already built, the time zone changes, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the model. |
-| A new Copilot app appears | `M -Task SetAppCategory -App 'Name' -Category 'Copilot Chat'` (or *In-App Copilot*), or the dashboard's Admin › Reference data. Add `-Apply` to rebuild with it now. Unmapped apps count as In-App. Changing an app's category changes Premium use on every past interaction of that app: after the next `bi` refresh, refresh the Power BI model fully once, since its incremental refresh reloads only the last 4 days. |
+| License history arrives for a period already built, the time zone changes, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the model (step 16, item 4). |
+| A new Copilot app appears | `M -Task SetAppCategory -App 'Name' -Category 'Copilot Chat'` (or *In-App Copilot*), or the dashboard's Admin › Reference data. Add `-Apply` to rebuild with it now. Unmapped apps count as In-App. Changing an app's category changes Premium use on every past interaction of that app: after the next `bi` refresh, refresh the Power BI model in full once (step 16, item 4), since its incremental refresh reloads only the last 4 days. |
+| The nightly run catches up two or more missed nights, or makes up an owed refresh from more than 4 days back | A full refresh of the Power BI model (step 16, item 4): the run rewrote days its scheduled refresh does not reload. |
 | Someone needs to see more of the dashboard | Admin › Access, or `M -Task GrantRole -Principal 'CORP\Group' -Role Organization`: Organization for the whole organization, a persona role for its named lists. The org chart follows AD by itself, the night after a move. |
 | The flatten says a field *now carries information* | One of the fields that never varied has a second value: see `audit.RawLogRecordShape`. Nothing is lost from the JSON; if it matters for reporting, it needs a column in a new release. |
 | Disk grows past your horizon | `M -Task PurgeJson -RetainDays 365` reports what it would clear; add `-Apply` to clear the stored JSON and keep the rows. |
-| A new release comes out | Disable the nightly task. Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, and run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once (with `-Dashboard` if the dashboard is installed). It upgrades every object in the first tenant's two databases and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. With more than one tenant (step 25), run it again for each further tenant's pair: `foreach ($t in (Import-PowerShellDataFile .\copilot-audit.settings.psd1).Tenants) { .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Database $t.Database -LicenseDatabase $t.LicenseDatabase -Dashboard }` (without `-Dashboard` if there is no dashboard), and run step 22 again with every tenant in `-Tenant`, as in step 25. Nothing else upgrades them: the nightly run uses whatever procedures each database has. Enable the task again. Read the release notes' upgrade section. |
+| A new release comes out | Disable the nightly task. Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, and run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once (with `-Dashboard` if the dashboard is installed, and `-LicenseEventDatabases` with the `SessionLicenseDatabases` list if the settings have one). It upgrades every object in the first tenant's two databases and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. With more than one tenant (step 25), run it again for each further tenant's pair. A tenant without its own `LicenseDatabase` or `SessionLicenseDatabases` uses the top-level one, as the nightly run does, and one whose license database is blank has none: `$s = Import-PowerShellDataFile .\copilot-audit.settings.psd1; foreach ($t in $s.Tenants) { $a = @{ SqlServer = 'SQLPROD01'; Database = $t.Database; Dashboard = $true }; $lic = if ($t.Contains('LicenseDatabase')) { $t.LicenseDatabase } else { $s.LicenseDatabase }; if ($lic) { $a.LicenseDatabase = $lic } else { $a.SkipLicenseDatabase = $true }; $read = if ($t.Contains('SessionLicenseDatabases')) { $t.SessionLicenseDatabases } else { $s.SessionLicenseDatabases }; if ($read) { $a.LicenseEventDatabases = @($read) }; .\Install-CopilotAudit.ps1 @a }` (leave out `Dashboard = $true` if there is no dashboard), and run step 22 again with every tenant in `-Tenant`, as in step 25. Nothing else upgrades them: the nightly run uses whatever procedures each database has. Enable the task again. Read the release notes' upgrade section. |
 | Upgrading to 2.3.0 | As for any release. The installer catalogs the codes of records flattened before (Admin › Value names) and rebuilds the dashboard's rollups once with Premium use; the nightly license-event load starts asking for Copilot Studio's authoring operations as well, from that night on. With the dashboard, run step 22 again with the new package, and replace a hand-built Power BI model with the one in `powerbi\` (step 15). |
 | The certificate nears expiry | Within 30 days of expiry, `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` creates a new one, gives the gMSA its private key, uploads it next to the old one to the app of every tenant in the settings and puts its thumbprint in the settings. Remove the old one from the apps after the next good run. Without `-RegisterApp` the old one is kept until it expires. |
 
