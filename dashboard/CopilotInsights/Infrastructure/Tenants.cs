@@ -46,13 +46,37 @@ public sealed class TenantAccessor
 
     public const string Cookie = "insights-tenant";
 
-    /// <summary>Per request: ?tenant= (remembered in a cookie) or the cookie, else the first tenant.</summary>
+    /// <summary>
+    /// What a form's address carries so it posts to the tenant its page showed (2.4.12): "tenant=Name" with several
+    /// tenants, else null.
+    /// </summary>
+    public string? FormQuery => Many ? "tenant=" + Uri.EscapeDataString(Current.Name) : null;
+
+    /// <summary>
+    /// Per request: ?tenant= (remembered in a cookie) or the cookie, else the first tenant. A form names its tenant
+    /// (2.4.12): a post goes to the tenant in its address, or nowhere, and never changes the cookie. Before, it went to
+    /// whichever tenant the cookie named when it was sent, so with tenant B chosen in another tab, Remove on tenant A's
+    /// Admin > Access page removed B's grant with that number.
+    /// </summary>
     public static async Task SelectAsync(HttpContext ctx, Func<Task> next)
     {
         var tenants = ctx.RequestServices.GetRequiredService<TenantAccessor>();
         if (tenants.Many)
         {
             var asked = tenants.Find(ctx.Request.Query["tenant"].FirstOrDefault());
+            if (!HttpMethods.IsGet(ctx.Request.Method) && !HttpMethods.IsHead(ctx.Request.Method))
+            {
+                if (asked is null)
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status409Conflict;
+                    ctx.Response.ContentType = "text/plain; charset=utf-8";
+                    await ctx.Response.WriteAsync("This form did not say which tenant it was for, so nothing was changed. Open the page again and repeat the change.");
+                    return;
+                }
+                tenants.Use(asked);
+                await next();
+                return;
+            }
             if (asked is not null)
                 ctx.Response.Cookies.Append(Cookie, asked.Name, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, IsEssential = true });
             tenants.Use(asked ?? tenants.Find(ctx.Request.Cookies[Cookie]) ?? tenants.All[0]);

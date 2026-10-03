@@ -128,8 +128,8 @@ SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedU
             var tabs = string.Join(" · ", Why.Where(kv => kv.Key is not ("type" or "group") || rules.EmployeeTypes.Count + rules.Groups.Count > 0).Select(kv =>
                 $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"why={kv.Key}"))}\"{(type is null && kv.Key == why ? " class=\"on\"" : "")}>{kv.Value.Label}</a>"));
             var exports = c.Any == 0 ? "" :
-                $"<div class=\"sub\">Remove every one ({c.Any:#,0}): {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), "Entra bulk remove members file")} · " +
-                $"{LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), "PowerShell script")}, recorded for License action outcomes.</div>";
+                $"<div class=\"sub\">Remove every one ({c.Any:#,0}): {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk remove members file")} · " +
+                $"{LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
             Panels.Add(new(type is null ? "Accounts" : $"Employee type: {type}",
                 new HtmlString($"<p class=\"sub\">Show: {tabs}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
                 "Enabled accounts still in the directory that hold a Copilot license today and match a rule set in Admin > Reference data. Guest: an #EXT# sign-in, or Entra's user type. " +

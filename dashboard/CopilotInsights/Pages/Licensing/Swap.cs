@@ -110,7 +110,7 @@ SELECT (SELECT COUNT(*) FROM g) AS Idle, (SELECT COUNT(*) FROM t) AS Wanting,
         var choices = string.Join(" · ", Within.Select(kv =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"within={kv.Key}"))}\"{(kv.Key == within ? " class=\"on\"" : "")}>{kv.Value.Label}</a>"));
         string Link(string side, string handler, string text) =>
-            CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, $"within={within}&side={side}&handler={handler}", Token(), text);
+            CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, $"within={within}&side={side}&handler={handler}", Token(), TenantQuery, text);
         var exports = pairs.Count == 0 ? "" :
             $"<div class=\"sub\">Apply it, in this order: 1. take the licenses back, {Link("take", "bulk", "Entra bulk remove members file")} · {Link("take", "script", "PowerShell script")}; " +
             $"2. give them out, {Link("give", "bulk", "Entra bulk add members file")} · {Link("give", "script", "PowerShell script")}. " +

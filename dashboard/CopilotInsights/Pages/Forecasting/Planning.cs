@@ -191,8 +191,8 @@ SELECT {select} FROM c {tail}";
         var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Added cost a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
         foreach (var w in waves.Take(12))
             wt.Rows.Add([w.Wave, w.People, w.UsingChat, w.People * price, new HtmlString(
-                $"<span class=\"acts\">{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=bulk"), Token(), "Bulk add file")} · " +
-                $"{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=script"), Token(), "PowerShell script")}</span>")]);
+                $"<span class=\"acts\">{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=bulk"), Token(), TenantQuery, "Bulk add file")} · " +
+                $"{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=script"), Token(), TenantQuery, "PowerShell script")}</span>")]);
         var sizes = string.Join(" · ", new[] { 25, 50, 100, 250, 500, 1000 }.Select(n =>
             $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(n, dept, null)))}\"{(n == size ? " class=\"on\"" : "")}>{n}</a>"));
         Panels.Add(new("Waves", new HtmlString($"<p class=\"sub\">People a wave: {sizes} (the default is set in Admin > Targets and assumptions).</p>" + wt.Render().Value),

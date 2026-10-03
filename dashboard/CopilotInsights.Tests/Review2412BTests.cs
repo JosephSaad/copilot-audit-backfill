@@ -85,9 +85,10 @@ public class Review2412BTests
     public void An_export_is_a_form_that_posts_at_the_part_shown()
     {
         var c = Ctx(V(1), "casey.ivanova@contoso.com", 30, LastDay);
-        var html = LicenseActions.Button(c, "/licensing/leavers", "handler=bulk", "<input type=\"hidden\" name=\"__RequestVerificationToken\" value=\"t\"/>", "Entra bulk-remove file");
+        var html = LicenseActions.Button(c, "/licensing/leavers", "handler=bulk", "<input type=\"hidden\" name=\"__RequestVerificationToken\" value=\"t\"/>", "&tenant=Fabrikam", "Entra bulk-remove file");
         Assert.StartsWith("<form class=\"inline\" method=\"post\"", html);
-        Assert.Contains("action=\"/licensing/leavers?d=30&amp;org=casey.ivanova%40contoso.com&amp;handler=bulk\"", html);
+        /* With several tenants the post names the tenant the page showed (2.4.12, #13). */
+        Assert.Contains("action=\"/licensing/leavers?d=30&amp;org=casey.ivanova%40contoso.com&amp;handler=bulk&amp;tenant=Fabrikam\"", html);
         Assert.Contains("__RequestVerificationToken", html);
         Assert.Contains(">Entra bulk-remove file</button></form>", html);
     }

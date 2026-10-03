@@ -153,8 +153,8 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
         /* The files are for the part of the organization shown (2.4.12): built from the bare address, they carried no org=,
            so a division's five accounts on the page became the whole organization's twenty-seven in the file and the record. */
         var exports = pg.Total == 0 ? "" :
-            $"<div class=\"sub\">To reclaim them: {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), "Entra bulk-remove file")} · " +
-            $"{LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), "PowerShell script")} (run by a license administrator; the dashboard changes nothing).</div>";
+            $"<div class=\"sub\">To reclaim them: {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk-remove file")} · " +
+            $"{LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")} (run by a license administrator; the dashboard changes nothing).</div>";
         Panels.Add(new("People", new HtmlString(exports + pg.Controls(Request, new Dictionary<string, string> { ["name"] = "Name", ["dept"] = "Department", ["since"] = "Licensed longest" }).Value + t.Render().Value),
             "AD's account state comes from the nightly directory load, Entra's from the license tool.", "full", CsvUrl()));
     }

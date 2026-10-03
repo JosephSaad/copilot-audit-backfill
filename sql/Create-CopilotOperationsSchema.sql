@@ -85,7 +85,38 @@ WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value,
     key the database master key protects. The master key is created here with
     a random password nobody needs: SQL Server also protects it with the
     instance's service master key and opens it itself. Restored to another
-    instance, the secrets cannot be read: enter them again in Admin > Email. */
+    instance, the secrets cannot be read: run this again, then enter them again
+    in Admin > Email and Admin > Alerts and digests.
+
+    2.4.12: on another instance neither the service master key nor the
+    password opens the master key, so the secrets could be neither read nor
+    stored again, and re-running this kept the keys that could not be opened.
+    Now a chain that cannot be opened is made again, and the secrets it can no
+    longer read are removed. It is left as it is when the master key protects
+    anything else in the database, which only its owner can recover. */
+IF CERT_ID(N'CopilotInsightsSecretCert') IS NOT NULL AND KEY_ID(N'CopilotInsightsSecretKey') IS NOT NULL
+BEGIN
+    BEGIN TRY
+        OPEN SYMMETRIC KEY CopilotInsightsSecretKey DECRYPTION BY CERTIFICATE CopilotInsightsSecretCert;
+        CLOSE SYMMETRIC KEY CopilotInsightsSecretKey;
+    END TRY
+    BEGIN CATCH
+        IF ERROR_NUMBER() NOT IN (15581, 15329, 15466)
+            THROW;
+        IF EXISTS (SELECT 1 FROM sys.certificates WHERE pvt_key_encryption_type = 'MK' AND name <> N'CopilotInsightsSecretCert')
+           OR EXISTS (SELECT 1 FROM sys.asymmetric_keys WHERE pvt_key_encryption_type = 'MK')
+           OR EXISTS (SELECT 1 FROM sys.database_scoped_credentials)
+            RAISERROR('The stored secrets cannot be read on this SQL Server instance, and its database master key protects other keys too, so it is left as it is: open the master key with its password, or restore the original instance''s service master key, then run this again.', 0, 1) WITH NOWAIT;
+        ELSE
+        BEGIN
+            IF OBJECT_ID(N'dash.Secret', N'U') IS NOT NULL EXEC (N'DELETE FROM dash.Secret;');
+            EXEC (N'DROP SYMMETRIC KEY CopilotInsightsSecretKey;');
+            EXEC (N'DROP CERTIFICATE CopilotInsightsSecretCert;');
+            EXEC (N'DROP MASTER KEY;');
+            RAISERROR('The stored secrets were encrypted on another SQL Server instance and cannot be read here: their keys are made again. Enter the email password or client secret, and the webhook address, again in Admin.', 0, 1) WITH NOWAIT;
+        END;
+    END CATCH;
+END;
 IF NOT EXISTS (SELECT 1 FROM sys.symmetric_keys WHERE name = N'##MS_DatabaseMasterKey##')
 BEGIN
     DECLARE @mk NVARCHAR(200) = CONCAT(CONVERT(NVARCHAR(64), CRYPT_GEN_RANDOM(32), 2), N'aA1!');

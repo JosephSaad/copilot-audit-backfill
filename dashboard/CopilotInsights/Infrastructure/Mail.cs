@@ -14,6 +14,9 @@ public sealed class SecretStore(Db db)
 {
     public const string SmtpPassword = "SmtpPassword", ExoClientSecret = "ExoClientSecret", AlertWebhookUrl = "AlertWebhookUrl";
 
+    /// <summary>Where the stored password may be sent (2.4.12): <see cref="MailConfig.PasswordTarget"/> when it was entered.</summary>
+    public const string SmtpPasswordFor = "SmtpPasswordFor";
+
     public async Task<string?> GetAsync(string name)
     {
         await using var c = db.Open();
@@ -24,9 +27,20 @@ public sealed class SecretStore(Db db)
         return p.Get<string?>("@Value");
     }
 
-    /// <summary>Stores the secret; null or empty removes it.</summary>
-    public Task SetAsync(string name, string? value, string by) =>
-        db.ExecuteAsync("EXEC dash.usp_SetSecret @Name = @name, @Value = @value, @By = @by;", new { name, value, by });
+    /// <summary>
+    /// Stores the secret; null or empty removes it. A secret SQL Server cannot encrypt here is refused in words (2.4.12):
+    /// on a database restored to another instance its keys cannot be opened, and the save ended on the error page,
+    /// unaudited. The installer makes the keys again (Create-CopilotOperationsSchema.sql).
+    /// </summary>
+    public async Task SetAsync(string name, string? value, string by)
+    {
+        try { await db.ExecuteAsync("EXEC dash.usp_SetSecret @Name = @name, @Value = @value, @By = @by;", new { name, value, by }); }
+        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number is 15581 or 15329 or 15466 or 15313)   // a key that cannot be opened
+        {
+            throw new ArgumentException("it was not stored: SQL Server could not encrypt it (" + ex.Message.TrimEnd('.') + "). " +
+                "If the database was restored to another SQL Server instance, run the installer again, which makes its keys again, then enter it here again.", ex);
+        }
+    }
 }
 
 public enum MailMode { Off, ExchangeOnline, Smtp }
@@ -43,6 +57,8 @@ public sealed record MailConfig
     public string Security { get; init; } = "StartTls";
     public string? User { get; init; }
     public string? Password { get; init; }
+    /// <summary>The <see cref="PasswordTarget"/> the stored password was entered for; null for one stored before 2.4.12.</summary>
+    public string? PasswordFor { get; init; }
     public bool AcceptAnyCertificate { get; init; }
     /// <summary>Exchange Online: Password (SMTP AUTH) or OAuth (client credentials, SMTP.SendAsApp).</summary>
     public string ExoAuth { get; init; } = "Password";
@@ -53,7 +69,7 @@ public sealed record MailConfig
     public const string ExchangeOnlineHost = "smtp.office365.com";
     public static readonly string[] SecurityChoices = ["StartTls", "Implicit", "Auto", "None"];
 
-    public static MailConfig Load(IReadOnlyDictionary<string, string?> s, string? password, string? clientSecret)
+    public static MailConfig Load(IReadOnlyDictionary<string, string?> s, string? password, string? clientSecret, string? passwordFor = null)
     {
         string? V(string k) => s.TryGetValue(k, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
         return new MailConfig
@@ -62,11 +78,27 @@ public sealed record MailConfig
             From = V("MailFrom"), ReplyTo = V("MailReplyTo"), Host = V("SmtpHost"),
             Port = int.TryParse(V("SmtpPort"), out var port) ? port : 587,
             Security = V("SmtpSecurity") is { } sec && SecurityChoices.Contains(sec, StringComparer.OrdinalIgnoreCase) ? SecurityChoices.First(x => x.Equals(sec, StringComparison.OrdinalIgnoreCase)) : "StartTls",
-            User = V("SmtpUser"), Password = password, AcceptAnyCertificate = V("SmtpAcceptAnyCertificate") == "1",
+            User = V("SmtpUser"), Password = password, PasswordFor = passwordFor, AcceptAnyCertificate = V("SmtpAcceptAnyCertificate") == "1",
             ExoAuth = V("ExoAuth") is "OAuth" ? "OAuth" : "Password",
             TenantId = V("ExoTenantId"), ClientId = V("ExoClientId"), ClientSecret = clientSecret,
         };
     }
+
+    /// <summary>
+    /// Where a stored password goes and as whom (2.4.12): the way of sending, the server, port and security, whether the
+    /// server's certificate is checked, and the user name. The password is sent only while this is what it was entered for.
+    /// Before, an administrator could point the site at a server of their own, leave the password field empty, and have
+    /// the site sign in there with the stored mailbox or relay password, in clear text with security None.
+    /// </summary>
+    public string PasswordTarget()
+    {
+        var (host, port, tls) = Endpoint();
+        var user = Mode == MailMode.ExchangeOnline ? User ?? From : User;
+        return string.Join("|", Mode, host.ToLowerInvariant(), port.ToString(System.Globalization.CultureInfo.InvariantCulture), tls, user?.ToLowerInvariant() ?? "", AcceptAnyCertificate ? "any certificate" : "checked");
+    }
+
+    /// <summary>True when the stored password was entered for another server, port, security or user than these.</summary>
+    public bool PasswordMoved => !string.IsNullOrEmpty(Password) && PasswordFor is not null && PasswordFor != PasswordTarget();
 
     /// <summary>The server, port and TLS actually used: Exchange Online is always smtp.office365.com:587 with STARTTLS.</summary>
     public (string Host, int Port, SecureSocketOptions Tls) Endpoint() => Mode == MailMode.ExchangeOnline
@@ -85,6 +117,8 @@ public sealed record MailConfig
         var p = new List<string>();
         if (Mode == MailMode.Off) { p.Add("Email is off."); return p; }
         if (From is null || !MailboxAddress.TryParse(From, out _)) p.Add("Set the From address.");
+        if (PasswordMoved && (Mode == MailMode.Smtp ? User is not null : ExoAuth != "OAuth"))
+            p.Add("The server, port, security or user name changed after the password was stored: type the password again in Admin > Email.");
         if (ReplyTo is not null && !MailboxAddress.TryParse(ReplyTo, out _)) p.Add("The Reply-To address is not an email address.");
         if (Mode == MailMode.Smtp)
         {
@@ -123,11 +157,22 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
         var s = await settings.AllAsync();
         var mode = s.GetValueOrDefault("MailMode");
         if (mode is null || mode.Equals("Off", StringComparison.OrdinalIgnoreCase)) return MailConfig.Load(s, null, null);
-        return MailConfig.Load(s, await secrets.GetAsync(SecretStore.SmtpPassword), await secrets.GetAsync(SecretStore.ExoClientSecret));
+        return MailConfig.Load(s, await secrets.GetAsync(SecretStore.SmtpPassword), await secrets.GetAsync(SecretStore.ExoClientSecret), await secrets.GetAsync(SecretStore.SmtpPasswordFor));
     }
 
     /// <summary>Sends one message and logs it. Returns null when sent, else why not.</summary>
-    public async Task<string?> SendAsync(string kind, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct = default)
+    public async Task<string?> SendAsync(string kind, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct = default) =>
+        (await DeliverAsync(kind, to, subject, html, text, ct)).Error;
+
+    /// <summary>A status that sending again will not change (2.4.12): email is off, or the alert has no recipients.</summary>
+    public static bool Settled(string status) => status is "Sent" or "NoRecipients" or "MailOff";
+
+    /// <summary>
+    /// The same, with the status logged (Sent, Failed, NoRecipients or MailOff), so an alert can tell a failure worth
+    /// another try from one that is not (2.4.12). A stop that cancels the send leaves it unsent: once the message is on
+    /// its way it is no longer cancelled (SendCoreAsync).
+    /// </summary>
+    public async Task<(string Status, string? Error)> DeliverAsync(string kind, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct = default)
     {
         string? error;
         string status;
@@ -154,7 +199,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
                 new { kind, subject = Cut(subject, 400), to = Cut(string.Join("; ", to.Select(a => a.Address)), 2000), status, error = error is null ? null : Cut(error, 2000) });
         }
         catch (Exception ex) { log.LogError(ex, "Could not write dash.NotificationLog"); }
-        return error;
+        return (status, error);
     }
 
     async Task SendCoreAsync(MailConfig cfg, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct)
@@ -176,16 +221,28 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
             await client.AuthenticateAsync(cfg.User ?? cfg.From!, cfg.Password!, ct);
         else if (cfg.User is not null)
             await client.AuthenticateAsync(cfg.User, cfg.Password!, ct);
-        await client.SendAsync(msg, ct);
-        await client.DisconnectAsync(true, ct);
+        /* Once the message is on its way it is not cancelled (2.4.12): a stop part-way could not tell whether the server
+           took it, and a manager digest cut off there was neither sent nor tried again. A stop before this point leaves the
+           message unsent, for certain; the client's own timeout still bounds what follows. */
+        await client.SendAsync(msg, CancellationToken.None);
+        await client.DisconnectAsync(true, CancellationToken.None);
     }
 
     sealed record TokenReply([property: JsonPropertyName("access_token")] string AccessToken, [property: JsonPropertyName("expires_in")] int ExpiresIn);
 
+    /// <summary>
+    /// Where a token is kept (2.4.12): under the app and a hash of the secret that got it, so it answers only a
+    /// configuration holding that same secret. Dashboard tenants that share one app and secret share the token. Before,
+    /// the key was the tenant and app alone: an administrator of another dashboard tenant who typed in this one's tenant
+    /// and app id, with any secret, was handed its token, and a mistyped new secret passed Send a test for an hour.
+    /// </summary>
+    public static string TokenKey(MailConfig cfg) =>
+        $"exo-token:{cfg.TenantId}:{cfg.ClientId}:{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cfg.ClientSecret ?? "")))}";
+
     /// <summary>An app-only token for Exchange Online SMTP (scope outlook.office365.com), cached until shortly before it expires.</summary>
     async Task<string> TokenAsync(MailConfig cfg, CancellationToken ct)
     {
-        var key = $"exo-token:{cfg.TenantId}:{cfg.ClientId}";   // per app, so the same across dashboard tenants
+        var key = TokenKey(cfg);
         if (cache.TryGetValue(key, out string? t) && t is not null) return t;
         using var http = httpFactory.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(30);

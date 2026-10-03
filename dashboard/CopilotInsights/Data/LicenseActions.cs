@@ -40,9 +40,10 @@ WHERE NOT EXISTS (SELECT 1 FROM dash.LicenseAction AS la
     /// The button that makes an export (2.4.12): a form that posts, with the anti-forgery token, to the page's handler at the
     /// part of the organization shown. An export records who it names, so it was never meant to be a link: any page or email
     /// a Licensing role holder opened could fetch one and record an export in their name, with an audit entry saying they
-    /// made it. <paramref name="extra"/> names the handler and the export's own choices ("kind=revoke&amp;handler=bulk").
+    /// made it. <paramref name="extra"/> names the handler and the export's own choices ("kind=revoke&amp;handler=bulk"), and
+    /// <paramref name="tenantQuery"/> is the page's TenantQuery: with several tenants a post runs only in the tenant its address names.
     /// </summary>
-    public static string Button(ReportContext c, string path, string extra, string token, string text) =>
-        $"<form class=\"inline\" method=\"post\" action=\"{WebUtility.HtmlEncode(c.Url(path, extra: extra))}\">{token}" +
+    public static string Button(ReportContext c, string path, string extra, string token, string tenantQuery, string text) =>
+        $"<form class=\"inline\" method=\"post\" action=\"{WebUtility.HtmlEncode(c.Url(path, extra: extra) + tenantQuery)}\">{token}" +
         $"<button class=\"btn\" type=\"submit\">{WebUtility.HtmlEncode(text)}</button></form>";
 }

@@ -111,8 +111,8 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         var choices = string.Join(" · ", Aheads.Select(a =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"ahead={a}"))}\"{(a == ahead ? " class=\"on\"" : "")}>Next {a} days</a>"));
         var exports = past == 0 ? "" :
-            $"<div class=\"sub\">Past their date: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), "Entra bulk remove members file")} · " +
-            $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), "PowerShell script")}, recorded for License action outcomes.</div>";
+            $"<div class=\"sub\">Past their date: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk remove members file")} · " +
+            $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {choices}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "Leaves: the earlier of the account expiry set in AD (read by each directory load) and the leave date in Entra (read by the license tool with -IncludeLeaveDates). " +
             "Only accounts still enabled: disabled and deleted ones are on Licenses on disabled accounts. The files carry the people past their date only.", "full", CsvUrl()));

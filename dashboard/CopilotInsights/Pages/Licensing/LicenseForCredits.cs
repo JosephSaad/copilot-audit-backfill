@@ -114,8 +114,8 @@ SELECT COUNT(*), ISNULL(SUM(x.M), 0) FROM #x AS x;", Ctx.Args(new { q = pg.Like,
         var show = string.Join(" · ", new[] { ("cheaper", "Cheaper with a license"), ("all", "Everyone paying in credits") }.Select(o =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"show={o.Item1}"))}\"{((o.Item1 == "all") == AllShown ? " class=\"on\"" : "")}>{o.Item2}</a>"));
         var exports = AllShown || people == 0 ? "" :
-            $"<div class=\"sub\">License them: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), "Entra bulk add members file")} · " +
-            $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), "PowerShell script")}, recorded for License action outcomes.</div>";
+            $"<div class=\"sub\">License them: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk add members file")} · " +
+            $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {show}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Metered: interactions through an agent, or in Copilot Chat that read work content without searching the web, by people with no Copilot license today. " +
             $"Credits a month: those interactions, scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access); an agent grounded only in public data costs nothing, so this errs high. " +
