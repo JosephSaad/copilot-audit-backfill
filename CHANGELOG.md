@@ -34,6 +34,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   row or page locks, but it still holds a schema-stability lock while a query runs: a query on a
   table the nightly run is truncating waits for it. The script's description and RUNBOOK section 5g
   say so. Two unused variables are gone.
+- **Labeled content by unit names resource types as the other pages do.** *Resources read, by type
+  and label* showed each type as the audit log records it (`CITATION`,
+  `http://schema.skype.com/HyperLink`) even after Admin › Value names gave it a name, while Apps,
+  Usage by license and Compliance showed the name. It shows the name too now, and its note says
+  where type and label names are set.
 
 ## [2.4.12] - 2026-10-03
 
