@@ -378,7 +378,7 @@ WHERE g.Principal IN @list;", new { list });
             if (mine.Count == 0) continue;
             var roleCell = string.Concat(mine.Select(g =>
                 $"<span class=\"grant\">{E(g.Role)}" +
-                Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + Button("Remove", $"Remove {g.Role} from {g.Principal}?", quiet: true)) + "</span>"));
+                Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}")) + "</span>"));
             t.Rows.Add([principal, mine[0].DisplayName, mine[0].PrincipalType, new HtmlString(roleCell),
                         string.Join("; ", mine.Select(g => g.Note).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct()),
                         string.Join(", ", mine.Select(g => g.GrantedBy).Distinct()), mine.Max(g => g.GrantedUtc)]);

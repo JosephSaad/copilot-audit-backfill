@@ -450,6 +450,10 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     protected static string Button(string text, string? confirm = null, bool quiet = false) =>
         $"<button class=\"btn{(quiet ? " quiet" : "")}\" type=\"submit\"{(confirm is null ? "" : $" data-confirm=\"{E(confirm)}\"")}>{E(text)}</button>";
 
+    /// <summary>A small x box that removes the item beside it (2.4.12), named for screen readers and asked to confirm.</summary>
+    protected static string RemoveBox(string what) =>
+        $"<button class=\"btn quiet x\" type=\"submit\" aria-label=\"{E(what)}\" title=\"{E(what)}\" data-confirm=\"{E(what)}?\">&#215;</button>";
+
     protected static string Hidden(string name, object? value) => $"<input type=\"hidden\" name=\"{name}\" value=\"{E(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture))}\"/>";
 
     /// <summary>A hidden anti-forgery field for forms the page writes itself.</summary>
