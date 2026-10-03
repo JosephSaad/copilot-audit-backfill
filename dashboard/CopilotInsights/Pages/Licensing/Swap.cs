@@ -110,19 +110,20 @@ SELECT (SELECT COUNT(*) FROM g) AS Idle, (SELECT COUNT(*) FROM t) AS Wanting,
         var choices = string.Join(" · ", Within.Select(kv =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"within={kv.Key}"))}\"{(kv.Key == within ? " class=\"on\"" : "")}>{kv.Value.Label}</a>"));
         string Link(string side, string handler, string text) =>
-            $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"within={within}&side={side}&handler={handler}"))}\">{text}</a>";
+            CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, $"within={within}&side={side}&handler={handler}", Token(), text);
         var exports = pairs.Count == 0 ? "" :
-            $"<p class=\"sub\">Apply it, in this order: 1. take the licenses back, {Link("take", "bulk", "Entra bulk remove members file")} · {Link("take", "script", "PowerShell script")}; " +
+            $"<div class=\"sub\">Apply it, in this order: 1. take the licenses back, {Link("take", "bulk", "Entra bulk remove members file")} · {Link("take", "script", "PowerShell script")}; " +
             $"2. give them out, {Link("give", "bulk", "Entra bulk add members file")} · {Link("give", "script", "PowerShell script")}. " +
-            "Both are recorded, so License action outcomes shows whether each change happened.</p>";
+            "Both are recorded, so License action outcomes shows whether each change happened.</div>";
         Panels.Add(new("Pairs", new HtmlString($"<p class=\"sub\">Match: {choices}</p>" + await ProtectedNoteAsync() + exports + t.Render().Value),
             $"Take from: a Copilot license held at least {ActionsModel.RevokeAfterDays} days whose Premium features were not used in the last 30 days (the revoke rule). " +
             $"Give to: no license, and the free Copilot Chat used on {ActionsModel.UpgradeDays} or more of the last 30 days (the upgrade rule). " +
             "Within each unit the least-used license goes to the keenest user; people on either side left over are in the figures above.", "full", CsvUrl()));
     }
 
-    public Task<IActionResult> OnGetBulkAsync() => ExportAsync(false);
-    public Task<IActionResult> OnGetScriptAsync() => ExportAsync(true);
+    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
+    public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 
     /* The files carry the matched pairs only: taking back a license with nobody to give it to is the revoke list's job. */
     async Task<IActionResult> ExportAsync(bool script)

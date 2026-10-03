@@ -30,8 +30,14 @@ pop AS (SELECT du.UserKey, ISNULL(a.D, 0) AS D, ISNULL(a.I, 0) AS I, ISNULL(a.S,
         LEFT JOIN act AS a ON a.UserKey = du.UserKey
         WHERE a.I > 0 OR du.CopilotLicenseToday = N'Licensed')";
 
+    /// <summary>
+    /// The working days of the period that the data covers (2.4.12): from its start, or the first day with data when that is
+    /// later. The period's own weekdays were counted in bi.DimDate, which begins on 1 January of the first year with data,
+    /// so a 365-day period over 130 working days of data counted 192, and the Power and Regular bars rose with it.
+    /// </summary>
     public static async Task<int> WorkdaysAsync(Db db, ReportContext c) =>
-        await db.ScalarAsync<int>("SELECT COUNT(*) FROM bi.DimDate WHERE DateKey BETWEEN @k0 AND @k1 AND IsWeekday = 1;", c.Args());
+        await db.ScalarAsync<int>(@"SELECT COUNT(*) FROM bi.DimDate WHERE DateKey BETWEEN @k0 AND @k1 AND IsWeekday = 1
+  AND DateKey >= ISNULL((SELECT MIN(DateKey) FROM dash.UserDay), @k0);", c.Args());
 }
 
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)

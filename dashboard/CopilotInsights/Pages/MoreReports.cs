@@ -21,15 +21,16 @@ namespace CopilotInsights.Pages.Leadership
             var split = await Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
             if (!split)
                 Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
-            var prev = new ReportContext
-            {
-                Viewer = Ctx.Viewer, Days = Ctx.Days, Start = Ctx.Start.AddDays(-Ctx.Days), End = Ctx.End.AddDays(-Ctx.Days),
-                Root = Ctx.Root, RootName = Ctx.RootName, MinGroupSize = Ctx.MinGroupSize, InactiveDays = Ctx.InactiveDays, OrgTopUpn = Ctx.OrgTopUpn,
-            };
+            var prev = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
+            /* Set against the period before only where the data covers all of it (2.4.12, see OpsReports.Covers): at 180 days
+               on 182 days of data, "+3997% on the 180 days before" was 1,270 people against the 31 of two days. */
+            var first = await OpsReports.FirstDayAsync(Db);
+            var full = OpsReports.Covers(prev, first);
             var now = await m.TotalsAsync(Ctx);
-            var before = await m.TotalsAsync(prev);
+            var before = full ? await m.TotalsAsync(prev) : new Totals();
             string Delta(double a, double b, bool pct = false) =>
-                b == 0 ? "no earlier figure" : pct ? $"{(a - b) * 100:+0.0;-0.0;0} points on the {Ctx.Days} days before" : $"{(a - b) / b:+0%;-0%;0%} on the {Ctx.Days} days before";
+                !full ? OpsReports.NoFullPeriodBefore(first)
+                : b == 0 ? "no earlier figure" : pct ? $"{(a - b) * 100:+0.0;-0.0;0} points on the {Ctx.Days} days before" : $"{(a - b) / b:+0%;-0%;0%} on the {Ctx.Days} days before";
             double Adopt(Totals t) => t.LicensedNow > 0 ? t.ActiveLicensed / (double)t.LicensedNow : 0;
             /* Premium + free only = Adoption: every active license holder either used a Premium feature or did not. */
             double Premium(Totals t) => t.LicensedNow > 0 ? t.PremiumLicensed / (double)t.LicensedNow : 0;
@@ -46,7 +47,7 @@ namespace CopilotInsights.Pages.Leadership
             Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
 
             var u1 = (await m.UnitsAsync(Ctx)).ToDictionary(u => u.Unit);
-            var u0 = (await m.UnitsAsync(prev)).ToDictionary(u => u.Unit);
+            var u0 = full ? (await m.UnitsAsync(prev)).ToDictionary(u => u.Unit) : new Dictionary<string, UnitRow>();
             var t = new Table
             {
                 Headers = split
@@ -77,7 +78,8 @@ namespace CopilotInsights.Pages.Leadership
             Panels.Add(new("By unit, against the period before", t.Render(),
                 $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out, with the smallest others where they would together be under it. "
                 + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
-                + "Change in adoption is in percentage points; the others are relative."));
+                + "Change in adoption is in percentage points; the others are relative."
+                + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}.")));
         }
     }
 }

@@ -16,12 +16,17 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
     protected override async Task BuildAsync()
     {
         var prev = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
-        var (t, p) = (await metrics.TotalsAsync(Ctx), await metrics.TotalsAsync(prev));
-        static string Change(double now, double before) => before == 0 ? "none in the period before" : $"{now / before - 1:+0%;-0%;0%} on the period before";
-        double? Adopt(Totals x) => x.LicensedNow > 0 ? (double)x.ActiveLicensed / x.LicensedNow : null;
-        Kpis.Add(new("People using Copilot", Num(t.Active), Change(t.Active, p.Active)));
+        /* Set against the period before only where the data covers all of it (2.4.12, see OpsReports.Covers): the board read
+           "+3997% on the period before" at 180 days, against the two days of data before them. */
+        var first = await OpsReports.FirstDayAsync(Db);
+        var full = OpsReports.Covers(prev, first);
+        var (t, p) = (await metrics.TotalsAsync(Ctx), full ? await metrics.TotalsAsync(prev) : null);
+        string Change(double now, double? before) => before is not double b ? OpsReports.NoFullPeriodBefore(first)
+            : b == 0 ? "none in the period before" : $"{now / b - 1:+0%;-0%;0%} on the period before";
+        double? Adopt(Totals? x) => x is { LicensedNow: > 0 } ? (double)x.ActiveLicensed / x.LicensedNow : null;
+        Kpis.Add(new("People using Copilot", Num(t.Active), Change(t.Active, p?.Active)));
         Kpis.Add(new("Adoption", Pct(Adopt(t)), Adopt(p) is double a0 && Adopt(t) is double a1 ? $"{(a1 - a0) * 100:+0.#;-0.#;0} points" : "of licensed people"));
-        Kpis.Add(new("Interactions", Num(t.Interactions), Change(t.Interactions, p.Interactions)));
+        Kpis.Add(new("Interactions", Num(t.Interactions), Change(t.Interactions, p?.Interactions)));
         Kpis.Add(new("Licenses", Num(t.LicensedNow), $"{t.ActiveLicensed:#,0} used in the period"));
 
         Panels.Add(new("Print", new HtmlString(
@@ -35,6 +40,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People using Copilot"),
             TrendNote + " Dashed rules mark events (Admin > Classifications and events)."));
 
+        /* The targets for the part of the organization printed, not every target (2.4.12, see OpsReports.Visible). */
         var targets = await reports.TargetsAsync(Ctx);
         if (targets.Count > 0)
         {
@@ -51,7 +57,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
         var hours = v.ByApp.Sum(x => x.Hours);
         var worth = v.ByApp.Sum(x => x.Value);
-        var cost = Licensing.Price.ForPeriod(t.LicensedNow, price, Ctx.Days);
+        var cost = Licensing.Price.ForLicenseDays(await reports.LicenseDaysAsync(Ctx), price);
         Panels.Add(new("Estimated value", new HtmlString(
             $"<div class=\"kpis\"><div class=\"kpi\"><div class=\"klabel\">Hours saved (estimate)</div><div class=\"kvalue\">{hours:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Estimated value ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
@@ -59,25 +65,29 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             $"<div class=\"kpi\"><div class=\"klabel\">Return on license cost</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
             $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin > Targets and assumptions).", "half"));
 
-        var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
+        /* The pool is the whole tenant's: for the viewers License pool shows it to, the whole-organization view or the
+           Licensing role (2.4.12). Every viewer of the board pack had it, whatever their part of the organization. */
+        var pool = Viewer.OrgWide || Viewer.Has(Roles.Licensing) ? (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList() : [];
         var counts = await reports.ActionCountsAsync(Ctx);
         var lt = new Table { Headers = ["Licenses", ""], Numeric = new HashSet<int> { 1 }, Sortable = false };
-        if (pool.Count > 0) { lt.Rows.Add(["Bought", pool.Sum(x => x.Bought)]); lt.Rows.Add(["Assigned", pool.Sum(x => x.Consumed)]); }
+        var tenant = Ctx.Root is null ? "" : " (the whole tenant)";
+        if (pool.Count > 0) { lt.Rows.Add(["Bought" + tenant, pool.Sum(x => x.Bought)]); lt.Rows.Add(["Assigned" + tenant, pool.Sum(x => x.Consumed)]); }
         lt.Rows.Add(["Premium licenses held", t.LicensedNow]);
         lt.Rows.Add(["Used in the period", t.ActiveLicensed]);
         lt.Rows.Add(["Unused for 30 days, to revoke", counts.GetValueOrDefault("revoke")]);
         lt.Rows.Add(["Free Copilot Chat users ready to upgrade", counts.GetValueOrDefault("upgrade")]);
         Panels.Add(new("Licenses", lt.Render(), $"At {price:#,0.##} {cur} a license a month, the unused licenses cost {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month.", "half"));
 
-        var rp = await metrics.TrendAsync(prev);
+        var rp = full ? await metrics.TrendAsync(prev) : null;
         var rt = new Table { Headers = ["Risk signal", "This period", "Period before"], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };
-        rt.Rows.Add(["Jailbreak attempts", tr.Sum(x => x.Jailbreak), rp.Sum(x => x.Jailbreak)]);
-        rt.Rows.Add(["Prompt injection detected", tr.Sum(x => x.Injection), rp.Sum(x => x.Injection)]);
-        rt.Rows.Add(["Blocked resources", tr.Sum(x => x.Blocked), rp.Sum(x => x.Blocked)]);
-        rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp.Sum(x => x.Labeled)]);
+        rt.Rows.Add(["Jailbreak attempts", tr.Sum(x => x.Jailbreak), rp?.Sum(x => x.Jailbreak)]);
+        rt.Rows.Add(["Prompt injection detected", tr.Sum(x => x.Injection), rp?.Sum(x => x.Injection)]);
+        rt.Rows.Add(["Blocked resources", tr.Sum(x => x.Blocked), rp?.Sum(x => x.Blocked)]);
+        rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp?.Sum(x => x.Labeled)]);
         /* A policy breach, counted today (2.4.5): there is no earlier figure to set beside it. */
         rt.Rows.Add(["Copilot licenses on non-human accounts (today)", (await CopilotInsights.Data.NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args())).Count, null]);
-        Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance.", "half"));
+        Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance." +
+            (full ? "" : $" The period before is left blank: {OpsReports.NotCovered(first)}."), "half"));
 
         var units = SmallGroups.Shown(await metrics.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();
         if (units.Count > 1)

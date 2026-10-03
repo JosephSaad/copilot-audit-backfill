@@ -10,17 +10,20 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>The license price and currency, from Admin > Access.</summary>
-static class Price
+public static class Price
 {
     public static async Task<(decimal Monthly, string Currency)> GetAsync(Settings s) =>
         (decimal.TryParse(await s.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
          await s.StringAsync("LicenseCurrency") ?? "USD");
 
     /// <summary>
-    /// What licenses cost over a period of days, at a price a month: a month is a twelfth of a year (2.4.10; Value and time
-    /// saved took a month for 30.4 days and the Board pack for 30, so the same licenses cost two amounts).
+    /// What licenses cost for the days they were held (OpsReports.LicenseDaysAsync, a person a day), at a price a month: a
+    /// month is a twelfth of a year (2.4.10; Value and time saved took a month for 30.4 days and the Board pack for 30, so the
+    /// same licenses cost two amounts). It was today's licenses times the period's days (2.4.12), so a rollout during the
+    /// period, or a period reaching back before the licenses, was charged in full: the return halved from 180 days to 365
+    /// on the same value.
     /// </summary>
-    public static decimal ForPeriod(int licenses, decimal monthly, int days) => licenses * monthly * days * 12m / 365m;
+    public static decimal ForLicenseDays(long licenseDays, decimal monthly) => licenseDays * monthly * 12m / 365m;
 }
 
 /// <summary>Seats bought against seats assigned against seats used: the renewal question.</summary>
@@ -46,8 +49,8 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         var (price, cur) = await Price.GetAsync(S.Settings);
         var copilot = pool.Where(p => p.IsCopilot).ToList();
         int bought = copilot.Sum(p => p.Bought), assigned = copilot.Sum(p => p.Consumed);
-        var whole = await S.Contexts.CreateAsync(Viewer, 30, null);
-        var t = await metrics.TotalsAsync(whole);
+        /* The use set against the tenant's seats is the tenant's (2.4.12, see OpsReports.Tenant). */
+        var t = await metrics.TotalsAsync(OpsReports.Tenant(Ctx));
         Kpis.Add(new("Copilot seats bought", Num(bought), $"{copilot.Sum(p => p.Warning):#,0} in the grace period after expiry"));
         Kpis.Add(new("Assigned", Num(assigned), bought > 0 ? $"{Pct(Ratio(assigned, bought))} of those bought" : null,
             bought > 0 && assigned >= bought * (await S.Settings.IntAsync("PoolWarnPercent", 95)) / 100.0 ? "warn" : null));
@@ -147,15 +150,18 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
         };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.Reason, r.LicensedSinceUtc?.Date, r.LastUsed]);
         CsvTable = t;
+        /* The files are for the part of the organization shown (2.4.12): built from the bare address, they carried no org=,
+           so a division's five accounts on the page became the whole organization's twenty-seven in the file and the record. */
         var exports = pg.Total == 0 ? "" :
-            $"<p class=\"sub\">To reclaim them: <a href=\"{WebUtility.HtmlEncode(Request.Path + "?handler=bulk")}\">Entra bulk-remove file</a> · " +
-            $"<a href=\"{WebUtility.HtmlEncode(Request.Path + "?handler=script")}\">PowerShell script</a> (run by a license administrator; the dashboard changes nothing).</p>";
+            $"<div class=\"sub\">To reclaim them: {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), "Entra bulk-remove file")} · " +
+            $"{LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), "PowerShell script")} (run by a license administrator; the dashboard changes nothing).</div>";
         Panels.Add(new("People", new HtmlString(exports + pg.Controls(Request, new Dictionary<string, string> { ["name"] = "Name", ["dept"] = "Department", ["since"] = "Licensed longest" }).Value + t.Render().Value),
             "AD's account state comes from the nightly directory load, Entra's from the license tool.", "full", CsvUrl()));
     }
 
-    public async Task<IActionResult> OnGetBulkAsync() => await ExportAsync(false);
-    public async Task<IActionResult> OnGetScriptAsync() => await ExportAsync(true);
+    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    public async Task<IActionResult> OnPostBulkAsync() => await ExportAsync(false);
+    public async Task<IActionResult> OnPostScriptAsync() => await ExportAsync(true);
 
     async Task<IActionResult> ExportAsync(bool script)
     {

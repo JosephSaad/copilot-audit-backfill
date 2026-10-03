@@ -122,6 +122,8 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 
 An L2 manager, who reports directly to the CEO, sees the whole organization. The Leadership pages are theirs, and so are the Regions, People, App owners and Governance pages. Whole-organization access doesn't include a role's section or its named lists: those need the role.
 
+The pages whose scope is *Tenant* (License pool, Budget and renewal) are the tenant's in every figure, for a viewer with the Licensing role and their own part of the organization too (2.4.12): they set that viewer's own part's use against the tenant's seats, which made a renewal figure that was neither. The Board pack shows the tenant's seats bought and assigned only to the viewers License pool shows them to, the whole-organization view and the Licensing role, and says they are the whole tenant's when it is printed for a part of the organization.
+
 ## Who sees what
 
 **Leaders are never on a revoke or train list (2.4.6).** Levels 1 to N of the organization (Admin › Access › *Never on revoke or train lists*; 5 unless changed) are left out of every list that recommends taking a license away, moving to pay-as-you-go, or training: the pages, their CSVs and removal files, the counts in the digests, Board pack and Budget and renewal, and the data API. Each such list says so above it. Lists of accounts nobody can use (disabled and departed accounts, departures ahead, non-human accounts) keep everyone.
@@ -176,6 +178,8 @@ Anything refused is logged as a warning, and the viewer is treated as not in the
 ## Periods
 
 Every report has the same choice: the last **7, 14, 30, 90, 180 or 365 days**, ending on the last complete day with data. The default is 30, which admins can change. Periods of 30 days or less trend by day. Longer ones trend by Saturday-to-Friday week, labeled by the Friday, and the first and last week may be partial.
+
+**A period longer than the data (2.4.12).** A new install holds about 180 days, so a 365-day period reaches back before the first day with data. Figures *a month* (Better with a license, Better on pay-as-you-go, Agents costing credits) are scaled from the days the data covers, not the period's, and Engagement counts its working days from the first day with data. A comparison with the period before (the Scorecard, the Board pack, the Leaderboard and the digests) is made only when the data covers all of that period; otherwise the figure says *no full period before* and the day the data starts, and the Board pack leaves its *Period before* column blank. Before 2.4.12 a 180-day period on 182 days of data was set against the two days before it, "+3997%", and a 365-day period halved everyone's credits a month.
 
 A few views set their own window, and each one says so on the page:
 
@@ -270,7 +274,7 @@ Passwords and client secrets are stored in `dash.Secret`, encrypted by SQL Serve
 
 An alert fires once per occurrence (`dash.AlertState` remembers what it last saw). The very first check notes where things stand rather than announcing every existing agent and leaver. **Run the checks now** runs a round at once and says what it did.
 
-**Digests** are scheduled emails: *Leadership*, *Adoption*, *Licensing*, *Security* or *Value*, daily, weekly or monthly at an hour in the reporting time zone, for the whole organization or one manager's, over a period of 7 to 365 days. They carry aggregates only, never a named person, so they can go to anyone the scope suits. **Preview** shows one as it would arrive; **Send now** sends one today.
+**Digests** are scheduled emails: *Leadership*, *Adoption*, *Licensing*, *Security* or *Value*, daily, weekly or monthly at an hour in the reporting time zone, for the whole organization or one manager's, over a period of 7 to 365 days. They carry aggregates only, never a named person, so they can go to anyone the scope suits. **Preview** shows one as it would arrive; **Send now** sends one today. A digest for one manager's part of the organization carries that part alone (2.4.12): the Adoption digest lists only the targets inside it, and the Licensing digest leaves out the tenant's license pool, which only the whole organization's digest carries. The Leadership digest ranks adoption only over units with at least the minimum group size of license holders and combines the rest in one row, as the Overview's chart does; it used to list a team of twelve with one license holder as "12 | 1 | 100%".
 
 **Manager digests** go to every manager with at least a set number of people under them, weekly or monthly: the Leadership digest for their own organization, to the email address AD holds for them. An administrator stops one manager's in Admin › Alerts and digests › *Managers who do not get the digest* (opt-outs made before 2.4.4 are kept). When the dashboard is limited to levels, only managers within them get it. They are not sent in privacy mode, since a unit is named after its manager.
 
@@ -282,15 +286,15 @@ A manager digest that fails is tried again an hour later, three times in all (`d
 
 ## Targets, value, training and champions
 
-**Targets** (Admin › Targets and assumptions): for the whole organization or one manager's, *Adoption* (licensed people using it, over people licensed), *Share of people active*, or *People active*, from a start date to a due date. Adoption › Targets shows each against its baseline (the 30 days before it started), where it is now (the last 30 days) and where a straight line to the target says it should be: met, on track, behind or missed.
+**Targets** (Admin › Targets and assumptions): for the whole organization or one manager's, *Adoption* (licensed people using it, over people licensed), *Share of people active*, or *People active*, from a start date to a due date. Adoption › Targets shows each against its baseline (the 30 days before it started), where it is now (the last 30 days) and where a straight line to the target says it should be: met, on track, behind or missed. A report shows the targets for the part of the organization it covers (2.4.12): every target for the whole organization, otherwise those for a manager inside that part, never the whole organization's. Adoption › Targets, the Board pack, the Adoption digest and `/api/v1/targets` share the rule; before 2.4.12 only the Targets page kept to it. A target for a part smaller than the minimum group size shows no figures, except to that manager.
 
-**Value**: the minutes one interaction saves, by default and per app, and what an hour is worth. They are your organization's own estimates (from a survey or a pilot); Leadership › Value and time saved, the Value digest and the API follow them.
+**Value**: the minutes one interaction saves, by default and per app, and what an hour is worth. They are your organization's own estimates (from a survey or a pilot); Leadership › Value and time saved, the Value digest and the API follow them. The license cost set against the value, on Value and time saved and the Board pack, is the licenses held on each day of the period at the monthly price (2.4.12): it was today's licenses times every day of the period, so a rollout during the period, or a period reaching back before the licenses, was charged in full.
 
 **Training records** (Admin › Training records): a CSV of UPN, session and date (yyyy-MM-dd) from your learning system. Enablement › Training effect compares attendees' active days in the 28 days before and after each session with colleagues in the same departments who did not attend, four weeks after the session.
 
 **Champions**: Enablement › Champions suggests the most regular and broadest users in each department (days active, then apps used, then back-and-forth conversations), as many per department as set. It is a named list, for the Enablement role.
 
-**License exports**: Upgrade, train or revoke, Licenses on disabled accounts and Rollout waves offer the list as an **Entra bulk add or remove members file** (Groups › Bulk operations) and as a **PowerShell script** for a license administrator to review and run with their own rights. With the Object id of the group that assigns Copilot licenses set in Admin › Targets and assumptions, the script adds and removes its members; without it, it assigns or removes the SKU itself. The script confirms each change and takes `-WhatIf`. The dashboard changes nothing in Entra. Each export is recorded (`dash.LicenseAction`) so Forecasting › License action outcomes can show whether it was applied and what followed.
+**License exports**: Upgrade, train or revoke, Licenses on disabled accounts and Rollout waves offer the list as an **Entra bulk add or remove members file** (Groups › Bulk operations) and as a **PowerShell script** for a license administrator to review and run with their own rights. With the Object id of the group that assigns Copilot licenses set in Admin › Targets and assumptions, the script adds and removes its members; without it, it assigns or removes the SKU itself. The script confirms each change and takes `-WhatIf`. The dashboard changes nothing in Entra. Each export is recorded (`dash.LicenseAction`) so Forecasting › License action outcomes can show whether it was applied and what followed. The files come from buttons, not links (2.4.12): an export records who it names, so it is a form posted with the page's anti-forgery token, and a link on another page or in an email can no longer make one in the viewer's name. Each covers the part of the organization the page shows. An export is recorded whole or not made: if the record cannot be written, the download fails and can be tried again, where before it was given out recorded in part or not at all. A person already recorded for the same change that day is not recorded again.
 
 **Contracts** (entered by an administrator on Forecasting › Budget and renewal): each agreement's seats, price and renewal date. The page compares them with the seats the use supports: seats assigned today, less licenses to revoke and on disabled accounts, plus people ready to upgrade.
 
@@ -336,12 +340,12 @@ The audit log records many things as codes: sensitivity label ids, the tenant id
 | `/api/v1/security` | security signals by day or week | **Security** |
 | `/api/v1/license-pool` | seats bought and assigned per SKU | **Licensing** |
 | `/api/v1/value` | hours saved and their worth, by app and department, small departments combined | data to see |
-| `/api/v1/targets` | each target and where it stands | **Adoption** |
+| `/api/v1/targets` | each target for the caller's part of the organization and where it stands | **Adoption** |
 | `/api/v1/license-actions?kind=upgrade\|train\|revoke` | the people behind a recommendation | **Licensing** |
 | `/api/v1/leavers` | licenses on disabled or departed accounts | **Licensing** |
 | `/api/v1/health` | pipeline runs and freshness | **Admin** |
 
-Every call is in the audit log (kind *Api*); refusals answer 403 with the reason. Named endpoints are refused in privacy mode, and so is an `org` value naming a manager's part; one smaller than the minimum group size is refused always (2.4.12). Admin › Privacy and retention can turn the API off (it then answers 404). A script calls it as its own Windows account, for example `Invoke-RestMethod https://insights.contoso.com/api/v1/usage?d=30 -UseDefaultCredentials`.
+Every call is in the audit log (kind *Api*), the list of endpoints at `/api/v1` too (2.4.12: it answered with the API off, to anyone outside the dashboard's levels, and was not logged); refusals answer 403 with the reason. Named endpoints are refused in privacy mode, and so is an `org` value naming a manager's part; one smaller than the minimum group size is refused always (2.4.12). Admin › Privacy and retention can turn the API off (it then answers 404). A script calls it as its own Windows account, for example `Invoke-RestMethod https://insights.contoso.com/api/v1/usage?d=30 -UseDefaultCredentials`.
 
 ## Installing it on IIS
 
