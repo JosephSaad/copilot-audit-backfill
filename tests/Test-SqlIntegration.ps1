@@ -1360,9 +1360,103 @@ SELECT (SELECT COUNT(*) FROM (SELECT $sessionCols FROM dbo.IncSessions EXCEPT SE
     catch { $refusedInc = $_.Exception.GetBaseException().Message }
     Assert-That ($refusedInc -like '*different settings*') "an incremental build under different settings is refused ($refusedInc)"
 
-    # Back to the fixture section 12 expects.
-    Invoke-SqlText -Sql "DELETE FROM audit.RawLogFlattened WHERE RecordId = N's-12'; DROP TABLE dbo.IncSessions; DROP TABLE dbo.IncWeeks;"
+    # --- 2.4.12: daylight saving ---------------------------------------------
+    # Order and the 60-minute gap are taken in UTC, the day in Eastern time. On
+    # 1 Nov 2026 01:00-01:59 happens twice; on 14 Mar 2027 02:00-02:59 never does.
+    Invoke-SqlText -Sql @"
+INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], App, IsCopilotLic, FlattenedUtc) VALUES
+    (N'd-01', N'2026-11-01T05:05:00Z', '2026-11-01T05:05:00', N'dst1@contoso.com', N'Teams', 1, SYSUTCDATETIME()),  -- 01:05 EDT
+    (N'd-02', N'2026-11-01T06:55:00Z', '2026-11-01T06:55:00', N'dst1@contoso.com', N'Word',  1, SYSUTCDATETIME()),  -- 01:55 EST, 110 minutes on
+    (N'd-03', N'2026-11-01T05:50:00Z', '2026-11-01T05:50:00', N'dst2@contoso.com', N'Teams', 1, SYSUTCDATETIME()),  -- 01:50 EDT
+    (N'd-04', N'2026-11-01T06:05:00Z', '2026-11-01T06:05:00', N'dst2@contoso.com', N'Word',  1, SYSUTCDATETIME()),  -- 01:05 EST, 15 minutes on
+    (N'd-05', N'2027-03-14T06:55:00Z', '2027-03-14T06:55:00', N'dst3@contoso.com', N'Teams', 1, SYSUTCDATETIME()),  -- 01:55 EST
+    (N'd-06', N'2027-03-14T07:05:00Z', '2027-03-14T07:05:00', N'dst3@contoso.com', N'Word',  1, SYSUTCDATETIME());  -- 03:05 EDT, 10 minutes on
+"@
     Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg;"
+    $dst = Invoke-SqlText -As Table -Sql @"
+SELECT UserUPN, PromptCount AS P, PrimaryApp, InferredSessionSpanMinutes AS Span,
+       CONVERT(varchar(16), SessionStart_PromptSubmittedDateTime, 120) AS StartLocal,
+       CONVERT(varchar(16), SessionEnd_PromptSubmittedDateTime, 120) AS EndLocal
+FROM audit.CopilotSession WHERE UserUPN LIKE N'dst%' ORDER BY UserUPN, SessionOrdinal_Derived;
+"@
+    $d1 = @($dst.Rows | Where-Object UserUPN -eq 'dst1@contoso.com')
+    $d2 = @($dst.Rows | Where-Object UserUPN -eq 'dst2@contoso.com')
+    $d3 = @($dst.Rows | Where-Object UserUPN -eq 'dst3@contoso.com')
+    Assert-That ($d1.Count -eq 2 -and [int] $d1[0].P -eq 1 -and [int] $d1[1].P -eq 1) `
+        "2.4.12: in the repeated hour, prompts 110 minutes apart that read 01:05 and 01:55 are two sessions, not one ($($d1.Count))"
+    Assert-That ($d2.Count -eq 1 -and "$($d2[0].PrimaryApp)" -eq 'Teams' -and [decimal] $d2[0].Span -eq 15 -and "$($d2[0].StartLocal)" -eq '2026-11-01 01:50' -and "$($d2[0].EndLocal)" -eq '2026-11-01 01:05') `
+        "a prompt at 01:05 EST after one at 01:50 EDT comes second: the first prompt's app, a 15-minute span ($($d2[0].PrimaryApp), $($d2[0].Span) min, $($d2[0].StartLocal) to $($d2[0].EndLocal))"
+    Assert-That ($d3.Count -eq 1 -and [int] $d3[0].P -eq 2 -and [decimal] $d3[0].Span -eq 10) `
+        "across the skipped hour, 01:55 and 03:05 are 10 minutes apart: one session ($($d3.Count) sessions, $($d3[0].Span) min)"
+    $dstWeeks = "$(Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CONCAT(LEFT(UserUPN, 4), '=', WeeklyInferredSessionSpanMinutes), ',') WITHIN GROUP (ORDER BY UserUPN) FROM audit.CopilotWeeklyRollup WHERE UserUPN IN (N'dst2@contoso.com', N'dst3@contoso.com');")"
+    Assert-That ($dstWeeks -eq 'dst2=15.00,dst3=10.00') "and the weeks sum the spans in UTC ($dstWeeks)"
+
+    # --- 2.4.12: the license databases as a list --------------------------------
+    # The run log kept the list as given and the check compared it as text, so the same databases in another order or
+    # spacing counted as different settings, and a nightly passing them its own way was refused every night.
+    $lic2 = "$($script:ITDatabase)_Lic2"
+    try {
+        Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$lic2') IS NOT NULL BEGIN ALTER DATABASE [$lic2] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$lic2]; END; CREATE DATABASE [$lic2];"
+        Invoke-SqlText -Catalog $lic2 -Sql "EXEC (N'CREATE SCHEMA audit AUTHORIZATION dbo;'); EXEC (N'CREATE VIEW audit.vLicenseSkuChange AS SELECT CAST(NULL AS NVARCHAR(512)) AS TargetUpn, CAST(NULL AS NVARCHAR(200)) AS Sku, CAST(NULL AS DATETIME2(7)) AS CreatedDateTime, CAST(NULL AS NVARCHAR(20)) AS Change WHERE 1 = 0;');"
+        Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N'$lic2,$($script:ITDatabase)';"
+        $logged = "$(Invoke-SqlText -As Scalar -Sql 'SELECT TOP (1) LicenseEventDatabase FROM audit.CopilotSessionRun ORDER BY RunId DESC;')"
+        Assert-That ($logged -eq "$($script:ITDatabase),$lic2") "2.4.12: the run log keeps the license databases each once, in order ($logged)"
+        $sameList = try { [void] (Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N' $($script:ITDatabase) , $lic2,$($script:ITDatabase)', @SinceUtc = '2026-09-15';"); '' } catch { $_.Exception.GetBaseException().Message }
+        Assert-That ($sameList -eq '') "the same databases in another order, spaced and repeated, build incrementally ($sameList)"
+        $fewer = try { [void] (Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg, @SinceUtc = '2026-09-15';"); '' } catch { $_.Exception.GetBaseException().Message }
+        Assert-That ($fewer -like '*different settings*') 'while one database fewer is still a different setting'
+    }
+    finally {
+        try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$lic2') IS NOT NULL BEGIN ALTER DATABASE [$lic2] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$lic2]; END;" } catch { Write-Host "  (could not drop $lic2)" }
+    }
+
+    # --- 2.4.12: the session export's -Build ------------------------------------
+    # It rebuilt the production sessions under its own defaults (User, no license database), after which the nightly
+    # run's incremental build was refused every night. It now builds as the last build did, and refuses a change.
+    Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg;"
+    $exportTool = Join-Path $root 'tools' 'Export-CopilotSessionCsv.ps1'
+    $exportDir = Join-Path ([System.IO.Path]::GetTempPath()) ('sessit-' + [guid]::NewGuid().ToString('N'))
+    try {
+        $runsBefore = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotSessionRun;')
+        $refusedExport = try { & $exportTool -ConnectionString (New-ConnString $script:ITDatabase) -Build -ContextFallback Location -OutputFolder $exportDir 6>$null; '' } catch { $_.Exception.Message }
+        $runsAfter = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotSessionRun;')
+        Assert-That ($refusedExport -like '*different settings*' -and $runsAfter -eq $runsBefore) "2.4.12: -Build -ContextFallback Location is refused before it builds ($refusedExport)"
+        & $exportTool -ConnectionString (New-ConnString $script:ITDatabase) -Build -OutputFolder $exportDir 6>$null
+        $built = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) ContextFallback, LicenseEventDatabase FROM audit.CopilotSessionRun ORDER BY RunId DESC;').Rows[0]
+        $after = try { [void] (Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg, @SinceUtc = '2026-09-15';"); '' } catch { $_.Exception.GetBaseException().Message }
+        Assert-That ("$($built.ContextFallback)" -eq 'User' -and "$($built.LicenseEventDatabase)" -eq $script:ITDatabase -and $after -eq '' -and (Test-Path (Join-Path $exportDir 'copilot_session_summary.csv'))) `
+            "a plain -Build builds with the last build's settings, so the nightly's next build is not refused ($($built.ContextFallback), $($built.LicenseEventDatabase))"
+    }
+    finally { Remove-Item -LiteralPath $exportDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+    # Back to the fixture section 12 expects.
+    Invoke-SqlText -Sql "DELETE FROM audit.RawLogFlattened WHERE RecordId = N's-12' OR RecordId LIKE N'd-0_'; DROP TABLE dbo.IncSessions; DROP TABLE dbo.IncWeeks;"
+    Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions $licArg;"
+
+    # --- 2.4.12: a database whose collation is not tempdb's -------------------------
+    # #lic took tempdb's collation, and its comparison with the sessions failed every build there (Msg 468).
+    $collDb = "$($script:ITDatabase)_Coll"
+    $collation = if ("$(Invoke-SqlText -Catalog 'master' -As Scalar -Sql "SELECT CONVERT(sysname, DATABASEPROPERTYEX(N'tempdb', 'Collation'));")" -eq 'Latin1_General_100_CI_AS') { 'SQL_Latin1_General_CP1_CI_AS' } else { 'Latin1_General_100_CI_AS' }
+    $mainDb = $script:ITDatabase
+    try {
+        Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$collDb') IS NOT NULL BEGIN ALTER DATABASE [$collDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$collDb]; END; CREATE DATABASE [$collDb] COLLATE $collation;"
+        $script:ITDatabase = $collDb
+        foreach ($f in 'Create-CopilotAuditSchema.sql', 'Create-CopilotFlattenedSchema.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql') {
+            Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' $f) -Raw)
+        }
+        Invoke-SqlText -Sql @"
+INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], App, IsCopilotLic, FlattenedUtc) VALUES
+    (N'k-01', N'2026-09-14T13:00:00Z', '2026-09-14T13:00:00', N'a@contoso.com', N'Word', 1, SYSUTCDATETIME()),
+    (N'k-02', N'2026-09-14T13:20:00Z', '2026-09-14T13:20:00', N'a@contoso.com', N'Word', 1, SYSUTCDATETIME());
+"@
+        $collErr = try { [void] (Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N'$mainDb';"); '' } catch { $_.Exception.GetBaseException().Message }
+        $collSessions = if ($collErr) { -1 } else { [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotSession;') }
+        Assert-That ($collErr -eq '' -and $collSessions -eq 1) "2.4.12: sessions build in a database collated $collation, unlike tempdb, with license history ($collSessions session; $collErr)"
+    }
+    finally {
+        $script:ITDatabase = $mainDb
+        try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$collDb') IS NOT NULL BEGIN ALTER DATABASE [$collDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$collDb]; END;" } catch { Write-Host "  (could not drop $collDb)" }
+    }
 }
 finally { Stop-MockGraph $mock }
 
@@ -1486,6 +1580,107 @@ SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)                          AS
     $back = [long] (Invoke-SqlText -As Scalar -Parameters @{ '@r' = $late; '@l' = $l2.LoadId } -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit WHERE RecordId = @r AND LoadId = @l;')
     $final = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit')
     Assert-That ($back -eq 1 -and $final -eq $allIds.Count) "the late record is back, once, attributed to its load (total $final of $($allIds.Count))"
+
+    # --- 2.4.12: two merges at once append nothing twice ---------------------
+    # Fifty Aug 6 records go back to being new, staged as a downloaded load. Another merge - here a connection holding
+    # the merge lock - is about to append the same records when this one starts. The merge looked for records already
+    # there with no lock, so it appended them too, and every flatten over Aug 6 then failed on the duplicates.
+    Invoke-SqlText -Sql @"
+SELECT TOP (50) * INTO dbo.HeldAudit FROM audit.CopilotAudit WHERE RecordId LIKE '20260806-%' ORDER BY RecordId;
+SELECT i.* INTO dbo.HeldInteraction FROM audit.CopilotInteraction AS i WHERE i.RecordId IN (SELECT RecordId FROM dbo.HeldAudit);
+DELETE FROM audit.CopilotAudit WHERE RecordId IN (SELECT RecordId FROM dbo.HeldAudit);
+DELETE FROM audit.CopilotInteraction WHERE RecordId IN (SELECT RecordId FROM dbo.HeldAudit);
+DECLARE @load INT, @window BIGINT;
+INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations, DownloadedUtc) VALUES ('2026-08-06', '2026-08-07', N'CopilotInteraction', SYSUTCDATETIME());
+SET @load = SCOPE_IDENTITY();
+INSERT INTO audit.CopilotLoadWindow (StartUtc, EndUtc, Status, Attempts) VALUES ('2026-08-06', '2026-08-07', 'Loaded', 1);
+SET @window = SCOPE_IDENTITY();
+INSERT INTO audit.CopilotLoadStage (WindowId, Attempt, RecordId, CreatedDateTime, RecordType, Operation, OrganizationId, UserType, UserId,
+                                    UserPrincipalName, Service, ObjectId, ClientIp, AdministrativeUnits, AuditDataGz)
+SELECT @window, 1, RecordId, CreatedDateTime, RecordType, Operation, OrganizationId, UserType, UserId,
+       UserPrincipalName, Service, ObjectId, ClientIp, AdministrativeUnits, AuditDataGz
+FROM dbo.HeldAudit;
+"@
+    $other = [System.Data.SqlClient.SqlConnection]::new($loadConn)
+    $merging = [System.Data.SqlClient.SqlConnection]::new($loadConn)
+    try {
+        $other.Open(); $merging.Open()
+        $hold = $other.CreateCommand()
+        $hold.CommandText = "BEGIN TRANSACTION; EXEC sys.sp_getapplock @Resource = N'audit.CopilotAudit:append', @LockMode = N'Exclusive', @LockOwner = N'Transaction';"
+        [void] $hold.ExecuteNonQuery()
+        $mergeCmd = $merging.CreateCommand(); $mergeCmd.CommandText = 'EXEC audit.usp_MergeCopilotLoad;'; $mergeCmd.CommandTimeout = 300
+        $task = $mergeCmd.ExecuteNonQueryAsync()
+        Start-Sleep -Seconds 3
+        $waited = -not $task.IsCompleted
+        $hold.CommandText = @"
+INSERT INTO audit.CopilotAudit SELECT * FROM dbo.HeldAudit;
+INSERT INTO audit.CopilotInteraction SELECT * FROM dbo.HeldInteraction;
+COMMIT TRANSACTION;
+"@
+        [void] $hold.ExecuteNonQuery()
+        $finished = try { $task.Wait([timespan]::FromSeconds(300)) } catch { Write-Host "  (the merge failed: $($_.Exception.GetBaseException().Message))"; $false }
+    }
+    finally { $other.Dispose(); $merging.Dispose() }
+    $race = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit) AS Rows_, (SELECT COUNT(DISTINCT RecordId) FROM audit.CopilotAudit) AS Distinct_,
+       (SELECT COUNT_BIG(*) FROM audit.CopilotInteraction) AS Interactions,
+       (SELECT TOP (1) CONCAT(RowsAdded, '/', RowsAlreadyLoaded) FROM audit.CopilotLoad ORDER BY LoadId DESC) AS Merge_;
+"@).Rows[0]
+    Assert-That ($waited -and $finished) '2.4.12: a merge waits while another holds the merge lock'
+    Assert-That ([long] $race.Rows_ -eq $allIds.Count -and [long] $race.Distinct_ -eq $allIds.Count -and [long] $race.Interactions -eq $allIds.Count -and "$($race.Merge_)" -eq '0/50') `
+        "and then finds the other's records there: nothing appended twice ($($race.Rows_) rows, $($race.Distinct_) distinct; $($race.Merge_) new/already loaded)"
+    Invoke-SqlText -Sql 'DROP TABLE dbo.HeldAudit; DROP TABLE dbo.HeldInteraction;'
+
+    # --- 2.4.12: a refresh that fails after the merge is made up by the next run --------
+    # The load was marked merged before the derived tables were refreshed, and each run refreshed from its own load's
+    # start only: a failure past the lookback, or a re-run that found nothing new to load, left those days out for
+    # good. A flatten stand-in here records where each refresh starts, and fails when told to.
+    Invoke-SqlText -Sql @"
+CREATE TABLE dbo.FlattenCall (CallId INT IDENTITY(1, 1) NOT NULL, SinceUtc DATETIME2(0) NULL, Failed BIT NOT NULL);
+CREATE TABLE dbo.FlattenFail (Fail BIT NOT NULL);
+EXEC (N'CREATE PROCEDURE audit.usp_FlattenCopilotAudit @SinceUtc DATETIME2(0) = NULL AS
+BEGIN
+    DECLARE @f BIT = CASE WHEN EXISTS (SELECT 1 FROM dbo.FlattenFail) THEN 1 ELSE 0 END;
+    INSERT INTO dbo.FlattenCall (SinceUtc, Failed) VALUES (@SinceUtc, @f);
+    IF @f = 1 THROW 50999, N''The flatten stopped (test).'', 1;
+END;');
+"@
+    $incremental = {
+        # -Incremental as the nightly runs it, with the data already reaching Aug 9: nothing new to download.
+        & {
+            . (Join-Path $root 'Invoke-CopilotAuditBackfill.ps1')
+            $ConnectionString = New-ConnString $script:ITDatabase
+            $EndDate = [datetime]::new(2026, 8, 9, 0, 0, 0, [DateTimeKind]::Utc)
+            $script:SqlConnStr = New-SqlConnectionString
+            Invoke-IncrementalLoad 6>$null
+        }
+    }
+    $lastCall = { (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) CONVERT(varchar(16), SinceUtc, 120) AS SinceUtc, Failed FROM dbo.FlattenCall ORDER BY CallId DESC;').Rows[0] }
+
+    # The loads above were merged by calling the procedure, with no refresh: all three are owed one, from Aug 4.
+    & $incremental
+    $c = & $lastCall
+    $owedNow = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL AND DerivedRefreshedUtc IS NULL;')
+    Assert-That ("$($c.SinceUtc)" -eq '2026-08-04 00:00' -and $owedNow -eq 0) "2.4.12: with nothing new to load, a run still makes up the refresh merged loads owe, from the first one's start ($($c.SinceUtc))"
+
+    # A downloaded load (Aug 7 - 9, nothing new in it) whose refresh fails after its merge.
+    Invoke-SqlText -Sql @"
+INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations, DownloadedUtc) VALUES ('2026-08-07', '2026-08-09', N'CopilotInteraction', SYSUTCDATETIME());
+INSERT INTO audit.CopilotLoadWindow (StartUtc, EndUtc, Status, Attempts) VALUES ('2026-08-07', '2026-08-09', 'Loaded', 1);
+INSERT INTO dbo.FlattenFail (Fail) VALUES (1);
+"@
+    $failed = try { & $incremental; '' } catch { $_.Exception.GetBaseException().Message }
+    $stuck = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) CASE WHEN MergedUtc IS NULL THEN 0 ELSE 1 END AS Merged, CASE WHEN DerivedRefreshedUtc IS NULL THEN 0 ELSE 1 END AS Refreshed FROM audit.CopilotLoad ORDER BY LoadId DESC;').Rows[0]
+    Assert-That ($failed -like '*flatten stopped*' -and [int] $stuck.Merged -eq 1 -and [int] $stuck.Refreshed -eq 0) "the load merges, the refresh fails, and the refresh is recorded as owed ($failed)"
+    Invoke-SqlText -Sql 'DELETE FROM dbo.FlattenFail;'
+    & $incremental
+    $c = & $lastCall
+    $owedNow = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL AND DerivedRefreshedUtc IS NULL;')
+    Assert-That ("$($c.SinceUtc)" -eq '2026-08-07 00:00' -and [int] $c.Failed -eq 0 -and $owedNow -eq 0) "and the next run, with nothing new, refreshes from that load's start ($($c.SinceUtc))"
+    & $incremental
+    $calls = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM dbo.FlattenCall;')
+    Assert-That ($calls -eq 3) "then nothing is owed, and a run with nothing to load refreshes nothing ($calls refreshes in all)"
+    Invoke-SqlText -Sql 'DROP PROCEDURE audit.usp_FlattenCopilotAudit; DROP TABLE dbo.FlattenCall; DROP TABLE dbo.FlattenFail;'
 }
 finally {
     Stop-MockGraph $loadMock
@@ -1944,6 +2139,66 @@ FROM audit.CopilotCsvImport AS i WHERE i.ImportId = (SELECT MAX(ImportId) FROM a
 
     $msg = try { [void] (Invoke-SqlText -Catalog $csvDb -As Table -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Finalize-CopilotAudit.sql') -Raw)); '' } catch { $_.Exception.GetBaseException().Message }
     Assert-That ($msg -like '*CSV imports have been merged*') "finalize refuses once CSV rows are merged, rather than dropping them ($msg)"
+
+    # --- 2.4.12: an import's refresh that was skipped or failed is made up ------
+    # The import was marked merged before its refresh, and a second run skipped the merged files and returned: an
+    # import with -SkipPostProcessing, or whose refresh failed, never reached sessions, bi or the dashboard. And with
+    # no -SessionLicenseDatabase the session build read no license history, which a database built with some refused.
+    # Stand-ins here record where each refresh starts and which license history the session build is given.
+    Invoke-SqlText -Catalog $csvDb -Sql @"
+CREATE TABLE dbo.RefreshCall (CallId INT IDENTITY(1, 1) NOT NULL, Step VARCHAR(10) NOT NULL, SinceUtc DATETIME2(0) NULL, Lic NVARCHAR(1000) NULL);
+CREATE TABLE dbo.FlattenFail (Fail BIT NOT NULL);
+CREATE TABLE audit.CopilotSessionRun (RunId INT IDENTITY(1, 1) NOT NULL, LicenseEventDatabase NVARCHAR(1000) NULL);
+INSERT INTO audit.CopilotSessionRun (LicenseEventDatabase) VALUES (N'CopilotLicenseTest');
+EXEC (N'CREATE PROCEDURE audit.usp_FlattenCopilotAudit @SinceUtc DATETIME2(0) = NULL AS
+BEGIN
+    INSERT INTO dbo.RefreshCall (Step, SinceUtc) VALUES (''flatten'', @SinceUtc);
+    IF EXISTS (SELECT 1 FROM dbo.FlattenFail) THROW 50999, N''The flatten stopped (test).'', 1;
+END;');
+EXEC (N'CREATE PROCEDURE audit.usp_BuildCopilotSessions @LicenseEventDatabase NVARCHAR(1000) = NULL, @SinceUtc DATETIME2(0) = NULL AS
+    INSERT INTO dbo.RefreshCall (Step, SinceUtc, Lic) VALUES (''sessions'', @SinceUtc, @LicenseEventDatabase);');
+"@
+    $owedFile = {
+        param([string] $Id, [string] $At)
+        $o = $all[0].AuditData | ConvertFrom-Json
+        $o.Id = $Id; $o.CreationTime = $At
+        @([pscustomobject]@{ RecordId = $Id; CreationDate = ''; RecordType = 'CopilotInteraction'; Operation = 'CopilotInteraction'
+                             UserId = $all[0].UserId; AuditData = ($o | ConvertTo-Json -Depth 20 -Compress)
+                             AssociatedAdminUnits = ''; AssociatedAdminUnitsNames = '' }) |
+            Export-Csv (Join-Path $csvDir "export-$Id.csv") -NoTypeInformation -Encoding utf8BOM
+    }
+    $calls = { @((Invoke-SqlText -Catalog $csvDb -As Table -Sql "SELECT CONCAT(Step, '@', CONVERT(varchar(16), SinceUtc, 120), CASE WHEN Lic IS NULL THEN '' ELSE CONCAT('/', Lic) END) AS C FROM dbo.RefreshCall ORDER BY CallId;").Rows | ForEach-Object { $_.C }) -join ';' }
+    $owedImports = { [int] (Invoke-SqlText -Catalog $csvDb -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotCsvImport WHERE MergedUtc IS NOT NULL AND RowsAdded > 0 AND DerivedRefreshedUtc IS NULL;') }
+    try {
+        & $owedFile 'csv-owed-000001' '2026-08-09T15:00:00'
+        & $runTool $csvDb @{ SkipPostProcessing = $true }
+        Assert-That ((& $calls) -eq '' -and (& $owedImports) -eq 1) '2.4.12: an import with -SkipPostProcessing merges and owes its refresh'
+        # What the nightly -Incremental finds owed: the import's first record (it folds it into its own refresh).
+        $nightlyOwes = & {
+            . (Join-Path $root 'Invoke-CopilotAuditBackfill.ps1')
+            $ConnectionString = New-ConnString $csvDb
+            $script:SqlConnStr = New-SqlConnectionString
+            Invoke-SqlScript -Path (Join-Path $root 'sql' 'Create-CopilotLoadProcedure.sql')
+            Get-OwedRefresh
+        }
+        Assert-That ($null -ne $nightlyOwes -and $nightlyOwes.SinceUtc -eq [datetime]::new(2026, 8, 9, 15, 0, 0, [DateTimeKind]::Utc) -and $nightlyOwes.ImportId -gt 0) `
+            "and the nightly run sees it owed, from the import's first record ($(if ($nightlyOwes) { $nightlyOwes.SinceUtc.ToString('u') }))"
+        & $runTool $csvDb
+        Assert-That ((& $calls) -eq 'flatten@2026-08-09 15:00;sessions@2026-08-09 15:00/CopilotLicenseTest' -and (& $owedImports) -eq 0) `
+            "the next run, with nothing new to import, makes it up, with the license history of the last build ($(& $calls))"
+
+        Invoke-SqlText -Catalog $csvDb -Sql 'TRUNCATE TABLE dbo.RefreshCall; INSERT INTO dbo.FlattenFail (Fail) VALUES (1);'
+        & $owedFile 'csv-owed-000002' '2026-08-09T16:00:00'
+        $failedImport = try { & $runTool $csvDb; '' } catch { $_.Exception.GetBaseException().Message }
+        Assert-That ($failedImport -like '*flatten stopped*' -and (& $owedImports) -eq 1) "an import whose refresh fails after its merge owes it ($failedImport)"
+        Invoke-SqlText -Catalog $csvDb -Sql 'TRUNCATE TABLE dbo.RefreshCall; DELETE FROM dbo.FlattenFail;'
+        & $runTool $csvDb @{ SessionLicenseDatabase = '' }
+        Assert-That ((& $calls) -eq 'flatten@2026-08-09 16:00;sessions@2026-08-09 16:00' -and (& $owedImports) -eq 0) `
+            "and running the same command again makes it up; -SessionLicenseDatabase '' reads no license history ($(& $calls))"
+    }
+    finally {
+        Remove-Item -LiteralPath (Join-Path $csvDir 'export-csv-owed-000001.csv'), (Join-Path $csvDir 'export-csv-owed-000002.csv') -ErrorAction SilentlyContinue
+    }
 
     # --- Into section 11's database: Graph backfill and loads already there ----
     Remove-Item -LiteralPath (Join-Path $csvDir 'export-late.csv')

@@ -132,7 +132,7 @@ Indexes and constraints:
 
 *Table.* One row per -Incremental load: its range, operations, when it finished downloading and was merged, and how many records were new or already there.
 
-**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases · **Columns added by** `Create-CopilotLoadProcedure.sql`
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -146,6 +146,7 @@ Indexes and constraints:
 | 8 | `RowsStaged` | bigint | yes |  | final-attempt rows in the load |
 | 9 | `RowsAdded` | bigint | yes |  | new to audit.CopilotAudit |
 | 10 | `RowsAlreadyLoaded` | bigint | yes |  | in the lookback, already present |
+| 11 | `DerivedRefreshedUtc` | datetime2(0) | yes |  | the derived tables brought up to date with it (2.4.12); empty on a merged load, a refresh the next -Incremental run makes up |
 
 Indexes and constraints:
 
@@ -975,6 +976,7 @@ Created by tools/Import-CopilotAuditCsv.ps1 (2.1.0).
 | 15 | `LatestAddedUtc` | datetime2(0) | yes |  |  |
 | 16 | `CoveredFromUtc` | datetime2(0) | yes |  | the search range the exports were made for, if given |
 | 17 | `CoveredToUtc` | datetime2(0) | yes |  |  |
+| 18 | `DerivedRefreshedUtc` | datetime2(0) | yes |  | the derived tables brought up to date with it (2.4.12); empty on a merged import that added rows, a refresh the next import or -Incremental run makes up |
 
 Indexes and constraints:
 

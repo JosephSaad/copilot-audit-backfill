@@ -25,6 +25,10 @@
     Re-runnable: with nothing waiting it reports so and returns. It never
     touches rows from the backfill or from earlier loads.
 
+    One merge at a time: steps 1 to 4 hold an exclusive lock that
+    audit.usp_MergeCopilotCsv takes too, so two merges never both find a
+    record missing and both append it.
+
     Step 4 shreds through audit.fnShredCopilotInteraction, as finalize and CSV
     imports do, so a record reads the same whichever path loaded it.
 
@@ -32,6 +36,20 @@
     orchestrator does), and finalize the backfill before the first load.
 */
 SET NOCOUNT ON;
+
+/* When the derived tables were brought up to date with a merged load (2.4.12).
+   A load is marked merged before -Incremental refreshes the flattened table,
+   sessions, bi and the dashboard from its start, and nothing recorded whether
+   that refresh finished: the next load refreshed from its own start only, so
+   after a few nights of a refresh failing, or one long catch-up load failing,
+   the days between were never refreshed. NULL on a merged load is a refresh
+   still owed, and -Incremental makes it up from the earliest one. Loads merged
+   before the column existed are taken as refreshed. */
+IF OBJECT_ID(N'audit.CopilotLoad', N'U') IS NOT NULL AND COL_LENGTH(N'audit.CopilotLoad', N'DerivedRefreshedUtc') IS NULL
+BEGIN
+    ALTER TABLE audit.CopilotLoad ADD DerivedRefreshedUtc DATETIME2(0) NULL;
+    EXEC (N'UPDATE audit.CopilotLoad SET DerivedRefreshedUtc = MergedUtc WHERE MergedUtc IS NOT NULL;');
+END;
 
 IF OBJECT_ID(N'audit.usp_MergeCopilotLoad', N'P') IS NULL
     EXEC (N'CREATE PROCEDURE audit.usp_MergeCopilotLoad AS BEGIN SET NOCOUNT ON; END;');
@@ -45,7 +63,25 @@ BEGIN
     SET XACT_ABORT ON;
     SET @ReportingTimeZone = COALESCE(@ReportingTimeZone, audit.ReportingTimeZone());   -- the zone Install-CopilotAudit.ps1 -ReportingTimeZone stored
 
-    DECLARE @msg NVARCHAR(600), @loadId INT, @start DATETIME2(0), @end DATETIME2(0), @downloaded DATETIME2(0);
+    DECLARE @msg NVARCHAR(600), @loadId INT, @start DATETIME2(0), @end DATETIME2(0), @downloaded DATETIME2(0), @lock INT;
+
+    /* One merge into audit.CopilotAudit at a time, this one or a CSV import's
+       (2.4.12). Each looked for the records already there and then appended
+       the rest, with no lock between: two at once, a console run beside the
+       nightly or an import beside it, each missed what the other was
+       appending and stored it a second time, and every flatten over those
+       days then failed on the duplicate. The lock belongs to the transaction
+       and is taken before the load is chosen, so a second merge waits, then
+       finds the load merged or sees the first one's records. */
+    BEGIN TRANSACTION;
+    EXEC @lock = sys.sp_getapplock @Resource = N'audit.CopilotAudit:append', @LockMode = N'Exclusive',
+                                   @LockOwner = N'Transaction', @LockTimeout = -1;
+    IF @lock < 0
+    BEGIN
+        ROLLBACK TRANSACTION;
+        RAISERROR('Merge refused: the merge lock on audit.CopilotAudit was not granted (%d). Run the same -Incremental command again.', 16, 1, @lock);
+        RETURN;
+    END;
 
     SELECT TOP (1) @loadId = LoadId, @start = RangeStartUtc, @end = RangeEndUtc, @downloaded = DownloadedUtc
     FROM audit.CopilotLoad
@@ -54,21 +90,25 @@ BEGIN
 
     IF @loadId IS NULL
     BEGIN
+        ROLLBACK TRANSACTION;
         RAISERROR('Nothing to merge: no incremental load is waiting.', 0, 1) WITH NOWAIT;
         RETURN;
     END;
     IF @downloaded IS NULL
     BEGIN
+        ROLLBACK TRANSACTION;
         RAISERROR('Merge refused: load %d has not finished downloading. Re-run the same -Incremental command to finish it.', 16, 1, @loadId);
         RETURN;
     END;
     IF OBJECT_ID(N'audit.CopilotAudit', N'U') IS NULL OR OBJECT_ID(N'audit.CopilotInteraction', N'U') IS NULL
     BEGIN
+        ROLLBACK TRANSACTION;
         RAISERROR('Merge refused: audit.CopilotAudit does not exist yet. Finalize the backfill (-FinalizeOnly) before the first incremental load.', 16, 1);
         RETURN;
     END;
     IF OBJECT_ID(N'audit.fnShredCopilotInteraction', N'IF') IS NULL
     BEGIN
+        ROLLBACK TRANSACTION;
         RAISERROR('Merge refused: audit.fnShredCopilotInteraction is missing. Run sql/Create-CopilotAuditSchema.sql first (Invoke-CopilotAuditBackfill.ps1 does).', 16, 1);
         RETURN;
     END;
@@ -78,6 +118,7 @@ BEGIN
     DECLARE @unfinished INT = (SELECT COUNT(*) FROM audit.CopilotLoadWindow WHERE Status NOT IN ('Loaded', 'Split'));
     IF @unfinished > 0
     BEGIN
+        ROLLBACK TRANSACTION;
         RAISERROR('Merge refused: %d window(s) of load %d are not Loaded.', 16, 1, @unfinished, @loadId);
         RETURN;
     END;
@@ -97,6 +138,7 @@ BEGIN
 
     IF @gaps > 0
     BEGIN
+        ROLLBACK TRANSACTION;
         RAISERROR('Merge refused: the Loaded windows of load %d have %d gap(s)/overlap(s). Inspect audit.CopilotLoadWindow.', 16, 1, @loadId, @gaps);
         RETURN;
     END;
@@ -140,9 +182,7 @@ BEGIN
 
     DECLARE @added BIGINT = (SELECT COUNT_BIG(*) FROM #cand);
 
-    /* ---- 4. Append, in one transaction ------------------------------------ */
-
-    BEGIN TRANSACTION;
+    /* ---- 4. Append, in the same transaction -------------------------------- */
 
     INSERT INTO audit.CopilotAudit
         (RecordId, CreatedDateTime, RecordType, Operation, OrganizationId, UserType, UserId,
@@ -166,7 +206,9 @@ BEGIN
 
     UPDATE audit.CopilotLoad
     SET MergedUtc = SYSUTCDATETIME(), RowsStaged = @staged, RowsAdded = @added, RowsAlreadyLoaded = @staged - @added
-    WHERE LoadId = @loadId;
+    WHERE LoadId = @loadId AND MergedUtc IS NULL;
+    IF @@ROWCOUNT = 0   -- cannot happen under the lock; if it ever does, nothing is appended twice
+        THROW 50120, N'Merge refused: the load was merged by another run meanwhile.', 1;
 
     COMMIT TRANSACTION;
 

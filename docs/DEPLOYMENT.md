@@ -317,7 +317,7 @@ Until the app exists:
     -SessionLicenseDatabase CopilotLicenseEvents -CoveredThroughUtc 2026-09-01
 ```
 
-`-CoveredThroughUtc` is the end of the exports' search range, as in the section above. `-SessionLicenseDatabase` is optional: without license history, "licensed at the time of use" falls back to the licenses step 10 records, and with neither it shows *Unknown*. Keep license exports and Copilot exports in separate folders; the file names don't matter, only the `.csv` extension and Purview's columns. The files are read by the importer, so a UNC path such as `\\fileserver\exports` works if the account running it can read the share.
+`-CoveredThroughUtc` is the end of the exports' search range, as in the section above. `-SessionLicenseDatabase` can be left out once the database has been built: the import then reads the license databases its last build read (2.4.12; before, it read none, and the session build refused with *different settings* after the merge). Without license history, "licensed at the time of use" falls back to the licenses step 10 records, and with neither it shows *Unknown*. If an import's refresh of the derived tables fails, or is skipped with `-SkipPostProcessing`, run the same command again: with no new files it makes the refresh up (2.4.12). Keep license exports and Copilot exports in separate folders; the file names don't matter, only the `.csv` extension and Purview's columns. The files are read by the importer, so a UNC path such as `\\fileserver\exports` works if the account running it can read the share.
 
 **When the app is approved,** run step 3 again with `-RegisterApp -SkipDatabase` (and `-Dashboard` if the dashboard is installed), re-enable the task, and run it once by hand (step 12). It continues from where the exports end. Exports that end more than 180 days ago leave a gap the API can't fill.
 
@@ -400,6 +400,8 @@ The history run's last step:
 
 With records loaded and nothing built yet, it flattens every record, builds every session and the `bi` schema, and says so as it goes. See [What has run in the lab](#what-has-run-in-the-lab) for the timings at 40 million interactions. These are one-off costs: the nightly job rebuilds only from the start of the day its load began. A full `bi` build commits a month at a time, so don't refresh a Power BI model while one runs.
 
+**Several license databases.** Sessions and `bi` can read the license history of more than one database, for example an older license backfill kept beside the one loaded each night. List them all in `copilot-audit.settings.psd1` (2.4.12): `SessionLicenseDatabases = @('CopilotLicenseEvents', 'CopilotLicenseArchive')`. The nightly run passes the list to the session and `bi` builds, `-History` builds with it, and `LicenseDatabase` stays the one the license events are loaded into. Pass the same list as `-LicenseEventDatabases` when you run this step by hand; the order doesn't matter. Without the setting the nightly run reads `LicenseDatabase` alone, and a build with several made it stop every night with *different settings*.
+
 ## Phase 4: Run it every night
 
 Four steps, in this order, each finishing before the next starts:
@@ -407,7 +409,7 @@ Four steps, in this order, each finishing before the next starts:
 1. **User directory from AD**, so tonight's session and `bi` builds pick up today's organization.
 2. **Copilot licenses from Graph**: current license holders and since when.
 3. **License events**: `-Incremental` into `CopilotLicenseEvents`; it shreds the new events itself.
-4. **Copilot interactions**: `-Incremental` into `CopilotAudit`. It loads from where the data ends, minus a 48-hour lookback for records Purview delivers late. Then it refreshes the flattened table, sessions and `bi`, reading the license history the step before brought up to date.
+4. **Copilot interactions**: `-Incremental` into `CopilotAudit`. It loads from where the data ends, minus a 48-hour lookback for records Purview delivers late. Then it refreshes the flattened table, sessions and `bi`, reading the license history the step before brought up to date. A refresh that fails after the load is merged is owed, and the next run makes it up from where it was owed, even with nothing new to load (2.4.12).
 
 ### Step 12. The nightly run
 
