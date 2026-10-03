@@ -453,7 +453,69 @@ and a database role for reporting accounts (`CopilotReporting`), all added by th
   grants.
 - **Admin › Value names, Directory and the guides** say what the dashboard does now;
   DASHBOARD.md's table of API endpoints names the roles they need.
+- **A part of the organization is sized by the people still in it.** The check on a requested
+  part and the "Look inside a team" list counted disabled accounts, so a part of three people
+  and several leavers was shown on its own. Both now count only enabled people, as every other
+  minimum does.
+- **Agent people counts stay above the minimum on charts too.** The per-agent trend, "People
+  using the top agents", Agent detail's "People using it" and its By department chart drew
+  counts of one or two people, including a "Smaller departments" bar that was itself under the
+  minimum. Each point under the minimum is now a gap, and a combined row under it is left out.
+- **The board pack's risk signals follow the roles.** Jailbreak, injection and blocked totals
+  were shown to every viewer, and labeled content too. They now need the Security role and the
+  Compliance role respectively, as on the data API.
+- **Adoption is shown only where license holders reach the minimum.** The All departments and
+  Organization units tables, the job title, job family, country and office tables, Workforce's
+  adoption figures and its By level chart showed a rate for one or two license holders, and so
+  did an adoption chart's combined bar when everything was small, and the digest's unit table.
+  These are now blank or left out below the minimum.
+- **The leaderboard compares only like with like.** "Change (points)" and "Most improved" set a
+  group against the period before even when it was then under the minimum. Now they compare only
+  when it met the minimum in both periods.
+- **People without a job family are not counted when they are folded.** The KPI showed the count
+  that the "Smaller groups" fold was hiding. It now shows only when "(no family)" is a row of
+  its own.
+- **An administrator without the role cannot add or resume a digest.** Only Send now and Preview
+  were checked, so a Security digest could be added and resumed without the Security role.
+  Adding and resuming are now refused the same way.
+- **Manager digests skip parts too small to report on.** Each was refused, marked failed,
+  retried three times and reported as "not sent (see Admin > Email)". Such managers are now left
+  out, and a refusal is settled as skipped.
+- **A digest for someone who has left the directory is refused.** It went out as "(nobody)" with
+  zeros and was reported as sent. It is now not sent, with the reason given.
+- **Department figures no longer show whether one person used Copilot.** `bi.DepartmentWeek` had
+  a row only where someone was active, so a hidden row for a one-person department showed
+  whether that person used Copilot that week. Now every department has a row for every week of
+  the data, departments smaller than the minimum are combined as *(smaller departments)*, and a
+  week with fewer active people than the minimum is blank.
+- **The audit log is kept at least a year, whatever is stored.** Only the admin form enforced
+  the 365-day floor, so a shorter value set in SQL deleted the log sooner. The nightly retention
+  now treats 1 to 364 days as 365.
+- **Reporting accounts can read the dashboard's `bi` views.** The installer granted
+  `CopilotReporting` only the views that existed when it ran, so `OrgSecurity`, `DepartmentWeek`
+  and the other views the dashboard installer creates later were unreadable.
+  `Create-CopilotOperationsSchema.sql` now grants every `bi` view to the role.
+- **The job server installer passes the license databases the nightly uses.** A saved blank
+  `LicenseDatabase` made `Install-CopilotAudit.ps1` run `CREATE DATABASE []` and fail, and
+  `SessionLicenseDatabases` was not passed at all, so every nightly then refused the build's
+  different settings. Now a blank value skips the license database, and the list is passed as
+  `-LicenseEventDatabases`.
+- **Loads and CSV imports run by hand wait their turn.** `Invoke-CopilotAuditBackfill.ps1` and
+  `Import-CopilotAuditCsv.ps1` took no run lock, so they could load beside the nightly and two
+  imports could empty each other's stage, and the dashboard installer's `-GrantDatabaseAccess`
+  rebuild could run beside the nightly. All three now take the lock and stop at once, unchanged,
+  when another run holds it.
+- **Reading agent ids resumes where it stopped.** `usp_BackfillAgentNames @Others = 1` started
+  from the first record each time and re-read records flattened since 2.4.11 that were already
+  right, so an install stopped after hours began again from zero. Now it saves its position with
+  each batch, carries on from it, and skips records flattened since 2.4.11.
+- **A session no longer ends before it starts.** In the hour clocks go back, a session's local
+  end could read earlier than its local start. The end now never reads earlier than the start,
+  and its length is still measured in UTC.
 ### Changed
+- **Admin › Access removes a role with a small × box.** Each role in the grants list had a
+  *Remove* button; it is now a small × box beside the role, with room after it, that asks before
+  it removes the role.
 - **The SID is checked whichever way a sign-in is matched.** An answer from Active Directory, or a
   sign-in name that is a UPN, made the account any person with no SID on record: a manager outside
   the directory table, or an administrator granted by UPN who is not in it. In another domain or

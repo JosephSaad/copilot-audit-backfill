@@ -2025,7 +2025,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 
 ### bi.DepartmentWeek
 
-*View.* Active people, interactions and sessions by department and week (2.3.0), with every figure of a department under the minimum group size blank: for a model that must not show individuals.
+*View.* Active people, interactions and sessions by department and week (2.3.0), for a model that must not show individuals. From 2.4.12 every department has a row for every week of the data, used or not; departments with fewer enabled people than the minimum group size are combined as (smaller departments), and a week with fewer active people than the minimum is blank.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 

@@ -355,7 +355,7 @@ if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp
     Write-Done 'agent names: reading the id and friendly name from the records of agents, once (2.4.11)...'
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_BackfillAgentNames;'
     if (Test-Object $Database 'bi.usp_NameAgents' 'P') { Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_NameAgents;' }
-    $todo += 'Refresh the Power BI model once: agents carry the friendly names the audit log gives them, and bi.Agents gained NamedInAudit.'
+    $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): agents carry the friendly names the audit log gives them, and bi.Agents gained NamedInAudit.'
 }
 
 # 2.4.12: the records of other apps that carry an agent's id (Copilot Chat running a declarative agent), which bi keys
@@ -390,7 +390,7 @@ if ($noFileType -or $noUseKind -or $cutShort -or $agentIds) {
         $(if ($agentIds) { ('{0:N0} interactions gain the agent the audit log names by id (2.4.12)' -f $gainedIds) })) | Where-Object { $_ }
     Write-Done "bi, in full once: $($gain -join '; '). This takes as long as a full bi refresh..."
     Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
-    if ($noFileType) { $todo += 'Refresh the Power BI model once: bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.' }
+    if ($noFileType) { $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.' }
     if ($agentIds) { $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): interactions of every day moved to the agents the audit log names by id, and a scheduled refresh redoes only the last 4 days.' }
 }
 
