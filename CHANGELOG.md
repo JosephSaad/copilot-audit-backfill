@@ -10,6 +10,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Admin › Health no longer has a *CSV import* step.** Loading from Purview exports is mostly a
   first-time job, so its row in the Pipeline table, a *Not used* line on nearly every site, is
   gone. *Audit download* stays, and `tools\Test-CopilotDataHealth.ps1` still reads CSV imports.
+- **Admin › Value names lists a column's values most seen first.** It opened with the unnamed
+  values first, which for a column such as resource types or apps put rare values above the ones
+  every report shows. *Unnamed first* is still one choice away in the sort list.
 
 ### Added
 - **A read-only health check.** `tools\Test-CopilotDataHealth.ps1` reads both databases and says
