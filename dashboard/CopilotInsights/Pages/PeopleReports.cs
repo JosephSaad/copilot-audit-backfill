@@ -297,7 +297,7 @@ GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
                 Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));
             if (rules == 0) Notice = "No job family rules yet: everyone is \"(no family)\". An administrator adds them in Admin > Classifications and events, with the titles that need one listed there.";
             Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Licensed people who used Copilot, over people licensed.", "half"));
-            var t = Groups.Table(kept, "Job family");
+            var t = Groups.Table(kept, "Job family", Ctx.MinGroupSize);
             CsvTable = t;
             Panels.Add(new("Job families", t.Render(), folded > 0 ? FoldNote(folded, "job family", "job families") : null, "full", CsvUrl()));
         }

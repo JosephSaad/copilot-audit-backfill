@@ -36,10 +36,10 @@ GROUP BY ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")};
         Panels.Add(new("People using Copilot, by country",
             Chart.Line(Labels(), shown.Select((c, i) => new Series(c.Name, buckets.Select(b => (double?)trend.Where(t => t.Country == c.Name && t.Bucket == b.Key).Sum(t => t.Active)).ToList(), i + 1)).ToList(),
                 Fmt.Count, "Active people by country"), $"The five countries with the most people. {TrendNote}"));
-        var t = Groups.Table(countries, "Country");
+        var t = Groups.Table(countries, "Country", Ctx.MinGroupSize);
         CsvTable = t;
         Panels.Add(new("Every country", t.Render(), null, "full", CsvUrl()));
-        Panels.Add(new("Every office", Groups.Table(offices, "Office").Render()));
+        Panels.Add(new("Every office", Groups.Table(offices, "Office", Ctx.MinGroupSize).Render()));
     }
 }
 

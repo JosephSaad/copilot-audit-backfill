@@ -42,7 +42,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
             $"Level 1 is the top of the organization. Levels with fewer than {Ctx.MinGroupSize} license holders are combined in the last bar.", "half"));
         Panels.Add(new("By job title", Groups.AdoptionBars(titles, "Adoption by job title", Ctx.MinGroupSize, 15),
             "The fifteen titles with the highest adoption." + (ft > 0 ? " " + FoldNote(ft, "title") : ""), "half"));
-        var tt = Groups.Table(titles, "Job title");
+        var tt = Groups.Table(titles, "Job title", Ctx.MinGroupSize);
         CsvTable = tt;
         Panels.Add(new("Every job title", tt.Render(), null, "full", CsvUrl()));
     }
