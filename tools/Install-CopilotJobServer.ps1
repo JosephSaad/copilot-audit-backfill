@@ -42,6 +42,12 @@
     The users' domain, read by the user-directory load. It must be another
     domain from this server's, reachable over the trust.
 
+.PARAMETER DepartmentAttribute
+    The AD attributes the department is read from, in order, the first with a
+    value (2.5.0), for a directory that keeps it in a custom attribute:
+    -DepartmentAttribute pncUCustom08, department. Saved in the settings, so the
+    nightly directory load reads the same. Default: department.
+
 .PARAMETER ReportingTimeZone
     The zone days and weeks are cut in (a name from sys.time_zone_info).
     Default: this server's own zone, which the database installer stores
@@ -69,6 +75,8 @@ param(
     [pscredential] $ServiceAccountCredential,
     [string] $TargetDomain,
     [string[]] $EmployeeTypes,
+    [ValidatePattern('^[A-Za-z][A-Za-z0-9-]*$')]
+    [string[]] $DepartmentAttribute,
     [string] $TenantId,
     [string] $ClientId,
     [string] $CertificateThumbprint,
@@ -100,7 +108,7 @@ function Write-Done([string] $Text) { Write-Information "    $Text" -Information
 # ===========================================================================
 
 $script:SettingOrder = 'SqlServer', 'Database', 'LicenseDatabase', 'TrustServerCertificate', 'TenantId', 'ClientId',
-                       'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'IncludeLeaveDates', 'Dashboard', 'HistoryDays',
+                       'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'DepartmentAttribute', 'IncludeLeaveDates', 'Dashboard', 'HistoryDays',
                        'LogPath', 'LogRetentionDays', 'At', 'TenantName', 'Tenants'
 
 function Get-DefaultSetting {
@@ -348,7 +356,7 @@ function Invoke-Main {
 
     $saved = if (Test-Path -LiteralPath $SettingsPath) { Import-PowerShellDataFile -LiteralPath $SettingsPath } else { @{} }
     $given = @{}
-    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'At') {
+    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'DepartmentAttribute', 'At') {
         if ($script:Bound.ContainsKey($k)) { $given[$k] = Get-Variable -Name $k -ValueOnly }
     }
     if ($TrustServerCertificate) { $given.TrustServerCertificate = $true }

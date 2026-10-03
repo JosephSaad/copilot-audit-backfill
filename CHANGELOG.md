@@ -13,6 +13,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Admin › Value names lists a column's values most seen first.** It opened with the unnamed
   values first, which for a column such as resource types or apps put rare values above the ones
   every report shows. *Unnamed first* is still one choice away in the sort list.
+- **The AD export takes a user's country from `c` when `co` is empty.** It reads `co`, else the
+  English name of the two-letter code in `c` (CA is Canada), so a directory that sets only `c`, as
+  one provisioned by an identity manager often does, no longer loads every country empty.
+- **`audit.UserDirectory.Department` holds 200 characters.** It held 64, AD's limit for
+  `department`, and a custom attribute can be longer, which would have failed the whole nightly
+  directory load. The next load widens an older table; a department over 200 characters is cut and
+  counted in the log.
 
 ### Added
 - **A read-only health check.** `tools\Test-CopilotDataHealth.ps1` reads both databases and says
@@ -21,6 +28,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Copilot Studio's operations and has shredded them, and which agents have no maker or owner. It
   ends with what to run, in order. RUNBOOK section 5g says how to read it, and how to rebuild
   everything from the stored records without searching the audit log again.
+- **The department can come from another AD attribute.** `tools\Export-UsersWithHierarchy-ToSql.ps1
+  -DepartmentAttribute pncUCustom08, department` reads the first attribute with a value, so a
+  directory that keeps the department in a custom attribute needs no edit to the script. Set
+  `DepartmentAttribute` in `copilot-audit.settings.psd1`, or pass `-DepartmentAttribute` to
+  `Install-CopilotJobServer.ps1`, so the nightly run reads the same; a tenant can have its own. The
+  load says how many people have a department and a country, and warns when no one has a
+  department: AD returns nothing, with no error, for an attribute the account may not read.
 
 ### Fixed
 - **The health check no longer warns that a license database holds "other operations" when it

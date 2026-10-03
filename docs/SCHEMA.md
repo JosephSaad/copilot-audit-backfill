@@ -610,11 +610,11 @@ Indexes and constraints:
 | 5 | `IsManager` | bit | **no** |  | someone reports to them |
 | 6 | `AccountEnabled` | bit | **no** |  |  |
 | 7 | `JobTitle` | nvarchar(128) | yes |  | AD attribute: title |
-| 8 | `Department` | nvarchar(64) | yes |  | AD attribute: department |
+| 8 | `Department` | nvarchar(200) | yes |  | department, or the first of -DepartmentAttribute that has a value (2.5.0) |
 | 9 | `Division` | nvarchar(256) | yes |  | division: the line of business |
 | 10 | `Office` | nvarchar(128) | yes |  | AD attribute: physicalDeliveryOfficeName |
 | 11 | `City` | nvarchar(128) | yes |  | AD attribute: l |
-| 12 | `Country` | nvarchar(128) | yes |  | AD attribute: co |
+| 12 | `Country` | nvarchar(128) | yes |  | co, else the English name of c (2.5.0) |
 | 13 | `Company` | nvarchar(64) | yes |  | AD attribute: company |
 | 14 | `ManagerUPN` | nvarchar(256) | yes |  |  |
 | 15 | `ManagerName` | nvarchar(256) | yes |  |  |

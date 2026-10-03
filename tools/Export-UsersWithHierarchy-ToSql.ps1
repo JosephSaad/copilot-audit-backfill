@@ -17,6 +17,10 @@
     which: the audit data covers months, and a user who has since left still
     has interactions to attribute.
 
+    Department is read from -DepartmentAttribute (default: department), and
+    Country from co, else the English name of the two-letter code in c, so a
+    directory that sets only c reads like one that sets co (2.5.0).
+
     Needs no Microsoft Graph permission. The AD bind uses the identity running
     the script, over the domain trust (no credentials); SQL uses the same
     identity by default. Runs on Windows PowerShell 5.1 or PowerShell 7 - .NET
@@ -49,9 +53,21 @@
     Load only these employeeType codes. An empty array loads every type.
     Managers are resolved for the chain whatever their type.
 
+.PARAMETER DepartmentAttribute
+    The AD attributes the department is read from, in order: the first one
+    with a value is used (2.5.0). Default: department. For a directory that
+    keeps it in a custom attribute: -DepartmentAttribute pncUCustom08, department.
+    Set DepartmentAttribute the same in copilot-audit.settings.psd1 so the
+    nightly run agrees. A department is kept to 200 characters.
+
 .EXAMPLE
     .\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain trusted.example.com `
         -SqlServer SQLPROD01 -Database CopilotAudit
+
+.EXAMPLE
+    # The department is in a custom attribute, and AD's own department is the fallback.
+    .\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain trusted.example.com `
+        -SqlServer SQLPROD01 -Database CopilotAudit -DepartmentAttribute pncUCustom08, department
 #>
 [CmdletBinding()]
 param(
@@ -67,13 +83,18 @@ param(
     [int]      $BatchSize = 10000,
 
     [hashtable] $EmployeeTypeMap = @{ 'EMP' = 'EMPLOYEE'; 'NONW' = 'CONTRACTOR' },
-    [string[]] $EmployeeTypes = @('EMP', 'NONW')
+    [string[]] $EmployeeTypes = @('EMP', 'NONW'),
+
+    [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^[A-Za-z][A-Za-z0-9-]*$')]
+    [string[]] $DepartmentAttribute = @('department')
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:ToolRoot = Split-Path $PSScriptRoot -Parent
 $script:ChainColumns = 15      # Mgr1..Mgr15 in audit.UserDirectory
+$script:DepartmentWidth = 200  # audit.UserDirectory.Department, as wide as bi.DimUser's and dash.Person's
 
 function Write-Log {
     param([Parameter(Mandatory)][string] $Message,
@@ -96,7 +117,7 @@ function Get-DirectoryEntry {
         Returns plain objects, so everything after this can be tested without
         a directory.
     #>
-    param([Parameter(Mandatory)][string] $Domain)
+    param([Parameter(Mandatory)][string] $Domain, [string[]] $DepartmentAttribute = @('department'))
 
     $current = $env:USERDNSDOMAIN
     if ($current -and ($Domain -ieq $current)) {
@@ -111,45 +132,85 @@ function Get-DirectoryEntry {
     $searcher.PageSize     = 1000
     $searcher.SizeLimit    = 0
     $searcher.CacheResults = $false
-    foreach ($a in 'userPrincipalName', 'mail', 'displayName', 'title', 'department', 'division',
-                   'physicalDeliveryOfficeName', 'l', 'co', 'company', 'employeeType', 'manager',
-                   'distinguishedName', 'userAccountControl', 'objectSid', 'accountExpires') {
-        [void] $searcher.PropertiesToLoad.Add($a)
-    }
-
-    function Val($p, $n) { if ($p.Contains($n)) { [string] $p[$n][0] } else { $null } }
-    function Sid($p) {
-        if (-not $p.Contains('objectsid')) { return $null }
-        ([System.Security.Principal.SecurityIdentifier]::new([byte[]] $p['objectsid'][0], 0)).Value
+    $load = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($a in @('userPrincipalName', 'mail', 'displayName', 'title', 'division',
+                     'physicalDeliveryOfficeName', 'l', 'co', 'c', 'company', 'employeeType', 'manager',
+                     'distinguishedName', 'userAccountControl', 'objectSid', 'accountExpires') + @($DepartmentAttribute)) {
+        if ($load.Add($a)) { [void] $searcher.PropertiesToLoad.Add($a) }
     }
 
     $all = [System.Collections.Generic.List[object]]::new(100000)
     $results = $searcher.FindAll()
     try {
-        foreach ($r in $results) {
-            $p = $r.Properties
-            $all.Add([pscustomobject]@{
-                dn      = Val $p 'distinguishedname'
-                upn     = Val $p 'userprincipalname'
-                mail    = Val $p 'mail'
-                disp    = Val $p 'displayname'
-                title   = Val $p 'title'
-                dept    = Val $p 'department'
-                div     = Val $p 'division'
-                off     = Val $p 'physicaldeliveryofficename'
-                city    = Val $p 'l'
-                country = Val $p 'co'
-                company = Val $p 'company'
-                etype   = Val $p 'employeetype'
-                mgr     = Val $p 'manager'
-                uac     = [int] (Val $p 'useraccountcontrol')
-                sid     = Sid $p
-                expires = ConvertFrom-AccountExpiry (Val $p 'accountexpires')
-            })
-        }
+        foreach ($r in $results) { $all.Add((ConvertTo-DirectoryEntry -Properties $r.Properties -DepartmentAttribute $DepartmentAttribute)) }
     }
     finally { $results.Dispose() }
     return , $all
+}
+
+function Get-DirectoryValue($p, $n) {
+    <# The first value of a search result's attribute, as text, or $null. A result keys its attributes in lower case. #>
+    $k = $n.ToLowerInvariant()
+    if ($p.Contains($k)) { [string] $p[$k][0] } else { $null }
+}
+
+function Get-DirectorySid($p) {
+    if (-not $p.Contains('objectsid')) { return $null }
+    ([System.Security.Principal.SecurityIdentifier]::new([byte[]] $p['objectsid'][0], 0)).Value
+}
+
+function ConvertFrom-CountryCode {
+    <#
+        AD's c attribute, an ISO 3166 two-letter code, as the English name of the country (CA is Canada), so a user
+        who has only c reads like one who has co. A value that is not a two-letter code, or names no country, stays
+        as it is; blank is $null. Pure, for the tests.
+    #>
+    param([AllowNull()][AllowEmptyString()][string] $Code)
+    if ([string]::IsNullOrWhiteSpace($Code)) { return $null }
+    $c = $Code.Trim()
+    if ($c -notmatch '^[A-Za-z]{2}$') { return $c }
+    try {
+        $name = [System.Globalization.RegionInfo]::new($c.ToUpperInvariant()).EnglishName
+        if ($name) { $name } else { $c }
+    }
+    catch { $c }
+}
+
+function ConvertTo-DirectoryEntry {
+    <#
+        One search result's properties as the plain object the rest of the script reads. Pure: the properties are
+        anything with Contains(name) and an indexer, keyed in lower case as a search result keys them, so the tests
+        need no directory.
+
+        Department is the first of -DepartmentAttribute that has a value (2.5.0). Country is co, else the English
+        name of c, AD's two-letter code, so a directory that sets only c reads like one that sets co.
+    #>
+    param([Parameter(Mandatory)] $Properties, [string[]] $DepartmentAttribute = @('department'))
+    $p = $Properties
+    $dept = $null
+    foreach ($a in $DepartmentAttribute) {
+        $v = Get-DirectoryValue $p $a
+        if (-not [string]::IsNullOrWhiteSpace($v)) { $dept = $v; break }
+    }
+    $co = Get-DirectoryValue $p 'co'
+    [pscustomobject]@{
+        dn      = Get-DirectoryValue $p 'distinguishedname'
+        upn     = Get-DirectoryValue $p 'userprincipalname'
+        mail    = Get-DirectoryValue $p 'mail'
+        disp    = Get-DirectoryValue $p 'displayname'
+        title   = Get-DirectoryValue $p 'title'
+        dept    = $dept
+        div     = Get-DirectoryValue $p 'division'
+        off     = Get-DirectoryValue $p 'physicaldeliveryofficename'
+        city    = Get-DirectoryValue $p 'l'
+        country = $(if ([string]::IsNullOrWhiteSpace($co)) { ConvertFrom-CountryCode (Get-DirectoryValue $p 'c') } else { $co })
+        company = Get-DirectoryValue $p 'company'
+        etype   = Get-DirectoryValue $p 'employeetype'
+        mgr     = Get-DirectoryValue $p 'manager'
+        uac     = [int] (Get-DirectoryValue $p 'useraccountcontrol')
+        sid     = Get-DirectorySid $p
+        expires = ConvertFrom-AccountExpiry (Get-DirectoryValue $p 'accountexpires')
+    }
 }
 
 function ConvertFrom-AccountExpiry {
@@ -286,6 +347,7 @@ function ConvertTo-UserDirectoryTable {
     $chain     = [System.Collections.Generic.List[string]]::new()
     $seen      = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $skipped   = [ordered]@{ OtherType = 0; NoUpn = 0; UpnTooLong = 0; DuplicateUpn = 0 }
+    $clipped   = 0      # departments cut to the column's width
 
     function NZ($v) { if ([string]::IsNullOrEmpty([string] $v)) { [DBNull]::Value } else { [string] $v } }
 
@@ -326,7 +388,10 @@ function ConvertTo-UserDirectoryTable {
         $row['IsManager']         = $managerDns.Contains([string] $u.dn)
         $row['AccountEnabled']    = $enabled
         $row['JobTitle']          = NZ $u.title
-        $row['Department']        = NZ $u.dept
+        # A custom attribute can be longer than the column (AD's own department stops at 64): cut, not fail the load.
+        $dept = [string] $u.dept
+        if ($dept.Length -gt $script:DepartmentWidth) { $dept = $dept.Substring(0, $script:DepartmentWidth); $clipped++ }
+        $row['Department']        = NZ $dept
         $row['Division']          = NZ $u.div
         $row['Office']            = NZ $u.off
         $row['City']              = NZ $u.city
@@ -339,7 +404,7 @@ function ConvertTo-UserDirectoryTable {
         $dt.Rows.Add($row)
     }
 
-    return [pscustomobject]@{ Table = $dt; Skipped = $skipped }
+    return [pscustomobject]@{ Table = $dt; Skipped = $skipped; Clipped = $clipped }
 }
 
 # ===========================================================================
@@ -508,8 +573,8 @@ function Invoke-Main {
     if (-not $TargetDomain) { throw 'Specify -TargetDomain: the trusted domain to read users from.' }
     $connStr = New-DirectoryConnectionString
 
-    Write-Log "Reading users from $TargetDomain..."
-    $entries = Get-DirectoryEntry -Domain $TargetDomain
+    Write-Log "Reading users from $TargetDomain (department from $($DepartmentAttribute -join ', then '))..."
+    $entries = Get-DirectoryEntry -Domain $TargetDomain -DepartmentAttribute $DepartmentAttribute
     Write-Log ("{0:N0} user object(s) read." -f $entries.Count)
 
     $rows = ConvertTo-UserDirectoryTable -Entries $entries -MaxLevels $MaxLevels -EmployeeTypeMap $EmployeeTypeMap `
@@ -518,6 +583,17 @@ function Invoke-Main {
     $disabled = @($rows.Table.Rows | Where-Object { -not $_.AccountEnabled }).Count
     Write-Log ("{0:N0} row(s) to load, {1:N0} of them disabled accounts; skipped {2:N0} of another employee type, {3:N0} with no UPN, {4:N0} duplicate UPN, {5:N0} UPN over 256 characters." -f `
                $rows.Table.Rows.Count, $disabled, $s.OtherType, $s.NoUpn, $s.DuplicateUpn, $s.UpnTooLong)
+    # What the attributes gave: AD returns nothing for an attribute the account running this may not read, so a
+    # department that is empty for everyone means the attribute is misnamed or unreadable, not that nobody has one.
+    $withDepartment = @($rows.Table.Rows | Where-Object { $_.Department -isnot [DBNull] }).Count
+    $withCountry = @($rows.Table.Rows | Where-Object { $_.Country -isnot [DBNull] }).Count
+    Write-Log ("Department filled for {0:N0} of {1:N0} row(s), country for {2:N0}." -f $withDepartment, $rows.Table.Rows.Count, $withCountry)
+    if ($rows.Table.Rows.Count -gt 0 -and $withDepartment -eq 0) {
+        Write-Log "No one has a department. Check that the account running this can read $($DepartmentAttribute -join ', ') in ${TargetDomain}, and that the attribute names are right." -Level WARN
+    }
+    if ($rows.Clipped -gt 0) {
+        Write-Log ("{0:N0} department(s) were longer than {1} characters and were cut." -f $rows.Clipped, $script:DepartmentWidth) -Level WARN
+    }
 
     $n = Write-UserDirectory -ConnString $connStr -Table $rows.Table -BatchRows $BatchSize
     Write-Log ("Loaded {0:N0} row(s) into audit.UserDirectory." -f $n)

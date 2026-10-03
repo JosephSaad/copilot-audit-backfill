@@ -206,6 +206,14 @@ Assert-That ($listed.Success -and (($docOps | Sort-Object) -join ',') -eq (($lic
     "DEPLOYMENT.md step 7 loads the license history with the pipeline's own $($licOps.Count) operations, as -History does ($($docOps.Count) listed)"
 Assert-That ((@($n[0].Arguments.EmployeeTypes) -join ',') -eq 'EMP' -and $n[0].Arguments.TargetDomain -eq 'users.contoso.com' -and -not $n[0].Arguments.ContainsKey('ClientId')) `
     'the directory step reads AD with no Graph sign-in'
+# 2.5.0: DepartmentAttribute, in the settings, is where the nightly directory load finds the department.
+Assert-That (-not $n[0].Arguments.ContainsKey('DepartmentAttribute')) 'the directory step passes no -DepartmentAttribute unless the settings name one (it reads department)'
+$dn = Get-PipelineStep -Setting ($s + @{ DepartmentAttribute = @('pncUCustom08', 'department') }) -Today $today -Root 'R:'
+Assert-That ((@($dn[0].Arguments.DepartmentAttribute) -join ',') -eq 'pncUCustom08,department') 'DepartmentAttribute in the settings reaches the directory step, in order'
+$dn1 = Get-PipelineStep -Setting ($s + @{ DepartmentAttribute = 'pncUCustom08' }) -Today $today -Root 'R:'
+Assert-That ((@($dn1[0].Arguments.DepartmentAttribute) -join ',') -eq 'pncUCustom08') 'one attribute written as a string works too'
+$dn0 = Get-PipelineStep -Setting ($s + @{ DepartmentAttribute = @() }) -Today $today -Root 'R:'
+Assert-That (-not $dn0[0].Arguments.ContainsKey('DepartmentAttribute')) 'an empty DepartmentAttribute passes nothing'
 
 $h = Get-PipelineStep -Setting $s -History -Today $today -Root 'R:'
 Assert-That (($h.Name -join '|') -eq 'Copilot interactions (history)|License events (history)|User directory from AD|Copilot licenses from Graph|Build everything') 'history: load, directory, licenses, then build'
@@ -318,6 +326,18 @@ Set-Content -LiteralPath $f2 -Value (ConvertTo-SettingText ($again + @{ Custom =
 $read2 = Import-PowerShellDataFile -LiteralPath $f2
 Assert-That (@($read2.EmployeeTypes).Count -eq 0 -and $read2.IncludeLeaveDates -eq $true -and $read2.At -eq '03:30' -and $read2.Custom -eq 'kept') 'and writes them all back, a key it does not know included'
 
+# 2.5.0: DepartmentAttribute is a setting of its own: given, saved, read back and kept by a re-run; there is no default.
+$dm = Merge-Setting -Saved @{ SqlServer = 'SQL1' } -Given @{ DepartmentAttribute = [string[]] @('pncUCustom08', 'department') }
+Assert-That ((@($dm.DepartmentAttribute) -join ',') -eq 'pncUCustom08,department') '-DepartmentAttribute given is a setting'
+$f3 = Join-Path $tmp 'dept.psd1'
+Set-Content -LiteralPath $f3 -Value (ConvertTo-SettingText $dm)
+$read3 = Import-PowerShellDataFile -LiteralPath $f3
+Assert-That ((@($read3.DepartmentAttribute) -join ',') -eq 'pncUCustom08,department') 'it reads back from the settings file in order'
+Assert-That ((@((Merge-Setting -Saved $read3 -Given @{ TenantId = 'contoso.onmicrosoft.com' }).DepartmentAttribute) -join ',') -eq 'pncUCustom08,department') 'a re-run keeps it'
+Assert-That (-not (Merge-Setting -Saved @{ SqlServer = 'SQL1' } -Given @{}).Contains('DepartmentAttribute')) 'with none given there is no default: the directory load reads department'
+$ip = (Get-Command (Join-Path (Join-Path $root 'tools') 'Install-CopilotJobServer.ps1')).Parameters['DepartmentAttribute']
+Assert-That ($null -ne $ip -and @($ip.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidatePatternAttribute] }).Count -eq 1) 'the installer takes -DepartmentAttribute, an attribute name and nothing else'
+
 # 2.4.12: step 4 passes the license databases as the pipeline's history build does. A blank LicenseDatabase went to the
 # installer as it was (CREATE DATABASE [] failed), and SessionLicenseDatabases not at all (the nightly then refused the
 # build's different list every night).
@@ -375,6 +395,17 @@ $fab = Get-PipelineStep -Setting $ts[1] -Today $today -Root 'R:'
 Assert-That (@($fab | Where-Object { $_.Name -eq 'User directory from AD' }).Count -eq 0) 'an empty TargetDomain turns the directory step off for that tenant'
 Assert-That (@($fab | Where-Object { $_.Arguments.Database -eq 'CopilotAudit' }).Count -eq 0 -and $fab[0].Arguments.TenantId -eq 'fabrikam.onmicrosoft.com') 'and its steps load its own databases with its own app'
 Assert-That ((Get-PipelineTenant -Setting $multi -Only 'Fabrikam').Count -eq 1) '-Tenant runs one'
+# 2.5.0: a tenant reads the shared DepartmentAttribute, or its own.
+$deptMulti = @{} + $multi
+$deptMulti.DepartmentAttribute = @('pncUCustom08', 'department')
+$deptMulti.Tenants = @(@{ Name = 'Fabrikam'; TenantId = 'fabrikam.onmicrosoft.com'; ClientId = 'f1'; Database = 'CopilotAudit_Fabrikam'; TargetDomain = 'fabrikam.local'; DepartmentAttribute = @('extensionAttribute3') })
+$dts = Get-PipelineTenant -Setting $deptMulti
+$plan0 = Get-PipelineStep -Setting $dts[0] -Today $today -Root 'R:'     # the plan is one array: filter it from a variable, as above
+$plan1 = Get-PipelineStep -Setting $dts[1] -Today $today -Root 'R:'
+$dirStep0 = @($plan0 | Where-Object { $_.Name -eq 'User directory from AD' })[0]
+$dirStep1 = @($plan1 | Where-Object { $_.Name -eq 'User directory from AD' })[0]
+Assert-That ((@($dirStep0.Arguments.DepartmentAttribute) -join ',') -eq 'pncUCustom08,department' -and (@($dirStep1.Arguments.DepartmentAttribute) -join ',') -eq 'extensionAttribute3') `
+    'each tenant''s directory step reads the shared DepartmentAttribute, or the tenant''s own'
 $bad = try { Get-PipelineTenant -Setting $multi -Only 'Nobody'; '' } catch { $_.Exception.Message }
 Assert-That ($bad -like '*No tenant*Contoso, Fabrikam*') 'an unknown -Tenant lists the tenants there are'
 $shared = @{} + $multi; $shared.Tenants = @(@{ Name = 'Clash'; TenantId = 'x'; ClientId = 'y'; Database = 'CopilotAudit' })

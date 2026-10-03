@@ -57,6 +57,7 @@ Each is awkward to change after the first load. The examples below use the names
 - **How much history.** Microsoft keeps Copilot audit records for 180 days. More exists only if a custom retention policy covered Copilot at the time (step 1).
 - **Capacity for the Copilot agent.** Copilot in Power BI needs a paid Fabric (F2+) or Premium (P1+) capacity. Outside the US or EU data boundary it also needs a tenant setting that lets data be processed in another region (step 17). Buying capacity and that residency decision both take time, so start them now.
 - **Which employee types to load.** The AD export loads `employeeType` codes `EMP` and `NONW` by default, written as EMPLOYEE and CONTRACTOR. Check the codes your directory uses; `-EmployeeTypes @()` loads every type.
+- **Where the department is.** The AD export reads AD's `department` (2.5.0). If your directory keeps it in another attribute, name it with `-DepartmentAttribute`, first choice first: `-DepartmentAttribute pncUCustom08, department` uses the custom attribute and falls back to AD's own. Set `DepartmentAttribute` the same in `copilot-audit.settings.psd1`, or pass `-DepartmentAttribute` to `Install-CopilotJobServer.ps1`, so the nightly run agrees. Country is `co`, else the English name of the two-letter code in `c`, since many directories set only `c`.
 
 ## The short version
 
@@ -357,6 +358,8 @@ It also reports the accounts it skipped: other employee types, no UPN, a UPN ove
 >
 > A blank `Name` is accounts with no type, often service, shared-mailbox or test accounts. Then pass the codes to keep, such as `-EmployeeTypes 'EMP','NONW','OTHER'`, or `-EmployeeTypes @()` for every account, and set `EmployeeTypes` to the same in `copilot-audit.settings.psd1` so the nightly run agrees. Loading more is harmless: the type is a column reports can filter on, and a Copilot user who isn't loaded shows with no department.
 
+> **Check the department and the country.** The log says how many rows have a department and how many a country. If no one has a department, the attribute is misnamed or the account running the export cannot read it: AD returns nothing for an attribute it may not read, with no error. Count what an attribute holds the same way as the types above, with `-Properties <attribute>`. A department is kept to 200 characters; longer ones are cut, and the log says how many. Where the department is not AD's `department`, pass `-DepartmentAttribute` here and set `DepartmentAttribute` in `copilot-audit.settings.psd1` (see *Where the department is* above).
+
 ### Step 10. Load current Copilot licenses
 
 *Job server. About 5–20 minutes for a few thousand users; allow an hour or more for 60,000.*
@@ -630,7 +633,7 @@ Licenses
   with no interactions in it.
 
 Organization
-- Department, Division, JobTitle, Office and manager come from Active Directory.
+- Department, Division, JobTitle, Office and manager come from Active Directory (the department from the attribute `-DepartmentAttribute` names, `department` by default).
 - OrgLevel1 is the top of the management chain, OrgLevel2 the level below, and so
   on. The values are managers' display names. People "in X's organization" are
   users where any OrgLevel column equals X.

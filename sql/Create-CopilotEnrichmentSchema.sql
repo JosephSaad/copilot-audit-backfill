@@ -173,11 +173,11 @@ IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NULL
         IsManager          BIT            NOT NULL,   -- someone reports to them
         AccountEnabled     BIT            NOT NULL,
         JobTitle           NVARCHAR(128)  NULL,       -- title
-        Department         NVARCHAR(64)   NULL,       -- department
+        Department         NVARCHAR(200)  NULL,       -- department, or the first of -DepartmentAttribute that has a value (2.5.0)
         Division           NVARCHAR(256)  NULL,       -- division: the line of business
         Office             NVARCHAR(128)  NULL,       -- physicalDeliveryOfficeName
         City               NVARCHAR(128)  NULL,       -- l
-        Country            NVARCHAR(128)  NULL,       -- co
+        Country            NVARCHAR(128)  NULL,       -- co, else the English name of c (2.5.0)
         Company            NVARCHAR(64)   NULL,       -- company
         ManagerUPN         NVARCHAR(256)  NULL,
         ManagerName        NVARCHAR(256)  NULL,
@@ -204,6 +204,11 @@ IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.Us
 /* 2.4.3: AD's accountExpires, when the account is set to expire (NULL for never), for Licensing > Departures ahead. */
 IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'AccountExpiresUtc') IS NULL
     ALTER TABLE audit.UserDirectory ADD AccountExpiresUtc DATETIME2(0) NULL;
+
+/* 2.5.0: Department holds 200 characters, as bi.DimUser and dash.Person do. It held 64, AD's limit for department,
+   and a custom attribute named by -DepartmentAttribute can be longer. COL_LENGTH is in bytes: 400 is nvarchar(200). */
+IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'Department') < 400
+    EXEC (N'ALTER TABLE audit.UserDirectory ALTER COLUMN Department NVARCHAR(200) NULL;');
 
 /* ---- Reporting views ---------------------------------------------------- */
 
