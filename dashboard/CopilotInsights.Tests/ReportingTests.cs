@@ -233,3 +233,42 @@ public class ColumnSortTests
         Assert.Contains("<th scope=\"col\" aria-sort=\"ascending\"><a class=\"sort\" href=\"/licensing/unused?s=-idle\">Last used</a></th>", html);
     }
 }
+
+/// <summary>Workforce › By level in the organization lists the levels as numbers (2.5.0).</summary>
+public class LevelOrderTests
+{
+    [Fact]
+    public void Levels_sort_as_numbers_so_level_10_and_above_come_after_level_9()
+    {
+        string[] names = ["Level 10", "Level 11", "Level 2", "(not in the chart)", "Level 3", "Level 9", "Level 12", "Level 1"];
+        /* As text, Level 10 and Level 11 came before Level 2, which is the order the chart had. */
+        Assert.Equal(["(not in the chart)", "Level 1", "Level 10", "Level 11", "Level 12", "Level 2", "Level 3", "Level 9"], names.OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        Assert.Equal(["Level 1", "Level 2", "Level 3", "Level 9", "Level 10", "Level 11", "Level 12", "(not in the chart)"],
+            names.OrderBy(CopilotInsights.Data.Metrics.LevelOrder).ThenBy(n => n, StringComparer.Ordinal).ToArray());
+    }
+
+    [Theory]
+    [InlineData("Level 7", 7)]
+    [InlineData("Level 15", 15)]
+    [InlineData("(not in the chart)", int.MaxValue)]
+    [InlineData("Level x", int.MaxValue)]
+    [InlineData("Level -2", int.MaxValue)]
+    [InlineData("Level 99999999999", int.MaxValue)]
+    [InlineData("", int.MaxValue)]
+    public void A_level_names_its_number_and_anything_else_goes_last(string name, int order) => Assert.Equal(order, CopilotInsights.Data.Metrics.LevelOrder(name));
+
+    [Fact]
+    public void The_workforce_chart_orders_its_levels_with_it()
+    {
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
+        {
+            var file = Path.Combine(d.FullName, "CopilotInsights", "Pages", "Workforce", "Workforce.cs");
+            if (!File.Exists(file)) continue;
+            var source = File.ReadAllText(file);
+            Assert.Contains("OrderBy(l => Metrics.LevelOrder(l.Name))", source);
+            Assert.DoesNotContain("lv.OrderBy(l => l.Name)", source);
+            return;
+        }
+        throw new DirectoryNotFoundException("CopilotInsights/Pages/Workforce, above " + AppContext.BaseDirectory);
+    }
+}

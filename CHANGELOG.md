@@ -56,6 +56,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `http://schema.skype.com/HyperLink`) even after Admin › Value names gave it a name, while Apps,
   Usage by license and Compliance showed the name. It shows the name too now, and its note says
   where type and label names are set.
+- **Workforce › By level in the organization lists the levels in order.** It sorted the names as
+  text, so Level 10 and Level 11 came before Level 2. Levels are in numeric order now, 2 to 9 and
+  then 10, 11, 12; a name that is no level follows the last, and the combined bar of smaller groups
+  stays at the end.
 
 ## [2.4.12] - 2026-10-03
 

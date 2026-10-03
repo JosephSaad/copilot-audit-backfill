@@ -298,6 +298,15 @@ GROUP BY {expr};", c.Args());
         ["Division"] = "ISNULL(NULLIF(du.Division, N''), N'(no division)')",
     };
 
+    /// <summary>
+    /// Where a level group sits in a list of levels (2.5.0): Level 2, 3 ... 9, 10, 11, 12 as numbers. Sorted as text,
+    /// Level 10 and Level 11 came before Level 2. A name that is no level, (not in the chart), comes after the last level.
+    /// </summary>
+    public static int LevelOrder(string name) =>
+        name.StartsWith("Level ", StringComparison.Ordinal)
+        && int.TryParse(name.AsSpan(6), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n)
+            ? n : int.MaxValue;
+
     public static GroupRow CombineGroups(IReadOnlyList<GroupRow> rows, string name) => new()
     {
         Name = name, People = rows.Sum(r => r.People), Licensed = rows.Sum(r => r.Licensed), Active = rows.Sum(r => r.Active),
