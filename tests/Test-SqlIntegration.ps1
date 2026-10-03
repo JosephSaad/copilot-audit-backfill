@@ -641,6 +641,38 @@ SELECT (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AgentName IS NOT NULL) 
         "and the next run reads it again and catalogs its agent under its latest name ($($ag3.CatalogName))"
     Assert-That ((& $flatStamp) -eq $stamp0) 'with nothing else of any record changed'
 
+    # 2.4.12: a read stopped after some batches carries on from where it got to. It started from the first record again,
+    # which with @Others is most of Copilot Chat's history. A constraint on the saved position stands in for the stop,
+    # after the first batch of 1,000; a record of that batch emptied after the stop shows the next run does not read it.
+    Invoke-SqlText -Sql @"
+UPDATE audit.RawLogFlattened SET AgentId = NULL, AgentName = NULL; DELETE FROM audit.AgentCatalog; DELETE FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtc';
+DECLARE @mid NVARCHAR(450) = (SELECT RecordId FROM audit.RawLogFlattened WHERE AppIdentity LIKE N'Copilot.Studio.%' ORDER BY RecordId OFFSET 1000 ROWS FETCH NEXT 1 ROWS ONLY);
+DECLARE @c NVARCHAR(MAX) = N'ALTER TABLE audit.PipelineSetting WITH NOCHECK ADD CONSTRAINT CK_it_StopCursor CHECK (Name <> N''AgentNamesReadUtcCursor'' OR Value < N''' + REPLACE(@mid, N'''', N'''''') + N''');';
+EXEC (@c);
+"@
+    $stoppedAt = try { Invoke-SqlText -Sql 'EXEC audit.usp_BackfillAgentNames @BatchSize = 1000;'; $null } catch { 'stopped' }
+    $saved = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT Value FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtcCursor') AS Cursor_,
+       (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AgentName IS NOT NULL) AS NamedSoFar;
+"@).Rows[0]
+    Invoke-SqlText -Sql @"
+ALTER TABLE audit.PipelineSetting DROP CONSTRAINT CK_it_StopCursor;
+UPDATE audit.RawLogFlattened SET AgentName = NULL WHERE RecordId = (SELECT MIN(RecordId) FROM audit.RawLogFlattened WHERE AgentName IS NOT NULL);
+"@
+    Invoke-SqlText -Sql 'EXEC audit.usp_BackfillAgentNames @BatchSize = 1000;'
+    $resumed = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AppIdentity LIKE N'Copilot.Studio.%' AND AgentName IS NULL) AS Unread,
+       (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name IN (N'AgentNamesReadUtcCursor', N'AgentNamesReadUtcGained')) AS Left_,
+       (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtc') AS Mark;
+"@).Rows[0]
+    Assert-That ($stoppedAt -eq 'stopped' -and $saved.Cursor_ -isnot [DBNull] -and [long] $saved.NamedSoFar -eq 1000) `
+        "2.4.12: a read stopped after its first batch keeps that batch and where it got to ($($saved.NamedSoFar) named)"
+    Assert-That ([int] $resumed.Unread -eq 1 -and [int] $resumed.Left_ -eq 0 -and [int] $resumed.Mark -eq 1) `
+        "and the next run carries on from there, not from the first record, and clears the position when done ($($resumed.Unread) left unread)"
+    Invoke-SqlText -Sql 'EXEC audit.usp_BackfillAgentNames;'
+    $ag4 = (Invoke-SqlText -As Table -Sql $agentSql).Rows[0]
+    Assert-That ([long] $ag4.Named -eq $exp23 -and "$($ag4.CatalogName)" -eq 'Expense Policy Helper' -and [int] $ag4.Agents -eq 1) 'and a run after it reads what is still empty, from the first record'
+
     # IsCopilotLic fills in once the license table has the user.
     Invoke-SqlText -Sql "INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic) VALUES (N'user0@contoso.com', 1)"
     Invoke-SqlText -Sql 'EXEC audit.usp_FlattenCopilotAudit @BatchSize = 50000' -TimeoutSeconds 1800
@@ -1384,8 +1416,8 @@ FROM audit.CopilotSession WHERE UserUPN LIKE N'dst%' ORDER BY UserUPN, SessionOr
     $d3 = @($dst.Rows | Where-Object UserUPN -eq 'dst3@contoso.com')
     Assert-That ($d1.Count -eq 2 -and [int] $d1[0].P -eq 1 -and [int] $d1[1].P -eq 1) `
         "2.4.12: in the repeated hour, prompts 110 minutes apart that read 01:05 and 01:55 are two sessions, not one ($($d1.Count))"
-    Assert-That ($d2.Count -eq 1 -and "$($d2[0].PrimaryApp)" -eq 'Teams' -and [decimal] $d2[0].Span -eq 15 -and "$($d2[0].StartLocal)" -eq '2026-11-01 01:50' -and "$($d2[0].EndLocal)" -eq '2026-11-01 01:05') `
-        "a prompt at 01:05 EST after one at 01:50 EDT comes second: the first prompt's app, a 15-minute span ($($d2[0].PrimaryApp), $($d2[0].Span) min, $($d2[0].StartLocal) to $($d2[0].EndLocal))"
+    Assert-That ($d2.Count -eq 1 -and "$($d2[0].PrimaryApp)" -eq 'Teams' -and [decimal] $d2[0].Span -eq 15 -and "$($d2[0].StartLocal)" -eq '2026-11-01 01:50' -and "$($d2[0].EndLocal)" -eq '2026-11-01 01:50') `
+        "a prompt at 01:05 EST after one at 01:50 EDT comes second: the first prompt's app, a 15-minute span, and an end not shown before its start (2.4.12) ($($d2[0].PrimaryApp), $($d2[0].Span) min, $($d2[0].StartLocal) to $($d2[0].EndLocal))"
     Assert-That ($d3.Count -eq 1 -and [int] $d3[0].P -eq 2 -and [decimal] $d3[0].Span -eq 10) `
         "across the skipped hour, 01:55 and 03:05 are 10 minutes apart: one session ($($d3.Count) sessions, $($d3[0].Span) min)"
     $dstWeeks = "$(Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CONCAT(LEFT(UserUPN, 4), '=', WeeklyInferredSessionSpanMinutes), ',') WITHIN GROUP (ORDER BY UserUPN) FROM audit.CopilotWeeklyRollup WHERE UserUPN IN (N'dst2@contoso.com', N'dst3@contoso.com');")"
@@ -2515,6 +2547,16 @@ SELECT @views AS Views_, @table AS Table_,
     Assert-That ([int] $reads.Granted -eq [int] $reads.BiViews -and [int] $reads.BiViews -gt 20) "every bi view is granted to CopilotReporting ($($reads.Granted) of $($reads.BiViews))"
     Assert-That ($rep -like '*it_report can read the bi views*and nothing else*' -and "$repWarn" -like '*does not hide names from them: it_other. Give*') `
         'an account given -ReportingAccount before is narrowed to them; another that reads the whole schema is named, not changed'
+    # 2.4.12: the dashboard installer runs the operations schema after Install-CopilotAudit.ps1, so the views it makes
+    # (OrgSecurity, DepartmentWeek and the rest) were not granted to CopilotReporting. The script grants them itself now.
+    Invoke-SqlText -Catalog $freshDb -Sql 'REVOKE SELECT ON bi.DepartmentWeek FROM CopilotReporting; REVOKE SELECT ON bi.OrgSecurity FROM CopilotReporting;'
+    Invoke-SqlText -Catalog $freshDb -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotOperationsSchema.sql') -Raw) -TimeoutSeconds 600
+    $opsGrants = [int] (Invoke-SqlText -Catalog $freshDb -As Scalar -Sql @"
+SELECT COUNT(*) FROM sys.database_permissions AS p
+WHERE p.class = 1 AND p.permission_name = N'SELECT' AND p.state = 'G' AND p.grantee_principal_id = DATABASE_PRINCIPAL_ID(N'CopilotReporting')
+  AND p.major_id IN (OBJECT_ID(N'bi.DepartmentWeek'), OBJECT_ID(N'bi.OrgSecurity'));
+"@)
+    Assert-That ($opsGrants -eq 2) "2.4.12: the operations schema grants its bi views to CopilotReporting when the role exists ($opsGrants of 2)"
 }
 finally {
     foreach ($db in $freshDb, $freshLic) {
@@ -2638,6 +2680,17 @@ Assert-That ($ids -like '*agent ids: reading*' -and $ids -like '*2 interactions 
 Assert-That ("$($keyed.Agent)" -eq 'Travel helper/1' -and $ids -like '*interactions moved to the agents*') "named as the log names it ($($keyed.Agent)), with the model refresh left to do"
 $idsOnce = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
 Assert-That ($idsOnce -notlike '*agent ids: reading*' -and $idsOnce -notlike '*bi, in full*') 'and only once'
+# 2.4.12: records flattened after AgentNamesReadUtc (by 2.4.11 or later, which read the id where it is) are not read
+# again: without one they have none. Before, every record of such an app without an id was read, years of Copilot Chat.
+Invoke-SqlText -Sql @"
+UPDATE audit.RawLogFlattened SET AgentId = NULL, AgentName = NULL WHERE RecordId IN (N'c-01', N'c-02');
+UPDATE audit.RawLogFlattened SET FlattenedUtc = DATEADD(MINUTE, 1, (SELECT TRY_CONVERT(DATETIME2(0), Value, 126) FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtc'))
+WHERE RecordId = N'c-02';
+DELETE FROM audit.PipelineSetting WHERE Name = N'AgentIdsReadUtc';
+"@
+$skipGained = [long] (Invoke-SqlText -As Scalar -Sql 'EXEC audit.usp_BackfillAgentNames @Others = 1;')
+$skipRead = [string] (Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(CONCAT(RecordId, '=', CASE WHEN AgentId IS NULL THEN 'none' ELSE 'read' END), ';') WITHIN GROUP (ORDER BY RecordId) FROM audit.RawLogFlattened WHERE RecordId IN (N'c-01', N'c-02');")
+Assert-That ($skipGained -eq 1 -and $skipRead -eq 'c-01=read;c-02=none') "2.4.12: records flattened since 2.4.11 are not read again for an agent id ($skipRead)"
 Invoke-SqlText -Sql @"
 DELETE FROM audit.CopilotAudit WHERE RecordId IN ('c-01', 'c-02');
 UPDATE audit.RawLogFlattened SET AppIdentity = NULL, AgentId = NULL, AgentName = NULL WHERE RecordId IN (N'c-01', N'c-02');
@@ -2778,6 +2831,18 @@ $left = (Invoke-SqlText -As Table -Sql "SELECT (SELECT COUNT(*) FROM dash.AuditL
 Assert-That ([int] $left.OldAudit -eq 0 -and [int] $left.NewAudit -eq 1 -and [int] $left.OldNote -eq 0) "retention deletes the audit-log and notification rows past their days, and nothing newer ($ret)"
 Assert-That ($ret -like '*JSON kept*') 'and refuses to clear JSON with retention under 200 days'
 Invoke-SqlText -Sql "UPDATE dash.Setting SET Value = N'0' WHERE Name = 'JsonRetentionDays';"
+# 2.4.12: the audit log is kept at least a year whatever the stored value says (0 keeps it). Only the admin form held
+# that floor, so 30 set in SQL deleted the log past 30 days.
+$keptAudit = [string] (Invoke-SqlText -As Scalar -Sql @"
+DECLARE @was NVARCHAR(400) = (SELECT Value FROM dash.Setting WHERE Name = 'AuditLogRetentionDays');
+INSERT INTO dash.AuditLog (AtUtc, Viewer, Kind, Page) VALUES (DATEADD(DAY, -100, SYSUTCDATETIME()), N'floor-in', 'View', N'/'), (DATEADD(DAY, -400, SYSUTCDATETIME()), N'floor-out', 'View', N'/');
+UPDATE dash.Setting SET Value = N'30' WHERE Name = 'AuditLogRetentionDays';
+DECLARE @r TABLE (m NVARCHAR(400)); INSERT INTO @r EXEC dash.usp_ApplyRetention;
+UPDATE dash.Setting SET Value = @was WHERE Name = 'AuditLogRetentionDays';
+SELECT CONCAT((SELECT COUNT(*) FROM dash.AuditLog WHERE Viewer = N'floor-in'), N'/', (SELECT COUNT(*) FROM dash.AuditLog WHERE Viewer = N'floor-out'));
+"@)
+Assert-That ($keptAudit -eq '1/0') "2.4.12: a stored audit-log retention under 365 days counts as 365 ($keptAudit kept: 100 days old / 400 days old)"
+Invoke-SqlText -Sql "DELETE FROM dash.AuditLog WHERE Viewer = N'floor-in';"
 
 # The value catalog's cap: a column stops collecting at 10,000 distinct values.
 Invoke-SqlText -Sql @"
@@ -2828,6 +2893,18 @@ Assert-That ([int] $named.InView -eq 1 -and "$($named.Fn)" -eq 'Named app' -and 
     $maintRefused = try { & $maint @conn -Database $script:ITDatabase -Task RebuildBi 6>$null | Out-Null; '' } catch { $_.Exception.Message }
     Assert-That ($instRefused -like 'Another run is using*Nothing was changed*' -and $maintRefused -like 'Another run is using*Nothing was changed*') `
         'and so are the installer and a maintenance rebuild, which stop before changing anything'
+    # 2.4.12: and a load or a CSV import run by hand, which took no lock: one beside the nightly loaded the same windows
+    # twice, and two imports at once emptied each other's stage.
+    $emptyDir = Join-Path ([IO.Path]::GetTempPath()) ('lockit-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $emptyDir | Out-Null
+    $loadRefused = try { & (Join-Path $root 'Invoke-CopilotAuditBackfill.ps1') -ConnectionString (New-ConnString $script:ITDatabase) -Incremental -LogPath (Join-Path $emptyDir 'load.log') 6>$null | Out-Null; '' } catch { $_.Exception.Message }
+    $csvRefused = try { & (Join-Path $root 'tools' 'Import-CopilotAuditCsv.ps1') -Path $emptyDir -ConnectionString (New-ConnString $script:ITDatabase) 6>$null | Out-Null; '' } catch { $_.Exception.Message }
+    Assert-That ($loadRefused -like 'Another run is using*Nothing was loaded*' -and $csvRefused -like 'Another run is using*Nothing was imported*') `
+        "2.4.12: so are a load and a CSV import run by hand ($loadRefused | $csvRefused)"
+    $env:CopilotAuditRunLock = $heldFor
+    $csvUnder = try { & (Join-Path $root 'tools' 'Import-CopilotAuditCsv.ps1') -Path $emptyDir -ConnectionString (New-ConnString $script:ITDatabase) 6>&1 | Out-String } catch { $_.Exception.Message }
+    Assert-That ($csvUnder -like '*No files matching*') "but one the pipeline starts runs under its lock ($csvUnder)"
+    Remove-Item -LiteralPath $emptyDir -Recurse -Force -ErrorAction SilentlyContinue
     $env:CopilotAuditRunLock = $heldFor       # the history's build step, started by the run that holds the lock
     $underRun = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
     Assert-That ($underRun -like '*Done.*') "but the installer the pipeline's own history step starts runs under its lock"
@@ -2862,6 +2939,26 @@ Assert-That ([int] $sec.CSelf -eq 1) "a person with nobody under them sees thems
 Assert-That ([int] $sec.TopSees -eq [int] $sec.Everyone) "the top of the organization sees everyone ($($sec.TopSees) of $($sec.Everyone))"
 Assert-That ([int] $sec.PartWhole -eq 0 -and [int] $sec.TopWhole -eq 1) '2.4.12: WholeOrganization marks the viewers who see everyone, not those who see a part'
 Assert-That ([int] $sec.Leaks -eq 0) 'bi.DepartmentWeek hides every figure of a group under the minimum size'
+# 2.4.12: a row for every department and every week, used or not, so a row's presence says nothing about anyone's use;
+# departments with fewer enabled people than the minimum are combined. Before, a hidden row of a one-person department
+# existed only in the weeks that person used Copilot.
+$dw = (Invoke-SqlText -As Table -Sql @"
+DECLARE @min INT = ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = 'MinGroupSize') AS INT), 5);
+SELECT (SELECT COUNT(*) FROM bi.DepartmentWeek) AS Rows_,
+       (SELECT COUNT(DISTINCT WeekEnding) FROM bi.DepartmentWeek) AS Weeks,
+       (SELECT COUNT(DISTINCT Department) FROM bi.DepartmentWeek) AS Departments,
+       (SELECT COUNT(DISTINCT d.WeekEnding) FROM bi.DimDate AS d
+        WHERE d.DateKey BETWEEN (SELECT MIN(DateKey) FROM dash.UserDay) AND (SELECT MAX(DateKey) FROM dash.UserDay)) AS DataWeeks,
+       (SELECT COUNT(*) FROM (SELECT DISTINCT Department FROM bi.DepartmentWeek) AS v
+        WHERE v.Department <> N'(smaller departments)'
+          AND (SELECT COUNT(*) FROM bi.DimUser AS u WHERE u.AccountEnabled = 1 AND ISNULL(NULLIF(u.Department, N''), N'(no department)') = v.Department) < @min) AS SmallNamed,
+       (SELECT COUNT(*) FROM bi.DepartmentWeek WHERE Hidden = 0 AND ActivePeople < @min) AS ShownSmall,
+       (SELECT COUNT(*) FROM bi.DepartmentWeek WHERE Hidden = 1 AND (Interactions IS NOT NULL OR Sessions IS NOT NULL)) AS HiddenFigures;
+"@).Rows[0]
+Assert-That ([int] $dw.Rows_ -gt 0 -and [int] $dw.Rows_ -eq [int] $dw.Weeks * [int] $dw.Departments -and [int] $dw.Weeks -eq [int] $dw.DataWeeks) `
+    "2.4.12: bi.DepartmentWeek has a row for every department and every week of the data ($($dw.Rows_) rows, $($dw.Departments) departments x $($dw.Weeks) of $($dw.DataWeeks) weeks)"
+Assert-That ([int] $dw.SmallNamed -eq 0 -and [int] $dw.ShownSmall -eq 0 -and [int] $dw.HiddenFigures -eq 0) `
+    "and names no department under the minimum, shows no group under it, and blanks every figure of a hidden row ($($dw.SmallNamed) named, $($dw.ShownSmall) shown, $($dw.HiddenFigures) with figures)"
 # 2.4.12: every column the Power BI model imports is in its bi view. Nothing compared them before, so a column taken
 # out of a view would have failed only at the customer's refresh.
 $modelGaps = foreach ($tm in Get-ChildItem -LiteralPath (Join-Path $root 'powerbi' 'CopilotInsights' 'CopilotInsights.SemanticModel' 'definition' 'tables') -Filter *.tmdl) {

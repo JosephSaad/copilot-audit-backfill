@@ -429,6 +429,33 @@ function New-CsvImportConnectionString {
     return $csb.ConnectionString
 }
 
+function Enter-RunLock {
+    <#
+        Holds the database for this import alone (2.4.12), as the nightly pipeline, Install-CopilotAudit.ps1 and the
+        maintenance rebuilds do: an exclusive application lock, on a connection of its own kept open to the end of the
+        import. An import took none, so it could merge and rebuild beside the nightly, and two imports at once each
+        emptied the stage the other was filling. Under the pipeline's lock (CopilotAuditRunLock) it holds it already.
+        Returns the connection (dispose it to let go), or nothing under the pipeline's lock.
+    #>
+    param([string] $ConnString)
+    $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($ConnString)
+    if ($env:CopilotAuditRunLock -eq "$($b['Data Source'])/$($b['Initial Catalog'])") { return $null }
+    $b['Pooling'] = $false   # closing a pooled connection keeps its session, and the session's lock with it
+    $c = [System.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+    try {
+        $c.Open()
+        $cmd = $c.CreateCommand()
+        $cmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+        $granted = [int] $cmd.ExecuteScalar() -ge 0
+    }
+    catch { $c.Dispose(); throw }
+    if (-not $granted) {
+        $c.Dispose()
+        throw "Another run is using $($b['Initial Catalog']) now: the nightly pipeline, the installer, a maintenance rebuild, a load or another import. Nothing was imported. Let it finish (Admin > Health shows the pipeline's runs), then run this again."
+    }
+    $c
+}
+
 function Invoke-CsvSql {
     param(
         [Parameter(Mandatory)][System.Data.SqlClient.SqlConnection] $Connection,
@@ -634,15 +661,18 @@ function Invoke-Main {
     $to   = if ($null -ne $CoveredThroughUtc -and $CoveredThroughUtc -ne [datetime]::MinValue) { ConvertTo-UtcDate $CoveredThroughUtc } else { $null }
 
     Import-CsvStageReader
-    $conn = [System.Data.SqlClient.SqlConnection]::new((New-CsvImportConnectionString))
+    $connString = New-CsvImportConnectionString
+    # One run at a time (2.4.12): held to the end of the import, and let go in the finally below.
+    $runLock = Enter-RunLock $connString
+    $conn = [System.Data.SqlClient.SqlConnection]::new($connString)
     $conn.add_InfoMessage({
         param($s, $e)
         foreach ($m in $e.Errors) {
             if ($m.Message -and $m.Message -notlike 'Warning: Null value is eliminated*') { Write-Log $m.Message }
         }
     })
-    $conn.Open()
     try {
+        $conn.Open()
         Write-Log ('Connected to {0}/{1}.' -f $conn.DataSource, $conn.Database)
         Invoke-CsvSql -Connection $conn -Sql (Get-Content -LiteralPath (Join-Path $script:ToolRoot 'sql' 'Create-CopilotAuditSchema.sql') -Raw)
         Invoke-CsvSqlScript -Connection $conn -Path (Join-Path $script:ToolRoot 'sql' 'Create-CopilotCsvImport.sql')
@@ -758,7 +788,7 @@ INSERT INTO audit.CopilotCsvImport (FolderPath, Operations) OUTPUT INSERTED.Impo
         }
         Write-Log ("Import {0} complete: {1:N0} record(s) added." -f $importId, [long] $m.RowsAdded)
     }
-    finally { $conn.Dispose() }
+    finally { $conn.Dispose(); if ($runLock) { $runLock.Dispose() } }
 }
 
 # Dot-sourcing (tests) loads the functions without running anything.

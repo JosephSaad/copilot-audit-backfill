@@ -314,7 +314,7 @@ TABLES = {
         measures=[("Copilot seats bought", "CALCULATE ( SUM ( LicensePool[Bought] ), LicensePool[IsCopilot] = TRUE (), LASTDATE ( LicensePool[SnapshotDate] ) )", "#,0", "Copilot seats bought, on the last day in the filter."),
                   ("Copilot seats assigned", "CALCULATE ( SUM ( LicensePool[Assigned] ), LicensePool[IsCopilot] = TRUE (), LASTDATE ( LicensePool[SnapshotDate] ) )", "#,0", "Copilot seats assigned, on the last day in the filter.")]),
     "DepartmentWeek": dict(
-        desc="Use by department and week. Figures for departments under the minimum group size are blank (Hidden is true), so this table can be shared more widely than the person-level tables: through the Departments role, which shows it and no one's own figures. Under the Organization role, only for viewers who see the whole organization.",
+        desc="Use by department and week: a row for every department and every week of the data, used or not. Departments with fewer people than the minimum group size are combined as (smaller departments), and a week's figures are blank (Hidden is true) when fewer people than the minimum used Copilot in it, so this table can be shared more widely than the person-level tables: through the Departments role, which shows it and no one's own figures. Under the Organization role, only for viewers who see the whole organization.",
         view="DepartmentWeek",
         cols=[("WeekEnding", "dateTime", dict(fmt="yyyy-mm-dd")), ("Department", "string", {}),
               ("ActivePeople", "int64", {}), ("Interactions", "int64", {}), ("Sessions", "int64", {}), ("Hidden", "boolean", {})]),

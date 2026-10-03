@@ -482,6 +482,9 @@ BEGIN
             @notes INT = TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''NotificationRetentionDays'') AS INT),
             @json  INT = TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''JsonRetentionDays'') AS INT),
             @a INT = 0, @n INT = 0, @j NVARCHAR(200) = N''JSON kept'';
+    /* The audit log is kept at least a year (0 keeps it): a stored 1-364 counts as 365 (2.4.12).
+       Before, only the admin form held that floor, so a value set in SQL deleted it sooner. */
+    IF @audit BETWEEN 1 AND 364 SET @audit = 365;
     IF @audit > 0
     BEGIN
         DELETE FROM dash.AuditLog WHERE AtUtc < DATEADD(DAY, -@audit, SYSUTCDATETIME());
@@ -652,23 +655,71 @@ EXEC (N'CREATE OR ALTER VIEW bi.EventMarkers AS
 SELECT Day, YEAR(Day) * 10000 + MONTH(Day) * 100 + DAY(Day) AS DateKey, Label, Kind FROM dash.EventMarker;');
 
 /* Weekly figures by department with any group under the minimum size hidden,
-   for a model that must not show individuals (a works council''s condition). */
+   for a model that must not show individuals (a works council''s condition).
+
+   2.4.12: a row for every department and every week of the data, used or not,
+   so whether a row exists never depends on anyone's use. Before, a row existed
+   only where someone was active, so a hidden row for a one-person department
+   still told whether that person used Copilot that week. Departments with
+   fewer enabled people than the minimum are combined as (smaller departments);
+   a row is hidden (figures blank) when fewer people than the minimum were
+   active that week, none included. */
 EXEC (N'CREATE OR ALTER VIEW bi.DepartmentWeek AS
-WITH w AS
+WITH m AS (SELECT ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''MinGroupSize'') AS INT), 5) AS MinGroup),
+dept AS
 (
-    SELECT d.WeekEnding, ISNULL(NULLIF(u.Department, N''''), N''(no department)'') AS Department,
+    SELECT ISNULL(NULLIF(Department, N''''), N''(no department)'') AS Department, SUM(CASE WHEN AccountEnabled = 1 THEN 1 ELSE 0 END) AS Headcount
+    FROM bi.DimUser
+    GROUP BY ISNULL(NULLIF(Department, N''''), N''(no department)'')
+),
+grp AS
+(
+    SELECT dept.Department, CASE WHEN dept.Headcount >= m.MinGroup THEN dept.Department ELSE N''(smaller departments)'' END AS ShownAs
+    FROM dept CROSS JOIN m
+),
+wk AS
+(
+    SELECT DISTINCT d.WeekEnding
+    FROM bi.DimDate AS d
+    JOIN (SELECT MIN(DateKey) AS FirstKey, MAX(DateKey) AS LastKey FROM dash.UserDay) AS r ON d.DateKey BETWEEN r.FirstKey AND r.LastKey
+),
+used AS
+(
+    SELECT d.WeekEnding, g.ShownAs,
            COUNT(DISTINCT ud.UserKey) AS Active, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
            SUM(CAST(ud.Sessions AS BIGINT)) AS Sessions
     FROM dash.UserDay AS ud
     JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
     JOIN bi.DimUser AS u ON u.UserKey = ud.UserKey
+    JOIN grp AS g ON g.Department = ISNULL(NULLIF(u.Department, N''''), N''(no department)'')
     WHERE ud.Interactions > 0
-    GROUP BY d.WeekEnding, ISNULL(NULLIF(u.Department, N''''), N''(no department)'')
-),
-m AS (SELECT ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''MinGroupSize'') AS INT), 5) AS MinGroup)
-SELECT w.WeekEnding, w.Department,
-       CASE WHEN w.Active >= m.MinGroup THEN w.Active END AS ActivePeople,
-       CASE WHEN w.Active >= m.MinGroup THEN w.Interactions END AS Interactions,
-       CASE WHEN w.Active >= m.MinGroup THEN w.Sessions END AS Sessions,
-       CAST(CASE WHEN w.Active < m.MinGroup THEN 1 ELSE 0 END AS BIT) AS Hidden
-FROM w CROSS JOIN m;');
+    GROUP BY d.WeekEnding, g.ShownAs
+)
+SELECT wk.WeekEnding, s.ShownAs AS Department,
+       CASE WHEN ISNULL(x.Active, 0) >= m.MinGroup THEN x.Active END AS ActivePeople,
+       CASE WHEN ISNULL(x.Active, 0) >= m.MinGroup THEN x.Interactions END AS Interactions,
+       CASE WHEN ISNULL(x.Active, 0) >= m.MinGroup THEN x.Sessions END AS Sessions,
+       CAST(CASE WHEN ISNULL(x.Active, 0) < m.MinGroup THEN 1 ELSE 0 END AS BIT) AS Hidden
+FROM wk
+CROSS JOIN (SELECT DISTINCT ShownAs FROM grp) AS s
+CROSS JOIN m
+LEFT JOIN used AS x ON x.WeekEnding = wk.WeekEnding AND x.ShownAs = s.ShownAs;');
+
+/* The reporting accounts' role (Install-CopilotAudit.ps1 -ReportingAccount) reads every bi view, these
+   included (2.4.12). The installer grants the views that exist when it runs, and the dashboard installer
+   runs this script after it, so OrgSecurity, DepartmentWeek and the others here were left out. */
+IF DATABASE_PRINCIPAL_ID(N'CopilotReporting') IS NOT NULL
+BEGIN
+    DECLARE @rv SYSNAME, @rg NVARCHAR(400);
+    DECLARE rv CURSOR LOCAL FAST_FORWARD FOR SELECT name FROM sys.views WHERE schema_id = SCHEMA_ID(N'bi');
+    OPEN rv;
+    FETCH NEXT FROM rv INTO @rv;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @rg = N'GRANT SELECT ON bi.' + QUOTENAME(@rv) + N' TO CopilotReporting;';
+        EXEC (@rg);
+        FETCH NEXT FROM rv INTO @rv;
+    END;
+    CLOSE rv;
+    DEALLOCATE rv;
+END;

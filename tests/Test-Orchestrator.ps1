@@ -204,6 +204,7 @@ Write-Host "`n5. A backfill that gave up on a window fails the run (2.4.12)" -Fo
     function Import-CopilotAuditEngine { }
     function New-SqlConnectionString { 'stub' }
     function Initialize-CopilotAuditDatabase { }
+    function Enter-RunLock { }
     function Resolve-BackfillRange { [pscustomobject]@{ Start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc); End = [datetime]::new(2026, 8, 9, 0, 0, 0, [DateTimeKind]::Utc); Resumed = $true; Completed = $false } }
     function Connect-AuditGraph { }
     function Get-GraphAccessToken { 'tok' }

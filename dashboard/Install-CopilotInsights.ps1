@@ -434,9 +434,29 @@ if ($GrantDatabaseAccess) {
   foreach ($db in $databases) {
     # The dash schema first: the grants below name its tables.
     $repoSql = Join-Path (Split-Path $PSScriptRoot -Parent) 'sql'
-    $dbConn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=$db;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
-    $dbConn.Open()
+    $dbConnString = "Server=$SqlServer;Database=$db;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
+    # One run at a time (2.4.12), as the nightly pipeline, Install-CopilotAudit.ps1 and the maintenance rebuilds hold it:
+    # the schema scripts and a full dashboard refresh below ran beside a nightly's refresh of the same tables.
+    $runLock = $null
+    if ($env:CopilotAuditRunLock -ne "$SqlServer/$db") {
+        $lb = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $dbConnString
+        $lb['Pooling'] = $false   # closing a pooled connection keeps its session, and the session's lock with it
+        $runLock = New-Object System.Data.SqlClient.SqlConnection $lb.ConnectionString
+        try {
+            $runLock.Open()
+            $lc = $runLock.CreateCommand()
+            $lc.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+            $granted = [int] $lc.ExecuteScalar() -ge 0
+        }
+        catch { $runLock.Dispose(); throw }
+        if (-not $granted) {
+            $runLock.Dispose()
+            throw "Another run is using $db now: the nightly pipeline, Install-CopilotAudit.ps1 or a maintenance rebuild. The site is installed; $db's dashboard schema and grants were not changed. Let it finish (Admin > Health shows the pipeline's runs), then run this again with -GrantDatabaseAccess."
+        }
+    }
+    $dbConn = New-Object System.Data.SqlClient.SqlConnection $dbConnString
     try {
+        $dbConn.Open()
         foreach ($f in 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql') {
             $text = Get-Content -LiteralPath (Join-Path $repoSql $f) -Raw
             foreach ($batch in [regex]::Split($text, '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) {
@@ -450,7 +470,7 @@ if ($GrantDatabaseAccess) {
         $c = $dbConn.CreateCommand(); $c.CommandText = "IF OBJECT_ID(N'bi.FactInteraction', N'U') IS NOT NULL EXEC dash.usp_RefreshDashboard;"; $c.CommandTimeout = 0; [void] $c.ExecuteNonQuery()
         Write-Host "Dashboard schema installed in $db and its rollups built."
     }
-    finally { $dbConn.Dispose() }
+    finally { $dbConn.Dispose(); if ($runLock) { $runLock.Dispose() } }
     $conn = New-Object System.Data.SqlClient.SqlConnection "Server=$SqlServer;Database=master;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
     $conn.Open()
     try { $cmd = $conn.CreateCommand(); $cmd.CommandText = (& $grantsFor $db); $cmd.CommandTimeout = 120; [void] $cmd.ExecuteNonQuery() }

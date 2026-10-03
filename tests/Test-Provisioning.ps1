@@ -318,6 +318,22 @@ Set-Content -LiteralPath $f2 -Value (ConvertTo-SettingText ($again + @{ Custom =
 $read2 = Import-PowerShellDataFile -LiteralPath $f2
 Assert-That (@($read2.EmployeeTypes).Count -eq 0 -and $read2.IncludeLeaveDates -eq $true -and $read2.At -eq '03:30' -and $read2.Custom -eq 'kept') 'and writes them all back, a key it does not know included'
 
+# 2.4.12: step 4 passes the license databases as the pipeline's history build does. A blank LicenseDatabase went to the
+# installer as it was (CREATE DATABASE [] failed), and SessionLicenseDatabases not at all (the nightly then refused the
+# build's different list every night).
+$noLic = Get-InstallArgument -Setting $again -ServiceAccount 'CORP\gmsa$'
+Assert-That ($noLic.SkipLicenseDatabase -and -not $noLic.Contains('LicenseDatabase') -and -not $noLic.Contains('LicenseEventDatabases') -and $noLic.ServiceAccount -eq 'CORP\gmsa$') `
+    '2.4.12: the job server installs with -SkipLicenseDatabase when the saved license database is blank'
+$twoLic = Merge-Setting -Saved @{ SqlServer = 'SQL1'; LicenseDatabase = 'CopilotLicenseLive'; SessionLicenseDatabases = @('CopilotLicenseEvents', 'CopilotLicenseLive'); Dashboard = $true } -Given @{}
+$jsArgs = Get-InstallArgument -Setting $twoLic -ServiceAccount 'CORP\gmsa$'
+$plBuild = ((Get-PipelineStep -Setting $twoLic -History -Today $today) | Where-Object { $_.Name -eq 'Build everything' }).Arguments
+Assert-That ($jsArgs.LicenseDatabase -eq 'CopilotLicenseLive' -and (@($jsArgs.LicenseEventDatabases) -join ',') -eq 'CopilotLicenseEvents,CopilotLicenseLive' -and
+             (@($jsArgs.LicenseEventDatabases) -join ',') -eq (@($plBuild.LicenseEventDatabases) -join ',') -and $jsArgs.Dashboard) `
+    'and passes SessionLicenseDatabases as -LicenseEventDatabases, the list the pipeline builds and reads with'
+$oneLic = Get-InstallArgument -Setting (Merge-Setting -Saved @{ SqlServer = 'SQL1' } -Given @{}) -ServiceAccount 'x'
+Assert-That ($oneLic.LicenseDatabase -eq 'CopilotLicenseEvents' -and (@($oneLic.LicenseEventDatabases) -join ',') -eq 'CopilotLicenseEvents' -and -not $oneLic.Contains('SkipLicenseDatabase')) `
+    'and, without a list, the one license database it loads'
+
 Assert-That ((Add-SidToRightLine -Line 'SeBatchLogonRight = *S-1-5-32-544,*S-1-5-32-551' -Right 'SeBatchLogonRight' -Sid 'S-1-5-21-9') -eq
              'SeBatchLogonRight = *S-1-5-32-544,*S-1-5-32-551,*S-1-5-21-9') 'the batch-logon right gains the account, keeping who had it'
 Assert-That ($null -eq (Add-SidToRightLine -Line 'SeBatchLogonRight = *S-1-5-21-9' -Right 'SeBatchLogonRight' -Sid 'S-1-5-21-9')) 'and is left alone when the account has it'
