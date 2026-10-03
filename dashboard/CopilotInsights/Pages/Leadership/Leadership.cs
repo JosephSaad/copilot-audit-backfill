@@ -70,7 +70,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
             var series = buckets.Select(b => (double?)trend.Where(r => r.Unit == u.Unit && r.Bucket == b.Key).Sum(r => r.Active)).ToList();
             t.Rows.Add([
                 u.Drillable ? new Link(u.Name, Ctx.Url(Request.Path, org: u.Unit)) : u.Name, u.Department, u.People, u.Licensed, u.Active,
-                Pct(Ratio(u.ActiveLicensed, u.Licensed)), u.Active > 0 ? Math.Round(u.ActiveDays / (double)u.Active, 1) : null,
+                AdoptionAtMin(u.ActiveLicensed, u.Licensed), u.Active > 0 ? Math.Round(u.ActiveDays / (double)u.Active, 1) : null,
                 u.Active > 0 ? Math.Round(u.Interactions / (double)u.Active, 1) : null, Pct(Ratio(u.MultiTurn, u.Sessions)),
                 u.Unit == "~small" ? null : Chart.Sparkline(series, $"{u.Name}: active people"),
             ]);

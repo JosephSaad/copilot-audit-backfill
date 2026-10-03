@@ -264,6 +264,10 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
             throw new DigestRefused("privacy mode is on, and this digest is for a manager's part of the organization, which is named after them");
         if (c.OrgWhy == OrgRefusal.TooSmall)
             throw new DigestRefused($"the part of the organization it is for has fewer than {c.MinGroupSize} people, the minimum group size");
+        /* Nor for someone no longer in the directory (2.4.12): their scope is nobody, and it went out as "(nobody)" with
+           zeros, reported as sent. */
+        if (c.OrgWhy == OrgRefusal.NotFound)
+            throw new DigestRefused("the person whose part of the organization it is for is no longer in the organization directory");
         var prev = Window(c, c.Start.AddDays(-1), c.Days);
         /* Set against the period before only where the data covers all of it (2.4.12, see Covers). */
         var first = await FirstDayAsync(db);
@@ -288,7 +292,7 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
                 e.Kpi("Interactions", t.Interactions, p?.Interactions);
                 var units = AdoptionRanking(SmallGroups.Fold(await metrics.UnitsAsync(c), u => u.People, r => Data.Metrics.Combine(r, "Smaller groups"), c.MinGroupSize, out _), c.MinGroupSize);
                 e.Table("Adoption by unit", ["Unit", "People", "Licensed", "Adoption"],
-                    units.Select(u => new object?[] { u.Name, u.People, u.Licensed, PctText(u.ActiveLicensed, u.Licensed) }));
+                    units.Select(u => new object?[] { u.Name, u.People, u.Licensed, u.Licensed >= c.MinGroupSize ? PctText(u.ActiveLicensed, u.Licensed) : "—" }));
                 e.Link(Link("/leadership"), "Open the leadership overview");
                 break;
             }

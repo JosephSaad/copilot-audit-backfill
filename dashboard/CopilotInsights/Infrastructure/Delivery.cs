@@ -278,10 +278,13 @@ DELETE FROM dash.DigestSend WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @p
 UPDATE dash.DigestSend SET Status = CASE Status WHEN 'Sending2' THEN 'Fail1' ELSE 'Fail2' END, SentUtc = DATEADD(HOUR, -1, SYSUTCDATETIME())
 WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period AND Status IN ('Sending2', 'Sending3');", new { upn, kind, period });
 
-        /// <summary>Sent, or the try's failure (Sending2 becomes Fail2; Fail3 is final).</summary>
-        Task MarkAsync(string upn, string kind, string period, bool sent) =>
-            _db.ExecuteAsync(@"UPDATE dash.DigestSend SET Status = CASE WHEN @sent = 1 THEN 'Sent' ELSE REPLACE(Status, 'Sending', 'Fail') END, SentUtc = SYSUTCDATETIME()
-WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, period, sent });
+        /// <summary>
+        /// Sent, or the try's failure (Sending2 becomes Fail2; Fail3 is final). A settled send that is not "Sent" gives its
+        /// own status: "Skipped" for a refused digest (2.4.12), which is not tried again for the period.
+        /// </summary>
+        Task MarkAsync(string upn, string kind, string period, bool sent, string? settled = null) =>
+            _db.ExecuteAsync(@"UPDATE dash.DigestSend SET Status = CASE WHEN @sent = 1 THEN ISNULL(@settled, 'Sent') ELSE REPLACE(Status, 'Sending', 'Fail') END, SentUtc = SYSUTCDATETIME()
+WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, period, sent, settled });
 
         public async Task ManagerDigestsAsync()
         {
@@ -292,6 +295,10 @@ WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, pe
             var min = await _settings.IntAsync("ManagerDigestMinPeople", 10);
             /* Only managers who may open the dashboard (2.4.4): its figures go no further than its pages do. */
             var max = Math.Clamp(await _settings.IntAsync("MaxViewerLevel", 0), 0, 15);
+            /* Only managers whose part reaches the minimum group size in enabled people (2.4.12), the rule a report on a
+               part is held to (see ReportContextFactory): the digest of a smaller part is refused, and each was claimed,
+               failed and tried three times, and counted as "not sent". */
+            var minGroup = await _settings.IntAsync("MinGroupSize", 5);
             var managers = await _db.QueryAsync<(string Upn, string? Mail)>(@"
 SELECT TOP (@take) p.Upn, NULLIF(ud.Mail, N'')
 FROM dash.Person AS p
@@ -300,8 +307,9 @@ LEFT JOIN dash.DigestPreference AS pref ON pref.Upn = p.Upn
 WHERE p.AccountEnabled = 1 AND p.PeopleBelow >= @min AND ISNULL(pref.ManagerDigestOptOut, 0) = 0
   AND (@max = 0 OR p.Level BETWEEN 1 AND @max)
   AND " + string.Format(Due, "p.Upn") + @"
-ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, period = round.Period, kind = "Manager" });
-            int sent = 0, failed = 0;
+  AND " + ReportContextFactory.EnabledInPartSql("p.Upn") + @" >= @minGroup
+ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup, period = round.Period, kind = "Manager" });
+            int sent = 0, failed = 0, skipped = 0;
             foreach (var m in managers)
             {
                 ct.ThrowIfCancellationRequested();   // no new claim once the site is stopping
@@ -316,11 +324,16 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, period = 
                 }
                 /* Stopped before the email went: Mailer sends nothing it was stopped during, so the claim is given back. */
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { await ReleaseAsync(m.Upn, "Manager", round.Period); throw; }
+                /* Refused (2.4.12: the part changed since the query, or privacy mode came on): settled for this period, not
+                   a failure to try again and report. */
+                catch (DigestRefused ex) { _log.LogInformation("Manager digest for {Upn} not sent: {Reason}", m.Upn, ex.Message); status = "Skipped"; }
                 catch (Exception ex) { _log.LogWarning(ex, "Manager digest for {Upn}", m.Upn); status = "Failed"; }
-                await MarkAsync(m.Upn, "Manager", round.Period, status == "Sent");
-                if (status == "Sent") sent++; else failed++;
+                await MarkAsync(m.Upn, "Manager", round.Period, status is "Sent" or "Skipped", status == "Skipped" ? "Skipped" : null);
+                if (status == "Sent") sent++; else if (status == "Skipped") skipped++; else failed++;
             }
-            if (sent + failed > 0) done.Add($"Manager digests for {round.Period}: {sent} sent" + (failed > 0 ? $", {failed} not sent (see Admin > Email)" : "") + ".");
+            if (sent + failed + skipped > 0)
+                done.Add($"Manager digests for {round.Period}: {sent} sent" + (failed > 0 ? $", {failed} not sent (see Admin > Email)" : "") +
+                         (skipped > 0 ? $", {skipped} skipped (the part of the organization is under the minimum group size, or privacy mode is on)" : "") + ".");
         }
 
         /* ---- Scheduled extracts ------------------------------------------------------------------ */

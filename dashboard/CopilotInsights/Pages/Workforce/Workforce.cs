@@ -18,17 +18,28 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var titles = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "JobTitle"), Ctx.MinGroupSize, out var ft);
         GroupRow? Find(IEnumerable<GroupRow> r, string n) => r.FirstOrDefault(x => x.Name == n);
         var mgr = Find(roles, "Managers"); var ic = Find(roles, "Individual contributors");
-        if (mgr is not null) Kpis.Add(new("Managers' adoption", Pct(Ratio(mgr.ActiveLicensed, mgr.Licensed)), $"{mgr.Licensed:#,0} licensed managers"));
-        if (ic is not null) Kpis.Add(new("Individual contributors'", Pct(Ratio(ic.ActiveLicensed, ic.Licensed)), $"{ic.Licensed:#,0} licensed"));
+        /* Adoption only where the license holders reach the minimum group size (2.4.12), as the charts below rank it. */
+        if (mgr is not null) Kpis.Add(new("Managers' adoption", AdoptionAtMin(mgr.ActiveLicensed, mgr.Licensed), $"{mgr.Licensed:#,0} licensed managers"));
+        if (ic is not null) Kpis.Add(new("Individual contributors'", AdoptionAtMin(ic.ActiveLicensed, ic.Licensed), $"{ic.Licensed:#,0} licensed"));
         foreach (var t in types.Where(t => t.Name != "Smaller groups").OrderByDescending(t => t.People).Take(2))
-            Kpis.Add(new($"{t.Name}: adoption", Pct(Ratio(t.ActiveLicensed, t.Licensed)), $"{t.People:#,0} people, {Pct(Ratio(t.Licensed, t.People))} licensed"));
+            Kpis.Add(new($"{t.Name}: adoption", AdoptionAtMin(t.ActiveLicensed, t.Licensed), $"{t.People:#,0} people, {Pct(Ratio(t.Licensed, t.People))} licensed"));
 
         Panels.Add(new("By employee type", Groups.AdoptionBars(types, "Adoption by employee type", Ctx.MinGroupSize), "The employee type recorded for each person in Active Directory.", "half"));
         Panels.Add(new("Managers and individual contributors", Groups.AdoptionBars(roles, "Adoption by role", Ctx.MinGroupSize),
             "A manager is anyone with someone reporting to them.", "half"));
+        /* Levels in their order, each with at least the minimum group size of license holders (2.4.12); the rest one bar
+           at the end, as Chart.Adoption ranks them, and none when even that is under the minimum. Every level was drawn,
+           so level 1, the top alone, was one person's use. */
+        var (lv, fewLv) = SmallGroups.Split(levels.Where(l => l.Licensed > 0), l => l.Licensed, Ctx.MinGroupSize);
+        var levelBars = lv.OrderBy(l => l.Name).Select(l => new Bar(l.Name, l.ActiveLicensed / (double)l.Licensed, Note: $"{l.ActiveLicensed:#,0} of {l.Licensed:#,0} licensed")).ToList();
+        if (fewLv.Count > 0 && fewLv.Sum(l => l.Licensed) is var fewL && fewL >= Ctx.MinGroupSize)
+        {
+            var fewA = fewLv.Sum(l => l.ActiveLicensed);
+            levelBars.Add(new Bar(fewLv.Count == 1 ? "A smaller group" : $"{fewLv.Count:#,0} smaller groups, combined", fewA / (double)fewL, Note: $"{fewA:#,0} of {fewL:#,0} licensed, across {fewLv.Count:#,0}", Slot: 2));
+        }
         Panels.Add(new("By level in the organization",
-            Chart.Bars(levels.Where(l => l.Licensed > 0).OrderBy(l => l.Name).Select(l => new Bar(l.Name, l.ActiveLicensed / (double)l.Licensed, Note: $"{l.ActiveLicensed:#,0} of {l.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by level", 1),
-            "Level 1 is the top of the organization.", "half"));
+            Chart.Bars(levelBars, Fmt.Percent, "Adoption by level", 1),
+            $"Level 1 is the top of the organization. Levels with fewer than {Ctx.MinGroupSize} license holders are combined in the last bar.", "half"));
         Panels.Add(new("By job title", Groups.AdoptionBars(titles, "Adoption by job title", Ctx.MinGroupSize, 15),
             "The fifteen titles with the highest adoption." + (ft > 0 ? " " + FoldNote(ft, "title") : ""), "half"));
         var tt = Groups.Table(titles, "Job title");

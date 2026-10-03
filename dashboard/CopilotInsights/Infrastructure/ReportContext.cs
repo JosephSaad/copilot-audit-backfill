@@ -257,6 +257,16 @@ public sealed class ReportContext
 
 public sealed class ReportContextFactory(Db db, Settings settings)
 {
+    /// <summary>
+    /// SQL for the size of a manager's part of the organization, against the minimum group size (2.4.12): the enabled
+    /// people in it, the manager among them (dash.OrgClosure has a depth-0 row for each person). It was dash.Person's
+    /// PeopleBelow + 1, which counts disabled accounts too, so a part of three people and five leavers was shown on its
+    /// own where every other minimum counts only the people still here. A seek on the closure's key, which leads with
+    /// the ancestor.
+    /// </summary>
+    public static string EnabledInPartSql(string upnExpr) =>
+        $"(SELECT COUNT(*) FROM dash.OrgClosure AS ec JOIN dash.Person AS ep ON ep.Upn = ec.DescendantUpn WHERE ec.AncestorUpn = {upnExpr} AND ep.AccountEnabled = 1)";
+
     /// <param name="forPage">
     /// A page a person is looking at: a part of the organization that is not in the directory falls back to the whole
     /// organization, with a note (2.4.10). The data API and the digests keep to what was asked for, and so to nothing:
@@ -321,7 +331,7 @@ SELECT COALESCE(
         if (requested is not null && root is not null && why == OrgRefusal.None && !string.Equals(root, viewer.Upn, StringComparison.OrdinalIgnoreCase))
         {
             if (privacy) why = OrgRefusal.Privacy;
-            else if (await db.ScalarAsync<int?>("SELECT PeopleBelow + 1 FROM dash.Person WHERE Upn = @root", new { root }) is int size && size < minGroup)
+            else if (await db.ScalarAsync<int>("SELECT " + EnabledInPartSql("@root"), new { root }) < minGroup)
                 why = OrgRefusal.TooSmall;
             if (why != OrgRefusal.None)
                 (asked, root) = (root, !forPage ? "(nobody)" : viewer.OrgWide ? null : viewer.Upn ?? "(nobody)");
@@ -347,12 +357,13 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
             if (privacy) crumbs.RemoveAll(c => !string.Equals(c.Upn, viewer.Upn, StringComparison.OrdinalIgnoreCase));
         }
 
-        /* The parts to drill into: managers whose part reaches the minimum group size, the rule a request is held to
-           above; none in privacy mode, where each would be offered by its manager's name. */
+        /* The parts to drill into: managers whose part reaches the minimum group size in enabled people, the rule a
+           request is held to above; none in privacy mode, where each would be offered by its manager's name. */
         var childOf = privacy ? null : root ?? top;
         var children = childOf is null ? new List<OrgUnit>() :
             (await db.QueryAsync<(string Upn, string? Name, int PeopleBelow)>(
-                "SELECT Upn, DisplayName, PeopleBelow FROM dash.Person WHERE ManagerUpn = @p AND PeopleBelow > 0 AND PeopleBelow + 1 >= @min ORDER BY DisplayName",
+                "SELECT p.Upn, p.DisplayName, p.PeopleBelow FROM dash.Person AS p WHERE p.ManagerUpn = @p AND p.PeopleBelow > 0 AND " +
+                EnabledInPartSql("p.Upn") + " >= @min ORDER BY p.DisplayName",
                 new { p = childOf, min = minGroup })).Select(c => new OrgUnit(c.Upn, c.Name ?? c.Upn, c.PeopleBelow)).ToList();
 
         return new ReportContext
