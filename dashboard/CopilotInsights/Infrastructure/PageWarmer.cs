@@ -41,7 +41,7 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
                     await stamp.EnsureAsync();
                     if (_warmed.GetValueOrDefault(t.Name) != stamp.Current) await WarmAsync(t, stop);
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) { log.LogWarning(ex, "Warming the report pages failed for {Tenant}", t.Name); }
+                catch (Exception ex) when (ex is not OperationCanceledException || !stop.IsCancellationRequested) { log.LogWarning(ex, "Warming the report pages failed for {Tenant}", t.Name); }
             }
             try { await Task.Delay(TimeSpan.FromSeconds(45), stop); } catch (OperationCanceledException) { return; }
         }
@@ -104,7 +104,7 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
                     await model.WarmAsync(viewer, days);
                     built++;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                catch (Exception ex) when (ex is not OperationCanceledException || !stop.IsCancellationRequested)
                 {
                     failed++;
                     log.LogDebug(ex, "Warming {Path} for {Days} days failed", path, days);

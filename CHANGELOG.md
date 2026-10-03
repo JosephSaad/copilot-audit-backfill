@@ -4,6 +4,112 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.12] - unreleased
+
+Fixes from an adversarial review of 2.4.11: the privacy rules hold on every page, digest and
+API call; a re-run can no longer empty the audit table; a slow mail server can no longer stop
+the site; the license scripts carry only plain sign-ins; and a re-run of the job-server setup
+keeps its settings. Two 2.4.11 regressions are put right.
+
+To upgrade: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and install
+the dashboard package over 2.4.11 with the parameters it was installed with. Before you do,
+check Admin › Directory quality › *No SID recorded*: from 2.4.12 the people it lists cannot
+sign in until their SID is loaded or their account is mapped in `Insights:IdentityMap` (see
+*Changed*). The installer counts once that every record has been flattened (minutes at 40
+million records), and reads the agent ids of other apps' records once; only when some gain one
+does it rebuild `bi` and the dashboard's rollups, and say to refresh the Power BI model. No
+schema change.
+
+### Fixed
+- **A report can no longer be narrowed to one person.** Any sign-in in `?org=` was taken, so
+  every page without a role, and `/api/v1/usage`, became a named person's use, hours of the day
+  and, on the board pack, their security signals. A part of the organization other than the
+  viewer's own is now shown only when it holds at least the minimum group size; the "Look
+  inside a team" list offers only those; a page asked for a smaller one shows the viewer's own
+  part with a note; the data API refuses it, and a digest set up for it is not sent.
+- **"Smaller groups" is never one person.** Every breakdown folded the groups under the minimum
+  into one row without checking that row reached it: a manager's own direct unit, or a single
+  small department, came out under that name, the head of the organization among them. Lists
+  that left small groups out beside a total gave them back by subtraction. One rule now serves
+  every page, digest, chart and API call: when the small groups together are under the minimum,
+  the smallest groups shown join them.
+- **Breakdowns that skipped the minimum.** `/api/v1/value` returned every department, down to one
+  person; it folds them as the page does. Workforce showed a one-person Managers group, and its
+  job-title chart used 15 as the minimum. The people who used one agent are counted only at the
+  minimum or more on every page (Agents in use, Agent detail, Agents costing credits, Apps and
+  agents, Agent hand-offs) and in the weekly app extract, as Agent inventory already did.
+- **License action outcomes keep to the viewer's scope.** The page and its CSV read every export
+  ever made, so a manager with the Licensing role saw whom anyone had exported, organization-wide.
+- **Privacy mode covers the named lists on pages without a role.** Demand for licenses, Agent
+  detail, Who made the changes and the people who worked with labeled content named people to a
+  role holder with privacy mode on; a personal OneDrive's address, which names its owner, is no
+  longer shown either. A test now finds any role check on such a list that does not also check
+  privacy mode.
+- **Privacy mode no longer names managers.** Units are named after their managers: in privacy
+  mode they go by the manager's department, are not links, and nobody can open a manager's part
+  of the organization by name; `/api/v1/units` leaves out their sign-ins; a digest for a
+  manager's part is not sent, and a target for one is shown by its department.
+- **Privacy mode fails closed.** A failed read of the setting (a failover, a missing grant) was
+  taken as "off" for a minute, on that server, for pages and emails alike. Only a database from
+  before the setting is off now; any other failure is on, logged, and read again in seconds.
+- **`/api/v1/usage` and `/api/v1/units` keep to the section roles.** They gave the jailbreak,
+  injection and blocked counts that `/api/v1/security` refuses without the Security role, and
+  the labeled-content counts of the Compliance section. Those fields are now empty without the
+  role. DASHBOARD.md's table of endpoints names the roles the code requires.
+- **Finalize no longer empties `audit.CopilotAudit`.** Its guards read only the window table, so a
+  re-run after staging was dropped (as finalize itself advises) or purged dropped the audit table
+  and rebuilt it from nothing, saying "Coverage verified". It now refuses unless staging holds
+  every row the windows loaded, leaves a mark when it finishes, and a backfill run again over a
+  completed range leaves finalized tables alone, so `-History` carries on past them after a
+  later step failed, or after the nightly has merged a load.
+- **A mail server that does not answer no longer stops the site.** A timeout is an
+  `OperationCanceledException`, which every catch on the mail path let through as if the site
+  were stopping, so the background service failed and .NET stopped the site, again after each
+  restart. A timeout is now a failed send, logged and retried; the Exchange Online token request
+  waits 30 seconds, not 100; and a background service that fails is logged without stopping the
+  site.
+- **The license scripts carry only plain sign-ins.** PowerShell also ends a quoted string at the
+  curly quotes, and Windows PowerShell 5.1 reads a file without a byte order mark as
+  Windows-1252, where some letters' bytes are curly quotes: a sign-in from a directory that does
+  not check them could run commands on the administrator's machine. A script now takes only
+  sign-ins in the characters Entra allows (the rest are left out, and it says how many; the bulk
+  file lists them), its group and SKU ids only letters, digits and hyphens, and every script
+  file starts with a byte order mark.
+- **Re-running the job-server setup keeps its settings.** It kept only its own keys, and only
+  values that were not empty: `EmployeeTypes = @()` went back to EMP and NONW, `IncludeLeaveDates`
+  was dropped, a blank license database became `CopilotLicenseEvents`, and a task moved with `-At`
+  went back to 02:00. Every saved setting is kept now, empty ones too, `-EmployeeTypes @()` can
+  be given, and the task's time is saved.
+- **A first flatten stopped part way is finished.** The installer took any flattened row as "built",
+  so a first flatten that stopped, or a nightly that flattened only its own days, left the rest of
+  history unflattened for good. A flatten of every record now leaves a mark when it finishes; a
+  database without one is counted once, given the mark when every record is flattened, and
+  flattened and built in full when some are not.
+- **Maintenance reads the right license history.** `Invoke-CopilotMaintenance.ps1` defaulted to
+  `CopilotLicenseEvents`, the first tenant's, so another tenant's rebuild read that tenant's
+  license history, and its nightly then failed every night. With no `-LicenseEventDatabases` it
+  now reads what the database was last built with, and says which.
+- **Agents › Build and publish keeps an agent's alias and owner** (a 2.4.11 regression). It found
+  the agent by its name, which was its schema name until 2.4.11 named agents as the log does; it
+  now finds it by its id, and shows the log's name where no alias is set.
+- **Agents named only by `AgentId` keep their history** (a 2.4.11 regression). Another app's records
+  that carry an agent's id (Copilot Chat running a declarative agent) are keyed on it, which 2.4.11
+  read only from its upgrade night on. The installer reads those records once, from the apps that
+  carry one, and rebuilds `bi` when any gain an id.
+- **`Install-CopilotAudit.ps1` runs in Windows PowerShell 5.1** without `-ReportingTimeZone`: it
+  stopped at a .NET 6 property, before any rebuild ran.
+- A digest that may not be sent as set up says why, in its status, Send now and the preview.
+
+### Changed
+- **The SID is checked whichever way a sign-in is matched.** An answer from Active Directory, or a
+  sign-in name that is a UPN, made the account any person with no SID on record: a manager outside
+  the directory table, or an administrator granted by UPN who is not in it. In another domain or
+  forest an account can carry anyone's UPN. Such an answer now makes the account a person only
+  when the directory records that person's SID and it is the account's. Admin › Directory quality
+  › *No SID recorded* lists who this leaves out, placeholder managers included: load them with
+  their SID, or map their accounts in `Insights:IdentityMap`; grant roles to accounts outside the
+  directory as `DOMAIN\name` or through a group.
+
 ## [2.4.11] - 2026-10-02
 
 Agents under their own names, and page speed at three times the size. An agent now shows the

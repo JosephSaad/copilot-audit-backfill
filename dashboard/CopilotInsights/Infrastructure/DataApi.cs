@@ -31,19 +31,36 @@ public static class DataApi
             },
         }));
 
+        /* The security signals are the Security section's and labeled content the Compliance section's (2.4.12): the
+           usage trend and the units carry them only for those roles, as /security and the section pages do. */
         api.MapGet("/usage", (HttpContext h, CancellationToken _) => Run(h, "usage", null, async (x, c) =>
         {
             var m = x.GetRequiredService<Metrics>();
-            return new { scope = c.ScopeLabel, from = c.Start, to = c.End, totals = await m.TotalsAsync(c), trend = await m.TrendAsync(c) };
+            bool sec = c.Viewer.Has(Roles.Security), comp = c.Viewer.Has(Roles.Compliance);
+            var trend = (await m.TrendAsync(c)).Select(p => new
+            {
+                p.Bucket, p.Active, p.ActiveLicensed, p.ActiveUnlicensed, p.Interactions, p.Prompts, p.Sessions, p.MultiTurn, p.Chat, p.Agent, p.Web, p.Licensed,
+                jailbreak = sec ? p.Jailbreak : (long?)null, injection = sec ? p.Injection : (long?)null, blocked = sec ? p.Blocked : (long?)null,
+                labeled = comp ? p.Labeled : (long?)null,
+            });
+            return new { scope = c.ScopeLabel, from = c.Start, to = c.End, totals = await m.TotalsAsync(c), trend };
         }));
 
         api.MapGet("/units", (HttpContext h, CancellationToken _) => Run(h, "units", null, async (x, c) =>
         {
-            var units = await x.GetRequiredService<Metrics>().UnitsAsync(c);
-            var shown = units.Where(u => u.People >= c.MinGroupSize).ToList();
-            var small = units.Where(u => u.People < c.MinGroupSize).ToList();
-            if (small.Count > 0) shown.Add(Metrics.Combine(small, "Smaller groups"));
-            return new { scope = c.ScopeLabel, from = c.Start, to = c.End, minGroupSize = c.MinGroupSize, units = shown };
+            bool sec = c.Viewer.Has(Roles.Security), comp = c.Viewer.Has(Roles.Compliance);
+            var shown = SmallGroups.Fold(await x.GetRequiredService<Metrics>().UnitsAsync(c), u => u.People, r => Metrics.Combine(r, "Smaller groups"), c.MinGroupSize, out var foldedUnits);
+            return new
+            {
+                scope = c.ScopeLabel, from = c.Start, to = c.End, minGroupSize = c.MinGroupSize,
+                units = shown.Select(u => new
+                {
+                    /* In privacy mode a unit is not named after its manager, and its sign-in is not given (see Metrics.UnitsAsync). */
+                    unit = u.Named ? u.Unit : null, u.Name, u.Department, u.People, u.Licensed, u.Active, u.ActiveLicensed, u.PremiumLicensed,
+                    u.Interactions, u.ActiveDays, u.Sessions, u.MultiTurn,
+                    flags = sec ? u.Flags : (long?)null, labeled = comp ? u.Labeled : (long?)null,
+                }),
+            };
         }));
 
         api.MapGet("/security", (HttpContext h, CancellationToken _) => Run(h, "security", null, async (x, c) =>
@@ -59,7 +76,9 @@ public static class DataApi
         api.MapGet("/value", (HttpContext h, CancellationToken _) => Run(h, "value", null, async (x, c) =>
         {
             var v = await x.GetRequiredService<OpsReports>().ValueAsync(c);
-            return new { scope = c.ScopeLabel, from = c.Start, to = c.End, hourlyCost = v.HourlyCost, defaultMinutes = v.DefaultMinutes, byApp = v.ByApp, byDepartment = v.ByDepartment };
+            /* Departments folded as the page folds them (2.4.12): the API returned every one, down to one person. */
+            var byDepartment = SmallGroups.Fold(v.ByDepartment, d => d.People, OpsReports.CombineValue, c.MinGroupSize, out var foldedDepartments);
+            return new { scope = c.ScopeLabel, from = c.Start, to = c.End, minGroupSize = c.MinGroupSize, hourlyCost = v.HourlyCost, defaultMinutes = v.DefaultMinutes, byApp = v.ByApp, byDepartment };
         }));
 
         api.MapGet("/targets", (HttpContext h, CancellationToken _) => Run(h, "targets", null, async (x, c) =>
@@ -108,6 +127,8 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
         if (role == Roles.Admin) { if (!viewer.IsAdmin) refusal = "administrators only"; }
         else if (!viewer.Admitted) refusal = $"the dashboard is for levels 1 to {viewer.MaxLevel} of the organization";
         else if (!viewer.OrgWide && !viewer.InDirectory) refusal = "not in the directory, and not granted Organization";
+        else if (c.OrgWhy == OrgRefusal.Privacy) refusal = "privacy mode is on: no report on a manager's part of the organization";
+        else if (c.OrgWhy == OrgRefusal.TooSmall) refusal = $"that part of the organization has fewer than {c.MinGroupSize} people, the minimum group size";
         else if (section is not null && !viewer.Has(section)) refusal = $"needs the {section} role";   // the page's section needs it too
         else if (role is not null && await settings.PrivacyModeAsync()) refusal = "privacy mode is on: nothing that names people";
         else if (role is not null && !viewer.Has(role)) refusal = $"needs the {role} role";

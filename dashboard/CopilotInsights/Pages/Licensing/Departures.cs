@@ -134,6 +134,6 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         await CopilotInsights.Data.LicenseActions.RecordAsync(Db, "leaver", upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"departures past their date {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-departures-{DateTime.UtcNow:yyyyMMdd}";
-        return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 }

@@ -28,6 +28,8 @@ public sealed class BuildModel(PageServices s) : InsightsPage(s)
         public int Makers { get; set; }
         public string? LastMaker { get; set; }
         public string? FriendlyName { get; set; }
+        /// <summary>The name the audit log gave the agent, where it gave one.</summary>
+        public string? LogName { get; set; }
         public string? Owner { get; set; }
     }
 
@@ -68,9 +70,13 @@ SELECT e.BotSchemaName,
        MAX(CASE WHEN e.Action = 'Deleted' THEN e.EventUtc END) AS Deleted,
        COUNT(DISTINCT e.ActorUpn) AS Makers,
        (SELECT TOP (1) x.ActorUpn FROM e AS x WHERE x.BotSchemaName = e.BotSchemaName ORDER BY x.EventUtc DESC) AS LastMaker,
-       MAX(al.FriendlyName) AS FriendlyName, MAX(al.Owner) AS Owner
+       MAX(al.FriendlyName) AS FriendlyName, MAX(CASE WHEN ag.AgentName <> e.BotSchemaName THEN ag.AgentName END) AS LogName, MAX(al.Owner) AS Owner
 FROM e
-LEFT JOIN bi.DimAgent AS ag ON ag.AgentId = e.BotSchemaName OR ag.AgentName = e.BotSchemaName
+/* A Copilot Studio agent's id ends in its schema name (Copilot.Studio.<environment>-<schema name>). It was found by
+   its name, which was the schema name until 2.4.11 named agents as the audit log does; then the alias and owner
+   set in Admin > Reference data went missing here (2.4.12). Compared as text, not LIKE: _ is in schema names. */
+LEFT JOIN bi.DimAgent AS ag ON ag.AgentId = e.BotSchemaName
+    OR (ag.AgentSource = N'Copilot Studio' AND RIGHT(ag.AgentId, LEN(e.BotSchemaName) + 1) = N'-' + e.BotSchemaName)
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = ag.AgentKey
 GROUP BY e.BotSchemaName
 ORDER BY MAX(e.EventUtc) DESC;", Ctx.Args());
@@ -85,7 +91,7 @@ ORDER BY MAX(e.EventUtc) DESC;", Ctx.Args());
         };
         foreach (var l in life)
         {
-            var name = l.FriendlyName is null ? l.BotSchemaName : $"{l.FriendlyName} ({l.BotSchemaName})";
+            var name = (l.FriendlyName ?? l.LogName) is { } shown ? $"{shown} ({l.BotSchemaName})" : l.BotSchemaName;
             t.Rows.Add(named
                 ? [name, l.Created, l.FirstPublished, l.LastPublished, l.Publishes, l.Shares, l.Changes, l.Deleted, l.Makers, l.LastMaker, l.Owner]
                 : [name, l.Created, l.FirstPublished, l.LastPublished, l.Publishes, l.Shares, l.Changes, l.Deleted, l.Makers, l.Owner]);

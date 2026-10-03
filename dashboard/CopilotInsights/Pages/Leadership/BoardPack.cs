@@ -79,7 +79,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         rt.Rows.Add(["Copilot licenses on non-human accounts (today)", (await CopilotInsights.Data.NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args())).Count, null]);
         Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance.", "half"));
 
-        var units = (await metrics.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize && u.Licensed >= Ctx.MinGroupSize).ToList();
+        var units = SmallGroups.Shown(await metrics.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();
         if (units.Count > 1)
             Panels.Add(new("Adoption by unit", Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed)), Ctx.MinGroupSize, "Adoption by unit", 12),
                 "Units with at least the minimum group size of people and licenses.", "half"));
@@ -155,10 +155,10 @@ SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase,
 
         /* Each department's mix, for departments big enough to show. */
         var deptPeople = byDept.GroupBy(x => x.Department!).ToDictionary(g => g.Key, g => g.Sum(x => x.N));
-        var big = (await Db.QueryAsync<(string Dept, int People)>($@"
+        var big = SmallGroups.Shown(await Db.QueryAsync<(string Dept, int People)>($@"
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*) FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args()))
-            .Where(d => d.People >= Ctx.MinGroupSize).Select(d => d.Dept).ToHashSet();
+WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args()), d => d.People, Ctx.MinGroupSize)
+            .Select(d => d.Dept).ToHashSet();
         var mix = new Table { Headers = ["Department", .. names, "Interactions"], Numeric = new HashSet<int>(Enumerable.Range(1, names.Count + 1)) };
         foreach (var d in deptPeople.Where(d => big.Contains(d.Key)).OrderByDescending(d => d.Value).Take(25))
         {

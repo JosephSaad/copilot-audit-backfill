@@ -65,11 +65,12 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
         foreach (var r in rows.OrderByDescending(r => r.People))
             t.Rows.Add([
                 new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, r.Owner, r.FirstSeenUtc.Date,
-                r.People, Pct(Ratio(r.Returning, r.People)), r.N, Math.Round(r.N / (double)Math.Max(1, r.People), 1),
+                AtLeastMin(r.People), AtLeastMin(r.People) is null ? null : Pct(Ratio(r.Returning, r.People)), r.N,
+                AtLeastMin(r.People) is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
                 Chart.Sparkline(buckets.Select(b => (double?)trend.Where(x => x.AgentKey == r.AgentKey && x.Bucket == b.Key).Sum(x => x.People)).ToList(), r.AgentName),
             ]);
         Panels.Add(new("All agents", t.Render(),
-            "Came back: the share of its people who used it on more than one day. Names and owners come from Admin › Reference data. Select an agent for its detail."));
+            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from Admin › Reference data. Select an agent for its detail."));
     }
 }
 
@@ -127,10 +128,12 @@ p AS (SELECT f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Days
       FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.UserKey)
 SELECT (SELECT COUNT(*) FROM p), (SELECT ISNULL(SUM(N), 0) FROM p), (SELECT COUNT(*) FROM p WHERE Days > 1),
        (SELECT COUNT(*) FROM u WHERE FirstKey >= @k0);", args)).Single();
-        Kpis.Add(new("People", Num(tot.People), "used it in the period"));
-        Kpis.Add(new("New people", Num(tot.NewPeople), "first used it in the period"));
-        Kpis.Add(new("Came back", Pct(Ratio(tot.Returning, tot.People)), "used it on more than one day"));
-        Kpis.Add(new("Interactions", Num(tot.N), tot.People > 0 ? $"{tot.N / (double)tot.People:0.0} per person" : null));
+        /* Its people are a group: counted only at the minimum group size or more (2.4.12). */
+        var few = tot.People > 0 && AtLeastMin(tot.People) is null;
+        Kpis.Add(new("People", few ? "—" : Num(tot.People), few ? $"fewer than {Ctx.MinGroupSize} used it in the period" : "used it in the period"));
+        Kpis.Add(new("New people", few ? "—" : Num(tot.NewPeople), "first used it in the period"));
+        Kpis.Add(new("Came back", few ? "—" : Pct(Ratio(tot.Returning, tot.People)), "used it on more than one day"));
+        Kpis.Add(new("Interactions", Num(tot.N), tot.People > 0 && !few ? $"{tot.N / (double)tot.People:0.0} per person" : null));
 
         var buckets = Buckets();
         Panels.Add(new("People using it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.People)).ToList(), 1)], Fmt.Count, "People using the agent"),
@@ -153,7 +156,7 @@ LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", args);
         Panels.Add(new("Where it is used", Chart.Bars(apps.OrderByDescending(a => a.N).Select(a => new Bar(a.App, a.N)).ToList(), Fmt.Count, "Agent interactions by app"), null, "half"));
 
-        if (!Viewer.Has(Roles.Agents)) return;   // the named users are for the Agents role only
+        if (!Viewer.Has(Roles.Agents) || PrivacyMode) return;   // the named users are for the Agents role only, and never in privacy mode
         var pg = new Paging(Request, Sorts, "most");
         var rows = await Db.QueryAsync<Row>($@"
 WITH x AS (SELECT f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Days, MAX(f.DateKey) AS LastKey

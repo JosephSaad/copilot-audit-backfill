@@ -236,6 +236,6 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         Panels.Add(new("By department", t.Render(),
             "Unused licenses: held by someone who has not used Copilot within the unused-after days (Admin > Access). Light users: license holders who used it on 1 or 2 days in the last 30. " +
             "Heavy demand: people without a license who used the free Copilot Chat on 6 or more of the last 30 days. Suggested change: heavy demand less unused licenses, within the department; negative is licenses to release." +
-            (folded > 0 ? $" {Count(folded, "department")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : ""), "full", CsvUrl()));
+            (folded > 0 ? " " + FoldNote(folded, "department") : ""), "full", CsvUrl()));
     }
 }

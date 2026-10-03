@@ -193,7 +193,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.NonHumanException (Upn, Reason, ConfirmedBy) 
             await LicenseActions.RecordAsync(Db, "nonhuman", upns, Viewer.Upn ?? Viewer.WindowsName);
             await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"non-human accounts {(script ? "script" : "bulk file")}: {upns.Count} accounts");
             var name = $"copilot-non-human-{DateTime.UtcNow:yyyyMMdd}";
-            return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+            return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
         }
     }
 }

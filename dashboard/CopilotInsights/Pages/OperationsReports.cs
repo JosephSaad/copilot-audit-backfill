@@ -106,12 +106,12 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
 
             var depts = licensed.GroupBy(r => r.Dept).Select(g => (Name: g.Key, People: g.Count(), Started: g.Count(r => r.Days is not null),
                     Median: g.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList())).ToList();
-            var small = depts.Where(d => d.People < Ctx.MinGroupSize).ToList();
-            var shown = depts.Where(d => d.People >= Ctx.MinGroupSize).OrderByDescending(d => d.People).ToList();
+            var shown = FoldSmall(depts.OrderByDescending(d => d.People), d => d.People,
+                small => ("Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Started), new List<int>()), out var folded);
             var tb = new Table { Headers = ["Department", "Licensed in the period", "Have used it", "Median days to first use"], Numeric = new HashSet<int> { 1, 2, 3 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Started, d.Median.Count >= Ctx.MinGroupSize ? d.Median[d.Median.Count / 2] : null]);
-            if (small.Count > 0) { tb.Rows.Add(["Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Started), null]); tb.KeepLast = 1; }
-            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{Count(small.Count, "department")} with fewer than {Ctx.MinGroupSize} new licenses {Are(small.Count)} combined." : null));
+            tb.KeepLast = folded > 0 ? 1 : 0;
+            Panels.Add(new("By department", tb.Render(), folded > 0 ? FoldNote(folded, "department") : null));
         }
     }
 
@@ -174,13 +174,12 @@ namespace CopilotInsights.Pages.Leadership
             Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", $"license cost in the period: {licenseCost:#,0} {cur}"));
             Panels.Add(new("Hours saved by app", Chart.Bars(v.ByApp.Take(12).Select(a => new Bar(a.Name, a.Hours, Note: $"{a.Interactions:#,0} interactions")).ToList(), Fmt.Count, "Hours saved by app"),
                 "Set the minutes each app saves in Admin > Targets and assumptions.", "half"));
-            var shown = v.ByDepartment.Where(d => d.People >= Ctx.MinGroupSize).ToList();
-            var small = v.ByDepartment.Where(d => d.People < Ctx.MinGroupSize).ToList();
+            var shown = FoldSmall(v.ByDepartment, d => d.People, OpsReports.CombineValue, out var folded);
             var tb = new Table { Headers = ["Department", "People using Copilot", "Interactions", "Hours saved", $"Estimated value ({cur})", "Hours per person"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Interactions, Math.Round(d.Hours), Math.Round(d.Value), d.People > 0 ? Math.Round(d.Hours / d.People, 1) : null]);
-            if (small.Count > 0) { tb.Rows.Add(["Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Interactions), Math.Round(small.Sum(d => d.Hours)), Math.Round(small.Sum(d => d.Value)), null]); tb.KeepLast = 1; }
+            tb.KeepLast = folded > 0 ? 1 : 0;
             CsvTable = tb;
-            Panels.Add(new("By department", tb.Render(), small.Count > 0 ? $"{Count(small.Count, "department")} with fewer than {Ctx.MinGroupSize} people using Copilot {Are(small.Count)} combined." : null, "half", CsvUrl()));
+            Panels.Add(new("By department", tb.Render(), folded > 0 ? FoldNote(folded, "department") : null, "half", CsvUrl()));
         }
     }
 }
@@ -239,16 +238,19 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
             Kpis.Add(new("Of those, mostly unlabeled", Num(wide.Count(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1)), "under 10% of what was read carried a label",
                 wide.Any(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1) ? "warn" : null));
             Kpis.Add(new("With blocked content", Num(rows.Count(r => r.Blocked > 0))));
-            Panels.Add(new("The widest-reaching sites", Chart.Bars(wide.Take(15).Select(r => new Bar(Short(r.Site), r.People,
+            /* A personal OneDrive's address names its owner: in privacy mode it is not shown (2.4.12). */
+            string Site(Row r) => r.IsPersonal && PrivacyMode ? "OneDrive (personal site)" : r.Site;
+            Panels.Add(new("The widest-reaching sites", Chart.Bars(wide.Take(15).Select(r => new Bar(Short(Site(r)), r.People,
                 Note: $"{r.Reads:#,0} reads, {Pct(Ratio(r.Labeled, r.Reads))} labeled{(r.TopLabel is null ? "" : $", up to {r.TopLabel}")}", Slot: r.Labeled < r.Reads * 0.1 ? 5 : 1)).ToList(),
                 Fmt.Count, "People reaching each site through Copilot"), "Orange: under 10% of what Copilot read there carried a label.", "half"));
             var tb = new Table { Headers = ["Site", "A person's OneDrive", "People who reached it", "Times read", "Share labeled", "Most sensitive label", "Times blocked"], Numeric = new HashSet<int> { 2, 3, 5 } };
             foreach (var r in rows)
-                tb.Rows.Add([r.Site, r.IsPersonal ? "Yes" : "", r.People < Ctx.MinGroupSize ? null : r.People, r.Reads, Pct(Ratio(r.Labeled, r.Reads)),
+                tb.Rows.Add([Site(r), r.IsPersonal ? "Yes" : "", r.People < Ctx.MinGroupSize ? null : r.People, r.Reads, Pct(Ratio(r.Labeled, r.Reads)),
                              r.TopLabel ?? (r.TopRank is not null ? "(unnamed label)" : null), r.Blocked]);
             CsvTable = tb;
             Panels.Add(new("Every site (the 200 most reached)", tb.Render(),
-                $"People are shown only where {Ctx.MinGroupSize} or more reached the site. Name labels and set their order in Admin > Reference data.", "full", CsvUrl()));
+                $"People are shown only where {Ctx.MinGroupSize} or more reached the site. Name labels and set their order in Admin > Reference data." +
+                (PrivacyMode ? " Privacy mode is on, so a personal OneDrive is not shown by its address, which names its owner." : ""), "full", CsvUrl()));
         }
 
         static string Short(string url) => url.Replace("https://", "");
@@ -303,7 +305,7 @@ ORDER BY a.FirstSeenUtc DESC;", Ctx.Args());
             var tb = new Table { Headers = ["Agent", "Built in", "Owner", "First used", "Last used", "People in the period", "Interactions in the period"], Numeric = new HashSet<int> { 5, 6 } };
             foreach (var r in rows)
                 tb.Rows.Add([r.AgentName + (r.Named ? "" : " (unnamed)"), r.AgentSource, r.Owner, r.FirstSeenUtc.Date, r.LastUsed,
-                             r.People is > 0 and var n && n < Ctx.MinGroupSize ? null : r.People, r.Interactions]);
+                             r.People == 0 ? 0 : AtLeastMin(r.People), r.Interactions]);
             CsvTable = tb;
             Panels.Add(new("Every agent", tb.Render(), $"People are left out where fewer than {Ctx.MinGroupSize} used an agent; named users are on Agents > Agent detail for the Agents role.", "full", CsvUrl()));
         }

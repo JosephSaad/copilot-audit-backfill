@@ -71,10 +71,10 @@ public static class ExtractData
             @"SELECT d.[Date], COUNT(DISTINCT CASE WHEN ud.Interactions > 0 THEN ud.UserKey END) AS ActivePeople, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
        SUM(CAST(ud.AgentInteractions AS BIGINT)) AS AgentInteractions, SUM(CAST(ud.WebGrounded AS BIGINT)) AS WebGrounded
 FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey WHERE d.[Date] >= @d0 GROUP BY d.[Date] ORDER BY d.[Date];"),
-        ["AppWeek"] = ("Interactions and people by app and week",
+        ["AppWeek"] = ("Interactions and people by app and week (apps used by fewer than the minimum group size hidden)",
             @"SELECT d.WeekEnding, a.App, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
 FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, a.App ORDER BY d.WeekEnding, a.App;"),
+WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, a.App HAVING COUNT(DISTINCT f.UserKey) >= @minGroup ORDER BY d.WeekEnding, a.App;"),
         ["LicensePool"] = ("Licenses bought and assigned, per day",
             "SELECT SnapshotDate, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, Consumed FROM audit.LicenseSkuDay WHERE SnapshotDate >= @d0 ORDER BY SnapshotDate, SkuPartNumber;"),
         ["AgentWeek"] = ("Agent use by week",
@@ -246,7 +246,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, period = 
                     var error = await _mail.SendAsync("ManagerDigest", MailConfig.Recipients(m.Mail ?? m.Upn), subject, html, text, ct);
                     status = error is null ? "Sent" : "NotSent";
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) { _log.LogWarning(ex, "Manager digest for {Upn}", m.Upn); status = "Failed"; }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { _log.LogWarning(ex, "Manager digest for {Upn}", m.Upn); status = "Failed"; }
                 await MarkAsync(m.Upn, "Manager", round.Period, status == "Sent");
                 if (status == "Sent") sent++; else failed++;
             }

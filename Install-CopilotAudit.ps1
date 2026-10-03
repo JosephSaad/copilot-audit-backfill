@@ -199,7 +199,9 @@ else {
     # 2.4.10: with no zone named, a database that holds no records yet takes this server's own time zone (it was
     # Eastern whatever the server). One that holds records, or that has a zone set, keeps it: its days are already cut.
     $serverZone = [TimeZoneInfo]::Local.Id
-    if ([TimeZoneInfo]::Local.HasIanaId) {
+    # .NET 6 and later only (PowerShell 7): Windows PowerShell 5.1's zone ids are Windows ones already, and reading the
+    # property there stopped the script under strict mode, before any rebuild ran (2.4.12).
+    if ($PSVersionTable.PSEdition -eq 'Core' -and [TimeZoneInfo]::Local.HasIanaId) {
         $windowsId = $null
         $serverZone = if ([TimeZoneInfo]::TryConvertIanaIdToWindowsId($serverZone, [ref] $windowsId)) { $windowsId } else { $null }
     }
@@ -246,12 +248,29 @@ if (-not $SkipLicenseDatabase) {
 # Flattened by a version before 2.2.0: rows, but no record shapes - only the 2.2.0
 # flatten counts them. Upgraded scripts alone do not fill history; this does, once.
 $upgrade = $flattened -gt 0 -and (Get-Count $Database 'audit.RawLogRecordShape') -eq 0
-$fullBuild = $Rebuild -or ($records -gt 0 -and $flattened -eq 0) -or $upgrade
+# 2.4.12: built is a flatten of every record that finished, which leaves a mark (FullFlattenUtc). Any flattened row
+# counted as built, so a first flatten stopped part way, or a nightly that flattened only its own few days, left the
+# rest of history unflattened for good. A database flattened before 2.4.12 has no mark: it is given one here when every
+# record is in the flattened table (counted once, minutes at 40 million), and flattened again when some are not.
+$unflattened = [long] 0
+if ($records -gt 0 -and $flattened -gt 0 -and -not $Rebuild -and -not $upgrade -and
+    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'FullFlattenUtc';") -eq 0) {
+    Write-Done 'checking that every record has been flattened (once)...'
+    $unflattened = [long] (Invoke-Sql -Catalog $Database -Scalar -Sql @"
+SELECT COUNT_BIG(*) FROM audit.CopilotAudit AS a
+WHERE NOT EXISTS (SELECT 1 FROM audit.RawLogFlattened AS f WHERE f.RecordId = a.RecordId);
+"@)
+    if ($unflattened -eq 0) {
+        Invoke-Sql -Catalog $Database -Sql "INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'FullFlattenUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));"
+    }
+}
+$fullBuild = $Rebuild -or ($records -gt 0 -and $flattened -eq 0) -or $upgrade -or $unflattened -gt 0
 if ($records -eq 0) {
     $todo += "Load Copilot records into $Database (the backfill, deployment step 6, or a CSV import), then run this again."
 }
 elseif ($fullBuild) {
-    $why = if ($upgrade) { 'the flattened table gained columns (2.2.0), so every record is flattened again' } elseif ($Rebuild) { '-Rebuild' } else { 'first build' }
+    $why = if ($upgrade) { 'the flattened table gained columns (2.2.0), so every record is flattened again' } elseif ($Rebuild) { '-Rebuild' }
+           elseif ($unflattened -gt 0) { '{0:N0} were never flattened: an earlier flatten stopped part way, or only the nightly''s days were' -f $unflattened } else { 'first build' }
     Write-Done ("flattening {0:N0} record(s) ({1})..." -f $records, $why)
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_FlattenCopilotAudit;'
     Write-Done 'sessions, in full...'
@@ -273,6 +292,20 @@ if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp
     $todo += 'Refresh the Power BI model once: agents carry the friendly names the audit log gives them, and bi.Agents gained NamedInAudit.'
 }
 
+# 2.4.12: the records of other apps that carry an agent's id (Copilot Chat running a declarative agent), which bi keys
+# on that id. 2.4.11 read it from its upgrade night on, so the same agent's history started then. Read once here, from
+# the apps whose records since show one; a record that gains an id changes agent, so bi is rebuilt once (below).
+$agentIds = $false
+if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp_BackfillAgentNames' 'P') -and
+    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'AgentIdsReadUtc';") -eq 0) {
+    Write-Done 'agent ids: reading them from the records of other apps that carry them, once (2.4.12)...'
+    $gainedIds = [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'EXEC audit.usp_BackfillAgentNames @Others = 1;')
+    if ($gainedIds -gt 0) {
+        $agentIds = $true
+        if (Test-Object $Database 'bi.usp_NameAgents' 'P') { Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_NameAgents;' }
+    }
+}
+
 # 2.4.6: each resource Copilot read carries its file type. Resources loaded before have none, so bi is refreshed in full
 # once - decided from the data, not from this run, so an install stopped part way finishes it the next time.
 # 2.4.8: each interaction carries what its record says about licensed use (UseKind), which Premium use is now decided
@@ -285,12 +318,14 @@ $noUseKind = $flattened -gt 0 -and -not $fullBuild -and
 # before 2.4.9, a fact with fewer than 99 in 100 of the flattened records: finished here, with every day of the rollups.
 $cutShort = $flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'bi.FactInteraction') -and
     ((Get-Count $Database 'bi.RebuildInProgress') -gt 0 -or (Get-Count $Database 'bi.FactInteraction') * 100 -lt $flattened * 99)
-if ($noFileType -or $noUseKind -or $cutShort) {
+if ($noFileType -or $noUseKind -or $cutShort -or $agentIds) {
     $gain = @($(if ($noFileType) { 'the resources Copilot read gain their file type (2.4.6)' }), $(if ($noUseKind) { 'Premium use is decided from each record''s own identity (2.4.8)' }),
-        $(if ($cutShort) { ('an earlier full refresh did not finish ({0:N0} of {1:N0} interactions are there)' -f (Get-Count $Database 'bi.FactInteraction'), $flattened) })) | Where-Object { $_ }
+        $(if ($cutShort) { ('an earlier full refresh did not finish ({0:N0} of {1:N0} interactions are there)' -f (Get-Count $Database 'bi.FactInteraction'), $flattened) }),
+        $(if ($agentIds) { ('{0:N0} interactions gain the agent the audit log names by id (2.4.12)' -f $gainedIds) })) | Where-Object { $_ }
     Write-Done "bi, in full once: $($gain -join '; '). This takes as long as a full bi refresh..."
     Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
     if ($noFileType) { $todo += 'Refresh the Power BI model once: bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.' }
+    if ($agentIds) { $todo += 'Refresh the Power BI model once: interactions moved to the agents the audit log names by id.' }
 }
 
 # 2.3.0: the value catalog fills as records are flattened; records flattened before it existed are cataloged once here.
@@ -303,7 +338,7 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     # 2.3.0 added Premium-feature use to the rollups: rebuilt in full once, when they have days but none of it.
     $premiumEmpty = (Get-Count $Database 'dash.UserDay') -gt 0 -and
         [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE PremiumUse > 0) OR NOT EXISTS (SELECT 1 FROM dash.UserDay WHERE LicensedUse > 0) THEN 1 ELSE 0 END;') -eq 0
-    $since = if ($fullBuild -or $premiumEmpty -or $noUseKind -or $cutShort -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
+    $since = if ($fullBuild -or $premiumEmpty -or $noUseKind -or $cutShort -or $agentIds -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
     Write-Done $(if ($since) { 'dashboard: org chart, and today''s rollups...' } else { 'dashboard: org chart and every day''s rollups...' })
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }

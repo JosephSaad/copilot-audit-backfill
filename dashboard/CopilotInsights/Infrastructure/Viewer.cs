@@ -71,11 +71,27 @@ public static class AccessRules
         || roles.Any(r => !string.Equals(r, Roles.Admin, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// The SID rule: an account may be a person when the directory records no SID for them,
-    /// or records exactly the SID in the account's Windows token. Pure, for the tests.
+    /// The SID comparison: the directory records no SID for the person, or records exactly the SID in the
+    /// account's Windows token. Pure, for the tests. Which way the person was found decides whether no SID
+    /// is enough (see <see cref="MayBe"/>).
     /// </summary>
     public static bool SidMatches(string? recordedSid, string? tokenSid) =>
         string.IsNullOrWhiteSpace(recordedSid) || (tokenSid is not null && string.Equals(recordedSid.Trim(), tokenSid, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The SID rule (2.4.12): whether the signed-in account may be the person a UPN names, by how the UPN was found.
+    /// By the account's SID in the directory: yes. From Insights:IdentityMap, which an administrator wrote: yes, unless
+    /// the directory records a different SID for the person. From Active Directory's answer, or a sign-in name that is
+    /// a UPN: only when the directory records the person's SID and it is this account's. Those answers are the account's
+    /// own say, and in another domain or forest an account can carry anyone's UPN; with no SID on record they let it be
+    /// anyone without one (a manager outside the directory table, an administrator granted by UPN). Pure, for the tests.
+    /// </summary>
+    public static bool MayBe(UpnSource source, string? recordedSid, string? tokenSid) => source switch
+    {
+        UpnSource.Sid => true,
+        UpnSource.IdentityMap => SidMatches(recordedSid, tokenSid),
+        _ => !string.IsNullOrWhiteSpace(recordedSid) && SidMatches(recordedSid, tokenSid),
+    };
 
     /// <summary>
     /// Whether a viewer may look at the subtree under <paramref name="rootUpn"/>:
@@ -87,6 +103,9 @@ public static class AccessRules
         || (viewer.Upn is not null && string.Equals(viewer.Upn, rootUpn, StringComparison.OrdinalIgnoreCase))
         || rootIsUnderViewer;
 }
+
+/// <summary>How a sign-in's UPN was found.</summary>
+public enum UpnSource { Sid, IdentityMap, Directory }
 
 /// <summary>Resolves the signed-in Windows account to a Viewer, once per request.</summary>
 /// <remarks>
@@ -171,10 +190,12 @@ public sealed class ViewerService(
     /// The viewer's UPN: the account's SID in the directory table first (no lookup at
     /// sign-in, so it works when the web servers are in another domain from the users),
     /// then the configured map, then Active Directory by the SID, then the sign-in name
-    /// itself when it already is one. Whichever way it was found, the SID is checked: a
-    /// person whose directory record carries a SID can be signed in as only by the account
-    /// with that SID, so no mapping, name or lookup can land one account on another
-    /// person. Cached for ten minutes per account.
+    /// itself when it already is one. Whichever way it was found, the SID is checked
+    /// (<see cref="AccessRules.MayBe"/>): a person whose directory record carries a SID can
+    /// be signed in as only by the account with that SID, and an answer from Active
+    /// Directory or the sign-in name makes the account no one whose SID is not on record
+    /// (2.4.12), so no mapping, name or lookup can land one account on another person.
+    /// Cached for ten minutes per account.
     /// </summary>
     async Task<string?> ResolveUpnAsync(ClaimsPrincipal user, string windowsName)
     {
@@ -182,29 +203,34 @@ public sealed class ViewerService(
         var key = tenants.Key("upn:" + (sid ?? windowsName));
         if (cache.TryGetValue(key, out string? known)) return known;
         string? upn = null;
+        var source = UpnSource.Sid;
         if (sid is not null)
         {
             try { upn = await db.ScalarAsync<string?>("SELECT TOP (1) Upn FROM dash.Person WHERE Sid = @sid ORDER BY AccountEnabled DESC", new { sid }); }
             catch (Exception ex) { log.LogInformation("No SID match for {Name}: {Message}", windowsName, ex.Message); }
         }
-        if (upn is null && _o.IdentityMap.TryGetValue(windowsName, out var mapped)) upn = mapped;
-        upn ??= FromDirectory(user, windowsName);
-        if (upn is not null && !await SidAllowsAsync(upn, sid))
+        if (upn is null && _o.IdentityMap.TryGetValue(windowsName, out var mapped)) (upn, source) = (mapped, UpnSource.IdentityMap);
+        if (upn is null && FromDirectory(user, windowsName) is { } found) (upn, source) = (found, UpnSource.Directory);
+        if (upn is not null && source != UpnSource.Sid && !await SidAllowsAsync(upn, sid, source))
         {
-            log.LogWarning("{Name} (SID {Sid}) resolved to {Upn}, whose directory record carries a different SID: not signed in as them.", windowsName, sid ?? "none", upn);
+            if (source == UpnSource.Directory)
+                log.LogWarning("{Name} (SID {Sid}) is {Upn} by Active Directory or its sign-in name, but the people directory records no SID for {Upn} that is this account's: not signed in as them. " +
+                               "Load the person with their SID, or map the account in Insights:IdentityMap.", windowsName, sid ?? "none", upn, upn);
+            else
+                log.LogWarning("{Name} (SID {Sid}) is mapped to {Upn}, whose directory record carries a different SID: not signed in as them.", windowsName, sid ?? "none", upn);
             upn = null;
         }
         cache.Set(key, upn, TimeSpan.FromMinutes(10));
         return upn;
     }
 
-    /// <summary>Whether the signed-in account's SID may be this person: yes when the directory records no SID for them, else only when it is theirs.</summary>
-    async Task<bool> SidAllowsAsync(string upn, string? sid)
+    /// <summary>Whether the signed-in account's SID may be this person, found this way (see <see cref="AccessRules.MayBe"/>).</summary>
+    async Task<bool> SidAllowsAsync(string upn, string? sid, UpnSource source)
     {
         string? recorded;
         try { recorded = await db.ScalarAsync<string?>("SELECT TOP (1) Sid FROM dash.Person WHERE Upn = @upn", new { upn }); }
         catch (Exception ex) { log.LogWarning("Could not check the SID for {Upn}: {Message}", upn, ex.Message); return false; }
-        return AccessRules.SidMatches(recorded, sid);
+        return AccessRules.MayBe(source, recorded, sid);
     }
 
     string? FromDirectory(ClaimsPrincipal user, string windowsName)

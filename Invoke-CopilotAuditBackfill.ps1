@@ -860,7 +860,19 @@ function Invoke-Main {
     $range = Resolve-BackfillRange
     if ($range.Completed) {
         Write-Log 'This backfill already completed. Nothing to download.'
-        if ($Finalize) { Invoke-CopilotAuditFinalize }
+        if ($Finalize) {
+            # Finalized before (2.4.12): leave the tables alone. A re-run (-History carrying on after a later step
+            # failed) finalized again, rebuilding audit.CopilotAudit from staging, which by then may have been dropped.
+            # -FinalizeOnly still builds them again, and finalize refuses when staging no longer holds the load.
+            $built = [long] (Invoke-Sql -As Scalar -Sql "SELECT ISNULL(SUM(rows), 0) FROM sys.partitions WHERE object_id = OBJECT_ID(N'audit.CopilotAudit', N'U') AND index_id IN (0, 1)")
+            $marked = [int] (Invoke-Sql -As Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'FinalizedUtc'") -gt 0
+            # A finalize from before 2.4.12 left no mark: the view it creates last is the sign of one.
+            $viewed = [int] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.vCopilotAuditRecord', N'V') IS NULL THEN 0 ELSE 1 END") -eq 1
+            if ($built -gt 0 -and ($marked -or $viewed)) {
+                Write-Log ('Already finalized: audit.CopilotAudit holds {0:N0} records. Nothing to do; -FinalizeOnly builds it again from staging.' -f $built)
+            }
+            else { Invoke-CopilotAuditFinalize }
+        }
         return
     }
     if (($range.End - $range.Start).TotalDays -gt 180) {

@@ -136,6 +136,6 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
         await CopilotInsights.Data.LicenseActions.RecordAsync(Db, "upgrade", upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"license for credits {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-license-for-credits-{DateTime.UtcNow:yyyyMMdd}";
-        return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 }

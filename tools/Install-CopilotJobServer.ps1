@@ -82,6 +82,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The parameters given this time (2.4.12): an empty -EmployeeTypes @() is given, and means every type.
+$script:Bound = $PSBoundParameters
 $script:Root = Split-Path $PSScriptRoot -Parent
 $script:TaskName = 'Copilot audit - nightly'
 $script:CertSubject = 'CN=Copilot audit pipeline'
@@ -95,8 +97,8 @@ function Write-Done([string] $Text) { Write-Information "    $Text" -Information
 # ===========================================================================
 
 $script:SettingOrder = 'SqlServer', 'Database', 'LicenseDatabase', 'TrustServerCertificate', 'TenantId', 'ClientId',
-                       'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'Dashboard', 'HistoryDays',
-                       'LogPath', 'LogRetentionDays', 'TenantName', 'Tenants'
+                       'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'IncludeLeaveDates', 'Dashboard', 'HistoryDays',
+                       'LogPath', 'LogRetentionDays', 'At', 'TenantName', 'Tenants'
 
 function Get-DefaultSetting {
     [ordered]@{
@@ -108,12 +110,19 @@ function Get-DefaultSetting {
 }
 
 function Merge-Setting {
-    <# The saved settings, overlaid with the parameters given this time. Pure. #>
+    <#
+        The saved settings, overlaid with the parameters given this time. Pure.
+        Every saved key is kept (2.4.12), the ones this script does not set too
+        (IncludeLeaveDates, added by hand as the deployment guide says), and so
+        is an empty value: EmployeeTypes = @() is every type. A re-run took only
+        its own keys, and only values that were not empty, so it put EMP and NONW
+        back and dropped the rest. A default fills only a key that is missing.
+    #>
     param([System.Collections.IDictionary] $Saved, [System.Collections.IDictionary] $Given)
     $s = Get-DefaultSetting
     foreach ($src in $Saved, $Given) {
         if (-not $src) { continue }
-        foreach ($k in @($src.Keys)) { if ($s.Contains($k) -and $null -ne $src[$k] -and "$($src[$k])" -ne '') { $s[$k] = $src[$k] } }
+        foreach ($k in @($src.Keys)) { if ($null -ne $src[$k]) { $s[$k] = $src[$k] } }
     }
     $s
 }
@@ -131,6 +140,8 @@ function ConvertTo-SettingText {
     $lines = @('# Written by tools\Install-CopilotJobServer.ps1 and read by Invoke-CopilotPipeline.ps1.',
                '# Run the installer again to change a value; editing by hand works too.', '@{')
     foreach ($k in $script:SettingOrder) { if ($Setting.Contains($k)) { $lines += "    $k = $(Q $Setting[$k])" } }
+    # Then any key it does not know, so a value added by hand is written back, not dropped (2.4.12).
+    foreach ($k in @($Setting.Keys)) { if ($k -notin $script:SettingOrder) { $lines += "    $k = $(Q $Setting[$k])" } }
     ($lines + '}') -join "`r`n"
 }
 
@@ -290,16 +301,19 @@ function Invoke-Main {
 
     $saved = if (Test-Path -LiteralPath $SettingsPath) { Import-PowerShellDataFile -LiteralPath $SettingsPath } else { @{} }
     $given = @{}
-    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes') {
-        $v = Get-Variable -Name $k -ValueOnly
-        if ($v) { $given[$k] = $v }
+    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'At') {
+        if ($script:Bound.ContainsKey($k)) { $given[$k] = Get-Variable -Name $k -ValueOnly }
     }
     if ($TrustServerCertificate) { $given.TrustServerCertificate = $true }
     if ($Dashboard) { $given.Dashboard = $true }
     $s = Merge-Setting -Saved $saved -Given $given
     if (-not $s.SqlServer) { throw 'Pass -SqlServer the first time (it is saved for later runs).' }
     $account = if ($ServiceAccount) { $ServiceAccount } elseif ($saved.Contains('ServiceAccount')) { $saved.ServiceAccount } else { $null }
-    $taskAt = if ($At) { $At } else { '02:00' }
+    # The service account is written below, on its own line; it is not one of the pipeline's settings.
+    if ($s.Contains('ServiceAccount')) { $s.Remove('ServiceAccount') }
+    # The task's time is saved too (2.4.12): a re-run moved a task set with -At back to 02:00.
+    $taskAt = if ($s.Contains('At') -and $s.At) { [string] $s.At } else { '02:00' }
+    $s.At = $taskAt
     $todo = @()
 
     # ---- 1. Certificate --------------------------------------------------------------------

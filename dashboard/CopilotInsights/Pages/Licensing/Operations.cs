@@ -111,7 +111,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
             .Select(r => new Bar(r.Name, (double)((r.Licensed - r.ActiveLicensed) * price), Note: $"{r.Licensed - r.ActiveLicensed:#,0} of {r.Licensed:#,0} licenses unused")).ToList(), Fmt.Count, "Unused spend by group"),
             $"A month, in {cur}, at {price:#,0.##} a license (Admin > Access).", "half"));
         Panels.Add(new("By " + by.ToLowerInvariant(), new HtmlString($"<p class=\"sub\">Group by: {choices}</p>" + t.Render().Value),
-            (folded > 0 ? $"{Count(folded, "group")} smaller than {Ctx.MinGroupSize} people {Are(folded)} combined. " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
+            (folded > 0 ? FoldNote(folded, "group") + " " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
             "full", CsvUrl()));
     }
 }
@@ -167,6 +167,6 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
             : LicenseExport.BulkMembersCsv(upns);
         await LicenseActions.RecordAsync(Db, "leaver", upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"{(script ? "script" : "bulk file")}: {upns.Count} licenses on disabled accounts");
-        return File(Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? $"reclaim-copilot-licenses-{DateTime.UtcNow:yyyyMMdd}.ps1" : $"reclaim-copilot-licenses-{DateTime.UtcNow:yyyyMMdd}.csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? $"reclaim-copilot-licenses-{DateTime.UtcNow:yyyyMMdd}.ps1" : $"reclaim-copilot-licenses-{DateTime.UtcNow:yyyyMMdd}.csv");
     }
 }

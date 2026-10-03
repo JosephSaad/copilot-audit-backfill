@@ -63,7 +63,7 @@ GROUP BY a.App;", Ctx.Args());
         Panels.Add(new("By unit, per 1,000 interactions",
             Chart.Bars(units.Select(u => new Bar(u.Name, u.Flags * 1000.0 / u.Interactions, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
                 $"{u.Flags:#,0} signals in {u.Interactions:#,0} interactions", 7)).ToList(), Fmt.Decimal1, "Signal rate by unit"),
-            "All three signals together, as a rate so large and small units compare fairly." + (folded > 0 ? $" {Count(folded, "small unit")} {Are(folded)} combined." : ""), "half"));
+            "All three signals together, as a rate so large and small units compare fairly." + (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
     }
 }
 

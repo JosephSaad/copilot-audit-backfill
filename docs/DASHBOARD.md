@@ -144,6 +144,8 @@ The level is read from the directory record of the SID-checked sign-in, never fr
 
 A viewer can look inside any part of their own scope, one level at a time. The breadcrumb and the "Look inside a team" list offer only what they may open. Each request's `org` value is checked against the org chart on the server, so editing the URL can't widen a scope.
 
+**No part smaller than the minimum group size (2.4.12).** A part of the organization other than the viewer's own is shown only when it holds at least the minimum group size: the manager and everyone under them. The "Look inside a team" list offers only those, and an `org` value naming a smaller part, a person with nobody under them for one, shows the viewer's own part with a note saying why. The data API refuses it (403), and a digest set up for it is not sent. Before 2.4.12 any sign-in in `org` was taken, so every page and the API could be narrowed to one named person.
+
 **Roles** are granted in Admin › Access to a person (UPN or `DOMAIN\user`) or an AD group (`DOMAIN\Group`). One person or group can hold any number of roles: tick them together in one grant, and each shows on their one row in the grants list with its own *Remove*. Group membership is read from the Windows sign-in, so a group grant follows AD with no database change. Power BI has no Windows sign-in to read, so for its *Organization* role the nightly directory load writes the members of every group granted Organization to `audit.GroupMember`: a change to such a group reaches Power BI the next morning.
 
 | Role | Gives |
@@ -157,13 +159,19 @@ A viewer can look inside any part of their own scope, one level at a time. The b
 | Agents | The Agents section; in it, the named users of an agent |
 | Enablement | The Enablement section; in it, named people by engagement segment |
 
-**Small groups.** A breakdown never shows a group smaller than the minimum group size (default 5): those groups are folded into "Smaller groups" or left out, so no total describes one person.
+**Small groups.** A breakdown never shows a group smaller than the minimum group size (default 5): those groups are folded into "Smaller groups" or left out, so no total describes one person. What is folded or left out reaches the minimum too (2.4.12): when the small groups together are still under it, the smallest groups shown join them, so neither the "Smaller groups" row nor the total minus the rows shown is one person. The rule is the same on every page, digest, extract and API call, and the people who used one agent are such a group: their count is shown only at the minimum or more.
 
 **The audit log.** Every page view, refusal, CSV export and admin change is written to `dash.AuditLog` with who, which page, what scope and which filters, and the client address.
 
 **How a sign-in becomes a person.** IIS authenticates with Negotiate (Kerberos, falling back to NTLM). The site then matches the account's SID, from its Windows token, to `dash.Person.Sid`, which the directory loader copies from AD's `objectSid`, so no directory lookup happens at sign-in. For an account with no SID match, it uses `Insights:IdentityMap` in the settings, then asks Active Directory for the UPN by the SID, then uses the sign-in name if it is already a UPN. See [Servers in one domain, users in another](#servers-in-one-domain-users-in-another).
 
-**Nobody can sign in as someone else.** The viewer is always the account Windows authenticated: nothing in the URL, a cookie or a header changes who they are (the Development-only `?as=` of 2.2.0 is gone). And whichever way the person was found, the SID is checked: a person whose directory record carries a SID can be signed in as only by the account with that SID. A mapping in `IdentityMap`, a directory answer or a sign-in name that points at someone else with a different SID is refused, logged as a warning, and the viewer is treated as not in the directory.
+**Nobody can sign in as someone else.** The viewer is always the account Windows authenticated: nothing in the URL, a cookie or a header changes who they are (the Development-only `?as=` of 2.2.0 is gone). And whichever way the person was found, the SID is checked:
+
+- a person whose directory record carries a SID can be signed in as only by the account with that SID;
+- an answer from Active Directory, or a sign-in name that is a UPN, makes the account a person only when the directory records that person's SID and it is the account's (2.4.12). In another domain or forest an account can carry anyone's UPN, and before 2.4.12 such an answer let it in as anyone with no SID on record: a manager outside the directory table, or an administrator granted by UPN who is not in it;
+- a mapping in `IdentityMap` is an administrator's word: it is accepted for a person with no SID on record, and refused for one whose record carries a different SID.
+
+Anything refused is logged as a warning, and the viewer is treated as not in the directory. Admin › Directory quality › *No SID recorded* lists the people this leaves out, managers outside the directory table included: load them with their SID, or map their accounts in `IdentityMap`. Grant a role to an account outside the directory as `DOMAIN\name` or through a group, not by UPN.
 
 ## Periods
 
@@ -296,7 +304,9 @@ A manager digest that fails is tried again an hour later, three times in all (`d
 
 **Privacy mode** (Admin › Privacy and retention), for organizations that must not report on named people, such as under a works council agreement:
 
-- every page, export, digest and API call that names people is refused, and hidden from the navigation. Compliance › Person record stays open to the Compliance role, for data-subject requests;
+- every page, export, digest and API call that names people is refused, and hidden from the navigation, and the named lists on other pages are left out (Demand for licenses, Agent detail, Who made the changes, the people who worked with labeled content). Compliance › Person record stays open to the Compliance role, for data-subject requests;
+- a part of the organization is named after its manager, so in privacy mode (2.4.12) units go by their manager's department, numbered where two share one, and are not links; nobody can open a manager's part by name (the "Look inside a team" list is empty, and an `org` value shows the viewer's own part); a digest set up for a manager's part is not sent, and a target for one is shown by its department. A personal OneDrive's address names its owner, so it is shown as *OneDrive (personal site)*;
+- if the setting cannot be read, privacy mode counts as on until it can (2.4.12): before, a failed read turned it off for a minute;
 - Power BI's `bi.Users` shows a salted hash (`P-…`) instead of every name, sign-in, manager and org level, the same for the same person everywhere, so counts and org slicing still work;
 - `bi.OrgSecurity` is empty (its rows would pair real sign-ins with the pseudonyms), and OneDrive site names and the administrators in `bi.LicenseChanges` are hidden;
 - `bi.DepartmentWeek` gives weekly department figures with any group under the minimum size hidden, for a model that must not show individuals.
@@ -321,17 +331,17 @@ The audit log records many things as codes: sensitivity label ids, the tenant id
 
 | Endpoint | Gives | Needs |
 |---|---|---|
-| `/api/v1/usage` | totals and the trend | data to see |
-| `/api/v1/units` | each unit one level down, small ones combined | data to see |
-| `/api/v1/security` | security signals by day or week | data to see |
-| `/api/v1/license-pool` | seats bought and assigned per SKU | data to see |
-| `/api/v1/value` | hours saved and their worth, by app and department | data to see |
-| `/api/v1/targets` | each target and where it stands | data to see |
+| `/api/v1/usage` | totals and the trend; its jailbreak, injection and blocked counts for the **Security** role only, its labeled content for **Compliance** | data to see |
+| `/api/v1/units` | each unit one level down, small ones combined; signals for **Security**, labeled content for **Compliance** | data to see |
+| `/api/v1/security` | security signals by day or week | **Security** |
+| `/api/v1/license-pool` | seats bought and assigned per SKU | **Licensing** |
+| `/api/v1/value` | hours saved and their worth, by app and department, small departments combined | data to see |
+| `/api/v1/targets` | each target and where it stands | **Adoption** |
 | `/api/v1/license-actions?kind=upgrade\|train\|revoke` | the people behind a recommendation | **Licensing** |
 | `/api/v1/leavers` | licenses on disabled or departed accounts | **Licensing** |
 | `/api/v1/health` | pipeline runs and freshness | **Admin** |
 
-Every call is in the audit log (kind *Api*); refusals answer 403 with the reason. Named endpoints are refused in privacy mode. Admin › Privacy and retention can turn the API off (it then answers 404). A script calls it as its own Windows account, for example `Invoke-RestMethod https://insights.contoso.com/api/v1/usage?d=30 -UseDefaultCredentials`.
+Every call is in the audit log (kind *Api*); refusals answer 403 with the reason. Named endpoints are refused in privacy mode, and so is an `org` value naming a manager's part; one smaller than the minimum group size is refused always (2.4.12). Admin › Privacy and retention can turn the API off (it then answers 404). A script calls it as its own Windows account, for example `Invoke-RestMethod https://insights.contoso.com/api/v1/usage?d=30 -UseDefaultCredentials`.
 
 ## Installing it on IIS
 
@@ -362,7 +372,7 @@ In an elevated **Windows PowerShell 5.1** (`powershell.exe`, not PowerShell 7: t
 |---|---|
 | `-PackagePath` | The published app, as a folder or a zip (the release's `copilot-insights-v<version>.zip`; don't unzip it). It can also be the `dashboard\CopilotInsights` source folder, which the installer publishes itself when the .NET 10 SDK is installed. |
 | `-SqlServer`, `-Database` | Where the Copilot database is. Add `-TrustServerCertificate` for an instance with a self-signed certificate. |
-| `-AdminPrincipal` | The **people** who administer the site from the first sign-in: `DOMAIN\Group` (best), `DOMAIN\user` or a UPN, from the domain people sign in with. They are written to `appsettings.Production.json`, not SQL Server. Keep it short and grant everyone else in Admin › Access. A service account doesn't belong here: nobody should sign in to a browser as one. |
+| `-AdminPrincipal` | The **people** who administer the site from the first sign-in: `DOMAIN\Group` (best), `DOMAIN\user`, or the UPN of someone the directory records with their SID (2.4.12: an account outside the directory is no one by its UPN), from the domain people sign in with. They are written to `appsettings.Production.json`, not SQL Server. Keep it short and grant everyone else in Admin › Access. A service account doesn't belong here: nobody should sign in to a browser as one. |
 | `-AppPoolIdentity` | The **account the site runs as**, and connects to SQL Server as. A gMSA (`DOMAIN\name$`), or an account with a password given as a credential: `-AppPoolIdentity 'CORP\svc-insights' -AppPoolCredential $cred`, where `$cred = Get-Credential -UserName 'CORP\svc-insights'`. The name is text; the credential is the object. Left out, the site runs as the app pool's own identity, which reaches a remote SQL Server as the web server's computer account. |
 | `-HostName`, `-CertificateThumbprint` | The address people browse to, and the thumbprint of a certificate for it. See [Host name, DNS and certificate](#host-name-dns-and-certificate). |
 | `-GrantDatabaseAccess` | Installs the `dash` schema and grants the app-pool account its rights, which needs rights to create logins. Without it, the grants are written to a file for a DBA, and the `dash` schema comes from `Install-CopilotAudit.ps1 -Dashboard`. |
@@ -381,7 +391,7 @@ The installer is idempotent. It:
    - changes to the `dash` settings, roles and reference tables;
    - INSERT on the audit log;
    - EXECUTE on the refresh procedure;
-   - SELECT on `audit.UserDirectory` and the pipeline's run logs;
+   - SELECT on `audit.UserDirectory`, `audit.PipelineSetting` (privacy mode is read from it: without it the dashboard treats privacy mode as on) and the pipeline's run logs;
    - changes to `audit.SessionAppCategory`.
 
 For Kerberos on a host name, register the SPN on the app-pool account: `setspn -S HTTP/insights.contoso.com CONTOSO\gmsa-insights$`. Add the host name to the browsers' Local intranet zone so they sign in silently.
@@ -454,7 +464,7 @@ This is the usual layout: the web, SQL and job servers sit in a resource domain,
 
 With only the first trust, the loader works but nobody from the users domain can sign in. Use a two-way trust, or a one-way trust in each direction. If a trust uses selective authentication, give the users (or a group of them) *Allowed to authenticate* on the web servers' computer objects. Only the web servers need it: the site reaches SQL Server as its own resource-domain account.
 
-**Matching a sign-in to a person.** The loader copies each user's `objectSid` into `audit.UserDirectory.Sid`, and the refresh copies it into `dash.Person.Sid`. The site matches the signed-in account's SID to it, so the users domain is not contacted at sign-in. It works even when the users domain's NetBIOS name doesn't resolve from the resource domain. Accounts without a match fall back to a directory lookup, then to `Insights:IdentityMap`.
+**Matching a sign-in to a person.** The loader copies each user's `objectSid` into `audit.UserDirectory.Sid`, and the refresh copies it into `dash.Person.Sid`. The site matches the signed-in account's SID to it, so the users domain is not contacted at sign-in. It works even when the users domain's NetBIOS name doesn't resolve from the resource domain. Accounts without a match fall back to `Insights:IdentityMap`, then to a directory lookup, which names the account a person only when the directory records that person's SID and it is the account's (2.4.12).
 
 **Grants.** Name the users domain's groups: `USERS\Copilot-Insights-Admins` for `-AdminPrincipal`, and in Admin › Access or `-Task GrantRole`. Global and universal groups from the users domain are in each user's sign-in token. A domain-local group in the resource domain that holds users-domain members works too.
 

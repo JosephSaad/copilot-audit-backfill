@@ -340,6 +340,21 @@ SELECT COUNT_BIG(*) FROM audit.vCopilotAuditRecord WHERE AssociatedAdminUnits IS
     Assert-That ($auNames -eq 0) 'AssociatedAdminUnitsNames is always NULL - Graph does not supply admin unit names'
     Assert-That ($auIds -gt 0) ("AssociatedAdminUnits does carry the IDs Graph supplies ({0:N0} rows)" -f $auIds)
 
+    # 2.4.12: finalize again, with the staging table dropped as its last message suggests (the backfill then makes it
+    # again, empty): it refuses, where it emptied audit.CopilotAudit and said "Coverage verified". Then, with staging
+    # back, it is re-runnable as before.
+    Invoke-SqlText -Sql "EXEC sp_rename N'audit.CopilotAuditStage', N'CopilotAuditStage_kept'; SELECT TOP (0) * INTO audit.CopilotAuditStage FROM audit.CopilotAuditStage_kept;"
+    try {
+        $refusal = try { [void] (Invoke-SqlText -As Table -Sql $finalizeSql); '' } catch { $_.Exception.GetBaseException().Message }
+        $after = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit;')
+        Assert-That ($refusal -like 'Finalize refused: the staging table holds 0 of*' -and $after -eq $expectedTotal) `
+            ("2.4.12: finalize refuses once staging has been dropped, and audit.CopilotAudit keeps its {0:N0} rows" -f $after)
+    }
+    finally { Invoke-SqlText -Sql "DROP TABLE audit.CopilotAuditStage; EXEC sp_rename N'audit.CopilotAuditStage_kept', N'CopilotAuditStage';" }
+    Invoke-SqlText -Sql $finalizeSql
+    $mark = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'FinalizedUtc';")
+    Assert-That ([long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.CopilotAudit;') -eq $expectedTotal -and $mark -eq 1) 'with staging whole it runs again as before, and leaves the mark that it finished'
+
     $interaction = Invoke-SqlText -As Table -Sql @"
 SELECT COUNT_BIG(*)                                              AS Rows_,
        SUM(CASE WHEN AppHost IS NOT NULL THEN 1 ELSE 0 END)      AS WithHost,
@@ -2048,6 +2063,58 @@ DELETE FROM audit.AgentCatalog WHERE AppIdentity = N'$declId';
 DELETE FROM bi.DimAgent WHERE AgentId = N'$declId';
 "@
 
+# Upgrading from 2.4.11 (2.4.12): another app's records that carry an agent's id, Copilot Chat running a declarative
+# agent here, are keyed on that id, which 2.4.11 read only from its upgrade night on. The installer reads them once,
+# from the apps the newest records show carrying one, and rebuilds bi so their interactions move to the agent.
+$bizApp = 'Copilot.MicrosoftCopilot.BizChat'; $bizId = 'CopilotStudio.Declarative.T_9f8e7d6c-aaaa-bbbb-cccc-0123456789ab.5e6f'
+Invoke-SqlText -Sql @"
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId) VALUES
+    ('c-01', '2026-09-15T15:00:00', 'copilotInteraction', 'CopilotInteraction', N'c@contoso.com', N'c@contoso.com',
+     COMPRESS(N'{"CreationTime":"2026-09-15T15:00:00Z","Id":"c-01","Operation":"CopilotInteraction","UserId":"c@contoso.com","AppIdentity":"$bizApp","AgentId":"$bizId","AgentName":"Travel helper","CopilotEventData":{"AppHost":"BizChat"}}'), 0),
+    ('c-02', '2026-09-17T15:00:00', 'copilotInteraction', 'CopilotInteraction', N'c@contoso.com', N'c@contoso.com',
+     COMPRESS(N'{"CreationTime":"2026-09-17T15:00:00Z","Id":"c-02","Operation":"CopilotInteraction","UserId":"c@contoso.com","AppIdentity":"$bizApp","AgentId":"$bizId","AgentName":"Travel helper","CopilotEventData":{"AppHost":"BizChat"}}'), 0);
+UPDATE audit.RawLogFlattened SET AppIdentity = N'$bizApp', AgentId = NULL, AgentName = NULL WHERE RecordId IN (N'c-01', N'c-02');
+DELETE FROM audit.PipelineSetting WHERE Name = N'AgentIdsReadUtc';
+"@
+$ids = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
+$keyed = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE RecordId IN (N'c-01', N'c-02') AND AgentId = N'$bizId') AS Read_,
+       (SELECT COUNT(*) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey
+        WHERE f.RecordId IN (N'c-01', N'c-02') AND ag.AgentId = N'$bizId' AND ag.AgentSource = N'Agent ID') AS Keyed,
+       (SELECT CONCAT(AgentName, '/', CAST(NamedInAudit AS INT)) FROM bi.DimAgent WHERE AgentId = N'$bizId') AS Agent;
+"@).Rows[0]
+Assert-That ($ids -like '*agent ids: reading*' -and $ids -like '*2 interactions gain the agent*' -and $ids -notlike '*flattening*' -and [int] $keyed.Read_ -eq 2 -and [int] $keyed.Keyed -eq 2) `
+    "2.4.12: an upgrade reads the agent ids of other apps' records once, and bi moves their interactions to the agent ($($keyed.Read_) read, $($keyed.Keyed) keyed)"
+Assert-That ("$($keyed.Agent)" -eq 'Travel helper/1' -and $ids -like '*interactions moved to the agents*') "named as the log names it ($($keyed.Agent)), with the model refresh left to do"
+$idsOnce = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
+Assert-That ($idsOnce -notlike '*agent ids: reading*' -and $idsOnce -notlike '*bi, in full*') 'and only once'
+Invoke-SqlText -Sql @"
+DELETE FROM audit.CopilotAudit WHERE RecordId IN ('c-01', 'c-02');
+UPDATE audit.RawLogFlattened SET AppIdentity = NULL, AgentId = NULL, AgentName = NULL WHERE RecordId IN (N'c-01', N'c-02');
+DELETE FROM audit.AgentCatalog WHERE AgentId = N'$bizId';
+"@
+Invoke-SqlText -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l; EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = [datetime] '2026-09-14'; '@l' = $licDb } -TimeoutSeconds 1800
+Invoke-SqlText -Sql "DELETE FROM bi.DimAgent WHERE AgentId = N'$bizId' AND NOT EXISTS (SELECT 1 FROM bi.FactInteraction AS f WHERE f.AgentKey = bi.DimAgent.AgentKey);"
+
+# 2.4.12: built is a flatten of every record that finished. A database from before has no mark: the installer counts
+# once that every record is flattened and gives it one. With a record never flattened (a first flatten stopped part
+# way, or only a nightly's days flattened), it flattens and builds everything, where any flattened row counted as built.
+Invoke-SqlText -Sql "DELETE FROM audit.PipelineSetting WHERE Name = N'FullFlattenUtc';"
+$seeded = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
+$markNow = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'FullFlattenUtc';")
+Assert-That ($seeded -like '*checking that every record has been flattened*' -and $seeded -notlike '*flattening*' -and $markNow -eq 1) '2.4.12: a database flattened in full before the mark gets one, without flattening again'
+$gone = [string] (Invoke-SqlText -As Scalar -Sql @"
+DECLARE @id NVARCHAR(450) = (SELECT TOP (1) RecordId FROM audit.RawLogFlattened AS f WHERE EXISTS (SELECT 1 FROM audit.CopilotAudit AS a WHERE a.RecordId = f.RecordId) ORDER BY RecordId DESC);
+DELETE FROM audit.RawLogFlattened WHERE RecordId = @id;
+DELETE FROM audit.PipelineSetting WHERE Name = N'FullFlattenUtc';
+SELECT @id;
+"@)
+$rebuilt = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
+$back = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM audit.RawLogFlattened WHERE RecordId = @id;" -Parameters @{ '@id' = $gone })
+$markAgain = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'FullFlattenUtc';")
+Assert-That ($rebuilt -like '*1 were never flattened*' -and $rebuilt -like '*sessions, in full*' -and $rebuilt -like '*bi, in full*' -and $back -eq 1 -and $markAgain -eq 1) `
+    "and one with a record never flattened ($gone) is flattened and built in full, and marked"
+
 $status = & $maint @conn -Database $script:ITDatabase -Task Status | Out-String
 $topNow = [string] (Invoke-SqlText -As Scalar -Sql "SELECT COALESCE(MAX(CASE WHEN Name = N'OrgTopUpn' THEN NULLIF(Value, N'') END), MAX(CASE WHEN Name = N'OrgTopUpnDetected' THEN Value END)) FROM dash.Setting;")
 Assert-That ($status -like '*Flattened*' -and $status -like "*Top of the organization*$topNow*") "Status reports what is loaded, built, and the top of the organization ($topNow)"
@@ -2068,6 +2135,11 @@ Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/A
 Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organization takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
 $refused = try { & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'nobody@contoso.com'; '' } catch { $_.Exception.Message }
 Assert-That ($refused -like '*not in the directory*') 'a top of the organization not in the directory is refused'
+# 2.4.12: with no -LicenseEventDatabases, maintenance reads the license databases the database's last build read, not
+# CopilotLicenseEvents, which is the first tenant's.
+$rebi = & $maint @conn -Database $script:ITDatabase -Task RebuildBi 6>&1 | Out-String
+$biLic = [string] (Invoke-SqlText -As Scalar -Sql 'SELECT TOP (1) LicenseEventDatabase FROM bi.RefreshRun ORDER BY RunId DESC;')
+Assert-That ($rebi -like "*License history from $licDb, as $($script:ITDatabase)'s last build*" -and $biLic -eq $licDb) "2.4.12: maintenance reads the license history this database was built with ($biLic)"
 
 # ---------------------------------------------------------------------------
 # 16. Operations (2.3.0): the operations schema over section 14's dashboard,

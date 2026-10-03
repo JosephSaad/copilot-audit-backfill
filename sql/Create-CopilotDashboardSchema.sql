@@ -74,7 +74,7 @@ IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
         CONSTRAINT UQ_DashRoleGrant UNIQUE (Principal, Role)
     );
 
-/* Friendly names for agents, which the audit log names by schema name. */
+/* Friendly names and owners for agents, set by an administrator: they come before the name the audit log gives. */
 IF OBJECT_ID(N'dash.AgentAlias', N'U') IS NULL
     CREATE TABLE dash.AgentAlias
     (

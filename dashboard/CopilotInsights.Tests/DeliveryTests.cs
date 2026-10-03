@@ -227,10 +227,50 @@ public class AdoptionRankingTests
             new Chart.AdoptionGroup("Finance", 30, 60), new Chart.AdoptionGroup("Legal", 5, 5), new Chart.AdoptionGroup("Sales", 45, 45),
             new Chart.AdoptionGroup("Unlicensed team", 0, 0)], 5, "t").Value!;
         var order = System.Text.RegularExpressions.Regex.Matches(html, "class=\"blabel\"[^>]*><tspan[^>]*>([^<]+)").Select(m => m.Groups[1].Value).ToList();
-        Assert.Equal(["Sales", "Legal", "Finance", "2 with fewer than 5"], order.Take(4).Select(n => n.StartsWith("2 with") ? "2 with fewer than 5" : n));
+        /* 2 + 1 license holders are under 5 together, so the smallest ranked group, Legal's 5, joins them (2.4.12). */
+        Assert.Equal(["Sales", "Finance", "3 smaller groups"], order.Take(3).Select(n => n.StartsWith("3 smaller") ? "3 smaller groups" : n));
         Assert.Contains("45 of 45", html);                 // shown beside the rate, not only on hover
-        Assert.Contains("3 of 3", html);                   // the combined bar: 2 + 1 of 2 + 1
+        Assert.Contains("8 of 8", html);                   // the combined bar: 2 + 1 + 5 of 2 + 1 + 5
         Assert.DoesNotContain("Marshalls Creek", html);
+        Assert.DoesNotContain("Legal", html);
         Assert.DoesNotContain("Unlicensed team", html);
+    }
+}
+
+/// <summary>Groups too small to show on their own (2.4.12): what is left over reaches the minimum too.</summary>
+public class SmallGroupTests
+{
+    static List<(string Name, int People)> Fold(int min, params (string, int)[] rows) =>
+        CopilotInsights.Data.SmallGroups.Fold(rows, r => r.Item2, small => ("Smaller groups", small.Sum(r => r.Item2)), min, out _);
+
+    [Fact]
+    public void Small_groups_that_reach_the_minimum_together_are_one_row()
+    {
+        var rows = Fold(5, ("A", 40), ("B", 3), ("C", 2));
+        Assert.Equal([("A", 40), ("Smaller groups", 5)], rows);
+    }
+
+    [Fact]
+    public void A_lone_small_group_takes_the_smallest_shown_group_with_it()
+    {
+        /* The head of the organization alone was "Smaller groups, 1 person". */
+        var rows = Fold(50, ("Direct", 1), ("Sales", 120), ("Legal", 60), ("Finance", 75));
+        Assert.Equal([("Sales", 120), ("Finance", 75), ("Smaller groups", 61)], rows);
+    }
+
+    [Fact]
+    public void A_list_that_leaves_small_groups_out_leaves_out_enough()
+    {
+        /* Beside a total of 181, leaving out only the one person gave them back by subtraction. */
+        var shown = CopilotInsights.Data.SmallGroups.Shown([("Direct", 1), ("Sales", 120), ("Legal", 60)], r => r.Item2, 50);
+        Assert.Equal([("Sales", 120)], shown);
+    }
+
+    [Fact]
+    public void Everyone_under_the_minimum_is_one_row_the_total()
+    {
+        var rows = Fold(50, ("A", 10), ("B", 20));
+        Assert.Equal([("Smaller groups", 30)], rows);
+        Assert.Empty(Fold(5));
     }
 }

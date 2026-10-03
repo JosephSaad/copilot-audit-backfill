@@ -107,6 +107,57 @@ public class LicenseExportTests
         Assert.Contains("addLicenses = @(@{ skuId = $skuId })", direct);
         Assert.Contains("639dec6b-bb19-468b-871c-c5c441c4b0cb", direct);
     }
+
+    [Fact]
+    public void A_sign_in_that_could_end_the_quotes_stays_out_of_the_script()
+    {
+        /* PowerShell ends a quoted string at a curly quote too, and Windows PowerShell 5.1 reads a file without a byte
+           order mark as Windows-1252, where Ñ's bytes hold one (2.4.12). */
+        string[] upns = ["a@contoso.com", "x’; Write-Output INJECTED; ‘@contoso.com", "peÑ; Write-Output INJECTED; Ña@contoso.com", "jane_fabrikam.com#EXT#@contoso.onmicrosoft.com"];
+        var script = LicenseExport.Script("revoke", upns, "6c1e8b2a-3f4d-4e5f-9a0b-1c2d3e4f5a6b'; Write-Output G; '", null, "admin#> Write-Output B <#", DateTime.UtcNow);
+        Assert.DoesNotContain("INJECTED", script);
+        Assert.Contains("'a@contoso.com'", script);
+        Assert.Contains("'jane_fabrikam.com#EXT#@contoso.onmicrosoft.com'", script);
+        Assert.Contains("2 more are left out", script);
+        Assert.Contains("remove the Copilot license from 2 people", script);
+        Assert.DoesNotContain("Write-Output G", script);    // the group id: letters, digits and hyphens only
+        Assert.DoesNotContain("#> Write-Output", script);   // the comment cannot be ended by a name
+        Assert.True(LicenseExport.ScriptSafe("o'brien@contoso.com"));
+        Assert.False(LicenseExport.ScriptSafe("o’brien@contoso.com"));
+    }
+
+    [Fact]
+    public void A_script_file_starts_with_a_byte_order_mark_and_a_bulk_file_does_not()
+    {
+        Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, LicenseExport.FileBytes("x", script: true)[..3]);
+        Assert.Equal((byte)'x', LicenseExport.FileBytes("x", script: false)[0]);
+    }
+}
+
+/// <summary>Privacy mode on the named parts of pages that have no RequiredRole (2.4.12).</summary>
+public class PrivacyModeGateTests
+{
+    static string PagesDirectory()
+    {
+        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
+            if (File.Exists(Path.Combine(d.FullName, "CopilotInsights", "Pages", "InsightsPage.cs"))) return Path.Combine(d.FullName, "CopilotInsights", "Pages");
+        throw new DirectoryNotFoundException("CopilotInsights/Pages, above " + AppContext.BaseDirectory);
+    }
+
+    [Fact]
+    public void Every_role_test_that_leads_to_named_people_also_tests_privacy_mode()
+    {
+        /* A page with no RequiredRole is not refused in privacy mode, so the named list it shows a role holder must
+           check privacy mode itself: four of them did not, and named people with privacy mode on. */
+        var gate = new System.Text.RegularExpressions.Regex(
+            @"if \(!Viewer\.Has\(Roles\.\w+\)[^;]*\) return;|var named = [^;]*Viewer\.Has\(Roles\.\w+\)[^;]*;|if \(Ctx\.Viewer\.Has\(Roles\.\w+\)");
+        var lines = Directory.GetFiles(PagesDirectory(), "*.cs", SearchOption.AllDirectories)
+            .SelectMany(f => File.ReadLines(f).Select((line, i) => (File: Path.GetFileName(f), Line: i + 1, Text: line)))
+            .Where(x => gate.IsMatch(x.Text)).ToList();
+        Assert.True(lines.Count >= 6, $"found {lines.Count} role tests; the pattern has stopped matching them");
+        var missing = lines.Where(x => !x.Text.Contains("PrivacyMode")).Select(x => $"{x.File}:{x.Line}").ToList();
+        Assert.True(missing.Count == 0, "no privacy-mode test at " + string.Join(", ", missing));
+    }
 }
 
 public class CsvUploadTests
@@ -209,6 +260,24 @@ public class SignInTests
     [Fact]
     public void A_person_with_no_SID_on_record_is_matched_by_name() =>
         Assert.True(AccessRules.SidMatches(null, Mine) && AccessRules.SidMatches(" ", null));
+
+    [Fact]
+    public void Only_the_SID_or_an_administrators_map_can_make_an_account_a_person_with_no_SID_on_record()
+    {
+        /* Found by its SID: the person. */
+        Assert.True(AccessRules.MayBe(UpnSource.Sid, Mine, Mine));
+        /* An administrator's mapping: the person, unless the directory records someone else's SID for them. */
+        Assert.True(AccessRules.MayBe(UpnSource.IdentityMap, null, Mine));
+        Assert.True(AccessRules.MayBe(UpnSource.IdentityMap, Mine, Mine));
+        Assert.False(AccessRules.MayBe(UpnSource.IdentityMap, Theirs, Mine));
+        /* Active Directory's answer or the sign-in name (2.4.12): only with the account's own SID on record. In another
+           forest an account can carry anyone's UPN, and with no SID on record it was let in as them. */
+        Assert.False(AccessRules.MayBe(UpnSource.Directory, null, Mine));
+        Assert.False(AccessRules.MayBe(UpnSource.Directory, " ", Mine));
+        Assert.False(AccessRules.MayBe(UpnSource.Directory, Theirs, Mine));
+        Assert.False(AccessRules.MayBe(UpnSource.Directory, Mine, null));
+        Assert.True(AccessRules.MayBe(UpnSource.Directory, Mine, Mine));
+    }
 
     [Fact]
     public void Nothing_in_the_options_lets_a_URL_choose_the_viewer() =>
@@ -417,10 +486,10 @@ public class MappingFileTests
     [Fact]
     public void A_part_of_the_organization_that_is_not_shown_is_said_so()
     {
-        static ReportContext C(string? root, string? asked) => new()
+        static ReportContext C(string? root, string? asked, OrgRefusal why = OrgRefusal.None) => new()
         {
             Viewer = new Viewer { WindowsName = "x", Roles = new HashSet<string>() }, Days = 30, Start = new DateTime(2026, 9, 1), End = new DateTime(2026, 9, 30),
-            Root = root, OrgAsked = asked, MinGroupSize = 5, InactiveDays = 30,
+            Root = root, OrgAsked = asked, OrgWhy = why, MinGroupSize = 5, InactiveDays = 30,
         };
         Assert.Null(C(null, null).OrgNote);
         Assert.Null(C("ada@contoso.com", null).OrgNote);
@@ -428,6 +497,13 @@ public class MappingFileTests
         Assert.StartsWith("No one in the organization directory has the sign-in gone@contoso.com, so this shows the whole organization.", C(null, "gone@contoso.com").OrgNote);
         // Someone who sees their own part: the same words whether or not there is such a person.
         Assert.Equal("ceo@contoso.com is not in your part of the organization, so this shows yours.", C("ada@contoso.com", "ceo@contoso.com").OrgNote);
+        // A part smaller than the minimum group size, or any part in privacy mode, is not shown on its own (2.4.12).
+        Assert.Equal("riley@contoso.com and the people under them are fewer than 5, the minimum group size, so they are not shown on their own. This shows the whole organization.",
+            C(null, "riley@contoso.com", OrgRefusal.TooSmall).OrgNote);
+        Assert.Equal("Privacy mode is on, so a report is not narrowed to a manager's part of the organization. This shows your part of the organization.",
+            C("ada@contoso.com", "riley@contoso.com", OrgRefusal.Privacy).OrgNote);
+        Assert.True(C(null, "riley@contoso.com", OrgRefusal.TooSmall).OrgRefused);
+        Assert.False(C(null, "gone@contoso.com", OrgRefusal.NotFound).OrgRefused);
     }
 
     [Fact]

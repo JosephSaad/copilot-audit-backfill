@@ -66,7 +66,7 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment, COUNT(
 FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ctx.Args(new { w }));
         var depts = units.GroupBy(u => u.Unit).Select(g => (Dept: g.Key, People: g.Sum(x => x.N))).ToList();
-        var big = depts.Where(d => d.People >= Ctx.MinGroupSize).OrderByDescending(d => d.People).Take(12).Select(d => d.Dept).ToList();
+        var big = SmallGroups.Shown(depts, d => d.People, Ctx.MinGroupSize).OrderByDescending(d => d.People).Take(12).Select(d => d.Dept).ToList();
         var tbl = new Table { Headers = ["Department", "People", .. Segments.Order], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
         foreach (var d in big)
         {

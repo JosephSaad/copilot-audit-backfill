@@ -428,7 +428,9 @@ DELETE FROM dash.Setting WHERE Name = 'PersonalDigest';
 /* ---- Privacy and retention ------------------------------------------------ */
 
 /* Privacy mode lives in audit.PipelineSetting, which bi.Users reads. Owned by dbo like the
-   table, so the dashboard's account needs EXECUTE here and nothing on the audit schema. */
+   table, so the dashboard's account needs EXECUTE here to change it. It reads it with SELECT
+   on audit.PipelineSetting (granted below): without that, the dashboard treats privacy mode as
+   on (2.4.12), where a read that failed used to turn it off. */
 EXEC (N'CREATE OR ALTER PROCEDURE dash.usp_SetPrivacyMode
     @Mode NVARCHAR(16), @By NVARCHAR(256)
 AS

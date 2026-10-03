@@ -292,7 +292,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             /* What each setting does, one line a setting (2.4.10: it was one paragraph for all of them). */
             "<ul class=\"tips sub\">" +
             $"<li><b>Top of the organization.</b> Usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows{(set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({E(det)})" : "")}.</li>" +
-            "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, so no figure describes one or two people.</li>" +
+            "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, and what is folded reaches it too, so no figure describes one or two people. It is also the smallest part of the organization a report can be narrowed to.</li>" +
             "<li><b>Default period.</b> The period every report opens with.</li>" +
             "<li><b>Unused after.</b> The days without any use after which a license counts as unused.</li>" +
             "<li><b>License cost a month, and currency.</b> Used wherever a cost or a saving is shown.</li>" +

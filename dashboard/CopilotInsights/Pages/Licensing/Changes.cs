@@ -83,19 +83,17 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
             var depts = removals.GroupBy(r => r.Department ?? "(no department)")
                 .Select(g => (Name: g.Key, People: g.Select(r => r.UserKey).Distinct().Count(), Removed: g.Count(), Active: g.Count(r => r.ActiveBefore), Back: g.Count(r => r.GivenBack)))
                 .ToList();
-            var small = depts.Where(d => d.People < Ctx.MinGroupSize).ToList();
-            var shown = depts.Where(d => d.People >= Ctx.MinGroupSize).OrderByDescending(d => d.Removed).ToList();
-            if (small.Count > 0) shown.Add(("Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Removed), small.Sum(d => d.Active), small.Sum(d => d.Back)));
+            var shown = FoldSmall(depts.OrderByDescending(d => d.Removed), d => d.People,
+                small => ("Smaller groups", small.Sum(d => d.People), small.Sum(d => d.Removed), small.Sum(d => d.Active), small.Sum(d => d.Back)), out var folded);
             var dt = new Table { Headers = ["Department", "Removed", "Still in use", "Given back"], Numeric = new HashSet<int> { 1, 2, 3 } };
             foreach (var d in shown) dt.Rows.Add([d.Name, d.Removed, d.Active, d.Back]);
-            dt.KeepLast = small.Count > 0 ? 1 : 0;
+            dt.KeepLast = folded > 0 ? 1 : 0;
             CsvTable = dt;
-            Panels.Add(new("Removals by department", dt.Render(),
-                small.Count > 0 ? $"{Count(small.Count, "department")} with fewer than {Ctx.MinGroupSize} people affected {Are(small.Count)} combined." : null, "full", CsvUrl()));
+            Panels.Add(new("Removals by department", dt.Render(), folded > 0 ? FoldNote(folded, "department") : null, "full", CsvUrl()));
         }
 
-        /* Who made the changes names administrators, so it is for the Licensing role. */
-        if (Ctx.Viewer.Has(Roles.Licensing))
+        /* Who made the changes names administrators, so it is for the Licensing role, and never in privacy mode (2.4.12). */
+        if (Ctx.Viewer.Has(Roles.Licensing) && !PrivacyMode)
         {
             var admins = await Db.QueryAsync<(string By, int Added, int Removed, DateTime Last)>($@"
 SELECT ISNULL(NULLIF(f.ChangedBy, N''), N'(not recorded)'), SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END), MAX(f.ChangedUtc)

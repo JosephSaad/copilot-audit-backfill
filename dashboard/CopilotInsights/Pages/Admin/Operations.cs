@@ -400,8 +400,12 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
     {
         if (!await PrepareAsync()) return Page();
         if (report is null || !OpsReports.DigestKinds.ContainsKey(report)) return NotFound();
-        var (_, html, _) = await reports.DigestAsync(report, days ?? 30, string.IsNullOrWhiteSpace(root) ? null : root);
-        return Content(html, "text/html; charset=utf-8");
+        try
+        {
+            var (_, html, _) = await reports.DigestAsync(report, days ?? 30, string.IsNullOrWhiteSpace(root) ? null : root);
+            return Content(html, "text/html; charset=utf-8");
+        }
+        catch (DigestRefused ex) { return Content($"<!DOCTYPE html><p>Not shown: {System.Net.WebUtility.HtmlEncode(ex.Message)}.</p>", "text/html; charset=utf-8"); }
     }
 }
 
@@ -519,7 +523,9 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         Kpis.Add(new("Privacy mode", on ? "On" : "Off", on ? "nobody is named but the viewer themselves" : null));
         Panels.Add(new("Privacy mode", new HtmlString(Form("privacy",
             Select("mode", "Privacy mode", ["Off", "Pseudonymize"], on ? "Pseudonymize" : "Off") + Button("Save", "Change privacy mode? It applies to every viewer and to Power BI at its next refresh."))),
-            "On: every page, export, digest and API call that names people is refused, and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. Aggregates keep the minimum group size (Admin > Access)."));
+            "On: every page, export, digest and API call that names people is refused, and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. " +
+            "Units, named after their managers, go by their department, and no report is narrowed to a manager's part of the organization. Aggregates keep the minimum group size (Admin > Access). " +
+            "If the setting cannot be read, privacy mode counts as on until it can."));
 
         Panels.Add(new("Retention", new HtmlString(Form("retention",
             Input("AuditLogRetentionDays", "Keep the dashboard's audit log (days; 0 keeps it)", V("AuditLogRetentionDays"), 6, "number") +

@@ -140,9 +140,10 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
             else
             {
                 try { await SendCoreAsync(cfg, to, subject, html, text, ct); status = "Sent"; error = null; }
-                catch (Exception ex) when (ex is not OperationCanceledException)
+                /* A timeout is an OperationCanceledException as well: it is a failed send, not the site stopping (2.4.12). */
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                 {
-                    status = "Failed"; error = Describe(ex);
+                    status = "Failed"; error = ex is OperationCanceledException ? "The mail server or Entra did not answer in time." : Describe(ex);
                     log.LogWarning(ex, "Email '{Subject}' was not sent", subject);
                 }
             }
@@ -187,6 +188,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
         var key = $"exo-token:{cfg.TenantId}:{cfg.ClientId}";   // per app, so the same across dashboard tenants
         if (cache.TryGetValue(key, out string? t) && t is not null) return t;
         using var http = httpFactory.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(30);
         var r = await http.PostAsync($"https://login.microsoftonline.com/{Uri.EscapeDataString(cfg.TenantId!)}/oauth2/v2.0/token",
             new FormUrlEncodedContent(new Dictionary<string, string>
             {

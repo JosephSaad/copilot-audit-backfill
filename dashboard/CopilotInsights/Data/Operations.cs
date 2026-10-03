@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace CopilotInsights.Data;
 
@@ -146,8 +147,33 @@ public static class Anomalies
 }
 
 /// <summary>The license recommendations as something an administrator can apply. Pure, for the tests.</summary>
-public static class LicenseExport
+public static partial class LicenseExport
 {
+    /// <summary>
+    /// A sign-in the script may carry (2.4.12): plain ASCII, in the characters Entra allows in a user name. PowerShell
+    /// also ends a quoted string at the curly quotes, and Windows PowerShell 5.1 reads a file without a byte order mark
+    /// as Windows-1252, where some letters' bytes are curly quotes; so a sign-in from a directory that does not check them
+    /// could have run commands on the administrator's machine. Any other sign-in is left out of the script, which says
+    /// how many; the bulk file still lists it, for doing by hand.
+    /// </summary>
+    public static bool ScriptSafe(string upn) => PlainUpn().IsMatch(upn);
+
+    [GeneratedRegex(@"^[A-Za-z0-9._'!#^~+-]+@[A-Za-z0-9.-]+$")]
+    private static partial Regex PlainUpn();
+
+    /// <summary>An id for the script (a group or a SKU): letters, digits and hyphens only.</summary>
+    static string Id(string s) => new(s.Where(c => char.IsAsciiLetterOrDigit(c) || c == '-').ToArray());
+
+    /// <summary>Text for the script's opening comment: nothing that could end it, and no line breaks.</summary>
+    static string Comment(string s) => new(s.Where(c => !char.IsControl(c) && c is not ('#' or '<' or '>')).ToArray());
+
+    /// <summary>
+    /// The file's bytes: a script with a UTF-8 byte order mark, so Windows PowerShell 5.1 reads it as UTF-8 (2.4.12);
+    /// the bulk file without one, as Entra's template is.
+    /// </summary>
+    public static byte[] FileBytes(string text, bool script) =>
+        script ? [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)] : Encoding.UTF8.GetBytes(text);
+
     /// <summary>Entra's bulk add or remove members template (Groups > Bulk operations): two header lines, then one UPN per line.</summary>
     public static string BulkMembersCsv(IEnumerable<string> upns)
     {
@@ -166,21 +192,24 @@ public static class LicenseExport
     public static string Script(string action, IReadOnlyList<string> upns, string? groupId, string? skuId, string generatedBy, DateTime generatedUtc)
     {
         var add = action.Equals("upgrade", StringComparison.OrdinalIgnoreCase);
+        var safe = upns.Where(ScriptSafe).ToList();
         var sb = new StringBuilder();
         sb.AppendLine("#Requires -Modules Microsoft.Graph.Authentication");
         sb.AppendLine("<#");
-        sb.AppendLine($"    Copilot Insights: {(add ? "assign a Copilot license to" : "remove the Copilot license from")} {upns.Count} people.");
-        sb.AppendLine($"    Generated {generatedUtc:yyyy-MM-dd HH:mm} UTC by {generatedBy}. Review the list, then run it signed in as a license administrator.");
+        sb.AppendLine($"    Copilot Insights: {(add ? "assign a Copilot license to" : "remove the Copilot license from")} {safe.Count} people.");
+        sb.AppendLine($"    Generated {generatedUtc:yyyy-MM-dd HH:mm} UTC by {Comment(generatedBy)}. Review the list, then run it signed in as a license administrator.");
         sb.AppendLine("    Add -WhatIf to see what it would do without changing anything.");
+        if (safe.Count < upns.Count)
+            sb.AppendLine($"    {upns.Count - safe.Count} more are left out: their sign-ins have characters a script cannot carry safely. The bulk file lists them, to change by hand.");
         sb.AppendLine("#>");
         sb.AppendLine("[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')] param()");
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
         sb.AppendLine("$people = @(");
-        foreach (var u in upns) sb.AppendLine($"    '{u.Replace("'", "''")}'");
+        foreach (var u in safe) sb.AppendLine($"    '{u.Replace("'", "''")}'");
         sb.AppendLine(")");
         if (groupId is not null)
         {
-            sb.AppendLine($"$groupId = '{groupId.Replace("'", "")}'   # the group that assigns Copilot licenses");
+            sb.AppendLine($"$groupId = '{Id(groupId)}'   # the group that assigns Copilot licenses");
             sb.AppendLine("Connect-MgGraph -Scopes 'GroupMember.ReadWrite.All', 'User.Read.All' -NoWelcome");
             sb.AppendLine("foreach ($upn in $people) {");
             sb.AppendLine("    $id = (Invoke-MgGraphRequest -Method GET -Uri \"/v1.0/users/$([uri]::EscapeDataString($upn))?`$select=id\").id");
@@ -192,7 +221,7 @@ public static class LicenseExport
         }
         else
         {
-            sb.AppendLine($"$skuId = '{(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE").Replace("'", "")}'   # the Copilot SKU (Licensing > License pool shows it)");
+            sb.AppendLine($"$skuId = '{Id(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE")}'   # the Copilot SKU (Licensing > License pool shows it)");
             sb.AppendLine("Connect-MgGraph -Scopes 'User.ReadWrite.All' -NoWelcome");
             sb.AppendLine("foreach ($upn in $people) {");
             sb.AppendLine($"    if ($PSCmdlet.ShouldProcess($upn, '{(add ? "Assign" : "Remove")} the Copilot license')) {{");

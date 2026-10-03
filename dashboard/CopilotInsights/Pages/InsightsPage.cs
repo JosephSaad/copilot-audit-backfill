@@ -478,14 +478,20 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         return Request.Path + "?" + string.Join("&", q.Append("handler=csv"));
     }
 
-    /// <summary>Folds rows for groups smaller than the minimum into one "Smaller groups" row.</summary>
-    protected List<T> FoldSmall<T>(IEnumerable<T> rows, Func<T, int> people, Func<IReadOnlyList<T>, T> combine, out int folded)
-    {
-        var list = rows.ToList();
-        var small = list.Where(r => people(r) < Ctx.MinGroupSize).ToList();
-        folded = small.Count;
-        var keep = list.Where(r => people(r) >= Ctx.MinGroupSize).ToList();
-        if (small.Count > 0) keep.Add(combine(small));
-        return keep;
-    }
+    /// <summary>Folds rows for groups smaller than the minimum into one "Smaller groups" row that itself reaches it (see <see cref="CopilotInsights.Data.SmallGroups"/>).</summary>
+    protected List<T> FoldSmall<T>(IEnumerable<T> rows, Func<T, int> people, Func<IReadOnlyList<T>, T> combine, out int folded) =>
+        CopilotInsights.Data.SmallGroups.Fold(rows, people, combine, Ctx.MinGroupSize, out folded);
+
+    /// <summary>
+    /// A count of people that is shown only at the minimum group size or more (2.4.12): the people who used one agent,
+    /// for one, are a group, and an agent used by one person is that person's use. Null (a dash) below it.
+    /// </summary>
+    protected int? AtLeastMin(int people) => people >= Ctx.MinGroupSize ? people : null;
+
+    /// <summary>The same, in words: "12 people", or "fewer than 5 people".</summary>
+    protected string AgentPeople(int people) => people >= Ctx.MinGroupSize ? $"{people:#,0} people" : $"fewer than {Ctx.MinGroupSize} people";
+
+    /// <summary>What a breakdown says under it when groups were folded: how many, and why (2.4.12).</summary>
+    protected string FoldNote(int folded, string noun, string? plural = null) =>
+        folded == 0 ? "" : $"{Count(folded, "smaller " + noun, "smaller " + (plural ?? noun + "s"))} {Are(folded)} combined, so no row describes fewer than {Ctx.MinGroupSize} people.";
 }

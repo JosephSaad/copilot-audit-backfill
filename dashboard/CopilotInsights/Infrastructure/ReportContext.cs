@@ -3,7 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>Settings from dash.Setting, cached for a minute.</summary>
-public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants)
+public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, ILogger<Settings> log)
 {
     public async Task<IReadOnlyDictionary<string, string?>> AllAsync() =>
         (await cache.GetOrCreateAsync(tenants.Key("dash-settings"), async e =>
@@ -41,17 +41,42 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants)
     /// Privacy mode (Admin > Privacy and retention): no page, export, email or API call names
     /// anyone but the viewer themselves, and bi.Users is pseudonymized for Power BI.
     /// </summary>
+    /// <remarks>
+    /// A read that fails is not "off" (2.4.12): it was, for a minute and for every page and email on that server, so a
+    /// failover or a missing grant turned privacy mode off without a word. Now only a database from before the setting
+    /// (no table to read) is off; any other failure is on, logged, and kept for seconds so the next read tries again.
+    /// </remarks>
     public async Task<bool> PrivacyModeAsync() =>
         await cache.GetOrCreateAsync(tenants.Key("privacy-mode"), async e =>
         {
             e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
             try { return await db.ScalarAsync<string?>("SELECT Value FROM audit.PipelineSetting WHERE Name = N'PrivacyMode'") == "Pseudonymize"; }
-            catch (Microsoft.Data.SqlClient.SqlException) { return false; }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return false; }   // no audit.PipelineSetting
+            catch (Microsoft.Data.SqlClient.SqlException ex)
+            {
+                e.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(5);
+                log.LogWarning(ex, "Could not read privacy mode, so it is treated as on until it can be read");
+                return true;
+            }
         });
 }
 
 /// <summary>An org unit on the breadcrumb or in the drill-down list.</summary>
 public sealed record OrgUnit(string Upn, string Name, int PeopleBelow);
+
+/// <summary>Why a part of the organization asked for is not the one shown.</summary>
+public enum OrgRefusal
+{
+    None,
+    /// <summary>Nobody in the directory has that sign-in.</summary>
+    NotFound,
+    /// <summary>It is not in the viewer's part of the organization.</summary>
+    Outside,
+    /// <summary>It is fewer people than the minimum group size (2.4.12).</summary>
+    TooSmall,
+    /// <summary>Privacy mode is on, and it is not the viewer's own (2.4.12).</summary>
+    Privacy,
+}
 
 /// <summary>One point on a trend: a day (periods up to 30 days) or a Saturday-to-Friday week.</summary>
 public sealed record Bucket(DateTime Key, string Label, bool Partial);
@@ -80,10 +105,29 @@ public sealed class ReportContext
     /// </summary>
     public string? OrgAsked { get; init; }
 
+    /// <summary>Why <see cref="OrgAsked"/> is not the part shown.</summary>
+    public OrgRefusal OrgWhy { get; init; }
+
+    /// <summary>
+    /// A part of the organization that was asked for and refused on a size or privacy rule (2.4.12). A page shows the
+    /// viewer's own part instead, with <see cref="OrgNote"/>; the data API and the digests refuse, and their scope is
+    /// nobody, so nothing that forgets to check can show it.
+    /// </summary>
+    public bool OrgRefused => OrgWhy is OrgRefusal.TooSmall or OrgRefusal.Privacy;
+
     /// <summary>What the page says about <see cref="OrgAsked"/>. The same words whether or not such a person exists, to someone who may not see them.</summary>
-    public string? OrgNote => OrgAsked is null ? null
-        : Root is null ? $"No one in the organization directory has the sign-in {OrgAsked}, so this shows the whole organization. They may have left, or the link may be an old one."
-        : $"{OrgAsked} is not in your part of the organization, so this shows yours.";
+    public string? OrgNote => OrgAsked is null ? null : OrgWhy switch
+    {
+        OrgRefusal.TooSmall => $"{OrgAsked} and the people under them are fewer than {MinGroupSize}, the minimum group size, so they are not shown on their own. This shows {Shown}.",
+        OrgRefusal.Privacy => $"Privacy mode is on, so a report is not narrowed to a manager's part of the organization. This shows {Shown}.",
+        _ => Root is null ? $"No one in the organization directory has the sign-in {OrgAsked}, so this shows the whole organization. They may have left, or the link may be an old one."
+            : $"{OrgAsked} is not in your part of the organization, so this shows yours.",
+    };
+
+    string Shown => Root is null ? "the whole organization" : "your part of the organization";
+
+    /// <summary>Privacy mode was on when the report was made (2.4.12): units are not named after their managers.</summary>
+    public bool PrivacyMode { get; init; }
     public required int MinGroupSize { get; init; }
     public required int InactiveDays { get; init; }
     public string? OrgTopUpn { get; init; }
@@ -177,11 +221,12 @@ SELECT COALESCE(
 
         /* Whose data: whole organization, or a subtree the viewer may see. */
         string? root;
+        var why = OrgRefusal.None;
         if (viewer.OrgWide)
         {
             root = requested;
             if (root is not null && forPage && await db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Person WHERE Upn = @root", new { root }) == 0)
-                (asked, root) = (root, null);
+                (asked, root, why) = (root, null, OrgRefusal.NotFound);
         }
         else
         {
@@ -192,7 +237,21 @@ SELECT COALESCE(
                     "SELECT COUNT(*) FROM dash.OrgClosure WHERE AncestorUpn = @v AND DescendantUpn = @r", new { v = viewer.Upn, r = requested });
                 if (AccessRules.MayViewSubtree(viewer, requested, under > 0)) root = requested;
             }
-            if (requested is not null && !string.Equals(root, requested, StringComparison.OrdinalIgnoreCase)) asked = requested;
+            if (requested is not null && !string.Equals(root, requested, StringComparison.OrdinalIgnoreCase)) (asked, why) = (requested, OrgRefusal.Outside);
+        }
+
+        /* A part of the organization other than the viewer's own (2.4.12) is shown only when it is at least the minimum
+           group size, and never in privacy mode, where it is named after its manager. Any sign-in in org= was taken: a
+           person with nobody under them made every page, and the API, a report of that one person. A page falls back to
+           the viewer's own part with a note; the API and the digests get nobody, and refuse. */
+        var privacy = await settings.PrivacyModeAsync();
+        if (requested is not null && root is not null && why == OrgRefusal.None && !string.Equals(root, viewer.Upn, StringComparison.OrdinalIgnoreCase))
+        {
+            if (privacy) why = OrgRefusal.Privacy;
+            else if (await db.ScalarAsync<int?>("SELECT PeopleBelow + 1 FROM dash.Person WHERE Upn = @root", new { root }) is int size && size < minGroup)
+                why = OrgRefusal.TooSmall;
+            if (why != OrgRefusal.None)
+                (asked, root) = (root, !forPage ? "(nobody)" : viewer.OrgWide ? null : viewer.Upn ?? "(nobody)");
         }
         /* What was asked for is shown back in the note: no longer than a sign-in can be. */
         if (asked is { Length: > 256 }) asked = asked[..256];
@@ -211,17 +270,22 @@ WHERE c.DescendantUpn = @root
   AND (@stop IS NULL OR EXISTS (SELECT 1 FROM dash.OrgClosure AS s WHERE s.AncestorUpn = @stop AND s.DescendantUpn = c.AncestorUpn))
 ORDER BY c.Depth DESC", new { root, stop = stopAt });
             crumbs.AddRange(chain.Select(c => new OrgUnit(c.Upn, c.Name ?? c.Upn, c.PeopleBelow)));
+            /* In privacy mode the chain names only the viewer: the managers above them are other people. */
+            if (privacy) crumbs.RemoveAll(c => !string.Equals(c.Upn, viewer.Upn, StringComparison.OrdinalIgnoreCase));
         }
 
-        var childOf = root ?? top;
+        /* The parts to drill into: managers whose part reaches the minimum group size, the rule a request is held to
+           above; none in privacy mode, where each would be offered by its manager's name. */
+        var childOf = privacy ? null : root ?? top;
         var children = childOf is null ? new List<OrgUnit>() :
             (await db.QueryAsync<(string Upn, string? Name, int PeopleBelow)>(
-                "SELECT Upn, DisplayName, PeopleBelow FROM dash.Person WHERE ManagerUpn = @p AND PeopleBelow > 0 ORDER BY DisplayName",
-                new { p = childOf })).Select(c => new OrgUnit(c.Upn, c.Name ?? c.Upn, c.PeopleBelow)).ToList();
+                "SELECT Upn, DisplayName, PeopleBelow FROM dash.Person WHERE ManagerUpn = @p AND PeopleBelow > 0 AND PeopleBelow + 1 >= @min ORDER BY DisplayName",
+                new { p = childOf, min = minGroup })).Select(c => new OrgUnit(c.Upn, c.Name ?? c.Upn, c.PeopleBelow)).ToList();
 
         return new ReportContext
         {
-            Viewer = viewer, Days = days, Start = start, End = end, Root = root, RootName = rootName, OrgAsked = asked,
+            Viewer = viewer, Days = days, Start = start, End = end, Root = root, RootName = rootName, OrgAsked = asked, OrgWhy = why,
+            PrivacyMode = privacy,
             MinGroupSize = minGroup, InactiveDays = inactive, OrgTopUpn = top, Breadcrumb = crumbs, Children = children,
         };
     }

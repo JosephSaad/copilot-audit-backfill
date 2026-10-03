@@ -7,15 +7,8 @@ namespace CopilotInsights.Pages;
 /// <summary>A breakdown by one directory attribute: small groups folded, an adoption chart and a table.</summary>
 public static class Groups
 {
-    public static List<GroupRow> Fold(InsightsPage page, IEnumerable<GroupRow> rows, int minGroup, out int folded)
-    {
-        var list = rows.ToList();
-        var small = list.Where(r => r.People < minGroup).ToList();
-        folded = small.Count;
-        var keep = list.Where(r => r.People >= minGroup).ToList();
-        if (small.Count > 0) keep.Add(Metrics.CombineGroups(small, "Smaller groups"));
-        return keep;
-    }
+    public static List<GroupRow> Fold(InsightsPage page, IEnumerable<GroupRow> rows, int minGroup, out int folded) =>
+        SmallGroups.Fold(rows, r => r.People, r => Metrics.CombineGroups(r, "Smaller groups"), minGroup, out folded);
 
     public static HtmlString AdoptionBars(IReadOnlyList<GroupRow> rows, string aria, int min, int take = 20) =>
         Chart.Adoption(rows.Select(r => new Chart.AdoptionGroup(r.Name, r.ActiveLicensed, r.Licensed, Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed; {r.People:#,0} people")), min, aria, take);

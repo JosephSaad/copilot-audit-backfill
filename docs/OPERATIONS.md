@@ -95,6 +95,8 @@ M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 
 **An account the directory cannot match.** Sign-ins are matched to people by the account's SID, which the nightly directory load copies from AD. An account with no match (a local or Entra-joined account) is "not in the directory" and sees nothing unless granted Organization. To map one, add it to `Insights:IdentityMap` in `appsettings.Production.json` (`"CONTOSO\\svc-report": "report.owner@contoso.com"`) and recycle the app pool. A mapping cannot land an account on a person whose directory record carries a different SID, and nothing in a URL changes who is signed in.
 
+**People with no SID on record (2.4.12).** Active Directory's answer, or a sign-in name that is a UPN, makes an account a person only when the directory records that person's SID: an account in another domain or forest can carry anyone's UPN. Admin › Directory quality › *No SID recorded* lists who this leaves out, managers outside the directory table included (a manager whose employee type the directory load skips is one). For each: load them with their SID (in `EmployeeTypes`, for a manager), or map their account in `Insights:IdentityMap`. Grant a role or bootstrap administration to an account outside the directory as `DOMAIN\name` or through a group, not by UPN.
+
 **Power BI.** The ready-made model in `powerbi\CopilotInsights` has an *Organization* role that follows the same org chart through `bi.OrgSecurity` ([DEPLOYMENT.md](DEPLOYMENT.md), step 15): add the report's viewers to it in the Power BI service. Organization granted to an AD group reaches Power BI after the next nightly directory load, which expands the group into its members (nested groups included) in `audit.GroupMember`; the load's log names any granted group it cannot find in the target domain. In privacy mode `bi.OrgSecurity` is empty (it would pair real sign-ins with the pseudonyms), so share `bi.DepartmentWeek` rather than the person-level model.
 
 ## Names for codes and ids
@@ -186,7 +188,9 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 
 ## Privacy, retention and the data API
 
-**Privacy mode.** Admin › Privacy and retention › *Privacy mode*: *Pseudonymize* refuses every page, export, digest and API call that names people, and Power BI's `bi.Users` shows a salted hash instead of names (from its next refresh). *Off* restores both.
+**Privacy mode.** Admin › Privacy and retention › *Privacy mode*: *Pseudonymize* refuses every page, export, digest and API call that names people, and Power BI's `bi.Users` shows a salted hash instead of names (from its next refresh). *Off* restores both. Units are named after their managers, so in privacy mode they go by the manager's department, and nobody opens a manager's part of the organization by name; a digest set up for one is not sent (its status says why). If the setting cannot be read, the dashboard treats privacy mode as on until it can (2.4.12).
+
+**The minimum group size** (Admin › Access) is also the smallest part of the organization a report can be narrowed to (2.4.12): a manager and everyone under them, fewer than that, are not shown on their own, on a page, in the data API or in a digest.
 
 **Retention.** Admin › Privacy and retention › *Retention*: days to keep the dashboard's audit log and the notification log, and when to clear the stored JSON of old records (0 keeps it; at least 200 days). Applied each night after a successful run; **Apply retention now** does it at once. To clear JSON from the job server instead, `M -Task PurgeJson -RetainDays 365` reports what would go and `-Apply` clears it (`-DeleteRows` removes those records altogether).
 
@@ -220,9 +224,13 @@ A group with several Microsoft 365 tenants loads each into its own pair of datab
 
 Each tenant's database decides who sees what in it: a person sees a tenant only where its directory has them or they are granted a role there. The Admin pages act on the tenant chosen in the switcher; Admin › Alerts and digests can also run the checks in every tenant at once, as the background checks do.
 
+`M -Database CopilotAudit_Fabrikam` works on that tenant. Its rebuilds read the license history that database was last built with (2.4.12; they read `CopilotLicenseEvents`, the first tenant's, before); name another with `-LicenseEventDatabases CopilotLicenseEvents_Fabrikam`.
+
 ## Upgrades and renewals
 
 **A new release.** Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1` again with the new `copilot-insights` zip.
+
+**Running the job-server setup again** keeps every setting in `copilot-audit.settings.psd1`, those added by hand (`IncludeLeaveDates`) and empty ones (`EmployeeTypes = @()`) too, and the task's time set with `-At` (2.4.12; before, a re-run put `EmployeeTypes` back to EMP and NONW, dropped `IncludeLeaveDates`, and moved the task to 02:00).
 
 **The app's certificate.** Within 30 days of expiry, run `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` on the job server: a new certificate, its private key for the gMSA, uploaded to the app next to the old one, and its thumbprint in the settings. Remove the old certificate from the app after the next good run.
 

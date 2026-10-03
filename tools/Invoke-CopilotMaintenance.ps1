@@ -53,7 +53,8 @@
 param(
     [Parameter(Mandatory)][string] $SqlServer,
     [string] $Database = 'CopilotAudit',
-    [string[]] $LicenseEventDatabases = @('CopilotLicenseEvents'),
+    # The license databases sessions and bi read. Left out: the ones this database's last build used (2.4.12).
+    [string[]] $LicenseEventDatabases,
     [pscredential] $SqlCredential,
     [switch] $TrustServerCertificate,
     [Parameter(Mandatory)]
@@ -89,7 +90,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$licList = if ($LicenseEventDatabases) { $LicenseEventDatabases -join ',' } else { $null }
 $me = "$env:USERDOMAIN\$env:USERNAME"
 
 function Invoke-Sql {
@@ -116,6 +116,26 @@ function Need([string] $what, $value) { if (-not $value) { throw "-Task $Task ne
 function Update-Dashboard([object] $since) {
     if (Test-Proc 'dash.usp_RefreshDashboard') { Invoke-Sql -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since } }
 }
+# The license databases (2.4.12): those given, else the ones this database's last session build used, else its last
+# bi refresh's, else none. The default was CopilotLicenseEvents, which is the first tenant's: another tenant's
+# maintenance read that tenant's license history, and its nightly then failed every night on the change.
+if (-not $PSBoundParameters.ContainsKey('LicenseEventDatabases')) {
+    $recorded = Invoke-Sql -Scalar -Sql @"
+DECLARE @l NVARCHAR(1000), @found BIT = 0;
+IF OBJECT_ID(N'audit.CopilotSessionRun', N'U') IS NOT NULL
+    SELECT TOP (1) @l = LicenseEventDatabase, @found = 1 FROM audit.CopilotSessionRun ORDER BY RunId DESC;
+IF @found = 0 AND OBJECT_ID(N'bi.RefreshRun', N'U') IS NOT NULL
+    SELECT TOP (1) @l = LicenseEventDatabase FROM bi.RefreshRun ORDER BY RunId DESC;
+SELECT @l;
+"@
+    $LicenseEventDatabases = if ($recorded -is [DBNull] -or [string]::IsNullOrWhiteSpace([string] $recorded)) { @() }
+                             else { @(([string] $recorded) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    if ($Task -in 'Reflatten', 'RebuildSessions', 'RebuildBi', 'SetAppCategory') {
+        Write-Host $(if ($LicenseEventDatabases) { "  License history from $($LicenseEventDatabases -join ', '), as $Database's last build (-LicenseEventDatabases to change it)." }
+                     else { "  No license history: $Database's last build read none (-LicenseEventDatabases to name it)." }) -ForegroundColor DarkGray
+    }
+}
+$licList = if ($LicenseEventDatabases) { $LicenseEventDatabases -join ',' } else { $null }
 function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
 
 switch ($Task) {

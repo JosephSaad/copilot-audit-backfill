@@ -21,8 +21,10 @@ public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<Insig
         try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, options.Value.NotifierStartDelaySeconds)), stop); } catch (OperationCanceledException) { return; }
         while (!stop.IsCancellationRequested)
         {
+            /* Only the site stopping ends the loop. A timeout is an OperationCanceledException too, and one that escaped
+               here stopped the whole site (2.4.12): a mail server or token endpoint that did not answer took it down. */
             try { await RunAllAsync(stop); }
-            catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "The notification checks failed"); }
+            catch (Exception ex) when (ex is not OperationCanceledException || !stop.IsCancellationRequested) { log.LogError(ex, "The notification checks failed"); }
             try { await Task.Delay(Interval, stop); } catch (OperationCanceledException) { return; }
         }
     }
@@ -40,7 +42,7 @@ public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<Insig
             {
                 tenants.Use(t);
                 try { done.AddRange((await RunOnceAsync(ct)).Select(d => tenants.Many ? $"[{t.Name}] {d}" : d)); }
-                catch (Exception ex) when (ex is not OperationCanceledException) { log.LogError(ex, "The notification checks failed for {Tenant}", t.Name); }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { log.LogError(ex, "The notification checks failed for {Tenant}", t.Name); }
             }
         }
         finally { tenants.Use(before); }
@@ -311,7 +313,9 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
                     sent = error is null;
                     status = sent ? "Sent" : "Not sent: " + error;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) { sent = false; status = "Failed: " + ex.Message; }
+                /* Not to be sent as it is set up (2.4.12): skipped until it is next due, not retried. */
+                catch (DigestRefused ex) { sent = true; status = "Not sent: " + ex.Message + "."; }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { sent = false; status = "Failed: " + ex.Message; }
                 var next = Retry.After(sent, s.FailedTries, DateTime.UtcNow);
                 if (next.Retry) status += $" Trying again after {next.RetryAfterUtc:HH:mm} UTC (try {s.FailedTries + 2} of {Retry.Tries}).";
                 await _db.ExecuteAsync(@"UPDATE dash.Subscription SET LastSentUtc = CASE WHEN @retry = 1 THEN LastSentUtc ELSE SYSUTCDATETIME() END,

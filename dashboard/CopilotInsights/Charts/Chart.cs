@@ -227,20 +227,20 @@ public static class Chart
     /// <summary>
     /// Adoption ranked across groups (2.4.5): only groups with at least <paramref name="min"/> license holders are
     /// ranked, highest first and, at the same rate, the larger first; the rest are one bar at the end, so no bar
-    /// rests on one or two people. Each bar shows its "a of b" beside the rate.
+    /// rests on one or two people. That bar reaches the minimum too, the smallest ranked groups joining it where
+    /// needed (2.4.12, see <see cref="CopilotInsights.Data.SmallGroups"/>). Each bar shows its "a of b" beside the rate.
     /// </summary>
     public static HtmlString Adoption(IEnumerable<AdoptionGroup> groups, int min, string aria, int take = 20)
     {
-        var list = groups.Where(g => g.Licensed > 0).ToList();
-        var bars = list.Where(g => g.Licensed >= min)
+        var (ranked, few) = CopilotInsights.Data.SmallGroups.Split(groups.Where(g => g.Licensed > 0), g => g.Licensed, min);
+        var bars = ranked
             .OrderByDescending(g => g.Active / (double)g.Licensed).ThenByDescending(g => g.Licensed).Take(take)
             .Select(g => new Bar(g.Name, g.Active / (double)g.Licensed, g.Href, g.Note ?? $"{g.Active:#,0} of {g.Licensed:#,0} licensed", Shown: $"{g.Active:#,0} of {g.Licensed:#,0}"))
             .ToList();
-        var few = list.Where(g => g.Licensed < min).ToList();
         if (few.Count > 0)
         {
             int a = few.Sum(g => g.Active), l = few.Sum(g => g.Licensed);
-            bars.Add(new Bar($"{few.Count:#,0} with fewer than {min} license holders, combined", a / (double)l, Note: $"{a:#,0} of {l:#,0} licensed, across {few.Count:#,0}", Slot: 2, Shown: $"{a:#,0} of {l:#,0}"));
+            bars.Add(new Bar(few.Count == 1 ? "A smaller group" : $"{few.Count:#,0} smaller groups, combined", a / (double)l, Note: $"{a:#,0} of {l:#,0} licensed, across {few.Count:#,0}", Slot: 2, Shown: $"{a:#,0} of {l:#,0}"));
         }
         return Bars(bars, Fmt.Percent, aria, 1);
     }

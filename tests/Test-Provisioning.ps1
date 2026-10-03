@@ -211,6 +211,18 @@ Assert-That ($back.TenantId -eq "o'brien" -and $back.Dashboard -is [bool] -and $
 $fromPipeline = Get-PipelineStep -Setting $back -Today $today
 Assert-That ($fromPipeline[0].Name -eq 'User directory from AD') 'and the pipeline plans from it'
 
+# 2.4.12: a re-run keeps what was saved, the keys this script does not set and the empty values too.
+$saved = @{ SqlServer = 'SQL1'; EmployeeTypes = @(); IncludeLeaveDates = $true; At = '03:30'; LicenseDatabase = '' }
+$again = Merge-Setting -Saved $saved -Given @{ TenantId = 'contoso.onmicrosoft.com' }
+Assert-That (@($again.EmployeeTypes).Count -eq 0 -and $again.IncludeLeaveDates -eq $true -and $again.At -eq '03:30' -and $again.LicenseDatabase -eq '' -and
+             $again.TenantId -eq 'contoso.onmicrosoft.com') 'a re-run keeps EmployeeTypes = @(), IncludeLeaveDates, the task time and an empty license database'
+Assert-That ((@((Merge-Setting -Saved @{ SqlServer = 'SQL1' } -Given @{}).EmployeeTypes) -join ',') -eq 'EMP,NONW') 'a default fills only a key that is missing'
+Assert-That (@((Merge-Setting -Saved @{ SqlServer = 'SQL1'; EmployeeTypes = @('EMP') } -Given @{ EmployeeTypes = [string[]] @() }).EmployeeTypes).Count -eq 0) '-EmployeeTypes @() given is every type'
+$f2 = Join-Path $tmp 'again.psd1'
+Set-Content -LiteralPath $f2 -Value (ConvertTo-SettingText ($again + @{ Custom = 'kept' }))
+$read2 = Import-PowerShellDataFile -LiteralPath $f2
+Assert-That (@($read2.EmployeeTypes).Count -eq 0 -and $read2.IncludeLeaveDates -eq $true -and $read2.At -eq '03:30' -and $read2.Custom -eq 'kept') 'and writes them all back, a key it does not know included'
+
 Assert-That ((Add-SidToRightLine -Line 'SeBatchLogonRight = *S-1-5-32-544,*S-1-5-32-551' -Right 'SeBatchLogonRight' -Sid 'S-1-5-21-9') -eq
              'SeBatchLogonRight = *S-1-5-32-544,*S-1-5-32-551,*S-1-5-21-9') 'the batch-logon right gains the account, keeping who had it'
 Assert-That ($null -eq (Add-SidToRightLine -Line 'SeBatchLogonRight = *S-1-5-21-9' -Right 'SeBatchLogonRight' -Sid 'S-1-5-21-9')) 'and is left alone when the account has it'

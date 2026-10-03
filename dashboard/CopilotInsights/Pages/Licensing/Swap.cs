@@ -139,6 +139,6 @@ SELECT (SELECT COUNT(*) FROM g) AS Idle, (SELECT COUNT(*) FROM t) AS Wanting,
         await CopilotInsights.Data.LicenseActions.RecordAsync(Db, kind, upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"swap {(take ? "take back" : "give out")} {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-swap-{(take ? "take" : "give")}-{DateTime.UtcNow:yyyyMMdd}";
-        return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 }

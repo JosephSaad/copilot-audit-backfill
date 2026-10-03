@@ -229,7 +229,7 @@ SELECT {select} FROM c {tail}";
         await LicenseActions.RecordAsync(Db, "wave", upns, by);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"wave {wave} of {size} {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-wave-{wave}-{DateTime.UtcNow:yyyyMMdd}";
-        return File(Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 }
 
@@ -260,10 +260,12 @@ public sealed class OutcomesModel(PageServices s, OpsData ops) : InsightsPage(s)
         ["kind"] = "o.Kind, o.Day DESC, o.DisplayName, o.Upn", ["upn"] = "o.Upn, o.Day DESC, o.Kind", ["dept"] = "o.Department, o.DisplayName, o.Upn",
     };
 
-    const string Base = @"
+    /* The exports' people within the viewer's scope (2.4.12): it read every export, so a manager with the Licensing
+       role saw who anyone else had exported, across the organization. */
+    string Base => $@"
 WITH x AS (SELECT la.Kind, la.Upn, la.ExportedBy, la.ExportedUtc, CAST(la.ExportedUtc AS DATE) AS Day,
                   ROW_NUMBER() OVER (PARTITION BY la.Kind, la.Upn, CAST(la.ExportedUtc AS DATE) ORDER BY la.ActionId) AS n
-           FROM dash.LicenseAction AS la),
+           FROM dash.LicenseAction AS la {Ctx.PersonScope("la.Upn")}),
 today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay),
 o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
              CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS LicensedNow,
@@ -281,7 +283,7 @@ o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var batches = await Db.QueryAsync<Batch>(Base + @"
 SELECT Kind, Day, ExportedBy, COUNT(*) AS People, SUM(LicensedNow) AS LicensedNow, SUM(UsedSince) AS UsedSince
-FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
+FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;", Ctx.Args());
         if (batches.Count == 0) { Notice = "No license exports yet. They are recorded when someone downloads a bulk file or script from Upgrade, train or revoke, Licenses on disabled accounts, or Rollout waves."; return; }
 
         int Done(Batch b) => b.Kind is "upgrade" or "wave" ? b.LicensedNow : b.People - b.LicensedNow;
@@ -304,7 +306,7 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
 SELECT o.Day, o.Kind, o.Upn, o.DisplayName, o.Department, COUNT(*) OVER ()
 FROM o WHERE ((o.Kind IN ('upgrade', 'wave') AND o.LicensedNow = 0) OR (o.Kind IN ('revoke', 'leaver') AND o.LicensedNow = 1))
   AND (@q IS NULL OR o.DisplayName LIKE @q OR o.Upn LIKE @q OR o.Department LIKE @q)
-{pg.OrderAndPage()};", new { q = pg.Like });
+{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
         pg.Total = pending.FirstOrDefault().Total;
         var pt = new Table
         {

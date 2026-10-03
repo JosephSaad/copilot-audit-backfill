@@ -111,10 +111,9 @@ GROUP BY g.Domain;", Ctx.Args());
             if (rows.Count == 0) { Notice = $"No guest or external accounts used Copilot in {Here} in the period."; return; }
 
             var named = Viewer.Has(Roles.Security) && !PrivacyMode;
-            var shown = named ? rows : rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();
-            var small = rows.Except(shown).ToList();
-            if (small.Count > 0)
-                shown.Add(new Row { Domain = $"{small.Count} smaller home organizations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labeled = small.Sum(r => r.Labeled), Licensed = small.Sum(r => r.Licensed) });
+            var shown = named ? rows : SmallGroups.Fold(rows, r => r.People,
+                small => new Row { Domain = $"{small.Count} smaller home organizations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labeled = small.Sum(r => r.Labeled), Licensed = small.Sum(r => r.Licensed) },
+                Ctx.MinGroupSize, out _);
             var t = new Table { Headers = ["Home organization", "Guests", "Used Copilot", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
             foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labeled]);
             Panels.Add(new("By home organization", t.Render(), "From the guest's sign-in name. Labeled content: interactions that touched content with a sensitivity label."));
@@ -292,7 +291,7 @@ GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Licensed people who used Copilot, over people licensed.", "half"));
             var t = Groups.Table(kept, "Job family");
             CsvTable = t;
-            Panels.Add(new("Job families", t.Render(), folded > 0 ? $"{folded} family or families smaller than {Ctx.MinGroupSize} people combined." : null, "full", CsvUrl()));
+            Panels.Add(new("Job families", t.Render(), folded > 0 ? FoldNote(folded, "job family", "job families") : null, "full", CsvUrl()));
         }
     }
 }

@@ -80,7 +80,7 @@ Every 30 seconds it prints a progress line:
 
 ## 5. Finalize, and what you get
 
-`-Finalize` (or `-FinalizeOnly` later) refuses to run unless the whole range is loaded with no gaps. It then builds:
+`-Finalize` (or `-FinalizeOnly` later) refuses to run unless the whole range is loaded with no gaps. It also refuses (2.4.12) once the staging table no longer holds every row the windows loaded: it is dropped after finalize (the advice finalize ends with) or purged by `-Task PurgeJson`, and rebuilding from it would empty `audit.CopilotAudit`. A backfill run again over a completed range leaves tables already finalized alone (`audit.PipelineSetting` `FinalizedUtc`), so `-History` carries on past it; `-FinalizeOnly` still builds them again from a whole staging table. It then builds:
 
 | Object | What it is |
 |---|---|
@@ -164,6 +164,7 @@ The `bi` schema is what a Power BI semantic model imports: narrow facts with int
 - **An agent is its id, never its name.** `bi.DimAgent` keys on the `AppIdentity` that names the agent, and on `AgentId` only where `AppIdentity` names none (`bi.fnAgentIdentity`). The name is a label on that key. When a maker renames an agent, the night its first record under the new name arrives the same agent is relabeled, in every period; nothing is split and nothing is rebuilt.
 - **A name an administrator gives** (Admin › Reference data › *Agents*, or `-Task NameAgent`) shows on the dashboard instead of the log's, and stays when the maker renames the agent.
 - **Records flattened before 2.4.11** have no id or name: the flatten looked for them inside `CopilotEventData`, where no record has them. `Install-CopilotAudit.ps1` reads them once on the upgrade (`audit.usp_BackfillAgentNames`: the records of agents only, from their stored JSON, in minutes), and leaves a mark so it is not done twice. A record whose JSON was purged keeps what it has; its agent is still named, from any other record of the same agent.
+- **Another app's records that carry an agent's id** (Copilot Chat running a declarative agent, `AppIdentity` `Copilot.MicrosoftCopilot.BizChat` with an `AgentId`) are keyed on that id. 2.4.11 read it from its upgrade night on, so such an agent's history started that night. 2.4.12's installer reads them once (`audit.usp_BackfillAgentNames @Others = 1`), from the apps that carry one: those whose records flattened since show it, and those among the newest 50,000 records still without one whose JSON has it. When any record gains an id it rebuilds `bi` and every day of the dashboard's rollups once, since those interactions change agent, and says to refresh the Power BI model. An app none of whose recent records carries an agent's id is not read; `-Task Reflatten` reads everything.
 
 A full rebuild commits a month at a time to keep the log small, so don't refresh the model while one runs.
 

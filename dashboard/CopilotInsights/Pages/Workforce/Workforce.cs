@@ -12,7 +12,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         var types = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "EmployeeType"), Ctx.MinGroupSize, out _);
-        var roles = await m.ByAttributeAsync(Ctx, "Role");
+        /* Folded like the rest (2.4.12): a manager looking at their own part was "1 licensed managers", themselves. */
+        var roles = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Role"), Ctx.MinGroupSize, out _);
         var levels = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Level"), Ctx.MinGroupSize, out _);
         var titles = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "JobTitle"), Ctx.MinGroupSize, out var ft);
         GroupRow? Find(IEnumerable<GroupRow> r, string n) => r.FirstOrDefault(x => x.Name == n);
@@ -28,8 +29,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Panels.Add(new("By level in the organization",
             Chart.Bars(levels.Where(l => l.Licensed > 0).OrderBy(l => l.Name).Select(l => new Bar(l.Name, l.ActiveLicensed / (double)l.Licensed, Note: $"{l.ActiveLicensed:#,0} of {l.Licensed:#,0} licensed")).ToList(), Fmt.Percent, "Adoption by level", 1),
             "Level 1 is the top of the organization.", "half"));
-        Panels.Add(new("By job title", Groups.AdoptionBars(titles, "Adoption by job title", 15),
-            "The fifteen titles with the highest adoption." + (ft > 0 ? $" {Count(ft, "title")} under {Ctx.MinGroupSize} people {Are(ft)} combined." : ""), "half"));
+        Panels.Add(new("By job title", Groups.AdoptionBars(titles, "Adoption by job title", Ctx.MinGroupSize, 15),
+            "The fifteen titles with the highest adoption." + (ft > 0 ? " " + FoldNote(ft, "title") : ""), "half"));
         var tt = Groups.Table(titles, "Job title");
         CsvTable = tt;
         Panels.Add(new("Every job title", tt.Render(), null, "full", CsvUrl()));

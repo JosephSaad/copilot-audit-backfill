@@ -83,17 +83,19 @@ WHERE (@q IS NULL OR x.AgentName LIKE @q OR x.Owner LIKE @q)
         {
             var credits = Monthly(r.U);
             var each = r.UPeople > 0 ? credits / r.UPeople : 0m;
+            /* An agent's people are a group: shown at the minimum group size or more (2.4.12), with what they would reveal. */
+            var few = r.UPeople > 0 && AtLeastMin(r.UPeople) is null;
             var suggestion = r.U == 0 ? "No credits: its users hold licenses"
                 : each >= price ? "Its users each cost more than a license: see Licensing › Better with a license"
                 : r.UPeople < Ctx.MinGroupSize && credits >= price ? "Few users, a license's worth of credits or more: restrict or retire"
                 : "";
             var name = new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}"))}\">{WebUtility.HtmlEncode(r.AgentName)}</a>");
-            t.Rows.Add([name, r.AgentSource, r.Owner, r.I, r.U, r.People, r.UPeople, Math.Round(credits, 2), Math.Round(each, 2), suggestion]);
+            t.Rows.Add([name, r.AgentSource, r.Owner, r.I, r.U, r.People == 0 ? 0 : AtLeastMin(r.People), r.UPeople == 0 ? 0 : AtLeastMin(r.UPeople), Math.Round(credits, 2), few ? null : Math.Round(each, 2), suggestion]);
         }
         CsvTable = t;
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Without a license: interactions by people who held no Copilot license at the time; pay-as-you-go charges for these in Copilot Credits. Credits a month: those interactions, " +
             $"scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access). An agent grounded only in public data is not charged, so this errs high. " +
-            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}.", "full", CsvUrl()));
+            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent.", "full", CsvUrl()));
     }
 }

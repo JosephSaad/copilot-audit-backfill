@@ -20,9 +20,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         if (low is not null) Kpis.Add(new("Lowest adoption", low.Name, Pct(Ratio(low.ActiveLicensed, low.Licensed))));
 
         Panels.Add(new("Adoption by country", Groups.AdoptionBars(countries, "Adoption by country", Ctx.MinGroupSize),
-            "Licensed people who used Copilot in the period." + (fc > 0 ? $" {fc} country(ies) under {Ctx.MinGroupSize} people combined." : ""), "half"));
+            "Licensed people who used Copilot in the period." + (fc > 0 ? " " + FoldNote(fc, "country", "countries") : ""), "half"));
         Panels.Add(new("Adoption by office", Groups.AdoptionBars(offices, "Adoption by office", Ctx.MinGroupSize, 15),
-            "The fifteen offices with the highest adoption." + (fo > 0 ? $" {Count(fo, "office")} under {Ctx.MinGroupSize} people {Are(fo)} combined." : ""), "half"));
+            "The fifteen offices with the highest adoption." + (fo > 0 ? " " + FoldNote(fo, "office") : ""), "half"));
 
         var trend = await Db.QueryAsync<(string Country, DateTime Bucket, int Active)>($@"
 SELECT ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")}, COUNT(DISTINCT ud.UserKey)
