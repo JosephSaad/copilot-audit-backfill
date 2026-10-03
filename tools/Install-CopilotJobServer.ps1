@@ -130,6 +130,27 @@ function Merge-Setting {
     $s
 }
 
+function Get-InstallArgument {
+    <#
+        Install-CopilotAudit.ps1's arguments for step 4, from the merged settings. Pure, for the tests. 2.4.12: the
+        license databases as the pipeline passes them. A blank LicenseDatabase (kept by Merge-Setting) is
+        -SkipLicenseDatabase; it was passed as it was, and the installer ran CREATE DATABASE [] and failed. And
+        SessionLicenseDatabases is -LicenseEventDatabases: it was not passed, so the build recorded the one license
+        database while the nightly read the list, and every night stopped on "different settings" (50006).
+    #>
+    param([System.Collections.IDictionary] $Setting, [string] $ServiceAccount)
+    function Has($k) { $Setting.Contains($k) -and $Setting[$k] }
+    $a = @{ SqlServer = $Setting.SqlServer; Database = $Setting.Database; ServiceAccount = $ServiceAccount }
+    $lic = if (Has 'LicenseDatabase') { [string] $Setting.LicenseDatabase } else { $null }
+    if ($lic) { $a.LicenseDatabase = $lic } else { $a.SkipLicenseDatabase = $true }
+    $readLic = @(@(if (Has 'SessionLicenseDatabases') { $Setting.SessionLicenseDatabases } elseif ($lic) { $lic }) |
+                 ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($readLic.Count) { $a.LicenseEventDatabases = [string[]] $readLic }
+    if (Has 'TrustServerCertificate') { $a.TrustServerCertificate = $true }
+    if (Has 'Dashboard') { $a.Dashboard = $true }
+    $a
+}
+
 function ConvertTo-SettingText {
     <# A .psd1 that Import-PowerShellDataFile reads back as the same values. Pure. #>
     param([System.Collections.IDictionary] $Setting)
@@ -380,9 +401,7 @@ function Invoke-Main {
     # ---- 4. Databases ----------------------------------------------------------------------
     if (-not $SkipDatabase) {
         Write-Step "Databases on $($s.SqlServer)"
-        $install = @{ SqlServer = $s.SqlServer; Database = $s.Database; LicenseDatabase = $s.LicenseDatabase; ServiceAccount = $account }
-        if ($s.TrustServerCertificate) { $install.TrustServerCertificate = $true }
-        if ($s.Dashboard) { $install.Dashboard = $true }
+        $install = Get-InstallArgument -Setting $s -ServiceAccount $account
         if ($ReportingTimeZone) { $install.ReportingTimeZone = $ReportingTimeZone }
         if ($PSCmdlet.ShouldProcess($s.SqlServer, 'Install-CopilotAudit.ps1')) { & (Join-Path $script:Root 'Install-CopilotAudit.ps1') @install }
     }

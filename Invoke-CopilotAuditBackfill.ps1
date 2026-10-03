@@ -302,6 +302,32 @@ function Initialize-CopilotAuditDatabase {
     Write-Log 'SQL schema ready (audit.CopilotBackfillRange / CopilotBackfillWindow / CopilotAuditStage).'
 }
 
+function Enter-RunLock {
+    <#
+        Holds the database for this run alone (2.4.12), as the nightly pipeline, Install-CopilotAudit.ps1 and the
+        maintenance rebuilds do: an exclusive application lock, on a connection of its own kept open to the end of the
+        run. A load run by hand (-Incremental, or a history range) took none, so it could run beside the nightly and
+        load the same windows twice. As one of the pipeline's own steps, the pipeline holds it already
+        (CopilotAuditRunLock). Returns the connection (dispose it to let go), or nothing under the pipeline's lock.
+    #>
+    $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($script:SqlConnStr)
+    if ($env:CopilotAuditRunLock -eq "$($b['Data Source'])/$($b['Initial Catalog'])") { return $null }
+    $b['Pooling'] = $false   # closing a pooled connection keeps its session, and the session's lock with it
+    $c = [System.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+    try {
+        $c.Open()
+        $cmd = $c.CreateCommand()
+        $cmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+        $granted = [int] $cmd.ExecuteScalar() -ge 0
+    }
+    catch { $c.Dispose(); throw }
+    if (-not $granted) {
+        $c.Dispose()
+        throw "Another run is using $($b['Initial Catalog']) now: the nightly pipeline, the installer, a maintenance rebuild or another load. Nothing was loaded. Let it finish (Admin > Health shows the pipeline's runs), then run this again."
+    }
+    $c
+}
+
 function ConvertTo-UtcDate {
     param([Parameter(Mandatory)][datetime] $Value)
     switch ($Value.Kind) {
@@ -912,6 +938,13 @@ function Invoke-Main {
     Initialize-CopilotAuditDatabase
 
     if ($Status) { Show-BackfillState; return }
+    # One run at a time (2.4.12): held to the end of the run, and let go in the finally below.
+    $runLock = Enter-RunLock
+    try { Invoke-Run }
+    finally { if ($runLock) { $runLock.Dispose() } }
+}
+
+function Invoke-Run {
     if ($Incremental) { Invoke-IncrementalLoad; return }
     if ($FinalizeOnly) { Invoke-CopilotAuditFinalize; return }
 

@@ -276,11 +276,14 @@ BEGIN
     /* ---- 4. Sessions ----------------------------------------------------- */
 
     /* Start and end are the first and last prompt in UTC, shown in the
-       reporting zone; the span is measured in UTC (2.4.12). */
+       reporting zone; the span is measured in UTC (2.4.12). The end is never
+       shown before the start (2.4.12): in the hour clocks go back, a session
+       begun before the change and ended after it ended, in local time,
+       before it began. */
     DROP TABLE IF EXISTS #sess;
     SELECT g.UserUPN, g.KeyCtx, g.Ordinal, g.StartUtc, g.EndUtc,
-           CAST(g.StartUtc AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS StartTs,
-           CAST(g.EndUtc   AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS EndTs,
+           z.StartTs,
+           CASE WHEN z.EndTs < z.StartTs THEN z.StartTs ELSE z.EndTs END AS EndTs,
            g.Prompts
     INTO #sess
     FROM (SELECT n.UserUPN, n.KeyCtx, n.Ordinal,
@@ -288,7 +291,9 @@ BEGIN
                  MAX(n.TsUtc) AS EndUtc,
                  COUNT(*)     AS Prompts
           FROM #num AS n
-          GROUP BY n.UserUPN, n.KeyCtx, n.Ordinal) AS g;
+          GROUP BY n.UserUPN, n.KeyCtx, n.Ordinal) AS g
+    CROSS APPLY (SELECT CAST(g.StartUtc AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS StartTs,
+                        CAST(g.EndUtc   AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS EndTs) AS z;
 
     DROP TABLE IF EXISTS #histlic;
     SELECT s.UserUPN, s.KeyCtx, s.Ordinal,

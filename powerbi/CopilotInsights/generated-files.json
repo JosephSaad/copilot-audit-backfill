@@ -20,7 +20,7 @@
     "CopilotInsights.SemanticModel/definition/tables/Agents.tmdl": "7919bd3a06e863255c16a5a4a8fb63c4ee454b50bf0866916afd6009edd08f2b",
     "CopilotInsights.SemanticModel/definition/tables/Apps.tmdl": "a8a9f88fae7ea4b45e76e0011d67211758d878d59e75a74fd20c4ef45cb9b9b2",
     "CopilotInsights.SemanticModel/definition/tables/Calendar.tmdl": "4acc3f92451f1a6a88e6dc9016d34929b2fc5ef3372806c93c3118f4c8b00bbd",
-    "CopilotInsights.SemanticModel/definition/tables/DepartmentWeek.tmdl": "a41ad8ea6aa07340408ca21336ddbf0982fd1632e51d39fbd7431a7fc4a999be",
+    "CopilotInsights.SemanticModel/definition/tables/DepartmentWeek.tmdl": "c25f479dd4156aecab445727c31c3d2a1cdf2be9c8904db92301eaffcb3acf13",
     "CopilotInsights.SemanticModel/definition/tables/EventMarkers.tmdl": "765b040f453273bdbe5161872be93b5008687d6d507454968e81159a03a5f141",
     "CopilotInsights.SemanticModel/definition/tables/FileTypes.tmdl": "4127892b93cc5723204133aef9f2d5c9883b4a245d6aa4cb2f189e7a6c4750c7",
     "CopilotInsights.SemanticModel/definition/tables/Interactions.tmdl": "8f5f38e5c36affbd4843b9ff28fa25381a755f24b636b9acfe4e9d058cb65693",
