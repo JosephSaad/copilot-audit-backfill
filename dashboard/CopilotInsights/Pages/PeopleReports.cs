@@ -21,7 +21,9 @@ namespace CopilotInsights.Pages.Adoption
             var by = Request.Query["by"].FirstOrDefault() is { } b && By.Contains(b) ? b : "Department";
             var prevCtx = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
             var now = (await metrics.ByAttributeAsync(Ctx, by)).Where(r => r.People >= Ctx.MinGroupSize && r.Licensed >= Ctx.MinGroupSize).ToList();
-            var before = (await metrics.ByAttributeAsync(prevCtx, by)).ToDictionary(r => r.Name);
+            /* Only where the data covers all of the period before (2.4.12, see OpsReports.Covers). */
+            var before = OpsReports.Covers(prevCtx, await OpsReports.FirstDayAsync(Db))
+                ? (await metrics.ByAttributeAsync(prevCtx, by)).ToDictionary(r => r.Name) : new Dictionary<string, GroupRow>();
             double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
             var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
             var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
@@ -36,7 +38,10 @@ namespace CopilotInsights.Pages.Adoption
             for (var i = 0; i < ranked.Count; i++)
             {
                 var r = ranked[i];
-                double? change = before.TryGetValue(r.Name, out var pr) && Adopt(pr) is double a0 && Adopt(r) is double a1 ? (a1 - a0) * 100 : null;
+                /* Against the period before only where the group met the same minimum then (2.4.12): a group of two
+                   license holders a period ago made "+50 points" and the most improved of one person's use. */
+                double? change = before.TryGetValue(r.Name, out var pr) && pr.People >= Ctx.MinGroupSize && pr.Licensed >= Ctx.MinGroupSize
+                                 && Adopt(pr) is double a0 && Adopt(r) is double a1 ? (a1 - a0) * 100 : null;
                 if (change is double c) changes.Add((r.Name, c));
                 t.Rows.Add([i + 1, r.Name, r.People, r.Licensed, Pct(Adopt(r)), change is null ? null : $"{change:+0.#;-0.#;0}", Pct(Ratio(r.Active, r.People)),
                             r.Active > 0 ? Math.Round(r.Interactions / (double)r.Active, 1) : null, r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null]);
@@ -111,10 +116,9 @@ GROUP BY g.Domain;", Ctx.Args());
             if (rows.Count == 0) { Notice = $"No guest or external accounts used Copilot in {Here} in the period."; return; }
 
             var named = Viewer.Has(Roles.Security) && !PrivacyMode;
-            var shown = named ? rows : rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();
-            var small = rows.Except(shown).ToList();
-            if (small.Count > 0)
-                shown.Add(new Row { Domain = $"{small.Count} smaller home organizations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labeled = small.Sum(r => r.Labeled), Licensed = small.Sum(r => r.Licensed) });
+            var shown = named ? rows : SmallGroups.Fold(rows, r => r.People,
+                small => new Row { Domain = $"{small.Count} smaller home organizations", People = small.Sum(r => r.People), Active = small.Sum(r => r.Active), Interactions = small.Sum(r => r.Interactions), Flags = small.Sum(r => r.Flags), Labeled = small.Sum(r => r.Labeled), Licensed = small.Sum(r => r.Licensed) },
+                Ctx.MinGroupSize, out _);
             var t = new Table { Headers = ["Home organization", "Guests", "Used Copilot", "Interactions", "Licensed here", "Security signals", "Labeled content"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
             foreach (var r in shown.OrderByDescending(r => r.Interactions)) t.Rows.Add([r.Domain, r.People, r.Active, r.Interactions, r.Licensed, r.Flags, r.Labeled]);
             Panels.Add(new("By home organization", t.Render(), "From the guest's sign-in name. Labeled content: interactions that touched content with a sensitivity label."));
@@ -287,12 +291,15 @@ GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             var kept = Groups.Fold(this, rows, Ctx.MinGroupSize, out var folded);
             var unmatched = rows.FirstOrDefault(r => r.Name == "(no family)")?.People ?? 0;
             Kpis.Add(new("Families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {Count(rules, "rule")}"));
-            Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));
+            /* Counted only when "(no family)" is a row of its own (2.4.12): folded into "Smaller groups", its count here
+               was the one, two or three people the fold kept from view. */
+            if (unmatched == 0 || kept.Any(r => r.Name == "(no family)"))
+                Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));
             if (rules == 0) Notice = "No job family rules yet: everyone is \"(no family)\". An administrator adds them in Admin > Classifications and events, with the titles that need one listed there.";
             Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Licensed people who used Copilot, over people licensed.", "half"));
-            var t = Groups.Table(kept, "Job family");
+            var t = Groups.Table(kept, "Job family", Ctx.MinGroupSize);
             CsvTable = t;
-            Panels.Add(new("Job families", t.Render(), folded > 0 ? $"{folded} family or families smaller than {Ctx.MinGroupSize} people combined." : null, "full", CsvUrl()));
+            Panels.Add(new("Job families", t.Render(), folded > 0 ? FoldNote(folded, "job family", "job families") : null, "full", CsvUrl()));
         }
     }
 }

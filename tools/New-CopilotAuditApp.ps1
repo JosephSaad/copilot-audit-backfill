@@ -8,8 +8,10 @@
     Signs in to Microsoft Graph as you (a Global Administrator or Privileged
     Role Administrator, who can grant admin consent), then:
 
-      1. Finds the app by -DisplayName, or creates it (single tenant, no
-         redirect URI, no secret).
+      1. Finds the app by -ClientId, or by -DisplayName, or creates it (single
+         tenant, no redirect URI, no secret). By name it takes only an app no
+         one else can sign in as: the only one of that name, with no client
+         secret and no owner but you (2.4.12).
       2. Asks for the application permissions AuditLogsQuery.Read.All,
          User.Read.All and LicenseAssignment.Read.All, and nothing else.
       3. Creates its service principal and grants admin consent for each
@@ -27,6 +29,11 @@
 
 .PARAMETER TenantId
     The tenant: its id or a verified domain (contoso.onmicrosoft.com).
+
+.PARAMETER ClientId
+    The app's client id, when it is registered already: the job server setup
+    passes the one in its settings. The app is then found by it alone, whatever
+    its name, owners or credentials.
 
 .PARAMETER CertificatePath
     The public certificate (.cer) to sign in with. tools\Install-CopilotJobServer.ps1
@@ -48,6 +55,7 @@
 param(
     [Parameter(Mandatory)][string] $TenantId,
     [string] $DisplayName = 'Copilot audit pipeline',
+    [string] $ClientId,
     [string] $CertificatePath,
     [string] $SettingsPath,
     [switch] $UseDeviceCode
@@ -114,6 +122,41 @@ function Get-CertificateCredential([string] $Path) {
     finally { $cert.Dispose() }
 }
 
+function Find-AuditApp {
+    <#
+        The app to use, or nothing when it is to be created: by -ClientId when given (the settings' own, on every run
+        after the first), else by -DisplayName. By name, only an app nobody else can sign in as is taken (2.4.12): the
+        only one of that name, with no client secret and no owner but the signed-in administrator. Display names are
+        not unique and any member can register an app by default, so an app someone else had named 'Copilot audit
+        pipeline', with a secret of their own, was given admin consent to the whole tenant's audit log, and became
+        the pipeline's app.
+    #>
+    $select = 'id,appId,displayName,requiredResourceAccess,keyCredentials,passwordCredentials'
+    if ($ClientId) {
+        $app = Get-Single (Invoke-Graph -Uri "/v1.0/applications?`$filter=appId eq '$($ClientId.Replace("'", "''"))'&`$select=$select")
+        if (-not $app) { throw "There is no app registration with client id $ClientId in $TenantId. Check ClientId in the settings, or leave it out to register the app." }
+        Write-Done "found by its client id ($($app.appId))"
+        return $app
+    }
+    $named = @(@((Invoke-Graph -Uri "/v1.0/applications?`$filter=displayName eq '$($DisplayName.Replace("'", "''"))'&`$select=$select").value) | Where-Object { $_ })
+    if ($named.Count -eq 0) { return $null }
+    $app = $named[0]
+    $why = $null
+    if ($named.Count -gt 1) { $why = "$($named.Count) app registrations are named '$DisplayName' (client ids $((@($named | ForEach-Object { $_.appId })) -join ', '))" }
+    else {
+        $secrets = @(if ($app.PSObject.Properties['passwordCredentials']) { $app.passwordCredentials | Where-Object { $_ } })
+        $me = [string] (Invoke-Graph -Uri '/v1.0/me?$select=id').id
+        $others = @(@((Invoke-Graph -Uri "/v1.0/applications/$($app.id)/owners?`$select=id").value) | Where-Object { $_ -and [string] $_.id -ne $me })
+        if ($secrets.Count -gt 0) { $why = "the app named '$DisplayName' (client id $($app.appId)) has a client secret, which this pipeline never uses" }
+        elseif ($others.Count -gt 0) { $why = "the app named '$DisplayName' (client id $($app.appId)) has owners other than you, who can add a secret to it" }
+    }
+    if ($why) {
+        throw "Nothing was changed: $why. If it is the pipeline's app, run this again with -ClientId and its client id; if not, pass -DisplayName to register the pipeline's under another name."
+    }
+    Write-Done "found (client id $($app.appId))"
+    $app
+}
+
 function Set-SettingsValue {
     <# Writes Key = 'value' into a .psd1 settings file, replacing the line if it is there. #>
     param([string] $Path, [string] $Key, [string] $Value)
@@ -135,7 +178,8 @@ function Invoke-Main {
     $cert = if ($CertificatePath) { Get-CertificateCredential $CertificatePath } else { $null }
 
     Write-Step "Signing in to $TenantId (an administrator who can grant admin consent)"
-    $connect = @{ TenantId = $TenantId; Scopes = 'Application.ReadWrite.All', 'AppRoleAssignment.ReadWrite.All'; NoWelcome = $true }
+    # User.Read to know who you are, so an app of that name owned by someone else is not taken (Find-AuditApp).
+    $connect = @{ TenantId = $TenantId; Scopes = 'Application.ReadWrite.All', 'AppRoleAssignment.ReadWrite.All', 'User.Read'; NoWelcome = $true }
     if ($UseDeviceCode) { $connect.UseDeviceCode = $true }
     Connect-MgGraph @connect
     $tenant = (Get-MgContext).TenantId
@@ -147,9 +191,8 @@ function Invoke-Main {
     })
 
     # ---- 1-2. The app and its permissions ---------------------------------------------------
-    Write-Step "App registration '$DisplayName'"
-    $filterName = $DisplayName.Replace("'", "''")
-    $app = Get-Single (Invoke-Graph -Uri "/v1.0/applications?`$filter=displayName eq '$filterName'&`$select=id,appId,requiredResourceAccess,keyCredentials")
+    Write-Step "App registration '$(if ($ClientId) { $ClientId } else { $DisplayName })'"
+    $app = Find-AuditApp
     if (-not $app) {
         if ($PSCmdlet.ShouldProcess($DisplayName, 'Create the app registration')) {
             $app = Invoke-Graph -Method POST -Uri '/v1.0/applications' -Body ([ordered]@{
@@ -158,7 +201,6 @@ function Invoke-Main {
         }
     }
     else {
-        Write-Done "found (client id $($app.appId))"
         $have = @(@($app.requiredResourceAccess) | Where-Object { $_.resourceAppId -eq $script:GraphAppId } |
                   ForEach-Object { @($_.resourceAccess) } | ForEach-Object { [string] $_.id })
         $missing = @($graph.RoleIds.Values | Where-Object { $have -notcontains $_ })

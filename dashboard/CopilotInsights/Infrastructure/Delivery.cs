@@ -16,8 +16,16 @@ public static class Webhook
         var text = lines.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
         if (format == "Json")
             return JsonSerializer.Serialize(new { source = "Copilot Insights", kind, subject, lines = text, link, atUtc = atUtc.ToString("o", CultureInfo.InvariantCulture) });
-        var body = new List<object> { new { type = "TextBlock", text = subject, weight = "Bolder", size = "Medium", wrap = true } };
-        body.AddRange(text.Take(20).Select(l => (object)new { type = "TextBlock", text = l.Length > 1500 ? l[..1500] + "…" : l, wrap = true }));
+        /* Plain text, never Markdown (2.4.12): a TextBlock reads [text](address) as a link, and the lines carry what the
+           alert did not write, such as an agent's name from the audit log, so a maker could put a link in the alert channel.
+           A TextRun shows its text as it is. */
+        static object Text(string s, bool heading = false) => new
+        {
+            type = "RichTextBlock",
+            inlines = new[] { heading ? new { type = "TextRun", text = s, weight = "Bolder", size = "Medium" } : new { type = "TextRun", text = s, weight = "Default", size = "Default" } },
+        };
+        var body = new List<object> { Text(subject, heading: true) };
+        body.AddRange(text.Take(20).Select(l => Text(l.Length > 1500 ? l[..1500] + "…" : l)));
         var card = new Dictionary<string, object>
         {
             ["$schema"] = "http://adaptivecards.io/schemas/adaptive-card.json", ["type"] = "AdaptiveCard", ["version"] = "1.4", ["body"] = body,
@@ -63,27 +71,33 @@ public static class Retry
 /// <summary>The datasets a scheduled extract may write: aggregates only, never a named person.</summary>
 public static class ExtractData
 {
+    /* The four that read Copilot use between dates are planned for their own dates each time (2.4.12),
+       OPTION (RECOMPILE): two extracts of one dataset over 7 and 365 days are the same statement, and shared one plan.
+       They run a few times a day at most, so compiling each costs nothing that matters. */
     public static readonly Dictionary<string, (string Label, string Sql)> Datasets = new()
     {
         ["DepartmentWeek"] = ("Use by department and week (groups under the minimum size hidden)",
-            "SELECT WeekEnding, Department, ActivePeople, Interactions, Sessions FROM bi.DepartmentWeek WHERE Hidden = 0 AND WeekEnding >= @d0 ORDER BY WeekEnding, Department;"),
+            "SELECT WeekEnding, Department, ActivePeople, Interactions, Sessions FROM bi.DepartmentWeek WHERE Hidden = 0 AND WeekEnding >= @d0 ORDER BY WeekEnding, Department OPTION (RECOMPILE);"),
         ["DailyTotals"] = ("People using Copilot and interactions, per day",
             @"SELECT d.[Date], COUNT(DISTINCT CASE WHEN ud.Interactions > 0 THEN ud.UserKey END) AS ActivePeople, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
        SUM(CAST(ud.AgentInteractions AS BIGINT)) AS AgentInteractions, SUM(CAST(ud.WebGrounded AS BIGINT)) AS WebGrounded
-FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey WHERE d.[Date] >= @d0 GROUP BY d.[Date] ORDER BY d.[Date];"),
-        ["AppWeek"] = ("Interactions and people by app and week",
+FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey WHERE d.[Date] >= @d0 GROUP BY d.[Date] ORDER BY d.[Date] OPTION (RECOMPILE);"),
+        ["AppWeek"] = ("Interactions and people by app and week (apps used by fewer than the minimum group size hidden)",
             @"SELECT d.WeekEnding, a.App, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
 FROM bi.FactInteraction AS f JOIN bi.DimApp AS a ON a.AppKey = f.AppKey JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, a.App ORDER BY d.WeekEnding, a.App;"),
+WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, a.App HAVING COUNT(DISTINCT f.UserKey) >= @minGroup ORDER BY d.WeekEnding, a.App OPTION (RECOMPILE);"),
         ["LicensePool"] = ("Licenses bought and assigned, per day",
             "SELECT SnapshotDate, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, Consumed FROM audit.LicenseSkuDay WHERE SnapshotDate >= @d0 ORDER BY SnapshotDate, SkuPartNumber;"),
         ["AgentWeek"] = ("Agent use by week",
             @"SELECT d.WeekEnding, ag.AgentName, ag.AgentSource, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
 FROM bi.FactInteraction AS f JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey AND ag.AgentSource <> N'(no agent)' JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING COUNT(DISTINCT f.UserKey) >= @minGroup ORDER BY d.WeekEnding, ag.AgentName;"),
+WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING COUNT(DISTINCT f.UserKey) >= @minGroup ORDER BY d.WeekEnding, ag.AgentName OPTION (RECOMPILE);"),
     };
 
-    /// <summary>Rows as CSV, with a header, formulas neutralised.</summary>
+    /// <summary>
+    /// Rows as CSV, with a header, formulas neutralised in text. A number is written as a number (2.4.12): the guard
+    /// made a negative figure the text '-5, which a spreadsheet does not add up, and a number cannot hold a formula.
+    /// </summary>
     public static string ToCsv(IEnumerable<IDictionary<string, object?>> rows)
     {
         var sb = new StringBuilder();
@@ -91,12 +105,15 @@ WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING
         foreach (var r in rows)
         {
             if (first) { sb.AppendLine(string.Join(",", r.Keys.Select(Q))); first = false; }
-            sb.AppendLine(string.Join(",", r.Values.Select(v => Q(v switch
+            sb.AppendLine(string.Join(",", r.Values.Select(v => v switch
             {
-                null => "", DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss"),
-                bool b => b ? "1" : "0",
-                _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "",
-            }))));
+                null => Q(""), DateTime d => Q(d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss")),
+                bool b => Q(b ? "1" : "0"),
+                double x when !double.IsFinite(x) => Q(x.ToString(CultureInfo.InvariantCulture)),
+                float x when !float.IsFinite(x) => Q(x.ToString(CultureInfo.InvariantCulture)),
+                sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal => Quote(Convert.ToString(v, CultureInfo.InvariantCulture) ?? ""),
+                _ => Q(Convert.ToString(v, CultureInfo.InvariantCulture) ?? ""),
+            })));
         }
         return sb.ToString();
     }
@@ -104,8 +121,21 @@ WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING
     static string Q(string s)
     {
         if (s.Length > 0 && "=+-@".Contains(s[0])) s = "'" + s;
-        return "\"" + s.Replace("\"", "\"\"") + "\"";
+        return Quote(s);
     }
+
+    static string Quote(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
+
+    /// <summary>A UNC share (\\server\share): the same folder whichever web server writes to it.</summary>
+    public static bool IsShare(string? folder) => folder?.Trim().StartsWith(@"\\", StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// Why a folder on this web server's own disk will not do (2.4.12): other web servers run the checks as well, and each
+    /// round runs on whichever holds the lock, so the files would be split between their disks while the page said each
+    /// was written. Null for a share, or with one web server.
+    /// </summary>
+    public static string? SplitProblem(string folder, int otherServers) => IsShare(folder) || otherServers <= 0 ? null
+        : $@"the folder is on this web server's own disk, and {otherServers} other web server(s) run the checks as well, so the files would be split between them: use a share (\\server\share\folder).";
 
     /// <summary>A folder the extracts may write to: a local path or a UNC share, never a device or a relative path.</summary>
     public static string? FolderProblem(string? folder)
@@ -129,20 +159,27 @@ public sealed partial class Notifier
     {
         /* ---- Webhook -------------------------------------------------------------------------- */
 
-        async Task WebhookAsync(string kind, string subject, IReadOnlyList<string> lines, string? link)
+        /// <summary>
+        /// Posts the alert to the webhook at <paramref name="url"/>, if one is set. True when it was delivered. It throws
+        /// nothing (2.4.12): it runs after the alert's email has gone, and an exception would have the alert sent again.
+        /// </summary>
+        async Task<bool> WebhookAsync(string? url, string format, string kind, string subject, IReadOnlyList<string> lines, string? link)
         {
-            var url = await sp.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
-            if (url is null || Webhook.Problem(url) is not null) return;
-            var format = await _settings.StringAsync("AlertWebhookFormat") is "Json" ? "Json" : "Teams";
+            if (url is null || Webhook.Problem(url) is not null) return false;
             string status = "Sent";
             string? error = null;
             /* An alert should not wait an hour: three tries on the spot, 5 and 20 seconds apart. */
             var payload = Webhook.Payload(format, kind, subject, lines, link, DateTime.UtcNow);
             using var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient();
             http.Timeout = TimeSpan.FromSeconds(20);
+            const string Stopped = "The site stopped before the webhook took it.";
             foreach (var wait in new[] { 0, 5, 20 })
             {
-                if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait), ct);
+                /* A stop ends the tries, as a post that failed (2.4.12): the exception it threw had the next start send the
+                   whole alert again. */
+                if (wait > 0)
+                    try { await Task.Delay(TimeSpan.FromSeconds(wait), ct); }
+                    catch (OperationCanceledException) { status = "Failed"; error = Stopped; break; }
                 try
                 {
                     using var body = new StringContent(payload, Encoding.UTF8, "application/json");
@@ -151,11 +188,19 @@ public sealed partial class Notifier
                     status = "Failed"; error = $"HTTP {(int)r.StatusCode} {r.ReasonPhrase}";
                     if ((int)r.StatusCode is >= 400 and < 500 and not 408 and not 429) break;   // the address or payload is wrong: trying again will not help
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = "Failed"; error = ex.Message; }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { status = "Failed"; error = Stopped; break; }
+                catch (Exception ex) { status = "Failed"; error = ex.Message; }
             }
-            await _db.ExecuteAsync("INSERT INTO dash.NotificationLog (Kind, Subject, Recipients, Status, Error) VALUES (@kind, @subject, N'webhook', @status, @error);",
-                new { kind = "Webhook", subject = subject.Length > 400 ? subject[..400] : subject, status, error = error is { Length: > 1000 } ? error[..1000] : error });
+            /* Logged as the email is (2.4.12): a log that cannot be written costs the log line, not the alert. Before, it threw
+               after the email and the card had gone, and the alert was sent again every five minutes. */
+            try
+            {
+                await _db.ExecuteAsync("INSERT INTO dash.NotificationLog (Kind, Subject, Recipients, Status, Error) VALUES (@kind, @subject, N'webhook', @status, @error);",
+                    new { kind = "Webhook", subject = subject.Length > 400 ? subject[..400] : subject, status, error = error is { Length: > 1000 } ? error[..1000] : error });
+            }
+            catch (Exception ex) { _log.LogError(ex, "Could not write dash.NotificationLog"); }
             if (error is not null) done.Add($"Webhook not delivered ({error}): {subject}");
+            return error is null;
         }
 
         /* ---- The app certificate ----------------------------------------------------------------- */
@@ -171,12 +216,12 @@ public sealed partial class Notifier
             var step = CertificateWarning.Step(left, warn);
             if (step is null) return;
             var key = $"{cert.Thumbprint}|{step}";
-            if (await StateAsync("certificate") == key) return;
+            var seen = await StateAsync("certificate");
+            if (seen == key) return;
             var subject = left <= 0 ? "The Copilot pipeline's certificate has expired" : $"The Copilot pipeline's certificate expires in {Math.Ceiling(left):0} day(s)";
-            await AlertAsync("Certificate", "AlertAdminTo", subject,
+            await RaiseAsync("certificate", seen, key, "Certificate", "AlertAdminTo", subject,
                 [$"The app certificate {cert.Subject} ({cert.Thumbprint}) that the job server signs in to Microsoft Graph with expires {cert.ExpiresUtc:yyyy-MM-dd HH:mm} UTC. When it does, the nightly load stops.",
                  "Renew it: run tools\\Install-CopilotJobServer.ps1 -RegisterApp on the job server as an administrator (a new certificate, uploaded to the app, its thumbprint in the settings). The operations guide has the steps."], "/admin/health");
-            await SetStateAsync("certificate", key);
         }
 
         /* ---- Manager digests ------------------------------------------------------------------ */
@@ -202,20 +247,44 @@ public sealed partial class Notifier
         internal const string Due = @"NOT EXISTS (SELECT 1 FROM dash.DigestSend AS s WHERE s.Upn = {0} AND s.Kind = @kind AND s.PeriodKey = @period
                    AND NOT (s.Status IN ('Fail1', 'Fail2') AND s.SentUtc < DATEADD(HOUR, -1, SYSUTCDATETIME())))";
 
-        /// <summary>Claims a send for a person and period; false when it was sent, is being sent, or has failed three times.</summary>
-        async Task<bool> ClaimAsync(string upn, string kind, string period) =>
-            await _db.ExecuteAsync(@"
+        /// <summary>
+        /// Claims a send for a person and period; false when it was sent, is being sent, or has failed three times. Two web
+        /// servers claiming the same one at once (2.4.12): the second waits on the first's key range and finds it taken, where
+        /// it used to hit the primary key and stop the round.
+        /// </summary>
+        async Task<bool> ClaimAsync(string upn, string kind, string period)
+        {
+            try
+            {
+                return await _db.ExecuteAsync(@"
 UPDATE dash.DigestSend SET Status = CASE Status WHEN 'Fail1' THEN 'Sending2' ELSE 'Sending3' END, SentUtc = SYSUTCDATETIME()
 WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period AND Status IN ('Fail1', 'Fail2') AND SentUtc < DATEADD(HOUR, -1, SYSUTCDATETIME());
 IF @@ROWCOUNT = 0
     INSERT INTO dash.DigestSend (Upn, Kind, PeriodKey, Status)
-    SELECT @upn, @kind, @period, 'Sending1' WHERE NOT EXISTS (SELECT 1 FROM dash.DigestSend WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period);",
-                new { upn, kind, period }) == 1;
+    SELECT @upn, @kind, @period, 'Sending1' WHERE NOT EXISTS (SELECT 1 FROM dash.DigestSend WITH (UPDLOCK, HOLDLOCK) WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period);",
+                    new { upn, kind, period }) == 1;
+            }
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number is 2627 or 2601) { return false; }
+        }
 
-        /// <summary>Sent, or the try's failure (Sending2 becomes Fail2; Fail3 is final).</summary>
-        Task MarkAsync(string upn, string kind, string period, bool sent) =>
-            _db.ExecuteAsync(@"UPDATE dash.DigestSend SET Status = CASE WHEN @sent = 1 THEN 'Sent' ELSE REPLACE(Status, 'Sending', 'Fail') END, SentUtc = SYSUTCDATETIME()
-WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, period, sent });
+        /// <summary>
+        /// Gives a claim back when the send was stopped before the email went (2.4.12): a first try is removed, a later one
+        /// goes back to its failure, due again at once. Before, the claim stayed "Sending" for good, and that manager never
+        /// got that period's digest, with nothing to say so.
+        /// </summary>
+        Task ReleaseAsync(string upn, string kind, string period) =>
+            _db.ExecuteAsync(@"
+DELETE FROM dash.DigestSend WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period AND Status = 'Sending1';
+UPDATE dash.DigestSend SET Status = CASE Status WHEN 'Sending2' THEN 'Fail1' ELSE 'Fail2' END, SentUtc = DATEADD(HOUR, -1, SYSUTCDATETIME())
+WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period AND Status IN ('Sending2', 'Sending3');", new { upn, kind, period });
+
+        /// <summary>
+        /// Sent, or the try's failure (Sending2 becomes Fail2; Fail3 is final). A settled send that is not "Sent" gives its
+        /// own status: "Skipped" for a refused digest (2.4.12), which is not tried again for the period.
+        /// </summary>
+        Task MarkAsync(string upn, string kind, string period, bool sent, string? settled = null) =>
+            _db.ExecuteAsync(@"UPDATE dash.DigestSend SET Status = CASE WHEN @sent = 1 THEN ISNULL(@settled, 'Sent') ELSE REPLACE(Status, 'Sending', 'Fail') END, SentUtc = SYSUTCDATETIME()
+WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, period, sent, settled });
 
         public async Task ManagerDigestsAsync()
         {
@@ -226,6 +295,10 @@ WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, pe
             var min = await _settings.IntAsync("ManagerDigestMinPeople", 10);
             /* Only managers who may open the dashboard (2.4.4): its figures go no further than its pages do. */
             var max = Math.Clamp(await _settings.IntAsync("MaxViewerLevel", 0), 0, 15);
+            /* Only managers whose part reaches the minimum group size in enabled people (2.4.12), the rule a report on a
+               part is held to (see ReportContextFactory): the digest of a smaller part is refused, and each was claimed,
+               failed and tried three times, and counted as "not sent". */
+            var minGroup = await _settings.IntAsync("MinGroupSize", 5);
             var managers = await _db.QueryAsync<(string Upn, string? Mail)>(@"
 SELECT TOP (@take) p.Upn, NULLIF(ud.Mail, N'')
 FROM dash.Person AS p
@@ -234,23 +307,33 @@ LEFT JOIN dash.DigestPreference AS pref ON pref.Upn = p.Upn
 WHERE p.AccountEnabled = 1 AND p.PeopleBelow >= @min AND ISNULL(pref.ManagerDigestOptOut, 0) = 0
   AND (@max = 0 OR p.Level BETWEEN 1 AND @max)
   AND " + string.Format(Due, "p.Upn") + @"
-ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, period = round.Period, kind = "Manager" });
-            int sent = 0, failed = 0;
+  AND " + ReportContextFactory.EnabledInPartSql("p.Upn") + @" >= @minGroup
+ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup, period = round.Period, kind = "Manager" });
+            int sent = 0, failed = 0, skipped = 0;
             foreach (var m in managers)
             {
+                ct.ThrowIfCancellationRequested();   // no new claim once the site is stopping
                 if (!await ClaimAsync(m.Upn, "Manager", round.Period)) continue;
                 string status;
                 try
                 {
                     var (subject, html, text) = await _reports.DigestAsync("Leadership", freq == "Weekly" ? 7 : 30, m.Upn);
+                    ct.ThrowIfCancellationRequested();
                     var error = await _mail.SendAsync("ManagerDigest", MailConfig.Recipients(m.Mail ?? m.Upn), subject, html, text, ct);
                     status = error is null ? "Sent" : "NotSent";
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) { _log.LogWarning(ex, "Manager digest for {Upn}", m.Upn); status = "Failed"; }
-                await MarkAsync(m.Upn, "Manager", round.Period, status == "Sent");
-                if (status == "Sent") sent++; else failed++;
+                /* Stopped before the email went: Mailer sends nothing it was stopped during, so the claim is given back. */
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { await ReleaseAsync(m.Upn, "Manager", round.Period); throw; }
+                /* Refused (2.4.12: the part changed since the query, or privacy mode came on): settled for this period, not
+                   a failure to try again and report. */
+                catch (DigestRefused ex) { _log.LogInformation("Manager digest for {Upn} not sent: {Reason}", m.Upn, ex.Message); status = "Skipped"; }
+                catch (Exception ex) { _log.LogWarning(ex, "Manager digest for {Upn}", m.Upn); status = "Failed"; }
+                await MarkAsync(m.Upn, "Manager", round.Period, status is "Sent" or "Skipped", status == "Skipped" ? "Skipped" : null);
+                if (status == "Sent") sent++; else if (status == "Skipped") skipped++; else failed++;
             }
-            if (sent + failed > 0) done.Add($"Manager digests for {round.Period}: {sent} sent" + (failed > 0 ? $", {failed} not sent (see Admin > Email)" : "") + ".");
+            if (sent + failed + skipped > 0)
+                done.Add($"Manager digests for {round.Period}: {sent} sent" + (failed > 0 ? $", {failed} not sent (see Admin > Email)" : "") +
+                         (skipped > 0 ? $", {skipped} skipped (the part of the organization is under the minimum group size, or privacy mode is on)" : "") + ".");
         }
 
         /* ---- Scheduled extracts ------------------------------------------------------------------ */
@@ -282,6 +365,17 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, period = 
                 done.Add($"Extract \"{x.Name}\": " + await WriteExtractAsync(x.ExtractId));
         }
 
+        /// <summary>
+        /// Records that this web server ran a round (2.4.12), as server:{name} in dash.AlertState, so an extract to a folder on
+        /// one server's own disk can tell whether others run the checks too.
+        /// </summary>
+        public Task HereAsync() => SetStateAsync("server:" + Environment.MachineName, null);
+
+        /// <summary>The other web servers that ran a round in the last day.</summary>
+        Task<int> OtherServersAsync() => _db.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey LIKE N'server:%' AND AlertKey <> @me AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());",
+            new { me = "server:" + Environment.MachineName });
+
         /// <summary>Writes one extract now and records the result. Also used by Admin > Scheduled extracts' Run now.</summary>
         public async Task<string> WriteExtractAsync(int id)
         {
@@ -293,6 +387,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, period = 
             {
                 if (!ExtractData.Datasets.TryGetValue(x.Dataset, out var ds)) throw new InvalidOperationException($"unknown dataset {x.Dataset}.");
                 if (ExtractData.FolderProblem(x.Folder) is { } bad) throw new InvalidOperationException(bad);
+                if (ExtractData.SplitProblem(x.Folder, await OtherServersAsync()) is { } split) throw new InvalidOperationException(split);
                 /* Days and the file's date in the reporting time zone, as everywhere else. Every dataset is an aggregate, so privacy mode changes nothing. */
                 var today = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, await _ops.ZoneAsync()).Date;
                 await using var conn = _db.Open();
@@ -300,7 +395,8 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, period = 
                     .Cast<IDictionary<string, object?>>().ToList();
                 var file = Path.Combine(x.Folder.Trim(), ExtractData.FileName(x.Name, today));
                 await File.WriteAllTextAsync(file, ExtractData.ToCsv(data), new UTF8Encoding(true), ct);
-                status = $"{data.Count:#,0} rows to {file}";
+                /* Which web server's disk, for a local folder (2.4.12): the status said only the path. */
+                status = $"{data.Count:#,0} rows to {file}" + (ExtractData.IsShare(x.Folder) ? "" : $" on {Environment.MachineName}");
                 ok = true;
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = "Failed: " + ex.Message; }

@@ -1,4 +1,4 @@
-/// Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organization role.
+/// Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organization role, which shows each viewer only their own rows.
 table OrgSecurity
 	lineageTag: d543112f-5c18-561f-bddd-31401ab3c093
 	isHidden
@@ -17,6 +17,14 @@ table OrgSecurity
 		lineageTag: 4aef8c20-e544-5605-bc82-6e0e263b098d
 		summarizeBy: none
 		sourceColumn: UserKey
+
+	/// True when the viewer sees the whole organization: the top two levels, and anyone granted Organization.
+	column WholeOrganization
+		dataType: boolean
+		isHidden
+		lineageTag: 1e00f3c5-a731-58e7-8cc4-965712218da4
+		summarizeBy: none
+		sourceColumn: WholeOrganization
 
 	partition OrgSecurity = m
 		mode: import

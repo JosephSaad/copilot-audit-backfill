@@ -182,15 +182,19 @@ function Get-GroupMemberUpn {
         The UPNs of every user in an AD group, nested groups included (the in-chain matching
         rule). The group is DOMAIN\Name as the dashboard grants it; it is looked up by its
         account name in the target domain. Returns $null when there is no such group.
+        A person granted by DOMAIN\name is one too (2.4.12): their own UPN, which Power BI's
+        row-level security knows them by (bi.OrgSecurity), as the dashboard knows them by
+        their sign-in.
     #>
     param([Parameter(Mandatory)][string] $Domain, [Parameter(Mandatory)][string] $Group)
     $name = if ($Group.Contains('\')) { $Group.Substring($Group.IndexOf('\') + 1) } else { $Group }
     $base = ([ADSI]"LDAP://$Domain/RootDSE").defaultNamingContext
     $find = [System.DirectoryServices.DirectorySearcher]::new([ADSI]"LDAP://$Domain/$base",
-        "(&(objectCategory=group)(sAMAccountName=$(ConvertTo-LdapFilterValue $name)))")
-    [void] $find.PropertiesToLoad.Add('distinguishedName')
+        "(&(|(objectCategory=group)(&(objectCategory=person)(objectClass=user)))(sAMAccountName=$(ConvertTo-LdapFilterValue $name)))")
+    foreach ($p in 'distinguishedName', 'objectClass', 'userPrincipalName') { [void] $find.PropertiesToLoad.Add($p) }
     $g = $find.FindOne()
     if (-not $g) { return $null }
+    if (@($g.Properties['objectclass']) -notcontains 'group') { return , [string[]] @($g.Properties['userprincipalname'] | ForEach-Object { [string] $_ }) }
     $dn = [string] $g.Properties['distinguishedname'][0]
     $members = [System.DirectoryServices.DirectorySearcher]::new([ADSI]"LDAP://$Domain/$base",
         "(&(objectCategory=person)(objectClass=user)(memberOf:1.2.840.113556.1.4.1941:=$(ConvertTo-LdapFilterValue $dn)))")
@@ -235,6 +239,8 @@ function ConvertTo-UserDirectoryTable {
         is not loaded. Someone with no UPN cannot have used Copilot and is left
         out of the chain too (2.4.1): a person whose manager has no UPN reports
         to the nearest manager above who has one, so the org chart stays joined.
+        OrgDepth still counts that manager (2.4.12), so the person keeps their
+        real level.
     #>
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Entries,
@@ -296,11 +302,15 @@ function ConvertTo-UserDirectoryTable {
 
         # The chain, walked up from the direct manager and reversed so the top
         # comes first. $seen stops a loop in the manager attributes.
-        $chain.Clear(); $seen.Clear()
+        # OrgDepth counts every manager above, those without a UPN too (2.4.12): it counted only the chain's, so a
+        # person under a manager without a UPN looked a level higher than they are, and the dashboard takes levels
+        # from that depth, where level 2 sees the whole organization.
+        $chain.Clear(); $seen.Clear(); $depth = 0
         $cur = $u.mgr
-        while ($cur -and $seen.Add($cur) -and $chain.Count -lt 100) {
+        while ($cur -and $seen.Add($cur) -and $depth -lt 100) {
             $node = $null
             if (-not $byDn.TryGetValue($cur, [ref] $node)) { break }
+            $depth++
             if (& $hasUpn $node) { $chain.Add($node.disp) }   # no UPN: not in the org chart
             $cur = $node.mgr
         }
@@ -324,7 +334,7 @@ function ConvertTo-UserDirectoryTable {
         $row['Company']           = NZ $u.company
         $row['ManagerUPN']        = NZ $(if ($m) { $m.upn })
         $row['ManagerName']       = NZ $(if ($m) { $m.disp })
-        $row['OrgDepth']          = [byte] [math]::Min($chain.Count, 255)
+        $row['OrgDepth']          = [byte] [math]::Min($depth, 255)
         for ($i = 0; $i -lt $MaxLevels -and $i -lt $chain.Count; $i++) { $row["Mgr$($i + 1)"] = NZ $chain[$i] }
         $dt.Rows.Add($row)
     }
@@ -407,7 +417,9 @@ function Get-OrganizationGroup {
     <#
         The AD groups whose members the dashboard needs, if it is installed: those granted Organization (for
         Power BI's row-level security), and those an administrator listed as marking non-human accounts (2.4.5,
-        the NonHumanGroups setting, separated by commas, semicolons or lines).
+        the NonHumanGroups setting, separated by commas, semicolons or lines). An Organization grant by
+        DOMAIN\name is read whatever type it was recorded with (2.4.12), as the dashboard matches it: a group
+        recorded as a user, and a person, whom Get-GroupMemberUpn gives by their UPN.
     #>
     param([Parameter(Mandatory)][string] $ConnString)
     $conn = [System.Data.SqlClient.SqlConnection]::new($ConnString)
@@ -416,7 +428,7 @@ function Get-OrganizationGroup {
         $cmd = $conn.CreateCommand()
         $cmd.CommandText = @'
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NOT NULL
-    EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE PrincipalType = ''Group'' AND Role = ''Organization''
+    EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE Role = ''Organization'' AND (PrincipalType = ''Group'' OR Principal LIKE N''%\%'')
             UNION SELECT LTRIM(RTRIM(g.value)) FROM dash.Setting AS s
             CROSS APPLY STRING_SPLIT(REPLACE(REPLACE(ISNULL(s.Value, N''''), N'';'', N'',''), CHAR(10), N'',''), N'','') AS g
             WHERE s.Name = N''NonHumanGroups'' AND LTRIM(RTRIM(g.value)) <> N'''';');
@@ -517,7 +529,7 @@ function Invoke-Main {
     [string[]] $groups = Get-OrganizationGroup -ConnString $connStr
     $expanded = @(foreach ($g in $groups) {
         $members = Get-GroupMemberUpn -Domain $TargetDomain -Group $g
-        if ($null -eq $members) { Write-Log "Group $g, granted Organization or listed as marking non-human accounts, is not in ${TargetDomain}: its members are not recorded." -Level WARN; continue }
+        if ($null -eq $members) { Write-Log "$g, granted Organization or listed as marking non-human accounts, is not a group or person in ${TargetDomain}: its members are not recorded." -Level WARN; continue }
         [pscustomobject]@{ Group = $g; Members = $members }
     })
     $gm = Write-GroupMember -ConnString $connStr -Table (ConvertTo-GroupMemberTable -Groups $expanded)

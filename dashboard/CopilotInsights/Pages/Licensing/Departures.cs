@@ -111,15 +111,16 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         var choices = string.Join(" · ", Aheads.Select(a =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"ahead={a}"))}\"{(a == ahead ? " class=\"on\"" : "")}>Next {a} days</a>"));
         var exports = past == 0 ? "" :
-            $"<p class=\"sub\">Past their date: <a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "handler=bulk"))}\">Entra bulk remove members file</a> · " +
-            $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "handler=script"))}\">PowerShell script</a>, recorded for License action outcomes.</p>";
+            $"<div class=\"sub\">Past their date: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk remove members file")} · " +
+            $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {choices}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "Leaves: the earlier of the account expiry set in AD (read by each directory load) and the leave date in Entra (read by the license tool with -IncludeLeaveDates). " +
             "Only accounts still enabled: disabled and deleted ones are on Licenses on disabled accounts. The files carry the people past their date only.", "full", CsvUrl()));
     }
 
-    public Task<IActionResult> OnGetBulkAsync() => ExportAsync(false);
-    public Task<IActionResult> OnGetScriptAsync() => ExportAsync(true);
+    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
+    public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 
     async Task<IActionResult> ExportAsync(bool script)
     {
@@ -134,6 +135,6 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         await CopilotInsights.Data.LicenseActions.RecordAsync(Db, "leaver", upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"departures past their date {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-departures-{DateTime.UtcNow:yyyyMMdd}";
-        return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 }

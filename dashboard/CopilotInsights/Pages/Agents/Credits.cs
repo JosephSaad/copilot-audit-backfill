@@ -34,8 +34,6 @@ public sealed class CreditsModel(PageServices s) : InsightsPage(s)
         public long U { get; set; }
         public int People { get; set; }
         public int UPeople { get; set; }
-        public int Charging { get; set; }
-        public long AllU { get; set; }
         public int TotalRows { get; set; }
     }
 
@@ -45,13 +43,15 @@ public sealed class CreditsModel(PageServices s) : InsightsPage(s)
         var price = Dec(await S.Settings.StringAsync("LicenseMonthlyCost"), 30m);
         var rate = Dec(await S.Settings.StringAsync("PaygInteractionCost"), 0.12m);
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
-        var days = (Ctx.End - Ctx.Start).Days + 1;
+        /* A month is scaled from the days the data covers, not the period's (2.4.12, see OpsReports.DaysCovered). */
+        var days = CopilotInsights.Data.OpsReports.DaysCovered(Ctx, await CopilotInsights.Data.OpsReports.FirstDayAsync(Db));
         decimal Monthly(long n) => n * rate * 30m / days;
 
         var pg = new Paging(Request, Sorts, "credits");
         /* One row per agent, person and whether they were licensed at the time, then counted: the distinct people come
-           from a few hundred thousand rows rather than the fact's millions. */
-        var rows = await Db.QueryAsync<Row>($@"
+           from a few hundred thousand rows rather than the fact's millions. The figures above the list are every agent's,
+           read on their own (2.4.12): taken from the page's first row, they were 0 when a search matched no agent. */
+        var (rows, all) = await Db.QueryTwoAsync<Row, (int Charging, long AllU)>($@"
 WITH g AS (SELECT f.AgentKey, f.UserKey, CAST(CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END AS BIT) AS Lic, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1
@@ -59,17 +59,19 @@ WITH g AS (SELECT f.AgentKey, f.UserKey, CAST(CASE WHEN f.LicenseStatusKey = 1 T
 a AS (SELECT g.AgentKey, SUM(g.N) AS I, SUM(CASE WHEN g.Lic = 0 THEN g.N ELSE 0 END) AS U,
              COUNT(DISTINCT g.UserKey) AS People, COUNT(DISTINCT CASE WHEN g.Lic = 0 THEN g.UserKey END) AS UPeople
       FROM g GROUP BY g.AgentKey),
-x AS (SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, a.I, a.U, a.People, a.UPeople,
-             COUNT(CASE WHEN a.U > 0 THEN 1 END) OVER () AS Charging, SUM(a.U) OVER () AS AllU
+x AS (SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, a.I, a.U, a.People, a.UPeople
       FROM a JOIN dash.Agent AS ag ON ag.AgentKey = a.AgentKey
       WHERE ag.AgentSource <> N'(no agent)')
-SELECT x.*, COUNT(*) OVER () AS TotalRows FROM x
+SELECT x.* INTO #x FROM x;
+SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x
 WHERE (@q IS NULL OR x.AgentName LIKE @q OR x.Owner LIKE @q)
-{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }), timeout: 300);
+{pg.OrderAndPage()};
+SELECT COUNT(CASE WHEN x.U > 0 THEN 1 END), ISNULL(SUM(x.U), 0) FROM #x AS x;", Ctx.Args(new { q = pg.Like }), timeout: 300);
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
+        var (charging, allU) = all.Single();
 
-        Kpis.Add(new("Agents charging credits", Num(rows.FirstOrDefault()?.Charging ?? 0), "used by people without a license"));
-        Kpis.Add(new($"Credits a month ({cur})", Num((long)Monthly(rows.FirstOrDefault()?.AllU ?? 0)), $"at {rate:#,0.00##} {cur} an interaction"));
+        Kpis.Add(new("Agents charging credits", Num(charging), "used by people without a license"));
+        Kpis.Add(new($"Credits a month ({cur})", Num((long)Monthly(allU)), $"at {rate:#,0.00##} {cur} an interaction"));
 
         var t = new Table
         {
@@ -83,17 +85,19 @@ WHERE (@q IS NULL OR x.AgentName LIKE @q OR x.Owner LIKE @q)
         {
             var credits = Monthly(r.U);
             var each = r.UPeople > 0 ? credits / r.UPeople : 0m;
+            /* An agent's people are a group: shown at the minimum group size or more (2.4.12), with what they would reveal. */
+            var few = r.UPeople > 0 && AtLeastMin(r.UPeople) is null;
             var suggestion = r.U == 0 ? "No credits: its users hold licenses"
                 : each >= price ? "Its users each cost more than a license: see Licensing › Better with a license"
                 : r.UPeople < Ctx.MinGroupSize && credits >= price ? "Few users, a license's worth of credits or more: restrict or retire"
                 : "";
             var name = new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}"))}\">{WebUtility.HtmlEncode(r.AgentName)}</a>");
-            t.Rows.Add([name, r.AgentSource, r.Owner, r.I, r.U, r.People, r.UPeople, Math.Round(credits, 2), Math.Round(each, 2), suggestion]);
+            t.Rows.Add([name, r.AgentSource, r.Owner, r.I, r.U, r.People == 0 ? 0 : AtLeastMin(r.People), r.UPeople == 0 ? 0 : AtLeastMin(r.UPeople), Math.Round(credits, 2), few ? null : Math.Round(each, 2), suggestion]);
         }
         CsvTable = t;
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Without a license: interactions by people who held no Copilot license at the time; pay-as-you-go charges for these in Copilot Credits. Credits a month: those interactions, " +
             $"scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access). An agent grounded only in public data is not charged, so this errs high. " +
-            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}.", "full", CsvUrl()));
+            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent.", "full", CsvUrl()));
     }
 }

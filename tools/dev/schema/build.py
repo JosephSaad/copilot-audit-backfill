@@ -155,7 +155,7 @@ AREAS = [
         ('bi.OrgSecurity', 'Who may see whom (2.3.0): each viewer\'s sign-in with the user key of everyone at or under them, and everyone for the top of the organization, the people reporting to them and people granted Organization. The Power BI model\'s Organization role filters Users by it. Empty in privacy mode.'),
         ('bi.ValueNames', 'Each cataloged value with the name an administrator gave it (2.3.0), from audit.ValueCatalog and dash.ValueName.'),
         ('bi.LicensePool', 'Seats bought, assigned and available per SKU per day (2.3.0), from audit.LicenseSkuDay.'),
-        ('bi.DepartmentWeek', 'Active people, interactions and sessions by department and week (2.3.0), with every figure of a department under the minimum group size blank: for a model that must not show individuals.'),
+        ('bi.DepartmentWeek', 'Active people, interactions and sessions by department and week (2.3.0), for a model that must not show individuals. From 2.4.12 every department has a row for every week of the data, used or not; departments with fewer enabled people than the minimum group size are combined as (smaller departments), and a week with fewer active people than the minimum is blank.'),
         ('bi.UseCases', 'Every combination of app, web search and agent (UseCaseKey = AppKey x 4 + web x 2 + agent) with the use case the rules in dash.UseCaseRule give it (2.3.0). bi.Interactions.UseCaseKey points here.'),
         ('bi.JobFamilies', 'Each person\'s job family from the rules in dash.JobFamilyRule (2.3.0); (no family) when none matches.'),
         ('bi.EventMarkers', 'The events marked on the dashboard\'s trends (2.3.0), with their day key.'),

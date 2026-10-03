@@ -13,6 +13,8 @@ namespace CopilotInsights.Infrastructure;
 public sealed class Paging
 {
     public const int PageSize = 50;
+    /// <summary>The highest page asked for that is taken as asked: its offset, and its last row, fit an int.</summary>
+    public const int MaxPage = int.MaxValue / PageSize;
     public int Page { get; }
     public string? Search { get; }
     public string SortKey { get; }
@@ -25,7 +27,9 @@ public sealed class Paging
     public Paging(HttpRequest request, IReadOnlyDictionary<string, string> sorts, string defaultSort)
     {
         _sorts = sorts;
-        Page = int.TryParse(request.Query["p"], out var p) && p > 0 ? p : 1;
+        /* No further than the last page an offset can name (2.4.12): from p=42949674 on, (p - 1) * 50 overflowed into a
+           negative OFFSET written into the SQL, which SQL Server refused, and every list answered 500 unaudited. */
+        Page = int.TryParse(request.Query["p"], out var p) && p > 0 ? Math.Min(p, MaxPage) : 1;
         var q = request.Query["q"].FirstOrDefault()?.Trim();
         Search = string.IsNullOrEmpty(q) ? null : q.Length > 100 ? q[..100] : q;
         var s = request.Query["s"].FirstOrDefault();
@@ -93,10 +97,13 @@ public sealed class Paging
         /* Sorted by a column header the list offers no choice for, or reversed: say so, and keep it on a new search. */
         if (Reversed || !sortLabels.ContainsKey(SortKey))
             sorts = $"<option value=\"{(Reversed ? "-" : "")}{SortKey}\" selected>{WebUtility.HtmlEncode((sortLabels.GetValueOrDefault(SortKey) ?? "By the column chosen") + (Reversed ? ", reversed" : ""))}</option>" + sorts;
-        var first = Total == 0 ? 0 : (Page - 1) * PageSize + 1;
-        var last = Math.Min(Total, Page * PageSize);
+        /* A page past the end (a stale link, a list that shrank) shows none of the rows, and Previous goes to the last page
+           (2.4.12): it read "4,999,951–10,568 of 10,568", and Previous went one page back, still past the end. */
+        var past = Page > Pages;
+        var first = Total == 0 || past ? 0 : (Page - 1) * PageSize + 1;
+        var last = past ? 0 : Math.Min(Total, Page * PageSize);
         var nav = $"<span class=\"muted\">{first:#,0}–{last:#,0} of {Total:#,0}</span>" +
-                  (Page > 1 ? $" <a href=\"{WebUtility.HtmlEncode(Link(Page - 1))}\">‹ Previous</a>" : "") +
+                  (Page > 1 ? $" <a href=\"{WebUtility.HtmlEncode(Link(Math.Min(Page - 1, Pages)))}\">‹ Previous</a>" : "") +
                   (Page < Pages ? $" <a href=\"{WebUtility.HtmlEncode(Link(Page + 1))}\">Next ›</a>" : "");
         return new($"<form class=\"pager\" method=\"get\">{hidden}" +
                    $"<input type=\"search\" name=\"q\" value=\"{WebUtility.HtmlEncode(Search ?? "")}\" placeholder=\"Search name, sign-in or department\" aria-label=\"Search\"/>" +

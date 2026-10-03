@@ -2,6 +2,20 @@
 table Interactions
 	lineageTag: 5daf90a4-c932-5bb6-b453-d109362802a3
 
+	refreshPolicy
+		policyType: basic
+		rollingWindowGranularity: year
+		rollingWindowPeriods: 2
+		incrementalGranularity: day
+		incrementalPeriods: 4
+		sourceExpression =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "Interactions"]}[Data],
+				    Filtered = Table.SelectRows(Data, each [ActivityHour] >= RangeStart and [ActivityHour] < RangeEnd)
+				in
+				    Filtered
+
 	/// Number of Copilot interactions (prompt and response pairs).
 	measure Interactions = COUNTROWS ( Interactions )
 		formatString: #,0
@@ -19,9 +33,8 @@ table Interactions
 
 	/// People who used Copilot with a license in the period and still hold one at its end: always part of Licensed users, so adoption cannot pass 100% when licenses are removed mid-period (the dashboard's rule).
 	measure 'Active licensed users' =
-			VAR HeldAtEnd =
-			    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
-			        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+			VAR EndDate = [Period end]
+			VAR HeldAtEnd = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ), Calendar[Date] = EndDate )
 			RETURN
 			    CALCULATE ( [Active users], LicenseStatuses[LicenseStatus] = "Licensed",
 			        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )

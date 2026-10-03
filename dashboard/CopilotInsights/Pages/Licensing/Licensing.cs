@@ -60,7 +60,7 @@ WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SK
             Chart.Bars(units.Take(20).Select(u => new Bar(u.Name, u.Licensed - u.ActiveLicensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
                 $"{u.Licensed - u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed", 2)).ToList(), Fmt.Count, "Idle licenses by unit"),
             "Licenses held today by people who did not use Copilot in the period, for each part of the organization one level below." +
-            (folded > 0 ? $" {Count(folded, "unit")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : ""), "half"));
+            (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
     }
 }
 
@@ -201,7 +201,7 @@ GROUP BY l.LicenseType;", Ctx.Args());
             Chart.Bars(recorded.OrderByDescending(r => r.N).Select(r => new Bar(r.LicenseType, r.People, Note: $"{r.N:#,0} interactions", Slot: r.LicenseType == "Premium" ? 1 : 2)).ToList(), Fmt.Count, "People by recorded license type"),
             "People by the license type Copilot itself wrote into each of their records: Premium, or Starter for the free Copilot Chat. It is Copilot's own view at the moment of use, beside the license history. A person can appear under more than one.", "half"));
 
-        if (!Viewer.Has(Roles.Licensing)) return;   // the named list is for the Licensing role only
+        if (!Viewer.Has(Roles.Licensing) || PrivacyMode) return;   // the named list is for the Licensing role only, and never in privacy mode
         var pg = new Paging(Request, Sorts, "days");
         var rows = await Db.QueryAsync<Row>($@"
 WITH {Unlicensed}

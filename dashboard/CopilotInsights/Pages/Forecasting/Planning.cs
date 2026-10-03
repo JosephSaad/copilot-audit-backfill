@@ -43,10 +43,12 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
-        var whole = await S.Contexts.CreateAsync(Viewer, 30, null);
+        /* Every term the tenant's (2.4.12, see OpsReports.Tenant): for a viewer with the Licensing role and their own part
+           only, the tenant's seats less its disabled accounts were set against their own part's revocations and upgrades. */
+        var whole = OpsReports.Tenant(Ctx);
         var totals = await metrics.TotalsAsync(whole);
         var counts = await reports.ActionCountsAsync(whole);
-        var leavers = (await ops.LeaversAsync()).Count;
+        var leavers = (await ops.LeaversAsync(whole.Root)).Count;
 
         int seats = contracts.Sum(c => c.Seats), assigned = pool.Sum(x => x.Consumed), bought = pool.Sum(x => x.Bought);
         var monthly = contracts.Sum(c => c.Seats * c.MonthlyPrice);
@@ -189,8 +191,8 @@ SELECT {select} FROM c {tail}";
         var wt = new Table { Headers = ["Wave", "People", "Using Copilot Chat now", $"Added cost a month ({cur})", "Apply it"], Numeric = new HashSet<int> { 0, 1, 2, 3 }, Sortable = false };
         foreach (var w in waves.Take(12))
             wt.Rows.Add([w.Wave, w.People, w.UsingChat, w.People * price, new HtmlString(
-                $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(size, dept, $"wave={w.Wave}&handler=bulk")))}\">bulk add file</a> · " +
-                $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(size, dept, $"wave={w.Wave}&handler=script")))}\">PowerShell script</a>")]);
+                $"<span class=\"acts\">{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=bulk"), Token(), TenantQuery, "Bulk add file")} · " +
+                $"{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=script"), Token(), TenantQuery, "PowerShell script")}</span>")]);
         var sizes = string.Join(" · ", new[] { 25, 50, 100, 250, 500, 1000 }.Select(n =>
             $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(n, dept, null)))}\"{(n == size ? " class=\"on\"" : "")}>{n}</a>"));
         Panels.Add(new("Waves", new HtmlString($"<p class=\"sub\">People a wave: {sizes} (the default is set in Admin > Targets and assumptions).</p>" + wt.Render().Value),
@@ -213,8 +215,9 @@ SELECT {select} FROM c {tail}";
     static string Extra(int size, string? dept, string? more) =>
         $"size={size}" + (dept is null ? "" : "&dept=" + Uri.EscapeDataString(dept)) + (more is null ? "" : "&" + more);
 
-    public Task<IActionResult> OnGetBulkAsync() => ExportAsync(false);
-    public Task<IActionResult> OnGetScriptAsync() => ExportAsync(true);
+    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
+    public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 
     async Task<IActionResult> ExportAsync(bool script)
     {
@@ -229,7 +232,7 @@ SELECT {select} FROM c {tail}";
         await LicenseActions.RecordAsync(Db, "wave", upns, by);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"wave {wave} of {size} {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-wave-{wave}-{DateTime.UtcNow:yyyyMMdd}";
-        return File(Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 }
 
@@ -260,10 +263,12 @@ public sealed class OutcomesModel(PageServices s, OpsData ops) : InsightsPage(s)
         ["kind"] = "o.Kind, o.Day DESC, o.DisplayName, o.Upn", ["upn"] = "o.Upn, o.Day DESC, o.Kind", ["dept"] = "o.Department, o.DisplayName, o.Upn",
     };
 
-    const string Base = @"
+    /* The exports' people within the viewer's scope (2.4.12): it read every export, so a manager with the Licensing
+       role saw who anyone else had exported, across the organization. */
+    string Base => $@"
 WITH x AS (SELECT la.Kind, la.Upn, la.ExportedBy, la.ExportedUtc, CAST(la.ExportedUtc AS DATE) AS Day,
                   ROW_NUMBER() OVER (PARTITION BY la.Kind, la.Upn, CAST(la.ExportedUtc AS DATE) ORDER BY la.ActionId) AS n
-           FROM dash.LicenseAction AS la),
+           FROM dash.LicenseAction AS la {Ctx.PersonScope("la.Upn")}),
 today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay),
 o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
              CASE WHEN ld.UserKey IS NULL THEN 0 ELSE 1 END AS LicensedNow,
@@ -281,7 +286,7 @@ o AS (SELECT x.Kind, x.Day, x.ExportedBy, x.Upn, du.DisplayName, du.Department,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var batches = await Db.QueryAsync<Batch>(Base + @"
 SELECT Kind, Day, ExportedBy, COUNT(*) AS People, SUM(LicensedNow) AS LicensedNow, SUM(UsedSince) AS UsedSince
-FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
+FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;", Ctx.Args());
         if (batches.Count == 0) { Notice = "No license exports yet. They are recorded when someone downloads a bulk file or script from Upgrade, train or revoke, Licenses on disabled accounts, or Rollout waves."; return; }
 
         int Done(Batch b) => b.Kind is "upgrade" or "wave" ? b.LicensedNow : b.People - b.LicensedNow;
@@ -304,7 +309,7 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;");
 SELECT o.Day, o.Kind, o.Upn, o.DisplayName, o.Department, COUNT(*) OVER ()
 FROM o WHERE ((o.Kind IN ('upgrade', 'wave') AND o.LicensedNow = 0) OR (o.Kind IN ('revoke', 'leaver') AND o.LicensedNow = 1))
   AND (@q IS NULL OR o.DisplayName LIKE @q OR o.Upn LIKE @q OR o.Department LIKE @q)
-{pg.OrderAndPage()};", new { q = pg.Like });
+{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
         pg.Total = pending.FirstOrDefault().Total;
         var pt = new Table
         {

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace CopilotInsights.Data;
 
@@ -35,7 +36,22 @@ public static class Schedule
             default:
                 return null;
         }
-        return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(candidate, DateTimeKind.Unspecified), zone);
+        return ToUtc(candidate, zone);
+    }
+
+    /// <summary>
+    /// A time on the zone's clock as UTC, on the days the clock changes too (2.4.12). An hour the clock skips (02:00 on a
+    /// spring morning) is due when the clock reaches the other side of the gap; an hour it repeats (01:00 on an autumn
+    /// night) is due the first time round. Before, the skipped hour threw, which stopped the whole round of checks until
+    /// the next day (a week for a weekly schedule), and the repeated hour was taken as the second one, so a digest sent
+    /// the first time round was due again every five minutes for an hour.
+    /// </summary>
+    static DateTime ToUtc(DateTime local, TimeZoneInfo zone)
+    {
+        var t = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
+        while (zone.IsInvalidTime(t)) t = t.AddMinutes(15);   // every clock change in use moves by a multiple of 15 minutes
+        if (zone.IsAmbiguousTime(t)) return DateTime.SpecifyKind(t - zone.GetAmbiguousTimeOffsets(t).Max(), DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTimeToUtc(t, zone);
     }
 
     /// <summary>Due when its last due moment has passed since it was last sent (or it was never sent).</summary>
@@ -146,8 +162,33 @@ public static class Anomalies
 }
 
 /// <summary>The license recommendations as something an administrator can apply. Pure, for the tests.</summary>
-public static class LicenseExport
+public static partial class LicenseExport
 {
+    /// <summary>
+    /// A sign-in the script may carry (2.4.12): plain ASCII, in the characters Entra allows in a user name. PowerShell
+    /// also ends a quoted string at the curly quotes, and Windows PowerShell 5.1 reads a file without a byte order mark
+    /// as Windows-1252, where some letters' bytes are curly quotes; so a sign-in from a directory that does not check them
+    /// could have run commands on the administrator's machine. Any other sign-in is left out of the script, which says
+    /// how many; the bulk file still lists it, for doing by hand.
+    /// </summary>
+    public static bool ScriptSafe(string upn) => PlainUpn().IsMatch(upn);
+
+    [GeneratedRegex(@"^[A-Za-z0-9._'!#^~+-]+@[A-Za-z0-9.-]+$")]
+    private static partial Regex PlainUpn();
+
+    /// <summary>An id for the script (a group or a SKU): letters, digits and hyphens only.</summary>
+    static string Id(string s) => new(s.Where(c => char.IsAsciiLetterOrDigit(c) || c == '-').ToArray());
+
+    /// <summary>Text for the script's opening comment: nothing that could end it, and no line breaks.</summary>
+    static string Comment(string s) => new(s.Where(c => !char.IsControl(c) && c is not ('#' or '<' or '>')).ToArray());
+
+    /// <summary>
+    /// The file's bytes: a script with a UTF-8 byte order mark, so Windows PowerShell 5.1 reads it as UTF-8 (2.4.12);
+    /// the bulk file without one, as Entra's template is.
+    /// </summary>
+    public static byte[] FileBytes(string text, bool script) =>
+        script ? [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)] : Encoding.UTF8.GetBytes(text);
+
     /// <summary>Entra's bulk add or remove members template (Groups > Bulk operations): two header lines, then one UPN per line.</summary>
     public static string BulkMembersCsv(IEnumerable<string> upns)
     {
@@ -166,21 +207,24 @@ public static class LicenseExport
     public static string Script(string action, IReadOnlyList<string> upns, string? groupId, string? skuId, string generatedBy, DateTime generatedUtc)
     {
         var add = action.Equals("upgrade", StringComparison.OrdinalIgnoreCase);
+        var safe = upns.Where(ScriptSafe).ToList();
         var sb = new StringBuilder();
         sb.AppendLine("#Requires -Modules Microsoft.Graph.Authentication");
         sb.AppendLine("<#");
-        sb.AppendLine($"    Copilot Insights: {(add ? "assign a Copilot license to" : "remove the Copilot license from")} {upns.Count} people.");
-        sb.AppendLine($"    Generated {generatedUtc:yyyy-MM-dd HH:mm} UTC by {generatedBy}. Review the list, then run it signed in as a license administrator.");
+        sb.AppendLine($"    Copilot Insights: {(add ? "assign a Copilot license to" : "remove the Copilot license from")} {safe.Count} people.");
+        sb.AppendLine($"    Generated {generatedUtc:yyyy-MM-dd HH:mm} UTC by {Comment(generatedBy)}. Review the list, then run it signed in as a license administrator.");
         sb.AppendLine("    Add -WhatIf to see what it would do without changing anything.");
+        if (safe.Count < upns.Count)
+            sb.AppendLine($"    {upns.Count - safe.Count} more are left out: their sign-ins have characters a script cannot carry safely. The bulk file lists them, to change by hand.");
         sb.AppendLine("#>");
         sb.AppendLine("[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')] param()");
         sb.AppendLine("$ErrorActionPreference = 'Stop'");
         sb.AppendLine("$people = @(");
-        foreach (var u in upns) sb.AppendLine($"    '{u.Replace("'", "''")}'");
+        foreach (var u in safe) sb.AppendLine($"    '{u.Replace("'", "''")}'");
         sb.AppendLine(")");
         if (groupId is not null)
         {
-            sb.AppendLine($"$groupId = '{groupId.Replace("'", "")}'   # the group that assigns Copilot licenses");
+            sb.AppendLine($"$groupId = '{Id(groupId)}'   # the group that assigns Copilot licenses");
             sb.AppendLine("Connect-MgGraph -Scopes 'GroupMember.ReadWrite.All', 'User.Read.All' -NoWelcome");
             sb.AppendLine("foreach ($upn in $people) {");
             sb.AppendLine("    $id = (Invoke-MgGraphRequest -Method GET -Uri \"/v1.0/users/$([uri]::EscapeDataString($upn))?`$select=id\").id");
@@ -192,7 +236,7 @@ public static class LicenseExport
         }
         else
         {
-            sb.AppendLine($"$skuId = '{(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE").Replace("'", "")}'   # the Copilot SKU (Licensing > License pool shows it)");
+            sb.AppendLine($"$skuId = '{Id(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE")}'   # the Copilot SKU (Licensing > License pool shows it)");
             sb.AppendLine("Connect-MgGraph -Scopes 'User.ReadWrite.All' -NoWelcome");
             sb.AppendLine("foreach ($upn in $people) {");
             sb.AppendLine($"    if ($PSCmdlet.ShouldProcess($upn, '{(add ? "Assign" : "Remove")} the Copilot license')) {{");
@@ -209,9 +253,15 @@ public static class LicenseExport
 /// <summary>A row of an uploaded CSV, and what was wrong with the rest. Pure, for the tests.</summary>
 public static class CsvUpload
 {
-    /// <summary>Splits one CSV line, honoring double quotes.</summary>
+    /// <summary>
+    /// Splits one CSV line, honoring double quotes. The separator is the line's own (2.4.12): the first comma, semicolon or
+    /// tab outside quotes, which follows its first cell, a column id or a sign-in that holds none. Before, all three
+    /// separated every cell, so a name typed in Excel as "Finance; Legal", which Excel saves without quotes, was cut to
+    /// "Finance" and its tail stored as the note.
+    /// </summary>
     public static List<string> Split(string line)
     {
+        var separator = Separator(line);
         var cells = new List<string>();
         var sb = new StringBuilder();
         var quoted = false;
@@ -225,11 +275,22 @@ public static class CsvUpload
                 else sb.Append(ch);
             }
             else if (ch == '"') quoted = true;
-            else if (ch == ',' || ch == ';' || ch == '\t') { cells.Add(sb.ToString().Trim()); sb.Clear(); }
+            else if (ch == separator) { cells.Add(sb.ToString().Trim()); sb.Clear(); }
             else sb.Append(ch);
         }
         cells.Add(sb.ToString().Trim());
         return cells;
+    }
+
+    static char Separator(string line)
+    {
+        var quoted = false;
+        foreach (var ch in line)
+        {
+            if (ch == '"') quoted = !quoted;
+            else if (!quoted && ch is ',' or ';' or '\t') return ch;
+        }
+        return ',';
     }
 
     static IEnumerable<(int Line, List<string> Cells)> Rows(string text) =>
@@ -242,6 +303,12 @@ public static class CsvUpload
     /// </summary>
     public static string Unguard(string cell) => cell.Length > 1 && cell[0] == '\'' &&"=+-@".Contains(cell[1]) ? cell[1..] : cell;
 
+    /// <summary>
+    /// Cells past the ones a line should have, with something in them (2.4.12): a line that splits into more is refused,
+    /// rather than its extra text dropped without a word. Empty ones are fine; Excel writes them for a column used further down.
+    /// </summary>
+    static bool Extra(List<string> cells, int expected) => cells.Skip(expected).Any(x => x.Length > 0);
+
     /// <summary>Training attendance: UPN, session, date (yyyy-MM-dd). A header row is skipped.</summary>
     public static (List<(string Upn, string Session, DateTime Date)> Rows, List<string> Errors) Training(string text)
     {
@@ -251,6 +318,7 @@ public static class CsvUpload
         {
             if (line == 1 && c.Count > 0 && !c[0].Contains('@')) continue;   // a header
             if (c.Count < 3) { errors.Add($"Line {line}: needs UPN, session and date."); continue; }
+            if (Extra(c, 3)) { errors.Add($"Line {line}: has more than three cells; a session name with a separator in it needs double quotes."); continue; }
             if (!c[0].Contains('@') || c[0].Length > 256) { errors.Add($"Line {line}: '{c[0]}' is not a UPN."); continue; }
             if (c[1].Length is 0 or > 190) { errors.Add($"Line {line}: the session name is empty or longer than 190 characters."); continue; }
             if (!DateTime.TryParseExact(c[2], ["yyyy-MM-dd", "yyyy/MM/dd", "yyyy-MM-ddTHH:mm:ss"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
@@ -270,6 +338,7 @@ public static class CsvUpload
             if (line == 1 && c.Count > 0 && !short.TryParse(c[0], out _)) continue;   // a header
             if (c.Count < 3) { errors.Add($"Line {line}: needs column id, value and name."); continue; }
             if (!short.TryParse(c[0], out var id)) { errors.Add($"Line {line}: '{c[0]}' is not a column id."); continue; }
+            if (Extra(c, 4)) { errors.Add($"Line {line}: has more than four cells; a name or note with a separator in it needs double quotes."); continue; }
             if (c[1].Length is 0 or > 400) { errors.Add($"Line {line}: the value is empty or too long."); continue; }
             if (c[2].Length > 200) { errors.Add($"Line {line}: the name is longer than 200 characters."); continue; }
             rows.Add((id, c[1], c[2], c.Count > 3 && c[3].Length > 0 ? c[3][..Math.Min(400, c[3].Length)] : null));

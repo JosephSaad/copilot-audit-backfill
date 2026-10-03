@@ -1,4 +1,4 @@
-/// Use by department and week. Figures for departments under the minimum group size are blank (Hidden is true), so this table can be shared more widely than the person-level tables.
+/// Use by department and week: a row for every department and every week of the data, used or not. Departments with fewer people than the minimum group size are combined as (smaller departments), and a week's figures are blank (Hidden is true) when fewer people than the minimum used Copilot in it, so this table can be shared more widely than the person-level tables: through the Departments role, which shows it and no one's own figures. Under the Organization role, only for viewers who see the whole organization.
 table DepartmentWeek
 	lineageTag: ffb5ae5e-d1e9-58db-890c-454ac87908f3
 

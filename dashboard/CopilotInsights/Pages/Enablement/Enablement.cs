@@ -30,8 +30,27 @@ pop AS (SELECT du.UserKey, ISNULL(a.D, 0) AS D, ISNULL(a.I, 0) AS I, ISNULL(a.S,
         LEFT JOIN act AS a ON a.UserKey = du.UserKey
         WHERE a.I > 0 OR du.CopilotLicenseToday = N'Licensed')";
 
+    /// <summary>
+    /// The working days of the period that the data covers (2.4.12): from its start, or the first day with data when that is
+    /// later. The period's own weekdays were counted in bi.DimDate, which begins on 1 January of the first year with data,
+    /// so a 365-day period over 130 working days of data counted 192, and the Power and Regular bars rose with it.
+    /// </summary>
     public static async Task<int> WorkdaysAsync(Db db, ReportContext c) =>
-        await db.ScalarAsync<int>("SELECT COUNT(*) FROM bi.DimDate WHERE DateKey BETWEEN @k0 AND @k1 AND IsWeekday = 1;", c.Args());
+        await db.ScalarAsync<int>(@"SELECT COUNT(*) FROM bi.DimDate WHERE DateKey BETWEEN @k0 AND @k1 AND IsWeekday = 1
+  AND DateKey >= ISNULL((SELECT MIN(DateKey) FROM dash.UserDay), @k0);", c.Args());
+}
+
+/// <summary>
+/// What "a session with a follow-up" counts, in the words the pages use (2.4.12): a session (a person's prompts with
+/// less than an hour between them, on one day, in any app) with more than one prompt. The audit records say nothing of
+/// which prompt answered which, so the pages no longer say the person replied to Copilot.
+/// </summary>
+public static class FollowUp
+{
+    public const string Kpi = "of sessions had more than one prompt: prompts less than an hour apart on one day, in any app";
+
+    public const string Panel = "Sessions with a follow-up (more than one prompt, each less than an hour after the last, on one day, in any app), as a share of all sessions. " +
+        "A rising line suggests people are going back to Copilot within a task instead of asking once. Two separate questions within the hour count too.";
 }
 
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
@@ -49,7 +68,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var tr = await m.TrendAsync(Ctx);
 
         Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days"));
-        Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), "of sessions, the person replied to Copilot at least once"));
+        /* What is counted, not what it may mean (2.4.12): it said "the person replied to Copilot", but a session is a
+           person's prompts less than an hour apart on one day, in any app, so two separate questions count too. */
+        Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), FollowUp.Kpi));
         Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—"));
         var nudge = await Db.ScalarAsync<int>($@"WITH {Segments.People(Ctx)}
 SELECT COUNT(*) FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey WHERE p.Segment IN (N'One-off', N'Not started') AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")};", Ctx.Args(new { w }));
@@ -66,7 +87,7 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment, COUNT(
 FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
 GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ctx.Args(new { w }));
         var depts = units.GroupBy(u => u.Unit).Select(g => (Dept: g.Key, People: g.Sum(x => x.N))).ToList();
-        var big = depts.Where(d => d.People >= Ctx.MinGroupSize).OrderByDescending(d => d.People).Take(12).Select(d => d.Dept).ToList();
+        var big = SmallGroups.Shown(depts, d => d.People, Ctx.MinGroupSize).OrderByDescending(d => d.People).Take(12).Select(d => d.Dept).ToList();
         var tbl = new Table { Headers = ["Department", "People", .. Segments.Order], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
         foreach (var d in big)
         {
@@ -77,7 +98,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ct
 
         Panels.Add(new("Conversations, not one-off questions",
             Chart.Line(Labels(), [new Series("With a follow-up", tr.Select(x => Ratio(x.MultiTurn, x.Sessions)).ToList(), 1)], Fmt.Percent, "Share of sessions with a follow-up"),
-            "Sessions with a follow-up (the person replied to Copilot at least once), as a share of all sessions. A rising line means people are learning to refine an answer instead of starting over.", "half"));
+            FollowUp.Panel, "half"));
         Panels.Add(new("Prompts per session",
             Chart.Line(Labels(), [new Series("Prompts per session", tr.Select(x => x.Sessions > 0 ? x.Prompts / (double?)x.Sessions : null).ToList(), 2)], Fmt.Decimal1, "Prompts per session"),
             TrendNote, "half"));
@@ -138,7 +159,7 @@ public sealed class PeopleModel(PageServices s) : InsightsPage(s)
     {
         var w = await Segments.WorkdaysAsync(Db, Ctx);
         var segParam = Request.Query["seg"].FirstOrDefault();
-        var seg = Segments.Order.Contains(segParam) ? segParam : "Power";
+        var seg = segParam is not null && Segments.Order.Contains(segParam) ? segParam : "Power";
         var pg = new Paging(Request, Sorts, seg is "Power" or "Regular" ? "days" : "dept");
         var rows = await Db.QueryAsync<Row>($@"
 WITH {Segments.People(Ctx)}

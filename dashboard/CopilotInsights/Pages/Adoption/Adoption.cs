@@ -23,7 +23,7 @@ WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.Use
         Kpis.Add(new("Premium licenses today", Num(t.LicensedNow)));
         Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} license holders have used Copilot at least once, at any time"));
         Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), $"{t.ActiveLicensed:#,0} license holders used it in the period"));
-        Kpis.Add(new("People who followed up", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of active people replied to Copilot at least once, not only one-off prompts"));
+        Kpis.Add(new("People who followed up", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of active people had a session of more than one prompt (prompts less than an hour apart on one day, in any app)"));
 
         var stages = new List<Bar>
         {
@@ -32,7 +32,7 @@ WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.Use
             new("License holders who ever used Copilot", started, Slot: 1),
             new("License holders who used it in the period", t.ActiveLicensed, Slot: 1),
             new("Anyone using Copilot in the last 7 days", t.ActiveLast7, Slot: 1),
-            new("Anyone who followed up on an answer", t.MultiTurnUsers, Slot: 1),
+            new("Anyone with a session of several prompts", t.MultiTurnUsers, Slot: 1),
         };
         Panels.Add(new("Adoption funnel", Chart.Bars(stages, Fmt.Count, "Adoption funnel"),
             "Each bar is a count of people. The first four narrow from everyone to the license holders who used Copilot in the period. The last two count anyone who used Copilot, with a license or on the free Copilot Chat."));
@@ -165,9 +165,9 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7 },
         };
         foreach (var r in shown)
-            t.Rows.Add([r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, Pct(Ratio(r.ActiveLicensed, r.Licensed)),
+            t.Rows.Add([r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, AdoptionAtMin(r.ActiveLicensed, r.Licensed),
                         r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null, Pct(Ratio(r.MultiTurn, r.Sessions))]);
-        Panels.Add(new("All departments", t.Render(), folded > 0 ? $"{Count(folded, "department")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : null));
+        Panels.Add(new("All departments", t.Render(), folded > 0 ? FoldNote(folded, "department") : null));
     }
 }
 

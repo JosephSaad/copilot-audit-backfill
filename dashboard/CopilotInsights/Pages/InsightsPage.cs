@@ -119,20 +119,51 @@ public sealed class Table
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(",", Headers.Select((_, i) => Q(Header(i)))));
         foreach (var r in Rows)
-            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select((x, i) => Shown(i, x)).Select(v => Q(v switch
-            {
-                null => "", Link l => l.Text, IHtmlContent => "", DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss"),
-                _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "",
-            }))));
+            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select((x, i) => Shown(i, x)).Select(Field)));
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// One cell as a CSV field (2.4.12). A cell the page builds as HTML gives its text: the CSV left it empty, so the
+    /// flagged interactions came without their signals, the agents costing credits without their names and the
+    /// contracts without their days to renewal. A control or a chart in a cell still gives nothing. A number is
+    /// written as a number: the formula guard is for text, and it made every negative figure the text '-28.68,
+    /// which a spreadsheet does not add up.
+    /// </summary>
+    static string Field(object? v) => v switch
+    {
+        null => Q(""),
+        Link l => Q(l.Text),
+        IHtmlContent h => Q(Text(h)),
+        DateTime d => Q(d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss")),
+        double x when !double.IsFinite(x) => Q(x.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+        float x when !float.IsFinite(x) => Q(x.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+        sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal =>
+            Quote(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? ""),
+        _ => Q(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? ""),
+    };
+
+    /// <summary>A cell that holds a form, a button or a chart, as <see cref="ColumnSorts"/> tells them: nothing to export.</summary>
+    static bool IsControl(string html) =>
+        html.Contains("<form", StringComparison.OrdinalIgnoreCase) || html.Contains("<button", StringComparison.OrdinalIgnoreCase) || html.Contains("<svg", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>What an HTML cell says, as a reader sees it: its tags dropped, its entities decoded, its spaces collapsed.</summary>
+    static string Text(IHtmlContent h)
+    {
+        var html = Html(h);
+        if (IsControl(html)) return "";
+        var text = WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", " "));
+        return System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
     }
 
     static string Q(string s)
     {
         /* Neutralise spreadsheet formulas, then quote. */
         if (s.Length > 0 && "=+-@".Contains(s[0])) s = "'" + s;
-        return "\"" + s.Replace("\"", "\"\"") + "\"";
+        return Quote(s);
     }
+
+    static string Quote(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
 }
 
 public sealed class PageServices(Db db, ViewerService viewers, ReportContextFactory contexts, AuditLog audit, Settings settings, Freshness freshness, DataStamp stamp)
@@ -392,14 +423,17 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     /* ---- forms the pages write themselves (anti-forgery token included) ---------------------- */
 
     protected string Form(string handler, string body, string? extraQuery = null) =>
-        $"<form class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=" + handler + (extraQuery is null ? "" : "&" + extraQuery))}\">{Token()}{body}</form>";
+        $"<form class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=" + handler + (extraQuery is null ? "" : "&" + extraQuery) + TenantQuery)}\">{Token()}{body}</form>";
 
     /// <summary>A form on one line, posting back with the page's own query (its period, scope and filters).</summary>
     protected string InlineForm(string handler, string body)
     {
-        var q = Request.Query.Where(kv => kv.Key is not ("handler" or "p")).Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}");
-        return $"<form class=\"inline\" method=\"post\" action=\"{E(Request.Path + "?" + string.Join("&", q.Append("handler=" + handler)))}\">{Token()}{body}</form>";
+        var q = Request.Query.Where(kv => kv.Key is not ("handler" or "p" or "tenant")).Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}");
+        return $"<form class=\"inline\" method=\"post\" action=\"{E(Request.Path + "?" + string.Join("&", q.Append("handler=" + handler)) + TenantQuery)}\">{Token()}{body}</form>";
     }
+
+    /// <summary>"&amp;tenant=Name" with several tenants (2.4.12): a form posts to the tenant its page showed (see <see cref="TenantAccessor.SelectAsync"/>).</summary>
+    protected string TenantQuery => HttpContext.RequestServices.GetService<TenantAccessor>()?.FormQuery is { } t ? "&" + t : "";
 
     protected static string Input(string name, string label, string? value, int size = 24, string type = "text") =>
         $"<label>{E(label)}<input type=\"{type}\" name=\"{name}\" value=\"{E(value)}\" size=\"{size}\"/></label>";
@@ -415,6 +449,10 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
 
     protected static string Button(string text, string? confirm = null, bool quiet = false) =>
         $"<button class=\"btn{(quiet ? " quiet" : "")}\" type=\"submit\"{(confirm is null ? "" : $" data-confirm=\"{E(confirm)}\"")}>{E(text)}</button>";
+
+    /// <summary>A small x box that removes the item beside it (2.4.12), named for screen readers and asked to confirm.</summary>
+    protected static string RemoveBox(string what) =>
+        $"<button class=\"btn quiet x\" type=\"submit\" aria-label=\"{E(what)}\" title=\"{E(what)}\" data-confirm=\"{E(what)}?\">&#215;</button>";
 
     protected static string Hidden(string name, object? value) => $"<input type=\"hidden\" name=\"{name}\" value=\"{E(Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture))}\"/>";
 
@@ -478,14 +516,33 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         return Request.Path + "?" + string.Join("&", q.Append("handler=csv"));
     }
 
-    /// <summary>Folds rows for groups smaller than the minimum into one "Smaller groups" row.</summary>
-    protected List<T> FoldSmall<T>(IEnumerable<T> rows, Func<T, int> people, Func<IReadOnlyList<T>, T> combine, out int folded)
-    {
-        var list = rows.ToList();
-        var small = list.Where(r => people(r) < Ctx.MinGroupSize).ToList();
-        folded = small.Count;
-        var keep = list.Where(r => people(r) >= Ctx.MinGroupSize).ToList();
-        if (small.Count > 0) keep.Add(combine(small));
-        return keep;
-    }
+    /// <summary>Folds rows for groups smaller than the minimum into one "Smaller groups" row that itself reaches it (see <see cref="CopilotInsights.Data.SmallGroups"/>).</summary>
+    protected List<T> FoldSmall<T>(IEnumerable<T> rows, Func<T, int> people, Func<IReadOnlyList<T>, T> combine, out int folded) =>
+        CopilotInsights.Data.SmallGroups.Fold(rows, people, combine, Ctx.MinGroupSize, out folded);
+
+    /// <summary>
+    /// A count of people that is shown only at the minimum group size or more (2.4.12): the people who used one agent,
+    /// for one, are a group, and an agent used by one person is that person's use. Null (a dash) below it.
+    /// </summary>
+    protected int? AtLeastMin(int people) => people >= Ctx.MinGroupSize ? people : null;
+
+    /// <summary>
+    /// The same for a point on a trend (2.4.12): nobody is shown as 0, a count under the minimum as a gap. A day when two
+    /// people used an agent is those two people's use, as much as the period's total is.
+    /// </summary>
+    protected double? PointAtMin(int people) => people == 0 ? 0 : AtLeastMin(people);
+
+    /// <summary>
+    /// A group's adoption, shown only where its license holders reach the minimum group size (2.4.12), as the charts and
+    /// the digests rank it: a team of twelve with one license holder is that one person's use. Blank below it.
+    /// </summary>
+    protected string AdoptionAtMin(int activeLicensed, int licensed) =>
+        Pct(licensed >= Ctx.MinGroupSize ? Ratio(activeLicensed, licensed) : null);
+
+    /// <summary>The same, in words: "12 people", or "fewer than 5 people".</summary>
+    protected string AgentPeople(int people) => people >= Ctx.MinGroupSize ? $"{people:#,0} people" : $"fewer than {Ctx.MinGroupSize} people";
+
+    /// <summary>What a breakdown says under it when groups were folded: how many, and why (2.4.12).</summary>
+    protected string FoldNote(int folded, string noun, string? plural = null) =>
+        folded == 0 ? "" : $"{Count(folded, "smaller " + noun, "smaller " + (plural ?? noun + "s"))} {Are(folded)} combined, so no row describes fewer than {Ctx.MinGroupSize} people.";
 }

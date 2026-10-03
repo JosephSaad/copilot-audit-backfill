@@ -56,7 +56,9 @@ public sealed class UnitRow
     public long MultiTurn { get; set; }
     public long Flags { get; set; }
     public long Labeled { get; set; }
-    public bool Drillable => !Unit.StartsWith('~') && Unit.Contains('@');
+    /// <summary>Named after its manager; false in privacy mode, where it is named by department and is not a link (2.4.12).</summary>
+    public bool Named { get; set; } = true;
+    public bool Drillable => Named && !Unit.StartsWith('~') && Unit.Contains('@');
 }
 
 /// <summary>The measures most pages share, always through the report's scope.</summary>
@@ -203,7 +205,25 @@ LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k
 {(parent is null ? "" : "LEFT JOIN dash.Person AS mp ON mp.Upn = u.Unit")}
 GROUP BY u.Unit
 ORDER BY {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN 1 ELSE 0 END, Name")};";
-        return await db.QueryAsync<UnitRow>(sql, c.Args(new { parent }));
+        var rows = await db.QueryAsync<UnitRow>(sql, c.Args(new { parent }));
+        if (c.PrivacyMode && parent is not null) Unnamed(rows);
+        return rows;
+    }
+
+    /// <summary>
+    /// Privacy mode (2.4.12): a unit is named after its manager, so it goes by the manager's department instead, numbered
+    /// where two share one, in the order of their sign-ins so the same unit has the same name on every page. Its sign-in
+    /// stays in Unit, for joining a unit's rows within a page, and it is not a link.
+    /// </summary>
+    static void Unnamed(List<UnitRow> rows)
+    {
+        foreach (var g in rows.Where(r => !r.Unit.StartsWith('~')).GroupBy(r => string.IsNullOrWhiteSpace(r.Department) ? "A part of the organization" : r.Department!.Trim()))
+        {
+            var same = g.OrderBy(r => r.Unit, StringComparer.OrdinalIgnoreCase).ToList();
+            for (var i = 0; i < same.Count; i++) same[i].Name = same.Count == 1 ? g.Key : $"{g.Key} ({i + 1})";
+        }
+        foreach (var r in rows) r.Named = false;
+        rows.Sort((a, b) => a.Unit.StartsWith('~') != b.Unit.StartsWith('~') ? (a.Unit.StartsWith('~') ? 1 : -1) : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Active people per unit per trend point, for trend columns and heatmaps.</summary>

@@ -13,15 +13,26 @@
                     SYSUTCDATETIME() - @RetainDays are in scope. Must be >= 1.
       @DeleteRows   0 (default) NULLs AuditDataGz and leaves the row, so
                     counts, the flattened table and reporting still work.
-                    1 deletes the rows from audit.CopilotAudit entirely.
+                    1 deletes the records: their rows in audit.CopilotAudit,
+                    and their shredded rows in audit.CopilotInteraction (each
+                    with the user, app, thread and time), which 2.4.12 added:
+                    before, every one of those was kept.
       @PurgeStaging 1 (default) also clears matching rows from
                     audit.CopilotAuditStage, which holds a second copy of the
                     same JSON until it is dropped.
       @PurgeFlattened 0 (default). 1 also deletes the matching
-                    audit.RawLogFlattened rows - only with @DeleteRows = 1.
+                    audit.RawLogFlattened rows, and the resources and contexts
+                    each one read (audit.RawLogAccessedResource and
+                    audit.RawLogContext: file names, sites and links, which
+                    2.4.12 added) - only with @DeleteRows = 1.
+                    tools/Invoke-CopilotMaintenance.ps1 -DeleteRows passes it.
       @BatchSize    rows per transaction. Default 100,000.
       @WhatIf       1 (default) reports what would go and changes nothing.
                     Pass 0 to actually purge.
+
+    What stays: the bi facts and the dashboard's rollups, built from the
+    flattened rows, keep the records until bi is rebuilt in full and the
+    rollups after it (Invoke-CopilotMaintenance.ps1 -Task RebuildBi).
 
     @WhatIf defaults to 1 on purpose: this procedure destroys data that cannot
     be re-fetched once past Purview's own 180-day retention.
@@ -103,6 +114,22 @@ BEGIN
             SET @msg = CONCAT(N'  ', FORMAT(@total, 'N0'), N' deleted.');
             RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
+
+        /* 2.4.12: the shredded copy of each record goes with it. It names the user, the app, the thread and the time,
+           and was kept for every record deleted, so the records were not removed altogether as this promises. */
+        IF OBJECT_ID(N'audit.CopilotInteraction', N'U') IS NOT NULL
+        BEGIN
+            DECLARE @shredded BIGINT = 0;
+            WHILE 1 = 1
+            BEGIN
+                DELETE TOP (@BatchSize) FROM audit.CopilotInteraction WHERE CreatedDateTime < @cutoff;
+                SET @n = @@ROWCOUNT;
+                SET @shredded += @n;
+                IF @n = 0 BREAK;
+            END;
+            SET @msg = CONCAT(N'  ', FORMAT(@shredded, 'N0'), N' shredded row(s) deleted from audit.CopilotInteraction.');
+            RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        END;
     END
     ELSE
     BEGIN
@@ -152,16 +179,35 @@ BEGIN
 
     IF @PurgeFlattened = 1 AND OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NOT NULL
     BEGIN
-        DECLARE @flat BIGINT = 0;
-        RAISERROR('Deleting aged rows from audit.RawLogFlattened...', 0, 1) WITH NOWAIT;
+        DECLARE @flat BIGINT = 0, @elements BIGINT = 0;
+        RAISERROR('Deleting aged rows from audit.RawLogFlattened, with the resources and contexts each read...', 0, 1) WITH NOWAIT;
+        /* 2.4.12: each batch's element rows first, then the batch itself. The element tables keep each record's file
+           names, sites and links, and nothing removes them later: a record that is gone is never flattened again,
+           which is the only thing that replaces them. Before, they were all kept. */
+        DROP TABLE IF EXISTS #gone;
+        CREATE TABLE #gone (RecordId NVARCHAR(450) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
         WHILE 1 = 1
         BEGIN
-            DELETE TOP (@BatchSize) FROM audit.RawLogFlattened WHERE UtcTimeStamp < @cutoff;
-            SET @n = @@ROWCOUNT;
-            SET @flat += @n;
-            IF @n = 0 BREAK;
+            TRUNCATE TABLE #gone;
+            INSERT INTO #gone (RecordId)
+            SELECT TOP (@BatchSize) RecordId FROM audit.RawLogFlattened WHERE UtcTimeStamp < @cutoff;
+            IF @@ROWCOUNT = 0 BREAK;
+            BEGIN TRANSACTION;
+            IF OBJECT_ID(N'audit.RawLogAccessedResource', N'U') IS NOT NULL
+            BEGIN
+                DELETE r FROM audit.RawLogAccessedResource AS r JOIN #gone AS g ON g.RecordId = r.RecordId;
+                SET @elements += @@ROWCOUNT;
+            END;
+            IF OBJECT_ID(N'audit.RawLogContext', N'U') IS NOT NULL
+            BEGIN
+                DELETE c FROM audit.RawLogContext AS c JOIN #gone AS g ON g.RecordId = c.RecordId;
+                SET @elements += @@ROWCOUNT;
+            END;
+            DELETE f FROM audit.RawLogFlattened AS f JOIN #gone AS g ON g.RecordId = f.RecordId;
+            SET @flat += @@ROWCOUNT;
+            COMMIT TRANSACTION;
         END;
-        SET @msg = CONCAT(N'  ', FORMAT(@flat, 'N0'), N' flattened row(s) deleted.');
+        SET @msg = CONCAT(N'  ', FORMAT(@flat, 'N0'), N' flattened row(s) deleted, with ', FORMAT(@elements, 'N0'), N' resource and context row(s).');
         RAISERROR(@msg, 0, 1) WITH NOWAIT;
     END;
 

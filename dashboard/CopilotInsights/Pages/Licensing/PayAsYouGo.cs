@@ -46,8 +46,6 @@ public sealed class PayAsYouGoModel(PageServices s) : InsightsPage(s)
         public int Days { get; set; }
         public int PremiumDays { get; set; }
         public DateTime? LastUsed { get; set; }
-        public int Candidates { get; set; }
-        public long AllMetered { get; set; }
         public int TotalRows { get; set; }
     }
 
@@ -58,15 +56,17 @@ public sealed class PayAsYouGoModel(PageServices s) : InsightsPage(s)
         var price = Dec(await S.Settings.StringAsync("LicenseMonthlyCost"), 30m);
         var rate = Dec(await S.Settings.StringAsync("PaygInteractionCost"), 0.12m);
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
-        var days = (Ctx.End - Ctx.Start).Days + 1;
+        /* A month is scaled from the days the data covers, not the period's (2.4.12, see OpsReports.DaysCovered). */
+        var days = CopilotInsights.Data.OpsReports.DaysCovered(Ctx, await CopilotInsights.Data.OpsReports.FirstDayAsync(Db));
         decimal Monthly(long metered) => metered * rate * 30m / days;
 
         var pg = new Paging(Request, Sorts, "saving");
         /* Metered: the interactions pay-as-you-go would charge for, Premium use (work-grounded chat; in-app use has no
            pay-as-you-go form) and agent use. An agent that read work content is in both, and one grounded only in the
            web is charged for nothing: the estimate errs high on cost, so low on the saving. The candidates and their
-           totals come before the search, so the figures above the table do not change with it. */
-        var rows = await Db.QueryAsync<Row>($@"
+           totals are read on their own, before the search, so the figures above the table do not change with it: taken
+           from the page's first row, they were 0 when a search matched nobody or the page was past the end (2.4.12). */
+        var (rows, all) = await Db.QueryTwoAsync<Row, (int Candidates, long AllMetered)>($@"
 WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.PremiumUse AS BIGINT)) AS P,
                   SUM(CAST(ud.AgentInteractions AS BIGINT)) AS A,
                   COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS Days, COUNT(CASE WHEN ud.PremiumUse > 0 THEN 1 END) AS PremiumDays,
@@ -75,21 +75,22 @@ WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAS
            WHERE ud.DateKey BETWEEN @k0 AND @k1
            GROUP BY ud.UserKey HAVING SUM(ud.Interactions) > 0),
 x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, du.CopilotSku, du.LicensedSinceUtc,
-             u.I, u.P, u.A, u.P + u.A AS Metered, u.P * 1.0 / u.I AS Share, u.Days, u.PremiumDays, dl.[Date] AS LastUsed,
-             COUNT(*) OVER () AS Candidates, SUM(u.P + u.A) OVER () AS AllMetered
+             u.I, u.P, u.A, u.P + u.A AS Metered, u.P * 1.0 / u.I AS Share, u.Days, u.PremiumDays, dl.[Date] AS LastUsed
       FROM u
       JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
       JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
       LEFT JOIN bi.DimDate AS dl ON dl.DateKey = u.LastKey
       WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < @d0) AND u.P * 100 <= @max * u.I
         AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
-SELECT x.*, COUNT(*) OVER () AS TotalRows FROM x
+SELECT x.* INTO #x FROM x;
+SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x
 WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
-{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, max }));
+{pg.OrderAndPage()};
+SELECT COUNT(*), ISNULL(SUM(x.Metered), 0) FROM #x AS x;", Ctx.Args(new { q = pg.Like, max }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
-        var candidates = rows.FirstOrDefault()?.Candidates ?? 0;
-        var saving = candidates * price - Monthly(rows.FirstOrDefault()?.AllMetered ?? 0);
+        var (candidates, allMetered) = all.Single();
+        var saving = candidates * price - Monthly(allMetered);
         Kpis.Add(new("Candidates", Num(candidates), max == 0 ? "no Premium use in the period" : $"Premium use {max}% or less of their use"));
         Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, saving)),
             $"{candidates:#,0} licenses at {price:#,0.##} less the credits their use would cost"));

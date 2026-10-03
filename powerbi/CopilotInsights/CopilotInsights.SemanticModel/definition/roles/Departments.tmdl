@@ -1,0 +1,12 @@
+/// Department figures only: DepartmentWeek, where a group under the minimum size is blank, with the calendar and the
+/// reference tables. No one's own figures. For sharing more widely, and in privacy mode, where the Organization role sees nobody.
+role Departments
+	modelPermission: read
+
+	tablePermission Users = FALSE ()
+
+	tablePermission OrgSecurity = FALSE ()
+
+	tablePermission LicensePool = FALSE ()
+
+	tablePermission ValueNames = FALSE ()

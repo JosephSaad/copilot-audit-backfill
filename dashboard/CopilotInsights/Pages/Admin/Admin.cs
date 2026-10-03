@@ -181,9 +181,10 @@ FROM w;")).Single();
             : warm.EndedUtc is null ? $"On. Building the pages ahead now: {warm.Pages:#,0} page views so far, started {When(warm.StartedUtc)}."
             : $"On. Built ahead {When(warm.EndedUtc)}: {warm.Pages:#,0} page views in {warm.Seconds / 60:0.#} minutes{(warm.Failed > 0 ? $", {warm.Failed:#,0} not built" : "")}.";
         Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
-            "A report page's queries are kept in memory until the data changes: a refresh, a pipeline run, a new license read, or a change to a setting or reference data. " +
-            "After each change every report is built once in the background for the whole organization, at every period, so the top two levels and Organization holders get each page at once. " +
-            "A manager's own part of the organization is kept from the first time someone opens it. Lists that are edited all day (flag triage, exported license actions, confirmed accounts) always read the database.", "half"));
+            "A report page's queries are kept in memory until the data changes: a refresh, a finished pipeline run, a license or directory read, or a change to a setting or reference data. " +
+            "After each change, and again when the results expire, every report is built once in the background for the whole organization, at every period, so the top two levels and Organization holders get each page at once. " +
+            "A manager's own part of the organization is kept from the first time someone opens it. A list edited all day (flag triage, exported license actions, confirmed accounts) has a version of its own, " +
+            "read from the database for every page: a page that reads one is kept until that list changes, on this web server or another. Each web server keeps its own results and builds its own pages.", "half"));
     }
 
     public Task<IActionResult> OnPostRefreshAsync(int days) => AdminChangeAsync(async () =>
@@ -292,7 +293,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             /* What each setting does, one line a setting (2.4.10: it was one paragraph for all of them). */
             "<ul class=\"tips sub\">" +
             $"<li><b>Top of the organization.</b> Usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows{(set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({E(det)})" : "")}.</li>" +
-            "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, so no figure describes one or two people.</li>" +
+            "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, and what is folded reaches it too, so no figure describes one or two people. It is also the smallest part of the organization a report can be narrowed to.</li>" +
             "<li><b>Default period.</b> The period every report opens with.</li>" +
             "<li><b>Unused after.</b> The days without any use after which a license counts as unused.</li>" +
             "<li><b>License cost a month, and currency.</b> Used wherever a cost or a saving is shown.</li>" +
@@ -317,7 +318,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         Panels.Add(new("Who can open the dashboard", new HtmlString(Form("limit",
             $"<label>Open to<select name=\"MaxViewerLevel\">" +
             string.Concat(choices.Select(c => $"<option value=\"{c.Value}\"{(c.Value == max.ToString() ? " selected" : "")}>{E(c.Label)}</option>")) + "</select></label>" +
-            Button("Save", "Change who can open the dashboard? It applies to every page, export, the data API and the manager digests within a minute."))),
+            Button("Save", "Change who can open the dashboard? It applies from the next page, export and data API call, on every web server, and to the manager digests within a minute."))),
             $"Level 1 is the top of the organization, level 2 reports to them, and so on. Whatever their level, anyone granted a role other than Admin (Grant a role, below) is let in too: " +
             $"{Grants("User"):#,0} people and {Grants("Group"):#,0} groups today. Administrators outside the levels keep the Admin pages, so a wrong choice can be put right here. " +
             "Managers below the levels stop getting the manager digest. People with no level (not under the top) are left out by any limit." +
@@ -377,7 +378,7 @@ WHERE g.Principal IN @list;", new { list });
             if (mine.Count == 0) continue;
             var roleCell = string.Concat(mine.Select(g =>
                 $"<span class=\"grant\">{E(g.Role)}" +
-                Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + Button("Remove", $"Remove {g.Role} from {g.Principal}?", quiet: true)) + "</span>"));
+                Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}")) + "</span>"));
             t.Rows.Add([principal, mine[0].DisplayName, mine[0].PrincipalType, new HtmlString(roleCell),
                         string.Join("; ", mine.Select(g => g.Note).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct()),
                         string.Join(", ", mine.Select(g => g.GrantedBy).Distinct()), mine.Max(g => g.GrantedUtc)]);
@@ -614,6 +615,9 @@ FROM bi.DimApp AS a LEFT JOIN audit.SessionAppCategory AS c ON c.App = a.App ORD
             "The alert goes to the Security and Licensing alert recipients (Admin > Alerts and digests), once for each account."));
     }
 
+    /// <summary>The longest list of patterns, types or groups: dash.Setting.Value is NVARCHAR(400).</summary>
+    public const int MaxList = 400;
+
     public Task<IActionResult> OnPostNonHumanAsync(string? guests, string? names, string? nochart, string? patterns, string? types, string? groups, string? alert) => AdminChangeAsync(async () =>
     {
         static string? Clean(string? v, int max, Func<string, bool> ok, string what)
@@ -621,7 +625,9 @@ FROM bi.DimApp AS a LEFT JOIN audit.SessionAppCategory AS c ON c.App = a.App ORD
             var list = CopilotInsights.Data.NonHuman.Split(v);
             foreach (var x in list) if (x.Length > max || !ok(x)) throw new ArgumentException($"'{x}' is not {what}.");
             var joined = string.Join(", ", list);
-            if (joined.Length > 1000) throw new ArgumentException($"the {what} list is longer than 1,000 characters.");
+            /* A setting holds 400 characters (2.4.12). This allowed 1,000: a longer list failed in SQL Server after the
+               boxes before it were saved, with no audit row and no word of why. Now nothing is saved, and it says so. */
+            if (joined.Length > MaxList) throw new ArgumentException($"the {what} list is longer than {MaxList} characters, the most a setting holds.");
             return joined.Length == 0 ? null : joined;
         }
         var values = new Dictionary<string, string?>

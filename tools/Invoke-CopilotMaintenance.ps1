@@ -28,8 +28,10 @@
                                (and -Owner). An empty -FriendlyName removes the name.
     -Task NameLabel            Give the sensitivity label -LabelId a -Name (and -Rank, 0 least sensitive).
     -Task PurgeJson            Clear the stored JSON of records older than -RetainDays (with
-                               -DeleteRows, remove those records altogether). Reports only,
-                               unless -Apply.
+                               -DeleteRows, remove those records altogether: the record, its
+                               shredded and flattened rows, and the resources and contexts it
+                               read; -Task RebuildBi then takes them out of bi and the
+                               dashboard). Reports only, unless -Apply.
     -Task RebuildValueCatalog  List every distinct value of the cataloged columns again, from
                                every flattened record: once, for data flattened before 2.3.0.
     -Task ListValues           The cataloged columns, or with -ColumnId one column's values
@@ -53,7 +55,8 @@
 param(
     [Parameter(Mandatory)][string] $SqlServer,
     [string] $Database = 'CopilotAudit',
-    [string[]] $LicenseEventDatabases = @('CopilotLicenseEvents'),
+    # The license databases sessions and bi read. Left out: the ones this database's last build used (2.4.12).
+    [string[]] $LicenseEventDatabases,
     [pscredential] $SqlCredential,
     [switch] $TrustServerCertificate,
     [Parameter(Mandatory)]
@@ -89,7 +92,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$licList = if ($LicenseEventDatabases) { $LicenseEventDatabases -join ',' } else { $null }
 $me = "$env:USERDOMAIN\$env:USERNAME"
 
 function Invoke-Sql {
@@ -116,8 +118,50 @@ function Need([string] $what, $value) { if (-not $value) { throw "-Task $Task ne
 function Update-Dashboard([object] $since) {
     if (Test-Proc 'dash.usp_RefreshDashboard') { Invoke-Sql -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since } }
 }
+# The license databases (2.4.12): those given, else the ones this database's last session build used, else its last
+# bi refresh's, else none. The default was CopilotLicenseEvents, which is the first tenant's: another tenant's
+# maintenance read that tenant's license history, and its nightly then failed every night on the change.
+if (-not $PSBoundParameters.ContainsKey('LicenseEventDatabases')) {
+    $recorded = Invoke-Sql -Scalar -Sql @"
+DECLARE @l NVARCHAR(1000), @found BIT = 0;
+IF OBJECT_ID(N'audit.CopilotSessionRun', N'U') IS NOT NULL
+    SELECT TOP (1) @l = LicenseEventDatabase, @found = 1 FROM audit.CopilotSessionRun ORDER BY RunId DESC;
+IF @found = 0 AND OBJECT_ID(N'bi.RefreshRun', N'U') IS NOT NULL
+    SELECT TOP (1) @l = LicenseEventDatabase FROM bi.RefreshRun ORDER BY RunId DESC;
+SELECT @l;
+"@
+    $LicenseEventDatabases = if ($recorded -is [DBNull] -or [string]::IsNullOrWhiteSpace([string] $recorded)) { @() }
+                             else { @(([string] $recorded) -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
+    if ($Task -in 'Reflatten', 'RebuildSessions', 'RebuildBi', 'SetAppCategory') {
+        Write-Host $(if ($LicenseEventDatabases) { "  License history from $($LicenseEventDatabases -join ', '), as $Database's last build (-LicenseEventDatabases to change it)." }
+                     else { "  No license history: $Database's last build read none (-LicenseEventDatabases to name it)." }) -ForegroundColor DarkGray
+    }
+}
+$licList = if ($LicenseEventDatabases) { $LicenseEventDatabases -join ',' } else { $null }
 function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
 
+# The tasks that rebuild hold the database while they work (2.4.12), as the nightly pipeline and Install-CopilotAudit.ps1
+# do: an exclusive application lock, on a connection of its own kept open until the task ends. A rebuild that ran beside
+# the nightly rebuilt bi under the nightly's own refresh, counting interactions twice.
+$runLock = $null
+if ($Task -in 'Reflatten', 'RebuildSessions', 'RebuildBi', 'RebuildValueCatalog' -or ($Apply -and $Task -in 'SetAppCategory', 'PurgeJson')) {
+    $lb = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
+    $lb['Data Source'] = $SqlServer; $lb['Initial Catalog'] = $Database
+    if ($SqlCredential) { $lb['User ID'] = $SqlCredential.UserName; $lb['Password'] = $SqlCredential.GetNetworkCredential().Password }
+    else { $lb['Integrated Security'] = $true }
+    $lb['Encrypt'] = $true; $lb['TrustServerCertificate'] = [bool] $TrustServerCertificate; $lb['Application Name'] = 'Invoke-CopilotMaintenance'
+    $lb['Pooling'] = $false   # closing a pooled connection keeps its session, and the session's lock with it
+    $runLock = New-Object System.Data.SqlClient.SqlConnection $lb.ConnectionString
+    $runLock.Open()
+    $lc = $runLock.CreateCommand()
+    $lc.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+    if ([int] $lc.ExecuteScalar() -lt 0) {
+        $runLock.Dispose()
+        throw "Another run is using $Database now: the nightly pipeline, the installer or another rebuild. Nothing was changed. Let it finish (Admin > Health shows the pipeline's runs), then run this again."
+    }
+}
+
+try {
 switch ($Task) {
     'Status' {
         $t = Invoke-Sql -Table -Sql @"
@@ -286,9 +330,13 @@ END;
         Write-Host "$n name(s) saved, $cleared cleared."
     }
     'PurgeJson' {
-        $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w, @DeleteRows = @r;' `
+        # 2.4.12: -DeleteRows removes the flattened rows too, with the resources and contexts they read. It kept them,
+        # each naming the user and the files and links they read, though the records were said to be gone.
+        $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w, @DeleteRows = @r, @PurgeFlattened = @r;' `
             -Parameters @{ '@d' = $RetainDays; '@w' = [int] (-not $Apply); '@r' = [int] [bool] $DeleteRows }
         $t.Rows | Format-Table -AutoSize | Out-String | Write-Host
         if (-not $Apply) { Write-Host 'Nothing was cleared; add -Apply to clear it.' }
     }
 }
+}
+finally { if ($runLock) { $runLock.Dispose() } }

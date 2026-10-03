@@ -21,15 +21,16 @@ namespace CopilotInsights.Pages.Leadership
             var split = await Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
             if (!split)
                 Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
-            var prev = new ReportContext
-            {
-                Viewer = Ctx.Viewer, Days = Ctx.Days, Start = Ctx.Start.AddDays(-Ctx.Days), End = Ctx.End.AddDays(-Ctx.Days),
-                Root = Ctx.Root, RootName = Ctx.RootName, MinGroupSize = Ctx.MinGroupSize, InactiveDays = Ctx.InactiveDays, OrgTopUpn = Ctx.OrgTopUpn,
-            };
+            var prev = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
+            /* Set against the period before only where the data covers all of it (2.4.12, see OpsReports.Covers): at 180 days
+               on 182 days of data, "+3997% on the 180 days before" was 1,270 people against the 31 of two days. */
+            var first = await OpsReports.FirstDayAsync(Db);
+            var full = OpsReports.Covers(prev, first);
             var now = await m.TotalsAsync(Ctx);
-            var before = await m.TotalsAsync(prev);
+            var before = full ? await m.TotalsAsync(prev) : new Totals();
             string Delta(double a, double b, bool pct = false) =>
-                b == 0 ? "no earlier figure" : pct ? $"{(a - b) * 100:+0.0;-0.0;0} points on the {Ctx.Days} days before" : $"{(a - b) / b:+0%;-0%;0%} on the {Ctx.Days} days before";
+                !full ? OpsReports.NoFullPeriodBefore(first)
+                : b == 0 ? "no earlier figure" : pct ? $"{(a - b) * 100:+0.0;-0.0;0} points on the {Ctx.Days} days before" : $"{(a - b) / b:+0%;-0%;0%} on the {Ctx.Days} days before";
             double Adopt(Totals t) => t.LicensedNow > 0 ? t.ActiveLicensed / (double)t.LicensedNow : 0;
             /* Premium + free only = Adoption: every active license holder either used a Premium feature or did not. */
             double Premium(Totals t) => t.LicensedNow > 0 ? t.PremiumLicensed / (double)t.LicensedNow : 0;
@@ -46,7 +47,7 @@ namespace CopilotInsights.Pages.Leadership
             Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
 
             var u1 = (await m.UnitsAsync(Ctx)).ToDictionary(u => u.Unit);
-            var u0 = (await m.UnitsAsync(prev)).ToDictionary(u => u.Unit);
+            var u0 = full ? (await m.UnitsAsync(prev)).ToDictionary(u => u.Unit) : new Dictionary<string, UnitRow>();
             var t = new Table
             {
                 Headers = split
@@ -55,7 +56,7 @@ namespace CopilotInsights.Pages.Leadership
                 Numeric = Enumerable.Range(1, split ? 10 : 7).ToHashSet(),
             };
             var rows = new List<(UnitRow Now, UnitRow? Before)>();
-            foreach (var u in u1.Values.Where(u => u.People >= Ctx.MinGroupSize)) rows.Add((u, u0.GetValueOrDefault(u.Unit)));
+            foreach (var u in SmallGroups.Shown(u1.Values, u => u.People, Ctx.MinGroupSize)) rows.Add((u, u0.GetValueOrDefault(u.Unit)));
             HtmlString Arrow(double? d, bool pct) => d is null ? new("<span class=\"muted\">—</span>")
                 : new($"<span class=\"{(d > 0 ? "status-ok" : d < 0 ? "status-bad" : "muted")}\">{(d > 0 ? "▲" : d < 0 ? "▼" : "")} {(pct ? $"{Math.Abs(d.Value) * 100:0.0} pts" : $"{Math.Abs(d.Value):0%}")}</span>");
             foreach (var (n, b) in rows.OrderByDescending(r => r.Now.People))
@@ -75,9 +76,10 @@ namespace CopilotInsights.Pages.Leadership
                     t.Rows.Add([name, n.People, Pct(a1), Arrow(a1 - a0, true), .. rest]);
             }
             Panels.Add(new("By unit, against the period before", t.Render(),
-                $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out. "
+                $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out, with the smallest others where they would together be under it. "
                 + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
-                + "Change in adoption is in percentage points; the others are relative."));
+                + "Change in adoption is in percentage points; the others are relative."
+                + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}.")));
         }
     }
 }
@@ -147,7 +149,7 @@ namespace CopilotInsights.Pages.Security
 
         protected override async Task BuildAsync()
         {
-            var units = (await m.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize && u.Interactions > 0).ToList();
+            var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
             var series = await m.UnitSeriesAsync(Ctx);
             var buckets = Buckets();
             var grid = new double?[units.Count, buckets.Count];
@@ -176,7 +178,7 @@ namespace CopilotInsights.Pages.Compliance
 
         protected override async Task BuildAsync()
         {
-            var units = (await m.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize && u.Interactions > 0).ToList();
+            var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
             var series = await m.UnitSeriesAsync(Ctx);
             var buckets = Buckets();
             var grid = new double?[units.Count, buckets.Count];
@@ -237,7 +239,7 @@ GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
             var buckets = Buckets();
             Panels.Add(new("Hand-offs over time", Chart.Columns(Labels(), [new Series("Hand-offs", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.Calls)).ToList(), 5)], Fmt.Count, "Hand-offs"),
                 TrendNote, "half"));
-            Panels.Add(new("Agents called", Chart.Bars(targets.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Target, t.N, Note: $"{t.People:#,0} people")).ToList(), Fmt.Count, "Target agents"),
+            Panels.Add(new("Agents called", Chart.Bars(targets.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Target, t.N, Note: AgentPeople(t.People))).ToList(), Fmt.Count, "Target agents"),
                 targets.Count == 0 ? "No agent called another in the period." : null, "half"));
         }
     }
@@ -308,7 +310,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
             Panels.Add(new("Deferred data-loss checks", Chart.Columns(Labels(), [new Series("Deferred", buckets.Select(b => (double?)At(b.Key).Dlp).ToList(), 4)], Fmt.Count, "DLP deferred"),
                 "Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising share is worth raising with them.", "half"));
 
-            var units = (await m.UnitsAsync(Ctx)).Where(u => u.People >= Ctx.MinGroupSize).ToDictionary(u => u.Unit);
+            var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).ToDictionary(u => u.Unit);
             var series = await m.UnitSeriesAsync(Ctx);
             var web = series.GroupBy(x => x.Unit).Where(g => units.ContainsKey(g.Key))
                 .Select(g => (Unit: units[g.Key], Web: g.Sum(x => x.Web), All: g.Sum(x => x.Interactions))).Where(x => x.All > 0).OrderByDescending(x => x.Web / (double)x.All).ToList();

@@ -53,7 +53,7 @@ GROUP BY {Ctx.BucketSql("d")}, {Sites.LabelName};", Ctx.Args());
         Panels.Add(new("By label, whole period",
             Chart.Bars(order.Select(l => new Bar(l, labels.Where(x => x.Label == l).Sum(x => x.N))).ToList(), Fmt.Count, "Interactions by label"), null, "half"));
 
-        var named = Viewer.Has(Roles.Compliance);
+        var named = Viewer.Has(Roles.Compliance) && !PrivacyMode;
         var sites = await Db.QueryAsync<(string Kind, string Item, int N, int People)>($@"
 SELECT rd.Kind, rd.Item, SUM(rd.Interactions), COUNT(DISTINCT rd.UserKey)
 FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
@@ -63,7 +63,7 @@ GROUP BY rd.Kind, rd.Item;", Ctx.Args());
             .GroupBy(x => Sites.Show(x.Item, named)).Select(g => (Site: g.Key, N: g.Sum(x => x.N), People: g.Sum(x => x.People)))
             .OrderByDescending(x => x.N).Take(12).Select(x => new Bar(x.Site, x.N, Note: $"{x.People:#,0} people", Slot: slot)).ToList(), Fmt.Count, kind + " sites");
         Panels.Add(new("Where labeled content lives", SiteBars("Site", 3),
-            "Sites of the labeled content Copilot read." + (named ? "" : " Personal OneDrive sites are grouped; the Compliance role shows them."), "half"));
+            "Sites of the labeled content Copilot read." + (named ? "" : PrivacyMode ? " Personal OneDrive sites are grouped: privacy mode is on." : " Personal OneDrive sites are grouped; the Compliance role shows them."), "half"));
         Panels.Add(new("Sites Copilot was blocked from", SiteBars("Blocked", 7),
             "Content whose policy or permissions stopped Copilot. Usually a sign the controls are working; a spike is worth a look.", "half"));
 

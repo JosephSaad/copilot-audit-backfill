@@ -16,7 +16,14 @@ builder.Services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolic
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<TenantAccessor>();
-builder.Services.AddSingleton<QueryCache>();
+/* The query cache in a store of its own, of a bounded size (2.4.12): the shared one has no limit. */
+builder.Services.AddSingleton(sp =>
+{
+    var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<InsightsOptions>>();
+    return new QueryCache(QueryCache.Store(o.Value.QueryCacheEntries), o, sp.GetRequiredService<ILogger<QueryCache>>());
+});
+/* One set of form keys for every web server, where Insights:DataProtectionKeysPath names a share (2.4.12, KeyRing). */
+var keyRing = KeyRing.Configure(builder.Services, builder.Configuration.GetSection(InsightsOptions.Section).Get<InsightsOptions>() ?? new InsightsOptions());
 builder.Services.AddSingleton<DataStamp>();
 builder.Services.AddSingleton<Db>();
 builder.Services.AddSingleton<Settings>();
@@ -32,6 +39,9 @@ builder.Services.AddSingleton<SecretStore>();
 builder.Services.AddSingleton<Mailer>();
 builder.Services.AddScoped<OpsData>();
 builder.Services.AddScoped<OpsReports>();
+/* A background service that fails is logged, and the site goes on (2.4.12): .NET's default stops the whole site,
+   which a mail server that did not answer once did, again after every restart. */
+builder.Services.Configure<HostOptions>(o => o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 builder.Services.AddSingleton<Notifier>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<Notifier>());
 builder.Services.AddSingleton<PageWarmer>();
@@ -39,6 +49,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<PageWarmer>());
 builder.Services.AddRazorPages(o => o.Conventions.ConfigureFilter(new Microsoft.AspNetCore.Mvc.AutoValidateAntiforgeryTokenAttribute()));
 
 var app = builder.Build();
+if (keyRing is not null) app.Logger.LogInformation("Form keys shared by the web servers: {KeyRing}.", keyRing);
 
 if (!app.Environment.IsDevelopment())
 {
@@ -79,6 +90,18 @@ app.Use(async (ctx, next) =>
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+/* A page, a file or an API answer whose audit row could not be written is not served (2.4.12, AuditLog): 503, and why. */
+app.Use(async (ctx, next) =>
+{
+    try { await next(); }
+    catch (AuditLogUnavailableException) when (!ctx.Response.HasStarted)
+    {
+        ctx.Response.Headers.Remove("Content-Disposition");
+        ctx.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+        ctx.Response.ContentType = "text/plain; charset=utf-8";
+        await ctx.Response.WriteAsync(AuditLogUnavailableException.Message503);
+    }
+});
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();

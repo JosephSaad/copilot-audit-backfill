@@ -125,10 +125,14 @@ $by = @{}; foreach ($x in $r2.Table.Rows) { $by[$x.UserPrincipalName] = $x }
 Assert-That (-not $by.ContainsKey('') -and $r2.Skipped.NoUpn -eq 2 -and $r2.Table.Rows.Count -eq 4) "people without a UPN are not loaded ($($r2.Skipped.NoUpn) skipped, $($r2.Table.Rows.Count) loaded)"
 Assert-That ($by['worker@contoso.com'].ManagerUPN -eq 'boss@contoso.com' -and $by['worker@contoso.com'].ManagerName -eq 'Name boss') `
     "a person whose manager has no UPN reports to the nearest manager above with one ($($by['worker@contoso.com'].ManagerUPN))"
-Assert-That ($by['worker@contoso.com'].Mgr1 -eq 'Name top' -and $by['worker@contoso.com'].Mgr2 -eq 'Name boss' -and $by['worker@contoso.com'].Mgr3 -is [DBNull] -and $by['worker@contoso.com'].OrgDepth -eq 2) `
+Assert-That ($by['worker@contoso.com'].Mgr1 -eq 'Name top' -and $by['worker@contoso.com'].Mgr2 -eq 'Name boss' -and $by['worker@contoso.com'].Mgr3 -is [DBNull]) `
     'the chain leaves out the manager without a UPN'
+# 2.4.12: OrgDepth still counts that manager. It counted only the chain's, so the worker looked a level higher than they
+# are, and the dashboard takes levels from it: under a manager without a UPN right below the top, that was level 2,
+# which sees the whole organization.
+Assert-That ($by['worker@contoso.com'].OrgDepth -eq 3 -and $by['boss@contoso.com'].OrgDepth -eq 1) "but OrgDepth counts every manager above, with a UPN or not ($($by['worker@contoso.com'].OrgDepth))"
 Assert-That ($by['boss@contoso.com'].IsManager -eq $true -and $by['top@contoso.com'].IsManager -eq $true) 'a manager whose report comes through a manager without a UPN is still a manager'
-Assert-That ($by['orphan@contoso.com'].ManagerUPN -is [DBNull] -and $by['orphan@contoso.com'].OrgDepth -eq 0) 'with no one above who has a UPN, there is no manager'
+Assert-That ($by['orphan@contoso.com'].ManagerUPN -is [DBNull] -and $by['orphan@contoso.com'].OrgDepth -eq 1) 'with no one above who has a UPN, there is no manager, though there is a level above'
 
 Write-Host ''
 if ($script:Failures.Count) { Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red; exit 1 }

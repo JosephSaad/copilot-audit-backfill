@@ -10,6 +10,8 @@
       4  Ctrl+C: stopping the pipeline mid-run (a real PipelineStoppedException in
          a separate runspace) stops the engine cleanly; a second run resumes and
          the final record set is exact
+      5  a backfill whose download gave up on a window fails the run, and neither
+         completes nor finalizes the range
 
     Requires python3 on PATH.
 #>
@@ -192,6 +194,41 @@ try {
     [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label '4')
 }
 finally { Stop-MockGraph $mock }
+
+# ---------------------------------------------------------------------------
+Write-Host "`n5. A backfill that gave up on a window fails the run (2.4.12)" -ForegroundColor Cyan
+
+# Invoke-Main with everything around the download stubbed, so only its own decision is under test. It logged the
+# failed windows and returned, so the script exited 0 and -History carried on as if the history had loaded.
+& {
+    function Import-CopilotAuditEngine { }
+    function New-SqlConnectionString { 'stub' }
+    function Initialize-CopilotAuditDatabase { }
+    function Enter-RunLock { }
+    function Resolve-BackfillRange { [pscustomobject]@{ Start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc); End = [datetime]::new(2026, 8, 9, 0, 0, 0, [DateTimeKind]::Utc); Resumed = $true; Completed = $false } }
+    function Connect-AuditGraph { }
+    function Get-GraphAccessToken { 'tok' }
+    function Show-BackfillState { }
+    function Invoke-AuditDownload { [pscustomobject]@{ WindowsFailed = $script:Failed; OldestRecordUtc = $null } }
+    function Invoke-CopilotAuditFinalize { $script:Finalized++ }
+    function Invoke-Sql { param([string] $Sql, [string] $As, [hashtable] $Parameters, [int] $TimeoutSeconds) $script:SqlRun.Add($Sql) }
+    $LogPath = Join-Path ([System.IO.Path]::GetTempPath()) "orchestrator-$PID.log"
+    $TenantId = 'contoso.onmicrosoft.com'; $Finalize = $true
+    try {
+        $script:Failed = 2; $script:Finalized = 0; $script:SqlRun = [System.Collections.Generic.List[string]]::new()
+        $err = try { Invoke-Main 6>$null; '' } catch { $_.Exception.Message }
+        Assert-That ($err -like '2 window(s) failed after retries*Run the same command again*') "the run throws, so the step exits non-zero and the pipeline stops there ($err)"
+        Assert-That (@($script:SqlRun | Where-Object { $_ -like '*CompletedUtc*' }).Count -eq 0 -and $script:Finalized -eq 0) 'and the range is neither marked complete nor finalized'
+
+        $script:Failed = 0; $script:Finalized = 0; $script:SqlRun.Clear()
+        Invoke-Main 6>$null
+        Assert-That (@($script:SqlRun | Where-Object { $_ -like '*SET CompletedUtc*' }).Count -eq 1 -and $script:Finalized -eq 1) 'with every window loaded it completes and finalizes, as before'
+    }
+    finally {
+        $script:LogFile = $null
+        Remove-Item -LiteralPath $LogPath -ErrorAction SilentlyContinue
+    }
+}
 
 # ---------------------------------------------------------------------------
 Write-Host ''

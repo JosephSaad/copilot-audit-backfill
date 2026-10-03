@@ -52,7 +52,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     static readonly Dictionary<string, string> Sorts = new()
     {
         ["strength"] = "Strength DESC, DisplayName", ["name"] = "DisplayName", ["dept"] = "Department, DisplayName", ["manager"] = "ManagerName, DisplayName",
-        /* Bare column names: the same list orders the page (in pick) and puts its rows back in order (outside it). */
+        /* Bare column names: the page is read in this order from the people the rule picked (#b). */
         ["upn"] = "UserPrincipalName", ["days"] = "Days DESC, DisplayName, UserPrincipalName", ["premium"] = "PremiumDays DESC, DisplayName, UserPrincipalName",
         ["inter"] = "Interactions DESC, DisplayName, UserPrincipalName", ["since"] = "LicensedSinceUtc, DisplayName, UserPrincipalName",
     };
@@ -72,11 +72,12 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         public DateTime? LicensedSinceUtc { get; set; }
         public string? RecordedLicense { get; set; }
         public int Strength { get; set; }
-        public int TotalRows { get; set; }
     }
 
-    public Task<IActionResult> OnGetBulkAsync() => ExportAsync(false);
-    public Task<IActionResult> OnGetScriptAsync() => ExportAsync(true);
+    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button): as links, any page a Licensing role holder
+       opened could make an export, record it in their name and write it to the audit log. */
+    public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
+    public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 
     async Task<IActionResult> ExportAsync(bool script)
     {
@@ -99,7 +100,7 @@ ORDER BY du.UserPrincipalName;", Ctx.Args(new { k30 }));
         await CopilotInsights.Data.LicenseActions.RecordAsync(Db, kind, upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"{kind} {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-{kind}-{DateTime.UtcNow:yyyyMMdd}";
-        return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 
     protected override async Task BuildAsync()
@@ -110,26 +111,26 @@ ORDER BY du.UserPrincipalName;", Ctx.Args(new { k30 }));
         var pg = new Paging(Request, Sorts, "strength");
         var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
         var premiumReady = await PremiumReadyAsync(Db, k30, Ctx.EndKey);
-        var rows = await Db.QueryAsync<Row>($@"
+        /* The count is read on its own (2.4.12): taken from the page's first row, a page past the end (a stale link, a list
+           that shrank) said 0 people at a cost of 0, with the empty-list text and no files to apply it. */
+        var (count, rows) = await Db.QueryTwoAsync<int, Row>($@"
 WITH {await ActivitySqlAsync(Db, k30, Ctx.EndKey)},
-lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1),
-base AS (
-    SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, ISNULL(a.D, 0) AS Days, ISNULL(a.P, 0) AS PremiumDays, ISNULL(a.I, 0) AS Interactions,
-           du.LicensedSinceUtc,
-           CASE WHEN @kind = 'upgrade' THEN ISNULL(a.D, 0) * 100000 + ISNULL(a.I, 0)
-                WHEN @kind = 'train' THEN 100000 - ISNULL(a.I, 0)
-                ELSE DATEDIFF(DAY, ISNULL(du.LicensedSinceUtc, @d1), @d1) END AS Strength
-    FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-    LEFT JOIN a ON a.UserKey = du.UserKey
-    LEFT JOIN lic ON lic.UserKey = du.UserKey
-    WHERE {Kinds[kind].Where}
-      AND ISNULL(du.AccountEnabled, 1) = 1
-      AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
-),
-pick AS (SELECT base.*, COUNT(*) OVER () AS TotalRows FROM base {pg.OrderAndPage()})
-SELECT pick.* FROM pick
-ORDER BY {pg.OrderBy};", Ctx.Args(new { k30, kind, q = pg.Like }));
-        pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
+lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
+SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, ISNULL(a.D, 0) AS Days, ISNULL(a.P, 0) AS PremiumDays, ISNULL(a.I, 0) AS Interactions,
+       du.LicensedSinceUtc,
+       CASE WHEN @kind = 'upgrade' THEN ISNULL(a.D, 0) * 100000 + ISNULL(a.I, 0)
+            WHEN @kind = 'train' THEN 100000 - ISNULL(a.I, 0)
+            ELSE DATEDIFF(DAY, ISNULL(du.LicensedSinceUtc, @d1), @d1) END AS Strength
+INTO #b
+FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
+LEFT JOIN a ON a.UserKey = du.UserKey
+LEFT JOIN lic ON lic.UserKey = du.UserKey
+WHERE {Kinds[kind].Where}
+  AND ISNULL(du.AccountEnabled, 1) = 1
+  AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q);
+SELECT COUNT(*) FROM #b;
+SELECT b.* FROM #b AS b {pg.OrderAndPage()};", Ctx.Args(new { k30, kind, q = pg.Like }));
+        pg.Total = count.Single();
 
         /* The detail only for the page shown, in one pass for all of them: last use, and the
            license the latest record reports. Looked up person by person, the interaction fact
@@ -158,7 +159,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         {
             Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Days using Premium features (30)", "Interactions (30)", "Last used", "Licensed since", "License type Copilot recorded", "Why"],
             Numeric = new HashSet<int> { 5, 6, 7 },
-            EmptyText = "No one fits this recommendation.",
+            EmptyText = pg.Total == 0 ? "No one fits this recommendation." : $"Nobody on this page: the list ends on page {pg.Pages:#,0}.",
             /* Last used and the recorded license are looked up after the page query, so they do not sort. */
             Server = new(pg, Request, ["name", "upn", "dept", "manager", null, "days", "premium", "inter", null, "since", null, null], new HashSet<int> { 5, 6, 7 }),
         };
@@ -197,9 +198,9 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         };
         /* Upgrade and revoke change a license: offer them as files an administrator applies. The dashboard changes nothing. */
         var exports = kind == "train" || pg.Total == 0 ? "" :
-            $"<p class=\"sub\">Apply it: <a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&handler=bulk"))}\">Entra bulk {(kind == "upgrade" ? "add" : "remove")} members file</a> · " +
-            $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"kind={kind}&handler=script"))}\">PowerShell script</a> for a license administrator to review and run " +
-            $"({(await S.Settings.StringAsync("LicenseGroupId") is null ? "assigns the license directly; set a licensing group in Admin > Targets and assumptions to use group membership instead" : "through the licensing group")}).</p>";
+            $"<div class=\"sub\">Apply it: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, $"kind={kind}&handler=bulk", Token(), TenantQuery, $"Entra bulk {(kind == "upgrade" ? "add" : "remove")} members file")} · " +
+            $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, $"kind={kind}&handler=script", Token(), TenantQuery, "PowerShell script")} for a license administrator to review and run " +
+            $"({(await S.Settings.StringAsync("LicenseGroupId") is null ? "assigns the license directly; set a licensing group in Admin > Targets and assumptions to use group membership instead" : "through the licensing group")}).</div>";
         if (!premiumReady && kind != "upgrade")
             Notice = "Use of Premium features is not yet told apart from free Copilot Chat here, so the train and revoke lists count any use. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + (kind == "upgrade" ? "" : await ProtectedNoteAsync()) + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),

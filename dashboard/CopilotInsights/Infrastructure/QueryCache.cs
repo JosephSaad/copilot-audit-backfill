@@ -14,11 +14,17 @@ namespace CopilotInsights.Infrastructure;
 /// parameters gives the same rows, so it is answered from memory. A result is kept under the tenant, the data's
 /// stamp, the query's text and every parameter's name and value: everything that decides who sees what (the scope
 /// root, the role-gated SQL) is in those, so a result is only ever given to a request that would have run the very
-/// same query. Only report pages opt in (see <see cref="Use"/>); admin pages, exports, the data API, forms and the
-/// background checks always read the database. A query that reads a table people change all day (triage, exported
-/// actions, confirmations) is kept under that table's version as well, read from the database for each page that asks
-/// (2.4.11): a change there ends only the results that read it, and is seen by the very next page.
+/// same query. Only report pages opt in (see <see cref="Use"/>); admin pages (but for the labels Admin > Reference data
+/// has seen), exports, the data API, forms and the background checks always read the database. A query that reads a
+/// table people change all day (triage, exported actions, confirmations) is kept under that table's version as well,
+/// read from the database for each page that asks (2.4.11): a change there ends only the results that read it, and is
+/// seen by the very next page. Each web server keeps its own (see docs/DASHBOARD.md, Several web servers).
 /// </summary>
+/// <remarks>
+/// Bounded (2.4.12): at most Insights:QueryCacheEntries results (the least recently used go first), and a tenant's
+/// results are dropped the moment its stamp changes. Before, nothing bounded it but time: every new search or page
+/// number was kept for 12 hours, and every stamp change left the whole previous set in memory until its 12 hours ran out.
+/// </remarks>
 public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> options, ILogger<QueryCache> log)
 {
     static readonly AsyncLocal<bool> _on = new();
@@ -31,6 +37,16 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _stamps = new();
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _writes = new();
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _liveWrites = new();
+
+    /// <summary>Each tenant's current results end together: cancelled when its stamp changes, which removes them.</summary>
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _ends = new();
+
+    /// <summary>
+    /// The store the site gives the query cache: its own, holding at most <paramref name="entries"/> results, so the
+    /// rest of the site's small caches (settings, sign-ins) are never what is squeezed out.
+    /// </summary>
+    public static IMemoryCache Store(int entries) =>
+        new MemoryCache(new MemoryCacheOptions { SizeLimit = Math.Max(100, entries), CompactionPercentage = 0.25 });
 
     public bool Enabled => _minutes > 0;
     public (long Hits, long Misses) Counts => (Interlocked.Read(ref _hits), Interlocked.Read(ref _misses));
@@ -45,6 +61,20 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         var seen = _seen.Value;
         _on.Value = true;
         _seen.Value ??= new();
+        return new Scope(before, seen);
+    }
+
+    /// <summary>
+    /// Turns cached reads off for the code that runs until the result is disposed, inside a page that has them on
+    /// (2.4.12): who the viewer is and what they may see are read from the database, whatever page asks. Leadership >
+    /// Group overview settled each tenant's viewer from a kept copy of the grants, so a revoked Organization grant went
+    /// on showing that tenant's whole organization for up to 12 hours.
+    /// </summary>
+    public static IDisposable Off()
+    {
+        var before = _on.Value;
+        var seen = _seen.Value;
+        _on.Value = false;
         return new Scope(before, seen);
     }
 
@@ -67,15 +97,32 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
     /// <summary>The stamp of the tenant's data, set by <see cref="DataStamp"/> and bumped by every write the dashboard makes.</summary>
     public string Stamp(string tenant) => _stamps.GetValueOrDefault(tenant, "0") + ":" + _writes.GetValueOrDefault(tenant, 0);
 
-    public void SetStamp(string tenant, string stamp) => _stamps[tenant] = stamp;
+    public void SetStamp(string tenant, string stamp)
+    {
+        var before = _stamps.GetValueOrDefault(tenant);
+        _stamps[tenant] = stamp;
+        if (before != stamp) End(tenant);
+    }
 
-    /// <summary>The dashboard wrote something (a setting, a grant, a triage): nothing cached before it is read again.</summary>
-    public void Wrote(string tenant) => _writes.AddOrUpdate(tenant, 1, (_, n) => n + 1);
+    /// <summary>The dashboard wrote something (a setting, a reference table): nothing cached before it is read again.</summary>
+    public void Wrote(string tenant)
+    {
+        _writes.AddOrUpdate(tenant, 1, (_, n) => n + 1);
+        End(tenant);
+    }
+
+    /* The stamp is changed first and the results ended after it, and a read takes its end before its stamp: a result
+       kept under the old stamp always carries an end that is cancelled. */
+    void End(string tenant)
+    {
+        if (_ends.TryRemove(tenant, out var ended)) ended.Cancel();
+    }
 
     /// <param name="live">The versions of the tables that change all day that the query names; without them such a query is not kept.</param>
     public async Task<T> GetAsync<T>(string tenant, string kind, string sql, object? args, Func<Task<T>> read, string? live = null)
     {
         if (!Enabled || !On || (live is null && DataStamp.Volatile(sql)) || Key(sql, args) is not { } k) return await read();
+        var end = _ends.GetOrAdd(tenant, _ => new CancellationTokenSource()).Token;
         var key = $"q:{tenant}:{Stamp(tenant)}:{kind}:{typeof(T).FullName}:{k}" + (live is null ? "" : ":" + live);
         if (cache.TryGetValue(key, out object? found) && found is Lazy<Task<T>> lazy)
         {
@@ -84,7 +131,13 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         }
         /* One read for the requests that arrive together: the rest wait for it. A failed read is not kept. */
         var mine = new Lazy<Task<T>>(read, LazyThreadSafetyMode.ExecutionAndPublication);
-        var entry = cache.GetOrCreate(key, e => { e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(_minutes); return mine; })!;
+        var entry = cache.GetOrCreate(key, e =>
+        {
+            e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(_minutes);
+            e.Size = 1;
+            e.AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(end));
+            return mine;
+        })!;
         if (ReferenceEquals(entry, mine)) Interlocked.Increment(ref _misses); else Interlocked.Increment(ref _hits);
         try { return await entry.Value; }
         catch { cache.Remove(key); throw; }

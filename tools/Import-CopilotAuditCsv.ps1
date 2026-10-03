@@ -21,7 +21,8 @@
         one operation set, as the backfill records it.
       - After the merge it brings the flattened table, license events,
         sessions and the bi schema up to date from the earliest record it
-        added, as -Incremental does.
+        added, as -Incremental does - or from an earlier import's, if that
+        one's refresh never finished.
 
     The files are read here, not by SQL Server, so the service account needs
     no access to them. Nothing is written to the files or the folder.
@@ -65,13 +66,18 @@
     ever changed; a Graph backfill's is left alone.
 
 .PARAMETER SkipPostProcessing
-    Only import and merge; leave the derived tables for the next -Incremental
-    run or a manual rebuild.
+    Only import and merge; leave the derived tables for later. The refresh is
+    then owed (audit.CopilotCsvImport.DerivedRefreshedUtc stays empty), and
+    the next -Incremental run, or the next run of this tool without the
+    switch, makes it up from the earliest record the import added - even with
+    no new files. A refresh that stops part way is owed the same way.
 
 .PARAMETER SessionLicenseDatabase
     Passed to usp_BuildCopilotSessions and bi.usp_RefreshBi as
-    @LicenseEventDatabase, as -Incremental does. Pass the same value the
-    nightly run uses.
+    @LicenseEventDatabase, as -Incremental does: one database, or several
+    comma-separated. Left out, the ones this database's last session build
+    read (or its last bi refresh), so the build matches the nightly run's;
+    -SessionLicenseDatabase '' reads none.
 
 .EXAMPLE
     .\tools\Import-CopilotAuditCsv.ps1 -Path D:\PurviewExports -SqlServer SQLPROD01 -Database CopilotAudit `
@@ -108,6 +114,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:ToolRoot = Split-Path $PSScriptRoot -Parent
+# The parameters given (2.4.12): -SessionLicenseDatabase '' given means none, left out means the last build's.
+$script:Bound = $PSBoundParameters
 
 function Write-Log {
     param([Parameter(Mandatory)][string] $Message,
@@ -421,6 +429,33 @@ function New-CsvImportConnectionString {
     return $csb.ConnectionString
 }
 
+function Enter-RunLock {
+    <#
+        Holds the database for this import alone (2.4.12), as the nightly pipeline, Install-CopilotAudit.ps1 and the
+        maintenance rebuilds do: an exclusive application lock, on a connection of its own kept open to the end of the
+        import. An import took none, so it could merge and rebuild beside the nightly, and two imports at once each
+        emptied the stage the other was filling. Under the pipeline's lock (CopilotAuditRunLock) it holds it already.
+        Returns the connection (dispose it to let go), or nothing under the pipeline's lock.
+    #>
+    param([string] $ConnString)
+    $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($ConnString)
+    if ($env:CopilotAuditRunLock -eq "$($b['Data Source'])/$($b['Initial Catalog'])") { return $null }
+    $b['Pooling'] = $false   # closing a pooled connection keeps its session, and the session's lock with it
+    $c = [System.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+    try {
+        $c.Open()
+        $cmd = $c.CreateCommand()
+        $cmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+        $granted = [int] $cmd.ExecuteScalar() -ge 0
+    }
+    catch { $c.Dispose(); throw }
+    if (-not $granted) {
+        $c.Dispose()
+        throw "Another run is using $($b['Initial Catalog']) now: the nightly pipeline, the installer, a maintenance rebuild, a load or another import. Nothing was imported. Let it finish (Admin > Health shows the pipeline's runs), then run this again."
+    }
+    $c
+}
+
 function Invoke-CsvSql {
     param(
         [Parameter(Mandatory)][System.Data.SqlClient.SqlConnection] $Connection,
@@ -568,6 +603,53 @@ function Invoke-CsvDerivedRefresh {
     }
 }
 
+function Get-SessionLicenseDatabase {
+    <#
+        The license databases the refresh reads (2.4.12): -SessionLicenseDatabase
+        when given, else the ones this database's last session build read, else
+        its last bi refresh's. Left out, it was none, so in a database built with
+        license history the session build refused ('different settings') after
+        the merge had committed, and bi and the dashboard missed the import.
+    #>
+    param([System.Data.SqlClient.SqlConnection] $Connection)
+    if ($script:Bound.ContainsKey('SessionLicenseDatabase')) { return $(if ($SessionLicenseDatabase) { $SessionLicenseDatabase } else { $null }) }
+    $recorded = Invoke-CsvSql -Connection $Connection -As Scalar -Sql @'
+DECLARE @l NVARCHAR(1000), @found BIT = 0;
+IF OBJECT_ID(N'audit.CopilotSessionRun', N'U') IS NOT NULL
+    SELECT TOP (1) @l = LicenseEventDatabase, @found = 1 FROM audit.CopilotSessionRun ORDER BY RunId DESC;
+IF @found = 0 AND OBJECT_ID(N'bi.RefreshRun', N'U') IS NOT NULL
+    SELECT TOP (1) @l = LicenseEventDatabase FROM bi.RefreshRun ORDER BY RunId DESC;
+SELECT @l;
+'@
+    if ($null -eq $recorded -or $recorded -is [DBNull] -or [string]::IsNullOrWhiteSpace([string] $recorded)) { return $null }
+    Write-Log "License history from $recorded, as this database's last build (-SessionLicenseDatabase to change it)."
+    return [string] $recorded
+}
+
+function Invoke-OwedCsvRefresh {
+    <#
+        Brings the derived tables up to date with every merged import that owes
+        a refresh (2.4.12), this run's included: from the earliest record any of
+        them added, then marks them. A refresh that failed or was skipped was
+        lost before - a second run skipped the merged files, and the nightly
+        refreshes its own days only. Returns where it refreshed from, or $null.
+    #>
+    param([System.Data.SqlClient.SqlConnection] $Connection)
+    $owed = (Invoke-CsvSql -Connection $Connection -As Table -Sql @'
+SELECT MIN(EarliestAddedUtc) AS SinceUtc, MAX(ImportId) AS LastId, COUNT(*) AS Imports
+FROM audit.CopilotCsvImport WHERE MergedUtc IS NOT NULL AND RowsAdded > 0 AND DerivedRefreshedUtc IS NULL;
+'@).Rows[0]
+    if ($owed.SinceUtc -is [DBNull]) { return $null }
+    $since = [datetime]::SpecifyKind($owed.SinceUtc, [DateTimeKind]::Utc)
+    Write-Log ('Bringing the derived tables up to date with {0} import(s) from {1:yyyy-MM-dd HH:mm}Z.' -f $owed.Imports, $since)
+    Invoke-CsvDerivedRefresh -Connection $Connection -SinceUtc $since -LicenseDatabase (Get-SessionLicenseDatabase $Connection)
+    Invoke-CsvSql -Connection $Connection -Parameters @{ '@i' = [int] $owed.LastId } -Sql @'
+UPDATE audit.CopilotCsvImport SET DerivedRefreshedUtc = SYSUTCDATETIME()
+WHERE MergedUtc IS NOT NULL AND DerivedRefreshedUtc IS NULL AND ImportId <= @i;
+'@
+    return $since
+}
+
 # ===========================================================================
 # Main
 # ===========================================================================
@@ -579,15 +661,18 @@ function Invoke-Main {
     $to   = if ($null -ne $CoveredThroughUtc -and $CoveredThroughUtc -ne [datetime]::MinValue) { ConvertTo-UtcDate $CoveredThroughUtc } else { $null }
 
     Import-CsvStageReader
-    $conn = [System.Data.SqlClient.SqlConnection]::new((New-CsvImportConnectionString))
+    $connString = New-CsvImportConnectionString
+    # One run at a time (2.4.12): held to the end of the import, and let go in the finally below.
+    $runLock = Enter-RunLock $connString
+    $conn = [System.Data.SqlClient.SqlConnection]::new($connString)
     $conn.add_InfoMessage({
         param($s, $e)
         foreach ($m in $e.Errors) {
             if ($m.Message -and $m.Message -notlike 'Warning: Null value is eliminated*') { Write-Log $m.Message }
         }
     })
-    $conn.Open()
     try {
+        $conn.Open()
         Write-Log ('Connected to {0}/{1}.' -f $conn.DataSource, $conn.Database)
         Invoke-CsvSql -Connection $conn -Sql (Get-Content -LiteralPath (Join-Path $script:ToolRoot 'sql' 'Create-CopilotAuditSchema.sql') -Raw)
         Invoke-CsvSqlScript -Connection $conn -Path (Join-Path $script:ToolRoot 'sql' 'Create-CopilotCsvImport.sql')
@@ -650,7 +735,12 @@ JOIN audit.CopilotCsvImport AS i ON i.ImportId = f.ImportId WHERE i.MergedUtc IS
             $seen[$h] = $f.Name
             $todo.Add([pscustomobject]@{ File = $f; Sha256 = $h })
         }
-        if ($todo.Count -eq 0) { Write-Log 'Nothing new to import.'; return }
+        if ($todo.Count -eq 0) {
+            Write-Log 'Nothing new to import.'
+            # An earlier import's refresh that never finished is made up even so (2.4.12).
+            if (-not $SkipPostProcessing) { [void] (Invoke-OwedCsvRefresh -Connection $conn) }
+            return
+        }
         Write-Log ('{0} file(s) to import; {1} already imported, {2} repeating another file.' -f $todo.Count, $already, $same)
 
         $importId = [int] (Invoke-CsvSql -Connection $conn -As Scalar -Parameters @{ '@p' = (Resolve-Path -LiteralPath $Path).Path; '@o' = $ops } -Sql @'
@@ -687,19 +777,18 @@ INSERT INTO audit.CopilotCsvImport (FolderPath, Operations) OUTPUT INSERTED.Impo
             }
         }
 
-        if ([long] $m.RowsAdded -gt 0 -and -not $SkipPostProcessing) {
-            $since = [datetime]::SpecifyKind($m.EarliestAddedUtc, [DateTimeKind]::Utc)
-            Invoke-CsvDerivedRefresh -Connection $conn -SinceUtc $since -LicenseDatabase $SessionLicenseDatabase
-            if (Test-CsvProc $conn 'bi.usp_RefreshBi') {
+        if (-not $SkipPostProcessing) {
+            $since = Invoke-OwedCsvRefresh -Connection $conn
+            if ($since -and (Test-CsvProc $conn 'bi.usp_RefreshBi')) {
                 Write-Log ('If a Power BI model refreshes incrementally and this import added records before its refresh window ({0:yyyy-MM-dd}), refresh the model fully once.' -f $since)
             }
         }
         elseif ([long] $m.RowsAdded -gt 0) {
-            Write-Log 'Derived tables not updated (-SkipPostProcessing).'
+            Write-Log 'Derived tables not updated (-SkipPostProcessing). The next -Incremental run, or this command without the switch, brings them up to date.'
         }
         Write-Log ("Import {0} complete: {1:N0} record(s) added." -f $importId, [long] $m.RowsAdded)
     }
-    finally { $conn.Dispose() }
+    finally { $conn.Dispose(); if ($runLock) { $runLock.Dispose() } }
 }
 
 # Dot-sourcing (tests) loads the functions without running anything.

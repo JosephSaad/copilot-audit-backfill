@@ -2,15 +2,24 @@
 Writes the Copilot Insights Power BI project (PBIP: a TMDL semantic model over the
 bi views, and a report to build on) into powerbi/CopilotInsights.
 
-    python powerbi/generate_model.py
+    python powerbi/generate_model.py [--out <folder>] [--force]
 
 Re-run after changing a bi view. Lineage tags are derived from names, so they do
 not change between runs and Power BI keeps its bindings.
+
+It writes only a project it wrote itself. generated-files.json lists every file
+it wrote, with a hash; when the folder holds anything else (a report page, a
+measure added in Desktop, a refresh policy or parameter changed there), it stops
+and changes nothing. Before 2.4.12 it deleted both definition folders first,
+so the report pages and model changes saved in the project were lost. Write the
+new model to an empty folder with --out and bring the changes across in Power BI
+Desktop, or pass --force to replace the project.
 """
-import json, os, shutil, sys, uuid
+import argparse, hashlib, json, os, shutil, sys, uuid
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "CopilotInsights")
 NAME = "CopilotInsights"
+MANIFEST = "generated-files.json"
 T = "\t"
 
 # The file types (2.4.6) were added to the model by hand, with tags of their own: kept, so Power BI keeps its bindings.
@@ -66,9 +75,8 @@ TABLES = {
             ("Active users", "DISTINCTCOUNT ( Interactions[UserKey] )", "#,0",
              "People with at least one Copilot interaction in the period."),
             ("Active licensed users",
-             "VAR HeldAtEnd =\n"
-             "    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),\n"
-             "        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )\n"
+             "VAR EndDate = [Period end]\n"
+             "VAR HeldAtEnd = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ), Calendar[Date] = EndDate )\n"
              "RETURN\n"
              '    CALCULATE ( [Active users], LicenseStatuses[LicenseStatus] = "Licensed",\n'
              "        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )", "#,0",
@@ -143,17 +151,21 @@ TABLES = {
             ("DateKey", "int64", dict(hidden=True)),
             ("UserKey", "int64", dict(hidden=True)),
         ],
+        # The end of the period is one day for every row, taken from Calendar, which no person filters
+        # (2.4.12). Before, each measure took the last day on which the people in the row held a license,
+        # so a department whose licenses were all removed on the 10th still counted them as licensed.
         measures=[
+            ("Period end", "CALCULATE ( MAX ( Calendar[Date] ), KEEPFILTERS ( Calendar[IsLoaded] = TRUE () ) )", "yyyy-mm-dd",
+             "The last day of the period the data covers: the day Licensed users and Adoption % count licenses on, the same for every row and the total (the dashboard's rule)."),
             ("Licensed users",
-             "CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),\n"
-             "    LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )", "#,0",
+             "VAR EndDate = [Period end]\n"
+             "RETURN CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ), Calendar[Date] = EndDate )", "#,0",
              "People holding a Copilot license at the end of the period."),
             ("Adoption %", "DIVIDE ( [Active licensed users], [Licensed users] )", "0.0%",
              "Active licensed users divided by people holding a Copilot license at the end of the period."),
             ("Licensed users not using Copilot",
-             "VAR licensed =\n"
-             "    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),\n"
-             "        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )\n"
+             "VAR EndDate = [Period end]\n"
+             "VAR licensed = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ), Calendar[Date] = EndDate )\n"
              "VAR active = VALUES ( Interactions[UserKey] )\n"
              "RETURN COUNTROWS ( EXCEPT ( licensed, active ) )", "#,0",
              "People licensed at the end of the period with no Copilot interaction in it."),
@@ -176,7 +188,12 @@ TABLES = {
             ("WeekYear", "int64", {}),
             ("WeekNumber", "int64", dict(desc="Week of the year; week 1 ends on the year's first Friday.")),
             ("WeekLabel", "string", dict(desc="Week name, e.g. 2026-W38, for the Saturday-to-Friday week.")),
-        ]),
+        ],
+        # Calendar runs to the end of the year; the data ends on the day bi was last built. A calculated
+        # column is worked out at refresh, outside row-level security, so it is the same for every viewer.
+        calc_cols=[("IsLoaded", "boolean", "Calendar[DateKey] <= MAX ( LicensedDays[DateKey] )",
+                    "True for the days the data covers, up to the last day licenses were counted. [Period end] takes its day from it.",
+                    True)]),
     "Users": dict(
         desc="One row per person: directory attributes from on-premises Active Directory and today's Copilot license.",
         view="Users",
@@ -203,7 +220,7 @@ TABLES = {
         ],
         calc_cols=[("User", "string",
                     "COALESCE ( Users[DisplayName], Users[UserPrincipalName] )",
-                    "The person's name, or their sign-in name when the directory has none.")]),
+                    "The person's name, or their sign-in name when the directory has none.", False)]),
     "Apps": dict(
         desc="The Microsoft 365 app a prompt was made in, and its category.",
         view="Apps",
@@ -213,7 +230,7 @@ TABLES = {
             ("AppCategory", "string", dict(desc="Copilot Chat or In-App Copilot.")),
         ]),
     "Agents": dict(
-        desc="The Copilot Studio or Microsoft agent used, under its friendly name. (no agent) means Copilot itself. An agent keeps its row when a maker renames it: the name is a label on the agent, and all its history carries the latest one.",
+        desc="The Copilot Studio or Microsoft agent used, under its friendly name. (no agent) means Copilot itself. An agent keeps its row when a maker renames it: the name is a label on the agent, and all its history carries the latest one. Under the Organization role, only the agents the viewer's people used.",
         view="Agents",
         cols=[
             ("AgentKey", "int64", dict(hidden=True)),
@@ -265,7 +282,7 @@ TABLES = {
         cols=[("FileTypeKey", "int64", dict(hidden=True)), ("FileType", "string", {})]),
     "ResourceActions": dict(desc="What Copilot did with the resource.", view="ResourceActions",
         cols=[("ResourceActionKey", "int64", dict(hidden=True)), ("ResourceAction", "string", {})]),
-    "Sites": dict(desc="SharePoint and OneDrive sites Copilot read from.", view="Sites",
+    "Sites": dict(desc="SharePoint and OneDrive sites Copilot read from. Under the Organization role, only the sites the viewer's people read.", view="Sites",
         cols=[("SiteKey", "int64", dict(hidden=True)), ("Site", "string", {}), ("Host", "string", {}),
               ("IsPersonal", "boolean", dict(desc="True for a OneDrive (personal) site."))]),
     "AgentEvents": dict(
@@ -286,7 +303,7 @@ TABLES = {
                   ("Agents published", 'CALCULATE ( DISTINCTCOUNT ( AgentEvents[BotSchemaName] ), AgentEvents[Action] = "Published" )', "#,0", "Agents published at least once in the period."),
                   ("Makers", "DISTINCTCOUNT ( AgentEvents[ActorKey] )", "#,0", "People who built or changed an agent.")]),
     "LicensePool": dict(
-        desc="Licenses bought, assigned and available per SKU per day, from the tenant's subscriptions.",
+        desc="Licenses bought, assigned and available per SKU per day, from the tenant's subscriptions. Under the Organization role, only for viewers who see the whole organization.",
         view="LicensePool",
         cols=[
             ("SnapshotDate", "dateTime", dict(fmt="yyyy-mm-dd")),
@@ -297,12 +314,12 @@ TABLES = {
         measures=[("Copilot seats bought", "CALCULATE ( SUM ( LicensePool[Bought] ), LicensePool[IsCopilot] = TRUE (), LASTDATE ( LicensePool[SnapshotDate] ) )", "#,0", "Copilot seats bought, on the last day in the filter."),
                   ("Copilot seats assigned", "CALCULATE ( SUM ( LicensePool[Assigned] ), LicensePool[IsCopilot] = TRUE (), LASTDATE ( LicensePool[SnapshotDate] ) )", "#,0", "Copilot seats assigned, on the last day in the filter.")]),
     "DepartmentWeek": dict(
-        desc="Use by department and week. Figures for departments under the minimum group size are blank (Hidden is true), so this table can be shared more widely than the person-level tables.",
+        desc="Use by department and week: a row for every department and every week of the data, used or not. Departments with fewer people than the minimum group size are combined as (smaller departments), and a week's figures are blank (Hidden is true) when fewer people than the minimum used Copilot in it, so this table can be shared more widely than the person-level tables: through the Departments role, which shows it and no one's own figures. Under the Organization role, only for viewers who see the whole organization.",
         view="DepartmentWeek",
         cols=[("WeekEnding", "dateTime", dict(fmt="yyyy-mm-dd")), ("Department", "string", {}),
               ("ActivePeople", "int64", {}), ("Interactions", "int64", {}), ("Sessions", "int64", {}), ("Hidden", "boolean", {})]),
     "ValueNames": dict(
-        desc="Readable names administrators gave the codes in the audit records (labels, apps, agents, license types), from the dashboard's Admin > Value names.",
+        desc="Readable names administrators gave the codes in the audit records (labels, apps, agents, license types), from the dashboard's Admin > Value names. Under the Organization role, only for viewers who see the whole organization.",
         view="ValueNames",
         cols=[("TableName", "string", {}), ("ColumnName", "string", {}), ("ColumnLabel", "string", {}), ("Value", "string", {}),
               ("Name", "string", {}), ("Records", "int64", {}), ("FirstSeenUtc", "dateTime", dict(fmt="yyyy-mm-dd")), ("LastSeenUtc", "dateTime", dict(fmt="yyyy-mm-dd"))]),
@@ -322,9 +339,10 @@ TABLES = {
         cols=[("Day", "dateTime", dict(fmt="yyyy-mm-dd")), ("DateKey", "int64", dict(hidden=True)),
               ("Label", "string", {}), ("Kind", "string", {})]),
     "OrgSecurity": dict(
-        desc="Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organization role.",
+        desc="Who may see whom: each viewer's sign-in and the people at or under them in the org chart. Used by the Organization role, which shows each viewer only their own rows.",
         view="OrgSecurity", hidden=True,
-        cols=[("ViewerUpn", "string", dict(hidden=True)), ("UserKey", "int64", dict(hidden=True))]),
+        cols=[("ViewerUpn", "string", dict(hidden=True)), ("UserKey", "int64", dict(hidden=True)),
+              ("WholeOrganization", "boolean", dict(hidden=True, desc="True when the viewer sees the whole organization: the top two levels, and anyone granted Organization."))]),
     "LicenseStatuses": dict(
         desc="Whether the person held a Copilot license when the interaction or session happened.",
         view="LicenseStatuses",
@@ -334,9 +352,14 @@ TABLES = {
         ]),
 }
 
+# Row-level security reaches Sites and Agents back through the facts, so a viewer sees only the sites their
+# people read and the agents they used (2.4.12; before, every role member could list every site and OneDrive
+# in the tenant). Each fact carries this for one relationship only, as Power BI requires.
+SECURED_BOTH_WAYS = "\tcrossFilteringBehavior: bothDirections\n\tsecurityFilteringBehavior: bothDirections\n"
+
 RELATIONSHIPS = [
     ("Interactions", "DateKey", "Calendar"), ("Interactions", "UserKey", "Users"),
-    ("Interactions", "AppKey", "Apps"), ("Interactions", "AgentKey", "Agents"),
+    ("Interactions", "AppKey", "Apps"), ("Interactions", "AgentKey", "Agents", "AgentKey", SECURED_BOTH_WAYS),
     ("Interactions", "ModelKey", "Models"), ("Interactions", "LicenseStatusKey", "LicenseStatuses"),
     ("Sessions", "DateKey", "Calendar"), ("Sessions", "UserKey", "Users"),
     ("Sessions", "AppKey", "Apps"), ("Sessions", "LicenseStatusKey", "LicenseStatuses"),
@@ -347,7 +370,7 @@ RELATIONSHIPS = [
     ("AccessedResources", "DateKey", "Calendar"), ("AccessedResources", "UserKey", "Users"), ("AccessedResources", "AppKey", "Apps"),
     ("AccessedResources", "ResourceTypeKey", "ResourceTypes"), ("AccessedResources", "FileTypeKey", "FileTypes"),
     ("AccessedResources", "ResourceActionKey", "ResourceActions"),
-    ("AccessedResources", "SiteKey", "Sites"), ("AccessedResources", "SensitivityLabelKey", "SensitivityLabels"),
+    ("AccessedResources", "SiteKey", "Sites", "SiteKey", SECURED_BOTH_WAYS), ("AccessedResources", "SensitivityLabelKey", "SensitivityLabels"),
     ("AgentEvents", "DateKey", "Calendar"), ("AgentEvents", "ActorKey", "Users", "UserKey"),
     ("Interactions", "UseCaseKey", "UseCases"), ("EventMarkers", "DateKey", "Calendar"),
     # One job family per person: one-to-one, filtering both ways, so the family slices every fact through Users.
@@ -378,6 +401,19 @@ def table_tmdl(name, t):
     if t.get("date_table"):
         o.append(f"{T}dataCategory: Time\n")
     o.append("\n")
+    if t.get("incremental"):
+        # The refresh policy is part of the model (2.4.12): before, it was set by hand in Desktop, and a
+        # model without it loaded only the parameters' fixed range, so nothing after it.
+        o.append(f"{T}refreshPolicy\n")
+        o.append(f"{T*2}policyType: basic\n")
+        o.append(f"{T*2}rollingWindowGranularity: year\n")
+        o.append(f"{T*2}rollingWindowPeriods: 2\n")
+        o.append(f"{T*2}incrementalGranularity: day\n")
+        o.append(f"{T*2}incrementalPeriods: 4\n")
+        o.append(f"{T*2}sourceExpression =\n")
+        for ln in m_source(t["view"], True):
+            o.append(f"{T*4}{ln}\n")
+        o.append("\n")
     for mname, expr, fmt, mdesc in t.get("measures", []):
         o.append(desc(mdesc, T))
         qn = f"'{mname}'" if any(c in mname for c in " .=:'%-") else mname
@@ -409,10 +445,12 @@ def table_tmdl(name, t):
         if opt.get("sort"):
             o.append(f"{T*2}sortByColumn: {opt['sort']}\n")
         o.append("\n")
-    for cname, dtype, expr, cdesc in t.get("calc_cols", []):
+    for cname, dtype, expr, cdesc, chidden in t.get("calc_cols", []):
         o.append(desc(cdesc, T))
         o.append(f"{T}column {cname} = {expr}\n")
         o.append(f"{T*2}dataType: {dtype}\n")
+        if chidden:
+            o.append(f"{T*2}isHidden\n")
         o.append(f"{T*2}lineageTag: {lt(name, cname)}\n")
         o.append(f"{T*2}summarizeBy: none\n\n")
     o.append(f"{T}partition {name} = m\n")
@@ -425,35 +463,48 @@ def table_tmdl(name, t):
     return "".join(o)
 
 
-def write(path, text):
+def long_path(path):
     # Long paths on Windows (a deep checkout passes 260 characters).
     if os.name == "nt" and not path.startswith("\\\\?\\"):
-        path = "\\\\?\\" + os.path.abspath(path)
+        return "\\\\?\\" + os.path.abspath(path)
+    return path
+
+
+def write(path, text):
+    path = long_path(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\r\n") as f:
         f.write(text)
 
 
-def main():
-    base = "\\\\?\\" + os.path.abspath(OUT) if os.name == "nt" else OUT   # long paths on Windows
-    sm = os.path.join(base, f"{NAME}.SemanticModel")
-    rp = os.path.join(base, f"{NAME}.Report")
-    for d in (sm, rp):
-        if os.path.isdir(os.path.join(d, "definition")):
-            shutil.rmtree(os.path.join(d, "definition"))
-    d = os.path.join(sm, "definition")
+def digest(data):
+    # Line endings aside: git checks the project out with either.
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
 
-    write(os.path.join(OUT, f"{NAME}.pbip"), json.dumps({
+
+# Who sees the whole organization, from the viewer's own rows of OrgSecurity only, so the answer does not
+# depend on whether other tables' filters apply while it is worked out.
+WHOLE_ORGANIZATION = ("NOT ISEMPTY ( CALCULATETABLE ( OrgSecurity, OrgSecurity[ViewerUpn] = USERPRINCIPALNAME (), "
+                      "OrgSecurity[WholeOrganization] = TRUE () ) )")
+
+
+def project_files():
+    """Every file of the project, by its path under the project folder (parts joined with /)."""
+    files = {}
+    sm, rp = f"{NAME}.SemanticModel", f"{NAME}.Report"
+    d, rd = f"{sm}/definition", f"{rp}/definition"
+
+    files[f"{NAME}.pbip"] = json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/pbip/pbipProperties/1.0.0/schema.json",
         "version": "1.0",
         "artifacts": [{"report": {"path": f"{NAME}.Report"}}],
-        "settings": {"enableAutoRecovery": True}}, indent=2) + "\n")
-    write(os.path.join(sm, "definition.pbism"), json.dumps({
+        "settings": {"enableAutoRecovery": True}}, indent=2) + "\n"
+    files[f"{sm}/definition.pbism"] = json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/semanticModel/definitionProperties/1.0.0/schema.json",
-        "version": "4.2", "settings": {}}, indent=2) + "\n")
-    write(os.path.join(OUT, ".gitignore"), "**/.pbi/localSettings.json\n**/.pbi/cache.abf\n")
+        "version": "4.2", "settings": {}}, indent=2) + "\n"
+    files[".gitignore"] = "**/.pbi/localSettings.json\n**/.pbi/cache.abf\n"
 
-    write(os.path.join(d, "database.tmdl"), "database\n\tcompatibilityLevel: 1600\n")
+    files[f"{d}/database.tmdl"] = "database\n\tcompatibilityLevel: 1600\n"
     model = ["model Model\n", "\tculture: en-US\n", "\tdefaultPowerBIDataSourceVersion: powerBI_V3\n",
              "\tdiscourageImplicitMeasures\n", "\tsourceQueryCulture: en-US\n", "\tdataAccessOptions\n",
              "\t\tlegacyRedirects\n", "\t\treturnErrorValuesAsNull\n\n",
@@ -462,19 +513,23 @@ def main():
              + ",".join(f'"{n}"' for n in TABLES) + "]\n\n",
              "annotation PBI_ProTooling = [\"DevMode\"]\n\n"]
     model += [f"ref table {n}\n" for n in TABLES]
-    model += ["\nref role Organization\n"]
-    write(os.path.join(d, "model.tmdl"), "".join(model))
+    model += ["\nref role Organization\n", "ref role Departments\n"]
+    files[f"{d}/model.tmdl"] = "".join(model)
 
     def param(name, value, typ, text):
         return (desc(text, "") +
                 f"expression {name} = {value} meta [IsParameterQuery=true, Type=\"{typ}\", IsParameterQueryRequired=true]\n"
                 f"\tlineageTag: {lt('param', name)}\n\n"
                 f"\tannotation PBI_ResultType = {'Text' if typ == 'Text' else 'DateTime'}\n\n")
-    write(os.path.join(d, "expressions.tmdl"),
-          param("SqlServer", '"localhost"', "Text", "SQL Server instance holding the Copilot database (for Azure SQL, its server name).") +
-          param("SqlDatabase", '"CopilotAudit"', "Text", "The audit database with the bi schema.") +
-          param("RangeStart", "#datetime(2025, 1, 1, 0, 0, 0)", "DateTime", "Incremental refresh: start of the range loaded.") +
-          param("RangeEnd", "#datetime(2027, 1, 1, 0, 0, 0)", "DateTime", "Incremental refresh: end of the range loaded (exclusive)."))
+    # The range covers everything (2.4.12): it ended on 1 January 2027, after which a copy with no refresh policy
+    # loaded no new interactions and said nothing. The service replaces both values with the policy's own ranges.
+    files[f"{d}/expressions.tmdl"] = (
+        param("SqlServer", '"localhost"', "Text", "SQL Server instance holding the Copilot database (for Azure SQL, its server name).") +
+        param("SqlDatabase", '"CopilotAudit"', "Text", "The audit database with the bi schema.") +
+        param("RangeStart", "#datetime(2000, 1, 1, 0, 0, 0)", "DateTime",
+              "Incremental refresh: start of the range Power BI Desktop loads. The service replaces it with each partition's own start.") +
+        param("RangeEnd", "#datetime(2100, 1, 1, 0, 0, 0)", "DateTime",
+              "Incremental refresh: end of the range Power BI Desktop loads (exclusive). The service replaces it with each partition's own end."))
 
     rel = []
     for r in RELATIONSHIPS:
@@ -482,47 +537,132 @@ def main():
         to = r[3] if len(r) > 3 else c
         extra = r[4] if len(r) > 4 else ""
         rel.append(f"relationship {lt('rel', f, c)}\n{extra}\tfromColumn: {f}.{c}\n\ttoColumn: {dim}.{to}\n\n")
-    write(os.path.join(d, "relationships.tmdl"), "".join(rel))
+    files[f"{d}/relationships.tmdl"] = "".join(rel)
 
     for n, t in TABLES.items():
-        write(os.path.join(d, "tables", f"{n}.tmdl"), table_tmdl(n, t))
+        files[f"{d}/tables/{n}.tmdl"] = table_tmdl(n, t)
 
-    # Row-level security from the org chart: a viewer sees the people at or under them (bi.OrgSecurity).
-    write(os.path.join(d, "roles", "Organization.tmdl"),
-          desc("Each viewer sees the people at or under them in the org chart, as the dashboard does.\n"
-               "Add the report's viewers (or an Entra group) to this role in the Power BI service.", "") +
-          "role Organization\n\tmodelPermission: read\n\n"
-          "\ttablePermission Users = Users[UserKey] IN CALCULATETABLE ( VALUES ( OrgSecurity[UserKey] ), OrgSecurity[ViewerUpn] = USERPRINCIPALNAME () )\n")
+    # Row-level security from the org chart: a viewer sees the people at or under them (bi.OrgSecurity), and the
+    # sites and agents come through the facts (SECURED_BOTH_WAYS). Before 2.4.12 the role filtered Users alone, so
+    # every member could read OrgSecurity whole (every viewer's sign-in and who they see), every site and OneDrive
+    # in the tenant, and the whole-organization tables, even a member outside the org chart.
+    files[f"{d}/roles/Organization.tmdl"] = (
+        desc("Each viewer sees the people at or under them in the org chart, as the dashboard does, and only what those people did:\n"
+             "the sites they read and the agents they used. LicensePool, ValueNames and DepartmentWeek hold figures for the whole\n"
+             "organization, so they show only to viewers who see the whole organization.\n"
+             "Add the report's viewers (or an Entra group) to this role in the Power BI service.", "") +
+        "role Organization\n\tmodelPermission: read\n\n"
+        "\ttablePermission Users = Users[UserKey] IN CALCULATETABLE ( VALUES ( OrgSecurity[UserKey] ), OrgSecurity[ViewerUpn] = USERPRINCIPALNAME () )\n\n"
+        "\ttablePermission OrgSecurity = OrgSecurity[ViewerUpn] = USERPRINCIPALNAME ()\n\n"
+        + "".join(f"\ttablePermission {n} = {WHOLE_ORGANIZATION}\n\n" for n in ("LicensePool", "ValueNames", "DepartmentWeek")).rstrip("\n") + "\n")
+    # The department figures alone, for sharing more widely, and in privacy mode, where bi.OrgSecurity is empty
+    # and the Organization role sees nobody.
+    files[f"{d}/roles/Departments.tmdl"] = (
+        desc("Department figures only: DepartmentWeek, where a group under the minimum size is blank, with the calendar and the\n"
+             "reference tables. No one's own figures. For sharing more widely, and in privacy mode, where the Organization role sees nobody.", "") +
+        "role Departments\n\tmodelPermission: read\n\n"
+        + "".join(f"\ttablePermission {n} = FALSE ()\n\n" for n in ("Users", "OrgSecurity", "LicensePool", "ValueNames")).rstrip("\n") + "\n")
 
     # Report: one blank page, PBIR format.
-    write(os.path.join(rp, "definition.pbir"), json.dumps({
+    files[f"{rp}/definition.pbir"] = json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definitionProperties/2.0.0/schema.json",
         "version": "4.0",
-        "datasetReference": {"byPath": {"path": f"../{NAME}.SemanticModel"}}}, indent=2) + "\n")
-    rd = os.path.join(rp, "definition")
-    write(os.path.join(rd, "version.json"), json.dumps({
+        "datasetReference": {"byPath": {"path": f"../{NAME}.SemanticModel"}}}, indent=2) + "\n"
+    files[f"{rd}/version.json"] = json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/versionMetadata/1.0.0/schema.json",
-        "version": "2.0.0"}, indent=2) + "\n")
-    write(os.path.join(rd, "report.json"), json.dumps({
+        "version": "2.0.0"}, indent=2) + "\n"
+    files[f"{rd}/report.json"] = json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/report/3.0.0/schema.json",
         "themeCollection": {"customTheme": {"name": "CopilotInsights.json", "reportVersionAtImport": {"visual": "2.4.0", "report": "3.0.0", "page": "2.3.0"}, "type": "RegisteredResources"}},
         "resourcePackages": [{"name": "RegisteredResources", "type": "RegisteredResources",
                               "items": [{"name": "CopilotInsights.json", "path": "CopilotInsights.json", "type": "CustomTheme"}]}]},
-        indent=2) + "\n")
-    write(os.path.join(rd, "pages", "pages.json"), json.dumps({
+        indent=2) + "\n"
+    files[f"{rd}/pages/pages.json"] = json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/pagesMetadata/1.0.0/schema.json",
-        "pageOrder": ["overview"], "activePageName": "overview"}, indent=2) + "\n")
-    write(os.path.join(rd, "pages", "overview", "page.json"), json.dumps({
+        "pageOrder": ["overview"], "activePageName": "overview"}, indent=2) + "\n"
+    files[f"{rd}/pages/overview/page.json"] = json.dumps({
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/page/2.0.0/schema.json",
         "name": "overview", "displayName": "Overview", "displayOption": "FitToPage",
-        "height": 720, "width": 1280}, indent=2) + "\n")
+        "height": 720, "width": 1280}, indent=2) + "\n"
     # The dashboard's categorical colors, so charts look the same in both.
-    write(os.path.join(rp, "StaticResources", "RegisteredResources", "CopilotInsights.json"), json.dumps({
+    files[f"{rp}/StaticResources/RegisteredResources/CopilotInsights.json"] = json.dumps({
         "name": "Copilot Insights",
         "dataColors": ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
-        "good": "#0ca30c", "neutral": "#eda100", "bad": "#d03b3b"}, indent=2) + "\n")
-    print("written to", OUT)
+        "good": "#0ca30c", "neutral": "#eda100", "bad": "#d03b3b"}, indent=2) + "\n"
+    return files
+
+
+def existing_files(out):
+    """The files in the project folder now, with their hashes: all but the manifest and folders whose name
+    starts with a dot (Desktop's .pbi, with its local settings and cache, is not part of the project)."""
+    found = {}
+    base = long_path(out)
+    if not os.path.isdir(base):
+        return found
+    for dirpath, dirs, names in os.walk(base):
+        dirs[:] = [x for x in dirs if not x.startswith(".")]
+        for n in names:
+            full = os.path.join(dirpath, n)
+            rel = full[len(base):].lstrip("\\/").replace("\\", "/")
+            if rel == MANIFEST:
+                continue
+            with open(full, "rb") as f:
+                found[rel] = digest(f.read())
+    return found
+
+
+def foreign_files(out, files):
+    """What in the folder this script did not write, or was changed after it wrote it; and its last manifest."""
+    try:
+        with open(long_path(os.path.join(out, MANIFEST)), encoding="utf-8") as f:
+            written = json.load(f).get("files", {})
+    except (OSError, ValueError, AttributeError):
+        written = {}
+    new = {rel: digest(text.encode("utf-8")) for rel, text in files.items()}
+    foreign = [rel for rel, h in sorted(existing_files(out).items())
+               if written.get(rel) != h and new.get(rel) != h]
+    return foreign, written
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description="Writes the Copilot Insights Power BI project.")
+    p.add_argument("--out", default=OUT, help="the project folder (default: CopilotInsights beside this script)")
+    p.add_argument("--force", action="store_true",
+                   help="replace the project even where it holds files this script did not write, which are lost")
+    a = p.parse_args(argv)
+    out = os.path.abspath(a.out)
+    files = project_files()
+    foreign, written = foreign_files(out, files)
+    if foreign and not a.force:
+        print(f"{out} holds files this script did not write, or changed after it wrote them:", file=sys.stderr)
+        for rel in foreign[:20]:
+            print("  " + rel, file=sys.stderr)
+        if len(foreign) > 20:
+            print(f"  and {len(foreign) - 20} more", file=sys.stderr)
+        print("Nothing was changed. To keep that work, write the new model to an empty folder with --out <folder>\n"
+              "and bring its changes into this project in Power BI Desktop. To replace the project, losing that work,\n"
+              "run it again with --force.", file=sys.stderr)
+        return 1
+    base = long_path(out)
+    if a.force:
+        for sub in (f"{NAME}.SemanticModel", f"{NAME}.Report"):
+            if os.path.isdir(os.path.join(base, sub, "definition")):
+                shutil.rmtree(os.path.join(base, sub, "definition"))
+    else:
+        # A file an earlier run wrote that this one does not (a table taken out of the model) goes too.
+        for rel in written:
+            path = os.path.join(base, *rel.split("/"))
+            if rel not in files and os.path.isfile(path):
+                os.remove(path)
+    for rel, text in files.items():
+        write(os.path.join(out, *rel.split("/")), text)
+    write(os.path.join(out, MANIFEST), json.dumps({
+        "about": "The files powerbi/generate_model.py wrote, with their SHA-256 (line endings aside). "
+                 "It replaces only these, and only while they are unchanged.",
+        "files": {rel: digest(text.encode("utf-8")) for rel, text in sorted(files.items())}}, indent=2) + "\n")
+    print("written to", out)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

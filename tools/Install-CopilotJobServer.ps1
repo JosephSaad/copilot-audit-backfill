@@ -13,7 +13,8 @@
          -CertificateThumbprint, or the subject 'CN=Copilot audit pipeline'),
          or creates a self-signed one: 2048-bit RSA, private key not
          exportable, valid 2 years. Exports its public half as
-         copilot-audit.cer for the app registration.
+         copilot-audit.cer for the app registration. One within 30 days of
+         expiry is renewed only with -RegisterApp, which uploads the new one.
       2. Service account. Checks a gMSA is installed on this server (and
          installs it when the AD module is present), gives the account Read on
          the certificate's private key, and the "Log on as a batch job" right.
@@ -23,7 +24,8 @@
          the reporting time zone and, with -Dashboard, the dashboard's schema.
       5. App registration, with -RegisterApp: tools\New-CopilotAuditApp.ps1
          signs you in to Microsoft Graph once, registers the app with its three
-         permissions and admin consent, and uploads the certificate. Without
+         permissions and admin consent, and uploads the certificate; then the
+         same for each other tenant in the settings, by its client id. Without
          it, pass -TenantId and -ClientId of an app registered already.
       6. Settings: writes copilot-audit.settings.psd1, which
          Invoke-CopilotPipeline.ps1 reads.
@@ -42,7 +44,8 @@
 
 .PARAMETER ReportingTimeZone
     The zone days and weeks are cut in (a name from sys.time_zone_info).
-    Default Eastern Standard Time. Set it before the history is loaded.
+    Default: this server's own zone, which the database installer stores
+    (2.4.10). Set it before the history is loaded.
 
 .PARAMETER RegisterApp
     Register the Entra app too: you sign in as an administrator who can grant
@@ -82,6 +85,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# The parameters given this time (2.4.12): an empty -EmployeeTypes @() is given, and means every type.
+$script:Bound = $PSBoundParameters
 $script:Root = Split-Path $PSScriptRoot -Parent
 $script:TaskName = 'Copilot audit - nightly'
 $script:CertSubject = 'CN=Copilot audit pipeline'
@@ -95,8 +100,8 @@ function Write-Done([string] $Text) { Write-Information "    $Text" -Information
 # ===========================================================================
 
 $script:SettingOrder = 'SqlServer', 'Database', 'LicenseDatabase', 'TrustServerCertificate', 'TenantId', 'ClientId',
-                       'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'Dashboard', 'HistoryDays',
-                       'LogPath', 'LogRetentionDays', 'TenantName', 'Tenants'
+                       'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'IncludeLeaveDates', 'Dashboard', 'HistoryDays',
+                       'LogPath', 'LogRetentionDays', 'At', 'TenantName', 'Tenants'
 
 function Get-DefaultSetting {
     [ordered]@{
@@ -108,14 +113,42 @@ function Get-DefaultSetting {
 }
 
 function Merge-Setting {
-    <# The saved settings, overlaid with the parameters given this time. Pure. #>
+    <#
+        The saved settings, overlaid with the parameters given this time. Pure.
+        Every saved key is kept (2.4.12), the ones this script does not set too
+        (IncludeLeaveDates, added by hand as the deployment guide says), and so
+        is an empty value: EmployeeTypes = @() is every type. A re-run took only
+        its own keys, and only values that were not empty, so it put EMP and NONW
+        back and dropped the rest. A default fills only a key that is missing.
+    #>
     param([System.Collections.IDictionary] $Saved, [System.Collections.IDictionary] $Given)
     $s = Get-DefaultSetting
     foreach ($src in $Saved, $Given) {
         if (-not $src) { continue }
-        foreach ($k in @($src.Keys)) { if ($s.Contains($k) -and $null -ne $src[$k] -and "$($src[$k])" -ne '') { $s[$k] = $src[$k] } }
+        foreach ($k in @($src.Keys)) { if ($null -ne $src[$k]) { $s[$k] = $src[$k] } }
     }
     $s
+}
+
+function Get-InstallArgument {
+    <#
+        Install-CopilotAudit.ps1's arguments for step 4, from the merged settings. Pure, for the tests. 2.4.12: the
+        license databases as the pipeline passes them. A blank LicenseDatabase (kept by Merge-Setting) is
+        -SkipLicenseDatabase; it was passed as it was, and the installer ran CREATE DATABASE [] and failed. And
+        SessionLicenseDatabases is -LicenseEventDatabases: it was not passed, so the build recorded the one license
+        database while the nightly read the list, and every night stopped on "different settings" (50006).
+    #>
+    param([System.Collections.IDictionary] $Setting, [string] $ServiceAccount)
+    function Has($k) { $Setting.Contains($k) -and $Setting[$k] }
+    $a = @{ SqlServer = $Setting.SqlServer; Database = $Setting.Database; ServiceAccount = $ServiceAccount }
+    $lic = if (Has 'LicenseDatabase') { [string] $Setting.LicenseDatabase } else { $null }
+    if ($lic) { $a.LicenseDatabase = $lic } else { $a.SkipLicenseDatabase = $true }
+    $readLic = @(@(if (Has 'SessionLicenseDatabases') { $Setting.SessionLicenseDatabases } elseif ($lic) { $lic }) |
+                 ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    if ($readLic.Count) { $a.LicenseEventDatabases = [string[]] $readLic }
+    if (Has 'TrustServerCertificate') { $a.TrustServerCertificate = $true }
+    if (Has 'Dashboard') { $a.Dashboard = $true }
+    $a
 }
 
 function ConvertTo-SettingText {
@@ -131,6 +164,8 @@ function ConvertTo-SettingText {
     $lines = @('# Written by tools\Install-CopilotJobServer.ps1 and read by Invoke-CopilotPipeline.ps1.',
                '# Run the installer again to change a value; editing by hand works too.', '@{')
     foreach ($k in $script:SettingOrder) { if ($Setting.Contains($k)) { $lines += "    $k = $(Q $Setting[$k])" } }
+    # Then any key it does not know, so a value added by hand is written back, not dropped (2.4.12).
+    foreach ($k in @($Setting.Keys)) { if ($k -notin $script:SettingOrder) { $lines += "    $k = $(Q $Setting[$k])" } }
     ($lines + '}') -join "`r`n"
 }
 
@@ -139,16 +174,39 @@ function ConvertTo-SettingText {
 # ===========================================================================
 
 function Get-PipelineCertificate {
-    param([string] $Thumbprint)
+    param([string] $Thumbprint, [switch] $Renew)
     $store = 'Cert:\LocalMachine\My'
     if ($Thumbprint) {
         $c = Get-Item -LiteralPath (Join-Path $store $Thumbprint) -ErrorAction SilentlyContinue
         if (-not $c) { throw "No certificate $Thumbprint in LocalMachine\My." }
-        # One this script made, within 30 days of expiry: renewed below. Your own PKI's: kept, and flagged.
+        # One this script made, within 30 days of expiry: renewed below with -RegisterApp, which uploads the new one,
+        # and kept until then while it is still valid (2.4.12). Any run in those 30 days made a new certificate and
+        # put it in the settings, uploaded nowhere without -RegisterApp, so the nightly sign-in failed while the old
+        # one still worked. Your own PKI's: kept, and flagged.
         if ($c.Subject -ne $script:CertSubject -or $c.NotAfter -gt (Get-Date).AddDays(30)) { return $c }
+        if (-not $Renew -and $c.NotAfter -gt (Get-Date)) { return $c }
     }
     Get-ChildItem $store | Where-Object { $_.Subject -eq $script:CertSubject -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date).AddDays(30) } |
         Sort-Object NotAfter -Descending | Select-Object -First 1
+}
+
+function Get-AppToRegister {
+    <#
+        The app registrations -RegisterApp puts the certificate on: the first tenant's, then each other tenant's that
+        signs in with the same certificate, by its client id (2.4.12). Only the first tenant's had it, so after a
+        renewal every other tenant's nightly sign-in failed. Pure, for the tests.
+    #>
+    param([System.Collections.IDictionary] $Setting)
+    $list = [System.Collections.Generic.List[object]]::new()
+    $list.Add([pscustomobject]@{ Name = ''; TenantId = [string] $Setting.TenantId; ClientId = [string] $Setting.ClientId; First = $true })
+    if ($Setting.Contains('Tenants')) {
+        foreach ($t in @($Setting.Tenants | Where-Object { $_ })) {
+            if ($t.Contains('CertificateThumbprint') -and $t.CertificateThumbprint) { continue }   # a certificate of its own
+            if (-not ($t.Contains('TenantId') -and $t.TenantId -and $t.Contains('ClientId') -and $t.ClientId)) { continue }
+            $list.Add([pscustomobject]@{ Name = [string] $t.Name; TenantId = [string] $t.TenantId; ClientId = [string] $t.ClientId; First = $false })
+        }
+    }
+    , $list.ToArray()
 }
 
 function Get-PrivateKeyFile {
@@ -290,24 +348,29 @@ function Invoke-Main {
 
     $saved = if (Test-Path -LiteralPath $SettingsPath) { Import-PowerShellDataFile -LiteralPath $SettingsPath } else { @{} }
     $given = @{}
-    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes') {
-        $v = Get-Variable -Name $k -ValueOnly
-        if ($v) { $given[$k] = $v }
+    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'At') {
+        if ($script:Bound.ContainsKey($k)) { $given[$k] = Get-Variable -Name $k -ValueOnly }
     }
     if ($TrustServerCertificate) { $given.TrustServerCertificate = $true }
     if ($Dashboard) { $given.Dashboard = $true }
     $s = Merge-Setting -Saved $saved -Given $given
     if (-not $s.SqlServer) { throw 'Pass -SqlServer the first time (it is saved for later runs).' }
     $account = if ($ServiceAccount) { $ServiceAccount } elseif ($saved.Contains('ServiceAccount')) { $saved.ServiceAccount } else { $null }
-    $taskAt = if ($At) { $At } else { '02:00' }
+    # The service account is written below, on its own line; it is not one of the pipeline's settings.
+    if ($s.Contains('ServiceAccount')) { $s.Remove('ServiceAccount') }
+    # The task's time is saved too (2.4.12): a re-run moved a task set with -At back to 02:00.
+    $taskAt = if ($s.Contains('At') -and $s.At) { [string] $s.At } else { '02:00' }
+    $s.At = $taskAt
     $todo = @()
 
     # ---- 1. Certificate --------------------------------------------------------------------
     Write-Step 'Certificate'
-    $cert = Get-PipelineCertificate -Thumbprint $s.CertificateThumbprint
+    $cert = Get-PipelineCertificate -Thumbprint $s.CertificateThumbprint -Renew:$RegisterApp
+    $created = $false
     if (-not $cert -and $PSCmdlet.ShouldProcess($script:CertSubject, 'Create a self-signed certificate in LocalMachine\My')) {
         $cert = New-SelfSignedCertificate -Subject $script:CertSubject -CertStoreLocation Cert:\LocalMachine\My `
             -KeySpec Signature -KeyLength 2048 -KeyExportPolicy NonExportable -NotAfter (Get-Date).AddYears(2)
+        $created = $true
         Write-Done "created $($cert.Thumbprint), valid until $($cert.NotAfter.ToString('yyyy-MM-dd'))"
     }
     elseif ($cert) { Write-Done "using $($cert.Thumbprint), valid until $($cert.NotAfter.ToString('yyyy-MM-dd'))" }
@@ -338,9 +401,7 @@ function Invoke-Main {
     # ---- 4. Databases ----------------------------------------------------------------------
     if (-not $SkipDatabase) {
         Write-Step "Databases on $($s.SqlServer)"
-        $install = @{ SqlServer = $s.SqlServer; Database = $s.Database; LicenseDatabase = $s.LicenseDatabase; ServiceAccount = $account }
-        if ($s.TrustServerCertificate) { $install.TrustServerCertificate = $true }
-        if ($s.Dashboard) { $install.Dashboard = $true }
+        $install = Get-InstallArgument -Setting $s -ServiceAccount $account
         if ($ReportingTimeZone) { $install.ReportingTimeZone = $ReportingTimeZone }
         if ($PSCmdlet.ShouldProcess($s.SqlServer, 'Install-CopilotAudit.ps1')) { & (Join-Path $script:Root 'Install-CopilotAudit.ps1') @install }
     }
@@ -349,10 +410,20 @@ function Invoke-Main {
     Write-Step 'App registration'
     if ($RegisterApp) {
         if (-not $s.TenantId) { throw 'Pass -TenantId with -RegisterApp.' }
-        $app = & (Join-Path $PSScriptRoot 'New-CopilotAuditApp.ps1') -TenantId $s.TenantId -CertificatePath $cerPath -UseDeviceCode:$UseDeviceCode
-        if ($app) { $s.TenantId = $app.TenantId; $s.ClientId = $app.ClientId }
+        # Each app by the client id the settings hold, once there is one (2.4.12): found by name, another app given the
+        # same name could be taken. Every tenant that signs in with this certificate gets it, not the first alone.
+        foreach ($a in (Get-AppToRegister $s)) {
+            if (-not $a.First) { Write-Done "tenant $($a.Name) ($($a.TenantId)):" }
+            $reg = @{ TenantId = $a.TenantId; CertificatePath = $cerPath; UseDeviceCode = $UseDeviceCode }
+            if ($a.ClientId) { $reg.ClientId = $a.ClientId }
+            $app = & (Join-Path $PSScriptRoot 'New-CopilotAuditApp.ps1') @reg
+            if ($app -and $a.First) { $s.TenantId = $app.TenantId; $s.ClientId = $app.ClientId }
+        }
     }
-    elseif ($s.TenantId -and $s.ClientId) { Write-Done "using client id $($s.ClientId) in $($s.TenantId)" }
+    elseif ($s.TenantId -and $s.ClientId) {
+        Write-Done "using client id $($s.ClientId) in $($s.TenantId)"
+        if ($created) { $todo += "No app has the new certificate $($cert.Thumbprint) yet: run this again with -RegisterApp before the nightly task runs (or upload $cerPath to the app of every tenant by hand)." }
+    }
     else { $todo += "Register the app: run this again with -TenantId <tenant> -RegisterApp (or register it by hand, upload $cerPath, and pass -TenantId and -ClientId)." }
 
     # ---- 6. Settings -------------------------------------------------------------------------

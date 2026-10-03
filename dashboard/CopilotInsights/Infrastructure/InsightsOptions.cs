@@ -29,14 +29,38 @@ public sealed class InsightsOptions
 
     /// <summary>
     /// How long a report page's query results are kept in memory, in minutes (2.4.7). They are dropped sooner whenever
-    /// the data changes: a refresh, a pipeline run, a setting, a grant. 0 turns the cache, and the warm-up after each
-    /// refresh, off: every page then reads the database every time.
+    /// the data changes (2.4.12: dropped, not only never read again): a refresh, a finished pipeline run, a license or
+    /// directory read, a setting or reference data, midnight UTC. A grant changes no result: who may see what is settled
+    /// from the database for each request. 0 turns the cache, and the warm-up after each refresh, off: every page then
+    /// reads the database every time.
     /// </summary>
     public int QueryCacheMinutes { get; set; } = 720;
 
     /// <summary>
+    /// The most query results kept in memory on this web server (2.4.12); past it the least recently used go first. A
+    /// full build of every report for one tenant keeps about 5,000.
+    /// </summary>
+    public int QueryCacheEntries { get; set; } = 20000;
+
+    /// <summary>
+    /// A folder every web server can read and write, for the keys that protect the forms' anti-forgery tokens and the
+    /// message a form leaves for the page after it (2.4.12). Empty, as on one web server: each server keeps its own keys
+    /// in its app pool's profile. With several web servers behind a load balancer, set it to a share on all of them, or
+    /// a form posted to a server other than the one that drew it is refused. See docs/DASHBOARD.md, Several web servers.
+    /// </summary>
+    public string? DataProtectionKeysPath { get; set; }
+
+    /// <summary>
+    /// The thumbprint of a certificate, in the Local Machine's Personal store on every web server, that protects the keys
+    /// in <see cref="DataProtectionKeysPath"/>. Empty: they are protected for the account the site runs as (DPAPI-NG),
+    /// which must then be the same domain account or group managed service account on every server.
+    /// </summary>
+    public string? DataProtectionCertificate { get; set; }
+
+    /// <summary>
     /// Build every report page for the whole organization in the background whenever the data changes, so its queries
-    /// are in the cache before anyone opens it (2.4.7). On by default; off for a test copy of the site.
+    /// are in the cache before anyone opens it (2.4.7), and again when they expire (2.4.12). On by default; off for a
+    /// test copy of the site. Each web server builds its own, as each keeps its own cache.
     /// </summary>
     public bool WarmPages { get; set; } = true;
 

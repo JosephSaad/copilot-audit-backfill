@@ -243,20 +243,23 @@ From then on each `-Incremental` run refreshes it after the other derived tables
 Interactions = COUNTROWS ( Interactions )
 Prompts = SUM ( Interactions[PromptCount] )
 Active users = DISTINCTCOUNT ( Interactions[UserKey] )
-Licensed users = CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),
-                     LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+// The period's last day the data covers, the same for every row and the total.
+Period end = CALCULATE ( MAX ( Calendar[Date] ), KEEPFILTERS ( Calendar[IsLoaded] = TRUE () ) )
+Licensed users =
+    VAR EndDate = [Period end]
+    RETURN CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ), Calendar[Date] = EndDate )
 // Used it with a license in the period, and still hold one at its end: always part of
 // [Licensed users], so adoption can't pass 100% when licenses are removed mid-period.
 Active licensed users =
-    VAR HeldAtEnd = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
-                        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+    VAR EndDate = [Period end]
+    VAR HeldAtEnd = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ), Calendar[Date] = EndDate )
     RETURN CALCULATE ( [Active users], LicenseStatuses[LicenseStatus] = "Licensed",
                        KEEPFILTERS ( TREATAS ( HeldAtEnd, Interactions[UserKey] ) ) )
 Adoption % = DIVIDE ( [Active licensed users], [Licensed users] )
 Premium share = DIVIDE ( CALCULATE ( [Interactions], Interactions[PremiumUse] = TRUE () ), [Interactions] )
 ```
 
-`@SinceUtc` (the load's start, from `-Incremental`) rebuilds only the interactions from then on; `NULL` rebuilds them all. Run a full rebuild, and a full refresh of the model, after changing the reporting time zone (a partial refresh in a different zone is refused), after license history arrives for a period already built, or after purging flattened rows.
+`@SinceUtc` (the load's start, from `-Incremental`) rebuilds only the interactions from then on; `NULL` rebuilds them all. Run a full rebuild, and a full refresh of the model, after changing the reporting time zone (a partial refresh in a different zone is refused), after license history arrives for a period already built, or after purging flattened rows. Refresh the model fully, too, after an app's category changes: the `bi` refresh sets Premium use again on all of that app's past interactions, older than the model's incremental window.
 
 ## Copilot Insights dashboard
 

@@ -97,6 +97,11 @@ BEGIN
         WHERE LTRIM(RTRIM(value)) <> N'';
     IF EXISTS (SELECT 1 FROM @licDbs WHERE OBJECT_ID(QUOTENAME(Name) + N'.audit.vLicenseSkuChange', N'V') IS NULL)
         THROW 50004, N'A database in @LicenseEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
+    /* The list as the run log keeps it and the check below compares it (2.4.12):
+       each database once, trimmed, in order. The raw text was compared, so
+       'A,B' after 'B,A' or 'A, B' - the same databases - counted as different
+       settings and every incremental build after was refused. */
+    SET @LicenseEventDatabase = (SELECT STRING_AGG(Name, N',') WITHIN GROUP (ORDER BY Name) FROM @licDbs);
 
     DECLARE @started DATETIME2(0) = SYSUTCDATETIME(), @msg NVARCHAR(600);
 
@@ -114,6 +119,10 @@ BEGIN
         SELECT TOP (1) @lastRun = RunId, @lastTimeout = SessionTimeoutMinutes, @lastFallback = ContextFallback,
                        @lastZone = ReportingTimeZone, @lastMetric = MetricVersion, @lastLic = LicenseEventDatabase
         FROM audit.CopilotSessionRun ORDER BY RunId DESC;
+        /* A build before 2.4.12 logged the list as it was given. */
+        SET @lastLic = (SELECT STRING_AGG(x.Name, N',') WITHIN GROUP (ORDER BY x.Name)
+                        FROM (SELECT DISTINCT CAST(LTRIM(RTRIM(value)) AS SYSNAME) AS Name FROM STRING_SPLIT(@lastLic, N',')
+                              WHERE LTRIM(RTRIM(value)) <> N'') AS x);
 
         IF @lastRun IS NULL
         BEGIN
@@ -135,7 +144,7 @@ BEGIN
     /* ---- 1. The rows, with the session context resolved ------------------ */
 
     DROP TABLE IF EXISTS #src;
-    SELECT v.RecordId, v.UserUPN, v.Ts, v.App, v.Ctx, v.Loc, v.IsCopilotLic, k.KeyCtx,
+    SELECT v.RecordId, v.UserUPN, v.TsUtc, v.Ts, v.App, v.Ctx, v.Loc, v.IsCopilotLic, k.KeyCtx,
            CAST(CASE WHEN @ContextFallback = N'Location' AND v.Ctx IS NULL AND v.Loc IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS Recovered,
            /* The script's order of checks: context, then user, then timestamp. */
            CAST(CASE WHEN k.KeyCtx IS NULL  THEN 1
@@ -148,6 +157,7 @@ BEGIN
        key is limited to 900 bytes; audit record ids are GUIDs. */
     CROSS APPLY (SELECT CAST(f.RecordId AS VARCHAR(64))                                     AS RecordId,
                         NULLIF(LTRIM(RTRIM(f.[User])), N'')                                AS UserUPN,
+                        CAST(f.UtcTimeStamp AS DATETIME2(0))                               AS TsUtc,
                         CAST(CAST(f.UtcTimeStamp AS DATETIME2(0)) AT TIME ZONE 'UTC'
                              AT TIME ZONE @ReportingTimeZone AS DATETIME2(0))               AS Ts,
                         NULLIF(LTRIM(RTRIM(f.App)), N'')                                   AS App,
@@ -171,31 +181,41 @@ BEGIN
     FROM #src;
 
     /* ---- 2. Session boundaries ------------------------------------------- */
+    /*
+        Order and the gap are taken in UTC, the calendar day in the reporting
+        zone (2.4.12). Both were local times, which a daylight-saving change
+        moves: in the repeated autumn hour two prompts 110 minutes apart read
+        as 50 and a later prompt sorted before an earlier one (taking the
+        session's start and primary app), and in spring a 10-minute gap read
+        as 70. Only sessions around a change come out differently; the local
+        day still never goes backwards in UTC order.
+    */
 
     DROP TABLE IF EXISTS #seq;
-    SELECT l.RecordId, l.UserUPN, l.KeyCtx, l.Ts, l.App, l.IsCopilotLic,
-           CASE WHEN l.PrevTs IS NULL                                                   THEN 1
-                WHEN DATEDIFF_BIG(SECOND, l.PrevTs, l.Ts) >= @SessionTimeoutMinutes * 60 THEN 1
-                WHEN CAST(l.PrevTs AS DATE) <> CAST(l.Ts AS DATE)                      THEN 1
+    SELECT l.RecordId, l.UserUPN, l.KeyCtx, l.TsUtc, l.Ts, l.App, l.IsCopilotLic,
+           CASE WHEN l.PrevUtc IS NULL                                                     THEN 1
+                WHEN DATEDIFF_BIG(SECOND, l.PrevUtc, l.TsUtc) >= @SessionTimeoutMinutes * 60 THEN 1
+                WHEN CAST(l.PrevTs AS DATE) <> CAST(l.Ts AS DATE)                        THEN 1
                 ELSE 0 END AS IsNew
     INTO #seq
-    FROM (SELECT s.RecordId, s.UserUPN, s.KeyCtx, s.Ts, s.App, s.IsCopilotLic,
-                 LAG(s.Ts) OVER (PARTITION BY s.UserUPN, s.KeyCtx ORDER BY s.Ts, s.RecordId) AS PrevTs
+    FROM (SELECT s.RecordId, s.UserUPN, s.KeyCtx, s.TsUtc, s.Ts, s.App, s.IsCopilotLic,
+                 LAG(s.TsUtc) OVER (PARTITION BY s.UserUPN, s.KeyCtx ORDER BY s.TsUtc, s.RecordId) AS PrevUtc,
+                 LAG(s.Ts)    OVER (PARTITION BY s.UserUPN, s.KeyCtx ORDER BY s.TsUtc, s.RecordId) AS PrevTs
           FROM #src AS s
           WHERE s.Skip = 0) AS l;
 
     DROP TABLE IF EXISTS #num;
     SELECT q.*,
-           SUM(q.IsNew) OVER (PARTITION BY q.UserUPN, q.KeyCtx ORDER BY q.Ts, q.RecordId
+           SUM(q.IsNew) OVER (PARTITION BY q.UserUPN, q.KeyCtx ORDER BY q.TsUtc, q.RecordId
                               ROWS UNBOUNDED PRECEDING) AS Ordinal
     INTO #num
     FROM #seq AS q;
 
     DROP TABLE IF EXISTS #first;
     SELECT DISTINCT n.UserUPN, n.KeyCtx, n.Ordinal,
-           FIRST_VALUE(n.App) OVER (PARTITION BY n.UserUPN, n.KeyCtx, n.Ordinal ORDER BY n.Ts, n.RecordId
+           FIRST_VALUE(n.App) OVER (PARTITION BY n.UserUPN, n.KeyCtx, n.Ordinal ORDER BY n.TsUtc, n.RecordId
                                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)          AS PrimaryApp,
-           FIRST_VALUE(n.IsCopilotLic) OVER (PARTITION BY n.UserUPN, n.KeyCtx, n.Ordinal ORDER BY n.Ts, n.RecordId
+           FIRST_VALUE(n.IsCopilotLic) OVER (PARTITION BY n.UserUPN, n.KeyCtx, n.Ordinal ORDER BY n.TsUtc, n.RecordId
                                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)          AS IsLic
     INTO #first
     FROM #num AS n;
@@ -224,8 +244,14 @@ BEGIN
         second Copilot SKU held throughout, unchanged, while another changed,
         is not seen.
     */
+    /* COLLATE DATABASE_DEFAULT as #profile and #base have it (2.4.12): without
+       it the columns took tempdb's collation, and on a database whose own
+       differs, the comparison with the sessions below failed every build
+       (Msg 468), even with no license database. TsUtc is the change's UTC
+       time, compared with the session's UTC start (2.4.12; see section 2). */
     DROP TABLE IF EXISTS #lic;
-    CREATE TABLE #lic (UserUPN NVARCHAR(512) NOT NULL, Sku NVARCHAR(200) NOT NULL, Ts DATETIME2(0) NOT NULL, Added BIT NOT NULL);
+    CREATE TABLE #lic (UserUPN NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL, Sku NVARCHAR(200) COLLATE DATABASE_DEFAULT NOT NULL,
+                       TsUtc DATETIME2(0) NOT NULL, Added BIT NOT NULL);
     /* Several databases are read together: each license backfill covers a
        fixed range, and a change after one's end - the most recent, often -
        is only in a later one. Overlap is harmless: each lookup below takes a
@@ -236,13 +262,12 @@ BEGIN
     FETCH NEXT FROM licDbs INTO @licDb;
     WHILE @@FETCH_STATUS = 0
     BEGIN
-        SET @licSql = N'INSERT INTO #lic (UserUPN, Sku, Ts, Added)
-            SELECT c.TargetUpn, c.Sku,
-                   CAST(CAST(c.CreatedDateTime AS DATETIME2(0)) AT TIME ZONE ''UTC'' AT TIME ZONE @tz AS DATETIME2(0)),
+        SET @licSql = N'INSERT INTO #lic (UserUPN, Sku, TsUtc, Added)
+            SELECT c.TargetUpn, c.Sku, CAST(c.CreatedDateTime AS DATETIME2(0)),
                    CASE WHEN c.Change = N''Added'' THEN 1 ELSE 0 END
             FROM ' + QUOTENAME(@licDb) + N'.audit.vLicenseSkuChange AS c
             WHERE c.TargetUpn IS NOT NULL AND c.Sku LIKE N''%COPILOT%'';';
-        EXEC sys.sp_executesql @licSql, N'@tz SYSNAME', @tz = @ReportingTimeZone;
+        EXEC sys.sp_executesql @licSql;
         FETCH NEXT FROM licDbs INTO @licDb;
     END;
     CLOSE licDbs;
@@ -250,14 +275,25 @@ BEGIN
 
     /* ---- 4. Sessions ----------------------------------------------------- */
 
+    /* Start and end are the first and last prompt in UTC, shown in the
+       reporting zone; the span is measured in UTC (2.4.12). The end is never
+       shown before the start (2.4.12): in the hour clocks go back, a session
+       begun before the change and ended after it ended, in local time,
+       before it began. */
     DROP TABLE IF EXISTS #sess;
-    SELECT n.UserUPN, n.KeyCtx, n.Ordinal,
-           MIN(n.Ts)  AS StartTs,
-           MAX(n.Ts)  AS EndTs,
-           COUNT(*)   AS Prompts
+    SELECT g.UserUPN, g.KeyCtx, g.Ordinal, g.StartUtc, g.EndUtc,
+           z.StartTs,
+           CASE WHEN z.EndTs < z.StartTs THEN z.StartTs ELSE z.EndTs END AS EndTs,
+           g.Prompts
     INTO #sess
-    FROM #num AS n
-    GROUP BY n.UserUPN, n.KeyCtx, n.Ordinal;
+    FROM (SELECT n.UserUPN, n.KeyCtx, n.Ordinal,
+                 MIN(n.TsUtc) AS StartUtc,
+                 MAX(n.TsUtc) AS EndUtc,
+                 COUNT(*)     AS Prompts
+          FROM #num AS n
+          GROUP BY n.UserUPN, n.KeyCtx, n.Ordinal) AS g
+    CROSS APPLY (SELECT CAST(g.StartUtc AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS StartTs,
+                        CAST(g.EndUtc   AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS EndTs) AS z;
 
     DROP TABLE IF EXISTS #histlic;
     SELECT s.UserUPN, s.KeyCtx, s.Ordinal,
@@ -267,9 +303,9 @@ BEGIN
                     FROM (SELECT DISTINCT l.Sku FROM #lic AS l WHERE l.UserUPN = s.UserUPN) AS k
                     CROSS APPLY (SELECT COALESCE(
                         (SELECT TOP (1) CAST(b.Added AS INT) FROM #lic AS b
-                         WHERE b.UserUPN = s.UserUPN AND b.Sku = k.Sku AND b.Ts <= s.StartTs ORDER BY b.Ts DESC),
+                         WHERE b.UserUPN = s.UserUPN AND b.Sku = k.Sku AND b.TsUtc <= s.StartUtc ORDER BY b.TsUtc DESC),
                         (SELECT TOP (1) 1 - CAST(a.Added AS INT) FROM #lic AS a
-                         WHERE a.UserUPN = s.UserUPN AND a.Sku = k.Sku AND a.Ts > s.StartTs ORDER BY a.Ts)) AS Held) AS h
+                         WHERE a.UserUPN = s.UserUPN AND a.Sku = k.Sku AND a.TsUtc > s.StartUtc ORDER BY a.TsUtc)) AS Held) AS h
                     WHERE h.Held = 1) THEN CAST(1 AS BIT)
                 ELSE CAST(0 AS BIT) END AS HistLic
     INTO #histlic
@@ -305,7 +341,7 @@ BEGIN
     LEFT JOIN audit.SessionAppCategory AS c ON c.App = f.PrimaryApp
     LEFT JOIN #profile AS p ON p.UserPrincipalName = s.UserUPN
     LEFT JOIN #base AS b ON b.UserUPN = s.UserUPN AND b.KeyCtx = s.KeyCtx
-    CROSS APPLY (SELECT CAST(DATEDIFF_BIG(SECOND, s.StartTs, s.EndTs) / 60.0 AS DECIMAL(14, 4)) AS SpanMinutes) AS m
+    CROSS APPLY (SELECT CAST(DATEDIFF_BIG(SECOND, s.StartUtc, s.EndUtc) / 60.0 AS DECIMAL(14, 4)) AS SpanMinutes) AS m
     CROSS APPLY (SELECT DATEDIFF(DAY, s.StartTs, s.EndTs) + 1 AS CalendarDays) AS d;
 
     /* ---- 5. Replace the sessions, then the weeks they fall in ------------ */
@@ -383,9 +419,11 @@ BEGIN
                c.SessionStart_PromptSubmittedDateTime AS StartTs, c.SessionEnd_PromptSubmittedDateTime AS EndTs,
                c.PromptCount AS Prompts, c.PrimaryApp, c.AppCategory, c.IsM365CopilotLicensed AS IsLic,
                c.Division, c.Department, c.JobTitle, c.ManagerUPN AS ManagerUpn,
-               /* the exact span, not the rounded column: weeks sum it before rounding */
-               CAST(DATEDIFF_BIG(SECOND, c.SessionStart_PromptSubmittedDateTime, c.SessionEnd_PromptSubmittedDateTime) / 60.0
-                    AS DECIMAL(14, 4)) AS SpanMinutes,
+               /* the exact span, not the rounded column: weeks sum it before rounding. A span
+                  is whole seconds and the column keeps hundredths of a minute, within 0.3 s,
+                  so the seconds come back from it exactly (2.4.12: they were taken from the
+                  stored start and end, local times an hour out across a daylight-saving change). */
+               CAST(CAST(ROUND(c.InferredSessionSpanMinutes * 60, 0) AS BIGINT) / 60.0 AS DECIMAL(14, 4)) AS SpanMinutes,
                w.WeekEnding, YEAR(w.WeekEnding) AS WeekYear,
                DATEDIFF(DAY, ff.FirstFriday, w.WeekEnding) / 7 + 1 AS WeekNumber
         FROM audit.CopilotSession AS c

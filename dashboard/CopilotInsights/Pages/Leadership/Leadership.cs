@@ -42,8 +42,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption in each part of the organization",
             Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null)),
                 Ctx.MinGroupSize, "Adoption by unit", 40),
-            $"Premium license holders who used Copilot in the period, for each part of the organization one level below. Parts with fewer than {Ctx.MinGroupSize} license holders are combined in the last bar. Select a name to look inside it." +
-            (folded > 0 ? $" {Count(folded, "unit")} under {Ctx.MinGroupSize} people {Are(folded)} combined." : "")));
+            $"Premium license holders who used Copilot in the period, for each part of the organization one level below. Parts with fewer than {Ctx.MinGroupSize} license holders are combined in the last bar. Select a name to look inside it. " +
+            FoldNote(folded, "unit")));
     }
 }
 
@@ -70,14 +70,14 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
             var series = buckets.Select(b => (double?)trend.Where(r => r.Unit == u.Unit && r.Bucket == b.Key).Sum(r => r.Active)).ToList();
             t.Rows.Add([
                 u.Drillable ? new Link(u.Name, Ctx.Url(Request.Path, org: u.Unit)) : u.Name, u.Department, u.People, u.Licensed, u.Active,
-                Pct(Ratio(u.ActiveLicensed, u.Licensed)), u.Active > 0 ? Math.Round(u.ActiveDays / (double)u.Active, 1) : null,
+                AdoptionAtMin(u.ActiveLicensed, u.Licensed), u.Active > 0 ? Math.Round(u.ActiveDays / (double)u.Active, 1) : null,
                 u.Active > 0 ? Math.Round(u.Interactions / (double)u.Active, 1) : null, Pct(Ratio(u.MultiTurn, u.Sessions)),
                 u.Unit == "~small" ? null : Chart.Sparkline(series, $"{u.Name}: active people"),
             ]);
         }
         t.KeepLast = folded > 0 ? 1 : 0;
         Panels.Add(new("Units", t.Render(),
-            folded > 0 ? $"{Count(folded, "unit")} with fewer than {Ctx.MinGroupSize} people {Are(folded)} combined as Smaller groups, so no total describes one person." : null));
+            folded > 0 ? FoldNote(folded, "unit") : null));
 
         var big = shown.Where(u => u.Unit != "~small").ToList();
         var grid = new double?[big.Count, buckets.Count];
@@ -133,7 +133,7 @@ FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND ag.AgentSource <> N'(no agent)'
 GROUP BY ag.AgentName ORDER BY 2 DESC;", Ctx.Args());
-        Panels.Add(new("Most-used agents", Chart.Bars(agents.Take(10).Select(a => new Bar(a.AgentName, a.N, Note: $"{a.People:#,0} people")).ToList(), Fmt.Count, "Interactions by agent"),
-            "Agents' friendly names come from Admin › Reference data."));
+        Panels.Add(new("Most-used agents", Chart.Bars(agents.Take(10).Select(a => new Bar(a.AgentName, a.N, Note: AgentPeople(a.People))).ToList(), Fmt.Count, "Interactions by agent"),
+            $"Agents' friendly names come from Admin › Reference data. How many people used an agent is shown only where it is {Ctx.MinGroupSize} or more."));
     }
 }

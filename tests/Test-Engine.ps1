@@ -332,6 +332,97 @@ try {
 finally { Stop-MockGraph $mock }
 
 # ---------------------------------------------------------------------------
+# H. A page that goes silent after its headers (2.4.12)
+# ---------------------------------------------------------------------------
+
+Write-Host "`nH. A page body that stalls is given up on and fetched again" -ForegroundColor Cyan
+
+# The mock sends the 5th page's headers and half its body, then nothing for ten minutes, as a proxy that drops a
+# connection without a reset. HttpClient's timeout ends with the headers, so the engine used to wait on that body for
+# good; each page now has a limit of its own, body included, and a page that runs past it is fetched again.
+$mock = Start-MockGraph @{ days = 3; stall_page_body = 5; stall_seconds = 600; page_503_rate = 0; fail_first_query_covering = '2030-01-01T00:00:00Z' }
+try {
+    $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
+    $end   = [datetime]::new(2026, 8, 4, 0, 0, 0, [DateTimeKind]::Utc)
+    $expected = Get-ExpectedId $mock
+    $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
+    $sink  = [CopilotAudit.Tests.MemorySink]::new()
+    $logH  = [System.Collections.Generic.List[string]]::new()
+    $runH = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end @{ PageTimeoutMinutes = 0.1 }) -Store $store -Sink $sink -Log $logH -TimeoutSec 120
+    $statsH = Get-MockStatistic $mock
+    Assert-That ($statsH.pages_stalled -eq 1) 'the mock stalled a page body mid-way'
+    Assert-That ($runH.Task.Status -eq 'RanToCompletion' -and $runH.Seconds -lt 100) ("the run did not wait on it: completed in {0:N0}s ({1})" -f $runH.Seconds, $runH.Task.Status)
+    Assert-That (@($logH | Where-Object { $_ -match 'Page request timed out - retrying' }).Count -ge 1) 'the stalled page timed out and was fetched again'
+    [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'H')
+}
+finally { Stop-MockGraph $mock }
+
+# ---------------------------------------------------------------------------
+# I. A split that stopped part way before 2.4.12, resumed (2.4.12)
+# ---------------------------------------------------------------------------
+
+Write-Host "`nI. A split stopped between its writes is finished on resume" -ForegroundColor Cyan
+
+# A split was three writes: the parent marked Split, then each half inserted. A run that stopped between them left
+# the parent Split with a half missing, and resuming skipped it and planned only below the lowest window, so the hole
+# was never loaded and merge or finalize refused it for good. The table as such a run left it: Aug 3-5 split with
+# neither half written, Aug 1-3 split with only its older half.
+$mock = Start-MockGraph @{ days = 4; page_503_rate = 0; fail_first_query_covering = '2030-01-01T00:00:00Z' }
+try {
+    $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
+    $end   = [datetime]::new(2026, 8, 5, 0, 0, 0, [DateTimeKind]::Utc)
+    $expected = Get-ExpectedId $mock
+    $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
+    $none = [System.Threading.CancellationToken]::None
+    $p1 = [CopilotAudit.AuditWindow]@{ StartUtc = $start.AddDays(2); EndUtc = $end; Status = 'Split'; Submissions = 1; LastError = 'cap exceeded' }
+    $p2 = [CopilotAudit.AuditWindow]@{ StartUtc = $start; EndUtc = $start.AddDays(2); Status = 'Split'; Submissions = 1; LastError = 'cap exceeded' }
+    $store.InsertAsync($p1, $none).Wait(); $store.InsertAsync($p2, $none).Wait()
+    $half = [CopilotAudit.AuditWindow]@{ ParentWindowId = $p2.WindowId; StartUtc = $start; EndUtc = $start.AddDays(1) }
+    $store.InsertAsync($half, $none).Wait()
+    $sink  = [CopilotAudit.Tests.MemorySink]::new()
+    $logI  = [System.Collections.Generic.List[string]]::new()
+    $runI = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end @{ InitialWindowHours = 24 }) -Store $store -Sink $sink -Log $logI
+    $finished = @($logI | Where-Object { $_ -match 'its split stopped part way' })
+    Assert-That ($runI.Task.Status -eq 'RanToCompletion') "the resumed run completed ($($runI.Task.Status))"
+    Assert-That ($finished.Count -eq 3) "the three missing halves were planned again ($($finished.Count))"
+    [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'I')
+}
+finally { Stop-MockGraph $mock }
+
+# ---------------------------------------------------------------------------
+# J. Two runs on one window table (2.4.12)
+# ---------------------------------------------------------------------------
+
+Write-Host "`nJ. A second run on the same window table stops at once" -ForegroundColor Cyan
+
+# Nothing claimed a window: a second run beside the first planned the same windows from the same cursor and wrote over
+# the first one's rows. The table is now held for one run at a time; the second stops before touching it.
+$mock = Start-MockGraph @{ days = 4; page_503_rate = 0; page_latency_ms = 40; fail_first_query_covering = '2030-01-01T00:00:00Z' }
+try {
+    $start = [datetime]::new(2026, 8, 1, 0, 0, 0, [DateTimeKind]::Utc)
+    $end   = [datetime]::new(2026, 8, 5, 0, 0, 0, [DateTimeKind]::Utc)
+    $expected = Get-ExpectedId $mock
+    $store = [CopilotAudit.Tests.MemoryWindowStore]::new()
+    $sink  = [CopilotAudit.Tests.MemorySink]::new()
+    $logJ  = [System.Collections.Generic.List[string]]::new()
+    $script:second = $null
+    $tickJ = {
+        param($e)
+        if (-not $script:second -and $e.GetStatus().RowsWritten -gt 0) {
+            $script:second = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -Log $logJ -TimeoutSec 30
+        }
+    }
+    $first = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -Log $logJ -OnTick $tickJ
+    $why = if ($script:second -and $script:second.Task.Exception) { $script:second.Task.Exception.GetBaseException().Message } else { '' }
+    Assert-That ($null -ne $script:second -and $script:second.Task.IsFaulted -and $why -match 'Another run is loading') "the second run stopped before planning anything ($why)"
+    Assert-That ($first.Task.Status -eq 'RanToCompletion') "the first ran to completion ($($first.Task.Status))"
+    [void](Test-FinalSet -Store $store -Sink $sink -ExpectedIds $expected -Start $start -End $end -Label 'J')
+    $after = Invoke-EngineRun -Mock $mock -Options (New-EngineOption $mock $start $end) -Store $store -Sink $sink -Log $logJ
+    Assert-That ($after.Task.Status -eq 'RanToCompletion') 'and once it ended, the table was free for the next run'
+}
+finally { Stop-MockGraph $mock }
+
+# ---------------------------------------------------------------------------
 
 Write-Host ''
 if ($script:Failures.Count) {

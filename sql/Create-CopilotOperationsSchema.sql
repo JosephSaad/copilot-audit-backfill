@@ -85,7 +85,38 @@ WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value,
     key the database master key protects. The master key is created here with
     a random password nobody needs: SQL Server also protects it with the
     instance's service master key and opens it itself. Restored to another
-    instance, the secrets cannot be read: enter them again in Admin > Email. */
+    instance, the secrets cannot be read: run this again, then enter them again
+    in Admin > Email and Admin > Alerts and digests.
+
+    2.4.12: on another instance neither the service master key nor the
+    password opens the master key, so the secrets could be neither read nor
+    stored again, and re-running this kept the keys that could not be opened.
+    Now a chain that cannot be opened is made again, and the secrets it can no
+    longer read are removed. It is left as it is when the master key protects
+    anything else in the database, which only its owner can recover. */
+IF CERT_ID(N'CopilotInsightsSecretCert') IS NOT NULL AND KEY_ID(N'CopilotInsightsSecretKey') IS NOT NULL
+BEGIN
+    BEGIN TRY
+        OPEN SYMMETRIC KEY CopilotInsightsSecretKey DECRYPTION BY CERTIFICATE CopilotInsightsSecretCert;
+        CLOSE SYMMETRIC KEY CopilotInsightsSecretKey;
+    END TRY
+    BEGIN CATCH
+        IF ERROR_NUMBER() NOT IN (15581, 15329, 15466)
+            THROW;
+        IF EXISTS (SELECT 1 FROM sys.certificates WHERE pvt_key_encryption_type = 'MK' AND name <> N'CopilotInsightsSecretCert')
+           OR EXISTS (SELECT 1 FROM sys.asymmetric_keys WHERE pvt_key_encryption_type = 'MK')
+           OR EXISTS (SELECT 1 FROM sys.database_scoped_credentials)
+            RAISERROR('The stored secrets cannot be read on this SQL Server instance, and its database master key protects other keys too, so it is left as it is: open the master key with its password, or restore the original instance''s service master key, then run this again.', 0, 1) WITH NOWAIT;
+        ELSE
+        BEGIN
+            IF OBJECT_ID(N'dash.Secret', N'U') IS NOT NULL EXEC (N'DELETE FROM dash.Secret;');
+            EXEC (N'DROP SYMMETRIC KEY CopilotInsightsSecretKey;');
+            EXEC (N'DROP CERTIFICATE CopilotInsightsSecretCert;');
+            EXEC (N'DROP MASTER KEY;');
+            RAISERROR('The stored secrets were encrypted on another SQL Server instance and cannot be read here: their keys are made again. Enter the email password or client secret, and the webhook address, again in Admin.', 0, 1) WITH NOWAIT;
+        END;
+    END CATCH;
+END;
 IF NOT EXISTS (SELECT 1 FROM sys.symmetric_keys WHERE name = N'##MS_DatabaseMasterKey##')
 BEGIN
     DECLARE @mk NVARCHAR(200) = CONCAT(CONVERT(NVARCHAR(64), CRYPT_GEN_RANDOM(32), 2), N'aA1!');
@@ -428,7 +459,9 @@ DELETE FROM dash.Setting WHERE Name = 'PersonalDigest';
 /* ---- Privacy and retention ------------------------------------------------ */
 
 /* Privacy mode lives in audit.PipelineSetting, which bi.Users reads. Owned by dbo like the
-   table, so the dashboard's account needs EXECUTE here and nothing on the audit schema. */
+   table, so the dashboard's account needs EXECUTE here to change it. It reads it with SELECT
+   on audit.PipelineSetting (granted below): without that, the dashboard treats privacy mode as
+   on (2.4.12), where a read that failed used to turn it off. */
 EXEC (N'CREATE OR ALTER PROCEDURE dash.usp_SetPrivacyMode
     @Mode NVARCHAR(16), @By NVARCHAR(256)
 AS
@@ -449,6 +482,9 @@ BEGIN
             @notes INT = TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''NotificationRetentionDays'') AS INT),
             @json  INT = TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''JsonRetentionDays'') AS INT),
             @a INT = 0, @n INT = 0, @j NVARCHAR(200) = N''JSON kept'';
+    /* The audit log is kept at least a year (0 keeps it): a stored 1-364 counts as 365 (2.4.12).
+       Before, only the admin form held that floor, so a value set in SQL deleted it sooner. */
+    IF @audit BETWEEN 1 AND 364 SET @audit = 365;
     IF @audit > 0
     BEGIN
         DELETE FROM dash.AuditLog WHERE AtUtc < DATEADD(DAY, -@audit, SYSUTCDATETIME());
@@ -540,9 +576,23 @@ IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
     granted to an AD group counts for its members too (2.4.0): the nightly
     directory load expands the group into audit.GroupMember.
 
+    2.4.12: a grant by DOMAIN\name counts whatever type it was recorded with,
+    as the dashboard matches it at sign-in. The directory load expands every
+    one into audit.GroupMember: a group recorded as a user (GrantRole records
+    one so when it cannot ask AD) into its members, and a person into their
+    own UPN, which is what USERPRINCIPALNAME() gives. Before, both saw only
+    their own people in Power BI, though the dashboard showed them everyone.
+    A user grant by UPN (name@domain) names the viewer directly.
+
+    WholeOrganization (2.4.12) marks the viewers who see everyone, so the role
+    can show the tables of whole-organization figures (bi.LicensePool,
+    bi.ValueNames, bi.DepartmentWeek) to them alone. Before, every member of
+    the role read those tables, and this one, whole.
+
     Empty in privacy mode: each row pairs a real sign-in with a user key, which
     would undo the pseudonyms in bi.Users. With privacy mode on, share
-    bi.DepartmentWeek rather than the person-level model.
+    bi.DepartmentWeek rather than the person-level model (the model's
+    Departments role).
 */
 IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
     CREATE TABLE audit.GroupMember (GroupName NVARCHAR(256) NOT NULL, UserPrincipalName NVARCHAR(256) NOT NULL,
@@ -550,17 +600,17 @@ IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
 EXEC (N'CREATE OR ALTER VIEW bi.OrgSecurity AS
 WITH whole AS (   -- everyone who sees the whole organization: the top two levels, and Organization granted to them or to a group they are in
     SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
-    UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization''
+    UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization'' AND Principal LIKE N''%@%''
     UNION SELECT gm.UserPrincipalName FROM audit.GroupMember AS gm
-          JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.PrincipalType = ''Group'' AND g.Role = ''Organization''
+          JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.Role = ''Organization''
 )
-SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey
+SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey, CAST(0 AS BIT) AS WholeOrganization
 FROM dash.OrgClosure AS oc
 JOIN bi.DimUser AS u ON u.UserPrincipalName = oc.DescendantUpn
 WHERE NOT EXISTS (SELECT 1 FROM whole WHERE whole.Upn = oc.AncestorUpn)
   AND NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'')
 UNION ALL
-SELECT w.Upn, u.UserKey
+SELECT w.Upn, u.UserKey, CAST(1 AS BIT)
 FROM whole AS w
 CROSS JOIN bi.DimUser AS u
 WHERE NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'');');
@@ -605,23 +655,71 @@ EXEC (N'CREATE OR ALTER VIEW bi.EventMarkers AS
 SELECT Day, YEAR(Day) * 10000 + MONTH(Day) * 100 + DAY(Day) AS DateKey, Label, Kind FROM dash.EventMarker;');
 
 /* Weekly figures by department with any group under the minimum size hidden,
-   for a model that must not show individuals (a works council''s condition). */
+   for a model that must not show individuals (a works council''s condition).
+
+   2.4.12: a row for every department and every week of the data, used or not,
+   so whether a row exists never depends on anyone's use. Before, a row existed
+   only where someone was active, so a hidden row for a one-person department
+   still told whether that person used Copilot that week. Departments with
+   fewer enabled people than the minimum are combined as (smaller departments);
+   a row is hidden (figures blank) when fewer people than the minimum were
+   active that week, none included. */
 EXEC (N'CREATE OR ALTER VIEW bi.DepartmentWeek AS
-WITH w AS
+WITH m AS (SELECT ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''MinGroupSize'') AS INT), 5) AS MinGroup),
+dept AS
 (
-    SELECT d.WeekEnding, ISNULL(NULLIF(u.Department, N''''), N''(no department)'') AS Department,
+    SELECT ISNULL(NULLIF(Department, N''''), N''(no department)'') AS Department, SUM(CASE WHEN AccountEnabled = 1 THEN 1 ELSE 0 END) AS Headcount
+    FROM bi.DimUser
+    GROUP BY ISNULL(NULLIF(Department, N''''), N''(no department)'')
+),
+grp AS
+(
+    SELECT dept.Department, CASE WHEN dept.Headcount >= m.MinGroup THEN dept.Department ELSE N''(smaller departments)'' END AS ShownAs
+    FROM dept CROSS JOIN m
+),
+wk AS
+(
+    SELECT DISTINCT d.WeekEnding
+    FROM bi.DimDate AS d
+    JOIN (SELECT MIN(DateKey) AS FirstKey, MAX(DateKey) AS LastKey FROM dash.UserDay) AS r ON d.DateKey BETWEEN r.FirstKey AND r.LastKey
+),
+used AS
+(
+    SELECT d.WeekEnding, g.ShownAs,
            COUNT(DISTINCT ud.UserKey) AS Active, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
            SUM(CAST(ud.Sessions AS BIGINT)) AS Sessions
     FROM dash.UserDay AS ud
     JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
     JOIN bi.DimUser AS u ON u.UserKey = ud.UserKey
+    JOIN grp AS g ON g.Department = ISNULL(NULLIF(u.Department, N''''), N''(no department)'')
     WHERE ud.Interactions > 0
-    GROUP BY d.WeekEnding, ISNULL(NULLIF(u.Department, N''''), N''(no department)'')
-),
-m AS (SELECT ISNULL(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = ''MinGroupSize'') AS INT), 5) AS MinGroup)
-SELECT w.WeekEnding, w.Department,
-       CASE WHEN w.Active >= m.MinGroup THEN w.Active END AS ActivePeople,
-       CASE WHEN w.Active >= m.MinGroup THEN w.Interactions END AS Interactions,
-       CASE WHEN w.Active >= m.MinGroup THEN w.Sessions END AS Sessions,
-       CAST(CASE WHEN w.Active < m.MinGroup THEN 1 ELSE 0 END AS BIT) AS Hidden
-FROM w CROSS JOIN m;');
+    GROUP BY d.WeekEnding, g.ShownAs
+)
+SELECT wk.WeekEnding, s.ShownAs AS Department,
+       CASE WHEN ISNULL(x.Active, 0) >= m.MinGroup THEN x.Active END AS ActivePeople,
+       CASE WHEN ISNULL(x.Active, 0) >= m.MinGroup THEN x.Interactions END AS Interactions,
+       CASE WHEN ISNULL(x.Active, 0) >= m.MinGroup THEN x.Sessions END AS Sessions,
+       CAST(CASE WHEN ISNULL(x.Active, 0) < m.MinGroup THEN 1 ELSE 0 END AS BIT) AS Hidden
+FROM wk
+CROSS JOIN (SELECT DISTINCT ShownAs FROM grp) AS s
+CROSS JOIN m
+LEFT JOIN used AS x ON x.WeekEnding = wk.WeekEnding AND x.ShownAs = s.ShownAs;');
+
+/* The reporting accounts' role (Install-CopilotAudit.ps1 -ReportingAccount) reads every bi view, these
+   included (2.4.12). The installer grants the views that exist when it runs, and the dashboard installer
+   runs this script after it, so OrgSecurity, DepartmentWeek and the others here were left out. */
+IF DATABASE_PRINCIPAL_ID(N'CopilotReporting') IS NOT NULL
+BEGIN
+    DECLARE @rv SYSNAME, @rg NVARCHAR(400);
+    DECLARE rv CURSOR LOCAL FAST_FORWARD FOR SELECT name FROM sys.views WHERE schema_id = SCHEMA_ID(N'bi');
+    OPEN rv;
+    FETCH NEXT FROM rv INTO @rv;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @rg = N'GRANT SELECT ON bi.' + QUOTENAME(@rv) + N' TO CopilotReporting;';
+        EXEC (@rg);
+        FETCH NEXT FROM rv INTO @rv;
+    END;
+    CLOSE rv;
+    DEALLOCATE rv;
+END;

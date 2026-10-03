@@ -8,7 +8,7 @@ namespace CopilotInsights.Infrastructure;
 /// <summary>
 /// What the query cache is keyed on (2.4.7): a stamp of everything the reports read that can change, taken from the
 /// database at most every 30 seconds for each tenant. It changes when the dashboard is refreshed, when a pipeline run
-/// is recorded, when the licenses are read, when a setting or a reference table changes (here or on another web
+/// ends, when the licenses or the directory are read, when a setting or a reference table changes (here or on another web
 /// server, or from Invoke-CopilotMaintenance.ps1), and at midnight UTC, since some reports count from today.
 /// Tables that change all day (triage, exported actions, confirmations) are not in the stamp: a change to one would
 /// end everything kept. A query that reads one is kept under that table's own version, read from the database for
@@ -94,18 +94,27 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
     /// <summary>The current tenant's stamp as last read: for the warm-up, which starts again when it changes.</summary>
     public string Current => cache.Stamp(tenants.Current.Name);
 
-    static async Task<string> ReadAsync(string connectionString)
+    /// <summary>The batch that reads the stamp: one string, the same on every web server.</summary>
+    public static string Batch()
     {
         /* One batch: the runs that change the facts, the license read, and each reference table's row count and checksum.
-           A table the database does not have yet counts as empty. */
-        var sql = $@"
+           A table the database does not have yet counts as empty.
+           2.4.12: a pipeline run counts when it ends, not when it starts. Its first row ended everything kept, and started
+           a build of every page, at the start of the nightly load, before any data had changed. And the license read is
+           every table it writes: the stamp saw only the pool, written first, and the warm-up kept the licensed accounts,
+           their licenses and the service-account groups from before the read, until midnight UTC, when no refresh
+           followed (a run that failed later, or the license tool run on its own). */
+        return $@"
 SET NOCOUNT ON;
 DECLARE @s NVARCHAR(MAX) = N'';
 DECLARE @t TABLE (Name SYSNAME, Sql NVARCHAR(400));
 INSERT INTO @t VALUES
     (N'dash.RefreshRun', N'SELECT @r = CONCAT(MAX(RunId), N'':'', COUNT_BIG(*)) FROM dash.RefreshRun'),
-    (N'audit.PipelineRun', N'SELECT @r = CONCAT(MAX(RunId), N'':'', COUNT_BIG(*)) FROM audit.PipelineRun'),
+    (N'audit.PipelineRun', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(EndedUtc), 126)) FROM audit.PipelineRun WHERE EndedUtc IS NOT NULL'),
     (N'audit.LicenseSku', N'SELECT @r = CONVERT(NVARCHAR(30), MAX(CapturedUtc), 126) FROM audit.LicenseSku'),
+    (N'audit.CopilotLicense', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(UpdatedUtc), 126)) FROM audit.CopilotLicense'),
+    (N'audit.UserLicenseSku', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(CapturedUtc), 126)) FROM audit.UserLicenseSku'),
+    (N'audit.GroupMember', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(LoadedUtc), 126)) FROM audit.GroupMember'),
     (N'audit.UserDirectory', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(LoadedUtc), 126)) FROM audit.UserDirectory'),
 {string.Join(",\n", Reference.Select(t => $"    (N'{t}', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CHECKSUM_AGG(BINARY_CHECKSUM(*))) FROM {t}')"))};
 DECLARE @name SYSNAME, @q NVARCHAR(400), @r NVARCHAR(200);
@@ -122,7 +131,11 @@ BEGIN
 END;
 CLOSE c; DEALLOCATE c;
 SELECT CONVERT(NVARCHAR(10), CAST(SYSUTCDATETIME() AS DATE), 23) + N'|' + CONVERT(NVARCHAR(64), HASHBYTES('SHA2_256', @s), 2);";
+    }
+
+    static async Task<string> ReadAsync(string connectionString)
+    {
         await using var conn = new SqlConnection(connectionString);
-        return await conn.ExecuteScalarAsync<string>(new CommandDefinition(sql, commandTimeout: 30)) ?? "none";
+        return await conn.ExecuteScalarAsync<string>(new CommandDefinition(Batch(), commandTimeout: 30)) ?? "none";
     }
 }

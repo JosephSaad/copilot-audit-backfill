@@ -132,7 +132,7 @@ Indexes and constraints:
 
 *Table.* One row per -Incremental load: its range, operations, when it finished downloading and was merged, and how many records were new or already there.
 
-**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases · **Columns added by** `Create-CopilotLoadProcedure.sql`
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -146,6 +146,7 @@ Indexes and constraints:
 | 8 | `RowsStaged` | bigint | yes |  | final-attempt rows in the load |
 | 9 | `RowsAdded` | bigint | yes |  | new to audit.CopilotAudit |
 | 10 | `RowsAlreadyLoaded` | bigint | yes |  | in the lookback, already present |
+| 11 | `DerivedRefreshedUtc` | datetime2(0) | yes |  | the derived tables brought up to date with it (2.4.12); empty on a merged load, a refresh the next -Incremental run makes up |
 
 Indexes and constraints:
 
@@ -975,6 +976,7 @@ Created by tools/Import-CopilotAuditCsv.ps1 (2.1.0).
 | 15 | `LatestAddedUtc` | datetime2(0) | yes |  |  |
 | 16 | `CoveredFromUtc` | datetime2(0) | yes |  | the search range the exports were made for, if given |
 | 17 | `CoveredToUtc` | datetime2(0) | yes |  |  |
+| 18 | `DerivedRefreshedUtc` | datetime2(0) | yes |  | the derived tables brought up to date with it (2.4.12); empty on a merged import that added rows, a refresh the next import or -Incremental run makes up |
 
 Indexes and constraints:
 
@@ -1977,7 +1979,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 
 ### bi.OrgSecurity
 
-*View.* Who may see whom (2.3.0): each viewer's sign-in with the user key of everyone at or under them, and everyone for the top of the organization, the people reporting to them and people granted Organization. The Power BI model's Organization role filters Users by it. Empty in privacy mode.
+*View.* Who may see whom (2.3.0): each viewer's sign-in with the user key of everyone at or under them, and everyone for the top of the organization, the people reporting to them and people granted Organization. The Power BI model's Organization role filters Users by it, and shows each viewer only their own rows. Empty in privacy mode.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -1985,6 +1987,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 |--:|---|---|---|---|---|
 | 1 | `ViewerUpn` | nvarchar(256) | **no** |  |  |
 | 2 | `UserKey` | int | **no** |  |  |
+| 3 | `WholeOrganization` | bit | yes |  | 2.4.12: true when the viewer sees the whole organization. The model's Organization role shows LicensePool, ValueNames and DepartmentWeek to them alone. |
 
 ### bi.ValueNames
 
@@ -2022,7 +2025,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 
 ### bi.DepartmentWeek
 
-*View.* Active people, interactions and sessions by department and week (2.3.0), with every figure of a department under the minimum group size blank: for a model that must not show individuals.
+*View.* Active people, interactions and sessions by department and week (2.3.0), for a model that must not show individuals. From 2.4.12 every department has a row for every week of the data, used or not; departments with fewer enabled people than the minimum group size are combined as (smaller departments), and a week with fewer active people than the minimum is blank.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 

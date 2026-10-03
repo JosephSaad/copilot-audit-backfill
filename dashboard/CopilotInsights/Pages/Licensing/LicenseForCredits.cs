@@ -36,8 +36,6 @@ public sealed class LicenseForCreditsModel(PageServices s) : InsightsPage(s)
         public long A { get; set; }
         public long W { get; set; }
         public int Days { get; set; }
-        public int People { get; set; }
-        public long AllM { get; set; }
         public int TotalRows { get; set; }
     }
 
@@ -57,8 +55,7 @@ m AS (SELECT g.UserKey, SUM(g.N) AS I,
       FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey JOIN bi.DimAgent AS ag ON ag.AgentKey = g.AgentKey
       GROUP BY g.UserKey),
 d AS (SELECT ud.UserKey, COUNT(*) AS Days FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0 GROUP BY ud.UserKey),
-x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, m.I, m.M, m.A, m.W, ISNULL(d.Days, 0) AS Days,
-             COUNT(*) OVER () AS People, SUM(m.M) OVER () AS AllM
+x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, m.I, m.M, m.A, m.W, ISNULL(d.Days, 0) AS Days
       FROM m
       JOIN bi.DimUser AS du ON du.UserKey = m.UserKey
       LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = m.UserKey AND ld.DateKey = @k1
@@ -70,8 +67,9 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
     async Task<(decimal Price, decimal Rate, string Cur, int Days)> TermsAsync()
     {
         static decimal Dec(string? v, decimal fallback) => decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) ? d : fallback;
+        /* A month is scaled from the days the data covers, not the period's (2.4.12, see OpsReports.DaysCovered). */
         return (Dec(await S.Settings.StringAsync("LicenseMonthlyCost"), 30m), Dec(await S.Settings.StringAsync("PaygInteractionCost"), 0.12m),
-                await S.Settings.StringAsync("LicenseCurrency") ?? "USD", (Ctx.End - Ctx.Start).Days + 1);
+                await S.Settings.StringAsync("LicenseCurrency") ?? "USD", CopilotInsights.Data.OpsReports.DaysCovered(Ctx, await CopilotInsights.Data.OpsReports.FirstDayAsync(Db)));
     }
 
     bool AllShown => Request.Query["show"].FirstOrDefault() == "all";
@@ -81,13 +79,17 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
         var (price, rate, cur, days) = await TermsAsync();
         var floor = AllShown ? 0.01m : price;   // a month's credits at or above this are listed
         var pg = new Paging(Request, Sorts, "credits");
-        var rows = await Db.QueryAsync<Row>(Sql("SELECT x.*, COUNT(*) OVER () AS TotalRows FROM x WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)",
-            pg.OrderAndPage() + ";"), Ctx.Args(new { q = pg.Like, rate, floor, days }), timeout: 300);
+        /* The figures above the list are everyone's, read on their own (2.4.12): taken from the page's first row, they were
+           0 when a search matched nobody or the page was past the end. */
+        var (rows, all) = await Db.QueryTwoAsync<Row, (int People, long AllM)>(Sql("SELECT x.* INTO #x FROM x;", "") + $@"
+SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
+{pg.OrderAndPage()};
+SELECT COUNT(*), ISNULL(SUM(x.M), 0) FROM #x AS x;", Ctx.Args(new { q = pg.Like, rate, floor, days }), timeout: 300);
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         decimal Monthly(long m) => m * rate * 30m / days;
 
-        var people = rows.FirstOrDefault()?.People ?? 0;
-        var credits = Monthly(rows.FirstOrDefault()?.AllM ?? 0);
+        var (people, allM) = all.Single();
+        var credits = Monthly(allM);
         Kpis.Add(new(AllShown ? "Paying in credits" : "Cheaper with a license", Num(people),
             AllShown ? "without a license, with metered use" : $"credits a month at or over the license's {price:#,0.##} {cur}"));
         Kpis.Add(new($"Credits a month ({cur})", Num((long)credits), "their metered use, scaled to 30 days"));
@@ -111,17 +113,18 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
         CsvTable = t;
         var show = string.Join(" · ", new[] { ("cheaper", "Cheaper with a license"), ("all", "Everyone paying in credits") }.Select(o =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"show={o.Item1}"))}\"{((o.Item1 == "all") == AllShown ? " class=\"on\"" : "")}>{o.Item2}</a>"));
-        var exports = AllShown || pg.Total == 0 ? "" :
-            $"<p class=\"sub\">License them: <a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "handler=bulk"))}\">Entra bulk add members file</a> · " +
-            $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "handler=script"))}\">PowerShell script</a>, recorded for License action outcomes.</p>";
+        var exports = AllShown || people == 0 ? "" :
+            $"<div class=\"sub\">License them: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk add members file")} · " +
+            $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {show}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Metered: interactions through an agent, or in Copilot Chat that read work content without searching the web, by people with no Copilot license today. " +
             $"Credits a month: those interactions, scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access); an agent grounded only in public data costs nothing, so this errs high. " +
             "Against the license: the credits less the license cost; above zero, the license is cheaper.", "full", CsvUrl()));
     }
 
-    public Task<IActionResult> OnGetBulkAsync() => ExportAsync(false);
-    public Task<IActionResult> OnGetScriptAsync() => ExportAsync(true);
+    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
+    public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 
     async Task<IActionResult> ExportAsync(bool script)
     {
@@ -136,6 +139,6 @@ x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName
         await CopilotInsights.Data.LicenseActions.RecordAsync(Db, "upgrade", upns, Viewer.Upn ?? Viewer.WindowsName);
         await S.Audit.WriteAsync(Viewer, "Export", Request.Path, Ctx.ScopeLabel, $"license for credits {(script ? "script" : "bulk file")}: {upns.Count} people");
         var name = $"copilot-license-for-credits-{DateTime.UtcNow:yyyyMMdd}";
-        return File(System.Text.Encoding.UTF8.GetBytes(text), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
+        return File(CopilotInsights.Data.LicenseExport.FileBytes(text, script), script ? "text/plain" : "text/csv", script ? name + ".ps1" : name + ".csv");
     }
 }

@@ -21,7 +21,10 @@
     ActivityDate uses @ReportingTimeZone (below) for day boundaries; all
     other timestamps stay UTC.
 
-    Re-runnable: both tables are rebuilt from staging every time.
+    Re-runnable: both tables are rebuilt from staging every time, as long as
+    staging still holds every row the windows loaded. Once it has been dropped
+    (as the end of this script suggests) or purged, finalize refuses: it would
+    rebuild audit.CopilotAudit from what is left, which is nothing (2.4.12).
     Single batch (no GO), so an error stops everything in SSMS too.
     Requires SQL Server 2017+ (NVARCHAR(MAX) in a columnstore).
     Expect tens of minutes for tens of millions of rows; it is a one-off.
@@ -114,6 +117,29 @@ BEGIN
 END;
 
 RAISERROR('Coverage verified: all windows loaded, no gaps.', 0, 1) WITH NOWAIT;
+
+/* Staging must still hold what the windows loaded (2.4.12). The guards above read the
+   window table only, and staging is dropped once finalize has run (the advice at the
+   end of this script) or purged by -Task PurgeJson; the backfill creates it again,
+   empty, on its next run. A finalize then dropped audit.CopilotAudit and rebuilt it
+   from nothing, and said "Coverage verified". */
+DECLARE @expected BIGINT, @unknown INT, @staged BIGINT, @existing BIGINT;
+SELECT @expected = SUM(ISNULL(RowsLoaded, 0)), @unknown = COUNT(CASE WHEN RowsLoaded IS NULL THEN 1 END)
+FROM audit.CopilotBackfillWindow WHERE Status = 'Loaded';
+SELECT @staged = COUNT_BIG(*)
+FROM audit.CopilotAuditStage AS s
+JOIN audit.CopilotBackfillWindow AS w ON w.WindowId = s.WindowId AND w.Status = 'Loaded' AND w.Attempts = s.Attempt;
+/* Counted, not read from sys.partitions: after a reorganize, a columnstore's row groups that were compressed are
+   counted there twice until the tuple mover clears them. Dynamic, for a database where the table is not there yet. */
+SET @existing = 0;
+IF OBJECT_ID(N'audit.CopilotAudit', N'U') IS NOT NULL
+    EXEC sys.sp_executesql N'SELECT @n = COUNT_BIG(*) FROM audit.CopilotAudit;', N'@n BIGINT OUTPUT', @n = @existing OUTPUT;
+
+IF (@unknown = 0 AND @staged < @expected) OR (@staged = 0 AND @expected > 0) OR @existing > @staged
+BEGIN
+    RAISERROR('Finalize refused: the staging table holds %I64d of the %I64d rows the windows loaded, and audit.CopilotAudit holds %I64d. Staging was dropped or purged after an earlier finalize, and rebuilding from it would empty audit.CopilotAudit. The tables are final already: nothing needs doing.', 16, 1, @staged, @expected, @existing);
+    RETURN;
+END;
 
 /* ---- 2. Final attempt of every Loaded window -> columnstore ------------ */
 
@@ -254,5 +280,11 @@ SELECT
     (SELECT MAX(CreatedDateTime) FROM audit.CopilotAudit)                AS NewestRecordUtc,
     (SELECT COUNT(DISTINCT UserPrincipalName) FROM audit.CopilotInteraction) AS DistinctUsers,
     (SELECT COUNT_BIG(*) FROM audit.CopilotAuditStage)                   AS StagingRows;
+
+/* The mark the backfill reads before finalizing again (2.4.12): finalized, so a re-run leaves the tables alone. */
+MERGE audit.PipelineSetting AS t
+USING (SELECT N'FinalizedUtc' AS Name, CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126) AS Value) AS s ON t.Name = s.Name
+WHEN MATCHED THEN UPDATE SET Value = s.Value, UpdatedUtc = SYSUTCDATETIME(), UpdatedBy = SUSER_SNAME()
+WHEN NOT MATCHED THEN INSERT (Name, Value) VALUES (s.Name, s.Value);
 
 RAISERROR('Finalize complete. Once verified, reclaim space with: DROP TABLE audit.CopilotAuditStage;', 0, 1) WITH NOWAIT;

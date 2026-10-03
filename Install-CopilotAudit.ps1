@@ -39,8 +39,10 @@
 
 .PARAMETER ReportingTimeZone
     The zone days and Saturday-to-Friday weeks are cut in: a name from
-    sys.time_zone_info, such as 'GMT Standard Time'. Default Eastern Standard
-    Time. Stored in both databases, where every procedure reads it; set it
+    sys.time_zone_info, such as 'GMT Standard Time'. Default: this server's
+    own zone, for a database with no records and no zone yet (2.4.10); a
+    database no installer set reads Eastern Standard Time. Stored in both
+    databases, where every procedure reads it; set it
     before the first load, as changing it later would leave history cut in
     the old zone (it is refused then).
 
@@ -126,6 +128,31 @@ function Get-Count([string] $Catalog, [string] $Table) {
     [long] (Invoke-Sql -Catalog $Catalog -Scalar -Sql "SELECT SUM(row_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID(@t) AND index_id IN (0, 1)" -Parameters @{ '@t' = $Table })
 }
 
+function Enter-RunLock([string] $Catalog) {
+    <#
+        Holds the database for this run alone (2.4.12), as the nightly pipeline and the maintenance rebuilds do: an
+        exclusive application lock, on a connection of its own kept open to the end of the build. Nothing kept them
+        apart, and a nightly that started during an upgrade's full bi rebuild rebuilt the fact under it, counting
+        interactions twice. As the pipeline's history build step, the pipeline holds it already (CopilotAuditRunLock).
+    #>
+    if ($env:CopilotAuditRunLock -eq "$SqlServer/$Catalog") { return $null }
+    $b = New-Object System.Data.SqlClient.SqlConnectionStringBuilder (New-ConnString $Catalog)
+    $b['Pooling'] = $false   # closing a pooled connection keeps its session, and the session's lock with it
+    $c = New-Object System.Data.SqlClient.SqlConnection $b.ConnectionString
+    try {
+        $c.Open()
+        $cmd = $c.CreateCommand()
+        $cmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+        $granted = [int] $cmd.ExecuteScalar() -ge 0
+    }
+    catch { $c.Dispose(); throw }
+    if (-not $granted) {
+        $c.Dispose()
+        throw "Another run is using $Catalog now: the nightly pipeline, a maintenance rebuild, or this installer in another window. Nothing was changed. Let it finish (Admin > Health shows the pipeline's runs), disable the nightly task while you upgrade, then run this again."
+    }
+    $c
+}
+
 # ---- 1. Databases -------------------------------------------------------------------------------
 Write-Step "Databases on $SqlServer"
 $targetLevel = [int] (Invoke-Sql -Catalog master -Scalar -Sql "SELECT CASE WHEN CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) >= 16 THEN 160 ELSE CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) * 10 END")
@@ -164,6 +191,10 @@ END;
     Write-Done "$ServiceAccount has a login and db_owner in $($dbs -join ' and ')"
 }
 
+# One run at a time (2.4.12): held from here to the end of step 3, and let go in the finally there.
+$runLock = Enter-RunLock $Database
+try {
+
 # ---- 2. Objects ---------------------------------------------------------------------------------
 Write-Step "Tables, views and procedures in $Database"
 $copilotScripts = 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql',
@@ -199,7 +230,9 @@ else {
     # 2.4.10: with no zone named, a database that holds no records yet takes this server's own time zone (it was
     # Eastern whatever the server). One that holds records, or that has a zone set, keeps it: its days are already cut.
     $serverZone = [TimeZoneInfo]::Local.Id
-    if ([TimeZoneInfo]::Local.HasIanaId) {
+    # .NET 6 and later only (PowerShell 7): Windows PowerShell 5.1's zone ids are Windows ones already, and reading the
+    # property there stopped the script under strict mode, before any rebuild ran (2.4.12).
+    if ($PSVersionTable.PSEdition -eq 'Core' -and [TimeZoneInfo]::Local.HasIanaId) {
         $windowsId = $null
         $serverZone = if ([TimeZoneInfo]::TryConvertIanaIdToWindowsId($serverZone, [ref] $windowsId)) { $windowsId } else { $null }
     }
@@ -213,11 +246,46 @@ else {
 }
 Write-Done ("reporting time zone: {0}" -f (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT audit.ReportingTimeZone();'))
 
-foreach ($acct in $ReportingAccount) {
+# Reporting accounts read the bi views and nothing else (2.4.12). They were given SELECT on the whole bi schema, which
+# holds the tables under the views too: the Power BI account read bi.DimUser's real names beside privacy mode's
+# pseudonyms, and every column the views leave out. They are members of CopilotReporting now, which each run grants
+# every bi view to, so a view a release adds is readable too; the schema-wide grant is taken back.
+$reporting = @($ReportingAccount | Where-Object { $_ })
+if ($reporting.Count -gt 0 -or [bool] (Invoke-Sql -Catalog $Database -Scalar -Sql "SELECT CASE WHEN DATABASE_PRINCIPAL_ID(N'CopilotReporting') IS NULL THEN 0 ELSE 1 END")) {
+    Invoke-Sql -Catalog $Database -Sql @"
+IF DATABASE_PRINCIPAL_ID(N'CopilotReporting') IS NULL CREATE ROLE CopilotReporting AUTHORIZATION dbo;
+DECLARE @v sysname, @s nvarchar(400);
+DECLARE v CURSOR LOCAL FAST_FORWARD FOR SELECT name FROM sys.views WHERE schema_id = SCHEMA_ID(N'bi');
+OPEN v; FETCH NEXT FROM v INTO @v;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @s = N'GRANT SELECT ON bi.' + QUOTENAME(@v) + N' TO CopilotReporting;';
+    EXEC (@s);
+    FETCH NEXT FROM v INTO @v;
+END;
+"@
+}
+foreach ($acct in $reporting) {
     $ra = $acct.Replace(']', ']]')
-    Invoke-Sql -Catalog master -Sql "IF SUSER_ID(@a) IS NULL EXEC (N'CREATE LOGIN [$ra] FROM WINDOWS');" -Parameters @{ '@a' = $acct }
-    Invoke-Sql -Catalog $Database -Parameters @{ '@a' = $acct } -Sql "IF USER_ID(@a) IS NULL EXEC (N'CREATE USER [$ra] FOR LOGIN [$ra]'); EXEC (N'GRANT SELECT ON SCHEMA::bi TO [$ra]');"
-    Write-Done "$acct can read the bi views in $Database"
+    # A database user of that name already there (this installer's from before, or a DBA's) is used as it is.
+    if (-not [bool] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN USER_ID(@a) IS NULL THEN 0 ELSE 1 END' -Parameters @{ '@a' = $acct })) {
+        Invoke-Sql -Catalog master -Sql "IF SUSER_ID(@a) IS NULL EXEC (N'CREATE LOGIN [$ra] FROM WINDOWS');" -Parameters @{ '@a' = $acct }
+        Invoke-Sql -Catalog $Database -Sql "CREATE USER [$ra] FOR LOGIN [$ra];"
+    }
+    Invoke-Sql -Catalog $Database -Sql "REVOKE SELECT ON SCHEMA::bi FROM [$ra]; ALTER ROLE CopilotReporting ADD MEMBER [$ra];"
+    Write-Done "$acct can read the bi views in $Database, and nothing else"
+}
+# Others that read every table of bi (an account given -ReportingAccount before 2.4.12, and not again): said, not changed.
+$wide = Invoke-Sql -Catalog $Database -Scalar -Sql @"
+SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), pr.name), N', ')
+FROM sys.database_permissions AS p
+JOIN sys.database_principals AS pr ON pr.principal_id = p.grantee_principal_id
+WHERE p.class = 3 AND p.major_id = SCHEMA_ID(N'bi') AND p.permission_name = N'SELECT' AND p.state IN ('G', 'W')
+  AND pr.name <> N'CopilotInsightsApp' AND ISNULL(IS_ROLEMEMBER(N'CopilotInsightsApp', pr.name), 0) = 0
+  AND NOT EXISTS (SELECT 1 FROM sys.database_permissions AS d WHERE d.grantee_principal_id = pr.principal_id AND d.class = 3 AND d.major_id = SCHEMA_ID(N'dash'));
+"@
+if ($wide -isnot [DBNull] -and $wide) {
+    Write-Warning "These accounts can read every table of the bi schema in $Database, not only its views, so privacy mode does not hide names from them: $wide. Give a reporting account to -ReportingAccount again to narrow it to the views."
 }
 
 if ($Dashboard -and $OrgTopUpn) {
@@ -246,12 +314,29 @@ if (-not $SkipLicenseDatabase) {
 # Flattened by a version before 2.2.0: rows, but no record shapes - only the 2.2.0
 # flatten counts them. Upgraded scripts alone do not fill history; this does, once.
 $upgrade = $flattened -gt 0 -and (Get-Count $Database 'audit.RawLogRecordShape') -eq 0
-$fullBuild = $Rebuild -or ($records -gt 0 -and $flattened -eq 0) -or $upgrade
+# 2.4.12: built is a flatten of every record that finished, which leaves a mark (FullFlattenUtc). Any flattened row
+# counted as built, so a first flatten stopped part way, or a nightly that flattened only its own few days, left the
+# rest of history unflattened for good. A database flattened before 2.4.12 has no mark: it is given one here when every
+# record is in the flattened table (counted once, minutes at 40 million), and flattened again when some are not.
+$unflattened = [long] 0
+if ($records -gt 0 -and $flattened -gt 0 -and -not $Rebuild -and -not $upgrade -and
+    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'FullFlattenUtc';") -eq 0) {
+    Write-Done 'checking that every record has been flattened (once)...'
+    $unflattened = [long] (Invoke-Sql -Catalog $Database -Scalar -Sql @"
+SELECT COUNT_BIG(*) FROM audit.CopilotAudit AS a
+WHERE NOT EXISTS (SELECT 1 FROM audit.RawLogFlattened AS f WHERE f.RecordId = a.RecordId);
+"@)
+    if ($unflattened -eq 0) {
+        Invoke-Sql -Catalog $Database -Sql "INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'FullFlattenUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));"
+    }
+}
+$fullBuild = $Rebuild -or ($records -gt 0 -and $flattened -eq 0) -or $upgrade -or $unflattened -gt 0
 if ($records -eq 0) {
     $todo += "Load Copilot records into $Database (the backfill, deployment step 6, or a CSV import), then run this again."
 }
 elseif ($fullBuild) {
-    $why = if ($upgrade) { 'the flattened table gained columns (2.2.0), so every record is flattened again' } elseif ($Rebuild) { '-Rebuild' } else { 'first build' }
+    $why = if ($upgrade) { 'the flattened table gained columns (2.2.0), so every record is flattened again' } elseif ($Rebuild) { '-Rebuild' }
+           elseif ($unflattened -gt 0) { '{0:N0} were never flattened: an earlier flatten stopped part way, or only the nightly''s days were' -f $unflattened } else { 'first build' }
     Write-Done ("flattening {0:N0} record(s) ({1})..." -f $records, $why)
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_FlattenCopilotAudit;'
     Write-Done 'sessions, in full...'
@@ -270,7 +355,21 @@ if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp
     Write-Done 'agent names: reading the id and friendly name from the records of agents, once (2.4.11)...'
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_BackfillAgentNames;'
     if (Test-Object $Database 'bi.usp_NameAgents' 'P') { Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_NameAgents;' }
-    $todo += 'Refresh the Power BI model once: agents carry the friendly names the audit log gives them, and bi.Agents gained NamedInAudit.'
+    $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): agents carry the friendly names the audit log gives them, and bi.Agents gained NamedInAudit.'
+}
+
+# 2.4.12: the records of other apps that carry an agent's id (Copilot Chat running a declarative agent), which bi keys
+# on that id. 2.4.11 read it from its upgrade night on, so the same agent's history started then. Read once here, from
+# the apps whose records since show one; a record that gains an id changes agent, so bi is rebuilt once (below).
+$agentIds = $false
+if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp_BackfillAgentNames' 'P') -and
+    [long] (Invoke-Sql -Catalog $Database -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'AgentIdsReadUtc';") -eq 0) {
+    Write-Done 'agent ids: reading them from the records of other apps that carry them, once (2.4.12)...'
+    $gainedIds = [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'EXEC audit.usp_BackfillAgentNames @Others = 1;')
+    if ($gainedIds -gt 0) {
+        $agentIds = $true
+        if (Test-Object $Database 'bi.usp_NameAgents' 'P') { Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_NameAgents;' }
+    }
 }
 
 # 2.4.6: each resource Copilot read carries its file type. Resources loaded before have none, so bi is refreshed in full
@@ -285,12 +384,14 @@ $noUseKind = $flattened -gt 0 -and -not $fullBuild -and
 # before 2.4.9, a fact with fewer than 99 in 100 of the flattened records: finished here, with every day of the rollups.
 $cutShort = $flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'bi.FactInteraction') -and
     ((Get-Count $Database 'bi.RebuildInProgress') -gt 0 -or (Get-Count $Database 'bi.FactInteraction') * 100 -lt $flattened * 99)
-if ($noFileType -or $noUseKind -or $cutShort) {
+if ($noFileType -or $noUseKind -or $cutShort -or $agentIds) {
     $gain = @($(if ($noFileType) { 'the resources Copilot read gain their file type (2.4.6)' }), $(if ($noUseKind) { 'Premium use is decided from each record''s own identity (2.4.8)' }),
-        $(if ($cutShort) { ('an earlier full refresh did not finish ({0:N0} of {1:N0} interactions are there)' -f (Get-Count $Database 'bi.FactInteraction'), $flattened) })) | Where-Object { $_ }
+        $(if ($cutShort) { ('an earlier full refresh did not finish ({0:N0} of {1:N0} interactions are there)' -f (Get-Count $Database 'bi.FactInteraction'), $flattened) }),
+        $(if ($agentIds) { ('{0:N0} interactions gain the agent the audit log names by id (2.4.12)' -f $gainedIds) })) | Where-Object { $_ }
     Write-Done "bi, in full once: $($gain -join '; '). This takes as long as a full bi refresh..."
     Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
-    if ($noFileType) { $todo += 'Refresh the Power BI model once: bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.' }
+    if ($noFileType) { $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.' }
+    if ($agentIds) { $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): interactions of every day moved to the agents the audit log names by id, and a scheduled refresh redoes only the last 4 days.' }
 }
 
 # 2.3.0: the value catalog fills as records are flattened; records flattened before it existed are cataloged once here.
@@ -303,12 +404,15 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     # 2.3.0 added Premium-feature use to the rollups: rebuilt in full once, when they have days but none of it.
     $premiumEmpty = (Get-Count $Database 'dash.UserDay') -gt 0 -and
         [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.UserDay WHERE PremiumUse > 0) OR NOT EXISTS (SELECT 1 FROM dash.UserDay WHERE LicensedUse > 0) THEN 1 ELSE 0 END;') -eq 0
-    $since = if ($fullBuild -or $premiumEmpty -or $noUseKind -or $cutShort -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
+    $since = if ($fullBuild -or $premiumEmpty -or $noUseKind -or $cutShort -or $agentIds -or (Get-Count $Database 'dash.UserDay') -eq 0) { $null } else { [datetime]::UtcNow.Date }
     Write-Done $(if ($since) { 'dashboard: org chart, and today''s rollups...' } else { 'dashboard: org chart and every day''s rollups...' })
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }
 }
 if ((Get-Count $Database 'audit.CopilotLicense') -eq 0 -and $records -gt 0) { $todo += 'Load current licenses (deployment step 10, tools\Update-CopilotAuditEnrichment.ps1).' }
+
+}
+finally { if ($runLock) { $runLock.Dispose() } }
 
 # ---- 4. Summary -------------------------------------------------------------------------------
 Write-Host ''

@@ -18,6 +18,11 @@
     this on. Running it on Windows x64 is still the closest match to the target
     and is what -Verify checks against.
 
+    Every file of the module that can run must carry a valid Authenticode
+    signature from its publisher (Microsoft, and Json.NET for its one library)
+    before the module is loaded here: the signature holds each file's hash, so a
+    changed file fails. That check needs Windows (2.4.12).
+
 .PARAMETER Path
     Where to create the Modules folder. Defaults to the tool's own folder, which
     is what the script expects at run time.
@@ -48,6 +53,34 @@ $ProgressPreference = 'SilentlyContinue'
 
 $ModuleNames = @('Microsoft.Graph.Authentication')
 
+function Get-UnsignedModuleFile {
+    <#
+        The files under a folder that can run (scripts, manifests, formats,
+        libraries, catalogs) without a valid Authenticode signature from one of
+        the module's publishers. 2.4.12: Save-Module checks no signature
+        (PowerShellGet checks one only when it installs), and the module is
+        imported below and shipped in the release's bundle, so a package changed
+        on the gallery or on the way ran here and reached the server unnoticed.
+    #>
+    param(
+        [Parameter(Mandatory)][string] $Path,
+        [string[]] $Publisher = @('O=Microsoft Corporation', 'O=Json.NET (.NET Foundation)')
+    )
+    $kinds = '.ps1', '.psm1', '.psd1', '.ps1xml', '.dll', '.exe', '.cat'
+    foreach ($f in Get-ChildItem -LiteralPath $Path -Recurse -File | Where-Object { $_.Extension -in $kinds }) {
+        $sig = Get-AuthenticodeSignature -LiteralPath $f.FullName
+        $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { '' }
+        # The organization exactly, one part of the subject: 'O=Microsoft Corporation Ltd' is someone else.
+        $parts = @($subject -split ',\s*')
+        if ($sig.Status -ne 'Valid' -or -not @($Publisher | Where-Object { $_ -in $parts }).Count) {
+            [pscustomobject]@{ Path = $f.FullName; Status = [string] $sig.Status; Signer = $subject }
+        }
+    }
+}
+
+# Dot-sourcing (tests) loads the function without saving anything.
+if ($MyInvocation.InvocationName -eq '.') { return }
+
 if (-not $Path) { $Path = Split-Path $PSScriptRoot -Parent }
 $modulesDir = Join-Path $Path 'Modules'
 
@@ -74,6 +107,19 @@ foreach ($name in $ModuleNames) {
     Write-Host "Saving $name $RequiredVersion ..." -ForegroundColor Cyan
     Save-Module -Name $name -RequiredVersion $RequiredVersion -Path $modulesDir `
                 -Repository PSGallery -ErrorAction Stop
+}
+
+# Before anything from the download runs: every file that can run is signed by its publisher, unchanged.
+Write-Host 'Checking the saved files'' signatures ...' -ForegroundColor Cyan
+if (-not (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)) {
+    Remove-Item -LiteralPath $modulesDir -Recurse -Force
+    throw 'Checking the modules'' signatures needs Windows (Get-AuthenticodeSignature). Run this on Windows.'
+}
+$unsigned = @(Get-UnsignedModuleFile -Path $modulesDir)
+if ($unsigned.Count) {
+    $unsigned | ForEach-Object { Write-Host ('  {0}: {1} {2}' -f $_.Path.Substring($modulesDir.Length), $_.Status, $_.Signer) -ForegroundColor Red }
+    Remove-Item -LiteralPath $modulesDir -Recurse -Force
+    throw "$($unsigned.Count) saved file(s) are not signed by the module's publisher, or were changed after signing. Nothing was kept."
 }
 
 # ---------------------------------------------------------------------------
