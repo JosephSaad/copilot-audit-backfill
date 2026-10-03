@@ -214,6 +214,8 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 
 `M -Task Status` shows what is loaded and built, and when each step last ran.
 
+**A night that failed after its load was merged**, at the session build say, owes a refresh of sessions, `bi` and the dashboard from that load's start. Once the cause is fixed the next run makes it up, even with nothing new to load (2.4.12; before, a failure that lasted past the 48-hour lookback left those days out for good). A CSV import whose refresh failed or was skipped is made up the same way, or by running the import again. To have sessions and `bi` read several license databases each night, list them as `SessionLicenseDatabases` in `copilot-audit.settings.psd1` ([DEPLOYMENT.md](DEPLOYMENT.md), step 11).
+
 ## More than one tenant
 
 A group with several Microsoft 365 tenants loads each into its own pair of databases, with its own app registration, and one dashboard spans them.

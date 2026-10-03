@@ -51,8 +51,23 @@ IF OBJECT_ID(N'audit.CopilotCsvImport', N'U') IS NULL
         EarliestAddedUtc    DATETIME2(0)    NULL,
         LatestAddedUtc      DATETIME2(0)    NULL,
         CoveredFromUtc      DATETIME2(0)    NULL,       -- the search range the exports were made for, if given
-        CoveredToUtc        DATETIME2(0)    NULL
+        CoveredToUtc        DATETIME2(0)    NULL,
+        DerivedRefreshedUtc DATETIME2(0)    NULL        -- the derived tables brought up to date with it; see below
     );
+
+/* When the derived tables were brought up to date with an import (2.4.12).
+   The import is marked merged before the importer refreshes the flattened
+   table, sessions, bi and the dashboard, and nothing recorded whether that
+   refresh finished: one that failed or was skipped was never made up, as a
+   second run skips the files merged and the nightly refreshes only its own
+   days. NULL on a merged import that added rows is a refresh still owed; the
+   importer and -Incremental make it up from its earliest record. Imports
+   merged before the column existed are taken as refreshed. */
+IF COL_LENGTH(N'audit.CopilotCsvImport', N'DerivedRefreshedUtc') IS NULL
+BEGIN
+    ALTER TABLE audit.CopilotCsvImport ADD DerivedRefreshedUtc DATETIME2(0) NULL;
+    EXEC (N'UPDATE audit.CopilotCsvImport SET DerivedRefreshedUtc = MergedUtc WHERE MergedUtc IS NOT NULL;');
+END;
 
 IF OBJECT_ID(N'audit.CopilotCsvFile', N'U') IS NULL
     CREATE TABLE audit.CopilotCsvFile
@@ -218,6 +233,10 @@ GO
     Refuses while a Graph backfill is started but not finalized: finalize
     rebuilds audit.CopilotAudit from its own staging table and would drop the
     imported rows.
+
+    One merge at a time: the transaction holds the exclusive lock that
+    audit.usp_MergeCopilotLoad takes too, from before the import is read, so
+    an import beside the nightly merge never appends a record twice.
 */
 ALTER PROCEDURE audit.usp_MergeCopilotCsv
     @ImportId           INT,
@@ -230,7 +249,17 @@ BEGIN
     SET XACT_ABORT ON;
     SET @ReportingTimeZone = COALESCE(@ReportingTimeZone, audit.ReportingTimeZone());   -- the zone Install-CopilotAudit.ps1 -ReportingTimeZone stored
 
-    DECLARE @msg NVARCHAR(800), @ops NVARCHAR(400), @merged DATETIME2(0);
+    DECLARE @msg NVARCHAR(800), @ops NVARCHAR(400), @merged DATETIME2(0), @lock INT;
+
+    /* 2.4.12: the lock audit.usp_MergeCopilotLoad takes, for the whole merge.
+       The check for records already loaded ran outside any lock, so a load
+       merged at the same moment could append the same records, stored twice. */
+    BEGIN TRANSACTION;
+    EXEC @lock = sys.sp_getapplock @Resource = N'audit.CopilotAudit:append', @LockMode = N'Exclusive',
+                                   @LockOwner = N'Transaction', @LockTimeout = -1;
+    IF @lock < 0
+        THROW 50110, N'Merge refused: the merge lock on audit.CopilotAudit was not granted. Run the import again.', 1;
+
     SELECT @ops = Operations, @merged = MergedUtc FROM audit.CopilotCsvImport WHERE ImportId = @ImportId;
 
     IF @ops IS NULL
@@ -298,9 +327,7 @@ BEGIN
     DECLARE @first DATETIME2(0), @last DATETIME2(0);
     SELECT @first = MIN(CreatedDateTime), @last = MAX(CreatedDateTime) FROM #cand;
 
-    /* ---- 3 and 4. Append, record coverage, in one transaction --------------- */
-
-    BEGIN TRANSACTION;
+    /* ---- 3 and 4. Append, record coverage, in the same transaction ---------- */
 
     INSERT INTO audit.CopilotAudit
         (RecordId, CreatedDateTime, RecordType, Operation, OrganizationId, UserType, UserId,
@@ -349,7 +376,9 @@ BEGIN
         RowsStaged = @staged, RowsDuplicate = @duplicate, RowsAlreadyLoaded = @already, RowsAdded = @added,
         EarliestAddedUtc = @first, LatestAddedUtc = @last,
         CoveredFromUtc = @CoveredFromUtc, CoveredToUtc = @CoveredToUtc
-    WHERE ImportId = @ImportId;
+    WHERE ImportId = @ImportId AND MergedUtc IS NULL;
+    IF @@ROWCOUNT = 0   -- cannot happen under the lock; if it ever does, nothing is appended twice
+        THROW 50102, N'Merge refused: this import is already merged.', 1;
 
     COMMIT TRANSACTION;
 

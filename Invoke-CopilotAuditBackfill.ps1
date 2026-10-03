@@ -87,7 +87,11 @@
     derived tables up to date as well, for each one installed: the flattened
     table (usp_FlattenCopilotAudit, from the load's start), license events
     (usp_ShredLicenseEvents), sessions (usp_BuildCopilotSessions) and the bi
-    star schema (bi.usp_RefreshBi, from the load's start).
+    star schema (bi.usp_RefreshBi, from the load's start). A refresh that is
+    skipped, or stops part way, stays owed (audit.CopilotLoad.DerivedRefreshedUtc
+    is left empty): the next run without this switch refreshes from the
+    earliest load or CSV import that owes one, even when there is nothing new
+    to load.
 
 .PARAMETER SessionLicenseDatabase
     With -Incremental: passed to usp_BuildCopilotSessions and bi.usp_RefreshBi
@@ -565,13 +569,59 @@ function Invoke-DerivedTableRefresh {
     }
 }
 
+function Get-OwedRefresh {
+    <#
+        Where the derived tables still owe a refresh (2.4.12): the start of the
+        first merged load whose refresh did not finish (it failed after the
+        merge, or ran with -SkipPostProcessing), or the earliest record of a CSV
+        import whose own refresh did not. With the last load and import that
+        covers, to mark them done after. $null when nothing is owed.
+    #>
+    $l = (Invoke-Sql -As Table -Sql 'SELECT MIN(RangeStartUtc) AS SinceUtc, MAX(LoadId) AS LastId FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL AND DerivedRefreshedUtc IS NULL').Rows[0]
+    $since = if ($l.SinceUtc -is [DBNull]) { $null } else { [datetime]::SpecifyKind($l.SinceUtc, [DateTimeKind]::Utc) }
+    $loadId = if ($l.LastId -is [DBNull]) { 0 } else { [int] $l.LastId }
+    $importId = 0
+    if ([int] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN COL_LENGTH(N'audit.CopilotCsvImport', N'DerivedRefreshedUtc') IS NULL THEN 0 ELSE 1 END") -eq 1) {
+        $c = (Invoke-Sql -As Table -Sql 'SELECT MIN(EarliestAddedUtc) AS SinceUtc, MAX(ImportId) AS LastId FROM audit.CopilotCsvImport WHERE MergedUtc IS NOT NULL AND RowsAdded > 0 AND DerivedRefreshedUtc IS NULL').Rows[0]
+        if ($c.SinceUtc -isnot [DBNull]) {
+            $csvSince = [datetime]::SpecifyKind($c.SinceUtc, [DateTimeKind]::Utc)
+            if ($null -eq $since -or $csvSince -lt $since) { $since = $csvSince }
+            $importId = [int] $c.LastId
+        }
+    }
+    if ($null -eq $since) { return $null }
+    [pscustomobject]@{ SinceUtc = $since; LoadId = $loadId; ImportId = $importId }
+}
+
+function Complete-OwedRefresh {
+    <# Marks the merged loads up to LoadId, and the imports up to ImportId, as refreshed. #>
+    param([int] $LoadId, [int] $ImportId)
+    Invoke-Sql -Sql 'UPDATE audit.CopilotLoad SET DerivedRefreshedUtc = SYSUTCDATETIME() WHERE MergedUtc IS NOT NULL AND DerivedRefreshedUtc IS NULL AND LoadId <= @l' `
+        -Parameters @{ '@l' = $LoadId }
+    if ($ImportId -gt 0) {
+        Invoke-Sql -Sql 'UPDATE audit.CopilotCsvImport SET DerivedRefreshedUtc = SYSUTCDATETIME() WHERE MergedUtc IS NOT NULL AND DerivedRefreshedUtc IS NULL AND ImportId <= @i' `
+            -Parameters @{ '@i' = $ImportId }
+    }
+}
+
 function Invoke-IncrementalLoad {
     if ($Finalize -or $FinalizeOnly) { Write-Log '-Finalize is not used with -Incremental: each load is merged as it completes.' -Level WARN }
     if ($StartDate) { Write-Log '-StartDate is ignored with -Incremental: each load starts where the data ends, less the lookback.' -Level WARN }
 
     Invoke-SqlScript -Path (Join-Path $PSScriptRoot 'sql' 'Create-CopilotLoadProcedure.sql')
+    # A refresh an earlier run owes is made up from where it was owed (2.4.12). Each run refreshed from its own load's
+    # start only, so after a refresh failed past the lookback (three nights, or one long catch-up load), or a re-run
+    # found nothing new to load, those days stayed out of sessions, bi and the dashboard for good.
+    $owed = Get-OwedRefresh
     $load = Get-IncrementalLoad
-    if (-not $load) { return }
+    if (-not $load) {
+        if ($owed -and -not $SkipPostProcessing) {
+            Write-Log ('The derived tables were not brought up to date after an earlier load or import: refreshing them from {0:yyyy-MM-dd HH:mm}Z.' -f $owed.SinceUtc) -Level WARN
+            Invoke-DerivedTableRefresh -SinceUtc $owed.SinceUtc
+            Complete-OwedRefresh -LoadId $owed.LoadId -ImportId $owed.ImportId
+        }
+        return
+    }
 
     if (-not $load.Downloaded) {
         if (-not $TenantId) { Write-Log 'No -TenantId given; sign-in will use the account''s home tenant. Pass -TenantId to pin it.' -Level WARN }
@@ -586,8 +636,16 @@ function Invoke-IncrementalLoad {
     }
 
     [void] (Invoke-Sql -As Table -Sql 'EXEC audit.usp_MergeCopilotLoad;' -TimeoutSeconds 0)
-    if ($SkipPostProcessing) { Write-Log 'Derived tables not updated (-SkipPostProcessing).' }
-    else { Invoke-DerivedTableRefresh -SinceUtc $load.Start }
+    if ($SkipPostProcessing) { Write-Log 'Derived tables not updated (-SkipPostProcessing). The next run without it brings them up to date.' }
+    else {
+        $since = $load.Start
+        if ($owed -and $owed.SinceUtc -lt $since) {
+            Write-Log ('The derived tables were not brought up to date after an earlier load or import: refreshing them from {0:yyyy-MM-dd HH:mm}Z, not from this load''s start.' -f $owed.SinceUtc) -Level WARN
+            $since = $owed.SinceUtc
+        }
+        Invoke-DerivedTableRefresh -SinceUtc $since
+        Complete-OwedRefresh -LoadId $load.LoadId -ImportId $(if ($owed) { $owed.ImportId } else { 0 })
+    }
     Write-Log ('Incremental load {0} complete: the data now reaches {1:yyyy-MM-dd HH:mm}Z.' -f $load.LoadId, $load.End)
 }
 
@@ -893,8 +951,9 @@ function Invoke-Main {
 
     Show-BackfillState
     if ($final.WindowsFailed -gt 0) {
-        Write-Log "$($final.WindowsFailed) window(s) failed after retries. Run the same command again to retry them." -Level ERROR
-        return
+        # Thrown, as an incremental load does (2.4.12). It was logged and the script returned, so it exited 0: -History
+        # carried on with the range not complete and not finalized, and reported the history loaded and built.
+        throw "$($final.WindowsFailed) window(s) failed after retries. Run the same command again to retry them."
     }
 
     Invoke-Sql -Sql 'UPDATE audit.CopilotBackfillRange SET CompletedUtc = SYSUTCDATETIME() WHERE Id = 1'

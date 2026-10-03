@@ -140,6 +140,11 @@ function Get-PipelineStep {
     $sql = @{ SqlServer = $Setting.SqlServer }
     if (Has 'TrustServerCertificate') { $sql.TrustServerCertificate = $true }
     $lic = if (Has 'LicenseDatabase') { [string] $Setting.LicenseDatabase } else { $null }
+    # The license databases sessions and bi read (2.4.12): SessionLicenseDatabases, a list added to the settings by
+    # hand when an older license database is read beside the one loaded each night, else that one. Only that one
+    # could be passed, so a database built with several (as Install-CopilotAudit.ps1 suggests) failed every night.
+    $readLic = @(@(if (Has 'SessionLicenseDatabases') { $Setting.SessionLicenseDatabases } elseif ($lic) { $lic }) |
+                 ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $steps = [System.Collections.Generic.List[object]]::new()
     function Add($name, $script, $argsTable) { $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable }) }
 
@@ -164,7 +169,8 @@ function Get-PipelineStep {
         & $directory
         & $licenses
         $build = $sql + @{ Database = $Setting.Database }
-        if ($lic) { $build.LicenseDatabase = $lic; $build.LicenseEventDatabases = @($lic) } else { $build.SkipLicenseDatabase = $true }
+        if ($lic) { $build.LicenseDatabase = $lic } else { $build.SkipLicenseDatabase = $true }
+        if ($readLic.Count) { $build.LicenseEventDatabases = $readLic }
         if (Has 'Dashboard') { $build.Dashboard = $true }
         Add 'Build everything' 'Install-CopilotAudit.ps1' $build
     }
@@ -173,7 +179,7 @@ function Get-PipelineStep {
         & $licenses
         if ($lic) { Add 'License events' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; Incremental = $true; Operations = $script:LicenseOperations }) }
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
-        if ($lic) { $inter.SessionLicenseDatabase = $lic }
+        if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }
         Add 'Copilot interactions' 'Invoke-CopilotAuditBackfill.ps1' $inter
     }
     , $steps.ToArray()

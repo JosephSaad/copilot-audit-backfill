@@ -172,6 +172,16 @@ Assert-That ((Get-PipelineStep -Setting $s -History -Days 30 -Today $today)[0].A
 $b = $h[4].Arguments
 Assert-That ($b.Dashboard -and (@($b.LicenseEventDatabases) -join ',') -eq 'CopilotLicenseEvents' -and $h[4].Script -eq [System.IO.Path]::Combine('R:', 'Install-CopilotAudit.ps1')) 'history ends with the one-command build'
 
+# 2.4.12: sessions and bi may read several license databases. The nightly could pass only LicenseDatabase, so a
+# database built with two failed every night on 'different settings'; SessionLicenseDatabases is the list it reads.
+$two = @{} + $s; $two.SessionLicenseDatabases = @('CopilotLicenseEvents', ' CopilotLicenseArchive ')
+$tn = Get-PipelineStep -Setting $two -Today $today
+$th = Get-PipelineStep -Setting $two -History -Today $today
+Assert-That ($tn[3].Arguments.SessionLicenseDatabase -eq 'CopilotLicenseEvents,CopilotLicenseArchive' -and $tn[2].Arguments.Database -eq 'CopilotLicenseEvents') `
+    "2.4.12: the nightly reads every database in SessionLicenseDatabases, and still loads the license events into LicenseDatabase ($($tn[3].Arguments.SessionLicenseDatabase))"
+Assert-That ((@($th[4].Arguments.LicenseEventDatabases) -join ',') -eq 'CopilotLicenseEvents,CopilotLicenseArchive' -and $th[4].Arguments.LicenseDatabase -eq 'CopilotLicenseEvents') `
+    'and the history build reads the same list, so the two match'
+
 $lean = @{ SqlServer = 'sql01'; Database = 'CopilotAudit'; TenantId = 't'; ClientId = 'c'; CertificateThumbprint = 'AB' }
 $l = Get-PipelineStep -Setting $lean -Today $today
 Assert-That (($l.Name -join '|') -eq 'Copilot licenses from Graph|Copilot interactions' -and -not $l[1].Arguments.ContainsKey('SessionLicenseDatabase')) 'no users domain or license database: those steps are left out'
@@ -184,8 +194,10 @@ Assert-That ($err -like '*TenantId is not set*Install-CopilotJobServer.ps1*') 's
 
 $probe = Join-Path $tmp 'probe.ps1'
 Set-Content $probe @'
-param([string] $Database, [datetime] $StartDate, [string[]] $Operations, [switch] $Finalize, [int] $ExitWith = 0)
+param([string] $Database, [datetime] $StartDate, [string[]] $Operations, [switch] $Finalize, [int] $ExitWith = 0, [switch] $Throw)
+$ErrorActionPreference = 'Stop'
 "$Database|$($StartDate.ToString('yyyy-MM-dd'))|$($Operations -join ';')|$([bool] $Finalize)" | Set-Content (Join-Path $PSScriptRoot 'probe.out')
+if ($Throw) { throw '2 window(s) failed after retries.' }
 exit $ExitWith
 '@
 $log = Join-Path $tmp 'step.log'
@@ -194,6 +206,27 @@ $code = Invoke-PipelineStep -Step ([pscustomobject]@{ Name = 'probe'; Script = $
 Assert-That ($code -eq 0 -and (Get-Content (Join-Path $tmp 'probe.out')) -eq 'Db|2026-09-26|A b;C|True') 'a step gets its arguments in its own process, switches and dates included'
 $code = Invoke-PipelineStep -Step ([pscustomobject]@{ Name = 'fails'; Script = $probe; Arguments = @{ StartDate = $today; ExitWith = 3 } }) -Log $log 6>$null
 Assert-That ($code -eq 3 -and (Get-Content $log -Raw) -like '*== probe*== fails*') 'its exit code comes back, and both steps are in the log'
+# 2.4.12: a backfill that gave up on a window throws now; the step must come back failed, or -History carries on.
+$code = Invoke-PipelineStep -Step ([pscustomobject]@{ Name = 'throws'; Script = $probe; Arguments = @{ StartDate = $today; Throw = $true } }) -Log $log 6>$null
+Assert-That ($code -ne 0) "a step that throws comes back failed (exit code $code), so the pipeline stops there"
+
+& {
+    # 2.4.12: Export-CopilotSessionCsv -Build rebuilds the production sessions; it builds them as the last build did.
+    . (Join-Path $root 'tools' 'Export-CopilotSessionCsv.ps1')
+    $last = [pscustomobject]@{ ContextFallback = 'User'; LicenseEventDatabase = 'CopilotLicenseEvents,CopilotLicenseArchive' }
+    $same = Resolve-BuildSetting -Last $last -Given @{}
+    Assert-That ($same.ContextFallback -eq 'User' -and $same.LicenseEventDatabase -eq 'CopilotLicenseArchive,CopilotLicenseEvents' -and $same.Changed.Count -eq 0) `
+        "2.4.12: the session export's -Build takes the last build's settings when none are given ($($same.LicenseEventDatabase))"
+    $reordered = Resolve-BuildSetting -Last $last -Given @{ LicenseEventDatabase = ' CopilotLicenseArchive , CopilotLicenseEvents' }
+    Assert-That ($reordered.Changed.Count -eq 0) 'the same databases in another order or spacing are the same settings'
+    $loc = try { [void] (Resolve-BuildSetting -Last $last -Given @{ ContextFallback = 'Location' }); '' } catch { $_.Exception.Message }
+    $none = try { [void] (Resolve-BuildSetting -Last $last -Given @{ LicenseEventDatabase = '' }); '' } catch { $_.Exception.Message }
+    Assert-That ($loc -like "*different settings*" -and $none -like '*different settings*') 'another context rule, or no license history, is refused'
+    $forced = Resolve-BuildSetting -Last $last -Given @{ ContextFallback = 'Location' } -Force
+    Assert-That ($forced.ContextFallback -eq 'Location' -and $forced.Changed.Count -eq 1) 'unless -Force, which builds with it and says what changed'
+    $first = Resolve-BuildSetting -Last $null -Given @{}
+    Assert-That ($first.ContextFallback -eq 'User' -and $null -eq $first.LicenseEventDatabase) 'a first build takes User and no license history, as before'
+}
 
 # ---------------------------------------------------------------------------
 Write-Host "`n3. Job server settings and the batch-logon right" -ForegroundColor Cyan
