@@ -119,20 +119,51 @@ public sealed class Table
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(",", Headers.Select((_, i) => Q(Header(i)))));
         foreach (var r in Rows)
-            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select((x, i) => Shown(i, x)).Select(v => Q(v switch
-            {
-                null => "", Link l => l.Text, IHtmlContent => "", DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss"),
-                _ => Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? "",
-            }))));
+            sb.AppendLine(string.Join(",", r.Take(Headers.Count).Select((x, i) => Shown(i, x)).Select(Field)));
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// One cell as a CSV field (2.4.12). A cell the page builds as HTML gives its text: the CSV left it empty, so the
+    /// flagged interactions came without their signals, the agents costing credits without their names and the
+    /// contracts without their days to renewal. A control or a chart in a cell still gives nothing. A number is
+    /// written as a number: the formula guard is for text, and it made every negative figure the text '-28.68,
+    /// which a spreadsheet does not add up.
+    /// </summary>
+    static string Field(object? v) => v switch
+    {
+        null => Q(""),
+        Link l => Q(l.Text),
+        IHtmlContent h => Q(Text(h)),
+        DateTime d => Q(d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss")),
+        double x when !double.IsFinite(x) => Q(x.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+        float x when !float.IsFinite(x) => Q(x.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+        sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal =>
+            Quote(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? ""),
+        _ => Q(Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) ?? ""),
+    };
+
+    /// <summary>A cell that holds a form, a button or a chart, as <see cref="ColumnSorts"/> tells them: nothing to export.</summary>
+    static bool IsControl(string html) =>
+        html.Contains("<form", StringComparison.OrdinalIgnoreCase) || html.Contains("<button", StringComparison.OrdinalIgnoreCase) || html.Contains("<svg", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>What an HTML cell says, as a reader sees it: its tags dropped, its entities decoded, its spaces collapsed.</summary>
+    static string Text(IHtmlContent h)
+    {
+        var html = Html(h);
+        if (IsControl(html)) return "";
+        var text = WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", " "));
+        return System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
     }
 
     static string Q(string s)
     {
         /* Neutralise spreadsheet formulas, then quote. */
         if (s.Length > 0 && "=+-@".Contains(s[0])) s = "'" + s;
-        return "\"" + s.Replace("\"", "\"\"") + "\"";
+        return Quote(s);
     }
+
+    static string Quote(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
 }
 
 public sealed class PageServices(Db db, ViewerService viewers, ReportContextFactory contexts, AuditLog audit, Settings settings, Freshness freshness, DataStamp stamp)

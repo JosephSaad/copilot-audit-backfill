@@ -191,7 +191,8 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key
 
         async Task AnomaliesAsync()
         {
-            var end = await _db.ScalarAsync<int?>("SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < YEAR(SYSDATETIME()) * 10000 + MONTH(SYSDATETIME()) * 100 + DAY(SYSDATETIME());");
+            /* Today where the data's days are cut, not SQL Server's own date (2.4.12): a day still loading was judged once, and never again. */
+            var end = await _db.ScalarAsync<int?>("SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today;", new { today = await _settings.TodayKeyAsync() });
             if (end is not int k) return;
             var day = new DateTime(k / 10000, k / 100 % 100, k % 100);
             if (await StateAsync("anomaly") == day.ToString("yyyy-MM-dd")) return;

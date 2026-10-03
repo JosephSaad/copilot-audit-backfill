@@ -11,7 +11,8 @@ namespace CopilotInsights.Infrastructure;
 
 /// <summary>
 /// Builds every report page for the whole organization, at every period, whenever the data changes (2.4.7): after the
-/// nightly refresh, after an administrator changes a setting or reference data, and when the site starts. It runs the
+/// nightly refresh, after an administrator changes a setting or reference data, when the site starts, and when the last build's
+/// results expire (2.4.12). Each web server builds its own, for its own cache: nothing is shared. It runs the
 /// pages' own code with no response written, so their queries' results are in the query cache before anyone asks:
 /// the top of the organization, their direct reports and holders of Organization then get each page from memory.
 /// Nothing here changes who may see what: a result is only ever read by a request whose own checks produced the
@@ -39,13 +40,23 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
                 try
                 {
                     await stamp.EnsureAsync();
-                    if (_warmed.GetValueOrDefault(t.Name) != stamp.Current) await WarmAsync(t, stop);
+                    if (Due(_warmed.GetValueOrDefault(t.Name), stamp.Current, _last.GetValueOrDefault(t.Name)?.EndedUtc, DateTime.UtcNow, options.Value.QueryCacheMinutes))
+                        await WarmAsync(t, stop);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException || !stop.IsCancellationRequested) { log.LogWarning(ex, "Warming the report pages failed for {Tenant}", t.Name); }
             }
             try { await Task.Delay(TimeSpan.FromSeconds(45), stop); } catch (OperationCanceledException) { return; }
         }
     }
+
+    /// <summary>
+    /// Whether to build the pages now: the data changed since the last build, or that build's results have expired
+    /// (2.4.12). Only a change started one, and every result is kept for at most Insights:QueryCacheMinutes, so 12 hours
+    /// after the nightly build nothing was kept and nothing was built again until midnight UTC: for the afternoon, the
+    /// top of the organization waited for every page. Pure, for the tests.
+    /// </summary>
+    public static bool Due(string? warmedStamp, string currentStamp, DateTime? lastEndedUtc, DateTime nowUtc, int cacheMinutes) =>
+        warmedStamp != currentStamp || (lastEndedUtc is { } ended && nowUtc >= ended.AddMinutes(cacheMinutes));
 
     /// <summary>The report pages: every page whose model is an InsightsPage that is not an admin page.</summary>
     async Task<List<(CompiledPageActionDescriptor Page, string Path)>> PagesAsync(IServiceProvider sp)

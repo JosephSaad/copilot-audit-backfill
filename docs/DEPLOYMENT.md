@@ -686,6 +686,7 @@ Before running it, the web server needs:
 - **A host name and a certificate for it**, such as `insights.contoso.com`: a DNS record that points it at the web server, and a certificate issued for that exact name, with its private key, in the server's LocalMachine\My store. Or use the server's own name to start with. [DASHBOARD.md](DASHBOARD.md#host-name-dns-and-certificate) explains the choices.
 - **`-TrustServerCertificate`**, when SQL Server has its own self-signed certificate, as for every other script. Without it the site starts but every page says *Something went wrong*.
 - **An account for the app pool.** A gMSA, or an account with a password passed as `-AppPoolIdentity 'CORP\svc-insights' -AppPoolCredential (Get-Credential)`. `-AdminPrincipal` is different: the people, or better a group of them, who administer the site in a browser. Don't use a service account there.
+- **Several web servers behind a load balancer (optional).** Install on each, with the same `-AppPoolIdentity`, then give them one set of form keys on a share (`Insights:DataProtectionKeysPath`, 2.4.12), or use session affinity; otherwise forms posted to another server are refused. Each server keeps its own report cache and builds its own pages. [DASHBOARD.md](DASHBOARD.md#several-web-servers) has the steps.
 
 The installer installs the IIS role services (with Application Initialization, so the site starts with IIS and sends alerts and digests with nobody signed in), checks for the ASP.NET Core 10 Hosting Bundle, copies the site, sets Windows authentication, starts the app pool, registers the *Copilot Insights* event log source for alerts, and adds the app pool's account to the database role `CopilotInsightsApp`, which carries every grant the site needs from here on.
 
@@ -829,7 +830,7 @@ On 2 October 2026 the reporting layer of the 40-million database was grown to th
 | Dashboard rollups, every day of history | 13 min 22 s | 210,000 people, 1,481,606 manager-to-person pairs, 18,065,997 person-days, 35,351,763 resource-days |
 | Building every report page ahead after a refresh (432 page views) | 14 min 9 s | None failed. On 2.4.10: 37 minutes, and 10 failed |
 | Every page as the head of the organization, at six periods, once built (518 page views) | | None over 1.5 seconds. Report pages: 0.09 seconds at most. Slowest: Admin › Audit log, 1.16 seconds (admin pages are never kept) |
-| A first visit inside one manager's part: all 66 report pages, 30 days | 24 to 71 s in all | A team of 584: median 0.25 s a page, slowest 2.1 s. A division of 70,000: median 0.76 s, slowest 7.4 s. The second visit: 0.1 s at most |
+| A first visit inside one manager's part: all 66 report pages, 30 days | 24 to 71 s in all | A team of 584: median 0.25 s a page, slowest 2.1 s. A division of 70,000: median 0.76 s, slowest 7.4 s. The second visit: 0.1 s at most, from the same web server (each keeps its own) |
 
 Then people at once: simulated viewers on connections of their own, each opening a page about every half second, which is many times faster than a person does, for three minutes a stage. Whole-organization pages are built ahead; a look inside a manager's part is not, so 30% of requests were made a first visit to one of 300 managers' parts.
 

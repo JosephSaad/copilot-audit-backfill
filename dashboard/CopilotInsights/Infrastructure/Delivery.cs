@@ -83,7 +83,10 @@ FROM bi.FactInteraction AS f JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey A
 WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING COUNT(DISTINCT f.UserKey) >= @minGroup ORDER BY d.WeekEnding, ag.AgentName;"),
     };
 
-    /// <summary>Rows as CSV, with a header, formulas neutralised.</summary>
+    /// <summary>
+    /// Rows as CSV, with a header, formulas neutralised in text. A number is written as a number (2.4.12): the guard
+    /// made a negative figure the text '-5, which a spreadsheet does not add up, and a number cannot hold a formula.
+    /// </summary>
     public static string ToCsv(IEnumerable<IDictionary<string, object?>> rows)
     {
         var sb = new StringBuilder();
@@ -91,12 +94,15 @@ WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING
         foreach (var r in rows)
         {
             if (first) { sb.AppendLine(string.Join(",", r.Keys.Select(Q))); first = false; }
-            sb.AppendLine(string.Join(",", r.Values.Select(v => Q(v switch
+            sb.AppendLine(string.Join(",", r.Values.Select(v => v switch
             {
-                null => "", DateTime d => d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss"),
-                bool b => b ? "1" : "0",
-                _ => Convert.ToString(v, CultureInfo.InvariantCulture) ?? "",
-            }))));
+                null => Q(""), DateTime d => Q(d.TimeOfDay == TimeSpan.Zero ? d.ToString("yyyy-MM-dd") : d.ToString("yyyy-MM-dd HH:mm:ss")),
+                bool b => Q(b ? "1" : "0"),
+                double x when !double.IsFinite(x) => Q(x.ToString(CultureInfo.InvariantCulture)),
+                float x when !float.IsFinite(x) => Q(x.ToString(CultureInfo.InvariantCulture)),
+                sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal => Quote(Convert.ToString(v, CultureInfo.InvariantCulture) ?? ""),
+                _ => Q(Convert.ToString(v, CultureInfo.InvariantCulture) ?? ""),
+            })));
         }
         return sb.ToString();
     }
@@ -104,8 +110,10 @@ WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING
     static string Q(string s)
     {
         if (s.Length > 0 && "=+-@".Contains(s[0])) s = "'" + s;
-        return "\"" + s.Replace("\"", "\"\"") + "\"";
+        return Quote(s);
     }
+
+    static string Quote(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
 
     /// <summary>A folder the extracts may write to: a local path or a UNC share, never a device or a relative path.</summary>
     public static string? FolderProblem(string? folder)

@@ -62,9 +62,10 @@ public sealed class OpsData(Db db, Settings settings)
     /// <summary>The last complete day in the rollups, and the security signals on it against their 28-day averages.</summary>
     public async Task<(DateTime? Day, List<SignalDay> Signals)> SecurityDayAsync()
     {
+        /* Today where the data's days are cut, not SQL Server's own date (2.4.12, see ReportContextFactory). */
         var end = await db.ScalarAsync<int?>(@"
-SELECT COALESCE((SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < YEAR(SYSDATETIME()) * 10000 + MONTH(SYSDATETIME()) * 100 + DAY(SYSDATETIME())),
-                (SELECT MAX(DateKey) FROM dash.UserDay));");
+SELECT COALESCE((SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today),
+                (SELECT MAX(DateKey) FROM dash.UserDay));", new { today = await settings.TodayKeyAsync() });
         if (end is not int k) return (null, []);
         var day = new DateTime(k / 10000, k / 100 % 100, k % 100);
         var k0 = ReportContext.Key(day.AddDays(-28));
