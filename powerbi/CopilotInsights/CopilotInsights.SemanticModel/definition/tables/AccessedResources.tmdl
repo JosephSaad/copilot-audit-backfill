@@ -2,6 +2,20 @@
 table AccessedResources
 	lineageTag: 1ff668d5-f4fd-5af8-9e02-ce75a3014e3e
 
+	refreshPolicy
+		policyType: basic
+		rollingWindowGranularity: year
+		rollingWindowPeriods: 2
+		incrementalGranularity: day
+		incrementalPeriods: 4
+		sourceExpression =
+				let
+				    Source = Sql.Database(SqlServer, SqlDatabase),
+				    Data = Source{[Schema = "bi", Item = "AccessedResources"]}[Data],
+				    Filtered = Table.SelectRows(Data, each [ActivityHour] >= RangeStart and [ActivityHour] < RangeEnd)
+				in
+				    Filtered
+
 	/// Resources Copilot read.
 	measure 'Resources read' = COUNTROWS ( AccessedResources )
 		formatString: #,0

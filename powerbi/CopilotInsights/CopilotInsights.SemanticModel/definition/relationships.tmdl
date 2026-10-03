@@ -11,6 +11,8 @@ relationship 1fcd6281-3423-5d7a-b41c-f369e6a3770f
 	toColumn: Apps.AppKey
 
 relationship 213dc6d4-269e-52f8-82b0-ded84e038b2f
+	crossFilteringBehavior: bothDirections
+	securityFilteringBehavior: bothDirections
 	fromColumn: Interactions.AgentKey
 	toColumn: Agents.AgentKey
 
@@ -91,6 +93,8 @@ relationship 6d1e1a4a-a756-57a9-a42e-6e0e938980c5
 	toColumn: ResourceActions.ResourceActionKey
 
 relationship f821bf6d-a9b6-59a6-b337-53d4d3a2bf28
+	crossFilteringBehavior: bothDirections
+	securityFilteringBehavior: bothDirections
 	fromColumn: AccessedResources.SiteKey
 	toColumn: Sites.SiteKey
 

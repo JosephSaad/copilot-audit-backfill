@@ -2,10 +2,15 @@
 table LicensedDays
 	lineageTag: 4a6b1eae-e13a-584e-8727-03e8bcd1ba10
 
+	/// The last day of the period the data covers: the day Licensed users and Adoption % count licenses on, the same for every row and the total (the dashboard's rule).
+	measure 'Period end' = CALCULATE ( MAX ( Calendar[Date] ), KEEPFILTERS ( Calendar[IsLoaded] = TRUE () ) )
+		formatString: yyyy-mm-dd
+		lineageTag: 6606f0ce-89b7-5020-ac97-a89e10905618
+
 	/// People holding a Copilot license at the end of the period.
 	measure 'Licensed users' =
-			CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ),
-			    LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+			VAR EndDate = [Period end]
+			RETURN CALCULATE ( DISTINCTCOUNT ( LicensedDays[UserKey] ), Calendar[Date] = EndDate )
 		formatString: #,0
 		lineageTag: f7b18ab3-e3dc-5c93-b133-1596596c4b7c
 
@@ -16,9 +21,8 @@ table LicensedDays
 
 	/// People licensed at the end of the period with no Copilot interaction in it.
 	measure 'Licensed users not using Copilot' =
-			VAR licensed =
-			    CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ),
-			        LASTNONBLANK ( Calendar[Date], CALCULATE ( COUNTROWS ( LicensedDays ) ) ) )
+			VAR EndDate = [Period end]
+			VAR licensed = CALCULATETABLE ( VALUES ( LicensedDays[UserKey] ), Calendar[Date] = EndDate )
 			VAR active = VALUES ( Interactions[UserKey] )
 			RETURN COUNTROWS ( EXCEPT ( licensed, active ) )
 		formatString: #,0

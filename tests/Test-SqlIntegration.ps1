@@ -2583,17 +2583,42 @@ Assert-That ([int] $named.InView -eq 1 -and "$($named.Fn)" -eq 'Named app' -and 
 }
 
 # Power BI: row-level security from the org chart, and department figures with small groups hidden.
+# 2.4.12: against a manager below the top two levels with people under them, and with exact counts. Section 15 had
+# moved the top to boss, so user A was level 2 and saw everyone as a whole-organization viewer, and the check
+# (C sees at most 1, A at least as many) passed when the view gave such a manager nobody, or everyone.
+& $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'ceo@contoso.com' | Out-Null
 $sec = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'a@contoso.com') AS AUnder,
        (SELECT COUNT(DISTINCT u.UserPrincipalName) FROM bi.OrgSecurity AS s JOIN bi.DimUser AS u ON u.UserKey = s.UserKey WHERE s.ViewerUpn = N'a@contoso.com') AS ADistinct,
+       (SELECT STRING_AGG(u.UserPrincipalName, ',') WITHIN GROUP (ORDER BY u.UserPrincipalName)
+        FROM bi.OrgSecurity AS s JOIN bi.DimUser AS u ON u.UserKey = s.UserKey WHERE s.ViewerUpn = N'a@contoso.com') AS ASees,
+       (SELECT COUNT(*) FROM dash.OrgClosure AS oc JOIN bi.DimUser AS u ON u.UserPrincipalName = oc.DescendantUpn WHERE oc.AncestorUpn = N'a@contoso.com') AS AClosure,
+       (SELECT CAST(Level AS INT) FROM dash.Person WHERE Upn = N'a@contoso.com') AS ALevel,
        (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'c@contoso.com') AS CSelf,
        (SELECT COUNT(*) FROM bi.DimUser) AS Everyone,
        (SELECT COUNT(*) FROM bi.OrgSecurity AS s WHERE s.ViewerUpn = (SELECT TOP (1) Upn FROM dash.Person WHERE Level = 1)) AS TopSees,
+       (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn IN (N'a@contoso.com', N'c@contoso.com') AND WholeOrganization = 1) AS PartWhole,
+       (SELECT MIN(CAST(WholeOrganization AS INT)) FROM bi.OrgSecurity AS s WHERE s.ViewerUpn = (SELECT TOP (1) Upn FROM dash.Person WHERE Level = 1)) AS TopWhole,
        (SELECT COUNT(*) FROM bi.DepartmentWeek WHERE Hidden = 1 AND ActivePeople IS NOT NULL) AS Leaks;
 "@).Rows[0]
-Assert-That ([int] $sec.CSelf -le 1 -and [int] $sec.AUnder -ge [int] $sec.CSelf) "bi.OrgSecurity: a person sees themselves, a manager their people ($($sec.AUnder) for user A)"
+Assert-That ([int] $sec.ALevel -ge 3 -and [int] $sec.AClosure -ge 2 -and [int] $sec.AClosure -lt [int] $sec.Everyone) "the fixture has a manager below the top two levels with people under them (user A: level $($sec.ALevel), $($sec.AClosure) in their part, of $($sec.Everyone))"
+Assert-That ([int] $sec.AUnder -eq [int] $sec.AClosure -and [int] $sec.ADistinct -eq [int] $sec.AUnder -and "$($sec.ASees)" -eq 'a@contoso.com,c@contoso.com') "bi.OrgSecurity: a manager sees exactly themselves and the people under them, once each, and nobody else ($($sec.ASees))"
+Assert-That ([int] $sec.CSelf -eq 1) "a person with nobody under them sees themselves alone ($($sec.CSelf))"
 Assert-That ([int] $sec.TopSees -eq [int] $sec.Everyone) "the top of the organization sees everyone ($($sec.TopSees) of $($sec.Everyone))"
+Assert-That ([int] $sec.PartWhole -eq 0 -and [int] $sec.TopWhole -eq 1) '2.4.12: WholeOrganization marks the viewers who see everyone, not those who see a part'
 Assert-That ([int] $sec.Leaks -eq 0) 'bi.DepartmentWeek hides every figure of a group under the minimum size'
+# 2.4.12: every column the Power BI model imports is in its bi view. Nothing compared them before, so a column taken
+# out of a view would have failed only at the customer's refresh.
+$modelGaps = foreach ($tm in Get-ChildItem -LiteralPath (Join-Path $root 'powerbi' 'CopilotInsights' 'CopilotInsights.SemanticModel' 'definition' 'tables') -Filter *.tmdl) {
+    $tmdl = [System.IO.File]::ReadAllText($tm.FullName)
+    $view = [regex]::Match($tmdl, 'Item = "(\w+)"').Groups[1].Value
+    $have = @((Invoke-SqlText -As Table -Sql 'SELECT name FROM sys.columns WHERE object_id = OBJECT_ID(N''bi.'' + @v);' -Parameters @{ '@v' = $view }).Rows | ForEach-Object { $_.name })
+    if (-not $have.Count) { "bi.$view (missing)"; continue }
+    foreach ($c in [regex]::Matches($tmdl, 'sourceColumn: (\w+)') | ForEach-Object { $_.Groups[1].Value }) {
+        if ($c -notin $have) { "bi.$view.$c" }
+    }
+}
+Assert-That (@($modelGaps).Count -eq 0) "every column of the Power BI model is in its bi view ($(@($modelGaps) -join ', '))"
 # 2.4.0: Organization granted to an AD group reaches its members, once each, through audit.GroupMember.
 $grp = (Invoke-SqlText -As Table -Sql @"
 INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (N'CONTOSO\it-execs', 'Group', 'Organization', N'test', N'test');
@@ -2601,12 +2626,13 @@ INSERT INTO audit.GroupMember (GroupName, UserPrincipalName) VALUES (N'CONTOSO\i
 SELECT (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'c@contoso.com') AS CSees,
        (SELECT COUNT(DISTINCT UserKey) FROM bi.OrgSecurity WHERE ViewerUpn = N'c@contoso.com') AS CDistinct,
        (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'd@contoso.com') AS DSees,
+       (SELECT MIN(CAST(WholeOrganization AS INT)) FROM bi.OrgSecurity WHERE ViewerUpn = N'c@contoso.com') AS CWhole,
        (SELECT COUNT(*) FROM bi.DimUser) AS Everyone;
 DELETE FROM audit.GroupMember WHERE GroupName LIKE N'CONTOSO\it-%';
 DELETE FROM dash.RoleGrant WHERE Principal = N'CONTOSO\it-execs';
 "@).Rows[0]
-Assert-That ([int] $grp.CSees -eq [int] $grp.Everyone -and [int] $grp.CDistinct -eq [int] $grp.Everyone) "a member of a group granted Organization sees everyone, once each ($($grp.CSees) of $($grp.Everyone))"
-Assert-That ([int] $grp.DSees -lt [int] $grp.Everyone) 'a member of a group with no Organization grant does not'
+Assert-That ([int] $grp.CSees -eq [int] $grp.Everyone -and [int] $grp.CDistinct -eq [int] $grp.Everyone -and [int] $grp.CWhole -eq 1) "a member of a group granted Organization sees everyone, once each, as a whole-organization viewer ($($grp.CSees) of $($grp.Everyone))"
+Assert-That ([int] $grp.DSees -eq 0) 'a member of a group with no Organization grant, and nobody in the org chart, sees nobody'
 # 2.4.12: Organization granted by DOMAIN\name counts whatever type it was recorded with, as the dashboard matches it: a
 # group recorded as a user (GrantRole records one so when it cannot ask AD) through its members, and a person through
 # the UPN the directory load records for them under that name. Before, both saw only their own people in Power BI.
@@ -2624,6 +2650,7 @@ Invoke-SqlText -Sql "DELETE FROM audit.GroupMember WHERE GroupName IN (N'CONTOSO
 Assert-That ([int] $byName.BSees -eq [int] $byName.Everyone -and [int] $byName.CSees -eq [int] $byName.Everyone -and [int] $byName.ByWindowsName -eq 0) `
     "2.4.12: Organization granted by DOMAIN\name as a user reaches Power BI, for a group and for a person ($($byName.BSees) and $($byName.CSees) of $($byName.Everyone))"
 Assert-That ($loaded -contains 'CONTOSO\risk-team' -and $loaded -contains 'CONTOSO\cperson') "and the nightly directory load reads both grants, to record who they are ($($loaded -join ', '))"
+& $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'boss@contoso.com' | Out-Null   # as section 15 left it
 Invoke-SqlText -Sql "ALTER ROLE CopilotInsightsApp DROP MEMBER it_app; DROP USER it_app;"
 
 # ---------------------------------------------------------------------------

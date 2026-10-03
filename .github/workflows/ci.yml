@@ -65,6 +65,12 @@ jobs:
       - name: Test-SqlScriptOrder
         shell: pwsh
         run: pwsh -NoProfile -File tests/Test-SqlScriptOrder.ps1
+      - name: Test-PowerBiModel
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-PowerBiModel.ps1
+      - name: Test-Workflows
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-Workflows.ps1
       - name: Test-CsvImport
         shell: bash
         run: pwsh -NoProfile -File tests/Test-CsvImport.ps1

@@ -41,3 +41,4 @@ ref table OrgSecurity
 ref table LicenseStatuses
 
 ref role Organization
+ref role Departments

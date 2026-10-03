@@ -1,4 +1,4 @@
-/// The Copilot Studio or Microsoft agent used, under its friendly name. (no agent) means Copilot itself. An agent keeps its row when a maker renames it: the name is a label on the agent, and all its history carries the latest one.
+/// The Copilot Studio or Microsoft agent used, under its friendly name. (no agent) means Copilot itself. An agent keeps its row when a maker renames it: the name is a label on the agent, and all its history carries the latest one. Under the Organization role, only the agents the viewer's people used.
 table Agents
 	lineageTag: 760ce235-196d-59bb-a88c-a45e367b9c62
 

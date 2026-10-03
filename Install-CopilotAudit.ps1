@@ -39,8 +39,10 @@
 
 .PARAMETER ReportingTimeZone
     The zone days and Saturday-to-Friday weeks are cut in: a name from
-    sys.time_zone_info, such as 'GMT Standard Time'. Default Eastern Standard
-    Time. Stored in both databases, where every procedure reads it; set it
+    sys.time_zone_info, such as 'GMT Standard Time'. Default: this server's
+    own zone, for a database with no records and no zone yet (2.4.10); a
+    database no installer set reads Eastern Standard Time. Stored in both
+    databases, where every procedure reads it; set it
     before the first load, as changing it later would leave history cut in
     the old zone (it is refused then).
 

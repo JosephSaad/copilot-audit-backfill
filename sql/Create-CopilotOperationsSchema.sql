@@ -581,9 +581,15 @@ IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
     their own people in Power BI, though the dashboard showed them everyone.
     A user grant by UPN (name@domain) names the viewer directly.
 
+    WholeOrganization (2.4.12) marks the viewers who see everyone, so the role
+    can show the tables of whole-organization figures (bi.LicensePool,
+    bi.ValueNames, bi.DepartmentWeek) to them alone. Before, every member of
+    the role read those tables, and this one, whole.
+
     Empty in privacy mode: each row pairs a real sign-in with a user key, which
     would undo the pseudonyms in bi.Users. With privacy mode on, share
-    bi.DepartmentWeek rather than the person-level model.
+    bi.DepartmentWeek rather than the person-level model (the model's
+    Departments role).
 */
 IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
     CREATE TABLE audit.GroupMember (GroupName NVARCHAR(256) NOT NULL, UserPrincipalName NVARCHAR(256) NOT NULL,
@@ -595,13 +601,13 @@ WITH whole AS (   -- everyone who sees the whole organization: the top two level
     UNION SELECT gm.UserPrincipalName FROM audit.GroupMember AS gm
           JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.Role = ''Organization''
 )
-SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey
+SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey, CAST(0 AS BIT) AS WholeOrganization
 FROM dash.OrgClosure AS oc
 JOIN bi.DimUser AS u ON u.UserPrincipalName = oc.DescendantUpn
 WHERE NOT EXISTS (SELECT 1 FROM whole WHERE whole.Upn = oc.AncestorUpn)
   AND NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'')
 UNION ALL
-SELECT w.Upn, u.UserKey
+SELECT w.Upn, u.UserKey, CAST(1 AS BIT)
 FROM whole AS w
 CROSS JOIN bi.DimUser AS u
 WHERE NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N''PrivacyMode'' AND Value = N''Pseudonymize'');');

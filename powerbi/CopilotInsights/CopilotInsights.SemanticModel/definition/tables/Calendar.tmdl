@@ -106,6 +106,13 @@ table Calendar
 		summarizeBy: none
 		sourceColumn: WeekLabel
 
+	/// True for the days the data covers, up to the last day licenses were counted. [Period end] takes its day from it.
+	column IsLoaded = Calendar[DateKey] <= MAX ( LicensedDays[DateKey] )
+		dataType: boolean
+		isHidden
+		lineageTag: 015eaa6c-1547-5801-84e6-37d261a45a24
+		summarizeBy: none
+
 	partition Calendar = m
 		mode: import
 		source =
