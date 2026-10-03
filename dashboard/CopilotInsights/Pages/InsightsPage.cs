@@ -392,14 +392,17 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     /* ---- forms the pages write themselves (anti-forgery token included) ---------------------- */
 
     protected string Form(string handler, string body, string? extraQuery = null) =>
-        $"<form class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=" + handler + (extraQuery is null ? "" : "&" + extraQuery))}\">{Token()}{body}</form>";
+        $"<form class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=" + handler + (extraQuery is null ? "" : "&" + extraQuery) + TenantQuery)}\">{Token()}{body}</form>";
 
     /// <summary>A form on one line, posting back with the page's own query (its period, scope and filters).</summary>
     protected string InlineForm(string handler, string body)
     {
-        var q = Request.Query.Where(kv => kv.Key is not ("handler" or "p")).Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}");
-        return $"<form class=\"inline\" method=\"post\" action=\"{E(Request.Path + "?" + string.Join("&", q.Append("handler=" + handler)))}\">{Token()}{body}</form>";
+        var q = Request.Query.Where(kv => kv.Key is not ("handler" or "p" or "tenant")).Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}");
+        return $"<form class=\"inline\" method=\"post\" action=\"{E(Request.Path + "?" + string.Join("&", q.Append("handler=" + handler)) + TenantQuery)}\">{Token()}{body}</form>";
     }
+
+    /// <summary>"&amp;tenant=Name" with several tenants (2.4.12): a form posts to the tenant its page showed (see <see cref="TenantAccessor.SelectAsync"/>).</summary>
+    protected string TenantQuery => HttpContext.RequestServices.GetService<TenantAccessor>()?.FormQuery is { } t ? "&" + t : "";
 
     protected static string Input(string name, string label, string? value, int size = 24, string type = "text") =>
         $"<label>{E(label)}<input type=\"{type}\" name=\"{name}\" value=\"{E(value)}\" size=\"{size}\"/></label>";

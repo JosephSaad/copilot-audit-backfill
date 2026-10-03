@@ -11,18 +11,24 @@ namespace CopilotInsights.Pages.Admin;
 /// <summary>Saving dash.Setting rows from the admin forms: only what changed, with who and when.</summary>
 static class SettingWriter
 {
-    public static async Task<List<string>> SaveAsync(Db db, Settings settings, string by, IReadOnlyDictionary<string, string?> values)
+    /// <param name="showValues">
+    /// Each change with its old and new value ("AuditLogRetentionDays 730 -> 400"), for the audit log (2.4.12): where the
+    /// value itself is what an administrator is held to account for, such as how long the audit log is kept or where
+    /// mail is sent. Otherwise only the names.
+    /// </param>
+    public static async Task<List<string>> SaveAsync(Db db, Settings settings, string by, IReadOnlyDictionary<string, string?> values, bool showValues = false)
     {
         var before = await settings.AllAsync();
         var changed = new List<string>();
         foreach (var (name, raw) in values)
         {
             var v = string.IsNullOrWhiteSpace(raw) ? null : raw.Trim();
-            if (before.GetValueOrDefault(name) == v) continue;
+            var old = before.GetValueOrDefault(name);
+            if (old == v) continue;
             await db.ExecuteAsync(@"
 UPDATE dash.Setting SET Value = @v, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = @n;
 IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (@n, @v, @by);", new { n = name, v, by });
-            changed.Add(name);
+            changed.Add(showValues ? $"{name} {old ?? "(none)"} -> {v ?? "(none)"}" : name);
         }
         settings.Invalidate();
         return changed;
@@ -82,11 +88,12 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
             Select("ExoAuth", "Sign in with", ["Password", "OAuth"], V("ExoAuth") is "" ? "Password" : V("ExoAuth")) +
             Input("ExoTenantId", "Tenant (OAuth)", V("ExoTenantId"), 30) + Input("ExoClientId", "App (client) id (OAuth)", V("ExoClientId"), 38) +
             Input("ExoClientSecret", hasSecret ? "Client secret (stored; leave empty to keep)" : "Client secret (OAuth)", null, 30, "password") +
-            "<h3>SMTP server</h3><p class=\"sub\">Any server and port, such as an internal relay on 2525 that asks for a user name. Security: StartTls upgrades a plain connection (25, 587, 2525); Implicit is TLS from the first byte (465); Auto decides by port; None sends in the clear (a relay on the same network only).</p>" +
+            "<h3>SMTP server</h3><p class=\"sub\">Any server and port, such as an internal relay on 2525 that asks for a user name. Security: StartTls upgrades a plain connection (25, 587, 2525); Implicit is TLS from the first byte (465); Auto decides by port; None sends in the clear (a relay on the same network only). " +
+            "A stored password is sent only to the server, port, security and user name it was typed in with: change any of them, and type it again.</p>" +
             Input("SmtpHost", "Server", V("SmtpHost"), 30) + Input("SmtpPort", "Port", V("SmtpPort") is "" ? "587" : V("SmtpPort"), 6, "number") +
             Select("SmtpSecurity", "Security", MailConfig.SecurityChoices, V("SmtpSecurity") is "" ? "StartTls" : V("SmtpSecurity")) +
             Input("SmtpUser", "User name (empty for none; for Exchange Online Password, the mailbox if not the From address)", V("SmtpUser"), 30) +
-            Input("SmtpPassword", hasPw ? "Password (stored; leave empty to keep)" : "Password", null, 24, "password") +
+            Input("SmtpPassword", cfg.PasswordMoved ? "Password (stored for another server or user; type it again)" : hasPw ? "Password (stored; leave empty to keep)" : "Password", null, 24, "password") +
             $"<label><input type=\"checkbox\" name=\"clearPassword\" value=\"1\"/> Remove the stored password and secret</label>" +
             $"<label><input type=\"checkbox\" name=\"SmtpAcceptAnyCertificate\" value=\"1\"{(V("SmtpAcceptAnyCertificate") == "1" ? " checked" : "")}/> Accept any server certificate (a lab relay)</label>" +
             Button("Save"))), "Nothing is sent while email is off; alerts are still recorded below and in the Windows event log."));
@@ -114,21 +121,41 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         SettingWriter.Int(string.IsNullOrWhiteSpace(SmtpPort) ? "587" : SmtpPort, "The port", 1, 65535);
         if (SmtpSecurity is not null && !MailConfig.SecurityChoices.Contains(SmtpSecurity)) throw new ArgumentException("choose the security.");
         var by = Viewer.Upn ?? Viewer.WindowsName;
-        var changed = await SettingWriter.SaveAsync(Db, S.Settings, by, new Dictionary<string, string?>
+        var values = new Dictionary<string, string?>
         {
             ["MailMode"] = MailMode, ["MailFrom"] = MailFrom, ["MailReplyTo"] = MailReplyTo, ["DashboardUrl"] = DashboardUrl?.TrimEnd('/'),
             ["ExoAuth"] = ExoAuth is "OAuth" ? "OAuth" : "Password", ["ExoTenantId"] = ExoTenantId, ["ExoClientId"] = ExoClientId,
             ["SmtpHost"] = SmtpHost, ["SmtpPort"] = string.IsNullOrWhiteSpace(SmtpPort) ? "587" : SmtpPort, ["SmtpSecurity"] = SmtpSecurity ?? "StartTls",
             ["SmtpUser"] = SmtpUser, ["SmtpAcceptAnyCertificate"] = SmtpAcceptAnyCertificate == "1" ? "1" : "0",
-        });
+        };
+        var now = MailConfig.Load(await S.Settings.AllAsync(), await secrets.GetAsync(SecretStore.SmtpPassword), null, await secrets.GetAsync(SecretStore.SmtpPasswordFor));
+        var next = MailConfig.Load(values, null, null);
+        /* The secrets first (2.4.12): one SQL Server cannot store stops the save before any setting has changed. */
+        var notes = new List<string>();
         if (clearPassword == "1")
         {
             await secrets.SetAsync(SecretStore.SmtpPassword, null, by);
+            await secrets.SetAsync(SecretStore.SmtpPasswordFor, null, by);
             await secrets.SetAsync(SecretStore.ExoClientSecret, null, by);
-            changed.Add("password and secret removed");
+            notes.Add("password and secret removed");
         }
-        if (!string.IsNullOrEmpty(SmtpPassword)) { await secrets.SetAsync(SecretStore.SmtpPassword, SmtpPassword, by); changed.Add("password"); }
-        if (!string.IsNullOrEmpty(ExoClientSecret)) { await secrets.SetAsync(SecretStore.ExoClientSecret, ExoClientSecret, by); changed.Add("client secret"); }
+        if (!string.IsNullOrEmpty(SmtpPassword))
+        {
+            /* A password goes only where it was entered for (2.4.12): these settings' server, port, security and user. */
+            await secrets.SetAsync(SecretStore.SmtpPassword, SmtpPassword, by);
+            await secrets.SetAsync(SecretStore.SmtpPasswordFor, next.PasswordTarget(), by);
+            notes.Add("password");
+        }
+        else if (clearPassword != "1" && !string.IsNullOrEmpty(now.Password))
+        {
+            /* One stored before 2.4.12 is tied to where it goes now, before this save can move it. */
+            if (now.PasswordFor is null) await secrets.SetAsync(SecretStore.SmtpPasswordFor, now.PasswordTarget(), by);
+            if (next.Mode != Infrastructure.MailMode.Off && (now.PasswordFor ?? now.PasswordTarget()) != next.PasswordTarget())
+                notes.Add("the stored password is not sent to this server, port, security or user name until it is typed again");
+        }
+        if (!string.IsNullOrEmpty(ExoClientSecret)) { await secrets.SetAsync(SecretStore.ExoClientSecret, ExoClientSecret, by); notes.Add("client secret"); }
+        var changed = await SettingWriter.SaveAsync(Db, S.Settings, by, values, showValues: true);
+        changed.AddRange(notes);
         return SettingWriter.Saved(changed);
     });
 
@@ -253,11 +280,15 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
             Form("run", Button(tenants.Many ? $"Run the checks for {tenants.Current.Name}" : "Run the checks now")) +
             (tenants.Many ? Form("runall", Button($"Run the checks for every tenant ({tenants.All.Count})", quiet: true)) : "")),
             tenants.Many
-                ? "Runs one round of the alert checks and any digests that are due, for this tenant or for every tenant (the background checks cover every tenant every five minutes)."
+                ? "Runs one round of the alert checks and any digests that are due, for this tenant or for every tenant you are an administrator in (the background checks cover every tenant every five minutes)."
                 : "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
         var state = await Db.QueryAsync<(string AlertKey, string? LastValue, DateTime LastFiredUtc)>("SELECT AlertKey, LastValue, LastFiredUtc FROM dash.AlertState ORDER BY AlertKey;");
         var st = new Table { Zone = Zone, Headers = ["Check", "Last seen", "When (UTC)"], EmptyText = "The checks have not run yet." };
-        foreach (var x in state) st.Rows.Add([x.AlertKey, x.LastValue, x.LastFiredUtc]);
+        /* An alert waiting to be emailed again, and the web servers that run the checks (2.4.12), in words. */
+        foreach (var x in state)
+            st.Rows.Add(x.AlertKey.StartsWith("retry:", StringComparison.Ordinal) ? [$"{x.AlertKey["retry:".Length..]}: email to try again", $"{x.LastValue} of {Retry.Tries} tries failed", x.LastFiredUtc]
+                : x.AlertKey.StartsWith("server:", StringComparison.Ordinal) ? [$"Checks run on {x.AlertKey["server:".Length..]}", "last round", x.LastFiredUtc]
+                : [x.AlertKey, x.LastValue, x.LastFiredUtc]);
         Panels.Add(new("Where the checks stand", st.Render(), "What each check last saw, so it does not repeat itself.", "half"));
     }
 
@@ -289,10 +320,13 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
     {
         var by = Viewer.Upn ?? Viewer.WindowsName;
         if (Webhook.Problem(url) is { } bad) throw new ArgumentException(bad);
-        var changed = await SettingWriter.SaveAsync(Db, S.Settings, by, new Dictionary<string, string?> { ["AlertWebhookFormat"] = AlertWebhookFormat is "Json" ? "Json" : "Teams" });
+        /* The address first (2.4.12): one SQL Server cannot store stops the save before the format has changed. */
         var secrets = HttpContext.RequestServices.GetRequiredService<SecretStore>();
-        if (clear == "1") { await secrets.SetAsync(SecretStore.AlertWebhookUrl, null, by); changed.Add("webhook address removed"); }
-        if (!string.IsNullOrWhiteSpace(url)) { await secrets.SetAsync(SecretStore.AlertWebhookUrl, url.Trim(), by); changed.Add("webhook address"); }
+        var notes = new List<string>();
+        if (clear == "1") { await secrets.SetAsync(SecretStore.AlertWebhookUrl, null, by); notes.Add("webhook address removed"); }
+        if (!string.IsNullOrWhiteSpace(url)) { await secrets.SetAsync(SecretStore.AlertWebhookUrl, url.Trim(), by); notes.Add("webhook address"); }
+        var changed = await SettingWriter.SaveAsync(Db, S.Settings, by, new Dictionary<string, string?> { ["AlertWebhookFormat"] = AlertWebhookFormat is "Json" ? "Json" : "Teams" });
+        changed.AddRange(notes);
         return SettingWriter.Saved(changed);
     });
 
@@ -362,9 +396,24 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         return $"Digest \"{name}\" added. The first goes out at its next scheduled time; Send now sends one today.";
     });
 
+    /// <summary>
+    /// The role a digest's figures need (2.4.12): that of the section it shows, as on the section's pages; none for
+    /// Leadership and Value, whose pages need none.
+    /// </summary>
+    public static string? DigestRole(string report) => report switch
+    {
+        "Adoption" => Roles.Adoption, "Licensing" => Roles.Licensing, "Security" => Roles.Security, _ => null,
+    };
+
+    /// <summary>Why this administrator may not preview or send this digest now, or null (2.4.12).</summary>
+    string? DigestRefusal(string report) => DigestRole(report) is { } role && !Viewer.Has(role)
+        ? $"the {report} digest shows the {role} section, which needs the {role} role. An administrator can grant it in Admin > Access."
+        : null;
+
     public Task<IActionResult> OnPostSendnowAsync(int id) => AdminChangeAsync(async () =>
     {
         var sub = (await Db.QueryAsync<SubRow>("SELECT * FROM dash.Subscription WHERE SubscriptionId = @id", new { id })).FirstOrDefault() ?? throw new ArgumentException("no such digest.");
+        if (DigestRefusal(sub.Report) is { } no) throw new ArgumentException(no);
         var (subject, html, text) = await reports.DigestAsync(sub.Report, sub.Days, sub.RootUpn);
         var error = await HttpContext.RequestServices.GetRequiredService<Mailer>().SendAsync("Digest", MailConfig.Recipients(sub.Recipients), subject, html, text);
         return error is null ? $"Sent \"{subject}\" to {sub.Recipients}." : $"Not sent: {error}";
@@ -388,24 +437,78 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
     });
 
-    /// <summary>Every tenant, as the background checks do. Each tenant's lines start with its name.</summary>
+    /// <summary>
+    /// Every tenant where this person is an administrator (2.4.12), decided in each tenant's own database as everything else
+    /// is; each tenant's lines start with its name, and each tenant it ran in has the run in its own audit log. Before, an
+    /// administrator of one tenant ran the round in every tenant and read back their results.
+    /// </summary>
     public Task<IActionResult> OnPostRunallAsync() => AdminChangeAsync(async () =>
     {
-        var done = await notifier.RunAllAsync(HttpContext.RequestAborted);
-        return done.Count == 0 ? "The checks ran in every tenant: nothing to report." : "The checks ran in every tenant. " + string.Join(" · ", done);
+        var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();
+        var from = tenants.Current.Name;
+        var done = await EveryTenantAsync(tenants, () => S.Viewers.ResolveAsync(), () => notifier.RunOnceAsync(HttpContext.RequestAborted),
+            (v, lines) => S.Audit.WriteAsync(v, "Admin", Request.Path, null, $"The checks ran, from tenant {from}. " + string.Join(" · ", lines)));
+        return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
     });
 
-    /// <summary>What a digest would look like now, as it would arrive.</summary>
+    /// <summary>
+    /// Runs <paramref name="run"/> in each tenant where <paramref name="viewer"/> is an administrator, and says so for the
+    /// others; <paramref name="record"/> writes the run into another tenant's audit log (this tenant's is the page's).
+    /// </summary>
+    public static async Task<List<string>> EveryTenantAsync(TenantAccessor tenants, Func<Task<Viewer>> viewer, Func<Task<List<string>>> run,
+        Func<Viewer, IReadOnlyList<string>, Task> record)
+    {
+        var here = tenants.Current;
+        var done = new List<string>();
+        try
+        {
+            foreach (var t in tenants.All)
+            {
+                tenants.Use(t);
+                string Line(string d) => tenants.Many ? $"[{t.Name}] {d}" : d;
+                try
+                {
+                    var v = await viewer();
+                    if (!v.IsAdmin) { done.Add(Line("Not run: you are not an administrator in this tenant.")); continue; }
+                    var lines = await run();
+                    if (t.Name != here.Name) await record(v, lines);
+                    done.AddRange(lines.Select(Line));
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException) { done.Add(Line("The checks failed: " + ex.Message)); }
+            }
+        }
+        finally { tenants.Use(here); }
+        return done;
+    }
+
+    /// <summary>
+    /// What a digest would look like now, as it would arrive: for an administrator who may see its figures, and in the
+    /// audit log (2.4.12). Before, any administrator saw any digest for any part of the organization, the Security
+    /// digest without the Security role, and nothing recorded that they had.
+    /// </summary>
     public async Task<IActionResult> OnGetPreviewAsync(string? report, int? days, string? root)
     {
         if (!await PrepareAsync()) return Page();
         if (report is null || !OpsReports.DigestKinds.ContainsKey(report)) return NotFound();
+        root = string.IsNullOrWhiteSpace(root) ? null : root.Trim();
+        static ContentResult Html(string body, int status = 200) =>
+            new() { Content = body, ContentType = "text/html; charset=utf-8", StatusCode = status };
+        if ((Viewer.Admitted ? DigestRefusal(report) : LimitRefusal(Viewer)) is { } no)
+        {
+            await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, root ?? "Whole organization", $"digest preview of {report}: {no}");
+            return Html($"<!DOCTYPE html><p>Not shown: {E(no)}</p>", 403);
+        }
         try
         {
-            var (_, html, _) = await reports.DigestAsync(report, days ?? 30, string.IsNullOrWhiteSpace(root) ? null : root);
-            return Content(html, "text/html; charset=utf-8");
+            var (subject, html, _) = await reports.DigestAsync(report, days ?? 30, root);
+            await S.Audit.WriteAsync(Viewer, "View", Request.Path, root ?? "Whole organization", $"digest preview: {subject}");
+            return Html(html);
         }
-        catch (DigestRefused ex) { return Content($"<!DOCTYPE html><p>Not shown: {System.Net.WebUtility.HtmlEncode(ex.Message)}.</p>", "text/html; charset=utf-8"); }
+        catch (DigestRefused ex)
+        {
+            await S.Audit.WriteAsync(Viewer, "View", Request.Path, root ?? "Whole organization", $"digest preview of {report}, not shown: {ex.Message}");
+            return Html($"<!DOCTYPE html><p>Not shown: {E(ex.Message)}.</p>");
+        }
     }
 }
 
@@ -528,7 +631,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
             "If the setting cannot be read, privacy mode counts as on until it can."));
 
         Panels.Add(new("Retention", new HtmlString(Form("retention",
-            Input("AuditLogRetentionDays", "Keep the dashboard's audit log (days; 0 keeps it)", V("AuditLogRetentionDays"), 6, "number") +
+            Input("AuditLogRetentionDays", $"Keep the dashboard's audit log (days; 0 keeps it; at least {MinAuditLogDays})", V("AuditLogRetentionDays"), 6, "number") +
             Input("NotificationRetentionDays", "Keep the notification log (days; 0 keeps it)", V("NotificationRetentionDays"), 6, "number") +
             Input("JsonRetentionDays", "Clear the stored JSON of records older than (days; 0 keeps it; at least 200)", V("JsonRetentionDays"), 6, "number") +
             Button("Save")) + Form("apply", Button("Apply retention now", "Delete what is past retention now?", quiet: true))),
@@ -547,16 +650,30 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         return mode == "Off" ? "Privacy mode is off." : "Privacy mode is on: nobody is named. Power BI's Users table is pseudonymized from its next refresh.";
     });
 
+    /// <summary>
+    /// The shortest the audit log may be kept, in days (2.4.12): it is how administrators are held to account, so the person
+    /// it records cannot cut it to a day and erase their own record. Before, any number from 0 was taken.
+    /// </summary>
+    public const int MinAuditLogDays = 365;
+
+    /// <summary>Why these audit-log and JSON retentions cannot be saved, or null.</summary>
+    public static string? RetentionProblem(int auditDays, int jsonDays) =>
+        auditDays is > 0 and < MinAuditLogDays ? $"audit-log retention is 0 (keep it) or at least {MinAuditLogDays} days: the audit log is how administrators are held to account."
+        : jsonDays is > 0 and < 200 ? "JSON retention is 0 (keep) or at least 200 days: past Purview's 180 days it cannot be fetched again."
+        : null;
+
     public Task<IActionResult> OnPostRetentionAsync(string? AuditLogRetentionDays, string? NotificationRetentionDays, string? JsonRetentionDays) => AdminChangeAsync(async () =>
     {
         var json = SettingWriter.Int(JsonRetentionDays, "JSON retention", 0, 36500);
-        if (json is > 0 and < 200) throw new ArgumentException("JSON retention is 0 (keep) or at least 200 days: past Purview's 180 days it cannot be fetched again.");
+        var audit = SettingWriter.Int(AuditLogRetentionDays, "Audit-log retention", 0, 36500);
+        if (RetentionProblem(audit, json) is { } bad) throw new ArgumentException(bad);
+        /* With the old and new values, so the audit log says how long it was set to keep itself. */
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, new Dictionary<string, string?>
         {
-            ["AuditLogRetentionDays"] = SettingWriter.Int(AuditLogRetentionDays, "Audit-log retention", 0, 36500).ToString(CultureInfo.InvariantCulture),
+            ["AuditLogRetentionDays"] = audit.ToString(CultureInfo.InvariantCulture),
             ["NotificationRetentionDays"] = SettingWriter.Int(NotificationRetentionDays, "Notification-log retention", 0, 36500).ToString(CultureInfo.InvariantCulture),
             ["JsonRetentionDays"] = json.ToString(CultureInfo.InvariantCulture),
-        }));
+        }, showValues: true));
     });
 
     public Task<IActionResult> OnPostApplyAsync() => AdminChangeAsync(async () =>
@@ -598,11 +715,12 @@ public sealed class ValuesModel(PageServices s) : AdminPage(s)
         public int TotalRows { get; set; }
     }
 
-    const string NameExpr = "COALESCE(n.Name, CASE WHEN v.ColumnId IN (11, 30) THEN sl.Name WHEN v.ColumnId = 6 THEN aa.FriendlyName END)";
+    /* Agent ids (column 6) are no longer tied to Admin > Reference data's agents (2.4.12): since 2.4.11 a Copilot Studio
+       or Microsoft agent is known by the app identity that names it, which a record's agent id never equals, so a name
+       given here reached none of them, and an id that did match could be another agent's. Agents are named in Reference data. */
+    const string NameExpr = "COALESCE(n.Name, CASE WHEN v.ColumnId IN (11, 30) THEN sl.Name END)";
     const string Joins = @"LEFT JOIN dash.ValueName AS n ON n.ColumnId = v.ColumnId AND n.Value = v.Value
-LEFT JOIN dash.SensitivityLabel AS sl ON v.ColumnId IN (11, 30) AND sl.LabelId = v.Value
-LEFT JOIN bi.DimAgent AS ag ON v.ColumnId = 6 AND ag.AgentId = v.Value
-LEFT JOIN dash.AgentAlias AS aa ON aa.AgentKey = ag.AgentKey";
+LEFT JOIN dash.SensitivityLabel AS sl ON v.ColumnId IN (11, 30) AND sl.LabelId = v.Value";
 
     protected override async Task BuildAsync()
     {
@@ -622,7 +740,7 @@ FROM audit.ValueCatalogColumn AS c ORDER BY c.ColumnId;");
             ct.Rows.Add([c.Label, $"{c.TableName}.{c.ColumnName}", c.Capped ? "10,000 or more" : $"{c.DistinctValues:#,0}", c.Named,
                 c.Capped ? "too many to name" : new Link(c.ColumnId == col?.ColumnId ? "Naming" : "Name them", Request.Path + $"?col={c.ColumnId}")]);
         /* The mapping file (2.4.5): every column's values and names in one CSV, the format the upload reads. */
-        var mapping = $"<form class=\"admin\" method=\"post\" enctype=\"multipart/form-data\" action=\"{E(Request.Path + "?handler=upload" + (col is null ? "" : $"&col={col.ColumnId}"))}\">{Token()}" +
+        var mapping = $"<form class=\"admin\" method=\"post\" enctype=\"multipart/form-data\" action=\"{E(Request.Path + "?handler=upload" + (col is null ? "" : $"&col={col.ColumnId}") + TenantQuery)}\">{Token()}" +
                       "<label>Names from a CSV (column id, value, name, note)<input type=\"file\" name=\"file\" accept=\".csv,text/csv\"/></label>" + Button("Upload") + "</form>" +
                       $"<p class=\"sub\"><a href=\"{E(Request.Path + "?handler=download")}\">Download the mapping file</a>: every value of every column below, with its name and note. Fill in or change the names, and upload it back; an empty name removes one.</p>";
         Panels.Add(new("Columns", new HtmlString(mapping + ct.Render().Value), "Columns with no values yet are hidden. The catalog fills as records are flattened; for data flattened before it existed, run Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog once."));
@@ -646,7 +764,9 @@ WHERE v.ColumnId = @id AND (@q IS NULL OR v.Value LIKE @q OR {NameExpr} LIKE @q)
                 Input("name", "Name", v.Name, 26) + Input("note", "Note", v.Note, 20) + Button("Save", quiet: true), $"col={col.ColumnId}"))]);
         var upload = $"<p class=\"sub\"><a href=\"{E(Request.Path + $"?handler=download&col={col.ColumnId}")}\">Download the mapping file for this column</a>: its values and names, to fill in and upload back above.</p>";
         Panels.Add(new(col.Label, new HtmlString(upload + pg.Controls(Request, new Dictionary<string, string> { ["unnamed"] = "Unnamed first", ["most"] = "Most seen", ["value"] = "Value", ["new"] = "Newest" }).Value + vt.Render().Value),
-            col.ColumnId is 11 or 30 ? "Label names are shared with Admin > Reference data, where their order is set." : col.ColumnId == 6 ? "Agent names are shared with Admin > Reference data." : "Clear a name to remove it."));
+            col.ColumnId is 11 or 30 ? "Label names are shared with Admin > Reference data, where their order is set."
+                : col.ColumnId == 6 ? "Agents are named in Admin > Reference data, and that is the name every page, digest and alert shows. A name here labels this agent id in Power BI only. Clear a name to remove it."
+                : "Clear a name to remove it."));
     }
 
     async Task<string> SaveAsync(short col, string value, string? name, string? note)
@@ -663,13 +783,6 @@ WHERE v.ColumnId = @id AND (@q IS NULL OR v.Value LIKE @q OR {NameExpr} LIKE @q)
             else await Db.ExecuteAsync(@"
 UPDATE dash.SensitivityLabel SET Name = @name, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE LabelId = @value;
 IF @@ROWCOUNT = 0 INSERT INTO dash.SensitivityLabel (LabelId, Name, UpdatedBy) VALUES (@value, @name, @by);", new { value, name, by });
-        }
-        else if (col == 6 && await Db.ScalarAsync<int?>("SELECT AgentKey FROM bi.DimAgent WHERE AgentId = @value", new { value }) is int key)
-        {
-            if (name is null) await Db.ExecuteAsync("DELETE FROM dash.AgentAlias WHERE AgentKey = @key", new { key });
-            else await Db.ExecuteAsync(@"
-UPDATE dash.AgentAlias SET FriendlyName = @name, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE AgentKey = @key;
-IF @@ROWCOUNT = 0 INSERT INTO dash.AgentAlias (AgentKey, FriendlyName, UpdatedBy) VALUES (@key, @name, @by);", new { key, name, by });
         }
         if (name is null) await Db.ExecuteAsync("DELETE FROM dash.ValueName WHERE ColumnId = @col AND Value = @value", new { col, value });
         else await Db.ExecuteAsync(@"
@@ -734,7 +847,7 @@ public sealed class TrainingRecordsModel(PageServices s) : AdminPage(s)
             t.Rows.Add([x.Session, x.AttendedOn, x.People, x.Imported, new HtmlString(Form("remove",
                 $"<input type=\"hidden\" name=\"session\" value=\"{E(x.Session)}\"/><input type=\"hidden\" name=\"date\" value=\"{x.AttendedOn:yyyy-MM-dd}\"/>" +
                 Button("Remove", $"Remove the {x.People} attendance records of {x.Session} on {x.AttendedOn:yyyy-MM-dd}?", quiet: true)))]);
-        var upload = $"<form class=\"admin\" method=\"post\" enctype=\"multipart/form-data\" action=\"{E(Request.Path + "?handler=upload")}\">{Token()}" +
+        var upload = $"<form class=\"admin\" method=\"post\" enctype=\"multipart/form-data\" action=\"{E(Request.Path + "?handler=upload" + TenantQuery)}\">{Token()}" +
                      "<label>Attendance CSV: UPN, session, date (yyyy-MM-dd)<input type=\"file\" name=\"file\" accept=\".csv,text/csv\"/></label>" + Button("Upload") + "</form>" +
                      $"<p class=\"sub\"><a href=\"{E(Request.Path + "?handler=mapping")}\">Download the mapping file</a>: every attendance record held, in the same columns, to add to and upload back. " +
                      $"Or <a href=\"{E(Request.Path + "?handler=template")}\">download an empty template</a>. A header row is fine; a record already there is skipped.</p>";

@@ -846,7 +846,7 @@ The site itself stayed small (527 MB, under two cores at 378 requests a second);
 
 The test found five problems, fixed in 2.4.11:
 
-- **A plan built for other dates.** A query planned for an empty range and reused for a year took 77 seconds and timed out at 180 days: ten pages failed, and building ahead took 37 minutes. Every read between dates now says how to plan it.
+- **A plan built for other dates.** A query planned for an empty range and reused for a year took 77 seconds and timed out at 180 days: ten pages failed, and building ahead took 37 minutes. Every read between dates now says how to plan it (the scheduled extracts too, from 2.4.12: they had been left out).
 - **A plan built for one person.** Inside some managers' parts SQL Server guessed the number of people at one, and two pages ran for two minutes and failed for a team of 584. The people in scope are listed first now, so they are counted, not guessed.
 - **Five pages that were never kept** (flagged interactions, the three non-human account pages, the board pack), because they read lists edited through the day. Under 100 people at once they queued to a median of 10 seconds and were the only failures on whole-organization pages. Each list has a version now, and the pages are kept under it.
 - **Three slow pages** (Retention and habit, the non-human account pages, Admin › Reference data), each rewritten to do its counting once, in the database.

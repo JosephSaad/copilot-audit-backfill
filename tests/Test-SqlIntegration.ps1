@@ -2178,6 +2178,25 @@ Assert-That (-not ([Text.Encoding]::Unicode.GetString([byte[]] $sec.Stored)).Con
 Invoke-SqlText -Sql "EXEC dash.usp_SetSecret @Name = 'SmtpPassword', @Value = NULL, @By = N'test';"
 Assert-That ([int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM dash.Secret WHERE Name = 'SmtpPassword'") -eq 0) 'an empty value removes the secret'
 
+# 2.4.12: restored to another instance, the master key opens with neither that instance's service master key nor the
+# password nobody kept. Dropping its service-master-key copy here is the same state. Run again, the script makes the keys
+# again and removes the secrets it can no longer read, so entering them again in Admin works.
+Invoke-SqlText -Sql "EXEC dash.usp_SetSecret @Name = 'AlertWebhookUrl', @Value = N'https://contoso.webhook.office.com/it', @By = N'test'; ALTER MASTER KEY DROP ENCRYPTION BY SERVICE MASTER KEY;"
+$moved = try { Invoke-SqlText -Sql "EXEC dash.usp_SetSecret @Name = 'SmtpPassword', @Value = N'x', @By = N'test';"; 'stored' } catch { $_.Exception.Message }
+Assert-That ("$moved" -like '*master key*') "with a master key this instance cannot open, a secret cannot be stored ($moved)"
+Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotOperationsSchema.sql') -Raw)
+$again = (Invoke-SqlText -As Table -Sql @"
+DECLARE @v NVARCHAR(2000);
+EXEC dash.usp_SetSecret @Name = 'SmtpPassword', @Value = N'entered again', @By = N'test';
+EXECUTE AS USER = 'it_app';
+EXEC dash.usp_GetSecret @Name = 'SmtpPassword', @Value = @v OUTPUT;
+REVERT;
+SELECT @v AS Value, (SELECT COUNT(*) FROM dash.Secret WHERE Name = 'AlertWebhookUrl') AS Unreadable,
+       (SELECT is_master_key_encrypted_by_server FROM sys.databases WHERE name = DB_NAME()) AS ByServer;
+"@).Rows[0]
+Assert-That ("$($again.Value)" -eq 'entered again' -and [int] $again.Unreadable -eq 0 -and [bool] $again.ByServer) 'run again, the script makes the keys again and removes the secrets it can no longer read, and a secret entered again is stored and read'
+Invoke-SqlText -Sql "EXEC dash.usp_SetSecret @Name = 'SmtpPassword', @Value = NULL, @By = N'test';"
+
 # Privacy mode: bi.Users pseudonymized, the same hash for the same person, counts unchanged.
 $plain = (Invoke-SqlText -As Table -Sql "SELECT COUNT(*) AS N, COUNT(DISTINCT UserPrincipalName) AS D FROM bi.Users;").Rows[0]
 Invoke-SqlText -Sql "EXECUTE AS USER = 'it_app'; EXEC dash.usp_SetPrivacyMode @Mode = N'Pseudonymize', @By = N'test'; REVERT;"
