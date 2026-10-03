@@ -2645,7 +2645,7 @@ Assert-That ($unnamed -eq 'Declarative.T_0a1b2c3d-1111-2222-3333-444455556666/0'
 Assert-That ($names -like '*agent names: reading*' -and $names -notlike '*flattening*' -and $named -eq 'c-01=Expense helper/9f8e7d6c;c-02=Expense Policy Helper/9f8e7d6c' -and $others1 -eq $others0) `
     "an upgrade from 2.4.10 reads the agents' ids and friendly names once, from their records' JSON, without flattening again ($named)"
 Assert-That ($renamed -eq 'Expense Policy Helper/1') "and bi shows the name the agent's latest record gave it ($renamed)"
-Assert-That ($names -like '*Refresh the Power BI model once: agents carry the friendly names*') 'with the model refresh left to do'
+Assert-That ($names -like '*Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): agents carry the friendly names*') 'with the model refresh left to do'
 $namesOnce = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
 Assert-That ($namesOnce -notlike '*agent names: reading*') 'and only once'
 Invoke-SqlText -Sql @"
@@ -2677,7 +2677,7 @@ SELECT (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE RecordId IN (N'c-01', N
 "@).Rows[0]
 Assert-That ($ids -like '*agent ids: reading*' -and $ids -like '*2 interactions gain the agent*' -and $ids -notlike '*flattening*' -and [int] $keyed.Read_ -eq 2 -and [int] $keyed.Keyed -eq 2) `
     "2.4.12: an upgrade reads the agent ids of other apps' records once, and bi moves their interactions to the agent ($($keyed.Read_) read, $($keyed.Keyed) keyed)"
-Assert-That ("$($keyed.Agent)" -eq 'Travel helper/1' -and $ids -like '*interactions moved to the agents*') "named as the log names it ($($keyed.Agent)), with the model refresh left to do"
+Assert-That ("$($keyed.Agent)" -eq 'Travel helper/1' -and $ids -like '*Refresh the Power BI model in full once*interactions of every day moved to the agents*') "named as the log names it ($($keyed.Agent)), with the model refresh left to do"
 $idsOnce = & $installer @conn -Database $script:ITDatabase -SkipLicenseDatabase -LicenseEventDatabases $licDb -Dashboard 6>&1 | Out-String
 Assert-That ($idsOnce -notlike '*agent ids: reading*' -and $idsOnce -notlike '*bi, in full*') 'and only once'
 # 2.4.12: records flattened after AgentNamesReadUtc (by 2.4.11 or later, which read the id where it is) are not read

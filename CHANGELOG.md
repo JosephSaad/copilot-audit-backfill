@@ -4,14 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.4.12] - unreleased
+## [2.4.12] - 2026-10-03
 
 Every finding of an adversarial review of 2.4.11, 107 of them: the privacy rules hold on every
 page, digest, extract and API call; a re-run can no longer empty the audit table or count
 interactions twice; a slow mail server can no longer stop the site; the license scripts carry
 only plain sign-ins; only one run works on a database at a time; refreshes that fail are made
 up; several tenants and several web servers each act on their own; and the installers keep
-what they are not given again. Two 2.4.11 regressions are put right.
+what they are not given again. Two 2.4.11 regressions are put right. A second review, of these
+fixes, found 26 more, every one fixed but two noted under *Known limits*: no part of the
+organization, chart, digest or Power BI view now rests on fewer people than the minimum.
 
 To upgrade:
 
@@ -524,6 +526,20 @@ and a database role for reporting accounts (`CopilotReporting`), all added by th
   › *No SID recorded* lists who this leaves out, placeholder managers included: load them with
   their SID, or map their accounts in `Insights:IdentityMap`; grant roles to accounts outside the
   directory as `DOMAIN\name` or through a group.
+
+### Known limits
+- A person whose sign-in name changes can count as two users for a few days, until the
+  directory load records the new name.
+- The dashboard's labeled-content alert can count one interaction twice when it carries two
+  labels that both rank high.
+- Each web server keeps its own page cache, so two servers can show figures a few minutes apart;
+  use sticky sessions (DASHBOARD.md, *Several web servers*).
+- Page totals that once fell to 0 are fixed on the pages they did; a wider rework of how pages
+  total is left for a later release.
+- An administrator's change is made before its audit row is written, so if writing the row
+  fails, the change stands without one.
+- Admin › Directory quality › *No SID recorded* on 2.4.11 does not list managers outside the
+  directory, so the check before upgrading (step 1) can miss them; on 2.4.12 it lists them.
 
 ## [2.4.11] - 2026-10-02
 
