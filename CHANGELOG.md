@@ -13,6 +13,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Admin › Value names lists a column's values most seen first.** It opened with the unnamed
   values first, which for a column such as resource types or apps put rare values above the ones
   every report shows. *Unnamed first* is still one choice away in the sort list.
+- **A report shows only the filter-bar controls that change it.** Every page now says whether the
+  period and the part of the organization (*Look inside a team*) matter to it. The License pool,
+  the Group overview and the Person record have no team list, as the tenant's seats, each tenant's
+  whole organization and one person do not change with it, nor the *Showing* path beside it; a
+  page that follows neither shows no filter bar. Pages with a window of their own already had no
+  period box; three said it wrongly and now say what they cover: the Forecast (the last 52 weeks,
+  not all history), Retention by license month (the licenses held today) and Retention and habit
+  (20 weeks, not 12). A test fails if a page that says a control does not matter uses it.
 - **The AD export takes a user's country from `c` when `co` is empty.** It reads `co`, else the
   English name of the two-letter code in `c` (CA is Canada), so a directory that sets only `c`, as
   one provisioned by an identity manager often does, no longer loads every country empty.

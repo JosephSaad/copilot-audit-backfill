@@ -187,6 +187,8 @@ A few views set their own window, and each one says so on the page:
 - **Unused licenses:** today's licenses against an idle time chosen on the page.
 - **Agents known:** every agent the log has ever seen.
 
+**Only the controls that matter (2.5.0).** A report shows the period box only where the period changes it, and the *Look inside a team* list, with the *Showing* path beside it, only where the part of the organization changes it. A view with a window of its own says what it covers where the period box would be. The License pool, the Group overview and the Person record have no team list: the tenant's seats, each tenant's whole organization and one person's record do not change with it.
+
 ## Premium use and the license rules
 
 Every interaction made with a license is either **Premium use**, which needed the license, or **free use**, which the free tier gives:

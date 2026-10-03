@@ -59,7 +59,7 @@ ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = ReportCont
 
 public sealed class IndexModel(PageServices s) : InsightsPage(s)
 {
-    public override string? OwnWindow => "all history, projected 13, 26 or 52 weeks ahead";
+    public override string? OwnWindow => "the last 52 weeks, projected 13, 26 or 52 weeks ahead";
     public override string Title => "Forecast";
     public override string Persona => "Forecasting";
     public override string Intro => "Where use and licenses are heading, from the last year of weekly history, with how sure the projection can be.";

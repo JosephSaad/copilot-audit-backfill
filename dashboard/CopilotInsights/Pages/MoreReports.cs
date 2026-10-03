@@ -90,7 +90,7 @@ namespace CopilotInsights.Pages.Adoption
     {
         public override string Title => "Retention and habit";
         public override string Persona => "Adoption";
-        public override string? OwnWindow => "the last 12 complete weeks";
+        public override string? OwnWindow => "the last 20 complete weeks";
         public override string Intro => "Do people keep using Copilot once they start? Of everyone active in a week, how many come back in each of the eight weeks after; and how many weeks of the last twelve people used it.";
         public override bool UsesFilters => true;
 

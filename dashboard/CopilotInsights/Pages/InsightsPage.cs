@@ -208,6 +208,18 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// shown in the filter bar where the period's dates usually are.
     /// </summary>
     public virtual string? OwnWindow => null;
+    /// <summary>
+    /// Whether the period chosen changes this page's figures (2.5.0). False for a page whose figures do not follow it
+    /// and that has no window worth naming (a list as it stands today): the period box and its dates are left out. A
+    /// page with a window of its own says it in <see cref="OwnWindow"/> instead.
+    /// </summary>
+    public virtual bool UsesPeriod => true;
+    /// <summary>
+    /// Whether the part of the organization chosen (Look inside a team) changes this page's figures (2.5.0). False for a
+    /// page that is the whole tenant's whatever is picked, such as the license pool: the team box, and the links down
+    /// the organization beside it, are left out.
+    /// </summary>
+    public virtual bool UsesTeam => true;
 
     /// <summary>A role page that privacy mode still allows: it is about one person, on request (a data-subject request).</summary>
     public virtual bool AllowedInPrivacyMode => false;

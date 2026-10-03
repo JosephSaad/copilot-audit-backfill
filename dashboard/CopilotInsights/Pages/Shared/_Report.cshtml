@@ -54,18 +54,24 @@
     return;
 }
 
-@if (Model.UsesFilters && c.OrgNote is not null)
+@if (Model.UsesFilters && Model.UsesTeam && c.OrgNote is not null)
 {
     @* The address asked for a part of the organization that is not the one shown (2.4.10): say so, above the figures. *@
     <div class="notice" role="status">@c.OrgNote</div>
 }
 
-@if (Model.UsesFilters)
+@{
+    /* A page shows only the controls that change it (2.5.0): the period box where the period matters, the way down the
+       organization where the team does. A page that follows neither shows no filter bar. */
+    var showPeriodBox = Model.UsesPeriod && Model.OwnWindow is null;
+    var showWindow = Model.OwnWindow is not null || Model.UsesPeriod;
+}
+@if (Model.UsesFilters && (showPeriodBox || showWindow || Model.UsesTeam))
 {
     <form class="filters" method="get" action="@path">
         @* A page with a window of its own (today's licenses, the last 30 days whatever the period) has no period to choose
            (2.4.10): the box is left out, and the page says what it covers instead. The period chosen elsewhere is kept. *@
-        @if (Model.OwnWindow is null)
+        @if (showPeriodBox)
         {
             <label>Period
                 <select name="d" data-autosubmit>
@@ -88,37 +94,41 @@
         {
             <input type="hidden" name="@k" value="@Context.Request.Query[k]" />
         }
-        @* Whose figures the page shows (2.4.10: the names stood with no word saying what they were): the path down the
-           organization, each step a link back up, the last one with how many people it covers, then the teams one step further in. *@
-        <div class="crumbs" aria-label="Part of the organization shown">
-            <span class="lbl">Showing</span>
-            @if (c.Viewer.OrgWide)
-            {
-                <a href="@c.Url(path, org: null, keepOrg: false)" class="@(c.Root is null ? "on" : "")">Whole organization</a>
-            }
-            @{ var first = !c.Viewer.OrgWide; }
-            @foreach (var u in c.Breadcrumb)
-            {
-                @if (!first) { <span class="sep">›</span> }
-                first = false;
-                <a href="@c.Url(path, org: u.Upn)" class="@(u.Upn == c.Root ? "on" : "")">@u.Name@(u.Upn == c.Root && u.PeopleBelow > 0 ? $" and {u.PeopleBelow:#,0} {(u.PeopleBelow == 1 ? "person" : "people")} under them" : "")</a>
-            }
-            @if (c.Children.Count > 0)
-            {
-                <select aria-label="Look inside a team" data-navigate>
-                    <option value="">Look inside a team</option>
-                    @foreach (var k in c.Children)
-                    {
-                        <option value="@c.Url(path, org: k.Upn)">@k.Name (@k.PeopleBelow.ToString("#,0") @(k.PeopleBelow == 1 ? "person" : "people"))</option>
-                    }
-                </select>
-            }
-        </div>
+        @* A page the team does not change (2.5.0) shows no way down the organization: the links and the box would do nothing. *@
+        @if (Model.UsesTeam)
+        {
+            @* Whose figures the page shows (2.4.10: the names stood with no word saying what they were): the path down the
+               organization, each step a link back up, the last one with how many people it covers, then the teams one step further in. *@
+            <div class="crumbs" aria-label="Part of the organization shown">
+                <span class="lbl">Showing</span>
+                @if (c.Viewer.OrgWide)
+                {
+                    <a href="@c.Url(path, org: null, keepOrg: false)" class="@(c.Root is null ? "on" : "")">Whole organization</a>
+                }
+                @{ var first = !c.Viewer.OrgWide; }
+                @foreach (var u in c.Breadcrumb)
+                {
+                    @if (!first) { <span class="sep">›</span> }
+                    first = false;
+                    <a href="@c.Url(path, org: u.Upn)" class="@(u.Upn == c.Root ? "on" : "")">@u.Name@(u.Upn == c.Root && u.PeopleBelow > 0 ? $" and {u.PeopleBelow:#,0} {(u.PeopleBelow == 1 ? "person" : "people")} under them" : "")</a>
+                }
+                @if (c.Children.Count > 0)
+                {
+                    <select aria-label="Look inside a team" data-navigate>
+                        <option value="">Look inside a team</option>
+                        @foreach (var k in c.Children)
+                        {
+                            <option value="@c.Url(path, org: k.Upn)">@k.Name (@k.PeopleBelow.ToString("#,0") @(k.PeopleBelow == 1 ? "person" : "people"))</option>
+                        }
+                    </select>
+                }
+            </div>
+        }
         @if (Model.OwnWindow is { } own)
         {
             <span class="period own">Covers @own</span>
         }
-        else
+        else if (Model.UsesPeriod)
         {
             <span class="period">@c.PeriodLabel</span>
         }

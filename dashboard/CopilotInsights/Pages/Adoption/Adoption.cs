@@ -57,7 +57,7 @@ public sealed class CohortsModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => "Retention by license month";
     public override string Persona => "Adoption";
-    public override string? OwnWindow => "licenses that began in the last 12 months";
+    public override string? OwnWindow => "the licenses held today (cohorts: those that began in the last 12 months)";
     public override string Intro => "Do people keep using Copilot after they get it? Each row is the people licensed in one month; each column a week after their license.";
 
     protected override async Task BuildAsync()
