@@ -28,8 +28,10 @@
                                (and -Owner). An empty -FriendlyName removes the name.
     -Task NameLabel            Give the sensitivity label -LabelId a -Name (and -Rank, 0 least sensitive).
     -Task PurgeJson            Clear the stored JSON of records older than -RetainDays (with
-                               -DeleteRows, remove those records altogether). Reports only,
-                               unless -Apply.
+                               -DeleteRows, remove those records altogether: the record, its
+                               shredded and flattened rows, and the resources and contexts it
+                               read; -Task RebuildBi then takes them out of bi and the
+                               dashboard). Reports only, unless -Apply.
     -Task RebuildValueCatalog  List every distinct value of the cataloged columns again, from
                                every flattened record: once, for data flattened before 2.3.0.
     -Task ListValues           The cataloged columns, or with -ColumnId one column's values
@@ -306,7 +308,9 @@ END;
         Write-Host "$n name(s) saved, $cleared cleared."
     }
     'PurgeJson' {
-        $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w, @DeleteRows = @r;' `
+        # 2.4.12: -DeleteRows removes the flattened rows too, with the resources and contexts they read. It kept them,
+        # each naming the user and the files and links they read, though the records were said to be gone.
+        $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w, @DeleteRows = @r, @PurgeFlattened = @r;' `
             -Parameters @{ '@d' = $RetainDays; '@w' = [int] (-not $Apply); '@r' = [int] [bool] $DeleteRows }
         $t.Rows | Format-Table -AutoSize | Out-String | Write-Host
         if (-not $Apply) { Write-Host 'Nothing was cleared; add -Apply to clear it.' }

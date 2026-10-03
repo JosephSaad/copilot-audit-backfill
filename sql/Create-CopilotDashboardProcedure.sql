@@ -10,10 +10,18 @@
       2. dash.UserDay from the bi facts, and dash.ResourceDay (labels and
          sites) from bi.FactAccessedResource, for the days from
          @SinceUtc's day on (every day when NULL), replaced in one transaction.
+         Every day, too, when a full bi refresh has run since the last
+         rollup (2.4.12), and from the first day of an app whose category a
+         bi refresh changed.
       3. dash.AgentUse, whole: when each agent was first and last used.
 
     Invoke-CopilotAuditBackfill.ps1 -Incremental and the CSV importer call it
     last, after bi.usp_RefreshBi, with the same @SinceUtc.
+
+    While a full bi rebuild has not finished (bi.RebuildInProgress has a row:
+    it is running, or was stopped part way), steps 2 and 3 are skipped and
+    the rollups left as they are (2.4.12): the facts are half written. The
+    first rollup after the rebuild has finished builds every day.
 
     The closure follows ManagerUPN up from each person. A manager missing from
     the directory (another employee type, say) still becomes an ancestor, so
@@ -128,6 +136,22 @@ BEGIN
 
     /* ---- 2. The daily rollup ------------------------------------------------- */
 
+    /* 2.4.12: not while a full bi rebuild has not finished, running or stopped part way: the facts are half written.
+       A rollup over them took every month the rebuild had not reached yet out of the rollups (the dashboard
+       installer's refresh during an upgrade's rebuild, say), and the windowed rollups after it never put them back.
+       The run that finishes the rebuild is a full one, so the first rollup after it builds every day (below). */
+    DECLARE @rebuilding BIT = 0;
+    IF OBJECT_ID(N'bi.RebuildInProgress', N'U') IS NOT NULL
+        SET @rebuilding = CASE WHEN EXISTS (SELECT 1 FROM bi.RebuildInProgress) THEN 1 ELSE 0 END;
+    IF @rebuilding = 1
+    BEGIN
+        SET @msg = CONCAT(N'Dashboard: org chart refreshed (', FORMAT(@people, 'N0'), N' people). The rollups are left as they are: a full ',
+                          N'refresh of the bi schema has not finished (it is running, or was stopped part way). The next bi refresh finishes it, ',
+                          N'and the first dashboard refresh after that rolls up every day.');
+        RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
     DECLARE @fromKey INT = NULL;
     IF @SinceUtc IS NOT NULL
     BEGIN
@@ -137,13 +161,27 @@ BEGIN
         SET @fromKey = YEAR(@localDay) * 10000 + MONTH(@localDay) * 100 + DAY(@localDay);
     END;
 
+    /* The bi refreshes since the last rollup, read before the facts are: a full rebuild that starts while this reads
+       them is one of the next rollup's, which then builds every day. */
+    DECLARE @biRun INT = (SELECT MAX(RunId) FROM bi.RefreshRun);
+    DECLARE @lastBiRun INT = ISNULL((SELECT TOP (1) r.BiRunId FROM dash.RefreshRun AS r WHERE r.BiRunId IS NOT NULL ORDER BY r.RunId DESC), 0);
+
+    /* 2.4.12: a full bi refresh since the last rollup rewrote every interaction (a new rule for Premium or licensed
+       use, license history that arrived late, another time zone, a stopped rebuild the nightly run finished), so
+       every day is rolled up again. Before, only the window asked for was, and every older day kept the figures of
+       the facts before it, for good: the dashboard and Power BI disagreed, and an upgrade's new Premium rule never
+       reached the days before it (Forecasting's revoke list among them). */
+    IF @fromKey IS NOT NULL AND EXISTS (SELECT 1 FROM bi.RefreshRun WHERE RunId > @lastBiRun AND SinceUtc IS NULL)
+    BEGIN
+        RAISERROR('A full refresh of the bi schema ran since the last rollup: rolling up every day.', 0, 1) WITH NOWAIT;
+        SET @fromKey = NULL;
+    END;
+
     /* A bi refresh since the last rollup that changed an app's category moves the start back to the
        first day that app was used: Premium use and ChatInteractions depend on the category. */
-    DECLARE @biRun INT = (SELECT MAX(RunId) FROM bi.RefreshRun);
     IF @fromKey IS NOT NULL
     BEGIN
-        DECLARE @recatFrom INT = (SELECT MIN(b.RecategorizedFromDateKey) FROM bi.RefreshRun AS b
-                                 WHERE b.RunId > ISNULL((SELECT TOP (1) r.BiRunId FROM dash.RefreshRun AS r WHERE r.BiRunId IS NOT NULL ORDER BY r.RunId DESC), 0));
+        DECLARE @recatFrom INT = (SELECT MIN(b.RecategorizedFromDateKey) FROM bi.RefreshRun AS b WHERE b.RunId > @lastBiRun);
         IF @recatFrom < @fromKey SET @fromKey = @recatFrom;
     END;
 
@@ -192,11 +230,15 @@ BEGIN
 
     /* Labels and sites, from bi.FactAccessedResource: the label on each resource
        read, the site of labeled content, and the site of content Copilot was
-       blocked from. Sites are already cut to https://host/sites/name there. */
+       blocked from. Sites are already cut to https://host/sites/name there.
+       Interactions, not resources (2.4.12): the fact has a row per resource, and
+       each was counted, so an answer drawn from six files with one label added
+       six to that label and its site, where the page's own count of labeled
+       interactions added one, and the label alert fired on a single interaction. */
     DROP TABLE IF EXISTS #res;
     WITH r AS
     (
-        SELECT f.DateKey, f.UserKey, f.IsBlocked, l.LabelId, s.Site
+        SELECT f.DateKey, f.UserKey, f.RecordId, f.IsBlocked, l.LabelId, s.Site
         FROM bi.FactAccessedResource AS f
         JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = f.SensitivityLabelKey
         JOIN bi.DimSite AS s ON s.SiteKey = f.SiteKey
@@ -205,13 +247,13 @@ BEGIN
     ),
     items AS
     (
-        SELECT DateKey, UserKey, 'Label' AS Kind, LOWER(CAST(LabelId AS NVARCHAR(36))) AS Item FROM r WHERE LabelId IS NOT NULL
+        SELECT DateKey, UserKey, RecordId, 'Label' AS Kind, LOWER(CAST(LabelId AS NVARCHAR(36))) AS Item FROM r WHERE LabelId IS NOT NULL
         UNION ALL
-        SELECT DateKey, UserKey, 'Site', Site FROM r WHERE LabelId IS NOT NULL AND Site <> N'(none)'
+        SELECT DateKey, UserKey, RecordId, 'Site', Site FROM r WHERE LabelId IS NOT NULL AND Site <> N'(none)'
         UNION ALL
-        SELECT DateKey, UserKey, 'Blocked', Site FROM r WHERE IsBlocked = 1 AND Site <> N'(none)'
+        SELECT DateKey, UserKey, RecordId, 'Blocked', Site FROM r WHERE IsBlocked = 1 AND Site <> N'(none)'
     )
-    SELECT DateKey, UserKey, Kind, CAST(LEFT(Item, 400) AS NVARCHAR(400)) AS Item, COUNT(*) AS Interactions
+    SELECT DateKey, UserKey, Kind, CAST(LEFT(Item, 400) AS NVARCHAR(400)) AS Item, COUNT(DISTINCT RecordId) AS Interactions
     INTO #res
     FROM items
     GROUP BY DateKey, UserKey, Kind, LEFT(Item, 400)

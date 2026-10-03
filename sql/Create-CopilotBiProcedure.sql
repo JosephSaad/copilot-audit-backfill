@@ -51,11 +51,25 @@
         one today, else not licensed. Sessions use today's flag throughout
         instead, ignoring LicensedSinceUtc, so for such a user a session
         before that date can say Licensed where its interactions say not.
-      * Neither: Unknown. So is a user the directory no longer has.
+      * Where the enrichment looked a user up after their last change in the
+        history and contradicts it (2.4.12): a user it finds licensed whom
+        the history leaves unlicensed (only another Copilot SKU added and
+        taken away, say) is licensed from LicensedSinceUtc; and an account it
+        no longer finds, which the history still has licensed, is licensed in
+        bi.FactLicensedDay only to the last day it was used. The history
+        knows a person by the sign-in of the time, so a renamed or deleted
+        account has no removal there. A renamed account is still two users
+        to bi, one per sign-in: the days between the old one's last use and
+        the new one's LicensedSinceUtc, if that is earlier, count under both.
+      * Neither: Unknown. So is a user the directory no longer has, unless
+        the history has them.
 
     A row's license status is fixed when the row is written. A license change
     that reaches the history later corrects only rows rebuilt after it; run
     with @SinceUtc = NULL (and fully refresh the model) to correct them all.
+
+    One refresh at a time (2.4.12): a second one waits for the first to
+    finish (sp_getapplock on 'bi.usp_RefreshBi', held by the session).
 
     Reads audit.RawLogFlattened, audit.CopilotLicense, audit.CopilotSession
     and audit.SessionAppCategory, so run Create-CopilotFlattenedSchema.sql
@@ -167,6 +181,23 @@ BEGIN
     IF EXISTS (SELECT 1 FROM @licDbs WHERE OBJECT_ID(QUOTENAME(Name) + N'.audit.vLicenseSkuChange', N'V') IS NULL)
         THROW 50014, N'A database in @LicenseEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
 
+    /* 2.4.12: one refresh at a time. A full rebuild commits month by month and holds nothing on the fact between
+       months, so a refresh that started meanwhile found its mark, emptied the fact under it and filled it again
+       alongside it: every month after that point was in the fact twice, and in the rollups and the model after it.
+       A second refresh now waits for the first to finish, then finds no mark and refreshes its own window. The lock
+       is the session's, as a full rebuild commits as it goes: released at the end, on an error (the CATCH at the
+       end), or when the session closes. */
+    DECLARE @lock INT;
+    EXEC @lock = sys.sp_getapplock @Resource = N'bi.usp_RefreshBi', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0;
+    IF @lock < 0
+    BEGIN
+        RAISERROR('Another refresh of the bi schema is running: waiting for it to finish.', 0, 1) WITH NOWAIT;
+        EXEC @lock = sys.sp_getapplock @Resource = N'bi.usp_RefreshBi', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = -1;
+    END;
+    IF @lock < 0
+        THROW 50019, N'Another refresh of the bi schema is running, and this one could not wait for it to finish.', 1;
+
+    BEGIN TRY
     /* The first refresh builds everything, whatever window was asked for:
        an empty fact refreshed from yesterday would have nothing before it. */
     IF NOT EXISTS (SELECT 1 FROM bi.RefreshRun)
@@ -176,7 +207,8 @@ BEGIN
         SET @SinceUtc = NULL;
     END;
 
-    /* 2.4.9: a full rebuild that was stopped part way left months missing: this run finishes it. */
+    /* 2.4.9: a full rebuild that was stopped part way left months missing: this run finishes it. One that is still
+       running holds the lock above (2.4.12), so the mark found here is always one that was stopped. */
     IF @SinceUtc IS NOT NULL AND OBJECT_ID(N'bi.RebuildInProgress', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM bi.RebuildInProgress)
     BEGIN
         RAISERROR('A full rebuild of the bi schema did not finish: building every interaction, not only the window asked for.', 0, 1) WITH NOWAIT;
@@ -245,13 +277,15 @@ BEGIN
         IsLic            BIT           NULL,
         Sku              NVARCHAR(100) COLLATE DATABASE_DEFAULT NULL,
         SinceUtc         DATETIME2(0)  NULL,
-        DirectoryStatus  NVARCHAR(20)  COLLATE DATABASE_DEFAULT NULL
+        DirectoryStatus  NVARCHAR(20)  COLLATE DATABASE_DEFAULT NULL,
+        LookedUpUtc      DATETIME2(0)  NULL   -- when the enrichment last looked the user up (UpdatedUtc)
     );
-    SET @sql = N'INSERT INTO #cur (Upn, IsLic, Sku, SinceUtc, DirectoryStatus)
+    SET @sql = N'INSERT INTO #cur (Upn, IsLic, Sku, SinceUtc, DirectoryStatus, LookedUpUtc)
         SELECT UserPrincipalName, IsCopilotLic, '
         + CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'SkuPartNumber')    IS NULL THEN N'NULL' ELSE N'SkuPartNumber'    END + N', '
         + CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'LicensedSinceUtc') IS NULL THEN N'NULL' ELSE N'LicensedSinceUtc' END + N', '
-        + CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'DirectoryStatus')  IS NULL THEN N'NULL' ELSE N'DirectoryStatus'  END + N'
+        + CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'DirectoryStatus')  IS NULL THEN N'NULL' ELSE N'DirectoryStatus'  END + N', '
+        + CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'UpdatedUtc')       IS NULL THEN N'NULL' ELSE N'UpdatedUtc'       END + N'
         FROM audit.CopilotLicense;';
     EXEC (@sql);
 
@@ -299,6 +333,17 @@ BEGIN
     FROM #cur AS c
     WHERE c.IsLic = 1
       AND NOT EXISTS (SELECT 1 FROM #ev AS e WHERE e.Upn = c.Upn);
+
+    /* 2.4.12: a user the enrichment finds licensed, whose history leaves nothing held now, was not licensed from
+       the history's last change on: their only Copilot changes can be another SKU added and taken away, while the
+       license they hold was assigned before the history begins. Where the lookup came after that change, it is the
+       newer evidence: licensed from LicensedSinceUtc, or from that change when it is not known. */
+    INSERT INTO #held (Upn, FromUtc, ToUtc)
+    SELECT c.Upn, COALESCE(c.SinceUtc, e.LastTs), CAST('99991231' AS DATETIME2(0))
+    FROM #cur AS c
+    JOIN (SELECT Upn, MAX(Ts) AS LastTs FROM #ev GROUP BY Upn) AS e ON e.Upn = c.Upn
+    WHERE c.IsLic = 1 AND c.LookedUpUtc > e.LastTs
+      AND NOT EXISTS (SELECT 1 FROM #held AS h WHERE h.Upn = c.Upn AND h.ToUtc = CAST('99991231' AS DATETIME2(0)));
 
     /* Nonclustered: a UPN can be 1,024 bytes, over a clustered key's 900. */
     CREATE INDEX IX_held ON #held (Upn, FromUtc) INCLUDE (ToUtc);
@@ -527,11 +572,14 @@ BEGIN
         SELECT DISTINCT s.LicenseType FROM #src AS s
         WHERE NOT EXISTS (SELECT 1 FROM bi.DimLicenseType AS d WHERE d.LicenseType = s.LicenseType);
 
-        /* The accessed resources of this month's interactions, from the element table. */
+        /* The accessed resources of this month's interactions, from the element table. In the database's collation
+           (2.4.12), as every temp table here is: in tempdb's, a database whose collation differs from the server's
+           failed every refresh at the first comparison with a dimension. */
         DROP TABLE IF EXISTS #rsrc;
-        CREATE TABLE #rsrc (RecordId NVARCHAR(450) NOT NULL, Ordinal SMALLINT NOT NULL, ResourceType NVARCHAR(200) NOT NULL,
-                            ResourceAction NVARCHAR(450) NOT NULL, Site NVARCHAR(400) NOT NULL, LabelId UNIQUEIDENTIFIER NULL,
-                            IsBlocked BIT NOT NULL, XPIADetected BIT NOT NULL, FileType NVARCHAR(64) NOT NULL);
+        CREATE TABLE #rsrc (RecordId NVARCHAR(450) COLLATE DATABASE_DEFAULT NOT NULL, Ordinal SMALLINT NOT NULL,
+                            ResourceType NVARCHAR(200) COLLATE DATABASE_DEFAULT NOT NULL, ResourceAction NVARCHAR(450) COLLATE DATABASE_DEFAULT NOT NULL,
+                            Site NVARCHAR(400) COLLATE DATABASE_DEFAULT NOT NULL, LabelId UNIQUEIDENTIFIER NULL,
+                            IsBlocked BIT NOT NULL, XPIADetected BIT NOT NULL, FileType NVARCHAR(64) COLLATE DATABASE_DEFAULT NOT NULL);
         IF @hasResources = 1
             INSERT INTO #rsrc
             SELECT r.RecordId, r.Ordinal,
@@ -820,6 +868,34 @@ BEGIN
             @highUtc DATETIME2(0) = CAST(CAST(DATEADD(DAY,  2, @today)     AS DATETIME2(0)) AT TIME ZONE @ReportingTimeZone AT TIME ZONE 'UTC' AS DATETIME2(0)),
             @firstKey INT = YEAR(@firstDate) * 10000 + MONTH(@firstDate) * 100 + DAY(@firstDate),
             @todayKey INT = YEAR(@today) * 10000 + MONTH(@today) * 100 + DAY(@today);
+
+    /* 2.4.12: an account the enrichment no longer finds, which the history still has holding a license, is licensed
+       to the last day it was used under that sign-in (or of its last change, if later), where the lookup came after
+       that. The account was renamed or deleted, and the history, which knows a person only by the sign-in of the
+       time, has no removal for it: before, it stayed licensed every day to today, a license to reclaim on an account
+       that no longer exists, and after a rename the same person was licensed twice. Its interactions keep the
+       license they were used under; only its licensed days end. */
+    DROP TABLE IF EXISTS #gone;
+    SELECT DISTINCT h.Upn INTO #gone
+    FROM #held AS h JOIN #cur AS c ON c.Upn = h.Upn
+    WHERE h.ToUtc = CAST('99991231' AS DATETIME2(0)) AND c.DirectoryStatus = N'NotFound';
+    IF EXISTS (SELECT 1 FROM #gone)
+        UPDATE h
+        SET ToUtc = e.EndUtc
+        FROM #held AS h
+        JOIN #cur AS c ON c.Upn = h.Upn
+        JOIN (SELECT Upn, MAX(ChangedUtc) AS LastChange FROM #chg GROUP BY Upn) AS g ON g.Upn = h.Upn
+        LEFT JOIN (SELECT u.UserPrincipalName AS Upn, MAX(f.CreatedUtc) AS LastUse
+                   FROM bi.FactInteraction AS f
+                   JOIN bi.DimUser AS u ON u.UserKey = f.UserKey
+                   JOIN #gone AS x ON x.Upn = u.UserPrincipalName
+                   GROUP BY u.UserPrincipalName) AS l ON l.Upn = h.Upn
+        CROSS APPLY (SELECT CASE WHEN l.LastUse > g.LastChange THEN l.LastUse ELSE g.LastChange END AS LastSeen) AS s
+        /* Local midnight after that day, in UTC: held at the end of it, and not of the next. */
+        CROSS APPLY (SELECT CAST(CAST(DATEADD(DAY, 1, CAST(CAST(s.LastSeen AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS DATE)) AS DATETIME2(0))
+                                 AT TIME ZONE @ReportingTimeZone AT TIME ZONE 'UTC' AS DATETIME2(0)) AS EndUtc) AS e
+        WHERE h.ToUtc = CAST('99991231' AS DATETIME2(0)) AND c.DirectoryStatus = N'NotFound' AND c.LookedUpUtc > s.LastSeen;
+
     TRUNCATE TABLE bi.FactLicensedDay;
     INSERT INTO bi.FactLicensedDay (DateKey, UserKey)
     SELECT DISTINCT d.DateKey, u.UserKey
@@ -845,6 +921,7 @@ BEGIN
         DELETE FROM bi.RebuildInProgress;
 
     COMMIT TRANSACTION;
+    EXEC sys.sp_releaseapplock @Resource = N'bi.usp_RefreshBi', @LockOwner = 'Session';
 
     SET @msg = CONCAT(N'bi refreshed', CASE WHEN @SinceUtc IS NULL THEN N' (full rebuild)'
                                            ELSE CONCAT(N' from ', CONVERT(NVARCHAR(16), @SinceUtc, 120), N'Z') END,
@@ -859,5 +936,13 @@ BEGIN
     END;
     IF @LicenseEventDatabase IS NULL
         RAISERROR('  No @LicenseEventDatabase: license at the time of use comes from the enrichment''s LicensedSinceUtc only.', 0, 1) WITH NOWAIT;
+    END TRY
+    BEGIN CATCH
+        /* The lock is the session's: a pooled connection would otherwise keep it, and the next refresh wait. */
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        IF APPLOCK_MODE(N'public', N'bi.usp_RefreshBi', N'Session') <> N'NoLock'
+            EXEC sys.sp_releaseapplock @Resource = N'bi.usp_RefreshBi', @LockOwner = 'Session';
+        THROW;
+    END CATCH;
 END;
 GO

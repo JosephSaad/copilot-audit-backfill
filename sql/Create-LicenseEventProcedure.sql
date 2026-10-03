@@ -47,9 +47,10 @@ BEGIN
         SET @SinceUtc = NULL;
     END;
 
-    /* Chunk groups this run saw, reassembled once every batch is in. */
+    /* Chunk groups this run saw, reassembled once every batch is in. In the database's collation (2.4.12): in
+       tempdb's, a database whose collation differs from the server's failed every shred at the first comparison. */
     DROP TABLE IF EXISTS #touched;
-    CREATE TABLE #touched (ChunkGroupId NVARCHAR(100) NOT NULL PRIMARY KEY);
+    CREATE TABLE #touched (ChunkGroupId NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
 
     DECLARE @cursor VARCHAR(64) = '', @maxId VARCHAR(64);
 

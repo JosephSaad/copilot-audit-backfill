@@ -573,6 +573,14 @@ IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
     granted to an AD group counts for its members too (2.4.0): the nightly
     directory load expands the group into audit.GroupMember.
 
+    2.4.12: a grant by DOMAIN\name counts whatever type it was recorded with,
+    as the dashboard matches it at sign-in. The directory load expands every
+    one into audit.GroupMember: a group recorded as a user (GrantRole records
+    one so when it cannot ask AD) into its members, and a person into their
+    own UPN, which is what USERPRINCIPALNAME() gives. Before, both saw only
+    their own people in Power BI, though the dashboard showed them everyone.
+    A user grant by UPN (name@domain) names the viewer directly.
+
     Empty in privacy mode: each row pairs a real sign-in with a user key, which
     would undo the pseudonyms in bi.Users. With privacy mode on, share
     bi.DepartmentWeek rather than the person-level model.
@@ -583,9 +591,9 @@ IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
 EXEC (N'CREATE OR ALTER VIEW bi.OrgSecurity AS
 WITH whole AS (   -- everyone who sees the whole organization: the top two levels, and Organization granted to them or to a group they are in
     SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
-    UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization''
+    UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization'' AND Principal LIKE N''%@%''
     UNION SELECT gm.UserPrincipalName FROM audit.GroupMember AS gm
-          JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.PrincipalType = ''Group'' AND g.Role = ''Organization''
+          JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.Role = ''Organization''
 )
 SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey
 FROM dash.OrgClosure AS oc
