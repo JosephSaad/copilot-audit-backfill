@@ -200,7 +200,9 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 
 ## The pipeline
 
-**The nightly task** (`Copilot audit - nightly`, 02:00 by default) runs `Invoke-CopilotPipeline.ps1`: the directory, the licenses, the license events and the Copilot interactions, then retention. It records each run and step in `audit.PipelineRun`. To run it now, or to resume after a failure, run `.\Invoke-CopilotPipeline.ps1` on the job server. To move it, run `tools\Install-CopilotJobServer.ps1 -At 03:30`.
+**The nightly task** (`Copilot audit - nightly`, 02:00 by default) runs `Invoke-CopilotPipeline.ps1`: the directory, the licenses, the license events and the Copilot interactions, then retention. It records each run and step in `audit.PipelineRun`. To run it now, or to resume after a failure, first check Admin › Health that no run is in progress, then run `.\Invoke-CopilotPipeline.ps1` on the job server. To move it, run `tools\Install-CopilotJobServer.ps1 -At 03:30`.
+
+**One run at a time** (2.4.12). The pipeline, `Install-CopilotAudit.ps1` and the maintenance rebuilds (`Reflatten`, `RebuildSessions`, `RebuildBi`, `RebuildValueCatalog`, and `SetAppCategory` or `PurgeJson` with `-Apply`) each hold the database while they work. One started while another holds it stops at once, says so and changes nothing: run it again when the other has finished. Before, two at once loaded the same windows twice, or rebuilt `bi` under each other and counted interactions twice. Before an upgrade, a rebuild or a `-History` load, disable the nightly task (`Disable-ScheduledTask -TaskName 'Copilot audit - nightly'`), and enable it again when the work is done (`Enable-ScheduledTask`), so that night's load is not refused.
 
 **Refresh or rebuild by hand**, after a change that the nightly run would not pick up:
 
@@ -228,11 +230,11 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 
 ## Upgrades and renewals
 
-**A new release.** Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1` again with the new `copilot-insights` zip.
+**A new release.** Disable the nightly task and check Admin › Health that no run is in progress. Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once, enable the nightly task again, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1 -PackagePath <the new copilot-insights zip> -SqlServer SQLPROD01` again: it keeps the site's account, database, `TrustServerCertificate`, tenants, administrators and bindings (2.4.12; before, a run without every first-run parameter reset them).
 
 **Running the job-server setup again** keeps every setting in `copilot-audit.settings.psd1`, those added by hand (`IncludeLeaveDates`) and empty ones (`EmployeeTypes = @()`) too, and the task's time set with `-At` (2.4.12; before, a re-run put `EmployeeTypes` back to EMP and NONW, dropped `IncludeLeaveDates`, and moved the task to 02:00).
 
-**The app's certificate.** Within 30 days of expiry, run `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` on the job server: a new certificate, its private key for the gMSA, uploaded to the app next to the old one, and its thumbprint in the settings. Remove the old certificate from the app after the next good run.
+**The app's certificate.** Within 30 days of expiry, run `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` on the job server: a new certificate, its private key for the gMSA, uploaded next to the old one to the app of every tenant in the settings (you sign in to each), and its thumbprint in the settings. Remove the old certificate from the apps after the next good run. A run without `-RegisterApp` keeps the certificate it has until it expires (2.4.12; before, any run in those 30 days switched to a new certificate no app had, and the nightly sign-in failed).
 
 **Exchange Online.** If the dashboard sends with a mailbox password, move it to OAuth (Admin › Email) before Microsoft turns SMTP AUTH passwords off for your tenant.
 

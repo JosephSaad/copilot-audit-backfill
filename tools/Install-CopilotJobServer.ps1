@@ -13,7 +13,8 @@
          -CertificateThumbprint, or the subject 'CN=Copilot audit pipeline'),
          or creates a self-signed one: 2048-bit RSA, private key not
          exportable, valid 2 years. Exports its public half as
-         copilot-audit.cer for the app registration.
+         copilot-audit.cer for the app registration. One within 30 days of
+         expiry is renewed only with -RegisterApp, which uploads the new one.
       2. Service account. Checks a gMSA is installed on this server (and
          installs it when the AD module is present), gives the account Read on
          the certificate's private key, and the "Log on as a batch job" right.
@@ -23,7 +24,8 @@
          the reporting time zone and, with -Dashboard, the dashboard's schema.
       5. App registration, with -RegisterApp: tools\New-CopilotAuditApp.ps1
          signs you in to Microsoft Graph once, registers the app with its three
-         permissions and admin consent, and uploads the certificate. Without
+         permissions and admin consent, and uploads the certificate; then the
+         same for each other tenant in the settings, by its client id. Without
          it, pass -TenantId and -ClientId of an app registered already.
       6. Settings: writes copilot-audit.settings.psd1, which
          Invoke-CopilotPipeline.ps1 reads.
@@ -150,16 +152,39 @@ function ConvertTo-SettingText {
 # ===========================================================================
 
 function Get-PipelineCertificate {
-    param([string] $Thumbprint)
+    param([string] $Thumbprint, [switch] $Renew)
     $store = 'Cert:\LocalMachine\My'
     if ($Thumbprint) {
         $c = Get-Item -LiteralPath (Join-Path $store $Thumbprint) -ErrorAction SilentlyContinue
         if (-not $c) { throw "No certificate $Thumbprint in LocalMachine\My." }
-        # One this script made, within 30 days of expiry: renewed below. Your own PKI's: kept, and flagged.
+        # One this script made, within 30 days of expiry: renewed below with -RegisterApp, which uploads the new one,
+        # and kept until then while it is still valid (2.4.12). Any run in those 30 days made a new certificate and
+        # put it in the settings, uploaded nowhere without -RegisterApp, so the nightly sign-in failed while the old
+        # one still worked. Your own PKI's: kept, and flagged.
         if ($c.Subject -ne $script:CertSubject -or $c.NotAfter -gt (Get-Date).AddDays(30)) { return $c }
+        if (-not $Renew -and $c.NotAfter -gt (Get-Date)) { return $c }
     }
     Get-ChildItem $store | Where-Object { $_.Subject -eq $script:CertSubject -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date).AddDays(30) } |
         Sort-Object NotAfter -Descending | Select-Object -First 1
+}
+
+function Get-AppToRegister {
+    <#
+        The app registrations -RegisterApp puts the certificate on: the first tenant's, then each other tenant's that
+        signs in with the same certificate, by its client id (2.4.12). Only the first tenant's had it, so after a
+        renewal every other tenant's nightly sign-in failed. Pure, for the tests.
+    #>
+    param([System.Collections.IDictionary] $Setting)
+    $list = [System.Collections.Generic.List[object]]::new()
+    $list.Add([pscustomobject]@{ Name = ''; TenantId = [string] $Setting.TenantId; ClientId = [string] $Setting.ClientId; First = $true })
+    if ($Setting.Contains('Tenants')) {
+        foreach ($t in @($Setting.Tenants | Where-Object { $_ })) {
+            if ($t.Contains('CertificateThumbprint') -and $t.CertificateThumbprint) { continue }   # a certificate of its own
+            if (-not ($t.Contains('TenantId') -and $t.TenantId -and $t.Contains('ClientId') -and $t.ClientId)) { continue }
+            $list.Add([pscustomobject]@{ Name = [string] $t.Name; TenantId = [string] $t.TenantId; ClientId = [string] $t.ClientId; First = $false })
+        }
+    }
+    , $list.ToArray()
 }
 
 function Get-PrivateKeyFile {
@@ -318,10 +343,12 @@ function Invoke-Main {
 
     # ---- 1. Certificate --------------------------------------------------------------------
     Write-Step 'Certificate'
-    $cert = Get-PipelineCertificate -Thumbprint $s.CertificateThumbprint
+    $cert = Get-PipelineCertificate -Thumbprint $s.CertificateThumbprint -Renew:$RegisterApp
+    $created = $false
     if (-not $cert -and $PSCmdlet.ShouldProcess($script:CertSubject, 'Create a self-signed certificate in LocalMachine\My')) {
         $cert = New-SelfSignedCertificate -Subject $script:CertSubject -CertStoreLocation Cert:\LocalMachine\My `
             -KeySpec Signature -KeyLength 2048 -KeyExportPolicy NonExportable -NotAfter (Get-Date).AddYears(2)
+        $created = $true
         Write-Done "created $($cert.Thumbprint), valid until $($cert.NotAfter.ToString('yyyy-MM-dd'))"
     }
     elseif ($cert) { Write-Done "using $($cert.Thumbprint), valid until $($cert.NotAfter.ToString('yyyy-MM-dd'))" }
@@ -363,10 +390,20 @@ function Invoke-Main {
     Write-Step 'App registration'
     if ($RegisterApp) {
         if (-not $s.TenantId) { throw 'Pass -TenantId with -RegisterApp.' }
-        $app = & (Join-Path $PSScriptRoot 'New-CopilotAuditApp.ps1') -TenantId $s.TenantId -CertificatePath $cerPath -UseDeviceCode:$UseDeviceCode
-        if ($app) { $s.TenantId = $app.TenantId; $s.ClientId = $app.ClientId }
+        # Each app by the client id the settings hold, once there is one (2.4.12): found by name, another app given the
+        # same name could be taken. Every tenant that signs in with this certificate gets it, not the first alone.
+        foreach ($a in (Get-AppToRegister $s)) {
+            if (-not $a.First) { Write-Done "tenant $($a.Name) ($($a.TenantId)):" }
+            $reg = @{ TenantId = $a.TenantId; CertificatePath = $cerPath; UseDeviceCode = $UseDeviceCode }
+            if ($a.ClientId) { $reg.ClientId = $a.ClientId }
+            $app = & (Join-Path $PSScriptRoot 'New-CopilotAuditApp.ps1') @reg
+            if ($app -and $a.First) { $s.TenantId = $app.TenantId; $s.ClientId = $app.ClientId }
+        }
     }
-    elseif ($s.TenantId -and $s.ClientId) { Write-Done "using client id $($s.ClientId) in $($s.TenantId)" }
+    elseif ($s.TenantId -and $s.ClientId) {
+        Write-Done "using client id $($s.ClientId) in $($s.TenantId)"
+        if ($created) { $todo += "No app has the new certificate $($cert.Thumbprint) yet: run this again with -RegisterApp before the nightly task runs (or upload $cerPath to the app of every tenant by hand)." }
+    }
     else { $todo += "Register the app: run this again with -TenantId <tenant> -RegisterApp (or register it by hand, upload $cerPath, and pass -TenantId and -ClientId)." }
 
     # ---- 6. Settings -------------------------------------------------------------------------

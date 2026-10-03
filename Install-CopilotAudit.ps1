@@ -126,6 +126,31 @@ function Get-Count([string] $Catalog, [string] $Table) {
     [long] (Invoke-Sql -Catalog $Catalog -Scalar -Sql "SELECT SUM(row_count) FROM sys.dm_db_partition_stats WHERE object_id = OBJECT_ID(@t) AND index_id IN (0, 1)" -Parameters @{ '@t' = $Table })
 }
 
+function Enter-RunLock([string] $Catalog) {
+    <#
+        Holds the database for this run alone (2.4.12), as the nightly pipeline and the maintenance rebuilds do: an
+        exclusive application lock, on a connection of its own kept open to the end of the build. Nothing kept them
+        apart, and a nightly that started during an upgrade's full bi rebuild rebuilt the fact under it, counting
+        interactions twice. As the pipeline's history build step, the pipeline holds it already (CopilotAuditRunLock).
+    #>
+    if ($env:CopilotAuditRunLock -eq "$SqlServer/$Catalog") { return $null }
+    $b = New-Object System.Data.SqlClient.SqlConnectionStringBuilder (New-ConnString $Catalog)
+    $b['Pooling'] = $false   # closing a pooled connection keeps its session, and the session's lock with it
+    $c = New-Object System.Data.SqlClient.SqlConnection $b.ConnectionString
+    try {
+        $c.Open()
+        $cmd = $c.CreateCommand()
+        $cmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+        $granted = [int] $cmd.ExecuteScalar() -ge 0
+    }
+    catch { $c.Dispose(); throw }
+    if (-not $granted) {
+        $c.Dispose()
+        throw "Another run is using $Catalog now: the nightly pipeline, a maintenance rebuild, or this installer in another window. Nothing was changed. Let it finish (Admin > Health shows the pipeline's runs), disable the nightly task while you upgrade, then run this again."
+    }
+    $c
+}
+
 # ---- 1. Databases -------------------------------------------------------------------------------
 Write-Step "Databases on $SqlServer"
 $targetLevel = [int] (Invoke-Sql -Catalog master -Scalar -Sql "SELECT CASE WHEN CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) >= 16 THEN 160 ELSE CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) * 10 END")
@@ -163,6 +188,10 @@ END;
     }
     Write-Done "$ServiceAccount has a login and db_owner in $($dbs -join ' and ')"
 }
+
+# One run at a time (2.4.12): held from here to the end of step 3, and let go in the finally there.
+$runLock = Enter-RunLock $Database
+try {
 
 # ---- 2. Objects ---------------------------------------------------------------------------------
 Write-Step "Tables, views and procedures in $Database"
@@ -215,11 +244,46 @@ else {
 }
 Write-Done ("reporting time zone: {0}" -f (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT audit.ReportingTimeZone();'))
 
-foreach ($acct in $ReportingAccount) {
+# Reporting accounts read the bi views and nothing else (2.4.12). They were given SELECT on the whole bi schema, which
+# holds the tables under the views too: the Power BI account read bi.DimUser's real names beside privacy mode's
+# pseudonyms, and every column the views leave out. They are members of CopilotReporting now, which each run grants
+# every bi view to, so a view a release adds is readable too; the schema-wide grant is taken back.
+$reporting = @($ReportingAccount | Where-Object { $_ })
+if ($reporting.Count -gt 0 -or [bool] (Invoke-Sql -Catalog $Database -Scalar -Sql "SELECT CASE WHEN DATABASE_PRINCIPAL_ID(N'CopilotReporting') IS NULL THEN 0 ELSE 1 END")) {
+    Invoke-Sql -Catalog $Database -Sql @"
+IF DATABASE_PRINCIPAL_ID(N'CopilotReporting') IS NULL CREATE ROLE CopilotReporting AUTHORIZATION dbo;
+DECLARE @v sysname, @s nvarchar(400);
+DECLARE v CURSOR LOCAL FAST_FORWARD FOR SELECT name FROM sys.views WHERE schema_id = SCHEMA_ID(N'bi');
+OPEN v; FETCH NEXT FROM v INTO @v;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @s = N'GRANT SELECT ON bi.' + QUOTENAME(@v) + N' TO CopilotReporting;';
+    EXEC (@s);
+    FETCH NEXT FROM v INTO @v;
+END;
+"@
+}
+foreach ($acct in $reporting) {
     $ra = $acct.Replace(']', ']]')
-    Invoke-Sql -Catalog master -Sql "IF SUSER_ID(@a) IS NULL EXEC (N'CREATE LOGIN [$ra] FROM WINDOWS');" -Parameters @{ '@a' = $acct }
-    Invoke-Sql -Catalog $Database -Parameters @{ '@a' = $acct } -Sql "IF USER_ID(@a) IS NULL EXEC (N'CREATE USER [$ra] FOR LOGIN [$ra]'); EXEC (N'GRANT SELECT ON SCHEMA::bi TO [$ra]');"
-    Write-Done "$acct can read the bi views in $Database"
+    # A database user of that name already there (this installer's from before, or a DBA's) is used as it is.
+    if (-not [bool] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN USER_ID(@a) IS NULL THEN 0 ELSE 1 END' -Parameters @{ '@a' = $acct })) {
+        Invoke-Sql -Catalog master -Sql "IF SUSER_ID(@a) IS NULL EXEC (N'CREATE LOGIN [$ra] FROM WINDOWS');" -Parameters @{ '@a' = $acct }
+        Invoke-Sql -Catalog $Database -Sql "CREATE USER [$ra] FOR LOGIN [$ra];"
+    }
+    Invoke-Sql -Catalog $Database -Sql "REVOKE SELECT ON SCHEMA::bi FROM [$ra]; ALTER ROLE CopilotReporting ADD MEMBER [$ra];"
+    Write-Done "$acct can read the bi views in $Database, and nothing else"
+}
+# Others that read every table of bi (an account given -ReportingAccount before 2.4.12, and not again): said, not changed.
+$wide = Invoke-Sql -Catalog $Database -Scalar -Sql @"
+SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), pr.name), N', ')
+FROM sys.database_permissions AS p
+JOIN sys.database_principals AS pr ON pr.principal_id = p.grantee_principal_id
+WHERE p.class = 3 AND p.major_id = SCHEMA_ID(N'bi') AND p.permission_name = N'SELECT' AND p.state IN ('G', 'W')
+  AND pr.name <> N'CopilotInsightsApp' AND ISNULL(IS_ROLEMEMBER(N'CopilotInsightsApp', pr.name), 0) = 0
+  AND NOT EXISTS (SELECT 1 FROM sys.database_permissions AS d WHERE d.grantee_principal_id = pr.principal_id AND d.class = 3 AND d.major_id = SCHEMA_ID(N'dash'));
+"@
+if ($wide -isnot [DBNull] -and $wide) {
+    Write-Warning "These accounts can read every table of the bi schema in $Database, not only its views, so privacy mode does not hide names from them: $wide. Give a reporting account to -ReportingAccount again to narrow it to the views."
 }
 
 if ($Dashboard -and $OrgTopUpn) {
@@ -344,6 +408,9 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }
 }
 if ((Get-Count $Database 'audit.CopilotLicense') -eq 0 -and $records -gt 0) { $todo += 'Load current licenses (deployment step 10, tools\Update-CopilotAuditEnrichment.ps1).' }
+
+}
+finally { if ($runLock) { $runLock.Dispose() } }
 
 # ---- 4. Summary -------------------------------------------------------------------------------
 Write-Host ''

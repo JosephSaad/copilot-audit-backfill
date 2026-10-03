@@ -57,6 +57,10 @@
     with its own run record; one tenant's failure does not stop the next, and
     the exit code is 1 if any failed.
 
+    One run at a time on a database (2.4.12): each tenant's run holds its
+    database while it works, as Install-CopilotAudit.ps1 and the maintenance
+    rebuilds do. A run that finds another holding it stops at once, saying so.
+
 .EXAMPLE
     .\Invoke-CopilotPipeline.ps1 -History
 .EXAMPLE
@@ -189,15 +193,20 @@ function Invoke-PipelineStep {
     $LASTEXITCODE
 }
 
-function Invoke-PipelineSql {
-    <# One command against the Copilot database: a scalar back, or nothing. #>
-    param([System.Collections.IDictionary] $Setting, [string] $Sql, [hashtable] $Parameters = @{}, [int] $Timeout = 60)
+function Get-PipelineConnectionString {
+    <# The Copilot database's connection string, from the settings. #>
+    param([System.Collections.IDictionary] $Setting)
     $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
     $b['Data Source'] = $Setting.SqlServer; $b['Initial Catalog'] = $Setting.Database; $b['Integrated Security'] = $true
     $b['Encrypt'] = $true; $b['TrustServerCertificate'] = [bool] ($Setting.Contains('TrustServerCertificate') -and $Setting.TrustServerCertificate)
     # A whole connection string in the settings wins (the tests, or SQL authentication).
-    $cs = if ($Setting.Contains('ConnectionString') -and $Setting.ConnectionString) { [string] $Setting.ConnectionString } else { $b.ConnectionString }
-    $c = [System.Data.SqlClient.SqlConnection]::new($cs)
+    if ($Setting.Contains('ConnectionString') -and $Setting.ConnectionString) { [string] $Setting.ConnectionString } else { $b.ConnectionString }
+}
+
+function Invoke-PipelineSql {
+    <# One command against the Copilot database: a scalar back, or nothing. #>
+    param([System.Collections.IDictionary] $Setting, [string] $Sql, [hashtable] $Parameters = @{}, [int] $Timeout = 60)
+    $c = [System.Data.SqlClient.SqlConnection]::new((Get-PipelineConnectionString $Setting))
     $c.Open()
     try {
         $cmd = $c.CreateCommand()
@@ -211,7 +220,40 @@ function Invoke-PipelineSql {
 
 function Test-HistoryLoaded {
     param([System.Collections.IDictionary] $Setting)
-    [bool] (Invoke-PipelineSql $Setting "SELECT CASE WHEN OBJECT_ID(N'audit.CopilotAudit', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.CopilotAudit) THEN 1 ELSE 0 END")
+    # The table only through EXEC (2.4.12): a statement naming a missing table fails when it runs, whatever its other
+    # conditions, so a database whose history was not loaded yet threw here instead of saying to load it.
+    [bool] (Invoke-PipelineSql $Setting "IF OBJECT_ID(N'audit.CopilotAudit', N'U') IS NULL SELECT 0; ELSE EXEC (N'SELECT CASE WHEN EXISTS (SELECT 1 FROM audit.CopilotAudit) THEN 1 ELSE 0 END');")
+}
+
+function Enter-PipelineRun {
+    <#
+        Holds the Copilot database for this run alone (2.4.12): an exclusive application lock, on a connection of its
+        own kept open until the run ends, that Install-CopilotAudit.ps1 and the maintenance rebuilds take too. Nothing
+        kept runs apart: a run by hand during the nightly, or the nightly during an upgrade's full rebuild, loaded the
+        same windows twice or counted interactions twice. Returns that connection (dispose it to let go), or nothing
+        when another run holds the database. The steps this run starts know it holds the lock by CopilotAuditRunLock,
+        so the history's build step does not wait on its own run.
+    #>
+    param([System.Collections.IDictionary] $Setting)
+    $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new((Get-PipelineConnectionString $Setting))
+    # Not pooled: closing a pooled connection keeps its session, and the session's lock with it.
+    $b['Pooling'] = $false
+    $c = [System.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+    try {
+        $c.Open()
+        $cmd = $c.CreateCommand()
+        $cmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+        if ([int] $cmd.ExecuteScalar() -lt 0) { $c.Dispose(); return $null }
+    }
+    catch { $c.Dispose(); throw }
+    $env:CopilotAuditRunLock = "$($Setting.SqlServer)/$($Setting.Database)"
+    $c
+}
+
+function Exit-PipelineRun {
+    param($Lock)
+    if ($Lock) { $Lock.Dispose() }
+    Remove-Item Env:\CopilotAuditRunLock -ErrorAction SilentlyContinue
 }
 
 function Write-PipelineRecord {
@@ -309,7 +351,24 @@ function Invoke-Main {
     $failed = @()
     foreach ($t in $tenants) {
         $label = if ($several) { "[$($t.Name)]" } else { '' }
-        if (-not (Invoke-TenantRun -T $t -Log $log -Label $label)) { $failed += $t.Name }
+        # A tenant that cannot run is a failure of that tenant, and the next one runs (2.4.12): one whose database was
+        # offline, restoring or had lost the service account's login threw out of this loop, so the tenants after it
+        # did not run, every night until it was fixed, and no "Finished with failures" line was written.
+        $ok = $false; $lock = $null
+        try {
+            $lock = Enter-PipelineRun $t
+            if ($lock) { $ok = Invoke-TenantRun -T $t -Log $log -Label $label }
+            else {
+                "$(Get-Date -Format s) $label Another run is using $($t.Database) now (the nightly task, an upgrade or a rebuild): nothing was run. Run this again when it has finished." |
+                    Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
+            }
+        }
+        catch {
+            "$(Get-Date -Format s) $label Could not run against $($t.Database): $($_.Exception.Message)" |
+                Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
+        }
+        finally { Exit-PipelineRun $lock }
+        if (-not $ok) { $failed += $t.Name }
     }
     if ($failed.Count) {
         "$(Get-Date -Format s) Finished with failures$(if ($several) { ": $($failed -join ', ')" })." | Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue

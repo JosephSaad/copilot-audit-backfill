@@ -75,6 +75,7 @@ namespace CopilotAudit
         public int      InitialDownloadStreams  { get; set; } = 4;
         public int      MaxDownloadStreams      { get; set; } = 8;
         public int      IncreaseAfterCleanPages { get; set; } = 40;
+        public double   PageTimeoutMinutes      { get; set; } = 5;    // one page, its body read through (2.4.12)
 
         // SQL load.
         public int      BatchRows               { get; set; } = 2000;
@@ -154,6 +155,22 @@ namespace CopilotAudit
         Task<List<AuditWindow>> LoadAllAsync(CancellationToken ct);
         Task InsertAsync(AuditWindow w, CancellationToken ct);   // must set WindowId
         Task UpdateAsync(AuditWindow w, CancellationToken ct);
+
+        // The parent marked Split and both halves inserted, all or none (2.4.12; must set both WindowIds). Three
+        // separate writes left the parent Split with a half missing when a run stopped between them: a hole nothing
+        // planned again, which merge and finalize then refused for good.
+        Task SplitAsync(AuditWindow parent, AuditWindow older, AuditWindow newer, CancellationToken ct);
+
+        // The window table for this run alone until disposed, or WindowTableInUseException when another run holds it
+        // (2.4.12). Nothing claimed a window, so two runs on one table planned the same windows from the same cursor
+        // and wrote over each other's rows.
+        Task<IDisposable> ClaimAsync(CancellationToken ct);
+    }
+
+    /// <summary>Another run is loading the same window table; this one stops before touching it.</summary>
+    public sealed class WindowTableInUseException : Exception
+    {
+        public WindowTableInUseException(string message) : base(message) { }
     }
 
     public interface IBatchSink
@@ -442,15 +459,32 @@ namespace CopilotAudit
             return list;
         }, ct);
 
-        public Task InsertAsync(AuditWindow w, CancellationToken ct) => WithRetry(async conn =>
+        SqlCommand InsertCommand(SqlConnection conn, SqlTransaction tx, AuditWindow w)
         {
-            using (var cmd = new SqlCommand(
+            var cmd = new SqlCommand(
                 "INSERT INTO " + _table + " (ParentWindowId, StartUtc, EndUtc, Status, QueryId, Attempts, Submissions, " +
                 "ApproxRecords, RowsLoaded, SubmittedUtc, CompletedUtc, LastError) OUTPUT INSERTED.WindowId VALUES " +
                 "(@ParentWindowId, @StartUtc, @EndUtc, @Status, @QueryId, @Attempts, @Submissions, @ApproxRecords, " +
-                "@RowsLoaded, @SubmittedUtc, @CompletedUtc, @LastError)", conn))
+                "@RowsLoaded, @SubmittedUtc, @CompletedUtc, @LastError)", conn, tx);
+            AddParams(cmd, w);
+            return cmd;
+        }
+
+        SqlCommand UpdateCommand(SqlConnection conn, SqlTransaction tx, AuditWindow w)
+        {
+            var cmd = new SqlCommand(
+                "UPDATE " + _table + " SET Status=@Status, QueryId=@QueryId, Attempts=@Attempts, Submissions=@Submissions, " +
+                "ApproxRecords=@ApproxRecords, RowsLoaded=@RowsLoaded, SubmittedUtc=@SubmittedUtc, " +
+                "CompletedUtc=@CompletedUtc, LastError=@LastError, UpdatedUtc=SYSUTCDATETIME() WHERE WindowId=@WindowId", conn, tx);
+            AddParams(cmd, w);
+            cmd.Parameters.Add("@WindowId", SqlDbType.BigInt).Value = w.WindowId;
+            return cmd;
+        }
+
+        public Task InsertAsync(AuditWindow w, CancellationToken ct) => WithRetry(async conn =>
+        {
+            using (var cmd = InsertCommand(conn, null, w))
             {
-                AddParams(cmd, w);
                 w.WindowId = (long)await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
             }
             return true;
@@ -458,17 +492,57 @@ namespace CopilotAudit
 
         public Task UpdateAsync(AuditWindow w, CancellationToken ct) => WithRetry(async conn =>
         {
-            using (var cmd = new SqlCommand(
-                "UPDATE " + _table + " SET Status=@Status, QueryId=@QueryId, Attempts=@Attempts, Submissions=@Submissions, " +
-                "ApproxRecords=@ApproxRecords, RowsLoaded=@RowsLoaded, SubmittedUtc=@SubmittedUtc, " +
-                "CompletedUtc=@CompletedUtc, LastError=@LastError, UpdatedUtc=SYSUTCDATETIME() WHERE WindowId=@WindowId", conn))
+            using (var cmd = UpdateCommand(conn, null, w))
             {
-                AddParams(cmd, w);
-                cmd.Parameters.Add("@WindowId", SqlDbType.BigInt).Value = w.WindowId;
                 await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             }
             return true;
         }, ct);
+
+        public Task SplitAsync(AuditWindow parent, AuditWindow older, AuditWindow newer, CancellationToken ct) => WithRetry(async conn =>
+        {
+            // Disposed without the commit (a stop, an error), the transaction rolls back: the parent stays as it was,
+            // and the next run splits it again.
+            using (var tx = conn.BeginTransaction())
+            {
+                using (var cmd = UpdateCommand(conn, tx, parent))
+                    await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+                using (var cmd = InsertCommand(conn, tx, older))
+                    older.WindowId = (long)await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+                using (var cmd = InsertCommand(conn, tx, newer))
+                    newer.WindowId = (long)await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+                tx.Commit();
+            }
+            return true;
+        }, ct);
+
+        public async Task<IDisposable> ClaimAsync(CancellationToken ct)
+        {
+            // An application lock held by a connection of its own, not pooled: the lock belongs to the session, and
+            // closing a pooled connection keeps the session, lock and all. A run that dies drops the connection, and
+            // the lock goes with it.
+            var b = new SqlConnectionStringBuilder(_cs) { Pooling = false };
+            var conn = new SqlConnection(b.ConnectionString);
+            try
+            {
+                await conn.OpenAsync(ct).ConfigureAwait(false);
+                using (var cmd = new SqlCommand(
+                    "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = @res, @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;", conn))
+                {
+                    cmd.Parameters.Add("@res", SqlDbType.NVarChar, 255).Value = "CopilotAudit.Windows:" + _table;
+                    var r = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false), CultureInfo.InvariantCulture);
+                    if (r < 0)
+                        throw new WindowTableInUseException("Another run is loading " + _table + " in this database now: two at once " +
+                            "would plan the same windows twice. Let it finish, or stop it, then run this again.");
+                }
+                return conn;
+            }
+            catch
+            {
+                conn.Dispose();
+                throw;
+            }
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -752,16 +826,23 @@ namespace CopilotAudit
 
         async Task RunAsync(CancellationToken ct)
         {
-            var planner = Guard("planner", () => PlannerLoopAsync(ct));
-            var downloaders = Enumerable.Range(0, _o.MaxDownloadStreams)
-                                        .Select(i => Guard("download-" + i, () => DownloadLoopAsync(ct))).ToArray();
-            var writers = Enumerable.Range(0, Math.Max(1, _o.SqlWriters))
-                                    .Select(i => Guard("writer-" + i, () => WriterLoopAsync(ct))).ToArray();
+            // One run at a time on a window table, held to the end (2.4.12). A second run beside this one (-History
+            // started again from another console, a run by hand during the nightly) planned the same windows from the
+            // same cursor and re-marked this run's windows as its own, leaving overlaps that finalize refuses for good,
+            // or a load marked downloaded whose windows never all finished.
+            using (await _store.ClaimAsync(ct).ConfigureAwait(false))
+            {
+                var planner = Guard("planner", () => PlannerLoopAsync(ct));
+                var downloaders = Enumerable.Range(0, _o.MaxDownloadStreams)
+                                            .Select(i => Guard("download-" + i, () => DownloadLoopAsync(ct))).ToArray();
+                var writers = Enumerable.Range(0, Math.Max(1, _o.SqlWriters))
+                                        .Select(i => Guard("writer-" + i, () => WriterLoopAsync(ct))).ToArray();
 
-            await planner.ConfigureAwait(false);
-            await Task.WhenAll(downloaders).ConfigureAwait(false);
-            _batches.Writer.TryComplete();
-            await Task.WhenAll(writers).ConfigureAwait(false);
+                await planner.ConfigureAwait(false);
+                await Task.WhenAll(downloaders).ConfigureAwait(false);
+                _batches.Writer.TryComplete();
+                await Task.WhenAll(writers).ConfigureAwait(false);
+            }
 
             if (_fault != null) throw new AggregateException("Backfill stopped: " + _fault.Message, _fault);
             ct.ThrowIfCancellationRequested();
@@ -808,6 +889,19 @@ namespace CopilotAudit
                         "The control table was started with an end of {0:yyyy-MM-dd HH:mm}Z; keeping that (requested {1:yyyy-MM-dd HH:mm}Z). " +
                         "To cover a later period, use a separate table or run the ongoing feed.", originalEnd, _o.RangeEndUtc));
                     _o.RangeEndUtc = originalEnd;
+                }
+            }
+            // A split that stopped part way before 2.4.12 left its parent Split with a half missing. Resuming skips Split
+            // windows and plans only below the lowest window on record, so that hole was never planned again, and the
+            // run ended "complete" for merge or finalize to refuse every time after. Its missing halves are planned now.
+            foreach (var p in existing.Where(x => x.Status == WindowStatus.Split).ToList())
+            {
+                foreach (var half in MissingHalves(p, existing))
+                {
+                    await _store.InsertAsync(half, ct).ConfigureAwait(false);
+                    existing.Add(half);
+                    Log("WARN", string.Format(CultureInfo.InvariantCulture,
+                        "{0}: its split stopped part way; {1} was never planned - planning it now.", p, half));
                 }
             }
             _cursor = _o.RangeEndUtc;
@@ -1055,17 +1149,41 @@ namespace CopilotAudit
 
             w.Status = WindowStatus.Split;
             w.LastError = reason;
-            await _store.UpdateAsync(w, ct).ConfigureAwait(false);
-
             var older = new AuditWindow { ParentWindowId = w.WindowId, StartUtc = w.StartUtc, EndUtc = mid };
             var newer = new AuditWindow { ParentWindowId = w.WindowId, StartUtc = mid, EndUtc = w.EndUtc };
-            await _store.InsertAsync(older, ct).ConfigureAwait(false);
-            await _store.InsertAsync(newer, ct).ConfigureAwait(false);
+            await _store.SplitAsync(w, older, newer, ct).ConfigureAwait(false);
             _windows[older.WindowId] = older;
             _windows[newer.WindowId] = newer;
             pending.AddFirst(older);
             pending.AddFirst(newer);
             Log("INFO", string.Format(CultureInfo.InvariantCulture, "{0}: split ({1}) into {2} and {3}.", w, reason, newer, older));
+        }
+
+        // The parts of a Split window's range that none of its halves covers, as new windows: both halves, cut where
+        // SplitAsync cuts, when neither was written.
+        static List<AuditWindow> MissingHalves(AuditWindow parent, List<AuditWindow> all)
+        {
+            var missing = new List<AuditWindow>();
+            var halves = all.Where(x => x.ParentWindowId == parent.WindowId).OrderBy(x => x.StartUtc).ToList();
+            if (halves.Count == 0)
+            {
+                var mid = parent.StartUtc.AddMinutes(Math.Floor((parent.EndUtc - parent.StartUtc).TotalMinutes / 2));
+                if (mid > parent.StartUtc && mid < parent.EndUtc)
+                {
+                    missing.Add(new AuditWindow { ParentWindowId = parent.WindowId, StartUtc = parent.StartUtc, EndUtc = mid });
+                    missing.Add(new AuditWindow { ParentWindowId = parent.WindowId, StartUtc = mid, EndUtc = parent.EndUtc });
+                }
+                else missing.Add(new AuditWindow { ParentWindowId = parent.WindowId, StartUtc = parent.StartUtc, EndUtc = parent.EndUtc });
+                return missing;
+            }
+            var at = parent.StartUtc;
+            foreach (var h in halves)
+            {
+                if (h.StartUtc > at) missing.Add(new AuditWindow { ParentWindowId = parent.WindowId, StartUtc = at, EndUtc = h.StartUtc });
+                if (h.EndUtc > at) at = h.EndUtc;
+            }
+            if (at < parent.EndUtc) missing.Add(new AuditWindow { ParentWindowId = parent.WindowId, StartUtc = at, EndUtc = parent.EndUtc });
+            return missing;
         }
 
         async Task RetryOrSplitAsync(AuditWindow w, LinkedList<AuditWindow> pending, CancellationToken ct)
@@ -1406,6 +1524,12 @@ namespace CopilotAudit
                 await _limiter.WaitAsync(ct).ConfigureAwait(false);
                 long tv = Interlocked.Read(ref _tokenVersion);
                 HttpResponseMessage resp = null;
+                // Each page has a time limit of its own, body included (2.4.12). HttpClient's timeout ends once the
+                // headers arrive (ResponseHeadersRead), so a connection that went silent mid-body - a proxy or firewall
+                // dropping it without a reset - was awaited forever, and the whole run with it, until Task Scheduler
+                // killed it 20 hours later.
+                var page = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                page.CancelAfter(TimeSpan.FromMinutes(_o.PageTimeoutMinutes));
                 try
                 {
                     using (var req = new HttpRequestMessage(HttpMethod.Get, url))
@@ -1413,15 +1537,15 @@ namespace CopilotAudit
                         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
                         req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                         req.Headers.Add("client-request-id", Guid.NewGuid().ToString());
-                        resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                        resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, page.Token).ConfigureAwait(false);
                     }
 
                     int code = (int)resp.StatusCode;
                     if (resp.IsSuccessStatusCode)
                     {
-                        using (var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
+                        using (var stream = await resp.Content.ReadAsStreamAsync(page.Token).ConfigureAwait(false))
                         {
-                            var doc = await JsonDocument.ParseAsync(stream, default, ct).ConfigureAwait(false);
+                            var doc = await JsonDocument.ParseAsync(stream, default, page.Token).ConfigureAwait(false);
                             _limiter.OnSuccess(_o.IncreaseAfterCleanPages);
                             return doc;
                         }
@@ -1445,7 +1569,7 @@ namespace CopilotAudit
                         await Task.Delay(Backoff(transient), ct).ConfigureAwait(false);
                         continue;
                     }
-                    var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    var body = await resp.Content.ReadAsStringAsync(page.Token).ConfigureAwait(false);
                     throw new GraphRequestException(code, body, url);
                 }
                 catch (HttpRequestException ex) when (++transient <= 8)
@@ -1453,8 +1577,9 @@ namespace CopilotAudit
                     Log("WARN", "Network error paging records (" + ex.Message + ") - retrying.");
                     await Task.Delay(Backoff(transient), ct).ConfigureAwait(false);
                 }
-                catch (TaskCanceledException) when (!ct.IsCancellationRequested && ++transient <= 8)
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested && ++transient <= 8)
                 {
+                    // The page's own limit, or HttpClient's: not a stop.
                     Log("WARN", "Page request timed out - retrying.");
                     await Task.Delay(Backoff(transient), ct).ConfigureAwait(false);
                 }
@@ -1472,6 +1597,7 @@ namespace CopilotAudit
                 finally
                 {
                     resp?.Dispose();
+                    page.Dispose();
                     _limiter.Release();
                 }
             }

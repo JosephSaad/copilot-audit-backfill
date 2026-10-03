@@ -45,6 +45,8 @@ CFG = {
     "max_page_size": 1000,
     "rotate_after_pages": 0,        # >0: invalidate the current token once, after this many pages
     "report_approx_count": True,    # False: beta status omits approximateReturnedRecordCount, as a live tenant did
+    "stall_page_body": 0,           # >0: that page (by pages served) sends its headers and half its body, then goes silent
+    "stall_seconds": 600,           # ...for this long, as a proxy that drops a connection without a reset
 }
 if len(sys.argv) > 2:
     CFG.update(json.loads(sys.argv[2]))
@@ -80,6 +82,7 @@ state = {
     "records_served": 0,
     "batch_throttled": 0,
     "batch_dropped": 0,
+    "pages_stalled": 0,
 }
 
 
@@ -516,14 +519,40 @@ class Handler(BaseHTTPRequestHandler):
                 obj["@odata.nextLink"] = "%s/v1.0/security/auditLog/queries/%s/records?$top=%d&$skiptoken=%d" % (
                     self.base(), qid, top, skip + top)
             with lock:
-                state["pages_served"] += 1
-                state["records_served"] += len(chunk)
+                stall = CFG["stall_page_body"] and state["pages_stalled"] == 0 and state["pages_served"] + 1 == CFG["stall_page_body"]
+                if stall:
+                    state["pages_stalled"] += 1
+                else:
+                    state["pages_served"] += 1
+                    state["records_served"] += len(chunk)
                 if CFG["rotate_after_pages"] and state["pages_served"] == CFG["rotate_after_pages"]:
                     state["token_gen"] += 1
+            if stall:
+                return self.stall_body(obj)
             return self.send_json(200, obj)
         finally:
             with lock:
                 state["pages_in_flight"] -= 1
+
+    def stall_body(self, obj):
+        """The headers and half the body, then nothing: the connection stays open and silent."""
+        body = json.dumps(obj).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body[: len(body) // 2])
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        with lock:
+            state["pages_in_flight"] -= 1     # not a page in flight while it sleeps
+        try:
+            time.sleep(CFG["stall_seconds"])
+        finally:
+            with lock:
+                state["pages_in_flight"] += 1  # the caller's finally takes it off again
 
 
 def main():

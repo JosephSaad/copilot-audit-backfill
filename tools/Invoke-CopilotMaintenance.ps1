@@ -138,6 +138,28 @@ SELECT @l;
 $licList = if ($LicenseEventDatabases) { $LicenseEventDatabases -join ',' } else { $null }
 function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
 
+# The tasks that rebuild hold the database while they work (2.4.12), as the nightly pipeline and Install-CopilotAudit.ps1
+# do: an exclusive application lock, on a connection of its own kept open until the task ends. A rebuild that ran beside
+# the nightly rebuilt bi under the nightly's own refresh, counting interactions twice.
+$runLock = $null
+if ($Task -in 'Reflatten', 'RebuildSessions', 'RebuildBi', 'RebuildValueCatalog' -or ($Apply -and $Task -in 'SetAppCategory', 'PurgeJson')) {
+    $lb = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
+    $lb['Data Source'] = $SqlServer; $lb['Initial Catalog'] = $Database
+    if ($SqlCredential) { $lb['User ID'] = $SqlCredential.UserName; $lb['Password'] = $SqlCredential.GetNetworkCredential().Password }
+    else { $lb['Integrated Security'] = $true }
+    $lb['Encrypt'] = $true; $lb['TrustServerCertificate'] = [bool] $TrustServerCertificate; $lb['Application Name'] = 'Invoke-CopilotMaintenance'
+    $lb['Pooling'] = $false   # closing a pooled connection keeps its session, and the session's lock with it
+    $runLock = New-Object System.Data.SqlClient.SqlConnection $lb.ConnectionString
+    $runLock.Open()
+    $lc = $runLock.CreateCommand()
+    $lc.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'CopilotAudit.Run', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+    if ([int] $lc.ExecuteScalar() -lt 0) {
+        $runLock.Dispose()
+        throw "Another run is using $Database now: the nightly pipeline, the installer or another rebuild. Nothing was changed. Let it finish (Admin > Health shows the pipeline's runs), then run this again."
+    }
+}
+
+try {
 switch ($Task) {
     'Status' {
         $t = Invoke-Sql -Table -Sql @"
@@ -312,3 +334,5 @@ END;
         if (-not $Apply) { Write-Host 'Nothing was cleared; add -Apply to clear it.' }
     }
 }
+}
+finally { if ($runLock) { $runLock.Dispose() } }

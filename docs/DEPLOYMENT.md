@@ -123,7 +123,7 @@ If no policy mentions Copilot, plan for 180 days. Asking for more returns empty 
 3. Grants admin consent to each.
 4. Uploads the job server's certificate.
 
-It prints the tenant and client ids and writes them into the job server's settings. Run it again at any time: it changes only what is missing, and adds a renewed certificate alongside the old one.
+It prints the tenant and client ids and writes them into the job server's settings. Run it again at any time: it changes only what is missing, and adds a renewed certificate alongside the old one. Step 3 passes the client id in the settings as `-ClientId`, so a later run finds the app by it. By name alone, it takes an app already there only when it is the only one of that name, has no client secret and no owner but you; otherwise it stops and changes nothing, and `-ClientId` names the app to use (2.4.12; before, any app of that name, someone else's included, was given the permissions and consent).
 
 ```powershell
 .\tools\New-CopilotAuditApp.ps1 -TenantId contoso.onmicrosoft.com -CertificatePath D:\CopilotAudit\copilot-audit.cer
@@ -172,7 +172,7 @@ cd D:\CopilotAudit
 6. **Settings.** Writes `copilot-audit.settings.psd1` next to the scripts: the server, databases, tenant, client id, thumbprint, users' domain and log folder. Every later command reads them.
 7. **The nightly task.** Registers *Copilot audit - nightly*, daily at 02:00 (`-At` to change it), as the gMSA, running `Invoke-CopilotPipeline.ps1` (steps 12-13).
 
-It ends by listing what is left. Run it again at any time with no parameters, and it redoes only what is missing. For example, run it after renewing the certificate, with `-RegisterApp` to upload the new one. `-SkipDatabase` and `-RegisterApp` aren't saved in the settings, so pass them again on each run that needs them.
+It ends by listing what is left. Run it again at any time with no parameters, and it redoes only what is missing. A new certificate is made only with `-RegisterApp`, which uploads it to the app of every tenant in the settings: without it, a certificate within 30 days of expiry is kept, and the list says to renew it (2.4.12; before, any run in those 30 days switched to a new certificate no app had, and the nightly sign-in failed). `-SkipDatabase` and `-RegisterApp` aren't saved in the settings, so pass them again on each run that needs them.
 
 **A service account with a password instead of a gMSA.** Name it without the trailing `$`, and give its password with `-ServiceAccountCredential` so the nightly task can store it:
 
@@ -341,7 +341,7 @@ One paged search reads every user in the trusted domain, enabled or not, since a
 
 > **Read the match report.** It ends by saying how many users in the audit data it found by UPN, and how many more only by mail. Everything joins on the UPN. Under 90% means AD's UPNs are not the names people sign in to Microsoft 365 with, and their usage will show without a department. Resolve that before going further.
 
-It also reports the accounts it skipped: other employee types, no UPN, a UPN over 256 characters, or a duplicate UPN. An account with no UPN cannot have used Copilot, so it is left out of the management chain as well: someone whose manager has no UPN reports, in the org chart, to the nearest manager above who has one.
+It also reports the accounts it skipped: other employee types, no UPN, a UPN over 256 characters, or a duplicate UPN. An account with no UPN cannot have used Copilot, so it is left out of the management chain as well: someone whose manager has no UPN reports, in the org chart, to the nearest manager above who has one. That manager still counts in `OrgDepth`, and in the dashboard's levels, so the people under them keep their real level (2.4.12; before, someone under such a manager right below the top was level 2, which sees the whole organization).
 
 > **Check the employee types before the first load.** By default only `employeeType` codes `EMP` and `NONW` are loaded. Directories that use other codes, or leave the attribute empty, load few or no users. Count the codes first (the ActiveDirectory module is needed):
 >
@@ -381,7 +381,7 @@ A good run lists the tenant's Copilot SKUs, how many users it looked up, and how
 [INFO ] Enrichment complete: 10 licensed user(s) recorded.
 ```
 
-People who appear only in the license history, whose license was removed and who never used Copilot, aren't looked up. `Users[CopilotLicenseToday]` shows them as *Unknown*. Their license changes and licensed days are still counted.
+Everyone recorded as licensed is looked up again each night, so a license taken back shows as *Not licensed* from the next night, and a person who has left as not found (2.4.12; before, someone who never used Copilot stayed *Licensed* after the license was reclaimed). People who appear only in the license history, whose license was removed before any night recorded it and who never used Copilot, aren't looked up. `Users[CopilotLicenseToday]` shows them as *Unknown*. Their license changes and licensed days are still counted.
 
 ### Step 11. Build everything once
 
@@ -414,6 +414,7 @@ Four steps, in this order, each finishing before the next starts:
 - output appended to `logs\nightly-<date>.log`, and logs older than 90 days deleted;
 - at the first failure it stops and exits 1, so Task Scheduler's history shows it; tomorrow's run resumes the same load;
 - if the history hasn't been loaded yet, it says so and exits 1, rather than starting a partial load;
+- it holds the database while it runs, as the installer and the maintenance rebuilds do: one started while another holds it stops at once, says so and changes nothing (2.4.12). With several tenants, one tenant that can't run fails on its own and the next one runs;
 - every run and step is recorded in `audit.PipelineRun` and `audit.PipelineRunStep`, with the failed step's last log lines, for the dashboard's Health page and its pipeline alert;
 - after a successful night, it applies the retention set in the dashboard's Admin › Privacy and retention (old audit-log and notification rows; the stored JSON of old records, if set).
 
@@ -451,6 +452,8 @@ The on-premises data gateway's login needs the `bi` views and nothing else. The 
 ```powershell
 .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -ReportingAccount 'CORP\svc-pbigateway'
 ```
+
+The account joins the database role `CopilotReporting`, which every run of the installer grants each `bi` view to, so the views a release adds are readable too; the tables under the views are not, so privacy mode's pseudonyms hold for it. Before 2.4.12 the account read the whole `bi` schema, tables included: give it to `-ReportingAccount` once more to narrow it. The installer names any other account that still reads the whole schema.
 
 ### Step 15. Open the ready-made model
 
@@ -722,6 +725,8 @@ The new tenant's admin consents to the same three Graph permissions for its own 
 
 Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01`; `-Task Status` shows what is loaded and when each step last ran.
 
+The nightly run, the installer and the rebuilds below hold the database while they work, so one started while another runs stops at once and changes nothing (2.4.12). Before an upgrade, a rebuild or a `-History` load, disable the nightly task (`Disable-ScheduledTask -TaskName 'Copilot audit - nightly'`) and enable it again when the work is done, so that night's load is not refused.
+
 | When | Do this |
 |---|---|
 | A session setting changes (timeout, time zone, license databases) | `M -Task RebuildSessions`. Until then the nightly run stops with *different settings*. |
@@ -730,9 +735,9 @@ Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -Sql
 | Someone needs to see more of the dashboard | Admin › Access, or `M -Task GrantRole -Principal 'CORP\Group' -Role Organization`: Organization for the whole organization, a persona role for its named lists. The org chart follows AD by itself, the night after a move. |
 | The flatten says a field *now carries information* | One of the fields that never varied has a second value: see `audit.RawLogRecordShape`. Nothing is lost from the JSON; if it matters for reporting, it needs a column in a new release. |
 | Disk grows past your horizon | `M -Task PurgeJson -RetainDays 365` reports what it would clear; add `-Apply` to clear the stored JSON and keep the rows. |
-| A new release comes out | Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, and run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once (with `-Dashboard` if the dashboard is installed). It upgrades every object and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. Read the release notes' upgrade section. |
+| A new release comes out | Disable the nightly task. Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once (with `-Dashboard` if the dashboard is installed), and enable the task again. It upgrades every object and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. Read the release notes' upgrade section. |
 | Upgrading to 2.3.0 | As for any release. The installer catalogs the codes of records flattened before (Admin › Value names) and rebuilds the dashboard's rollups once with Premium use; the nightly license-event load starts asking for Copilot Studio's authoring operations as well, from that night on. With the dashboard, run step 22 again with the new package, and replace a hand-built Power BI model with the one in `powerbi\` (step 15). |
-| The certificate nears expiry | Within 30 days of expiry, `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` creates a new one, gives the gMSA its private key, uploads it to the app next to the old one and puts its thumbprint in the settings. Remove the old one from the app after the next good run. |
+| The certificate nears expiry | Within 30 days of expiry, `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` creates a new one, gives the gMSA its private key, uploads it next to the old one to the app of every tenant in the settings and puts its thumbprint in the settings. Remove the old one from the apps after the next good run. Without `-RegisterApp` the old one is kept until it expires. |
 
 **When the nightly run fails:**
 
@@ -742,7 +747,7 @@ Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -Sql
 | License tool: `403` / `Authorization_RequestDenied` | `User.Read.All` or `LicenseAssignment.Read.All` is missing or not consented. With `-IncludeLeaveDates`, `User-LifeCycleInfo.Read.All` too: grant it, or run without the switch (remove `IncludeLeaveDates` from the settings file). |
 | `Could not read RootDSE` | The domain name is wrong, the trust doesn't reach it, or the gMSA isn't trusted there. Try a domain controller's name as `-TargetDomain`. |
 | `is the domain this script runs in` | The AD export was pointed at the job server's own domain. It only reads a trusted domain. |
-| `Merge refused: ... gap(s)` | A load's windows don't cover its range. Look at `audit.CopilotLoadWindow`; the next run resumes the load. |
+| `Merge refused: ... gap(s)` | A load's windows don't cover its range: before 2.4.12, a split that stopped part way or two runs at once could leave such a hole. The next run only merges again, so it does not mend it. Look at `audit.CopilotLoadWindow`, then start the load again with `DELETE FROM audit.CopilotLoad WHERE MergedUtc IS NULL;`: the next run plans a new one from where the merged data ends. |
 | `window(s) failed after retries` | Usually throttling or a network drop. The next run retries those windows only. |
 | `Submission budget reached` | Not a failure: the tenant's daily search budget is spent. Downloads continue and searches resume as the 24-hour window rolls. |
 

@@ -50,10 +50,10 @@ BEGIN
 
     DROP TABLE IF EXISTS #dir;
     CREATE TABLE #dir (Upn NVARCHAR(256) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY,
-                       ManagerUpn NVARCHAR(256) COLLATE DATABASE_DEFAULT NULL);
+                       ManagerUpn NVARCHAR(256) COLLATE DATABASE_DEFAULT NULL, OrgDepth INT NULL);
     IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
-        EXEC (N'INSERT INTO #dir (Upn, ManagerUpn)
-                SELECT UserPrincipalName, NULLIF(NULLIF(ManagerUPN, N''''), UserPrincipalName) FROM audit.UserDirectory;');
+        EXEC (N'INSERT INTO #dir (Upn, ManagerUpn, OrgDepth)
+                SELECT UserPrincipalName, NULLIF(NULLIF(ManagerUPN, N''''), UserPrincipalName), OrgDepth FROM audit.UserDirectory;');
 
     DROP TABLE IF EXISTS #clo;
     WITH c AS
@@ -109,6 +109,12 @@ BEGIN
     INSERT INTO #person (Upn)
     SELECT DISTINCT c.AncestorUpn FROM #clo AS c WHERE NOT EXISTS (SELECT 1 FROM #person AS p WHERE p.Upn = c.AncestorUpn);
 
+    /* A level counts every manager between a person and the top, those without a UPN too (2.4.12). The closure runs
+       on ManagerUPN, which passes over a manager without a UPN to the one above, so a person under such a manager
+       right below the top came out at level 2, which sees the whole organization. The AD load's OrgDepth counts them
+       all; the deeper of the two is taken, so a level is never nearer the top than the chart puts it. */
+    DECLARE @topDepth INT = (SELECT OrgDepth FROM #dir WHERE Upn = @top);
+
     BEGIN TRANSACTION;
     DELETE FROM dash.OrgClosure;
     INSERT INTO dash.OrgClosure (AncestorUpn, DescendantUpn, Depth)
@@ -117,11 +123,14 @@ BEGIN
     DELETE FROM dash.Person;
     INSERT INTO dash.Person (Upn, DisplayName, ManagerUpn, Department, AccountEnabled, Sid, Level, DirectReports, PeopleBelow)
     SELECT p.Upn, p.DisplayName, p.ManagerUpn, p.Department, p.AccountEnabled, p.Sid,
-           CASE WHEN @top IS NULL THEN NULL ELSE t.Depth + 1 END,
+           CASE WHEN @top IS NULL OR t.DescendantUpn IS NULL THEN NULL
+                WHEN d.OrgDepth - @topDepth > t.Depth THEN d.OrgDepth - @topDepth + 1
+                ELSE t.Depth + 1 END,
            (SELECT COUNT(*) FROM #clo AS c WHERE c.AncestorUpn = p.Upn AND c.Depth = 1),
            (SELECT COUNT(*) FROM #clo AS c WHERE c.AncestorUpn = p.Upn AND c.Depth >= 1)
     FROM #person AS p
-    LEFT JOIN #clo AS t ON t.AncestorUpn = @top AND t.DescendantUpn = p.Upn;
+    LEFT JOIN #clo AS t ON t.AncestorUpn = @top AND t.DescendantUpn = p.Upn
+    LEFT JOIN #dir AS d ON d.Upn = p.Upn;
     COMMIT TRANSACTION;
 
     DECLARE @people INT = (SELECT COUNT(*) FROM dash.Person), @closure INT = (SELECT COUNT(*) FROM dash.OrgClosure);
