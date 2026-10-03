@@ -4,8 +4,11 @@
     loaded, from where, what is missing or behind, and what to run.
 
 .DESCRIPTION
-    Runs SELECT statements only. It changes nothing and takes no lock, so it is safe to run
-    while the nightly task runs. It checks:
+    Runs SELECT statements only. It changes nothing. It reads uncommitted data, so it takes no
+    row or page locks and does not wait for the nightly task's writes, and it is safe to run
+    beside the task. A query still holds a schema-stability lock while it runs, so one on a
+    table the task is truncating or rebuilding waits until the task finishes (up to
+    -TimeoutSeconds), and it can delay such a truncate by the length of the query. It checks:
 
       1. Coverage of the Copilot database: the ranges CSV imports and API loads covered, and
          any gap between them; days in bi with no interactions.
@@ -17,7 +20,8 @@
       5. The directory and the nightly runs.
 
     Each finding ends with OK, WARN or ACTION, and the script closes with the commands to run,
-    in order. Run it from the scripts folder: the commands it gives are relative to it.
+    in order. It says every check passed only when none warned and every section ran to the
+    end. Run it from the scripts folder: the commands it gives are relative to it.
 
 .EXAMPLE
     .\tools\Test-CopilotDataHealth.ps1 -SqlServer SQLPROD01
@@ -38,7 +42,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $script:Actions = New-Object System.Collections.Generic.List[string]
-$script:Server = $SqlServer
+$script:Warnings = 0
+$script:NotRun = 0
 $script:DataEnd = $null
 $script:botSince = $null
 # Every installer finding comes to the same one run, which does all of them (upgrade, shred, flatten, agent ids).
@@ -60,7 +65,7 @@ function New-Conn([string] $Db) {
 function Get-Table($Conn, [string] $Sql) {
     $cmd = $Conn.CreateCommand()
     $cmd.CommandTimeout = $TimeoutSeconds
-    # Read committed snapshot is not assumed: read uncommitted keeps a check from waiting on the nightly run.
+    # Read committed snapshot is not assumed: read uncommitted keeps a check from waiting on the nightly run's row and page locks.
     $cmd.CommandText = "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;`n" + $Sql
     $t = New-Object System.Data.DataTable
     $r = $cmd.ExecuteReader()
@@ -87,7 +92,7 @@ function Test-Object($Conn, [string] $Name) {
 function Write-Head([string] $Text) { Write-Host ''; Write-Host "== $Text ==" -ForegroundColor Cyan }
 function Write-Ok([string] $Text) { Write-Host "  OK      $Text" -ForegroundColor Green }
 function Write-Info([string] $Text) { Write-Host "          $Text" }
-function Write-Warn([string] $Text) { Write-Host "  WARN    $Text" -ForegroundColor Yellow }
+function Write-Warn([string] $Text) { $script:Warnings++; Write-Host "  WARN    $Text" -ForegroundColor Yellow }
 function Write-Act([string] $Text, [string] $Command) {
     Write-Host "  ACTION  $Text" -ForegroundColor Red
     if ($Command -and -not $script:Actions.Contains($Command)) { $script:Actions.Add($Command) }
@@ -101,7 +106,7 @@ function Age([object] $Utc) {
 function Invoke-Section([string] $Title, [scriptblock] $Body) {
     Write-Head $Title
     # Dot-sourced, so what a section finds is there for the next; a query that fails ends its section only.
-    try { . $Body } catch { Write-Warn ("This section stopped: {0}" -f $_.Exception.Message) }
+    try { . $Body } catch { $script:NotRun++; Write-Warn ("This section stopped: {0}" -f $_.Exception.Message) }
 }
 
 function Test-Column($Conn, [string] $Table, [string] $Column) {
@@ -121,17 +126,11 @@ function Get-CoverageGap($Intervals, [double] $MinHours) {
     , $gaps
 }
 
-$licOps = "'Change user license','Update user','Add user','Delete user'," +
-          "'BotCreate','BotDelete','BotDeleteCleanup','BotUpdateOperation-BotPublish','BotUpdateOperation-BotShare'," +
-          "'BotUpdateOperation-BotNameUpdate','BotUpdateOperation-BotAuthUpdate','BotUpdateOperation-BotIconUpdate'," +
-          "'BotAppInsightsUpdate','BotComponentCreate','BotComponentUpdate','BotComponentDelete'," +
-          "'BotComponentCollectionCreate','BotComponentCollectionDelete'"
-
 Write-Host "Copilot data health check: $SqlServer / $Database and $LicenseDatabase, $([datetime]::UtcNow.ToString('yyyy-MM-dd HH:mm'))Z. Read only."
 
 $cp = New-Conn $Database
 $lic = $null
-try { $lic = New-Conn $LicenseDatabase } catch { Write-Warn "Cannot open $LicenseDatabase ($($_.Exception.Message)); its checks are skipped." }
+try { $lic = New-Conn $LicenseDatabase } catch { $script:NotRun++; Write-Warn "Cannot open $LicenseDatabase ($($_.Exception.Message)); its checks are skipped." }
 
 # ---------------------------------------------------------------------------------------------
 Invoke-Section "1. Coverage of $Database" {
@@ -415,11 +414,16 @@ if (Test-Object $cp 'audit.PipelineRun') {
 }
 # ---------------------------------------------------------------------------------------------
 Write-Head 'Recommended, in order'
-if ($script:Actions.Count -eq 0) { Write-Host '  Nothing to do: every check passed.' -ForegroundColor Green }
+if ($script:Actions.Count -eq 0) {
+    if ($script:NotRun) { Write-Host ("  No command to run, but {0} check(s) did not run to the end (see the warnings above), so this is not an all clear." -f $script:NotRun) -ForegroundColor Yellow }
+    elseif ($script:Warnings) { Write-Host ("  No command to run, but {0} warning(s) above need a look." -f $script:Warnings) -ForegroundColor Yellow }
+    else { Write-Host '  Nothing to do: every check passed.' -ForegroundColor Green }
+}
 else {
     Write-Host '  Disable the nightly task first for any installer or maintenance step: Disable-ScheduledTask -TaskName ''Copilot audit - nightly'''
     $i = 1; foreach ($a in $script:Actions) { Write-Host ("  {0}. {1}" -f $i++, $a) }
     Write-Host '  Then enable it again (Enable-ScheduledTask), run this check again, and refresh the Power BI model in full if bi was rebuilt (DEPLOYMENT.md, step 16).'
+    if ($script:NotRun) { Write-Host ("  {0} check(s) did not run to the end (see the warnings above), so there may be more to do." -f $script:NotRun) -ForegroundColor Yellow }
 }
 Write-Host ''
 Write-Host "To list each agent's last maker (a starting point for owners), in $Database :"

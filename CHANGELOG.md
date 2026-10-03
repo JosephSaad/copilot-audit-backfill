@@ -26,6 +26,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   counted as another operation and the warning asked whether `-LicenseDatabase` was the right
   database. It strips the period the same way now. A record that is neither a license nor a
   Copilot Studio operation still counts as other, and no longer also counts as a license record.
+- **The health check no longer says every check passed when it did not look at everything.** Its
+  closing line printed whenever no command was to run, even after a section stopped, after the
+  license database could not be opened, or after warnings. It now says how many checks did not run
+  to the end, or how many warnings need a look, and says every check passed only when none did.
+- **The health check no longer says it takes no lock.** It reads uncommitted data, so it takes no
+  row or page locks, but it still holds a schema-stability lock while a query runs: a query on a
+  table the nightly run is truncating waits for it. The script's description and RUNBOOK section 5g
+  say so. Two unused variables are gone.
 
 ## [2.4.12] - 2026-10-03
 

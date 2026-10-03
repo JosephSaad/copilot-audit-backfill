@@ -252,7 +252,7 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 
 ## 5g. Checking what is loaded, and rebuilding from the stored records
 
-**The health check.** `tools\Test-CopilotDataHealth.ps1` reads both databases and says what is loaded, from where, and what is missing or behind. It runs SELECT statements only and takes no lock, so it is safe beside the nightly task:
+**The health check.** `tools\Test-CopilotDataHealth.ps1` reads both databases and says what is loaded, from where, and what is missing or behind. It runs SELECT statements only and reads uncommitted data, so it takes no row or page locks and is safe beside the nightly task. It still waits for a table the task is truncating or rebuilding (up to its `-TimeoutSeconds`, 900 by default), so a check made during a rebuild can wait until the rebuild finishes:
 
 ```powershell
 .\tools\Test-CopilotDataHealth.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -LicenseDatabase CopilotLicenseEvents
