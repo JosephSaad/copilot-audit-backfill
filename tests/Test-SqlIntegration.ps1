@@ -593,6 +593,20 @@ SELECT (SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AgentName IS NOT NULL) 
     Assert-That ($kept -eq 1) 'run again, it reads only what is still empty: a name already there is kept'
     Invoke-SqlText -Sql "UPDATE audit.RawLogFlattened SET AgentName = N'Expense helper' WHERE AgentName = N'kept'; UPDATE audit.AgentCatalog SET AgentName = N'Expense Policy Helper';"
 
+    # 2.4.12: a read stopped in a batch's catalog step keeps nothing of that batch, so the next run reads it again and
+    # catalogs its agents. Before, the records kept their new names, the next run skipped them as filled, and their
+    # agents never reached the catalog. A constraint the catalog cannot meet stands in for the stop.
+    Invoke-SqlText -Sql "UPDATE audit.RawLogFlattened SET AgentId = NULL, AgentName = NULL; DELETE FROM audit.AgentCatalog; DELETE FROM audit.PipelineSetting WHERE Name = N'AgentNamesReadUtc'; ALTER TABLE audit.AgentCatalog WITH NOCHECK ADD CONSTRAINT CK_it_StopCatalog CHECK (AgentId = N'-');"
+    $stopped = try { Invoke-SqlText -Sql 'EXEC audit.usp_BackfillAgentNames @BatchSize = 1000;'; $false } catch { $true }
+    $keptOfStopped = [long] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.RawLogFlattened WHERE AgentId IS NOT NULL OR AgentName IS NOT NULL;')
+    Invoke-SqlText -Sql 'ALTER TABLE audit.AgentCatalog DROP CONSTRAINT CK_it_StopCatalog;'
+    Invoke-SqlText -Sql 'EXEC audit.usp_BackfillAgentNames @BatchSize = 1000;'
+    $ag3 = (Invoke-SqlText -As Table -Sql $agentSql).Rows[0]
+    Assert-That ($stopped -and $keptOfStopped -eq 0) "2.4.12: a read stopped in its catalog step keeps nothing of that batch ($keptOfStopped record(s) kept)"
+    Assert-That ([long] $ag3.Named -eq $exp23 -and "$($ag3.CatalogName)" -eq 'Expense Policy Helper' -and [int] $ag3.Agents -eq 1 -and [int] $ag3.Times -eq 1 -and [int] $ag3.Mark -eq 1) `
+        "and the next run reads it again and catalogs its agent under its latest name ($($ag3.CatalogName))"
+    Assert-That ((& $flatStamp) -eq $stamp0) 'with nothing else of any record changed'
+
     # IsCopilotLic fills in once the license table has the user.
     Invoke-SqlText -Sql "INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic) VALUES (N'user0@contoso.com', 1)"
     Invoke-SqlText -Sql 'EXEC audit.usp_FlattenCopilotAudit @BatchSize = 50000' -TimeoutSeconds 1800
@@ -662,6 +676,12 @@ FROM audit.RawLogFlattened;
     $k1 = & $keep
     Assert-That ([long] $k1.UserKey -eq [long] $k0.UserKey -and [long] $k1.Res -eq [long] $k0.Res -and [long] $k1.Elements -eq [long] $k0.Elements) `
         ("re-flattening after the purge keeps every purged record's columns and elements ({0:N0} elements)" -f $k1.Elements)
+    # 2.4.12: but a rebuild that empties the tables first is refused: it left nothing to skip the purged records by,
+    # and flattened each one again blank, its columns NULL and its elements gone, with no JSON to do better from.
+    $refusedRebuild = try { Invoke-SqlText -Sql 'EXEC audit.usp_FlattenCopilotAudit @RebuildAll = 1, @BatchSize = 50000' -TimeoutSeconds 1800; '' } catch { $_.Exception.GetBaseException().Message }
+    $k2 = & $keep
+    Assert-That ($refusedRebuild -like '*Rebuild refused*' -and [long] $k2.UserKey -eq [long] $k0.UserKey -and [long] $k2.Res -eq [long] $k0.Res -and [long] $k2.Elements -eq [long] $k0.Elements) `
+        "2.4.12: @RebuildAll = 1 is refused after a JSON purge, and every purged record keeps its columns and elements ($refusedRebuild)"
 
     # The view still returns every row; the purged ones just have no AuditData.
     $viewAfter = Invoke-SqlText -As Table -TimeoutSeconds 900 -Sql @"
@@ -671,17 +691,27 @@ FROM audit.vCopilotAuditRecord;
     Assert-That ([long] $viewAfter.Rows[0].Rows_ -eq $expectedTotal) 'the export view still returns every record after a purge'
     Assert-That ([long] $viewAfter.Rows[0].NullJson -eq $purged) 'AuditData is NULL on exactly the purged records'
 
-    # Row deletion mode.
+    # Row deletion mode. Section 8 looks up the users audit.CopilotInteraction names, so its rows are kept aside
+    # here and put back after.
+    Invoke-SqlText -Sql 'DROP TABLE IF EXISTS dbo.KeepInteraction; SELECT * INTO dbo.KeepInteraction FROM audit.CopilotInteraction;' -TimeoutSeconds 900
     Invoke-SqlText -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 1, @DeleteRows = 1, @PurgeFlattened = 1, @WhatIf = 0' `
                    -TimeoutSeconds 1800
     $gone = Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit)       AS A,
        (SELECT COUNT_BIG(*) FROM audit.RawLogFlattened)    AS F,
-       (SELECT COUNT_BIG(*) FROM audit.CopilotAuditStage)  AS S;
+       (SELECT COUNT_BIG(*) FROM audit.CopilotAuditStage)  AS S,
+       (SELECT COUNT_BIG(*) FROM audit.CopilotInteraction) AS I,
+       (SELECT COUNT_BIG(*) FROM audit.RawLogAccessedResource) AS E,
+       (SELECT COUNT_BIG(*) FROM audit.RawLogContext)      AS C;
 "@
     Assert-That ([long] $gone.Rows[0].A -eq 0) "@DeleteRows = 1 removed every aged record ($($gone.Rows[0].A) left)"
     Assert-That ([long] $gone.Rows[0].F -eq 0) "@PurgeFlattened = 1 removed the matching flattened rows ($($gone.Rows[0].F) left)"
     Assert-That ([long] $gone.Rows[0].S -eq 0) "@PurgeStaging cleared the second copy in staging ($($gone.Rows[0].S) left)"
+    # 2.4.12: every row made from the records goes with them. Before, each record's shredded row (user, app, thread,
+    # time) and the resources and contexts it read (file names, sites, links) were all kept.
+    Assert-That ([long] $gone.Rows[0].I -eq 0) "2.4.12: @DeleteRows = 1 removed the records' shredded rows from audit.CopilotInteraction ($($gone.Rows[0].I) left)"
+    Assert-That ([long] $gone.Rows[0].E -eq 0 -and [long] $gone.Rows[0].C -eq 0) "and @PurgeFlattened = 1 the resources and contexts they read ($($gone.Rows[0].E) and $($gone.Rows[0].C) left)"
+    Invoke-SqlText -Sql 'INSERT INTO audit.CopilotInteraction SELECT * FROM dbo.KeepInteraction; DROP TABLE dbo.KeepInteraction;' -TimeoutSeconds 900
 
     $refusedFlat = $false
     try { Invoke-SqlText -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = 1, @PurgeFlattened = 1, @WhatIf = 0' }
@@ -1658,8 +1688,43 @@ Assert-That ([int] $ss.Written -eq 0 -and [int] $ss.Missing -eq 0) "with no sess
 
 $msg = & $biRefused "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @ReportingTimeZone = N'UTC';"
 Assert-That ($msg -like '*needs a full rebuild*') "a partial refresh in a different time zone is refused ($msg)"
+# 2.4.12: the refresh holds a lock while it runs, the session's. One that fails lets it go, though its pooled
+# connection stays open: asked from another session, with no pool, the lock is free.
+$lockFree = {
+    $probe = [System.Data.SqlClient.SqlConnection]::new((New-ConnString $script:ITDatabase) + ';Pooling=false')
+    $probe.Open()
+    try { $q = $probe.CreateCommand(); $q.CommandText = "SELECT APPLOCK_TEST(N'public', N'bi.usp_RefreshBi', N'Exclusive', N'Session');"; [int] $q.ExecuteScalar() }
+    finally { $probe.Dispose() }
+}
+Assert-That ((& $lockFree) -eq 1) '2.4.12: a refused refresh lets its lock go, though its pooled connection stays open'
 $msg = & $biRefused "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'NoSuchDatabase';"
 Assert-That ($msg -like '*no audit.vLicenseSkuChange*') "a license database without the license views is refused ($msg)"
+
+# 2.4.12: one refresh at a time. A full rebuild holds nothing on the fact between its months, so a refresh that started
+# meanwhile emptied the fact under it and both filled it: those months twice. A session holding the refresh's lock
+# stands in for one running here: a second refresh waits for it, and runs once it has let go.
+$holder = [System.Data.SqlClient.SqlConnection]::new((New-ConnString $script:ITDatabase) + ';Pooling=false')
+$second = [System.Data.SqlClient.SqlConnection]::new((New-ConnString $script:ITDatabase) + ';Pooling=false')
+try {
+    $holder.Open(); $second.Open()
+    $holdCmd = $holder.CreateCommand()
+    $holdCmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'bi.usp_RefreshBi', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+    $took = [int] $holdCmd.ExecuteScalar()
+    $runs0 = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM bi.RefreshRun;')
+    $refreshCmd = $second.CreateCommand(); $refreshCmd.CommandTimeout = 600
+    $refreshCmd.CommandText = "EXEC bi.usp_RefreshBi @SinceUtc = '2026-09-19', @LicenseEventDatabase = N'$licDb';"
+    $refresh = $refreshCmd.ExecuteNonQueryAsync()
+    Start-Sleep -Seconds 3
+    $waited = -not $refresh.IsCompleted
+    $runsHeld = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM bi.RefreshRun;')
+    $holdCmd.CommandText = "EXEC sp_releaseapplock @Resource = N'bi.usp_RefreshBi', @LockOwner = 'Session';"
+    [void] $holdCmd.ExecuteNonQuery()
+    [void] $refresh.Wait(600000)
+    $runsAfter = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM bi.RefreshRun;')
+}
+finally { $second.Dispose(); $holder.Dispose() }
+Assert-That ($took -eq 0 -and $waited -and $runsHeld -eq $runs0 -and $runsAfter -eq $runs0 + 1) `
+    "2.4.12: a bi refresh that starts while another runs waits for it, and runs once it has finished ($runsHeld, then $runsAfter refreshes)"
 
 # --- A full rebuild picks up everything, keys unchanged ---------------------
 Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$licDb';" -ShowMessages
@@ -1671,6 +1736,52 @@ SELECT (SELECT COUNT_BIG(*) FROM bi.FactInteraction) AS Rows_,
 "@).Rows[0]
 Assert-That ([long] $r.Rows_ -eq ($flatRows + 1) -and "$($r.S01)" -eq 'Excel') "a full rebuild rewrites every row ($($r.Rows_), s-01 now $($r.S01))"
 Assert-That ([int] $r.Users -eq $usersBefore -and [int] $r.AKey -eq $aKey) "and re-registers no user: keys survive a rebuild ($($r.Users) users)"
+
+# --- 2.4.12: today's license lookup, where it is newer than the history and contradicts it ------------------
+# An account renamed from renamed.old to renamed.new: the history has its license under the old sign-in and no removal,
+# and the lookup no longer finds that sign-in. Its licensed days end with the last day it was used; before, it was
+# licensed every day to today, the same person twice. And twosku, whose only Copilot changes are a second SKU added
+# and taken away, whom the lookup finds licensed since January: licensed throughout, where before not after the removal.
+Invoke-SqlText -Sql @"
+INSERT INTO audit.LicenseEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ActorUpn, TargetUpn, CorrelationId) VALUES
+    ('lic-r1', '2026-09-14T14:00:00', '2026-09-14', 'Change user license', 'admin@contoso.com', 'renamed.old@contoso.com', 'corr-r1'),
+    ('lic-t1', '2026-09-14T14:00:00', '2026-09-14', 'Change user license', 'admin@contoso.com', 'twosku@contoso.com', 'corr-t1'),
+    ('lic-t2', '2026-09-15T14:00:00', '2026-09-15', 'Change user license', 'admin@contoso.com', 'twosku@contoso.com', 'corr-t2');
+INSERT INTO audit.LicenseEventProperty (RecordId, Ordinal, [Name], OldValue, NewValue, Source) VALUES
+    ('lic-r1', 0, 'AssignedLicense', '[]', '["[SkuName=Microsoft_365_Copilot, AccountId=t, SkuId=x, DisabledPlans=[]]"]', 'record'),
+    ('lic-t1', 0, 'AssignedLicense', '[]', '["[SkuName=Copilot_Studio_User, AccountId=t, SkuId=y, DisabledPlans=[]]"]', 'record'),
+    ('lic-t2', 0, 'AssignedLicense', '["[SkuName=Copilot_Studio_User, AccountId=t, SkuId=y, DisabledPlans=[]]"]', '[]', 'record');
+INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic, SkuPartNumber, LicensedSinceUtc, DirectoryStatus) VALUES
+    (N'renamed.old@contoso.com', NULL, NULL, NULL, N'NotFound'),
+    (N'renamed.new@contoso.com', 1, N'Microsoft_365_Copilot', '2026-09-17T12:00:00', N'Found'),
+    (N'twosku@contoso.com', 1, N'Microsoft_365_Copilot', '2026-01-01T00:00:00', N'Found');
+INSERT INTO audit.RawLogFlattened (RecordId, [TimeStamp], UtcTimeStamp, [User], App, FlattenedUtc) VALUES
+    (N'r-01', N'2026-09-16T15:00:00Z', '2026-09-16T15:00:00', N'renamed.old@contoso.com', N'Word', SYSUTCDATETIME()),
+    (N'r-02', N'2026-09-18T15:00:00Z', '2026-09-18T15:00:00', N'renamed.new@contoso.com', N'Word', SYSUTCDATETIME()),
+    (N't-01', N'2026-09-17T15:00:00Z', '2026-09-17T15:00:00', N'twosku@contoso.com', N'Word', SYSUTCDATETIME());
+"@
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$licDb';"
+$lk = (Invoke-SqlText -As Table -Sql @"
+WITH d AS (SELECT u.UserPrincipalName AS Upn, l.DateKey FROM bi.FactLicensedDay AS l JOIN bi.DimUser AS u ON u.UserKey = l.UserKey)
+SELECT (SELECT STRING_AGG(CAST(DateKey AS varchar(8)), ',') WITHIN GROUP (ORDER BY DateKey) FROM d WHERE Upn = N'renamed.old@contoso.com') AS OldDays,
+       (SELECT CONCAT(MIN(DateKey), '-', MAX(DateKey)) FROM d WHERE Upn = N'renamed.new@contoso.com') AS NewDays,
+       (SELECT CONCAT(MIN(DateKey), '-', MAX(DateKey)) FROM d WHERE Upn = N'twosku@contoso.com') AS TwoDays,
+       (SELECT MIN(DateKey) FROM bi.FactLicensedDay) AS FirstDay,
+       (SELECT MAX(DateKey) FROM bi.FactLicensedDay) AS Today,
+       (SELECT CAST(LicenseStatusKey AS INT) FROM bi.FactInteraction WHERE RecordId = N'r-01') AS R01,
+       (SELECT CAST(LicenseStatusKey AS INT) FROM bi.FactInteraction WHERE RecordId = N't-01') AS T01;
+"@).Rows[0]
+Assert-That ("$($lk.OldDays)" -eq '20260914,20260915,20260916' -and [int] $lk.R01 -eq 1 -and "$($lk.NewDays)" -eq "20260917-$($lk.Today)") `
+    "2.4.12: a renamed account's old sign-in is licensed to the last day it was used, its interactions still licensed, and the new one from its own date ($($lk.OldDays); $($lk.NewDays))"
+Assert-That ([int] $lk.T01 -eq 1 -and "$($lk.TwoDays)" -eq "$($lk.FirstDay)-$($lk.Today)") `
+    "and a user the lookup finds licensed, whose history leaves nothing held, is licensed from the date it gives, January, so from the first day with data ($($lk.TwoDays))"
+Invoke-SqlText -Sql @"
+DELETE FROM audit.LicenseEventProperty WHERE RecordId IN ('lic-r1', 'lic-t1', 'lic-t2');
+DELETE FROM audit.LicenseEvent WHERE RecordId IN ('lic-r1', 'lic-t1', 'lic-t2');
+DELETE FROM audit.CopilotLicense WHERE UserPrincipalName IN (N'renamed.old@contoso.com', N'renamed.new@contoso.com', N'twosku@contoso.com');
+DELETE FROM audit.RawLogFlattened WHERE RecordId IN (N'r-01', N'r-02', N't-01');
+EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$licDb';
+"@
 
 # ---------------------------------------------------------------------------
 # 13. CSV import: section 11's records, exported in the Purview portal's
@@ -1914,6 +2025,24 @@ $res = [string[]] @((Invoke-SqlText -As Table -Sql 'SELECT Kind, Item FROM dash.
 Assert-That (($res -join ' | ') -eq 'Blocked=https://contoso.sharepoint.com/sites/hr | Label=11111111-0000-0000-0000-000000000001 | Label=11111111-0000-0000-0000-000000000002 | Site=https://contoso-my.sharepoint.com/personal/x_contoso_com | Site=https://contoso.sharepoint.com/sites/fin') `
     "labels, sites of labeled content and blocked sites come from bi.FactAccessedResource ($($res -join ' | '))"
 
+# 2.4.12: interactions, not resources. A third file read in the same interaction, with the first one's label and on its
+# site, adds nothing to either: before, each resource counted, against one in the page's count of labeled interactions.
+Invoke-SqlText -Sql @"
+INSERT INTO audit.RawLogAccessedResource (RecordId, Ordinal, [Action], [Type], Name, SiteUrl, Site, SensitivityLabelId, XPIADetected, [Status], IsBlocked) VALUES
+    (N's-05', 2, N'Read', N'File', N'c.docx', N'https://contoso.sharepoint.com/sites/fin/Shared Documents/c.docx',
+     N'https://contoso.sharepoint.com/sites/fin', '11111111-0000-0000-0000-000000000001', 0, NULL, 0);
+EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$licDb';
+EXEC dash.usp_RefreshDashboard;
+"@
+$perInteraction = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM bi.FactAccessedResource WHERE RecordId = N's-05') AS Read_,
+       (SELECT SUM(Interactions) FROM dash.ResourceDay WHERE Kind = 'Label' AND Item = N'11111111-0000-0000-0000-000000000001') AS Label1,
+       (SELECT SUM(Interactions) FROM dash.ResourceDay WHERE Kind = 'Site' AND Item = N'https://contoso.sharepoint.com/sites/fin') AS Fin;
+"@).Rows[0]
+Invoke-SqlText -Sql "DELETE FROM audit.RawLogAccessedResource WHERE RecordId = N's-05' AND Ordinal = 2; EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$licDb'; EXEC dash.usp_RefreshDashboard;"
+Assert-That ([int] $perInteraction.Read_ -eq 3 -and [int] $perInteraction.Label1 -eq 1 -and [int] $perInteraction.Fin -eq 1) `
+    "2.4.12: dash.ResourceDay counts interactions: two files with one label in one interaction count once for the label and its site ($($perInteraction.Label1), $($perInteraction.Fin))"
+
 $bx = (Invoke-SqlText -As Table -Sql @"
 SELECT (SELECT COUNT(*) FROM bi.FactAccessedResource) AS Resources,
        (SELECT COUNT(*) FROM bi.AccessedResources AS r JOIN bi.Sites AS s ON s.SiteKey = r.SiteKey WHERE s.IsPersonal = 1) AS Personal,
@@ -1943,6 +2072,31 @@ Assert-That ([long] $ds2.Days_ -eq [long] $ds.Days_ -and [long] $ds2.DaySessions
     "an incremental refresh rewrites only the days from its window ($($run.UserDayRows) person-days from $($run.FromDateKey)) and the totals still match"
 Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
 Assert-That ([long] (& $daySync).Days_ -eq [long] $ds.Days_) 'and running it twice changes nothing'
+
+# 2.4.12: a full bi rebuild stopped part way, as an upgrade's can be. While it has not finished the rollups are left as
+# they are: the dashboard installer's refresh then took the months the rebuild had not reached out of every rollup. The
+# nightly run finishes it (its window becomes a full rebuild) and rolls up from its load's start, which now covers every
+# day: before, the days before the window kept the figures of the facts before the rebuild, for good. Days rolled up
+# from facts the rebuild has since rewritten stand in for those figures here (a thousand interactions more on the first).
+$premiumSync = "SELECT (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM dash.UserDay) AS Rolled, (SELECT ISNULL(SUM(CAST(PremiumUse AS BIGINT)), 0) FROM bi.FactInteraction) AS Stored;"
+$dashRuns = 'SELECT COUNT(*) FROM dash.RefreshRun;'
+$runsBefore = [int] (Invoke-SqlText -As Scalar -Sql $dashRuns)
+Invoke-SqlText -Sql "INSERT INTO bi.RebuildInProgress (StartedUtc) VALUES (SYSUTCDATETIME()); DELETE FROM bi.FactInteraction WHERE RecordId IN (SELECT TOP (3) RecordId FROM bi.FactInteraction ORDER BY CreatedUtc);"
+Invoke-SqlText -Sql "IF OBJECT_ID(N'bi.FactInteraction', N'U') IS NOT NULL EXEC dash.usp_RefreshDashboard;"   # as dashboard\Install-CopilotInsights.ps1 runs it
+$whileRebuilding = & $daySync
+$runsWhile = [int] (Invoke-SqlText -As Scalar -Sql $dashRuns)
+Invoke-SqlText -Sql "UPDATE dash.UserDay SET Interactions = Interactions + 1000, PremiumUse = PremiumUse + 1000, LicensedUse = LicensedUse + 1000 WHERE DateKey = (SELECT MIN(DateKey) FROM dash.UserDay);"
+Invoke-SqlText -Sql "EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = N'$licDb'; EXEC dash.usp_RefreshDashboard @SinceUtc = @s;" -Parameters @{ '@s' = $since }
+$finished = & $daySync
+$prem = (Invoke-SqlText -As Table -Sql $premiumSync).Rows[0]
+$every = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) FromDateKey FROM dash.RefreshRun ORDER BY RunId DESC;').Rows[0]
+Assert-That ([long] $whileRebuilding.Days_ -eq [long] $ds.Days_ -and $runsWhile -eq $runsBefore) `
+    "2.4.12: while a full bi rebuild has not finished, a dashboard refresh leaves the rollups as they are ($($whileRebuilding.Days_) of $($ds.Days_) interactions)"
+Assert-That ([long] $finished.Days_ -eq [long] $finished.Facts -and [long] $finished.Facts -eq [long] $ds.Facts -and [long] $prem.Rolled -eq [long] $prem.Stored -and $every.FromDateKey -is [DBNull]) `
+    "and the rollup after the run that finishes it covers every day, though asked for its window ($($finished.Days_) of $($finished.Facts) interactions, Premium $($prem.Rolled) of $($prem.Stored))"
+Invoke-SqlText -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
+$windowAgain = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) FromDateKey FROM dash.RefreshRun ORDER BY RunId DESC;').Rows[0]
+Assert-That ($windowAgain.FromDateKey -isnot [DBNull]) "and only that once: the next rollup takes its window again ($($windowAgain.FromDateKey))"
 
 # The dashboard's account, with what Install-CopilotInsights.ps1 grants it that the refresh
 # touches: EXECUTE on it, SELECT on bi, dash and audit.UserDirectory. No ALTER, so no TRUNCATE.
@@ -2008,6 +2162,46 @@ try {
 }
 finally {
     foreach ($db in $freshDb, $freshLic) {
+        try { Invoke-SqlText -Catalog master -Sql "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Host "  (could not drop $db)" }
+    }
+}
+
+# 2.4.12: databases a DBA created with a collation other than the server's, which the installer takes as they are. The
+# temp tables the flatten, the license shred and the bi refresh compare with their own tables took tempdb's collation,
+# and each of them failed at once with a collation conflict. One record, flattened and built through to the dashboard.
+$collDb = "$($script:ITDatabase)_Collated"; $collLic = "$($script:ITDatabase)_CollatedLic"
+$serverCollation = [string] (Invoke-SqlText -Catalog master -As Scalar -Sql "SELECT CONVERT(NVARCHAR(128), SERVERPROPERTY('Collation'));")
+$otherCollation = if ($serverCollation -eq 'Latin1_General_100_CI_AS') { 'SQL_Latin1_General_CP1_CI_AS' } else { 'Latin1_General_100_CI_AS' }
+try {
+    foreach ($db in $collDb, $collLic) {
+        Invoke-SqlText -Catalog master -Sql "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END; CREATE DATABASE [$db] COLLATE $otherCollation; ALTER DATABASE [$db] SET RECOVERY SIMPLE;"
+    }
+    & $installer @conn -Database $collDb -LicenseDatabase $collLic -Dashboard -ReportingTimeZone 'Eastern Standard Time' 6>$null | Out-Null
+    $csvSchema = Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotCsvImport.sql') -Raw
+    foreach ($db in $collDb, $collLic) {
+        foreach ($b in [regex]::Split($csvSchema, '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) { if ($b.Trim()) { Invoke-SqlText -Catalog $db -Sql $b } }
+    }
+    $collJson = '{"CreationTime":"2026-09-15T15:00:00Z","Id":"q-01","Operation":"CopilotInteraction","UserId":"q@contoso.com","AppIdentity":"Copilot.Studio.Declarative.T_0a1b2c3d","AgentId":"CopilotStudio.Declarative.T_0a1b2c3d.1","AgentName":"Helper","CopilotEventData":{"AppHost":"Teams","AccessedResources":[{"Name":"a.docx","SiteUrl":"https://contoso.sharepoint.com/sites/fin/a.docx","Type":"File","Action":"Read","SensitivityLabelId":"11111111-0000-0000-0000-000000000001"}],"Contexts":[{"Id":"https://contoso.sharepoint.com/sites/fin/a.docx","Type":"docx"}]}}'
+    Invoke-SqlText -Catalog $collDb -Parameters @{ '@j' = $collJson } -Sql @"
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId)
+VALUES ('q-01', '2026-09-15T15:00:00', 'copilotInteraction', 'CopilotInteraction', N'q@contoso.com', N'q@contoso.com', COMPRESS(CAST(@j AS NVARCHAR(MAX))), 0);
+"@
+    $collSteps = [ordered]@{
+        flatten = { Invoke-SqlText -Catalog $collDb -Sql 'EXEC audit.usp_FlattenCopilotAudit;' }
+        'license shred' = { Invoke-SqlText -Catalog $collLic -Sql 'EXEC audit.usp_ShredLicenseEvents;' }
+        bi = { Invoke-SqlText -Catalog $collDb -Sql "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$collLic';" }
+        dashboard = { Invoke-SqlText -Catalog $collDb -Sql 'EXEC dash.usp_RefreshDashboard;' }
+    }
+    $collFailed = @(foreach ($k in $collSteps.Keys) { try { [void] (& $collSteps[$k]) } catch { "${k}: $($_.Exception.GetBaseException().Message)" } })
+    $collBuilt = (Invoke-SqlText -Catalog $collDb -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM bi.FactInteraction) AS Facts, (SELECT COUNT(*) FROM bi.FactAccessedResource) AS Resources,
+       (SELECT COUNT(*) FROM audit.AgentCatalog WHERE AgentName = N'Helper') AS Agents, (SELECT COUNT(*) FROM dash.ResourceDay) AS ResourceDays;
+"@).Rows[0]
+    Assert-That ($collFailed.Count -eq 0 -and [int] $collBuilt.Facts -eq 1 -and [int] $collBuilt.Resources -eq 1 -and [int] $collBuilt.Agents -eq 1 -and [int] $collBuilt.ResourceDays -gt 0) `
+        "2.4.12: databases in $otherCollation on a $serverCollation server flatten, shred license events and build bi and the dashboard ($($collFailed -join '; '))"
+}
+finally {
+    foreach ($db in $collDb, $collLic) {
         try { Invoke-SqlText -Catalog master -Sql "IF DB_ID(N'$db') IS NOT NULL BEGIN ALTER DATABASE [$db] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$db]; END;" } catch { Write-Host "  (could not drop $db)" }
     }
 }
@@ -2268,6 +2462,23 @@ DELETE FROM dash.RoleGrant WHERE Principal = N'CONTOSO\it-execs';
 "@).Rows[0]
 Assert-That ([int] $grp.CSees -eq [int] $grp.Everyone -and [int] $grp.CDistinct -eq [int] $grp.Everyone) "a member of a group granted Organization sees everyone, once each ($($grp.CSees) of $($grp.Everyone))"
 Assert-That ([int] $grp.DSees -lt [int] $grp.Everyone) 'a member of a group with no Organization grant does not'
+# 2.4.12: Organization granted by DOMAIN\name counts whatever type it was recorded with, as the dashboard matches it: a
+# group recorded as a user (GrantRole records one so when it cannot ask AD) through its members, and a person through
+# the UPN the directory load records for them under that name. Before, both saw only their own people in Power BI.
+$byName = (Invoke-SqlText -As Table -Sql @"
+INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES
+    (N'CONTOSO\risk-team', 'User', 'Organization', N'test', N'test'), (N'CONTOSO\cperson', 'User', 'Organization', N'test', N'test');
+INSERT INTO audit.GroupMember (GroupName, UserPrincipalName) VALUES (N'CONTOSO\risk-team', N'b@contoso.com'), (N'CONTOSO\cperson', N'c@contoso.com');
+SELECT (SELECT COUNT(DISTINCT UserKey) FROM bi.OrgSecurity WHERE ViewerUpn = N'b@contoso.com') AS BSees,
+       (SELECT COUNT(DISTINCT UserKey) FROM bi.OrgSecurity WHERE ViewerUpn = N'c@contoso.com') AS CSees,
+       (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn LIKE N'CONTOSO\%') AS ByWindowsName,
+       (SELECT COUNT(*) FROM bi.DimUser) AS Everyone;
+"@).Rows[0]
+[string[]] $loaded = & { . (Join-Path $root 'tools' 'Export-UsersWithHierarchy-ToSql.ps1'); Get-OrganizationGroup -ConnString (New-ConnString $script:ITDatabase) }   # one array, as Invoke-Main takes it
+Invoke-SqlText -Sql "DELETE FROM audit.GroupMember WHERE GroupName IN (N'CONTOSO\risk-team', N'CONTOSO\cperson'); DELETE FROM dash.RoleGrant WHERE Principal IN (N'CONTOSO\risk-team', N'CONTOSO\cperson');"
+Assert-That ([int] $byName.BSees -eq [int] $byName.Everyone -and [int] $byName.CSees -eq [int] $byName.Everyone -and [int] $byName.ByWindowsName -eq 0) `
+    "2.4.12: Organization granted by DOMAIN\name as a user reaches Power BI, for a group and for a person ($($byName.BSees) and $($byName.CSees) of $($byName.Everyone))"
+Assert-That ($loaded -contains 'CONTOSO\risk-team' -and $loaded -contains 'CONTOSO\cperson') "and the nightly directory load reads both grants, to record who they are ($($loaded -join ', '))"
 Invoke-SqlText -Sql "ALTER ROLE CopilotInsightsApp DROP MEMBER it_app; DROP USER it_app;"
 
 # ---------------------------------------------------------------------------

@@ -56,7 +56,7 @@ When the last run failed, its step and last log lines are on Admin › Health an
 | Agents | Named users of an agent |
 | Enablement | Named champions and engagement segments |
 
-**Grant or remove a role.** Admin › Access › *Grant a role*: a person (their UPN, or `DOMAIN\user`) or an AD group (`DOMAIN\Group`), the roles (tick as many as they need), and why. Grant to groups where you can: membership is read from each sign-in, so it follows AD with no change here. The grants list has one row per person or group with all their roles, and a *Remove* button beside each role. The Adoption, Licensing (with Forecasting), Security, Compliance, Agents and Enablement sections are hidden from anyone without their role, whole-organization viewers included, so grant executives the roles whose sections they should see.
+**Grant or remove a role.** Admin › Access › *Grant a role*: a person (their UPN, or `DOMAIN\user`) or an AD group (`DOMAIN\Group`), the roles (tick as many as they need), and why. Grant to groups where you can: membership is read from each sign-in, so it follows AD with no change here. Power BI's *Organization* role honors the same grants from the next nightly directory load, which records each `DOMAIN\` grant's members (a person's own UPN, from 2.4.12). The grants list has one row per person or group with all their roles, and a *Remove* button beside each role. The Adoption, Licensing (with Forecasting), Security, Compliance, Agents and Enablement sections are hidden from anyone without their role, whole-organization viewers included, so grant executives the roles whose sections they should see.
 
 ```powershell
 M -Task GrantRole -Principal 'USERS\Copilot-Insights-Licensing' -PrincipalType Group -Role Licensing -Note 'licensing team'
@@ -192,7 +192,7 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 
 **The minimum group size** (Admin › Access) is also the smallest part of the organization a report can be narrowed to (2.4.12): a manager and everyone under them, fewer than that, are not shown on their own, on a page, in the data API or in a digest.
 
-**Retention.** Admin › Privacy and retention › *Retention*: days to keep the dashboard's audit log and the notification log, and when to clear the stored JSON of old records (0 keeps it; at least 200 days). Applied each night after a successful run; **Apply retention now** does it at once. To clear JSON from the job server instead, `M -Task PurgeJson -RetainDays 365` reports what would go and `-Apply` clears it (`-DeleteRows` removes those records altogether).
+**Retention.** Admin › Privacy and retention › *Retention*: days to keep the dashboard's audit log and the notification log, and when to clear the stored JSON of old records (0 keeps it; at least 200 days). Applied each night after a successful run; **Apply retention now** does it at once. To clear JSON from the job server instead, `M -Task PurgeJson -RetainDays 365` reports what would go and `-Apply` clears it. `-DeleteRows` removes those records altogether: the record, its shredded row (`audit.CopilotInteraction`), its flattened row, and the resources and contexts it read (2.4.12; before, all but the record were kept). `bi` and the dashboard keep them until `M -Task RebuildBi`.
 
 **The data API.** Admin › Privacy and retention › *Data API* turns `/api/v1` on or off. Callers need the same access as the pages; [DASHBOARD.md](DASHBOARD.md#the-data-api) lists the endpoints.
 
@@ -271,7 +271,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 | `SetDashboardSetting` | Set MinGroupSize, DefaultDays, InactiveDays, LicenseMonthlyCost, LicenseCurrency, PaygInteractionCost, MaxViewerLevel (who can open the dashboard: 0 everyone, else levels 1 to N) or ProtectedLevels (levels 1 to N never on a revoke or train list: 5 by default, 0 none) to `-Value` |
 | `NameAgent` | Give agent `-AgentId` a `-FriendlyName` and `-Owner` |
 | `NameLabel` | Give label `-LabelId` a `-FriendlyName` and `-Rank` |
-| `PurgeJson` | Clear the stored JSON of records older than `-RetainDays` (`-Apply` to do it) |
+| `PurgeJson` | Clear the stored JSON of records older than `-RetainDays` (`-Apply` to do it), or with `-DeleteRows` remove those records and the rows made from them (`bi` and the dashboard keep theirs until `RebuildBi`) |
 | `RebuildValueCatalog` | List every cataloged column's values again, from every flattened record (the installer does it once when upgrading) |
 | `ListValues` | The cataloged columns, or one column's values and names (`-ColumnId`, `-Path` for a CSV) |
 | `ImportValueNames` | Names for cataloged values from `-Path` |
