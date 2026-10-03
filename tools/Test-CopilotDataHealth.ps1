@@ -331,8 +331,10 @@ if ($lic) {
     $raw = Get-Table $lic @"
 SELECT k.Kind, COUNT_BIG(*) AS Records, MIN(a.CreatedDateTime) AS F, MAX(a.CreatedDateTime) AS T
 FROM audit.CopilotAudit AS a
+-- Entra records an operation with a trailing period ('Update user.'): audit.usp_ShredLicenseEvents strips it the same way.
+CROSS APPLY (SELECT RTRIM(REPLACE(a.Operation, N'.', N'')) AS Op) AS n
 CROSS APPLY (SELECT CASE WHEN a.Operation LIKE N'Bot%' THEN 'Copilot Studio'
-                         WHEN a.Operation IN (N'Change user license', N'Update user', N'Add user', N'Delete user') THEN 'License'
+                         WHEN n.Op IN (N'Change user license', N'Update user', N'Add user', N'Delete user') THEN 'License'
                          ELSE 'Other' END AS Kind) AS k
 GROUP BY k.Kind;
 "@
@@ -340,7 +342,8 @@ GROUP BY k.Kind;
     foreach ($x in $raw.Rows) {
         Write-Info ("Raw {0} records: {1:N0}, {2} -> {3}." -f $x.Kind, $x.Records, (Fmt $x.F), (Fmt $x.T))
         if ($x.Kind -eq 'Other') { Write-Warn ("{0:N0} record(s) of other operations: is -LicenseDatabase the license-event database?" -f $x.Records) }
-        if ($x.Kind -eq 'Copilot Studio') { $rawBot = [long]$x.Records; $script:botSince = [datetime]$x.F } else { $rawLic = [long]$x.Records }
+        if ($x.Kind -eq 'Copilot Studio') { $rawBot = [long]$x.Records; $script:botSince = [datetime]$x.F }
+        elseif ($x.Kind -eq 'License') { $rawLic = [long]$x.Records }
     }
     $le = Get-Table $lic 'SELECT COUNT_BIG(*) AS N, MIN(CreatedDateTime) AS F, MAX(CreatedDateTime) AS T FROM audit.LicenseEvent'
     Write-Info ("audit.LicenseEvent: {0:N0} events, {1} -> {2}." -f $le.Rows[0].N, (Fmt ($(if (($null -eq $le.Rows[0].F)) { $null } else { $le.Rows[0].F }))), (Fmt ($(if (($null -eq $le.Rows[0].T)) { $null } else { $le.Rows[0].T }))))

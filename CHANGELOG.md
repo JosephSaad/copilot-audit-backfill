@@ -19,6 +19,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ends with what to run, in order. RUNBOOK section 5g says how to read it, and how to rebuild
   everything from the stored records without searching the audit log again.
 
+### Fixed
+- **The health check no longer warns that a license database holds "other operations" when it
+  holds license events.** Entra records an operation with a trailing period (`Update user.`),
+  which `audit.usp_ShredLicenseEvents` strips and the check did not, so every license record
+  counted as another operation and the warning asked whether `-LicenseDatabase` was the right
+  database. It strips the period the same way now. A record that is neither a license nor a
+  Copilot Studio operation still counts as other, and no longer also counts as a license record.
+
 ## [2.4.12] - 2026-10-03
 
 Every finding of an adversarial review of 2.4.11, 107 of them: the privacy rules hold on every
