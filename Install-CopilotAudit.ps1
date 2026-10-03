@@ -391,7 +391,7 @@ if ($noFileType -or $noUseKind -or $cutShort -or $agentIds) {
     Write-Done "bi, in full once: $($gain -join '; '). This takes as long as a full bi refresh..."
     Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_RefreshBi @LicenseEventDatabase = @l;' -Parameters @{ '@l' = $licList }
     if ($noFileType) { $todo += 'Refresh the Power BI model once: bi.AccessedResources gained FileTypeKey, with names in the new bi.FileTypes.' }
-    if ($agentIds) { $todo += 'Refresh the Power BI model once: interactions moved to the agents the audit log names by id.' }
+    if ($agentIds) { $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): interactions of every day moved to the agents the audit log names by id, and a scheduled refresh redoes only the last 4 days.' }
 }
 
 # 2.3.0: the value catalog fills as records are flattened; records flattened before it existed are cataloged once here.

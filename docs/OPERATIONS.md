@@ -216,14 +216,17 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 |---|---|
 | A change to the directory, the top of the organization or the app categories, wanted on the dashboard now | Admin › Health › *Refresh the last 7 days*, or `M -Task RefreshDashboard` (every day) or `-SinceUtc 2026-10-01` |
 | A session setting changes (timeout, time zone, license databases) | `M -Task RebuildSessions` |
-| License history arrives for a period already built, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the Power BI model |
+| License history arrives for a period already built, or flattened rows are purged | `M -Task RebuildBi`, then a full refresh of the Power BI model (below) |
 | An app's category changes (Admin › Reference data, or `M -Task SetAppCategory`) | After the next `bi` refresh, a full refresh of the Power BI model: the category sets Premium use on every past interaction of the app, and the model's incremental refresh reloads only the last 4 days |
+| The nightly run catches up two or more missed nights, or makes up an owed refresh from more than 4 days back (below) | A full refresh of the Power BI model: the run rewrote days its scheduled refresh does not reload |
 | A release changes the flattening | `M -Task Reflatten` (every record flattened again, then sessions, `bi` and the dashboard) |
 | The flatten says a field *now carries information* | Nothing breaks; see `audit.RawLogRecordShape` and [RUNBOOK.md](../RUNBOOK.md) |
 
 `M -Task Status` shows what is loaded and built, and when each step last ran.
 
-**A night that failed after its load was merged**, at the session build say, owes a refresh of sessions, `bi` and the dashboard from that load's start. Once the cause is fixed the next run makes it up, even with nothing new to load (2.4.12; before, a failure that lasted past the 48-hour lookback left those days out for good). A CSV import whose refresh failed or was skipped is made up the same way, or by running the import again. To have sessions and `bi` read several license databases each night, list them as `SessionLicenseDatabases` in `copilot-audit.settings.psd1` ([DEPLOYMENT.md](DEPLOYMENT.md), step 11).
+**A full refresh of the Power BI model.** The model's refresh policy reloads only the last 4 days: *Refresh now* and the scheduled refresh leave older days as they were. A full refresh loads every partition again: on Premium, Premium Per User or Fabric capacity, a refresh with `applyRefreshPolicy` false (the enhanced refresh REST API, or TMSL over the XMLA endpoint); on Pro, publishing the model again and refreshing it ([DEPLOYMENT.md](DEPLOYMENT.md), step 16, item 4). It is needed whenever SQL rewrites days older than 4: the rebuilds above, and the catch-up runs below.
+
+**A night that failed after its load was merged**, at the session build say, owes a refresh of sessions, `bi` and the dashboard from that load's start. Once the cause is fixed the next run makes it up, even with nothing new to load (2.4.12; before, a failure that lasted past the 48-hour lookback left those days out for good); its log then says *The derived tables were not brought up to date after an earlier load or import: refreshing them from* a date. A CSV import whose refresh failed or was skipped is made up the same way, or by running the import again. When that date is more than 4 days back, or the run caught up two or more missed nights (a load refreshes from 48 hours before where the data ended), refresh the Power BI model in full afterwards. To have sessions and `bi` read several license databases each night, list them as `SessionLicenseDatabases` in `copilot-audit.settings.psd1` ([DEPLOYMENT.md](DEPLOYMENT.md), step 11).
 
 ## More than one tenant
 
@@ -239,11 +242,25 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 
 ## Upgrades and renewals
 
-**A new release.** Disable the nightly task and check Admin › Health that no run is in progress. Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once, enable the nightly task again, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1 -PackagePath <the new copilot-insights zip> -SqlServer SQLPROD01` again: it keeps the site's account, database, `TrustServerCertificate`, tenants, administrators and bindings (2.4.12; before, a run without every first-run parameter reset them).
+**A new release.** Disable the nightly task and check Admin › Health that no run is in progress. Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once (adding `-LicenseEventDatabases` with the `SessionLicenseDatabases` list if the settings have one), enable the nightly task again, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1 -PackagePath <the new copilot-insights zip> -SqlServer SQLPROD01` again: it keeps the site's account, database, `TrustServerCertificate`, tenants, administrators and bindings (2.4.12; before, a run without every first-run parameter reset them).
 
-With more than one tenant, the installer upgrades only the pair of databases it is given, the first tenant's by default, and nothing else upgrades the others: back up and upgrade each further tenant's pair too, `foreach ($t in (Import-PowerShellDataFile .\copilot-audit.settings.psd1).Tenants) { .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Database $t.Database -LicenseDatabase $t.LicenseDatabase -Dashboard }`, and run the dashboard installer with every tenant in `-Tenant`, as when one was added.
+With more than one tenant, the installer upgrades only the pair of databases it is given, the first tenant's by default, and nothing else upgrades the others: back up and upgrade each further tenant's pair too. A tenant without its own `LicenseDatabase` or `SessionLicenseDatabases` takes the top-level one, as the nightly run does, and one whose license database is blank has none:
 
-**A new Power BI model.** When the release notes say the model changed, don't run `powerbi\generate_model.py` over the copy you work in: write the new one beside it with `--out` and bring the changes across in Power BI Desktop ([DEPLOYMENT.md](DEPLOYMENT.md), step 15). Run over a copy with your pages or changes in it, the generator stops and changes nothing.
+```powershell
+$s = Import-PowerShellDataFile .\copilot-audit.settings.psd1
+foreach ($t in $s.Tenants) {
+    $a = @{ SqlServer = 'SQLPROD01'; Database = $t.Database; Dashboard = $true }   # leave Dashboard out without the dashboard
+    $lic = if ($t.Contains('LicenseDatabase')) { $t.LicenseDatabase } else { $s.LicenseDatabase }
+    if ($lic) { $a.LicenseDatabase = $lic } else { $a.SkipLicenseDatabase = $true }
+    $read = if ($t.Contains('SessionLicenseDatabases')) { $t.SessionLicenseDatabases } else { $s.SessionLicenseDatabases }
+    if ($read) { $a.LicenseEventDatabases = @($read) }
+    .\Install-CopilotAudit.ps1 @a
+}
+```
+
+Then run the dashboard installer with every tenant in `-Tenant`, as when one was added.
+
+**A new Power BI model.** When the release notes say the model changed, don't run `powerbi\generate_model.py` over the copy you work in: write the new one beside it with `--out` and bring the changes across in Power BI Desktop ([DEPLOYMENT.md](DEPLOYMENT.md), step 15). Run over a copy with your pages or changes in it, the generator stops and changes nothing. Publish your working copy, not the one in `powerbi\`: that one points at `localhost` and has none of your pages or measures. Desktop loads the whole history before you publish, since `RangeStart` and `RangeEnd` span every date; on a large database, narrow them first. A model published again loads every partition on its next refresh, which is the full refresh it needs.
 
 **Running the job-server setup again** keeps every setting in `copilot-audit.settings.psd1`, those added by hand (`IncludeLeaveDates`) and empty ones (`EmployeeTypes = @()`) too, and the task's time set with `-At` (2.4.12; before, a re-run put `EmployeeTypes` back to EMP and NONW, dropped `IncludeLeaveDates`, and moved the task to 02:00).
 
