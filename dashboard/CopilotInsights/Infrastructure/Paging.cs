@@ -13,6 +13,8 @@ namespace CopilotInsights.Infrastructure;
 public sealed class Paging
 {
     public const int PageSize = 50;
+    /// <summary>The highest page asked for that is taken as asked: its offset, and its last row, fit an int.</summary>
+    public const int MaxPage = int.MaxValue / PageSize;
     public int Page { get; }
     public string? Search { get; }
     public string SortKey { get; }
@@ -25,7 +27,9 @@ public sealed class Paging
     public Paging(HttpRequest request, IReadOnlyDictionary<string, string> sorts, string defaultSort)
     {
         _sorts = sorts;
-        Page = int.TryParse(request.Query["p"], out var p) && p > 0 ? p : 1;
+        /* No further than the last page an offset can name (2.4.12): from p=42949674 on, (p - 1) * 50 overflowed into a
+           negative OFFSET written into the SQL, which SQL Server refused, and every list answered 500 unaudited. */
+        Page = int.TryParse(request.Query["p"], out var p) && p > 0 ? Math.Min(p, MaxPage) : 1;
         var q = request.Query["q"].FirstOrDefault()?.Trim();
         Search = string.IsNullOrEmpty(q) ? null : q.Length > 100 ? q[..100] : q;
         var s = request.Query["s"].FirstOrDefault();

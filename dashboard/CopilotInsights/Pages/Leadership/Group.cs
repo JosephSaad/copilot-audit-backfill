@@ -30,7 +30,10 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
                 tenants.Use(t);
                 try
                 {
-                    var v = await S.Viewers.ResolveAsync();
+                    /* The viewer and their grants from the database, not the page's cached reads (2.4.12): a revoked
+                       Organization grant went on showing a tenant's whole organization here for up to 12 hours. */
+                    Viewer v;
+                    using (QueryCache.Off()) v = await S.Viewers.ResolveAsync();
                     if (!v.OrgWide) { rows.Add(new(t.Name, null, v.InDirectory ? "you see part of this organization" : "you are not in this tenant's directory")); continue; }
                     var c = await S.Contexts.CreateAsync(v, Ctx.Days, null);
                     rows.Add(new(t.Name, await metrics.TotalsAsync(c), null));

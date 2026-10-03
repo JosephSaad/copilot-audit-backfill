@@ -2,16 +2,41 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace CopilotInsights.Infrastructure;
 
-/// <summary>Settings from dash.Setting, cached for a minute.</summary>
-public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, ILogger<Settings> log)
+/// <summary>
+/// Settings from dash.Setting, and privacy mode: read from the database once for each request, and kept for a minute
+/// for the background work (the alerts, the digests, the warm-up), which has no request.
+/// </summary>
+/// <remarks>
+/// Read for each request since 2.4.12. They were kept for a minute everywhere, and a save cleared them only on the web
+/// server that took it: with several web servers, privacy mode turned on through one left the others serving named
+/// pages, files and API calls for up to a minute, and a new minimum group size or a report turned off the same. A table
+/// of a few dozen short rows is read once a page now, so a change made on any web server applies to the next page on
+/// all of them.
+/// </remarks>
+public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, IHttpContextAccessor http, ILogger<Settings> log)
 {
-    public async Task<IReadOnlyDictionary<string, string?>> AllAsync() =>
-        (await cache.GetOrCreateAsync(tenants.Key("dash-settings"), async e =>
+    public Task<IReadOnlyDictionary<string, string?>> AllAsync() =>
+        http.HttpContext is { } request
+            ? RequestMemo.GetAsync(request, tenants.Key("dash-settings"), ReadAllAsync)
+            : cache.GetOrCreateAsync(tenants.Key("dash-settings"), async e =>
+            {
+                e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
+                return await ReadAllAsync();
+            })!;
+
+    async Task<IReadOnlyDictionary<string, string?>> ReadAllAsync()
+    {
+        /* From the database itself, never a report page's cached reads. */
+        using (QueryCache.Off())
         {
-            e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
             var rows = await db.QueryAsync<(string Name, string? Value)>("SELECT Name, Value FROM dash.Setting");
-            return (IReadOnlyDictionary<string, string?>) rows.ToDictionary(r => r.Name, r => r.Value, StringComparer.OrdinalIgnoreCase);
-        }))!;
+            return rows.ToDictionary(r => r.Name, r => r.Value, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>Today's date key where the data's days are cut (2.4.12, see <see cref="ReportContext.TodayKey"/>).</summary>
+    public async Task<int> TodayKeyAsync() =>
+        ReportContext.TodayKey(DateTime.UtcNow, CopilotInsights.Data.Zones.Resolve(null, await ReportingTimeZoneAsync()));
 
     public async Task<int> IntAsync(string name, int fallback) =>
         (await AllAsync()).TryGetValue(name, out var v) && int.TryParse(v, out var i) && i > 0 ? i : fallback;
@@ -23,6 +48,8 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, 
     {
         cache.Remove(tenants.Key("dash-settings"));
         cache.Remove(tenants.Key("privacy-mode"));
+        RequestMemo.Forget(http.HttpContext, tenants.Key("dash-settings"));
+        RequestMemo.Forget(http.HttpContext, tenants.Key("privacy-mode"));
     }
 
     /// <summary>The time zone the data's days were cut in (audit.ReportingTimeZone()), or null on a database without it.</summary>
@@ -45,20 +72,52 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, 
     /// A read that fails is not "off" (2.4.12): it was, for a minute and for every page and email on that server, so a
     /// failover or a missing grant turned privacy mode off without a word. Now only a database from before the setting
     /// (no table to read) is off; any other failure is on, logged, and kept for seconds so the next read tries again.
+    /// Read for each request (2.4.12, see the class); the background work keeps it for a minute.
     /// </remarks>
-    public async Task<bool> PrivacyModeAsync() =>
-        await cache.GetOrCreateAsync(tenants.Key("privacy-mode"), async e =>
-        {
-            e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
-            try { return await db.ScalarAsync<string?>("SELECT Value FROM audit.PipelineSetting WHERE Name = N'PrivacyMode'") == "Pseudonymize"; }
-            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return false; }   // no audit.PipelineSetting
-            catch (Microsoft.Data.SqlClient.SqlException ex)
+    public Task<bool> PrivacyModeAsync() =>
+        http.HttpContext is { } request
+            ? RequestMemo.GetAsync(request, tenants.Key("privacy-mode"), async () => (await ReadPrivacyModeAsync()).On)
+            : cache.GetOrCreateAsync(tenants.Key("privacy-mode"), async e =>
             {
-                e.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(5);
-                log.LogWarning(ex, "Could not read privacy mode, so it is treated as on until it can be read");
-                return true;
-            }
-        });
+                var (on, read) = await ReadPrivacyModeAsync();
+                e.AbsoluteExpirationRelativeToNow = read ? TimeSpan.FromMinutes(1) : TimeSpan.FromSeconds(5);
+                return on;
+            });
+
+    async Task<(bool On, bool Read)> ReadPrivacyModeAsync()
+    {
+        try
+        {
+            using (QueryCache.Off())
+                return (await db.ScalarAsync<string?>("SELECT Value FROM audit.PipelineSetting WHERE Name = N'PrivacyMode'") == "Pseudonymize", true);
+        }
+        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 208) { return (false, true); }   // no audit.PipelineSetting
+        catch (Microsoft.Data.SqlClient.SqlException ex)
+        {
+            log.LogWarning(ex, "Could not read privacy mode, so it is treated as on until it can be read");
+            return (true, false);
+        }
+    }
+}
+
+/// <summary>
+/// A value read once for a request (2.4.12), kept in the request's own items: the next request reads it again. Each
+/// request is one viewer's, and a key is per tenant (see <see cref="TenantAccessor.Key"/>).
+/// </summary>
+public static class RequestMemo
+{
+    public static async Task<T> GetAsync<T>(HttpContext request, string key, Func<Task<T>> read)
+    {
+        var k = "memo:" + key;
+        if (request.Items.TryGetValue(k, out var found) && found is Task<T> known) return await known;
+        var task = read();
+        request.Items[k] = task;
+        try { return await task; }
+        catch { request.Items.Remove(k); throw; }
+    }
+
+    /// <summary>Read it again: this request changed it.</summary>
+    public static void Forget(HttpContext? request, string key) => request?.Items.Remove("memo:" + key);
 }
 
 /// <summary>An org unit on the breadcrumb or in the drill-down list.</summary>
@@ -139,6 +198,14 @@ public sealed class ReportContext
     public int StartKey => Key(Start);
     public int EndKey => Key(End);
     public static int Key(DateTime d) => d.Year * 10000 + d.Month * 100 + d.Day;
+    public static DateTime Day(int key) => new(key / 10000, key / 100 % 100, key % 100);
+
+    /// <summary>
+    /// Today's date key in the zone the data's days are cut in (2.4.12): the day still arriving, which no period ends on.
+    /// Pure, for the tests; <see cref="Settings.TodayKeyAsync"/> gives it for now and the data's zone.
+    /// </summary>
+    public static int TodayKey(DateTime utcNow, TimeZoneInfo zone) =>
+        Key(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utcNow, DateTimeKind.Utc), zone).Date);
     public static DateTime WeekEnding(DateTime d) => d.Date.AddDays(((int)DayOfWeek.Friday - (int)d.DayOfWeek + 7) % 7);
 
     /// <summary>The trend's points, oldest first. Weekly points are labeled by the Friday ending them.</summary>
@@ -211,12 +278,15 @@ public sealed class ReportContextFactory(Db db, Settings settings)
         /* Set by an admin, or else found in the org chart by the refresh. */
         var top = await settings.StringAsync("OrgTopUpn") ?? await settings.StringAsync("OrgTopUpnDetected");
 
-        /* The last complete day with data (today is still arriving). */
+        /* The last complete day with data (today is still arriving), today being the day in the zone the data's days are
+           cut in (2.4.12). It was SQL Server's own date: with the server on UTC and the days cut in Eastern Time, from
+           8 p.m. Eastern the day still loading counted as complete, and every period ended on it. */
+        var today = await settings.TodayKeyAsync();
         var endKey = await db.ScalarAsync<int?>(@"
 SELECT COALESCE(
-    (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < YEAR(SYSDATETIME()) * 10000 + MONTH(SYSDATETIME()) * 100 + DAY(SYSDATETIME())),
-    (SELECT MAX(DateKey) FROM dash.UserDay))");
-        var end = endKey is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : DateTime.Today.AddDays(-1);
+    (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today),
+    (SELECT MAX(DateKey) FROM dash.UserDay))", new { today });
+        var end = endKey is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : ReportContext.Day(today).AddDays(-1);
         var start = end.AddDays(-(days - 1));
 
         /* Whose data: whole organization, or a subtree the viewer may see. */
@@ -224,9 +294,12 @@ SELECT COALESCE(
         var why = OrgRefusal.None;
         if (viewer.OrgWide)
         {
+            /* A part of the organization is someone in the directory, for the API and the digests too (2.4.12). They took
+               any text: one longer than a sign-in can be was cut to 256 characters by dash.fnScopeUsers but not by the
+               name looked up for the audit log, which then could not be written. Nobody, now, and the API returns nothing. */
             root = requested;
-            if (root is not null && forPage && await db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Person WHERE Upn = @root", new { root }) == 0)
-                (asked, root, why) = (root, null, OrgRefusal.NotFound);
+            if (root is not null && (root.Length > 256 || await db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Person WHERE Upn = @root", new { root }) == 0))
+                (asked, root, why) = (root, forPage ? null : "(nobody)", OrgRefusal.NotFound);
         }
         else
         {
@@ -292,18 +365,55 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
 }
 
 /// <summary>Writes dash.AuditLog: every page view, denial, export and admin change.</summary>
+/// <remarks>
+/// A write that fails is not swallowed (2.4.12). It was logged and the page, the file or the API answer went out all
+/// the same, so a full log or disk, a read-only database or a missing grant served everything with no trace, and a
+/// scope longer than its column (an org= of 400 characters on the API) did so on demand. Every value is now cut to its
+/// column, a failed write is tried once more, and then the request is refused (<see cref="AuditLogUnavailableException"/>,
+/// answered 503 in Program.cs): what is not in the audit log is not served.
+/// </remarks>
 public sealed class AuditLog(Db db, IHttpContextAccessor http, ILogger<AuditLog> log)
 {
+    /// <summary>How long to wait before the second try.</summary>
+    public static TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(500);
+
     public async Task WriteAsync(Viewer viewer, string kind, string page, string? scope, string? detail)
     {
-        try
+        var args = new
         {
-            var who = viewer.Upn ?? viewer.WindowsName;
-            await db.ExecuteAsync(@"
-INSERT INTO dash.AuditLog (Viewer, Kind, Page, Scope, Detail, ClientIp) VALUES (@who, @kind, @page, @scope, @detail, @ip)",
-                new { who, kind, page, scope, detail = detail is { Length: > 2000 } ? detail[..2000] : detail,
-                      ip = http.HttpContext?.Connection.RemoteIpAddress?.ToString() });
+            who = Fit(viewer.Upn ?? viewer.WindowsName, 256), kind = Fit(kind, 12), page = Fit(page, 200), scope = Fit(scope, 400),
+            detail = Fit(detail, 2000), ip = Fit(http.HttpContext?.Connection.RemoteIpAddress?.ToString(), 64),
+        };
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await db.ExecuteAsync(@"
+INSERT INTO dash.AuditLog (Viewer, Kind, Page, Scope, Detail, ClientIp) VALUES (@who, @kind, @page, @scope, @detail, @ip)", args);
+                return;
+            }
+            catch (Exception ex) when (attempt == 1)
+            {
+                log.LogWarning(ex, "Could not write the audit log; trying once more");
+                await Task.Delay(RetryDelay);
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "Could not write the audit log, so the request is refused ({Kind} {Page} by {Viewer})", args.kind, args.page, args.who);
+                throw new AuditLogUnavailableException(ex);
+            }
         }
-        catch (Exception ex) { log.LogError(ex, "Could not write the audit log"); }
     }
+
+    /// <summary>A value cut to the width of its column, so it can never be what makes the write fail.</summary>
+    public static string? Fit(string? value, int max) => value is { } v && v.Length > max ? v[..max] : value;
+}
+
+/// <summary>The audit log could not be written (2.4.12): the request is refused rather than served unrecorded.</summary>
+public sealed class AuditLogUnavailableException(Exception inner) : Exception("The audit log could not be written.", inner)
+{
+    /// <summary>What the viewer is told, with the 503.</summary>
+    public const string Message503 = "Copilot Insights could not write its audit log, so nothing is shown: every page, export and API call is recorded there before it is served. " +
+        "Try again in a minute. If it goes on, the database administrator should check the SQL Server: a full log or disk, a read-only database, " +
+        "or the site's account losing its right to write dash.AuditLog.";
 }
