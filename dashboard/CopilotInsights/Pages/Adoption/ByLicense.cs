@@ -309,11 +309,13 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         var appAt = appTrend.ToLookup(x => (x.App, x.Bucket), x => x.N);
         var otherAt = appTrend.Where(x => !shown.Contains(x.App)).ToLookup(x => x.Bucket, x => x.N);
         var series = shown.Select((app, i) => new Series(app, Average(b => appAt[(app, b.Key)].Sum()), i + 1)).ToList();
-        if (byApp.Count > shown.Count) series.Add(new Series("Other apps", Average(b => otherAt[b.Key].Sum()), 8));
+        /* "Other apps" where the trend has an app outside the drawn ones, which includes one used only before the period (the average reads those days). */
+        if (otherAt.Count > 0) series.Add(new Series("Other apps", Average(b => otherAt[b.Key].Sum()), 8));
         var legend = new Table { Headers = ["App", "Lowest", "Highest", "Mean"], Numeric = new HashSet<int> { 1, 2, 3 } };
         foreach (var sr in series)
         {
-            var v = sr.Values.Select(x => x ?? 0).DefaultIfEmpty(0).ToList();
+            /* A week not yet over has no point: it is left out, not counted as 0. */
+            var v = sr.Values.Where(x => x.HasValue).Select(x => x!.Value).DefaultIfEmpty(0).ToList();
             legend.Rows.Add([sr.Name, Math.Round(v.Min(), 1), Math.Round(v.Max(), 1), Math.Round(v.Average(), 1)]);
         }
         Panels.Add(new("Interaction trends by app",

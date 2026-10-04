@@ -164,7 +164,8 @@ SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase,
         /* Fixed colors per use case, by overall size (the chart shows at most eight). */
         var top = ranked.Take(7).Select(x => x.UseCase).ToList();
         string Key(string u) => top.Contains(u) ? u : "Everything else";
-        var names = top.Concat(ranked.Count > 7 ? ["Everything else"] : []).ToList();
+        /* "Everything else" where the trend has a use case outside the top seven, which includes one seen only before the period (the average reads those days). */
+        var names = top.Concat(ranked.Count > 7 || trend.Any(x => !top.Contains(x.UseCase)) ? ["Everything else"] : []).ToList();
         var useAt = trend.ToLookup(x => (Key(x.UseCase), x.Bucket!.Value), x => x.N);
         Panels.Add(new("Interactions by use case", Chart.Columns(Labels(),
             names.Select((n, i) => new Series(n, Average(b => useAt[(n, b.Key)].Sum()), i + 1)).ToList(),

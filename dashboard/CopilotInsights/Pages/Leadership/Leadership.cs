@@ -123,7 +123,8 @@ GROUP BY {Ctx.BucketSql("d")}, a.App;", Ctx.Args());
         var appAt = rows.ToLookup(r => (r.App, r.Bucket), r => r.N);
         var otherAt = rows.Where(r => !top.Contains(r.App)).ToLookup(r => r.Bucket, r => r.N);
         var series = top.Select((app, i) => new Series(app, Average(b => appAt[(app, b.Key)].Sum()), i + 1)).ToList();
-        if (period.Count > top.Count)
+        /* "Other apps" where the trend has an app outside the six, which includes one used only before the period (the average reads those days). */
+        if (otherAt.Count > 0)
             series.Add(new Series("Other apps", Average(b => otherAt[b.Key].Sum()), 8));
         Panels.Add(new("Interactions by app", Chart.Columns(x, series, Fmt.Average, "Interactions by app, 28-day average"),
             $"The six busiest apps; the rest are combined. Office and BizChat are Copilot Chat. {TrendNote}"));

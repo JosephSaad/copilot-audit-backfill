@@ -210,6 +210,29 @@ public class TrendPagesTests
     }
 
     [Fact]
+    public void A_week_not_yet_over_is_left_out_of_a_legends_lowest_and_mean_not_counted_as_zero()
+    {
+        /* Its point is blank (null): read as 0 it made every app's lowest 0 and its mean too low, on a period that ends mid-week. */
+        var page = File.ReadAllText(Path.Combine(PagesDirectory(), "Adoption", "ByLicense.cs"));
+        Assert.DoesNotContain("sr.Values.Select(x => x ?? 0)", page);
+        Assert.Contains("sr.Values.Where(x => x.HasValue)", page);
+    }
+
+    [Fact]
+    public void An_other_series_is_decided_from_the_trend_which_reads_the_days_before_the_period()
+    {
+        /* A category used only in the lead-in is in the average of the first points, so it belongs to "Other" though the period has
+           no more categories than are drawn. */
+        var pages = Path.Combine(PagesDirectory());
+        foreach (var (file, wrong) in new[]
+                 {
+                     ("Leadership/Leadership.cs", "period.Count > top.Count"), ("Adoption/ByLicense.cs", "byApp.Count > shown.Count"),
+                     ("Compliance/Compliance.cs", "order.Count > 7)\n            series.Add"), ("Leadership/BoardPack.cs", "names = top.Concat(ranked.Count > 7 ?"),
+                 })
+            Assert.DoesNotContain(wrong, File.ReadAllText(Path.Combine(pages, file.Replace('/', Path.DirectorySeparatorChar))).Replace("\r\n", "\n"));
+    }
+
+    [Fact]
     public void A_trend_column_in_a_table_names_the_average_in_its_heading()
     {
         foreach (var (file, page) in new[] { ("Leadership/Leadership.cs", "Trend (people using Copilot, 28-day average)"), ("Agents/Agents.cs", "Trend (people, 28-day average)"), ("Apps/Apps.cs", "Trend (people, 28-day average)") })

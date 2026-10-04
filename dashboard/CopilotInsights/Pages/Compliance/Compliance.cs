@@ -54,7 +54,8 @@ GROUP BY {Ctx.BucketSql("d")}, {Sites.LabelName};", Ctx.Args());
         var labelAt = labels.ToLookup(x => (x.Label, x.Bucket), x => x.N);
         var otherAt = labels.Where(x => !shown.Contains(x.Label)).ToLookup(x => x.Bucket, x => x.N);
         var series = shown.Select((l, i) => new Series(l, Average(b => labelAt[(l, b.Key)].Sum()), i + 1)).ToList();
-        if (order.Count > 7)
+        /* "Other labels" where the trend has a label outside the seven, which includes one used only before the period (the average reads those days). */
+        if (otherAt.Count > 0)
             series.Add(new Series("Other labels", Average(b => otherAt[b.Key].Sum()), 8));
         Panels.Add(new("Labeled content by label", Chart.Columns(Labels(), series, Fmt.Average, "Interactions by sensitivity label, 28-day average"),
             $"An interaction that read content with two labels counts under each. Labels are ordered least to most sensitive when Admin › Reference data ranks them. {TrendNote}"));
