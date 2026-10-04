@@ -80,6 +80,9 @@ jobs:
       - name: Test-CsvImport
         shell: bash
         run: pwsh -NoProfile -File tests/Test-CsvImport.ps1
+      - name: Test-NightlyProfile
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-NightlyProfile.ps1
 
   dashboard:
     name: Copilot Insights dashboard

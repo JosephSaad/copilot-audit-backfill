@@ -67,7 +67,7 @@ out.append('**Two databases.** The Copilot database (`CopilotAudit`) holds every
            'license-event tables and views.\n')
 out.append('**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, '
            '`audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, '
-           '`audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. '
+           '`audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. '
            '`dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every '
            'query for a part of the organization to it.\n')
 

@@ -4,6 +4,236 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.4] - 2026-10-04
+
+A night's refresh no longer grows with the license history, and two tools show where a night's time
+goes. The session build and the report-table (`bi`) refresh each worked out every license change
+from the records every night, and the session build looked each session up in them without an
+index: with a license history of millions of events, both took long whatever the night's load. The
+changes are now kept in a table as the license events are shredded, and sought.
+
+One night's refresh in the lab, over 120 million interactions and a license history of 4,000,000
+events, before and after; both wrote the same rows:
+
+| Stage of the night | 2.5.3 | 2.5.4 |
+|---|---|---|
+| Sessions (60,852, from 329,445 records) | 22 min 36 s | 45 s |
+| Report tables (220,480 interactions, 304,308 license changes) | 17 min 7 s | 2 min 24 s |
+| Dashboard totals | 2 min 35 s | 2 min 9 s |
+| The three together | 42 min 24 s | 5 min 24 s |
+
+To upgrade: both databases and the job server's scripts change, so run `Install-CopilotAudit.ps1`
+from this release with the nightly task disabled. It works out the kept changes once (about two
+minutes for 4,000,000 license events in the lab). It also shreds every license record one last
+time, to record that the shred finished, unless `-LicenseEventsShredded` says that it did (step 8);
+later runs shred only what is new. The dashboard is 2.5.3's: a site on 2.5.3 can stay as it is, and
+one on 2.5.2 or 2.5.1 installs this release's package for 2.5.3's daily charts. No figure on any
+report changes. The steps, from 2.5.2, with a job server in `D:\CopilotAudit`, a site in
+`C:\inetpub\CopilotInsights`, SQL Server `SQLPROD01` and the two databases under their usual names;
+add `-TrustServerCertificate` (and `-C` to sqlcmd) where the settings file has it.
+
+### To upgrade from 2.5.2, step by step
+
+On the job server, in an elevated PowerShell 7 window, as an account that owns both databases, in
+the folder holding the downloaded files:
+
+| # | Command | What it does |
+|---|---|---|
+| 1 | `Disable-ScheduledTask -TaskName 'Copilot audit - nightly'` | Keeps the nightly run from starting during the upgrade. If `State` shows `Running`, or Admin › Health shows a run under way, let it finish first: the installer refuses to run beside it. |
+| 2 | `sqlcmd -S SQLPROD01 -E -Q "BACKUP DATABASE [CopilotAudit] TO DISK = N'CopilotAudit-pre-2.5.4.bak' WITH COPY_ONLY, COMPRESSION, CHECKSUM"` | Backs up the Copilot database to SQL Server's default backup folder. `COPY_ONLY` leaves the regular backup chain alone. |
+| 3 | `sqlcmd -S SQLPROD01 -E -Q "BACKUP DATABASE [CopilotLicenseEvents] TO DISK = N'CopilotLicenseEvents-pre-2.5.4.bak' WITH COPY_ONLY, COMPRESSION, CHECKSUM"` | Backs up the license-event database the same way. This release changes it. |
+| 4 | `(Get-FileHash .\copilot-audit-backfill-v2.5.4-offline-win-x64.zip -Algorithm SHA256).Hash -eq (Get-Content .\copilot-audit-backfill-v2.5.4-offline-win-x64.zip.sha256 -Raw).Split(' ')[0]` | Prints `True` when the download matches its published hash. |
+| 5 | `Unblock-File .\copilot-audit-backfill-v2.5.4-offline-win-x64.zip` | Removes the downloaded-from-the-internet mark, so the scripts are allowed to run. |
+| 6 | `Expand-Archive .\copilot-audit-backfill-v2.5.4-offline-win-x64.zip -DestinationPath D:\ -Force` | Unpacks the release to `D:\copilot-audit-backfill-v2.5.4-offline-win-x64`. |
+| 7 | `robocopy D:\copilot-audit-backfill-v2.5.4-offline-win-x64 D:\CopilotAudit /E /XF copilot-audit.settings.psd1 /XD logs` | Replaces the scripts with this release's. The settings file and the logs are left as they are. An exit code under 8 is success. |
+| 8 | `Set-Location D:\CopilotAudit; .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Database CopilotAudit -LicenseDatabase CopilotLicenseEvents -Dashboard -LicenseEventsShredded` | Upgrades both databases. In the license-event database it adds an index and the table of kept SKU changes, and works them out once from the events already shredded: it says *Working out the SKU changes of the license events already here, once (2.5.4)*, then how many it kept and how long it took. **`-LicenseEventsShredded`** says that the last run of `Install-CopilotAudit.ps1` on this database ended with `Done.`, so every license record is shredded and whole: the installer records that, says *every one of … record(s) is shredded already, so none is read again*, and reads no license record. **Leave the switch out** if that run was stopped or failed part way, or if nobody can say: the installer then shreds every license record once more (it says *once more, to record that every one is shredded*, and takes as long as that step took in earlier upgrades), which mends any event a stopped shred left without its properties. Either way no later run reads them all again. In the Copilot database it replaces the session and report-table procedures, and rebuilds the dashboard's org chart and today's rollups. It ends with `Done.` With `SessionLicenseDatabases` in the settings, add `-LicenseEventDatabases` with the same list. |
+| 9 | `sqlcmd -S SQLPROD01 -d CopilotLicenseEvents -E -Q "SELECT RunId, StartedUtc, EndedUtc, Events, Changes FROM audit.LicenseSkuChangeRun ORDER BY RunId; SELECT COUNT(*) AS Kept FROM audit.LicenseSkuChange; SELECT Name, Value FROM audit.PipelineSetting WHERE Name LIKE N'LicenseShred%';"` | Shows what step 8 did: one run (two when it shredded once more) with `Events` every license event, `Changes` and `Kept` the SKU changes kept for them, and one mark, `LicenseShredCompleteUtc`. A mark named `LicenseShredInProgress` means a shred did not finish: run step 8 again. |
+
+On the web server, in an elevated Windows PowerShell 5.1 window, in the folder holding
+`copilot-audit-backfill-v2.5.4.zip`, `copilot-insights-v2.5.4.zip` and their `.sha256` files:
+
+| # | Command | What it does |
+|---|---|---|
+| 10 | `(Get-FileHash .\copilot-audit-backfill-v2.5.4.zip -Algorithm SHA256).Hash -eq (Get-Content .\copilot-audit-backfill-v2.5.4.zip.sha256 -Raw).Split(' ')[0]; (Get-FileHash .\copilot-insights-v2.5.4.zip -Algorithm SHA256).Hash -eq (Get-Content .\copilot-insights-v2.5.4.zip.sha256 -Raw).Split(' ')[0]` | Prints `True` twice: both downloads match their published hashes. |
+| 11 | `Unblock-File .\copilot-audit-backfill-v2.5.4.zip, .\copilot-insights-v2.5.4.zip` | Lets the installer and the pre-cache script run. |
+| 12 | `Expand-Archive .\copilot-audit-backfill-v2.5.4.zip -DestinationPath . -Force` | Unpacks the source package, which holds the dashboard installer, to `.\copilot-audit-backfill-v2.5.4`. |
+| 13 | `.\copilot-audit-backfill-v2.5.4\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.4.zip -SqlServer SQLPROD01` | Updates the site. It keeps its database, its `TrustServerCertificate` setting, account, bindings, administrators and the pre-cache task's time. |
+| 14 | `Get-ScheduledTaskInfo -TaskName 'Copilot Insights pre-cache'` | `NextRunTime` is the next 07:00 Eastern on the server's clock. Then open a report at 30 days: a trend chart now ends with a line that starts *Shown to*, which is 2.5.3's change and shows the site is on the new package. |
+
+On the job server again, PowerShell 7, from `D:\CopilotAudit`:
+
+| # | Command | What it does |
+|---|---|---|
+| 15 | `Enable-ScheduledTask -TaskName 'Copilot audit - nightly'` | Turns the nightly task back on. |
+| 16 | `Start-ScheduledTask -TaskName 'Copilot audit - nightly'` | Runs it now, to time it on this release; or leave it to tonight. Start it at least an hour after the last run's load ended: a run that finds nothing new to load refreshes nothing. |
+| 17 | `.\tools\Measure-CopilotNightly.ps1 -SqlServer SQLPROD01 -LogPath D:\CopilotAudit\logs` | During the run or after it: each step's time, each stage inside the two loads, and the statements that ran longest. `-RunId` with the id of a run from before the upgrade (they are in its first list) shows that one for comparison. Read-only. |
+| 18 | `.\tools\Test-CopilotDataHealth.ps1 -SqlServer SQLPROD01` | Read-only check that every load and refresh is current. Its license section now says *The SKU changes sessions and bi read are worked out for every event shredded.* |
+
+To go back: restore the two backups, or copy the earlier release's scripts over `D:\CopilotAudit`
+and run its `Install-CopilotAudit.ps1`, which puts its view and procedures back; the new table and
+index stay, unused.
+
+### Fixed
+- **Every night worked out the whole license history from the records, twice.** The session build
+  and the `bi` refresh each read every SKU change in the license-event database, through
+  `audit.vLicenseSkuChange`, which worked them out from the events and their properties at each
+  read: which records are changes, which carry the license lists, which borrow them from a record
+  raised with them, which SKUs each list has. Over 4,000,000 license events in the lab each of the
+  two reads took 11 minutes on one core and read 196 million pages, whatever the night had loaded
+  (run on its own, with its rows sent to a client, one read took 20 minutes and wrote 15 GB to
+  tempdb). The changes are now kept in `audit.LicenseSkuChange`: `audit.usp_ShredLicenseEvents` ends
+  by working out those of the events shredded since they were last worked out, and of the records
+  raised with them. In the lab that takes 2 to 9 seconds for a night's 44,405 events, and each of
+  the two reads under half a second. The rows are the same: checked against the old view's 300,000
+  rows at that size, and case by case in the tests.
+- **The session build read the whole license history for every session.** It kept the Copilot
+  changes in a temporary table with no index, and asked it, per session, whether the person held a
+  Copilot SKU when the session began. With 154,530 Copilot changes a night's 60,852 sessions took
+  10 min 48 s on six cores (an hour of CPU) for that one question; with an index, seconds.
+- **A night's accessed resources could be joined by reading all of them.** The `bi` refresh takes
+  the resources of the night's interactions from `audit.RawLogAccessedResource`. Once that table is
+  large SQL Server samples its statistics, and a sample counts far too few distinct records in a
+  key whose rows for one record sit together (68,000 where there are 11.6 million, in the lab). On
+  that, the night's 220,480 interactions were joined by reading all 69,628,759 rows on one core:
+  4 min 11 s, against 7 seconds when each interaction's resources are sought, which the statement
+  now asks for.
+- **An upgrade shredded every license record again.** `Install-CopilotAudit.ps1` read and parsed
+  every record of the license-event database on every run, to write the rows already there: the
+  longest step of an upgrade on a large license history. It now shreds every record only for
+  `-Rebuild`, or for a database that carries no mark that a shred of every record finished. That
+  is every database an earlier release shredded, once: a shred that was stopped between a batch's
+  events and their properties shows in no count, so the first run of this release shreds every
+  record one more time and leaves the mark, unless `-LicenseEventsShredded` says that the last
+  shred did finish. The switch is not taken where the tables show otherwise (a chunk group with
+  every fragment that was never reassembled). From then on, records that have no event yet are
+  shredded from the earliest of them on, and nothing else is read.
+- **A license shred that was stopped part way could leave events without their properties for
+  good.** `audit.usp_ShredLicenseEvents` commits statement by statement: stopped between a batch's
+  events and their properties, or before its chunk groups are reassembled, it left those events
+  with no license lists, so their SKU changes were lost until every record was shredded again. A
+  shred now marks that it is running and from when it shreds (`LicenseShredInProgress` in
+  `audit.PipelineSetting`), and takes the mark away when it has finished and the SKU changes are
+  worked out. The next shred, the nightly's or the installer's, shreds what the stopped one was
+  shredding too, whatever it was asked for. Until then sessions and `bi` read the SKU changes of
+  the last shred that finished.
+
+### Changed
+- **`audit.vLicenseSkuChange` reads a table.** Its columns are the same, so what reads it needs no
+  change; a second license database made by hand can still be any view of that name. It has one
+  row per record, SKU and direction: the old view gave a change twice when a record carried the
+  license lists both in its own properties and in its chunks, which no reader counted twice. The
+  old view is kept as `audit.vLicenseSkuChangeFromRecords`, the rule the table is checked against.
+  In an upgrade the view moves to the table only once the table's rows are there: until the
+  installer has worked them out, and if that step fails, it goes on reading the records.
+- **`audit.usp_RefreshLicenseSkuChange`** keeps the table, and `audit.LicenseSkuChangeRun` has one
+  row per run. With no parameter it works out the events shredded since its last run began, with
+  every record of their chunk groups and every record raised with any of those: a change can take
+  its lists or its user from such a record, or give way to it, so a family is worked out whole.
+  When more than a tenth of the events were shredded since, or with `@All = 1`, it works out every
+  event. A run that fails leaves nothing behind: the next takes its events too. The shred tells it
+  when it began (`@SinceShreddedUtc`), so its events are taken even if another session's run came
+  in between. Only the shred writes license events; after changing them any other way, run it with
+  `@All = 1`. While a shred is running or one was stopped part way, a run asked for by hand without
+  `@All = 1` works out nothing: that shred's events can still lack their properties.
+- **Two marks in the license-event database's `audit.PipelineSetting`.** `LicenseShredInProgress`,
+  while a shred runs, holds the time it shreds from (empty: every record); one that is still there
+  when no shred is running is a shred that was stopped. `LicenseShredCompleteUtc` is when a shred
+  of every record last finished.
+- **A new index**, `IX_LicenseEvent_Shredded` on `audit.LicenseEvent (ShreddedUtc)`, finds the
+  events shredded since the last run.
+- **A SKU added and removed in the same second.** The session build took whichever of the two the
+  plan met first. It now takes the addition as the later one, as the `bi` refresh does, so a
+  session and its interactions agree.
+- **`Install-CopilotAudit.ps1`.** `-Rebuild` also shreds every license record again, now that an
+  ordinary run does not. `-LicenseEventsShredded` is new (step 8 above). Where a shred was stopped
+  part way, the installer has it finished: what it was shredding is shredded again, and no more.
+  And it works out the SKU changes of license events written some other way than by a shred.
+- **The demo** installs the license-event procedures and works out its license changes, as it
+  writes its license events directly.
+- **The schema reference** ([docs/SCHEMA.md](docs/SCHEMA.md)) describes the two new tables and
+  the view that keeps the rule, and catches up with earlier releases where it had fallen behind
+  the scripts: `audit.CopilotBackfillRange.Source`, `ResourceAction` at 450 characters in
+  `bi.DimResourceAction`, the columnstore indexes of `dash.UserDay` and `dash.ResourceDay`, and
+  the key of `dash.NonHumanException`.
+
+### Added
+- **`tools\Measure-CopilotNightly.ps1`**: where a nightly run's time went. The last runs with each
+  step's time; one run taken apart into the Purview download, the merge, the flatten, the shreds,
+  the license SKU changes, the sessions, the report tables and the dashboard totals, each with its
+  time, its share and what it wrote, from the tables each stage already fills; with `-LogPath`, the
+  run's own log lines and the time between them; the statements that ran longest, from Query Store;
+  and, during a run, the statement running now. It only reads, with uncommitted reads, so it is
+  safe beside the task. Against databases on an earlier release it says that the license history is
+  the likely cause.
+- **`tools\Trace-CopilotNightly.sql`**, for the database administrator: what the task's connections
+  are running at this moment, with waits, blocking and the plan as it runs; and an Extended Events
+  session, `CopilotNightly`, that records every statement of the task that runs a second or longer,
+  read back by procedure and by statement. In SSMS, or with sqlcmd and `-v Do=now`, `start`, `read`
+  or `stop`.
+- **A slow nightly run**, in [docs/OPERATIONS.md](docs/OPERATIONS.md#a-slow-nightly-run): the two
+  tools, turning Query Store on, the same recording with SQL Server Profiler, and how to read the
+  result: which stage or wait means what, and what to do about it.
+- **The health check** (`tools\Test-CopilotDataHealth.ps1`) says how many SKU changes are kept and
+  when they were last worked out, reports a license shred that is running or that never finished,
+  and asks for the installer when the database predates 2.5.4 or a shred has been left unfinished
+  for a day.
+- **Tests.** The SQL integration test checks the kept rows against the old view after a full shred,
+  after a night's shred that completes a chunk group and brings the license change an *Update user*
+  was raised with, case by case over 35 events for every part of the rule, over a tenth of the
+  events, and through an upgrade from a database with events and no table, with and without the
+  step that works them out. It stops a shred part way (its mark, a batch's properties gone, a chunk
+  group not reassembled) and checks that the kept changes stay as they were, that the next shred
+  finishes it from where it began, and that a run of another session cannot hide a shred's events.
+  Through the installer it checks eight runs: records not shredded yet, nothing to do, `-Rebuild`,
+  a stopped shred finished, a database with no mark shredded once more, `-LicenseEventsShredded`
+  taken, not taken beside a chunk group never reassembled, and a record that arrived since shredded
+  from its own time on. It runs the trace script through `start`, `now`, `read` and `stop` against
+  a three-second probe, on SQL Server 2022 in CI, and the profile against its own recorded run.
+  `tests/Test-NightlyProfile.ps1`, in CI and the release, checks how the profile splits a run into
+  stages, how it reads a log, and that it only reads.
+
+### Known limits
+- Every time above is the lab's: a database of 120 million interactions (40,000,000 records,
+  210,000 people) with a license history made for the test, of 4,000,000 events (2,800,000
+  *Update user* records that are not license changes, and 300,000 changes each raised twice and
+  split in two), on one workstation with 8 cores and 31 GB, SQL Server 2025 Enterprise Developer.
+  The mix of that history is an assumption. No production night was measured on this release: how
+  much of a long night these three causes account for on a given tenant is what
+  `tools\Measure-CopilotNightly.ps1` shows, before the upgrade and after it.
+- The Purview download is as it was: the service sets its pace.
+- The shred itself was not timed at that size: the lab's license history was written as events,
+  not as records. The one more shred a first install makes without `-LicenseEventsShredded` takes
+  what that step took in earlier upgrades.
+- `-LicenseEventsShredded` is the operator's word. The installer can see one kind of damage itself
+  (a chunk group never reassembled) and then shreds all the same; events a stopped shred left
+  without their properties it cannot see, which is why the default is to shred once more.
+- Two shreds of one license-event database at once are not told apart from one that stopped: the
+  second takes the first's mark for a stopped shred's and shreds what the first is shredding too.
+  That is correct, and slower. The nightly task and the installer cannot run together (each holds
+  the Copilot database for itself); a shred run by hand, or a CSV import into the license-event
+  database while the installer runs, can overlap with one.
+- The licensed days are still rebuilt whole every night (a minute and a half for 22 million in the
+  lab), and the dashboard's org chart too.
+- Five statements now ask SQL Server to seek an index and do not fall back to a scan: the kept
+  changes' events by `ShreddedUtc`, by chunk group and by `CorrelationId`, their properties by
+  record, and the resources of a night's interactions. If one of those indexes is dropped by hand,
+  the statement fails (error 8622) until `Install-CopilotAudit.ps1` creates it again.
+- A full `bi` rebuild and a full session build were not timed again at 120 million interactions.
+  Each month of a full `bi` rebuild now seeks its resources as a night does: for one month of the
+  lab's (3.4 million interactions, 5.9 million resources) that step took 57 seconds sought against
+  5 min 10 s left to the optimizer, with the table in memory; with it on disk it was not timed.
+- A session built before this release keeps the license flag it has; the same-second rule applies
+  to sessions built from now on, and `-Task RebuildSessions` applies it to all.
+- `tools\Trace-CopilotNightly.sql` was run on SQL Server 2025 here and on SQL Server 2022 in CI,
+  not on 2017 or 2019. The plan as a statement runs needs 2019 or later, or trace flag 7412.
+  `tools\Measure-CopilotNightly.ps1` connects with Windows authentication only, as the health check
+  does.
+- The SQL Server Profiler steps were written from Microsoft's documentation and were not run.
+- As for 2.5.1 to 2.5.3, the installers were not run on Windows Server with IIS for this release.
+  The dashboard's code is 2.5.3's; the UI audit was run again at 30 days on the demo, whose license
+  history now comes through the kept table.
+- The Power BI model is unchanged in this release, so it was not opened in Power BI Desktop for it.
+
 ## [2.5.3] - 2026-10-04
 
 Daily trend charts no longer end on days whose records may still be arriving. At 7, 14 and 30 days a

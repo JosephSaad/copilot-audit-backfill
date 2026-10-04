@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-87 tables (plus 2 left over from 1.x), 36 views, 1124 columns, from 18 scripts.
+90 tables (plus 2 left over from 1.x), 37 views, 1162 columns, from 18 scripts.
 
 ## Contents
 
@@ -13,7 +13,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
-- [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
+- [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.LicenseSkuChange`](#auditlicenseskuchange), [`audit.LicenseSkuChangeRun`](#auditlicenseskuchangerun), [`audit.vLicenseSkuChangeFromRecords`](#auditvlicenseskuchangefromrecords), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
@@ -39,8 +39,8 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-CopilotSessionProcedure.sql` | Copilot | By hand, once (step 8) | usp_BuildCopilotSessions. |
 | `sql/Create-CopilotBiSchema.sql` | Copilot | By hand, once (step 8) | The bi schema: the dimensions (DimDate, DimUser, DimApp, DimAgent, DimModel, DimSku, DimLicenseStatus, DimLicenseType, DimSensitivityLabel, DimResourceType, DimResourceAction, DimSite), the facts (FactInteraction, FactSession, FactLicenseChange, FactLicensedDay, FactAccessedResource, FactAgentEvent), RefreshRun, and the views Power BI imports. bi.FactInteraction stores PremiumUse and UseCaseKey, set once by the refresh (2.4.0), and bi.Interactions passes them on. |
 | `sql/Create-CopilotBiProcedure.sql` | Copilot | By hand, once (step 8) | bi.usp_RefreshBi. |
-| `sql/Create-LicenseEventSchema.sql` | License events | By hand, once (step 7) | LicenseEvent, LicenseEventChunk, LicenseEventProperty, vLicenseChange, vLicenseSkuChange, vLicenseLifecycle. |
-| `sql/Create-LicenseEventProcedure.sql` | License events | By hand, once (step 7) | usp_ShredLicenseEvents. |
+| `sql/Create-LicenseEventSchema.sql` | License events | By hand, once (step 7) | LicenseEvent, LicenseEventChunk, LicenseEventProperty, LicenseSkuChange and LicenseSkuChangeRun (2.5.4), vLicenseChange, vLicenseSkuChangeFromRecords, vLicenseSkuChange, vLicenseLifecycle. |
+| `sql/Create-LicenseEventProcedure.sql` | License events | By hand, once (step 7) | usp_ShredLicenseEvents, and usp_RefreshLicenseSkuChange (2.5.4), which the shred runs at its end. Installed over events shredded before 2.5.4, it works out their SKU changes once. |
 | `sql/Create-CopilotDashboardSchema.sql` | Copilot | By hand, once, for the dashboard (step 22) | The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun; the view dash.Agent and the function dash.fnScopeUsers. |
 | `sql/Create-CopilotOperationsSchema.sql` | Copilot | By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess | The dashboard's operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, license actions and contracts, saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers. |
 | `sql/Create-AgentEventProcedure.sql` | License events | By Install-CopilotAudit.ps1, and after each license-event load | audit.AgentEvent and audit.usp_ShredAgentEvents (2.3.0): Copilot Studio authoring records, one row each. |
@@ -48,7 +48,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 
 **Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the license-event section. The license-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the license-event tables and views.
 
-**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organization to it.
+**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organization to it.
 
 ## Loading and state
 
@@ -68,6 +68,7 @@ What the backfill and the nightly loads write while they run. The engine resumes
 | 4 | `Operations` | nvarchar(400) | **no** |  |  |
 | 5 | `StartedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 6 | `CompletedUtc` | datetime2(0) | yes |  |  |
+| 7 | `Source` | varchar(8) | yes |  | 'CSV' when a CSV import wrote the row |
 
 Indexes and constraints:
 
@@ -209,7 +210,7 @@ Indexes and constraints:
 
 ### audit.PipelineSetting
 
-*Table.* Settings the procedures read, one row each: ReportingTimeZone, the Windows time zone name every procedure cuts days and hours in (read through audit.ReportingTimeZone(); Eastern Standard Time when unset; written by Install-CopilotAudit.ps1 -ReportingTimeZone, which refuses a change once records are loaded), and from 2.3.0 PrivacyMode and PseudonymSalt (written by dash.usp_SetPrivacyMode from Admin &gt; Privacy and retention).
+*Table.* Settings the procedures read, one row each: ReportingTimeZone, the Windows time zone name every procedure cuts days and hours in (read through audit.ReportingTimeZone(); Eastern Standard Time when unset; written by Install-CopilotAudit.ps1 -ReportingTimeZone, which refuses a change once records are loaded), and from 2.3.0 PrivacyMode and PseudonymSalt (written by dash.usp_SetPrivacyMode from Admin &gt; Privacy and retention). It also holds the marks a long job leaves: FullFlattenUtc when a flatten of every record has finished (2.4.12) and, in the license-event database, LicenseShredInProgress while a license shred runs (the time it shreds from; still there after a shred that was stopped) and LicenseShredCompleteUtc when a shred of every record last finished (2.5.4).
 
 **Script** `Create-CopilotAuditSchema.sql` · **In** Copilot database
 
@@ -1082,6 +1083,7 @@ Indexes and constraints:
 - `IX_LicenseEvent_Chunk`: nonclustered (ChunkGroupId, ChunkSeq)
 - `IX_LicenseEvent_Correlation`: nonclustered (CorrelationId)
 - `IX_LicenseEvent_Target`: nonclustered (TargetUpn, CreatedDateTime) include (Operation, CorrelationId)
+- `IX_LicenseEvent_Shredded`: nonclustered (ShreddedUtc)
 
 ### audit.LicenseEventChunk
 
@@ -1140,9 +1142,49 @@ Indexes and constraints:
 | 11 | `FromPairedRecord` | int | **no** |  |  |
 | 12 | `FromChunks` | int | **no** |  |  |
 
-### audit.vLicenseSkuChange
+### audit.LicenseSkuChange
 
-*View.* SKUs added and removed per change, from the old and new AssignedLicense lists: "when was this user given Copilot, and when was it taken away". Sessions and bi read it for license at the time of use.
+*Table.* The SKUs each license change added and removed, kept (2.5.4): one row per record, SKU and direction. Worked out by usp_RefreshLicenseSkuChange at the end of every shred, for the events shredded since it last ran and the records raised with them. Sessions and bi read every row each night, through vLicenseSkuChange.
+
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | varchar(64) | **no** | **PK** |  |
+| 2 | `Sku` | nvarchar(200) | **no** | **PK** |  |
+| 3 | `Change` | nvarchar(7) | **no** | **PK** | 'Added' \| 'Removed' |
+| 4 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
+| 5 | `ActivityDate` | date | **no** |  |  |
+| 6 | `ActorUpn` | nvarchar(512) | yes |  |  |
+| 7 | `TargetUpn` | nvarchar(512) | yes |  | the record's own, or the one a record raised with it carries |
+| 8 | `FromChunks` | int | **no** |  | 1: read from a reassembled chunk group |
+
+Indexes and constraints:
+
+- `PK_LicenseSkuChange`: primary key, clustered (RecordId, Sku, Change)
+
+### audit.LicenseSkuChangeRun
+
+*Table.* One row per run of usp_RefreshLicenseSkuChange (2.5.4): when, the events worked out and the changes kept for them. SinceUtc is empty when every event was worked out. No row: the changes have never been worked out in this database.
+
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RunId` | int | **no** | **PK** identity |  |
+| 2 | `StartedUtc` | datetime2(0) | **no** |  |  |
+| 3 | `EndedUtc` | datetime2(0) | **no** |  |  |
+| 4 | `SinceUtc` | datetime2(0) | yes |  | events shredded from then on, and the records raised with them; NULL: every event |
+| 5 | `Events` | int | **no** |  | events worked out again |
+| 6 | `Changes` | int | **no** |  | SKU changes kept for them |
+
+Indexes and constraints:
+
+- `PK_LicenseSkuChangeRun`: primary key, clustered (RunId)
+
+### audit.vLicenseSkuChangeFromRecords
+
+*View.* The rule the kept rows follow, read from the events and their properties each time: SKUs added and removed per change, from the old and new AssignedLicense lists. It was vLicenseSkuChange before 2.5.4, and is what the tests check the table against. Slow on a large history: 11 minutes a read over 4,000,000 events in the lab.
 
 **Script** `Create-LicenseEventSchema.sql` · **In** License-event database
 
@@ -1155,6 +1197,23 @@ Indexes and constraints:
 | 5 | `TargetUpn` | nvarchar(512) | yes |  |  |
 | 6 | `FromChunks` | int | **no** |  |  |
 | 7 | `Sku` | nvarchar(max) | yes |  |  |
+| 8 | `Change` | nvarchar(7) | **no** |  |  |
+
+### audit.vLicenseSkuChange
+
+*View.* SKUs added and removed per change: "when was this user given Copilot, and when was it taken away". Sessions and bi read it for license at the time of use. From 2.5.4 it reads audit.LicenseSkuChange.
+
+**Script** `Create-LicenseEventSchema.sql` · **In** License-event database · **Also** Create-LicenseEventProcedure.sql, which points it at the table once the changes of events shredded before 2.5.4 are worked out
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | varchar(64) | **no** |  |  |
+| 2 | `CreatedDateTime` | datetime2(0) | **no** |  |  |
+| 3 | `ActivityDate` | date | **no** |  |  |
+| 4 | `ActorUpn` | nvarchar(512) | yes |  |  |
+| 5 | `TargetUpn` | nvarchar(512) | yes |  |  |
+| 6 | `FromChunks` | int | **no** |  |  |
+| 7 | `Sku` | nvarchar(200) | **no** |  |  |
 | 8 | `Change` | nvarchar(7) | **no** |  |  |
 
 ### audit.AgentEvent
@@ -1444,7 +1503,7 @@ Indexes and constraints:
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
 | 1 | `ResourceActionKey` | int | **no** | **PK** identity |  |
-| 2 | `ResourceAction` | nvarchar(200) | **no** |  |  |
+| 2 | `ResourceAction` | nvarchar(450) | **no** |  | as wide as audit.RawLogAccessedResource.[Action] |
 
 Indexes and constraints:
 
@@ -1512,7 +1571,7 @@ Narrow facts with integer keys. FactInteraction is a clustered columnstore and t
 
 Indexes and constraints:
 
-- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenseStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, PremiumUse, UseCaseKey, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName)
+- `CCI_FactInteraction`: clustered columnstore include (RecordId, CreatedUtc, ActivityHour, DateKey, HourOfDay, UserKey, AppKey, AgentKey, ModelKey, LicenseStatusKey, PromptCount, AccessedResourceCount, UsedWebSearch, JailbreakDetected, PromptInjectionDetected, HasBlockedResource, HasSensitivityLabel, PremiumUse, UseCaseKey, LicenseTypeKey, SensitivityLabelKey, MessageCount, MemoryUpdated, DlpEvaluationDeferred, CalledAnotherAgent, TargetAgentName, UseKind)
 
 ### bi.FactSession
 
@@ -1597,7 +1656,7 @@ Indexes and constraints:
 
 Indexes and constraints:
 
-- `CCI_FactAccessedResource`: clustered columnstore include (RecordId, Ordinal, CreatedUtc, ActivityHour, DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey, IsBlocked, XPIADetected)
+- `CCI_FactAccessedResource`: clustered columnstore include (RecordId, Ordinal, CreatedUtc, ActivityHour, DateKey, UserKey, AppKey, ResourceTypeKey, ResourceActionKey, SiteKey, SensitivityLabelKey, IsBlocked, XPIADetected, FileTypeKey)
 
 ### bi.FactAgentEvent
 
@@ -1943,7 +2002,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
 | 1 | `ResourceActionKey` | int | **no** | identity |  |
-| 2 | `ResourceAction` | nvarchar(200) | **no** |  |  |
+| 2 | `ResourceAction` | nvarchar(450) | **no** |  |  |
 
 ### bi.Sites
 
@@ -2250,6 +2309,7 @@ Indexes and constraints:
 
 - `PK_DashUserDay`: primary key, clustered (DateKey, UserKey)
 - `IX_DashUserDay_User`: nonclustered (UserKey, DateKey)
+- `NCCI_DashUserDay`: nonclustered columnstore include (DateKey, UserKey, Interactions, Prompts, AppsUsed, AgentInteractions, WebGrounded, ChatInteractions, LicensedUse, Jailbreak, PromptInjection, BlockedResource, LabeledContent, Sessions, MultiTurnSessions, PremiumUse)
 
 ### dash.FlaggedInteraction
 
@@ -2291,6 +2351,7 @@ Indexes and constraints:
 
 - `PK_DashResourceDay`: primary key, clustered (DateKey, Kind, UserKey, Item)
 - `CK_DashResourceDay_Kind`: check `([Kind]='Blocked' OR [Kind]='Site' OR [Kind]='Label')`
+- `NCCI_DashResourceDay`: nonclustered columnstore include (DateKey, UserKey, Kind, Item, Interactions)
 
 ### dash.AgentUse
 
@@ -2625,6 +2686,10 @@ Indexes and constraints:
 | 2 | `Reason` | nvarchar(400) | **no** |  | why it is a person |
 | 3 | `ConfirmedBy` | nvarchar(256) | **no** |  | the administrator |
 | 4 | `ConfirmedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashNonHumanException`: primary key, clustered (Upn)
 
 ### dash.SavedView
 

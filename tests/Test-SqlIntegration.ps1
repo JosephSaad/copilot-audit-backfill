@@ -1249,6 +1249,300 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseEvent)         AS E,
         "a second shred updated in place rather than duplicating ($($again.Rows[0].E)/$($again.Rows[0].P), was $($before.Rows[0].E)/$($before.Rows[0].P))"
 
     # -----------------------------------------------------------------------
+    # 9c. 2.5.4: the SKU changes are kept in a table. The session build and the bi refresh each read every one of them
+    # every night, and audit.vLicenseSkuChange worked them out from the records each time: 11 minutes over 4,000,000
+    # license events in the lab, whatever the night's load. audit.usp_RefreshLicenseSkuChange works them out after each
+    # shred instead, for the events shredded since it last ran and the records raised with them. The rule itself is
+    # kept as audit.vLicenseSkuChangeFromRecords, and every check here is against it.
+    Write-Host "`n9c. The SKU changes kept in a table (audit.usp_RefreshLicenseSkuChange)" -ForegroundColor Cyan
+
+    # Rows the rule gives and rows kept that the other side lacks. The rule gives a record's change once per
+    # AssignedLicense property it has (its own and its chunks'); the table keeps it once, FromChunks when either was.
+    $skuDiffSql = @'
+WITH r AS (SELECT RecordId, CAST(CreatedDateTime AS DATETIME2(0)) AS CreatedDateTime, ActivityDate, ActorUpn, TargetUpn, MAX(CAST(FromChunks AS INT)) AS FromChunks,
+                  CAST(LEFT(Sku, 200) AS NVARCHAR(200)) AS Sku, CAST(Change AS NVARCHAR(7)) AS Change
+           FROM audit.vLicenseSkuChangeFromRecords
+           GROUP BY RecordId, CAST(CreatedDateTime AS DATETIME2(0)), ActivityDate, ActorUpn, TargetUpn, CAST(LEFT(Sku, 200) AS NVARCHAR(200)), CAST(Change AS NVARCHAR(7))),
+     k AS (SELECT RecordId, CreatedDateTime, ActivityDate, ActorUpn, TargetUpn, FromChunks, Sku, Change FROM audit.LicenseSkuChange)
+SELECT (SELECT COUNT(*) FROM (SELECT * FROM r EXCEPT SELECT * FROM k) AS a) + (SELECT COUNT(*) FROM (SELECT * FROM k EXCEPT SELECT * FROM r) AS b) AS Differ,
+       (SELECT COUNT(*) FROM k) AS Kept,
+       (SELECT COUNT(*) FROM audit.vLicenseSkuChange) AS ViewRows,
+       (SELECT CASE WHEN OBJECT_DEFINITION(OBJECT_ID(N'audit.vLicenseSkuChange')) LIKE N'%vLicenseSkuChangeFromRecords%' THEN 'records' ELSE 'table' END) AS ViewReads;
+'@
+    $skuState = { param($Catalog) (Invoke-SqlText -Catalog $Catalog -As Table -Sql $skuDiffSql).Rows[0] }
+    $skuRun = { param($Catalog) (Invoke-SqlText -Catalog $Catalog -As Table -Sql 'SELECT TOP (1) RunId, SinceUtc, Events, Changes FROM audit.LicenseSkuChangeRun ORDER BY RunId DESC;').Rows[0] }
+    $skuRows = { param($Catalog, $RecordId) "$(Invoke-SqlText -Catalog $Catalog -As Scalar -Sql "SELECT STRING_AGG(CONCAT(Sku, N' ', Change, N' ', TargetUpn, N' ', FromChunks), N'; ') WITHIN GROUP (ORDER BY Change, Sku) FROM audit.LicenseSkuChange WHERE RecordId = '$RecordId';")" }
+
+    # This database, after the shreds above: user4's chunked change is the one SKU change in it.
+    $st = & $skuState $script:ITDatabase
+    $run = & $skuRun $script:ITDatabase
+    Assert-That ([int] $st.Differ -eq 0 -and [int] $st.Kept -eq 1 -and "$($st.ViewReads)" -eq 'table' -and [int] $st.ViewRows -eq 1) `
+        "2.5.4: a shred keeps the SKU changes the rule reads from the records, and the view reads them from the table ($($st.Kept) kept, $($st.Differ) differ, the view reads the $($st.ViewReads))"
+    Assert-That ((& $skuRows $script:ITDatabase 'evt-0102') -eq 'Microsoft_365_Copilot Removed user4@contoso.com 1' -and $run.SinceUtc -is [DBNull] -and [int] $run.Events -eq 15) `
+        "a shred of every record works out every event ($($run.Events) events: $(& $skuRows $script:ITDatabase 'evt-0102'))"
+
+    # The rest in a license database of its own, so the events added here are in no later section's counts.
+    $skuDb = "$($script:ITDatabase)_Sku"
+    $runIn = { param($Db, $File) foreach ($b in [regex]::Split((Get-Content -LiteralPath (Join-Path $root 'sql' $File) -Raw), '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) { if ($b.Trim()) { Invoke-SqlText -Catalog $Db -Sql $b } } }
+    try {
+        Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$skuDb') IS NOT NULL BEGIN ALTER DATABASE [$skuDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$skuDb]; END; CREATE DATABASE [$skuDb]; ALTER DATABASE [$skuDb] SET RECOVERY SIMPLE;"
+        foreach ($f in 'Create-CopilotAuditSchema.sql', 'Create-CopilotCsvImport.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql') { & $runIn $skuDb $f }
+        $st = & $skuState $skuDb
+        Assert-That ("$($st.ViewReads)" -eq 'table' -and [int] (Invoke-SqlText -Catalog $skuDb -As Scalar -Sql 'SELECT COUNT(*) FROM audit.LicenseSkuChangeRun;') -eq 0) `
+            'a new license database reads the table from the start, with nothing to work out yet'
+
+        # Every case of the rule, written as events: 35 that matter and 70 that are not license changes.
+        Invoke-SqlText -Catalog $skuDb -Sql @'
+DECLARE @e5 NVARCHAR(200) = N'[SkuName=SPE_E5, AccountId=a, SkuId=1, DisabledPlans=[]]',
+        @cop NVARCHAR(200) = N'[SkuName=Microsoft_365_Copilot, AccountId=a, SkuId=2, DisabledPlans=[]]',
+        @viz NVARCHAR(200) = N'[SkuName=VISIOCLIENT, AccountId=a, SkuId=3, DisabledPlans=[]]';
+DECLARE @old NVARCHAR(MAX) = CONCAT(N'["', @e5, N'"]'), @new NVARCHAR(MAX) = CONCAT(N'["', @e5, N'","', @cop, N'"]'),
+        @swapOld NVARCHAR(MAX) = CONCAT(N'["', @e5, N'","', @viz, N'"]'), @swapNew NVARCHAR(MAX) = CONCAT(N'["', @e5, N'","', @cop, N'"]');
+
+INSERT INTO audit.LicenseEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ResultStatus, ActorUpn, TargetUpn, CorrelationId, ChunkGroupId, ChunkSeq, ShreddedUtc) VALUES
+ /* 1. a license change with its own lists */
+ ('c01',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u01@c.com', N'k01', NULL, NULL, '2026-01-01'),
+ /* 2. a detail-free license change borrows from the Update user raised with it, which gives way */
+ ('c02',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u02@c.com', N'k02', NULL, NULL, '2026-01-01'),
+ ('u02',  '2026-09-01T10:00:01', '2026-09-01', N'Update user',         N'Success', N'admin@c.com', N'u02@c.com', N'k02', NULL, NULL, '2026-01-01'),
+ /* 3. an Update user alone, with lists: it is the change */
+ ('u03',  '2026-09-01T10:00:00', '2026-09-01', N'Update user',         N'Success', N'admin@c.com', N'u03@c.com', N'k03', NULL, NULL, '2026-01-01'),
+ /* 4. a chunk group of three: its first record carries the reassembled lists */
+ ('c04a', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u04@c.com', N'k04', N'g04', 1, '2026-01-01'),
+ ('c04b', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u04@c.com', N'k04', N'g04', 2, '2026-01-01'),
+ ('c04c', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u04@c.com', N'k04', N'g04', 3, '2026-01-01'),
+ /* 5. two chunk groups under one CorrelationId: the license change's carries nothing and borrows from the Update user's */
+ ('c05a', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u05@c.com', N'k05', N'g05c', 1, '2026-01-01'),
+ ('c05b', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u05@c.com', N'k05', N'g05c', 2, '2026-01-01'),
+ ('u05a', '2026-09-01T10:00:02', '2026-09-01', N'Update user',         N'Success', N'admin@c.com', N'u05@c.com', N'k05', N'g05u', 1, '2026-01-01'),
+ ('u05b', '2026-09-01T10:00:02', '2026-09-01', N'Update user',         N'Success', N'admin@c.com', N'u05@c.com', N'k05', N'g05u', 2, '2026-01-01'),
+ /* 6. it must not borrow from its own chunk group */
+ ('c06a', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u06@c.com', N'k06', N'g06', 1, '2026-01-01'),
+ ('c06b', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u06@c.com', N'k06', N'g06', 2, '2026-01-01'),
+ /* 7. no user on the change: the first one a record raised with it carries */
+ ('c07',  '2026-09-01T10:00:05', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', NULL,           N'k07', NULL, NULL, '2026-01-01'),
+ ('x07',  '2026-09-01T10:00:01', '2026-09-01', N'Add user',            N'Success', N'admin@c.com', N'u07@c.com',   N'k07', NULL, NULL, '2026-01-01'),
+ ('y07',  '2026-09-01T10:00:03', '2026-09-01', N'Add user',            N'Success', N'admin@c.com', N'other@c.com', N'k07', NULL, NULL, '2026-01-01'),
+ /* 8 and 9. two records to borrow from: the earlier; on a tie, the lower id */
+ ('c08',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u08@c.com', N'k08', NULL, NULL, '2026-01-01'),
+ ('d08b', '2026-09-01T10:00:09', '2026-09-01', N'Add user',            N'Success', N'admin@c.com', N'u08@c.com', N'k08', NULL, NULL, '2026-01-01'),
+ ('d08a', '2026-09-01T10:00:04', '2026-09-01', N'Add user',            N'Success', N'admin@c.com', N'u08@c.com', N'k08', NULL, NULL, '2026-01-01'),
+ ('c09',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u09@c.com', N'k09', NULL, NULL, '2026-01-01'),
+ ('d09b', '2026-09-01T10:00:04', '2026-09-01', N'Add user',            N'Success', N'admin@c.com', N'u09@c.com', N'k09', NULL, NULL, '2026-01-01'),
+ ('d09a', '2026-09-01T10:00:04', '2026-09-01', N'Add user',            N'Success', N'admin@c.com', N'u09@c.com', N'k09', NULL, NULL, '2026-01-01'),
+ /* 10. a license-bearing property that is not a list: detail of its own, so it does not borrow, and has no SKU change */
+ ('c10',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u10@c.com', N'k10', NULL, NULL, '2026-01-01'),
+ ('d10',  '2026-09-01T10:00:01', '2026-09-01', N'Add user',            N'Success', N'admin@c.com', N'u10@c.com', N'k10', NULL, NULL, '2026-01-01'),
+ /* 11 and 12. lists that are not JSON; an entry with no SkuName */
+ ('c11',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u11@c.com', N'k11', NULL, NULL, '2026-01-01'),
+ ('c12',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u12@c.com', N'k12', NULL, NULL, '2026-01-01'),
+ /* 13. one SKU out, another in */
+ ('c13',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u13@c.com', N'k13', NULL, NULL, '2026-01-01'),
+ /* 14. two list properties on one record, one from the record and one from its chunks */
+ ('c14',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u14@c.com', N'k14', N'g14', 1, '2026-01-01'),
+ /* 15 and 16. no CorrelationId: its own lists only */
+ ('c15',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u15@c.com', NULL, NULL, NULL, '2026-01-01'),
+ ('c16',  '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u16@c.com', NULL, NULL, NULL, '2026-01-01'),
+ /* 17. a later fragment whose first record is not loaded: not a change */
+ ('c17b', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u17@c.com', N'k17', N'g17', 2, '2026-01-01'),
+ /* 18. an Update user whose only license-change sibling is a later fragment: it does not give way */
+ ('u18',  '2026-09-01T10:00:00', '2026-09-01', N'Update user',         N'Success', N'admin@c.com', N'u18@c.com', N'k18', NULL, NULL, '2026-01-01'),
+ ('c18b', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u18@c.com', N'k18', N'g18', 2, '2026-01-01'),
+ /* 19 and 20. records that are not license changes */
+ ('n19',  '2026-09-01T10:00:00', '2026-09-01', N'Update user',         N'Success', N'sync@c.com',  N'u19@c.com', N'k19', NULL, NULL, '2026-01-01'),
+ ('n20',  '2026-09-01T10:00:00', '2026-09-01', N'Delete user',         N'Success', N'admin@c.com', N'u20@c.com', N'k20', NULL, NULL, '2026-01-01');
+
+INSERT INTO audit.LicenseEventProperty (RecordId, Ordinal, [Name], OldValue, NewValue, Source) VALUES
+ ('c01',  0, N'AssignedLicense', @old, @new, 'record'), ('c01', 1, N'AssignedPlan', N'[]', N'["p"]', 'record'),
+ ('u02',  0, N'AssignedLicense', @old, @new, 'record'), ('u02', 1, N'Included Updated Properties', N'', N'AssignedLicense', 'record'),
+ ('u03',  0, N'AssignedLicense', @new, @old, 'record'),
+ ('c04a', 10000, N'AssignedLicense', @old, @new, 'chunks'), ('c04a', 10001, N'AssignedPlan', N'[]', N'["p"]', 'chunks'),
+ ('u05a', 10000, N'AssignedLicense', @old, @new, 'chunks'),
+ ('c06b', 0, N'AssignedLicense', @old, @new, 'record'),
+ ('c07',  0, N'AssignedLicense', @old, @new, 'record'),
+ ('d08a', 0, N'AssignedLicense', @old, @new, 'record'), ('d08b', 0, N'AssignedLicense', @new, @old, 'record'),
+ ('d09a', 0, N'AssignedLicense', @old, @new, 'record'), ('d09b', 0, N'AssignedLicense', @new, @old, 'record'),
+ ('c10',  0, N'LicenseAssignmentDetail', N'[]', N'["x"]', 'record'), ('d10', 0, N'AssignedLicense', @old, @new, 'record'),
+ ('c11',  0, N'AssignedLicense', N'not json', N'[SkuName=SPE_E5, AccountId=a]', 'record'),
+ ('c12',  0, N'AssignedLicense', N'["[AccountId=a, SkuId=1]"]', CONCAT(N'["[AccountId=a, SkuId=1]","', @cop, N'"]'), 'record'),
+ ('c13',  0, N'AssignedLicense', @swapOld, @swapNew, 'record'),
+ ('c14',  0, N'AssignedLicense', @old, @new, 'record'), ('c14', 10000, N'AssignedLicense', @swapOld, @swapNew, 'chunks'),
+ ('c15',  0, N'AssignedLicense', @old, @new, 'record'),
+ ('c18b', 0, N'AssignedLicense', @old, @new, 'record'), ('u18', 0, N'AssignedLicense', @old, @new, 'record'),
+ ('n19',  0, N'LastDirSyncTime', N'a', N'b', 'record'), ('n19', 1, N'TargetId.UserType', N'', N'Member', 'record');
+
+INSERT INTO audit.LicenseEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ResultStatus, ActorUpn, TargetUpn, CorrelationId, ShreddedUtc)
+SELECT CONCAT('z', 100 + v.n), '2026-08-01T08:00:00', '2026-08-01', N'Update user', N'Success', N'sync@c.com', CONCAT(N'z', v.n, N'@c.com'), CONCAT(N'kz', v.n), '2026-01-01'
+FROM (SELECT TOP (70) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n FROM sys.all_columns) AS v;
+INSERT INTO audit.LicenseEventProperty (RecordId, Ordinal, [Name], OldValue, NewValue, Source)
+SELECT e.RecordId, 0, N'LastDirSyncTime', N'a', N'b', 'record' FROM audit.LicenseEvent AS e WHERE e.RecordId LIKE 'z%';
+
+EXEC audit.usp_RefreshLicenseSkuChange;
+'@
+        $st = & $skuState $skuDb
+        $run = & $skuRun $skuDb
+        Assert-That ([int] $st.Differ -eq 0 -and [int] $st.Kept -eq 22 -and $run.SinceUtc -is [DBNull] -and [int] $run.Events -eq 105) `
+            "the first run works out every event, and keeps the rule's rows ($($st.Kept) kept for $($run.Events) events, $($st.Differ) differ)"
+        $pins = [ordered]@{
+            c01 = 'Microsoft_365_Copilot Added u01@c.com 0';  c02 = 'Microsoft_365_Copilot Added u02@c.com 0';  u02 = ''
+            u03 = 'Microsoft_365_Copilot Removed u03@c.com 0'; c04a = 'Microsoft_365_Copilot Added u04@c.com 1'; c04b = ''
+            c05a = 'Microsoft_365_Copilot Added u05@c.com 1'; u05a = '';  c06a = '';  c07 = 'Microsoft_365_Copilot Added u07@c.com 0'
+            c08 = 'Microsoft_365_Copilot Added u08@c.com 0';  c09 = 'Microsoft_365_Copilot Added u09@c.com 0';  c10 = '';  c11 = ''
+            c12 = 'Microsoft_365_Copilot Added u12@c.com 0';  c13 = 'Microsoft_365_Copilot Added u13@c.com 0; VISIOCLIENT Removed u13@c.com 0'
+            c14 = 'Microsoft_365_Copilot Added u14@c.com 1; VISIOCLIENT Removed u14@c.com 1'; c16 = '';  c17b = ''
+            u18 = 'Microsoft_365_Copilot Added u18@c.com 0';  n19 = ''
+        }
+        $wrongPins = @(foreach ($k in $pins.Keys) { $got = & $skuRows $skuDb $k; if ($got -ne $pins[$k]) { "${k}: '$got'" } })
+        Assert-That ($wrongPins.Count -eq 0) "each case of the rule comes out as the view reads it: own lists, borrowed lists, the Update user giving way, chunk groups, the paired user, lists that are not JSON, two list properties kept once ($($wrongPins -join '; '))"
+
+        # A night: records arrive that change records of earlier nights. u03 counted alone; its license change arrives,
+        # detail-free, so u03 gives way and the change borrows its lists. c17b's first fragment arrives with the lists.
+        # c01 is shredded again unchanged, and c13 with lists that no longer differ.
+        Invoke-SqlText -Catalog $skuDb -Sql @'
+DECLARE @e5 NVARCHAR(200) = N'[SkuName=SPE_E5, AccountId=a, SkuId=1, DisabledPlans=[]]', @cop NVARCHAR(200) = N'[SkuName=Microsoft_365_Copilot, AccountId=a, SkuId=2, DisabledPlans=[]]';
+DECLARE @old NVARCHAR(MAX) = CONCAT(N'["', @e5, N'"]'), @new NVARCHAR(MAX) = CONCAT(N'["', @e5, N'","', @cop, N'"]');
+INSERT INTO audit.LicenseEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ResultStatus, ActorUpn, TargetUpn, CorrelationId, ChunkGroupId, ChunkSeq) VALUES
+ ('c03',  '2026-09-01T10:00:02', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u03@c.com', N'k03', NULL, NULL),
+ ('c17a', '2026-09-01T10:00:00', '2026-09-01', N'Change user license', N'Success', N'admin@c.com', N'u17@c.com', N'k17', N'g17', 1);
+INSERT INTO audit.LicenseEventProperty (RecordId, Ordinal, [Name], OldValue, NewValue, Source) VALUES ('c17a', 10000, N'AssignedLicense', @old, @new, 'chunks');
+UPDATE audit.LicenseEvent SET ShreddedUtc = SYSUTCDATETIME() WHERE RecordId IN ('c01', 'c13');
+UPDATE audit.LicenseEventProperty SET OldValue = @old, NewValue = @old WHERE RecordId = 'c13';
+EXEC audit.usp_RefreshLicenseSkuChange;
+'@
+        $st = & $skuState $skuDb
+        $run = & $skuRun $skuDb
+        Assert-That ([int] $st.Differ -eq 0 -and [int] $st.Kept -eq 21 -and $run.SinceUtc -isnot [DBNull] -and [int] $run.Events -eq 6) `
+            "a night works out only the events shredded since the last run and the records raised with them, and still keeps the rule's rows ($($run.Events) of 107 events worked out, $($st.Kept) kept, $($st.Differ) differ)"
+        Assert-That ((& $skuRows $skuDb 'u03') -eq '' -and (& $skuRows $skuDb 'c03') -eq 'Microsoft_365_Copilot Removed u03@c.com 0') `
+            "an Update user gives way to the license change that arrived a night later, which takes its lists ($(& $skuRows $skuDb 'c03'))"
+        Assert-That ((& $skuRows $skuDb 'c17a') -eq 'Microsoft_365_Copilot Added u17@c.com 1' -and (& $skuRows $skuDb 'c13') -eq '' -and (& $skuRows $skuDb 'c01') -eq $pins.c01) `
+            'a chunk group whose first record arrived is a change now, a record whose lists no longer differ has no rows left, and one shredded again unchanged keeps its row'
+
+        # The same through the shred itself. Night 1: a chunked change with its second fragment missing, and an Update
+        # user that carries the lists. Night 2: the fragment, and the license change the Update user was raised with.
+        $nightDoc = {
+            param($RecordId, $When, $Op, $Obj, $Corr, $Mod, $Ext)
+            $doc = [ordered]@{ CreationTime = $When; Id = $RecordId; Operation = $Op; RecordType = 8; ResultStatus = 'Success'; Workload = 'AzureActiveDirectory'
+                               UserId = 'admin@contoso.com'; ObjectId = $Obj; InterSystemsId = $Corr; ExtendedProperties = $Ext; ModifiedProperties = $Mod; Target = @() }
+            Invoke-SqlText -Catalog $skuDb -Parameters @{ '@id' = $RecordId; '@at' = $When; '@op' = $Op; '@json' = ($doc | ConvertTo-Json -Depth 10 -Compress) } -Sql @"
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId)
+VALUES (@id, @at, 'azureActiveDirectory', @op, 'admin@contoso.com', 'admin@contoso.com', COMPRESS(CAST(@json AS NVARCHAR(MAX))), 1);
+"@
+        }
+        $nightChunks = @(& $chunkify $payload 'grp-night' 2)
+        $e3 = '[SkuName=ENTERPRISEPACK, AccountId=t1, SkuId=6fd2c87f, DisabledPlans=[]]'; $cop = '[SkuName=Microsoft_365_Copilot, AccountId=t1, SkuId=639dec6b, DisabledPlans=[]]'
+        $gain = @(@{ Name = 'AssignedLicense'; OldValue = (ConvertTo-Json @($e3) -Compress); NewValue = (ConvertTo-Json @($e3, $cop) -Compress) })
+        & $nightDoc 's-01' '2026-09-20T10:00:00' 'Change user license.' 'user20@contoso.com' 'corr-s1' @() $nightChunks[0]
+        & $nightDoc 's-03' '2026-09-20T10:00:00' 'Update user.' 'user21@contoso.com' 'corr-s2' $gain @()
+        Invoke-SqlText -Catalog $skuDb -Sql 'EXEC audit.usp_ShredLicenseEvents;'
+        $st = & $skuState $skuDb
+        Assert-That ([int] $st.Differ -eq 0 -and (& $skuRows $skuDb 's-03') -eq 'Microsoft_365_Copilot Added user21@contoso.com 0' -and (& $skuRows $skuDb 's-01') -eq '') `
+            "night 1: the Update user is the change, and the chunk group missing a fragment is none yet ($(& $skuRows $skuDb 's-03'))"
+
+        Invoke-SqlText -Catalog $skuDb -Sql "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01';"   # shredded on earlier nights
+        & $nightDoc 's-02' '2026-09-21T10:00:00' 'Change user license.' 'user20@contoso.com' 'corr-s1' @() $nightChunks[1]
+        & $nightDoc 's-04' '2026-09-21T10:00:00' 'Change user license.' 'user21@contoso.com' 'corr-s2' @() @()
+        Invoke-SqlText -Catalog $skuDb -Sql "EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-09-21';"
+        $st = & $skuState $skuDb
+        $run = & $skuRun $skuDb
+        Assert-That ([int] $st.Differ -eq 0 -and $run.SinceUtc -isnot [DBNull] -and [int] $run.Events -eq 4 -and [int] $run.Changes -eq 2) `
+            "night 2: the nightly shred works out its two records' families, four events of 111 ($($run.Events) events, $($run.Changes) changes, $($st.Differ) differ)"
+        Assert-That ((& $skuRows $skuDb 's-01') -eq 'Microsoft_365_Copilot Removed user20@contoso.com 1' -and (& $skuRows $skuDb 's-03') -eq '' -and (& $skuRows $skuDb 's-04') -eq 'Microsoft_365_Copilot Added user21@contoso.com 0') `
+            "the fragment that arrived completes the change on the group's first record, shredded the night before, and the license change takes over from the Update user ($(& $skuRows $skuDb 's-01'); $(& $skuRows $skuDb 's-04'))"
+
+        # A shred that was stopped part way. Its statements commit one by one, so it can leave a batch's events without
+        # their properties, or its chunk groups not reassembled, and it leaves its mark. Readers still see the SKU
+        # changes of the last shred that finished; the next shred, whatever it was asked for, finishes the stopped one.
+        $keptSql = "SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT(RecordId, N' ', Sku, N' ', Change)), N'; ') WITHIN GROUP (ORDER BY RecordId, Sku, Change) FROM audit.LicenseSkuChange;"
+        $shredState = { (Invoke-SqlText -Catalog $skuDb -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.LicenseEventProperty WHERE RecordId = 's-03') AS S03Props,
+       (SELECT COUNT(*) FROM audit.LicenseEventProperty WHERE RecordId = 's-01' AND Source = 'chunks') AS S01Chunks,
+       (SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), RecordId), N',') WITHIN GROUP (ORDER BY RecordId) FROM audit.LicenseEvent WHERE RecordId LIKE 's-0[1-4]' AND ShreddedUtc > '2026-06-01') AS Stamped,
+       (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress') AS InProgress,
+       (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'LicenseShredCompleteUtc') AS Complete;
+"@).Rows[0] }
+        $keptBefore = "$(Invoke-SqlText -Catalog $skuDb -As Scalar -Sql $keptSql)"
+        $was = & $shredState
+        $runBefore = [int] (& $skuRun $skuDb).RunId
+        Assert-That ([int] $was.S03Props -gt 0 -and [int] $was.S01Chunks -gt 0 -and [int] $was.InProgress -eq 0 -and [int] $was.Complete -eq 1) `
+            "a shred that finished leaves no mark of one running, and the shred of every record left its own ($($was.S03Props) and $($was.S01Chunks) properties to lose below)"
+        Invoke-SqlText -Catalog $skuDb -Sql @"
+INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', N'');   -- a shred of every record began
+UPDATE audit.LicenseEvent SET ShreddedUtc = SYSUTCDATETIME() WHERE RecordId LIKE 's-0[1-4]';   -- wrote a batch's events
+DELETE FROM audit.LicenseEventProperty WHERE RecordId = 's-03';                            -- cleared its properties, and did not write them back
+DELETE FROM audit.LicenseEventProperty WHERE RecordId = 's-01' AND Source = 'chunks';      -- nor reassemble its chunk groups
+DELETE FROM audit.PipelineSetting WHERE Name = N'LicenseShredCompleteUtc';
+EXEC audit.usp_RefreshLicenseSkuChange;                                                    -- and the changes are asked for by hand
+"@
+        Assert-That ("$(Invoke-SqlText -Catalog $skuDb -As Scalar -Sql $keptSql)" -eq $keptBefore -and [int] (& $skuRun $skuDb).RunId -eq $runBefore) `
+            'a shred stopped part way leaves the kept SKU changes as the last finished shred made them: asked for by hand, they are not worked out from its half-written events'
+        Invoke-SqlText -Catalog $skuDb -Sql "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01'; EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-12-01';"   # a night with nothing new
+        $ss = & $shredState
+        $run = & $skuRun $skuDb
+        $st = & $skuState $skuDb
+        Assert-That ([int] $ss.S03Props -eq [int] $was.S03Props -and [int] $ss.S01Chunks -eq [int] $was.S01Chunks -and "$($ss.Stamped)" -eq 's-01,s-02,s-03,s-04' -and [int] $ss.InProgress -eq 0) `
+            "the next shred, though asked for one night, shreds every record to finish it: the properties are back and the mark is gone ($($ss.S03Props), $($ss.S01Chunks); shredded again: $($ss.Stamped))"
+        Assert-That ("$(Invoke-SqlText -Catalog $skuDb -As Scalar -Sql $keptSql)" -eq $keptBefore -and [int] $st.Differ -eq 0 -and $run.SinceUtc -is [DBNull] -and [int] $ss.Complete -eq 1) `
+            'and it works out every event again, and marks that a shred of every record finished'
+
+        # One stopped while shredding from a day: the next shreds from that day, not only from its own.
+        Invoke-SqlText -Catalog $skuDb -Sql "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01'; INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', N'2026-09-21T00:00:00'); EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-12-01';"
+        $ss = & $shredState
+        Assert-That ("$($ss.Stamped)" -eq 's-02,s-04' -and [int] $ss.InProgress -eq 0) "a shred stopped while shredding from 21 September is finished from that day ($($ss.Stamped))"
+
+        # Another session's run between a shred's stamps and its own (it was still reassembling): c13 was stamped
+        # twenty minutes ago and has its lists only now, and a run two minutes ago moved "since the last run" past it.
+        Invoke-SqlText -Catalog $skuDb -Sql @'
+DECLARE @e5 NVARCHAR(200) = N'[SkuName=SPE_E5, AccountId=a, SkuId=1, DisabledPlans=[]]', @cop NVARCHAR(200) = N'[SkuName=Microsoft_365_Copilot, AccountId=a, SkuId=2, DisabledPlans=[]]',
+        @viz NVARCHAR(200) = N'[SkuName=VISIOCLIENT, AccountId=a, SkuId=3, DisabledPlans=[]]';
+UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01';
+UPDATE audit.LicenseEvent SET ShreddedUtc = DATEADD(MINUTE, -20, SYSUTCDATETIME()) WHERE RecordId = 'c13';
+UPDATE audit.LicenseEventProperty SET OldValue = CONCAT(N'["', @e5, N'","', @viz, N'"]'), NewValue = CONCAT(N'["', @e5, N'","', @cop, N'"]') WHERE RecordId = 'c13';
+INSERT INTO audit.LicenseSkuChangeRun (StartedUtc, EndedUtc, SinceUtc, Events, Changes)
+VALUES (DATEADD(MINUTE, -2, SYSUTCDATETIME()), DATEADD(MINUTE, -2, SYSUTCDATETIME()), DATEADD(MINUTE, -30, SYSUTCDATETIME()), 0, 0);
+EXEC audit.usp_RefreshLicenseSkuChange;
+'@
+        $missed = & $skuRows $skuDb 'c13'
+        Invoke-SqlText -Catalog $skuDb -Sql "DECLARE @from DATETIME2(0) = DATEADD(MINUTE, -21, SYSUTCDATETIME()); EXEC audit.usp_RefreshLicenseSkuChange @SinceShreddedUtc = @from;"
+        $st = & $skuState $skuDb
+        Assert-That ($missed -eq '' -and (& $skuRows $skuDb 'c13') -eq $pins.c13 -and [int] $st.Differ -eq 0) `
+            "a shred tells the run when it began, so its events are worked out though another run came in between (c13 alone: '$missed'; told: $(& $skuRows $skuDb 'c13'))"
+
+        # More than a tenth of the events shredded since the last run: every event is read once, not each family sought.
+        Invoke-SqlText -Catalog $skuDb -Sql "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01'; UPDATE audit.LicenseEvent SET ShreddedUtc = SYSUTCDATETIME() WHERE RecordId LIKE 'z1[0-2]%'; EXEC audit.usp_RefreshLicenseSkuChange;"
+        $run = & $skuRun $skuDb
+        $st = & $skuState $skuDb
+        Assert-That ($run.SinceUtc -is [DBNull] -and [int] $run.Events -eq 111 -and [int] $st.Differ -eq 0) "over a tenth of the events shredded since the last run, every event is worked out ($($run.Events))"
+
+        # An upgrade from 2.5.3: events already shredded, no table. Between the two scripts the view still reads the
+        # records, so a reader is never handed an empty history; the procedure script works the changes out once.
+        $ruleRows = [int] (Invoke-SqlText -Catalog $skuDb -As Scalar -Sql 'SELECT COUNT(*) FROM audit.vLicenseSkuChangeFromRecords;')
+        Invoke-SqlText -Catalog $skuDb -Sql 'DROP VIEW audit.vLicenseSkuChange; DROP VIEW audit.vLicenseSkuChangeFromRecords; DROP PROCEDURE audit.usp_RefreshLicenseSkuChange; DROP TABLE audit.LicenseSkuChange; DROP TABLE audit.LicenseSkuChangeRun; DROP INDEX IX_LicenseEvent_Shredded ON audit.LicenseEvent;'
+        & $runIn $skuDb 'Create-LicenseEventSchema.sql'
+        $st = & $skuState $skuDb
+        Assert-That ("$($st.ViewReads)" -eq 'records' -and [int] $st.ViewRows -eq $ruleRows -and [int] $st.Kept -eq 0) `
+            "an upgrade: until the changes are worked out, the view reads the records as before ($($st.ViewRows) rows from the $($st.ViewReads))"
+        # Had working them out failed and the script run on (SSMS does, and sqlcmd without -b): every batch but that one.
+        foreach ($b in [regex]::Split((Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-LicenseEventProcedure.sql') -Raw), '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) {
+            if ($b.Trim() -and $b -notlike '*already here, once*') { Invoke-SqlText -Catalog $skuDb -Sql $b }
+        }
+        $st = & $skuState $skuDb
+        Assert-That ("$($st.ViewReads)" -eq 'records' -and [int] $st.ViewRows -eq $ruleRows -and [int] $st.Kept -eq 0) `
+            "and it stays on the records where they were not: the procedure script moves the view to the table only once its rows are there ($($st.ViewRows) rows from the $($st.ViewReads))"
+        & $runIn $skuDb 'Create-LicenseEventProcedure.sql'
+        $st = & $skuState $skuDb
+        $runs = (Invoke-SqlText -Catalog $skuDb -As Table -Sql "SELECT COUNT(*) AS N, SUM(CASE WHEN SinceUtc IS NULL THEN 1 ELSE 0 END) AS Every, (SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.LicenseEvent') AND name = N'IX_LicenseEvent_Shredded') AS Ix FROM audit.LicenseSkuChangeRun;").Rows[0]
+        Assert-That ("$($st.ViewReads)" -eq 'table' -and [int] $st.Differ -eq 0 -and [int] $st.Kept -gt 0 -and [int] $runs.N -eq 1 -and [int] $runs.Every -eq 1 -and [int] $runs.Ix -eq 1) `
+            "the procedure script works them out once, without a shred, and the view reads the table from then on ($($st.Kept) kept, $($st.Differ) differ)"
+        & $runIn $skuDb 'Create-LicenseEventSchema.sql'; & $runIn $skuDb 'Create-LicenseEventProcedure.sql'
+        $st = & $skuState $skuDb
+        Assert-That ("$($st.ViewReads)" -eq 'table' -and [int] (Invoke-SqlText -Catalog $skuDb -As Scalar -Sql 'SELECT COUNT(*) FROM audit.LicenseSkuChangeRun;') -eq 1) 'and only once: installing again works out nothing and leaves the view on the table'
+    }
+    finally {
+        try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$skuDb') IS NOT NULL BEGIN ALTER DATABASE [$skuDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$skuDb]; END;" } catch { Write-Host "  (could not drop $skuDb)" }
+    }
+
+    # -----------------------------------------------------------------------
     Write-Host "`n10. Sessions and the Saturday-Friday weekly rollup (audit.usp_BuildCopilotSessions)" -ForegroundColor Cyan
 
     Invoke-SqlScript -Sql (Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotSessionSchema.sql') -Raw)
@@ -1347,11 +1641,14 @@ FROM audit.vCopilotWeeklyRollup ORDER BY WeekEnding, UserUPN;
     # was assigned at 10:00 local on the 14th - after the first session began
     # (09:00) and before the next (11:29). Section 9 put the license-event
     # schema in this same database, so it serves as @LicenseEventDatabase.
+    # The event is written here, not shredded from a record, so its SKU change
+    # is worked out here too (2.5.4: the shred does that for its own).
     Invoke-SqlText -Sql @"
 INSERT INTO audit.LicenseEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ActorUpn, TargetUpn, CorrelationId)
 VALUES ('lic-a1', '2026-09-14T14:00:00', '2026-09-14', 'Change user license', 'admin@contoso.com', 'a@contoso.com', 'corr-a1');
 INSERT INTO audit.LicenseEventProperty (RecordId, Ordinal, [Name], OldValue, NewValue, Source)
 VALUES ('lic-a1', 0, 'AssignedLicense', '[]', '["[SkuName=Microsoft_365_Copilot, AccountId=t, SkuId=x, DisabledPlans=[]]"]', 'record');
+EXEC audit.usp_RefreshLicenseSkuChange @All = 1;
 "@
     Invoke-SqlText -Sql "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N'$($script:ITDatabase)';" -ShowMessages
     $la = Invoke-SqlText -As Table -Sql "SELECT IsM365CopilotLicensed AS Lic FROM audit.CopilotSession WHERE UserUPN = 'a@contoso.com' ORDER BY SessionOrdinal_Derived;"
@@ -2042,6 +2339,7 @@ INSERT INTO audit.LicenseEventProperty (RecordId, Ordinal, [Name], OldValue, New
     ('lic-r1', 0, 'AssignedLicense', '[]', '["[SkuName=Microsoft_365_Copilot, AccountId=t, SkuId=x, DisabledPlans=[]]"]', 'record'),
     ('lic-t1', 0, 'AssignedLicense', '[]', '["[SkuName=Copilot_Studio_User, AccountId=t, SkuId=y, DisabledPlans=[]]"]', 'record'),
     ('lic-t2', 0, 'AssignedLicense', '["[SkuName=Copilot_Studio_User, AccountId=t, SkuId=y, DisabledPlans=[]]"]', '[]', 'record');
+EXEC audit.usp_RefreshLicenseSkuChange @All = 1;   -- written here, not shredded (2.5.4)
 INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic, SkuPartNumber, LicensedSinceUtc, DirectoryStatus) VALUES
     (N'renamed.old@contoso.com', NULL, NULL, NULL, N'NotFound'),
     (N'renamed.new@contoso.com', 1, N'Microsoft_365_Copilot', '2026-09-17T12:00:00', N'Found'),
@@ -2069,6 +2367,7 @@ Assert-That ([int] $lk.T01 -eq 1 -and "$($lk.TwoDays)" -eq "$($lk.FirstDay)-$($l
 Invoke-SqlText -Sql @"
 DELETE FROM audit.LicenseEventProperty WHERE RecordId IN ('lic-r1', 'lic-t1', 'lic-t2');
 DELETE FROM audit.LicenseEvent WHERE RecordId IN ('lic-r1', 'lic-t1', 'lic-t2');
+EXEC audit.usp_RefreshLicenseSkuChange @All = 1;
 DELETE FROM audit.CopilotLicense WHERE UserPrincipalName IN (N'renamed.old@contoso.com', N'renamed.new@contoso.com', N'twosku@contoso.com');
 DELETE FROM audit.RawLogFlattened WHERE RecordId IN (N'r-01', N'r-02', N't-01');
 EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$licDb';
@@ -2570,6 +2869,94 @@ WHERE p.class = 1 AND p.permission_name = N'SELECT' AND p.state = 'G' AND p.gran
   AND p.major_id IN (OBJECT_ID(N'bi.DepartmentWeek'), OBJECT_ID(N'bi.OrgSecurity'));
 "@)
     Assert-That ($opsGrants -eq 2) "2.4.12: the operations schema grants its bi views to CopilotReporting when the role exists ($opsGrants of 2)"
+
+    # 2.5.4: license records are shredded once, not again on every run. The installer read and parsed every record of
+    # the license database each time, an upgrade's longest step on a large history, to write the rows already there.
+    foreach ($b in [regex]::Split((Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotCsvImport.sql') -Raw), '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) { if ($b.Trim()) { Invoke-SqlText -Catalog $freshLic -Sql $b } }
+    $freshChunks = @(& $chunkify $payload 'grp-fresh' 2)
+    $licDocs = @(
+        @{ Id = 'fl-01'; Op = 'Change user license.'; Json = '{"CreationTime":"2026-09-20T10:00:00","Id":"fl-01","Operation":"Change user license.","ResultStatus":"Success","UserId":"admin@contoso.com","ObjectId":"fresh1@contoso.com","InterSystemsId":"corr-f1","ModifiedProperties":[{"Name":"AssignedLicense","OldValue":"[]","NewValue":"[\"[SkuName=Microsoft_365_Copilot, AccountId=t, SkuId=x, DisabledPlans=[]]\"]"}],"Target":[]}' }
+        @{ Id = 'fl-02'; Op = 'Update user.'; Json = '{"CreationTime":"2026-09-20T10:05:00","Id":"fl-02","Operation":"Update user.","ResultStatus":"Success","UserId":"sync@contoso.com","ObjectId":"fresh2@contoso.com","InterSystemsId":"corr-f2","ModifiedProperties":[{"Name":"LastDirSyncTime","OldValue":"a","NewValue":"b"}],"Target":[]}' }
+        @{ Id = 'fl-03'; Op = 'BotCreate'; Json = '{"CreationTime":"2026-09-20T10:10:00","Id":"fl-03","Operation":"BotCreate","ResultStatus":"Success","UserId":"maker@contoso.com","BotId":"b1","BotSchemaName":"cr1_helper"}' }
+        # A chunked change, two days later: fresh4 loses Copilot. Its lists are reassembled onto fl-04, the first fragment's record.
+        @{ Id = 'fl-04'; Op = 'Change user license.'; At = '2026-09-22T10:00:00'; Json = (& $mkDoc 'fl-04' 'Change user license.' 'admin@contoso.com' 'fresh4@contoso.com' 'corr-f4' @() $freshChunks[0]) }
+        @{ Id = 'fl-05'; Op = 'Change user license.'; At = '2026-09-22T10:00:00'; Json = (& $mkDoc 'fl-05' 'Change user license.' 'admin@contoso.com' 'fresh4@contoso.com' 'corr-f4' @() $freshChunks[1]) }
+    )
+    foreach ($d in $licDocs) {
+        Invoke-SqlText -Catalog $freshLic -Parameters @{ '@id' = $d.Id; '@op' = $d.Op; '@json' = $d.Json; '@at' = $(if ($d['At']) { $d['At'] } else { '2026-09-20T10:00:00' }) } -Sql @"
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId)
+VALUES (@id, @at, 'azureActiveDirectory', @op, 'admin@contoso.com', 'admin@contoso.com', COMPRESS(CAST(@json AS NVARCHAR(MAX))), 0);
+"@
+    }
+    # Kept: events and agent events still stamped as below, so not shredded again. Again: the license events that were.
+    $licState = { (Invoke-SqlText -Catalog $freshLic -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM audit.LicenseEvent) AS Events, (SELECT COUNT(*) FROM audit.AgentEvent) AS Agents,
+       (SELECT STRING_AGG(CONCAT(TargetUpn, N' ', Sku, N' ', Change), N'; ') WITHIN GROUP (ORDER BY TargetUpn, Sku) FROM audit.vLicenseSkuChange) AS Sku,
+       (SELECT COUNT(*) FROM audit.LicenseEvent WHERE ShreddedUtc = '2026-01-01') + (SELECT COUNT(*) FROM audit.AgentEvent WHERE ShreddedUtc = '2026-01-01') AS Kept,
+       (SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), RecordId), N',') WITHIN GROUP (ORDER BY RecordId) FROM audit.LicenseEvent WHERE ShreddedUtc > '2026-01-01') AS Again,
+       (SELECT COUNT(*) FROM audit.LicenseEventProperty WHERE RecordId = 'fl-04' AND Source = 'chunks') AS ChunkProps,
+       (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress') AS InProgress,
+       (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'LicenseShredCompleteUtc') AS Complete;
+"@).Rows[0] }
+    $asOld = "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01'; UPDATE audit.AgentEvent SET ShreddedUtc = '2026-01-01';"
+    $noMark = "DELETE FROM audit.PipelineSetting WHERE Name = N'LicenseShredCompleteUtc';"
+    $unassemble = "DELETE FROM audit.LicenseEventProperty WHERE RecordId = 'fl-04' AND Source = 'chunks';"
+    $bothChanges = 'fresh1@contoso.com Microsoft_365_Copilot Added; fresh4@contoso.com Microsoft_365_Copilot Removed'
+
+    $shred1 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred1 -like '*license events: shredding 5 record(s) (4 not shredded yet)*' -and [int] $s.Events -eq 4 -and [int] $s.Agents -eq 1 -and "$($s.Sku)" -eq $bothChanges) `
+        "2.5.4: the installer shreds the license records that are not shredded yet, and keeps their SKU changes ($($s.Events) events, $($s.Agents) agent event; $($s.Sku))"
+    Assert-That ([int] $s.InProgress -eq 0 -and [int] $s.Complete -eq 1 -and [int] $s.ChunkProps -eq 2) `
+        "a shred of every record that finished leaves its mark, and none of a shred still running ($($s.ChunkProps) properties reassembled from the chunk group)"
+    Invoke-SqlText -Catalog $freshLic -Sql $asOld
+    $shred2 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred2 -like '*every one of 5 record(s) is shredded already*' -and $shred2 -notlike '*shredding*' -and $shred2 -notlike '*shredded again*' -and [int] $s.Kept -eq 5) `
+        "and reads none of them again once they are: the next run leaves all $($s.Kept) as they were"
+    $shred3 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic -Rebuild 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred3 -like '*license events: shredding 5 record(s) (-Rebuild)*' -and [int] $s.Kept -eq 0) 'while -Rebuild shreds every one again'
+
+    # A nightly shred that was stopped part way: its mark (it was shredding from 21 September) and its chunk group not
+    # reassembled. The installer has the procedure finish it: the two records of that night, not all five.
+    Invoke-SqlText -Catalog $freshLic -Sql "$asOld $unassemble INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', N'2026-09-21T00:00:00');"
+    $shred4 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred4 -like '*an earlier shred did not finish, so what it was shredding is shredded again*' -and $shred4 -notlike '*shredding 5 record(s)*' -and "$($s.Again)" -eq 'fl-04,fl-05') `
+        "a shred that was stopped part way is finished by the next install: what it was shredding is shredded again, and no more ($($s.Again))"
+    Assert-That ([int] $s.ChunkProps -eq 2 -and [int] $s.InProgress -eq 0 -and "$($s.Sku)" -eq $bothChanges) 'its chunk group is reassembled, its mark taken away, and the SKU changes are as they were'
+
+    # A license database an earlier release shredded has no mark that its shred finished, and a shred stopped between
+    # a batch's events and their properties shows in no count. So: every record once more, unless told that it did finish.
+    Invoke-SqlText -Catalog $freshLic -Sql "$asOld $noMark"
+    $shred5 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred5 -like '*license events: shredding 5 record(s) (once more, to record that every one is shredded*' -and [int] $s.Kept -eq 1 -and [int] $s.Complete -eq 1) `
+        "a database shredded before 2.5.4 has its license records shredded once more, and the mark is left ($($s.Kept) agent event left as it was)"
+    Invoke-SqlText -Catalog $freshLic -Sql "$asOld $noMark"
+    $shred6 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic -LicenseEventsShredded 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred6 -like '*recorded as all shredded by an earlier run that finished (-LicenseEventsShredded)*' -and $shred6 -like '*every one of 5 record(s) is shredded already*' -and $shred6 -notlike '*shredding*' -and [int] $s.Kept -eq 5 -and [int] $s.Complete -eq 1) `
+        "-LicenseEventsShredded says that the shred did finish: the mark is written and no record is read again ($($s.Kept) left as they were)"
+    Invoke-SqlText -Catalog $freshLic -Sql "$asOld $noMark $unassemble"
+    $shred7 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic -LicenseEventsShredded 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred7 -like '*shredding 5 record(s) (1 chunk group(s) were never reassembled*-LicenseEventsShredded is not taken*' -and [int] $s.ChunkProps -eq 2 -and [int] $s.Complete -eq 1 -and "$($s.Sku)" -eq $bothChanges) `
+        'but it is not taken where the tables show a shred that stopped: a chunk group never reassembled has every record shredded again'
+
+    # A record that arrived since, as a load that was merged and not shredded leaves it: the shred starts at that
+    # record's time (the second before it: the records keep fractions of a second), not at the first record.
+    Invoke-SqlText -Catalog $freshLic -Sql $asOld
+    Invoke-SqlText -Catalog $freshLic -Parameters @{ '@json' = '{"CreationTime":"2026-09-23T10:00:00","Id":"fl-06","Operation":"Change user license.","ResultStatus":"Success","UserId":"admin@contoso.com","ObjectId":"fresh6@contoso.com","InterSystemsId":"corr-f6","ModifiedProperties":[{"Name":"AssignedLicense","OldValue":"[]","NewValue":"[\"[SkuName=Microsoft_365_Copilot, AccountId=t, SkuId=x, DisabledPlans=[]]\"]"}],"Target":[]}' } -Sql @"
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId)
+VALUES ('fl-06', '2026-09-23T10:00:00.7', 'azureActiveDirectory', 'Change user license.', 'admin@contoso.com', 'admin@contoso.com', COMPRESS(CAST(@json AS NVARCHAR(MAX))), 0);
+"@
+    $shred8 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred8 -like '*shredding the records from 2026-09-23 09:59:59Z on (1 not shredded yet)*' -and $shred8 -notlike '*shredding 6 record(s)*' -and "$($s.Again)" -eq 'fl-06' -and [int] $s.Events -eq 5) `
+        "a record that arrived since is shredded from its own time on, and the records before it are not read again (shredded: $($s.Again))"
+    Assert-That ("$($s.Sku)" -eq "$bothChanges; fresh6@contoso.com Microsoft_365_Copilot Added" -and [int] $s.InProgress -eq 0 -and [int] $s.Kept -eq 5) 'and its SKU change is kept beside the others'
 }
 finally {
     foreach ($db in $freshDb, $freshLic) {
@@ -3160,6 +3547,62 @@ Assert-That ([long] $prem.Wrong -eq 0 -and [long] $prem.Stored -eq [long] $prem.
 Assert-That ([long] $prem.ChatRolled -eq [long] $prem.ChatFacts) "an app's new category reaches the rollups' Copilot Chat counts on every day, not only new ones ($($prem.ChatRolled) of $($prem.ChatFacts))"
 Assert-That ([long] $prem.Rolled -eq [long] $prem.Stored -and [int] $prem.TooMany -eq 0) "dash.UserDay.PremiumUse adds up the stored flag ($($prem.Rolled)), never more than the licensed use"
 Assert-That ([long] $prem.WrongKey -eq 0 -and [long] $prem.NoUseCase -eq 0) "every interaction carries its use-case key, and bi.UseCases has a use case for each"
+
+# ---------------------------------------------------------------------------
+# 18. A slow night (2.5.4). tools/Trace-CopilotNightly.sql shows what the task's connections are running and records
+# the statements that run a second or longer; tools/Measure-CopilotNightly.ps1 takes a recorded run apart. The trace is
+# run as SSMS runs it, with @Do set in the script (sqlcmd puts -v Do= in its place); this suite's own connections carry
+# the task's application name, so a probe procedure run here is a statement of the task's.
+# ---------------------------------------------------------------------------
+Write-Host "`n18. A slow night (tools/Trace-CopilotNightly.sql, tools/Measure-CopilotNightly.ps1)" -ForegroundColor Cyan
+
+$traceSql = Get-Content -LiteralPath (Join-Path $root 'tools' 'Trace-CopilotNightly.sql') -Raw
+$doDefault = "@Do         NVARCHAR(10) = N'now'"
+Assert-That ($traceSql.Contains($doDefault) -and $traceSql.Contains("IF LEFT(N'`$(Do)', 1) <> N'`$' SET @Do = N'`$(Do)';")) 'the trace script reads its action from @Do, or from sqlcmd -v Do='
+$trace = { param($Do, $As = 'NonQuery') Invoke-SqlText -Catalog 'master' -As $As -Sql $traceSql.Replace($doDefault, "@Do         NVARCHAR(10) = N'$Do'") }
+if ([int] (Invoke-SqlText -Catalog 'master' -As Scalar -Sql "SELECT COUNT(*) FROM sys.server_event_sessions WHERE name = N'CopilotNightly';") -gt 0) {
+    Write-Host '  SKIP  a recording named CopilotNightly is running on this server, and is left alone' -ForegroundColor Yellow
+}
+else {
+    Invoke-SqlText -Sql "CREATE OR ALTER PROCEDURE dbo.usp_TraceProbe AS BEGIN SET NOCOUNT ON; WAITFOR DELAY '00:00:03'; END;"
+    try {
+        [void] (& $trace 'start')
+        $again = try { [void] (& $trace 'start'); '' } catch { $_.Exception.GetBaseException().Message }
+        Assert-That ($again -like '*exists already*') "start: a second recording is refused while one runs ($again)"
+        # The probe runs for three seconds; 'now' is asked while it does.
+        $probe = [System.Data.SqlClient.SqlConnection]::new((New-ConnString $script:ITDatabase) + ';Pooling=false')
+        try {
+            $probe.Open()
+            $probeCmd = $probe.CreateCommand(); $probeCmd.CommandText = 'EXEC dbo.usp_TraceProbe;'; $probeCmd.CommandTimeout = 60
+            $running = $probeCmd.ExecuteNonQueryAsync()
+            Start-Sleep -Milliseconds 800
+            $now = & $trace 'now' 'Table'
+            [void] $running.Wait(60000)
+        }
+        finally { $probe.Dispose() }
+        $seen = @($now.Rows | Where-Object { "$($_.Procedure)" -eq 'dbo.usp_TraceProbe' -and "$($_.Program)" -eq 'CopilotAuditBackfill' })
+        Assert-That ($seen.Count -eq 1 -and "$($seen[0].Statement)" -like 'WAITFOR*' -and "$($seen[0].Database)" -eq $script:ITDatabase) `
+            "now: the statement the task is running, with its procedure and database ($($seen.Count) row(s))"
+        [void] (& $trace 'stop')
+        $read = & $trace 'read' 'Table'
+        $rec = @($read.Rows | Where-Object { "$($_.Database)" -eq $script:ITDatabase -and "$($_.Procedure)" -eq 'usp_TraceProbe' })
+        Assert-That ($rec.Count -eq 1 -and [decimal] $rec[0].Seconds -ge 3) "read: the recording has the three-second statement, under its procedure ($(@($read.Rows).Count) procedure row(s))"
+        $left = [int] (Invoke-SqlText -Catalog 'master' -As Scalar -Sql "SELECT COUNT(*) FROM sys.server_event_sessions WHERE name = N'CopilotNightly';")
+        Assert-That ($left -eq 0) 'stop: the session is removed, and what it recorded can still be read'
+    }
+    finally {
+        try { [void] (& $trace 'stop') } catch { Write-Host "  (could not stop the recording: $($_.Exception.Message))" }
+        Invoke-SqlText -Sql 'DROP PROCEDURE IF EXISTS dbo.usp_TraceProbe;'
+    }
+}
+
+# The profile needs Windows authentication, as the health check does: run where this suite has it.
+if ($script:ITIntegrated) {
+    $profileOut = & (Join-Path $root 'tools' 'Measure-CopilotNightly.ps1') -SqlServer $script:ITServer -Database $script:ITDatabase -LicenseDatabase $script:ITDatabase -TrustServerCertificate 6>&1 | Out-String
+    Assert-That ($profileOut -like '*1. The last 7 runs*' -and $profileOut -like '*in detail*' -and $profileOut -like '*Where the time went*' -and $profileOut -like '*Copilot licenses from Graph*') `
+        'Measure-CopilotNightly.ps1 reads this database''s recorded run and its step'
+}
+else { Write-Host '  SKIP  Measure-CopilotNightly.ps1 connects with Windows authentication only' -ForegroundColor Yellow }
 
 # ---------------------------------------------------------------------------
 Write-Host ''

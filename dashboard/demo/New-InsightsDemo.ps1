@@ -74,7 +74,7 @@ $conn = Get-Conn $Database
 try {
     Step 'Schema scripts' {
         foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotFlattenedSchema.sql', 'Create-CopilotEnrichmentSchema.sql',
-                       'Create-LicenseEventSchema.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql',
+                       'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql',
                        'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql', 'Create-AgentEventProcedure.sql',
                        'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql') {
             Write-Host "   $s"

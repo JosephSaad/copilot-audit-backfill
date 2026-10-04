@@ -31,8 +31,9 @@ SCRIPTS = [
      'The bi schema: the dimensions (DimDate, DimUser, DimApp, DimAgent, DimModel, DimSku, DimLicenseStatus, DimLicenseType, DimSensitivityLabel, DimResourceType, DimResourceAction, DimSite), the facts (FactInteraction, FactSession, FactLicenseChange, FactLicensedDay, FactAccessedResource, FactAgentEvent), RefreshRun, and the views Power BI imports. bi.FactInteraction stores PremiumUse and UseCaseKey, set once by the refresh (2.4.0), and bi.Interactions passes them on.'),
     ('Create-CopilotBiProcedure.sql', 'Copilot', 'By hand, once (step 8)', 'bi.usp_RefreshBi.'),
     ('Create-LicenseEventSchema.sql', 'License events', 'By hand, once (step 7)',
-     'LicenseEvent, LicenseEventChunk, LicenseEventProperty, vLicenseChange, vLicenseSkuChange, vLicenseLifecycle.'),
-    ('Create-LicenseEventProcedure.sql', 'License events', 'By hand, once (step 7)', 'usp_ShredLicenseEvents.'),
+     'LicenseEvent, LicenseEventChunk, LicenseEventProperty, LicenseSkuChange and LicenseSkuChangeRun (2.5.4), vLicenseChange, vLicenseSkuChangeFromRecords, vLicenseSkuChange, vLicenseLifecycle.'),
+    ('Create-LicenseEventProcedure.sql', 'License events', 'By hand, once (step 7)',
+     'usp_ShredLicenseEvents, and usp_RefreshLicenseSkuChange (2.5.4), which the shred runs at its end. Installed over events shredded before 2.5.4, it works out their SKU changes once.'),
     ('Create-CopilotDashboardSchema.sql', 'Copilot', 'By hand, once, for the dashboard (step 22)',
      'The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun; the view dash.Agent and the function dash.fnScopeUsers.'),
     ('Create-CopilotOperationsSchema.sql', 'Copilot', 'By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess',
@@ -47,6 +48,7 @@ PRIMARY = {  # objects several scripts can create: the one that normally does
     'audit.CopilotAudit': 'Finalize-CopilotAudit.sql', 'audit.CopilotInteraction': 'Finalize-CopilotAudit.sql',
     'audit.vCopilotAuditRecord': 'Finalize-CopilotAudit.sql', 'audit.vCopilotDailyUsage': 'Finalize-CopilotAudit.sql',
     'audit.CopilotLicense': 'Create-CopilotEnrichmentSchema.sql',
+    'audit.vLicenseSkuChange': 'Create-LicenseEventSchema.sql',
 }
 ALSO = {
     'audit.CopilotAudit': 'Create-CopilotCsvImport.sql, for a database that starts from CSV',
@@ -54,6 +56,7 @@ ALSO = {
     'audit.vCopilotAuditRecord': 'Create-CopilotCsvImport.sql, for a database that starts from CSV',
     'audit.vCopilotDailyUsage': 'Create-CopilotCsvImport.sql, for a database that starts from CSV',
     'audit.CopilotLicense': 'Create-CopilotFlattenedSchema.sql, if run first',
+    'audit.vLicenseSkuChange': 'Create-LicenseEventProcedure.sql, which points it at the table once the changes of events shredded before 2.5.4 are worked out',
 }
 
 # ---------------------------------------------------------------- areas and purposes
@@ -65,7 +68,7 @@ AREAS = [
         ('audit.CopilotLoad', 'One row per -Incremental load: its range, operations, when it finished downloading and was merged, and how many records were new or already there.'),
         ('audit.CopilotLoadWindow', 'The search windows of the load in progress, as CopilotBackfillWindow. Emptied after each merge.'),
         ('audit.CopilotLoadStage', 'The rows of the load in progress, as CopilotAuditStage. Emptied after each merge.'),
-        ('audit.PipelineSetting', 'Settings the procedures read, one row each: ReportingTimeZone, the Windows time zone name every procedure cuts days and hours in (read through audit.ReportingTimeZone(); Eastern Standard Time when unset; written by Install-CopilotAudit.ps1 -ReportingTimeZone, which refuses a change once records are loaded), and from 2.3.0 PrivacyMode and PseudonymSalt (written by dash.usp_SetPrivacyMode from Admin > Privacy and retention).'),
+        ('audit.PipelineSetting', 'Settings the procedures read, one row each: ReportingTimeZone, the Windows time zone name every procedure cuts days and hours in (read through audit.ReportingTimeZone(); Eastern Standard Time when unset; written by Install-CopilotAudit.ps1 -ReportingTimeZone, which refuses a change once records are loaded), and from 2.3.0 PrivacyMode and PseudonymSalt (written by dash.usp_SetPrivacyMode from Admin > Privacy and retention). It also holds the marks a long job leaves: FullFlattenUtc when a flatten of every record has finished (2.4.12) and, in the license-event database, LicenseShredInProgress while a license shred runs (the time it shreds from; still there after a shred that was stopped) and LicenseShredCompleteUtc when a shred of every record last finished (2.5.4).'),
         ('audit.PipelineRun', 'One row per run of Invoke-CopilotPipeline.ps1 (2.3.0): kind (Nightly or History), host and account, status, the step that failed and the log\'s last lines, and the app certificate it signed in with and its expiry, for the dashboard\'s alerts.'),
         ('audit.PipelineRunStep', 'One row per step of a pipeline run (2.3.0): its name, start, end and exit code.'),
     ]),
@@ -113,7 +116,10 @@ AREAS = [
         ('audit.LicenseEventChunk', 'Fragments of changes too large for one audit record, kept until every fragment of a group has arrived and can be reassembled.'),
         ('audit.LicenseEventProperty', 'One row per modified property of an event: Name, OldValue, NewValue. Whatever Microsoft records is queryable, whatever the property names.'),
         ('audit.vLicenseChange', 'One row per license change, deduplicated: a chunked change counts once, and the Update user raised alongside every license change is dropped in favor of the Change user license.'),
-        ('audit.vLicenseSkuChange', 'SKUs added and removed per change, from the old and new AssignedLicense lists: "when was this user given Copilot, and when was it taken away". Sessions and bi read it for license at the time of use.'),
+        ('audit.LicenseSkuChange', 'The SKUs each license change added and removed, kept (2.5.4): one row per record, SKU and direction. Worked out by usp_RefreshLicenseSkuChange at the end of every shred, for the events shredded since it last ran and the records raised with them. Sessions and bi read every row each night, through vLicenseSkuChange.'),
+        ('audit.LicenseSkuChangeRun', 'One row per run of usp_RefreshLicenseSkuChange (2.5.4): when, the events worked out and the changes kept for them. SinceUtc is empty when every event was worked out. No row: the changes have never been worked out in this database.'),
+        ('audit.vLicenseSkuChangeFromRecords', 'The rule the kept rows follow, read from the events and their properties each time: SKUs added and removed per change, from the old and new AssignedLicense lists. It was vLicenseSkuChange before 2.5.4, and is what the tests check the table against. Slow on a large history: 11 minutes a read over 4,000,000 events in the lab.'),
+        ('audit.vLicenseSkuChange', 'SKUs added and removed per change: "when was this user given Copilot, and when was it taken away". Sessions and bi read it for license at the time of use. From 2.5.4 it reads audit.LicenseSkuChange.'),
         ('audit.AgentEvent', 'One row per Copilot Studio authoring record (2.3.0): the operation (BotCreate, BotUpdateOperation-BotPublish, BotUpdateOperation-BotShare, BotDelete, BotComponent...), the action it means (Created, Published, Shared, Updated, Component, Deleted), the maker, the agent and the component, and the update details. Shredded by usp_ShredAgentEvents after each license-event load, which asks for these operations too.'),
         ('audit.vLicenseLifecycle', 'Provisioning and revocation per user. "Revoked" is inferred from a license disappearing or the account being deleted: a reading of the events, not a field the service provides.'),
     ]),
@@ -200,7 +206,8 @@ AREAS = [
 LEGACY = [('audit.UserProfile', 'Entra profiles written by the 1.x license tool. No 2.x script creates, fills or reads it; only the optional ASP.NET dashboard still reads it for names. Safe to drop once that no longer matters.'),
           ('audit.AdministrativeUnit', 'Administrative-unit names written by the 1.x license tool. Not used since 2.0.0; safe to drop.')]
 
-LIC_ONLY = {'audit.AgentEvent', 'audit.LicenseEvent', 'audit.LicenseEventChunk', 'audit.LicenseEventProperty', 'audit.vLicenseChange', 'audit.vLicenseSkuChange', 'audit.vLicenseLifecycle'}
+LIC_ONLY = {'audit.AgentEvent', 'audit.LicenseEvent', 'audit.LicenseEventChunk', 'audit.LicenseEventProperty', 'audit.LicenseSkuChange', 'audit.LicenseSkuChangeRun',
+            'audit.vLicenseChange', 'audit.vLicenseSkuChangeFromRecords', 'audit.vLicenseSkuChange', 'audit.vLicenseLifecycle'}
 BOTH = {'audit.CopilotBackfillRange', 'audit.CopilotBackfillWindow', 'audit.CopilotAuditStage', 'audit.CopilotLoad', 'audit.CopilotLoadWindow',
         'audit.CopilotLoadStage', 'audit.CopilotAudit', 'audit.CopilotInteraction', 'audit.vCopilotAuditRecord', 'audit.vCopilotDailyUsage'}
 

@@ -320,6 +320,8 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `tools/Install-CopilotJobServer.ps1` | Sets up the job server: certificate, service account, databases, app registration, settings and the nightly task. |
 | `tools/New-CopilotAuditApp.ps1` | Registers the Entra app: the three permissions, admin consent and the certificate. |
 | `tools/Invoke-CopilotMaintenance.ps1` | Day-to-day tasks without SQL: status, rebuilds, roles, settings, names, retention. |
+| `tools/Measure-CopilotNightly.ps1` | Where a nightly run's time went: each step, each stage inside the loads, and the statements that ran longest. Read-only. |
+| `tools/Trace-CopilotNightly.sql` | For the database administrator: what the task is running now, and a recording of the night's statements. |
 | `CopilotAuditEngine.cs` | The pipeline engine, compiled in memory at start. |
 | `Import-CopilotAuditEngine.ps1` | Compiles the engine. |
 | `sql/Create-CopilotAuditSchema.sql` | DDL, run automatically. Provided for DBA review. |

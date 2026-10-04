@@ -19,6 +19,323 @@
 */
 SET NOCOUNT ON;
 
+/*
+    audit.usp_RefreshLicenseSkuChange
+    ------------------------------------------------------------------------
+    Keeps audit.LicenseSkuChange: the SKUs each license change added and
+    removed, as audit.vLicenseSkuChangeFromRecords reads them from the records,
+    worked out a set at a time and stored. The session build and the bi refresh
+    read every one of them every night. Read from the records, over 4,000,000
+    license events in the lab, that took 11 minutes each time; worked out here,
+    two minutes once, and seconds a night after.
+
+      @All  0 (the default): the events shredded since this last ran, with
+            every record of their chunk groups and every record raised with
+            any of those (one CorrelationId). A change can take its license
+            lists or its user from, or give way to, a record raised with it,
+            so a family is always worked out whole.
+            1: every event, the table replaced. Also what happens the first
+            time, and when more than a tenth of the events were shredded since
+            the last run: reading them all once is then the quicker way.
+
+      @SinceShreddedUtc  The caller's own shred began then: its events are
+            taken whatever ran since. Another session's run in between, made
+            while this shred was still reassembling its chunk groups, would
+            otherwise have moved "since this last ran" past them.
+
+    audit.usp_ShredLicenseEvents runs it at the end of every shred, so nothing
+    else needs to. "Since this last ran" is read from audit.LicenseSkuChangeRun
+    and each event's ShreddedUtc, so a run that failed leaves nothing behind:
+    the next one takes its events too. After changing audit.LicenseEvent or its
+    properties any other way, run it with @All = 1. While a shred is running,
+    or after one was stopped part way (its mark, LicenseShredInProgress, is in
+    audit.PipelineSetting), a run asked for by hand works out nothing unless
+    @All = 1: that shred's events can still lack their properties.
+
+    The rule, step by step, is the view's:
+      * Only a record that is not a later fragment of a chunk group, and not
+        an 'Update user' raised with a 'Change user license'.
+      * Its license lists are its own AssignedLicense properties when it has
+        any license-bearing property; else those of the first record raised
+        with it, outside its chunk group, that has one.
+      * Its user is its own, else the first one a record raised with it has.
+      * A SKU in the new list and not the old was added; in the old and not
+        the new, removed.
+*/
+IF OBJECT_ID(N'audit.usp_RefreshLicenseSkuChange', N'P') IS NULL
+    EXEC (N'CREATE PROCEDURE audit.usp_RefreshLicenseSkuChange AS BEGIN SET NOCOUNT ON; END;');
+GO
+
+ALTER PROCEDURE audit.usp_RefreshLicenseSkuChange
+    @All              BIT          = 0,
+    @SinceShreddedUtc DATETIME2(0) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @started DATETIME2(0) = SYSUTCDATETIME(), @t0 DATETIME2(3) = SYSUTCDATETIME(),
+            @since DATETIME2(0), @events INT, @changes INT, @msg NVARCHAR(400);
+    SET @All = ISNULL(@All, 0);
+
+    /* A shred that is running, or was stopped part way, has events without their properties yet: worked out now,
+       their changes would be taken away. The shred runs this itself once it has finished (it says when it began),
+       and @All = 1 is taken at its word. Until then the changes stay as the last shred that finished left them. */
+    IF @All = 0 AND @SinceShreddedUtc IS NULL
+       AND EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress')
+    BEGIN
+        RAISERROR('License SKU changes: left as they are, because a license shred is running or did not finish. The shred that finishes it works them out.', 0, 1) WITH NOWAIT;
+        RETURN;
+    END;
+
+    /* Shredded since the last run began, with five minutes to spare: an event stamped as that run started is taken
+       again rather than missed. Or since the caller's shred began, when that is earlier. No run yet: every event. */
+    SET @since = (SELECT DATEADD(MINUTE, -5, MAX(StartedUtc)) FROM audit.LicenseSkuChangeRun);
+    IF @since IS NULL
+        SET @All = 1;
+    ELSE IF @SinceShreddedUtc < @since
+        SET @since = @SinceShreddedUtc;
+
+    /* More than a tenth of the history shredded since (a full shred, a first load): every event is read once instead,
+       which is quicker than seeking each family. Both counts are cheap: an index range, and the table's own row count. */
+    IF @All = 0
+       AND (SELECT COUNT_BIG(*) FROM audit.LicenseEvent AS e WHERE e.ShreddedUtc >= @since) * 10
+           > ISNULL((SELECT SUM(p.rows) FROM sys.partitions AS p
+                     WHERE p.object_id = OBJECT_ID(N'audit.LicenseEvent') AND p.index_id IN (0, 1)), 0)
+        SET @All = 1;
+
+    /* ---- 1. The events to work out, whole families at a time ------------- */
+
+    /* In the database's collation throughout, as the shred's temp tables are. Each has a name of its own (#sku...):
+       this is called from other batches, and a statement here would be compiled against a caller's temp table of
+       the same name (the demo's own #ev, the first time). */
+    DROP TABLE IF EXISTS #skuEvent;
+    CREATE TABLE #skuEvent
+    (
+        RecordId        VARCHAR(64)   COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY,
+        CreatedDateTime DATETIME2(0)  NOT NULL,
+        ActivityDate    DATE          NOT NULL,
+        Operation       NVARCHAR(200) COLLATE DATABASE_DEFAULT NULL,
+        ActorUpn        NVARCHAR(512) COLLATE DATABASE_DEFAULT NULL,
+        TargetUpn       NVARCHAR(512) COLLATE DATABASE_DEFAULT NULL,
+        CorrelationId   NVARCHAR(200) COLLATE DATABASE_DEFAULT NULL,
+        ChunkGroupId    NVARCHAR(100) COLLATE DATABASE_DEFAULT NULL,
+        ChunkSeq        INT           NULL
+    );
+
+    IF @All = 1
+        INSERT INTO #skuEvent WITH (TABLOCK)
+            (RecordId, CreatedDateTime, ActivityDate, Operation, ActorUpn, TargetUpn, CorrelationId, ChunkGroupId, ChunkSeq)
+        SELECT e.RecordId, e.CreatedDateTime, e.ActivityDate, e.Operation, e.ActorUpn, e.TargetUpn, e.CorrelationId, e.ChunkGroupId, e.ChunkSeq
+        FROM audit.LicenseEvent AS e;
+    ELSE
+    BEGIN
+        INSERT INTO #skuEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ActorUpn, TargetUpn, CorrelationId, ChunkGroupId, ChunkSeq)
+        SELECT e.RecordId, e.CreatedDateTime, e.ActivityDate, e.Operation, e.ActorUpn, e.TargetUpn, e.CorrelationId, e.ChunkGroupId, e.ChunkSeq
+        FROM audit.LicenseEvent AS e WITH (FORCESEEK)
+        WHERE e.ShreddedUtc >= @since;
+
+        /* Every record of their chunk groups: a group's properties are filed against its first record, which an
+           earlier run may have shredded. Sought by its index: the night's events are few against the history. */
+        INSERT INTO #skuEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ActorUpn, TargetUpn, CorrelationId, ChunkGroupId, ChunkSeq)
+        SELECT m.RecordId, m.CreatedDateTime, m.ActivityDate, m.Operation, m.ActorUpn, m.TargetUpn, m.CorrelationId, m.ChunkGroupId, m.ChunkSeq
+        FROM (SELECT DISTINCT e.ChunkGroupId FROM #skuEvent AS e WHERE e.ChunkGroupId IS NOT NULL) AS g
+        JOIN audit.LicenseEvent AS m WITH (FORCESEEK) ON m.ChunkGroupId = g.ChunkGroupId
+        WHERE NOT EXISTS (SELECT 1 FROM #skuEvent AS x WHERE x.RecordId = m.RecordId);
+
+        /* Every record raised with any of those. */
+        INSERT INTO #skuEvent (RecordId, CreatedDateTime, ActivityDate, Operation, ActorUpn, TargetUpn, CorrelationId, ChunkGroupId, ChunkSeq)
+        SELECT m.RecordId, m.CreatedDateTime, m.ActivityDate, m.Operation, m.ActorUpn, m.TargetUpn, m.CorrelationId, m.ChunkGroupId, m.ChunkSeq
+        FROM (SELECT DISTINCT e.CorrelationId FROM #skuEvent AS e WHERE e.CorrelationId IS NOT NULL) AS k
+        JOIN audit.LicenseEvent AS m WITH (FORCESEEK) ON m.CorrelationId = k.CorrelationId
+        WHERE NOT EXISTS (SELECT 1 FROM #skuEvent AS x WHERE x.RecordId = m.RecordId);
+    END;
+    SET @events = (SELECT COUNT(*) FROM #skuEvent);
+
+    CREATE INDEX IX_ev_Correlation ON #skuEvent (CorrelationId) INCLUDE (Operation, ChunkSeq, ChunkGroupId, CreatedDateTime, TargetUpn);
+
+    /* ---- 2. Their license-bearing properties ----------------------------- */
+
+    /* Every one marks its record as having license detail of its own; only AssignedLicense carries the lists, so only its
+       values are copied (AssignedPlan's run to tens of kilobytes a record). */
+    DROP TABLE IF EXISTS #skuProperty;
+    CREATE TABLE #skuProperty
+    (
+        RecordId   VARCHAR(64)   COLLATE DATABASE_DEFAULT NOT NULL,
+        Ordinal    INT           NOT NULL,
+        IsList     BIT           NOT NULL,
+        FromChunks INT           NOT NULL,
+        OldValue   NVARCHAR(MAX) COLLATE DATABASE_DEFAULT NULL,
+        NewValue   NVARCHAR(MAX) COLLATE DATABASE_DEFAULT NULL
+    );
+    /* Two statements: every property read once in a scan, or the families' properties sought by their key (left to
+       choose, the second scanned every property for a night's few thousand events: two minutes, not seconds). */
+    IF @All = 1
+        INSERT INTO #skuProperty WITH (TABLOCK) (RecordId, Ordinal, IsList, FromChunks, OldValue, NewValue)
+        SELECT p.RecordId, p.Ordinal,
+               CASE WHEN p.[Name] = N'AssignedLicense' THEN 1 ELSE 0 END,
+               CASE WHEN p.Source = 'chunks' THEN 1 ELSE 0 END,
+               CASE WHEN p.[Name] = N'AssignedLicense' THEN p.OldValue END,
+               CASE WHEN p.[Name] = N'AssignedLicense' THEN p.NewValue END
+        FROM audit.LicenseEventProperty AS p
+        WHERE p.[Name] LIKE N'%License%' OR p.[Name] LIKE N'%Plan%' OR p.[Name] LIKE N'%Sku%';
+    ELSE
+        INSERT INTO #skuProperty (RecordId, Ordinal, IsList, FromChunks, OldValue, NewValue)
+        SELECT p.RecordId, p.Ordinal,
+               CASE WHEN p.[Name] = N'AssignedLicense' THEN 1 ELSE 0 END,
+               CASE WHEN p.Source = 'chunks' THEN 1 ELSE 0 END,
+               CASE WHEN p.[Name] = N'AssignedLicense' THEN p.OldValue END,
+               CASE WHEN p.[Name] = N'AssignedLicense' THEN p.NewValue END
+        FROM #skuEvent AS e
+        JOIN audit.LicenseEventProperty AS p WITH (FORCESEEK) ON p.RecordId = e.RecordId
+        WHERE p.[Name] LIKE N'%License%' OR p.[Name] LIKE N'%Plan%' OR p.[Name] LIKE N'%Sku%';
+
+    CREATE CLUSTERED INDEX CIX_lp ON #skuProperty (RecordId, Ordinal);
+
+    /* ---- 3. The records that are changes --------------------------------- */
+
+    DROP TABLE IF EXISTS #skuCandidate;
+    SELECT e.RecordId, e.CreatedDateTime, e.ActivityDate, e.ActorUpn, e.TargetUpn, e.CorrelationId, e.ChunkGroupId,
+           CAST(CASE WHEN EXISTS (SELECT 1 FROM #skuProperty AS p WHERE p.RecordId = e.RecordId) THEN 1 ELSE 0 END AS BIT) AS HasOwn
+    INTO #skuCandidate
+    FROM #skuEvent AS e
+    WHERE (e.ChunkSeq IS NULL OR e.ChunkSeq = 1)
+      /* Entra raises one change as a 'Change user license' and an 'Update user': it is the license change. */
+      AND NOT (e.Operation = N'Update user'
+               AND e.CorrelationId IS NOT NULL
+               AND EXISTS (SELECT 1 FROM #skuEvent AS x
+                           WHERE x.CorrelationId = e.CorrelationId
+                             AND x.Operation = N'Change user license'
+                             AND (x.ChunkSeq IS NULL OR x.ChunkSeq = 1)));
+
+    CREATE UNIQUE CLUSTERED INDEX CIX_cand ON #skuCandidate (RecordId);
+
+    /* ---- 4. Each one's license lists -------------------------------------- */
+
+    DROP TABLE IF EXISTS #skuList;
+    CREATE TABLE #skuList
+    (
+        RecordId   VARCHAR(64)   COLLATE DATABASE_DEFAULT NOT NULL,
+        FromChunks INT           NOT NULL,
+        OldValue   NVARCHAR(MAX) COLLATE DATABASE_DEFAULT NULL,
+        NewValue   NVARCHAR(MAX) COLLATE DATABASE_DEFAULT NULL
+    );
+
+    /* Its own. */
+    INSERT INTO #skuList (RecordId, FromChunks, OldValue, NewValue)
+    SELECT c.RecordId, p.FromChunks, p.OldValue, p.NewValue
+    FROM #skuCandidate AS c
+    JOIN #skuProperty AS p ON p.RecordId = c.RecordId AND p.IsList = 1
+    WHERE c.HasOwn = 1;
+
+    /* Or, with no license-bearing property of its own, those of the first record raised with it that has one: never one
+       of its own chunk group, whose records all share the CorrelationId. */
+    INSERT INTO #skuList (RecordId, FromChunks, OldValue, NewValue)
+    SELECT d.RecordId, p.FromChunks, p.OldValue, p.NewValue
+    FROM (SELECT c.RecordId, o.RecordId AS DonorId,
+                 ROW_NUMBER() OVER (PARTITION BY c.RecordId ORDER BY o.CreatedDateTime, o.RecordId) AS rn
+          FROM #skuCandidate AS c
+          JOIN #skuEvent AS o ON o.CorrelationId = c.CorrelationId
+                       AND o.RecordId <> c.RecordId
+                       AND (c.ChunkGroupId IS NULL OR o.ChunkGroupId IS NULL OR o.ChunkGroupId <> c.ChunkGroupId)
+          WHERE c.HasOwn = 0
+            AND c.CorrelationId IS NOT NULL
+            AND EXISTS (SELECT 1 FROM #skuProperty AS h WHERE h.RecordId = o.RecordId)) AS d
+    JOIN #skuProperty AS p ON p.RecordId = d.DonorId AND p.IsList = 1
+    WHERE d.rn = 1;
+
+    CREATE CLUSTERED INDEX CIX_lists ON #skuList (RecordId);
+
+    /* ---- 5. The SKUs on each side ----------------------------------------- */
+
+    /* Each list entry reads [SkuName=Microsoft_365_Copilot, AccountId=..., SkuId=..., DisabledPlans=[...]]. */
+    DROP TABLE IF EXISTS #skuSide;
+    CREATE TABLE #skuSide
+    (
+        RecordId VARCHAR(64)   COLLATE DATABASE_DEFAULT NOT NULL,
+        IsNew    BIT           NOT NULL,
+        Sku      NVARCHAR(200) COLLATE DATABASE_DEFAULT NOT NULL
+    );
+    INSERT INTO #skuSide (RecordId, IsNew, Sku)
+    SELECT l.RecordId, 0, LEFT(s.Sku, 200)
+    FROM #skuList AS l
+    CROSS APPLY OPENJSON(CASE WHEN ISJSON(l.OldValue) = 1 THEN l.OldValue ELSE N'[]' END) AS j
+    CROSS APPLY (SELECT CHARINDEX(N'SkuName=', j.[value]) AS At) AS a
+    CROSS APPLY (SELECT CASE WHEN a.At > 0 THEN SUBSTRING(j.[value], a.At + 8,
+                     CHARINDEX(N',', j.[value] + N',', a.At + 8) - a.At - 8) END AS Sku) AS s
+    WHERE s.Sku IS NOT NULL
+    UNION
+    SELECT l.RecordId, 1, LEFT(s.Sku, 200)
+    FROM #skuList AS l
+    CROSS APPLY OPENJSON(CASE WHEN ISJSON(l.NewValue) = 1 THEN l.NewValue ELSE N'[]' END) AS j
+    CROSS APPLY (SELECT CHARINDEX(N'SkuName=', j.[value]) AS At) AS a
+    CROSS APPLY (SELECT CASE WHEN a.At > 0 THEN SUBSTRING(j.[value], a.At + 8,
+                     CHARINDEX(N',', j.[value] + N',', a.At + 8) - a.At - 8) END AS Sku) AS s
+    WHERE s.Sku IS NOT NULL;
+
+    CREATE UNIQUE CLUSTERED INDEX CIX_sku ON #skuSide (RecordId, IsNew, Sku);
+
+    /* ---- 6. What changed, and for whom ------------------------------------ */
+
+    /* The user a record raised with it carries, for a change that carries none: the first, as the view takes it. */
+    DROP TABLE IF EXISTS #skuPaired;
+    SELECT x.CorrelationId, x.TargetUpn
+    INTO #skuPaired
+    FROM (SELECT o.CorrelationId, o.TargetUpn,
+                 ROW_NUMBER() OVER (PARTITION BY o.CorrelationId ORDER BY o.CreatedDateTime, o.RecordId) AS rn
+          FROM #skuEvent AS o
+          WHERE o.TargetUpn IS NOT NULL
+            AND o.CorrelationId IN (SELECT c.CorrelationId FROM #skuCandidate AS c
+                                    WHERE c.TargetUpn IS NULL AND c.CorrelationId IS NOT NULL)) AS x
+    WHERE x.rn = 1;
+
+    DROP TABLE IF EXISTS #skuOut;
+    SELECT c.RecordId, d.Sku, d.Change, c.CreatedDateTime, c.ActivityDate, c.ActorUpn,
+           COALESCE(c.TargetUpn, pr.TargetUpn) AS TargetUpn, f.FromChunks
+    INTO #skuOut
+    FROM #skuCandidate AS c
+    JOIN (SELECT l.RecordId, MAX(l.FromChunks) AS FromChunks FROM #skuList AS l GROUP BY l.RecordId) AS f ON f.RecordId = c.RecordId
+    LEFT JOIN #skuPaired AS pr ON pr.CorrelationId = c.CorrelationId
+    CROSS APPLY (
+        SELECT n.Sku, N'Added' AS Change
+        FROM #skuSide AS n
+        WHERE n.RecordId = c.RecordId AND n.IsNew = 1
+          AND NOT EXISTS (SELECT 1 FROM #skuSide AS o WHERE o.RecordId = c.RecordId AND o.IsNew = 0 AND o.Sku = n.Sku)
+        UNION ALL
+        SELECT o.Sku, N'Removed'
+        FROM #skuSide AS o
+        WHERE o.RecordId = c.RecordId AND o.IsNew = 0
+          AND NOT EXISTS (SELECT 1 FROM #skuSide AS n WHERE n.RecordId = c.RecordId AND n.IsNew = 1 AND n.Sku = o.Sku)
+    ) AS d;
+
+    /* ---- 7. Kept: the families' rows replaced in one transaction ---------- */
+
+    BEGIN TRANSACTION;
+    IF @All = 1 AND HAS_PERMS_BY_NAME(N'audit.LicenseSkuChange', N'OBJECT', N'ALTER') = 1
+        TRUNCATE TABLE audit.LicenseSkuChange;
+    ELSE IF @All = 1
+        DELETE FROM audit.LicenseSkuChange;
+    ELSE
+        DELETE k
+        FROM audit.LicenseSkuChange AS k
+        JOIN #skuEvent AS e ON e.RecordId = k.RecordId;
+
+    INSERT INTO audit.LicenseSkuChange (RecordId, Sku, Change, CreatedDateTime, ActivityDate, ActorUpn, TargetUpn, FromChunks)
+    SELECT o.RecordId, o.Sku, o.Change, o.CreatedDateTime, o.ActivityDate, o.ActorUpn, o.TargetUpn, o.FromChunks
+    FROM #skuOut AS o;
+    SET @changes = @@ROWCOUNT;
+
+    INSERT INTO audit.LicenseSkuChangeRun (StartedUtc, EndedUtc, SinceUtc, Events, Changes)
+    VALUES (@started, SYSUTCDATETIME(), CASE WHEN @All = 1 THEN NULL ELSE @since END, @events, @changes);
+    COMMIT TRANSACTION;
+
+    SET @msg = CONCAT(N'License SKU changes: ', FORMAT(@changes, 'N0'), N' kept for ', FORMAT(@events, 'N0'),
+                      CASE WHEN @All = 1 THEN N' event(s), every one' ELSE N' event(s) shredded since the last run or raised with one' END,
+                      N', in ', FORMAT(DATEDIFF(MILLISECOND, @t0, SYSUTCDATETIME()) / 1000.0, 'N1'), N' s.');
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END;
+GO
+
 IF OBJECT_ID(N'audit.usp_ShredLicenseEvents', N'P') IS NULL
     EXEC (N'CREATE PROCEDURE audit.usp_ShredLicenseEvents AS BEGIN SET NOCOUNT ON; END;');
 GO
@@ -37,6 +354,37 @@ BEGIN
     IF @BatchSize IS NULL OR @BatchSize < 1000 SET @BatchSize = 1000;
 
     DECLARE @msg NVARCHAR(400), @rows BIGINT = 0, @done BIGINT = 0, @batch INT = 1;
+    /* Every event this run writes is stamped at or after this (ShreddedUtc): the SKU changes at the end are told. */
+    DECLARE @shredFrom DATETIME2(0) = DATEADD(SECOND, -1, SYSUTCDATETIME());
+
+    IF @RebuildAll = 1
+        SET @SinceUtc = NULL;
+
+    /*
+        2.5.4: a shred says that it is running (LicenseShredInProgress in audit.PipelineSetting, with the time it
+        shreds from; empty: every record) and takes the mark away once it has finished and the SKU changes are
+        worked out. Its statements commit one by one, so one that is stopped part way - between a batch's events
+        and their properties, or before the chunk groups are reassembled - leaves events without their properties,
+        and leaves its mark. The next shred, whatever it was asked for, shreds what that one was shredding too.
+        Until then the SKU changes sessions and bi read are those of the last shred that finished.
+    */
+    DECLARE @owed NVARCHAR(400), @stopped BIT = 0;
+    SELECT @owed = Value, @stopped = 1 FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress';
+    IF @stopped = 1
+    BEGIN
+        IF TRY_CONVERT(DATETIME2(0), NULLIF(@owed, N''), 126) IS NULL
+            SET @SinceUtc = NULL;
+        ELSE IF TRY_CONVERT(DATETIME2(0), @owed, 126) < @SinceUtc
+            SET @SinceUtc = TRY_CONVERT(DATETIME2(0), @owed, 126);
+        SET @msg = CONCAT(N'An earlier shred did not finish: shredding ',
+                          CASE WHEN @SinceUtc IS NULL THEN N'every record' ELSE CONCAT(N'from ', CONVERT(NVARCHAR(16), @SinceUtc, 120), N'Z') END,
+                          N', to finish it.');
+        RAISERROR(@msg, 0, 1) WITH NOWAIT;
+    END;
+    UPDATE audit.PipelineSetting SET Value = ISNULL(CONVERT(NVARCHAR(30), @SinceUtc, 126), N''), UpdatedUtc = SYSUTCDATETIME()
+    WHERE Name = N'LicenseShredInProgress';
+    IF @@ROWCOUNT = 0
+        INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', ISNULL(CONVERT(NVARCHAR(30), @SinceUtc, 126), N''));
 
     IF @RebuildAll = 1
     BEGIN
@@ -44,7 +392,6 @@ BEGIN
         TRUNCATE TABLE audit.LicenseEventProperty;
         TRUNCATE TABLE audit.LicenseEventChunk;
         TRUNCATE TABLE audit.LicenseEvent;
-        SET @SinceUtc = NULL;
     END;
 
     /* Chunk groups this run saw, reassembled once every batch is in. In the database's collation (2.4.12): in
@@ -292,5 +639,43 @@ BEGIN
                           N' chunk group(s) are missing a fragment - part of the change lies outside the loaded range. They are kept and will complete on a later run.');
         RAISERROR(@msg, 0, 1) WITH NOWAIT;
     END;
+
+    /* The SKUs each change added and removed, kept for the session build and the bi refresh to read: for what was
+       shredded since they were last worked out and the records raised with it, or for every event after a full pass. */
+    DECLARE @everyEvent BIT = CASE WHEN @SinceUtc IS NULL THEN 1 ELSE 0 END;
+    EXEC audit.usp_RefreshLicenseSkuChange @All = @everyEvent, @SinceShreddedUtc = @shredFrom;
+
+    /* Finished: the mark goes. A shred of every record leaves one of its own (LicenseShredCompleteUtc), which
+       Install-CopilotAudit.ps1 looks for before it shreds every record again. */
+    DELETE FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress';
+    IF @SinceUtc IS NULL
+    BEGIN
+        UPDATE audit.PipelineSetting SET Value = CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126), UpdatedUtc = SYSUTCDATETIME()
+        WHERE Name = N'LicenseShredCompleteUtc';
+        IF @@ROWCOUNT = 0
+            INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredCompleteUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));
+    END;
 END;
+GO
+
+/*
+    An upgrade: license events shredded before audit.LicenseSkuChange existed have their SKU changes worked out here,
+    once, without shredding them again. Then audit.vLicenseSkuChange reads the table; until this point, in such a
+    database, it still read the records (Create-LicenseEventSchema.sql).
+*/
+IF NOT EXISTS (SELECT 1 FROM audit.LicenseSkuChangeRun) AND EXISTS (SELECT 1 FROM audit.LicenseEvent)
+BEGIN
+    RAISERROR('Working out the SKU changes of the license events already here, once (2.5.4): about two minutes for 4,000,000 events in the lab...', 0, 1) WITH NOWAIT;
+    EXEC audit.usp_RefreshLicenseSkuChange @All = 1;
+END;
+GO
+
+/* On the table from here on, when its rows are there: worked out above, or no event yet. Where that step failed and
+   the script went on to this batch all the same (SSMS, and sqlcmd without -b, do), the view stays on the records. */
+IF EXISTS (SELECT 1 FROM audit.LicenseSkuChangeRun) OR NOT EXISTS (SELECT 1 FROM audit.LicenseEvent)
+    EXEC (N'
+CREATE OR ALTER VIEW audit.vLicenseSkuChange
+AS
+SELECT RecordId, CreatedDateTime, ActivityDate, ActorUpn, TargetUpn, FromChunks, Sku, Change
+FROM audit.LicenseSkuChange;');
 GO

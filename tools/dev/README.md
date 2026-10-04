@@ -51,6 +51,7 @@ python tools/dev/schema/build_md.py
 
 1. **When a table or view is new,** describe it in `build.py`, in the group it belongs to. `build_md.py` stops and names any installed object without a description, and lists any it describes that the databases don't have.
 2. **When a script is new,** add it to the script list in `build.py`.
+3. **Do not commit the generated file as it comes.** The committed `docs/SCHEMA.md` carries column notes written by hand, which the scripts' DDL does not have, and the column order of a database upgraded release by release. Compare the two (`git diff docs/SCHEMA.md`), keep the committed file, and carry into it what the release changed: the counts, new sections, new columns, types and indexes.
 
 ## Release checklist
 
@@ -59,7 +60,7 @@ Work through every step, in this order, before tagging.
 1. **Version.** Update `CHANGELOG.md` with the version, date and a summary. If the release needs a fresh install rather than an upgrade, say so at the top of the entry.
 2. **Unit and script tests:**
    - `dotnet test dashboard/CopilotInsights.Tests`;
-   - the test scripts `tests/Test-Engine.ps1`, `Test-Orchestrator.ps1`, `Test-UserDirectory.ps1`, `Test-DataHealth.ps1`, `Test-Precache.ps1`, `Test-Provisioning.ps1`, `Test-OperationsGuide.ps1`, `Test-Spelling.ps1`, `Test-SqlScriptOrder.ps1` and `Test-CsvImport.ps1`.
+   - the test scripts `tests/Test-Engine.ps1`, `Test-Orchestrator.ps1`, `Test-UserDirectory.ps1`, `Test-DataHealth.ps1`, `Test-Precache.ps1`, `Test-Provisioning.ps1`, `Test-OperationsGuide.ps1`, `Test-Spelling.ps1`, `Test-SqlScriptOrder.ps1`, `Test-PowerBiModel.ps1`, `Test-Workflows.ps1`, `Test-CsvImport.ps1` and `Test-NightlyProfile.ps1`.
 3. **SQL integration.** Run `tests/Test-SqlIntegration.ps1` against a local SQL Server, with `SQLIT_SERVER` and `SQLIT_INTEGRATED=1` set.
 4. **Analyzer.** `Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1` must report nothing, because CI fails on any finding.
 5. **Demo and UI.**
