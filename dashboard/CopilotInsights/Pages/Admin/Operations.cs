@@ -752,7 +752,7 @@ FROM audit.ValueCatalogColumn AS c ORDER BY c.ColumnId;");
         Panels.Add(new("Columns", new HtmlString(mapping + ct.Render().Value), "Columns with no values yet are hidden. The catalog fills as records are flattened; for data flattened before it existed, run Invoke-CopilotMaintenance.ps1 -Task RebuildValueCatalog once."));
         if (col is null || col.Capped) return;
 
-        var pg = new Paging(Request, new Dictionary<string, string> { ["most"] = "v.Records DESC", ["unnamed"] = $"CASE WHEN {NameExpr} IS NULL THEN 0 ELSE 1 END, v.Records DESC", ["value"] = "v.Value", ["new"] = "v.FirstSeenUtc DESC", ["last"] = "v.LastSeenUtc DESC, v.Value" }, "unnamed");
+        var pg = new Paging(Request, new Dictionary<string, string> { ["most"] = "v.Records DESC", ["unnamed"] = $"CASE WHEN {NameExpr} IS NULL THEN 0 ELSE 1 END, v.Records DESC", ["value"] = "v.Value", ["new"] = "v.FirstSeenUtc DESC", ["last"] = "v.LastSeenUtc DESC, v.Value" }, "most");
         var vals = await Db.QueryAsync<ValRow>($@"
 SELECT v.Value, v.Records, v.FirstSeenUtc, v.LastSeenUtc, {NameExpr} AS Name, n.Note, COUNT(*) OVER () AS TotalRows
 FROM audit.ValueCatalog AS v {Joins}
@@ -769,7 +769,7 @@ WHERE v.ColumnId = @id AND (@q IS NULL OR v.Value LIKE @q OR {NameExpr} LIKE @q)
                 $"<input type=\"hidden\" name=\"col\" value=\"{col.ColumnId}\"/><input type=\"hidden\" name=\"value\" value=\"{E(v.Value)}\"/>" +
                 Input("name", "Name", v.Name, 26) + Input("note", "Note", v.Note, 20) + Button("Save", quiet: true), $"col={col.ColumnId}"))]);
         var upload = $"<p class=\"sub\"><a href=\"{E(Request.Path + $"?handler=download&col={col.ColumnId}")}\">Download the mapping file for this column</a>: its values and names, to fill in and upload back above.</p>";
-        Panels.Add(new(col.Label, new HtmlString(upload + pg.Controls(Request, new Dictionary<string, string> { ["unnamed"] = "Unnamed first", ["most"] = "Most seen", ["value"] = "Value", ["new"] = "Newest" }).Value + vt.Render().Value),
+        Panels.Add(new(col.Label, new HtmlString(upload + pg.Controls(Request, new Dictionary<string, string> { ["most"] = "Most seen", ["unnamed"] = "Unnamed first", ["value"] = "Value", ["new"] = "Newest" }).Value + vt.Render().Value),
             col.ColumnId is 11 or 30 ? "Label names are shared with Admin > Reference data, where their order is set."
                 : col.ColumnId == 6 ? "Agents are named in Admin > Reference data, and that is the name every page, digest and alert shows. A name here labels this agent id in Power BI only. Clear a name to remove it."
                 : "Clear a name to remove it."));

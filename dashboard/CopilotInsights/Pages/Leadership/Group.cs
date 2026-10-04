@@ -14,6 +14,8 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
 {
     public override string Title => "Group overview";
     public override string Persona => "Leadership";
+    /// <summary>Each tenant is read for its whole organization, whatever part is picked (2.5.0).</summary>
+    public override bool UsesTeam => false;
     public override string Intro => "Each tenant's headline figures for the period, and the group's totals. A tenant is included where you see its whole organization; the others are listed without figures.";
 
     sealed record Row(string Tenant, Totals? T, string? Why);

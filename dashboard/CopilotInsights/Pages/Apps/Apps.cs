@@ -37,11 +37,12 @@ SELECT a.AppKey, COALESCE(vn.Name, a.App) AS App, a.AppCategory, COUNT(*) AS Peo
 FROM u JOIN bi.DimApp AS a ON a.AppKey = u.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 GROUP BY a.AppKey, a.App, vn.Name, a.AppCategory;", Ctx.Args());
+        /* From the lead-in a 28-day average needs (2.5.0). */
         var trend = await Db.QueryAsync<(int AppKey, DateTime Bucket, int People)>($@"
 SELECT f.AppKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", Ctx.Args());
-        var buckets = Buckets();
+WHERE f.DateKey BETWEEN @kt0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", Ctx.Args());
+        var peopleAt = trend.ToLookup(x => (x.AppKey, x.Bucket), x => x.People);
         var people = await Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0;", Ctx.Args());
         Kpis.Add(new("Apps in use", Num(rows.Count)));
         var widest = rows.OrderByDescending(r => r.People).FirstOrDefault();
@@ -57,14 +58,14 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
             "Apps with fewer people than the minimum group size are left out.", "half"));
         var t = new Table
         {
-            Headers = ["App", "Category", "People", "Came back", "Interactions", "Prompts per person", "Resources read per interaction", "Trend (people)"],
+            Headers = ["App", "Category", "People", "Came back", "Interactions", "Prompts per person", "Resources read per interaction", "Trend (people, 28-day average)"],
             Numeric = new HashSet<int> { 2, 3, 4, 5, 6 },
         };
         foreach (var r in rows.OrderByDescending(r => r.People))
             t.Rows.Add([new Link(r.App, Ctx.Url("/apps/detail", extra: $"app={r.AppKey}")), r.AppCategory, r.People, Pct(Ratio(r.Returning, r.People)), r.N,
                         Math.Round(r.Prompts / (double)Math.Max(1, r.People), 1), Math.Round(r.Resources / (double)Math.Max(1, r.N), 2),
-                        Chart.Sparkline(buckets.Select(b => (double?)trend.Where(x => x.AppKey == r.AppKey && x.Bucket == b.Key).Sum(x => x.People)).ToList(), r.App)]);
-        Panels.Add(new("Every app", t.Render(), "Came back: people who used Copilot in the app on more than one day."));
+                        Chart.Sparkline(Average(b => peopleAt[(r.AppKey, b.Key)].Sum()), r.App)]);
+        Panels.Add(new("Every app", t.Render(), $"Came back: people who used Copilot in the app on more than one day. Trend: the average number of people {PerPoint}, over the 28 days up to each point."));
     }
 }
 
@@ -88,17 +89,19 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         AppName = apps.First(a => a.AppKey == key).App;
         var args = Ctx.Args(new { app = key });
 
-        var tr = await Db.QueryAsync<(DateTime Bucket, int People, long N, long Web)>($@"
-SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey), COUNT_BIG(*), SUM(CAST(f.UsedWebSearch AS INT))
+        /* From the lead-in a 28-day average needs (2.5.0); the KPIs below are the period's own figures. */
+        var tr = await Db.QueryAsync<(DateTime Bucket, int People)>($@"
+SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", args);
-        var buckets = Buckets();
-        long n = tr.Sum(x => x.N);
-        var people = await Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1;", args);
+WHERE f.AppKey = @app AND f.DateKey BETWEEN @kt0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", args);
+        var (people, n, web) = (await Db.QueryAsync<(int People, long N, long Web)>($@"
+SELECT COUNT(DISTINCT f.UserKey), COUNT_BIG(*), ISNULL(SUM(CAST(f.UsedWebSearch AS BIGINT)), 0)
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1;", args)).Single();
         Kpis.Add(new("People", Num(people)));
         Kpis.Add(new("Interactions", Num(n), people > 0 ? $"{n / (double)people:0.0} per person" : null));
-        Kpis.Add(new("Grounded on the web", Pct(Ratio(tr.Sum(x => x.Web), n))));
-        Panels.Add(new("People using Copilot in it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.People)).ToList(), 1)], Fmt.Count, "People by period"), TrendNote, "half"));
+        Kpis.Add(new("Grounded on the web", Pct(Ratio(web, n))));
+        var trAt = tr.ToLookup(x => x.Bucket, x => x.People);
+        Panels.Add(new("People using Copilot in it", Chart.Line(Labels(), [new Series("People", Average(b => trAt[b.Key].Sum()), 1)], Fmt.Average, "People by period, 28-day average"), TrendNote, "half"));
 
         var types = await Db.QueryAsync<(string Type, long N)>($@"
 SELECT COALESCE(vn.Name, t.ResourceType), COUNT_BIG(*) FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}

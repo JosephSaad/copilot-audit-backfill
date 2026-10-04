@@ -56,18 +56,86 @@ public sealed class UnitRow
     public long MultiTurn { get; set; }
     public long Flags { get; set; }
     public long Labeled { get; set; }
+    /// <summary>Interactions grounded on the web search, in the period (2.5.0).</summary>
+    public long Web { get; set; }
     /// <summary>Named after its manager; false in privacy mode, where it is named by department and is not a link (2.4.12).</summary>
     public bool Named { get; set; } = true;
     public bool Drillable => Named && !Unit.StartsWith('~') && Unit.Contains('@');
 }
 
+/// <summary>
+/// A report's trend (2.5.0): its points, and the 28-day moving average of any measure at the points shown, so a weekend
+/// or a holiday does not dip a line. A point averages the 28 days up to it (a day and the 27 before it, or a week and the
+/// three before it); the points before the first shown are the lead-in it needs. A week not yet over is left out.
+/// </summary>
+public sealed class Trend(ReportContext c, IReadOnlyList<TrendRow> rows)
+{
+    /// <summary>The points with the lead-in the first shown averages over, oldest first.</summary>
+    public IReadOnlyList<TrendRow> All => rows;
+
+    /// <summary>The points shown, as measured: a stock such as the licenses held, which an average would only lag.</summary>
+    public IReadOnlyList<TrendRow> Shown => rows.Skip(rows.Count - c.Buckets().Count).ToList();
+
+    /// <summary>A measure's 28-day average at each point shown.</summary>
+    public List<double?> Average(Func<TrendRow, double?> value) => TrendAverage.Trailing(Raw(value), c.TrendWindow, c.Buckets().Count);
+
+    /// <summary>A rate's 28-day figure at each point shown: the numerators over the denominators of the whole window.</summary>
+    public List<double?> AverageRatio(Func<TrendRow, double?> numerator, Func<TrendRow, double?> denominator) =>
+        TrendAverage.TrailingRatio(Raw(numerator), Raw(denominator), c.TrendWindow, c.Buckets().Count);
+
+    List<double?> Raw(Func<TrendRow, double?> value) => rows.Select(r => r.Bucket > c.End ? (double?)null : value(r)).ToList();
+}
+
+/// <summary>The period's own sums of the measures a trend charts, as <see cref="TrendRow"/> has them by day or week.</summary>
+public sealed class Sums
+{
+    public long Interactions { get; set; }
+    public long Prompts { get; set; }
+    public long Sessions { get; set; }
+    public long MultiTurn { get; set; }
+    public long Chat { get; set; }
+    public long Agent { get; set; }
+    public long Web { get; set; }
+    public long Jailbreak { get; set; }
+    public long Injection { get; set; }
+    public long Blocked { get; set; }
+    public long Labeled { get; set; }
+}
+
 /// <summary>The measures most pages share, always through the report's scope.</summary>
 public sealed class Metrics(Db db)
 {
-    public async Task<List<TrendRow>> TrendAsync(ReportContext c)
-    {
-        var rows = await db.QueryAsync<TrendRow>($@"
-WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1),
+    /// <summary>
+    /// The period's own sums of what a trend charts (2.5.0): a chart's points are 28-day averages that read the days before
+    /// the period, so they do not add up to it. One pass over dash.UserDay, the same measures as <see cref="TrendAsync"/>.
+    /// </summary>
+    public async Task<Sums> SumsAsync(ReportContext c) =>
+        (await db.QueryAsync<Sums>($@"
+SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0) AS Interactions, ISNULL(SUM(CAST(ud.Prompts AS BIGINT)), 0) AS Prompts,
+       ISNULL(SUM(CAST(ud.Sessions AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(ud.MultiTurnSessions AS BIGINT)), 0) AS MultiTurn,
+       ISNULL(SUM(CAST(ud.ChatInteractions AS BIGINT)), 0) AS Chat, ISNULL(SUM(CAST(ud.AgentInteractions AS BIGINT)), 0) AS Agent,
+       ISNULL(SUM(CAST(ud.WebGrounded AS BIGINT)), 0) AS Web, ISNULL(SUM(CAST(ud.Jailbreak AS BIGINT)), 0) AS Jailbreak,
+       ISNULL(SUM(CAST(ud.PromptInjection AS BIGINT)), 0) AS Injection, ISNULL(SUM(CAST(ud.BlockedResource AS BIGINT)), 0) AS Blocked,
+       ISNULL(SUM(CAST(ud.LabeledContent AS BIGINT)), 0) AS Labeled
+FROM dash.UserDay AS ud {c.Scope("ud.UserKey")}
+WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args())).Single();
+
+    /// <summary>The report's trend points as measured, each day or week of the period: for the period's own sums and the data API.</summary>
+    public async Task<List<TrendRow>> TrendAsync(ReportContext c) => Points(await TrendRowsAsync(c, "@k0"), c.Buckets());
+
+    /// <summary>
+    /// The report's trend for charts (2.5.0): each point is a 28-day moving average, so a weekend or a holiday does not
+    /// dip a line. It reads from <see cref="ReportContext.TrendStartKey"/>, so the first point shown has its whole window.
+    /// </summary>
+    public async Task<Trend> TrendSeriesAsync(ReportContext c) => new(c, Points(await TrendRowsAsync(c, "@kt0"), c.TrendBuckets()));
+
+    /// <summary>One row per trend point, in order, even where nothing happened.</summary>
+    static List<TrendRow> Points(List<TrendRow> rows, IReadOnlyList<Bucket> points) =>
+        points.Select(bk => rows.FirstOrDefault(r => r.Bucket == bk.Key) ?? new TrendRow { Bucket = bk.Key }).ToList();
+
+    async Task<List<TrendRow>> TrendRowsAsync(ReportContext c, string from) =>
+        await db.QueryAsync<TrendRow>($@"
+WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN {from} AND @k1),
 ends AS (SELECT Bucket, MAX(DateKey) AS EndKey FROM b GROUP BY Bucket),
 ud AS (SELECT b.Bucket, ud.* FROM dash.UserDay AS ud {c.Scope("ud.UserKey")} JOIN b ON b.DateKey = ud.DateKey),
 per AS (SELECT Bucket, UserKey, SUM(Interactions) AS I, SUM(LicensedUse) AS L FROM ud GROUP BY Bucket, UserKey),
@@ -97,9 +165,6 @@ LEFT JOIN people AS p ON p.Bucket = e.Bucket
 LEFT JOIN sums AS s ON s.Bucket = e.Bucket
 LEFT JOIN lic AS l ON l.Bucket = e.Bucket
 ORDER BY e.Bucket;", c.Args());
-        /* One row per trend point, in order, even where nothing happened. */
-        return c.Buckets().Select(bk => rows.FirstOrDefault(r => r.Bucket == bk.Key) ?? new TrendRow { Bucket = bk.Key }).ToList();
-    }
 
     /// <summary>The days adoption looks back over at each trend point.</summary>
     public const int AdoptionDays = 28;
@@ -186,7 +251,7 @@ SELECT u.Unit, u.AccountEnabled, u.UserKey INTO #u FROM u;
 {UnitMembersInto(c, parent is not null)}
 WITH act AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.LicensedUse) AS L, SUM(ud.PremiumUse) AS PU, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D,
                     SUM(ud.Sessions) AS S, SUM(ud.MultiTurnSessions) AS MT, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F,
-                    SUM(ud.LabeledContent) AS LB
+                    SUM(ud.LabeledContent) AS LB, SUM(ud.WebGrounded) AS W
              FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
 SELECT u.Unit,
        {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN N'Reporting directly' ELSE MAX(mp.DisplayName) END")} AS Name,
@@ -198,7 +263,7 @@ SELECT u.Unit,
        COUNT(CASE WHEN a.L > 0 AND a.PU > 0 AND ld.UserKey IS NOT NULL THEN 1 END) AS PremiumLicensed,
        ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions, ISNULL(SUM(CAST(a.D AS BIGINT)), 0) AS ActiveDays,
        ISNULL(SUM(CAST(a.S AS BIGINT)), 0) AS Sessions, ISNULL(SUM(CAST(a.MT AS BIGINT)), 0) AS MultiTurn,
-       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.LB AS BIGINT)), 0) AS Labeled
+       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.LB AS BIGINT)), 0) AS Labeled, ISNULL(SUM(CAST(a.W AS BIGINT)), 0) AS Web
 FROM #u AS u
 LEFT JOIN act AS a ON a.UserKey = u.UserKey
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
@@ -226,13 +291,16 @@ ORDER BY {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN 1 ELS
         rows.Sort((a, b) => a.Unit.StartsWith('~') != b.Unit.StartsWith('~') ? (a.Unit.StartsWith('~') ? 1 : -1) : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
     }
 
-    /// <summary>Active people per unit per trend point, for trend columns and heatmaps.</summary>
+    /// <summary>
+    /// Active people per unit per trend point, for trend columns and heatmaps (2.5.0: the points are <see cref="ReportContext.TrendBuckets"/>,
+    /// with the lead-in a 28-day average needs; <see cref="TrendAverage.Trailing"/> them per unit).
+    /// </summary>
     public async Task<List<(string Unit, DateTime Bucket, int Active)>> UnitsTrendAsync(ReportContext c)
     {
         var parent = c.Root ?? c.OrgTopUpn;
         return await db.QueryAsync<(string, DateTime, int)>($@"
 {UnitMembersInto(c, parent is not null)}
-WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1)
+WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @kt0 AND @k1)
 SELECT u.Unit, b.Bucket, COUNT(DISTINCT CASE WHEN ud.Interactions > 0 THEN ud.UserKey END)
 FROM #u AS u JOIN dash.UserDay AS ud ON ud.UserKey = u.UserKey
 JOIN b ON b.DateKey = ud.DateKey
@@ -240,13 +308,16 @@ WHERE u.AccountEnabled = 1
 GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
     }
 
-    /// <summary>Per unit (as UnitsAsync) and trend point: interactions, safety signals, labeled content, web grounding.</summary>
+    /// <summary>
+    /// Per unit (as UnitsAsync) and trend point: interactions, safety signals, labeled content, web grounding (2.5.0: over
+    /// <see cref="ReportContext.TrendBuckets"/>, with the lead-in a 28-day average needs).
+    /// </summary>
     public async Task<List<UnitPoint>> UnitSeriesAsync(ReportContext c)
     {
         var parent = c.Root ?? c.OrgTopUpn;
         return await db.QueryAsync<UnitPoint>($@"
 {UnitMembersInto(c, parent is not null)}
-WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @k0 AND @k1)
+WITH b AS (SELECT d.DateKey, {c.BucketSql("d")} AS Bucket FROM bi.DimDate AS d WHERE d.DateKey BETWEEN @kt0 AND @k1)
 SELECT u.Unit, b.Bucket, SUM(CAST(ud.Interactions AS BIGINT)) AS Interactions,
        SUM(CAST(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource AS BIGINT)) AS Flags,
        SUM(CAST(ud.LabeledContent AS BIGINT)) AS Labeled, SUM(CAST(ud.WebGrounded AS BIGINT)) AS Web
@@ -260,7 +331,7 @@ GROUP BY u.Unit, b.Bucket;", c.Args(new { parent }));
         Unit = "~small", Name = name, People = rows.Sum(r => r.People), Licensed = rows.Sum(r => r.Licensed),
         Active = rows.Sum(r => r.Active), ActiveLicensed = rows.Sum(r => r.ActiveLicensed), PremiumLicensed = rows.Sum(r => r.PremiumLicensed),
         Interactions = rows.Sum(r => r.Interactions), ActiveDays = rows.Sum(r => r.ActiveDays), Sessions = rows.Sum(r => r.Sessions), MultiTurn = rows.Sum(r => r.MultiTurn),
-        Flags = rows.Sum(r => r.Flags), Labeled = rows.Sum(r => r.Labeled),
+        Flags = rows.Sum(r => r.Flags), Labeled = rows.Sum(r => r.Labeled), Web = rows.Sum(r => r.Web),
     };
     /// <summary>
     /// People, licenses and use in the period, grouped by one directory attribute of bi.DimUser.
@@ -297,6 +368,15 @@ GROUP BY {expr};", c.Args());
         ["Level"] = "CASE WHEN du.OrgDepth IS NULL THEN N'(not in the chart)' ELSE CONCAT(N'Level ', du.OrgDepth + 1) END",
         ["Division"] = "ISNULL(NULLIF(du.Division, N''), N'(no division)')",
     };
+
+    /// <summary>
+    /// Where a level group sits in a list of levels (2.5.0): Level 2, 3 ... 9, 10, 11, 12 as numbers. Sorted as text,
+    /// Level 10 and Level 11 came before Level 2. A name that is no level, (not in the chart), comes after the last level.
+    /// </summary>
+    public static int LevelOrder(string name) =>
+        name.StartsWith("Level ", StringComparison.Ordinal)
+        && int.TryParse(name.AsSpan(6), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n)
+            ? n : int.MaxValue;
 
     public static GroupRow CombineGroups(IReadOnlyList<GroupRow> rows, string name) => new()
     {

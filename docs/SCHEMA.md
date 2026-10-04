@@ -610,11 +610,11 @@ Indexes and constraints:
 | 5 | `IsManager` | bit | **no** |  | someone reports to them |
 | 6 | `AccountEnabled` | bit | **no** |  |  |
 | 7 | `JobTitle` | nvarchar(128) | yes |  | AD attribute: title |
-| 8 | `Department` | nvarchar(64) | yes |  | AD attribute: department |
+| 8 | `Department` | nvarchar(200) | yes |  | department, or the first of -DepartmentAttribute that has a value (2.5.0) |
 | 9 | `Division` | nvarchar(256) | yes |  | division: the line of business |
 | 10 | `Office` | nvarchar(128) | yes |  | AD attribute: physicalDeliveryOfficeName |
 | 11 | `City` | nvarchar(128) | yes |  | AD attribute: l |
-| 12 | `Country` | nvarchar(128) | yes |  | AD attribute: co |
+| 12 | `Country` | nvarchar(128) | yes |  | co, else the English name of c (2.5.0) |
 | 13 | `Company` | nvarchar(64) | yes |  | AD attribute: company |
 | 14 | `ManagerUPN` | nvarchar(256) | yes |  |  |
 | 15 | `ManagerName` | nvarchar(256) | yes |  |  |
@@ -733,7 +733,7 @@ Indexes and constraints:
 | 3 | `SkuPartNumber` | nvarchar(100) | yes |  |  |
 | 4 | `LicensedSinceUtc` | datetime2(0) | yes |  |  |
 | 5 | `Division` | nvarchar(256) | yes |  |  |
-| 6 | `Department` | nvarchar(64) | yes |  |  |
+| 6 | `Department` | nvarchar(200) | yes |  |  |
 | 7 | `Office` | nvarchar(128) | yes |  |  |
 | 8 | `Country` | nvarchar(128) | yes |  |  |
 | 9 | `ManagerUPN` | nvarchar(256) | yes |  |  |
@@ -753,7 +753,7 @@ Indexes and constraints:
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
-| 1 | `Department` | nvarchar(64) | **no** |  |  |
+| 1 | `Department` | nvarchar(200) | **no** |  |  |
 | 2 | `ActivityDate` | date | **no** |  |  |
 | 3 | `AppHost` | nvarchar(100) | yes |  |  |
 | 4 | `Interactions` | bigint | yes |  |  |

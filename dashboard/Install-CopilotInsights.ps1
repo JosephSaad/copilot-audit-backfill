@@ -60,7 +60,7 @@
         -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -AppPoolIdentity 'CONTOSO\gmsa-insights$' `
         -HostName insights.contoso.com -CertificateThumbprint 3F2A... -GrantDatabaseAccess
 .EXAMPLE
-    .\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.12.zip -SqlServer sql01   # an update: the rest is kept
+    .\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.0.zip -SqlServer sql01   # an update: the rest is kept
 #>
 #Requires -Version 5.1
 #Requires -RunAsAdministrator

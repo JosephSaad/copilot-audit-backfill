@@ -107,7 +107,7 @@ M -Task SetDashboardSetting -Name LicenseMonthlyCost -Value 30
 
 The audit log records many things as codes. Give them names once and the dashboard's pages and Power BI (`bi.ValueNames`) show the names.
 
-**Any cataloged code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (*Unnamed first* puts the work at the top). Or work in a spreadsheet: **Download the mapping file** (every value of every column, with its name and note, in one CSV; or one column's from that column's view), fill in or change the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
+**Any cataloged code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (the list starts with the most seen; *Unnamed first* puts the work at the top). Or work in a spreadsheet: **Download the mapping file** (every value of every column, with its name and note, in one CSV; or one column's from that column's view), fill in or change the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
 
 ```powershell
 M -Task ListValues                                  # the columns, and how many values each has
@@ -223,6 +223,8 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 | The flatten says a field *now carries information* | Nothing breaks; see `audit.RawLogRecordShape` and [RUNBOOK.md](../RUNBOOK.md) |
 
 `M -Task Status` shows what is loaded and built, and when each step last ran.
+
+**When something looks missing**, run `.\tools\Test-CopilotDataHealth.ps1 -SqlServer SQLPROD01`. It reads both databases without changing anything: gaps between the CSV files and loads, refreshes owed, flattening, sessions, `bi` and the rollups against the data end, the license operations loaded, Copilot Studio's records shredded, and agents without a maker or owner. It ends with what to run, in order. To rebuild everything from the stored records, without searching the audit log again: [RUNBOOK.md](../RUNBOOK.md), section 5g.
 
 **A full refresh of the Power BI model.** The model's refresh policy reloads only the last 4 days: *Refresh now* and the scheduled refresh leave older days as they were. A full refresh loads every partition again: on Premium, Premium Per User or Fabric capacity, a refresh with `applyRefreshPolicy` false (the enhanced refresh REST API, or TMSL over the XMLA endpoint); on Pro, publishing the model again and refreshing it ([DEPLOYMENT.md](DEPLOYMENT.md), step 16, item 4). It is needed whenever SQL rewrites days older than 4: the rebuilds above, and the catch-up runs below.
 

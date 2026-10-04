@@ -956,6 +956,19 @@ SELECT (SELECT CONCAT(OrgDepth, ':', Mgr1, '>', Mgr2, '|', ManagerUPN) FROM audi
         $m = Get-DirectoryMatch -ConnString $connStr
         Assert-That ($m.AuditUsers -eq 50 -and $m.ByUpn -eq 49 -and $m.ByMailOnly -eq 1) `
             "the match report: 49 of 50 audit users by UPN, 1 more only by mail ($($m.ByUpn)/$($m.AuditUsers), $($m.ByMailOnly))"
+
+        # 2.5.0: Department holds 200 characters, so a department from a custom attribute, longer than AD's 64, loads; and a
+        # table of the 2.4.12 width (64) is widened by the next load. The 50 users are put back after: later sections read them.
+        Invoke-SqlText -Sql 'ALTER TABLE audit.UserDirectory ALTER COLUMN Department NVARCHAR(64) NULL;'
+        $oldBytes = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COL_LENGTH(N'audit.UserDirectory', N'Department')")
+        $mid = $entries[0].PSObject.Copy(); $mid.dept = 'm' * 150
+        $big = $entries[1].PSObject.Copy(); $big.dept = 'b' * 250
+        [void] (Write-UserDirectory -ConnString $connStr -Table (ConvertTo-UserDirectoryTable -Entries @($mid, $big) -EmployeeTypes @()).Table)
+        $newBytes = [int] (Invoke-SqlText -As Scalar -Sql "SELECT COL_LENGTH(N'audit.UserDirectory', N'Department')")
+        $lens = @((Invoke-SqlText -As Table -Sql 'SELECT LEN(Department) AS L FROM audit.UserDirectory ORDER BY L').Rows | ForEach-Object { [int] $_.L })
+        Assert-That ($oldBytes -eq 128 -and $newBytes -eq 400) "an older audit.UserDirectory (Department 64) is widened to 200 by the next load ($oldBytes -> $newBytes bytes)"
+        Assert-That (($lens -join ',') -eq '150,200') "a 150-character department loads, and one over 200 is cut to 200 ($($lens -join ','))"
+        [void] (Write-UserDirectory -ConnString $connStr -Table $rows.Table)
     }
 
     # The views that make this worth having: licenses from Graph, departments from AD.

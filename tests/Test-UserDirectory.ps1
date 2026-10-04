@@ -134,6 +134,61 @@ Assert-That ($by['worker@contoso.com'].OrgDepth -eq 3 -and $by['boss@contoso.com
 Assert-That ($by['boss@contoso.com'].IsManager -eq $true -and $by['top@contoso.com'].IsManager -eq $true) 'a manager whose report comes through a manager without a UPN is still a manager'
 Assert-That ($by['orphan@contoso.com'].ManagerUPN -is [DBNull] -and $by['orphan@contoso.com'].OrgDepth -eq 1) 'with no one above who has a UPN, there is no manager, though there is a level above'
 
+# ---------------------------------------------------------------------------
+Write-Host "`n5. Department from a custom attribute, country from c (2.5.0)" -ForegroundColor Cyan
+
+# A directory search result's properties: lower-case keys, each a list of values; an attribute with no value is absent.
+function New-PropertyBag([hashtable] $Values) { $p = @{}; foreach ($k in $Values.Keys) { $p[$k] = @($Values[$k]) }; $p }
+$person = @{ distinguishedname = 'CN=pl1,DC=corp'; userprincipalname = 'pl1@contoso.com'; displayname = 'Pat Lee'; title = 'Architect'
+             division = 'Shared Services'; employeetype = 'NONW'; useraccountcontrol = '512'; accountexpires = '0' }
+function Get-Entry([hashtable] $Extra, [string[]] $Attribute) {
+    $props = New-PropertyBag ($person + $Extra)
+    if ($Attribute) { ConvertTo-DirectoryEntry -Properties $props -DepartmentAttribute $Attribute } else { ConvertTo-DirectoryEntry -Properties $props }
+}
+
+# Department: the first attribute named that has a value.
+Assert-That ((Get-Entry @{ department = 'Finance' }).dept -eq 'Finance') 'by default the department is AD''s department'
+Assert-That ($null -eq (Get-Entry @{ pncucustom08 = 'Applied Research' }).dept) 'by default a custom attribute is not read'
+Assert-That ((Get-Entry @{ pncucustom08 = 'Applied Research' } 'pncUCustom08').dept -eq 'Applied Research') '-DepartmentAttribute pncUCustom08 reads the custom attribute (any case)'
+Assert-That ((Get-Entry @{ pncucustom08 = 'Applied Research'; department = 'Finance' } 'pncUCustom08', 'department').dept -eq 'Applied Research') 'the first attribute with a value wins'
+Assert-That ((Get-Entry @{ department = 'Finance' } 'pncUCustom08', 'department').dept -eq 'Finance') 'a missing first attribute falls back to the next'
+Assert-That ((Get-Entry @{ pncucustom08 = '   '; department = 'Finance' } 'pncUCustom08', 'department').dept -eq 'Finance') 'a first attribute that is only spaces falls back too'
+Assert-That ($null -eq (Get-Entry @{ company = 'x' } 'pncUCustom08', 'department').dept) 'no attribute with a value gives no department'
+Assert-That ((Get-Entry @{ extensionattribute3 = 'Risk' } 'extensionAttribute3').dept -eq 'Risk' -and (Get-Entry @{ 'x-y' = 'Ops' } 'x-y').dept -eq 'Ops') 'any attribute name, hyphens included'
+
+# Country: co, else the English name of the two-letter code in c.
+Assert-That ((Get-Entry @{ c = 'CA' }).country -eq 'Canada') 'with only c, the country is its English name (CA is Canada)'
+Assert-That ((Get-Entry @{ co = 'Great Britain'; c = 'GB' }).country -eq 'Great Britain') 'co wins over c'
+Assert-That ((Get-Entry @{ co = '  '; c = 'GB' }).country -eq 'United Kingdom') 'a blank co falls back to c'
+Assert-That ($null -eq (Get-Entry @{ company = 'x' }).country) 'neither co nor c gives no country'
+Assert-That ((ConvertFrom-CountryCode 'ca') -eq 'Canada' -and (ConvertFrom-CountryCode ' GB ') -eq 'United Kingdom') 'a code in any case, with spaces round it'
+Assert-That ((ConvertFrom-CountryCode 'CAN') -eq 'CAN' -and (ConvertFrom-CountryCode 'Canada') -eq 'Canada' -and (ConvertFrom-CountryCode 'C1') -eq 'C1') 'a value that is not a two-letter code stays as it is'
+Assert-That ($null -eq (ConvertFrom-CountryCode '') -and $null -eq (ConvertFrom-CountryCode $null) -and $null -eq (ConvertFrom-CountryCode '  ')) 'a blank code is nothing'
+
+# The rest of the entry is unchanged, and the row carries both.
+$e = Get-Entry @{ pncucustom08 = 'Applied Research'; c = 'CA'; mail = 'pl1@mail.contoso.com' } 'pncUCustom08'
+Assert-That ($e.upn -eq 'pl1@contoso.com' -and $e.disp -eq 'Pat Lee' -and $e.title -eq 'Architect' -and $e.div -eq 'Shared Services' -and $e.etype -eq 'NONW' -and
+             $e.uac -eq 512 -and $null -eq $e.expires -and $null -eq $e.sid -and $e.mail -eq 'pl1@mail.contoso.com') 'the other attributes read as before'
+$row = (ConvertTo-UserDirectoryTable -Entries @($e) -EmployeeTypeMap $map -EmployeeTypes @('EMP', 'NONW')).Table.Rows[0]
+Assert-That ($row.Department -eq 'Applied Research' -and $row.Country -eq 'Canada' -and $row.EmployeeType -eq 'CONTRACTOR') 'the row has the custom department, the country name and the mapped type'
+
+# A custom attribute can be longer than the column (AD's own department stops at 64): cut at 200, not a failed load.
+$long = New-Entry 'l' $null; $long.dept = 'd' * 250
+$mid = New-Entry 'm' $null;  $mid.dept = 'm' * 200
+$wide = New-Entry 'w' $null; $wide.dept = 'w' * 120
+$cl = ConvertTo-UserDirectoryTable -Entries @($long, $mid, $wide) -EmployeeTypes @()
+$by5 = @{}; foreach ($x in $cl.Table.Rows) { $by5[$x.UserPrincipalName] = $x }
+Assert-That ($by5['l@contoso.com'].Department.Length -eq 200 -and $by5['m@contoso.com'].Department.Length -eq 200 -and $by5['w@contoso.com'].Department.Length -eq 120 -and $cl.Clipped -eq 1) `
+    "a department over 200 characters is cut and counted; 120 and 200 are kept ($($cl.Clipped) cut)"
+Assert-That ((ConvertTo-UserDirectoryTable -Entries $entries -EmployeeTypeMap $map -EmployeeTypes @('EMP', 'NONW')).Clipped -eq 0) 'normal departments are cut never'
+
+# The parameter takes an attribute name and nothing else: it is read into a directory search.
+$cmd = Get-Command (Join-Path (Join-Path $root 'tools') 'Export-UsersWithHierarchy-ToSql.ps1')
+$pattern = @($cmd.Parameters['DepartmentAttribute'].Attributes | Where-Object { $_ -is [System.Management.Automation.ValidatePatternAttribute] })[0].RegexPattern
+Assert-That (@('pncUCustom08', 'department', 'extensionAttribute3', 'x-y' | Where-Object { $_ -notmatch $pattern }).Count -eq 0 -and
+             @('bad name', 'a;b', '1abc', '(x)', '*', 'a=b' | Where-Object { $_ -match $pattern }).Count -eq 0) `
+    '-DepartmentAttribute accepts attribute names, and not a space, a separator, a leading digit or a filter character'
+
 Write-Host ''
 if ($script:Failures.Count) { Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red; exit 1 }
 Write-Host 'All user directory tests passed.' -ForegroundColor Green

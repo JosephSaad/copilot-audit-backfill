@@ -31,7 +31,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
            at the end, as Chart.Adoption ranks them, and none when even that is under the minimum. Every level was drawn,
            so level 1, the top alone, was one person's use. */
         var (lv, fewLv) = SmallGroups.Split(levels.Where(l => l.Licensed > 0), l => l.Licensed, Ctx.MinGroupSize);
-        var levelBars = lv.OrderBy(l => l.Name).Select(l => new Bar(l.Name, l.ActiveLicensed / (double)l.Licensed, Note: $"{l.ActiveLicensed:#,0} of {l.Licensed:#,0} licensed")).ToList();
+        var levelBars = lv.OrderBy(l => Metrics.LevelOrder(l.Name)).ThenBy(l => l.Name).Select(l => new Bar(l.Name, l.ActiveLicensed / (double)l.Licensed, Note: $"{l.ActiveLicensed:#,0} of {l.Licensed:#,0} licensed")).ToList();
         if (fewLv.Count > 0 && fewLv.Sum(l => l.Licensed) is var fewL && fewL >= Ctx.MinGroupSize)
         {
             var fewA = fewLv.Sum(l => l.ActiveLicensed);

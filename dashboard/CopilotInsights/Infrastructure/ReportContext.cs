@@ -219,6 +219,32 @@ public sealed class ReportContext
         return list;
     }
 
+    /// <summary>The days a trend point averages over (2.5.0): a rolling four weeks, so a weekend or a holiday does not dip it.</summary>
+    public const int TrendDays = 28;
+
+    /// <summary>How many trend points make a window: 28 days, or four weeks.</summary>
+    public int TrendWindow => Daily ? TrendDays : TrendDays / 7;
+
+    /// <summary>
+    /// The trend's points with, before them, the ones the first point's window reaches back to (2.5.0), oldest first. A trend
+    /// query reads from <see cref="TrendStartKey"/> (@kt0) so that the first point shown has its whole window.
+    /// </summary>
+    public IReadOnlyList<Bucket> TrendBuckets()
+    {
+        var shown = Buckets();
+        var step = Daily ? 1 : 7;
+        var first = shown[0].Key;
+        var before = Enumerable.Range(1, TrendWindow - 1).Reverse().Select(i => first.AddDays(-step * i))
+            .Select(d => new Bucket(d, Daily ? d.ToString("d MMM") : "w/e " + d.ToString("d MMM"), false));
+        return before.Concat(shown).ToList();
+    }
+
+    /// <summary>The first date key a trend query reads: the first day of the earliest point the first point shown averages over.</summary>
+    public int TrendStartKey
+    {
+        get { var first = TrendBuckets()[0].Key; return Key(Daily ? first : first.AddDays(-6)); }
+    }
+
     /// <summary>SQL for a trend point from a bi.DimDate alias: the date, or its week ending.</summary>
     public string BucketSql(string dimDateAlias) => Daily ? $"{dimDateAlias}.[Date]" : $"{dimDateAlias}.WeekEnding";
 
@@ -230,12 +256,12 @@ public sealed class ReportContext
     public string PersonScope(string upnExpr) =>
         Root is null ? "" : $"JOIN dash.OrgClosure AS psc ON psc.AncestorUpn = @root AND psc.DescendantUpn = {upnExpr}";
 
-    /// <summary>The standard parameters: @root, @d0/@d1 (dates), @k0/@k1 (date keys), @k7 (the last 7 days' first key), @minGroup, @inactiveKey.</summary>
+    /// <summary>The standard parameters: @root, @d0/@d1 (dates), @k0/@k1 (date keys), @kt0 (where a trend query starts, 2.5.0), @k7 (the last 7 days' first key), @minGroup, @inactiveKey.</summary>
     public Dapper.DynamicParameters Args(object? extra = null)
     {
         var d = new Dapper.DynamicParameters(new
         {
-            root = Root, d0 = Start, d1 = End, k0 = StartKey, k1 = EndKey, k7 = Key(End.AddDays(-6)),
+            root = Root, d0 = Start, d1 = End, k0 = StartKey, k1 = EndKey, kt0 = TrendStartKey, k7 = Key(End.AddDays(-6)),
             minGroup = MinGroupSize, inactiveKey = Key(End.AddDays(-(InactiveDays - 1))), daily = Daily ? 1 : 0,
         });
         if (extra is not null) d.AddDynamicParams(extra);

@@ -193,6 +193,8 @@ td .cellnote { display: block; font-size: 12px; color: var(--muted); white-space
 @media (max-width: 1100px) { .panel.half, .panel.third { grid-column: span 6; } }
 .phead { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .panel h2 { font-size: 15px; margin: 0; }
+/* What a chart that averages says beside its title (2.5.0); the note behind the icon says how. */
+.panel h2 .avg { display: inline-block; margin-left: 8px; padding: 0 8px; border: 1px solid var(--rule); border-radius: 999px; font-size: 11.5px; font-weight: 500; line-height: 18px; color: var(--muted); white-space: nowrap; vertical-align: 1px; }
 .panel .sub { color: var(--muted); font-size: 12.5px; margin: 2px 0 8px; max-width: 90ch; }
 .csv { font-size: 12px; white-space: nowrap; }
 .muted { color: var(--faint); }

@@ -5,7 +5,8 @@ using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Charts;
 
-public enum Fmt { Count, Percent, Decimal1, Days }
+/// <summary>How a value is written. Average is a count averaged over a window (2.5.0): whole from 100, one decimal from 10, two below, and 0 as 0.</summary>
+public enum Fmt { Count, Percent, Decimal1, Days, Average }
 
 /// <summary>One series. Slot is the categorical color (1-8, fixed per entity, never by rank).</summary>
 public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot);
@@ -149,6 +150,7 @@ public static class Chart
         Fmt.Percent => v.Value.ToString("0.#%", CultureInfo.CurrentCulture),
         Fmt.Decimal1 => v.Value.ToString("#,0.0", CultureInfo.CurrentCulture),
         Fmt.Days => v.Value.ToString("#,0.#", CultureInfo.CurrentCulture) + " d",
+        Fmt.Average => v.Value == 0 ? "0" : v.Value.ToString(Math.Abs(v.Value) >= 100 ? "#,0" : Math.Abs(v.Value) >= 10 ? "#,0.#" : "#,0.0#", CultureInfo.CurrentCulture),
         _ => v.Value.ToString("#,0", CultureInfo.CurrentCulture),
     };
 

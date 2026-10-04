@@ -90,7 +90,7 @@ namespace CopilotInsights.Pages.Adoption
     {
         public override string Title => "Retention and habit";
         public override string Persona => "Adoption";
-        public override string? OwnWindow => "the last 12 complete weeks";
+        public override string? OwnWindow => "the last 20 complete weeks";
         public override string Intro => "Do people keep using Copilot once they start? Of everyone active in a week, how many come back in each of the eight weeks after; and how many weeks of the last twelve people used it.";
         public override bool UsesFilters => true;
 
@@ -150,20 +150,23 @@ namespace CopilotInsights.Pages.Security
         protected override async Task BuildAsync()
         {
             var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
+            /* Each point is the rate over the 28 days up to it (2.5.0): the signals over the interactions of the window. */
             var series = await m.UnitSeriesAsync(Ctx);
+            var flagsAt = series.ToLookup(x => (x.Unit, x.Bucket), x => x.Flags);
+            var interactionsAt = series.ToLookup(x => (x.Unit, x.Bucket), x => x.Interactions);
             var buckets = Buckets();
             var grid = new double?[units.Count, buckets.Count];
             for (var r = 0; r < units.Count; r++)
-                for (var c = 0; c < buckets.Count; c++)
-                {
-                    var p = series.FirstOrDefault(x => x.Unit == units[r].Unit && x.Bucket == buckets[c].Key);
-                    grid[r, c] = p is { Interactions: > 0 } ? p.Flags * 1000.0 / p.Interactions : null;
-                }
+            {
+                var unit = units[r].Unit;
+                var rate = AverageRatio(b => flagsAt[(unit, b.Key)].Sum(), b => interactionsAt[(unit, b.Key)].Sum());
+                for (var c = 0; c < buckets.Count; c++) grid[r, c] = rate[c] * 1000.0;
+            }
             var worst = units.OrderByDescending(u => u.Flags * 1000.0 / u.Interactions).FirstOrDefault();
             if (worst is not null) Kpis.Add(new("Highest rate", worst.Name, $"{worst.Flags * 1000.0 / worst.Interactions:0.0} per 1,000 interactions", "crit"));
             Kpis.Add(new("Security signals", Num(units.Sum(u => u.Flags)), $"in {Num(units.Sum(u => u.Interactions))} interactions"));
             Panels.Add(new("Signals per 1,000 interactions, by unit", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Decimal1, "Signal rate by unit", unit: "signals per 1,000 interactions"),
-                $"Jailbreak, prompt injection and blocked resources together. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
+                $"Jailbreak, prompt injection and blocked resources together. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {RatioNote}"));
         }
     }
 }
@@ -179,17 +182,20 @@ namespace CopilotInsights.Pages.Compliance
         protected override async Task BuildAsync()
         {
             var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
+            /* Each point is the share over the 28 days up to it (2.5.0): the labeled interactions over the interactions of the window. */
             var series = await m.UnitSeriesAsync(Ctx);
+            var labeledAt = series.ToLookup(x => (x.Unit, x.Bucket), x => x.Labeled);
+            var interactionsAt = series.ToLookup(x => (x.Unit, x.Bucket), x => x.Interactions);
             var buckets = Buckets();
             var grid = new double?[units.Count, buckets.Count];
             for (var r = 0; r < units.Count; r++)
-                for (var c = 0; c < buckets.Count; c++)
-                {
-                    var p = series.FirstOrDefault(x => x.Unit == units[r].Unit && x.Bucket == buckets[c].Key);
-                    grid[r, c] = p is { Interactions: > 0 } ? p.Labeled / (double)p.Interactions : null;
-                }
+            {
+                var unit = units[r].Unit;
+                var share = AverageRatio(b => labeledAt[(unit, b.Key)].Sum(), b => interactionsAt[(unit, b.Key)].Sum());
+                for (var c = 0; c < buckets.Count; c++) grid[r, c] = share[c];
+            }
             Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions touched labeled content"),
-                $"Each part of the organization one level below. Darker is a larger share. {TrendNote}"));
+                $"Each part of the organization one level below. Darker is a larger share. {RatioNote}"));
 
             /* Counted per key pair, then named (2.4.2): grouping on the names worked out a string for each of the rows. */
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
@@ -197,18 +203,19 @@ WITH g AS (SELECT f.ResourceTypeKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N
            FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1
            GROUP BY f.ResourceTypeKey, f.SensitivityLabelKey)
-SELECT t.ResourceType, COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)'), SUM(g.N)
+SELECT COALESCE(vn.Name, t.ResourceType), COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)'), SUM(g.N)
 FROM g
 JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = g.ResourceTypeKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
 JOIN bi.DimSensitivityLabel AS l ON l.SensitivityLabelKey = g.SensitivityLabelKey
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = LOWER(CAST(l.LabelId AS NVARCHAR(36)))
-GROUP BY t.ResourceType, COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)');", Ctx.Args());
+GROUP BY COALESCE(vn.Name, t.ResourceType), COALESCE(sl.Name, LOWER(CAST(l.LabelId AS NVARCHAR(36))), N'(no label)');", Ctx.Args());
             var types = mix.GroupBy(x => x.Type).OrderByDescending(g => g.Sum(x => x.N)).Take(8).Select(g => g.Key).ToList();
             var labels = mix.Where(x => x.Label != "(no label)").GroupBy(x => x.Label).OrderByDescending(g => g.Sum(x => x.N)).Take(6).Select(g => g.Key).ToList();
             var t2 = new Table { Headers = ["Resource type", "All", .. labels], Numeric = new HashSet<int>(Enumerable.Range(1, labels.Count + 1)) };
             foreach (var ty in types)
                 t2.Rows.Add([ty, mix.Where(x => x.Type == ty).Sum(x => x.N), .. labels.Select(l => (object?)mix.Where(x => x.Type == ty && x.Label == l).Sum(x => x.N))]);
-            Panels.Add(new("Resources read, by type and label", t2.Render(), "The eight busiest resource types against the six commonest labels. Names from Admin › Reference data."));
+            Panels.Add(new("Resources read, by type and label", t2.Render(), "The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data."));
         }
     }
 }
@@ -223,21 +230,25 @@ namespace CopilotInsights.Pages.Agents
 
         protected override async Task BuildAsync()
         {
-            var tr = await Db.QueryAsync<(DateTime Bucket, long Calls, long All)>($@"
-SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT)), COUNT_BIG(*)
+            /* The KPIs are the period's own figures; the chart reads from the lead-in a 28-day average needs (2.5.0). */
+            var (calls, all) = (await Db.QueryAsync<(long Calls, long All)>($@"
+SELECT ISNULL(SUM(CAST(f.CalledAnotherAgent AS BIGINT)), 0), COUNT_BIG(*)
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
+            var tr = await Db.QueryAsync<(DateTime Bucket, long Calls)>($@"
+SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT))
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+WHERE f.DateKey BETWEEN @kt0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             var targets = await Db.QueryAsync<(string Target, long N, int People)>($@"
 SELECT COALESCE(vn.Name, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 12 AND vn.Value = f.TargetAgentName
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1
 GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
-            long calls = tr.Sum(x => x.Calls), all = tr.Sum(x => x.All);
             Kpis.Add(new("Hand-offs", Num(calls), $"{Pct(Ratio(calls, all))} of interactions"));
             Kpis.Add(new("Agents called", Num(targets.Count)));
-            var buckets = Buckets();
-            Panels.Add(new("Hand-offs over time", Chart.Columns(Labels(), [new Series("Hand-offs", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.Calls)).ToList(), 5)], Fmt.Count, "Hand-offs"),
+            var callsAt = tr.ToLookup(x => x.Bucket, x => x.Calls);
+            Panels.Add(new("Hand-offs over time", Chart.Columns(Labels(), [new Series("Hand-offs", Average(b => callsAt[b.Key].Sum()), 5)], Fmt.Average, "Hand-offs, 28-day average"),
                 TrendNote, "half"));
             Panels.Add(new("Agents called", Chart.Bars(targets.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Target, t.N, Note: AgentPeople(t.People))).ToList(), Fmt.Count, "Target agents"),
                 targets.Count == 0 ? "No agent called another in the period." : null, "half"));
@@ -264,10 +275,11 @@ SELECT CASE WHEN fs.SpanMinutes < 1 THEN 0 WHEN fs.SpanMinutes < 5 THEN 1 WHEN f
 FROM bi.FactSession AS fs {Ctx.Scope("fs.UserKey")}
 WHERE fs.DateKey BETWEEN @k0 AND @k1
 GROUP BY CASE WHEN fs.SpanMinutes < 1 THEN 0 WHEN fs.SpanMinutes < 5 THEN 1 WHEN fs.SpanMinutes < 15 THEN 2 WHEN fs.SpanMinutes < 30 THEN 3 WHEN fs.SpanMinutes < 60 THEN 4 ELSE 5 END;", Ctx.Args());
+            /* From the lead-in a 28-day average needs (2.5.0). */
             var tr = await Db.QueryAsync<(DateTime Bucket, long Messages, long Prompts)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.MessageCount AS BIGINT)), SUM(CAST(f.PromptCount AS BIGINT))
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+WHERE f.DateKey BETWEEN @kt0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             long total = sessions.Sum(x => x.N);
             Kpis.Add(new("One-prompt sessions", Pct(Ratio(sessions.Where(x => x.Bucket <= 1).Sum(x => x.N), total)), "ask once and leave"));
             Kpis.Add(new("Five prompts or more", Pct(Ratio(sessions.Where(x => x.Bucket >= 5).Sum(x => x.N), total)), "real back-and-forth"));
@@ -277,9 +289,10 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
             string[] spanLabels = ["Under 1 min", "1-5 min", "5-15 min", "15-30 min", "30-60 min", "An hour or more"];
             Panels.Add(new("Sessions by length", Chart.Bars(spanLabels.Select((l, i) => new Bar(l, sessions.Count == 0 ? 0 : spans.Where(x => x.Bucket == i).Sum(x => x.N))).ToList(), Fmt.Count, "Sessions by length"),
                 "From the first prompt to the last.", "half"));
-            var buckets = Buckets();
-            Panels.Add(new("Messages per prompt", Chart.Line(Labels(), [new Series("Messages per prompt", buckets.Select(b => { var r = tr.FirstOrDefault(x => x.Bucket == b.Key); return r.Prompts > 0 ? r.Messages / (double?)r.Prompts : null; }).ToList(), 2)], Fmt.Decimal1, "Messages per prompt"),
-                $"Prompts and Copilot's replies together, per prompt: above 2, Copilot answered some prompts in more than one message. {TrendNote}"));
+            var messagesAt = tr.ToLookup(x => x.Bucket, x => x.Messages);
+            var promptsAt = tr.ToLookup(x => x.Bucket, x => x.Prompts);
+            Panels.Add(new("Messages per prompt", Chart.Line(Labels(), [new Series("Messages per prompt", AverageRatio(b => messagesAt[b.Key].Sum(), b => promptsAt[b.Key].Sum()), 2)], Fmt.Decimal1, "Messages per prompt"),
+                $"Prompts and Copilot's replies together, per prompt: above 2, Copilot answered some prompts in more than one message. {RatioNote}"));
         }
     }
 }
@@ -294,26 +307,30 @@ namespace CopilotInsights.Pages.Governance
 
         protected override async Task BuildAsync()
         {
+            /* The KPIs are the period's own figures; the charts read from the lead-in a 28-day average needs (2.5.0). */
+            var (all, memory, dlp, webGrounded) = (await Db.QueryAsync<(long All, long Memory, long Dlp, long Web)>($@"
+SELECT COUNT_BIG(*), ISNULL(SUM(CAST(f.MemoryUpdated AS BIGINT)), 0), ISNULL(SUM(CAST(f.DlpEvaluationDeferred AS BIGINT)), 0), ISNULL(SUM(CAST(f.UsedWebSearch AS BIGINT)), 0)
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
             var tr = await Db.QueryAsync<(DateTime Bucket, long All, long Memory, long Dlp, long Web)>($@"
 SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT)), SUM(CAST(f.UsedWebSearch AS INT))
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
-            var buckets = Buckets();
-            (long All, long Memory, long Dlp, long Web) At(DateTime b) { var r = tr.FirstOrDefault(x => x.Bucket == b); return (r.All, r.Memory, r.Dlp, r.Web); }
-            Kpis.Add(new("Memory updated", Pct(Ratio(tr.Sum(x => x.Memory), tr.Sum(x => x.All))), "of interactions"));
-            Kpis.Add(new("DLP check deferred", Num(tr.Sum(x => x.Dlp))));
-            Kpis.Add(new("Grounded on the web", Pct(Ratio(tr.Sum(x => x.Web), tr.Sum(x => x.All)))));
+WHERE f.DateKey BETWEEN @kt0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+            var rowAt = tr.ToDictionary(x => x.Bucket);
+            (long All, long Memory, long Dlp, long Web) At(DateTime b) => rowAt.TryGetValue(b, out var r) ? (r.All, r.Memory, r.Dlp, r.Web) : default;
+            Kpis.Add(new("Memory updated", Pct(Ratio(memory, all)), "of interactions"));
+            Kpis.Add(new("DLP check deferred", Num(dlp)));
+            Kpis.Add(new("Grounded on the web", Pct(Ratio(webGrounded, all))));
             Panels.Add(new("Memory updates and web search", Chart.Line(Labels(), [
-                new Series("Memory updated", buckets.Select(b => Ratio(At(b.Key).Memory, At(b.Key).All)).ToList(), 5),
-                new Series("Searched the web", buckets.Select(b => Ratio(At(b.Key).Web, At(b.Key).All)).ToList(), 1),
-            ], Fmt.Percent, "Memory and web share"), $"Shares of interactions. {TrendNote}", "half"));
-            Panels.Add(new("Deferred data-loss checks", Chart.Columns(Labels(), [new Series("Deferred", buckets.Select(b => (double?)At(b.Key).Dlp).ToList(), 4)], Fmt.Count, "DLP deferred"),
-                "Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising share is worth raising with them.", "half"));
+                new Series("Memory updated", AverageRatio(b => At(b.Key).Memory, b => At(b.Key).All), 5),
+                new Series("Searched the web", AverageRatio(b => At(b.Key).Web, b => At(b.Key).All), 1),
+            ], Fmt.Percent, "Memory and web share"), $"Shares of interactions. {RatioNote}", "half"));
+            Panels.Add(new("Deferred data-loss checks", Chart.Columns(Labels(), [new Series("Deferred", Average(b => At(b.Key).Dlp), 4)], Fmt.Average, "DLP deferred, 28-day average"),
+                $"Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising share is worth raising with them. {TrendNote}", "half"));
 
-            var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).ToDictionary(u => u.Unit);
-            var series = await m.UnitSeriesAsync(Ctx);
-            var web = series.GroupBy(x => x.Unit).Where(g => units.ContainsKey(g.Key))
-                .Select(g => (Unit: units[g.Key], Web: g.Sum(x => x.Web), All: g.Sum(x => x.Interactions))).Where(x => x.All > 0).OrderByDescending(x => x.Web / (double)x.All).ToList();
+            /* The period's own figures by unit, not the chart's lead-in. */
+            var web = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0)
+                .Select(u => (Unit: u, Web: u.Web, All: u.Interactions)).OrderByDescending(x => x.Web / (double)x.All).ToList();
             Panels.Add(new("Web search by unit", Chart.Bars(web.Take(15).Select(x => new Bar(x.Unit.Name, x.Web / (double)x.All, x.Unit.Drillable ? Ctx.Url(Request.Path, org: x.Unit.Unit) : null, $"{x.Web:#,0} of {x.All:#,0}")).ToList(), Fmt.Percent, "Web grounding by unit", 1),
                 $"Each part of the organization one level below; units under {Ctx.MinGroupSize} people are left out."));
         }

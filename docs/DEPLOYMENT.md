@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licenses from Microsoft Graph, and the organization from on-premises Active Directory.
 
-Written for a new install of release 2.4.12. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.5.0. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -57,6 +57,7 @@ Each is awkward to change after the first load. The examples below use the names
 - **How much history.** Microsoft keeps Copilot audit records for 180 days. More exists only if a custom retention policy covered Copilot at the time (step 1).
 - **Capacity for the Copilot agent.** Copilot in Power BI needs a paid Fabric (F2+) or Premium (P1+) capacity. Outside the US or EU data boundary it also needs a tenant setting that lets data be processed in another region (step 17). Buying capacity and that residency decision both take time, so start them now.
 - **Which employee types to load.** The AD export loads `employeeType` codes `EMP` and `NONW` by default, written as EMPLOYEE and CONTRACTOR. Check the codes your directory uses; `-EmployeeTypes @()` loads every type.
+- **Where the department is.** The AD export reads AD's `department` (2.5.0). If your directory keeps it in another attribute, name it with `-DepartmentAttribute`, first choice first: `-DepartmentAttribute pncUCustom08, department` uses the custom attribute and falls back to AD's own. Set `DepartmentAttribute` the same in `copilot-audit.settings.psd1`, or pass `-DepartmentAttribute` to `Install-CopilotJobServer.ps1`, so the nightly run agrees. Country is `co`, else the English name of the two-letter code in `c`, since many directories set only `c`.
 
 ## The short version
 
@@ -144,14 +145,14 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.4.12-offline-win-x64.zip` and its `.sha256` from the [v2.4.12 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.4.12). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.5.0-offline-win-x64.zip` and its `.sha256` from the [v2.5.0 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.5.0). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.4.12-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.5.0-offline-win-x64.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.4.12-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.5.0-offline-win-x64' 'CopilotAudit'
 cd D:\CopilotAudit
 ```
 
@@ -356,6 +357,8 @@ It also reports the accounts it skipped: other employee types, no UPN, a UPN ove
 > ```
 >
 > A blank `Name` is accounts with no type, often service, shared-mailbox or test accounts. Then pass the codes to keep, such as `-EmployeeTypes 'EMP','NONW','OTHER'`, or `-EmployeeTypes @()` for every account, and set `EmployeeTypes` to the same in `copilot-audit.settings.psd1` so the nightly run agrees. Loading more is harmless: the type is a column reports can filter on, and a Copilot user who isn't loaded shows with no department.
+
+> **Check the department and the country.** The log says how many rows have a department and how many a country. If no one has a department, the attribute is misnamed or the account running the export cannot read it: AD returns nothing for an attribute it may not read, with no error. Count what an attribute holds the same way as the types above, with `-Properties <attribute>`. A department is kept to 200 characters; longer ones are cut, and the log says how many. Where the department is not AD's `department`, pass `-DepartmentAttribute` here and set `DepartmentAttribute` in `copilot-audit.settings.psd1` (see *Where the department is* above).
 
 ### Step 10. Load current Copilot licenses
 
@@ -630,7 +633,7 @@ Licenses
   with no interactions in it.
 
 Organization
-- Department, Division, JobTitle, Office and manager come from Active Directory.
+- Department, Division, JobTitle, Office and manager come from Active Directory (the department from the attribute `-DepartmentAttribute` names, `department` by default).
 - OrgLevel1 is the top of the management chain, OrgLevel2 the level below, and so
   on. The values are managers' display names. People "in X's organization" are
   users where any OrgLevel column equals X.
@@ -696,10 +699,10 @@ The web dashboard, on a Windows Server with IIS: every persona's pages, alerts a
 
 *Web server, as an administrator, in Windows PowerShell 5.1. About 15 minutes.*
 
-The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.4.12.zip` to the web server, then from the source package's folder:
+The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.5.0.zip` to the web server, then from the source package's folder:
 
 ```powershell
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.12.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -AdminPrincipal 'USERS\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
 ```
 
@@ -736,7 +739,7 @@ For a group with several Microsoft 365 tenants, each gets its own app registrati
 .\tools\Add-CopilotTenant.ps1 -Name Fabrikam -TenantId fabrikam.onmicrosoft.com -TargetDomain fabrikam.local
 .\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam
 # web server: every tenant, the first one first
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.4.12.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess
 ```
 

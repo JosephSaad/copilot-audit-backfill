@@ -165,6 +165,8 @@ namespace CopilotInsights.Pages.Compliance
         public override string Persona => "Compliance";
         public override string? RequiredRole => Roles.Compliance;
         public override bool AllowedInPrivacyMode => true;
+        /// <summary>The scope here only decides who can be looked up (2.5.0); the team box would drop the person chosen.</summary>
+        public override bool UsesTeam => false;
         public override string Intro => "Everything recorded about one person's Copilot use, for a data-subject access request or an investigation. Each look and download is in the audit log, with whose record it was. Copilot's audit records hold no prompt or response text: for the content itself, use Purview eDiscovery with the record ids below.";
 
         sealed class Who

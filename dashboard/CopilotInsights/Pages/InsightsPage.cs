@@ -10,8 +10,21 @@ namespace CopilotInsights.Pages;
 
 public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null);
 
-/// <summary>A report panel: a chart or a table, with a title and an optional explanation.</summary>
-public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null);
+/// <summary>
+/// A report panel: a chart or a table, with a title and an optional explanation. Averaged: its points are a 28-day moving
+/// average (2.5.0), which its heading says beside the title.
+/// </summary>
+public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null, bool Averaged = false);
+
+/// <summary>
+/// A page's panels. A panel added after its note said its points are a moving average (<c>TrendNote</c> or <c>RatioNote</c>
+/// on the page, read while the panel was being made) is marked <see cref="Panel.Averaged"/> as it is added (2.5.0), so no
+/// chart that averages can leave it out of its heading.
+/// </summary>
+public sealed class PanelList(Func<bool> takeAveraged) : List<Panel>
+{
+    public new void Add(Panel panel) => base.Add(takeAveraged() ? panel with { Averaged = true } : panel);
+}
 
 public sealed record Link(string Text, string Href);
 
@@ -208,12 +221,28 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// shown in the filter bar where the period's dates usually are.
     /// </summary>
     public virtual string? OwnWindow => null;
+    /// <summary>
+    /// Whether the period chosen changes this page's figures (2.5.0). False for a page whose figures do not follow it
+    /// and that has no window worth naming (a list as it stands today): the period box and its dates are left out. A
+    /// page with a window of its own says it in <see cref="OwnWindow"/> instead.
+    /// </summary>
+    public virtual bool UsesPeriod => true;
+    /// <summary>
+    /// Whether the part of the organization chosen (Look inside a team) changes this page's figures (2.5.0). False for a
+    /// page that is the whole tenant's whatever is picked, such as the license pool: the team box, and the links down
+    /// the organization beside it, are left out.
+    /// </summary>
+    public virtual bool UsesTeam => true;
 
     /// <summary>A role page that privacy mode still allows: it is about one person, on request (a data-subject request).</summary>
     public virtual bool AllowedInPrivacyMode => false;
 
     public List<Kpi> Kpis { get; } = [];
-    public List<Panel> Panels { get; } = [];
+
+    /// <summary>Set by the notes that say a chart is averaged, taken by the next panel added (see <see cref="PanelList"/>).</summary>
+    bool _averaged;
+    PanelList? _panels;
+    public PanelList Panels => _panels ??= new(() => { var averaged = _averaged; _averaged = false; return averaged; });
     public string? Denied { get; private set; }
     public string? Notice { get; protected set; }
     /// <summary>Privacy mode: pages that name people are refused (see Settings.PrivacyModeAsync).</summary>
@@ -507,7 +536,56 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         }
         catch (Microsoft.Data.SqlClient.SqlException) { _markers = []; }
     }
-    protected string TrendNote => Ctx.Daily ? "Each point is a day." : "Each point is a Saturday-to-Friday week, labeled by its Friday; the first and last may be partial.";
+    /// <summary>What the points of a chart that is not averaged mean: a stock such as the licenses held, which an average would only lag.</summary>
+    protected string PointNote => Ctx.Daily ? "Each point is a day." : "Each point is a Saturday-to-Friday week, labeled by its Friday; the first and last may be partial.";
+
+    /// <summary>
+    /// What the points of a trend chart mean (2.5.0): each is the average of the 28 days up to it. Reading it marks the panel
+    /// being made as averaged, so its heading says so (see <see cref="PanelList"/>).
+    /// </summary>
+    protected string TrendNote
+    {
+        get
+        {
+            _averaged = true;
+            return Ctx.Daily
+                ? $"Each point is a {ReportContext.TrendDays}-day moving average: that day and the {ReportContext.TrendDays - 1} before it, so a weekend or a holiday does not dip it."
+                : $"Each point is a {ReportContext.TrendDays}-day moving average: a Saturday-to-Friday week, labeled by its Friday, and the three before it, so a weekend or a holiday does not dip it. A week not yet over is left out.";
+        }
+    }
+
+    /// <summary>
+    /// What the points of a chart of a share or a rate mean (2.5.0): worked out over the 28 days up to a point, not the mean of
+    /// its days' figures. Reading it marks the panel being made as averaged, as <see cref="TrendNote"/> does.
+    /// </summary>
+    protected string RatioNote
+    {
+        get
+        {
+            _averaged = true;
+            return Ctx.Daily
+                ? $"Each point is worked out over {ReportContext.TrendDays} days: that day and the {ReportContext.TrendDays - 1} before it, so a weekend or a holiday does not dip it."
+                : $"Each point is worked out over {ReportContext.TrendDays} days: a Saturday-to-Friday week, labeled by its Friday, and the three before it, so a weekend or a holiday does not dip it. A week not yet over is left out.";
+        }
+    }
+
+    /// <summary>The trend's points with the lead-in a 28-day average needs (2.5.0): a trend query reads from <c>@kt0</c>, builds its series over these, and <see cref="Average"/>s them.</summary>
+    protected IReadOnlyList<Bucket> TrendBuckets() => Ctx.TrendBuckets();
+
+    /// <summary>
+    /// A series over <see cref="TrendBuckets"/> as its 28-day moving average at each point shown (2.5.0): a day and the 27 before
+    /// it, or a week and the three before it. A week not yet over is left out, so the latest point is not a dip.
+    /// </summary>
+    protected List<double?> Average(Func<Bucket, double?> valueAt) =>
+        CopilotInsights.Data.TrendAverage.Trailing(Ctx.TrendBuckets().Select(b => b.Key > Ctx.End ? (double?)null : valueAt(b)).ToList(), Ctx.TrendWindow, Ctx.Buckets().Count);
+
+    /// <summary>A rate at each point shown as the numerators over the denominators of the 28 days up to it (2.5.0): a day with little use weighs little.</summary>
+    protected List<double?> AverageRatio(Func<Bucket, double?> numerator, Func<Bucket, double?> denominator)
+    {
+        var points = Ctx.TrendBuckets();
+        double? Gate(Bucket b, Func<Bucket, double?> v) => b.Key > Ctx.End ? null : v(b);
+        return CopilotInsights.Data.TrendAverage.TrailingRatio(points.Select(b => Gate(b, numerator)).ToList(), points.Select(b => Gate(b, denominator)).ToList(), Ctx.TrendWindow, Ctx.Buckets().Count);
+    }
 
     /// <summary>The CSV export of this page's list, with its current search and sort.</summary>
     protected string CsvUrl()
@@ -527,10 +605,14 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     protected int? AtLeastMin(int people) => people >= Ctx.MinGroupSize ? people : null;
 
     /// <summary>
-    /// The same for a point on a trend (2.4.12): nobody is shown as 0, a count under the minimum as a gap. A day when two
-    /// people used an agent is those two people's use, as much as the period's total is.
+    /// The same for a point on a trend (2.4.12, as the 28-day average of 2.5.0): nobody is shown as 0, an average under the
+    /// minimum as a gap. A person counts once in a point, so an average of at least the minimum is that many different
+    /// people, and a day when two people used an agent is those two people's use, as much as the period's total is.
     /// </summary>
-    protected double? PointAtMin(int people) => people == 0 ? 0 : AtLeastMin(people);
+    protected double? PeopleAtMin(double? average) => CopilotInsights.Data.TrendAverage.PeopleAtMin(average, Ctx.MinGroupSize);
+
+    /// <summary>"a day" or "a week", the unit of a trend's points, for a note on the average of people.</summary>
+    protected string PerPoint => Ctx.Daily ? "a day" : "a week";
 
     /// <summary>
     /// A group's adoption, shown only where its license holders reach the minimum group size (2.4.12), as the charts and

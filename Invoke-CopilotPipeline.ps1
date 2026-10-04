@@ -156,6 +156,7 @@ function Get-PipelineStep {
         if (Has 'TargetDomain') {
             $a = $sql + @{ Database = $Setting.Database; TargetDomain = $Setting.TargetDomain }
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
+            if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # 2.5.0: where the department is
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' $a
         }
     }
