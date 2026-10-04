@@ -4,6 +4,53 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.2] - 2026-10-04
+
+Weekly trend charts no longer end in a drop that is only the calendar. A chart of 90 days or more
+draws whole Saturday-to-Friday weeks only: it ends on the last week that is over, not the one under
+way, and starts on the first week the period covers in full.
+
+To upgrade: install the dashboard package over 2.5.1 with this release's
+`dashboard\Install-CopilotInsights.ps1`. Nothing in SQL or in the job server's scripts changed since
+2.5.1, so a database and a job server on 2.5.1 are ready for it: `Install-CopilotAudit.ps1` need not
+run, and nothing is rebuilt. From 2.4.12, upgrade the databases and the job server as for 2.5.1,
+with this release's packages, then install this dashboard. No KPI, table, digest or data API figure
+changes; only which points the weekly charts draw.
+
+### Changed
+- **A weekly chart draws whole weeks only.** Periods of 90 days or more trend by Saturday-to-Friday
+  week. The last week was drawn while it was under way, and the first when the period started after
+  its Saturday. Each counted a few days against the other weeks' seven, so every weekly line ended
+  in a drop: on a Saturday, the last point was the people of that one Saturday. A week the period
+  covers only in part is now left out of every trend chart, column chart, heatmap and sparkline over
+  weeks, with any event marked in it. A weekly chart so starts at the first whole week and ends at
+  the last Friday with data, up to six days before the period does. Those days still count in the
+  KPIs, the tables and the digests, which cover the whole period as before. The data API's trend
+  still has every week of the period, the first and last possibly partial. The note under a weekly
+  chart says so. Daily trends (periods up to 30 days) are unchanged.
+
+### Added
+- **Tests for it.** The dashboard's tests check that a line, columns, a heatmap and a sparkline over
+  weeks draw the whole weeks only, with their events moved to match; that a period marks the weeks
+  it covers only in part (the 180 days to Saturday 3 October 2026 start on a Tuesday and end on a
+  Saturday); that the trend's rows keep those weeks for the totals; and that a heatmap's column
+  labels stay inside the chart.
+
+### Fixed
+- **A heatmap's column label no longer runs past the chart's right edge.** A heatmap labels every
+  few columns, counting from the first. When the last column was one of them, its label ran past
+  the edge: over the last of 25 weeks, "w/e 2 Oct" by 5 pixels. Such a label is now moved in until
+  it is whole inside the chart, and left out where that would crowd the label before it.
+
+### Known limits
+- A week shows on the weekly charts once it is over: on a Thursday, they end at the Friday before,
+  and the days since show only in the KPIs and the tables.
+- Page speed was not measured again at 120 million interactions: no query changed, only which of the
+  points already read a chart draws.
+- As for 2.5.1, the dashboard installer was not run on Windows Server with IIS for this release; the
+  site ran under Kestrel on a Windows 11 workstation for the UI audit.
+- The Power BI model is unchanged in this release, so it was not opened in Power BI Desktop for it.
+
 ## [2.5.1] - 2026-10-04
 
 Trend charts show each day and week as it was again, and every report is ready before the working

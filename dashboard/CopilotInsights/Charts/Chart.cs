@@ -33,6 +33,14 @@ public sealed record Marker(int Index, string Label, string Kind, DateTime? Day 
 public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
 {
     public List<Marker> Markers { get; } = [];
+
+    /// <summary>
+    /// The points not drawn (2.5.2): the weeks the period covers only in part, the first when it starts after a
+    /// Saturday and the last while it is under way. Each counted a few days against the whole weeks' seven, so every
+    /// weekly line ended in a drop that was only the calendar: on a Saturday, the last point was one day's people. Line,
+    /// Columns, Heatmap and Sparkline leave them out, with their events; the page's other figures still count their days.
+    /// </summary>
+    public HashSet<int> Partial { get; } = [];
 }
 
 /// <summary>
@@ -187,6 +195,30 @@ public static class Chart
             sb.Append($"<text class=\"tick\" x=\"{N(xpos(i))}\" y=\"{H - B + 20}\" text-anchor=\"middle\">{Tspans(lines.Take(4).ToList(), xpos(i))}</text>");
     }
 
+    /// <summary>The points drawn, where an axis leaves some out (see <see cref="Axis.Partial"/>); null when every point is.</summary>
+    static List<int>? Drawn(IReadOnlyList<string> x) =>
+        x is Axis a && a.Partial.Count > 0 ? Enumerable.Range(0, x.Count).Where(i => !a.Partial.Contains(i)).ToList() : null;
+
+    /// <summary>A trend as drawn: its labels and their events at their new places, and each series' values, without the partial points.</summary>
+    static (IReadOnlyList<string> X, IReadOnlyList<Series> Series) Whole(IReadOnlyList<string> x, IReadOnlyList<Series> series)
+    {
+        if (Drawn(x) is not { } keep) return (x, series);
+        var axis = new Axis(keep.Select(i => x[i]));
+        foreach (var m in ((Axis)x).Markers)
+            if (keep.IndexOf(m.Index) is var j and >= 0) axis.Markers.Add(m with { Index = j });
+        return (axis, series.Select(s => s with { Values = keep.Select(i => s.Values.ElementAtOrDefault(i)).ToList() }).ToList());
+    }
+
+    /// <summary>A heatmap's columns as drawn, without the partial points.</summary>
+    static (IReadOnlyList<string> Cols, double?[,] Values) Whole(IReadOnlyList<string> cols, double?[,] values)
+    {
+        if (Drawn(cols) is not { } keep) return (cols, values);
+        var v = new double?[values.GetLength(0), keep.Count];
+        for (var r = 0; r < values.GetLength(0); r++)
+            for (var c = 0; c < keep.Count; c++) v[r, c] = values[r, keep[c]];
+        return (new Axis(keep.Select(i => cols[i])), v);
+    }
+
     /// <summary>The top margin a trend needs: room for the event badges when it has any.</summary>
     static int TopFor(IReadOnlyList<string> x) => x is Axis a && a.Markers.Any(m => m.Index >= 0 && m.Index < x.Count) ? 34 : 14;
 
@@ -252,8 +284,11 @@ public static class Chart
             $"<span><i class=\"sw\" style=\"background:var(--s{s.Slot})\"></i>{E(s.Name)}</span>")) + "</div>");
 
     /// <summary>Lines over the weeks, one axis from zero. Direct labels at the line ends for up to four series.</summary>
-    public static HtmlString Line(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, double? max = null) =>
-        Svg(() => LineAt(x, series, f, aria, max));
+    public static HtmlString Line(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, double? max = null)
+    {
+        var (wx, ws) = Whole(x, series);
+        return Svg(() => LineAt(wx, ws, f, aria, max));
+    }
 
     static HtmlString LineAt(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, double? max)
     {
@@ -365,8 +400,11 @@ public static class Chart
     }
 
     /// <summary>Columns per week, stacked (parts of a whole) or grouped (side by side).</summary>
-    public static HtmlString Columns(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, bool stacked = true) =>
-        Svg(() => ColumnsAt(x, series, f, aria, stacked));
+    public static HtmlString Columns(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, bool stacked = true)
+    {
+        var (wx, ws) = Whole(x, series);
+        return Svg(() => ColumnsAt(wx, ws, f, aria, stacked));
+    }
 
     static HtmlString ColumnsAt(IReadOnlyList<string> x, IReadOnlyList<Series> series, Fmt f, string aria, bool stacked)
     {
@@ -485,8 +523,11 @@ public static class Chart
     /// <param name="unitOne">The same for a count of one: "1 interaction".</param>
     /// <param name="column">A column's label in full for the hover text, where the axis has room only for a short one: "14" is "14:00 to 14:59".</param>
     public static HtmlString Heatmap(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max = null,
-        string? unit = null, string? unitOne = null, Func<string, string>? column = null) =>
-        Svg(() => HeatmapAt(rows, cols, values, f, aria, max, unit, unitOne, column));
+        string? unit = null, string? unitOne = null, Func<string, string>? column = null)
+    {
+        var (wc, wv) = Whole(cols, values);
+        return Svg(() => HeatmapAt(rows, wc, wv, f, aria, max, unit, unitOne, column));
+    }
 
     /// <summary>A cell's hover text: its row, its column, its figure and what the figure counts.</summary>
     public static string CellTip(string row, string col, double? v, Fmt f, string? unit = null, string? unitOne = null) =>
@@ -503,11 +544,20 @@ public static class Chart
         var cw = (HW - labelW - 8) / (double)cols.Count;
         var h = rows.Count * rowH + 24;
         var sb = new StringBuilder($"<svg class=\"chart heat\" viewBox=\"0 0 {HW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
-        /* A label over every so many columns: twelve across at most, and fewer where the columns are narrower than a label (2.4.10). */
+        /* A label over every so many columns: twelve across at most, and fewer where the columns are narrower than a label (2.4.10).
+           One over the last columns is moved in until it is whole inside the chart, and left out where that would crowd the
+           one before it (2.5.2: over the last of 25 weeks, "w/e 2 Oct" ran 5px past the right edge). */
         var every = Math.Max(Math.Max(1, (int)Math.Ceiling(cols.Count / 12.0)), (int)Math.Ceiling((cols.Max(c => TextW(c)) + 6) / Math.Max(1, cw)));
+        var drawnTo = double.MinValue;
         for (var c = 0; c < cols.Count; c++)
-            if (c % every == 0)
-                sb.Append($"<text class=\"tick\" x=\"{N(labelW + c * cw + cw / 2)}\" y=\"14\" text-anchor=\"middle\">{E(cols[c])}</text>");
+        {
+            if (c % every != 0) continue;
+            var half = TextW(cols[c]) / 2;
+            var x = Math.Min(labelW + c * cw + cw / 2, HW - half);
+            if (x - half < drawnTo + 4) continue;
+            drawnTo = x + half;
+            sb.Append($"<text class=\"tick\" x=\"{N(x)}\" y=\"14\" text-anchor=\"middle\">{E(cols[c])}</text>");
+        }
         for (var r = 0; r < rows.Count; r++)
         {
             var y = 20 + r * rowH;
@@ -529,9 +579,10 @@ public static class Chart
         return new(sb + scale);
     }
 
-    /// <summary>A small line for a table cell.</summary>
-    public static HtmlString Sparkline(IReadOnlyList<double?> values, string tip)
+    /// <summary>A small line for a table cell, over the page's trend points <paramref name="x"/>: drawn without the partial ones, as the trend charts are (2.5.2).</summary>
+    public static HtmlString Sparkline(IReadOnlyList<string> x, IReadOnlyList<double?> values, string tip)
     {
+        if (Drawn(x) is { } keep) values = keep.Select(i => values.ElementAtOrDefault(i)).ToList();
         var pts = values.Select((v, i) => (v, i)).Where(p => p.v.HasValue).ToList();
         if (pts.Count < 2) return new("");
         var max = pts.Max(p => p.v!.Value); if (max <= 0) max = 1;

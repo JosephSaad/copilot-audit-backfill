@@ -498,6 +498,10 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     {
         var buckets = Ctx.Buckets();
         var axis = new Axis(buckets.Select(b => b.Label));
+        /* A week the period covers only in part is not drawn (2.5.2, see Axis.Partial). It stays in the trend's rows,
+           which several pages add up for the period's totals. */
+        for (var i = 0; i < buckets.Count; i++)
+            if (buckets[i].Partial) axis.Partial.Add(i);
         foreach (var m in _markers)
         {
             var key = Ctx.Daily ? m.Day.Date : ReportContext.WeekEnding(m.Day);
@@ -519,7 +523,7 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         }
         catch (Microsoft.Data.SqlClient.SqlException) { _markers = []; }
     }
-    protected string TrendNote => Ctx.Daily ? "Each point is a day." : "Each point is a Saturday-to-Friday week, labeled by its Friday; the first and last may be partial.";
+    protected string TrendNote => Ctx.Daily ? "Each point is a day." : "Each point is a whole Saturday-to-Friday week, labeled by its Friday. A week the period covers only in part, at its start or not yet over, is not drawn; the page's other figures count its days.";
 
     /// <summary>The CSV export of this page's list, with its current search and sort.</summary>
     protected string CsvUrl()

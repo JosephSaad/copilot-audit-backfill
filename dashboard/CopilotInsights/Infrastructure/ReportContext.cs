@@ -137,7 +137,11 @@ public enum OrgRefusal
     Privacy,
 }
 
-/// <summary>One point on a trend: a day (periods up to 30 days) or a Saturday-to-Friday week.</summary>
+/// <summary>
+/// One point on a trend: a day (periods up to 30 days) or a Saturday-to-Friday week. Partial: a week the period covers
+/// only in part, at its start or not yet over. The trend's rows keep it, for the period's totals; its charts leave it
+/// out (2.5.2, see <see cref="CopilotInsights.Charts.Axis.Partial"/>).
+/// </summary>
 public sealed record Bucket(DateTime Key, string Label, bool Partial);
 
 /// <summary>

@@ -42,6 +42,7 @@ JOIN bi.DimAgent AS a ON a.AgentKey = f.AgentKey AND a.AgentSource <> N'(no agen
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY f.AgentKey, {Ctx.BucketSql("d")};", Ctx.Args());
         var buckets = Buckets();
+        var axis = Labels();
         var isNew = (Row r) => r.FirstSeenUtc.Date >= Ctx.Start;
 
         Kpis.Add(new("Agents used", Num(rows.Count), $"{rows.Count(r => r.AgentSource == "Copilot Studio"):#,0} built in Copilot Studio"));
@@ -56,7 +57,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
         double? Point(int agentKey, DateTime bucket) => PointAtMin(trend.Where(t => t.AgentKey == agentKey && t.Bucket == bucket).Sum(t => t.People));
         var top = rows.Where(r => AtLeastMin(r.People) is not null).OrderByDescending(r => r.People).Take(6).ToList();
         Panels.Add(new("People using the top agents",
-            Chart.Line(Labels(), top.Select((r, i) => new Series(r.AgentName, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), i + 1)).ToList(), Fmt.Count, "People per agent"),
+            Chart.Line(axis, top.Select((r, i) => new Series(r.AgentName, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), i + 1)).ToList(), Fmt.Count, "People per agent"),
             $"The six agents with the most people in the period. A point where fewer than {Ctx.MinGroupSize} people used an agent is left out. {TrendNote}"));
 
         var t = new Table
@@ -69,7 +70,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
                 new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, r.Owner, r.FirstSeenUtc.Date,
                 AtLeastMin(r.People), AtLeastMin(r.People) is null ? null : Pct(Ratio(r.Returning, r.People)), r.N,
                 AtLeastMin(r.People) is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
-                AtLeastMin(r.People) is null ? null : Chart.Sparkline(buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName),
+                AtLeastMin(r.People) is null ? null : Chart.Sparkline(axis, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName),
             ]);
         Panels.Add(new("All agents", t.Render(),
             $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from Admin › Reference data. Select an agent for its detail."));
