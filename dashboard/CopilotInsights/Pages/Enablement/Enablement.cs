@@ -65,7 +65,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var seg = await Db.QueryAsync<(string Segment, int N)>($"WITH {Segments.People(Ctx)} SELECT Segment, COUNT(*) FROM pop GROUP BY Segment;", Ctx.Args(new { w }));
         int Seg(string name) => seg.Where(x => x.Segment == name).Sum(x => x.N);
         var t = await m.TotalsAsync(Ctx);
-        var tr = await m.TrendAsync(Ctx);
+        var tr = await m.TrendSeriesAsync(Ctx);
 
         Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days"));
         /* What is counted, not what it may mean (2.4.12): it said "the person replied to Copilot", but a session is a
@@ -97,11 +97,11 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ct
         Panels.Add(new("Segments by department", tbl.Render(), $"The twelve largest departments, as a share of each one's people. Departments under {Ctx.MinGroupSize} are left out.", "half"));
 
         Panels.Add(new("Conversations, not one-off questions",
-            Chart.Line(Labels(), [new Series("With a follow-up", tr.Select(x => Ratio(x.MultiTurn, x.Sessions)).ToList(), 1)], Fmt.Percent, "Share of sessions with a follow-up"),
-            FollowUp.Panel, "half"));
+            Chart.Line(Labels(), [new Series("With a follow-up", tr.AverageRatio(x => x.MultiTurn, x => x.Sessions), 1)], Fmt.Percent, "Share of sessions with a follow-up"),
+            $"{FollowUp.Panel} {RatioNote}", "half"));
         Panels.Add(new("Prompts per session",
-            Chart.Line(Labels(), [new Series("Prompts per session", tr.Select(x => x.Sessions > 0 ? x.Prompts / (double?)x.Sessions : null).ToList(), 2)], Fmt.Decimal1, "Prompts per session"),
-            TrendNote, "half"));
+            Chart.Line(Labels(), [new Series("Prompts per session", tr.AverageRatio(x => x.Prompts, x => x.Sessions), 2)], Fmt.Decimal1, "Prompts per session"),
+            $"Prompts over sessions. {RatioNote}", "half"));
 
         var breadth = await Db.QueryAsync<(int Apps, int N)>($@"
 WITH u AS (SELECT f.UserKey, COUNT(DISTINCT f.AppKey) AS Apps FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}

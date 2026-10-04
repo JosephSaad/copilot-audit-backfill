@@ -125,10 +125,20 @@ SELECT x.Low, du.DisplayName, du.UserPrincipalName, du.Department, x.I, x.D
 FROM (SELECT TOP ({Top}) 1 AS Low, u.UserKey, u.I, u.D FROM #u AS u JOIN bi.DimUser AS n ON n.UserKey = u.UserKey ORDER BY u.I, n.DisplayName, u.UserKey) AS x
 JOIN bi.DimUser AS du ON du.UserKey = x.UserKey;", Ctx.Args());
 
-        var appsTask = Db.QueryAsync<(DateTime Bucket, string App, long N)>($@"
+        var appsTask = Db.QueryAsync<(string App, long N)>($@"
+WITH {pop},
+x AS (SELECT f.AppKey, COUNT_BIG(*) AS N FROM bi.FactInteraction AS f JOIN p ON p.UserKey = f.UserKey
+      WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey)
+SELECT COALESCE(vn.Name, a.App), SUM(x.N)
+FROM x JOIN bi.DimApp AS a ON a.AppKey = x.AppKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
+GROUP BY COALESCE(vn.Name, a.App);", Ctx.Args());
+
+        /* The trend reads from the lead-in a 28-day average needs (2.5.0), so it is a query of its own: the period's shares are the period's. */
+        var appTrendTask = Db.QueryAsync<(DateTime Bucket, string App, long N)>($@"
 WITH {pop},
 x AS (SELECT f.DateKey, f.AppKey, COUNT_BIG(*) AS N FROM bi.FactInteraction AS f JOIN p ON p.UserKey = f.UserKey
-      WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.DateKey, f.AppKey)
+      WHERE f.DateKey BETWEEN @kt0 AND @k1 GROUP BY f.DateKey, f.AppKey)
 SELECT {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App), SUM(x.N)
 FROM x JOIN bi.DimDate AS d ON d.DateKey = x.DateKey JOIN bi.DimApp AS a ON a.AppKey = x.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
@@ -195,9 +205,10 @@ WHERE fs.DateKey BETWEEN @k0 AND @k1 AND fs.SpanMinutes > 0;", Ctx.Args(new { q 
 SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
        ISNULL((SELECT MAX(f.CreatedUtc) FROM bi.FactInteraction AS f WHERE f.DateKey >= @k1), (SELECT MAX(f.CreatedUtc) FROM bi.FactInteraction AS f));", Ctx.Args());
 
-        await Task.WhenAll(peopleTask, appsTask, sourcesTask, minutesTask, sessionsTask, countTask, factsTask);
+        await Task.WhenAll(peopleTask, appsTask, appTrendTask, sourcesTask, minutesTask, sessionsTask, countTask, factsTask);
         var (days, people) = peopleTask.Result;
         var apps = appsTask.Result;
+        var appTrend = appTrendTask.Result;
         var sources = sourcesTask.Result;
         var minutes = minutesTask.Result;
         var sessions = sessionsTask.Result;
@@ -293,21 +304,20 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
             $"Each conversation of more than one prompt in the period, with the app of its first prompt; times are in {DataZone}. {minutesNote} " +
             $"The download holds up to {ExportMax:#,0} conversations, in the order chosen.", "full", CsvUrl()));
 
-        /* The trend: interactions by app over the period, with each app's lowest, highest and mean point. */
-        var buckets = Buckets();
+        /* The trend: interactions by app over the period, as 28-day averages (2.5.0), with each app's lowest, highest and mean point. */
         var shown = byApp.Take(byApp.Count > 8 ? 7 : 8).Select(a => a.App).ToList();
-        double?[] Points(Func<string, bool> pick) =>
-            buckets.Select(b => (double?)apps.Where(x => x.Bucket == b.Key && pick(x.App)).Sum(x => x.N)).ToArray();
-        var series = shown.Select((app, i) => new Series(app, Points(a => a == app), i + 1)).ToList();
-        if (byApp.Count > shown.Count) series.Add(new Series("Other apps", Points(a => !shown.Contains(a)), 8));
+        var appAt = appTrend.ToLookup(x => (x.App, x.Bucket), x => x.N);
+        var otherAt = appTrend.Where(x => !shown.Contains(x.App)).ToLookup(x => x.Bucket, x => x.N);
+        var series = shown.Select((app, i) => new Series(app, Average(b => appAt[(app, b.Key)].Sum()), i + 1)).ToList();
+        if (byApp.Count > shown.Count) series.Add(new Series("Other apps", Average(b => otherAt[b.Key].Sum()), 8));
         var legend = new Table { Headers = ["App", "Lowest", "Highest", "Mean"], Numeric = new HashSet<int> { 1, 2, 3 } };
         foreach (var sr in series)
         {
-            var v = sr.Values.Select(x => x ?? 0).ToList();
-            legend.Rows.Add([sr.Name, (long)v.DefaultIfEmpty(0).Min(), (long)v.DefaultIfEmpty(0).Max(), Math.Round(v.DefaultIfEmpty(0).Average(), 1)]);
+            var v = sr.Values.Select(x => x ?? 0).DefaultIfEmpty(0).ToList();
+            legend.Rows.Add([sr.Name, Math.Round(v.Min(), 1), Math.Round(v.Max(), 1), Math.Round(v.Average(), 1)]);
         }
         Panels.Add(new("Interaction trends by app",
-            new HtmlString(Sized(Chart.Line(Labels(), series, Fmt.Count, "Interactions by app over the period")) + legend.Render().Value),
+            new HtmlString(Sized(Chart.Line(Labels(), series, Fmt.Average, "Interactions by app over the period, 28-day average")) + legend.Render().Value),
             $"Interactions of {licName.ToLowerInvariant()} people in each app; the busiest apps are drawn and the rest combined. " +
             $"The table gives each line's lowest, highest and mean point. {TrendNote}"));
 

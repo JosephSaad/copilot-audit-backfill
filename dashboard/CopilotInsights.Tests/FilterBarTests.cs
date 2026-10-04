@@ -39,7 +39,7 @@ public class FilterBarTests
     static readonly string[] TeamUse = ["Ctx.Scope(", "Ctx.PersonScope(", "Ctx.Root", "fnScopeUsers", "@root", "c.Scope(", "c.PersonScope("];
 
     /// <summary>What a page does when the period chosen changes its figures: its start, its length, its trend points.</summary>
-    static readonly string[] PeriodUse = ["@k0", "@d0", "Ctx.Start", "Ctx.Days", "Ctx.StartKey", "Buckets()", "BucketSql(", "TrendNote", "Labels()"];
+    static readonly string[] PeriodUse = ["@k0", "@kt0", "@d0", "Ctx.Start", "Ctx.Days", "Ctx.StartKey", "Buckets()", "BucketSql(", "TrendNote", "RatioNote", "PointNote", "Labels()", "TrendSeriesAsync"];
 
     [Fact]
     public void The_pages_are_found()

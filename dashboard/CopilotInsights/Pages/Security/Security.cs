@@ -14,8 +14,10 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var tr = await m.TrendAsync(Ctx);
-        long jb = tr.Sum(w => w.Jailbreak), inj = tr.Sum(w => w.Injection), blk = tr.Sum(w => w.Blocked), all = tr.Sum(w => w.Interactions);
+        /* The KPIs are the period's own sums; the chart's points are 28-day averages (2.5.0). */
+        var sg = await m.SumsAsync(Ctx);
+        var tr = await m.TrendSeriesAsync(Ctx);
+        long jb = sg.Jailbreak, inj = sg.Injection, blk = sg.Blocked, all = sg.Interactions;
         var people = await Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND (ud.Jailbreak > 0 OR ud.PromptInjection > 0);", Ctx.Args());
@@ -26,12 +28,12 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND (ud.Jailbreak > 0 OR ud.PromptInjection
 
         Panels.Add(new("Signals over time",
             Chart.Columns(Labels(), [
-                new Series("Jailbreak", tr.Select(w => (double?)w.Jailbreak).ToList(), 8),
-                new Series("Prompt injection", tr.Select(w => (double?)w.Injection).ToList(), 2),
-                new Series("Blocked resource", tr.Select(w => (double?)w.Blocked).ToList(), 7),
-            ], Fmt.Count, "Security signals", stacked: false),
+                new Series("Jailbreak", tr.Average(w => w.Jailbreak), 8),
+                new Series("Prompt injection", tr.Average(w => w.Injection), 2),
+                new Series("Blocked resource", tr.Average(w => w.Blocked), 7),
+            ], Fmt.Average, "Security signals, 28-day average", stacked: false),
             "Jailbreak: a prompt written to make Copilot ignore its rules. Prompt injection: instructions hidden in something Copilot read (a file, a mail, a web page) that try to steer it. " +
-            $"Blocked resource: content a policy or permissions stopped Copilot from reading. Microsoft flags each in the audit record. {TrendNote}"));
+            $"Blocked resource: content a policy or permissions stopped Copilot from reading. Microsoft flags each in the audit record. {TrendNote} An average spreads a day's spike over the 28 days that follow it: the totals above are the period's own, and Flagged interactions lists each flag."));
 
         var hours = await Db.QueryAsync<(int Dow, int Hour, int N)>($@"
 SELECT d.DayOfWeekNumber, f.HourOfDay, COUNT(*)

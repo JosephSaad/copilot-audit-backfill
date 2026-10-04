@@ -51,11 +51,13 @@ public class MinimumGroupSizeTests
         var agents = Source.Read("Pages", "Agents", "Agents.cs");
         var index = agents[agents.IndexOf("class IndexModel", StringComparison.Ordinal)..agents.IndexOf("class DetailModel", StringComparison.Ordinal)];
         var detail = agents[agents.IndexOf("class DetailModel", StringComparison.Ordinal)..];
-        Assert.Contains("PointAtMin(", index);
+        /* A point is the 28-day average of the people (2.5.0), under the same rule: a gap below the minimum, 0 for nobody. */
+        Assert.Contains(".Select(PeopleAtMin)", index);
         Assert.Contains("rows.Where(r => AtLeastMin(r.People) is not null)", index);
         Assert.Contains("AtLeastMin(r.People) is null ? null : Chart.Sparkline(", index);
         Assert.DoesNotContain("(double?)trend.Where", index);
-        Assert.Contains("PointAtMin(tr.Where(", detail);
+        Assert.DoesNotContain("(double?)peopleAt", index);
+        Assert.Contains("Average(b => trAt[b.Key].Sum(x => x.People)).Select(PeopleAtMin)", detail);
         Assert.Contains(".Where(d => d.People >= Ctx.MinGroupSize)", detail);
     }
 
