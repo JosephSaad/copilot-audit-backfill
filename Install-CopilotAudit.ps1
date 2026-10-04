@@ -14,7 +14,10 @@
       2. Installs or upgrades every table, view and procedure, in the order
          they depend on each other. Nothing is dropped; data is kept.
       3. Builds whatever needs building from the data already loaded:
-           * the license events shredded, once the license database has records;
+           * the license events shredded: the records not shredded yet, and
+             what a shred that was stopped part way was shredding (2.5.4: not
+             every record on every run; once more over a database an earlier
+             release shredded, unless -LicenseEventsShredded);
            * every record flattened, the first time there are records to
              flatten - and again once after an upgrade that adds columns (2.2.0),
              so history gets them too;
@@ -48,7 +51,17 @@
 
 .PARAMETER Rebuild
     Rebuild the flattened table, sessions, bi and the dashboard in full even
-    if nothing calls for it.
+    if nothing calls for it, and shred every license record again.
+
+.PARAMETER LicenseEventsShredded
+    For the first run of 2.5.4 or later over a license database an earlier
+    release shredded. Such a database carries no mark that its last shred
+    finished, so this run shreds every license record once more and leaves
+    the mark; later runs then shred only what is new. With this switch you
+    say that the last shred did finish (the installer run that made it
+    ended with Done.): the mark is written and nothing is shredded again.
+    Leave it out when unsure: a shred that was stopped part way left events
+    without their properties, and only shredding them all repairs that.
 
 .EXAMPLE
     .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01
@@ -68,6 +81,8 @@ param(
     [switch] $Dashboard,
     [string] $OrgTopUpn,
     [switch] $Rebuild,
+    # The license records were all shredded by an earlier release, in a run that finished: do not shred them once more (2.5.4).
+    [switch] $LicenseEventsShredded,
     [string] $ReportingTimeZone,
     [switch] $SkipLicenseDatabase,
     # The account the nightly job runs as (DOMAIN\gmsa$ or DOMAIN\user): given a login and db_owner in both databases.
@@ -304,11 +319,87 @@ $todo = @()
 if (-not $SkipLicenseDatabase) {
     $licRecords = Get-Count $LicenseDatabase 'audit.CopilotAudit'
     if ($licRecords -gt 0) {
-        Write-Done ("license events: shredding {0:N0} record(s)..." -f $licRecords)
-        Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents;'
-        Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredAgentEvents;'
+        # 2.5.4: only when something calls for it. Every record was read and parsed again on every run, an upgrade's
+        # longest step on a large license history, to write the rows already there. Every record is shredded now for
+        # -Rebuild and, once, for a database with no mark that a shred of every record finished
+        # (LicenseShredCompleteUtc), which is every database an earlier release shredded - unless
+        # -LicenseEventsShredded says that one did. After that: records with no event of their own (counted: two
+        # columns of the columnstore against a key) are shredded from the earliest of them on; and a shred that was
+        # stopped part way, which leaves its mark (LicenseShredInProgress) and events without their properties, has
+        # what it was shredding shredded again, and no more.
+        $unshredded = [long] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
+SELECT COUNT_BIG(*) FROM audit.CopilotAudit AS a
+WHERE a.Operation NOT LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
+"@)
+        $unshreddedAgents = [long] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
+SELECT COUNT_BIG(*) FROM audit.CopilotAudit AS a
+WHERE a.Operation LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.AgentEvent AS e WHERE e.RecordId = a.RecordId);
+"@)
+        $marks = [string] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql "SELECT ISNULL(STRING_AGG(CONVERT(NVARCHAR(MAX), Name), N','), N'') FROM audit.PipelineSetting WHERE Name IN (N'LicenseShredInProgress', N'LicenseShredCompleteUtc');")
+        $stopped = $marks -like '*LicenseShredInProgress*'
+        $complete = $marks -like '*LicenseShredCompleteUtc*'
+        # The one damage that shows in the tables themselves: a chunk group with every fragment, and none of the
+        # properties it reassembles into on its first record. A shred stopped before its last step leaves them so.
+        # Only a group whose document does hold properties counts: one that holds none has none to show.
+        $unassembled = [long] 0
+        if (-not $complete -and $LicenseEventsShredded) {
+            $unassembled = [long] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
+SELECT COUNT_BIG(*)
+FROM (SELECT c.ChunkGroupId, MAX(CASE WHEN c.Seq = 1 THEN c.RecordId END) AS Carrier
+      FROM audit.LicenseEventChunk AS c GROUP BY c.ChunkGroupId HAVING MIN(c.Seq) = 1 AND MAX(c.Seq) = COUNT(*)) AS g
+WHERE NOT EXISTS (SELECT 1 FROM audit.LicenseEventProperty AS p WHERE p.RecordId = g.Carrier AND p.Source = 'chunks')
+  AND EXISTS (SELECT 1
+              FROM (SELECT STRING_AGG(CAST(b.Body AS NVARCHAR(MAX)), N'') WITHIN GROUP (ORDER BY b.Seq) AS Payload
+                    FROM audit.LicenseEventChunk AS b WHERE b.ChunkGroupId = g.ChunkGroupId) AS w
+              CROSS APPLY OPENJSON(CASE WHEN ISJSON(w.Payload) = 1 THEN w.Payload ELSE N'{}' END)
+                   WITH (Tup NVARCHAR(MAX) '`$.targetUpdatedProperties') AS d
+              CROSS APPLY OPENJSON(CASE WHEN ISJSON(d.Tup) = 1 THEN d.Tup ELSE N'[]' END) AS item);
+"@)
+        }
+        $why = if ($Rebuild) { '-Rebuild' }
+               elseif ($unassembled -gt 0) { '{0:N0} chunk group(s) were never reassembled, so a shred did stop part way: -LicenseEventsShredded is not taken' -f $unassembled }
+               elseif (-not $complete -and -not $LicenseEventsShredded) {
+                   if ($unshredded -gt 0) { '{0:N0} not shredded yet' -f $unshredded }
+                   else { 'once more, to record that every one is shredded: later runs skip this, and -LicenseEventsShredded skips it now' }
+               }
+               else { $null }
+        if ($why) {
+            Write-Done ("license events: shredding {0:N0} record(s) ({1})..." -f $licRecords, $why)
+            Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents;'
+        }
+        else {
+            if ($unshredded -gt 0) {
+                # Every record is shredded but these, which arrived since: from the earliest of them on (a second
+                # before it, as the shred counts in whole seconds). Where a stopped shred's mark says to go further
+                # back, the procedure does.
+                $from = [string] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
+SELECT CONVERT(NVARCHAR(19), DATEADD(SECOND, -1, MIN(a.CreatedDateTime)), 126) FROM audit.CopilotAudit AS a
+WHERE a.Operation NOT LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
+"@)
+                Write-Done ("license events: shredding the records from {0}Z on ({1:N0} not shredded yet)..." -f $from.Replace('T', ' '), $unshredded)
+                Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents @SinceUtc = @s;' -Parameters @{ '@s' = $from }
+            }
+            elseif ($stopped) {
+                # From no date of its own: the procedure reads the mark, and shreds from where the stopped one began.
+                Write-Done 'license events: an earlier shred did not finish, so what it was shredding is shredded again...'
+                Invoke-Sql -Catalog $LicenseDatabase -Sql "EXEC audit.usp_ShredLicenseEvents @SinceUtc = '9999-12-31';"
+            }
+            else { Write-Done ("license events: every one of {0:N0} record(s) is shredded already, so none is read again (-Rebuild reads them all)." -f $licRecords) }
+            # Not when the shred just above was one of every record: that leaves the mark itself.
+            if (-not $complete -and [int] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'LicenseShredCompleteUtc';") -eq 0) {
+                Invoke-Sql -Catalog $LicenseDatabase -Sql "INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredCompleteUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));"
+                Write-Done 'license events: recorded as all shredded by an earlier run that finished (-LicenseEventsShredded).'
+            }
+        }
+        if ($Rebuild -or $unshreddedAgents -gt 0) { Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredAgentEvents;' }
     }
     else { $todo += "Backfill the license history into $LicenseDatabase (deployment step 7), then run this again." }
+    # 2.5.4: the SKU changes sessions and bi read are worked out at the end of each shred. Events written since some
+    # other way (by hand, or by a shred of a build before the marks above) are worked out here.
+    if ([int] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM audit.LicenseEvent WHERE ShreddedUtc > (SELECT MAX(StartedUtc) FROM audit.LicenseSkuChangeRun)) THEN 1 ELSE 0 END;') -eq 1) {
+        Write-Done 'license SKU changes: working out those of the events shredded since they were last worked out...'
+        Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_RefreshLicenseSkuChange;'
+    }
 }
 
 # Flattened by a version before 2.2.0: rows, but no record shapes - only the 2.2.0

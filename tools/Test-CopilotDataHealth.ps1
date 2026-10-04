@@ -47,7 +47,7 @@ $script:NotRun = 0
 $script:DataEnd = $null
 $script:botSince = $null
 # Every installer finding comes to the same one run, which does all of them (upgrade, shred, flatten, agent ids).
-$script:Install = ".\Install-CopilotAudit.ps1 -SqlServer $SqlServer -Dashboard -LicenseEventDatabases $LicenseDatabase, with the nightly task disabled. It brings both databases to this release where they aren't, shreds every license and Copilot Studio record, flattens any record never flattened and reads the agent ids, as the findings above need. Add -ReportingAccount <gateway account> on the first 2.4.12 run."
+$script:Install = ".\Install-CopilotAudit.ps1 -SqlServer $SqlServer -Dashboard -LicenseEventDatabases $LicenseDatabase, with the nightly task disabled. It brings both databases to this release where they aren't, shreds the license and Copilot Studio records not shredded yet (and again those a shred that was stopped part way was shredding), works out the license SKU changes still owed, flattens any record never flattened and reads the agent ids, as the findings above need. Add -ReportingAccount <gateway account> on the first 2.4.12 run."
 
 function New-Conn([string] $Db) {
     $b = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
@@ -347,6 +347,47 @@ GROUP BY k.Kind;
     $le = Get-Table $lic 'SELECT COUNT_BIG(*) AS N, MIN(CreatedDateTime) AS F, MAX(CreatedDateTime) AS T FROM audit.LicenseEvent'
     Write-Info ("audit.LicenseEvent: {0:N0} events, {1} -> {2}." -f $le.Rows[0].N, (Fmt ($(if (($null -eq $le.Rows[0].F)) { $null } else { $le.Rows[0].F }))), (Fmt ($(if (($null -eq $le.Rows[0].T)) { $null } else { $le.Rows[0].T }))))
     if ($rawLic -gt 0 -and [long]$le.Rows[0].N -eq 0) { Write-Act 'License records are loaded but none shredded into audit.LicenseEvent.' $script:Install }
+
+    # 2.5.4: a shred marks that it is running, and takes the mark away when it has finished. One that is running
+    # holds a lock, so a mark with the lock free is a shred that was stopped; its time is when that one began.
+    $shredMark = $false
+    if (Test-Object $lic 'audit.PipelineSetting') {
+        $mark = Get-Table $lic "SELECT UpdatedUtc, APPLOCK_TEST(N'public', N'audit.usp_ShredLicenseEvents', N'Exclusive', N'Session') AS LockFree FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress'"
+        if ($mark.Rows.Count) {
+            $shredMark = $true
+            if ([int]$mark.Rows[0].LockFree -eq 0) { Write-Info 'A shred of the license events is running now.' }
+            elseif ((Age $mark.Rows[0].UpdatedUtc) -ge 24) {
+                Write-Act ("A shred of the license events that began {0} was stopped part way, and none has finished since: events it had begun can lack their properties. Sessions and bi still read the SKU changes of the last shred that finished. Each license load tries to finish it (the run log says why it does not); the installer tries now." -f (Fmt $mark.Rows[0].UpdatedUtc)) $script:Install
+            }
+            else { Write-Info ("A shred of the license events that began {0} was stopped part way: events it had begun can lack their properties until the next license load, which finishes it." -f (Fmt $mark.Rows[0].UpdatedUtc)) }
+        }
+    }
+
+    # 2.5.4: the SKU changes sessions and bi read are kept in a table, worked out at the end of every shred.
+    if (-not (Test-Object $lic 'audit.LicenseSkuChangeRun')) {
+        Write-Act 'This license database is on a release before 2.5.4: sessions and bi work out every license SKU change from the records each night, which takes long on a large license history.' $script:Install
+    }
+    elseif ([long]$le.Rows[0].N -gt 0) {
+        $sk = (Get-Table $lic @"
+SELECT (SELECT COUNT_BIG(*) FROM audit.LicenseSkuChange) AS Kept,
+       (SELECT MAX(StartedUtc) FROM audit.LicenseSkuChangeRun) AS LastRun,
+       CASE WHEN EXISTS (SELECT 1 FROM audit.LicenseEvent WHERE ShreddedUtc > (SELECT MAX(StartedUtc) FROM audit.LicenseSkuChangeRun)) THEN 1 ELSE 0 END AS Behind,
+       CASE WHEN OBJECT_DEFINITION(OBJECT_ID(N'audit.vLicenseSkuChange')) IS NULL THEN NULL   -- an account that may not read definitions
+            WHEN OBJECT_DEFINITION(OBJECT_ID(N'audit.vLicenseSkuChange')) LIKE N'%vLicenseSkuChangeFromRecords%' THEN 1 ELSE 0 END AS FromRecords
+"@).Rows[0]
+        Write-Info ("audit.LicenseSkuChange: {0:N0} SKU changes kept, last worked out {1}." -f $sk.Kept, (Fmt $sk.LastRun))
+        if ($null -eq $sk.FromRecords) { Write-Info 'This account cannot read the definition of audit.vLicenseSkuChange, so whether it reads the kept changes or still the records was not checked.' }
+        if ($null -eq $sk.LastRun -or [int]$sk.FromRecords -eq 1) {
+            Write-Act 'The license SKU changes were never worked out here, so sessions and bi still read them from the records each night.' $script:Install
+        }
+        elseif ([int]$sk.Behind -eq 1 -and $shredMark) {
+            Write-Info 'The events that shred wrote have their SKU changes worked out when it finishes, or by the shred that finishes it.'
+        }
+        elseif ([int]$sk.Behind -eq 1) {
+            Write-Act 'License events were written after the SKU changes were last worked out, and not by a shred, which works them out itself: sessions and bi do not see their changes yet. The next license load works them out; the installer does it now.' $script:Install
+        }
+        else { Write-Ok 'The SKU changes sessions and bi read are worked out for every event shredded.' }
+    }
 
     if (Test-Object $lic 'audit.AgentEvent') {
         $ae = Get-Table $lic 'SELECT COUNT_BIG(*) AS N, MIN(CreatedUtc) AS F, MAX(CreatedUtc) AS T, COUNT(DISTINCT BotSchemaName) AS Agents, COUNT(DISTINCT ActorUpn) AS Makers FROM audit.AgentEvent'

@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licenses from Microsoft Graph, and the organization from on-premises Active Directory.
 
-Written for a new install of release 2.5.3. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.5.4. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -145,14 +145,14 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.5.3-offline-win-x64.zip` and its `.sha256` from the [v2.5.3 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.5.3). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.5.4-offline-win-x64.zip` and its `.sha256` from the [v2.5.4 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.5.4). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.5.3-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.5.4-offline-win-x64.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.5.3-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.5.4-offline-win-x64' 'CopilotAudit'
 cd D:\CopilotAudit
 ```
 
@@ -699,10 +699,10 @@ The web dashboard, on a Windows Server with IIS: every persona's pages, alerts a
 
 *Web server, as an administrator, in Windows PowerShell 5.1. About 15 minutes.*
 
-The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.5.3.zip` to the web server, then from the source package's folder:
+The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.5.4.zip` to the web server, then from the source package's folder:
 
 ```powershell
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.3.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.4.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -AdminPrincipal 'USERS\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
 ```
 
@@ -739,7 +739,7 @@ For a group with several Microsoft 365 tenants, each gets its own app registrati
 .\tools\Add-CopilotTenant.ps1 -Name Fabrikam -TenantId fabrikam.onmicrosoft.com -TargetDomain fabrikam.local
 .\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam
 # web server: every tenant, the first one first
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.3.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.4.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess
 ```
 
@@ -760,6 +760,7 @@ The nightly run, the installer and the rebuilds below hold the database while th
 | Someone needs to see more of the dashboard | Admin › Access, or `M -Task GrantRole -Principal 'CORP\Group' -Role Organization`: Organization for the whole organization, a persona role for its named lists. The org chart follows AD by itself, the night after a move. |
 | The flatten says a field *now carries information* | One of the fields that never varied has a second value: see `audit.RawLogRecordShape`. Nothing is lost from the JSON; if it matters for reporting, it needs a column in a new release. |
 | Disk grows past your horizon | `M -Task PurgeJson -RetainDays 365` reports what it would clear; add `-Apply` to clear the stored JSON and keep the rows. |
+| The nightly run takes longer than it should | `.\tools\Measure-CopilotNightly.ps1 -SqlServer SQLPROD01 -LogPath D:\CopilotAudit\logs` shows each stage's time and the statements that ran longest, and changes nothing (2.5.4). [OPERATIONS.md](OPERATIONS.md#a-slow-nightly-run) has how to read it, and a recording of the night's statements for the database administrator. |
 | A new release comes out | Disable the nightly task. Replace the scripts in `D:\CopilotAudit` with the new release's, keeping `copilot-audit.settings.psd1` and `logs`, back up the databases, and run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01` once (with `-Dashboard` if the dashboard is installed, and `-LicenseEventDatabases` with the `SessionLicenseDatabases` list if the settings have one). It upgrades every object in the first tenant's two databases and does any one-off rebuild the release needs; from 2.1.0 to 2.2.0 that is flattening every record again and a full `bi` build. With more than one tenant (step 25), run it again for each further tenant's pair. A tenant without its own `LicenseDatabase` or `SessionLicenseDatabases` uses the top-level one, as the nightly run does, and one whose license database is blank has none: `$s = Import-PowerShellDataFile .\copilot-audit.settings.psd1; foreach ($t in $s.Tenants) { $a = @{ SqlServer = 'SQLPROD01'; Database = $t.Database; Dashboard = $true }; $lic = if ($t.Contains('LicenseDatabase')) { $t.LicenseDatabase } else { $s.LicenseDatabase }; if ($lic) { $a.LicenseDatabase = $lic } else { $a.SkipLicenseDatabase = $true }; $read = if ($t.Contains('SessionLicenseDatabases')) { $t.SessionLicenseDatabases } else { $s.SessionLicenseDatabases }; if ($read) { $a.LicenseEventDatabases = @($read) }; .\Install-CopilotAudit.ps1 @a }` (leave out `Dashboard = $true` if there is no dashboard), and run step 22 again with every tenant in `-Tenant`, as in step 25. Nothing else upgrades them: the nightly run uses whatever procedures each database has. Enable the task again. Read the release notes' upgrade section. |
 | Upgrading to 2.3.0 | As for any release. The installer catalogs the codes of records flattened before (Admin › Value names) and rebuilds the dashboard's rollups once with Premium use; the nightly license-event load starts asking for Copilot Studio's authoring operations as well, from that night on. With the dashboard, run step 22 again with the new package, and replace a hand-built Power BI model with the one in `powerbi\` (step 15). |
 | The certificate nears expiry | Within 30 days of expiry, `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` creates a new one, gives the gMSA its private key, uploads it next to the old one to the app of every tenant in the settings and puts its thumbprint in the settings. Remove the old one from the apps after the next good run. Without `-RegisterApp` the old one is kept until it expires. |

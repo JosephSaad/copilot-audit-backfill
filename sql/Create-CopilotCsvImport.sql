@@ -324,8 +324,10 @@ BEGIN
                     AND a.CreatedDateTime <  @hi);
     DECLARE @already BIGINT = @@ROWCOUNT;
     DECLARE @added BIGINT = (SELECT COUNT_BIG(*) FROM #cand);
+    /* The refresh that follows an import reads from @first on. To the whole second at or before the earliest record
+       (2.5.4): rounded, a record half a second or more past the second fell before it, and was left out. */
     DECLARE @first DATETIME2(0), @last DATETIME2(0);
-    SELECT @first = MIN(CreatedDateTime), @last = MAX(CreatedDateTime) FROM #cand;
+    SELECT @first = DATEADD(SECOND, DATEDIFF(SECOND, '2000-01-01', MIN(CreatedDateTime)), '2000-01-01'), @last = MAX(CreatedDateTime) FROM #cand;
 
     /* ---- 3 and 4. Append, record coverage, in the same transaction ---------- */
 

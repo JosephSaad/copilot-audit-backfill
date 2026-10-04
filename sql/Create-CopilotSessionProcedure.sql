@@ -273,6 +273,11 @@ BEGIN
     CLOSE licDbs;
     DEALLOCATE licDbs;
 
+    /* 2.5.4: sought by the lookups below, which ask it once per session. With no index each session read the whole
+       history: over 154,530 Copilot changes, a night's 60,852 sessions took more than ten minutes in the lab, and
+       now take seconds. Nonclustered: a UPN can be 1,024 bytes, over a clustered key's 900. */
+    CREATE INDEX IX_lic ON #lic (UserUPN, Sku, TsUtc, Added);
+
     /* ---- 4. Sessions ----------------------------------------------------- */
 
     /* Start and end are the first and last prompt in UTC, shown in the
@@ -295,6 +300,8 @@ BEGIN
     CROSS APPLY (SELECT CAST(g.StartUtc AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS StartTs,
                         CAST(g.EndUtc   AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS EndTs) AS z;
 
+    /* A SKU added and removed in the same second: the addition is the later of the two, as bi.usp_RefreshBi reads
+       it (2.5.4; which one a session took was left to the plan). */
     DROP TABLE IF EXISTS #histlic;
     SELECT s.UserUPN, s.KeyCtx, s.Ordinal,
            CASE WHEN NOT EXISTS (SELECT 1 FROM #lic AS l WHERE l.UserUPN = s.UserUPN) THEN NULL
@@ -303,9 +310,9 @@ BEGIN
                     FROM (SELECT DISTINCT l.Sku FROM #lic AS l WHERE l.UserUPN = s.UserUPN) AS k
                     CROSS APPLY (SELECT COALESCE(
                         (SELECT TOP (1) CAST(b.Added AS INT) FROM #lic AS b
-                         WHERE b.UserUPN = s.UserUPN AND b.Sku = k.Sku AND b.TsUtc <= s.StartUtc ORDER BY b.TsUtc DESC),
+                         WHERE b.UserUPN = s.UserUPN AND b.Sku = k.Sku AND b.TsUtc <= s.StartUtc ORDER BY b.TsUtc DESC, b.Added DESC),
                         (SELECT TOP (1) 1 - CAST(a.Added AS INT) FROM #lic AS a
-                         WHERE a.UserUPN = s.UserUPN AND a.Sku = k.Sku AND a.TsUtc > s.StartUtc ORDER BY a.TsUtc)) AS Held) AS h
+                         WHERE a.UserUPN = s.UserUPN AND a.Sku = k.Sku AND a.TsUtc > s.StartUtc ORDER BY a.TsUtc, a.Added)) AS Held) AS h
                     WHERE h.Held = 1) THEN CAST(1 AS BIT)
                 ELSE CAST(0 AS BIT) END AS HistLic
     INTO #histlic

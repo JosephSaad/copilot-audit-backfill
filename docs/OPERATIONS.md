@@ -7,7 +7,7 @@ Two places do everything:
 - **The dashboard's Admin pages**, for people holding the Admin role. Every change is checked, needs the page's anti-forgery token, and is written to the audit log.
 - **`tools\Invoke-CopilotMaintenance.ps1`** on the job server, for the same tasks without the dashboard, in scripts, or when nobody can sign in. Below, `M` stands for `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01` (add `-Database` if it is not `CopilotAudit`, and `-TrustServerCertificate` for a self-signed SQL Server certificate).
 
-Nothing here needs SQL typed by hand. `tests/Test-OperationsGuide.ps1` fails the build when an Admin page or a maintenance task is not in this guide, so the [reference](#every-admin-page-and-maintenance-task) at the end is complete.
+Nothing here needs SQL typed by hand, but for looking inside a slow night ([A slow nightly run](#a-slow-nightly-run)), which is the database administrator's. `tests/Test-OperationsGuide.ps1` fails the build when an Admin page or a maintenance task is not in this guide, so the [reference](#every-admin-page-and-maintenance-task) at the end is complete.
 
 ## Contents
 
@@ -21,6 +21,7 @@ Nothing here needs SQL typed by hand. `tests/Test-OperationsGuide.ps1` fails the
 - [Triage and investigations](#triage-and-investigations)
 - [Privacy, retention and the data API](#privacy-retention-and-the-data-api)
 - [The pipeline](#the-pipeline)
+- [A slow nightly run](#a-slow-nightly-run)
 - [More than one tenant](#more-than-one-tenant)
 - [Upgrades and renewals](#upgrades-and-renewals)
 - [Every Admin page and maintenance task](#every-admin-page-and-maintenance-task)
@@ -242,6 +243,98 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 
 **A night that failed after its load was merged**, at the session build say, owes a refresh of sessions, `bi` and the dashboard from that load's start. Once the cause is fixed the next run makes it up, even with nothing new to load (2.4.12; before, a failure that lasted past the 48-hour lookback left those days out for good); its log then says *The derived tables were not brought up to date after an earlier load or import: refreshing them from* a date. A CSV import whose refresh failed or was skipped is made up the same way, or by running the import again. When that date is more than 4 days back, or the run caught up two or more missed nights (a load refreshes from 48 hours before where the data ended), refresh the Power BI model in full afterwards. To have sessions and `bi` read several license databases each night, list them as `SessionLicenseDatabases` in `copilot-audit.settings.psd1` ([DEPLOYMENT.md](DEPLOYMENT.md), step 11).
 
+## A slow nightly run
+
+When the nightly task takes longer than it should (2.5.4), find the stage first, then the statement. Three things show it, each one level deeper, and none of them changes any data.
+
+**1. Where the time went: `tools\Measure-CopilotNightly.ps1`.** Run it on the job server, or on any computer that reaches SQL Server; during a run or after it.
+
+```powershell
+.\tools\Measure-CopilotNightly.ps1 -SqlServer SQLPROD01 -LogPath D:\CopilotAudit\logs
+```
+
+It lists the last seven runs with each step's time, then takes one run apart: inside the license step and the Copilot step, the Purview download, the merge, the flatten, the shred, the license SKU changes, the sessions, the report tables (`bi`) and the dashboard totals, each with its time, its share of the run and what it wrote. The lines add up to the step: time that no table accounts for is a line of its own. It ends with the five longest stages and what to look at for the longest. While a run is under way it shows that run so far, and the statement SQL Server is running for it at that moment.
+
+| Parameter | Use |
+|---|---|
+| `-RunId 412` | Another run than the last (the ids are in the first list). |
+| `-Runs 30` | How many recent runs to list (7). |
+| `-LogPath D:\CopilotAudit\logs` | Also reads the run's own lines from `nightly-<date>.log`, with the time between them: it splits what the tables cannot, the flatten from the agent names and each shred. Run it on the job server, so the log's local times line up. |
+| `-TopStatements 25` | How many statements to list from Query Store (15; 0 leaves them out). |
+| `-Database`, `-LicenseDatabase`, `-TrustServerCertificate` | As for the other tools. |
+
+It needs to read both databases; `VIEW SERVER STATE` to show the running statement, and `VIEW DATABASE STATE` for Query Store. Without them those two parts say so and the rest still prints.
+
+**2. Which statement: Query Store.** SQL Server keeps each statement's time, CPU, reads, memory and tempdb use once it has finished, and the script's third part lists a run's longest from it. SQL Server 2022 has it on for a new database; where the script says it is off, turn it on once, in each database, and look again after the next run:
+
+```sql
+ALTER DATABASE CopilotAudit SET QUERY_STORE = ON (OPERATION_MODE = READ_WRITE, QUERY_CAPTURE_MODE = AUTO, MAX_STORAGE_SIZE_MB = 1000, INTERVAL_LENGTH_MINUTES = 60);
+ALTER DATABASE CopilotLicenseEvents SET QUERY_STORE = ON (OPERATION_MODE = READ_WRITE, QUERY_CAPTURE_MODE = AUTO, MAX_STORAGE_SIZE_MB = 1000, INTERVAL_LENGTH_MINUTES = 60);
+```
+
+Each statement is listed with its query id. Its plan, to open in SSMS (or SSMS › the database › Query Store › *Top Resource Consuming Queries*):
+
+```sql
+SELECT TOP (1) TRY_CAST(p.query_plan AS XML) AS QueryPlan, p.last_execution_time
+FROM sys.query_store_plan AS p WHERE p.query_id = 1234 ORDER BY p.last_execution_time DESC;
+```
+
+**3. The statement running now, and a recording of the night: `tools\Trace-CopilotNightly.sql`.** For the database administrator, in SSMS (set `@Do` at the top and run it) or with sqlcmd. It looks only at the task's own connections, which SQL Server knows by their application name: `CopilotAuditBackfill`, `CopilotAuditUserDirectory` and `CopilotAuditEnrichment`.
+
+| `@Do` | What it does | Needs |
+|---|---|---|
+| `now` | Each statement the task is running at this moment: its procedure, time, CPU, reads, degree of parallelism, memory, what it waits on, who blocks it, and its plan with the rows each operator has produced so far. Then what its sessions have waited on since they connected. | `VIEW SERVER STATE` |
+| `start` | Starts an Extended Events session, `CopilotNightly`, that records every statement the task runs for a second or longer (`@MinSeconds`), into at most four 50 MB files in SQL Server's log folder. | `ALTER ANY EVENT SESSION` |
+| `read` | The recording so far: time by procedure, then the 50 longest statements with the line they are on. | `VIEW SERVER STATE` |
+| `stop` | Stops recording and removes the session. The `CopilotNightly*.xel` files stay until deleted. | `ALTER ANY EVENT SESSION` |
+
+```powershell
+sqlcmd -S SQLPROD01 -E -v Do=start -i .\tools\Trace-CopilotNightly.sql      # before the run
+sqlcmd -S SQLPROD01 -E -v Do=now -y 200 -i .\tools\Trace-CopilotNightly.sql   # during it
+sqlcmd -S SQLPROD01 -E -v Do=read -y 200 -o .\nightly-statements.txt -i .\tools\Trace-CopilotNightly.sql
+sqlcmd -S SQLPROD01 -E -v Do=stop -i .\tools\Trace-CopilotNightly.sql       # when done
+```
+
+The recording costs little: a statement under the threshold is dropped where it is raised, and no plan is collected. A statement that calls a procedure is listed with the procedure's time in it, so read the lines inside the procedure. The plan as it runs needs SQL Server 2019 or later, or trace flag 7412 on 2016 SP1 and 2017; without it that column is empty and the rest is the same.
+
+**SQL Server Profiler**, where the administrator prefers it, records the same statements. Extended Events above does it with less load on the server, and Microsoft has deprecated Profiler for the database engine, so use it for a look, not for every night:
+
+1. In SQL Server Profiler: *File › New Trace*, connect to the instance, and choose the *Blank* template.
+2. On *Events Selection*, tick *Show all events* and *Show all columns*. Under *Stored Procedures* select **SP:StmtCompleted**; under *TSQL* select **SQL:BatchCompleted**. Keep the columns *TextData*, *ApplicationName*, *DatabaseName*, *ObjectName*, *LineNumber*, *Duration*, *CPU*, *Reads*, *Writes*, *RowCounts*, *SPID*, *StartTime* and *EndTime*.
+3. *Column Filters*: **ApplicationName** *Like* `CopilotAudit%`, and **Duration** *Greater than or equal* `1000` (milliseconds, as the window shows them). Tick *Exclude rows that do not contain values* on both.
+4. On *General*, tick *Save to file* with file rollover, so a night's rows are not kept in the window's memory; then *Run*.
+5. Start the nightly task (or leave the trace until morning), then stop the trace and sort by *Duration*. *ObjectName* and *LineNumber* are the procedure and the line of the statement. In the saved file, *Duration* is in microseconds.
+
+Do not add the *Showplan* events to a trace left running: they are costly on every statement. Take one statement's plan from `now` above, or from Query Store.
+
+**Reading the result.**
+
+| The longest stage, or what the statement shows | What it means | What to do |
+|---|---|---|
+| *Sessions* or *Report tables*, far longer than the night's load explains, in databases on a release before 2.5.4 (the script says so at the end) | Both worked out every license SKU change from the records each night, and the session build looked each session up in them without an index. The time grows with the license history, whatever the night's load. | Upgrade both databases to 2.5.4. |
+| *Sessions … : a full build*, or *Report tables … : a full rebuild*, on an ordinary night | Everything was rebuilt, not the night's days: the first run after an install, a session setting that changed, or a full rebuild that was stopped and is being finished. | Nothing, if it happens once. Every night: the run log of that stage says why. |
+| *Purview download* | The search runs in Microsoft's service, at its pace, and a tenant shares about 200 searches a day. SQL Server has no part in it. | [RUNBOOK.md](../RUNBOOK.md), sections 6 and 7. |
+| *License SKU changes … : every event* on an ordinary night | More than a tenth of the license events were shredded in one night (a catch-up, a CSV import), so every event was worked out again. | Nothing: the next night works out its own events only. |
+| *Shredding license events* far longer than usual, and *An earlier shred did not finish* in the run log | The shred before this one was stopped part way (a task ended by its time limit, a restart), and left events without their properties. This one shreds what that one was shredding too. | Nothing, if it happens once. Each night: the task is being stopped before it ends, so look at its time limit in Task Scheduler. |
+| The run stays at *Another shred of the license events is running: waiting for it to finish* | One shred runs at a time in a license-event database, and another holds the lock: a CSV import, the installer, or a shred started in a query window and canceled there, which keeps the lock while the window is open. | Let the other finish, or close that window. `now`, in the trace script above, shows the session it waits on. |
+| A statement *BLOCKED by session* n, or waiting on `LCK_M_…` | Another session holds what it needs: a report, a backup, an index rebuild at the same hour. | Move one of them to another hour. |
+| A long statement waiting on `PAGEIOLATCH_…`, or on `WRITELOG` | It waits for the data disk, or the log disk. | The storage, or a larger `max server memory`: pages read once stay in memory. |
+| A long statement waiting on `RESOURCE_SEMAPHORE` | It waits for memory to sort or hash in. | Fewer large queries at that hour, or more memory for SQL Server. |
+| A long statement at *DOP 1* that reads many pages | It ran on one core. | Check the instance's `max degree of parallelism` and `cost threshold for parallelism`, and report the statement: some are serial by design. |
+| A long statement that reads far more pages than the rows it returns | The plan read a whole table to find a few rows: statistics that are out of date, or sampled too thinly on a large table. | `UPDATE STATISTICS <table> WITH FULLSCAN` once, then compare the next night; report the statement and its plan. |
+
+In the lab, one night's refresh of a database with 120 million interactions and a license history of 4,000,000 events:
+
+| Stage | 2.5.3 | 2.5.4 |
+|---|---|---|
+| Sessions (60,852 from 329,445 records) | 22 min 36 s | 45 s |
+| Report tables (220,480 interactions, 304,308 license changes) | 17 min 7 s | 2 min 24 s |
+| Dashboard totals | 2 min 35 s | 2 min 9 s |
+| The three together | 42 min 24 s | 5 min 24 s |
+| License SKU changes, in the license step (44,405 events) | none: worked out at each read | 2 to 9 seconds |
+
+To ask for help with a slow night, send the output of the first tool with `-LogPath`, and the `read` result of the third if a recording was made. Neither holds the data: they hold counts, times, the text of the SQL statements and the names of tables and procedures.
+
 ## More than one tenant
 
 A group with several Microsoft 365 tenants loads each into its own pair of databases, with its own app registration, and one dashboard spans them.
@@ -256,7 +349,7 @@ Each tenant's database decides who sees what in it: a person sees a tenant only 
 
 ## Upgrades and renewals
 
-**A new release.** Disable the nightly task and check Admin › Health that no run is in progress. Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once (adding `-LicenseEventDatabases` with the `SessionLicenseDatabases` list if the settings have one), enable the nightly task again, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use. For the dashboard, run `dashboard\Install-CopilotInsights.ps1 -PackagePath <the new copilot-insights zip> -SqlServer SQLPROD01` again: it keeps the site's account, database, `TrustServerCertificate`, tenants, administrators and bindings (2.4.12; before, a run without every first-run parameter reset them).
+**A new release.** Disable the nightly task and check Admin › Health that no run is in progress. Back up both databases, replace the scripts on the job server with the new release's (keep `copilot-audit.settings.psd1` and `logs`), run `.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard` once (adding `-LicenseEventDatabases` with the `SessionLicenseDatabases` list if the settings have one), enable the nightly task again, and read the release notes' upgrade section for any one-off step. The installer does the one-off work itself: for 2.3.0 it catalogs the values of records flattened before, and rebuilds the dashboard's rollups once with Premium use; for 2.5.4 it works out the license SKU changes it keeps from then on, and shreds every license record one last time, to record that the shred finished (`-LicenseEventsShredded` skips that, where the last installer run on the license database ended with `Done.`). After that it shreds only what calls for it: records not shredded yet, and what a shred that was stopped part way was shredding. For the dashboard, run `dashboard\Install-CopilotInsights.ps1 -PackagePath <the new copilot-insights zip> -SqlServer SQLPROD01` again: it keeps the site's account, database, `TrustServerCertificate`, tenants, administrators and bindings (2.4.12; before, a run without every first-run parameter reset them).
 
 With more than one tenant, the installer upgrades only the pair of databases it is given, the first tenant's by default, and nothing else upgrades the others: back up and upgrade each further tenant's pair too. A tenant without its own `LicenseDatabase` or `SessionLicenseDatabases` takes the top-level one, as the nightly run does, and one whose license database is blank has none:
 

@@ -593,7 +593,11 @@ BEGIN
                             THEN LOWER(RIGHT(nm.N, CHARINDEX(N'.', REVERSE(nm.N)) - 1))
                             ELSE LEFT(COALESCE(NULLIF(LTRIM(RTRIM(r.[Type])), N''), N'(not reported)'), 64) END
             FROM #src AS s
-            JOIN audit.RawLogAccessedResource AS r ON r.RecordId = s.RecordId
+            /* 2.5.4: sought, an interaction at a time. Once the table is large its statistics are sampled, and a
+               sample counts far too few distinct records in a key where one record's rows sit together (68,000
+               for 11.6 million, in the lab). Left to choose on that, a night's 220,480 interactions were joined
+               by reading all 70 million rows: four to five minutes, where seeking them takes seven seconds. */
+            JOIN audit.RawLogAccessedResource AS r WITH (FORCESEEK) ON r.RecordId = s.RecordId
             CROSS APPLY (SELECT RTRIM(r.Name) AS N) AS nm;
 
         /* 2.4.8: the interactions that read work content - a resource in SharePoint or OneDrive, Outlook or Teams,

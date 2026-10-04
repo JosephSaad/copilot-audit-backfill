@@ -160,6 +160,8 @@ SELECT RecordId, 0, N'AssignedLicense',
             ELSE N'["[SkuName=SPE_E5, AccountId=t, SkuId=a, DisabledPlans=[]]"]' END,
        'record'
 FROM #ev;
+/* The events are written here, not shredded from records, so the SKU changes sessions and bi read are worked out here too (2.5.4). */
+EXEC audit.usp_RefreshLicenseSkuChange @All = 1;
 
 /* ---- Activity: person-days, then sessions, then prompts ---------------------- */
 

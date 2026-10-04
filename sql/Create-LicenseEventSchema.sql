@@ -107,6 +107,12 @@ IF OBJECT_ID(N'audit.LicenseEvent', N'U') IS NOT NULL
                    WHERE object_id = OBJECT_ID(N'audit.LicenseEvent') AND name = N'IX_LicenseEvent_Chunk')
     EXEC (N'CREATE INDEX IX_LicenseEvent_Chunk ON audit.LicenseEvent (ChunkGroupId, ChunkSeq);');
 
+/* What audit.usp_RefreshLicenseSkuChange asks after every shred: the events shredded since it last ran (2.5.4). */
+IF OBJECT_ID(N'audit.LicenseEvent', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM sys.indexes
+                   WHERE object_id = OBJECT_ID(N'audit.LicenseEvent') AND name = N'IX_LicenseEvent_Shredded')
+    EXEC (N'CREATE INDEX IX_LicenseEvent_Shredded ON audit.LicenseEvent (ShreddedUtc);');
+
 /* One row per chunk fragment, kept until its group can be reassembled. */
 IF OBJECT_ID(N'audit.LicenseEventChunk', N'U') IS NULL
     CREATE TABLE audit.LicenseEventChunk
@@ -137,6 +143,46 @@ IF OBJECT_ID(N'audit.LicenseEventProperty', N'U') IS NULL
 IF COL_LENGTH(N'audit.LicenseEventProperty', N'Source') IS NULL
     ALTER TABLE audit.LicenseEventProperty
         ADD Source VARCHAR(10) NOT NULL CONSTRAINT DF_LicenseEventProperty_Source DEFAULT ('record');
+
+/*
+    The SKUs each change added and removed, worked out once and kept.
+
+    audit.vLicenseSkuChangeFromRecords, below, works them out from the events
+    and their properties each time it is read. That is right, and at size it
+    is slow: the session build and the bi refresh each read every SKU change
+    every night, and over 4,000,000 license events each read took 11 minutes in
+    the lab, however small the night's load.
+    audit.usp_RefreshLicenseSkuChange (Create-LicenseEventProcedure.sql) works
+    out the same rows a set at a time and keeps them here: after each shred,
+    for the events shredded since it last ran and the records raised with
+    them. One row per record, SKU and direction. audit.vLicenseSkuChange reads
+    this table, so its readers need no change.
+*/
+IF OBJECT_ID(N'audit.LicenseSkuChange', N'U') IS NULL
+    CREATE TABLE audit.LicenseSkuChange
+    (
+        RecordId         VARCHAR(64)    NOT NULL,
+        Sku              NVARCHAR(200)  NOT NULL,
+        Change           NVARCHAR(7)    NOT NULL,   -- 'Added' | 'Removed'
+        CreatedDateTime  DATETIME2(0)   NOT NULL,   -- UTC
+        ActivityDate     DATE           NOT NULL,
+        ActorUpn         NVARCHAR(512)  NULL,
+        TargetUpn        NVARCHAR(512)  NULL,       -- the record's own, or the one a record raised with it carries
+        FromChunks       INT            NOT NULL,   -- 1: read from a reassembled chunk group
+        CONSTRAINT PK_LicenseSkuChange PRIMARY KEY (RecordId, Sku, Change)
+    );
+
+/* One row per run of audit.usp_RefreshLicenseSkuChange. No row: the changes have never been worked out here. */
+IF OBJECT_ID(N'audit.LicenseSkuChangeRun', N'U') IS NULL
+    CREATE TABLE audit.LicenseSkuChangeRun
+    (
+        RunId       INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_LicenseSkuChangeRun PRIMARY KEY,
+        StartedUtc  DATETIME2(0)  NOT NULL,
+        EndedUtc    DATETIME2(0)  NOT NULL,
+        SinceUtc    DATETIME2(0)  NULL,       -- events shredded from then on, and the records raised with them; NULL: every event
+        Events      INT           NOT NULL,   -- events worked out again
+        Changes     INT           NOT NULL    -- SKU changes kept for them
+    );
 
 /* ---- Views ------------------------------------------------------------- */
 
@@ -217,9 +263,14 @@ WHERE (e.ChunkSeq IS NULL OR e.ChunkSeq = 1)
     [SkuName=Microsoft_365_Copilot, AccountId=..., SkuId=..., DisabledPlans=[...]]
     and the lists arrive either as a JSON array (chunked events) or as a
     string holding one (ModifiedProperties); both parse the same way here.
+
+    This view is the rule, read from the records each time: the reference
+    audit.LicenseSkuChange is checked against (tests/Test-SqlIntegration.ps1),
+    and what audit.vLicenseSkuChange reads until that table has been worked
+    out. It was audit.vLicenseSkuChange itself before the table.
 */
 EXEC (N'
-CREATE OR ALTER VIEW audit.vLicenseSkuChange
+CREATE OR ALTER VIEW audit.vLicenseSkuChangeFromRecords
 AS
 WITH lists AS (
     SELECT c.RecordId, c.CreatedDateTime, c.ActivityDate, c.ActorUpn, c.TargetUpn, c.FromChunks,
@@ -257,6 +308,27 @@ CROSS APPLY (
     WHERE o.RecordId = l.RecordId AND o.Side = N''old''
       AND NOT EXISTS (SELECT 1 FROM skus AS n WHERE n.RecordId = l.RecordId AND n.Side = N''new'' AND n.Sku = o.Sku)
 ) AS d;');
+
+/*
+    What the session build and the bi refresh read: the kept rows.
+
+    In a database that has license events whose changes have never been worked
+    out - an upgrade, between this script and Create-LicenseEventProcedure.sql,
+    which works them out and then points this view at the table - it still
+    reads the records, so a reader is never handed an empty history.
+*/
+IF EXISTS (SELECT 1 FROM audit.LicenseSkuChangeRun) OR NOT EXISTS (SELECT 1 FROM audit.LicenseEvent)
+    EXEC (N'
+CREATE OR ALTER VIEW audit.vLicenseSkuChange
+AS
+SELECT RecordId, CreatedDateTime, ActivityDate, ActorUpn, TargetUpn, FromChunks, Sku, Change
+FROM audit.LicenseSkuChange;');
+ELSE
+    EXEC (N'
+CREATE OR ALTER VIEW audit.vLicenseSkuChange
+AS
+SELECT RecordId, CreatedDateTime, ActivityDate, ActorUpn, TargetUpn, FromChunks, Sku, Change
+FROM audit.vLicenseSkuChangeFromRecords;');
 
 /*
     Provisioning and revocation per user. "Revoked" is inferred from the
