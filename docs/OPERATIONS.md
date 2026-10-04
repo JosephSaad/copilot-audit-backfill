@@ -38,12 +38,24 @@ Nothing needs doing while it is healthy: the nightly task loads and builds every
 | Directory coverage | **Admin › Health**, *Directory and security model* | 95% or more of people matched to AD and placed under the top |
 | The app certificate and audit searches | **Admin › Health**, *Certificate and audit searches* | Certificate more than 30 days from expiry; no failed searches, few waiting |
 | Gaps in AD | **Admin › Directory quality** | Few people without a manager, department, title or email |
+| Every report built ahead this morning (2.5.1) | **Admin › Health**, *Report speed*, on each web server; or `precache\precache.log` in the site's folder | *Last pre-cache* today, *built*, the slowest page from memory under a second |
 
 When the last run failed, its step and last log lines are on Admin › Health and in the pipeline alert; the full log is `logs\nightly-<date>.log` on the job server. The next night's run resumes it; to resume now, run `.\Invoke-CopilotPipeline.ps1` on the job server. [RUNBOOK.md](../RUNBOOK.md) lists every error and its fix.
 
 **Every page says the audit log could not be written (HTTP 503, 2.4.12).** The dashboard serves nothing it cannot record in `dash.AuditLog`, so when the database takes reads but not writes, every page, export and API call is refused with that message, Admin › Health too. Check the SQL Server: a full transaction log or disk, a database set read-only, or the site's account without INSERT on `dash.AuditLog` (the installer's `-GrantDatabaseAccess` grants it again). Pages come back as soon as the write works; nothing needs restarting.
 
 **Several web servers.** Set `Insights:DataProtectionKeysPath` to a share on every web server, or forms posted to a server other than the one that drew them are refused (HTTP 400); change `appsettings.Production.json` on every server; each keeps its own report cache. [DASHBOARD.md](DASHBOARD.md#several-web-servers) has the steps.
+
+**The morning pre-cache (2.5.1).** Every day at 07:00 Eastern Time (EST in winter, EDT in summer), the scheduled task *Copilot Insights pre-cache* on each web server runs `Invoke-InsightsPrecache.ps1` from the site's folder. The site builds every report page again, for the whole organization at every period, reading each query afresh, then builds each page once more from memory and times it. Whoever opens a page during the build gets the result kept before, so nobody waits. Each run adds its result to `precache\precache.log` in the site's folder, and the task's last result is its exit code: 0 built, every page from memory in under a second; 2 built, with the pages that took longer listed; 1 not built, with why. The pages for a part of the organization, and a detail page (one app, one agent), are kept from the first time someone opens them; the pre-cache builds the whole organization's. To run it now, after a restart for example, run it by hand in a PowerShell window as an administrator, from the site's folder (`C:\inetpub\CopilotInsights` unless installed elsewhere): it waits, then says how it went.
+
+```powershell
+cd C:\inetpub\CopilotInsights
+.\Invoke-InsightsPrecache.ps1                                                     # build every page now, and wait
+.\Invoke-InsightsPrecache.ps1 -Register -At 06:30 -TimeZone 'Eastern Standard Time'   # another time
+.\Invoke-InsightsPrecache.ps1 -Unregister                                         # no pre-cache
+```
+
+The dashboard installer schedules it (07:00 Eastern unless given `-PrecacheAt` and `-PrecacheTimeZone`), and a later run keeps the time it has. *Not built: the site did not take the request* means the app pool is stopped, or the site cannot change its `precache` folder: run the installer again, which grants it.
 
 ## Access and permissions
 
@@ -276,7 +288,7 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 
 | Admin page | What it is for |
 |---|---|
-| Admin › Health | Report speed (when the report pages were last built ahead on this web server, and how the cache works), pipeline runs and each step's freshness, directory coverage, the latest day with data, the app certificate, audit searches waiting, and a manual refresh |
+| Admin › Health | Report speed (when the report pages were last built ahead on this web server, the last morning pre-cache and its slowest page from memory, and how the cache works), pipeline runs and each step's freshness, directory coverage, the latest day with data, the app certificate, audit searches waiting, and a manual refresh |
 | Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles, checking someone's access |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, and everything sent or not |

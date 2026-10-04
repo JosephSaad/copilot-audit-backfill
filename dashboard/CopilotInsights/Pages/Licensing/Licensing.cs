@@ -14,27 +14,22 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         var t = await m.TotalsAsync(Ctx);
-        var tr = await m.TrendSeriesAsync(Ctx);
+        var tr = await m.TrendAsync(Ctx);
         var unused = await Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 WHERE ld.DateKey = @k1
   AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0)
   AND {CopilotInsights.Data.ProtectedLevels.Not("(SELECT du.UserPrincipalName FROM bi.DimUser AS du WHERE du.UserKey = ld.UserKey)")};", Ctx.Args());
-        /* The period's own counts for the KPIs, and the chart's query from the lead-in a 28-day average needs (2.5.0). */
-        var (added, removed) = (await Db.QueryAsync<(int Added, int Removed)>($@"
-SELECT ISNULL(SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), 0), ISNULL(SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END), 0)
-FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimSku AS k ON k.SkuKey = f.SkuKey AND k.IsCopilot = 1
-WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
         var changes = await Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END)
 FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimSku AS k ON k.SkuKey = f.SkuKey AND k.IsCopilot = 1
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @kt0 AND @k1
+WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
-        var changeAt = changes.ToLookup(c => c.Bucket);
-        var start = tr.Shown.FirstOrDefault()?.Licensed ?? 0;
+        var start = tr.FirstOrDefault()?.Licensed ?? 0;
+        var added = changes.Sum(c => c.Added);
+        var removed = changes.Sum(c => c.Removed);
 
         Kpis.Add(new("Licensed today", Num(t.LicensedNow), $"{(t.LicensedNow - start >= 0 ? "+" : "")}{t.LicensedNow - start:#,0} since the start of the period"));
         Kpis.Add(new("Assigned in the period", Num(added)));
@@ -42,15 +37,15 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new("In use", Pct(Ratio(t.LicensedNow - unused, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days"));
         Kpis.Add(new($"Unused for {Ctx.InactiveDays} days", Num(unused), "candidates to reclaim", unused > 0 ? "crit" : null));
 
-        /* A stock, as counted at the end of each day or week: an average would only lag it. */
-        Panels.Add(new("Licenses held", Chart.Line(Labels(), [new Series("Licensed", tr.Shown.Select(w => (double?)w.Licensed).ToList(), 1)], Fmt.Count, "Licenses held"),
-            $"People holding a Copilot license at the end of each day or week, as counted, not averaged. {PointNote}", "half"));
+        var buckets = Buckets();
+        Panels.Add(new("Licenses held", Chart.Line(Labels(), [new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1)], Fmt.Count, "Licenses held"),
+            $"People holding a Copilot license at the end of each day or week. {TrendNote}", "half"));
         Panels.Add(new("Assigned and removed",
             Chart.Columns(Labels(), [
-                new Series("Assigned", Average(b => changeAt[b.Key].Sum(c => c.Added)), 1),
-                new Series("Removed", Average(b => changeAt[b.Key].Sum(c => c.Removed)), 2),
-            ], Fmt.Average, "Licenses assigned and removed, 28-day average", stacked: false),
-            $"From the license history. A person moved between two Copilot SKUs counts once each way. {TrendNote}", "half"));
+                new Series("Assigned", buckets.Select(b => (double?)changes.Where(c => c.Bucket == b.Key).Sum(c => c.Added)).ToList(), 1),
+                new Series("Removed", buckets.Select(b => (double?)changes.Where(c => c.Bucket == b.Key).Sum(c => c.Removed)).ToList(), 2),
+            ], Fmt.Count, "Licenses assigned and removed", stacked: false),
+            "From the license history. A person moved between two Copilot SKUs counts once each way.", "half"));
 
         var skus = await Db.QueryAsync<(string Sku, int N)>($@"
 SELECT ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)'), COUNT(*)
@@ -172,7 +167,7 @@ a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, COUNT(CASE WHEN ud.Interacti
 
     protected override async Task BuildAsync()
     {
-        var tr = await m.TrendSeriesAsync(Ctx);
+        var tr = await m.TrendAsync(Ctx);
         var depts = await Db.QueryAsync<(string Dept, int People, int Users, int Heavy)>($@"
 WITH {Unlicensed}
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*),
@@ -188,7 +183,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         Kpis.Add(new("People without a license", Num(depts.Sum(d => d.People)), $"enabled accounts in {Here}"));
 
         Panels.Add(new("Copilot Chat users without a license",
-            Chart.Line(Labels(), [new Series("Copilot Chat only", tr.Average(w => w.ActiveUnlicensed), 2)], Fmt.Average, "People without a license using Copilot Chat, 28-day average"),
+            Chart.Line(Labels(), [new Series("Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People without a license using Copilot Chat"),
             TrendNote, "half"));
         var byDept = FoldSmall(depts, d => d.People, small => ("Smaller departments", small.Sum(x => x.People), small.Sum(x => x.Users), small.Sum(x => x.Heavy)), out _)
             .Where(d => d.Users > 0).OrderByDescending(d => d.Heavy).ThenByDescending(d => d.Users).Take(20).ToList();

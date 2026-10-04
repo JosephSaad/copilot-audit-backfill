@@ -68,6 +68,13 @@ public sealed class InsightsOptions
     public int WarmStartDelaySeconds { get; set; } = 20;
 
     /// <summary>
+    /// The folder where Invoke-InsightsPrecache.ps1 leaves a request to build every report page again, and the site
+    /// says how the build went (2.5.1, see <see cref="PageWarmer"/>). Empty: the site's own precache folder, which
+    /// Install-CopilotInsights.ps1 lets the app pool write.
+    /// </summary>
+    public string? PrecacheFolder { get; set; }
+
+    /// <summary>
     /// The background sender: alerts and scheduled digests (Admin > Alerts and digests). On by
     /// default; with several web servers it runs on one at a time. Off for a test copy of the site.
     /// </summary>

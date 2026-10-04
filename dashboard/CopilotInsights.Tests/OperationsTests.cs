@@ -480,7 +480,7 @@ public class MappingFileTests
         Assert.Empty(CopilotInsights.Pages.Nav.Near(all, "/zz"));
         Assert.Empty(CopilotInsights.Pages.Nav.Near(all, null));
         var open = all.Where(g => g.Role is null).ToList();
-        Assert.Empty(CopilotInsights.Pages.Nav.Near(open, "/licensing/unused").Where(p => p.Path.StartsWith("/licensing")));
+        Assert.DoesNotContain(CopilotInsights.Pages.Nav.Near(open, "/licensing/unused"), p => p.Path.StartsWith("/licensing"));
     }
 
     [Fact]

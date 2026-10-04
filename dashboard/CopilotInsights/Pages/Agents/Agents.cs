@@ -34,15 +34,14 @@ SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, SUM
 FROM u JOIN dash.Agent AS ag ON ag.AgentKey = u.AgentKey
 WHERE ag.AgentSource <> N'(no agent)'
 GROUP BY ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc;", Ctx.Args());
-        /* From the lead-in a 28-day average needs (2.5.0). */
         var trend = await Db.QueryAsync<(int AgentKey, DateTime Bucket, int People)>($@"
 SELECT f.AgentKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 JOIN bi.DimAgent AS a ON a.AgentKey = f.AgentKey AND a.AgentSource <> N'(no agent)'
-WHERE f.DateKey BETWEEN @kt0 AND @k1
+WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY f.AgentKey, {Ctx.BucketSql("d")};", Ctx.Args());
-        var peopleAt = trend.ToLookup(t => (t.AgentKey, t.Bucket), t => t.People);
+        var buckets = Buckets();
         var isNew = (Row r) => r.FirstSeenUtc.Date >= Ctx.Start;
 
         Kpis.Add(new("Agents used", Num(rows.Count), $"{rows.Count(r => r.AgentSource == "Copilot Studio"):#,0} built in Copilot Studio"));
@@ -53,17 +52,16 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
         Kpis.Add(new("Interactions through agents", Num(rows.Sum(r => r.N))));
 
         /* People per agent are a group at every point too (2.4.12): agents with fewer than the minimum in the period are
-           left out, and a point under it is a gap, as the table's counts are. A point is the 28-day average (2.5.0), under
-           the same rule: an average under the minimum is a gap (see TrendAverage.PeopleAtMin). */
-        List<double?> Points(int agentKey) => Average(b => peopleAt[(agentKey, b.Key)].Sum()).Select(PeopleAtMin).ToList();
+           left out, and a point under it is a gap, as the table's counts are. */
+        double? Point(int agentKey, DateTime bucket) => PointAtMin(trend.Where(t => t.AgentKey == agentKey && t.Bucket == bucket).Sum(t => t.People));
         var top = rows.Where(r => AtLeastMin(r.People) is not null).OrderByDescending(r => r.People).Take(6).ToList();
         Panels.Add(new("People using the top agents",
-            Chart.Line(Labels(), top.Select((r, i) => new Series(r.AgentName, Points(r.AgentKey), i + 1)).ToList(), Fmt.Average, "People per agent, 28-day average"),
-            $"The six agents with the most people in the period. A point where fewer than {Ctx.MinGroupSize} people used an agent {PerPoint}, on average, is left out. {TrendNote}"));
+            Chart.Line(Labels(), top.Select((r, i) => new Series(r.AgentName, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), i + 1)).ToList(), Fmt.Count, "People per agent"),
+            $"The six agents with the most people in the period. A point where fewer than {Ctx.MinGroupSize} people used an agent is left out. {TrendNote}"));
 
         var t = new Table
         {
-            Headers = ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people, 28-day average)"],
+            Headers = ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
             Numeric = new HashSet<int> { 4, 5, 6, 7 }, EmptyText = "No agents were used in the period.",
         };
         foreach (var r in rows.OrderByDescending(r => r.People))
@@ -71,10 +69,10 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
                 new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, r.Owner, r.FirstSeenUtc.Date,
                 AtLeastMin(r.People), AtLeastMin(r.People) is null ? null : Pct(Ratio(r.Returning, r.People)), r.N,
                 AtLeastMin(r.People) is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
-                AtLeastMin(r.People) is null ? null : Chart.Sparkline(Points(r.AgentKey), r.AgentName),
+                AtLeastMin(r.People) is null ? null : Chart.Sparkline(buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName),
             ]);
         Panels.Add(new("All agents", t.Render(),
-            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Trend: the average number of people {PerPoint}, over the 28 days up to each point; a point under {Ctx.MinGroupSize} is left out. Names and owners come from Admin › Reference data. Select an agent for its detail."));
+            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from Admin › Reference data. Select an agent for its detail."));
     }
 }
 
@@ -119,14 +117,12 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         AgentName = agents.First(a => a.AgentKey == key).AgentName;
         var args = Ctx.Args(new { agent = key });
 
-        /* From the lead-in a 28-day average needs (2.5.0). */
         var tr = await Db.QueryAsync<(DateTime Bucket, int People, long N)>($@"
 SELECT {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey), COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @kt0 AND @k1
+WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")};", args);
-        var trAt = tr.ToLookup(x => x.Bucket);
         var tot = (await Db.QueryAsync<(int People, long N, int Returning, int NewPeople)>($@"
 WITH u AS (SELECT f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Days, MIN(f.DateKey) AS FirstKey
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AgentKey = @agent AND f.DateKey <= @k1 GROUP BY f.UserKey),
@@ -141,11 +137,12 @@ SELECT (SELECT COUNT(*) FROM p), (SELECT ISNULL(SUM(N), 0) FROM p), (SELECT COUN
         Kpis.Add(new("Came back", few ? "—" : Pct(Ratio(tot.Returning, tot.People)), "used it on more than one day"));
         Kpis.Add(new("Interactions", Num(tot.N), tot.People > 0 && !few ? $"{tot.N / (double)tot.People:0.0} per person" : null));
 
-        /* Each point at the minimum group size or more (2.4.12), as the KPI above is: the 28-day average of people (2.5.0) under the same rule. */
-        Panels.Add(new("People using it", Chart.Line(Labels(), [new Series("People", Average(b => trAt[b.Key].Sum(x => x.People)).Select(PeopleAtMin).ToList(), 1)], Fmt.Average, "People using the agent, 28-day average"),
-            $"A point where fewer than {Ctx.MinGroupSize} people used it {PerPoint}, on average, is left out. {TrendNote}", "half"));
-        Panels.Add(new("Interactions", Chart.Columns(Labels(), [new Series("Interactions", Average(b => trAt[b.Key].Sum(x => x.N)), 1)], Fmt.Average, "Agent interactions, 28-day average"),
-            TrendNote, "half"));
+        var buckets = Buckets();
+        /* Each point at the minimum group size or more (2.4.12), as the KPI above is. */
+        Panels.Add(new("People using it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => PointAtMin(tr.Where(x => x.Bucket == b.Key).Sum(x => x.People))).ToList(), 1)], Fmt.Count, "People using the agent"),
+            $"A point where fewer than {Ctx.MinGroupSize} people used it is left out. {TrendNote}", "half"));
+        Panels.Add(new("Interactions", Chart.Columns(Labels(), [new Series("Interactions", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.N)).ToList(), 1)], Fmt.Count, "Agent interactions"),
+            null, "half"));
 
         var depts = await Db.QueryAsync<(string Dept, int People, long N)>($@"
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(DISTINCT f.UserKey), COUNT_BIG(*)

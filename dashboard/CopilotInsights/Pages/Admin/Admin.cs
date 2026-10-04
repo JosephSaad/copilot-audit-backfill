@@ -179,7 +179,14 @@ FROM w;")).Single();
             : warm is null ? "On. The pages have not been built ahead yet on this web server; it starts shortly after the site does."
             : warm.EndedUtc is null ? $"On. Building the pages ahead now: {warm.Pages:#,0} page views so far, started {When(warm.StartedUtc)}."
             : $"On. Built ahead {When(warm.EndedUtc)}: {warm.Pages:#,0} page views in {warm.Seconds / 60:0.#} minutes{(warm.Failed > 0 ? $", {warm.Failed:#,0} not built" : "")}.";
-        Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
+        /* 2.5.1: the daily pre-cache, which Invoke-InsightsPrecache.ps1 asks for. */
+        var pre = warmer.LastPrecache;
+        var slowest = pre?.Tenants.Select(x => x.SlowestFromMemorySeconds).DefaultIfEmpty(0).Max() ?? 0;
+        var over = pre?.Tenants.Sum(x => x.OverOneSecond) ?? 0;
+        var precache = pre is null ? "No pre-cache on this web server since the site started (Invoke-InsightsPrecache.ps1; the installer schedules it daily)."
+            : pre.EndedUtc is null ? $"Pre-cache asked for {When(pre.RequestedUtc ?? pre.StartedUtc)}: building every page again now."
+            : $"Last pre-cache {When(pre.EndedUtc)}: {pre.Outcome}, {pre.Tenants.Sum(x => x.Pages):#,0} page views built again; from memory the slowest took {slowest:0.00} s{(over > 0 ? $", {over:#,0} over a second" : "")}.";
+        Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p>{E(precache)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
             "A report page's queries are kept in memory until the data changes: a refresh, a finished pipeline run, a license or directory read, or a change to a setting or reference data. " +
             "After each change, and again when the results expire, every report is built once in the background for the whole organization, at every period, so the top two levels and Organization holders get each page at once. " +
             "A manager's own part of the organization is kept from the first time someone opens it. A list edited all day (flag triage, exported license actions, confirmed accounts) has a version of its own, " +

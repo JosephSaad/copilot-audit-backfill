@@ -2,7 +2,7 @@
 
 From an empty SQL Server to a Power BI model refreshed every night, with a Copilot agent that answers questions about it. Microsoft 365 Copilot audit records come from Purview, licenses from Microsoft Graph, and the organization from on-premises Active Directory.
 
-Written for a new install of release 2.5.0. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
+Written for a new install of release 2.5.1. Hands-on time is about a day, plus approvals. [RUNBOOK.md](../RUNBOOK.md) has the reference detail: limits, tuning and the full troubleshooting table. [SCHEMA.md](SCHEMA.md) lists every table and view the scripts create, column by column.
 
 - [What you're deploying](#what-youre-deploying)
 - [Decide these first](#decide-these-first)
@@ -145,14 +145,14 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.5.0-offline-win-x64.zip` and its `.sha256` from the [v2.5.0 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.5.0). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.5.1-offline-win-x64.zip` and its `.sha256` from the [v2.5.1 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.5.1). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.5.0-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.5.1-offline-win-x64.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.5.0-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.5.1-offline-win-x64' 'CopilotAudit'
 cd D:\CopilotAudit
 ```
 
@@ -699,10 +699,10 @@ The web dashboard, on a Windows Server with IIS: every persona's pages, alerts a
 
 *Web server, as an administrator, in Windows PowerShell 5.1. About 15 minutes.*
 
-The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.5.0.zip` to the web server, then from the source package's folder:
+The Copilot database needs the dashboard's objects: run step 3 or 8 with `-Dashboard`, or let the installer create them with `-GrantDatabaseAccess`. Copy the release's source package and its `copilot-insights-v2.5.1.zip` to the web server, then from the source package's folder:
 
 ```powershell
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.1.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -AdminPrincipal 'USERS\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
 ```
 
@@ -714,7 +714,7 @@ Before running it, the web server needs:
 - **An account for the app pool.** A gMSA, or an account with a password passed as `-AppPoolIdentity 'CORP\svc-insights' -AppPoolCredential (Get-Credential)`. `-AdminPrincipal` is different: the people, or better a group of them, who administer the site in a browser. Don't use a service account there.
 - **Several web servers behind a load balancer (optional).** Install on each, with the same `-AppPoolIdentity`, then give them one set of form keys on a share (`Insights:DataProtectionKeysPath`, 2.4.12), or use session affinity; otherwise forms posted to another server are refused. Each server keeps its own report cache and builds its own pages. [DASHBOARD.md](DASHBOARD.md#several-web-servers) has the steps.
 
-The installer installs the IIS role services (with Application Initialization, so the site starts with IIS and sends alerts and digests with nobody signed in), checks for the ASP.NET Core 10 Hosting Bundle, copies the site, sets Windows authentication, starts the app pool, registers the *Copilot Insights* event log source for alerts, and adds the app pool's account to the database role `CopilotInsightsApp`, which carries every grant the site needs from here on.
+The installer installs the IIS role services (with Application Initialization, so the site starts with IIS and sends alerts and digests with nobody signed in), checks for the ASP.NET Core 10 Hosting Bundle, copies the site, sets Windows authentication, starts the app pool, registers the *Copilot Insights* event log source for alerts, and adds the app pool's account to the database role `CopilotInsightsApp`, which carries every grant the site needs from here on. It also schedules *Copilot Insights pre-cache* (2.5.1), which builds every report page ahead each day at 07:00 Eastern Time, whatever zone the server's clock is in: `-PrecacheAt 06:30` or `-PrecacheTimeZone 'GMT Standard Time'` moves it, and `-PrecacheAt ''` leaves it out ([OPERATIONS.md](OPERATIONS.md#every-day)).
 
 ### Step 23. The first administrator and the settings
 
@@ -739,7 +739,7 @@ For a group with several Microsoft 365 tenants, each gets its own app registrati
 .\tools\Add-CopilotTenant.ps1 -Name Fabrikam -TenantId fabrikam.onmicrosoft.com -TargetDomain fabrikam.local
 .\Invoke-CopilotPipeline.ps1 -History -Tenant Fabrikam
 # web server: every tenant, the first one first
-.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.0.zip -SqlServer SQLPROD01 -Database CopilotAudit `
+.\dashboard\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.1.zip -SqlServer SQLPROD01 -Database CopilotAudit `
     -Tenant 'Contoso=CopilotAudit','Fabrikam=CopilotAudit_Fabrikam' -GrantDatabaseAccess
 ```
 
@@ -883,6 +883,20 @@ The test found five problems, fixed in 2.4.11:
 - **The CSV of Upgrade, train or revoke** failed past about 1,050 people.
 
 Upgrading the 40-million database from before 2.4.8 to 2.4.10 took 70 minutes, 63 of them the one full `bi` refresh that release asks for.
+
+### 120 million interactions: 2.5.1 on SQL Server Enterprise
+
+On 4 October 2026 the 2.5.1 dashboard ran against the same 120-million-interaction database, its SQL Server 2025 instance now Enterprise Developer edition (8 cores, 31 GB of RAM, MAXDOP 6), with the site on the same machine under Kestrel rather than IIS, and its cache on, as in production.
+
+| What ran | Time | Result |
+|---|---:|---|
+| Building every report page ahead when the site started (432 page views) | 10 min 30 s | None failed |
+| The morning pre-cache, run by hand while the site's own build was under way | 14 min 21 s | The site's build gave way to it within a page; 432 page views built again, reading every query afresh, none failed, while other work ran on the server; from memory each took 0.05 seconds at most; exit code 0 |
+| Every page as the head of the organization, at six periods, from memory (420 report page views, twice) | | Median 0.01 seconds, slowest 0.06. Before the team list was kept with the reports (2.4.12 to 2.5.0): median 0.42 seconds, slowest 0.77 |
+| A page with a choice (an app, an agent, a sorted or paged list) at 365 days | | First visit up to 5.1 seconds (Security › Flagged interactions, every status); from memory, 0.01 seconds |
+| Admin pages, which are never kept | | 0.57 seconds at most |
+| Inside a division of 70,000, every report page at 30 and 365 days (140 page views) | 153 s in all | First visit: median 0.62 seconds, slowest 7.7 (the Overview at 365 days). From memory: median 0.05, slowest 0.08 |
+| Inside a team of 4,680, the same | 64 s in all | First visit: median 0.28 seconds, slowest 2.0. From memory: median 0.05, slowest 0.10 |
 
 ## Not yet proven in a live deployment
 

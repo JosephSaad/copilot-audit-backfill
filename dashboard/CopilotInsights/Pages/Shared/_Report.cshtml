@@ -164,7 +164,7 @@
     {
         <section class="panel @p.Size">
             <div class="phead">
-                <h2>@InfoTip.After(p.Title, guide is not null ? p.Sub : null)@(p.Averaged ? new Microsoft.AspNetCore.Html.HtmlString(" <span class=\"avg\">28-day average</span>") : Microsoft.AspNetCore.Html.HtmlString.Empty)</h2>
+                <h2>@InfoTip.After(p.Title, guide is not null ? p.Sub : null)</h2>
                 @if (p.Csv is not null)
                 {
                     <a class="csv" href="@p.Csv">Download CSV</a>
