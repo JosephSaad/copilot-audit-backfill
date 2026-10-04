@@ -733,7 +733,7 @@ Indexes and constraints:
 | 3 | `SkuPartNumber` | nvarchar(100) | yes |  |  |
 | 4 | `LicensedSinceUtc` | datetime2(0) | yes |  |  |
 | 5 | `Division` | nvarchar(256) | yes |  |  |
-| 6 | `Department` | nvarchar(64) | yes |  |  |
+| 6 | `Department` | nvarchar(200) | yes |  |  |
 | 7 | `Office` | nvarchar(128) | yes |  |  |
 | 8 | `Country` | nvarchar(128) | yes |  |  |
 | 9 | `ManagerUPN` | nvarchar(256) | yes |  |  |
@@ -753,7 +753,7 @@ Indexes and constraints:
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
-| 1 | `Department` | nvarchar(64) | **no** |  |  |
+| 1 | `Department` | nvarchar(200) | **no** |  |  |
 | 2 | `ActivityDate` | date | **no** |  |  |
 | 3 | `AppHost` | nvarchar(100) | yes |  |  |
 | 4 | `Interactions` | bigint | yes |  |  |

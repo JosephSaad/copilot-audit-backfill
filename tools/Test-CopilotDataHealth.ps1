@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Read-only health check of the Copilot audit databases (release 2.4.12): what has been
+    Read-only health check of the Copilot audit databases (release 2.5.0): what has been
     loaded, from where, what is missing or behind, and what to run.
 
 .DESCRIPTION
@@ -47,7 +47,7 @@ $script:NotRun = 0
 $script:DataEnd = $null
 $script:botSince = $null
 # Every installer finding comes to the same one run, which does all of them (upgrade, shred, flatten, agent ids).
-$script:Install = ".\Install-CopilotAudit.ps1 -SqlServer $SqlServer -Dashboard -LicenseEventDatabases $LicenseDatabase, with the nightly task disabled. It brings both databases to 2.4.12 where they aren't, shreds every license and Copilot Studio record, flattens any record never flattened and reads the agent ids, as the findings above need. Add -ReportingAccount <gateway account> on the first 2.4.12 run."
+$script:Install = ".\Install-CopilotAudit.ps1 -SqlServer $SqlServer -Dashboard -LicenseEventDatabases $LicenseDatabase, with the nightly task disabled. It brings both databases to this release where they aren't, shreds every license and Copilot Studio record, flattens any record never flattened and reads the agent ids, as the findings above need. Add -ReportingAccount <gateway account> on the first 2.4.12 run."
 
 function New-Conn([string] $Db) {
     $b = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
@@ -312,7 +312,7 @@ if ($lic) {
         Write-Info "Operations recorded: $n."
         if ($recorded -notmatch 'BotCreate') {
             Write-Act 'The database is loaded with the license operations only: Copilot Studio''s authoring records (who built and published each agent) are not fetched.' `
-                "Run the 2.4.12 nightly task once (Start-ScheduledTask -TaskName 'Copilot audit - nightly'): its license step passes all 18 operations, and the database takes the larger list from then on. Do not run -Incremental by hand with the 4 license operations: a database holding the 18 refuses fewer, and one holding 4 stays without the agents' records."
+                "Run the nightly task once, from release 2.4.12 or later (Start-ScheduledTask -TaskName 'Copilot audit - nightly'): its license step passes all 18 operations, and the database takes the larger list from then on. Do not run -Incremental by hand with the 4 license operations: a database holding the 18 refuses fewer, and one holding 4 stays without the agents' records."
         } else { Write-Ok 'Loaded with the license and Copilot Studio operations (the pipeline''s 18).' }
     } else { Write-Info 'No Graph backfill recorded here.' }
 

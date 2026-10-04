@@ -4,9 +4,44 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.5.0] - Unreleased
+## [2.5.0] - 2026-10-03
+
+Trends that read as trends, and a dashboard that shows only the controls that matter. Every trend
+chart is now a 28-day moving average, so a weekend or a holiday no longer dips a line, and says
+so. Admin › Health drops its *CSV import* step, Admin › Value names opens on the values seen most,
+and a directory that keeps the department in a custom attribute loads without an edit to the
+script. The read-only health check is new, and no longer cries wolf.
+
+To upgrade: replace the scripts, run `Install-CopilotAudit.ps1 -Dashboard` once, and install the
+dashboard package over 2.4.12. The installer widens `audit.UserDirectory.Department` to 200
+characters (the nightly directory load would too); nothing is rebuilt, and no KPI, table or digest
+figure changes. If your directory keeps the department in another attribute, set
+`DepartmentAttribute` in `copilot-audit.settings.psd1` first, or pass `-DepartmentAttribute` to
+`Install-CopilotJobServer.ps1` (see *Added*).
 
 ### Changed
+- **Trend charts show a 28-day moving average, so a weekend or a holiday no longer dips a line.**
+  Each point is the average of the 28 days up to it: a day and the 27 before it for a period of 30
+  days or less, a Saturday-to-Friday week and the three before it for a longer one. A share or a
+  rate (the Chat and agent share, the labeled share, sessions with a follow-up, messages per
+  prompt, the signal rate by unit) is worked out over the whole window, the numerators over the
+  denominators, so a quiet day weighs little and the figure agrees with the period's own. The
+  charts read the 27 days (three weeks) before the period too, so the first point has its whole
+  window; a week not yet over is left out and its point is blank. It covers the trend charts,
+  sparklines and heatmaps of the Overview, Organization, Apps and agents, Board pack, Use cases,
+  Funnel and trend, Usage by license, Agents, Apps, Build and publish, Security, Compliance, Models
+  and web search, Engagement, License inventory, Demand for licenses, Countries and offices,
+  Working patterns, Agent hand-offs, Conversation depth and Copilot controls. Every chart that
+  averages says so beside its title, in a *28-day average* tag, and in its note; a table's trend
+  column says so in its heading, and a line that is a count at a moment, such as the license holders
+  on the Overview, says *(as counted)*. A test fails if a page averages without saying so. Not
+  averaged: the licenses held (a count at a moment, which an average would only lag), Adoption rate
+  (already a rolling 28 days since 2.4.9), the weekday and hour heatmaps, retention and cohorts, the
+  forecast and the license pool. Every figure over the period, the KPIs, the bars and the tables,
+  stays the period's own sum, and the data API and the digests keep the days and weeks as measured.
+  People per agent keep the minimum group size: a point is shown where the average is at least the
+  minimum, which means at least that many different people used it in the window. The first 28 days
+  of the data read low, with fewer than 28 days behind them, as Adoption rate does.
 - **Admin › Health no longer has a *CSV import* step.** Loading from Purview exports is mostly a
   first-time job, so its row in the Pipeline table, a *Not used* line on nearly every site, is
   gone. *Audit download* stays, and `tools\Test-CopilotDataHealth.ps1` still reads CSV imports.
@@ -43,6 +78,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Install-CopilotJobServer.ps1`, so the nightly run reads the same; a tenant can have its own. The
   load says how many people have a department and a country, and warns when no one has a
   department: AD returns nothing, with no error, for an attribute the account may not read.
+- **Tests for what this release changed.** `tests/Test-DataHealth.ps1`, run by CI and the release
+  workflow, takes the health check's own functions and closing block from the script and tests
+  what it says at the end, how it finds a gap in coverage, that a license record counts with or
+  without its trailing period, that its license operations are the pipeline's, and that it only
+  reads. The dashboard's tests hold the 28-day average (its windows, its rates, the minimum group
+  size, where a trend query starts), that every page that averages says so, the filter bar, the
+  Health step, Value names' first sort, Labeled content by unit's type names and the order of the
+  levels.
 
 ### Fixed
 - **The health check no longer warns that a license database holds "other operations" when it
@@ -68,6 +111,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   text, so Level 10 and Level 11 came before Level 2. Levels are in numeric order now, 2 to 9 and
   then 10, 11, 12; a name that is no level follows the last, and the combined bar of smaller groups
   stays at the end.
+
+### Known limits
+- A trend reads the days before its period, 27 or three weeks, so its first point has its whole
+  28-day window: a 30-day period reads 57 days of the trend's tables, a 7-day period 34, and a
+  365-day period about 6% more. This was tried on the demo database (180,000 interactions), not
+  at 40 or 120 million, where the page times in DEPLOYMENT.md, *What has run in the lab*, were
+  measured on 2.4.11. If a trend page is slower than it was on a large install, the period it was
+  slow at is the thing to report.
+- The Power BI model is unchanged in this release, so it was not opened in Power BI Desktop for it.
+  Its charts are not moving averages: only the dashboard's trends are.
 
 ## [2.4.12] - 2026-10-03
 
