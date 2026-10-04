@@ -219,32 +219,6 @@ public sealed class ReportContext
         return list;
     }
 
-    /// <summary>The days a trend point averages over (2.5.0): a rolling four weeks, so a weekend or a holiday does not dip it.</summary>
-    public const int TrendDays = 28;
-
-    /// <summary>How many trend points make a window: 28 days, or four weeks.</summary>
-    public int TrendWindow => Daily ? TrendDays : TrendDays / 7;
-
-    /// <summary>
-    /// The trend's points with, before them, the ones the first point's window reaches back to (2.5.0), oldest first. A trend
-    /// query reads from <see cref="TrendStartKey"/> (@kt0) so that the first point shown has its whole window.
-    /// </summary>
-    public IReadOnlyList<Bucket> TrendBuckets()
-    {
-        var shown = Buckets();
-        var step = Daily ? 1 : 7;
-        var first = shown[0].Key;
-        var before = Enumerable.Range(1, TrendWindow - 1).Reverse().Select(i => first.AddDays(-step * i))
-            .Select(d => new Bucket(d, Daily ? d.ToString("d MMM") : "w/e " + d.ToString("d MMM"), false));
-        return before.Concat(shown).ToList();
-    }
-
-    /// <summary>The first date key a trend query reads: the first day of the earliest point the first point shown averages over.</summary>
-    public int TrendStartKey
-    {
-        get { var first = TrendBuckets()[0].Key; return Key(Daily ? first : first.AddDays(-6)); }
-    }
-
     /// <summary>SQL for a trend point from a bi.DimDate alias: the date, or its week ending.</summary>
     public string BucketSql(string dimDateAlias) => Daily ? $"{dimDateAlias}.[Date]" : $"{dimDateAlias}.WeekEnding";
 
@@ -256,12 +230,12 @@ public sealed class ReportContext
     public string PersonScope(string upnExpr) =>
         Root is null ? "" : $"JOIN dash.OrgClosure AS psc ON psc.AncestorUpn = @root AND psc.DescendantUpn = {upnExpr}";
 
-    /// <summary>The standard parameters: @root, @d0/@d1 (dates), @k0/@k1 (date keys), @kt0 (where a trend query starts, 2.5.0), @k7 (the last 7 days' first key), @minGroup, @inactiveKey.</summary>
+    /// <summary>The standard parameters: @root, @d0/@d1 (dates), @k0/@k1 (date keys), @k7 (the last 7 days' first key), @minGroup, @inactiveKey.</summary>
     public Dapper.DynamicParameters Args(object? extra = null)
     {
         var d = new Dapper.DynamicParameters(new
         {
-            root = Root, d0 = Start, d1 = End, k0 = StartKey, k1 = EndKey, kt0 = TrendStartKey, k7 = Key(End.AddDays(-6)),
+            root = Root, d0 = Start, d1 = End, k0 = StartKey, k1 = EndKey, k7 = Key(End.AddDays(-6)),
             minGroup = MinGroupSize, inactiveKey = Key(End.AddDays(-(InactiveDays - 1))), daily = Daily ? 1 : 0,
         });
         if (extra is not null) d.AddDynamicParams(extra);
@@ -281,7 +255,7 @@ public sealed class ReportContext
     }
 }
 
-public sealed class ReportContextFactory(Db db, Settings settings)
+public sealed class ReportContextFactory(Db db, Settings settings, DataStamp stamp)
 {
     /// <summary>
     /// SQL for the size of a manager's part of the organization, against the minimum group size (2.4.12): the enabled
@@ -354,11 +328,20 @@ SELECT COALESCE(
            person with nobody under them made every page, and the API, a report of that one person. A page falls back to
            the viewer's own part with a note; the API and the digests get nobody, and refuse. */
         var privacy = await settings.PrivacyModeAsync();
+        /* The size of a part and the parts below a manager are the org chart's, which only the dashboard's refresh
+           rewrites: they are kept with the report data under the data stamp (2.5.1). Counted on every request, the enabled
+           people under each part below the top cost 0.4 seconds a page at 210,000 people, from memory or not. Who the
+           viewer is and what they may open are still read from the database for every request. */
+        await stamp.EnsureAsync();
         if (requested is not null && root is not null && why == OrgRefusal.None && !string.Equals(root, viewer.Upn, StringComparison.OrdinalIgnoreCase))
         {
             if (privacy) why = OrgRefusal.Privacy;
-            else if (await db.ScalarAsync<int>("SELECT " + EnabledInPartSql("@root"), new { root }) < minGroup)
-                why = OrgRefusal.TooSmall;
+            else
+            {
+                int enabled;
+                using (QueryCache.Use()) enabled = await db.ScalarAsync<int>("SELECT " + EnabledInPartSql("@root"), new { root });
+                if (enabled < minGroup) why = OrgRefusal.TooSmall;
+            }
             if (why != OrgRefusal.None)
                 (asked, root) = (root, !forPage ? "(nobody)" : viewer.OrgWide ? null : viewer.Upn ?? "(nobody)");
         }
@@ -386,11 +369,13 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
         /* The parts to drill into: managers whose part reaches the minimum group size in enabled people, the rule a
            request is held to above; none in privacy mode, where each would be offered by its manager's name. */
         var childOf = privacy ? null : root ?? top;
-        var children = childOf is null ? new List<OrgUnit>() :
-            (await db.QueryAsync<(string Upn, string? Name, int PeopleBelow)>(
-                "SELECT p.Upn, p.DisplayName, p.PeopleBelow FROM dash.Person AS p WHERE p.ManagerUpn = @p AND p.PeopleBelow > 0 AND " +
-                EnabledInPartSql("p.Upn") + " >= @min ORDER BY p.DisplayName",
-                new { p = childOf, min = minGroup })).Select(c => new OrgUnit(c.Upn, c.Name ?? c.Upn, c.PeopleBelow)).ToList();
+        var children = new List<OrgUnit>();
+        if (childOf is not null)
+            using (QueryCache.Use())
+                children = (await db.QueryAsync<(string Upn, string? Name, int PeopleBelow)>(
+                    "SELECT p.Upn, p.DisplayName, p.PeopleBelow FROM dash.Person AS p WHERE p.ManagerUpn = @p AND p.PeopleBelow > 0 AND " +
+                    EnabledInPartSql("p.Upn") + " >= @min ORDER BY p.DisplayName",
+                    new { p = childOf, min = minGroup })).Select(c => new OrgUnit(c.Upn, c.Name ?? c.Upn, c.PeopleBelow)).ToList();
 
         return new ReportContext
         {

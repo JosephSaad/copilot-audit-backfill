@@ -56,6 +56,9 @@ jobs:
       - name: Test-DataHealth
         shell: bash
         run: pwsh -NoProfile -File tests/Test-DataHealth.ps1
+      - name: Test-Precache
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-Precache.ps1
       - name: Test-Provisioning
         shell: bash
         run: pwsh -NoProfile -File tests/Test-Provisioning.ps1

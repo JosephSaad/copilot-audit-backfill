@@ -14,7 +14,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         var t = await m.TotalsAsync(Ctx);
-        var tr = await m.TrendSeriesAsync(Ctx);
+        var tr = await m.TrendAsync(Ctx);
         var started = await Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.Interactions > 0);", Ctx.Args());
@@ -40,17 +40,16 @@ WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.Use
         var firsts = await Db.QueryAsync<(DateTime Bucket, int N)>($@"
 WITH f AS (SELECT ud.UserKey, MIN(ud.DateKey) AS FirstKey FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.Interactions > 0 GROUP BY ud.UserKey)
 SELECT {Ctx.BucketSql("d")}, COUNT(*) FROM f JOIN bi.DimDate AS d ON d.DateKey = f.FirstKey
-WHERE f.FirstKey BETWEEN @kt0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
-        var firstAt = firsts.ToLookup(f => f.Bucket, f => f.N);
+WHERE f.FirstKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+        var buckets = Buckets();
         Panels.Add(new("People using Copilot for the first time",
-            Chart.Columns(Labels(), [new Series("First-time users", Average(b => firstAt[b.Key].Sum()), 3)], Fmt.Average, "First-time users, 28-day average"),
+            Chart.Columns(Labels(), [new Series("First-time users", buckets.Select(b => (double?)firsts.Where(f => f.Bucket == b.Key).Sum(f => f.N)).ToList(), 3)], Fmt.Count, "First-time users"),
             TrendNote, "half"));
         Panels.Add(new("Premium license holders, and how many used Copilot",
             Chart.Line(Labels(), [
-                new Series("License holders (as counted)", tr.Shown.Select(w => (double?)w.Licensed).ToList(), 1),
-                new Series("Used Copilot", tr.Average(w => w.ActiveLicensed), 3),
-            ], Fmt.Average, "Licensed and active"),
-            $"License holders: holding a Premium license at the end of the day or week, as counted, not averaged. Used Copilot is an average. {TrendNote}", "half"));
+                new Series("License holders", tr.Select(w => (double?)w.Licensed).ToList(), 1),
+                new Series("Used Copilot", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 3),
+            ], Fmt.Count, "Licensed and active"), null, "half"));
     }
 }
 

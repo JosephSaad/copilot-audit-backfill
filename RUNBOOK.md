@@ -249,6 +249,7 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | Admin › Health: *404.0 - Not Found* from *IIS Web Core*, while the other Admin pages work | Before 2.4.4, Health was at the bare `/admin`, which a server-wide URL Rewrite or Request Filtering rule often blocks (`Select-String "$env:windir\System32\inetsrv\config\applicationHost.config" -Pattern 'admin'` finds it). From 2.4.4 it is at `/admin/health`. On an older release, ask the server team to exclude the site from the rule. |
 | Browser reaches another site | A binding on the server's IP address outranks the dashboard's. See [Another site on port 443](docs/DASHBOARD.md#another-site-on-port-443). |
 | A page is slow at a long period | Check `dash.RefreshRun` ran after the last `bi` refresh, and that the `dash` indexes exist (re-run the schema script). |
+| Pages slow in the morning, or after the app pool restarted | Nothing was built ahead yet. Admin › Health › *Report speed* says when the pages were last built and how the morning pre-cache went (2.5.1); so does `precache\precache.log` in the site's folder. To build them now, run `.\Invoke-InsightsPrecache.ps1` from the site's folder as an administrator. If the task is missing, run the dashboard installer again, which schedules it (07:00 Eastern unless `-PrecacheAt` says otherwise). |
 
 ## 5g. Checking what is loaded, and rebuilding from the stored records
 

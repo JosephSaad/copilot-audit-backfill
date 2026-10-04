@@ -25,6 +25,9 @@
          installs or upgrades the dashboard's dash schema in the database,
          builds its org chart and rollups, and grants the app-pool account
          what it needs. Without it, writes the grants for a DBA instead.
+      8. Schedules the daily pre-cache (2.5.1): Invoke-InsightsPrecache.ps1,
+         copied into the site's folder, builds every report page ahead at
+         -PrecacheAt in -PrecacheTimeZone, 07:00 Eastern Time unless given.
 
     The site is offline from step 3 to step 6, and back online whether they
     succeed or fail. Its inputs are checked before it goes offline.
@@ -55,12 +58,21 @@
     remote SQL Server as the machine account (DOMAIN\HOST$). An empty value
     (-AppPoolIdentity '') goes back to the pool's own identity.
 
+.PARAMETER PrecacheAt
+    When the scheduled task 'Copilot Insights pre-cache' builds every report page ahead each day, as HH:mm
+    in -PrecacheTimeZone (2.5.1). Omitted: a task already scheduled is kept as it is, and a new one runs at
+    07:00. An empty value (-PrecacheAt '') removes the task.
+
+.PARAMETER PrecacheTimeZone
+    The Windows time zone of -PrecacheAt. Default 'Eastern Standard Time': Eastern Time, EST in winter
+    and EDT in summer, whatever zone the server's clock is in.
+
 .EXAMPLE
     .\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer sql01 -Database CopilotAudit `
         -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -AppPoolIdentity 'CONTOSO\gmsa-insights$' `
         -HostName insights.contoso.com -CertificateThumbprint 3F2A... -GrantDatabaseAccess
 .EXAMPLE
-    .\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.0.zip -SqlServer sql01   # an update: the rest is kept
+    .\Install-CopilotInsights.ps1 -PackagePath .\copilot-insights-v2.5.1.zip -SqlServer sql01   # an update: the rest is kept
 #>
 #Requires -Version 5.1
 #Requires -RunAsAdministrator
@@ -82,7 +94,9 @@ param(
     [switch] $GrantDatabaseAccess,
     [string] $OrgTopUpn,
     [string[]] $Tenant = @(),
-    [switch] $SkipFeatureInstall
+    [switch] $SkipFeatureInstall,
+    [string] $PrecacheAt = '07:00',
+    [string] $PrecacheTimeZone = 'Eastern Standard Time'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -198,6 +212,12 @@ if ($CertificateThumbprint) {
     $CertificateThumbprint = ConvertTo-Thumbprint $CertificateThumbprint
     if (-not (Test-Path "Cert:\LocalMachine\My\$CertificateThumbprint")) { throw "No certificate $CertificateThumbprint in LocalMachine\My. Nothing was changed." }
 }
+# The daily pre-cache (2.5.1): its time and zone, and the script it runs, which this copies into the site.
+$precacheScript = Join-Path $PSScriptRoot 'Invoke-InsightsPrecache.ps1'
+if ($PrecacheAt -and $PrecacheAt -notmatch '^([01]?\d|2[0-3]):[0-5]\d$') { throw "-PrecacheAt '$PrecacheAt' is not a time of day: give it as HH:mm, such as 07:00, or '' for no pre-cache. Nothing was changed." }
+try { [void] [TimeZoneInfo]::FindSystemTimeZoneById($PrecacheTimeZone) }
+catch { throw "-PrecacheTimeZone '$PrecacheTimeZone' is not a Windows time zone here (Get-TimeZone -ListAvailable lists them). Nothing was changed." }
+if (-not (Test-Path $precacheScript)) { Write-Warning "No $precacheScript beside this installer: the daily pre-cache is not scheduled." }
 # Several tenants: Name=Database on the same server. Without -Tenant, the list already there is kept, and so are the
 # databases the grants go to.
 $tenantList = $null
@@ -251,12 +271,14 @@ try {
         }
     }
     if (-not (Test-Path (Join-Path $staging 'CopilotInsights.dll'))) { throw "No CopilotInsights.dll in ${PackagePath}: is it the published app?" }
+    # The daily pre-cache's script goes into the site's folder with the app (2.5.1), where the app pool only reads it.
+    if (Test-Path $precacheScript) { Copy-Item -LiteralPath $precacheScript -Destination $staging -Force }
 
-    New-Item -ItemType Directory -Force $PhysicalPath, (Join-Path $PhysicalPath 'logs') | Out-Null
+    New-Item -ItemType Directory -Force $PhysicalPath, (Join-Path $PhysicalPath 'logs'), (Join-Path $PhysicalPath 'precache') | Out-Null
     # Stop the site while its files change: app_offline.htm makes the module unload the app.
     Set-Content $offline '<p>Copilot Insights is being updated. Try again in a minute.</p>'
     Start-Sleep -Seconds 2
-    & robocopy $staging $PhysicalPath /MIR /XF appsettings.Production.json app_offline.htm /XD logs /NFL /NDL /NJH /NJS /NP | Out-Null
+    & robocopy $staging $PhysicalPath /MIR /XF appsettings.Production.json app_offline.htm /XD logs precache /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "Copying the site files failed (robocopy $LASTEXITCODE)." }
 
     # ---- 4. appsettings.Production.json -------------------------------------------------------
@@ -366,6 +388,13 @@ try {
     $acl = Get-Acl (Join-Path $PhysicalPath 'logs')
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule $poolAccount, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
     Set-Acl (Join-Path $PhysicalPath 'logs') $acl
+    # The pre-cache folder (2.5.1): the scheduled task, as LOCAL SERVICE, leaves a request and its log there; the app
+    # pool takes the request and writes its answer. Neither can change the script the task runs, in the site's folder.
+    $acl = Get-Acl (Join-Path $PhysicalPath 'precache')
+    foreach ($who in $poolAccount, 'NT AUTHORITY\LOCAL SERVICE') {
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule $who, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
+    }
+    Set-Acl (Join-Path $PhysicalPath 'precache') $acl
     $acl = Get-Acl $PhysicalPath
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule $poolAccount, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
     Set-Acl $PhysicalPath $acl
@@ -480,6 +509,20 @@ if ($GrantDatabaseAccess) {
 }
 else {
     Write-Host "Database grants written to $grantsFile. Have a DBA run them, or run this again with -GrantDatabaseAccess."
+}
+
+# ---- 8. The daily pre-cache -------------------------------------------------------------------
+# Every report page built ahead each morning (2.5.1). A task already scheduled is kept unless -PrecacheAt or
+# -PrecacheTimeZone is given, as the site's other settings are; -PrecacheAt '' removes it.
+$sitePrecache = Join-Path $PhysicalPath 'Invoke-InsightsPrecache.ps1'
+if (Test-Path $sitePrecache) {
+    Write-Step 'Daily pre-cache'
+    $task = Get-ScheduledTask -TaskName 'Copilot Insights pre-cache' -ErrorAction SilentlyContinue
+    if (-not $PrecacheAt) { if ($task) { & $sitePrecache -Unregister } else { Write-Host '    not scheduled (-PrecacheAt is empty).' } }
+    elseif ($task -and -not $PSBoundParameters.ContainsKey('PrecacheAt') -and -not $PSBoundParameters.ContainsKey('PrecacheTimeZone')) {
+        Write-Host "    kept as scheduled: $(@($task.Triggers | ForEach-Object { ([DateTime] $_.StartBoundary).ToString('HH:mm') }) -join ' and ') on this server's clock."
+    }
+    else { & $sitePrecache -Register -PhysicalPath $PhysicalPath -At $PrecacheAt -TimeZone $PrecacheTimeZone }
 }
 
 $url = "{0}://{1}{2}/" -f $proto, $(if ($HostName) { $HostName } else { $env:COMPUTERNAME }), $(if (($https -and $Port -eq 443) -or (-not $https -and $Port -eq 80)) { '' } else { ":$Port" })

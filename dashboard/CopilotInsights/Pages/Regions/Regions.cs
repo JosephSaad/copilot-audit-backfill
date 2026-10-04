@@ -24,19 +24,18 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Panels.Add(new("Adoption by office", Groups.AdoptionBars(offices, "Adoption by office", Ctx.MinGroupSize, 15),
             "The fifteen offices with the highest adoption." + (fo > 0 ? " " + FoldNote(fo, "office") : ""), "half"));
 
-        /* From the lead-in a 28-day average needs (2.5.0). */
         var trend = await Db.QueryAsync<(string Country, DateTime Bucket, int Active)>($@"
 SELECT ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")}, COUNT(DISTINCT ud.UserKey)
 FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ud.UserKey
 JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-WHERE ud.DateKey BETWEEN @kt0 AND @k1 AND ud.Interactions > 0
+WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0
 GROUP BY ISNULL(NULLIF(du.Country, N''), N'(no country)'), {Ctx.BucketSql("d")};", Ctx.Args());
-        var activeAt = trend.ToLookup(t => (t.Country, t.Bucket), t => t.Active);
+        var buckets = Buckets();
         var shown = countries.Where(c => c.Name != "Smaller groups").OrderByDescending(c => c.People).Take(5).ToList();
         Panels.Add(new("People using Copilot, by country",
-            Chart.Line(Labels(), shown.Select((c, i) => new Series(c.Name, Average(b => activeAt[(c.Name, b.Key)].Sum()), i + 1)).ToList(),
-                Fmt.Average, "Active people by country, 28-day average"), $"The five countries with the most people. {TrendNote}"));
+            Chart.Line(Labels(), shown.Select((c, i) => new Series(c.Name, buckets.Select(b => (double?)trend.Where(t => t.Country == c.Name && t.Bucket == b.Key).Sum(t => t.Active)).ToList(), i + 1)).ToList(),
+                Fmt.Count, "Active people by country"), $"The five countries with the most people. {TrendNote}"));
         var t = Groups.Table(countries, "Country", Ctx.MinGroupSize);
         CsvTable = t;
         Panels.Add(new("Every country", t.Render(), null, "full", CsvUrl()));
@@ -73,18 +72,16 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
             unit: "interactions", unitOne: "interaction", column: h => $"{h}:00 to {h}:59"),
             $"Darker is busier. Hours are in {DataZone} for everyone, so offices in other time zones appear shifted."));
 
-        /* From the lead-in a 28-day average needs (2.5.0): a weekend is all of it outside hours, so a day's own share swings from week to week. */
         var trend = await Db.QueryAsync<(DateTime Bucket, long All, long After)>($@"
 SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CASE WHEN d.DayOfWeekNumber >= 6 OR f.HourOfDay < 8 OR f.HourOfDay >= 18 THEN 1 ELSE 0 END)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @kt0 AND @k1
+WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
-        var allAt = trend.ToLookup(t => t.Bucket, t => t.All);
-        var afterAt = trend.ToLookup(t => t.Bucket, t => t.After);
+        var buckets = Buckets();
         Panels.Add(new("Share outside working hours",
-            Chart.Line(Labels(), [new Series("Outside hours", AverageRatio(b => afterAt[b.Key].Sum(), b => allAt[b.Key].Sum()), 2)], Fmt.Percent, "After-hours share"),
-            $"Interactions before 08:00, from 18:00, or at weekends. {RatioNote}", "half"));
+            Chart.Line(Labels(), [new Series("Outside hours", buckets.Select(b => { var r = trend.FirstOrDefault(t => t.Bucket == b.Key); return Ratio(r.After, r.All); }).ToList(), 2)], Fmt.Percent, "After-hours share"),
+            $"Interactions before 08:00, from 18:00, or at weekends. {TrendNote}", "half"));
 
         var apps = await Db.QueryAsync<(string App, int Hour, long N)>($@"
 SELECT a.App, f.HourOfDay, COUNT_BIG(*)

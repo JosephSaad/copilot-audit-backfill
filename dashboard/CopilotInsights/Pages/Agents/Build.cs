@@ -40,16 +40,10 @@ public sealed class BuildModel(PageServices s) : InsightsPage(s)
         var named = Viewer.Has(Roles.Agents) && !PrivacyMode;
         /* Makers in scope: a manager sees the building their own people do; whole-organization viewers see all of it. */
         var scope = Ctx.Root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = e.ActorKey";
-        var byAction = await Db.QueryAsync<(string Action, int N)>($@"
-SELECT e.Action, COUNT(*)
-FROM bi.FactAgentEvent AS e {scope}
-WHERE e.DateKey BETWEEN @k0 AND @k1
-GROUP BY e.Action;", Ctx.Args());
-        /* The chart's own query, from the lead-in a 28-day average needs (2.5.0): the counts above are the period's. */
-        var byActionTrend = await Db.QueryAsync<(DateTime Bucket, string Action, int N)>($@"
+        var byAction = await Db.QueryAsync<(DateTime Bucket, string Action, int N)>($@"
 SELECT {Ctx.BucketSql("d")}, e.Action, COUNT(*)
 FROM bi.FactAgentEvent AS e {scope} JOIN bi.DimDate AS d ON d.DateKey = e.DateKey
-WHERE e.DateKey BETWEEN @kt0 AND @k1
+WHERE e.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
         int Count(string a) => byAction.Where(x => x.Action == a).Sum(x => x.N);
         var makers = await Db.ScalarAsync<int>($@"SELECT COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1;", Ctx.Args());
@@ -59,9 +53,9 @@ GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
         Kpis.Add(new("Makers", Num(makers), "people who built or changed an agent"));
         Kpis.Add(new("Deleted", Num(Count("Deleted"))));
 
-        var actionAt = byActionTrend.ToLookup(x => (x.Action, x.Bucket), x => x.N);
-        Series S(string action, int slot) => new(action, Average(b => actionAt[(action, b.Key)].Sum()), slot);
-        Panels.Add(new("Building activity over time", Chart.Columns(Labels(), [S("Created", 1), S("Published", 3), S("Shared", 5), S("Component", 2), S("Updated", 4), S("Deleted", 6)], Fmt.Average, "Agent authoring events, 28-day average"),
+        var buckets = Buckets();
+        Series S(string action, int slot) => new(action, buckets.Select(b => (double?)byAction.Where(x => x.Bucket == b.Key && x.Action == action).Sum(x => x.N)).ToList(), slot);
+        Panels.Add(new("Building activity over time", Chart.Columns(Labels(), [S("Created", 1), S("Published", 3), S("Shared", 5), S("Component", 2), S("Updated", 4), S("Deleted", 6)], Fmt.Count, "Agent authoring events"),
             TrendNote + " Component: topics, skills and other parts added, changed or removed."));
 
         var life = await Db.QueryAsync<Life>($@"

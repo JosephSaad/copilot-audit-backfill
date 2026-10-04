@@ -4,6 +4,85 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2026-10-04
+
+Trend charts show each day and week as it was again, and every report is ready before the working
+day starts. 2.5.0's 28-day moving average is gone from the trend charts. Adoption rate stays the
+one rolling figure, as it has been since 2.4.9. Everything else 2.5.0 brought stays. A page from
+memory no longer waits 0.4 seconds to count the people in each team, and a new script, scheduled by
+the dashboard installer, builds every report page ahead at 07:00 Eastern Time each day.
+
+To upgrade: install the dashboard package over 2.5.0 with this release's
+`dashboard\Install-CopilotInsights.ps1`, which copies the pre-cache script into the site and
+schedules it. Nothing in SQL changed: `Install-CopilotAudit.ps1` need not run, and nothing is
+rebuilt. No KPI, table, digest or data API figure changes; only the points of the trend charts do.
+
+### Changed
+- **Trend charts show each day or week as it was, as before 2.5.0.** The 28-day moving average is
+  gone from every trend chart, sparkline and heatmap that had it. A point is that day's or that
+  week's own count again, a share is that day's or week's own share, and a chart reads only its
+  period. The *28-day average* tag, the *(as counted)* lines and the notes about the average went
+  with it. A weekly trend's first and last week may be partial again, and say so.
+  **Adoption rate is unchanged.** It is still the share of Premium license holders who used Copilot in the 28 days
+  up to each point (since 2.4.9), so a weekend or a holiday does not dip it. Its first 28 days of
+  data read low.
+- **Everything else in 2.5.0 stays:** the filter bar shows only the controls that change a page,
+  Admin › Health has no *CSV import* step, Admin › Value names opens on the values seen most, the
+  AD export reads the country from `c` and the department from `-DepartmentAttribute`, departments
+  hold 200 characters, the read-only health check, the type names on Labeled content by unit and the
+  order of the levels on Workforce.
+
+### Added
+- **A daily pre-cache.** `dashboard\Invoke-InsightsPrecache.ps1` asks the site on its web server to
+  build every report page again, for the whole organization at every period, reading each query
+  afresh, so every result is new, and kept for its full time, when the working day starts. Whoever
+  opens a page during the build gets the result kept before, so nobody waits. The site then builds
+  each page once more from memory and times it. The script waits for the answer, logs it to
+  `precache\precache.log` in the site's folder, and exits 0 (built, every page from memory in under
+  a second), 2 (built, with the pages that took longer named) or 1 (not built, and why). Admin ›
+  Health › *Report speed* shows the last one.
+  `Install-CopilotInsights.ps1` copies the script into the site's folder and schedules it as
+  *Copilot Insights pre-cache*, every day at 07:00 Eastern Time (EST in winter, EDT in summer)
+  whatever zone the server's clock is in, as LOCAL SERVICE. `-PrecacheAt` and `-PrecacheTimeZone`
+  change it, `-PrecacheAt ''` removes it, and a later run keeps the time it has. The script asks
+  through a file in the site's `precache` folder, which the installer lets the app pool and LOCAL
+  SERVICE change, so it needs no sign-in to the dashboard or any role. A build the site is already
+  doing gives way to it. Run it by hand to build every page now, after a restart for example.
+- **Tests for what this release changed.** `tests/Test-Precache.ps1`, run by CI and the release
+  workflow. It checks that the task's triggers start exactly one run a day at 07:00 Eastern on
+  every day of a year, from a server whose clock is in Eastern Time, UTC, London, the US west coast
+  or Tokyo. It also checks the time format, what the script says and its exit codes, and how the
+  installer, the script and the site fit together. The dashboard's tests check that no report page
+  averages a trend and that Adoption rate stays a rolling 28 days.
+
+### Fixed
+- **A page from memory no longer waits 0.4 seconds for the team list.** Every page's *Look inside a
+  team* list shows the parts below the manager shown that reach the minimum group size, counting the
+  enabled people in each (2.4.12). That count ran on every request, from memory or not: for the top
+  of an organization of 210,000 it took 0.4 seconds a page. It is kept with the report data now,
+  under the same data stamp, and counted again only when the org chart is rebuilt; so is the size of
+  a part asked for. Who the viewer is and what they may open are still read from the database on
+  every request. At 120 million interactions a report page from memory takes 0.01 seconds at the
+  median and 0.06 at most, where it took 0.42 and 0.77.
+
+### Known limits
+- Measured on the lab's 120-million-interaction database (210,000 people) with SQL Server 2025
+  Enterprise Developer (8 cores, MAXDOP 6), the site on the same machine: every report page for the
+  whole organization at every period came from memory in 0.06 seconds at most, and a page inside a
+  part of 70,000 people in 0.08. Building every page ahead took 10.5 minutes; the pre-cache, with
+  other work on the server, 14. On Standard Edition the build takes longer, and so does a page not
+  yet built. DEPLOYMENT.md, *What has run in the lab*, has the figures.
+- The pre-cache builds the whole organization's pages, which the top of the organization, their
+  direct reports and Organization holders see. A page inside a manager's part of the organization,
+  and a page with a choice (one app, one agent, a sorted or paged list), is kept from the first time
+  someone opens it, as before, and that first visit reads the database. Inside the part of 70,000
+  it took 0.62 seconds at the median and 7.7 at most (the Overview at 365 days); a page with a
+  choice, up to 5.1 seconds.
+- The installer's new step and the scheduled task as LOCAL SERVICE were not run on Windows Server
+  with IIS. The script and the site were run together, by hand, on a Windows 11 workstation with
+  the site under Kestrel.
+- The Power BI model is unchanged in this release, so it was not opened in Power BI Desktop for it.
+
 ## [2.5.0] - 2026-10-03
 
 Trends that read as trends, and a dashboard that shows only the controls that matter. Every trend

@@ -28,6 +28,7 @@ namespace CopilotInsights.Infrastructure;
 public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> options, ILogger<QueryCache> log)
 {
     static readonly AsyncLocal<bool> _on = new();
+    static readonly AsyncLocal<bool> _refresh = new();
     static readonly AsyncLocal<System.Collections.Concurrent.ConcurrentDictionary<string, string>?> _seen = new();
     static readonly FieldInfo? _templates = typeof(Dapper.DynamicParameters).GetField("templates", BindingFlags.Instance | BindingFlags.NonPublic);
     readonly int _minutes = options.Value.QueryCacheMinutes;
@@ -84,6 +85,24 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
     }
 
     /// <summary>
+    /// Reads every cached query again, for the code that runs until the result is disposed, and keeps the new result in
+    /// place of the old once it is read (2.5.1): the daily pre-cache (see <see cref="PageWarmer"/>). Whoever asks for the
+    /// same query meanwhile is answered from the result kept before, so nobody waits for the build, and each result's
+    /// time to be kept starts again.
+    /// </summary>
+    public static IDisposable Refresh()
+    {
+        var before = _refresh.Value;
+        _refresh.Value = true;
+        return new RefreshScope(before);
+    }
+
+    sealed class RefreshScope(bool before) : IDisposable
+    {
+        public void Dispose() => _refresh.Value = before;
+    }
+
+    /// <summary>
     /// The versions of the tables that change all day, as the page building itself now first read them: one read of
     /// each for a page, however many of its queries name the table. Null outside <see cref="Use"/>.
     /// </summary>
@@ -124,6 +143,22 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         if (!Enabled || !On || (live is null && DataStamp.Volatile(sql)) || Key(sql, args) is not { } k) return await read();
         var end = _ends.GetOrAdd(tenant, _ => new CancellationTokenSource()).Token;
         var key = $"q:{tenant}:{Stamp(tenant)}:{kind}:{typeof(T).FullName}:{k}" + (live is null ? "" : ":" + live);
+        if (_refresh.Value)
+        {
+            /* The pre-cache (2.5.1): read again, and keep the new result once it is read. A read that fails keeps nothing,
+               and the result kept before stays. */
+            var fresh = new Lazy<Task<T>>(read, LazyThreadSafetyMode.ExecutionAndPublication);
+            var value = await fresh.Value;
+            using (var e = cache.CreateEntry(key))
+            {
+                e.Value = fresh;
+                e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(_minutes);
+                e.Size = 1;
+                e.AddExpirationToken(new Microsoft.Extensions.Primitives.CancellationChangeToken(end));
+            }
+            Interlocked.Increment(ref _misses);
+            return value;
+        }
         if (cache.TryGetValue(key, out object? found) && found is Lazy<Task<T>> lazy)
         {
             Interlocked.Increment(ref _hits);

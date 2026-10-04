@@ -34,10 +34,10 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             $"<p class=\"print-only\">Copilot Insights board pack: {E(Ctx.ScopeLabel)}, {E(Ctx.PeriodLabel)}. Printed {DateTime.Now:d MMM yyyy HH:mm}.</p>"),
             "The navigation, filters and buttons are left off the printout.", "half no-print"));
 
-        var tr = await metrics.TrendSeriesAsync(Ctx);
+        var tr = await metrics.TrendAsync(Ctx);
         Panels.Add(new("People using Copilot", Chart.Line(Labels(), [
-            new Series("With a Premium license", tr.Average(w => w.ActiveLicensed), 1),
-            new Series("Free Copilot Chat only", tr.Average(w => w.ActiveUnlicensed), 2)], Fmt.Average, "People using Copilot, 28-day average"),
+            new Series("With a Premium license", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 1),
+            new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People using Copilot"),
             TrendNote + " Dashed rules mark events (Admin > Classifications and events)."));
 
         /* The targets for the part of the organization printed, not every target (2.4.12, see OpsReports.Visible). */
@@ -78,20 +78,18 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         lt.Rows.Add(["Free Copilot Chat users ready to upgrade", counts.GetValueOrDefault("upgrade")]);
         Panels.Add(new("Licenses", lt.Render(), $"At {price:#,0.##} {cur} a license a month, the unused licenses cost {counts.GetValueOrDefault("revoke") * price:#,0} {cur} a month.", "half"));
 
-        /* The period's own sums, not the chart's averages (2.5.0). */
-        var sg = await metrics.SumsAsync(Ctx);
-        var rp = full ? await metrics.SumsAsync(prev) : null;
+        var rp = full ? await metrics.TrendAsync(prev) : null;
         var rt = new Table { Headers = ["Risk signal", "This period", "Period before"], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };
         /* The security signals are the Security section's and labeled content the Compliance section's (2.4.12), as on the
            data API: every viewer of the board pack had them, whatever their roles. */
         if (Viewer.Has(Roles.Security))
         {
-            rt.Rows.Add(["Jailbreak attempts", sg.Jailbreak, rp?.Jailbreak]);
-            rt.Rows.Add(["Prompt injection detected", sg.Injection, rp?.Injection]);
-            rt.Rows.Add(["Blocked resources", sg.Blocked, rp?.Blocked]);
+            rt.Rows.Add(["Jailbreak attempts", tr.Sum(x => x.Jailbreak), rp?.Sum(x => x.Jailbreak)]);
+            rt.Rows.Add(["Prompt injection detected", tr.Sum(x => x.Injection), rp?.Sum(x => x.Injection)]);
+            rt.Rows.Add(["Blocked resources", tr.Sum(x => x.Blocked), rp?.Sum(x => x.Blocked)]);
         }
         if (Viewer.Has(Roles.Compliance))
-            rt.Rows.Add(["Interactions with labeled content", sg.Labeled, rp?.Labeled]);
+            rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp?.Sum(x => x.Labeled)]);
         /* A policy breach, counted today (2.4.5): there is no earlier figure to set beside it. */
         rt.Rows.Add(["Copilot licenses on non-human accounts (today)", (await CopilotInsights.Data.NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args())).Count, null]);
         Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance." +
@@ -145,12 +143,11 @@ GROUP BY k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ct
            A second pass over the fact for the same numbers doubled the page's time (2.4.2). */
         var totals = byDept.GroupBy(x => x.UseCase).Select(g => new G { UseCase = g.Key, N = g.Sum(x => x.N), People = g.Sum(x => x.People) }).ToList();
         if (totals.Count == 0) { Notice = $"No Copilot use from {Ctx.PeriodLabel}."; return; }
-        /* From the lead-in a 28-day average needs (2.5.0). */
         var trend = await Db.QueryAsync<G>($@"
 WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-           WHERE f.DateKey BETWEEN @kt0 AND @k1
+           WHERE f.DateKey BETWEEN @k0 AND @k1
            GROUP BY {Ctx.BucketSql("d")}, f.UseCaseKey)
 SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase, g.Bucket;", Ctx.Args(), timeout: 300);
 
@@ -164,12 +161,11 @@ SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase,
         /* Fixed colors per use case, by overall size (the chart shows at most eight). */
         var top = ranked.Take(7).Select(x => x.UseCase).ToList();
         string Key(string u) => top.Contains(u) ? u : "Everything else";
-        /* "Everything else" where the trend has a use case outside the top seven, which includes one seen only before the period (the average reads those days). */
-        var names = top.Concat(ranked.Count > 7 || trend.Any(x => !top.Contains(x.UseCase)) ? ["Everything else"] : []).ToList();
-        var useAt = trend.ToLookup(x => (Key(x.UseCase), x.Bucket!.Value), x => x.N);
+        var names = top.Concat(ranked.Count > 7 ? ["Everything else"] : []).ToList();
+        var buckets = Buckets();
         Panels.Add(new("Interactions by use case", Chart.Columns(Labels(),
-            names.Select((n, i) => new Series(n, Average(b => useAt[(n, b.Key)].Sum()), i + 1)).ToList(),
-            Fmt.Average, "Interactions by use case, 28-day average"), TrendNote));
+            names.Select((n, i) => new Series(n, buckets.Select(b => (double?)trend.Where(x => x.Bucket == b.Key && Key(x.UseCase) == n).Sum(x => x.N)).ToList(), i + 1)).ToList(),
+            Fmt.Count, "Interactions by use case"), TrendNote));
 
         var t = new Table { Headers = ["Use case", "Interactions", "Share of interactions", "People", "Interactions per person"], Numeric = new HashSet<int> { 1, 2, 3, 4 } };
         foreach (var x in ranked) t.Rows.Add([x.UseCase, x.N, Pct(Ratio(x.N, all)), x.People, x.People > 0 ? Math.Round(x.N / (double)x.People, 1) : null]);

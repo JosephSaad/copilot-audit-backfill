@@ -23,10 +23,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        /* The KPIs are the period's own sums; the charts' points are 28-day averages (2.5.0). */
-        var sg = await m.SumsAsync(Ctx);
-        var tr = await m.TrendSeriesAsync(Ctx);
-        long labeled = sg.Labeled, all = sg.Interactions, blocked = sg.Blocked;
+        var tr = await m.TrendAsync(Ctx);
+        long labeled = tr.Sum(w => w.Labeled), all = tr.Sum(w => w.Interactions), blocked = tr.Sum(w => w.Blocked);
         var people = await Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.LabeledContent > 0;", Ctx.Args());
@@ -34,36 +32,26 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.LabeledContent > 0;", Ctx.Args());
         Kpis.Add(new("People", Num(people), "whose Copilot use touched labeled content"));
         Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted"));
 
-        /* The labels of the period, in order, and the chart's own query from the lead-in a 28-day average needs (2.5.0). */
-        var byLabel = await Db.QueryAsync<(string Label, int Rank, int N)>($@"
-SELECT {Sites.LabelName}, ISNULL(MAX(sl.Rank), 255), SUM(rd.Interactions)
-FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
-LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
-WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1
-GROUP BY {Sites.LabelName};", Ctx.Args());
-        var labels = await Db.QueryAsync<(DateTime Bucket, string Label, int N)>($@"
-SELECT {Ctx.BucketSql("d")}, {Sites.LabelName}, SUM(rd.Interactions)
+        var labels = await Db.QueryAsync<(DateTime Bucket, string Label, int Rank, int N)>($@"
+SELECT {Ctx.BucketSql("d")}, {Sites.LabelName}, ISNULL(MAX(sl.Rank), 255), SUM(rd.Interactions)
 FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = rd.DateKey
 LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
-WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @kt0 AND @k1
+WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, {Sites.LabelName};", Ctx.Args());
-        var ranked = byLabel.OrderBy(l => l.Rank).ThenByDescending(l => l.N).ToList();
-        var order = ranked.Select(l => l.Label).ToList();
+        var order = labels.GroupBy(l => l.Label).OrderBy(g => g.Max(l => l.Rank)).ThenByDescending(g => g.Sum(l => l.N)).Select(g => g.Key).ToList();
+        var buckets = Buckets();
         var shown = order.Take(7).ToList();
-        var labelAt = labels.ToLookup(x => (x.Label, x.Bucket), x => x.N);
-        var otherAt = labels.Where(x => !shown.Contains(x.Label)).ToLookup(x => x.Bucket, x => x.N);
-        var series = shown.Select((l, i) => new Series(l, Average(b => labelAt[(l, b.Key)].Sum()), i + 1)).ToList();
-        /* "Other labels" where the trend has a label outside the seven, which includes one used only before the period (the average reads those days). */
-        if (otherAt.Count > 0)
-            series.Add(new Series("Other labels", Average(b => otherAt[b.Key].Sum()), 8));
-        Panels.Add(new("Labeled content by label", Chart.Columns(Labels(), series, Fmt.Average, "Interactions by sensitivity label, 28-day average"),
+        var series = shown.Select((l, i) => new Series(l, buckets.Select(b => (double?)labels.Where(x => x.Label == l && x.Bucket == b.Key).Sum(x => x.N)).ToList(), i + 1)).ToList();
+        if (order.Count > 7)
+            series.Add(new Series("Other labels", buckets.Select(b => (double?)labels.Where(x => !shown.Contains(x.Label) && x.Bucket == b.Key).Sum(x => x.N)).ToList(), 8));
+        Panels.Add(new("Labeled content by label", Chart.Columns(Labels(), series, Fmt.Count, "Interactions by sensitivity label"),
             $"An interaction that read content with two labels counts under each. Labels are ordered least to most sensitive when Admin › Reference data ranks them. {TrendNote}"));
 
         Panels.Add(new("Share of interactions touching labeled content",
-            Chart.Line(Labels(), [new Series("Labeled", tr.AverageRatio(w => w.Labeled, w => w.Interactions), 1)], Fmt.Percent, "Labeled share"), RatioNote, "half"));
+            Chart.Line(Labels(), [new Series("Labeled", tr.Select(w => Ratio(w.Labeled, w.Interactions)).ToList(), 1)], Fmt.Percent, "Labeled share"), null, "half"));
         Panels.Add(new("By label, whole period",
-            Chart.Bars(ranked.Select(l => new Bar(l.Label, l.N)).ToList(), Fmt.Count, "Interactions by label"), null, "half"));
+            Chart.Bars(order.Select(l => new Bar(l, labels.Where(x => x.Label == l).Sum(x => x.N))).ToList(), Fmt.Count, "Interactions by label"), null, "half"));
 
         var named = Viewer.Has(Roles.Compliance) && !PrivacyMode;
         var sites = await Db.QueryAsync<(string Kind, string Item, int N, int People)>($@"
