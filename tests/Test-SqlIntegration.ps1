@@ -1450,33 +1450,60 @@ VALUES (@id, @at, 'azureActiveDirectory', @op, 'admin@contoso.com', 'admin@conto
         Assert-That ((& $skuRows $skuDb 's-01') -eq 'Microsoft_365_Copilot Removed user20@contoso.com 1' -and (& $skuRows $skuDb 's-03') -eq '' -and (& $skuRows $skuDb 's-04') -eq 'Microsoft_365_Copilot Added user21@contoso.com 0') `
             "the fragment that arrived completes the change on the group's first record, shredded the night before, and the license change takes over from the Update user ($(& $skuRows $skuDb 's-01'); $(& $skuRows $skuDb 's-04'))"
 
-        # A shred that was stopped part way. Its statements commit one by one, so it can leave a batch's events without
-        # their properties, or its chunk groups not reassembled, and it leaves its mark. Readers still see the SKU
-        # changes of the last shred that finished; the next shred, whatever it was asked for, finishes the stopped one.
+        # A shred that is stopped part way. Its statements commit one by one, so it can leave a batch's events without
+        # their properties, and it leaves its mark. Here a shred fails as it writes a batch's properties: a trigger
+        # stands in for a task that is ended, a restart, a full disk. Readers still see the SKU changes of the last
+        # shred that finished; the next shred, whatever it was asked for, finishes the stopped one.
         $keptSql = "SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), CONCAT(RecordId, N' ', Sku, N' ', Change)), N'; ') WITHIN GROUP (ORDER BY RecordId, Sku, Change) FROM audit.LicenseSkuChange;"
         $shredState = { (Invoke-SqlText -Catalog $skuDb -As Table -Sql @"
 SELECT (SELECT COUNT(*) FROM audit.LicenseEventProperty WHERE RecordId = 's-03') AS S03Props,
        (SELECT COUNT(*) FROM audit.LicenseEventProperty WHERE RecordId = 's-01' AND Source = 'chunks') AS S01Chunks,
        (SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), RecordId), N',') WITHIN GROUP (ORDER BY RecordId) FROM audit.LicenseEvent WHERE RecordId LIKE 's-0[1-4]' AND ShreddedUtc > '2026-06-01') AS Stamped,
        (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress') AS InProgress,
+       (SELECT Value FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress') AS MarkValue,
+       (SELECT CONVERT(NVARCHAR(19), UpdatedUtc, 120) FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress') AS MarkSince,
        (SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'LicenseShredCompleteUtc') AS Complete;
 "@).Rows[0] }
+        # Asked from another session, with no pool: the session that ran a shred could take its own lock again.
+        $lockFree = {
+            $probe = [System.Data.SqlClient.SqlConnection]::new((New-ConnString $skuDb) + ';Pooling=false')
+            $probe.Open()
+            try { $q = $probe.CreateCommand(); $q.CommandText = "SELECT APPLOCK_TEST(N'public', N'audit.usp_ShredLicenseEvents', N'Exclusive', N'Session');"; [int] $q.ExecuteScalar() }
+            finally { $probe.Dispose() }
+        }
+        $stopShred = "CREATE TRIGGER audit.trStopShred ON audit.LicenseEventProperty AFTER INSERT AS BEGIN SET NOCOUNT ON; THROW 50999, N'stopped here by the test', 1; END;"
+        $letShred = 'DROP TRIGGER audit.trStopShred;'
+        $failing = { param($Sql) try { Invoke-SqlText -Catalog $skuDb -Sql $Sql; '' } catch { $_.Exception.Message } }
+        $asOld = "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01';"
         $keptBefore = "$(Invoke-SqlText -Catalog $skuDb -As Scalar -Sql $keptSql)"
         $was = & $shredState
         $runBefore = [int] (& $skuRun $skuDb).RunId
-        Assert-That ([int] $was.S03Props -gt 0 -and [int] $was.S01Chunks -gt 0 -and [int] $was.InProgress -eq 0 -and [int] $was.Complete -eq 1) `
-            "a shred that finished leaves no mark of one running, and the shred of every record left its own ($($was.S03Props) and $($was.S01Chunks) properties to lose below)"
-        Invoke-SqlText -Catalog $skuDb -Sql @"
-INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', N'');   -- a shred of every record began
-UPDATE audit.LicenseEvent SET ShreddedUtc = SYSUTCDATETIME() WHERE RecordId LIKE 's-0[1-4]';   -- wrote a batch's events
-DELETE FROM audit.LicenseEventProperty WHERE RecordId = 's-03';                            -- cleared its properties, and did not write them back
-DELETE FROM audit.LicenseEventProperty WHERE RecordId = 's-01' AND Source = 'chunks';      -- nor reassemble its chunk groups
-DELETE FROM audit.PipelineSetting WHERE Name = N'LicenseShredCompleteUtc';
-EXEC audit.usp_RefreshLicenseSkuChange;                                                    -- and the changes are asked for by hand
-"@
+        Assert-That ([int] $was.S03Props -gt 0 -and [int] $was.S01Chunks -gt 0 -and [int] $was.InProgress -eq 0 -and [int] $was.Complete -eq 1 -and (& $lockFree) -eq 1) `
+            "a shred that finished leaves no mark of one running and lets its lock go, and the shred of every record left its own mark ($($was.S03Props) and $($was.S01Chunks) properties to lose below)"
+
+        Invoke-SqlText -Catalog $skuDb -Sql "$asOld DELETE FROM audit.PipelineSetting WHERE Name = N'LicenseShredCompleteUtc';"
+        Invoke-SqlText -Catalog $skuDb -Sql $stopShred
+        $msg = & $failing 'EXEC audit.usp_ShredLicenseEvents;'
+        Invoke-SqlText -Catalog $skuDb -Sql $letShred
+        $ss = & $shredState
+        Assert-That ($msg -like '*stopped here by the test*' -and [int] $ss.InProgress -eq 1 -and "$($ss.MarkValue)" -eq '' -and [int] $ss.S03Props -eq 0 -and "$($ss.Stamped)" -eq 's-01,s-02,s-03,s-04') `
+            "a shred of every record that stops as it writes a batch's properties leaves its events without them, and its mark: every record is owed (events written: $($ss.Stamped); their properties: $($ss.S03Props))"
+        Assert-That ((& $lockFree) -eq 1 -and [int] $ss.Complete -eq 0) 'it lets its lock go, though its pooled connection stays open, and leaves no mark that every record is shredded'
+        Invoke-SqlText -Catalog $skuDb -Sql 'EXEC audit.usp_RefreshLicenseSkuChange;'   # the changes asked for by hand meanwhile
         Assert-That ("$(Invoke-SqlText -Catalog $skuDb -As Scalar -Sql $keptSql)" -eq $keptBefore -and [int] (& $skuRun $skuDb).RunId -eq $runBefore) `
-            'a shred stopped part way leaves the kept SKU changes as the last finished shred made them: asked for by hand, they are not worked out from its half-written events'
-        Invoke-SqlText -Catalog $skuDb -Sql "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01'; EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-12-01';"   # a night with nothing new
+            'the kept SKU changes stay as the last finished shred made them: asked for by hand, they are not worked out from its half-written events'
+
+        # The next shred stops too. The mark keeps what is owed and the time the first one began: how long events have
+        # been left so, which the health check reads.
+        Invoke-SqlText -Catalog $skuDb -Sql "UPDATE audit.PipelineSetting SET UpdatedUtc = '2026-01-02T03:04:05' WHERE Name = N'LicenseShredInProgress';"
+        Invoke-SqlText -Catalog $skuDb -Sql $stopShred
+        $msg = & $failing "EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-12-01';"
+        Invoke-SqlText -Catalog $skuDb -Sql $letShred
+        $ss = & $shredState
+        Assert-That ($msg -like '*stopped here by the test*' -and [int] $ss.InProgress -eq 1 -and "$($ss.MarkValue)" -eq '' -and "$($ss.MarkSince)" -eq '2026-01-02 03:04:05' -and (& $lockFree) -eq 1) `
+            "a shred that takes a stopped one over and stops too leaves the mark as it found it: every record owed, since the first began ($($ss.MarkSince))"
+
+        Invoke-SqlText -Catalog $skuDb -Sql "$asOld EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-12-01';"   # a night with nothing new
         $ss = & $shredState
         $run = & $skuRun $skuDb
         $st = & $skuState $skuDb
@@ -1485,34 +1512,89 @@ EXEC audit.usp_RefreshLicenseSkuChange;                                         
         Assert-That ("$(Invoke-SqlText -Catalog $skuDb -As Scalar -Sql $keptSql)" -eq $keptBefore -and [int] $st.Differ -eq 0 -and $run.SinceUtc -is [DBNull] -and [int] $ss.Complete -eq 1) `
             'and it works out every event again, and marks that a shred of every record finished'
 
-        # One stopped while shredding from a day: the next shreds from that day, not only from its own.
-        Invoke-SqlText -Catalog $skuDb -Sql "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01'; INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', N'2026-09-21T00:00:00'); EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-12-01';"
+        # One stopped while shredding from a day: its mark says from when, and the next shreds from that day, not only
+        # from its own.
+        Invoke-SqlText -Catalog $skuDb -Sql $asOld
+        Invoke-SqlText -Catalog $skuDb -Sql $stopShred
+        $msg = & $failing "EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-09-21';"
+        Invoke-SqlText -Catalog $skuDb -Sql $letShred
         $ss = & $shredState
-        Assert-That ("$($ss.Stamped)" -eq 's-02,s-04' -and [int] $ss.InProgress -eq 0) "a shred stopped while shredding from 21 September is finished from that day ($($ss.Stamped))"
+        Assert-That ($msg -like '*stopped here by the test*' -and [int] $ss.InProgress -eq 1 -and "$($ss.MarkValue)" -eq '2026-09-21T00:00:00' -and "$($ss.Stamped)" -eq 's-02,s-04') `
+            "a night's shred that stops leaves in its mark the time it was shredding from ($($ss.MarkValue))"
+        Invoke-SqlText -Catalog $skuDb -Sql "$asOld EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-12-01';"
+        $ss = & $shredState
+        $st = & $skuState $skuDb
+        Assert-That ("$($ss.Stamped)" -eq 's-02,s-04' -and [int] $ss.InProgress -eq 0 -and [int] $st.Differ -eq 0 -and "$(Invoke-SqlText -Catalog $skuDb -As Scalar -Sql $keptSql)" -eq $keptBefore) `
+            "and the next shred, asked for a later day, shreds from 21 September to finish it ($($ss.Stamped))"
 
-        # Another session's run between a shred's stamps and its own (it was still reassembling): c13 was stamped
-        # twenty minutes ago and has its lists only now, and a run two minutes ago moved "since the last run" past it.
+        # One shred at a time. Two at once would each take the other's mark for a stopped shred's, and the first to
+        # finish would take away the mark the other still needs. A session holding the shred's lock stands in for one
+        # running: a second shred waits for it, writing nothing, and runs once it has let go.
+        $holder = [System.Data.SqlClient.SqlConnection]::new((New-ConnString $skuDb) + ';Pooling=false')
+        $second = [System.Data.SqlClient.SqlConnection]::new((New-ConnString $skuDb) + ';Pooling=false')
+        try {
+            $holder.Open(); $second.Open()
+            $holdCmd = $holder.CreateCommand()
+            $holdCmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'audit.usp_ShredLicenseEvents', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+            $took = [int] $holdCmd.ExecuteScalar()
+            $runs0 = [int] (& $skuRun $skuDb).RunId
+            $shredCmd = $second.CreateCommand(); $shredCmd.CommandTimeout = 600
+            $shredCmd.CommandText = "EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-09-21';"
+            $shredTask = $shredCmd.ExecuteNonQueryAsync()
+            Start-Sleep -Seconds 3
+            $waited = -not $shredTask.IsCompleted
+            $held = & $shredState
+            $heldLock = & $lockFree
+            $holdCmd.CommandText = "EXEC sp_releaseapplock @Resource = N'audit.usp_ShredLicenseEvents', @LockOwner = 'Session';"
+            [void] $holdCmd.ExecuteNonQuery()
+            [void] $shredTask.Wait(600000)
+            $runsAfter = [int] (& $skuRun $skuDb).RunId
+        }
+        finally { $second.Dispose(); $holder.Dispose() }
+        $ss = & $shredState
+        Assert-That ($took -eq 0 -and $waited -and [int] $held.InProgress -eq 0 -and $heldLock -eq 0 -and $runsAfter -eq $runs0 + 1 -and [int] $ss.InProgress -eq 0 -and (& $lockFree) -eq 1) `
+            "one shred at a time: a shred that starts while another runs waits for it, with no mark of its own yet, and runs once it has finished (runs $runs0, then $runsAfter)"
+
+        # The run is told when a shred began, and takes the events stamped from then on whatever ran since. c13 was
+        # stamped twenty minutes ago and has its lists only now; the runs above were minutes later.
         Invoke-SqlText -Catalog $skuDb -Sql @'
 DECLARE @e5 NVARCHAR(200) = N'[SkuName=SPE_E5, AccountId=a, SkuId=1, DisabledPlans=[]]', @cop NVARCHAR(200) = N'[SkuName=Microsoft_365_Copilot, AccountId=a, SkuId=2, DisabledPlans=[]]',
         @viz NVARCHAR(200) = N'[SkuName=VISIOCLIENT, AccountId=a, SkuId=3, DisabledPlans=[]]';
 UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01';
 UPDATE audit.LicenseEvent SET ShreddedUtc = DATEADD(MINUTE, -20, SYSUTCDATETIME()) WHERE RecordId = 'c13';
 UPDATE audit.LicenseEventProperty SET OldValue = CONCAT(N'["', @e5, N'","', @viz, N'"]'), NewValue = CONCAT(N'["', @e5, N'","', @cop, N'"]') WHERE RecordId = 'c13';
-INSERT INTO audit.LicenseSkuChangeRun (StartedUtc, EndedUtc, SinceUtc, Events, Changes)
-VALUES (DATEADD(MINUTE, -2, SYSUTCDATETIME()), DATEADD(MINUTE, -2, SYSUTCDATETIME()), DATEADD(MINUTE, -30, SYSUTCDATETIME()), 0, 0);
 EXEC audit.usp_RefreshLicenseSkuChange;
 '@
         $missed = & $skuRows $skuDb 'c13'
-        Invoke-SqlText -Catalog $skuDb -Sql "DECLARE @from DATETIME2(0) = DATEADD(MINUTE, -21, SYSUTCDATETIME()); EXEC audit.usp_RefreshLicenseSkuChange @SinceShreddedUtc = @from;"
+        Invoke-SqlText -Catalog $skuDb -Sql "DECLARE @from DATETIME2(0) = DATEADD(MINUTE, -30, SYSUTCDATETIME()); EXEC audit.usp_RefreshLicenseSkuChange @SinceShreddedUtc = @from;"
         $st = & $skuState $skuDb
         Assert-That ($missed -eq '' -and (& $skuRows $skuDb 'c13') -eq $pins.c13 -and [int] $st.Differ -eq 0) `
-            "a shred tells the run when it began, so its events are worked out though another run came in between (c13 alone: '$missed'; told: $(& $skuRows $skuDb 'c13'))"
+            "told when a shred began, the run takes its events though a run came in between (c13 not told: '$missed'; told: $(& $skuRows $skuDb 'c13'))"
 
-        # More than a tenth of the events shredded since the last run: every event is read once, not each family sought.
-        Invoke-SqlText -Catalog $skuDb -Sql "UPDATE audit.LicenseEvent SET ShreddedUtc = '2026-01-01'; UPDATE audit.LicenseEvent SET ShreddedUtc = SYSUTCDATETIME() WHERE RecordId LIKE 'z1[0-2]%'; EXEC audit.usp_RefreshLicenseSkuChange;"
+        # And the shred tells it when it began, not when it ended: its events are stamped in between. A run recorded
+        # as an hour from now stands in for another session's that came in between, and a trigger holds the shred for
+        # three seconds after its events are stamped.
+        & $nightDoc 's-05' '2026-09-22T10:00:00' 'Change user license.' 'user25@contoso.com' 'corr-s5' $gain @()
+        Invoke-SqlText -Catalog $skuDb -Sql @"
+INSERT INTO audit.LicenseSkuChangeRun (StartedUtc, EndedUtc, SinceUtc, Events, Changes)
+VALUES (DATEADD(HOUR, 1, SYSUTCDATETIME()), DATEADD(HOUR, 1, SYSUTCDATETIME()), SYSUTCDATETIME(), 0, 0);
+"@
+        Invoke-SqlText -Catalog $skuDb -Sql "CREATE TRIGGER audit.trSlowShred ON audit.LicenseEventProperty AFTER INSERT AS BEGIN SET NOCOUNT ON; WAITFOR DELAY '00:00:03'; END;"
+        Invoke-SqlText -Catalog $skuDb -Sql "EXEC audit.usp_ShredLicenseEvents @SinceUtc = '2026-09-22';"
+        Invoke-SqlText -Catalog $skuDb -Sql "DROP TRIGGER audit.trSlowShred; DELETE FROM audit.LicenseSkuChangeRun WHERE StartedUtc > DATEADD(MINUTE, 30, SYSUTCDATETIME());"
+        $st = & $skuState $skuDb
+        Assert-That ((& $skuRows $skuDb 's-05') -eq 'Microsoft_365_Copilot Added user25@contoso.com 0' -and [int] $st.Differ -eq 0) `
+            "a shred's events are worked out though it ran on for seconds after stamping them, and a run is recorded after them ($(& $skuRows $skuDb 's-05'))"
+
+        # A tenth of the events or fewer shredded since the last run are sought, family by family; more, and every
+        # event is read once. Of 112 events here, 11 and 12.
+        Invoke-SqlText -Catalog $skuDb -Sql "$asOld UPDATE audit.LicenseEvent SET ShreddedUtc = SYSUTCDATETIME() WHERE RecordId BETWEEN 'z101' AND 'z111'; EXEC audit.usp_RefreshLicenseSkuChange;"
+        $run = & $skuRun $skuDb
+        Assert-That ($run.SinceUtc -isnot [DBNull] -and [int] $run.Events -eq 11) "a tenth of the events or fewer are sought: 11 of 112 ($($run.Events) worked out)"
+        Invoke-SqlText -Catalog $skuDb -Sql "$asOld UPDATE audit.LicenseEvent SET ShreddedUtc = SYSUTCDATETIME() WHERE RecordId BETWEEN 'z101' AND 'z112'; EXEC audit.usp_RefreshLicenseSkuChange;"
         $run = & $skuRun $skuDb
         $st = & $skuState $skuDb
-        Assert-That ($run.SinceUtc -is [DBNull] -and [int] $run.Events -eq 111 -and [int] $st.Differ -eq 0) "over a tenth of the events shredded since the last run, every event is worked out ($($run.Events))"
+        Assert-That ($run.SinceUtc -is [DBNull] -and [int] $run.Events -eq 112 -and [int] $st.Differ -eq 0) "over a tenth, every event is worked out: 12 of 112 ($($run.Events) worked out)"
 
         # An upgrade from 2.5.3: events already shredded, no table. Between the two scripts the view still reads the
         # records, so a reader is never handed an empty history; the procedure script works the changes out once.
@@ -2926,6 +3008,11 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseEvent) AS Events, (SELECT COUNT(*) FRO
     Assert-That ($shred4 -like '*an earlier shred did not finish, so what it was shredding is shredded again*' -and $shred4 -notlike '*shredding 5 record(s)*' -and "$($s.Again)" -eq 'fl-04,fl-05') `
         "a shred that was stopped part way is finished by the next install: what it was shredding is shredded again, and no more ($($s.Again))"
     Assert-That ([int] $s.ChunkProps -eq 2 -and [int] $s.InProgress -eq 0 -and "$($s.Sku)" -eq $bothChanges) 'its chunk group is reassembled, its mark taken away, and the SKU changes are as they were'
+    Invoke-SqlText -Catalog $freshLic -Sql "$asOld INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', N'');"
+    $shred4b = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred4b -like '*an earlier shred did not finish, so what it was shredding is shredded again*' -and "$($s.Again)" -eq 'fl-01,fl-02,fl-04,fl-05' -and [int] $s.InProgress -eq 0) `
+        "and one that was shredding every record has every record shredded again ($($s.Again))"
 
     # A license database an earlier release shredded has no mark that its shred finished, and a shred stopped between
     # a batch's events and their properties shows in no count. So: every record once more, unless told that it did finish.
@@ -2934,7 +3021,8 @@ SELECT (SELECT COUNT(*) FROM audit.LicenseEvent) AS Events, (SELECT COUNT(*) FRO
     $s = & $licState
     Assert-That ($shred5 -like '*license events: shredding 5 record(s) (once more, to record that every one is shredded*' -and [int] $s.Kept -eq 1 -and [int] $s.Complete -eq 1) `
         "a database shredded before 2.5.4 has its license records shredded once more, and the mark is left ($($s.Kept) agent event left as it was)"
-    Invoke-SqlText -Catalog $freshLic -Sql "$asOld $noMark"
+    # With a chunk group whose document holds no property: none to show for it, and no sign of a shred that stopped.
+    Invoke-SqlText -Catalog $freshLic -Sql "$asOld $noMark INSERT INTO audit.LicenseEventChunk (ChunkGroupId, Seq, RecordId, Body) VALUES (N'grp-none', 1, 'fl-01', N'{`"additionalDetails`":`"x`"}');"
     $shred6 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic -LicenseEventsShredded 6>&1 | Out-String
     $s = & $licState
     Assert-That ($shred6 -like '*recorded as all shredded by an earlier run that finished (-LicenseEventsShredded)*' -and $shred6 -like '*every one of 5 record(s) is shredded already*' -and $shred6 -notlike '*shredding*' -and [int] $s.Kept -eq 5 -and [int] $s.Complete -eq 1) `
@@ -2957,6 +3045,53 @@ VALUES ('fl-06', '2026-09-23T10:00:00.7', 'azureActiveDirectory', 'Change user l
     Assert-That ($shred8 -like '*shredding the records from 2026-09-23 09:59:59Z on (1 not shredded yet)*' -and $shred8 -notlike '*shredding 6 record(s)*' -and "$($s.Again)" -eq 'fl-06' -and [int] $s.Events -eq 5) `
         "a record that arrived since is shredded from its own time on, and the records before it are not read again (shredded: $($s.Again))"
     Assert-That ("$($s.Sku)" -eq "$bothChanges; fresh6@contoso.com Microsoft_365_Copilot Added" -and [int] $s.InProgress -eq 0 -and [int] $s.Kept -eq 5) 'and its SKU change is kept beside the others'
+
+    # Another record arrives, and a shred that was shredding from 23 September was stopped: the installer asks for
+    # the new record's time on, and the procedure goes back to where the stopped one began.
+    Invoke-SqlText -Catalog $freshLic -Sql "$asOld INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', N'2026-09-23T00:00:00');"
+    Invoke-SqlText -Catalog $freshLic -Parameters @{ '@json' = '{"CreationTime":"2026-09-24T10:00:00","Id":"fl-07","Operation":"Update user.","ResultStatus":"Success","UserId":"sync@contoso.com","ObjectId":"fresh7@contoso.com","InterSystemsId":"corr-f7","ModifiedProperties":[{"Name":"LastDirSyncTime","OldValue":"a","NewValue":"b"}],"Target":[]}' } -Sql @"
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, UserPrincipalName, AuditDataGz, WindowId)
+VALUES ('fl-07', '2026-09-24T10:00:00', 'azureActiveDirectory', 'Update user.', 'admin@contoso.com', 'admin@contoso.com', COMPRESS(CAST(@json AS NVARCHAR(MAX))), 0);
+"@
+    $shred9 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred9 -like '*shredding the records from 2026-09-24 09:59:59Z on (1 not shredded yet)*' -and "$($s.Again)" -eq 'fl-06,fl-07' -and [int] $s.InProgress -eq 0) `
+        "a record not shredded yet beside a stopped shred: both are shredded, from where the stopped one began ($($s.Again))"
+
+    # A license event changed by hand, after the SKU changes were last worked out (two seconds after: both times
+    # are kept to the second): no record is shredded, and the installer works its change out. fl-06's lists no
+    # longer differ, so its SKU change goes.
+    Invoke-SqlText -Catalog $freshLic -Sql "$asOld UPDATE audit.LicenseEventProperty SET NewValue = OldValue WHERE RecordId = 'fl-06'; WAITFOR DELAY '00:00:02'; UPDATE audit.LicenseEvent SET ShreddedUtc = SYSUTCDATETIME() WHERE RecordId = 'fl-06';"
+    $shred10 = & $installer @conn -Database $freshDb -LicenseDatabase $freshLic 6>&1 | Out-String
+    $s = & $licState
+    Assert-That ($shred10 -like '*every one of 7 record(s) is shredded already*' -and $shred10 -like '*license SKU changes: working out those of the events shredded since they were last worked out*' -and "$($s.Sku)" -eq $bothChanges) `
+        "an event changed by hand has its SKU changes worked out by the installer, with no record shredded ($($s.Sku))"
+
+    # The health check on the shred's mark: none, one of a shred that was stopped today, one a day old, one of a
+    # shred running now (a session holding the shred's lock stands in for it).
+    if ($script:ITIntegrated) {
+        $health = { (& (Join-Path $root 'tools' 'Test-CopilotDataHealth.ps1') -SqlServer $script:ITServer -Database $freshDb -LicenseDatabase $freshLic -TrustServerCertificate 6>&1 | Out-String) }
+        $h0 = & $health
+        Invoke-SqlText -Catalog $freshLic -Sql "INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', N'');"
+        $h1 = & $health
+        Invoke-SqlText -Catalog $freshLic -Sql "UPDATE audit.PipelineSetting SET UpdatedUtc = DATEADD(HOUR, -30, SYSUTCDATETIME()) WHERE Name = N'LicenseShredInProgress';"
+        $h2 = & $health
+        $holder = [System.Data.SqlClient.SqlConnection]::new((New-ConnString $freshLic) + ';Pooling=false')
+        try {
+            $holder.Open()
+            $holdCmd = $holder.CreateCommand()
+            $holdCmd.CommandText = "DECLARE @r INT; EXEC @r = sp_getapplock @Resource = N'audit.usp_ShredLicenseEvents', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; SELECT @r;"
+            [void] $holdCmd.ExecuteScalar()
+            $h3 = & $health
+        }
+        finally { $holder.Dispose() }
+        Invoke-SqlText -Catalog $freshLic -Sql "DELETE FROM audit.PipelineSetting WHERE Name = N'LicenseShredInProgress';"
+        Assert-That ($h0 -like '*OK*The SKU changes sessions and bi read are worked out for every event shredded*' -and $h0 -notlike '*shred of the license events*') 'the health check: with no shred under way, the kept SKU changes are reported as current'
+        Assert-That ($h1 -like '*was stopped part way: events it had begun can lack their properties until the next license load*' -and $h1 -notlike '*ACTION  A shred*') 'a shred stopped today is said, and left to the next license load'
+        Assert-That ($h2 -like '*ACTION  A shred of the license events that began*was stopped part way, and none has finished since*') 'one that no shred has finished for a day asks for action'
+        Assert-That ($h3 -like '*A shred of the license events is running now.*' -and $h3 -notlike '*ACTION  A shred*') 'and one that is running, which holds the shred lock, is said to be running'
+    }
+    else { Write-Host '  SKIP  Test-CopilotDataHealth.ps1 connects with Windows authentication only' -ForegroundColor Yellow }
 }
 finally {
     foreach ($db in $freshDb, $freshLic) {

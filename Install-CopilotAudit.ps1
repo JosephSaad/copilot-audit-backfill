@@ -340,13 +340,20 @@ WHERE a.Operation LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.AgentEvent AS
         $complete = $marks -like '*LicenseShredCompleteUtc*'
         # The one damage that shows in the tables themselves: a chunk group with every fragment, and none of the
         # properties it reassembles into on its first record. A shred stopped before its last step leaves them so.
+        # Only a group whose document does hold properties counts: one that holds none has none to show.
         $unassembled = [long] 0
         if (-not $complete -and $LicenseEventsShredded) {
             $unassembled = [long] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
 SELECT COUNT_BIG(*)
-FROM (SELECT MAX(CASE WHEN c.Seq = 1 THEN c.RecordId END) AS Carrier
+FROM (SELECT c.ChunkGroupId, MAX(CASE WHEN c.Seq = 1 THEN c.RecordId END) AS Carrier
       FROM audit.LicenseEventChunk AS c GROUP BY c.ChunkGroupId HAVING MIN(c.Seq) = 1 AND MAX(c.Seq) = COUNT(*)) AS g
-WHERE NOT EXISTS (SELECT 1 FROM audit.LicenseEventProperty AS p WHERE p.RecordId = g.Carrier AND p.Source = 'chunks');
+WHERE NOT EXISTS (SELECT 1 FROM audit.LicenseEventProperty AS p WHERE p.RecordId = g.Carrier AND p.Source = 'chunks')
+  AND EXISTS (SELECT 1
+              FROM (SELECT STRING_AGG(CAST(b.Body AS NVARCHAR(MAX)), N'') WITHIN GROUP (ORDER BY b.Seq) AS Payload
+                    FROM audit.LicenseEventChunk AS b WHERE b.ChunkGroupId = g.ChunkGroupId) AS w
+              CROSS APPLY OPENJSON(CASE WHEN ISJSON(w.Payload) = 1 THEN w.Payload ELSE N'{}' END)
+                   WITH (Tup NVARCHAR(MAX) '`$.targetUpdatedProperties') AS d
+              CROSS APPLY OPENJSON(CASE WHEN ISJSON(d.Tup) = 1 THEN d.Tup ELSE N'[]' END) AS item);
 "@)
         }
         $why = if ($Rebuild) { '-Rebuild' }

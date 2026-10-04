@@ -210,7 +210,7 @@ Indexes and constraints:
 
 ### audit.PipelineSetting
 
-*Table.* Settings the procedures read, one row each: ReportingTimeZone, the Windows time zone name every procedure cuts days and hours in (read through audit.ReportingTimeZone(); Eastern Standard Time when unset; written by Install-CopilotAudit.ps1 -ReportingTimeZone, which refuses a change once records are loaded), and from 2.3.0 PrivacyMode and PseudonymSalt (written by dash.usp_SetPrivacyMode from Admin &gt; Privacy and retention). It also holds the marks a long job leaves: FullFlattenUtc when a flatten of every record has finished (2.4.12) and, in the license-event database, LicenseShredInProgress while a license shred runs (the time it shreds from; still there after a shred that was stopped) and LicenseShredCompleteUtc when a shred of every record last finished (2.5.4).
+*Table.* Settings the procedures read, one row each: ReportingTimeZone, the Windows time zone name every procedure cuts days and hours in (read through audit.ReportingTimeZone(); Eastern Standard Time when unset; written by Install-CopilotAudit.ps1 -ReportingTimeZone, which refuses a change once records are loaded), and from 2.3.0 PrivacyMode and PseudonymSalt (written by dash.usp_SetPrivacyMode from Admin &gt; Privacy and retention). It also holds the marks a long job leaves: FullFlattenUtc when a flatten of every record has finished (2.4.12) and, in the license-event database, LicenseShredInProgress while a license shred runs (the time it shreds from; still there after a shred that was stopped, with the time that one began) and LicenseShredCompleteUtc when a shred of every record last finished, or the installer was told that one had (2.5.4).
 
 **Script** `Create-CopilotAuditSchema.sql` · **In** Copilot database
 

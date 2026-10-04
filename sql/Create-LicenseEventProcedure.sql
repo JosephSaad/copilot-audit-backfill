@@ -354,18 +354,35 @@ BEGIN
     IF @BatchSize IS NULL OR @BatchSize < 1000 SET @BatchSize = 1000;
 
     DECLARE @msg NVARCHAR(400), @rows BIGINT = 0, @done BIGINT = 0, @batch INT = 1;
-    /* Every event this run writes is stamped at or after this (ShreddedUtc): the SKU changes at the end are told. */
-    DECLARE @shredFrom DATETIME2(0) = DATEADD(SECOND, -1, SYSUTCDATETIME());
 
     IF @RebuildAll = 1
         SET @SinceUtc = NULL;
+
+    /* 2.5.4: one shred at a time. Two at once would each take the other's mark (below) for a stopped shred's, and
+       the first to finish would take away the mark the other still needs. A second shred waits for the first to
+       finish, as a second bi refresh does. The lock is the session's, as a shred commits as it goes: released at
+       the end, on an error (the CATCH at the end), or when the session closes. */
+    DECLARE @lock INT;
+    EXEC @lock = sys.sp_getapplock @Resource = N'audit.usp_ShredLicenseEvents', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0;
+    IF @lock < 0
+    BEGIN
+        RAISERROR('Another shred of the license events is running: waiting for it to finish.', 0, 1) WITH NOWAIT;
+        EXEC @lock = sys.sp_getapplock @Resource = N'audit.usp_ShredLicenseEvents', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = -1;
+    END;
+    IF @lock < 0
+        THROW 50020, N'Another shred of the license events is running, and this one could not wait for it to finish.', 1;
+
+    BEGIN TRY
+    /* Every event this run writes is stamped at or after this (ShreddedUtc): the SKU changes at the end are told. */
+    DECLARE @shredFrom DATETIME2(0) = DATEADD(SECOND, -1, SYSUTCDATETIME());
 
     /*
         2.5.4: a shred says that it is running (LicenseShredInProgress in audit.PipelineSetting, with the time it
         shreds from; empty: every record) and takes the mark away once it has finished and the SKU changes are
         worked out. Its statements commit one by one, so one that is stopped part way - between a batch's events
         and their properties, or before the chunk groups are reassembled - leaves events without their properties,
-        and leaves its mark. The next shred, whatever it was asked for, shreds what that one was shredding too.
+        and leaves its mark. One that is still running holds the lock above, so a mark found here is always one of
+        a shred that was stopped: this one, whatever it was asked for, shreds what that one was shredding too.
         Until then the SKU changes sessions and bi read are those of the last shred that finished.
     */
     DECLARE @owed NVARCHAR(400), @stopped BIT = 0;
@@ -380,10 +397,11 @@ BEGIN
                           CASE WHEN @SinceUtc IS NULL THEN N'every record' ELSE CONCAT(N'from ', CONVERT(NVARCHAR(16), @SinceUtc, 120), N'Z') END,
                           N', to finish it.');
         RAISERROR(@msg, 0, 1) WITH NOWAIT;
-    END;
-    UPDATE audit.PipelineSetting SET Value = ISNULL(CONVERT(NVARCHAR(30), @SinceUtc, 126), N''), UpdatedUtc = SYSUTCDATETIME()
-    WHERE Name = N'LicenseShredInProgress';
-    IF @@ROWCOUNT = 0
+        /* Its time stays: when the shred that was stopped began, which is how long events have been left so. */
+        UPDATE audit.PipelineSetting SET Value = ISNULL(CONVERT(NVARCHAR(30), @SinceUtc, 126), N'')
+        WHERE Name = N'LicenseShredInProgress';
+    END
+    ELSE
         INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredInProgress', ISNULL(CONVERT(NVARCHAR(30), @SinceUtc, 126), N''));
 
     IF @RebuildAll = 1
@@ -655,6 +673,16 @@ BEGIN
         IF @@ROWCOUNT = 0
             INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'LicenseShredCompleteUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));
     END;
+    EXEC sys.sp_releaseapplock @Resource = N'audit.usp_ShredLicenseEvents', @LockOwner = 'Session';
+    END TRY
+    BEGIN CATCH
+        /* The lock is the session's: a pooled connection would otherwise keep it, and the next shred wait. The mark
+           stays: this shred did not finish, and the next one finishes it. */
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        IF APPLOCK_MODE(N'public', N'audit.usp_ShredLicenseEvents', N'Session') <> N'NoLock'
+            EXEC sys.sp_releaseapplock @Resource = N'audit.usp_ShredLicenseEvents', @LockOwner = 'Session';
+        THROW;
+    END CATCH;
 END;
 GO
 

@@ -105,8 +105,9 @@ index stay, unused.
   events and their properties shows in no count, so the first run of this release shreds every
   record one more time and leaves the mark, unless `-LicenseEventsShredded` says that the last
   shred did finish. The switch is not taken where the tables show otherwise (a chunk group with
-  every fragment that was never reassembled). From then on, records that have no event yet are
-  shredded from the earliest of them on, and nothing else is read.
+  every fragment, whose document holds properties, that was never reassembled). From then on,
+  records that have no event yet are shredded from the earliest of them on, and nothing else is
+  read.
 - **A license shred that was stopped part way could leave events without their properties for
   good.** `audit.usp_ShredLicenseEvents` commits statement by statement: stopped between a batch's
   events and their properties, or before its chunk groups are reassembled, it left those events
@@ -116,6 +117,13 @@ index stay, unused.
   worked out. The next shred, the nightly's or the installer's, shreds what the stopped one was
   shredding too, whatever it was asked for. Until then sessions and `bi` read the SKU changes of
   the last shred that finished.
+- **Two license shreds could run at once** in one database (a CSV import beside the installer, or
+  one run by hand). One shred now runs at a time: it holds a lock, as the `bi` refresh does, and a
+  second waits for it, saying so. So a mark a shred finds is always one of a shred that was stopped.
+- **A CSV import could leave its earliest record out of the refresh that follows it.** The time
+  that refresh starts from was the earliest added record's, rounded to the second: half a second or
+  more past the second, the record fell before it. It is now the second at or before the record.
+  Audit records carry whole seconds, so none is known to have been left out.
 
 ### Changed
 - **`audit.vLicenseSkuChange` reads a table.** Its columns are the same, so what reads it needs no
@@ -137,8 +145,9 @@ index stay, unused.
   `@All = 1` works out nothing: that shred's events can still lack their properties.
 - **Two marks in the license-event database's `audit.PipelineSetting`.** `LicenseShredInProgress`,
   while a shred runs, holds the time it shreds from (empty: every record); one that is still there
-  when no shred is running is a shred that was stopped. `LicenseShredCompleteUtc` is when a shred
-  of every record last finished.
+  when no shred is running is a shred that was stopped, and its `UpdatedUtc` stays the time that
+  one began, however many shreds stop after it. `LicenseShredCompleteUtc` is when a shred of every
+  record last finished, or when the installer was told that one had (`-LicenseEventsShredded`).
 - **A new index**, `IX_LicenseEvent_Shredded` on `audit.LicenseEvent (ShreddedUtc)`, finds the
   events shredded since the last run.
 - **A SKU added and removed in the same second.** The session build took whichever of the two the
@@ -174,21 +183,27 @@ index stay, unused.
   tools, turning Query Store on, the same recording with SQL Server Profiler, and how to read the
   result: which stage or wait means what, and what to do about it.
 - **The health check** (`tools\Test-CopilotDataHealth.ps1`) says how many SKU changes are kept and
-  when they were last worked out, reports a license shred that is running or that never finished,
-  and asks for the installer when the database predates 2.5.4 or a shred has been left unfinished
-  for a day.
+  when they were last worked out, tells a license shred that is running (it holds the lock) from
+  one that was stopped, and asks for the installer when the database predates 2.5.4 or no shred
+  has finished a stopped one for a day.
 - **Tests.** The SQL integration test checks the kept rows against the old view after a full shred,
   after a night's shred that completes a chunk group and brings the license change an *Update user*
-  was raised with, case by case over 35 events for every part of the rule, over a tenth of the
-  events, and through an upgrade from a database with events and no table, with and without the
-  step that works them out. It stops a shred part way (its mark, a batch's properties gone, a chunk
-  group not reassembled) and checks that the kept changes stay as they were, that the next shred
-  finishes it from where it began, and that a run of another session cannot hide a shred's events.
-  Through the installer it checks eight runs: records not shredded yet, nothing to do, `-Rebuild`,
-  a stopped shred finished, a database with no mark shredded once more, `-LicenseEventsShredded`
-  taken, not taken beside a chunk group never reassembled, and a record that arrived since shredded
-  from its own time on. It runs the trace script through `start`, `now`, `read` and `stop` against
-  a three-second probe, on SQL Server 2022 in CI, and the profile against its own recorded run.
+  was raised with, case by case over 35 events for every part of the rule, at a tenth of the events
+  and just over it, and through an upgrade from a database with events and no table, with and
+  without the step that works them out. It makes a shred fail as it writes a batch's properties (a
+  trigger stands in for a task that is ended) and checks the mark it leaves and what the mark says
+  is owed, that the kept changes stay as they were though asked for by hand, that a second shred
+  that stops leaves the mark's time alone, that the next shred finishes it from where it began,
+  that a shred waits while another holds the lock, and that a shred's events are worked out though
+  it runs on for seconds after stamping them. Through the installer it checks eleven runs: records
+  not shredded yet, nothing to do, `-Rebuild`, a stopped shred finished (of a night, and of every
+  record), a database with no mark shredded once more, `-LicenseEventsShredded` taken, not taken
+  beside a chunk group never reassembled, a record that arrived since shredded from its own time
+  on (alone, and beside a stopped shred), and an event changed by hand. The checks of the mark, its
+  time, the lock, the run asked for by hand and the time a shred passes on were each run against a
+  copy of the procedure broken in that respect, and failed there. It runs the trace script through
+  `start`, `now`, `read` and `stop` against a three-second probe, on SQL Server 2022 in CI, and the
+  profile against its own recorded run.
   `tests/Test-NightlyProfile.ps1`, in CI and the release, checks how the profile splits a run into
   stages, how it reads a log, and that it only reads.
 
@@ -207,11 +222,12 @@ index stay, unused.
 - `-LicenseEventsShredded` is the operator's word. The installer can see one kind of damage itself
   (a chunk group never reassembled) and then shreds all the same; events a stopped shred left
   without their properties it cannot see, which is why the default is to shred once more.
-- Two shreds of one license-event database at once are not told apart from one that stopped: the
-  second takes the first's mark for a stopped shred's and shreds what the first is shredding too.
-  That is correct, and slower. The nightly task and the installer cannot run together (each holds
-  the Copilot database for itself); a shred run by hand, or a CSV import into the license-event
-  database while the installer runs, can overlap with one.
+- A shred that is canceled in a query window keeps its lock while that window stays open, and the
+  next shred waits for it, with no limit: its log says *Another shred of the license events is
+  running: waiting for it to finish.* Closing the window lets it go. A shred that fails, or whose
+  process ends, lets it go itself.
+- The health check's lines about a shred's mark, and `tools\Measure-CopilotNightly.ps1`, are tested
+  on a computer with Windows authentication only, which CI's SQL Server does not have.
 - The licensed days are still rebuilt whole every night (a minute and a half for 22 million in the
   lab), and the dashboard's org chart too.
 - Five statements now ask SQL Server to seek an index and do not fall back to a scan: the kept
