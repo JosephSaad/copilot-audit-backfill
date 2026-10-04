@@ -31,14 +31,6 @@ rebuilt. No KPI, table, digest or data API figure changes; only the points of th
   AD export reads the country from `c` and the department from `-DepartmentAttribute`, departments
   hold 200 characters, the read-only health check, the type names on Labeled content by unit and the
   order of the levels on Workforce.
-- **A page from memory no longer waits 0.4 seconds for the team list.** Every page's *Look inside a
-  team* list shows the parts below the manager shown that reach the minimum group size, counting the
-  enabled people in each (2.4.12). That count ran on every request, from memory or not: for the top
-  of an organization of 210,000 it took 0.4 seconds a page. It is kept with the report data now,
-  under the same data stamp, and counted again only when the org chart is rebuilt; so is the size of
-  a part asked for. Who the viewer is and what they may open are still read from the database on
-  every request. At 120 million interactions a report page from memory takes 0.01 seconds at the
-  median and 0.06 at most, where it took 0.42 and 0.77.
 
 ### Added
 - **A daily pre-cache.** `dashboard\Invoke-InsightsPrecache.ps1` asks the site on its web server to
@@ -62,6 +54,16 @@ rebuilt. No KPI, table, digest or data API figure changes; only the points of th
   or Tokyo. It also checks the time format, what the script says and its exit codes, and how the
   installer, the script and the site fit together. The dashboard's tests check that no report page
   averages a trend and that Adoption rate stays a rolling 28 days.
+
+### Fixed
+- **A page from memory no longer waits 0.4 seconds for the team list.** Every page's *Look inside a
+  team* list shows the parts below the manager shown that reach the minimum group size, counting the
+  enabled people in each (2.4.12). That count ran on every request, from memory or not: for the top
+  of an organization of 210,000 it took 0.4 seconds a page. It is kept with the report data now,
+  under the same data stamp, and counted again only when the org chart is rebuilt; so is the size of
+  a part asked for. Who the viewer is and what they may open are still read from the database on
+  every request. At 120 million interactions a report page from memory takes 0.01 seconds at the
+  median and 0.06 at most, where it took 0.42 and 0.77.
 
 ### Known limits
 - Measured on the lab's 120-million-interaction database (210,000 people) with SQL Server 2025
