@@ -177,7 +177,9 @@ Anything refused is logged as a warning, and the viewer is treated as not in the
 
 ## Periods
 
-Every report has the same choice: the last **7, 14, 30, 90, 180 or 365 days**, ending on the last complete day with data. The default is 30, which admins can change. Periods of 30 days or less trend by day. Longer ones trend by Saturday-to-Friday week, labeled by the Friday, and the first and last week may be partial.
+Every report has the same choice: the last **7, 14, 30, 90, 180 or 365 days**, ending on the last complete day with data. The default is 30, which admins can change. Periods of 30 days or less trend by day. Longer ones trend by whole Saturday-to-Friday weeks, labeled by the Friday.
+
+**Whole weeks only (2.5.2).** A weekly chart leaves out a week the period covers only in part: the first, when the period starts after a Saturday, and the last, until its Friday is loaded. That goes for every trend chart, column chart, heatmap and sparkline over weeks. Such a week counted a few days against the others' seven, so every weekly line ended in a drop that was only the calendar: on a Saturday, the last point was one day's people. A weekly chart now ends at the last Friday with data, up to six days before the period does. Those days still count in the KPIs, the tables and the digests. The data API's trend still has every week of the period, the first and last possibly partial. Daily trends are unchanged.
 
 **Each point is that day or week (2.5.1).** A trend chart shows each day's or week's own figure, as the KPIs, the tables, the data API and the digests do. 2.5.0 drew most trends as a 28-day moving average, and 2.5.1 takes it out. The one rolling figure is **Adoption rate**: of the people holding a Premium license at each point, the share who used Copilot in the 28 days up to it (since 2.4.9), so weekends and holidays do not dip it. Its first 28 days of data read low, with fewer than 28 days behind them.
 

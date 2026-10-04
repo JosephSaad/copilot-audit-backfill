@@ -42,6 +42,7 @@ SELECT f.AppKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", Ctx.Args());
         var buckets = Buckets();
+        var axis = Labels();
         var people = await Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0;", Ctx.Args());
         Kpis.Add(new("Apps in use", Num(rows.Count)));
         var widest = rows.OrderByDescending(r => r.People).FirstOrDefault();
@@ -63,7 +64,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
         foreach (var r in rows.OrderByDescending(r => r.People))
             t.Rows.Add([new Link(r.App, Ctx.Url("/apps/detail", extra: $"app={r.AppKey}")), r.AppCategory, r.People, Pct(Ratio(r.Returning, r.People)), r.N,
                         Math.Round(r.Prompts / (double)Math.Max(1, r.People), 1), Math.Round(r.Resources / (double)Math.Max(1, r.N), 2),
-                        Chart.Sparkline(buckets.Select(b => (double?)trend.Where(x => x.AppKey == r.AppKey && x.Bucket == b.Key).Sum(x => x.People)).ToList(), r.App)]);
+                        Chart.Sparkline(axis, buckets.Select(b => (double?)trend.Where(x => x.AppKey == r.AppKey && x.Bucket == b.Key).Sum(x => x.People)).ToList(), r.App)]);
         Panels.Add(new("Every app", t.Render(), "Came back: people who used Copilot in the app on more than one day."));
     }
 }

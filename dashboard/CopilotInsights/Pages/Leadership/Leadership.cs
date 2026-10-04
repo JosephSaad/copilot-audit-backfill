@@ -58,6 +58,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         var units = await m.UnitsAsync(Ctx);
         var trend = await m.UnitsTrendAsync(Ctx);
         var buckets = Buckets();
+        var axis = Labels();
         var shown = FoldSmall(units, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
 
         var t = new Table
@@ -72,7 +73,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
                 u.Drillable ? new Link(u.Name, Ctx.Url(Request.Path, org: u.Unit)) : u.Name, u.Department, u.People, u.Licensed, u.Active,
                 AdoptionAtMin(u.ActiveLicensed, u.Licensed), u.Active > 0 ? Math.Round(u.ActiveDays / (double)u.Active, 1) : null,
                 u.Active > 0 ? Math.Round(u.Interactions / (double)u.Active, 1) : null, Pct(Ratio(u.MultiTurn, u.Sessions)),
-                u.Unit == "~small" ? null : Chart.Sparkline(series, $"{u.Name}: active people"),
+                u.Unit == "~small" ? null : Chart.Sparkline(axis, series, $"{u.Name}: active people"),
             ]);
         }
         t.KeepLast = folded > 0 ? 1 : 0;
@@ -88,7 +89,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
                 grid[r, c] = big[r].People > 0 ? a / (double)big[r].People : null;
             }
         Panels.Add(new("Share of people active",
-            Chart.Heatmap(big.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Share of each unit active", 1, unit: "of its people used Copilot"),
+            Chart.Heatmap(big.Select(u => u.Name).ToList(), axis, grid, Fmt.Percent, "Share of each unit active", 1, unit: "of its people used Copilot"),
             $"Darker is a larger share of the unit's people using Copilot. {TrendNote}"));
     }
 }

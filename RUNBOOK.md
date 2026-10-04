@@ -250,6 +250,7 @@ A web dashboard in IIS (`dashboard/CopilotInsights`), reading `bi` and its own `
 | Browser reaches another site | A binding on the server's IP address outranks the dashboard's. See [Another site on port 443](docs/DASHBOARD.md#another-site-on-port-443). |
 | A page is slow at a long period | Check `dash.RefreshRun` ran after the last `bi` refresh, and that the `dash` indexes exist (re-run the schema script). |
 | Pages slow in the morning, or after the app pool restarted | Nothing was built ahead yet. Admin › Health › *Report speed* says when the pages were last built and how the morning pre-cache went (2.5.1); so does `precache\precache.log` in the site's folder. To build them now, run `.\Invoke-InsightsPrecache.ps1` from the site's folder as an administrator. If the task is missing, run the dashboard installer again, which schedules it (07:00 Eastern unless `-PrecacheAt` says otherwise). |
+| A weekly chart ends days before the period does, or leaves out its first week | By design since 2.5.2. Periods of 90 days or more draw whole Saturday-to-Friday weeks only, so the week under way shows once its Friday is loaded, and a first week the period starts part way through is left out. The KPIs and the tables count those days. Before 2.5.2 such a week was drawn, and the line dropped at its end. |
 
 ## 5g. Checking what is loaded, and rebuilding from the stored records
 
