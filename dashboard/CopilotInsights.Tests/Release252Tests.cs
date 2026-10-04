@@ -112,7 +112,7 @@ public class Release252Tests
     }
 
     [Fact]
-    public void A_daily_trend_draws_every_day()
+    public void An_axis_with_no_partial_point_is_drawn_whole()
     {
         var days = new Axis(["1 Oct", "2 Oct", "3 Oct"]);
         IReadOnlyList<double?> v = [5, 6, 1];

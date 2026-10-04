@@ -48,7 +48,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
     /// <summary>The same context for another window: <paramref name="days"/> days ending on <paramref name="end"/>.</summary>
     public static ReportContext Window(ReportContext c, DateTime end, int days) => new()
     {
-        Viewer = c.Viewer, Days = days, Start = end.AddDays(-(days - 1)), End = end, Root = c.Root, RootName = c.RootName,
+        Viewer = c.Viewer, Days = days, Start = end.AddDays(-(days - 1)), End = end, LastRecord = c.LastRecord, Root = c.Root, RootName = c.RootName,
         MinGroupSize = c.MinGroupSize, InactiveDays = c.InactiveDays, OrgTopUpn = c.OrgTopUpn, PrivacyMode = c.PrivacyMode,
     };
 
@@ -61,7 +61,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
     /// </summary>
     public static ReportContext Tenant(ReportContext c) => new()
     {
-        Viewer = c.Viewer, Days = 30, Start = c.End.AddDays(-29), End = c.End, Root = null,
+        Viewer = c.Viewer, Days = 30, Start = c.End.AddDays(-29), End = c.End, LastRecord = c.LastRecord, Root = null,
         MinGroupSize = c.MinGroupSize, InactiveDays = c.InactiveDays, OrgTopUpn = c.OrgTopUpn, PrivacyMode = c.PrivacyMode,
     };
 
@@ -156,7 +156,7 @@ WHERE oc.AncestorUpn = @root AND oc.DescendantUpn IN (SELECT t.RootUpn FROM dash
     {
         var scoped = new ReportContext
         {
-            Viewer = now.Viewer, Days = 30, Start = now.End.AddDays(-29), End = now.End, Root = r.RootUpn,
+            Viewer = now.Viewer, Days = 30, Start = now.End.AddDays(-29), End = now.End, LastRecord = now.LastRecord, Root = r.RootUpn,
             MinGroupSize = now.MinGroupSize, InactiveDays = now.InactiveDays, OrgTopUpn = now.OrgTopUpn, PrivacyMode = now.PrivacyMode,
         };
         r.Current = MetricOf(r.Metric, await metrics.TotalsAsync(scoped));

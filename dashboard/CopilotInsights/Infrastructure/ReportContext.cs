@@ -139,8 +139,9 @@ public enum OrgRefusal
 
 /// <summary>
 /// One point on a trend: a day (periods up to 30 days) or a Saturday-to-Friday week. Partial: a week the period covers
-/// only in part, at its start or not yet over. The trend's rows keep it, for the period's totals; its charts leave it
-/// out (2.5.2, see <see cref="CopilotInsights.Charts.Axis.Partial"/>).
+/// only in part, at its start or not yet over (2.5.2), or a day held back, one of the two newest days of records, which
+/// may not all be in yet (2.5.3, see <see cref="ReportContext.DrawnTo"/>). The trend's rows keep it, for the period's
+/// totals; its charts leave it out (see <see cref="CopilotInsights.Charts.Axis.Partial"/>).
 /// </summary>
 public sealed record Bucket(DateTime Key, string Label, bool Partial);
 
@@ -158,6 +159,23 @@ public sealed class ReportContext
     public required int Days { get; init; }
     public required DateTime Start { get; init; }
     public required DateTime End { get; init; }     // the last complete day with data
+
+    /// <summary>
+    /// The last day with any record (2.5.3): today, where the load has reached its first hours, else <see cref="End"/>.
+    /// Not given (a report made without the database): taken to be <see cref="End"/>.
+    /// </summary>
+    public DateTime? LastRecord { get; init; }
+
+    /// <summary>
+    /// How many days a daily trend holds back, counted from the last record's day and with it (2.5.3). Purview can deliver
+    /// a record up to 48 hours after the event, which is why each nightly load reads the last 48 hours again: until then
+    /// the two newest days may not all be in, and a daily line ended in a drop that was the load, not the use.
+    /// </summary>
+    public const int HeldBackDays = 2;
+
+    /// <summary>The last day a daily trend draws (2.5.3): with records to 4 October, 2 October. The period's totals still run to <see cref="End"/>.</summary>
+    public DateTime DrawnTo => (LastRecord ?? End).AddDays(-HeldBackDays);
+
     /// <summary>The subtree shown; null = the whole organization (allowed only for whole-organization viewers).</summary>
     public string? Root { get; init; }
     public string? RootName { get; init; }
@@ -212,11 +230,14 @@ public sealed class ReportContext
         Key(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utcNow, DateTimeKind.Utc), zone).Date);
     public static DateTime WeekEnding(DateTime d) => d.Date.AddDays(((int)DayOfWeek.Friday - (int)d.DayOfWeek + 7) % 7);
 
-    /// <summary>The trend's points, oldest first. Weekly points are labeled by the Friday ending them.</summary>
+    /// <summary>
+    /// The trend's points, oldest first. Weekly points are labeled by the Friday ending them. A day after
+    /// <see cref="DrawnTo"/> is marked partial, as a week the period covers only in part is: kept, and not drawn.
+    /// </summary>
     public IReadOnlyList<Bucket> Buckets()
     {
         if (Daily)
-            return Enumerable.Range(0, Days).Select(i => Start.AddDays(i)).Select(d => new Bucket(d, d.ToString("d MMM"), false)).ToList();
+            return Enumerable.Range(0, Days).Select(i => Start.AddDays(i)).Select(d => new Bucket(d, d.ToString("d MMM"), d > DrawnTo)).ToList();
         var list = new List<Bucket>();
         for (var we = WeekEnding(Start); we.AddDays(-6) <= End; we = we.AddDays(7))
             list.Add(new Bucket(we, "w/e " + we.ToString("d MMM"), we.AddDays(-6) < Start || we > End));
@@ -296,11 +317,11 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
            cut in (2.4.12). It was SQL Server's own date: with the server on UTC and the days cut in Eastern Time, from
            8 p.m. Eastern the day still loading counted as complete, and every period ended on it. */
         var today = await settings.TodayKeyAsync();
-        var endKey = await db.ScalarAsync<int?>(@"
-SELECT COALESCE(
-    (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today),
-    (SELECT MAX(DateKey) FROM dash.UserDay))", new { today });
-        var end = endKey is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : ReportContext.Day(today).AddDays(-1);
+        /* With it, the last day with any record, today's included (2.5.3): a daily trend stops two days before that one. */
+        var (completeKey, lastKey) = (await db.QueryAsync<(int? Complete, int? Last)>(@"
+SELECT (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today), (SELECT MAX(DateKey) FROM dash.UserDay);", new { today })).Single();
+        var end = (completeKey ?? lastKey) is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : ReportContext.Day(today).AddDays(-1);
+        DateTime? lastRecord = lastKey is int l ? ReportContext.Day(l) : null;
         var start = end.AddDays(-(days - 1));
 
         /* Whose data: whole organization, or a subtree the viewer may see. */
@@ -383,7 +404,7 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
 
         return new ReportContext
         {
-            Viewer = viewer, Days = days, Start = start, End = end, Root = root, RootName = rootName, OrgAsked = asked, OrgWhy = why,
+            Viewer = viewer, Days = days, Start = start, End = end, LastRecord = lastRecord, Root = root, RootName = rootName, OrgAsked = asked, OrgWhy = why,
             PrivacyMode = privacy,
             MinGroupSize = minGroup, InactiveDays = inactive, OrgTopUpn = top, Breadcrumb = crumbs, Children = children,
         };

@@ -77,7 +77,7 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
             ]);
         }
         t.KeepLast = folded > 0 ? 1 : 0;
-        Panels.Add(new("Units", t.Render(),
+        Panels.Add(new("Units", WithTrendNote(t.Render()),
             folded > 0 ? FoldNote(folded, "unit") : null));
 
         var big = shown.Where(u => u.Unit != "~small").ToList();

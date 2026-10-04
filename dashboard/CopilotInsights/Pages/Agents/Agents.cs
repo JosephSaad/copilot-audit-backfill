@@ -72,7 +72,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
                 AtLeastMin(r.People) is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
                 AtLeastMin(r.People) is null ? null : Chart.Sparkline(axis, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName),
             ]);
-        Panels.Add(new("All agents", t.Render(),
+        Panels.Add(new("All agents", WithTrendNote(t.Render()),
             $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from Admin › Reference data. Select an agent for its detail."));
     }
 }
