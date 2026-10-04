@@ -39,8 +39,15 @@ public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
     /// Saturday and the last while it is under way. Each counted a few days against the whole weeks' seven, so every
     /// weekly line ended in a drop that was only the calendar: on a Saturday, the last point was one day's people. Line,
     /// Columns, Heatmap and Sparkline leave them out, with their events; the page's other figures still count their days.
+    /// On a daily trend they are the days held back (2.5.3): the two newest days of records, which may not all be in yet.
     /// </summary>
     public HashSet<int> Partial { get; } = [];
+
+    /// <summary>
+    /// Said in a line under each chart drawn over this axis (2.5.3): how far a daily trend is shown and why it stops short
+    /// of the period. On the page itself, not behind an information icon, so a chart copied out still says it.
+    /// </summary>
+    public string? Note { get; set; }
 }
 
 /// <summary>
@@ -203,7 +210,7 @@ public static class Chart
     static (IReadOnlyList<string> X, IReadOnlyList<Series> Series) Whole(IReadOnlyList<string> x, IReadOnlyList<Series> series)
     {
         if (Drawn(x) is not { } keep) return (x, series);
-        var axis = new Axis(keep.Select(i => x[i]));
+        var axis = new Axis(keep.Select(i => x[i])) { Note = ((Axis)x).Note };
         foreach (var m in ((Axis)x).Markers)
             if (keep.IndexOf(m.Index) is var j and >= 0) axis.Markers.Add(m with { Index = j });
         return (axis, series.Select(s => s with { Values = keep.Select(i => s.Values.ElementAtOrDefault(i)).ToList() }).ToList());
@@ -216,8 +223,13 @@ public static class Chart
         var v = new double?[values.GetLength(0), keep.Count];
         for (var r = 0; r < values.GetLength(0); r++)
             for (var c = 0; c < keep.Count; c++) v[r, c] = values[r, keep[c]];
-        return (new Axis(keep.Select(i => cols[i])), v);
+        return (new Axis(keep.Select(i => cols[i])) { Note = ((Axis)cols).Note }, v);
     }
+
+    /// <summary>The line under a chart whose newest days are held back (2.5.3, see <see cref="Axis.Note"/>); nothing where there is none.</summary>
+    public static string Held(string? note) => note is null ? "" : $"<p class=\"held\">{E(note)}</p>";
+
+    static string Held(IReadOnlyList<string> x) => Held((x as Axis)?.Note);
 
     /// <summary>The top margin a trend needs: room for the event badges when it has any.</summary>
     static int TopFor(IReadOnlyList<string> x) => x is Axis a && a.Markers.Any(m => m.Index >= 0 && m.Index < x.Count) ? 34 : 14;
@@ -332,7 +344,7 @@ public static class Chart
         }
         var events = Markers(sb, x, X);
         sb.Append($"<line class=\"cross\" x1=\"0\" x2=\"0\" y1=\"{T}\" y2=\"{H - B}\"/></svg>");
-        return new((series.Count >= 2 ? Legend(series).Value : "") + sb + events);
+        return new((series.Count >= 2 ? Legend(series).Value : "") + sb + events + Held(x));
     }
 
     /// <summary>
@@ -441,7 +453,7 @@ public static class Chart
         }
         var events = Markers(sb, x, i => X0(i) + bw / 2);
         sb.Append("</svg>");
-        return new((series.Count >= 2 ? Legend(series).Value : "") + sb + events);
+        return new((series.Count >= 2 ? Legend(series).Value : "") + sb + events + Held(x));
     }
 
     /// <summary>A rectangle with its data end (the top) rounded 4px, anchored square at the baseline.</summary>
@@ -576,7 +588,7 @@ public static class Chart
         var scale = "<div class=\"scale\"><span>" + E(Format(0, f)) + "</span>" +
                     string.Concat(Enumerable.Range(0, 9).Select(i => $"<i style=\"background:var(--q{i})\"></i>")) +
                     "<span>" + E(Format(top, f)) + "</span></div>";
-        return new(sb + scale);
+        return new(sb + scale + Held(cols));
     }
 
     /// <summary>A small line for a table cell, over the page's trend points <paramref name="x"/>: drawn without the partial ones, as the trend charts are (2.5.2).</summary>

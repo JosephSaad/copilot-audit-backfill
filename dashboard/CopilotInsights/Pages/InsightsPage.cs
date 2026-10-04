@@ -497,9 +497,9 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     protected IReadOnlyList<string> Labels()
     {
         var buckets = Ctx.Buckets();
-        var axis = new Axis(buckets.Select(b => b.Label));
-        /* A week the period covers only in part is not drawn (2.5.2, see Axis.Partial). It stays in the trend's rows,
-           which several pages add up for the period's totals. */
+        var axis = new Axis(buckets.Select(b => b.Label)) { Note = HeldBack() };
+        /* A week the period covers only in part is not drawn (2.5.2, see Axis.Partial), nor a day held back (2.5.3). It
+           stays in the trend's rows, which several pages add up for the period's totals. */
         for (var i = 0; i < buckets.Count; i++)
             if (buckets[i].Partial) axis.Partial.Add(i);
         foreach (var m in _markers)
@@ -523,7 +523,21 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         }
         catch (Microsoft.Data.SqlClient.SqlException) { _markers = []; }
     }
-    protected string TrendNote => Ctx.Daily ? "Each point is a day." : "Each point is a whole Saturday-to-Friday week, labeled by its Friday. A week the period covers only in part, at its start or not yet over, is not drawn; the page's other figures count its days.";
+    protected string TrendNote => Ctx.Daily ? "Each point is a day." + (HeldBack() is null ? "" : " The two newest days of records are not drawn: Purview can deliver a record up to 48 hours late, so they may not all be in yet. The page's other figures count them.")
+        : "Each point is a whole Saturday-to-Friday week, labeled by its Friday. A week the period covers only in part, at its start or not yet over, is not drawn; the page's other figures count its days.";
+
+    /// <summary>
+    /// Said in a line under a daily trend (2.5.3): the day it is shown to, and why it stops short of the period. Each
+    /// nightly load reads the last 48 hours again, because Purview can deliver a record that late; until it has, the two
+    /// newest days of records may not all be in, so a daily trend leaves them out (see <see cref="ReportContext.DrawnTo"/>).
+    /// Null on a weekly trend.
+    /// </summary>
+    protected string? HeldBack(string shown = "Shown") => Ctx.Daily && Ctx.DrawnTo < Ctx.End
+        ? $"{shown} to {Ctx.DrawnTo:d MMM}. Records from the last 48 hours may not all be in yet, so the newest days are left out."
+        : null;
+
+    /// <summary>A table with a trend in each row, and that line under it: a sparkline has no room to say it.</summary>
+    protected HtmlString WithTrendNote(HtmlString table) => new(table.Value + Chart.Held(HeldBack("Trends shown")));
 
     /// <summary>The CSV export of this page's list, with its current search and sort.</summary>
     protected string CsvUrl()

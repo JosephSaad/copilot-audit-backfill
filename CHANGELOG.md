@@ -4,6 +4,57 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.3] - 2026-10-04
+
+Daily trend charts no longer end on days whose records may still be arriving. At 7, 14 and 30 days a
+chart is drawn to two days before the last record's day, and says so in a line under it.
+
+To upgrade: install the dashboard package over 2.5.2 or 2.5.1 with this release's
+`dashboard\Install-CopilotInsights.ps1`. Nothing in SQL or in the job server's scripts changed since
+2.5.1, so a database and a job server on 2.5.1 are ready for it: `Install-CopilotAudit.ps1` need not
+run, and nothing is rebuilt. From 2.4.12, first upgrade the databases and the job server as for
+2.5.1, with this release's packages, then install this dashboard. No KPI, table, digest or data API
+figure changes; only which days the daily charts draw.
+
+### Changed
+- **A daily trend stops two days before the last record.** At 7, 14 and 30 days, every trend chart,
+  column chart, heatmap and sparkline is drawn to the day two days before the last record's day:
+  with records to 4 October, to 2 October. Purview can deliver a record up to 48 hours after the
+  event, which is why each nightly load reads the last 48 hours again. Until it has, the two newest
+  days may not all be in, so a daily line ended in a drop that was the load and not the use: with a
+  load that had reached 07:00 on a Saturday, that day's point was a few hours of a weekend.
+  The last record's day is the last day with any record, today's first hours included where the
+  load has reached them; where it has not, two days of the period are held back, not one.
+- **The chart says so, on the page.** A line under each such chart reads, for example, *Shown to
+  2 Oct. Records from the last 48 hours may not all be in yet, so the newest days are left out.* It
+  is part of the chart, not behind an information icon, so a chart copied out still carries it. A
+  table with a trend in each row (Apps, Agents, Leadership › Organization) has the same line under
+  it, and the note behind each chart's information icon says it too.
+- **What does not change.** The days held back still count in the KPIs, the tables and the digests,
+  which run to the last complete day as before, and the data API's trend still has every day of the
+  period. Weekly trends (90 days or more) are as in 2.5.2: whole weeks, each drawn once its Friday
+  is loaded.
+
+### Added
+- **Tests for it.** The dashboard's tests check that with records to 4 October a daily trend at 7,
+  14 and 30 days is drawn to 2 October and keeps every day as a row for the totals; that a load which
+  has not reached today holds back two days of the period; that weekly trends are unchanged; and
+  that a line chart, a column chart and a heatmap carry the line under them, also when drawn again
+  at another width.
+
+### Known limits
+- The two days are counted from the last day with any record, not from the hour the load reached. A
+  load that reaches only the first hours of a day still makes that day the last record's day.
+- Weekly charts are not held back: on a Saturday morning the week to Friday is drawn, though a late
+  record for its last day or two can still raise it at the next load.
+- Adoption › Drops and spikes and its alert still look at every day up to the last complete day, so
+  a day that is only partly loaded can show there as a drop.
+- Page speed was not measured again at 120 million interactions. The one query that changed runs on
+  every request and now also reads the last day with a record: it took 10 microseconds there.
+- As for 2.5.1 and 2.5.2, the dashboard installer was not run on Windows Server with IIS for this
+  release; the site ran under Kestrel on a Windows 11 workstation for the UI audit.
+- The Power BI model is unchanged in this release, so it was not opened in Power BI Desktop for it.
+
 ## [2.5.2] - 2026-10-04
 
 Weekly trend charts no longer end in a drop that is only the calendar. A chart of 90 days or more
