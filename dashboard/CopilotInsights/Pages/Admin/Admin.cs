@@ -151,19 +151,25 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
         catch (Microsoft.Data.SqlClient.SqlException) { OpsCard("App certificate", "Not recorded in this database (install 2.3.0's audit schema).", "status-warn"); }
         try
         {
-            var q = (await Db.QueryAsync<(int Waiting, int Failed, int Last24h, int Resubmitted, DateTime? Oldest)>(@"
-WITH w AS (SELECT Status, SubmittedUtc, Submissions, StartUtc FROM audit.CopilotLoadWindow
-           UNION ALL SELECT Status, SubmittedUtc, Submissions, StartUtc FROM audit.CopilotBackfillWindow)
-SELECT COUNT(CASE WHEN Status IN ('Pending', 'Submitted', 'Ready', 'Downloading') THEN 1 END),
+            /* The searches of a load are rows of audit.CopilotLoadWindow only while it runs: the merge empties it. So the
+               card says what is in the window tables now, then what the last merged load took (audit.CopilotLoad), which
+               the merge keeps with it; a database from before that has the load's records and not its searches. */
+            var q = (await Db.QueryAsync<(int Submitted, int Waiting, int Failed, int Resubmitted, DateTime? Oldest)>(@"
+WITH w AS (SELECT 1 AS OfLoad, Status, Submissions, StartUtc FROM audit.CopilotLoadWindow
+           UNION ALL SELECT 0, Status, Submissions, StartUtc FROM audit.CopilotBackfillWindow)
+SELECT COUNT(CASE WHEN OfLoad = 1 AND Submissions > 0 THEN 1 END),
+       COUNT(CASE WHEN Status IN ('Pending', 'Submitted', 'Ready', 'Downloading') THEN 1 END),
        COUNT(CASE WHEN Status = 'Failed' THEN 1 END),
-       COUNT(CASE WHEN SubmittedUtc >= DATEADD(HOUR, -24, SYSUTCDATETIME()) THEN 1 END),
        COUNT(CASE WHEN Submissions > 1 THEN 1 END),
        MIN(CASE WHEN Status IN ('Pending', 'Submitted', 'Ready', 'Downloading') THEN StartUtc END)
 FROM w;")).Single();
-            OpsCard("Audit searches", $"{q.Last24h:#,0} submitted to Microsoft Purview in the last 24 hours; {q.Waiting:#,0} waiting or downloading" +
-                (q.Oldest is null ? "" : $" (the oldest covers {When(q.Oldest)})") + $"; {q.Resubmitted:#,0} had to be resubmitted; {q.Failed:#,0} failed. " +
-                "Microsoft limits how many audit searches a tenant runs at once: many waiting, or many resubmitted, means the load is being throttled, and the next run carries on.",
-                q.Failed > 0 ? "status-bad" : q.Waiting > 20 || q.Resubmitted > 10 ? "status-warn" : "status-ok");
+            var kept = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLoad', N'Searches') IS NULL THEN 0 ELSE 1 END") == 1;
+            var l = (await Db.QueryAsync<(DateTime? MergedUtc, long? Staged, long? Added, int? Searches, int? Resubmitted)>(
+                $"SELECT TOP (1) MergedUtc, RowsStaged, RowsAdded, {(kept ? "Searches, SearchesResubmitted" : "CAST(NULL AS INT), CAST(NULL AS INT)")} FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL ORDER BY MergedUtc DESC;")).FirstOrDefault();
+            var (text, cls) = AuditSearches.Describe(
+                new(q.Submitted, q.Waiting, q.Failed, q.Resubmitted, q.Oldest is null ? null : When(q.Oldest)),
+                l.MergedUtc is null ? null : new(When(l.MergedUtc), l.Staged ?? 0, l.Added ?? 0, l.Searches, l.Resubmitted));
+            OpsCard("Audit searches", E(text), cls);
         }
         catch (Microsoft.Data.SqlClient.SqlException) { OpsCard("Audit searches", "No search windows in this database (records were not fetched from the audit log here, or this is not installed).", "status-warn"); }
         Panels.Add(new("Certificate and audit searches", new HtmlString(ops.Append("</div>").ToString())));

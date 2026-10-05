@@ -19,7 +19,7 @@
          counted, not added again.
       4. Appends the rest to audit.CopilotAudit (with LoadId for lineage) and
          their shredded rows to audit.CopilotInteraction, and marks the load
-         merged - all in one transaction.
+         merged, with how many audit searches it took - all in one transaction.
       5. Empties the load's window and staging tables for the next load.
 
     Re-runnable: with nothing waiting it reports so and returns. It never
@@ -50,6 +50,13 @@ BEGIN
     ALTER TABLE audit.CopilotLoad ADD DerivedRefreshedUtc DATETIME2(0) NULL;
     EXEC (N'UPDATE audit.CopilotLoad SET DerivedRefreshedUtc = MergedUtc WHERE MergedUtc IS NOT NULL;');
 END;
+
+/* How many audit searches a load took, and how many of them Microsoft Purview had to be asked for more than once
+   (after 2.5.4). A load's windows are emptied once it is merged, so nothing was left to say what a night that
+   finished had asked of the service: Admin > Health read "0 submitted" after every run that succeeded. NULL on a
+   load merged before the columns existed. */
+IF OBJECT_ID(N'audit.CopilotLoad', N'U') IS NOT NULL AND COL_LENGTH(N'audit.CopilotLoad', N'Searches') IS NULL
+    ALTER TABLE audit.CopilotLoad ADD Searches INT NULL, SearchesResubmitted INT NULL;
 
 IF OBJECT_ID(N'audit.usp_MergeCopilotLoad', N'P') IS NULL
     EXEC (N'CREATE PROCEDURE audit.usp_MergeCopilotLoad AS BEGIN SET NOCOUNT ON; END;');
@@ -204,8 +211,15 @@ BEGIN
     FROM #cand AS c
     CROSS APPLY audit.fnShredCopilotInteraction(c.AuditDataGz) AS s;
 
+    /* The searches the load took, kept with it: its windows are emptied below. One search per window, a window that
+       was split included; resubmitted, where the service had to be asked for a window more than once. */
+    DECLARE @searches INT, @resubmitted INT;
+    SELECT @searches = COUNT(CASE WHEN Submissions > 0 THEN 1 END), @resubmitted = COUNT(CASE WHEN Submissions > 1 THEN 1 END)
+    FROM audit.CopilotLoadWindow;
+
     UPDATE audit.CopilotLoad
-    SET MergedUtc = SYSUTCDATETIME(), RowsStaged = @staged, RowsAdded = @added, RowsAlreadyLoaded = @staged - @added
+    SET MergedUtc = SYSUTCDATETIME(), RowsStaged = @staged, RowsAdded = @added, RowsAlreadyLoaded = @staged - @added,
+        Searches = @searches, SearchesResubmitted = @resubmitted
     WHERE LoadId = @loadId AND MergedUtc IS NULL;
     IF @@ROWCOUNT = 0   -- cannot happen under the lock; if it ever does, nothing is appended twice
         THROW 50120, N'Merge refused: the load was merged by another run meanwhile.', 1;

@@ -531,6 +531,8 @@ Admin shows no usage data by itself. An administrator who should also see the re
 - how many people sit under it;
 - how many people in the data are matched to AD;
 - the latest day with data;
+- the app certificate the pipeline signs in with, and when it expires;
+- the audit searches: those waiting at Microsoft Purview for a load under way, how many had to be resubmitted or failed, and what the last load took (when it was merged, the records it fetched and how many were new, and in how many searches). A load's searches are listed only while it runs, and are counted with the load once it is merged; a load merged before that count was kept shows its records without it;
 - the last ten dashboard refreshes.
 
 **Admin › Access.** The settings (top of the organization, minimum group size, default period, unused-after days, and what a license costs a month and in which currency, for the license recommendations), granting and removing roles, and checking one person's effective access. A new top of the organization takes effect at once.
