@@ -182,6 +182,8 @@ function Get-PipelineStep {
     else {
         & $directory
         & $licenses
+        # An Excel workbook of agents, reloaded each night when the settings name it.
+        if (Has 'AgentWorkbookUrl') { Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' ($sql + @{ Database = $Setting.Database; Url = $Setting.AgentWorkbookUrl }) }
         if ($lic) { Add 'License events' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; Incremental = $true; Operations = $script:LicenseOperations }) }
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
         if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }

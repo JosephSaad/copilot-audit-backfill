@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.5] - 2026-10-05
+
+Agents under the names your inventory gives them. An Excel workbook of agents, kept outside the
+audit log, is loaded into the Copilot database each night, and the dashboard names each agent from
+it: a Copilot Studio agent the audit log knows only by `cre12_hrPolicyBot` shows as
+*HR Policy Advisor*.
+
+To upgrade: replace the job server's scripts. Nothing in SQL or the dashboard changed, and nothing
+is rebuilt. The workbook is optional: without `AgentWorkbookUrl` in the settings the nightly run is
+as before. To use it:
+
+1. Put the ImportExcel module beside the scripts, so the nightly task's account finds it: on a
+   machine that reaches the PowerShell Gallery, `Save-Module ImportExcel -Path D:\CopilotAudit\Modules`.
+2. Add `AgentWorkbookUrl = 'https://intranet/agents.xlsx'` (an http(s) address the task's account
+   can read, or a file or UNC path) to `copilot-audit.settings.psd1`.
+3. Run `.\tools\Import-AgentWorkbook.ps1 -Url <the address> -SqlServer SQLPROD01` once by hand, as
+   the task's account, and read its lines: each sheet's rows, then how many agents it named.
+
+### Added
+- **`tools\Import-AgentWorkbook.ps1`.** Downloads the workbook and loads its sheets, each into its
+  own table in the Copilot database: by default `AgentInventory`, `AgentsInProd` and
+  `ParentChildAgent` into the `dbo` tables of those names (`-Sheets` maps others). A sheet's first
+  row names its columns. A table that does not exist is made, one text column for each heading,
+  and a heading added later becomes a column. Each table is emptied and loaded again in one
+  transaction, so a reader never sees it empty; a sheet that is empty or missing leaves its table
+  as it was, so a bad download empties nothing.
+- **Agent names from the inventory.** The script then names the dashboard's agents
+  (`dash.AgentAlias`) from `AgentInventory`'s `AgentName`, with `OwnerUPN` as the owner. An agent
+  is matched on the identity the audit log gives it: the schema name it ends in (`SchemaName`)
+  first, then the bot id (`AgentId`), the title id (`TitleId`, such as `T_…`) or the Entra agent
+  id (`EntraAgentId`) it holds. `BlueprintId` is not used: agents share one. A name an
+  administrator set in Admin › Reference data is never changed; a name the workbook gave is
+  updated when the workbook renames the agent, and removed when the workbook drops it. The
+  dashboard shows the names at once. Power BI's agent names still come from the audit log.
+- **A nightly step, *Agent workbook from Excel***, after the licenses, when the settings name
+  `AgentWorkbookUrl`. It fails the night like any other step, so a workbook that cannot be read
+  shows on Admin › Health.
+
+### Known limits
+- The download signs in as the task's Windows account, which suits an intranet site, SharePoint
+  Server or a file share. A SharePoint Online or OneDrive link needs a sign-in the script does not
+  make: copy the workbook to a share the account can read, and point `AgentWorkbookUrl` at it.
+- `AgentInventory` must carry the columns `AgentId`, `AgentName`, `SchemaName`, `TitleId`,
+  `EntraAgentId` and `OwnerUPN` for the naming; without one of them the sheets still load and the
+  naming step fails.
+
 ## [2.5.4] - 2026-10-04
 
 A night's refresh no longer grows with the license history, and two tools show where a night's time
