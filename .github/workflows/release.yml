@@ -214,11 +214,13 @@ jobs:
           $psd1 = Get-ChildItem -Path (Join-Path $stage 'Modules') -Recurse -Filter 'Microsoft.Graph.Authentication.psd1' |
                   Select-Object -First 1
           $ver = if ($psd1) { (Import-PowerShellDataFile -LiteralPath $psd1.FullName).ModuleVersion } else { 'unknown' }
+          $xl = Get-ChildItem -Path (Join-Path $stage 'Modules') -Recurse -Filter 'ImportExcel.psd1' | Select-Object -First 1
+          $xlVer = if ($xl) { (Import-PowerShellDataFile -LiteralPath $xl.FullName).ModuleVersion } else { 'unknown' }
 
           # Built line by line: a PowerShell here-string would have to start at
           # column 0, which ends the YAML block scalar this step lives in.
           $notice = @(
-            'This archive bundles a third-party PowerShell module so the tool can run on a'
+            'This archive bundles third-party PowerShell modules so the tool can run on a'
             'server with no PowerShell Gallery access.'
             ''
             "  Microsoft.Graph.Authentication $ver"
@@ -228,8 +230,16 @@ jobs:
             '  Project   : https://github.com/microsoftgraph/msgraph-sdk-powershell'
             '  License   : https://aka.ms/devservicesagreement'
             ''
-            'It is redistributed here only so the tool can be installed on a disconnected'
-            "server. Microsoft's license terms govern that module; this project's MIT"
+            "  ImportExcel $xlVer (reads the agent workbook, tools/Import-AgentWorkbook.ps1)"
+            '  Author    : Douglas Finke'
+            '  Source    : https://www.powershellgallery.com/packages/ImportExcel'
+            '  Project   : https://github.com/dfinke/ImportExcel'
+            '  License   : Apache License 2.0 (Modules/ImportExcel/<version>/LICENSE.txt)'
+            '  It carries EPPlus 4.5 (EPPlus.dll, Jan Kallman), under the GNU LGPL:'
+            '  https://github.com/JanKallman/EPPlus'
+            ''
+            'They are redistributed here only so the tool can be installed on a disconnected'
+            "server. Each module's own license terms govern it; this project's MIT"
             'LICENSE covers only the files outside the Modules folder.'
             'Modules/MODULES-MANIFEST.csv lists a SHA-256 for every bundled file.'
             ''

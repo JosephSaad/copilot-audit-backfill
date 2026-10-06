@@ -2437,6 +2437,12 @@ Indexes and constraints:
 | 5 | `ParentAgentKey` | int | yes |  | bi.DimAgent, through the parent's dash.AgentInventory row |
 | 6 | `RelationshipType` | nvarchar(200) | yes |  |  |
 | 7 | `IsValid` | bit | yes |  | IsValidParentChildAgent |
+| 8 | `ChildKey` | nvarchar(450) | yes |  | which child it is (2.5.7): `child:<ComponentId>` for a child agent inside its parent; `agent:<inventory AgentId>` or `connected:<EnvironmentId>/<schema name>` for a connected agent |
+| 9 | `ChildKind` | nvarchar(20) | yes |  | Child or Connected (2.5.7), from RelationshipType |
+| 10 | `ChildInventoryAgentId` | nvarchar(100) | yes |  | a connected agent's own dash.AgentInventory row (2.5.7) |
+| 11 | `ParentEnvironment` | nvarchar(400) | yes |  | the parent's environment (2.5.7) |
+
+`ChildAgentName` is the child's name told apart where children share one (2.5.7): by its parent for a child agent, by its environment for a connected agent.
 
 Indexes and constraints:
 

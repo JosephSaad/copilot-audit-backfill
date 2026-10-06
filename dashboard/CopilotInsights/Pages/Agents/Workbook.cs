@@ -33,6 +33,8 @@ public abstract class AgentListPage(PageServices s) : InsightsPage(s)
     protected abstract string Where { get; }
     protected virtual bool SharingColumns => false;
     protected virtual bool ChannelColumn => false;
+    /// <summary>The owner by display name, from the directory, where it knows the UPN (2.5.7); else the UPN.</summary>
+    protected virtual bool OwnerByName => false;
     protected virtual string DefaultSort => "most";
 
     static readonly Dictionary<string, string> Sorts = new()
@@ -92,7 +94,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY f.AgentKey;
 SELECT i.InventoryAgentId, i.AgentKey,
        COALESCE(NULLIF(i.AgentName, N''), al.FriendlyName, d.AgentName, d.AgentId, i.InventoryAgentId) AS AgentName,
-       COALESCE(i.OwnerUpn, al.Owner) AS Owner, i.Environment, i.Channels, i.IsShared, i.InProduction, i.CreatedAt, i.LastPublishedAt,
+       {(OwnerByName ? "COALESCE(NULLIF(ou.DisplayName, N''), i.OwnerUpn, al.Owner)" : "COALESCE(i.OwnerUpn, al.Owner)")} AS Owner, i.Environment, i.Channels, i.IsShared, i.InProduction, i.CreatedAt, i.LastPublishedAt,
        ISNULL(i.ViewerUsers, 0) AS ViewerUsers, ISNULL(i.ViewerGroups, 0) AS ViewerGroups,
        ISNULL(i.EditorUsers, 0) AS EditorUsers, ISNULL(i.EditorGroups, 0) AS EditorGroups,
        ISNULL(i.ViewerUsers, 0) + ISNULL(i.ViewerGroups, 0) AS Viewers,
@@ -104,6 +106,7 @@ LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = i.AgentKey
 LEFT JOIN dash.AgentUse AS au ON au.AgentKey = i.AgentKey
 LEFT JOIN bi.DimDate AS ld ON ld.DateKey = au.LastDateKey
 LEFT JOIN #u AS u ON u.AgentKey = i.AgentKey
+{(OwnerByName ? "OUTER APPLY (SELECT TOP (1) du.DisplayName FROM bi.DimUser AS du WHERE du.UserPrincipalName = COALESCE(i.OwnerUpn, al.Owner)) AS ou" : "")}
 WHERE {Where};
 SELECT COUNT(*) AS Agents, COUNT(CASE WHEN N > 0 THEN 1 END) AS Used, ISNULL(SUM(CAST(IsShared AS INT)), 0) AS Shared,
        ISNULL(SUM(CAST(InProduction AS INT)), 0) AS Production, COUNT(AgentKey) AS Matched
@@ -178,25 +181,34 @@ public sealed class ProductionModel(PageServices s) : AgentListPage(s)
     public override string Intro => "The agents the workbook lists on its AgentsInProd sheet, with their use in the period from the audit log. An agent in production no one used is flagged.";
     protected override string Where => "i.InProduction = 1";
     protected override bool ChannelColumn => true;
+    protected override bool OwnerByName => true;
 
     protected override async Task BuildAsync()
     {
-        if (!await BuildListAsync("Agents in production", "In production: listed on the workbook's AgentsInProd sheet."))
+        if (!await BuildListAsync("Agents in production", "In production: listed on the workbook's AgentsInProd sheet. Owners are shown by their name in the directory, or by sign-in where it does not have them."))
             Notice = Workbook.Missing;
     }
 }
 
-/// <summary>Connected agents (2.5.6): each child agent, the parent agents that call it, and the parents' use.</summary>
+/// <summary>
+/// Child and connected agents (2.5.6): each child, the parent agents that call it, and the parents' use. From 2.5.7 a
+/// child is what it is, not its name: a child agent lives inside its one parent, a connected agent is an agent of its
+/// own that several parents can call, and children that share a name are shown with their parent or environment.
+/// </summary>
 public sealed class ChildModel(PageServices s) : InsightsPage(s)
 {
     public override string Title => "Child agent usage";
     public override string Persona => "Agents";
-    public override string Intro => "Agents that other agents call (connected agents, from the workbook's ParentChildAgent sheet): how many parent agents call each one and which, each parent's use in the period from the audit log, and each child's total across its parents.";
+    public override string Intro => "Agents that other agents call, from the workbook's ParentChildAgent sheet: child agents, which live inside their one parent, and connected agents, agents of their own that several parents can call. How many parent agents call each and which, each parent's use in the period from the audit log, and each child's total across its parents.";
 
     sealed class Row
     {
+        public string ChildKey { get; set; } = "";
         public string ChildAgentName { get; set; } = "";
+        public string? ChildKind { get; set; }
+        public string? ChildInventoryAgentId { get; set; }
         public string ParentName { get; set; } = "";
+        public string? ParentEnvironment { get; set; }
         public string? ParentInventoryAgentId { get; set; }
         public int? ParentAgentKey { get; set; }
         public string? RelationshipType { get; set; }
@@ -205,70 +217,79 @@ public sealed class ChildModel(PageServices s) : InsightsPage(s)
         public int People { get; set; }
     }
 
+    static string Kind(string? k) => k == "Connected" ? "Connected agent" : "Child agent (inside its parent)";
+
     protected override async Task BuildAsync()
     {
-        if (await Db.ScalarAsync<int>("IF OBJECT_ID(N'dash.AgentChildLink', N'U') IS NULL SELECT 0 ELSE EXEC (N'SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.AgentChildLink) THEN 1 ELSE 0 END');") != 1)
+        if (await Db.ScalarAsync<int>("IF COL_LENGTH(N'dash.AgentChildLink', N'ChildKey') IS NULL SELECT 0 ELSE EXEC (N'SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.AgentChildLink) THEN 1 ELSE 0 END');") != 1)
         {
-            Notice = "No parent and child agents are loaded. tools\\Import-AgentWorkbook.ps1 loads them each night from the agent workbook's ParentChildAgent sheet.";
+            Notice = "No parent and child agents are loaded. tools\\Import-AgentWorkbook.ps1 loads them each night from the agent workbook's ParentChildAgent sheet (after Install-CopilotAudit.ps1 -Dashboard from 2.5.7).";
             return;
         }
-        var (rows, people) = await Db.QueryTwoAsync<Row, (string Child, int People)>($@"
+        var (rows, people) = await Db.QueryTwoAsync<Row, (string ChildKey, int People)>($@"
 SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.UserKey) AS People
 INTO #u
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.AgentKey IN (SELECT ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL)
 GROUP BY f.AgentKey;
 /* One row for each child and parent: a parent can call its child from several topics. */
-SELECT l.ChildAgentName, COALESCE(MAX(NULLIF(l.ParentAgentName, N'')), MAX(d.AgentName), l.ParentInventoryAgentId, N'(unknown parent)') AS ParentName,
-       l.ParentInventoryAgentId, MAX(l.ParentAgentKey) AS ParentAgentKey, MAX(l.RelationshipType) AS RelationshipType,
-       CAST(MAX(CAST(l.IsValid AS INT)) AS BIT) AS IsValid, ISNULL(MAX(u.N), 0) AS N, ISNULL(MAX(u.People), 0) AS People
+SELECT l.ChildKey, MAX(l.ChildAgentName) AS ChildAgentName, MAX(l.ChildKind) AS ChildKind, MAX(l.ChildInventoryAgentId) AS ChildInventoryAgentId,
+       COALESCE(MAX(NULLIF(l.ParentAgentName, N'')), MAX(d.AgentName), l.ParentInventoryAgentId, N'(unknown parent)') AS ParentName,
+       MAX(l.ParentEnvironment) AS ParentEnvironment, l.ParentInventoryAgentId, MAX(l.ParentAgentKey) AS ParentAgentKey,
+       MAX(l.RelationshipType) AS RelationshipType, CAST(MAX(CAST(l.IsValid AS INT)) AS BIT) AS IsValid,
+       ISNULL(MAX(u.N), 0) AS N, ISNULL(MAX(u.People), 0) AS People
 FROM dash.AgentChildLink AS l
 LEFT JOIN bi.DimAgent AS d ON d.AgentKey = l.ParentAgentKey
 LEFT JOIN #u AS u ON u.AgentKey = l.ParentAgentKey
-GROUP BY l.ChildAgentName, l.ParentInventoryAgentId;
+GROUP BY l.ChildKey, l.ParentInventoryAgentId;
 /* The people behind each child, counted once though they used several of its parents. */
-SELECT c.ChildAgentName AS Child, COUNT(DISTINCT f.UserKey) AS People
+SELECT c.ChildKey, COUNT(DISTINCT f.UserKey) AS People
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN (SELECT DISTINCT ChildAgentName, ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL) AS c ON c.ParentAgentKey = f.AgentKey
+JOIN (SELECT DISTINCT ChildKey, ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL) AS c ON c.ParentAgentKey = f.AgentKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY c.ChildAgentName;", Ctx.Args());
+GROUP BY c.ChildKey;", Ctx.Args());
 
-        var children = rows.GroupBy(r => r.ChildAgentName, StringComparer.OrdinalIgnoreCase)
-            .Select(g => (Child: g.Key, Parents: g.ToList(), N: g.Sum(r => r.N),
-                          People: people.Where(p => string.Equals(p.Child, g.Key, StringComparison.OrdinalIgnoreCase)).Sum(p => p.People)))
-            .OrderByDescending(c => c.N).ThenBy(c => c.Child).ToList();
-        var chosen = Request.Query["child"].FirstOrDefault() is { Length: > 0 } ch ? children.FirstOrDefault(c => string.Equals(c.Child, ch, StringComparison.OrdinalIgnoreCase)).Child : null;
+        var peopleOf = people.ToDictionary(p => p.ChildKey, p => p.People, StringComparer.OrdinalIgnoreCase);
+        var children = rows.GroupBy(r => r.ChildKey, StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Key: g.Key, Name: g.First().ChildAgentName, Kind: g.First().ChildKind, Inv: g.First().ChildInventoryAgentId,
+                          Parents: g.ToList(), N: g.Sum(r => r.N), People: peopleOf.GetValueOrDefault(g.Key)))
+            .OrderByDescending(c => c.N).ThenBy(c => c.Name).ToList();
+        var chosen = Request.Query["child"].FirstOrDefault() is { Length: > 0 } ch && children.Any(c => string.Equals(c.Key, ch, StringComparison.OrdinalIgnoreCase)) ? ch : null;
+        string? chosenName = chosen is null ? null : children.First(c => string.Equals(c.Key, chosen, StringComparison.OrdinalIgnoreCase)).Name;
+        string Pick(string key) => Ctx.Url(Request.Path, extra: $"child={Uri.EscapeDataString(key)}");
 
-        Kpis.Add(new("Child agents", Num(children.Count), "called by at least one parent agent"));
+        Kpis.Add(new("Child and connected agents", Num(children.Count), $"{children.Count(c => c.Kind == "Connected"):#,0} connected, {children.Count(c => c.Kind != "Connected"):#,0} inside their parent"));
         Kpis.Add(new("Parent agents", Num(rows.Select(r => r.ParentInventoryAgentId ?? r.ParentName).Distinct(StringComparer.OrdinalIgnoreCase).Count())));
         Kpis.Add(new("Parents used in the period", Num(rows.Where(r => r.N > 0).Select(r => r.ParentInventoryAgentId ?? r.ParentName).Distinct(StringComparer.OrdinalIgnoreCase).Count())));
         Kpis.Add(new("Interactions through parents", Num(rows.Sum(r => r.N)), "each parent counted once for each child it calls"));
 
-        var options = string.Concat(children.Select(c =>
-            $"<option value=\"{E(Ctx.Url(Request.Path, extra: $"child={Uri.EscapeDataString(c.Child)}"))}\"{(c.Child == chosen ? " selected" : "")}>{E(c.Child)} ({c.Parents.Count})</option>"));
+        var options = string.Concat(children.OrderBy(c => c.Name).Select(c =>
+            $"<option value=\"{E(Pick(c.Key))}\"{(string.Equals(c.Key, chosen, StringComparison.OrdinalIgnoreCase) ? " selected" : "")}>{E(c.Name)} ({c.Parents.Count})</option>"));
         Panels.Add(new("Choose a child agent", new HtmlString(
             $"<select class=\"pick\" aria-label=\"Child agent\" data-navigate><option value=\"{E(Ctx.Url(Request.Path))}\">Every child agent</option>{options}</select>")));
 
-        var ct = new Table { Headers = ["Child agent", "Parent agents", "Which", "People through its parents", "Interactions through its parents"], Numeric = new HashSet<int> { 1, 3, 4 } };
-        foreach (var c in children.Where(c => chosen is null || c.Child == chosen))
-            ct.Rows.Add([new Link(c.Child, Ctx.Url(Request.Path, extra: $"child={Uri.EscapeDataString(c.Child)}")), c.Parents.Count,
+        var ct = new Table { Headers = ["Child agent", "Kind", "Parent agents", "Which", "People through its parents", "Interactions through its parents"], Numeric = new HashSet<int> { 2, 4, 5 } };
+        foreach (var c in children.Where(c => chosen is null || string.Equals(c.Key, chosen, StringComparison.OrdinalIgnoreCase)))
+            ct.Rows.Add([new Link(c.Name, Pick(c.Key)), Kind(c.Kind), c.Parents.Count,
                          string.Join("; ", c.Parents.Select(p => p.ParentName).OrderBy(n => n)), c.People == 0 ? 0 : AtLeastMin(c.People), c.N]);
         Panels.Add(new("Each child agent", ct.Render(),
+            "A child agent is counted once for its parent: Copilot Studio names every new one \"Agent\", so children of one name are told apart by their parent, and connected agents by their environment. " +
             $"The totals are the parent agents' use in the period, from the audit log: a child's interactions add up its parents', and its people count each person once. People are left out where fewer than {Ctx.MinGroupSize}."));
 
         var pt = new Table
         {
-            Headers = ["Child agent", "Parent agent", "Relationship", "Valid", "People", "Interactions", "Use in the period"],
-            Numeric = new HashSet<int> { 4, 5 }, EmptyText = "No parent agents.",
+            Headers = ["Child agent", "Kind", "Parent agent", "Parent's environment", "Relationship", "Valid", "People", "Interactions", "Use in the period"],
+            Numeric = new HashSet<int> { 6, 7 }, EmptyText = "No parent agents.",
         };
-        foreach (var r in rows.Where(r => chosen is null || string.Equals(r.ChildAgentName, chosen, StringComparison.OrdinalIgnoreCase))
+        foreach (var r in rows.Where(r => chosen is null || string.Equals(r.ChildKey, chosen, StringComparison.OrdinalIgnoreCase))
                               .OrderBy(r => r.ChildAgentName).ThenByDescending(r => r.N).ThenBy(r => r.ParentName))
-            pt.Rows.Add([r.ChildAgentName,
+            pt.Rows.Add([r.ChildInventoryAgentId is null ? r.ChildAgentName : new Link(r.ChildAgentName, Workbook.DetailUrl(Ctx, null, r.ChildInventoryAgentId)),
+                         Kind(r.ChildKind),
                          r.ParentInventoryAgentId is null && r.ParentAgentKey is null ? r.ParentName : new Link(r.ParentName, Workbook.DetailUrl(Ctx, r.ParentAgentKey, r.ParentInventoryAgentId ?? "")),
-                         r.RelationshipType, r.IsValid switch { true => "Yes", false => "No", _ => null },
+                         r.ParentEnvironment, r.RelationshipType, r.IsValid switch { true => "Yes", false => "No", _ => null },
                          r.People == 0 ? 0 : AtLeastMin(r.People), r.N, r.N > 0 ? "Used" : "Not used"]);
         CsvTable = pt;
-        Panels.Add(new(chosen is null ? "Each parent agent" : $"Parent agents calling {chosen}", pt.Render(),
+        Panels.Add(new(chosenName is null ? "Each parent agent" : $"Parent agents calling {chosenName}", pt.Render(),
             "A parent's use is its own, from the audit log: the audit log does not say which of its interactions reached the child.", "full", CsvUrl()));
     }
 }

@@ -145,7 +145,7 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.5.4-offline-win-x64.zip` and its `.sha256` from the [v2.5.4 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.5.4). The offline zip already contains the only external module, `Microsoft.Graph.Authentication`, next to the scripts. That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.5.4-offline-win-x64.zip` and its `.sha256` from the [v2.5.4 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.5.4). The offline zip already contains the external modules next to the scripts: `Microsoft.Graph.Authentication`, and from 2.5.7 `ImportExcel` for the agent workbook (PnP.PowerShell, for a workbook on SharePoint Online, is not in it: `Save-Module PnP.PowerShell -Path <scripts>\Modules`). That matters here: a module installed for your own account would be invisible to the gMSA.
 
 ```powershell
 $zip = 'copilot-audit-backfill-v2.5.4-offline-win-x64.zip'

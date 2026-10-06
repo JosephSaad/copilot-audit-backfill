@@ -306,6 +306,14 @@ IF OBJECT_ID(N'dash.AgentChildLink', N'U') IS NULL
         IsValid                 BIT            NULL
     );
 
+/* 2.5.7: which child it is. A name alone is not: Copilot Studio calls a new child agent "Agent", in every parent. A
+   child agent lives inside its parent (its own component id); a connected agent is an agent of its own, which several
+   parents can call (its environment and schema name, and its row in the inventory where it has one). */
+IF COL_LENGTH(N'dash.AgentChildLink', N'ChildKey') IS NULL ALTER TABLE dash.AgentChildLink ADD ChildKey NVARCHAR(450) NULL;
+IF COL_LENGTH(N'dash.AgentChildLink', N'ChildKind') IS NULL ALTER TABLE dash.AgentChildLink ADD ChildKind NVARCHAR(20) NULL;   -- Child, Connected
+IF COL_LENGTH(N'dash.AgentChildLink', N'ChildInventoryAgentId') IS NULL ALTER TABLE dash.AgentChildLink ADD ChildInventoryAgentId NVARCHAR(100) NULL;
+IF COL_LENGTH(N'dash.AgentChildLink', N'ParentEnvironment') IS NULL ALTER TABLE dash.AgentChildLink ADD ParentEnvironment NVARCHAR(400) NULL;
+
 /* Each workbook load, for Admin > Health: when, which file, and what reached the tables. */
 IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NULL
     CREATE TABLE dash.AgentInventoryRun

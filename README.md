@@ -123,7 +123,7 @@ Audit log exports from the Purview portal can go into the same tables, instead o
 
 ## Servers without gallery access
 
-`Microsoft.Graph.Authentication` is the only external module — everything else the tool uses, including `System.Data.SqlClient`, ships inside PowerShell 7. On a locked-down server that cannot reach the PowerShell Gallery, put the module next to the script instead of installing it.
+`Microsoft.Graph.Authentication` is the only external module the loader needs — everything else it uses, including `System.Data.SqlClient`, ships inside PowerShell 7. The agent workbook's import also needs `ImportExcel` (from 2.5.7 in the offline zip too) and, for SharePoint Online, `PnP.PowerShell`. On a locked-down server that cannot reach the PowerShell Gallery, put the modules next to the script instead of installing them.
 
 On any machine that **can** reach the gallery (Windows x64 is the closest match to the usual target):
 

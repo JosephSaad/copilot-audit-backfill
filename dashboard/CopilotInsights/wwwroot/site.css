@@ -150,6 +150,44 @@ select.pick + .sub { margin-top: 8px; }
 .notice { background: var(--accent-soft); }
 .denied { background: var(--warn-soft); }
 .denied p, .notice p { margin: 6px 0 0; }
+
+/* 2.5.7: the start page. One line on access, a row of most-used reports, and a large card for each area. */
+details.notice.access summary { cursor: pointer; list-style: none; }
+details.notice.access summary::-webkit-details-marker { display: none; }
+details.notice.access .more { color: var(--accent); font-weight: 600; margin-left: 6px; white-space: nowrap; }
+details.notice.access[open] .more { display: none; }
+.jump { margin: 18px 0 6px; }
+.jump h2, .hgrid-title { margin: 0 0 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-block; padding: 7px 14px; border: 1px solid var(--rule); border-radius: 999px; background: var(--surface); color: var(--ink);
+  text-decoration: none; font-weight: 600; }
+.chip:hover, .chip:focus-visible { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); outline: none; }
+.hgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 18px; }
+.hcard { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden;
+  transition: border-color .12s, box-shadow .12s, transform .12s; }
+.hcard:hover, .hcard:focus-within { border-color: var(--accent); box-shadow: 0 6px 18px rgba(0, 0, 0, .08); transform: translateY(-1px); }
+.hopen { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 20px 20px 14px; min-height: 120px; color: inherit; text-decoration: none; }
+.hopen:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hname { font-size: 20px; font-weight: 700; color: var(--ink); }
+.hwho { font-size: 13px; line-height: 1.4; color: var(--muted); }
+.hcount { margin-top: auto; font-size: 13px; font-weight: 600; color: var(--accent); }
+.hstart { display: block; padding: 10px 20px; border-top: 1px solid var(--rule); font-size: 12.5px; color: var(--muted); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hstart b { color: var(--ink); font-weight: 600; }
+.hstart:hover, .hstart:focus-visible { background: var(--accent-soft); color: var(--accent); outline: none; }
+.hdialog { width: min(780px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 18px 20px 20px; border: 1px solid var(--rule); border-radius: 12px;
+  background: var(--surface); color: var(--ink); box-shadow: 0 18px 48px rgba(0, 0, 0, .25); }
+.hdialog::backdrop { background: rgba(10, 20, 24, .45); }
+.hdialog .phead { display: grid; grid-template-columns: 1fr auto; align-items: start; margin-bottom: 4px; }
+.hdialog h2 { margin: 0; font-size: 18px; }
+.hdialog .phead p { grid-column: 1; margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.hdialog .pclose { grid-column: 2; grid-row: 1 / span 2; font: inherit; font-size: 18px; line-height: 1; background: none; border: 1px solid var(--rule);
+  border-radius: 6px; padding: 3px 9px; color: var(--muted); cursor: pointer; }
+.hdialog h3 { margin: 14px 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.hdialog ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.hdialog ul a { display: block; height: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--rule); border-radius: 8px; text-decoration: none; }
+.hdialog ul a:hover, .hdialog ul a:focus-visible { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+@media (max-width: 640px) { .hgrid { grid-template-columns: 1fr; gap: 10px; } .hopen { min-height: 0; padding: 14px 16px 10px; } .hname { font-size: 17px; } }
 .stale { background: var(--warn-soft); border-left: 4px solid var(--warn, #b7791f); }
 
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
@@ -228,6 +266,14 @@ svg.spark path { fill: none; stroke: var(--s1); stroke-width: 1.5; }
     linear-gradient(to right, var(--edge), transparent) 0 0 / 10px 100% no-repeat scroll,
     linear-gradient(to left, var(--edge), transparent) 100% 0 / 10px 100% no-repeat scroll; }
 @media print { .table-wrap { background: none; } }
+/* 2.5.7: a long table a page at a time; print shows every row. */
+@media screen { tr.pg-off { display: none; } }
+.tpager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 4px; }
+.tpager .muted { margin-right: 6px; }
+.tpager button { font: inherit; background: var(--surface); color: var(--accent); border: 1px solid var(--rule); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.tpager button:hover, .tpager button:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.tpager button.on { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+@media print { .tpager { display: none; } }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
 /* A long heading wraps onto a second line, whole words only, before the table has to scroll sideways (2.4.10). */

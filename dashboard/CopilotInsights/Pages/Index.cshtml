@@ -4,61 +4,71 @@
 <div class="page-head">
     <div class="eyebrow">Microsoft 365 Copilot usage</div>
     <h1>Copilot Insights</h1>
-    <p class="intro">How your organization uses Microsoft 365 Copilot. Pick a report below, or type its name in <i>Find a report</i> on the left. Every report shows only the people you may see.</p>
+    <p class="intro">Choose an area to see its reports, or type a report's name in <i>Find a report</i> on the left.</p>
 </div>
 
 @if (Model.Denied is null)
 {
-    <div class="notice"><b>Your access.</b> @Model.AccessSummary
+    @* 2.5.7: one line on access and how current the data is; the roles behind "More". *@
+    <details class="notice access">
+        <summary><b>Your access.</b> @Model.AccessSummary @(Model.Freshness is null ? "" : " " + Model.Freshness) <span class="more">More</span></summary>
         @if (Model.Viewer.Roles.Count > 0)
         {
-            <span> Your roles: @string.Join(", ", Model.Viewer.Roles.OrderBy(r => r)). A role opens the reports that name people.</span>
+            <p>Your roles: @string.Join(", ", Model.Viewer.Roles.OrderBy(r => r)). A role opens the reports that name people.</p>
         }
         else if (Model.Viewer.Admitted)
         {
-            <span> You hold no roles, so the reports that name people are not listed; an administrator can grant one.</span>
+            <p>You hold no roles, so the reports that name people are not listed; an administrator can grant one.</p>
         }
-        @if (Model.Freshness is not null)
-        {
-            <p>@Model.Freshness</p>
-        }
-    </div>
+        <p>Every report shows only the people you may see.</p>
+    </details>
     @if (Model.Viewer.IsAdmin && Model.OrgTop is null)
     {
         <div class="denied"><b>Set the top of the organization.</b> Nobody sees the whole organization by level until the CEO's UPN is set in <a href="/admin/access">Admin › Access</a>. Until then only people granted Organization do.</div>
     }
     var groups = Nav.For(Model.Viewer, Model.PrivacyMode, Tenants.Many, Model.HiddenReports);
     var mine = CopilotInsights.Infrastructure.MostUsed.Pick(Model.MostUsedPaths, groups);
-    <div class="cards">
-        @if (mine.Count > 0)
-        {
-            <div class="card mine">
-                <h3 class="cat">Your most used</h3>
-                <p>The reports you opened most in the last @CopilotInsights.Infrastructure.MostUsed.Days days</p>
-                <ul>
-                    @foreach (var p in mine)
-                    {
-                        <li><a href="@p.Path"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small></span></a></li>
-                    }
-                </ul>
+    @* 2.5.7: the reports this person opens most, as a row of shortcuts rather than a card of their own. *@
+    @if (mine.Count > 0)
+    {
+        <section class="jump" aria-label="Your most used">
+            <h2>Your most used</h2>
+            <div class="chips">
+                @foreach (var p in mine.Take(6))
+                {
+                    <a class="chip" href="@p.Path" title="@NavText.What(p)">@p.Title</a>
+                }
             </div>
-        }
+        </section>
+    }
+    @* 2.5.7: one large card for each area, its reports behind it: selecting a card opens them, under their headings,
+       each with what it answers, as "About these reports" does. Without script a card opens the area's first report. *@
+    <div class="hgrid">
         @foreach (var g in groups)
         {
-            <div class="card">
-                <h3 class="cat">@g.Persona</h3>
-                <p>@g.Who</p>
+            var id = "home-" + g.Persona.ToLowerInvariant().Replace(' ', '-');
+            var first = g.Pages[0];
+            <div class="hcard">
+                <a class="hopen" href="@first.Path" data-dialog="@id" aria-haspopup="dialog">
+                    <span class="hname">@g.Persona</span>
+                    <span class="hwho">@g.Who</span>
+                    <span class="hcount">@g.Pages.Count report@(g.Pages.Count == 1 ? "" : "s") ›</span>
+                </a>
+                <a class="hstart" href="@first.Path">Start with: <b>@first.Title</b></a>
+            </div>
+            <dialog class="hdialog" id="@id" aria-label="@g.Persona reports">
+                <div class="phead"><h2>@g.Persona</h2><p>@g.Who</p><button type="button" class="pclose" aria-label="Close">×</button></div>
                 @foreach (var sub in NavText.Sub(g.Pages))
                 {
-                    @if (sub.Heading is not null) { <h4>@sub.Heading</h4> }
+                    @if (sub.Heading is not null) { <h3>@sub.Heading</h3> }
                     <ul>
                         @foreach (var p in sub.Pages)
                         {
-                            <li><a href="@p.Path"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small></span></a></li>
+                            <li><a href="@p.Path"><span class="rt"><b>@p.Title</b><small>@NavText.What(p)</small>@if (p.Role is not null) { <em>@p.Role role</em> }</span></a></li>
                         }
                     </ul>
                 }
-            </div>
+            </dialog>
         }
     </div>
 }

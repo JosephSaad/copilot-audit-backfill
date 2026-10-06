@@ -4,6 +4,75 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.7] - 2026-10-06
+
+The workbook's agents are matched to the audit log's by the identities the audit log really gives them, so far
+more of them are found; the agent pages' counts agree; agents of one name are told apart by their environment.
+The offline zip carries ImportExcel, Agents in production names owners, and every long table is shown 50 rows
+at a time.
+
+To upgrade from 2.5.6: replace the job server's scripts from the offline zip (it brings `Modules\ImportExcel`),
+run `Install-CopilotAudit.ps1 -Dashboard` once (it adds four columns to `dash.AgentChildLink`; nothing is
+rebuilt), and install the dashboard package over 2.5.6. A copy of ImportExcel saved into `Modules` by hand can stay
+or go; the zip's is the same version. Then run `.\tools\Import-AgentWorkbook.ps1` once, or wait for the night: it
+matches every agent again, and prints how. Until `Install-CopilotAudit.ps1` has run, the import stops and says so.
+
+### Fixed
+- **Most of the workbook's agents were not matched to their use.** 2.5.6 matched on the schema name an audit
+  identity ends in, cut at its last hyphen, and on GUIDs inside it. The audit log names a Copilot Studio agent
+  `Copilot.Studio.<EnvironmentId>-<SchemaName>` (the default environment's id is `Default-<tenant id>`) and an Agent
+  Builder or Copilot Studio lite agent `Copilot.Studio.Declarative.<TitleId>`, so a schema name with a hyphen in it
+  and every declarative agent were missed. An agent is now matched, in order: on its environment and schema name;
+  on its title id (with the `T_` added where the workbook leaves it off); on the schema name Copilot Studio's own
+  authoring records give its bot id (`audit.AgentEvent`), with its environment; then, loosely, on the schema name
+  alone, the bot id or the Entra agent id. A loose match is taken only where one workbook agent claims the audit
+  log's agent: a schema name used in two environments matches neither, and is counted. Each load prints how many
+  agents each rule matched, and how many were left.
+- **Agent inventory and Agents in use counted unused agents differently.** Agents in use counted the audit log's
+  agents that one workbook agent was shown against; Agent inventory counted the workbook's agents. Both now count
+  the workbook's: *Not used in the period* on one equals *Listed agents not used* on the other, and *Agents used*
+  says how many of them the workbook lists and how many it does not (deleted, unmatched, or Microsoft's own).
+- **Child agent usage merged different children of one name.** It grouped children by name, and Copilot Studio calls
+  every new child agent "Agent", so the children of four parents in four environments were one "Agent" with four
+  parents. A child is now what the ParentChildAgent sheet says it is: a *child agent* (RelationshipType without
+  "Connected") lives inside its one parent and is known by its component id; a *connected agent* is an agent of its
+  own, which several parents can call, known by its row in the inventory (its environment and the schema name
+  `SchemaName` ends in) or by that pair. Children that share a name are told apart: a child agent by its parent
+  (*Agent (in IT Helpdesk)*), a connected agent by its environment (*Brief Word Renderer (Sales Dev)*). Parents use
+  the inventory's names, so two parents of one name are told apart by their environment too, and so is a parent the
+  inventory does not list (*Advisor (Developer · 015d2539)*: the sheet's EnvironmentSku and the start of its
+  EnvironmentId, where the inventory has no name for the environment). The report has a
+  *Kind* column and the parent's environment, and a connected agent links to its own detail. `dash.AgentChildLink`
+  gains `ChildKey`, `ChildKind`, `ChildInventoryAgentId` and `ParentEnvironment`.
+
+### Changed
+- **The start page is a page of areas, not of every report.** Each area (Leadership, Adoption, Licensing and the
+  rest) is one large card in a grid: its name, who it is for and how many reports it holds. Selecting a card opens
+  its reports in a window, under their headings and each with what it answers, as *About these reports* does; Escape,
+  its × or a click outside closes it. A card's *Start with* opens the area's first report in one click. Your most
+  used reports are a row of up to six shortcuts above the cards, and the sidebar's *Your most used* stays folded on
+  the start page. The access notice is one line, its detail behind *More*. Without script, a card opens the area's
+  first report.
+- **Agents of one name show their environment**: two workbook agents called *HR Assistant* are *HR Assistant (HR
+  Prod)* and *HR Assistant (Sales Dev)*, on every page and in Power BI; with the environment the same too, the schema
+  name follows it. An agent whose name is its own is shown as it is. The workbook's own name stays in
+  `dbo.AgentInventory`.
+- **Agents in production shows each owner by name**: the directory's display name for the workbook's `OwnerIdUPN`,
+  or the UPN where the directory does not have the person.
+- **Every report's long tables show 50 rows at a time.** A table the server sends whole, of more than 50 rows,
+  now shows a page in the browser, with the row count, the pages around this one and Previous and Next under it.
+  Sorting by a column orders every row and starts again from the first page; a total row stays on each page; a
+  print and the CSV download hold every row. Lists the server pages (Agent inventory, an agent's users, the audit
+  log and the rest) were 50 to a page already.
+
+### Added
+- **ImportExcel in the offline zip** (`copilot-audit-backfill-v2.5.7-offline-win-x64.zip`, `Modules\ImportExcel\7.8.10`),
+  so `tools\Import-AgentWorkbook.ps1` runs on a server with no gallery access. ImportExcel and the EPPlus library
+  in it are not signed, so `tools\Save-CopilotAuditModules.ps1` pins the version with a SHA-256 of every file in it
+  and refuses a download that differs; the Graph module's signature check is as before. The bundle's
+  `NOTICE-BUNDLED-MODULES.txt` names both, with their licenses (Apache 2.0; EPPlus, LGPL). PnP.PowerShell, for
+  SharePoint Online, is still saved by hand.
+
 ## [2.5.6] - 2026-10-06
 
 The agent workbook becomes the list of agents. It is fetched each night from SharePoint Online (the newest

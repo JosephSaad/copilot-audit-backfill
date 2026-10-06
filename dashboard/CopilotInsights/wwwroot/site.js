@@ -117,8 +117,63 @@
         keep.forEach(function (r) { body.appendChild(r); });
         Array.prototype.forEach.call(heads, function (h) { h.removeAttribute('aria-sort'); });
         th.setAttribute('aria-sort', desc ? 'descending' : 'ascending');
+        if (table.showPage) table.showPage(1);
       });
     });
+  });
+
+  // The start page's areas (2.5.7): a card opens its reports in a window, closed by Escape, its × or a click outside.
+  // Without script, or a browser without <dialog>, the card is a link to the area's first report.
+  document.querySelectorAll('a[data-dialog]').forEach(function (a) {
+    var d = document.getElementById(a.getAttribute('data-dialog'));
+    if (!d || typeof d.showModal !== 'function') return;
+    a.addEventListener('click', function (e) { e.preventDefault(); d.showModal(); var l = d.querySelector('ul a'); if (l) l.focus(); });
+    var x = d.querySelector('.pclose');
+    if (x) x.addEventListener('click', function () { d.close(); });
+    d.addEventListener('click', function (e) {
+      var r = d.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close();
+    });
+    d.addEventListener('close', function () { a.focus(); });
+  });
+
+  // A table of more than a page of rows shows one page at a time (2.5.7), 50 rows as the server's lists do. Rows marked
+  // data-keep (a total) stay on every page. Hidden rows are only off the screen: printing shows every row.
+  document.querySelectorAll('table[data-page-size]').forEach(function (table) {
+    var size = parseInt(table.getAttribute('data-page-size'), 10) || 50;
+    var bar = document.createElement('div');
+    bar.className = 'tpager';
+    var wrap = table.closest('.table-wrap') || table;
+    wrap.parentNode.insertBefore(bar, wrap.nextSibling);
+    function link(text, page, on) {
+      var a = document.createElement('button');
+      a.type = 'button';
+      a.className = on ? 'on' : '';
+      a.textContent = text;
+      if (on) a.setAttribute('aria-current', 'page');
+      a.addEventListener('click', function () { table.showPage(page); wrap.scrollIntoView({ block: 'nearest' }); });
+      return a;
+    }
+    table.showPage = function (page) {
+      var rows = Array.prototype.filter.call(table.tBodies[0].rows, function (r) { return !r.hasAttribute('data-keep'); });
+      var pages = Math.max(1, Math.ceil(rows.length / size));
+      page = Math.min(Math.max(1, page), pages);
+      rows.forEach(function (r, i) { r.classList.toggle('pg-off', i < (page - 1) * size || i >= page * size); });
+      bar.textContent = '';
+      var info = document.createElement('span');
+      info.className = 'muted';
+      info.textContent = ((page - 1) * size + 1).toLocaleString() + '–' + Math.min(page * size, rows.length).toLocaleString() + ' of ' + rows.length.toLocaleString();
+      bar.appendChild(info);
+      if (page > 1) bar.appendChild(link('‹ Previous', page - 1, false));
+      // The first, the last, and the pages around this one.
+      var shown = 0;
+      for (var p = 1; p <= pages; p++) {
+        if (p === 1 || p === pages || Math.abs(p - page) <= 2) { bar.appendChild(link(String(p), p, p === page)); shown = p; }
+        else if (shown === p - 1) { var gap = document.createElement('span'); gap.className = 'muted'; gap.textContent = '…'; bar.appendChild(gap); }
+      }
+      if (page < pages) bar.appendChild(link('Next ›', page + 1, false));
+    };
+    table.showPage(1);
   });
 
   // Admin > Reports shown: a section's own box ticks or clears every report in it, and follows them.
@@ -185,7 +240,8 @@
     window.addEventListener('pageshow', function (e) {
       if (!e.persisted) return;
       close(false);
-      grps.forEach(function (g) { fold(g, g.classList.contains('here') || (g.classList.contains('mine') && location.pathname === '/')); });
+      // 2.5.7: the start page shows the most used as shortcuts, so that section stays folded there too.
+      grps.forEach(function (g) { fold(g, g.classList.contains('here')); });
       var f = document.getElementById('nav-find');
       if (f && f.value) { f.value = ''; f.dispatchEvent(new Event('input')); }
     });

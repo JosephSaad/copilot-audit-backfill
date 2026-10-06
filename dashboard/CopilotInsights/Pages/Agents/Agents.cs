@@ -56,9 +56,16 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
         Kpis.Add(new("Interactions through agents", Num(rows.Sum(r => r.N))));
         if (book)
         {
-            var listed = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AgentInventory;");
-            var listedUsed = rows.Count(r => r.InventoryAgentId is not null);
-            Kpis.Add(new("Listed agents not used", Num(Math.Max(0, listed - listedUsed)), "in the agent workbook, with no use in the period", listed > listedUsed ? "warn" : null));
+            /* The same counts as Agent inventory's (2.5.7): workbook agents, used when the audit agent they match was used
+               in the period. Several workbook agents can match one audit agent, so they are counted from the workbook. */
+            var inv = await Db.QueryAsync<(string Id, int? AgentKey)>("SELECT InventoryAgentId, AgentKey FROM dash.AgentInventory;");
+            var used = rows.Select(r => r.AgentKey).ToHashSet();
+            var listedUsed = inv.Count(i => i.AgentKey is { } k && used.Contains(k));
+            var listedKeys = inv.Where(i => i.AgentKey is not null).Select(i => i.AgentKey!.Value).ToHashSet();
+            var inBook = rows.Count(r => listedKeys.Contains(r.AgentKey));
+            var at = Kpis.FindIndex(k => k.Label == "Agents used");
+            if (at >= 0) Kpis[at] = Kpis[at] with { Note = $"{inBook:#,0} in the agent workbook, {rows.Count - inBook:#,0} not in it (deleted, unmatched or Microsoft's)" };
+            Kpis.Add(new("Listed agents not used", Num(inv.Count - listedUsed), $"of {inv.Count:#,0} in the agent workbook; {listedUsed:#,0} used in the period", inv.Count > listedUsed ? "warn" : null));
         }
 
         /* People per agent are a group at every point too (2.4.12): agents with fewer than the minimum in the period are

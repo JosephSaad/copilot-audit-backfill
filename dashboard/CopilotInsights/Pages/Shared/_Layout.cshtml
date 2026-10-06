@@ -61,8 +61,8 @@
         @if (mine.Count > 0)
         {
             @* The reports this person opens most: a section like the others, open on the start page. *@
-            <div class="grp mine @(path == "/" ? "open" : "")" data-grp="Your most used">
-                <button type="button" class="gname" aria-expanded="@(path == "/" ? "true" : "false")" aria-controls="nav-mine-links"><span>Your most used</span><span class="n">@mine.Count</span></button>
+            <div class="grp mine" data-grp="Your most used">
+                <button type="button" class="gname" aria-expanded="false" aria-controls="nav-mine-links"><span>Your most used</span><span class="n">@mine.Count</span></button>
                 <div class="glinks" id="nav-mine-links">
                     @foreach (var p in mine)
                     {

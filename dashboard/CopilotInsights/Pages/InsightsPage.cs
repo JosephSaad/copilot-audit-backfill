@@ -58,7 +58,10 @@ public sealed class Table
     {
         if (Rows.Count == 0) return new($"<p class=\"muted\">{WebUtility.HtmlEncode(EmptyText ?? "Nobody here.")}</p>");
         var client = Server is null && Sortable && Rows.Count - KeepLast > 1;
-        var sb = new StringBuilder($"<div class=\"table-wrap\"><table{(client ? " class=\"sortable\"" : "")}><thead><tr>");
+        /* 2.5.7: a table sent whole (not paged on the server) with more than a page of rows shows a page at a time in the
+           browser (site.js), as the server's lists do; a sort orders every row and starts again from the first page. */
+        var paged = Server is null && Rows.Count - KeepLast > Paging.PageSize;
+        var sb = new StringBuilder($"<div class=\"table-wrap\"><table{(client ? " class=\"sortable\"" : "")}{(paged ? $" data-page-size=\"{Paging.PageSize}\"" : "")}><thead><tr>");
         for (var i = 0; i < Headers.Count; i++)
         {
             /* scope: a screen reader reads each cell with its column's heading (2.4.10). */
