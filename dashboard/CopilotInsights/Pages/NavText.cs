@@ -82,6 +82,8 @@ public static class NavText
         ["/agents/inventory"] = ("Every current agent from the agent workbook, its owner and use; unused ones flagged.", null),
         ["/agents/shared"] = ("Agents shared with other users or groups, and their use in the period.", null),
         ["/agents/production"] = ("The agents in production, and whether people use them.", null),
+        ["/agents/owners"] = ("Agents whose owner left, is disabled or is not set, and agents by owner's department.", null),
+        ["/agents/checks"] = ("Agents whose settings disagree with their use: quarantined, web search, production.", null),
         ["/agents/children"] = ("Child agents: the parent agents that call each one, and their use.", null),
         ["/agents/build"] = ("Copilot Studio agents created, published, shared, changed and deleted.", null),
         ["/agents/detail"] = ("One agent: who uses it, where, and how that is changing.", null),

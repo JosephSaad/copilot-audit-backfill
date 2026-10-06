@@ -156,6 +156,11 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             ActiveLicensed = small.Sum(r => r.ActiveLicensed), ActiveDays = small.Sum(r => r.ActiveDays), Sessions = small.Sum(r => r.Sessions), MultiTurn = small.Sum(r => r.MultiTurn),
         }, out var folded).OrderByDescending(r => r.Licensed >= Ctx.MinGroupSize).ThenByDescending(r => Ratio(r.ActiveLicensed, r.Licensed) ?? -1).ThenByDescending(r => r.Licensed).ToList();
 
+        /* 2.5.8: one department, or every one (the default). The departments offered are those shown, smaller ones combined. */
+        var (dept, picker) = DepartmentFilter(shown.Select(r => r.Department));
+        Panels.Add(new("Choose a department", picker));
+        if (dept is not null) shown = shown.Where(r => r.Department == dept).ToList();
+
         Panels.Add(new("Adoption by department",
             Chart.Adoption(shown.Select(r => new Chart.AdoptionGroup(r.Department, r.ActiveLicensed, r.Licensed)), Ctx.MinGroupSize, "Adoption by department", 25),
             $"Departments with at least {Ctx.MinGroupSize} license holders, highest first; the rest are combined in the last bar, so no bar rests on one or two people. The table has every department."));

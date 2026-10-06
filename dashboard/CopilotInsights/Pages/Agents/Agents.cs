@@ -58,14 +58,19 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
         {
             /* The same counts as Agent inventory's (2.5.7): workbook agents, used when the audit agent they match was used
                in the period. Several workbook agents can match one audit agent, so they are counted from the workbook. */
-            var inv = await Db.QueryAsync<(string Id, int? AgentKey)>("SELECT InventoryAgentId, AgentKey FROM dash.AgentInventory;");
+            /* 2.5.8: an autonomous agent (triggers or flows) with no interaction is not counted as unused, as on Agent inventory. */
+            var auto = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END;") == 1;
+            var inv = await Db.QueryAsync<(string Id, int? AgentKey, bool Autonomous)>(
+                $"SELECT InventoryAgentId, AgentKey, {(auto ? "IsAutonomous" : "CAST(0 AS BIT)")} FROM dash.AgentInventory;");
             var used = rows.Select(r => r.AgentKey).ToHashSet();
             var listedUsed = inv.Count(i => i.AgentKey is { } k && used.Contains(k));
+            var autonomous = inv.Count(i => i.Autonomous && !(i.AgentKey is { } k && used.Contains(k)));
             var listedKeys = inv.Where(i => i.AgentKey is not null).Select(i => i.AgentKey!.Value).ToHashSet();
             var inBook = rows.Count(r => listedKeys.Contains(r.AgentKey));
             var at = Kpis.FindIndex(k => k.Label == "Agents used");
             if (at >= 0) Kpis[at] = Kpis[at] with { Note = $"{inBook:#,0} in the agent workbook, {rows.Count - inBook:#,0} not in it (deleted, unmatched or Microsoft's)" };
-            Kpis.Add(new("Listed agents not used", Num(inv.Count - listedUsed), $"of {inv.Count:#,0} in the agent workbook; {listedUsed:#,0} used in the period", inv.Count > listedUsed ? "warn" : null));
+            var notUsed = inv.Count - listedUsed - autonomous;
+            Kpis.Add(new("Listed agents not used", Num(notUsed), $"of {inv.Count:#,0} in the agent workbook; {listedUsed:#,0} used in the period, {autonomous:#,0} autonomous", notUsed > 0 ? "warn" : null));
         }
 
         /* People per agent are a group at every point too (2.4.12): agents with fewer than the minimum in the period are
@@ -83,9 +88,10 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
                 : ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
             Numeric = book ? new HashSet<int> { 6, 7, 8, 9 } : new HashSet<int> { 4, 5, 6, 7 }, EmptyText = "No agents were used in the period.",
         };
+        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: owners by name
         foreach (var r in rows.OrderByDescending(r => r.People))
         {
-            var cells = new List<object?> { new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, PrivacyMode ? null : r.Owner };
+            var cells = new List<object?> { new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, PrivacyMode ? null : ownerName(r.Owner) };
             /* The workbook lists Copilot Studio agents: one of those it does not list was deleted, or is not in it yet. */
             if (book) cells.AddRange([r.IsShared ? "Yes" : "No",
                                       r.InventoryAgentId is not null ? "Yes" : r.AgentSource == "Copilot Studio" ? "No: deleted, or not listed" : "No"]);
@@ -142,7 +148,11 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
             else if (inv.AgentName is not null || await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AgentInventory WHERE InventoryAgentId = @invId;", new { invId }) > 0)
             {
                 AgentName = inv.AgentName ?? invId;
-                Kpis.Add(new("Use", "Not used", "the audit log has no interaction with this agent", "warn"));
+                var autonomous = await Db.ScalarAsync<int>(@"IF COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL SELECT 0
+ELSE EXEC sp_executesql N'SELECT ISNULL(MAX(CAST(IsAutonomous AS INT)), 0) FROM dash.AgentInventory WHERE InventoryAgentId = @i', N'@i NVARCHAR(100)', @i = @invId;", new { invId }) == 1;
+                Kpis.Add(autonomous
+                    ? new("Use", "Autonomous", "no interaction in the audit log, but it has triggers or flows: it can work with nobody chatting to it")
+                    : new("Use", "Not used", "the audit log has no interaction with this agent", "warn"));
                 await AddWorkbookMetadataAsync(invId);
                 return;
             }

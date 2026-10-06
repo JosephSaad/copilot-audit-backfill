@@ -270,9 +270,9 @@ svg.spark path { fill: none; stroke: var(--s1); stroke-width: 1.5; }
 @media screen { tr.pg-off { display: none; } }
 .tpager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 4px; }
 .tpager .muted { margin-right: 6px; }
-.tpager button { font: inherit; background: var(--surface); color: var(--accent); border: 1px solid var(--rule); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
-.tpager button:hover, .tpager button:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
-.tpager button.on { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+.tpager button, .tpager a { font: inherit; text-decoration: none; background: var(--surface); color: var(--accent); border: 1px solid var(--rule); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+.tpager button:hover, .tpager button:focus-visible, .tpager a:hover, .tpager a:focus-visible { border-color: var(--accent); outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.tpager button.on, .tpager a.on { background: var(--accent); color: var(--surface); border-color: var(--accent); }
 @media print { .tpager { display: none; } }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule); vertical-align: middle; }

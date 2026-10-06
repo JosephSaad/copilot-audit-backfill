@@ -2416,6 +2416,11 @@ Indexes and constraints:
 | 14 | `IsShared` | bit | yes |  | computed: ViewerUsers or ViewerGroups above 0 |
 | 15 | `InProduction` | bit | **no** | `0` | listed on the AgentsInProd sheet |
 | 16 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 17 | `EnvironmentSku` | nvarchar(100) | yes |  | EnvironmentSku (2.5.8): Developer, Production ... |
+| 18 | `Authentication` | nvarchar(200) | yes |  | Authentication (2.5.8) |
+| 19 | `IsQuarantined` | bit | yes |  | IsQuarantined (2.5.8) |
+| 20 | `IsWebSearchEnabled` | bit | yes |  | IsWebSearchEnabled (2.5.8) |
+| 21 | `IsAutonomous` | bit | **no** | `0` | Triggers or Flows set (2.5.8): no interaction does not make it unused |
 
 Indexes and constraints:
 

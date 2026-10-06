@@ -89,12 +89,13 @@ ORDER BY MAX(e.EventUtc) DESC;", Ctx.Args());
             Numeric = new HashSet<int> { 4, 5, 6, 8 },
             EmptyText = "No authoring records yet.",
         };
+        var ownerName = await NamesAsync(life.Select(l => l.Owner));   // 2.5.8: owners by name
         foreach (var l in life)
         {
             var name = (l.FriendlyName ?? l.LogName) is { } shown ? $"{shown} ({l.BotSchemaName})" : l.BotSchemaName;
             t.Rows.Add(named
-                ? [name, l.Created, l.FirstPublished, l.LastPublished, l.Publishes, l.Shares, l.Changes, l.Deleted, l.Makers, l.LastMaker, l.Owner]
-                : [name, l.Created, l.FirstPublished, l.LastPublished, l.Publishes, l.Shares, l.Changes, l.Deleted, l.Makers, l.Owner]);
+                ? [name, l.Created, l.FirstPublished, l.LastPublished, l.Publishes, l.Shares, l.Changes, l.Deleted, l.Makers, l.LastMaker, ownerName(l.Owner)]
+                : [name, l.Created, l.FirstPublished, l.LastPublished, l.Publishes, l.Shares, l.Changes, l.Deleted, l.Makers, ownerName(l.Owner)]);
         }
         CsvTable = t;
         Panels.Add(new("Every agent's lifecycle", t.Render(),

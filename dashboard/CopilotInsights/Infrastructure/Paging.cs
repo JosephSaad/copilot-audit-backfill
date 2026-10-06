@@ -86,10 +86,40 @@ public sealed class Paging
 
     public int Pages => Math.Max(1, (int)Math.Ceiling(Total / (double)PageSize));
 
-    /// <summary>Search box, sort choice and page links, keeping the other query values.</summary>
+    /// <summary>
+    /// The page links under the list (2.5.8): how many rows, Previous, the first and last pages and those around this one,
+    /// and Next; the same place and look as a table paged in the browser (site.js), on every report.
+    /// </summary>
+    public HtmlString Nav(HttpRequest request)
+    {
+        string Link(int page) => WebUtility.HtmlEncode(request.Path + QueryString(request, ("p", page.ToString())));
+        /* A page past the end (a stale link, a list that shrank) shows none of the rows, and Previous goes to the last page
+           (2.4.12): it read "4,999,951–10,568 of 10,568", and Previous went one page back, still past the end. */
+        var past = Page > Pages;
+        var first = Total == 0 || past ? 0 : (Page - 1) * PageSize + 1;
+        var last = past ? 0 : Math.Min(Total, Page * PageSize);
+        var sb = new System.Text.StringBuilder($"<nav class=\"tpager\" aria-label=\"Pages\"><span class=\"muted\">{first:#,0}–{last:#,0} of {Total:#,0}</span>");
+        if (Page > 1) sb.Append($"<a href=\"{Link(Math.Min(Page - 1, Pages))}\">‹ Previous</a>");
+        if (Pages > 1)
+        {
+            var shown = 0;
+            for (var p = 1; p <= Pages; p++)
+            {
+                if (p == 1 || p == Pages || Math.Abs(p - Page) <= 2)
+                {
+                    sb.Append(p == Page ? $"<a class=\"on\" aria-current=\"page\" href=\"{Link(p)}\">{p:#,0}</a>" : $"<a href=\"{Link(p)}\">{p:#,0}</a>");
+                    shown = p;
+                }
+                else if (shown == p - 1) sb.Append("<span class=\"muted\">…</span>");
+            }
+        }
+        if (Page < Pages) sb.Append($"<a href=\"{Link(Page + 1)}\">Next ›</a>");
+        return new(sb.Append("</nav>").ToString());
+    }
+
+    /// <summary>Search box and sort choice, keeping the other query values. The page links are under the list (Nav).</summary>
     public HtmlString Controls(HttpRequest request, IReadOnlyDictionary<string, string> sortLabels)
     {
-        string Link(int page) => request.Path + QueryString(request, ("p", page.ToString()));
         var hidden = string.Concat(request.Query.Where(kv => kv.Key is not ("p" or "q" or "s" or "handler"))
             .Select(kv => $"<input type=\"hidden\" name=\"{WebUtility.HtmlEncode(kv.Key)}\" value=\"{WebUtility.HtmlEncode(kv.Value)}\"/>"));
         var sorts = string.Concat(sortLabels.Select(kv =>
@@ -97,18 +127,9 @@ public sealed class Paging
         /* Sorted by a column header the list offers no choice for, or reversed: say so, and keep it on a new search. */
         if (Reversed || !sortLabels.ContainsKey(SortKey))
             sorts = $"<option value=\"{(Reversed ? "-" : "")}{SortKey}\" selected>{WebUtility.HtmlEncode((sortLabels.GetValueOrDefault(SortKey) ?? "By the column chosen") + (Reversed ? ", reversed" : ""))}</option>" + sorts;
-        /* A page past the end (a stale link, a list that shrank) shows none of the rows, and Previous goes to the last page
-           (2.4.12): it read "4,999,951–10,568 of 10,568", and Previous went one page back, still past the end. */
-        var past = Page > Pages;
-        var first = Total == 0 || past ? 0 : (Page - 1) * PageSize + 1;
-        var last = past ? 0 : Math.Min(Total, Page * PageSize);
-        var nav = $"<span class=\"muted\">{first:#,0}–{last:#,0} of {Total:#,0}</span>" +
-                  (Page > 1 ? $" <a href=\"{WebUtility.HtmlEncode(Link(Math.Min(Page - 1, Pages)))}\">‹ Previous</a>" : "") +
-                  (Page < Pages ? $" <a href=\"{WebUtility.HtmlEncode(Link(Page + 1))}\">Next ›</a>" : "");
         return new($"<form class=\"pager\" method=\"get\">{hidden}" +
                    $"<input type=\"search\" name=\"q\" value=\"{WebUtility.HtmlEncode(Search ?? "")}\" placeholder=\"Search name, sign-in or department\" aria-label=\"Search\"/>" +
-                   $"<select name=\"s\" aria-label=\"Sort\" data-autosubmit>{sorts}</select><button class=\"btn\" type=\"submit\">Search</button>" +
-                   $"<span class=\"pages\">{nav}</span></form>");
+                   $"<select name=\"s\" aria-label=\"Sort\" data-autosubmit>{sorts}</select><button class=\"btn\" type=\"submit\">Search</button></form>");
     }
 
     static string QueryString(HttpRequest request, (string Key, string Value) set, string? drop = null)

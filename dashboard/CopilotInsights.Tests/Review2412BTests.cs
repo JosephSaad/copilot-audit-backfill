@@ -223,7 +223,7 @@ public class Review2412BTests
         ctx.Request.Path = "/adoption/by-license";
         ctx.Request.QueryString = new QueryString("?lic=all&p=100000");
         var p = new Paging(ctx.Request, new Dictionary<string, string> { ["name"] = "du.DisplayName" }, "name") { Total = 10_568 };
-        var html = p.Controls(ctx.Request, new Dictionary<string, string> { ["name"] = "Name" }).Value!;
+        var html = p.Nav(ctx.Request).Value!;   // 2.5.8: the page links are under the list
         Assert.DoesNotContain("4,999,951", html);
         Assert.Contains("0–0 of 10,568", html);
         Assert.Contains("p=212\">‹ Previous", html);

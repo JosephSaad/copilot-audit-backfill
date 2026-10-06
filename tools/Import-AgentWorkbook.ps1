@@ -140,11 +140,15 @@ try {
         function T($name) { if ($ic -contains $name) { "NULLIF(LTRIM(RTRIM(CAST(w.[$name] AS NVARCHAR(4000)))), N'')" } else { 'CAST(NULL AS NVARCHAR(4000))' } }
         function D($name) { "TRY_CONVERT(DATETIME2(0), $(T $name))" }
         function N($name) { "TRY_CONVERT(INT, TRY_CONVERT(FLOAT, $(T $name)))" }
+        function B($name) { "CASE WHEN $(T $name) IN (N'True', N'Yes', N'1') THEN 1 WHEN $(T $name) IN (N'False', N'No', N'0') THEN 0 END" }
         $inProd = if ($prod -and (Sql "SELECT CASE WHEN COL_LENGTH(N'$prod', N'AgentId') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
             "CASE WHEN EXISTS (SELECT 1 FROM $prod AS p WHERE LTRIM(RTRIM(CAST(p.AgentId AS NVARCHAR(100)))) = x.Id) THEN 1 ELSE 0 END" } else { '0' }
         $pcCols = if ($pc -and (Sql "SELECT CASE WHEN OBJECT_ID(N'$pc', N'U') IS NULL OR OBJECT_ID(N'dash.AgentChildLink', N'U') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) { Columns $pc }
         if ($pcCols -and -not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentChildLink', N'ChildKey') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
             throw 'dash.AgentChildLink predates 2.5.7: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
+        }
+        if (-not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
+            throw 'dash.AgentInventory predates 2.5.8: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
         }
         $tx = $conn.BeginTransaction()
         try {
@@ -153,7 +157,10 @@ SELECT CAST(LEFT($(T 'AgentId'), 100) AS NVARCHAR(100)) AS Id, $(T 'AgentName') 
        $(T 'EnvironmentDisplayName') AS Environment, $(T 'SchemaName') AS SchemaName, $(D 'CreatedAt') AS CreatedAt,
        $(D 'LastPublishedAt') AS LastPublishedAt, $(T 'Channels') AS Channels, $(N 'ViewerUsers') AS ViewerUsers,
        $(N 'ViewerGroups') AS ViewerGroups, $(N 'EditorUsers') AS EditorUsers, $(N 'EditorGroups') AS EditorGroups,
-       $(T 'TitleId') AS TitleId, $(T 'EntraAgentId') AS EntraAgentId, $(T 'EnvironmentId') AS EnvironmentId
+       $(T 'TitleId') AS TitleId, $(T 'EntraAgentId') AS EntraAgentId, $(T 'EnvironmentId') AS EnvironmentId,
+       $(T 'EnvironmentSku') AS EnvironmentSku, $(T 'Authentication') AS Authentication, $(B 'IsQuarantined') AS IsQuarantined,
+       $(B 'IsWebSearchEnabled') AS IsWebSearchEnabled,
+       CASE WHEN COALESCE($(T 'Triggers'), $(T 'Flows')) IS NOT NULL AND COALESCE($(T 'Triggers'), $(T 'Flows')) NOT IN (N'0', N'[]', N'None') THEN 1 ELSE 0 END AS IsAutonomous
 INTO #w FROM $inv AS w;
 DELETE FROM #w WHERE Id IS NULL;
 
@@ -205,9 +212,11 @@ WHERE p.Rnk <= 3 OR (SELECT COUNT(*) FROM #p AS q WHERE q.AgentKey = p.AgentKey 
 
 DELETE FROM dash.AgentInventory;
 INSERT INTO dash.AgentInventory (InventoryAgentId, AgentKey, AgentName, OwnerUpn, Environment, SchemaName, CreatedAt, LastPublishedAt,
-                                 Channels, ViewerUsers, ViewerGroups, EditorUsers, EditorGroups, InProduction)
+                                 Channels, ViewerUsers, ViewerGroups, EditorUsers, EditorGroups, InProduction,
+                                 EnvironmentSku, Authentication, IsQuarantined, IsWebSearchEnabled, IsAutonomous)
 SELECT x.Id, m.AgentKey, LEFT(x.AgentName, 400), LEFT(x.OwnerUpn, 256), LEFT(x.Environment, 400), LEFT(x.SchemaName, 400), x.CreatedAt,
-       x.LastPublishedAt, LEFT(x.Channels, 400), x.ViewerUsers, x.ViewerGroups, x.EditorUsers, x.EditorGroups, $inProd
+       x.LastPublishedAt, LEFT(x.Channels, 400), x.ViewerUsers, x.ViewerGroups, x.EditorUsers, x.EditorGroups, $inProd,
+       LEFT(x.EnvironmentSku, 100), LEFT(x.Authentication, 200), x.IsQuarantined, x.IsWebSearchEnabled, x.IsAutonomous
 FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY Id ORDER BY LastPublishedAt DESC) AS rn FROM #w) AS x
 LEFT JOIN #m AS m ON m.Id = x.Id
 WHERE x.rn = 1;

@@ -14,7 +14,7 @@ namespace CopilotInsights.Pages.Adoption
         public override string Persona => "Adoption";
         public override string Intro => "Groups ranked by adoption (licensed people using Copilot), with the change on the period before and the most improved. Only groups of at least the minimum group size, with at least that many licenses, are ranked.";
 
-        static readonly string[] By = ["Department", "Division", "Company", "Country", "Office"];
+        static readonly string[] By = ["Department", "Division", "Country", "Office"];   // 2.5.8: no Company
 
         protected override async Task BuildAsync()
         {

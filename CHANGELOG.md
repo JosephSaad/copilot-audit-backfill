@@ -4,6 +4,50 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.8] - 2026-10-06
+
+The agent workbook set beside the audit log and the directory: agents whose owner has gone, agents whose settings
+disagree with their use, and autonomous agents no longer counted as unused. Every Owner column shows names, every
+long list pages the same way, and three reports are simpler.
+
+To upgrade from 2.5.7: replace the job server's scripts, run `Install-CopilotAudit.ps1 -Dashboard` once (it adds five
+columns to `dash.AgentInventory`; nothing is rebuilt), install the dashboard package over 2.5.7, then run
+`.\tools\Import-AgentWorkbook.ps1` once, or wait for the night, to fill them. Until `Install-CopilotAudit.ps1` has run,
+the import stops and says so.
+
+### Added
+- **Agents › Agents without an owner.** The workbook's agents whose owner (`OwnerIdUPN`) is not in the directory loaded
+  from Active Directory (most likely they left), has a disabled account, or is not set, the most used first, with the
+  owner's manager (who to ask for a new owner) and department. Below, every agent by its owner's department: agents,
+  those used in the period, their interactions and those without an active owner.
+- **Agents › Agent checks**: where an agent's settings in the workbook and its use in the audit log disagree, each a
+  *breach* to act on or a *review*:
+  - quarantined (`IsQuarantined`), but used in the period (breach);
+  - web search off (`IsWebSearchEnabled`), but its interactions searched the web (breach);
+  - no authentication (`Authentication`), but used (review);
+  - its owner left the directory or is disabled, but it is still used (review);
+  - in a developer, trial or sandbox environment (`EnvironmentSku`) and used by 25 people or more: move it to production (review);
+  - on the AgentsInProd sheet, but not used in the period and not autonomous (review).
+  Each check's count is a figure at the top, and the list can show one check at a time.
+- **Autonomous agents.** An agent with triggers or flows (`Triggers`, `Flows`) can work with nobody chatting to it, so
+  with no interaction in the period it is *Autonomous (no chat)*, not *Not used*: on Agent inventory, Shared agents,
+  Agents in production and Agent detail, in the *Not used* figures and the *Not used in the period* filter, and in
+  Agents in use's *Listed agents not used*. Agent inventory counts them in a figure of their own.
+- **A department filter on Adoption › Departments and Enablement › Champions**, every department by default.
+
+### Changed
+- **Every Owner column shows the owner's name**: Agents in use, Agent inventory, Shared agents, Agents in production,
+  Build and publish, Agents costing credits, Agents without an owner, Agent checks and Security's triage. The name
+  comes from the directory loaded from AD (owners who never used Copilot included), else the report tables; a
+  sign-in neither knows is shown as it is. Admin › Reference data still takes a sign-in.
+- **One way of paging, on every report.** A list paged on the server had *1–50 of N, Previous, Next* above it, beside the
+  search box; a long table paged in the browser (2.5.7) had numbered pages under it. Both now have the same links
+  under the list, in the same look: the count, Previous, the first and last pages and those around this one, and
+  Next, 50 rows to a page. The search box and the sort stay above a server's list.
+- **Licensing › License pool has no filter bar**: its seats are the tenant's as they stand, which no period or part of
+  the organization changes.
+- **Adoption › Leaderboard no longer ranks by company**: by department, division, country or office.
+
 ## [2.5.7] - 2026-10-06
 
 The workbook's agents are matched to the audit log's by the identities the audit log really gives them, so far

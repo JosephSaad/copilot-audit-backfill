@@ -141,8 +141,9 @@
   // data-keep (a total) stay on every page. Hidden rows are only off the screen: printing shows every row.
   document.querySelectorAll('table[data-page-size]').forEach(function (table) {
     var size = parseInt(table.getAttribute('data-page-size'), 10) || 50;
-    var bar = document.createElement('div');
+    var bar = document.createElement('nav');   // the same element, place and look as a list paged on the server (2.5.8)
     bar.className = 'tpager';
+    bar.setAttribute('aria-label', 'Pages');
     var wrap = table.closest('.table-wrap') || table;
     wrap.parentNode.insertBefore(bar, wrap.nextSibling);
     function link(text, page, on) {

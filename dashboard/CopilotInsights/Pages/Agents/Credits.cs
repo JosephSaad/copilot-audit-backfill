@@ -81,6 +81,7 @@ SELECT COUNT(CASE WHEN x.U > 0 THEN 1 END), ISNULL(SUM(x.U), 0) FROM #x AS x;", 
             /* Without a license (interactions) and Credits a month are the same count, so both sort by credits. */
             Server = new(pg, Request, ["name", "source", "owner", "inter", "credits", "people", "users", "credits", "each", null], new HashSet<int> { 3, 4, 5, 6, 7, 8 }),
         };
+        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: owners by name
         foreach (var r in rows)
         {
             var credits = Monthly(r.U);
@@ -92,7 +93,7 @@ SELECT COUNT(CASE WHEN x.U > 0 THEN 1 END), ISNULL(SUM(x.U), 0) FROM #x AS x;", 
                 : r.UPeople < Ctx.MinGroupSize && credits >= price ? "Few users, a license's worth of credits or more: restrict or retire"
                 : "";
             var name = new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}"))}\">{WebUtility.HtmlEncode(r.AgentName)}</a>");
-            t.Rows.Add([name, r.AgentSource, r.Owner, r.I, r.U, r.People == 0 ? 0 : AtLeastMin(r.People), r.UPeople == 0 ? 0 : AtLeastMin(r.UPeople), Math.Round(credits, 2), few ? null : Math.Round(each, 2), suggestion]);
+            t.Rows.Add([name, r.AgentSource, ownerName(r.Owner), r.I, r.U, r.People == 0 ? 0 : AtLeastMin(r.People), r.UPeople == 0 ? 0 : AtLeastMin(r.UPeople), Math.Round(credits, 2), few ? null : Math.Round(each, 2), suggestion]);
         }
         CsvTable = t;
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),

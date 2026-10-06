@@ -36,7 +36,7 @@ public static class Nav
             new("Access to labeled content", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true),
             new("Copilot on non-human accounts", "/compliance/non-human", Roles.Compliance)], Roles.Compliance),
         new("Agents", "Copilot Studio makers and the center of excellence", [
-            new("Agents in use", "/agents"), new("Agent inventory", "/agents/inventory"), new("Shared agents", "/agents/shared"), new("Agents in production", "/agents/production"),
+            new("Agents in use", "/agents"), new("Agent inventory", "/agents/inventory"), new("Shared agents", "/agents/shared"), new("Agents in production", "/agents/production"), new("Agents without an owner", "/agents/owners"), new("Agent checks", "/agents/checks"),
             new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs"), new("Child agent usage", "/agents/children"),
             new("Agents costing credits", "/agents/credits")], Roles.Agents),
         new("Enablement", "Training leads and champions", [

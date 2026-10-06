@@ -91,7 +91,10 @@ public sealed class Table
             }
             sb.Append("</tr>");
         }
-        return new(sb.Append("</tbody></table></div>").ToString());
+        sb.Append("</tbody></table></div>");
+        /* 2.5.8: a list paged on the server has its page links under it, as a table paged in the browser does. */
+        if (Server is { } onServer && !onServer.Pager.ForExport) sb.Append(onServer.Pager.Nav(onServer.Request).Value);
+        return new(sb.ToString());
     }
 
     /// <summary>What a cell sorts by, where its text would mislead: a number's value, a date as yyyyMMddHHmm.</summary>
@@ -558,6 +561,45 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     /// for one, are a group, and an agent used by one person is that person's use. Null (a dash) below it.
     /// </summary>
     protected int? AtLeastMin(int people) => people >= Ctx.MinGroupSize ? people : null;
+
+    /// <summary>
+    /// The department chosen (?dept=), one of those offered, or null for every department (2.5.8), and a box to choose it
+    /// that keeps the period and the part of the organization.
+    /// </summary>
+    protected (string? Chosen, HtmlString Picker) DepartmentFilter(IEnumerable<string> departments)
+    {
+        var list = departments.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(d => d, StringComparer.OrdinalIgnoreCase).ToList();
+        var asked = Request.Query["dept"].FirstOrDefault();
+        var chosen = list.FirstOrDefault(d => string.Equals(d, asked, StringComparison.OrdinalIgnoreCase));
+        var options = string.Concat(list.Select(d =>
+            $"<option value=\"{E(Ctx.Url(Request.Path, extra: "dept=" + Uri.EscapeDataString(d)))}\"{(d == chosen ? " selected" : "")}>{E(d)}</option>"));
+        return (chosen, new HtmlString(
+            $"<p class=\"sub\"><label>Department <select class=\"pick\" aria-label=\"Department\" data-navigate>" +
+            $"<option value=\"{E(Ctx.Url(Request.Path))}\"{(chosen is null ? " selected" : "")}>All departments</option>{options}</select></label></p>"));
+    }
+
+    /// <summary>
+    /// People's display names for their sign-ins (2.5.8): every Owner column shows a name. From the directory loaded from
+    /// AD (audit.UserDirectory, everyone, Copilot users or not), else the report tables' (bi.DimUser). A sign-in neither
+    /// knows (someone outside the directory, or a DOMAIN\name) is shown as it is.
+    /// </summary>
+    protected async Task<Func<string?, string?>> NamesAsync(IEnumerable<string?> signIns)
+    {
+        var keys = signIns.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var chunk in keys.Chunk(1000))   // under SQL Server's 2,100 parameters
+            foreach (var (upn, name) in await Db.QueryAsync<(string Upn, string Name)>(
+                "SELECT UserPrincipalName, DisplayName FROM bi.DimUser WHERE UserPrincipalName IN @upns AND NULLIF(LTRIM(RTRIM(DisplayName)), N'') IS NOT NULL;", new { upns = chunk }))
+                names[upn] = name;
+        /* The directory has the owners who never used Copilot, whom the report tables do not. */
+        var missing = keys.Where(k => !names.ContainsKey(k)).ToList();
+        if (missing.Count > 0 && await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.UserDirectory', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
+            foreach (var chunk in missing.Chunk(1000))
+                foreach (var (upn, name) in await Db.QueryAsync<(string Upn, string Name)>(
+                    "SELECT UserPrincipalName, FullName FROM audit.UserDirectory WHERE UserPrincipalName IN @upns AND NULLIF(LTRIM(RTRIM(FullName)), N'') IS NOT NULL;", new { upns = chunk }))
+                    names[upn] = name;
+        return s => s is null ? null : names.TryGetValue(s.Trim(), out var n) ? n : s;
+    }
 
     /// <summary>
     /// The same for a point on a trend (2.4.12): nobody is shown as 0, a count under the minimum as a gap. A day when two

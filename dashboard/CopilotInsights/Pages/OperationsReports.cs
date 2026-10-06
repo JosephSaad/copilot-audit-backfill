@@ -304,8 +304,9 @@ ORDER BY a.FirstSeenUtc DESC;", Ctx.Args());
             var bySource = rows.GroupBy(r => r.AgentSource).Select(g => new Bar(g.Key, g.Count(), Note: $"{g.Count(r => r.Interactions > 0)} used in the period")).OrderByDescending(b => b.Value).ToList();
             Panels.Add(new("By where they were built", Chart.Bars(bySource, Fmt.Count, "Agents by source"), null, "half"));
             var tb = new Table { Headers = ["Agent", "Built in", "Owner", "First used", "Last used", "People in the period", "Interactions in the period"], Numeric = new HashSet<int> { 5, 6 } };
+            var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: owners by name
             foreach (var r in rows)
-                tb.Rows.Add([r.AgentName + (r.Named ? "" : " (unnamed)"), r.AgentSource, r.Owner, r.FirstSeenUtc.Date, r.LastUsed,
+                tb.Rows.Add([r.AgentName + (r.Named ? "" : " (unnamed)"), r.AgentSource, ownerName(r.Owner), r.FirstSeenUtc.Date, r.LastUsed,
                              r.People == 0 ? 0 : AtLeastMin(r.People), r.Interactions]);
             CsvTable = tb;
             Panels.Add(new("Every agent", tb.Render(), $"People are left out where fewer than {Ctx.MinGroupSize} used an agent; named users are on Agents > Agent detail for the Agents role.", "full", CsvUrl()));
@@ -434,6 +435,10 @@ WITH scored AS
     WHERE p.Days > 0 AND u.AccountEnabled = 1
 )
 SELECT * FROM scored WHERE Rank <= @per ORDER BY Dept, Rank;", Ctx.Args(new { per }));
+            /* 2.5.8: one department's candidates, or every department's (the default). */
+            var (dept, picker) = DepartmentFilter(rows.Select(r => r.Dept));
+            Panels.Add(new("Choose a department", picker));
+            if (dept is not null) rows = rows.Where(r => r.Dept == dept).ToList();
             Kpis.Add(new("Departments", Num(rows.Select(r => r.Dept).Distinct().Count())));
             Kpis.Add(new("Candidates", Num(rows.Count), $"up to {per} per department (Admin > Targets and assumptions)"));
             var tb = new Table { Headers = ["Department", "Rank", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Sessions with a follow-up", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };

@@ -33,6 +33,8 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
     public override string Persona => "Licensing";
     /// <summary>The tenant's seats, whatever part of the organization is picked (2.5.0): the use beside them is the tenant's too.</summary>
     public override bool UsesTeam => false;
+    /// <summary>No filter bar (2.5.8): the seats are the tenant's as they stand, which no period or part of the organization changes.</summary>
+    public override bool UsesFilters => false;
     public override string Intro => "Copilot seats bought, assigned and used, from the tenant's subscriptions, read from Microsoft 365 each night. Seats bought but not assigned are paid for and idle; seats assigned but not used are the unused-license list.";
 
     protected override async Task BuildAsync()

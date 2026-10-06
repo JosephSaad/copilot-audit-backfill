@@ -314,6 +314,15 @@ IF COL_LENGTH(N'dash.AgentChildLink', N'ChildKind') IS NULL ALTER TABLE dash.Age
 IF COL_LENGTH(N'dash.AgentChildLink', N'ChildInventoryAgentId') IS NULL ALTER TABLE dash.AgentChildLink ADD ChildInventoryAgentId NVARCHAR(100) NULL;
 IF COL_LENGTH(N'dash.AgentChildLink', N'ParentEnvironment') IS NULL ALTER TABLE dash.AgentChildLink ADD ParentEnvironment NVARCHAR(400) NULL;
 
+/* 2.5.8: the settings the agent checks compare with the agents' use, and whether an agent runs on its own. An agent
+   with triggers or flows (an autonomous agent) can work with nobody chatting to it, so no interaction is not "unused". */
+IF COL_LENGTH(N'dash.AgentInventory', N'EnvironmentSku') IS NULL ALTER TABLE dash.AgentInventory ADD EnvironmentSku NVARCHAR(100) NULL;
+IF COL_LENGTH(N'dash.AgentInventory', N'Authentication') IS NULL ALTER TABLE dash.AgentInventory ADD Authentication NVARCHAR(200) NULL;
+IF COL_LENGTH(N'dash.AgentInventory', N'IsQuarantined') IS NULL ALTER TABLE dash.AgentInventory ADD IsQuarantined BIT NULL;
+IF COL_LENGTH(N'dash.AgentInventory', N'IsWebSearchEnabled') IS NULL ALTER TABLE dash.AgentInventory ADD IsWebSearchEnabled BIT NULL;
+IF COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL
+    ALTER TABLE dash.AgentInventory ADD IsAutonomous BIT NOT NULL CONSTRAINT DF_DashAgentInventory_Autonomous DEFAULT (0);
+
 /* Each workbook load, for Admin > Health: when, which file, and what reached the tables. */
 IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NULL
     CREATE TABLE dash.AgentInventoryRun

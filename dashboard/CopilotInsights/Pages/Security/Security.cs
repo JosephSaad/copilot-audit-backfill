@@ -183,6 +183,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds["all"].Sql};{list}
             /* Triage and Note are the inline form. */
             Server = new(pg, Request, ["new", "name", "upn", "dept", "app", "agent", "signals", "record", null, "owner", null], new HashSet<int> { 0 }),
         };
+        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: who triaged, by name
         foreach (var r in rows)
         {
             var flags = string.Join(", ", new[] { r.JailbreakDetected ? "Jailbreak" : null, r.PromptInjectionDetected ? "Injection" : null, r.HasBlockedResource ? "Blocked" : null }.Where(x => x is not null));
@@ -191,7 +192,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds["all"].Sql};{list}
                 $"<select name=\"status\" aria-label=\"Triage\">{string.Concat(Statuses.Select(x => $"<option{(x == status ? " selected" : "")}>{x}</option>"))}</select>" +
                 $"<input type=\"text\" name=\"note\" value=\"{E(r.Note)}\" size=\"14\" maxlength=\"2000\" aria-label=\"Note\"/>" + Button("Save", quiet: true)));
             t.Rows.Add([r.ActivityHour, r.DisplayName, r.UserPrincipalName, r.Department, r.App, r.AgentName,
-                        new HtmlString($"<span class=\"flag\">{System.Net.WebUtility.HtmlEncode(flags)}</span>"), r.RecordId, triageCell, r.Owner, pg.ForExport ? r.Note : null]);
+                        new HtmlString($"<span class=\"flag\">{System.Net.WebUtility.HtmlEncode(flags)}</span>"), r.RecordId, triageCell, ownerName(r.Owner), pg.ForExport ? r.Note : null]);
         }
         CsvTable = t;
         Kpis.Add(new(Kinds[kind].Label, Num(pg.Total), "flagged interactions in the period", pg.Total > 0 ? "crit" : null));
