@@ -266,15 +266,77 @@ FROM dash.OrgClosure AS c
 JOIN bi.DimUser AS u ON u.UserPrincipalName = c.DescendantUpn
 WHERE c.AncestorUpn = @RootUpn;');
 
-/* Agents with their friendly names. */
+/*
+    2.5.6: the agent inventory, from the Excel workbook tools/Import-AgentWorkbook.ps1 loads each night. One row per
+    agent the workbook lists (the current agents), matched to the agent the audit log knows (AgentKey) where it can
+    be. The workbook's sheets themselves are in dbo, as they come; these are what the reports read.
+*/
+IF OBJECT_ID(N'dash.AgentInventory', N'U') IS NULL
+    CREATE TABLE dash.AgentInventory
+    (
+        InventoryAgentId  NVARCHAR(100)  NOT NULL CONSTRAINT PK_DashAgentInventory PRIMARY KEY,   -- the workbook's AgentId
+        AgentKey          INT            NULL,           -- bi.DimAgent, when the audit log knows the agent
+        AgentName         NVARCHAR(400)  NULL,
+        OwnerUpn          NVARCHAR(256)  NULL,
+        Environment       NVARCHAR(400)  NULL,
+        SchemaName        NVARCHAR(400)  NULL,
+        CreatedAt         DATETIME2(0)   NULL,
+        LastPublishedAt   DATETIME2(0)   NULL,
+        Channels          NVARCHAR(400)  NULL,
+        ViewerUsers       INT            NULL,
+        ViewerGroups      INT            NULL,
+        EditorUsers       INT            NULL,
+        EditorGroups      INT            NULL,
+        IsShared          AS CAST(CASE WHEN ViewerUsers > 0 OR ViewerGroups > 0 THEN 1 ELSE 0 END AS BIT),
+        InProduction      BIT            NOT NULL CONSTRAINT DF_DashAgentInventory_Prod DEFAULT (0),   -- listed on AgentsInProd
+        LoadedUtc         DATETIME2(0)   NOT NULL CONSTRAINT DF_DashAgentInventory_Loaded DEFAULT (SYSUTCDATETIME()),
+        INDEX IX_DashAgentInventory_AgentKey (AgentKey)
+    );
+
+/* Connected agents: which parent agent calls which child, from the workbook's ParentChildAgent sheet. */
+IF OBJECT_ID(N'dash.AgentChildLink', N'U') IS NULL
+    CREATE TABLE dash.AgentChildLink
+    (
+        LinkId                  INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashAgentChildLink PRIMARY KEY,
+        ChildAgentName          NVARCHAR(400)  NOT NULL,
+        ParentInventoryAgentId  NVARCHAR(100)  NULL,
+        ParentAgentName         NVARCHAR(400)  NULL,
+        ParentAgentKey          INT            NULL,     -- bi.DimAgent, through the parent's inventory row
+        RelationshipType        NVARCHAR(200)  NULL,
+        IsValid                 BIT            NULL
+    );
+
+/* Each workbook load, for Admin > Health: when, which file, and what reached the tables. */
+IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NULL
+    CREATE TABLE dash.AgentInventoryRun
+    (
+        RunId           INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashAgentInventoryRun PRIMARY KEY,
+        StartedUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_DashAgentInventoryRun_Started DEFAULT (SYSUTCDATETIME()),
+        EndedUtc        DATETIME2(0)    NULL,
+        Source          NVARCHAR(800)   NULL,            -- the file, and where it came from
+        FileCreatedUtc  DATETIME2(0)    NULL,
+        InventoryRows   INT             NULL,
+        ProductionRows  INT             NULL,
+        ChildLinkRows   INT             NULL,
+        Matched         INT             NULL,            -- inventory agents the audit log knows
+        Status          NVARCHAR(20)    NOT NULL CONSTRAINT DF_DashAgentInventoryRun_Status DEFAULT (N'Running'),
+        Message         NVARCHAR(2000)  NULL
+    );
+
+/* Agents with their friendly names (2.5.6): the agent workbook's first, as the list of the current agents; then one set
+   by hand in Admin, for an agent the workbook does not name (one since deleted); then the audit log's. */
 EXEC (N'
 CREATE OR ALTER VIEW dash.Agent
 AS
 SELECT a.AgentKey, a.AgentId, a.AgentSource,
-       COALESCE(al.FriendlyName, a.AgentName, a.AgentId) AS AgentName,
-       a.AgentName AS AuditName, al.Owner,
-       COALESCE(CAST(fd.[Date] AS DATETIME2(0)), a.FirstSeenUtc) AS FirstSeenUtc   -- first used, in the reporting zone
+       COALESCE(NULLIF(inv.AgentName, N''''), al.FriendlyName, a.AgentName, a.AgentId) AS AgentName,
+       a.AgentName AS AuditName, COALESCE(inv.OwnerUpn, al.Owner) AS Owner,
+       COALESCE(CAST(fd.[Date] AS DATETIME2(0)), a.FirstSeenUtc) AS FirstSeenUtc,   -- first used, in the reporting zone
+       inv.InventoryAgentId, CAST(ISNULL(inv.IsShared, 0) AS BIT) AS IsShared, CAST(ISNULL(inv.InProduction, 0) AS BIT) AS InProduction
 FROM bi.DimAgent AS a
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = a.AgentKey
 LEFT JOIN dash.AgentUse AS u ON u.AgentKey = a.AgentKey
-LEFT JOIN bi.DimDate AS fd ON fd.DateKey = u.FirstDateKey;');
+LEFT JOIN bi.DimDate AS fd ON fd.DateKey = u.FirstDateKey
+OUTER APPLY (SELECT TOP (1) i.InventoryAgentId, i.AgentName, i.OwnerUpn, i.IsShared, i.InProduction
+             FROM dash.AgentInventory AS i WHERE i.AgentKey = a.AgentKey
+             ORDER BY i.InProduction DESC, i.LastPublishedAt DESC, i.InventoryAgentId) AS inv;');

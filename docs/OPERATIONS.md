@@ -41,7 +41,7 @@ Nothing needs doing while it is healthy: the nightly task loads and builds every
 | Gaps in AD | **Admin › Directory quality** | Few people without a manager, department, title or email |
 | Every report built ahead this morning (2.5.1) | **Admin › Health**, *Report speed*, on each web server; or `precache\precache.log` in the site's folder | *Last pre-cache* today, *built*, the slowest page from memory under a second |
 
-When the last run failed, its step and last log lines are on Admin › Health and in the pipeline alert; the full log is `logs\nightly-<date>.log` on the job server. The next night's run resumes it; to resume now, run `.\Invoke-CopilotPipeline.ps1` on the job server. [RUNBOOK.md](../RUNBOOK.md) lists every error and its fix.
+When the last run failed, its step and last log lines are on Admin › Health and in the pipeline alert; the full log is that run's `logs\nightly-<date>-<time>.log` on the job server. The next night's run resumes it; to resume now, run `.\Invoke-CopilotPipeline.ps1` on the job server. [RUNBOOK.md](../RUNBOOK.md) lists every error and its fix.
 
 **Every page says the audit log could not be written (HTTP 503, 2.4.12).** The dashboard serves nothing it cannot record in `dash.AuditLog`, so when the database takes reads but not writes, every page, export and API call is refused with that message, Admin › Health too. Check the SQL Server: a full transaction log or disk, a database set read-only, or the site's account without INSERT on `dash.AuditLog` (the installer's `-GrantDatabaseAccess` grants it again). Pages come back as soon as the write works; nothing needs restarting.
 
@@ -259,7 +259,7 @@ It lists the last seven runs with each step's time, then takes one run apart: in
 |---|---|
 | `-RunId 412` | Another run than the last (the ids are in the first list). |
 | `-Runs 30` | How many recent runs to list (7). |
-| `-LogPath D:\CopilotAudit\logs` | Also reads the run's own lines from `nightly-<date>.log`, with the time between them: it splits what the tables cannot, the flatten from the agent names and each shred. Run it on the job server, so the log's local times line up. |
+| `-LogPath D:\CopilotAudit\logs` | Also reads the run's own lines from its `nightly-<date>-<time>.log`, with the time between them: it splits what the tables cannot, the flatten from the agent names and each shred. Run it on the job server, so the log's local times line up. |
 | `-TopStatements 25` | How many statements to list from Query Store (15; 0 leaves them out). |
 | `-Database`, `-LicenseDatabase`, `-TrustServerCertificate` | As for the other tools. |
 

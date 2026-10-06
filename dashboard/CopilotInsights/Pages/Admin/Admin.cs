@@ -45,6 +45,16 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
         await Try("Report tables", "The tables every report and Power BI read (bi.usp_RefreshBi)", "SELECT TOP (1) EndedUtc, InteractionRows, CASE WHEN SinceUtc IS NULL THEN N'full rebuild' ELSE CONCAT(N'since ', FORMAT(SinceUtc, 'yyyy-MM-dd')) END FROM bi.RefreshRun ORDER BY RunId DESC;", "interactions written");
         await Try("Dashboard totals", "Daily totals for each person and the org chart, which these pages read (dash.usp_RefreshDashboard)", "SELECT TOP (1) EndedUtc, CAST(UserDayRows AS BIGINT), CONCAT(FORMAT(People, 'N0'), N' people, ', FORMAT(ClosureRows, 'N0'), N' org pairs') FROM dash.RefreshRun ORDER BY RunId DESC;", "person-days written");
         await Try("People directory", "People, managers and departments from Active Directory", "SELECT MAX(LoadedUtc), COUNT_BIG(*), NULL FROM audit.UserDirectory;", "people");
+        /* 2.5.6: the agent workbook, from the last load that reached the tables; a later load that failed says so. */
+        await Try("Agent inventory (Excel)", "The agent workbook loaded into the agent tables (tools\\Import-AgentWorkbook.ps1)", @"
+SELECT TOP (1) s.EndedUtc, CAST(s.InventoryRows AS BIGINT),
+       CONCAT(N'agents; ', FORMAT(s.Matched, 'N0'), N' in the audit log; file ', ISNULL(s.Source, N'?'),
+              CASE WHEN s.FileCreatedUtc IS NOT NULL THEN CONCAT(N', created ', FORMAT(s.FileCreatedUtc, 'yyyy-MM-dd HH:mm'), N' UTC') END,
+              CASE WHEN f.RunId IS NOT NULL THEN CONCAT(N'. The last load failed: ', f.Message) END)
+FROM dash.AgentInventoryRun AS s
+OUTER APPLY (SELECT TOP (1) x.RunId, x.Message FROM dash.AgentInventoryRun AS x
+             WHERE x.RunId > s.RunId AND x.Status = N'Failed' ORDER BY x.RunId DESC) AS f
+WHERE s.Status = N'Succeeded' ORDER BY s.RunId DESC;", "agents loaded", optional: true);
 
         var t = new Table { Zone = Zone, Headers = ["Step", "Last finished (UTC)", "Age", "Rows", "Detail", "Status"], Numeric = new HashSet<int> { 3 }, Sortable = false };
         var fresh = await S.Settings.IntAsync("FreshnessHours", 36);

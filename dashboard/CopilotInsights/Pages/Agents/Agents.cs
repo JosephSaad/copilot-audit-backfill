@@ -21,19 +21,22 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
         public long N { get; set; }
         public int People { get; set; }
         public int Returning { get; set; }
+        public bool IsShared { get; set; }
+        public string? InventoryAgentId { get; set; }
     }
 
     protected override async Task BuildAsync()
     {
+        var book = await Workbook.HasAsync(Db);   // 2.5.6: names, owners and sharing from the agent workbook
         var rows = await Db.QueryAsync<Row>($@"
 WITH u AS (SELECT f.AgentKey, f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.DateKey) AS Days
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AgentKey, f.UserKey)
 SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, SUM(u.N) AS N, COUNT(*) AS People,
-       COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning
+       COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning, ag.IsShared, ag.InventoryAgentId
 FROM u JOIN dash.Agent AS ag ON ag.AgentKey = u.AgentKey
 WHERE ag.AgentSource <> N'(no agent)'
-GROUP BY ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc;", Ctx.Args());
+GROUP BY ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, ag.IsShared, ag.InventoryAgentId;", Ctx.Args());
         var trend = await Db.QueryAsync<(int AgentKey, DateTime Bucket, int People)>($@"
 SELECT f.AgentKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
@@ -51,6 +54,12 @@ GROUP BY f.AgentKey, {Ctx.BucketSql("d")};", Ctx.Args());
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args()))));
         Kpis.Add(new("Interactions through agents", Num(rows.Sum(r => r.N))));
+        if (book)
+        {
+            var listed = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AgentInventory;");
+            var listedUsed = rows.Count(r => r.InventoryAgentId is not null);
+            Kpis.Add(new("Listed agents not used", Num(Math.Max(0, listed - listedUsed)), "in the agent workbook, with no use in the period", listed > listedUsed ? "warn" : null));
+        }
 
         /* People per agent are a group at every point too (2.4.12): agents with fewer than the minimum in the period are
            left out, and a point under it is a gap, as the table's counts are. */
@@ -62,18 +71,26 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
 
         var t = new Table
         {
-            Headers = ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
-            Numeric = new HashSet<int> { 4, 5, 6, 7 }, EmptyText = "No agents were used in the period.",
+            Headers = book
+                ? ["Agent", "Built in", "Owner", "Shared", "In the agent list", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"]
+                : ["Agent", "Built in", "Owner", "First used", "People", "Came back", "Interactions", "Interactions per person", "Trend (people)"],
+            Numeric = book ? new HashSet<int> { 6, 7, 8, 9 } : new HashSet<int> { 4, 5, 6, 7 }, EmptyText = "No agents were used in the period.",
         };
         foreach (var r in rows.OrderByDescending(r => r.People))
-            t.Rows.Add([
-                new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, r.Owner, r.FirstSeenUtc.Date,
+        {
+            var cells = new List<object?> { new Link(r.AgentName + (isNew(r) ? " (new)" : ""), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, PrivacyMode ? null : r.Owner };
+            /* The workbook lists Copilot Studio agents: one of those it does not list was deleted, or is not in it yet. */
+            if (book) cells.AddRange([r.IsShared ? "Yes" : "No",
+                                      r.InventoryAgentId is not null ? "Yes" : r.AgentSource == "Copilot Studio" ? "No: deleted, or not listed" : "No"]);
+            cells.AddRange([r.FirstSeenUtc.Date,
                 AtLeastMin(r.People), AtLeastMin(r.People) is null ? null : Pct(Ratio(r.Returning, r.People)), r.N,
                 AtLeastMin(r.People) is null ? null : Math.Round(r.N / (double)Math.Max(1, r.People), 1),
-                AtLeastMin(r.People) is null ? null : Chart.Sparkline(axis, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName),
-            ]);
+                AtLeastMin(r.People) is null ? null : Chart.Sparkline(axis, buckets.Select(b => Point(r.AgentKey, b.Key)).ToList(), r.AgentName)]);
+            t.Rows.Add([.. cells]);
+        }
         Panels.Add(new("All agents", WithTrendNote(t.Render()),
-            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from Admin › Reference data. Select an agent for its detail."));
+            $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from the agent workbook; an agent it does not list (one since deleted) has the one set in Admin › Reference data, else the audit log's. Select an agent for its detail." +
+            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : "")));
     }
 }
 
@@ -107,6 +124,22 @@ public sealed class DetailModel(PageServices s) : InsightsPage(s)
         var agents = await Db.QueryAsync<(int AgentKey, string AgentName, string? AgentSource)>(
             "SELECT AgentKey, AgentName, AgentSource FROM dash.Agent WHERE AgentSource <> N'(no agent)' ORDER BY AgentName;");
         var key = int.TryParse(Request.Query["agent"], out var k) && agents.Any(a => a.AgentKey == k) ? k : (int?)null;
+        /* 2.5.6: an agent from the workbook, by its workbook id: the audit log's agent where it knows it, else the
+           workbook's row alone, flagged as unused. */
+        string? invId = Request.Query["inv"].FirstOrDefault() is { Length: > 0 and <= 100 } iv ? iv : null;
+        if (key is null && invId is not null && await Workbook.HasAsync(Db))
+        {
+            var inv = (await Db.QueryAsync<(int? AgentKey, string? AgentName)>(
+                "SELECT AgentKey, AgentName FROM dash.AgentInventory WHERE InventoryAgentId = @invId;", new { invId })).FirstOrDefault();
+            if (inv.AgentKey is { } ik && agents.Any(a => a.AgentKey == ik)) key = ik;
+            else if (inv.AgentName is not null || await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AgentInventory WHERE InventoryAgentId = @invId;", new { invId }) > 0)
+            {
+                AgentName = inv.AgentName ?? invId;
+                Kpis.Add(new("Use", "Not used", "the audit log has no interaction with this agent", "warn"));
+                await AddWorkbookMetadataAsync(invId);
+                return;
+            }
+        }
         var options = string.Concat(agents.Select(a =>
             $"<option value=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"agent={a.AgentKey}"))}\"{(a.AgentKey == key ? " selected" : "")}>{System.Net.WebUtility.HtmlEncode(a.AgentName)} ({System.Net.WebUtility.HtmlEncode(a.AgentSource)})</option>"));
         /* With none chosen the box is the page: it says what to do, and where else an agent can be picked (2.4.10: the
@@ -163,6 +196,10 @@ LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 WHERE f.AgentKey = @agent AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", args);
         Panels.Add(new("Where it is used", Chart.Bars(apps.OrderByDescending(a => a.N).Select(a => new Bar(a.App, a.N)).ToList(), Fmt.Count, "Agent interactions by app"), null, "half"));
 
+        if (await Workbook.HasAsync(Db)
+            && await Db.ScalarAsync<string?>("SELECT InventoryAgentId FROM dash.Agent WHERE AgentKey = @key;", new { key }) is { } bookId)
+            await AddWorkbookMetadataAsync(bookId);
+
         if (!Viewer.Has(Roles.Agents) || PrivacyMode) return;   // the named users are for the Agents role only, and never in privacy mode
         var pg = new Paging(Request, Sorts, "most");
         var rows = await Db.QueryAsync<Row>($@"
@@ -178,5 +215,28 @@ WHERE (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR d
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.N, r.Days, r.Last]);
         CsvTable = t;
         Panels.Add(new("Users", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value), null, "full", CsvUrl()));
+    }
+
+    /// <summary>
+    /// The agent's row of the workbook's first sheet, every column as it comes (2.5.6): a column the workbook gains
+    /// shows without a change here. Read from dbo.AgentInventory, which the import grants the site.
+    /// </summary>
+    async Task AddWorkbookMetadataAsync(string inventoryAgentId)
+    {
+        IDictionary<string, object?>? row;
+        try
+        {
+            row = (await Db.QueryAsync<dynamic>(
+                "IF OBJECT_ID(N'dbo.AgentInventory', N'U') IS NOT NULL SELECT TOP (1) * FROM dbo.AgentInventory WHERE CAST(AgentId AS NVARCHAR(100)) = @id;",
+                new { id = inventoryAgentId })).Cast<IDictionary<string, object?>>().FirstOrDefault();
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { row = null; }
+        if (row is null) return;
+        var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "CreatedByUPN", "OwnerIdUPN", "CreatedBy", "OwnerId" };
+        var t = new Table { Headers = ["Field", "Value"], Sortable = false };
+        foreach (var (field, value) in row)
+            t.Rows.Add([field, PrivacyMode && named.Contains(field) ? null : value?.ToString()]);
+        Panels.Add(new("From the agent workbook", t.Render(),
+            "Every column of this agent's row on the workbook's first sheet, as loaded last." + (PrivacyMode ? " Privacy mode is on, so the people behind it are not shown." : ""), "full"));
     }
 }

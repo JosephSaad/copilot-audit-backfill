@@ -21,6 +21,7 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
     [
         "dash.Setting", "dash.Target", "dash.TimeSaving", "dash.TrainingAttendance", "dash.ValueName", "dash.AgentAlias", "dash.SensitivityLabel",
         "dash.JobFamilyRule", "dash.UseCaseRule", "dash.EventMarker", "dash.LicenseContract", "audit.PipelineSetting", "audit.SessionAppCategory",
+        "dash.AgentInventoryRun",   // 2.5.6: each load of the agent workbook adds a row, so the agent reports are read again
     ];
 
     /// <summary>A table people change all day, and the query that gives its version: one short string that differs after any change.</summary>

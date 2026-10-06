@@ -69,7 +69,10 @@ public static class Guidance
 
         // Agents
         ["/agents"] = new("See which agents people use and come back to.", "Promote the agents with returning users; review the ones nobody returns to."),
-        ["/agents/inventory"] = new("Keep a register of every agent in use.", "Give each agent a friendly name and an owner."),
+        ["/agents/inventory"] = new("Keep a register of every current agent, and whether anyone uses it.", "Retire or promote the agents nobody used in the period."),
+        ["/agents/shared"] = new("See which agents are shared with other users or groups, and their use.", "Check that shared agents are owned, and that unused ones are retired."),
+        ["/agents/production"] = new("See whether the agents in production are used.", "Find out why production agents nobody used are not reaching people."),
+        ["/agents/children"] = new("See which parent agents call each child agent, and their use.", "Keep the child agents that busy parents rely on owned and supported."),
         ["/agents/build"] = new("See how much building goes on, and by whom.", "Support the active makers; clean up agents nobody publishes."),
         ["/agents/detail"] = new("Understand one agent's reach and trend.", "Share the agent more widely, or retire it."),
         ["/agents/handoffs"] = new("See how agents chain together.", "Check that the agents called are owned and supported."),

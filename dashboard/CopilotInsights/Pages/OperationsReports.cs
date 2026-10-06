@@ -256,13 +256,16 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
 
 namespace CopilotInsights.Pages.Agents
 {
-    /// <summary>Every agent seen: when first and last used, by how many people, named and owned or not.</summary>
-    public sealed class InventoryModel(PageServices s) : InsightsPage(s)
+    /// <summary>
+    /// Every current agent, from the agent workbook (2.5.6), with its use in the period and a flag on those no one used.
+    /// Without a workbook, every agent seen in the audit log: when first and last used, by how many people, named and owned or not.
+    /// </summary>
+    public sealed class InventoryModel(PageServices s) : AgentListPage(s)
     {
         public override string Title => "Agent inventory";
-        public override string Persona => "Agents";
         public override bool UsesFilters => true;
-        public override string Intro => "Every agent the audit log has shown, whoever built it: first and last use, people using it in the period, and whether it has a friendly name and an owner (Admin > Reference data). New agents raise an alert when that is switched on.";
+        public override string Intro => "Every current agent, from the agent workbook, with its owner and whether it is shared or in production, and its use in the period from the audit log: an agent no one used is flagged. Without a workbook, every agent the audit log has shown. New agents raise an alert when that is switched on.";
+        protected override string Where => "1 = 1";
 
         sealed class Row
         {
@@ -278,6 +281,7 @@ namespace CopilotInsights.Pages.Agents
 
         protected override async Task BuildAsync()
         {
+            if (await BuildListAsync("Every agent", "The agents the workbook lists: the current ones. An agent since deleted is on Agents in use, under the audit log's name.")) return;
             var rows = await Db.QueryAsync<Row>($@"
 SELECT f.AgentKey, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
 INTO #u

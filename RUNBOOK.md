@@ -365,7 +365,7 @@ Each finding ends with OK, WARN or ACTION, and the check closes with what to run
 | `dashboard/` | The Copilot Insights web dashboard, its IIS installer, demo and tests (section 5f). |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |
 | `tools/Test-CopilotDataHealth.ps1` | A read-only check of what is loaded and built, with what to run (section 5g). |
-| `tools/Import-AgentWorkbook.ps1` | An Excel workbook of agents into the Copilot database, a table per sheet, emptied and loaded again each night when the settings name `AgentWorkbookUrl`; then the dashboard's agent names from its `AgentInventory` sheet (see CHANGELOG 2.5.5). |
+| `tools/Import-AgentWorkbook.ps1` | The agent workbook into the Copilot database each night, when the settings name `AgentWorkbookSiteUrl` (SharePoint Online, as its own app) or `AgentWorkbookUrl`: each sheet into its own table, emptied and loaded again; then `dash.AgentInventory` and `dash.AgentChildLink`, which the agent reports read; recorded for Admin › Health (see CHANGELOG 2.5.6). |
 | `tools/Measure-CopilotNightly.ps1` / `tools/Trace-CopilotNightly.sql` | Where a nightly run's time went, stage by stage and statement by statement ([docs/OPERATIONS.md](docs/OPERATIONS.md#a-slow-nightly-run)). |
 | `tools/Import-CopilotAuditCsv.ps1` / `sql/Create-CopilotCsvImport.sql` | Purview CSV exports into the same tables (section 5e). |
 | `tests/` | Mock Graph service plus test suites (`pwsh tests/Test-Engine.ps1`, `pwsh tests/Test-Orchestrator.ps1`; needs `python3`). |

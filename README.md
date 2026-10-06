@@ -340,7 +340,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `sql/Create-CopilotBiSchema.sql` | The `bi` star schema's tables and the views a Power BI model imports. |
 | `sql/Create-CopilotBiProcedure.sql` | `bi.usp_RefreshBi`, which fills it. |
 | `tools/Import-CopilotAuditCsv.ps1` | Imports a folder of Purview audit log exports (CSV) into the same tables. |
-| `tools/Import-AgentWorkbook.ps1` | Loads an Excel workbook of agents into the Copilot database each night, a table per sheet, and names the dashboard's agents from it (2.5.5). |
+| `tools/Import-AgentWorkbook.ps1` | Loads the agent workbook each night, from SharePoint Online (the newest in a library, as its own app) or a share: each sheet into its own table, then the agent inventory the agent reports, names and owners come from (2.5.5, 2.5.6). |
 | `sql/Create-CopilotCsvImport.sql` | The CSV import's tables and `audit.usp_MergeCopilotCsv`. Run by the importer. |
 | `sql/Create-CopilotDashboardSchema.sql` | The dashboard's `dash` schema: settings, roles, reference names, audit log, org chart and daily rollups. |
 | `sql/Create-CopilotDashboardProcedure.sql` | `dash.usp_RefreshDashboard`, which rebuilds the org chart and rollups after `bi`. |

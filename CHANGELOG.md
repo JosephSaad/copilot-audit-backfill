@@ -4,6 +4,84 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.6] - 2026-10-06
+
+The agent workbook becomes the list of agents. It is fetched each night from SharePoint Online (the newest
+workbook in a library, as an app of its own) or from a share; the reports name and own agents from it, show
+which are shared and which are in production, flag the agents no one used, and follow connected agents from
+parent to child. Admin › Health says when it last reached the tables, and each nightly run writes a log of
+its own.
+
+To upgrade from 2.5.5 (or 2.5.4):
+
+1. Replace the job server's scripts, keeping `copilot-audit.settings.psd1` and `logs`.
+2. Run `Install-CopilotAudit.ps1 -Dashboard` once. It adds `dash.AgentInventory`, `dash.AgentChildLink` and
+   `dash.AgentInventoryRun`, and replaces the `dash.Agent` view and `bi.usp_NameAgents`. Nothing is rebuilt.
+3. Install the dashboard package over 2.5.5.
+4. For the workbook from SharePoint Online:
+   - Register an app for it (or use an existing one) with a certificate, and give it SharePoint's
+     **Sites.Selected** application permission, admin-consented; a SharePoint administrator then grants it
+     read on the site: `Grant-PnPAzureADAppSitePermission -AppId <its client id> -DisplayName 'Copilot agent
+     workbook' -Site <site address> -Permissions Read`. (Or Sites.Read.All, for every site.) The certificate
+     goes in the job server's LocalMachine\My, readable by the task's account.
+   - Put PnP.PowerShell beside the scripts with ImportExcel: `Save-Module ImportExcel, PnP.PowerShell -Path
+     D:\CopilotAudit\Modules`. PnP.PowerShell needs PowerShell 7.4.6 or later.
+   - Add to the settings file:
+     ```powershell
+     AgentWorkbookSiteUrl               = 'https://contoso.sharepoint.com/sites/AI'
+     AgentWorkbookFolder                = 'Shared Documents'      # the Documents library, or a folder in it
+     AgentWorkbookFilter                = '*.xlsx'
+     AgentWorkbookClientId              = '<the app''s client id>'
+     AgentWorkbookCertificateThumbprint = '<its certificate''s thumbprint>'
+     AgentWorkbookTenantId              = 'contoso.onmicrosoft.com'   # only when not the TenantId above
+     ```
+   - Run `.\tools\Import-AgentWorkbook.ps1` once, as the task's account: with no parameters it reads the
+     settings file, as the nightly run does.
+   From a share instead, `AgentWorkbookUrl = '\\fileserver\Copilot\Agents.xlsx'` is enough.
+
+### Added
+- **The newest workbook from SharePoint Online.** `tools\Import-AgentWorkbook.ps1` signs in with PnP.PowerShell
+  as its own app registration and certificate, kept in the settings file apart from the pipeline's app
+  (`AgentWorkbookClientId`, `AgentWorkbookCertificateThumbprint`, and `AgentWorkbookTenantId` when the site is in
+  another tenant), and takes the most recently created file matching `AgentWorkbookFilter` in
+  `AgentWorkbookFolder`. Run with no parameters it reads everything from the settings file.
+- **Shared agents** (Agents): the workbook's agents with at least one viewer (`ViewerUsers` or `ViewerGroups`
+  not 0), their viewers and editors, and their use in the period; unused ones flagged.
+- **Agents in production** (Agents): the agents on the AgentsInProd sheet, their channels and their use in the
+  period from the audit log; unused ones flagged.
+- **Child agent usage** (Agents): each child agent on the ParentChildAgent sheet, how many parent agents call it
+  and which, each parent's people and interactions in the period, and the child's totals across its parents
+  (interactions added up, people counted once); a choice of one child.
+- **Admin › Health › Agent inventory (Excel)**: when the workbook last reached the tables, how many agents and
+  how many the audit log knows, the file and when it was created, marked fresh, stale or old like the other
+  steps; a later load that failed is named with its reason. Each load is kept in `dash.AgentInventoryRun`.
+- **`dash.AgentInventory` and `dash.AgentChildLink`**, the tables the agent reports read, filled from the sheets
+  on each load. The sheets themselves are still loaded as they come into `dbo` (AgentInventory, AgentsInProd,
+  ParentChildAgent), emptied and loaded again each night.
+
+### Changed
+- **Agent names and owners come from the workbook.** The name is the workbook's `AgentName`; where it is
+  empty, or the workbook does not list the agent (one since deleted), a name set in Admin › Reference data, else
+  the audit log's. The owner is the workbook's `OwnerIdUPN`. This holds on every page that names an agent, and in
+  the report tables Power BI reads (`bi.usp_NameAgents`, run after each load). 2.5.5 wrote the names into Admin's
+  own table (`dash.AgentAlias`, marked *Agent workbook*); the first 2.5.6 load removes those rows.
+- **Agent inventory** lists the workbook's agents, all of them (paged, searchable, sortable): owner, environment,
+  shared, in production, created, last published, last used, people and interactions in the period, and
+  whether anyone used it, with a filter for those no one did. Without a workbook it is as before.
+- **Agents in use** says whether each agent is shared and whether the workbook lists it: a Copilot Studio agent
+  it does not list was deleted, or is not in it yet. A figure counts the listed agents no one used.
+- **Agent detail** shows every column of the agent's row on the workbook's first sheet, whatever columns the
+  workbook has (GUIDs included), and opens a listed agent no one has used, flagged as such.
+- **A log for each nightly run.** `logs\nightly-<date>-<time>.log` (and `history-…`), where a second run on one day
+  appended to the first's log.
+- **The matching runs on equal keys**: the schema name, the first GUID and the title id an audit identity carries,
+  against the workbook's `SchemaName`, `AgentId`, `TitleId` and `EntraAgentId`, so 13,000 agents match in
+  seconds. `OwnerIdUPN` is read as the sample workbooks name it (2.5.5 read `OwnerUPN`).
+
+### Known limits
+- The workbook lists Copilot Studio agents; Microsoft's own agents (Researcher, Analyst) keep the audit log's names.
+- A new agent first used tonight is matched to the workbook the next night, after tonight's load has seen it.
+
 ## [2.5.5] - 2026-10-05
 
 Agents under the names your inventory gives them. An Excel workbook of agents, kept outside the

@@ -122,6 +122,17 @@ BEGIN
               WHERE c.AgentName IS NOT NULL AND i.AgentId <> N'(none)') AS x
         WHERE x.rn = 1;
 
+    /* 2.5.6: the agent inventory's name first, where the workbook loaded by tools/Import-AgentWorkbook.ps1 has one;
+       the audit log's for an agent it does not list (one since deleted) or leaves unnamed. */
+    CREATE TABLE #inv (AgentKey INT NOT NULL PRIMARY KEY, AgentName NVARCHAR(400) COLLATE DATABASE_DEFAULT NOT NULL);
+    IF OBJECT_ID(N'dash.AgentInventory', N'U') IS NOT NULL
+        EXEC (N'INSERT INTO #inv (AgentKey, AgentName)
+                SELECT AgentKey, AgentName
+                FROM (SELECT AgentKey, LTRIM(RTRIM(AgentName)) AS AgentName,
+                             ROW_NUMBER() OVER (PARTITION BY AgentKey ORDER BY InProduction DESC, LastPublishedAt DESC, InventoryAgentId) AS rn
+                      FROM dash.AgentInventory WHERE AgentKey IS NOT NULL AND NULLIF(LTRIM(RTRIM(AgentName)), N'''') IS NOT NULL) AS x
+                WHERE rn = 1;');
+
     UPDATE d
     SET AgentName    = v.AgentName,
         NamedInAudit = v.NamedInAudit,
@@ -129,7 +140,8 @@ BEGIN
     FROM bi.DimAgent AS d
     CROSS APPLY bi.fnAgentIdentity(d.AgentId, d.AgentId) AS i
     LEFT JOIN #names AS n ON n.AgentId = d.AgentId
-    CROSS APPLY (SELECT COALESCE(n.AgentName, i.DerivedName) AS AgentName,
+    LEFT JOIN #inv AS w ON w.AgentKey = d.AgentKey
+    CROSS APPLY (SELECT COALESCE(w.AgentName, n.AgentName, i.DerivedName) AS AgentName,
                         CAST(CASE WHEN n.AgentName IS NULL THEN 0 ELSE 1 END AS BIT) AS NamedInAudit) AS v
     WHERE d.AgentId <> N'(none)'
       AND (ISNULL(d.AgentName, N'') <> ISNULL(v.AgentName, N'') COLLATE Latin1_General_100_BIN2

@@ -79,7 +79,10 @@ public static class NavText
         ["/compliance/non-human"] = ("Copilot licenses on accounts that are not a person: a policy breach.", null),
 
         ["/agents"] = ("Every agent people used: how many people, how often, and which are new.", null),
-        ["/agents/inventory"] = ("Every agent the audit log has shown, with its first and last use and owner.", null),
+        ["/agents/inventory"] = ("Every current agent from the agent workbook, its owner and use; unused ones flagged.", null),
+        ["/agents/shared"] = ("Agents shared with other users or groups, and their use in the period.", null),
+        ["/agents/production"] = ("The agents in production, and whether people use them.", null),
+        ["/agents/children"] = ("Child agents: the parent agents that call each one, and their use.", null),
         ["/agents/build"] = ("Copilot Studio agents created, published, shared, changed and deleted.", null),
         ["/agents/detail"] = ("One agent: who uses it, where, and how that is changing.", null),
         ["/agents/handoffs"] = ("When one agent calls another: how often, and to which agents.", null),

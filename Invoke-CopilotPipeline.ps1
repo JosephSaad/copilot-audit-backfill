@@ -6,7 +6,7 @@
 .DESCRIPTION
     Reads copilot-audit.settings.psd1 (written by tools\Install-CopilotJobServer.ps1),
     so nothing here needs a parameter. Each step runs in its own PowerShell
-    process and appends to a dated log in the settings' LogPath. It stops at
+    process and writes to a log of its own for the run (2.5.6) in the settings' LogPath. It stops at
     the first failure and exits 1, so Task Scheduler's history shows it; the
     next run resumes the same load.
 
@@ -183,7 +183,17 @@ function Get-PipelineStep {
         & $directory
         & $licenses
         # An Excel workbook of agents, reloaded each night when the settings name it.
-        if (Has 'AgentWorkbookUrl') { Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' ($sql + @{ Database = $Setting.Database; Url = $Setting.AgentWorkbookUrl }) }
+        # From SharePoint Online (the newest file in a library, as the pipeline's app) or from an address or a share.
+        if (Has 'AgentWorkbookSiteUrl') {
+            # Its own app registration and certificate (2.5.6), in the tenant the workbook's site is in.
+            $w = $sql + @{ Database = $Setting.Database; SiteUrl = $Setting.AgentWorkbookSiteUrl
+                           TenantId = $(if (Has 'AgentWorkbookTenantId') { $Setting.AgentWorkbookTenantId } else { $Setting.TenantId })
+                           ClientId = $Setting.AgentWorkbookClientId; CertificateThumbprint = $Setting.AgentWorkbookCertificateThumbprint }
+            if (Has 'AgentWorkbookFolder') { $w.Folder = $Setting.AgentWorkbookFolder }
+            if (Has 'AgentWorkbookFilter') { $w.FileFilter = $Setting.AgentWorkbookFilter }
+            Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' $w
+        }
+        elseif (Has 'AgentWorkbookUrl') { Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' ($sql + @{ Database = $Setting.Database; Url = $Setting.AgentWorkbookUrl }) }
         if ($lic) { Add 'License events' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; Incremental = $true; Operations = $script:LicenseOperations }) }
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
         if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }
@@ -351,7 +361,8 @@ function Invoke-Main {
     $s = Get-PipelineSetting $SettingsPath
     $logDir = if ($s.Contains('LogPath') -and $s.LogPath) { $s.LogPath } else { Join-Path $PSScriptRoot 'logs' }
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-    $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd}.log" -f $(if ($History) { 'history' } else { 'nightly' }), (Get-Date))
+    # A log of its own for each run (2.5.6): a second run on one day appended to the first's.
+    $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($History) { 'history' } else { 'nightly' }), (Get-Date))
     $keep = if ($s.Contains('LogRetentionDays') -and $s.LogRetentionDays) { [int] $s.LogRetentionDays } else { 90 }
     Get-ChildItem -LiteralPath $logDir -Filter '*.log' | Where-Object LastWriteTime -lt (Get-Date).AddDays(-$keep) | Remove-Item -ErrorAction SilentlyContinue
 

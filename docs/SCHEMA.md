@@ -17,7 +17,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
-- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.Agent`](#dashagent)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
 - [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
@@ -2392,9 +2392,85 @@ Indexes and constraints:
 
 - `PK_DashRefreshRun`: primary key, clustered (RunId)
 
+### dash.AgentInventory
+
+*Table.* The agent workbook's agents (2.5.6): the current agents, one row each, as tools\Import-AgentWorkbook.ps1 loads them each night from the workbook's AgentInventory sheet, matched to the agent the audit log knows. Emptied and filled again on each load.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `InventoryAgentId` | nvarchar(100) | **no** | **PK** | the workbook's AgentId |
+| 2 | `AgentKey` | int | yes |  | bi.DimAgent: matched on the schema name the audit identity ends in, then the bot, title or Entra agent id it holds; NULL when the audit log has not seen the agent |
+| 3 | `AgentName` | nvarchar(400) | yes |  | AgentName |
+| 4 | `OwnerUpn` | nvarchar(256) | yes |  | OwnerIdUPN |
+| 5 | `Environment` | nvarchar(400) | yes |  | EnvironmentDisplayName |
+| 6 | `SchemaName` | nvarchar(400) | yes |  |  |
+| 7 | `CreatedAt` | datetime2(0) | yes |  |  |
+| 8 | `LastPublishedAt` | datetime2(0) | yes |  |  |
+| 9 | `Channels` | nvarchar(400) | yes |  |  |
+| 10 | `ViewerUsers` | int | yes |  |  |
+| 11 | `ViewerGroups` | int | yes |  |  |
+| 12 | `EditorUsers` | int | yes |  |  |
+| 13 | `EditorGroups` | int | yes |  |  |
+| 14 | `IsShared` | bit | yes |  | computed: ViewerUsers or ViewerGroups above 0 |
+| 15 | `InProduction` | bit | **no** | `0` | listed on the AgentsInProd sheet |
+| 16 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashAgentInventory`: primary key, clustered (InventoryAgentId)
+- `IX_DashAgentInventory_AgentKey`: nonclustered (AgentKey)
+
+### dash.AgentChildLink
+
+*Table.* Connected agents (2.5.6): which parent agent calls which child, from the workbook's ParentChildAgent sheet. Emptied and filled again on each load.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `LinkId` | int | **no** | **PK** identity |  |
+| 2 | `ChildAgentName` | nvarchar(400) | **no** |  | ChildAgentName, else ComponentName |
+| 3 | `ParentInventoryAgentId` | nvarchar(100) | yes |  | ParentAgentId |
+| 4 | `ParentAgentName` | nvarchar(400) | yes |  |  |
+| 5 | `ParentAgentKey` | int | yes |  | bi.DimAgent, through the parent's dash.AgentInventory row |
+| 6 | `RelationshipType` | nvarchar(200) | yes |  |  |
+| 7 | `IsValid` | bit | yes |  | IsValidParentChildAgent |
+
+Indexes and constraints:
+
+- `PK_DashAgentChildLink`: primary key, clustered (LinkId)
+
+### dash.AgentInventoryRun
+
+*Table.* Each load of the agent workbook (2.5.6), from its start, so a failure shows too. Admin &gt; Health reads the last that succeeded, and says when a later one failed.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RunId` | int | **no** | **PK** identity |  |
+| 2 | `StartedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 3 | `EndedUtc` | datetime2(0) | yes |  |  |
+| 4 | `Source` | nvarchar(800) | yes |  | the file, and where it came from |
+| 5 | `FileCreatedUtc` | datetime2(0) | yes |  |  |
+| 6 | `InventoryRows` | int | yes |  | rows of the AgentInventory sheet |
+| 7 | `ProductionRows` | int | yes |  | rows of the AgentsInProd sheet |
+| 8 | `ChildLinkRows` | int | yes |  | rows of the ParentChildAgent sheet |
+| 9 | `Matched` | int | yes |  | inventory agents the audit log knows |
+| 10 | `Status` | nvarchar(20) | **no** | `'Running'` | Running, Succeeded or Failed |
+| 11 | `Message` | nvarchar(2000) | yes |  | why a load failed |
+
+Indexes and constraints:
+
+- `PK_DashAgentInventoryRun`: primary key, clustered (RunId)
+
+The workbook's sheets themselves are loaded as they come into `dbo.AgentInventory`, `dbo.AgentsInProd` and `dbo.ParentChildAgent`: one text column for each heading, emptied and loaded again each night. Agent detail reads `dbo.AgentInventory`, which the import grants the site's role.
+
 ### dash.Agent
 
-*View.* Agents with their friendly name, owner and first use.
+*View.* Agents with their friendly name, owner and first use. From 2.5.6 the name and owner are the agent workbook's first, then Admin › Reference data's, then the audit log's.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2407,6 +2483,9 @@ Indexes and constraints:
 | 5 | `AuditName` | nvarchar(400) | yes |  |  |
 | 6 | `Owner` | nvarchar(256) | yes |  |  |
 | 7 | `FirstSeenUtc` | datetime2(0) | yes |  |  |
+| 8 | `InventoryAgentId` | nvarchar(100) | yes |  | the agent's dash.AgentInventory row (2.5.6) |
+| 9 | `IsShared` | bit | yes |  | (2.5.6) |
+| 10 | `InProduction` | bit | yes |  | (2.5.6) |
 
 ## dash: operations (2.3.0)
 

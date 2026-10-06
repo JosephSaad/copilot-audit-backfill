@@ -226,7 +226,7 @@ One command loads and builds everything, from a console on the job server, as yo
 .\Invoke-CopilotPipeline.ps1 -History            # 180 days; -Days 90 for fewer
 ```
 
-It runs steps 6, 7 and 9-11 in order, each in its own PowerShell process, and logs to `logs\history-<date>.log`. Everything signs in as the app, so nothing waits on a browser. After Ctrl+C, a crash or a reboot, the same command resumes where it stopped. The steps below say what each part does, and how to run it alone.
+It runs steps 6, 7 and 9-11 in order, each in its own PowerShell process, and logs to `logs\history-<date>-<time>.log`, a log of its own for each run. Everything signs in as the app, so nothing waits on a browser. After Ctrl+C, a crash or a reboot, the same command resumes where it stopped. The steps below say what each part does, and how to run it alone.
 
 ### Step 5. Smoke-test one day (optional)
 
@@ -421,7 +421,7 @@ Four steps, in this order, each finishing before the next starts:
 `Invoke-CopilotPipeline.ps1`, with no parameters, runs the four steps above in order, from the settings file:
 
 - each step in its own PowerShell process, so one step's modules and state can't affect the next;
-- output appended to `logs\nightly-<date>.log`, and logs older than 90 days deleted;
+- output written to `logs\nightly-<date>-<time>.log`, a log of its own for each run (2.5.6), and logs older than 90 days deleted;
 - at the first failure it stops and exits 1, so Task Scheduler's history shows it; tomorrow's run resumes the same load;
 - if the history hasn't been loaded yet, it says so and exits 1, rather than starting a partial load;
 - it holds the database while it runs, as the installer and the maintenance rebuilds do: one started while another holds it stops at once, says so and changes nothing (2.4.12). With several tenants, one tenant that can't run fails on its own and the next one runs;
