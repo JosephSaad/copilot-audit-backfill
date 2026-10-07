@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-90 tables (plus 2 left over from 1.x), 37 views, 1162 columns, from 18 scripts.
+93 tables (plus 2 left over from 1.x), 37 views, 1208 columns, from 18 scripts.
 
 ## Contents
 

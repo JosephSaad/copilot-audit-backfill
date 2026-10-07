@@ -65,6 +65,9 @@ jobs:
       - name: Test-NightlyProfile
         shell: pwsh
         run: pwsh -NoProfile -File tests/Test-NightlyProfile.ps1
+      - name: Test-ReportingReference
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-ReportingReference.ps1
 
   sql-integration:
     # See ci.yml: Linux only because service containers require a Linux runner.
