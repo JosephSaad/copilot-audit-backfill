@@ -101,7 +101,7 @@ SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedU
             pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
             Kpis.Add(new("Policy breaches", Num(c.Any), "Copilot licenses on accounts that are not a person", c.Any > 0 ? "crit" : null));
-            Kpis.Add(new("Guests", Num(c.Guest)));
+            Kpis.Add(new("Guest accounts", Num(c.Guest)));
             Kpis.Add(new("Named like an account", Num(c.Name), "service, shared, test, room"));
             Kpis.Add(new("Outside the org chart", Num(c.Chart), "no manager, not under the top"));
             if (rules.EmployeeTypes.Count > 0 || rules.Groups.Count > 0) Kpis.Add(new("By employee type or group", Num(c.Type + c.Group)));

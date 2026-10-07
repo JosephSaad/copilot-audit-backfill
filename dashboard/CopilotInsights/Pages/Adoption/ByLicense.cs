@@ -216,8 +216,8 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         var total = days.Sum(d => d.People);
         var active = days.Where(d => d.Days > 0).Sum(d => d.People);
         Kpis.Add(new(lic == "all" ? "People" : $"{licName} people", Num(total), $"enabled accounts in {Here}"));
-        Kpis.Add(new("Active", Pct(Ratio(active, total)), $"{active:#,0} used Copilot in the period"));
-        Kpis.Add(new("Inactive", Pct(Ratio(total - active, total)), $"{total - active:#,0} did not use it"));
+        Kpis.Add(new("Share active", Pct(Ratio(active, total)), $"{active:#,0} used Copilot in the period"));
+        Kpis.Add(new("Share inactive", Pct(Ratio(total - active, total)), $"{total - active:#,0} did not use it"));
         Kpis.Add(new("Active people", Num(active), "at least one interaction in the period"));
         Kpis.Add(new("Inactive people", Num(total - active), "no interaction in the period", total - active > 0 && lic == "licensed" ? "warn" : null));
 

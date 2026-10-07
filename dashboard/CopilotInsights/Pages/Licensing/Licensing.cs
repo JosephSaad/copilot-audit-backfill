@@ -34,7 +34,7 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new("Licensed today", Num(t.LicensedNow), $"{(t.LicensedNow - start >= 0 ? "+" : "")}{t.LicensedNow - start:#,0} since the start of the period"));
         Kpis.Add(new("Assigned in the period", Num(added)));
         Kpis.Add(new("Removed in the period", Num(removed)));
-        Kpis.Add(new("In use", Pct(Ratio(t.LicensedNow - unused, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days"));
+        Kpis.Add(new("Licenses in use", Pct(Ratio(t.LicensedNow - unused, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days"));
         Kpis.Add(new($"Unused for {Ctx.InactiveDays} days", Num(unused), "candidates to reclaim", unused > 0 ? "crit" : null));
 
         var buckets = Buckets();
@@ -179,7 +179,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         var users = depts.Sum(d => d.Users);
         var heavy = depts.Sum(d => d.Heavy);
         Kpis.Add(new("Unlicensed Copilot Chat users", Num(users), "in the period"));
-        Kpis.Add(new($"Used it on {Heavy}+ days", Num(heavy), "the strongest candidates for a license"));
+        Kpis.Add(new($"Used it on {Heavy} days or more", Num(heavy), "the strongest candidates for a license"));
         Kpis.Add(new("People without a license", Num(depts.Sum(d => d.People)), $"enabled accounts in {Here}"));
 
         Panels.Add(new("Copilot Chat users without a license",

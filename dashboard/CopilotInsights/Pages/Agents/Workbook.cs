@@ -122,11 +122,11 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var notUsed = t0.Agents - t0.Used - t0.Autonomous;
 
-        Kpis.Add(new("Agents", Num(t0.Agents), $"{t0.Matched:#,0} of them seen in the audit log"));
+        Kpis.Add(new("Agents in the workbook", Num(t0.Agents), $"{t0.Matched:#,0} of them seen in the audit log"));
         Kpis.Add(new("Used in the period", Num(t0.Used), Pct(Ratio(t0.Used, t0.Agents)) + " of them"));
         Kpis.Add(new("Not used in the period", Num(notUsed), "no interaction in the audit log, and not autonomous", notUsed > 0 ? "warn" : null));
         Kpis.Add(new("Autonomous", Num(t0.Autonomous), "triggers or flows, with no interaction: they can work with nobody chatting to them"));
-        Kpis.Add(new("Shared", Num(t0.Shared), "with viewers: users or groups"));
+        Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups"));
         Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet"));
 
         var headers = new List<string> { "Agent", "Owner", "Environment" };

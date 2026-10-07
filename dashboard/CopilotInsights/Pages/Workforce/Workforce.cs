@@ -20,7 +20,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var mgr = Find(roles, "Managers"); var ic = Find(roles, "Individual contributors");
         /* Adoption only where the license holders reach the minimum group size (2.4.12), as the charts below rank it. */
         if (mgr is not null) Kpis.Add(new("Managers' adoption", AdoptionAtMin(mgr.ActiveLicensed, mgr.Licensed), $"{mgr.Licensed:#,0} licensed managers"));
-        if (ic is not null) Kpis.Add(new("Individual contributors'", AdoptionAtMin(ic.ActiveLicensed, ic.Licensed), $"{ic.Licensed:#,0} licensed"));
+        if (ic is not null) Kpis.Add(new("Individual contributors' adoption", AdoptionAtMin(ic.ActiveLicensed, ic.Licensed), $"{ic.Licensed:#,0} licensed"));
         foreach (var t in types.Where(t => t.Name != "Smaller groups").OrderByDescending(t => t.People).Take(2))
             Kpis.Add(new($"{t.Name}: adoption", AdoptionAtMin(t.ActiveLicensed, t.Licensed), $"{t.People:#,0} people, {Pct(Ratio(t.Licensed, t.People))} licensed"));
 

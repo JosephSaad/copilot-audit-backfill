@@ -78,7 +78,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, k90, k30, drop, minDays = MinDaysBefore }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
-        Kpis.Add(new("Fading", Num(pg.Total), $"days of use down {drop}% or more", pg.Total > 0 ? "warn" : null));
+        Kpis.Add(new("People with fading use", Num(pg.Total), $"days of use down {drop}% or more", pg.Total > 0 ? "warn" : null));
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         Kpis.Add(new($"Their licenses a month ({cur})", Num((long)(pg.Total * price)), "what goes idle if nothing changes"));

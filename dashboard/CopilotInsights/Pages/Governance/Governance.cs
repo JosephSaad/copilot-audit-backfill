@@ -5,7 +5,7 @@ namespace CopilotInsights.Pages.Governance;
 
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Models, web search and controls";
+    public override string Title => "Models and controls";
     public override string Persona => "Governance";
     public override string Intro => "Which models answer, how often Copilot searches the public web and where, Copilot Chat against Copilot in the apps, memory updates and deferred data-loss checks over time, and how many agents are in play.";
 

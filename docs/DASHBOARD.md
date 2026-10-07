@@ -108,7 +108,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Training effect | For each training session: attendees' active days in the 28 days before and after, against colleagues in the same departments | Session | No (sessions under the minimum group size hidden) |
 | | Champions | The most regular and broadest users in each department, as champion candidates | Person | **Enablement** |
 | | People by engagement | Named people in a segment: champions to recruit, one-off users to train | Person | **Enablement** |
-| Governance | Models, web search and controls | Model mix over time; web grounding over time and by unit; Copilot Chat against in-app; memory updates and deferred DLP checks over time; calls to another agent; distinct agents in use, agents known by source | Scope, unit; organization-wide for agents known | No |
+| Governance | Models and controls | Model mix over time; web grounding over time and by unit; Copilot Chat against in-app; memory updates and deferred DLP checks over time; calls to another agent; distinct agents in use, agents known by source | Scope, unit; organization-wide for agents known | No |
 | Forecasting | Forecast | Licenses held, licensed people using them, Copilot Chat demand, interactions and adoption, 13, 26 or 52 weeks ahead, with 95% intervals | Scope, weekly | No |
 | | License optimization | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right license count for the next quarter; the same by department | Scope, department | No |
 | | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No |

@@ -57,7 +57,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         var avgPrice = seats > 0 ? monthly / seats : price;
 
         Kpis.Add(new("Seats under contract", Num(seats), contracts.Count == 0 ? "no contracts entered yet" : $"{Count(contracts.Count, "contract")}; the tenant shows {bought:#,0} bought"));
-        Kpis.Add(new("Cost", $"{monthly:#,0} {cur}", $"a month; {monthly * 12:#,0} a year"));
+        Kpis.Add(new("License cost", $"{monthly:#,0} {cur}", $"a month; {monthly * 12:#,0} a year"));
         Kpis.Add(new("Next renewal", next is null ? "—" : next.RenewalDate.ToString("d MMM yyyy"),
             next is null ? null : $"{next.Name}, in {(next.RenewalDate - DateTime.Today).Days} days", next is not null && (next.RenewalDate - DateTime.Today).Days <= 90 ? "warn" : null));
         Kpis.Add(new("Seats the use supports", Num(keep), seats > 0 ? $"{keep - seats:+#,0;-#,0;0} against the contracts: {(keep - seats) * avgPrice * 12:+#,0;-#,0;0} {cur} a year" : null,
@@ -184,7 +184,7 @@ SELECT {select} FROM c {tail}";
             "GROUP BY (c.[Rank] - 1) / @size + 1 ORDER BY 1;"), Ctx.Args(new { k30, size, dept }));
         var all = waves.Sum(w => w.People);
         Kpis.Add(new("People without a license", Num(all), $"{waves.Sum(w => w.UsingChat):#,0} of them use the free Copilot Chat"));
-        Kpis.Add(new("Waves", Num(waves.Count), $"of {size:#,0} people"));
+        Kpis.Add(new("Rollout waves", Num(waves.Count), $"of {size:#,0} people"));
         Kpis.Add(new("A wave costs", $"{size * price:#,0} {cur}", "a month"));
         Kpis.Add(new("Everyone licensed", $"{all * price:#,0} {cur}", "a month more"));
 
@@ -292,8 +292,8 @@ FROM o GROUP BY Kind, Day, ExportedBy ORDER BY Day DESC, Kind;", Ctx.Args());
         int Done(Batch b) => b.Kind is "upgrade" or "wave" ? b.LicensedNow : b.People - b.LicensedNow;
         var reclaimed = batches.Where(b => b.Kind is "revoke" or "leaver" or "nonhuman").Sum(Done);
         var given = batches.Where(b => b.Kind is "upgrade" or "wave").ToList();
-        Kpis.Add(new("Exported", Num(batches.Sum(b => b.People)), $"in {Count(batches.Count, "export")}"));
-        Kpis.Add(new("Applied", Pct(Ratio(batches.Sum(Done), batches.Sum(b => b.People))), "the license is where the export said it should be"));
+        Kpis.Add(new("People exported", Num(batches.Sum(b => b.People)), $"in {Count(batches.Count, "export")}"));
+        Kpis.Add(new("Changes applied", Pct(Ratio(batches.Sum(Done), batches.Sum(b => b.People))), "the license is where the export said it should be"));
         Kpis.Add(new("Licenses reclaimed", Num(reclaimed), $"{reclaimed * price:#,0} {cur} a month saved"));
         Kpis.Add(new("New licenses in use", Pct(Ratio(given.Sum(b => b.UsedSince), given.Sum(b => b.LicensedNow))), "of those licensed from an upgrade or wave export, used Copilot since"));
 

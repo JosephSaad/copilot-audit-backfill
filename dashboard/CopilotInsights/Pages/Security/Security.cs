@@ -215,7 +215,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds["all"].Sql};{list}
         if (cases)
         {
             var open = openCount.Single();
-            Kpis.Add(new("Open", Num(open), "new or being investigated", open > 0 ? "warn" : null));
+            Kpis.Add(new("Open flags", Num(open), "new or being investigated", open > 0 ? "warn" : null));
         }
         Panels.Add(new("Interactions", new HtmlString($"<p class=\"sub\">Show: {tabs}</p>" + tri + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Times are the hour of the interaction, in {DataZone}. Saving a triage records you as its owner, with the time, in the audit log.", "full", CsvUrl()));

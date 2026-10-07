@@ -96,9 +96,9 @@ WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql(
         var buckets = Buckets();
         long n = tr.Sum(x => x.N);
         var people = await Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1;", args);
-        Kpis.Add(new("People", Num(people)));
+        Kpis.Add(new("People who used it", Num(people)));
         Kpis.Add(new("Interactions", Num(n), people > 0 ? $"{n / (double)people:0.0} per person" : null));
-        Kpis.Add(new("Grounded on the web", Pct(Ratio(tr.Sum(x => x.Web), n))));
+        Kpis.Add(new("Searched the web", Pct(Ratio(tr.Sum(x => x.Web), n))));
         Panels.Add(new("People using Copilot in it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.People)).ToList(), 1)], Fmt.Count, "People by period"), TrendNote, "half"));
 
         var types = await Db.QueryAsync<(string Type, long N)>($@"

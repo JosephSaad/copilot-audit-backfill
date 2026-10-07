@@ -76,9 +76,9 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         var problems = cfg.Problems();
         var (host, port, tls) = cfg.Endpoint();
 
-        Kpis.Add(new("Sending", cfg.Mode switch { MailMode.ExchangeOnline => "Exchange Online", MailMode.Smtp => "SMTP server", _ => "Off" },
+        Kpis.Add(new("Email sent through", cfg.Mode switch { MailMode.ExchangeOnline => "Exchange Online", MailMode.Smtp => "SMTP server", _ => "Off" },
             cfg.Mode == MailMode.Off ? null : $"{host}:{port}, {tls}", cfg.Mode == MailMode.Off ? "warn" : null));
-        Kpis.Add(new("Ready", problems.Count == 0 ? "Yes" : "No", problems.Count == 0 ? null : string.Join(" ", problems), problems.Count == 0 ? null : "warn"));
+        Kpis.Add(new("Ready to send", problems.Count == 0 ? "Yes" : "No", problems.Count == 0 ? null : string.Join(" ", problems), problems.Count == 0 ? null : "warn"));
 
         Panels.Add(new("How to send", new HtmlString(Form("mail",
             Select("MailMode", "Send email", [("Off", "Off"), ("ExchangeOnline", "Through Exchange Online"), ("Smtp", "Through an SMTP server")], V("MailMode") is "" ? "Off" : V("MailMode")) +

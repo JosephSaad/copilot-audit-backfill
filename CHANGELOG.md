@@ -17,12 +17,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   people than the minimum group size, and any team in privacy mode are not shown. Nothing in the database changes.
 ### Changed
 - **Two reports joined the page beside them**, so each subject is on one page. Nothing they showed is lost, and an
-  old address or bookmark opens the page it joined, with its period and part of the organization.
+  old address or bookmark to either is answered *Page not found*, with the reports nearest to it.
   - *Security › Security signals by unit* is the last panel of **Security › Security signals**: the rate per 1,000
     interactions for each unit at each point, under the period's rate by unit that page already had.
-  - *Governance › Copilot controls* is part of **Governance › Models, web search and controls** (was *Models and web
+  - *Governance › Copilot controls* is part of **Governance › Models and controls** (was *Models and web
     search*), which already had its three headline figures: memory updates over time, deferred data-loss checks
     over time, and web search by unit are panels there.
+- **Clearer figure names.** 41 headline figures that were one word or a fragment say what they count: *Top* is
+  *Highest adoption*, *Open* is *Open flags*, *Cost* is *License cost*, *Assigned* is *Licenses assigned* or *Seats
+  assigned*, *Individual contributors'* is *Individual contributors' adoption*, and so on. The same thing has one
+  name: *Grounded on the web* is *Searched the web* everywhere, and *Unused for 30+ days* is *Unused for 30 days or
+  more*.
+- **The page links under a long list mark the pages left out with a dot, not an ellipsis**, which the dashboard keeps
+  for nothing: a label is shown whole.
 ## [2.5.9] - 2026-10-07
 
 Two guides for a team that builds its own reports on the databases, in Grafana or any other tool that reads SQL
