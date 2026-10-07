@@ -129,6 +129,38 @@ public static class SecuritySignals
     }
 }
 
+/// <summary>
+/// What Admin > Health says about audit searches. A load's searches are rows only while it runs: they are emptied once
+/// the load is merged, so after a night that finished the card read "0 submitted in the last 24 hours". It now says what
+/// is waiting, then what the last load took, which the merge keeps with the load. Pure, for the tests.
+/// </summary>
+public static class AuditSearches
+{
+    /// <summary>Searches in the window tables now: those of a load under way, and any still waiting or failed.</summary>
+    public sealed record Live(int Submitted, int Waiting, int Failed, int Resubmitted, string? OldestWaiting);
+
+    /// <summary>The last load merged. Searches and Resubmitted are null for a load merged before they were kept.</summary>
+    public sealed record LastLoad(string Merged, long Records, long Added, int? Searches, int? Resubmitted);
+
+    public const string Limit = "Microsoft limits how many audit searches a tenant runs at once: many waiting, or many resubmitted, means the load is being throttled, and the next run carries on.";
+
+    public static (string Text, string Status) Describe(Live live, LastLoad? last)
+    {
+        var underWay = live.Submitted > 0 || live.Waiting > 0;
+        var now = (underWay ? $"{live.Submitted:#,0} submitted to Microsoft Purview for the load under way; {live.Waiting:#,0} waiting or downloading"
+                            : "No load is under way: 0 waiting or downloading")
+            + (live.OldestWaiting is null ? "" : $" (the oldest covers {live.OldestWaiting})")
+            + $"; {live.Resubmitted:#,0} had to be resubmitted; {live.Failed:#,0} failed.";
+        var then = last is null ? "No load has been merged here yet."
+            : $"The last load, merged {last.Merged}, fetched {last.Records:#,0} {(last.Records == 1 ? "record" : "records")} ({last.Added:#,0} new)"
+              + (last.Searches is int n ? $" in {n:#,0} {(n == 1 ? "search" : "searches")}" + (last.Resubmitted is > 0 ? $", {last.Resubmitted:#,0} of them resubmitted" : "") : "")
+              + ".";
+        var status = live.Failed > 0 ? "status-bad"
+            : live.Waiting > 20 || live.Resubmitted > 10 || last?.Resubmitted > 10 ? "status-warn" : "status-ok";
+        return ($"{now} {then} {Limit}", status);
+    }
+}
+
 /// <summary>A day that stands out from the same weekday in the weeks before it.</summary>
 public sealed record Anomaly(string Unit, DateTime Day, long Value, double Baseline, string Kind)
 {

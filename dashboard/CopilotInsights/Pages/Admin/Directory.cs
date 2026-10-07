@@ -239,7 +239,7 @@ public sealed class ExtractsModel(PageServices s, Notifier notifier, OpsData ops
         ShowDone();
         var rows = await Db.QueryAsync<Row>("SELECT * FROM dash.Extract ORDER BY Name;");
         var zone = await ops.ZoneAsync();
-        var t = new Table { Zone = Zone, Headers = ["Name", "Data", "Folder", "When", "Covering (days)", "Last written (UTC)", "Result", ""], EmptyText = "No extracts yet." };
+        var t = new Table { Zone = Zone, Headers = ["Name", "Dataset", "Folder", "When", "Covering (days)", "Last written (UTC)", "Result", ""], EmptyText = "No extracts yet." };
         foreach (var x in rows)
             t.Rows.Add([x.Name, x.Dataset, x.Folder,
                 (x.Frequency switch { "Weekly" => $"Weekly, {DayNames[x.DayOfWeek ?? 1]}", "Monthly" => $"Monthly, day {x.DayOfMonth ?? 1}", _ => "Daily" }) + $" {x.HourLocal:00}:00" + (x.Enabled ? "" : " (paused)"),

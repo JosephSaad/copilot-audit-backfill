@@ -47,13 +47,13 @@ namespace CopilotInsights.Pages.Adoption
                             r.Active > 0 ? Math.Round(r.Interactions / (double)r.Active, 1) : null, r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null]);
             }
             CsvTable = t;
-            Kpis.Add(new("Top", ranked[0].Name, $"{Pct(Adopt(ranked[0]))} adoption"));
+            Kpis.Add(new("Highest adoption", ranked[0].Name, $"{Pct(Adopt(ranked[0]))} adoption"));
             if (changes.Count > 0)
             {
                 var best = changes.MaxBy(c => c.Points);
                 Kpis.Add(new("Most improved", best.Name, $"{best.Points:+0.#;-0.#;0} points on the period before"));
             }
-            Kpis.Add(new("Ranked", Num(ranked.Count), $"of the {by switch { "Company" => "companies", "Country" => "countries", _ => by.ToLowerInvariant() + "s" }} here"));
+            Kpis.Add(new("Groups ranked", Num(ranked.Count), $"of the {by switch { "Company" => "companies", "Country" => "countries", _ => by.ToLowerInvariant() + "s" }} here"));
 
             Panels.Add(new("Adoption", Chart.Bars(ranked.Take(20).Select(r => new Bar(r.Name, Adopt(r), Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed people used it")).ToList(),
                 Fmt.Percent, "Adoption by group", 1), null, "half"));
@@ -246,7 +246,7 @@ WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
             Kpis.Add(new("With a security signal", Num(recs.Count(r => r.JailbreakDetected || r.PromptInjectionDetected || r.HasBlockedResource)), pg.ForExport || pg.Total <= Paging.PageSize ? null : "on this page"));
             var t = new Table
             {
-                Zone = Zone, Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labeled content", "Resources read", "Record id"],
+                Zone = Zone, Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Security signals", "Touched labeled content", "Resources read", "Record id"],
                 Numeric = new HashSet<int> { 6 }, EmptyText = "No interactions in the period.",
                 Server = new(pg, Request, ["new", "app", "agent", "web", "signals", "labeled", "resources", "record"], new HashSet<int> { 0, 3, 4, 5, 6 }),
             };
@@ -292,7 +292,7 @@ LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = fam.UserKey AND ld.DateKey = 
 GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             var kept = Groups.Fold(this, rows, Ctx.MinGroupSize, out var folded);
             var unmatched = rows.FirstOrDefault(r => r.Name == "(no family)")?.People ?? 0;
-            Kpis.Add(new("Families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {Count(rules, "rule")}"));
+            Kpis.Add(new("Job families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {Count(rules, "rule")}"));
             /* Counted only when "(no family)" is a row of its own (2.4.12): folded into "Smaller groups", its count here
                was the one, two or three people the fold kept from view. */
             if (unmatched == 0 || kept.Any(r => r.Name == "(no family)"))

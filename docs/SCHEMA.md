@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-93 tables (plus 2 left over from 1.x), 37 views, 1208 columns, from 18 scripts.
+93 tables (plus 2 left over from 1.x), 37 views, 1210 columns, from 18 scripts.
 
 ## Contents
 
@@ -131,7 +131,7 @@ Indexes and constraints:
 
 ### audit.CopilotLoad
 
-*Table.* One row per -Incremental load: its range, operations, when it finished downloading and was merged, and how many records were new or already there.
+*Table.* One row per -Incremental load: its range, operations, when it finished downloading and was merged, how many records were new or already there, and how many audit searches it took.
 
 **Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases · **Columns added by** `Create-CopilotLoadProcedure.sql`
 
@@ -148,6 +148,8 @@ Indexes and constraints:
 | 9 | `RowsAdded` | bigint | yes |  | new to audit.CopilotAudit |
 | 10 | `RowsAlreadyLoaded` | bigint | yes |  | in the lookback, already present |
 | 11 | `DerivedRefreshedUtc` | datetime2(0) | yes |  | the derived tables brought up to date with it (2.4.12); empty on a merged load, a refresh the next -Incremental run makes up |
+| 12 | `Searches` | int | yes |  | the audit searches the load took, one per window, counted at the merge before its windows are emptied (after 2.5.4); empty on a load merged before |
+| 13 | `SearchesResubmitted` | int | yes |  | those Microsoft Purview had to be asked for more than once |
 
 Indexes and constraints:
 

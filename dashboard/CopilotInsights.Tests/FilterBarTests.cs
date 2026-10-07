@@ -49,8 +49,11 @@ public class FilterBarTests
         Assert.Contains(pages, p => p.Class == "PoolModel" && p.Text.Contains("override bool UsesTeam => false"));
     }
 
-    /// <summary>Pages that scope by the team only to decide who may be found, not to change a figure.</summary>
-    static readonly string[] ScopeAsGate = ["PersonModel"];
+    /// <summary>
+    /// Pages that scope by the team only to decide who may be found, not to change a figure. Compare two teams offers the
+    /// managers in the viewer's part, and each of its two teams is a scope of its own, chosen on the page.
+    /// </summary>
+    static readonly string[] ScopeAsGate = ["PersonModel", "CompareModel"];
 
     [Fact]
     public void A_page_the_team_does_not_change_does_not_scope_by_it()

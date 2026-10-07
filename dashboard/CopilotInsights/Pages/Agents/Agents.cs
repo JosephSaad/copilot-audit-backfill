@@ -53,7 +53,7 @@ GROUP BY f.AgentKey, {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new("People using agents", Num(await Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args()))));
-        Kpis.Add(new("Interactions through agents", Num(rows.Sum(r => r.N))));
+        Kpis.Add(new("Interactions through an agent", Num(rows.Sum(r => r.N))));
         if (book)
         {
             /* The same counts as Agent inventory's (2.5.7): workbook agents, used when the audit agent they match was used
@@ -183,7 +183,7 @@ SELECT (SELECT COUNT(*) FROM p), (SELECT ISNULL(SUM(N), 0) FROM p), (SELECT COUN
        (SELECT COUNT(*) FROM u WHERE FirstKey >= @k0);", args)).Single();
         /* Its people are a group: counted only at the minimum group size or more (2.4.12). */
         var few = tot.People > 0 && AtLeastMin(tot.People) is null;
-        Kpis.Add(new("People", few ? "—" : Num(tot.People), few ? $"fewer than {Ctx.MinGroupSize} used it in the period" : "used it in the period"));
+        Kpis.Add(new("People who used it", few ? "—" : Num(tot.People), few ? $"fewer than {Ctx.MinGroupSize} used it in the period" : "used it in the period"));
         Kpis.Add(new("New people", few ? "—" : Num(tot.NewPeople), "first used it in the period"));
         Kpis.Add(new("Came back", few ? "—" : Pct(Ratio(tot.Returning, tot.People)), "used it on more than one day"));
         Kpis.Add(new("Interactions", Num(tot.N), tot.People > 0 && !few ? $"{tot.N / (double)tot.People:0.0} per person" : null));

@@ -93,7 +93,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
 
         Kpis.Add(new("Past their date", Num(past), "account still enabled, license still held: reclaim now", past > 0 ? "crit" : null));
         Kpis.Add(new($"Leaving in {ahead} days", Num(coming), "reclaim on the last day"));
-        Kpis.Add(new("Sources", (ad is null ? "" : "AD") + (ad is not null && entra is not null ? " and " : "") + (entra is null ? "" : "Entra"),
+        Kpis.Add(new("Leave dates from", (ad is null ? "" : "AD") + (ad is not null && entra is not null ? " and " : "") + (entra is null ? "" : "Entra"),
             entra is null ? "Entra's leave date: run the license tool with -IncludeLeaveDates" : null));
 
         var t = new Table

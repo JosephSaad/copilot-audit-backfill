@@ -78,15 +78,15 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, k90, k30, drop, minDays = MinDaysBefore }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
 
-        Kpis.Add(new("Fading", Num(pg.Total), $"days of use down {drop}% or more", pg.Total > 0 ? "warn" : null));
+        Kpis.Add(new("People with fading use", Num(pg.Total), $"days of use down {drop}% or more", pg.Total > 0 ? "warn" : null));
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         Kpis.Add(new($"Their licenses a month ({cur})", Num((long)(pg.Total * price)), "what goes idle if nothing changes"));
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Days of use a month before", "Days of use, last 30", "Change",
-                       "Interactions a month before", "Interactions, last 30", "Days with Premium use, last 30", "Last used"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Days of use a month before", "Days of use, last 30 days", "Change",
+                       "Interactions a month before", "Interactions, last 30 days", "Days with Premium use, last 30 days", "Last used"],
             Numeric = new HashSet<int> { 4, 5, 6, 7, 8, 9 },
             EmptyText = "Nobody's use is falling away.",
             Server = new(pg, Request, ["name", "upn", "dept", "manager", "before", "days", "drop", "ibefore", "use", "premium", "recent"], new HashSet<int> { 4, 5, 7, 8, 9, 10 }),

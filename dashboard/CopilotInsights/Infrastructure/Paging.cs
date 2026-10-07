@@ -110,7 +110,7 @@ public sealed class Paging
                     sb.Append(p == Page ? $"<a class=\"on\" aria-current=\"page\" href=\"{Link(p)}\">{p:#,0}</a>" : $"<a href=\"{Link(p)}\">{p:#,0}</a>");
                     shown = p;
                 }
-                else if (shown == p - 1) sb.Append("<span class=\"muted\">…</span>");
+                else if (shown == p - 1) sb.Append("<span class=\"muted gap\" aria-hidden=\"true\">·</span>");   // pages left out here; not an ellipsis, which the pages keep for nothing (labels are shown whole)
             }
         }
         if (Page < Pages) sb.Append($"<a href=\"{Link(Page + 1)}\">Next ›</a>");

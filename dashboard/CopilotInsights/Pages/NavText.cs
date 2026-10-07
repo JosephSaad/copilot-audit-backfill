@@ -30,8 +30,10 @@ public static class NavText
     static readonly Dictionary<string, (string What, string? Heading)> Text = new(StringComparer.OrdinalIgnoreCase)
     {
         ["/leadership"] = ("Is Copilot being used, by how many of the people who have it, and where.", "At a glance"),
+        ["/leadership/act"] = ("What the other reports say to do: each finding, how many, and where the detail is.", "At a glance"),
         ["/leadership/scorecard"] = ("This period against the one before: what moved, and in which part of the organization.", "At a glance"),
         ["/leadership/org"] = ("Each part of the organization one level below, side by side.", "At a glance"),
+        ["/leadership/compare"] = ("Two managers' teams side by side: adoption, use, depth and apps, over the same period.", "At a glance"),
         ["/group"] = ("Each tenant's headline figures for the period, and the group's totals.", "At a glance"),
         ["/leadership/mix"] = ("Where people use Copilot: which apps, chat or in-app, and how much through agents.", "What it is used for"),
         ["/leadership/usecases"] = ("What Copilot is used for: email, meetings, writing, analysis, research and agents.", "What it is used for"),
@@ -65,8 +67,7 @@ public static class NavText
         ["/licensing/non-person"] = ("Copilot licenses on service, shared, test and other accounts that are not a person.", "Policy breaches"),
         ["/licensing/departures"] = ("License holders due to leave: reclaim each license on the last day.", "Changes ahead"),
 
-        ["/security"] = ("Jailbreak attempts, prompt injection and blocked resources: how many, when and where.", null),
-        ["/security/units"] = ("Where security signals cluster in the organization, per 1,000 interactions.", null),
+        ["/security"] = ("Jailbreak attempts, prompt injection and blocked resources: how many, when, and in which units.", null),
         ["/security/guests"] = ("Copilot use by guest accounts, and the organizations they come from.", null),
         ["/security/flags"] = ("Each flagged interaction, who and where, with its triage.", null),
         ["/security/non-human"] = ("Copilot licenses on accounts that are not a person: a policy breach.", null),
@@ -113,8 +114,7 @@ public static class NavText
         ["/apps"] = ("Copilot in each Microsoft 365 app: how many people, how deeply, and whether they return.", null),
         ["/apps/detail"] = ("One app: who uses Copilot in it, what they read, and which agents run there.", null),
 
-        ["/governance"] = ("Which models answer, how often Copilot searches the web, and agents in play.", null),
-        ["/governance/controls"] = ("Memory updates, deferred data-loss checks and web search, over time.", null),
+        ["/governance"] = ("Which models answer, web search, memory updates and deferred data-loss checks.", null),
 
         ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),
         ["/admin/access"] = ("Who sees what: the top of the organization, levels, and roles.", null),

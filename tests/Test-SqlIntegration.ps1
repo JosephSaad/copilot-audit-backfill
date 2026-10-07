@@ -2055,6 +2055,25 @@ SELECT (SELECT COUNT_BIG(*) FROM audit.CopilotAudit) AS Rows_, (SELECT COUNT(DIS
         "and then finds the other's records there: nothing appended twice ($($race.Rows_) rows, $($race.Distinct_) distinct; $($race.Merge_) new/already loaded)"
     Invoke-SqlText -Sql 'DROP TABLE dbo.HeldAudit; DROP TABLE dbo.HeldInteraction;'
 
+    # --- The searches a load took are kept with it ---------------------------
+    # The merge empties the load's windows, so nothing said what a night that finished had asked of Microsoft Purview:
+    # Admin > Health read "0 submitted" after every run that succeeded. A load of three searches here: one over the
+    # service's cap and split in two, and one of the halves asked for three times.
+    Invoke-SqlText -Sql @"
+DECLARE @parent BIGINT;
+INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations, DownloadedUtc) VALUES ('2026-08-08', '2026-08-09', N'CopilotInteraction', SYSUTCDATETIME());
+INSERT INTO audit.CopilotLoadWindow (StartUtc, EndUtc, Status, Attempts, Submissions) VALUES ('2026-08-08', '2026-08-09', 'Split', 1, 1);
+SET @parent = SCOPE_IDENTITY();
+INSERT INTO audit.CopilotLoadWindow (ParentWindowId, StartUtc, EndUtc, Status, Attempts, Submissions) VALUES
+    (@parent, '2026-08-08', '2026-08-08T12:00:00', 'Loaded', 1, 1), (@parent, '2026-08-08T12:00:00', '2026-08-09', 'Loaded', 3, 3);
+"@
+    [void] (Invoke-SqlText -As Table -Sql 'EXEC audit.usp_MergeCopilotLoad;')
+    $kept = (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) Searches, SearchesResubmitted, (SELECT COUNT(*) FROM audit.CopilotLoadWindow) AS WindowsLeft FROM audit.CopilotLoad ORDER BY LoadId DESC;').Rows[0]
+    Assert-That ([int] $kept.Searches -eq 3 -and [int] $kept.SearchesResubmitted -eq 1 -and [int] $kept.WindowsLeft -eq 0) `
+        "the merge keeps how many searches a load took and how many were resubmitted, before it empties the windows ($($kept.Searches) searches, $($kept.SearchesResubmitted) resubmitted)"
+    $engineKept = [int] (Invoke-SqlText -As Scalar -Parameters @{ '@l' = $l1.LoadId } -Sql 'SELECT ISNULL(Searches, 0) FROM audit.CopilotLoad WHERE LoadId = @l;')
+    Assert-That ($engineKept -ge 1) "and a load the engine downloaded has its own count ($engineKept search(es) for Aug 4-9)"
+
     # --- 2.4.12: a refresh that fails after the merge is made up by the next run --------
     # The load was marked merged before the derived tables were refreshed, and each run refreshed from its own load's
     # start only: a failure past the lookback, or a re-run that found nothing new to load, left those days out for
@@ -2081,7 +2100,7 @@ END;');
     }
     $lastCall = { (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) CONVERT(varchar(16), SinceUtc, 120) AS SinceUtc, Failed FROM dbo.FlattenCall ORDER BY CallId DESC;').Rows[0] }
 
-    # The loads above were merged by calling the procedure, with no refresh: all three are owed one, from Aug 4.
+    # The loads above were merged by calling the procedure, with no refresh: all four are owed one, from Aug 4.
     & $incremental
     $c = & $lastCall
     $owedNow = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.CopilotLoad WHERE MergedUtc IS NOT NULL AND DerivedRefreshedUtc IS NULL;')

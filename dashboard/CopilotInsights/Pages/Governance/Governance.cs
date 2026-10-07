@@ -5,9 +5,9 @@ namespace CopilotInsights.Pages.Governance;
 
 public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 {
-    public override string Title => "Models and web search";
+    public override string Title => "Models and controls";
     public override string Persona => "Governance";
-    public override string Intro => "Which models answer, how often Copilot searches the public web, Copilot Chat against Copilot in the apps, and how many agents are in play.";
+    public override string Intro => "Which models answer, how often Copilot searches the public web and where, Copilot Chat against Copilot in the apps, memory updates and deferred data-loss checks over time, and how many agents are in play.";
 
     protected override async Task BuildAsync()
     {
@@ -38,10 +38,12 @@ GROUP BY {Ctx.BucketSql("d")}, a.AgentSource;", Ctx.Args());
         Kpis.Add(new("In Copilot Chat", Pct(Ratio(tr.Sum(w => w.Chat), all)), "the rest is Copilot inside the apps"));
         Kpis.Add(new("Through an agent", Pct(Ratio(tr.Sum(w => w.Agent), all)), "of interactions were answered by an agent"));
         Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count())));
-        var flags = (await Db.QueryAsync<(long N, long Memory, long AgentCalls, long Dlp)>($@"
-SELECT COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.CalledAnotherAgent AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT))
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
+        /* Memory updates, calls to another agent and deferred data-loss checks at each point; their totals are the period's. */
+        var controls = await Db.QueryAsync<(DateTime Bucket, long N, long Memory, long AgentCalls, long Dlp)>($@"
+SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.CalledAnotherAgent AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT))
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+        var flags = (N: controls.Sum(x => x.N), Memory: controls.Sum(x => x.Memory), AgentCalls: controls.Sum(x => x.AgentCalls), Dlp: controls.Sum(x => x.Dlp));
         Kpis.Add(new("Updated Copilot memory", Pct(Ratio(flags.Memory, flags.N)), "of interactions saved something to memory"));
         Kpis.Add(new("Called another agent", Pct(Ratio(flags.AgentCalls, flags.N)), "handed work to a second agent"));
         Kpis.Add(new("Data-loss check deferred", Num(flags.Dlp), "interactions Copilot marked as having their data-loss prevention (DLP) check deferred"));
@@ -63,6 +65,20 @@ WHERE f.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
                 new Series("Copilot Chat", tr.Select(w => Ratio(w.Chat, w.Interactions)).ToList(), 1),
                 new Series("In the apps", tr.Select(w => Ratio(w.Interactions - w.Chat, w.Interactions)).ToList(), 2),
             ], Fmt.Percent, "Chat and in-app share", 1), "App categories come from Admin › Reference data.", "half"));
+
+        /* The controls over time and web search by unit: Governance > Copilot controls was a page of its own for these,
+           beside this page's figures for the same three things. */
+        Panels.Add(new("Interactions that updated Copilot memory",
+            Chart.Line(Labels(), [new Series("Updated memory", buckets.Select(b => { var r = controls.FirstOrDefault(x => x.Bucket == b.Key); return Ratio(r.Memory, r.N); }).ToList(), 5)], Fmt.Percent, "Share of interactions that updated Copilot memory"),
+            $"The share of interactions in which Copilot saved something to its memory of the person. {TrendNote}", "half"));
+        Panels.Add(new("Deferred data-loss checks",
+            Chart.Columns(Labels(), [new Series("Deferred", buckets.Select(b => (double?)controls.FirstOrDefault(x => x.Bucket == b.Key).Dlp).ToList(), 4)], Fmt.Count, "Data-loss checks deferred"),
+            "Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising count is worth raising with them.", "half"));
+        var web = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0)
+            .OrderByDescending(u => u.Web / (double)u.Interactions).ToList();
+        Panels.Add(new("Web search by unit",
+            Chart.Bars(web.Take(15).Select(u => new Bar(u.Name, u.Web / (double)u.Interactions, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null, $"{u.Web:#,0} of {u.Interactions:#,0}")).ToList(), Fmt.Percent, "Share of interactions that searched the web, by unit", 1),
+            $"The share of each unit's interactions that searched the web, for each part of the organization one level below; units under {Ctx.MinGroupSize} people are left out. Select a name to look inside it."));
 
         var sources = agents.Select(a => a.Source).Distinct().OrderBy(x => x).ToList();
         Panels.Add(new("Agents in use",

@@ -12,7 +12,7 @@ public static class Nav
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
         new("Leadership", "Executives and department heads", [
-            new("Overview", "/leadership"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Group overview", "/group", ManyTenants: true),
+            new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
             new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"),
             new("Board pack", "/leadership/boardpack")]),
         new("Adoption", "Copilot program leads", [
@@ -29,7 +29,7 @@ public static class Nav
             new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing), new("Copilot on non-human accounts", "/licensing/non-person", Roles.Licensing),
             new("Departures ahead", "/licensing/departures", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [
-            new("Security signals", "/security"), new("Security signals by unit", "/security/units"), new("Guests and external users", "/security/guests"),
+            new("Security signals", "/security"), new("Guests and external users", "/security/guests"),
             new("Flagged interactions", "/security/flags", Roles.Security), new("Copilot on non-human accounts", "/security/non-human", Roles.Security)], Roles.Security),
         new("Compliance", "Data protection and compliance", [
             new("Sensitive content", "/compliance"), new("Labeled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
@@ -53,7 +53,7 @@ public static class Nav
         new("App owners", "Microsoft 365 workload owners", [
             new("Apps", "/apps"), new("App detail", "/apps/detail")]),
         new("Governance", "AI governance and architecture", [
-            new("Models and web search", "/governance"), new("Copilot controls", "/governance/controls")]),
+            new("Models and controls", "/governance")]),
         new("Admin", "Dashboard administrators", [
             new("Health", "/admin/health", Admin: true), new("Access", "/admin/access", Admin: true), new("Directory quality", "/admin/directory", Admin: true),
             new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),

@@ -4,6 +4,80 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-10-07
+
+Two new Leadership reports, one to set two managers' teams side by side and one that gathers what the other reports
+say to do; clearer names for figures and columns; two reports folded into the page beside them; and Admin › Health's
+*Audit searches* card says what the last load took, where it read *0 submitted* after every good night.
+
+To upgrade from 2.5.9 (or 2.5.8): with the nightly task disabled, replace the job server's scripts, run
+`Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (it adds two columns to `audit.CopilotLoad` in both
+databases; nothing is rebuilt and no data changes), then install the dashboard package over the one in place. The
+dashboard works over a database not yet upgraded, and shows the last load without its count of searches until it is.
+
+### Added
+- **Leadership › Compare two teams.** Two managers' teams side by side, each manager with everyone under them, over
+  the same period: people, Premium license holders, adoption, the share using Copilot and active in the last 7 days,
+  interactions and days active per active person, prompts per session and sessions with a follow-up, each with the
+  difference between the two in words (*57 more*, *9.3 points lower*); both teams' share of people using Copilot and
+  interactions per person over time; and each app's share of each team's use. The side-by-side table downloads as a CSV, as does the list on What to act on. The managers are chosen by name from
+  a list of those in the viewer's part of the organization, or by sign-in. The rules that decide whose part of the
+  organization a viewer may open decide it here: a manager outside the viewer's part, a team with fewer enabled
+  people than the minimum group size, and any team in privacy mode are not shown. No table or column is added for it.
+- **Leadership › What to act on.** What the other reports say to do, as one list of counts for the viewer's part of
+  the organization: license holders with no licensed use in the last 30 days, license holders to train, regular
+  users of the free Copilot Chat ready for a license, Copilot licenses on non-human accounts, parts of the
+  organization more than 10 points under the adoption around them (the lowest three named), adoption targets
+  behind or missed, and, for holders of the Security role, jailbreak attempts and prompt injections. Each finding
+  says why it matters and links to the report with the detail; a report the viewer cannot open is named with the
+  role it needs. A finding with nothing to report is left out. No one is named.
+
+### Changed
+- **Two reports joined the page beside them**, so each subject is on one page. Nothing they showed is lost, and an
+  old address or bookmark to either is answered *Page not found*, with the reports nearest to it.
+  - *Security › Security signals by unit* is the last panel of **Security › Security signals**: the rate per 1,000
+    interactions for each unit at each point, under the period's rate by unit that page already had.
+  - *Governance › Copilot controls* is part of **Governance › Models and controls** (was *Models and web
+    search*), which already had its three headline figures: memory updates over time, deferred data-loss checks
+    over time, and web search by unit are panels there.
+- **Clearer figure names.** 41 headline figures that were one word or a fragment say what they count: *Top* is
+  *Highest adoption*, *Open* is *Open flags*, *Cost* is *License cost*, *Assigned* is *Licenses assigned* or *Seats
+  assigned*, *Individual contributors'* is *Individual contributors' adoption*, and so on. The same thing has one
+  name: *Grounded on the web* is *Searched the web* everywhere, and *Unused for 30+ days* is *Unused for 30 days or
+  more*.
+- **The page links under a long list mark the pages left out with a dot, not an ellipsis**, which the dashboard keeps
+  for nothing: a label is shown whole.
+- **Column headings say their window the same way.** *Days used (30)*, *Interactions (30)*, *Days used (of 30)* and
+  *Days of use, last 30* all read *..., last 30 days*, on Upgrade, train or revoke, Rollout waves, License
+  optimization, Fading use and the lists beside them; a CSV downloaded from those lists has the new headings.
+  *Signals* is *Security signals*, and three one-word headings name their column (*Called by*, *Server*, *Dataset*).
+
+### Fixed
+- **Admin › Health said *0 submitted to Microsoft Purview in the last 24 hours* after every night that succeeded.**
+  The *Audit searches* card counted the rows of a load's search windows, and the merge empties those when the load
+  is done: the card could only show a load that was still running or had stopped, and read as if nothing had been
+  fetched. It now says what is waiting, then what the last load took: when it was merged, the records it fetched
+  and how many were new, and in how many searches. `audit.usp_MergeCopilotLoad` keeps that count with the load, in
+  two new columns of `audit.CopilotLoad` (`Searches`, and `SearchesResubmitted` for those Microsoft Purview had to be
+  asked for more than once); a load merged before shows its records without them, and a dashboard over a database
+  not yet upgraded does the same.
+
+### Removed
+- **Security › Security signals by unit** and **Governance › Copilot controls**, each now part of the page beside it
+  (see Changed). Their addresses answer *Page not found*, with the reports nearest to them. A setting that turned
+  either off in Admin › Reports shown is left in place and does nothing.
+
+### Known limits
+- **The least-used reports are not removed.** These seven stay, and are the ones to turn off in Admin › Reports
+  shown where they are not wanted: Enablement › Conversation depth, Regions › Working patterns, Adoption › Drops and
+  spikes, Forecasting › License action outcomes, Compliance › Labeled content by unit, Adoption › Retention by
+  license month, Agents › Agent hand-offs. The list is a judgment from what each shows, not from how often it is
+  opened: the audit log of page views (`dash.AuditLog`) gives the real ranking on an install.
+- **Compare two teams compares managers' teams, not departments.** A team is a manager and everyone under them, from
+  the org chart.
+- **Not tested:** page speed of the two new reports at 40 and 120 million interactions (they read the daily rollups
+  and, for the app mix, the interactions of the two teams for the period), and the Power BI model in Power BI
+  Desktop, which this release does not change.
 ## [2.5.9] - 2026-10-07
 
 Two guides for a team that builds its own reports on the databases, in Grafana or any other tool that reads SQL

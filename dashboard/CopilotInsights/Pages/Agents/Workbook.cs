@@ -122,11 +122,11 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var notUsed = t0.Agents - t0.Used - t0.Autonomous;
 
-        Kpis.Add(new("Agents", Num(t0.Agents), $"{t0.Matched:#,0} of them seen in the audit log"));
+        Kpis.Add(new("Agents in the workbook", Num(t0.Agents), $"{t0.Matched:#,0} of them seen in the audit log"));
         Kpis.Add(new("Used in the period", Num(t0.Used), Pct(Ratio(t0.Used, t0.Agents)) + " of them"));
         Kpis.Add(new("Not used in the period", Num(notUsed), "no interaction in the audit log, and not autonomous", notUsed > 0 ? "warn" : null));
         Kpis.Add(new("Autonomous", Num(t0.Autonomous), "triggers or flows, with no interaction: they can work with nobody chatting to them"));
-        Kpis.Add(new("Shared", Num(t0.Shared), "with viewers: users or groups"));
+        Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups"));
         Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet"));
 
         var headers = new List<string> { "Agent", "Owner", "Environment" };
@@ -475,7 +475,7 @@ GROUP BY c.ChildKey;", Ctx.Args());
         Panels.Add(new("Choose a child agent", new HtmlString(
             $"<select class=\"pick\" aria-label=\"Child agent\" data-navigate><option value=\"{E(Ctx.Url(Request.Path))}\">Every child agent</option>{options}</select>")));
 
-        var ct = new Table { Headers = ["Child agent", "Kind", "Parent agents", "Which", "People through its parents", "Interactions through its parents"], Numeric = new HashSet<int> { 2, 4, 5 } };
+        var ct = new Table { Headers = ["Child agent", "Kind", "Parent agents", "Called by", "People through its parents", "Interactions through its parents"], Numeric = new HashSet<int> { 2, 4, 5 } };
         foreach (var c in children.Where(c => chosen is null || string.Equals(c.Key, chosen, StringComparison.OrdinalIgnoreCase)))
             ct.Rows.Add([new Link(c.Name, Pick(c.Key)), Kind(c.Kind), c.Parents.Count,
                          string.Join("; ", c.Parents.Select(p => p.ParentName).OrderBy(n => n)), c.People == 0 ? 0 : AtLeastMin(c.People), c.N]);

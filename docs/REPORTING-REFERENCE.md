@@ -4,7 +4,7 @@ Everything a team needs to build its own reports on the Copilot audit databases,
 
 **[REPORTING.md](REPORTING.md) is the brief version** of this document, about ten pages. Read it first. It names the section here that continues each of its own.
 
-Written for release 2.5.9. The SQL in Part A was run against a demo database of that release, as a member of the reporting role, with Grafana's macros replaced by fixed dates. It was not run inside Grafana: check the Grafana settings and macros against your version.
+Written for release 2.5.9, and current for 2.6.0. The SQL in Part A was run against a demo database of that release, as a member of the reporting role, with Grafana's macros replaced by fixed dates. It was not run inside Grafana: check the Grafana settings and macros against your version.
 
 ## How this document is laid out
 
@@ -1493,7 +1493,7 @@ Indexes and constraints:
 
 #### audit.CopilotLoad
 
-*Table.* One row per -Incremental load: its range, operations, when it finished downloading and was merged, and how many records were new or already there.
+*Table.* One row per -Incremental load: its range, operations, when it finished downloading and was merged, how many records were new or already there, and how many audit searches it took.
 
 **Script** `Create-CopilotAuditSchema.sql` · **In** Copilot and license-event databases · **Columns added by** `Create-CopilotLoadProcedure.sql`
 
@@ -1510,6 +1510,8 @@ Indexes and constraints:
 | 9 | `RowsAdded` | bigint | yes |  | new to audit.CopilotAudit |
 | 10 | `RowsAlreadyLoaded` | bigint | yes |  | in the lookback, already present |
 | 11 | `DerivedRefreshedUtc` | datetime2(0) | yes |  | the derived tables brought up to date with it (2.4.12); empty on a merged load, a refresh the next -Incremental run makes up |
+| 12 | `Searches` | int | yes |  | the audit searches the load took, one per window, counted at the merge before its windows are emptied (after 2.5.4); empty on a load merged before |
+| 13 | `SearchesResubmitted` | int | yes |  | those Microsoft Purview had to be asked for more than once |
 
 Indexes and constraints:
 
@@ -5082,7 +5084,7 @@ IF COL_LENGTH(N'audit.PipelineRun', N'CertificateThumbprint') IS NULL
 
 ### C.3 `sql/Create-CopilotLoadProcedure.sql`
 
-Both databases. `audit.usp_MergeCopilotLoad`, which appends each nightly load to the final records. 228 lines.
+Both databases. `audit.usp_MergeCopilotLoad`, which appends each nightly load to the final records. 242 lines.
 
 ```sql
 /*
@@ -5106,7 +5108,7 @@ Both databases. `audit.usp_MergeCopilotLoad`, which appends each nightly load to
          counted, not added again.
       4. Appends the rest to audit.CopilotAudit (with LoadId for lineage) and
          their shredded rows to audit.CopilotInteraction, and marks the load
-         merged - all in one transaction.
+         merged, with how many audit searches it took - all in one transaction.
       5. Empties the load's window and staging tables for the next load.
 
     Re-runnable: with nothing waiting it reports so and returns. It never
@@ -5137,6 +5139,13 @@ BEGIN
     ALTER TABLE audit.CopilotLoad ADD DerivedRefreshedUtc DATETIME2(0) NULL;
     EXEC (N'UPDATE audit.CopilotLoad SET DerivedRefreshedUtc = MergedUtc WHERE MergedUtc IS NOT NULL;');
 END;
+
+/* How many audit searches a load took, and how many of them Microsoft Purview had to be asked for more than once
+   (after 2.5.4). A load's windows are emptied once it is merged, so nothing was left to say what a night that
+   finished had asked of the service: Admin > Health read "0 submitted" after every run that succeeded. NULL on a
+   load merged before the columns existed. */
+IF OBJECT_ID(N'audit.CopilotLoad', N'U') IS NOT NULL AND COL_LENGTH(N'audit.CopilotLoad', N'Searches') IS NULL
+    ALTER TABLE audit.CopilotLoad ADD Searches INT NULL, SearchesResubmitted INT NULL;
 
 IF OBJECT_ID(N'audit.usp_MergeCopilotLoad', N'P') IS NULL
     EXEC (N'CREATE PROCEDURE audit.usp_MergeCopilotLoad AS BEGIN SET NOCOUNT ON; END;');
@@ -5291,8 +5300,15 @@ BEGIN
     FROM #cand AS c
     CROSS APPLY audit.fnShredCopilotInteraction(c.AuditDataGz) AS s;
 
+    /* The searches the load took, kept with it: its windows are emptied below. One search per window, a window that
+       was split included; resubmitted, where the service had to be asked for a window more than once. */
+    DECLARE @searches INT, @resubmitted INT;
+    SELECT @searches = COUNT(CASE WHEN Submissions > 0 THEN 1 END), @resubmitted = COUNT(CASE WHEN Submissions > 1 THEN 1 END)
+    FROM audit.CopilotLoadWindow;
+
     UPDATE audit.CopilotLoad
-    SET MergedUtc = SYSUTCDATETIME(), RowsStaged = @staged, RowsAdded = @added, RowsAlreadyLoaded = @staged - @added
+    SET MergedUtc = SYSUTCDATETIME(), RowsStaged = @staged, RowsAdded = @added, RowsAlreadyLoaded = @staged - @added,
+        Searches = @searches, SearchesResubmitted = @resubmitted
     WHERE LoadId = @loadId AND MergedUtc IS NULL;
     IF @@ROWCOUNT = 0   -- cannot happen under the lock; if it ever does, nothing is appended twice
         THROW 50120, N'Merge refused: the load was merged by another run meanwhile.', 1;

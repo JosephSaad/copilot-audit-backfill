@@ -49,8 +49,10 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | Persona | Page | What it answers | Grain | Named people |
 |---|---|---|---|---|
 | Leadership | Overview | People using Copilot, licensed, adoption, active in the last 7 days; trends; adoption by the next level down | Scope, then one level down | No |
+| | What to act on | What the other reports say to do, as one list of counts: license holders with no licensed use in the last 30 days, license holders to train, free Copilot Chat users ready for a license, licenses on non-human accounts, parts of the organization more than 10 points under the adoption around them, targets behind or missed, and, for the Security role, jailbreak attempts and prompt injections. Each with why it matters and a link to the report with the detail, or that report's name and the role it needs | Scope | No |
 | | Scorecard | This period against the one before it: people, adoption split into Premium (license holders who used what the license pays for) and free only (those who used only what is free without it), licenses, interactions and sessions with a follow-up, and each unit one level down with its change | Scope, one level down | No |
 | | Organization | Each unit one level down side by side: people, licensed, active, adoption, days active, interactions, share of sessions with a follow-up, a trend line; heatmap of share active per week | One level down | No |
+| | Compare two teams | Two managers' teams side by side, each manager with everyone under them: people, license holders, adoption, share using Copilot, interactions and days active per person, prompts per session, sessions with a follow-up, the difference between the two, both trends, and each app's share of each team's use. A team outside the viewer's part, under the minimum group size, or any team in privacy mode is not shown | Two teams | No (the two managers are named) |
 | | Apps and agents | Interactions by app over time, Copilot Chat and agent share, most-used agents | Scope | No |
 | | Value and time saved | Estimated hours saved (interactions times the minutes each app saves) and their worth, by app and department, against the license cost | Scope, app, department | No |
 | | Use cases | What Copilot is used for (email, meetings, writing, analysis, research, agents...) from the app, web search and agent, by the rules in Admin › Classifications and events; over time and by department | Scope, department | No |
@@ -81,8 +83,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No |
 | | Chargeback | The monthly cost of the licenses each department (or division, company, country, office) holds, its unused share, and the cost per person using Copilot | Attribute | No |
 | | Licenses on disabled accounts | Licenses held today by accounts disabled in AD or Entra, or gone from the directory; with the files to reclaim them | Person | **Licensing** |
-| Security | Security signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit | Scope, unit | No |
-| | Security signals by unit | Signals per 1,000 interactions for each unit one level down, over time | Unit | No |
+| Security | Security signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit, and by unit over time | Scope, unit | No |
 | | Guests and external users | Copilot use by guest accounts, by home organization: people, interactions, licenses held here, signals; the named list for the Security role | Home organization; person | List: **Security** |
 | | Flagged interactions | Each flagged interaction: when, who, app, agent, the signal and the Purview record id, with its triage (new, investigating, closed, false positive), owner and note | Interaction | **Security** |
 | | Copilot on non-human accounts | The same page as in Licensing, for Security: guests, service, shared, test or room accounts, accounts outside the org chart, and the employee types, AD groups and sign-in patterns set in Admin › Reference data; why each was flagged, the files to remove the licenses, and the accounts an administrator confirmed as people, with the reason; license holders by employee type | Person | **Security** |
@@ -108,8 +109,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Training effect | For each training session: attendees' active days in the 28 days before and after, against colleagues in the same departments | Session | No (sessions under the minimum group size hidden) |
 | | Champions | The most regular and broadest users in each department, as champion candidates | Person | **Enablement** |
 | | People by engagement | Named people in a segment: champions to recruit, one-off users to train | Person | **Enablement** |
-| Governance | Models and web search | Model mix over time, web grounding, Copilot Chat against in-app, memory updates, calls to another agent, deferred DLP checks, distinct agents in use, agents known by source | Scope; organization-wide for agents known | No |
-| | Copilot controls | Memory updates, deferred data-loss checks and web grounding over time; web grounding by unit | Scope, unit | No |
+| Governance | Models and controls | Model mix over time; web grounding over time and by unit; Copilot Chat against in-app; memory updates and deferred DLP checks over time; calls to another agent; distinct agents in use, agents known by source | Scope, unit; organization-wide for agents known | No |
 | Forecasting | Forecast | Licenses held, licensed people using them, Copilot Chat demand, interactions and adoption, 13, 26 or 52 weeks ahead, with 95% intervals | Scope, weekly | No |
 | | License optimization | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right license count for the next quarter; the same by department | Scope, department | No |
 | | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No |
@@ -531,6 +531,8 @@ Admin shows no usage data by itself. An administrator who should also see the re
 - how many people sit under it;
 - how many people in the data are matched to AD;
 - the latest day with data;
+- the app certificate the pipeline signs in with, and when it expires;
+- the audit searches: those waiting at Microsoft Purview for a load under way, how many had to be resubmitted or failed, and what the last load took (when it was merged, the records it fetched and how many were new, and in how many searches). A load's searches are listed only while it runs, and are counted with the load once it is merged; a load merged before that count was kept shows its records without it;
 - the last ten dashboard refreshes.
 
 **Admin › Access.** The settings (top of the organization, minimum group size, default period, unused-after days, and what a license costs a month and in which currency, for the license recommendations), granting and removing roles, and checking one person's effective access. A new top of the organization takes effect at once.

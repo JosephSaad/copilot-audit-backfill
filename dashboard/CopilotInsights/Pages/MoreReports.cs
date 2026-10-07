@@ -139,33 +139,6 @@ SELECT m.Weeks, COUNT(*) AS People FROM m GROUP BY m.Weeks;", Ctx.Args(new { a =
     }
 }
 
-namespace CopilotInsights.Pages.Security
-{
-    public sealed class UnitsModel(PageServices s, Metrics m) : InsightsPage(s)
-    {
-        public override string Title => "Security signals by unit";
-        public override string Persona => "Security";
-        public override string Intro => "Where jailbreak attempts, prompt injection and blocked content cluster, in each part of the organization one level below, over time. Rates per 1,000 interactions, so big and small units compare fairly.";
-
-        protected override async Task BuildAsync()
-        {
-            var units = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
-            /* One row per unit and point, found by key: a scan of every row for every cell grew with the square of the units. */
-            var series = (await m.UnitSeriesAsync(Ctx)).ToDictionary(x => (x.Unit, x.Bucket));
-            var buckets = Buckets();
-            var grid = new double?[units.Count, buckets.Count];
-            for (var r = 0; r < units.Count; r++)
-                for (var c = 0; c < buckets.Count; c++)
-                    grid[r, c] = series.TryGetValue((units[r].Unit, buckets[c].Key), out var p) && p.Interactions > 0 ? p.Flags * 1000.0 / p.Interactions : null;
-            var worst = units.OrderByDescending(u => u.Flags * 1000.0 / u.Interactions).FirstOrDefault();
-            if (worst is not null) Kpis.Add(new("Highest rate", worst.Name, $"{worst.Flags * 1000.0 / worst.Interactions:0.0} per 1,000 interactions", "crit"));
-            Kpis.Add(new("Security signals", Num(units.Sum(u => u.Flags)), $"in {Num(units.Sum(u => u.Interactions))} interactions"));
-            Panels.Add(new("Signals per 1,000 interactions, by unit", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Decimal1, "Signal rate by unit", unit: "signals per 1,000 interactions"),
-                $"Jailbreak, prompt injection and blocked resources together. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
-        }
-    }
-}
-
 namespace CopilotInsights.Pages.Compliance
 {
     public sealed class UnitsModel(PageServices s, Metrics m) : InsightsPage(s)
@@ -276,41 +249,6 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
             var buckets = Buckets();
             Panels.Add(new("Messages per prompt", Chart.Line(Labels(), [new Series("Messages per prompt", buckets.Select(b => { var r = tr.FirstOrDefault(x => x.Bucket == b.Key); return r.Prompts > 0 ? r.Messages / (double?)r.Prompts : null; }).ToList(), 2)], Fmt.Decimal1, "Messages per prompt"),
                 $"Prompts and Copilot's replies together, per prompt: above 2, Copilot answered some prompts in more than one message. {TrendNote}"));
-        }
-    }
-}
-
-namespace CopilotInsights.Pages.Governance
-{
-    public sealed class ControlsModel(PageServices s, Metrics m) : InsightsPage(s)
-    {
-        public override string Title => "Copilot controls";
-        public override string Persona => "Governance";
-        public override string Intro => "The controls around Copilot at work: memory updates, deferred data-loss checks, and searches of the public web, over time and by unit.";
-
-        protected override async Task BuildAsync()
-        {
-            var tr = await Db.QueryAsync<(DateTime Bucket, long All, long Memory, long Dlp, long Web)>($@"
-SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT)), SUM(CAST(f.UsedWebSearch AS INT))
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
-            var buckets = Buckets();
-            (long All, long Memory, long Dlp, long Web) At(DateTime b) { var r = tr.FirstOrDefault(x => x.Bucket == b); return (r.All, r.Memory, r.Dlp, r.Web); }
-            Kpis.Add(new("Memory updated", Pct(Ratio(tr.Sum(x => x.Memory), tr.Sum(x => x.All))), "of interactions"));
-            Kpis.Add(new("DLP check deferred", Num(tr.Sum(x => x.Dlp))));
-            Kpis.Add(new("Grounded on the web", Pct(Ratio(tr.Sum(x => x.Web), tr.Sum(x => x.All)))));
-            Panels.Add(new("Memory updates and web search", Chart.Line(Labels(), [
-                new Series("Memory updated", buckets.Select(b => Ratio(At(b.Key).Memory, At(b.Key).All)).ToList(), 5),
-                new Series("Searched the web", buckets.Select(b => Ratio(At(b.Key).Web, At(b.Key).All)).ToList(), 1),
-            ], Fmt.Percent, "Memory and web share"), $"Shares of interactions. {TrendNote}", "half"));
-            Panels.Add(new("Deferred data-loss checks", Chart.Columns(Labels(), [new Series("Deferred", buckets.Select(b => (double?)At(b.Key).Dlp).ToList(), 4)], Fmt.Count, "DLP deferred"),
-                "Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising share is worth raising with them.", "half"));
-
-            /* By unit, from the units' own figures for the period (2.5.0): one query, not a second pass over each day. */
-            var web = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0)
-                .Select(u => (Unit: u, Web: u.Web, All: u.Interactions)).OrderByDescending(x => x.Web / (double)x.All).ToList();
-            Panels.Add(new("Web search by unit", Chart.Bars(web.Take(15).Select(x => new Bar(x.Unit.Name, x.Web / (double)x.All, x.Unit.Drillable ? Ctx.Url(Request.Path, org: x.Unit.Unit) : null, $"{x.Web:#,0} of {x.All:#,0}")).ToList(), Fmt.Percent, "Web grounding by unit", 1),
-                $"Each part of the organization one level below; units under {Ctx.MinGroupSize} people are left out."));
         }
     }
 }

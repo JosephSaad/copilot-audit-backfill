@@ -177,7 +177,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         var reassign = Math.Min(idle, demand);
 
         Kpis.Add(new("Licenses held", Num(held), $"{Pct(Ratio(active, held))} used in the last 30 days"));
-        Kpis.Add(new($"Unused for {Ctx.InactiveDays}+ days", Num(idle), $"{Money(idle * price)} a month", idle > 0 ? "crit" : null));
+        Kpis.Add(new($"Unused for {Ctx.InactiveDays} days or more", Num(idle), $"{Money(idle * price)} a month", idle > 0 ? "crit" : null));
         Kpis.Add(new("Heavy Copilot Chat users", Num(demand), "no license, used it on 6+ of the last 30 days"));
         Kpis.Add(new("Right size in 13 weeks", Num(target), change == 0 ? "as held" : change > 0 ? $"{change:#,0} more than held" : $"{-change:#,0} fewer than held"));
 
@@ -223,7 +223,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
             "Where licenses sit idle and where people without one use Copilot most. The departments with the biggest gap either way come first."));
         var t = new Table
         {
-            Headers = ["Department", "People", "Licenses held", "Licenses used (30 days)", "Unused licenses", "Light users", "Heavy demand", "Suggested change in licenses", "Monthly effect"],
+            Headers = ["Department", "People", "Licenses held", "Licenses used, last 30 days", "Unused licenses", "Light users", "Heavy demand", "Suggested change in licenses", "Monthly effect"],
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7, 8 },
         };
         foreach (var r in shown)

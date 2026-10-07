@@ -56,7 +56,7 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         /* The use set against the tenant's seats is the tenant's (2.4.12, see OpsReports.Tenant). */
         var t = await metrics.TotalsAsync(OpsReports.Tenant(Ctx));
         Kpis.Add(new("Copilot seats bought", Num(bought), $"{copilot.Sum(p => p.Warning):#,0} in the grace period after expiry"));
-        Kpis.Add(new("Assigned", Num(assigned), bought > 0 ? $"{Pct(Ratio(assigned, bought))} of those bought" : null,
+        Kpis.Add(new("Seats assigned", Num(assigned), bought > 0 ? $"{Pct(Ratio(assigned, bought))} of those bought" : null,
             bought > 0 && assigned >= bought * (await S.Settings.IntAsync("PoolWarnPercent", 95)) / 100.0 ? "warn" : null));
         Kpis.Add(new("Bought, not assigned", Num(bought - assigned), $"{(bought - assigned) * price:#,0} {cur} a month idle"));
         Kpis.Add(new("Used in the last 30 days", Num(t.ActiveLicensed), assigned > 0 ? $"{Pct(Ratio(t.ActiveLicensed, assigned))} of those assigned" : null));

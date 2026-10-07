@@ -29,7 +29,7 @@ public class Release258Tests
         Assert.Contains("aria-current=\"page\" href=\"/agents/inventory?p=7\">7</a>", html);
         foreach (var n in new[] { 1, 5, 6, 8, 9, 20 }) Assert.Contains($"?p={n}\">{n}</a>", html);
         Assert.DoesNotContain("?p=4\">4</a>", html);
-        Assert.Contains("…", html);
+        Assert.Contains("<span class=\"muted gap\" aria-hidden=\"true\">·</span>", html);   // the pages left out, marked without an ellipsis
         Assert.Contains("p=6\">‹ Previous", html);
         Assert.Contains("p=8\">Next ›", html);
     }

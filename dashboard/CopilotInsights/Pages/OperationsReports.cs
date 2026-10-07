@@ -25,10 +25,10 @@ namespace CopilotInsights.Pages.Adoption
                     ? "No targets yet. An administrator sets them in Admin > Targets and assumptions." : "No target covers the part of the organization you see.";
                 return;
             }
-            Kpis.Add(new("Targets", Num(mine.Count)));
+            Kpis.Add(new("Targets set", Num(mine.Count)));
             Kpis.Add(new("Met or on track", Num(mine.Count(t => t.Status is "Met" or "On track"))));
-            Kpis.Add(new("Behind", Num(mine.Count(t => t.Status == "Behind")), null, mine.Any(t => t.Status == "Behind") ? "warn" : null));
-            Kpis.Add(new("Missed", Num(mine.Count(t => t.Status == "Missed")), null, mine.Any(t => t.Status == "Missed") ? "crit" : null));
+            Kpis.Add(new("Targets behind", Num(mine.Count(t => t.Status == "Behind")), null, mine.Any(t => t.Status == "Behind") ? "warn" : null));
+            Kpis.Add(new("Targets missed", Num(mine.Count(t => t.Status == "Missed")), null, mine.Any(t => t.Status == "Missed") ? "crit" : null));
             string Unit(TargetRow t) => t.Metric == "ActivePeople" ? "" : "%";
             Panels.Add(new("Progress", Chart.Bars(mine.Select(t => new Bar($"{Label(t.Metric)}: {t.RootName ?? "Whole organization"}",
                 t.TargetValue > 0 && t.Current is not null ? t.Current / (double)t.TargetValue : null,
@@ -127,8 +127,8 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             var series = await ops.DepartmentDaysAsync(Ctx.End.AddDays(-41), Ctx.End, Ctx.MinGroupSize, Ctx.Root);
             var found = Anomalies.Find(series, Ctx.End.AddDays(-13), drop, spike);
             Kpis.Add(new("Departments watched", Num(series.Count), $"with at least {Ctx.MinGroupSize} people"));
-            Kpis.Add(new("Drops", Num(found.Count(a => a.Kind == "Drop")), $"{drop}% or more below usual", found.Any(a => a.Kind == "Drop") ? "warn" : null));
-            Kpis.Add(new("Spikes", Num(found.Count(a => a.Kind == "Spike")), $"{spike}% or more above usual"));
+            Kpis.Add(new("Drops in use", Num(found.Count(a => a.Kind == "Drop")), $"{drop}% or more below usual", found.Any(a => a.Kind == "Drop") ? "warn" : null));
+            Kpis.Add(new("Spikes in use", Num(found.Count(a => a.Kind == "Spike")), $"{spike}% or more above usual"));
             var tb = new Table { Headers = ["Day", "Department", "Drop or spike", "Interactions", "Usual for the weekday", "Change"], Numeric = new HashSet<int> { 3, 4 }, EmptyText = "Nothing stood out in the last two weeks." };
             foreach (var a in found) tb.Rows.Add([a.Day, a.Unit, a.Kind, a.Value, Math.Round(a.Baseline), $"{a.Change:+0%;-0%}"]);
             Panels.Add(new("Days that stood out", tb.Render(), $"The thresholds are set in Admin > Alerts and digests, which can also email them. Up to {Ctx.End:d MMM yyyy}."));
@@ -439,8 +439,8 @@ SELECT * FROM scored WHERE Rank <= @per ORDER BY Dept, Rank;", Ctx.Args(new { pe
             var (dept, picker) = DepartmentFilter(rows.Select(r => r.Dept));
             Panels.Add(new("Choose a department", picker));
             if (dept is not null) rows = rows.Where(r => r.Dept == dept).ToList();
-            Kpis.Add(new("Departments", Num(rows.Select(r => r.Dept).Distinct().Count())));
-            Kpis.Add(new("Candidates", Num(rows.Count), $"up to {per} per department (Admin > Targets and assumptions)"));
+            Kpis.Add(new("Departments with candidates", Num(rows.Select(r => r.Dept).Distinct().Count())));
+            Kpis.Add(new("Champion candidates", Num(rows.Count), $"up to {per} per department (Admin > Targets and assumptions)"));
             var tb = new Table { Headers = ["Department", "Rank", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Sessions with a follow-up", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
             foreach (var r in rows) tb.Rows.Add([r.Dept, r.Rank, r.DisplayName, r.UserPrincipalName, r.JobTitle, r.Days, r.Apps, Pct(r.MultiTurnShare), r.Interactions]);
             CsvTable = tb;
