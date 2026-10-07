@@ -4,6 +4,56 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.9] - 2026-10-07
+
+Two guides for a team that builds its own reports on the databases, in Grafana or any other tool that reads SQL
+Server: a brief one, and a reference with every table and view and the text of the scripts that create them.
+Nothing in the scripts, the databases or the dashboard changes.
+
+To upgrade from 2.5.8: nothing to run. The job server's scripts, the SQL scripts and the dashboard package are
+those of 2.5.8, so an install of 2.5.8 can stay as it is. The guides are in the source zip's `docs` folder, and in
+the repository.
+
+### Added
+- **[docs/REPORTING.md](docs/REPORTING.md): reporting on the Copilot data, the brief guide**, about ten pages. What
+  the two databases and their three schemas hold; how and when the data arrives, and what that means for a report
+  (once a night, the last two days not final, a full rebuild, the ways history is restated); the 26 `bi` views
+  that are the reporting interface and how they join; the reporting role and how to get a Windows account or a
+  SQL login into it; ten rules every query follows; the figures as the dashboard and the Power BI model define
+  them; Grafana's data source and dashboard settings, the two conversions between Grafana's UTC range and the
+  data's local days, variables and annotations; nine queries to start from; privacy mode, small groups, and that
+  nothing in SQL limits which people a reporting account reads.
+- **[docs/REPORTING-REFERENCE.md](docs/REPORTING-REFERENCE.md): the reference**, in three parts.
+  - *Part A, the guide*: the system in one page; how `Install-CopilotAudit.ps1` creates the schema, script by
+    script; which procedure fills which table each night, how much a night rewrites and what a report must expect;
+    access, with what a member of `CopilotReporting` can and cannot read and the grants an administrator may add
+    by hand; every reporting view column by column, with what each column means; each figure as SQL; some forty
+    Grafana queries (usage, breakdowns, adoption and licenses, sessions, agents, security and content, a viewer's
+    own people only, freshness); the other layers and when a report needs them; and how to check a report against
+    the dashboard.
+  - *Part B*: every table and view, column by column, the text of `docs/SCHEMA.md`.
+  - *Part C*: the full text of the installer, the 18 SQL scripts, the nightly pipeline, the agent workbook import
+    and the dashboard's installer, in the order a new install runs them.
+- **`tools/dev/schema/Build-ReportingReference.ps1`** writes Parts B and C from `docs/SCHEMA.md` and the scripts,
+  and **`tests/Test-ReportingReference.ps1`**, in CI and the release, fails when the reference is behind them, when
+  a view the scripts create in `bi` is not described in the reference and named in the brief guide, when either
+  names something in `bi` that no script creates, or when the brief guide passes 20 pages.
+
+### Changed
+- **docs/SCHEMA.md counts what it describes**: 93 tables (and the 2 left over from 1.x), 37 views and 1,208 columns.
+  It said 90 and 1,162, the counts from before the agent workbook's three tables and the columns added since.
+
+### Known limits
+- **The guides' SQL was not run inside Grafana.** Every `sql` block of both ran against the demo database as a member
+  of `CopilotReporting`, with Grafana's macros (`$__timeFrom()`, `$__timeTo()`) and the `tz` variable replaced by
+  fixed values: 63 blocks, none with an error (the one over `bi.AgentEvents` returns no rows there, as the demo has no Copilot Studio records). The data source settings, the macros and `${__user.login}` are as
+  Grafana documents them; check them against the Grafana version in use.
+- **A reporting account cannot read the reporting time zone, the refresh log or whether a rebuild is under way.**
+  The role reads the `bi` views only. The guides say to ask the administrator for the zone, and give two grants an
+  administrator may add by hand (`bi.RefreshRun`, `bi.RebuildInProgress`); the installer does not make them.
+- **Not run for this release, as nothing they check changed:** the layout audit of the dashboard's pages, and the
+  Power BI model against the demo database.
+
 ## [2.5.8] - 2026-10-06
 
 The agent workbook set beside the audit log and the directory: agents whose owner has gone, agents whose settings

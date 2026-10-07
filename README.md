@@ -11,7 +11,7 @@ Purview audit searches ──► parallel page downloads ──► bounded queue
 
 PowerShell 7 drives it; the pipeline engine is C# compiled in memory at start, so there are no binaries to ship or trust. State lives in SQL, so stopping and restarting is always safe.
 
-**[RUNBOOK.md](RUNBOOK.md) is the full documentation** — limits, tuning, troubleshooting, and what the finalized tables contain. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** walks through a new install step by step, from the app registration to the nightly job, the Power BI model and its Copilot agent. **[docs/SCHEMA.md](docs/SCHEMA.md)** lists every table and view, column by column, and the script that creates it. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** covers the Copilot Insights web dashboard. This README is the short version.
+**[RUNBOOK.md](RUNBOOK.md) is the full documentation** — limits, tuning, troubleshooting, and what the finalized tables contain. **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** walks through a new install step by step, from the app registration to the nightly job, the Power BI model and its Copilot agent. **[docs/SCHEMA.md](docs/SCHEMA.md)** lists every table and view, column by column, and the script that creates it. **[docs/REPORTING.md](docs/REPORTING.md)** is for a team building its own reports on the databases, in Grafana or any SQL tool: what to read, how to join it and how the figures are defined, in about ten pages, with **[docs/REPORTING-REFERENCE.md](docs/REPORTING-REFERENCE.md)** behind it. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** covers the Copilot Insights web dashboard. This README is the short version.
 
 ## Prerequisites
 
@@ -308,7 +308,7 @@ dotnet test dashboard/CopilotInsights.Tests
 
 CI runs them all on every push, with PSScriptAnalyzer (`PSScriptAnalyzerSettings.psd1`), which fails the build on any warning.
 
-Two more are run by hand before a release, since CI has no dashboard or installed database to point them at: the layout audit of every dashboard page and the generator for `docs/SCHEMA.md`. They are in `tools/dev`, with the release checklist ([tools/dev/README.md](tools/dev/README.md)).
+Two more are run by hand before a release, since CI has no dashboard or installed database to point them at: the layout audit of every dashboard page and the generator for `docs/SCHEMA.md`. They are in `tools/dev`, with the release checklist ([tools/dev/README.md](tools/dev/README.md)). A third tool there, `Build-ReportingReference.ps1`, copies `docs/SCHEMA.md` and the scripts into `docs/REPORTING-REFERENCE.md`; CI fails when that document is behind them (`tests/Test-ReportingReference.ps1`).
 
 ## Files
 
@@ -349,10 +349,12 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `dashboard/demo/` | A synthetic 2,317-person company to try the dashboard on. |
 | `dashboard/CopilotInsights.Tests/` | The dashboard's unit tests. |
 | `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each. |
+| `docs/REPORTING.md` | Reporting on the data with Grafana or another SQL tool, in brief: the `bi` views, access, the figures, the Grafana setup and queries to start from (2.5.9). |
+| `docs/REPORTING-REFERENCE.md` | The same in full: how the schema is created and filled, every reporting view column by column, each figure as SQL, every table and view, and the text of the scripts that create them (2.5.9). |
 | `docs/DASHBOARD.md` | The dashboard: pages by persona, who sees what, install on IIS, the first administrator. |
 | `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licenses, the nightly job, Power BI and Copilot. |
 | `tests/` | Mock Graph service and the test suites. |
-| `tools/dev/` | For building a release: the dashboard's layout audit, the `docs/SCHEMA.md` generator and the release checklist. Not deployed. |
+| `tools/dev/` | For building a release: the dashboard's layout audit, the `docs/SCHEMA.md` generator, the generator for the reporting reference's columns and script transcripts, and the release checklist. Not deployed. |
 | `PSScriptAnalyzerSettings.psd1` | The analyzer rules CI applies, and why each excluded rule is excluded. |
 
 ## License

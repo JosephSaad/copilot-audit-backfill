@@ -83,6 +83,9 @@ jobs:
       - name: Test-NightlyProfile
         shell: pwsh
         run: pwsh -NoProfile -File tests/Test-NightlyProfile.ps1
+      - name: Test-ReportingReference
+        shell: pwsh
+        run: pwsh -NoProfile -File tests/Test-ReportingReference.ps1
 
   dashboard:
     name: Copilot Insights dashboard
