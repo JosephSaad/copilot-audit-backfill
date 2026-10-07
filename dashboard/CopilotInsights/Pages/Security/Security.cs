@@ -64,6 +64,18 @@ GROUP BY a.App;", Ctx.Args());
             Chart.Bars(units.Select(u => new Bar(u.Name, u.Flags * 1000.0 / u.Interactions, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
                 $"{u.Flags:#,0} signals in {u.Interactions:#,0} interactions", 7)).ToList(), Fmt.Decimal1, "Signal rate by unit"),
             "All three signals together, as a rate so large and small units compare fairly." + (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
+
+        /* The same rate at each point, unit by unit: Security > Security signals by unit was a page of its own for this one chart. */
+        var shown = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
+        var series = (await m.UnitSeriesAsync(Ctx)).ToDictionary(x => (x.Unit, x.Bucket));
+        var buckets = Buckets();
+        var rates = new double?[shown.Count, buckets.Count];
+        for (var r = 0; r < shown.Count; r++)
+            for (var c = 0; c < buckets.Count; c++)
+                rates[r, c] = series.TryGetValue((shown[r].Unit, buckets[c].Key), out var p) && p.Interactions > 0 ? p.Flags * 1000.0 / p.Interactions : null;
+        Panels.Add(new("By unit over time, per 1,000 interactions",
+            Chart.Heatmap(shown.Select(u => u.Name).ToList(), Labels(), rates, Fmt.Decimal1, "Signal rate by unit over time", unit: "signals per 1,000 interactions"),
+            $"Jailbreak, prompt injection and blocked resources together, for each part of the organization one level below. Darker is a higher rate. Units under {Ctx.MinGroupSize} people are left out. {TrendNote}"));
     }
 }
 

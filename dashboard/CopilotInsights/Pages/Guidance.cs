@@ -57,7 +57,6 @@ public static class Guidance
 
         // Security
         ["/security"] = new("Watch jailbreak attempts, prompt injection and blocked content.", "Look into a rise, and adjust policy where it clusters."),
-        ["/security/units"] = new("See which units attract the most risk signals.", "Brief the units with the highest rates."),
         ["/security/guests"] = new("Watch how guest accounts use Copilot.", "Check the home organizations with signals, and review their access."),
         ["/security/flags"] = new("Triage each flagged interaction.", "Mark each one investigating, closed or a false positive."),
 
@@ -111,6 +110,5 @@ public static class Guidance
 
         // Governance
         ["/governance"] = new("See which models answer and how much Copilot relies on the web.", "Check the share of web search against your policy."),
-        ["/governance/controls"] = new("Watch memory updates, deferred data-loss checks and web search.", "Look into units where the controls behave differently."),
     };
 }

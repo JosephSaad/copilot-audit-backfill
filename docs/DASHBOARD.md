@@ -82,8 +82,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | License pool | Seats bought, assigned and used, per SKU and over time; seats bought and never assigned | Tenant | No |
 | | Chargeback | The monthly cost of the licenses each department (or division, company, country, office) holds, its unused share, and the cost per person using Copilot | Attribute | No |
 | | Licenses on disabled accounts | Licenses held today by accounts disabled in AD or Entra, or gone from the directory; with the files to reclaim them | Person | **Licensing** |
-| Security | Security signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit | Scope, unit | No |
-| | Security signals by unit | Signals per 1,000 interactions for each unit one level down, over time | Unit | No |
+| Security | Security signals | Jailbreak, prompt injection and blocked resources over time, by weekday and hour, by app, per 1,000 interactions by unit, and by unit over time | Scope, unit | No |
 | | Guests and external users | Copilot use by guest accounts, by home organization: people, interactions, licenses held here, signals; the named list for the Security role | Home organization; person | List: **Security** |
 | | Flagged interactions | Each flagged interaction: when, who, app, agent, the signal and the Purview record id, with its triage (new, investigating, closed, false positive), owner and note | Interaction | **Security** |
 | | Copilot on non-human accounts | The same page as in Licensing, for Security: guests, service, shared, test or room accounts, accounts outside the org chart, and the employee types, AD groups and sign-in patterns set in Admin › Reference data; why each was flagged, the files to remove the licenses, and the accounts an administrator confirmed as people, with the reason; license holders by employee type | Person | **Security** |
@@ -109,8 +108,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Training effect | For each training session: attendees' active days in the 28 days before and after, against colleagues in the same departments | Session | No (sessions under the minimum group size hidden) |
 | | Champions | The most regular and broadest users in each department, as champion candidates | Person | **Enablement** |
 | | People by engagement | Named people in a segment: champions to recruit, one-off users to train | Person | **Enablement** |
-| Governance | Models and web search | Model mix over time, web grounding, Copilot Chat against in-app, memory updates, calls to another agent, deferred DLP checks, distinct agents in use, agents known by source | Scope; organization-wide for agents known | No |
-| | Copilot controls | Memory updates, deferred data-loss checks and web grounding over time; web grounding by unit | Scope, unit | No |
+| Governance | Models, web search and controls | Model mix over time; web grounding over time and by unit; Copilot Chat against in-app; memory updates and deferred DLP checks over time; calls to another agent; distinct agents in use, agents known by source | Scope, unit; organization-wide for agents known | No |
 | Forecasting | Forecast | Licenses held, licensed people using them, Copilot Chat demand, interactions and adoption, 13, 26 or 52 weeks ahead, with 95% intervals | Scope, weekly | No |
 | | License optimization | Priced recommendations: revoke and reassign, reclaim, upgrade proven Copilot Chat users, train light users, and the right license count for the next quarter; the same by department | Scope, department | No |
 | | Budget and renewal | The contracts, what they cost, when they renew, and the seats the use supports at renewal | Tenant | No |

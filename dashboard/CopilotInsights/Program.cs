@@ -126,6 +126,9 @@ app.Use(async (ctx, next) =>
 app.MapRazorPages();
 /* Health moved from /admin, which servers often block, to /admin/health; old links still arrive. */
 app.MapGet("/admin", () => Results.Redirect("/admin/health"));
+/* Two reports joined the page beside them: a bookmark to either opens that page, with its period and part of the organization. */
+app.MapGet("/security/units", (HttpRequest r) => Results.Redirect("/security" + r.QueryString));
+app.MapGet("/governance/controls", (HttpRequest r) => Results.Redirect("/governance" + r.QueryString));
 /* My Copilot's pages are gone (2.4.4): links to them in earlier emails land on the start page. */
 app.MapGet("/me/{**rest}", () => Results.Redirect("/"));
 app.MapDataApi();

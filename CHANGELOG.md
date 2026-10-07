@@ -15,6 +15,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a list of those in the viewer's part of the organization, or by sign-in. The rules that decide whose part of the
   organization a viewer may open decide it here: a manager outside the viewer's part, a team with fewer enabled
   people than the minimum group size, and any team in privacy mode are not shown. Nothing in the database changes.
+### Changed
+- **Two reports joined the page beside them**, so each subject is on one page. Nothing they showed is lost, and an
+  old address or bookmark opens the page it joined, with its period and part of the organization.
+  - *Security › Security signals by unit* is the last panel of **Security › Security signals**: the rate per 1,000
+    interactions for each unit at each point, under the period's rate by unit that page already had.
+  - *Governance › Copilot controls* is part of **Governance › Models, web search and controls** (was *Models and web
+    search*), which already had its three headline figures: memory updates over time, deferred data-loss checks
+    over time, and web search by unit are panels there.
 ## [2.5.9] - 2026-10-07
 
 Two guides for a team that builds its own reports on the databases, in Grafana or any other tool that reads SQL

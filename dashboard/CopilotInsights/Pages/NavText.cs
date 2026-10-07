@@ -66,8 +66,7 @@ public static class NavText
         ["/licensing/non-person"] = ("Copilot licenses on service, shared, test and other accounts that are not a person.", "Policy breaches"),
         ["/licensing/departures"] = ("License holders due to leave: reclaim each license on the last day.", "Changes ahead"),
 
-        ["/security"] = ("Jailbreak attempts, prompt injection and blocked resources: how many, when and where.", null),
-        ["/security/units"] = ("Where security signals cluster in the organization, per 1,000 interactions.", null),
+        ["/security"] = ("Jailbreak attempts, prompt injection and blocked resources: how many, when, and in which units.", null),
         ["/security/guests"] = ("Copilot use by guest accounts, and the organizations they come from.", null),
         ["/security/flags"] = ("Each flagged interaction, who and where, with its triage.", null),
         ["/security/non-human"] = ("Copilot licenses on accounts that are not a person: a policy breach.", null),
@@ -114,8 +113,7 @@ public static class NavText
         ["/apps"] = ("Copilot in each Microsoft 365 app: how many people, how deeply, and whether they return.", null),
         ["/apps/detail"] = ("One app: who uses Copilot in it, what they read, and which agents run there.", null),
 
-        ["/governance"] = ("Which models answer, how often Copilot searches the web, and agents in play.", null),
-        ["/governance/controls"] = ("Memory updates, deferred data-loss checks and web search, over time.", null),
+        ["/governance"] = ("Which models answer, web search, memory updates and deferred data-loss checks.", null),
 
         ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),
         ["/admin/access"] = ("Who sees what: the top of the organization, levels, and roles.", null),
