@@ -97,8 +97,8 @@ SELECT (SELECT COUNT(*) FROM g) AS Idle, (SELECT COUNT(*) FROM t) AS Wanting,
         var t = new Table
         {
             Headers = [within switch { "division" => "Division", "any" => "Scope", _ => "Department" },
-                       "Take from", "Sign-in", "Licensed since", "Days used (of 30)", "Last used",
-                       "Give to", "Sign-in", "Manager", "Days on free Copilot Chat (of 30)", "Interactions"],
+                       "Take from", "Sign-in", "Licensed since", "Days used, last 30 days", "Last used",
+                       "Give to", "Sign-in", "Manager", "Days on free Copilot Chat, last 30 days", "Interactions"],
             Numeric = new HashSet<int> { 4, 9, 10 },
             EmptyText = "No idle license and person wanting one share a unit: widen the match, or see Upgrade, train or revoke.",
         };

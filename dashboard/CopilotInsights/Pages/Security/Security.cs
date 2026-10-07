@@ -190,7 +190,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds["all"].Sql};{list}
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
-            Headers = ["When (hour)", "Name", "Sign-in", "Department", "App", "Agent", "Signals", "Record id", "Triage", "Owner", "Note"],
+            Headers = ["When (hour)", "Name", "Sign-in", "Department", "App", "Agent", "Security signals", "Record id", "Triage", "Owner", "Note"],
             EmptyText = "No flagged interactions in the period.",
             /* Triage and Note are the inline form. */
             Server = new(pg, Request, ["new", "name", "upn", "dept", "app", "agent", "signals", "record", null, "owner", null], new HashSet<int> { 0 }),

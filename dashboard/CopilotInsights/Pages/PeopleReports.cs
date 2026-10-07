@@ -246,7 +246,7 @@ WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
             Kpis.Add(new("With a security signal", Num(recs.Count(r => r.JailbreakDetected || r.PromptInjectionDetected || r.HasBlockedResource)), pg.ForExport || pg.Total <= Paging.PageSize ? null : "on this page"));
             var t = new Table
             {
-                Zone = Zone, Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Signals", "Touched labeled content", "Resources read", "Record id"],
+                Zone = Zone, Headers = ["When (UTC)", "App", "Agent", "Searched the web", "Security signals", "Touched labeled content", "Resources read", "Record id"],
                 Numeric = new HashSet<int> { 6 }, EmptyText = "No interactions in the period.",
                 Server = new(pg, Request, ["new", "app", "agent", "web", "signals", "labeled", "resources", "record"], new HashSet<int> { 0, 3, 4, 5, 6 }),
             };

@@ -157,7 +157,7 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used (30)", "Days using Premium features (30)", "Interactions (30)", "Last used", "Licensed since", "License type Copilot recorded", "Why"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Recommendation", "Days used, last 30 days", "Days with Premium use, last 30 days", "Interactions, last 30 days", "Last used", "Licensed since", "License type Copilot recorded", "Why"],
             Numeric = new HashSet<int> { 5, 6, 7 },
             EmptyText = pg.Total == 0 ? "No one fits this recommendation." : $"Nobody on this page: the list ends on page {pg.Pages:#,0}.",
             /* Last used and the recorded license are looked up after the page query, so they do not sort. */

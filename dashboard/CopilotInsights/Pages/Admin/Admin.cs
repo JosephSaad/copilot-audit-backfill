@@ -78,7 +78,7 @@ WHERE s.Status = N'Succeeded' ORDER BY s.RunId DESC;", "agents loaded", optional
         var runs0 = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().PipelineRunsAsync(10);
         if (runs0.Count > 0)
         {
-            var pr = new Table { Zone = Zone, Headers = ["Run", "Started (UTC)", "Took", "Result", "Stopped at", "On", "Last lines"] };
+            var pr = new Table { Zone = Zone, Headers = ["Run", "Started (UTC)", "Took", "Result", "Stopped at", "Server", "Last lines"] };
             foreach (var r in runs0)
                 pr.Rows.Add([r.Kind, r.StartedUtc, r.EndedUtc is null ? null : $"{(r.EndedUtc.Value - r.StartedUtc).TotalMinutes:0} min",
                     new HtmlString($"<span class=\"{(r.Status == "Succeeded" ? "status-ok" : r.Status == "Running" ? "status-warn" : "status-bad")}\">{E(r.Status)}</span>"),

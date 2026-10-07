@@ -85,8 +85,8 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Days of use a month before", "Days of use, last 30", "Change",
-                       "Interactions a month before", "Interactions, last 30", "Days with Premium use, last 30", "Last used"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Days of use a month before", "Days of use, last 30 days", "Change",
+                       "Interactions a month before", "Interactions, last 30 days", "Days with Premium use, last 30 days", "Last used"],
             Numeric = new HashSet<int> { 4, 5, 6, 7, 8, 9 },
             EmptyText = "Nobody's use is falling away.",
             Server = new(pg, Request, ["name", "upn", "dept", "manager", "before", "days", "drop", "ibefore", "use", "premium", "recent"], new HashSet<int> { 4, 5, 7, 8, 9, 10 }),

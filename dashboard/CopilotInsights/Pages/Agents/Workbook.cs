@@ -475,7 +475,7 @@ GROUP BY c.ChildKey;", Ctx.Args());
         Panels.Add(new("Choose a child agent", new HtmlString(
             $"<select class=\"pick\" aria-label=\"Child agent\" data-navigate><option value=\"{E(Ctx.Url(Request.Path))}\">Every child agent</option>{options}</select>")));
 
-        var ct = new Table { Headers = ["Child agent", "Kind", "Parent agents", "Which", "People through its parents", "Interactions through its parents"], Numeric = new HashSet<int> { 2, 4, 5 } };
+        var ct = new Table { Headers = ["Child agent", "Kind", "Parent agents", "Called by", "People through its parents", "Interactions through its parents"], Numeric = new HashSet<int> { 2, 4, 5 } };
         foreach (var c in children.Where(c => chosen is null || string.Equals(c.Key, chosen, StringComparison.OrdinalIgnoreCase)))
             ct.Rows.Add([new Link(c.Name, Pick(c.Key)), Kind(c.Kind), c.Parents.Count,
                          string.Join("; ", c.Parents.Select(p => p.ParentName).OrderBy(n => n)), c.People == 0 ? 0 : AtLeastMin(c.People), c.N]);

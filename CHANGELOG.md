@@ -37,6 +37,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   more*.
 - **The page links under a long list mark the pages left out with a dot, not an ellipsis**, which the dashboard keeps
   for nothing: a label is shown whole.
+- **Column headings say their window the same way.** *Days used (30)*, *Interactions (30)*, *Days used (of 30)* and
+  *Days of use, last 30* all read *..., last 30 days*, on Upgrade, train or revoke, Rollout waves, License
+  optimization, Fading use and the lists beside them; a CSV downloaded from those lists has the new headings.
+  *Signals* is *Security signals*, and three one-word headings name their column (*Called by*, *Server*, *Dataset*).
 ## [2.5.9] - 2026-10-07
 
 Two guides for a team that builds its own reports on the databases, in Grafana or any other tool that reads SQL

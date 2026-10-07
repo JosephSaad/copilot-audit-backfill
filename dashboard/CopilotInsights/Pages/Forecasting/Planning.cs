@@ -200,7 +200,7 @@ SELECT {select} FROM c {tail}";
 
         var t = new Table
         {
-            Headers = ["Order", "Wave", "Name", "Sign-in", "Department", "Manager", "Job title", "Days on Copilot Chat (30)", "Interactions (30)", "Department adoption"],
+            Headers = ["Order", "Wave", "Name", "Sign-in", "Department", "Manager", "Job title", "Days on Copilot Chat, last 30 days", "Interactions, last 30 days", "Department adoption"],
             Numeric = new HashSet<int> { 0, 1, 7, 8, 9 }, EmptyText = "Everyone here has a license.",
             /* A wave follows from the order, so both sort by it. */
             Server = new(pg, Request, ["rank", "rank", "name", "upn", "dept", "manager", "title", "days", "inter", "adoption"], new HashSet<int> { 7, 8, 9 }),

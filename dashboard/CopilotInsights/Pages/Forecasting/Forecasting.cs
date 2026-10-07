@@ -223,7 +223,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
             "Where licenses sit idle and where people without one use Copilot most. The departments with the biggest gap either way come first."));
         var t = new Table
         {
-            Headers = ["Department", "People", "Licenses held", "Licenses used (30 days)", "Unused licenses", "Light users", "Heavy demand", "Suggested change in licenses", "Monthly effect"],
+            Headers = ["Department", "People", "Licenses held", "Licenses used, last 30 days", "Unused licenses", "Light users", "Heavy demand", "Suggested change in licenses", "Monthly effect"],
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7, 8 },
         };
         foreach (var r in shown)
