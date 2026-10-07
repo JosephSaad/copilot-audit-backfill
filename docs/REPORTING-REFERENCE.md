@@ -2,9 +2,9 @@
 
 Everything a team needs to build its own reports on the Copilot audit databases, in Grafana or any other tool that reads SQL Server: what the databases hold, how each table is created and filled, what every column means, how the figures are defined, queries to start from, and the full text of the scripts that create the schema.
 
-**[REPORTING.md](REPORTING.md) is the brief version** of this document, about ten pages. Read it first. It names the section here that continues each of its own.
+**[REPORTING.md](REPORTING.md) is the brief version** of this document, about ten pages. Read it first. It names the section here that continues each of its own. Both are also Word documents, beside these files: `REPORTING.docx` and `REPORTING-REFERENCE.docx`.
 
-Written for release 2.5.9, and current for 2.6.0. The SQL in Part A was run against a demo database of that release, as a member of the reporting role, with Grafana's macros replaced by fixed dates. It was not run inside Grafana: check the Grafana settings and macros against your version.
+Written for release 2.6.1. The SQL in Part A was run against a demo database of that release, as a member of the reporting role, with Grafana's macros replaced by fixed dates. It was not run inside Grafana: check the Grafana settings and macros against your version.
 
 ## How this document is laid out
 
@@ -1257,7 +1257,7 @@ Every object, by layer. Part B has each one's columns.
 |---|---|
 | `CopilotBackfillRange` | One row: the range this database holds. |
 | `CopilotBackfillWindow`, `CopilotAuditStage` | The first load's search windows and downloaded rows. |
-| `CopilotLoad` | One row per nightly load: its range, when it was merged, how many records were new. |
+| `CopilotLoad` | One row per nightly load: its range, when it was merged, how many records were new, and, from 2.6.0, how many audit searches it took and how many of them had to be resubmitted (`Searches`, `SearchesResubmitted`). |
 | `CopilotLoadWindow`, `CopilotLoadStage` | The load in progress. Emptied after each merge. |
 | `PipelineSetting` | Settings and marks the procedures read: the reporting time zone, privacy mode, and the marks long jobs leave. |
 | `PipelineRun`, `PipelineRunStep` | One row per nightly run and per step: status, the step that failed, the log's last lines. |

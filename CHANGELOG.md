@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.1] - 2026-10-07
+
+The two reporting guides as Word documents, and both guides brought up to this release. Nothing in the scripts, the
+databases or the dashboard changes.
+
+To upgrade from 2.6.0: nothing to run. The job server's scripts, the SQL scripts and the dashboard package are those
+of 2.6.0. The Word documents are attached to the release, and are in the source zip's `docs` folder.
+
+### Added
+- **`docs/REPORTING.docx` and `docs/REPORTING-REFERENCE.docx`**: the brief guide (9 pages) and the reference (about 250)
+  as Word documents, to hand to a reporting team that does not read the repository. US Letter; the headings are
+  Word's own, so the Navigation pane lists them; a table's heading row repeats on each page; the scripts are set in
+  a monospace block. Both are attached to the release as files of their own.
+- **`tools/dev/schema/build_docx.py`** writes them from the Markdown (it needs `python-docx`), and the release
+  checklist says to run it whenever a guide changes.
+
+### Changed
+- **Both guides are written for this release.** The reference's column tables and script text already followed 2.6.0
+  (the two columns of `audit.CopilotLoad`, the load procedure); its guide now says what those columns hold, and both
+  say where the Word versions are. Every `sql` block of both was run again, against a demo database of this release
+  as a member of `CopilotReporting`: 63 blocks, none with an error.
+
+### Known limits
+- **The Word documents were checked by opening them in Word and reading them back, not page by page**: their
+  headings, tables, lists and code blocks are all there and no Markdown is left in the text. A link is its text,
+  not a link.
+- **Nothing in CI reads a Word file**, so the two can fall behind the Markdown if the checklist step is missed. The
+  Markdown guides are the ones the build keeps true to the scripts.
+- The guides' SQL was not run inside Grafana, as in 2.5.9.
+- **Not run for this release, as nothing they check changed:** the layout audit of the dashboard's pages, and the
+  Power BI model.
+
 ## [2.6.0] - 2026-10-07
 
 Two new Leadership reports, one to set two managers' teams side by side and one that gathers what the other reports
