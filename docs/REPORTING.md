@@ -2,9 +2,9 @@
 
 For a team building its own reports on the Copilot audit databases, in Grafana or any other tool that reads SQL Server. It says what is in the databases, which objects to read, how to join them, how the main figures are defined, and how to set Grafana up.
 
-This is the short version, about ten pages. **[REPORTING-REFERENCE.md](REPORTING-REFERENCE.md) is the detailed one**: every table and view column by column, how each is filled, more queries, and the full text of the SQL and PowerShell scripts that create the schema. Each section below names the part of the reference that continues it.
+This is the short version, about ten pages. **[REPORTING-REFERENCE.md](REPORTING-REFERENCE.md) is the detailed one**: every table and view column by column, how each is filled, more queries, and the full text of the SQL and PowerShell scripts that create the schema. Each section below names the part of the reference that continues it. Both are also Word documents, beside these files: `REPORTING.docx` and `REPORTING-REFERENCE.docx`.
 
-Written for release 2.5.9, and current for 2.6.0. The SQL here was run against a demo database of that release, with Grafana's macros replaced by fixed dates. It was not run inside Grafana.
+Written for release 2.6.1. The SQL here was run against a demo database of that release, with Grafana's macros replaced by fixed dates. It was not run inside Grafana.
 
 ## Contents
 
@@ -38,7 +38,7 @@ The Copilot database has three schemas, one per layer:
 | `bi` | A star schema: narrow fact tables with integer keys, small dimensions, and a view over each. | **Yes. The `bi` views are the reporting interface.** |
 | `dash` | What the Copilot Insights web dashboard keeps for itself: its settings, roles, org chart, daily rollups and the agent inventory. | Not by default. See section 12. |
 
-In numbers, release 2.5.9 creates 95 tables and 37 views. A report needs 26 of them: the views in `bi`.
+In numbers, release 2.6.1 creates 95 tables and 37 views. A report needs 26 of them: the views in `bi`.
 
 **What a record is.** One audit record is one Copilot interaction: a person's prompt and Copilot's response, in one app, at one moment. It says who, when, which app, which agent and model, what Copilot read to answer (files, mail, sites, web searches), and what the safety checks found. **It does not contain the prompt or the response text.** No table here has them.
 

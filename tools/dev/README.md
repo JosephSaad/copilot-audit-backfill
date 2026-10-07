@@ -7,6 +7,7 @@ These tools are for whoever builds a release. They are not deployed and nothing 
 | `ui/ui_audit.py` | Opens every dashboard page in headless Edge at 1440 and 1024 pixels wide and reports layout faults: text that is clipped or spills out of its box, chart labels that overlap or fall outside the chart, text cut short with an ellipsis and no hover text, links and buttons with no space between them, overlapping boxes, chart text outside 9–16px, and horizontal page scroll. It writes `ui/ui-audit/report.json` and a screenshot of each page that has an issue. It exits with code 1 if it finds anything. |
 | `schema/extract.ps1`, `schema/scripts.py`, `schema/build.py`, `schema/build_md.py` | Regenerate [docs/SCHEMA.md](../../docs/SCHEMA.md). They combine an installed database's real columns, types, keys and indexes with the column comments in `sql/` and the descriptions in `build.py`. `build.py` also writes an HTML version to `schema/out/`. |
 
+| `schema/build_docx.py` | Writes the Word versions of the two reporting guides, `docs/REPORTING.docx` and `docs/REPORTING-REFERENCE.docx`, from their Markdown. Needs `python-docx`. |
 | `schema/Build-ReportingReference.ps1` | Fills the two generated parts of [docs/REPORTING-REFERENCE.md](../../docs/REPORTING-REFERENCE.md): the column reference, copied from `docs/SCHEMA.md`, and the full text of the scripts that create and fill the schema. `-Check` writes nothing and exits 1 when the document is behind. |
 
 The first two are also run by hand: CI has no dashboard or Edge to audit, and no installed database to read. The third needs neither, and CI runs its check (`tests/Test-ReportingReference.ps1`).
@@ -66,7 +67,8 @@ pwsh tools/dev/schema/Build-ReportingReference.ps1
 1. **Run it after `docs/SCHEMA.md` or any script in its list changed**, and commit the result. `tests/Test-ReportingReference.ps1` fails until you do.
 2. **When a script is new in `sql/`,** add it to the list at the top of the tool, with a line on what it is for. The tool stops and names a script that is missing.
 3. **When a view is new in `bi`,** describe it under its own heading in the reference's section 6 and name it in the brief guide. The test names a view that is in neither.
-4. **Run the guides' queries again when a `bi` view changed.** Every `sql` block of both guides ran against the demo database as a member of `CopilotReporting`, with `$__timeFrom()`, `$__timeTo()` and `'$tz'` replaced by fixed values. CI has no database to do this.
+4. **Write the Word versions again whenever either guide changed**, after the step above, and commit them: `pip install python-docx`, then `python tools/dev/schema/build_docx.py` writes `docs/REPORTING.docx` and `docs/REPORTING-REFERENCE.docx`. Open both in Word and look through them: nothing in CI reads a Word file.
+5. **Run the guides' queries again when a `bi` view changed.** Every `sql` block of both guides ran against the demo database as a member of `CopilotReporting`, with `$__timeFrom()`, `$__timeTo()` and `'$tz'` replaced by fixed values. CI has no database to do this.
 
 ## Release checklist
 
@@ -87,7 +89,7 @@ Work through every step, in this order, before tagging.
    1. Run `python powerbi/generate_model.py`.
    2. Open the project in Power BI Desktop and refresh it against the demo database.
    3. Check that its measures match the dashboard's figures.
-7. **Schema reference.** Regenerate `docs/SCHEMA.md` as described above whenever a table, view or column changed. Then run `schema/Build-ReportingReference.ps1`, whenever `docs/SCHEMA.md` or a script changed.
+7. **Schema reference.** Regenerate `docs/SCHEMA.md` as described above whenever a table, view or column changed. Then run `schema/Build-ReportingReference.ps1`, whenever `docs/SCHEMA.md` or a script changed, and `schema/build_docx.py` after it.
 8. **Guides.** Update every guide the release affects:
    - `docs/OPERATIONS.md`, for every new Admin page or task (`Test-OperationsGuide.ps1` checks the pages);
    - `docs/DASHBOARD.md`;

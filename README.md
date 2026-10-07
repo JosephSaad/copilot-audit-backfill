@@ -350,6 +350,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `dashboard/CopilotInsights.Tests/` | The dashboard's unit tests. |
 | `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each. |
 | `docs/REPORTING.md` | Reporting on the data with Grafana or another SQL tool, in brief: the `bi` views, access, the figures, the Grafana setup and queries to start from (2.5.9). |
+| `docs/REPORTING.docx`, `docs/REPORTING-REFERENCE.docx` | The two reporting guides as Word documents, to hand to a team outside the repository (2.6.1). Made from the Markdown by `tools/dev/schema/build_docx.py`. |
 | `docs/REPORTING-REFERENCE.md` | The same in full: how the schema is created and filled, every reporting view column by column, each figure as SQL, every table and view, and the text of the scripts that create them (2.5.9). |
 | `docs/DASHBOARD.md` | The dashboard: pages by persona, who sees what, install on IIS, the first administrator. |
 | `docs/DEPLOYMENT.md` | Step-by-step deployment: app registration, SQL Server, history load, directory and licenses, the nightly job, Power BI and Copilot. |
