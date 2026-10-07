@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Leadership › Compare two teams.** Two managers' teams side by side, each manager with everyone under them, over
+  the same period: people, Premium license holders, adoption, the share using Copilot and active in the last 7 days,
+  interactions and days active per active person, prompts per session and sessions with a follow-up, each with the
+  difference between the two (in percentage points for a share); both teams' share of people using Copilot and
+  interactions per person over time; and each app's share of each team's use. The managers are chosen by name from
+  a list of those in the viewer's part of the organization, or by sign-in. The rules that decide whose part of the
+  organization a viewer may open decide it here: a manager outside the viewer's part, a team with fewer enabled
+  people than the minimum group size, and any team in privacy mode are not shown. Nothing in the database changes.
 ## [2.5.9] - 2026-10-07
 
 Two guides for a team that builds its own reports on the databases, in Grafana or any other tool that reads SQL
