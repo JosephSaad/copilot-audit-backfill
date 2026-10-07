@@ -15,6 +15,7 @@ public static class Guidance
     {
         // Leadership
         ["/leadership"] = new("Answer \"is Copilot working here?\" in one screen.", "Look at the units with low use, and ask their leads what is in the way."),
+        ["/leadership/act"] = new("See what needs doing without opening every report.", "Take the largest count first, and open the report beside it for the detail."),
         ["/leadership/scorecard"] = new("See what moved since the last period, and where, with Premium and free-only adoption.", "Raise the largest drops; send units high on free-only use to Better on pay-as-you-go."),
         ["/leadership/org"] = new("Compare the parts of the organization side by side.", "Open the weakest unit to find the team behind it."),
         ["/leadership/compare"] = new("Set two managers' teams side by side, whatever their size.", "Ask the lead of the team ahead what they did, and share it with the other."),

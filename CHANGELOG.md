@@ -15,6 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a list of those in the viewer's part of the organization, or by sign-in. The rules that decide whose part of the
   organization a viewer may open decide it here: a manager outside the viewer's part, a team with fewer enabled
   people than the minimum group size, and any team in privacy mode are not shown. Nothing in the database changes.
+- **Leadership › What to act on.** What the other reports say to do, as one list of counts for the viewer's part of
+  the organization: license holders with no licensed use in the last 30 days, license holders to train, regular
+  users of the free Copilot Chat ready for a license, Copilot licenses on non-human accounts, parts of the
+  organization more than 10 points under the adoption around them (the lowest three named), adoption targets
+  behind or missed, and, for holders of the Security role, jailbreak attempts and prompt injections. Each finding
+  says why it matters and links to the report with the detail; a report the viewer cannot open is named with the
+  role it needs. A finding with nothing to report is left out. No one is named.
 ### Changed
 - **Two reports joined the page beside them**, so each subject is on one page. Nothing they showed is lost, and an
   old address or bookmark to either is answered *Page not found*, with the reports nearest to it.

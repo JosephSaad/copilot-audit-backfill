@@ -24,6 +24,18 @@ public class CompareTeamsTests
         Assert.NotNull(Guidance.For("/leadership/compare"));
     }
 
+    [Fact]
+    public void What_to_act_on_follows_the_Overview_and_names_no_one()
+    {
+        var leadership = Nav.Groups.Single(g => g.Persona == "Leadership");
+        var titles = leadership.Pages.Select(p => p.Title).ToList();
+        Assert.Equal(titles.IndexOf("Overview") + 1, titles.IndexOf("What to act on"));
+        var page = leadership.Pages.Single(p => p.Path == "/leadership/act");
+        Assert.Null(page.Role);   // counts only: the names stay on the reports it links to
+        Assert.NotNull(Guidance.For("/leadership/act"));
+        Assert.NotNull(NavText.What(page));
+    }
+
     [Theory]
     [InlineData(12, "#,0", "+12")]
     [InlineData(-3, "#,0", "-3")]

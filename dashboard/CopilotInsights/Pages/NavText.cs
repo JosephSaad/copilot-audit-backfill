@@ -30,6 +30,7 @@ public static class NavText
     static readonly Dictionary<string, (string What, string? Heading)> Text = new(StringComparer.OrdinalIgnoreCase)
     {
         ["/leadership"] = ("Is Copilot being used, by how many of the people who have it, and where.", "At a glance"),
+        ["/leadership/act"] = ("What the other reports say to do: each finding, how many, and where the detail is.", "At a glance"),
         ["/leadership/scorecard"] = ("This period against the one before: what moved, and in which part of the organization.", "At a glance"),
         ["/leadership/org"] = ("Each part of the organization one level below, side by side.", "At a glance"),
         ["/leadership/compare"] = ("Two managers' teams side by side: adoption, use, depth and apps, over the same period.", "At a glance"),
