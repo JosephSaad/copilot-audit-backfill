@@ -4,7 +4,7 @@ For a team building its own reports on the Copilot audit databases, in Grafana o
 
 This is the short version, about ten pages. **[REPORTING-REFERENCE.md](REPORTING-REFERENCE.md) is the detailed one**: every table and view column by column, how each is filled, more queries, and the full text of the SQL and PowerShell scripts that create the schema. Each section below names the part of the reference that continues it.
 
-Written for release 2.5.9. The SQL here was run against a demo database of that release, with Grafana's macros replaced by fixed dates. It was not run inside Grafana.
+Written for release 2.5.9, and current for 2.6.0. The SQL here was run against a demo database of that release, with Grafana's macros replaced by fixed dates. It was not run inside Grafana.
 
 ## Contents
 
