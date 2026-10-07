@@ -93,9 +93,10 @@ ORDER BY p.PeopleBelow DESC, p.DisplayName;", Ctx.Args());
         Number("Days active per active person", Ratio(A.T.ActiveDays, A.T.Active), Ratio(B.T.ActiveDays, B.T.Active), "#,0.0");
         Number("Prompts per session", Ratio(A.T.Prompts, A.T.Sessions), Ratio(B.T.Prompts, B.T.Sessions), "#,0.0");
         Share("Sessions with a follow-up", Ratio(A.T.MultiTurn, A.T.Sessions), Ratio(B.T.MultiTurn, B.T.Sessions));
+        CsvTable = t;
         Panels.Add(new("Side by side", t.Render(),
-            $"{A.Name}'s team against {B.Name}'s, {Ctx.PeriodLabel}. Difference is the first team less the second: in percentage points for a share, in the measure's own unit otherwise. " +
-            $"People counts enabled accounts. Adoption is shown where a team has at least {Ctx.MinGroupSize} license holders. A person in both teams counts in each."));
+            $"{A.Name}'s team against {B.Name}'s, {Ctx.PeriodLabel}. Difference is the first team against the second: in percentage points for a share, in the measure's own unit otherwise. " +
+            $"People counts enabled accounts. Adoption is shown where a team has at least {Ctx.MinGroupSize} license holders. A person in both teams counts in each.", "full", CsvUrl()));
 
         var x = Labels();
         Panels.Add(new("Share of people who used Copilot",
@@ -126,7 +127,7 @@ ORDER BY p.PeopleBelow DESC, p.DisplayName;", Ctx.Args());
                 apps.Rows.Add([n, sa is null ? null : Pct(sa), sb is null ? null : Pct(sb), sa is null || sb is null ? null : Points(sa.Value - sb.Value)]);
             }
             Panels.Add(new("Where each team uses Copilot", apps.Render(),
-                "Each app's share of the team's interactions in the period: the eight busiest apps of the two teams together. Difference is in percentage points, the first team less the second."));
+                "Each app's share of the team's interactions in the period: the eight busiest apps of the two teams together. Difference is in percentage points, the first team against the second."));
         }
     }
 
@@ -167,13 +168,16 @@ GROUP BY a.App;", c.Args())).ToDictionary(r => r.App, r => r.N, StringComparer.O
 
     static string Html(Microsoft.AspNetCore.Html.IHtmlContent h) => h is HtmlString hs ? hs.Value ?? "" : h.ToString() ?? "";
 
-    /// <summary>A difference with its sign: "+12", "-3.5", and "0" for none.</summary>
-    public static string Signed(double v, string format = "#,0")
+    /// <summary>
+    /// A difference in words, the first team against the second: "12 more", "3.5 fewer", and "the same" for none. Words,
+    /// not a sign: "+12" in a downloaded file is read by a spreadsheet as a formula.
+    /// </summary>
+    public static string Signed(double v, string format = "#,0", string more = "more", string fewer = "fewer")
     {
         var text = Math.Abs(v).ToString(format);
-        return text.Trim('0', '.', ',').Length == 0 ? "0" : (v > 0 ? "+" : "-") + text;
+        return text.Trim('0', '.', ',').Length == 0 ? "the same" : $"{text} {(v > 0 ? more : fewer)}";
     }
 
-    /// <summary>A difference between two shares, in percentage points: "+4.2 pts".</summary>
-    public static string Points(double v) => Signed(v * 100, "#,0.0") + " pts";
+    /// <summary>A difference between two shares, in percentage points: "4.2 points higher".</summary>
+    public static string Points(double v) => Signed(v * 100, "#,0.0", "points higher", "points lower");
 }

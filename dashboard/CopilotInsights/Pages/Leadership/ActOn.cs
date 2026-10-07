@@ -74,8 +74,9 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
                 "Each is flagged by Microsoft in the audit record, and waits for triage.", "/security/flags");
         }
 
+        CsvTable = t;
         Panels.Add(new("Findings", t.Render(),
             $"For {Here}. The three license findings look at the last 30 days whatever the period chosen, as Forecasting › Upgrade, train or revoke does; the rest follow the period, {Ctx.PeriodLabel}. " +
-            "A finding with nothing to report is left out. A report you cannot open is named with the role it needs."));
+            "A finding with nothing to report is left out. A report you cannot open is named with the role it needs.", "full", CsvUrl()));
     }
 }

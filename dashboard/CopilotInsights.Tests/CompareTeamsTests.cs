@@ -37,18 +37,18 @@ public class CompareTeamsTests
     }
 
     [Theory]
-    [InlineData(12, "#,0", "+12")]
-    [InlineData(-3, "#,0", "-3")]
-    [InlineData(0, "#,0", "0")]
-    [InlineData(0.04, "#,0.0", "0")]        // rounds to nothing: no sign on a zero
-    [InlineData(-1234.5, "#,0.0", "-1,234.5")]
-    public void A_difference_carries_its_sign_and_a_zero_has_none(double value, string format, string expected) =>
+    [InlineData(12, "#,0", "12 more")]
+    [InlineData(-3, "#,0", "3 fewer")]
+    [InlineData(0, "#,0", "the same")]
+    [InlineData(0.04, "#,0.0", "the same")]        // rounds to nothing
+    [InlineData(-1234.5, "#,0.0", "1,234.5 fewer")]
+    public void A_difference_says_which_way_in_words_so_a_spreadsheet_reads_no_formula(double value, string format, string expected) =>
         Assert.Equal(expected, CompareModel.Signed(value, format));
 
     [Theory]
-    [InlineData(0.042, "+4.2 pts")]
-    [InlineData(-0.1, "-10.0 pts")]
-    [InlineData(0.0004, "0 pts")]
+    [InlineData(0.042, "4.2 points higher")]
+    [InlineData(-0.1, "10.0 points lower")]
+    [InlineData(0.0004, "the same")]
     public void A_difference_between_two_shares_is_in_percentage_points(double value, string expected) =>
         Assert.Equal(expected, CompareModel.Points(value));
 }
