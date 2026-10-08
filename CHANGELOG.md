@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **One country showed as several where the directory spells it several ways.** A client's Regions › Countries and
+  offices had *USA*, *United States* and *United States of America (the)* as three countries, each with its own
+  adoption. The directory load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) now gives a country one name however
+  Active Directory spells it: its two- or three-letter ISO code, its English name, that name with *(the)* after it
+  or turned round as ISO's own list writes it (*Korea, Republic of*), with dots or in any case (*U.S.A.*, *usa*),
+  and spellings in common use (*UK*, *Great Britain*, *Holland*, *Viet Nam*). The name is the English one a
+  two-letter code already got (*United States*, *United Kingdom*). A value that names no country known is loaded as
+  it is. Every report, the Power BI model and the `bi.Users` view read the loaded name, so all of them count the
+  country once from the night after the upgrade; nothing is rebuilt and no table changes.
+
+### Added
+- **`CountryNames` in `copilot-audit.settings.psd1`** (`-CountryNames` on the directory load): your own names,
+  spelling = name, on top of the ones the script knows. A name given there wins, and reaches the script's own name
+  for a country too: `'United States' = 'USA'` makes every spelling of it *USA*.
+- **The directory load's log lists what it renamed**, with how many people each: *Countries given one name: USA ->
+  United States (4,120); United States of America (the) -> United States (212)*.
 ## [2.6.1] - 2026-10-07
 
 The two reporting guides as Word documents, and both guides brought up to this release. Nothing in the scripts, the

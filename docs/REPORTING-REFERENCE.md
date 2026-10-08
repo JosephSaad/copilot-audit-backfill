@@ -12976,7 +12976,7 @@ GO
 
 ### C.20 `Invoke-CopilotPipeline.ps1`
 
-The nightly run and the first load of history: the order in which every table is filled. 402 lines.
+The nightly run and the first load of history: the order in which every table is filled. 403 lines.
 
 ```powershell
 <#
@@ -13138,6 +13138,7 @@ function Get-PipelineStep {
             $a = $sql + @{ Database = $Setting.Database; TargetDomain = $Setting.TargetDomain }
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
             if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # 2.5.0: where the department is
+            if (Has 'CountryNames') { $a.CountryNames = $Setting.CountryNames }   # the administrator's own names for countries
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' $a
         }
     }

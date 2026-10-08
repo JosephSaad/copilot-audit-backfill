@@ -19,7 +19,10 @@
 
     Department is read from -DepartmentAttribute (default: department), and
     Country from co, else the English name of the two-letter code in c, so a
-    directory that sets only c reads like one that sets co (2.5.0).
+    directory that sets only c reads like one that sets co (2.5.0). A country
+    is then given one name however the directory spells it: USA, U.S.A.,
+    United States and "United States of America (the)" are all United States,
+    so the reports count them as one country (see -CountryNames).
 
     Needs no Microsoft Graph permission. The AD bind uses the identity running
     the script, over the domain trust (no credentials); SQL uses the same
@@ -60,6 +63,15 @@
     Set DepartmentAttribute the same in copilot-audit.settings.psd1 so the
     nightly run agrees. A department is kept to 200 characters.
 
+.PARAMETER CountryNames
+    Your own names for countries, as spelling = name, on top of the ones the
+    script knows: @{ 'Britain' = 'United Kingdom'; 'United States' = 'USA' }.
+    The spelling is matched whatever its case, dots or a trailing "(the)". A
+    name given here wins, and is applied to the script's own name for a
+    country too: 'United States' = 'USA' makes every spelling of it USA. Set
+    CountryNames the same in copilot-audit.settings.psd1 so the nightly run
+    agrees.
+
 .EXAMPLE
     .\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain trusted.example.com `
         -SqlServer SQLPROD01 -Database CopilotAudit
@@ -87,7 +99,9 @@ param(
 
     [ValidateNotNullOrEmpty()]
     [ValidatePattern('^[A-Za-z][A-Za-z0-9-]*$')]
-    [string[]] $DepartmentAttribute = @('department')
+    [string[]] $DepartmentAttribute = @('department'),
+
+    [hashtable] $CountryNames = @{}
 )
 
 Set-StrictMode -Version Latest
@@ -117,7 +131,7 @@ function Get-DirectoryEntry {
         Returns plain objects, so everything after this can be tested without
         a directory.
     #>
-    param([Parameter(Mandatory)][string] $Domain, [string[]] $DepartmentAttribute = @('department'))
+    param([Parameter(Mandatory)][string] $Domain, [string[]] $DepartmentAttribute = @('department'), [hashtable] $CountryNames = @{})
 
     $current = $env:USERDNSDOMAIN
     if ($current -and ($Domain -ieq $current)) {
@@ -142,7 +156,7 @@ function Get-DirectoryEntry {
     $all = [System.Collections.Generic.List[object]]::new(100000)
     $results = $searcher.FindAll()
     try {
-        foreach ($r in $results) { $all.Add((ConvertTo-DirectoryEntry -Properties $r.Properties -DepartmentAttribute $DepartmentAttribute)) }
+        foreach ($r in $results) { $all.Add((ConvertTo-DirectoryEntry -Properties $r.Properties -DepartmentAttribute $DepartmentAttribute -CountryNames $CountryNames)) }
     }
     finally { $results.Dispose() }
     return , $all
@@ -176,6 +190,80 @@ function ConvertFrom-CountryCode {
     catch { $c }
 }
 
+<#
+    Spellings of a country in common use that are neither its English name nor an ISO code, as the ISO 3166
+    two-letter code of the country they mean. Keys are as Get-CountryKey leaves a spelling: lower case, no dots,
+    no "(the)". The name shown is .NET's English name for that code, the one a two-letter code in c already gets.
+#>
+$script:CountryAliases = @{
+    'united states of america' = 'US'; 'america' = 'US'; 'us of a' = 'US'
+    'uk' = 'GB'; 'great britain' = 'GB'; 'britain' = 'GB'; 'united kingdom of great britain and northern ireland' = 'GB'
+    'republic of korea' = 'KR'; 'korea, republic of' = 'KR'; 'korea (republic of)' = 'KR'; 'south korea' = 'KR'; 'korea' = 'KR'
+    'russian federation' = 'RU'; 'russia' = 'RU'
+    'viet nam' = 'VN'; 'vietnam' = 'VN'
+    'czech republic' = 'CZ'; 'czechia' = 'CZ'
+    'uae' = 'AE'; 'holland' = 'NL'; 'netherlands' = 'NL'
+    'turkey' = 'TR'; 'turkiye' = 'TR'
+    'hong kong' = 'HK'; 'hong kong sar' = 'HK'; 'hong kong sar china' = 'HK'; 'macao' = 'MO'; 'macau' = 'MO'
+    'taiwan' = 'TW'; 'taiwan, province of china' = 'TW'
+    'china' = 'CN'; 'prc' = 'CN'; 'peoples republic of china' = 'CN'
+    'iran' = 'IR'; 'iran, islamic republic of' = 'IR'; 'iran (islamic republic of)' = 'IR'
+    'ivory coast' = 'CI'; 'republic of ireland' = 'IE'; 'eire' = 'IE'
+    'brasil' = 'BR'; 'deutschland' = 'DE'; 'espana' = 'ES'; 'mexico' = 'MX'
+}
+$script:CountryLookup = $null   # filled on first use: an English name or a three-letter code, as its two-letter code
+$script:CountryRenamed = @{}    # what this run renamed, as "spelling -> name" = how many people, for the log
+
+function Get-CountryKey {
+    <# A spelling as it is matched: lower case, accents and dots dropped, no "(the)" or ", the" at its end, no "the " at its start, one space between words. #>
+    param([string] $Value)
+    $k = $Value.Trim().ToLowerInvariant().Normalize([System.Text.NormalizationForm]::FormD)
+    $k = -join ($k.ToCharArray() | Where-Object { [System.Globalization.CharUnicodeInfo]::GetUnicodeCategory($_) -ne [System.Globalization.UnicodeCategory]::NonSpacingMark })
+    $k = $k.Replace('.', '').Replace([string] [char] 0x2019, '').Replace("'", '')
+    $k = $k -replace '\s*\(the\)\s*$', '' -replace ',\s*the\s*$', '' -replace '^the\s+', ''
+    ($k -replace '\s+', ' ').Trim()
+}
+
+function ConvertTo-CountryName {
+    <#
+        One name for a country however the directory spells it: its two- or three-letter ISO code, its English name,
+        that name with "(the)" after it as ISO's own list writes it, or a spelling in $script:CountryAliases. The
+        name is .NET's English name for the country ("United States", "United Kingdom"). -Names is the
+        administrator's own list, spelling = name: it wins, and is applied to the name found here too. A value that
+        names no country known here stays as it is, trimmed; blank is $null. Pure, for the tests.
+    #>
+    param([AllowNull()][AllowEmptyString()][string] $Value, [hashtable] $Names = @{})
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $null }
+    $raw = $Value.Trim()
+    $key = Get-CountryKey $raw
+    $own = @{}
+    foreach ($n in $Names.Keys) { if (-not [string]::IsNullOrWhiteSpace("$($Names[$n])")) { $own[(Get-CountryKey "$n")] = "$($Names[$n])".Trim() } }
+    if ($own.ContainsKey($key)) { return $own[$key] }
+
+    if ($null -eq $script:CountryLookup) {
+        $lookup = @{}
+        foreach ($culture in [System.Globalization.CultureInfo]::GetCultures([System.Globalization.CultureTypes]::SpecificCultures)) {
+            try { $r = [System.Globalization.RegionInfo]::new($culture.Name) } catch { continue }
+            if ($r.TwoLetterISORegionName -notmatch '^[A-Z]{2}$') { continue }
+            $lookup[(Get-CountryKey $r.EnglishName)] = $r.TwoLetterISORegionName
+            if ($r.ThreeLetterISORegionName -match '^[A-Z]{3}$') { $lookup[$r.ThreeLetterISORegionName.ToLowerInvariant()] = $r.TwoLetterISORegionName }
+        }
+        $script:CountryLookup = $lookup
+    }
+    # A spelling in common use first: UK is two letters and is not the ISO code, which is GB.
+    $code = if ($script:CountryAliases.ContainsKey($key)) { $script:CountryAliases[$key] }
+            elseif ($key -match '^[a-z]{2}$') { $key.ToUpperInvariant() }
+            elseif ($script:CountryLookup.ContainsKey($key)) { $script:CountryLookup[$key] }
+            else { $null }
+    $name = $raw
+    if ($code) {
+        try { $english = [System.Globalization.RegionInfo]::new($code).EnglishName; if ($english) { $name = $english } } catch { $name = $raw }
+    }
+    $nameKey = Get-CountryKey $name
+    if ($own.ContainsKey($nameKey)) { $name = $own[$nameKey] }
+    $name
+}
+
 function ConvertTo-DirectoryEntry {
     <#
         One search result's properties as the plain object the rest of the script reads. Pure: the properties are
@@ -183,9 +271,10 @@ function ConvertTo-DirectoryEntry {
         need no directory.
 
         Department is the first of -DepartmentAttribute that has a value (2.5.0). Country is co, else the English
-        name of c, AD's two-letter code, so a directory that sets only c reads like one that sets co.
+        name of c, AD's two-letter code, so a directory that sets only c reads like one that sets co; then one
+        name for the country however it is spelled (ConvertTo-CountryName), counted in $script:CountryRenamed.
     #>
-    param([Parameter(Mandatory)] $Properties, [string[]] $DepartmentAttribute = @('department'))
+    param([Parameter(Mandatory)] $Properties, [string[]] $DepartmentAttribute = @('department'), [hashtable] $CountryNames = @{})
     $p = $Properties
     $dept = $null
     foreach ($a in $DepartmentAttribute) {
@@ -193,6 +282,11 @@ function ConvertTo-DirectoryEntry {
         if (-not [string]::IsNullOrWhiteSpace($v)) { $dept = $v; break }
     }
     $co = Get-DirectoryValue $p 'co'
+    $spelled = if ([string]::IsNullOrWhiteSpace($co)) { ConvertFrom-CountryCode (Get-DirectoryValue $p 'c') } else { "$co".Trim() }
+    $country = ConvertTo-CountryName $spelled -Names $CountryNames
+    if ($country -and $spelled -and $country -cne $spelled) {
+        $script:CountryRenamed["$spelled -> $country"] = 1 + [int] $script:CountryRenamed["$spelled -> $country"]
+    }
     [pscustomobject]@{
         dn      = Get-DirectoryValue $p 'distinguishedname'
         upn     = Get-DirectoryValue $p 'userprincipalname'
@@ -203,7 +297,7 @@ function ConvertTo-DirectoryEntry {
         div     = Get-DirectoryValue $p 'division'
         off     = Get-DirectoryValue $p 'physicaldeliveryofficename'
         city    = Get-DirectoryValue $p 'l'
-        country = $(if ([string]::IsNullOrWhiteSpace($co)) { ConvertFrom-CountryCode (Get-DirectoryValue $p 'c') } else { $co })
+        country = $country
         company = Get-DirectoryValue $p 'company'
         etype   = Get-DirectoryValue $p 'employeetype'
         mgr     = Get-DirectoryValue $p 'manager'
@@ -574,8 +668,14 @@ function Invoke-Main {
     $connStr = New-DirectoryConnectionString
 
     Write-Log "Reading users from $TargetDomain (department from $($DepartmentAttribute -join ', then '))..."
-    $entries = Get-DirectoryEntry -Domain $TargetDomain -DepartmentAttribute $DepartmentAttribute
+    $script:CountryRenamed = @{}
+    $entries = Get-DirectoryEntry -Domain $TargetDomain -DepartmentAttribute $DepartmentAttribute -CountryNames $CountryNames
     Write-Log ("{0:N0} user object(s) read." -f $entries.Count)
+    # Said each night, so a spelling nobody expected to be changed is seen, and one that was missed is not in the list.
+    if ($script:CountryRenamed.Count -gt 0) {
+        $renamed = @($script:CountryRenamed.GetEnumerator() | Sort-Object Value -Descending | ForEach-Object { "$($_.Key) ($($_.Value.ToString('N0')))" })
+        Write-Log ("Countries given one name: {0}{1}. To name one differently, set CountryNames in copilot-audit.settings.psd1." -f (($renamed | Select-Object -First 25) -join '; '), $(if ($renamed.Count -gt 25) { "; and $($renamed.Count - 25) more" } else { '' }))
+    }
 
     $rows = ConvertTo-UserDirectoryTable -Entries $entries -MaxLevels $MaxLevels -EmployeeTypeMap $EmployeeTypeMap `
                                          -EmployeeTypes $EmployeeTypes
