@@ -158,7 +158,7 @@ Assert-That ((Get-Entry @{ extensionattribute3 = 'Risk' } 'extensionAttribute3')
 
 # Country: co, else the English name of the two-letter code in c.
 Assert-That ((Get-Entry @{ c = 'CA' }).country -eq 'Canada') 'with only c, the country is its English name (CA is Canada)'
-Assert-That ((Get-Entry @{ co = 'Great Britain'; c = 'GB' }).country -eq 'Great Britain') 'co wins over c'
+Assert-That ((Get-Entry @{ co = 'Atlantis'; c = 'GB' }).country -eq 'Atlantis') 'co wins over c'
 Assert-That ((Get-Entry @{ co = '  '; c = 'GB' }).country -eq 'United Kingdom') 'a blank co falls back to c'
 Assert-That ($null -eq (Get-Entry @{ company = 'x' }).country) 'neither co nor c gives no country'
 Assert-That ((ConvertFrom-CountryCode 'ca') -eq 'Canada' -and (ConvertFrom-CountryCode ' GB ') -eq 'United Kingdom') 'a code in any case, with spaces round it'
@@ -188,6 +188,30 @@ $pattern = @($cmd.Parameters['DepartmentAttribute'].Attributes | Where-Object { 
 Assert-That (@('pncUCustom08', 'department', 'extensionAttribute3', 'x-y' | Where-Object { $_ -notmatch $pattern }).Count -eq 0 -and
              @('bad name', 'a;b', '1abc', '(x)', '*', 'a=b' | Where-Object { $_ -match $pattern }).Count -eq 0) `
     '-DepartmentAttribute accepts attribute names, and not a space, a separator, a leading digit or a filter character'
+# ---------------------------------------------------------------------------
+Write-Host "`n6. One name for a country, however the directory spells it" -ForegroundColor Cyan
+
+# A client's directory had the United States three ways, and the reports showed three countries.
+foreach ($spelling in 'USA', 'United States', 'United States of America (the)', 'U.S.A.', 'us', 'united states of america', '  USA  ') {
+    Assert-That ((ConvertTo-CountryName $spelling) -eq 'United States') "'$spelling' is United States"
+}
+Assert-That ((ConvertTo-CountryName 'UK') -eq 'United Kingdom' -and (ConvertTo-CountryName 'Great Britain') -eq 'United Kingdom' -and (ConvertTo-CountryName 'GBR') -eq 'United Kingdom') `
+    'UK, Great Britain and the three-letter code GBR are United Kingdom'
+Assert-That ((ConvertTo-CountryName 'Netherlands (the)') -eq (ConvertTo-CountryName 'NL') -and (ConvertTo-CountryName 'Korea, Republic of') -eq (ConvertTo-CountryName 'KR')) `
+    'the names ISO''s own list writes, with (the) or turned round, are the country of their code'
+Assert-That ((ConvertTo-CountryName 'Canada') -eq 'Canada' -and (ConvertTo-CountryName 'can') -eq 'Canada' -and (ConvertTo-CountryName 'India') -eq 'India') 'a name already right stays, and a three-letter code is its country'
+Assert-That ((ConvertTo-CountryName 'Atlantis') -eq 'Atlantis' -and (ConvertTo-CountryName ' Head Office ') -eq 'Head Office') 'a value that names no country known here stays as it is, trimmed'
+Assert-That ($null -eq (ConvertTo-CountryName '') -and $null -eq (ConvertTo-CountryName $null) -and $null -eq (ConvertTo-CountryName '   ')) 'blank is nothing'
+# The administrator's own names win, and reach the script's own name for a country too.
+Assert-That ((ConvertTo-CountryName 'usa' -Names @{ 'United States' = 'USA' }) -eq 'USA' -and (ConvertTo-CountryName 'United States of America (the)' -Names @{ 'united states' = 'USA' }) -eq 'USA') `
+    'CountryNames renames a country in every spelling of it'
+Assert-That ((ConvertTo-CountryName 'Atlantis' -Names @{ 'ATLANTIS' = 'Lost' }) -eq 'Lost' -and (ConvertTo-CountryName 'Canada' -Names @{ 'Atlantis' = 'Lost'; 'Nowhere' = '' }) -eq 'Canada') `
+    'CountryNames names a spelling the script does not know, whatever its case, and leaves the others alone'
+$script:CountryRenamed = @{}
+Assert-That ((Get-Entry @{ co = 'USA' }).country -eq 'United States' -and (Get-Entry @{ c = 'us' }).country -eq 'United States' -and (Get-Entry @{ co = 'United States' }).country -eq 'United States') `
+    'co and c both come out as the one name'
+Assert-That ($script:CountryRenamed.Count -eq 1 -and $script:CountryRenamed['USA -> United States'] -eq 1) "each spelling changed is counted for the log, and one already right is not ($(($script:CountryRenamed.Keys | Sort-Object) -join '; '))"
+Assert-That ((ConvertTo-DirectoryEntry -Properties (New-PropertyBag ($person + @{ co = 'usa' })) -CountryNames @{ 'United States' = 'US' }).country -eq 'US') 'an entry takes the names it is given'
 
 Write-Host ''
 if ($script:Failures.Count) { Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red; exit 1 }

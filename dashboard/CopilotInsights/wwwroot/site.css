@@ -390,6 +390,8 @@ form.inline select, form.inline input { font: inherit; font-size: 12px; }
 .rec .big { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .rec p { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
 pre.log { white-space: pre-wrap; max-height: 20em; overflow: auto; font-size: 12px; background: var(--surface); padding: 8px; }
+/* The last test's conversation with the mail server (Admin > Email) is shown whole: the line that failed is its last. */
+pre.log.whole { max-height: none; }
 .tenant { margin-right: 8px; }
 
 /* Sortable column headers (2.4.5): a button in the page, a link for a list paged on the server. */

@@ -186,6 +186,17 @@ $s = @{ SqlServer = 'sql01'; Database = 'CopilotAudit'; LicenseDatabase = 'Copil
         Dashboard = $true; HistoryDays = 90 }
 $today = [datetime]::new(2026, 9, 26, 0, 0, 0, [System.DateTimeKind]::Utc)
 
+# The certificates the run signs in with, for Admin > Health: the audit app's, and the agent workbook app's where it comes from SharePoint Online.
+$one = Get-PipelineCertificateUse $s
+Assert-That ($one.Count -eq 1 -and $one[0].Purpose -eq 'Purview' -and $one[0].Thumbprint -eq 'AB' -and $one[0].ClientId -eq 'c' -and $one[0].TenantId -eq 't') 'with no agent workbook, one certificate is tracked: the audit app''s'
+$two = Get-PipelineCertificateUse ($s + @{ AgentWorkbookSiteUrl = 'https://contoso.sharepoint.com/sites/AI'; AgentWorkbookClientId = 'w'; AgentWorkbookCertificateThumbprint = " a1 b2`u{200E}c3 " })
+Assert-That ($two.Count -eq 2 -and ($two.Purpose -join '|') -eq 'Purview|AgentWorkbook') 'with the workbook from SharePoint Online, two are tracked'
+Assert-That ($two[1].Thumbprint -eq 'A1B2C3' -and $two[1].ClientId -eq 'w' -and $two[1].TenantId -eq 't') 'the workbook''s thumbprint is cleaned of the spaces and the invisible mark the certificate dialog copies, and its tenant is the pipeline''s unless it names its own'
+$other = Get-PipelineCertificateUse ($s + @{ AgentWorkbookSiteUrl = 'https://x'; AgentWorkbookCertificateThumbprint = 'CD'; AgentWorkbookTenantId = 'fabrikam.onmicrosoft.com' })
+Assert-That ($other[1].TenantId -eq 'fabrikam.onmicrosoft.com') 'a workbook in another tenant is recorded under that tenant'
+$share = Get-PipelineCertificateUse ($s + @{ AgentWorkbookUrl = '\\fileserver\agents.xlsx'; AgentWorkbookCertificateThumbprint = 'CD' })
+Assert-That ($share.Count -eq 1) 'a workbook from a share signs in as the task''s account: no certificate of its own to track'
+
 $n = Get-PipelineStep -Setting $s -Today $today -Root 'R:'
 Assert-That (($n.Name -join '|') -eq 'User directory from AD|Copilot licenses from Graph|License events|Copilot interactions') 'nightly: the four steps, in the documented order'
 $i = $n[3].Arguments

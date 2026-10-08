@@ -62,6 +62,9 @@ jobs:
       - name: Test-Provisioning
         shell: bash
         run: pwsh -NoProfile -File tests/Test-Provisioning.ps1
+      - name: Test-ExternalUsage
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-ExternalUsage.ps1
       - name: Test-OperationsGuide
         shell: pwsh
         run: pwsh -NoProfile -File tests/Test-OperationsGuide.ps1

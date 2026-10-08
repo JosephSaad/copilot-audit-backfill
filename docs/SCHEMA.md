@@ -2,17 +2,18 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-93 tables (plus 2 left over from 1.x), 37 views, 1210 columns, from 18 scripts.
+102 tables (plus 2 left over from 1.x), 37 views, 1323 columns, from 19 scripts.
 
 ## Contents
 
 - [The scripts](#the-scripts)
-- [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep)
+- [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep), [`audit.PipelineCertificate`](#auditpipelinecertificate)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.AgentCatalog`](#auditagentcatalog), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
 - [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
+- [AI usage outside Microsoft 365 Copilot (2.6.2)](#ai-usage-outside-microsoft-365-copilot-262): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.ExternalUsageRun`](#auditexternalusagerun)
 - [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.LicenseSkuChange`](#auditlicenseskuchange), [`audit.LicenseSkuChangeRun`](#auditlicenseskuchangerun), [`audit.vLicenseSkuChangeFromRecords`](#auditvlicenseskuchangefromrecords), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
@@ -27,7 +28,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 
 | Script | Database | Run | Creates |
 |---|---|---|---|
-| `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage. The shared function fnShredCopilotInteraction. |
+| `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage. The pipeline's settings, runs, steps and certificates: PipelineSetting, PipelineRun, PipelineRunStep, PipelineCertificate. The shared function fnShredCopilotInteraction. |
 | `sql/Finalize-CopilotAudit.sql` | Both | By -Finalize or -FinalizeOnly, once, after the backfill | CopilotAudit and CopilotInteraction (dropped and rebuilt from staging), vCopilotDailyUsage, vCopilotAuditRecord. |
 | `sql/Create-CopilotLoadProcedure.sql` | Both | Automatically, by every -Incremental run | usp_MergeCopilotLoad, which appends each nightly load. |
 | `sql/Create-CopilotCsvImport.sql` | Copilot (or license, if importing there) | Automatically, by tools/Import-CopilotAuditCsv.ps1 | CopilotCsvImport, CopilotCsvFile, CopilotCsvReject, CopilotCsvStage, usp_MergeCopilotCsv. In a database with no backfill, also CopilotAudit, CopilotInteraction and their two views. Adds CopilotAudit.CsvImportId and CopilotBackfillRange.Source. |
@@ -41,6 +42,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-CopilotBiProcedure.sql` | Copilot | By hand, once (step 8) | bi.usp_RefreshBi. |
 | `sql/Create-LicenseEventSchema.sql` | License events | By hand, once (step 7) | LicenseEvent, LicenseEventChunk, LicenseEventProperty, LicenseSkuChange and LicenseSkuChangeRun (2.5.4), vLicenseChange, vLicenseSkuChangeFromRecords, vLicenseSkuChange, vLicenseLifecycle. |
 | `sql/Create-LicenseEventProcedure.sql` | License events | By hand, once (step 7) | usp_ShredLicenseEvents, and usp_RefreshLicenseSkuChange (2.5.4), which the shred runs at its end. Installed over events shredded before 2.5.4, it works out their SKU changes once. |
+| `sql/Create-CopilotExternalUsageSchema.sql` | Copilot | By Install-CopilotAudit.ps1 | AI usage outside Microsoft 365 Copilot (2.6.2): GitHubCopilotSeat, GitHubCopilotDay, GitHubCopilotUserDay and GitHubCopilotCost, filled by tools/Import-GitHubCopilotUsage.ps1; FoundryDeployment, FoundryUsageDay and FoundryCostDay, filled by tools/Import-FoundryUsage.ps1; and ExternalUsageRun, each run of either. |
 | `sql/Create-CopilotDashboardSchema.sql` | Copilot | By hand, once, for the dashboard (step 22) | The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun; the view dash.Agent and the function dash.fnScopeUsers. |
 | `sql/Create-CopilotOperationsSchema.sql` | Copilot | By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess | The dashboard's operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, license actions and contracts, saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers. |
 | `sql/Create-AgentEventProcedure.sql` | License events | By Install-CopilotAudit.ps1, and after each license-event load | audit.AgentEvent and audit.usp_ShredAgentEvents (2.3.0): Copilot Studio authoring records, one row each. |
@@ -270,6 +272,31 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_PipelineRunStep`: primary key, clustered (RunId, StepNo)
+
+### audit.PipelineCertificate
+
+*Table.*One row for each certificate the pipeline signs in with, as the job server held it at the start of its last run: Purview, for the app that reads the audit log and the licenses through Microsoft Graph, AgentWorkbook, for the app that fetches the agent workbook from SharePoint Online, where the settings name one, and Foundry (2.6.2), where the Foundry loader signs in with a certificate of its own. Invoke-CopilotPipeline.ps1 rewrites it every run and removes the row of a certificate no longer in use. Admin &gt; Health shows each with its details, and the dashboard's alert watches each one's expiry. audit.PipelineRun still keeps the audit app's certificate with each run.
+
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Purpose` | varchar(32) | **no** | **PK** | Purview \| AgentWorkbook \| Foundry |
+| 2 | `Thumbprint` | varchar(64) | **no** |  | as the settings file names it |
+| 3 | `Found` | bit | **no** |  | 0: no certificate of that thumbprint on the job server |
+| 4 | `Subject` | nvarchar(400) | yes |  |  |
+| 5 | `Issuer` | nvarchar(400) | yes |  |  |
+| 6 | `NotBeforeUtc` | datetime2(0) | yes |  |  |
+| 7 | `ExpiresUtc` | datetime2(0) | yes |  |  |
+| 8 | `Store` | varchar(32) | yes |  | LocalMachine\\My \| CurrentUser\\My |
+| 9 | `ClientId` | nvarchar(64) | yes |  | the app registration it signs in as |
+| 10 | `TenantId` | nvarchar(256) | yes |  |  |
+| 11 | `Host` | nvarchar(128) | yes |  | the job server that holds it |
+| 12 | `SeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_PipelineCertificate`: primary key, clustered (Purpose)
 
 ## Final records
 
@@ -1053,6 +1080,216 @@ Indexes and constraints:
 | 13 | `ClientIp` | varchar(128) | yes |  |  |
 | 14 | `AdministrativeUnits` | nvarchar(4000) | yes |  |  |
 | 15 | `AuditDataGz` | varbinary(max) | yes |  |  |
+
+## AI usage outside Microsoft 365 Copilot (2.6.2)
+
+Usage and cost of GitHub Copilot and of Microsoft Foundry and Azure OpenAI deployments, each loaded by a tool of its own (tools/Import-GitHubCopilotUsage.ps1, tools/Import-FoundryUsage.ps1) into tables of its own, beside the Copilot audit data and not mixed into it. First plumbing: no report, `bi` view or `dash` table reads them yet; a reporting tool can, with SELECT on the tables. Days are UTC days, as each service reports them, not the reporting time zone's. A table stays empty until its loader is set up ([GITHUB-COPILOT-USAGE.md](GITHUB-COPILOT-USAGE.md), [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md)).
+
+### audit.GitHubCopilotSeat
+
+*Table.* One row per GitHub Copilot seat of the enterprise or organization loaded, as GitHub lists it now: who holds it, the organization and team it was assigned through, the plan, when it was assigned and when it was last used. tools/Import-GitHubCopilotUsage.ps1 replaces a scope's seats whole on each run. A person here is a GitHub login, which is not a Microsoft 365 sign-in; nothing joins the two yet.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(120) | **no** | **PK** | enterprise:<slug> or org:<name> |
+| 2 | `Login` | nvarchar(100) | **no** | **PK** | the GitHub login: not a Microsoft 365 sign-in |
+| 3 | `UserId` | bigint | yes |  |  |
+| 4 | `Organization` | nvarchar(100) | yes |  | the organization the seat was assigned through |
+| 5 | `AssigningTeam` | nvarchar(200) | yes |  |  |
+| 6 | `PlanType` | varchar(16) | yes |  | business \| enterprise \| unknown |
+| 7 | `CreatedUtc` | datetime2(0) | yes |  | when the seat was assigned |
+| 8 | `LastActivityUtc` | datetime2(0) | yes |  | NULL: never used, or telemetry is off in the editor |
+| 9 | `LastActivityEditor` | nvarchar(200) | yes |  |  |
+| 10 | `LastAuthenticatedUtc` | datetime2(0) | yes |  |  |
+| 11 | `PendingCancellationDate` | date | yes |  |  |
+| 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotSeat`: primary key, clustered (Scope, Login)
+
+### audit.GitHubCopilotDay
+
+*Table.* One row per UTC day of GitHub Copilot use by the whole enterprise or organization, from GitHub's usage metrics report for that day (enterprise-1-day or organization-1-day): people active, interactions, code generated and accepted, lines of code. Json keeps the whole record, with its breakdowns by editor, feature, language and model. A day is written again each time it is loaded; GitHub's reports run up to three days behind.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(120) | **no** | **PK** |  |
+| 2 | `Day` | date | **no** | **PK** | a UTC day |
+| 3 | `DailyActiveUsers` | int | yes |  |  |
+| 4 | `WeeklyActiveUsers` | int | yes |  |  |
+| 5 | `MonthlyActiveUsers` | int | yes |  |  |
+| 6 | `MonthlyActiveChatUsers` | int | yes |  |  |
+| 7 | `MonthlyActiveAgentUsers` | int | yes |  |  |
+| 8 | `Interactions` | bigint | yes |  | user_initiated_interaction_count |
+| 9 | `CodeGenerations` | bigint | yes |  | code_generation_activity_count |
+| 10 | `CodeAcceptances` | bigint | yes |  | code_acceptance_activity_count |
+| 11 | `LocSuggestedToAdd` | bigint | yes |  |  |
+| 12 | `LocSuggestedToDelete` | bigint | yes |  |  |
+| 13 | `LocAdded` | bigint | yes |  |  |
+| 14 | `LocDeleted` | bigint | yes |  |  |
+| 15 | `Json` | nvarchar(max) | yes |  |  |
+| 16 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotDay`: primary key, clustered (Scope, Day)
+
+### audit.GitHubCopilotUserDay
+
+*Table.* One row per person per UTC day they used GitHub Copilot, from the users-1-day report: what they did, the AI credits they used, and whether they used chat, an agent or the command line.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(120) | **no** | **PK** |  |
+| 2 | `Day` | date | **no** | **PK** |  |
+| 3 | `UserId` | bigint | **no** | **PK** |  |
+| 4 | `Login` | nvarchar(100) | yes |  |  |
+| 5 | `Interactions` | bigint | yes |  |  |
+| 6 | `CodeGenerations` | bigint | yes |  |  |
+| 7 | `CodeAcceptances` | bigint | yes |  |  |
+| 8 | `LocAdded` | bigint | yes |  |  |
+| 9 | `LocDeleted` | bigint | yes |  |  |
+| 10 | `AiCreditsUsed` | decimal(19,4) | yes |  | 1 AI credit is 0.01 USD at GitHub's list price |
+| 11 | `UsedChat` | bit | yes |  |  |
+| 12 | `UsedAgent` | bit | yes |  |  |
+| 13 | `UsedCli` | bit | yes |  |  |
+| 14 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotUserDay`: primary key, clustered (Scope, Day, UserId)
+
+### audit.GitHubCopilotCost
+
+*Table.* What GitHub billed for Copilot: the lines of the enterprise's or organization's billing usage whose product or SKU is Copilot, one per day, product, SKU, model and organization. Amounts are in US dollars. This month and the last are replaced whole on each run, since an open month's lines change until it closes.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `CostId` | bigint | **no** | **PK** identity |  |
+| 2 | `Scope` | nvarchar(120) | **no** |  |  |
+| 3 | `UsageDate` | date | **no** |  |  |
+| 4 | `Product` | nvarchar(100) | yes |  |  |
+| 5 | `Sku` | nvarchar(200) | yes |  |  |
+| 6 | `Model` | nvarchar(200) | yes |  |  |
+| 7 | `Organization` | nvarchar(100) | yes |  |  |
+| 8 | `UnitType` | nvarchar(50) | yes |  |  |
+| 9 | `PricePerUnit` | decimal(19,6) | yes |  |  |
+| 10 | `Quantity` | decimal(19,4) | yes |  |  |
+| 11 | `GrossAmount` | decimal(19,4) | yes |  |  |
+| 12 | `DiscountAmount` | decimal(19,4) | yes |  |  |
+| 13 | `NetAmount` | decimal(19,4) | yes |  | what was charged, in USD |
+| 14 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotCost`: primary key, clustered (CostId)
+- `IX_GitHubCopilotCost_Date`: nonclustered (Scope, UsageDate)
+
+### audit.FoundryDeployment
+
+*Table.* One row per model deployment of every Azure OpenAI (kind OpenAI) and Microsoft Foundry (kind AIServices) account in the subscriptions loaded, as it stands: model, version, publisher, SKU and capacity. tools/Import-FoundryUsage.ps1 replaces a subscription's deployments whole on each run.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** | the Microsoft.CognitiveServices account |
+| 4 | `Deployment` | nvarchar(64) | **no** | **PK** |  |
+| 5 | `Kind` | nvarchar(50) | yes |  | OpenAI \| AIServices |
+| 6 | `Location` | nvarchar(50) | yes |  |  |
+| 7 | `ModelName` | nvarchar(100) | yes |  |  |
+| 8 | `ModelVersion` | nvarchar(32) | yes |  |  |
+| 9 | `ModelPublisher` | nvarchar(100) | yes |  |  |
+| 10 | `SkuName` | nvarchar(50) | yes |  | Standard, GlobalStandard, ProvisionedManaged ... |
+| 11 | `Capacity` | int | yes |  |  |
+| 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryDeployment`: primary key, clustered (SubscriptionId, ResourceGroup, Account, Deployment)
+
+### audit.FoundryUsageDay
+
+*Table.* One row per deployment, model, version and UTC day: requests and input, output and total tokens, from Azure Monitor's metrics of the account. Azure Monitor keeps 93 days, so what is loaded here is the history. There is no user on these metrics: use is by account, deployment and model.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** |  |
+| 4 | `Deployment` | nvarchar(64) | **no** | **PK** |  |
+| 5 | `ModelName` | nvarchar(100) | **no** | **PK** | '' where the metric does not say |
+| 6 | `ModelVersion` | nvarchar(32) | **no** | **PK** |  |
+| 7 | `Day` | date | **no** | **PK** |  |
+| 8 | `Requests` | bigint | yes |  |  |
+| 9 | `InputTokens` | bigint | yes |  |  |
+| 10 | `OutputTokens` | bigint | yes |  |  |
+| 11 | `TotalTokens` | bigint | yes |  |  |
+| 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryUsageDay`: primary key, clustered (SubscriptionId, ResourceGroup, Account, Deployment, ModelName, ModelVersion, Day)
+
+### audit.FoundryCostDay
+
+*Table.* One row per account, meter and UTC day: the actual cost Azure reports, before tax, from Cost Management, in the currency the subscription is billed in. Cost is by account and meter (such as "gpt-4o Input Tokens"), not by deployment. A day is written again each time it is loaded: an open month's figures are estimates until five days after it ends.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** |  |
+| 4 | `Meter` | nvarchar(200) | **no** | **PK** | such as "gpt-4o Input Tokens"; '' where none |
+| 5 | `Day` | date | **no** | **PK** |  |
+| 6 | `Cost` | decimal(19,6) | **no** |  |  |
+| 7 | `Currency` | nvarchar(8) | yes |  |  |
+| 8 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryCostDay`: primary key, clustered (SubscriptionId, ResourceGroup, Account, Meter, Day)
+
+### audit.ExternalUsageRun
+
+*Table.* One row per run of tools/Import-GitHubCopilotUsage.ps1 or tools/Import-FoundryUsage.ps1, written from its start: the source, what it covered, how it ended (Succeeded, Partial when a part could not be read, or Failed), the rows written, and what was loaded or why not. Admin &gt; Health shows the last run of each source.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RunId` | int | **no** | **PK** identity |  |
+| 2 | `Source` | varchar(16) | **no** |  | GitHub \| Foundry |
+| 3 | `Scope` | nvarchar(400) | yes |  | the enterprise or organization, or the subscriptions |
+| 4 | `StartedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 5 | `EndedUtc` | datetime2(0) | yes |  |  |
+| 6 | `Status` | varchar(16) | **no** | `'Running'` | Running \| Succeeded \| Partial \| Failed |
+| 7 | `FromDay` | date | yes |  |  |
+| 8 | `ToDay` | date | yes |  |  |
+| 9 | `RowsWritten` | int | yes |  |  |
+| 10 | `Detail` | nvarchar(2000) | yes |  | what was loaded, or why it failed |
+| 11 | `CredentialExpiresUtc` | datetime2(0) | yes |  |  |
+| 12 | `Host` | nvarchar(128) | yes |  |  |
+
+Indexes and constraints:
+
+- `PK_ExternalUsageRun`: primary key, clustered (RunId)
+- `IX_ExternalUsageRun_Source`: nonclustered (Source, RunId)
 
 ## License events (license-event database)
 
@@ -2554,7 +2791,7 @@ Indexes and constraints:
 
 ### dash.NotificationLog
 
-*Table.* Every email and webhook post, sent or not, with the reason when not.
+*Table.* Every email and webhook post, sent or not, with the reason when not, and from 2.6.2 the conversation with the mail server (Detail), which Admin &gt; Email shows for troubleshooting.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -2567,6 +2804,7 @@ Indexes and constraints:
 | 5 | `Recipients` | nvarchar(2000) | yes |  |  |
 | 6 | `Status` | varchar(16) | **no** |  | Sent \| Failed \| NoRecipients \| MailOff |
 | 7 | `Error` | nvarchar(2000) | yes |  |  |
+| 8 | `Detail` | nvarchar(max) | yes |  | 2.6.2: what was said between the dashboard and the mail server, for a test message and for any message not sent; never the password or the message |
 
 Indexes and constraints:
 

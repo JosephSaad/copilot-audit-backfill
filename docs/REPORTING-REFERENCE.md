@@ -4,15 +4,15 @@ Everything a team needs to build its own reports on the Copilot audit databases,
 
 **[REPORTING.md](REPORTING.md) is the brief version** of this document, about ten pages. Read it first. It names the section here that continues each of its own. Both are also Word documents, beside these files: `REPORTING.docx` and `REPORTING-REFERENCE.docx`.
 
-Written for release 2.6.1. The SQL in Part A was run against a demo database of that release, as a member of the reporting role, with Grafana's macros replaced by fixed dates. It was not run inside Grafana: check the Grafana settings and macros against your version.
+Written for release 2.6.2. The SQL in Part A was run against a demo database of that release, as a member of the reporting role, with Grafana's macros replaced by fixed dates. It was not run inside Grafana: check the Grafana settings and macros against your version.
 
 ## How this document is laid out
 
 | Part | What it is | Kept current by |
 |---|---|---|
 | **A. The guide** | How the schema is created, filled and used, the reporting views column by column, the figures, the Grafana setup and queries, and the other layers. | Hand, each release |
-| **B. Every table and view, column by column** | All 95 tables and 37 views: types, keys, defaults, indexes, and the script that creates each. The same text as [SCHEMA.md](SCHEMA.md). | `tools/dev/schema/Build-ReportingReference.ps1`, from `docs/SCHEMA.md` |
-| **C. The scripts** | The full text of the installer, the 18 SQL scripts and the three other PowerShell scripts that create or fill the schema. | The same tool, from the scripts themselves |
+| **B. Every table and view, column by column** | All 104 tables and 37 views: types, keys, defaults, indexes, and the script that creates each. The same text as [SCHEMA.md](SCHEMA.md). | `tools/dev/schema/Build-ReportingReference.ps1`, from `docs/SCHEMA.md` |
+| **C. The scripts** | The full text of the installer, the 19 SQL scripts and the six other PowerShell scripts that create or fill the schema. | The same tool, from the scripts themselves |
 
 Parts B and C are generated. A test in CI (`tests/Test-ReportingReference.ps1`) fails when either is behind its source, so what you read here is what the release runs.
 
@@ -91,7 +91,7 @@ The schemas of the Copilot database:
 
 | Schema | Tables | Views | What it is |
 |---|--:|--:|---|
-| `audit` | 40 | 10 | Loading state and staging; the final records; the flattened records; licenses and the user directory; sessions; the CSV import; and, in the license-event database, the license events. |
+| `audit` | 41 | 10 | Loading state and staging; the final records; the flattened records; licenses and the user directory; sessions; the CSV import; and, in the license-event database, the license events. |
 | `bi` | 21 | 26 | The star schema: 13 dimension tables, 6 fact tables, 2 tables of refresh state, and the 26 views a reporting tool reads. |
 | `dash` | 34 | 1 | The dashboard's own: settings, roles, reference names, its audit log, the org chart, the daily rollups, the agent inventory, and the operations tables (alerts, digests, targets, extracts). |
 | `dbo` | 3 | | Only when an agent workbook is loaded: `dbo.AgentInventory`, `dbo.AgentsInProd` and `dbo.ParentChildAgent`, each sheet as it is in the workbook, every column as text. |
@@ -111,7 +111,7 @@ The scripts it runs, in order:
 
 | # | Script | Database | Creates |
 |--:|---|---|---|
-| 1 | `Create-CopilotAuditSchema.sql` | Both | The loading tables: `CopilotBackfillRange`, `CopilotBackfillWindow`, `CopilotAuditStage`, `CopilotLoad`, `CopilotLoadWindow`, `CopilotLoadStage`. `PipelineSetting`, `PipelineRun`, `PipelineRunStep`. The functions `audit.fnShredCopilotInteraction` and `audit.ReportingTimeZone`. |
+| 1 | `Create-CopilotAuditSchema.sql` | Both | The loading tables: `CopilotBackfillRange`, `CopilotBackfillWindow`, `CopilotAuditStage`, `CopilotLoad`, `CopilotLoadWindow`, `CopilotLoadStage`. `PipelineSetting`, `PipelineRun`, `PipelineRunStep`, `PipelineCertificate`. The functions `audit.fnShredCopilotInteraction` and `audit.ReportingTimeZone`. |
 | 2 | `Create-CopilotLoadProcedure.sql` | Both | `audit.usp_MergeCopilotLoad`. |
 | 3 | `Create-CopilotFlattenedSchema.sql` | Copilot | `RawLogFlattened`, `RawLogAccessedResource`, `RawLogContext`, `RawLogRecordShape`, `ValueCatalog`, `ValueCatalogColumn`, `AgentCatalog`; `CopilotLicense` if it is not there yet. |
 | 4 | `Create-CopilotFlattenProcedure.sql` | Copilot | `audit.usp_FlattenCopilotAudit`, `audit.usp_CatalogValues`, `audit.usp_CatalogAgents`, `audit.usp_BackfillAgentNames`. |
@@ -121,12 +121,13 @@ The scripts it runs, in order:
 | 8 | `Create-CopilotSessionProcedure.sql` | Copilot | `audit.usp_BuildCopilotSessions`. |
 | 9 | `Create-CopilotBiSchema.sql` | Copilot | The `bi` schema: every `Dim` and `Fact` table, `RefreshRun`, `RebuildInProgress`, `bi.fnAgentIdentity`, and 19 of the views. |
 | 10 | `Create-CopilotBiProcedure.sql` | Copilot | `bi.usp_RefreshBi` and `bi.usp_NameAgents`. |
-| 11 | `Create-CopilotDashboardSchema.sql` | Copilot, with `-Dashboard` | The `dash` schema's core: `Setting`, `RoleGrant`, `AgentAlias`, `SensitivityLabel`, `AuditLog`, `Person`, `OrgClosure`, `UserDay`, `ResourceDay`, `FlaggedInteraction`, `AgentUse`, `RefreshRun`, `AgentInventory`, `AgentChildLink`, `AgentInventoryRun`; the view `dash.Agent`; `dash.fnScopeUsers`. |
-| 12 | `Create-CopilotDashboardProcedure.sql` | Copilot, with `-Dashboard` | `dash.usp_RefreshDashboard`. |
-| 13 | `Create-CopilotOperationsSchema.sql` | Copilot, with `-Dashboard` | The operations tables (`Secret`, `Subscription`, `NotificationLog`, `AlertState`, `Target`, `TimeSaving`, `TrainingAttendance`, `ValueName`, `FlagCase`, `DigestPreference`, `DigestSend`, `LicenseAction`, `LicenseContract`, `SavedView`, `NonHumanException`, `JobFamilyRule`, `UseCaseRule`, `EventMarker`, `Extract`); `audit.GroupMember` if it is not there yet; the role `CopilotInsightsApp` and its grants; privacy mode and retention; and 7 more `bi` views: `OrgSecurity`, `ValueNames`, `LicensePool`, `UseCases`, `JobFamilies`, `EventMarkers`, `DepartmentWeek`. |
-| 14 | `Create-LicenseEventSchema.sql` | License-event | `LicenseEvent`, `LicenseEventChunk`, `LicenseEventProperty`, `LicenseSkuChange`, `LicenseSkuChangeRun`; the views `vLicenseChange`, `vLicenseSkuChangeFromRecords`, `vLicenseLifecycle`. |
-| 15 | `Create-LicenseEventProcedure.sql` | License-event | `audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, and the view `vLicenseSkuChange` over the kept changes. |
-| 16 | `Create-AgentEventProcedure.sql` | License-event | `audit.AgentEvent`, `audit.usp_ShredAgentEvents`. |
+| 11 | `Create-CopilotExternalUsageSchema.sql` | Copilot | AI usage outside Microsoft 365 Copilot (2.6.2): `GitHubCopilotSeat`, `GitHubCopilotDay`, `GitHubCopilotUserDay`, `GitHubCopilotCost`, `FoundryDeployment`, `FoundryUsageDay`, `FoundryCostDay` and `ExternalUsageRun`. Empty until a loader is set up. |
+| 12 | `Create-CopilotDashboardSchema.sql` | Copilot, with `-Dashboard` | The `dash` schema's core: `Setting`, `RoleGrant`, `AgentAlias`, `SensitivityLabel`, `AuditLog`, `Person`, `OrgClosure`, `UserDay`, `ResourceDay`, `FlaggedInteraction`, `AgentUse`, `RefreshRun`, `AgentInventory`, `AgentChildLink`, `AgentInventoryRun`; the view `dash.Agent`; `dash.fnScopeUsers`. |
+| 13 | `Create-CopilotDashboardProcedure.sql` | Copilot, with `-Dashboard` | `dash.usp_RefreshDashboard`. |
+| 14 | `Create-CopilotOperationsSchema.sql` | Copilot, with `-Dashboard` | The operations tables (`Secret`, `Subscription`, `NotificationLog`, `AlertState`, `Target`, `TimeSaving`, `TrainingAttendance`, `ValueName`, `FlagCase`, `DigestPreference`, `DigestSend`, `LicenseAction`, `LicenseContract`, `SavedView`, `NonHumanException`, `JobFamilyRule`, `UseCaseRule`, `EventMarker`, `Extract`); `audit.GroupMember` if it is not there yet; the role `CopilotInsightsApp` and its grants; privacy mode and retention; and 7 more `bi` views: `OrgSecurity`, `ValueNames`, `LicensePool`, `UseCases`, `JobFamilies`, `EventMarkers`, `DepartmentWeek`. |
+| 15 | `Create-LicenseEventSchema.sql` | License-event | `LicenseEvent`, `LicenseEventChunk`, `LicenseEventProperty`, `LicenseSkuChange`, `LicenseSkuChangeRun`; the views `vLicenseChange`, `vLicenseSkuChangeFromRecords`, `vLicenseLifecycle`. |
+| 16 | `Create-LicenseEventProcedure.sql` | License-event | `audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, and the view `vLicenseSkuChange` over the kept changes. |
+| 17 | `Create-AgentEventProcedure.sql` | License-event | `audit.AgentEvent`, `audit.usp_ShredAgentEvents`. |
 
 Two more SQL scripts are not run by the installer:
 
@@ -137,7 +138,7 @@ Two more SQL scripts are not run by the installer:
 
 **What this means for a report.**
 
-- **The seven `bi` views of script 13 exist only where the dashboard's schema is installed** (`-Dashboard`). A tenant without the dashboard has 19 `bi` views. `bi.LicensePool`, `bi.DepartmentWeek`, `bi.UseCases`, `bi.JobFamilies`, `bi.EventMarkers`, `bi.ValueNames` and `bi.OrgSecurity` are the seven.
+- **The seven `bi` views of script 14 exist only where the dashboard's schema is installed** (`-Dashboard`). A tenant without the dashboard has 19 `bi` views. `bi.LicensePool`, `bi.DepartmentWeek`, `bi.UseCases`, `bi.JobFamilies`, `bi.EventMarkers`, `bi.ValueNames` and `bi.OrgSecurity` are the seven.
 - **A release may add columns to a view, and adds views.** It does not remove or rename a column of a `bi` view without saying so in [CHANGELOG.md](../CHANGELOG.md). Name your columns in every query; do not use `SELECT *`.
 - **Keys are stable.** A user, app, agent, model or SKU keeps its key from the first refresh that saw it, through every later refresh and rebuild of the facts. Only dropping the `bi` tables themselves would renumber them, and no script does.
 
@@ -154,7 +155,11 @@ A scheduled task, *Copilot audit - nightly*, runs `Invoke-CopilotPipeline.ps1` o
 | 3. Agent workbook, when configured | `tools/Import-AgentWorkbook.ps1` | The three `dbo` tables, `dash.AgentInventory`, `dash.AgentChildLink`, `dash.AgentInventoryRun`. |
 | 4. License events | `Invoke-CopilotAuditBackfill.ps1 -Incremental`, into the license-event database | `audit.CopilotAudit` there, then `audit.LicenseEvent`, `audit.LicenseEventProperty`, `audit.LicenseSkuChange`, `audit.AgentEvent`. |
 | 5. Copilot interactions | `Invoke-CopilotAuditBackfill.ps1 -Incremental`, into the Copilot database | `audit.CopilotAudit`, `audit.CopilotInteraction`, and then everything built from them, below. |
+| 6. GitHub Copilot usage, when configured (2.6.2) | `tools/Import-GitHubCopilotUsage.ps1` | `audit.GitHubCopilotSeat` (replaced whole), `audit.GitHubCopilotDay` and `audit.GitHubCopilotUserDay` (the last 10 UTC days written again), `audit.GitHubCopilotCost` (this month and the last replaced), and a row of `audit.ExternalUsageRun`. |
+| 7. Foundry usage and cost, when configured (2.6.2) | `tools/Import-FoundryUsage.ps1` | `audit.FoundryDeployment` (replaced whole for each subscription), `audit.FoundryUsageDay` and `audit.FoundryCostDay` (the last 10 UTC days written again), and a row of `audit.ExternalUsageRun`. |
 | After a good night | `dash.usp_ApplyRetention` | Deletes what the administrators' retention settings say. |
+
+Steps 6 and 7 are optional: each runs only where `copilot-audit.settings.psd1` names its source (`GitHubEnterprise` or `GitHubOrganization`; `FoundrySubscriptions`), and is otherwise skipped with a line in the log. A failure of either is recorded with its step and in `audit.ExternalUsageRun`, and does not fail the night. Neither changes anything in `bi` or `dash`.
 
 Step 5 is where the reporting tables change. After it has merged the night's records, it calls four procedures in order, each for the days from the load's start:
 
@@ -1261,6 +1266,7 @@ Every object, by layer. Part B has each one's columns.
 | `CopilotLoadWindow`, `CopilotLoadStage` | The load in progress. Emptied after each merge. |
 | `PipelineSetting` | Settings and marks the procedures read: the reporting time zone, privacy mode, and the marks long jobs leave. |
 | `PipelineRun`, `PipelineRunStep` | One row per nightly run and per step: status, the step that failed, the log's last lines. |
+| `PipelineCertificate` | One row for each certificate the pipeline signs in with (the audit app's, the agent workbook app's, and the Foundry loader's where it has one of its own): subject, issuer, validity, thumbprint, the app it signs in as, and whether the job server holds it. |
 
 **Final records** (`audit`, both databases).
 
@@ -1303,6 +1309,21 @@ Every object, by layer. Part B has each one's columns.
 | `vCopilotSessionSummary`, `vCopilotWeeklyRollup` | The two tables in an older CSV's column names. |
 
 **CSV import** (`audit`). `CopilotCsvImport`, `CopilotCsvFile`, `CopilotCsvReject`, `CopilotCsvStage`: one row per run, per file, per rejected row, and the staged rows.
+
+**AI usage outside Microsoft 365 Copilot** (`audit`, Copilot database; 2.6.2). Filled by two optional loaders, each from its own service. Nothing in `bi` or `dash` reads them yet, and the reporting role does not hold them: to let a reporting account read them, an administrator runs `GRANT SELECT ON audit.GitHubCopilotDay TO CopilotReporting;` and the same for `audit.GitHubCopilotSeat`, `audit.GitHubCopilotUserDay`, `audit.GitHubCopilotCost`, `audit.FoundryDeployment`, `audit.FoundryUsageDay` and `audit.FoundryCostDay`, for the tables wanted. Days are UTC days. A person is a GitHub login (`Login`, `UserId`), which is not a Microsoft 365 sign-in: nothing joins it to `bi.Users` yet. Foundry's usage has no person: Azure Monitor reports by account, deployment and model.
+
+| Object | What it is |
+|---|---|
+| `GitHubCopilotSeat` | One row per seat as GitHub lists it now: the login, the organization and team it was assigned through, the plan, when it was assigned and last used. |
+| `GitHubCopilotDay` | One row per day for the enterprise or organization: daily, weekly and monthly active people, interactions, code generated and accepted, lines of code; the whole record in `Json`. Up to three days behind. |
+| `GitHubCopilotUserDay` | One row per person per day they used it: interactions, code, AI credits used, and whether chat, an agent or the command line. |
+| `GitHubCopilotCost` | What GitHub billed for Copilot: a row per day, product, SKU, model and organization, with quantity, price and gross, discount and net amounts in US dollars. |
+| `FoundryDeployment` | One row per model deployment of each Azure OpenAI and Foundry account in the subscriptions loaded: model, version, SKU, capacity. |
+| `FoundryUsageDay` | One row per deployment, model and day: requests, input, output and total tokens. |
+| `FoundryCostDay` | One row per account, meter and day: actual cost before tax, in the billing currency. By meter, not by deployment. |
+| `ExternalUsageRun` | One row per run of either loader: source, days covered, status (Succeeded, Partial, Failed), rows written, and what was loaded or why not. |
+
+To put cost beside use for Foundry, join `FoundryCostDay` to `FoundryUsageDay` on `SubscriptionId`, `ResourceGroup`, `Account` and `Day`, summing each side first: one account's meters and its deployments do not pair one to one. For GitHub, `GitHubCopilotCost.NetAmount` by `UsageDate` is what was charged; `GitHubCopilotUserDay.AiCreditsUsed` is each person's metered use, at 0.01 US dollars a credit at list price.
 
 **License events** (`audit`, license-event database).
 
@@ -1632,6 +1653,31 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_PipelineRunStep`: primary key, clustered (RunId, StepNo)
+
+#### audit.PipelineCertificate
+
+*Table.*One row for each certificate the pipeline signs in with, as the job server held it at the start of its last run: Purview, for the app that reads the audit log and the licenses through Microsoft Graph, AgentWorkbook, for the app that fetches the agent workbook from SharePoint Online, where the settings name one, and Foundry (2.6.2), where the Foundry loader signs in with a certificate of its own. Invoke-CopilotPipeline.ps1 rewrites it every run and removes the row of a certificate no longer in use. Admin &gt; Health shows each with its details, and the dashboard's alert watches each one's expiry. audit.PipelineRun still keeps the audit app's certificate with each run.
+
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Purpose` | varchar(32) | **no** | **PK** | Purview \| AgentWorkbook \| Foundry |
+| 2 | `Thumbprint` | varchar(64) | **no** |  | as the settings file names it |
+| 3 | `Found` | bit | **no** |  | 0: no certificate of that thumbprint on the job server |
+| 4 | `Subject` | nvarchar(400) | yes |  |  |
+| 5 | `Issuer` | nvarchar(400) | yes |  |  |
+| 6 | `NotBeforeUtc` | datetime2(0) | yes |  |  |
+| 7 | `ExpiresUtc` | datetime2(0) | yes |  |  |
+| 8 | `Store` | varchar(32) | yes |  | LocalMachine\\My \| CurrentUser\\My |
+| 9 | `ClientId` | nvarchar(64) | yes |  | the app registration it signs in as |
+| 10 | `TenantId` | nvarchar(256) | yes |  |  |
+| 11 | `Host` | nvarchar(128) | yes |  | the job server that holds it |
+| 12 | `SeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_PipelineCertificate`: primary key, clustered (Purpose)
 
 ### Final records
 
@@ -2415,6 +2461,216 @@ Indexes and constraints:
 | 13 | `ClientIp` | varchar(128) | yes |  |  |
 | 14 | `AdministrativeUnits` | nvarchar(4000) | yes |  |  |
 | 15 | `AuditDataGz` | varbinary(max) | yes |  |  |
+
+### AI usage outside Microsoft 365 Copilot (2.6.2)
+
+Usage and cost of GitHub Copilot and of Microsoft Foundry and Azure OpenAI deployments, each loaded by a tool of its own (tools/Import-GitHubCopilotUsage.ps1, tools/Import-FoundryUsage.ps1) into tables of its own, beside the Copilot audit data and not mixed into it. First plumbing: no report, `bi` view or `dash` table reads them yet; a reporting tool can, with SELECT on the tables. Days are UTC days, as each service reports them, not the reporting time zone's. A table stays empty until its loader is set up ([GITHUB-COPILOT-USAGE.md](GITHUB-COPILOT-USAGE.md), [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md)).
+
+#### audit.GitHubCopilotSeat
+
+*Table.* One row per GitHub Copilot seat of the enterprise or organization loaded, as GitHub lists it now: who holds it, the organization and team it was assigned through, the plan, when it was assigned and when it was last used. tools/Import-GitHubCopilotUsage.ps1 replaces a scope's seats whole on each run. A person here is a GitHub login, which is not a Microsoft 365 sign-in; nothing joins the two yet.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(120) | **no** | **PK** | enterprise:<slug> or org:<name> |
+| 2 | `Login` | nvarchar(100) | **no** | **PK** | the GitHub login: not a Microsoft 365 sign-in |
+| 3 | `UserId` | bigint | yes |  |  |
+| 4 | `Organization` | nvarchar(100) | yes |  | the organization the seat was assigned through |
+| 5 | `AssigningTeam` | nvarchar(200) | yes |  |  |
+| 6 | `PlanType` | varchar(16) | yes |  | business \| enterprise \| unknown |
+| 7 | `CreatedUtc` | datetime2(0) | yes |  | when the seat was assigned |
+| 8 | `LastActivityUtc` | datetime2(0) | yes |  | NULL: never used, or telemetry is off in the editor |
+| 9 | `LastActivityEditor` | nvarchar(200) | yes |  |  |
+| 10 | `LastAuthenticatedUtc` | datetime2(0) | yes |  |  |
+| 11 | `PendingCancellationDate` | date | yes |  |  |
+| 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotSeat`: primary key, clustered (Scope, Login)
+
+#### audit.GitHubCopilotDay
+
+*Table.* One row per UTC day of GitHub Copilot use by the whole enterprise or organization, from GitHub's usage metrics report for that day (enterprise-1-day or organization-1-day): people active, interactions, code generated and accepted, lines of code. Json keeps the whole record, with its breakdowns by editor, feature, language and model. A day is written again each time it is loaded; GitHub's reports run up to three days behind.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(120) | **no** | **PK** |  |
+| 2 | `Day` | date | **no** | **PK** | a UTC day |
+| 3 | `DailyActiveUsers` | int | yes |  |  |
+| 4 | `WeeklyActiveUsers` | int | yes |  |  |
+| 5 | `MonthlyActiveUsers` | int | yes |  |  |
+| 6 | `MonthlyActiveChatUsers` | int | yes |  |  |
+| 7 | `MonthlyActiveAgentUsers` | int | yes |  |  |
+| 8 | `Interactions` | bigint | yes |  | user_initiated_interaction_count |
+| 9 | `CodeGenerations` | bigint | yes |  | code_generation_activity_count |
+| 10 | `CodeAcceptances` | bigint | yes |  | code_acceptance_activity_count |
+| 11 | `LocSuggestedToAdd` | bigint | yes |  |  |
+| 12 | `LocSuggestedToDelete` | bigint | yes |  |  |
+| 13 | `LocAdded` | bigint | yes |  |  |
+| 14 | `LocDeleted` | bigint | yes |  |  |
+| 15 | `Json` | nvarchar(max) | yes |  |  |
+| 16 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotDay`: primary key, clustered (Scope, Day)
+
+#### audit.GitHubCopilotUserDay
+
+*Table.* One row per person per UTC day they used GitHub Copilot, from the users-1-day report: what they did, the AI credits they used, and whether they used chat, an agent or the command line.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Scope` | nvarchar(120) | **no** | **PK** |  |
+| 2 | `Day` | date | **no** | **PK** |  |
+| 3 | `UserId` | bigint | **no** | **PK** |  |
+| 4 | `Login` | nvarchar(100) | yes |  |  |
+| 5 | `Interactions` | bigint | yes |  |  |
+| 6 | `CodeGenerations` | bigint | yes |  |  |
+| 7 | `CodeAcceptances` | bigint | yes |  |  |
+| 8 | `LocAdded` | bigint | yes |  |  |
+| 9 | `LocDeleted` | bigint | yes |  |  |
+| 10 | `AiCreditsUsed` | decimal(19,4) | yes |  | 1 AI credit is 0.01 USD at GitHub's list price |
+| 11 | `UsedChat` | bit | yes |  |  |
+| 12 | `UsedAgent` | bit | yes |  |  |
+| 13 | `UsedCli` | bit | yes |  |  |
+| 14 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotUserDay`: primary key, clustered (Scope, Day, UserId)
+
+#### audit.GitHubCopilotCost
+
+*Table.* What GitHub billed for Copilot: the lines of the enterprise's or organization's billing usage whose product or SKU is Copilot, one per day, product, SKU, model and organization. Amounts are in US dollars. This month and the last are replaced whole on each run, since an open month's lines change until it closes.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `CostId` | bigint | **no** | **PK** identity |  |
+| 2 | `Scope` | nvarchar(120) | **no** |  |  |
+| 3 | `UsageDate` | date | **no** |  |  |
+| 4 | `Product` | nvarchar(100) | yes |  |  |
+| 5 | `Sku` | nvarchar(200) | yes |  |  |
+| 6 | `Model` | nvarchar(200) | yes |  |  |
+| 7 | `Organization` | nvarchar(100) | yes |  |  |
+| 8 | `UnitType` | nvarchar(50) | yes |  |  |
+| 9 | `PricePerUnit` | decimal(19,6) | yes |  |  |
+| 10 | `Quantity` | decimal(19,4) | yes |  |  |
+| 11 | `GrossAmount` | decimal(19,4) | yes |  |  |
+| 12 | `DiscountAmount` | decimal(19,4) | yes |  |  |
+| 13 | `NetAmount` | decimal(19,4) | yes |  | what was charged, in USD |
+| 14 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_GitHubCopilotCost`: primary key, clustered (CostId)
+- `IX_GitHubCopilotCost_Date`: nonclustered (Scope, UsageDate)
+
+#### audit.FoundryDeployment
+
+*Table.* One row per model deployment of every Azure OpenAI (kind OpenAI) and Microsoft Foundry (kind AIServices) account in the subscriptions loaded, as it stands: model, version, publisher, SKU and capacity. tools/Import-FoundryUsage.ps1 replaces a subscription's deployments whole on each run.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** | the Microsoft.CognitiveServices account |
+| 4 | `Deployment` | nvarchar(64) | **no** | **PK** |  |
+| 5 | `Kind` | nvarchar(50) | yes |  | OpenAI \| AIServices |
+| 6 | `Location` | nvarchar(50) | yes |  |  |
+| 7 | `ModelName` | nvarchar(100) | yes |  |  |
+| 8 | `ModelVersion` | nvarchar(32) | yes |  |  |
+| 9 | `ModelPublisher` | nvarchar(100) | yes |  |  |
+| 10 | `SkuName` | nvarchar(50) | yes |  | Standard, GlobalStandard, ProvisionedManaged ... |
+| 11 | `Capacity` | int | yes |  |  |
+| 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryDeployment`: primary key, clustered (SubscriptionId, ResourceGroup, Account, Deployment)
+
+#### audit.FoundryUsageDay
+
+*Table.* One row per deployment, model, version and UTC day: requests and input, output and total tokens, from Azure Monitor's metrics of the account. Azure Monitor keeps 93 days, so what is loaded here is the history. There is no user on these metrics: use is by account, deployment and model.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** |  |
+| 4 | `Deployment` | nvarchar(64) | **no** | **PK** |  |
+| 5 | `ModelName` | nvarchar(100) | **no** | **PK** | '' where the metric does not say |
+| 6 | `ModelVersion` | nvarchar(32) | **no** | **PK** |  |
+| 7 | `Day` | date | **no** | **PK** |  |
+| 8 | `Requests` | bigint | yes |  |  |
+| 9 | `InputTokens` | bigint | yes |  |  |
+| 10 | `OutputTokens` | bigint | yes |  |  |
+| 11 | `TotalTokens` | bigint | yes |  |  |
+| 12 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryUsageDay`: primary key, clustered (SubscriptionId, ResourceGroup, Account, Deployment, ModelName, ModelVersion, Day)
+
+#### audit.FoundryCostDay
+
+*Table.* One row per account, meter and UTC day: the actual cost Azure reports, before tax, from Cost Management, in the currency the subscription is billed in. Cost is by account and meter (such as "gpt-4o Input Tokens"), not by deployment. A day is written again each time it is loaded: an open month's figures are estimates until five days after it ends.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SubscriptionId` | varchar(36) | **no** | **PK** |  |
+| 2 | `ResourceGroup` | nvarchar(90) | **no** | **PK** |  |
+| 3 | `Account` | nvarchar(64) | **no** | **PK** |  |
+| 4 | `Meter` | nvarchar(200) | **no** | **PK** | such as "gpt-4o Input Tokens"; '' where none |
+| 5 | `Day` | date | **no** | **PK** |  |
+| 6 | `Cost` | decimal(19,6) | **no** |  |  |
+| 7 | `Currency` | nvarchar(8) | yes |  |  |
+| 8 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FoundryCostDay`: primary key, clustered (SubscriptionId, ResourceGroup, Account, Meter, Day)
+
+#### audit.ExternalUsageRun
+
+*Table.* One row per run of tools/Import-GitHubCopilotUsage.ps1 or tools/Import-FoundryUsage.ps1, written from its start: the source, what it covered, how it ended (Succeeded, Partial when a part could not be read, or Failed), the rows written, and what was loaded or why not. Admin &gt; Health shows the last run of each source.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RunId` | int | **no** | **PK** identity |  |
+| 2 | `Source` | varchar(16) | **no** |  | GitHub \| Foundry |
+| 3 | `Scope` | nvarchar(400) | yes |  | the enterprise or organization, or the subscriptions |
+| 4 | `StartedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 5 | `EndedUtc` | datetime2(0) | yes |  |  |
+| 6 | `Status` | varchar(16) | **no** | `'Running'` | Running \| Succeeded \| Partial \| Failed |
+| 7 | `FromDay` | date | yes |  |  |
+| 8 | `ToDay` | date | yes |  |  |
+| 9 | `RowsWritten` | int | yes |  |  |
+| 10 | `Detail` | nvarchar(2000) | yes |  | what was loaded, or why it failed |
+| 11 | `CredentialExpiresUtc` | datetime2(0) | yes |  |  |
+| 12 | `Host` | nvarchar(128) | yes |  |  |
+
+Indexes and constraints:
+
+- `PK_ExternalUsageRun`: primary key, clustered (RunId)
+- `IX_ExternalUsageRun_Source`: nonclustered (Source, RunId)
 
 ### License events (license-event database)
 
@@ -3916,7 +4172,7 @@ Indexes and constraints:
 
 #### dash.NotificationLog
 
-*Table.* Every email and webhook post, sent or not, with the reason when not.
+*Table.* Every email and webhook post, sent or not, with the reason when not, and from 2.6.2 the conversation with the mail server (Detail), which Admin &gt; Email shows for troubleshooting.
 
 **Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
 
@@ -3929,6 +4185,7 @@ Indexes and constraints:
 | 5 | `Recipients` | nvarchar(2000) | yes |  |  |
 | 6 | `Status` | varchar(16) | **no** |  | Sent \| Failed \| NoRecipients \| MailOff |
 | 7 | `Error` | nvarchar(2000) | yes |  |  |
+| 8 | `Detail` | nvarchar(max) | yes |  | 2.6.2: what was said between the dashboard and the mail server, for a test message and for any message not sent; never the password or the message |
 
 Indexes and constraints:
 
@@ -4539,7 +4796,7 @@ Write-Step "Tables, views and procedures in $Database"
 $copilotScripts = 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql',
                   'Create-CopilotFlattenedSchema.sql', 'Create-CopilotFlattenProcedure.sql', 'Create-CopilotPurgeProcedure.sql',
                   'Create-CopilotEnrichmentSchema.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql',
-                  'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql'
+                  'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql', 'Create-CopilotExternalUsageSchema.sql'
 if ($Dashboard) { $copilotScripts += 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql' }
 foreach ($s in $copilotScripts) { Invoke-SqlFile $Database $s }
 if (-not $SkipLicenseDatabase) {
@@ -4837,7 +5094,7 @@ if ($todo) { Write-Host 'Still to do:'; $todo | ForEach-Object { Write-Host "  -
 
 ### C.2 `sql/Create-CopilotAuditSchema.sql`
 
-Both databases. Loading state and staging, the pipeline's settings and run log, and the shared function that reads an interaction out of the record JSON. 240 lines.
+Both databases. Loading state and staging, the pipeline's settings and run log, and the shared function that reads an interaction out of the record JSON. 264 lines.
 
 ```sql
 /*
@@ -5080,6 +5337,30 @@ IF OBJECT_ID(N'audit.PipelineRunStep', N'U') IS NULL
    and 3 days before (2.3.0). */
 IF COL_LENGTH(N'audit.PipelineRun', N'CertificateThumbprint') IS NULL
     ALTER TABLE audit.PipelineRun ADD CertificateThumbprint VARCHAR(64) NULL, CertificateExpiresUtc DATETIME2(0) NULL, CertificateSubject NVARCHAR(400) NULL;
+
+/*  Every certificate the pipeline signs in with, as the job server holds it: one row for each, rewritten at
+    the start of every run. There are two: Purview, for the app that reads the audit log and the licenses
+    through Microsoft Graph, and AgentWorkbook, for the app that fetches the agent workbook from SharePoint
+    Online, where the settings name one. Admin > Health shows each with its details, and the dashboard warns
+    30, 14 and 3 days before either expires. A thumbprint the settings name that the job server holds no
+    certificate for is recorded too, with Found = 0. audit.PipelineRun keeps the audit app's certificate with
+    each run, as before. */
+IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NULL
+    CREATE TABLE audit.PipelineCertificate
+    (
+        Purpose      VARCHAR(32)     NOT NULL CONSTRAINT PK_PipelineCertificate PRIMARY KEY,   -- Purview | AgentWorkbook | Foundry
+        Thumbprint   VARCHAR(64)     NOT NULL,   -- as the settings file names it
+        Found        BIT             NOT NULL,   -- 0: no certificate of that thumbprint on the job server
+        Subject      NVARCHAR(400)   NULL,
+        Issuer       NVARCHAR(400)   NULL,
+        NotBeforeUtc DATETIME2(0)    NULL,
+        ExpiresUtc   DATETIME2(0)    NULL,
+        Store        VARCHAR(32)     NULL,       -- LocalMachine\My | CurrentUser\My
+        ClientId     NVARCHAR(64)    NULL,       -- the app registration it signs in as
+        TenantId     NVARCHAR(256)   NULL,
+        Host         NVARCHAR(128)   NULL,       -- the job server that holds it
+        SeenUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_PipelineCertificate_Seen DEFAULT (SYSUTCDATETIME())
+    );
 ```
 
 ### C.3 `sql/Create-CopilotLoadProcedure.sql`
@@ -9647,7 +9928,237 @@ END;
 GO
 ```
 
-### C.12 `sql/Create-CopilotDashboardSchema.sql`
+### C.12 `sql/Create-CopilotExternalUsageSchema.sql`
+
+Copilot database. AI usage outside Microsoft 365 Copilot (2.6.2): the tables for GitHub Copilot's seats, use and cost, for Foundry and Azure OpenAI deployments, use and cost, and the two loaders' run log. 223 lines.
+
+```sql
+/*
+    Usage and cost of AI outside Microsoft 365 Copilot (2.6.2): first plumbing
+    ------------------------------------------------------------------------
+    Two more sources, each loaded by a tool of its own into tables of its own,
+    beside the Copilot audit data and not mixed into it:
+
+      GitHub Copilot (tools/Import-GitHubCopilotUsage.ps1), for an enterprise
+      or an organization, from GitHub's REST API:
+        audit.GitHubCopilotSeat      one row per seat: who holds it, since
+                                     when, the plan, and when they last used it
+        audit.GitHubCopilotDay       one row per day: active users, interactions,
+                                     code generated and accepted, lines of code
+        audit.GitHubCopilotUserDay   one row per person per day they used it,
+                                     with the AI credits they used
+        audit.GitHubCopilotCost      what GitHub billed for Copilot, a row per
+                                     day, product, SKU and model
+
+      Microsoft Foundry and Azure OpenAI (tools/Import-FoundryUsage.ps1), for
+      the subscriptions named, from Azure Resource Manager, Azure Monitor and
+      Cost Management:
+        audit.FoundryDeployment      one row per model deployment as it stands
+        audit.FoundryUsageDay        one row per deployment and model per day:
+                                     requests, input and output tokens
+        audit.FoundryCostDay         one row per resource and meter per day:
+                                     what Azure charged
+
+      audit.ExternalUsageRun         one row per run of either tool, for
+                                     Admin > Health
+
+    This is plumbing: the tables, the loads and their log. No report reads them
+    yet, and nothing in bi or dash depends on them. A person here is a GitHub
+    login, which is not a Microsoft 365 sign-in; nothing joins the two yet.
+
+    Days are UTC days, as each service reports them, not the reporting time
+    zone's. Amounts are in the currency the service bills in.
+
+    Idempotent. Single batch (no GO). Requires SQL Server 2016+.
+*/
+SET NOCOUNT ON;
+
+IF SCHEMA_ID(N'audit') IS NULL
+    EXEC (N'CREATE SCHEMA audit AUTHORIZATION dbo;');
+
+/* ---- GitHub Copilot ------------------------------------------------------- */
+
+/* Every seat as GitHub lists it now. Replaced whole by each load of a scope. */
+IF OBJECT_ID(N'audit.GitHubCopilotSeat', N'U') IS NULL
+    CREATE TABLE audit.GitHubCopilotSeat
+    (
+        Scope                   NVARCHAR(120)  NOT NULL,   -- enterprise:<slug> or org:<name>
+        Login                   NVARCHAR(100)  NOT NULL,   -- the GitHub login: not a Microsoft 365 sign-in
+        UserId                  BIGINT         NULL,
+        Organization            NVARCHAR(100)  NULL,       -- the organization the seat was assigned through
+        AssigningTeam           NVARCHAR(200)  NULL,
+        PlanType                VARCHAR(16)    NULL,       -- business | enterprise | unknown
+        CreatedUtc              DATETIME2(0)   NULL,       -- when the seat was assigned
+        LastActivityUtc         DATETIME2(0)   NULL,       -- NULL: never used, or telemetry is off in the editor
+        LastActivityEditor      NVARCHAR(200)  NULL,
+        LastAuthenticatedUtc    DATETIME2(0)   NULL,
+        PendingCancellationDate DATE           NULL,
+        LoadedUtc               DATETIME2(0)   NOT NULL CONSTRAINT DF_GitHubCopilotSeat_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_GitHubCopilotSeat PRIMARY KEY (Scope, Login)
+    );
+
+/* One row per day, from the organization-1-day or enterprise-1-day report. The whole record is kept in
+   Json: it carries breakdowns by editor, feature, language and model that have no columns here yet. */
+IF OBJECT_ID(N'audit.GitHubCopilotDay', N'U') IS NULL
+    CREATE TABLE audit.GitHubCopilotDay
+    (
+        Scope                  NVARCHAR(120)  NOT NULL,
+        [Day]                  DATE           NOT NULL,   -- a UTC day
+        DailyActiveUsers       INT            NULL,
+        WeeklyActiveUsers      INT            NULL,
+        MonthlyActiveUsers     INT            NULL,
+        MonthlyActiveChatUsers INT            NULL,
+        MonthlyActiveAgentUsers INT           NULL,
+        Interactions           BIGINT         NULL,       -- user_initiated_interaction_count
+        CodeGenerations        BIGINT         NULL,       -- code_generation_activity_count
+        CodeAcceptances        BIGINT         NULL,       -- code_acceptance_activity_count
+        LocSuggestedToAdd      BIGINT         NULL,
+        LocSuggestedToDelete   BIGINT         NULL,
+        LocAdded               BIGINT         NULL,
+        LocDeleted             BIGINT         NULL,
+        Json                   NVARCHAR(MAX)  NULL,
+        LoadedUtc              DATETIME2(0)   NOT NULL CONSTRAINT DF_GitHubCopilotDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_GitHubCopilotDay PRIMARY KEY (Scope, [Day])
+    );
+
+/* One row per person per day they used Copilot, from the users-1-day report. */
+IF OBJECT_ID(N'audit.GitHubCopilotUserDay', N'U') IS NULL
+    CREATE TABLE audit.GitHubCopilotUserDay
+    (
+        Scope           NVARCHAR(120)  NOT NULL,
+        [Day]           DATE           NOT NULL,
+        UserId          BIGINT         NOT NULL,
+        Login           NVARCHAR(100)  NULL,
+        Interactions    BIGINT         NULL,
+        CodeGenerations BIGINT         NULL,
+        CodeAcceptances BIGINT         NULL,
+        LocAdded        BIGINT         NULL,
+        LocDeleted      BIGINT         NULL,
+        AiCreditsUsed   DECIMAL(19, 4) NULL,       -- 1 AI credit is 0.01 USD at GitHub's list price
+        UsedChat        BIT            NULL,
+        UsedAgent       BIT            NULL,
+        UsedCli         BIT            NULL,
+        LoadedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_GitHubCopilotUserDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_GitHubCopilotUserDay PRIMARY KEY (Scope, [Day], UserId)
+    );
+
+/* What GitHub billed for Copilot: its billing usage for the scope, the lines whose product is Copilot. A
+   month is replaced whole each time it is loaded, since an open month's lines change until it closes. */
+IF OBJECT_ID(N'audit.GitHubCopilotCost', N'U') IS NULL
+    CREATE TABLE audit.GitHubCopilotCost
+    (
+        CostId         BIGINT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_GitHubCopilotCost PRIMARY KEY,
+        Scope          NVARCHAR(120)  NOT NULL,
+        UsageDate      DATE           NOT NULL,
+        Product        NVARCHAR(100)  NULL,
+        Sku            NVARCHAR(200)  NULL,
+        Model          NVARCHAR(200)  NULL,
+        Organization   NVARCHAR(100)  NULL,
+        UnitType       NVARCHAR(50)   NULL,
+        PricePerUnit   DECIMAL(19, 6) NULL,
+        Quantity       DECIMAL(19, 4) NULL,
+        GrossAmount    DECIMAL(19, 4) NULL,
+        DiscountAmount DECIMAL(19, 4) NULL,
+        NetAmount      DECIMAL(19, 4) NULL,       -- what was charged, in USD
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_GitHubCopilotCost_Loaded DEFAULT (SYSUTCDATETIME()),
+        INDEX IX_GitHubCopilotCost_Date (Scope, UsageDate)
+    );
+
+/* ---- Microsoft Foundry and Azure OpenAI ----------------------------------- */
+
+/* Every model deployment of the accounts read, as it stands. Replaced whole for a subscription by each load. */
+IF OBJECT_ID(N'audit.FoundryDeployment', N'U') IS NULL
+    CREATE TABLE audit.FoundryDeployment
+    (
+        SubscriptionId VARCHAR(36)    NOT NULL,
+        ResourceGroup  NVARCHAR(90)   NOT NULL,
+        Account        NVARCHAR(64)   NOT NULL,   -- the Microsoft.CognitiveServices account
+        Deployment     NVARCHAR(64)   NOT NULL,
+        Kind           NVARCHAR(50)   NULL,       -- OpenAI | AIServices
+        Location       NVARCHAR(50)   NULL,
+        ModelName      NVARCHAR(100)  NULL,
+        ModelVersion   NVARCHAR(32)   NULL,
+        ModelPublisher NVARCHAR(100)  NULL,
+        SkuName        NVARCHAR(50)   NULL,       -- Standard, GlobalStandard, ProvisionedManaged ...
+        Capacity       INT            NULL,
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_FoundryDeployment_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FoundryDeployment PRIMARY KEY (SubscriptionId, ResourceGroup, Account, Deployment)
+    );
+
+/* One row per deployment, model and UTC day, from Azure Monitor's metrics of the account. A day is
+   written again each time it is loaded: Azure Monitor keeps 93 days, so what is here is the history. */
+IF OBJECT_ID(N'audit.FoundryUsageDay', N'U') IS NULL
+    CREATE TABLE audit.FoundryUsageDay
+    (
+        SubscriptionId VARCHAR(36)    NOT NULL,
+        ResourceGroup  NVARCHAR(90)   NOT NULL,
+        Account        NVARCHAR(64)   NOT NULL,
+        Deployment     NVARCHAR(64)   NOT NULL,
+        ModelName      NVARCHAR(100)  NOT NULL,   -- '' where the metric does not say
+        ModelVersion   NVARCHAR(32)   NOT NULL,
+        [Day]          DATE           NOT NULL,
+        Requests       BIGINT         NULL,
+        InputTokens    BIGINT         NULL,
+        OutputTokens   BIGINT         NULL,
+        TotalTokens    BIGINT         NULL,
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_FoundryUsageDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FoundryUsageDay PRIMARY KEY (SubscriptionId, ResourceGroup, Account, Deployment, ModelName, ModelVersion, [Day])
+    );
+
+/* One row per account, meter and day, from Cost Management: the cost Azure reports, before tax. Cost is by
+   resource and meter, not by deployment. A day is written again each time it is loaded, since an open
+   month's figures are estimates until the fifth day after it ends. */
+IF OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NULL
+    CREATE TABLE audit.FoundryCostDay
+    (
+        SubscriptionId VARCHAR(36)    NOT NULL,
+        ResourceGroup  NVARCHAR(90)   NOT NULL,
+        Account        NVARCHAR(64)   NOT NULL,
+        Meter          NVARCHAR(200)  NOT NULL,   -- such as "gpt-4o Input Tokens"; '' where none
+        [Day]          DATE           NOT NULL,
+        Cost           DECIMAL(19, 6) NOT NULL,
+        Currency       NVARCHAR(8)    NULL,
+        LoadedUtc      DATETIME2(0)   NOT NULL CONSTRAINT DF_FoundryCostDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FoundryCostDay PRIMARY KEY (SubscriptionId, ResourceGroup, Account, Meter, [Day])
+    );
+
+/* ---- The loads' own log ---------------------------------------------------- */
+
+/* One row per run of either tool, from its start, so a failure shows too. Admin > Health reads the last of
+   each source. CredentialExpiresUtc is when the GitHub token used expires, where GitHub says. */
+IF OBJECT_ID(N'audit.ExternalUsageRun', N'U') IS NULL
+    CREATE TABLE audit.ExternalUsageRun
+    (
+        RunId                INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_ExternalUsageRun PRIMARY KEY,
+        Source               VARCHAR(16)    NOT NULL,   -- GitHub | Foundry
+        Scope                NVARCHAR(400)  NULL,       -- the enterprise or organization, or the subscriptions
+        StartedUtc           DATETIME2(0)   NOT NULL CONSTRAINT DF_ExternalUsageRun_Started DEFAULT (SYSUTCDATETIME()),
+        EndedUtc             DATETIME2(0)   NULL,
+        Status               VARCHAR(16)    NOT NULL CONSTRAINT DF_ExternalUsageRun_Status DEFAULT ('Running'),   -- Running | Succeeded | Partial | Failed
+        FromDay              DATE           NULL,
+        ToDay                DATE           NULL,
+        RowsWritten          INT            NULL,
+        Detail               NVARCHAR(2000) NULL,       -- what was loaded, or why it failed
+        CredentialExpiresUtc DATETIME2(0)   NULL,
+        Host                 NVARCHAR(128)  NULL,
+        INDEX IX_ExternalUsageRun_Source (Source, RunId)
+    );
+
+/* The dashboard's account reads them, where the dashboard's role exists. */
+IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL
+BEGIN
+    GRANT SELECT ON audit.GitHubCopilotSeat TO CopilotInsightsApp;
+    GRANT SELECT ON audit.GitHubCopilotDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.GitHubCopilotUserDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.GitHubCopilotCost TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FoundryDeployment TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FoundryUsageDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FoundryCostDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.ExternalUsageRun TO CopilotInsightsApp;
+END;
+```
+
+### C.13 `sql/Create-CopilotDashboardSchema.sql`
 
 Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 359 lines.
 
@@ -10013,7 +10524,7 @@ OUTER APPLY (SELECT TOP (1) i.InventoryAgentId, i.AgentName, i.OwnerUpn, i.IsSha
              ORDER BY i.InProduction DESC, i.LastPublishedAt DESC, i.InventoryAgentId) AS inv;');
 ```
 
-### C.13 `sql/Create-CopilotDashboardProcedure.sql`
+### C.14 `sql/Create-CopilotDashboardProcedure.sql`
 
 Copilot database, with `-Dashboard`. `dash.usp_RefreshDashboard`, which rebuilds the org chart and the rollups. 322 lines.
 
@@ -10342,9 +10853,9 @@ END;
 GO
 ```
 
-### C.14 `sql/Create-CopilotOperationsSchema.sql`
+### C.15 `sql/Create-CopilotOperationsSchema.sql`
 
-Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 725 lines.
+Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 733 lines.
 
 ```sql
 /*
@@ -10546,6 +11057,12 @@ IF OBJECT_ID(N'dash.NotificationLog', N'U') IS NULL
         Error       NVARCHAR(2000)  NULL,
         INDEX IX_DashNotificationLog_At (AtUtc)
     );
+
+/* What was said between the dashboard and the mail server for a message (2.6.2), for troubleshooting on
+   Admin > Email: where it connected and how, each command and the server's answer, and how it ended. Kept
+   for every test message and every message that was not sent; never the password, nor the message itself. */
+IF COL_LENGTH(N'dash.NotificationLog', N'Detail') IS NULL
+    ALTER TABLE dash.NotificationLog ADD Detail NVARCHAR(MAX) NULL;
 
 /* Which alert fired last on what, so an alert is sent once per occurrence, not every few minutes. */
 IF OBJECT_ID(N'dash.AlertState', N'U') IS NULL
@@ -10899,7 +11416,9 @@ DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),
                              (N'PipelineRunStep'), (N'PipelineSetting'), (N'LicenseSku'), (N'LicenseSkuDay'), (N'CopilotLicense'), (N'UserLicenseSku'),
-                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember')) AS v (name)
+                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember'), (N'PipelineCertificate'),
+                             (N'GitHubCopilotSeat'), (N'GitHubCopilotDay'), (N'GitHubCopilotUserDay'), (N'GitHubCopilotCost'),
+                             (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;
@@ -11074,7 +11593,7 @@ BEGIN
 END;
 ```
 
-### C.15 `sql/Create-LicenseEventSchema.sql`
+### C.16 `sql/Create-LicenseEventSchema.sql`
 
 License-event database. License events, their properties, the SKU changes and the license views. 354 lines.
 
@@ -11435,7 +11954,7 @@ WHERE TargetUpn IS NOT NULL
 GROUP BY TargetUpn;');
 ```
 
-### C.16 `sql/Create-LicenseEventProcedure.sql`
+### C.17 `sql/Create-LicenseEventProcedure.sql`
 
 License-event database. `audit.usp_ShredLicenseEvents` and `audit.usp_RefreshLicenseSkuChange`. 709 lines.
 
@@ -12151,7 +12670,7 @@ FROM audit.LicenseSkuChange;');
 GO
 ```
 
-### C.17 `sql/Create-AgentEventProcedure.sql`
+### C.18 `sql/Create-AgentEventProcedure.sql`
 
 License-event database. `audit.AgentEvent` and `audit.usp_ShredAgentEvents`: Copilot Studio authoring records. 112 lines.
 
@@ -12270,7 +12789,7 @@ END;
 GO
 ```
 
-### C.18 `sql/Finalize-CopilotAudit.sql`
+### C.19 `sql/Finalize-CopilotAudit.sql`
 
 Both databases. Run by the backfill's `-Finalize`, not by the installer: builds `audit.CopilotAudit` and `audit.CopilotInteraction` from staging. 290 lines.
 
@@ -12567,7 +13086,7 @@ WHEN NOT MATCHED THEN INSERT (Name, Value) VALUES (s.Name, s.Value);
 RAISERROR('Finalize complete. Once verified, reclaim space with: DROP TABLE audit.CopilotAuditStage;', 0, 1) WITH NOWAIT;
 ```
 
-### C.19 `sql/Create-CopilotCsvImport.sql`
+### C.20 `sql/Create-CopilotCsvImport.sql`
 
 Run by `tools/Import-CopilotAuditCsv.ps1`, not by the installer: the CSV import tables and `audit.usp_MergeCopilotCsv`. 400 lines.
 
@@ -12974,9 +13493,9 @@ END;
 GO
 ```
 
-### C.20 `Invoke-CopilotPipeline.ps1`
+### C.21 `Invoke-CopilotPipeline.ps1`
 
-The nightly run and the first load of history: the order in which every table is filled. 402 lines.
+The nightly run and the first load of history: the order in which every table is filled. 521 lines.
 
 ```powershell
 <#
@@ -13131,13 +13650,16 @@ function Get-PipelineStep {
     $readLic = @(@(if (Has 'SessionLicenseDatabases') { $Setting.SessionLicenseDatabases } elseif ($lic) { $lic }) |
                  ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $steps = [System.Collections.Generic.List[object]]::new()
-    function Add($name, $script, $argsTable) { $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable }) }
+    function Add($name, $script, $argsTable, [switch] $Optional) {
+        $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
+    }
 
     $directory = {
         if (Has 'TargetDomain') {
             $a = $sql + @{ Database = $Setting.Database; TargetDomain = $Setting.TargetDomain }
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
             if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # 2.5.0: where the department is
+            if (Has 'CountryNames') { $a.CountryNames = $Setting.CountryNames }   # the administrator's own names for countries
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' $a
         }
     }
@@ -13179,8 +13701,45 @@ function Get-PipelineStep {
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
         if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }
         Add 'Copilot interactions' 'Invoke-CopilotAuditBackfill.ps1' $inter
+        # Usage and cost of AI outside Microsoft 365 Copilot (2.6.2), where the settings name the source. Last, and
+        # optional: a failure of one is recorded with its step and in audit.ExternalUsageRun, and fails nothing else.
+        if ((Has 'GitHubEnterprise') -or (Has 'GitHubOrganization')) {
+            $g = $sql + @{ Database = $Setting.Database }
+            if (Has 'GitHubEnterprise') { $g.Enterprise = [string] $Setting.GitHubEnterprise } else { $g.Organization = [string] $Setting.GitHubOrganization }
+            if (Has 'GitHubTokenPath') { $g.TokenPath = [string] $Setting.GitHubTokenPath }
+            if (Has 'GitHubApiBase') { $g.ApiBase = [string] $Setting.GitHubApiBase }
+            Add 'GitHub Copilot usage' 'tools/Import-GitHubCopilotUsage.ps1' $g -Optional
+        }
+        if ((Has 'FoundrySubscriptions') -and ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
+            $f = $sql + @{ Database = $Setting.Database; SubscriptionId = @($Setting.FoundrySubscriptions)
+                           TenantId = $(if (Has 'FoundryTenantId') { $Setting.FoundryTenantId } else { $Setting.TenantId })
+                           ClientId = $(if (Has 'FoundryClientId') { $Setting.FoundryClientId } else { $Setting.ClientId })
+                           CertificateThumbprint = $(if (Has 'FoundryCertificateThumbprint') { $Setting.FoundryCertificateThumbprint } else { $Setting.CertificateThumbprint }) }
+            Add 'Foundry usage and cost' 'tools/Import-FoundryUsage.ps1' $f -Optional
+        }
     }
     , $steps.ToArray()
+}
+
+function Get-PipelineSkipNote {
+    <#
+        A line for the log for each optional loader the nightly run leaves out because the settings do not
+        configure it (2.6.2): which one, and the setting that would turn it on. Nothing for one that is
+        configured. Skipping is never a failure. Pure, for the tests.
+    #>
+    param([System.Collections.IDictionary] $Setting)
+    function Has($k) { $Setting.Contains($k) -and $Setting[$k] }
+    $notes = [System.Collections.Generic.List[string]]::new()
+    if (-not ((Has 'GitHubEnterprise') -or (Has 'GitHubOrganization'))) {
+        $notes.Add('GitHub Copilot usage: skipped, not configured (set GitHubEnterprise, or GitHubOrganization, in the settings file to load it).')
+    }
+    if (-not (Has 'FoundrySubscriptions')) {
+        $notes.Add('Foundry usage and cost: skipped, not configured (set FoundrySubscriptions in the settings file to load it).')
+    }
+    elseif (-not ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
+        $notes.Add('Foundry usage and cost: skipped, FoundrySubscriptions is set but there is no certificate to sign in with (FoundryCertificateThumbprint, or CertificateThumbprint).')
+    }
+    , $notes.ToArray()
 }
 
 function Invoke-PipelineStep {
@@ -13300,6 +13859,73 @@ function Get-PipelineCertificate {
     }
 }
 
+function Get-PipelineCertificateUse {
+    <#
+        Every certificate the pipeline signs in with, from the settings: what it is for, its thumbprint, and the
+        app registration and tenant it signs in as. Purview: the app that reads the audit log and the licenses
+        through Microsoft Graph. AgentWorkbook: the app that fetches the agent workbook from SharePoint Online,
+        where the settings name a site and a certificate for it (a workbook from a share or an address signs in as
+        the task's account, with no certificate). Pure, for the tests.
+    #>
+    param([System.Collections.IDictionary] $T)
+    function Has($k) { $T.Contains($k) -and $T[$k] }
+    # A thumbprint as the certificate dialog copies it can carry spaces and an invisible mark: hexadecimal digits only.
+    function Clean($v) { ("$v" -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() }
+    $uses = [System.Collections.Generic.List[object]]::new()
+    if (Has 'CertificateThumbprint') {
+        $uses.Add([pscustomobject]@{ Purpose = 'Purview'; Thumbprint = (Clean $T.CertificateThumbprint)
+                                     ClientId = $(if (Has 'ClientId') { "$($T.ClientId)" }); TenantId = $(if (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    if ((Has 'AgentWorkbookSiteUrl') -and (Has 'AgentWorkbookCertificateThumbprint')) {
+        $uses.Add([pscustomobject]@{ Purpose = 'AgentWorkbook'; Thumbprint = (Clean $T.AgentWorkbookCertificateThumbprint)
+                                     ClientId = $(if (Has 'AgentWorkbookClientId') { "$($T.AgentWorkbookClientId)" })
+                                     TenantId = $(if (Has 'AgentWorkbookTenantId') { "$($T.AgentWorkbookTenantId)" } elseif (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    # Foundry (2.6.2): only where its loader signs in with a certificate of its own, not the audit app's.
+    if ((Has 'FoundrySubscriptions') -and (Has 'FoundryCertificateThumbprint')) {
+        $uses.Add([pscustomobject]@{ Purpose = 'Foundry'; Thumbprint = (Clean $T.FoundryCertificateThumbprint)
+                                     ClientId = $(if (Has 'FoundryClientId') { "$($T.FoundryClientId)" } elseif (Has 'ClientId') { "$($T.ClientId)" })
+                                     TenantId = $(if (Has 'FoundryTenantId') { "$($T.FoundryTenantId)" } elseif (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    , $uses.ToArray()
+}
+
+function Write-PipelineCertificate {
+    <#
+        Records each of those certificates as the job server holds it now (audit.PipelineCertificate), for Admin >
+        Health and the dashboard's expiry alerts: subject, issuer, validity, the store it is in, and the app it signs
+        in as. One the settings name that is in neither store is recorded as not found. A certificate no longer in
+        use (the workbook moved to a share) has its row removed. Never fails the run, as the run's own record.
+    #>
+    param([System.Collections.IDictionary] $T, [string] $Log)
+    $uses = Get-PipelineCertificateUse $T   # an array already: wrapped again it would be one item holding them all
+    foreach ($u in $uses) {
+        $cert = $null; $where = $null
+        foreach ($store in 'LocalMachine\My', 'CurrentUser\My') {
+            $cert = Get-Item -LiteralPath "Cert:\$store\$($u.Thumbprint)" -ErrorAction SilentlyContinue
+            if ($cert) { $where = $store; break }
+        }
+        [void] (Write-PipelineRecord $T -Log $Log -Parameters @{
+                '@p' = $u.Purpose; '@t' = $u.Thumbprint; '@f' = [bool] $cert
+                '@s' = $(if ($cert) { $cert.Subject }); '@i' = $(if ($cert) { $cert.Issuer })
+                '@nb' = $(if ($cert) { $cert.NotBefore.ToUniversalTime() }); '@e' = $(if ($cert) { $cert.NotAfter.ToUniversalTime() })
+                '@st' = $where; '@c' = $u.ClientId; '@tn' = $u.TenantId; '@h' = [Environment]::MachineName
+            } -Sql @"
+IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC sp_executesql N'
+MERGE audit.PipelineCertificate AS t USING (SELECT @p AS Purpose) AS s ON t.Purpose = s.Purpose
+WHEN MATCHED THEN UPDATE SET Thumbprint = @t, Found = @f, Subject = LEFT(@s, 400), Issuer = LEFT(@i, 400), NotBeforeUtc = @nb, ExpiresUtc = @e,
+                             Store = @st, ClientId = LEFT(@c, 64), TenantId = LEFT(@tn, 256), Host = @h, SeenUtc = SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (Purpose, Thumbprint, Found, Subject, Issuer, NotBeforeUtc, ExpiresUtc, Store, ClientId, TenantId, Host)
+                      VALUES (@p, @t, @f, LEFT(@s, 400), LEFT(@i, 400), @nb, @e, @st, LEFT(@c, 64), LEFT(@tn, 256), @h);',
+    N'@p VARCHAR(32), @t VARCHAR(64), @f BIT, @s NVARCHAR(4000), @i NVARCHAR(4000), @nb DATETIME2(0), @e DATETIME2(0), @st VARCHAR(32), @c NVARCHAR(4000), @tn NVARCHAR(4000), @h NVARCHAR(128)',
+    @p = @p, @t = @t, @f = @f, @s = @s, @i = @i, @nb = @nb, @e = @e, @st = @st, @c = @c, @tn = @tn, @h = @h;
+"@)
+    }
+    # What is no longer used is no longer watched. The names are this script's own.
+    $keep = (@($uses | ForEach-Object { "'$($_.Purpose)'" }) + "''") -join ', '
+    [void] (Write-PipelineRecord $T -Log $Log -Parameters @{} -Sql "IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC (N'DELETE FROM audit.PipelineCertificate WHERE Purpose NOT IN ($($keep.Replace("'", "''")));');")
+}
+
 function Invoke-TenantRun {
     <# One tenant's run: its steps in order, recorded in its own database. Returns $true when every step succeeded. #>
     param([System.Collections.IDictionary] $T, [string] $Log, [string] $Label)
@@ -13316,6 +13942,8 @@ function Invoke-TenantRun {
         [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@t' = $cert.Thumbprint; '@e' = $cert.NotAfter.ToUniversalTime(); '@s' = $cert.Subject } -Sql `
             "IF COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') IS NOT NULL EXEC sp_executesql N'UPDATE audit.PipelineRun SET CertificateThumbprint = @t, CertificateExpiresUtc = @e, CertificateSubject = LEFT(@s, 400) WHERE RunId = @r;', N'@r INT, @t VARCHAR(64), @e DATETIME2(0), @s NVARCHAR(4000)', @r = @r, @t = @t, @e = @e, @s = @s;")
     }
+    # Each certificate the run signs in with, for Admin > Health and the expiry alerts: the audit app's and the agent workbook's.
+    Write-PipelineCertificate $T -Log $Log
     $n = 0
     foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
         $n++
@@ -13323,6 +13951,12 @@ function Invoke-TenantRun {
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }
         $code = Invoke-PipelineStep -Step $step -Log $Log
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@c' = $code } -Sql 'UPDATE audit.PipelineRunStep SET EndedUtc = SYSUTCDATETIME(), ExitCode = @c WHERE RunId = @r AND StepNo = @n;') }
+        if ($code -ne 0 -and $step.PSObject.Properties['Optional'] -and $step.Optional) {
+            # An optional step (2.6.2): its failure is on its own row and in the log, and the run goes on.
+            "$(Get-Date -Format s) $($step.Name) failed (exit code $code). It is optional: the run goes on. Its own log is audit.ExternalUsageRun (Admin > Health)." |
+                Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+            continue
+        }
         if ($code -ne 0) {
             "$(Get-Date -Format s) $($step.Name) failed (exit code $code). Run the same command again to resume." |
                 Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
@@ -13332,6 +13966,10 @@ function Invoke-TenantRun {
             }
             return $false
         }
+    }
+    # The optional loaders the settings do not configure: a note each, and no more.
+    if (-not $History) {
+        foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
     if (-not $History) { Invoke-Retention -Setting $T -Log $Log }
     if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded' WHERE RunId = @r;") }
@@ -13383,7 +14021,7 @@ function Invoke-Main {
 if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
 ```
 
-### C.21 `tools/Import-AgentWorkbook.ps1`
+### C.22 `tools/Import-AgentWorkbook.ps1`
 
 Creates and fills the three `dbo` tables of the agent workbook, then `dash.AgentInventory` and `dash.AgentChildLink`. 328 lines.
 
@@ -13718,7 +14356,959 @@ catch {
 finally { $conn.Dispose(); Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue }
 ```
 
-### C.22 `dashboard/Install-CopilotInsights.ps1`
+### C.23 `tools/ExternalUsage.Common.ps1`
+
+What the two loaders below share: how a set of rows replaces the ones it supersedes in one transaction, and the run log (`audit.ExternalUsageRun`). 127 lines.
+
+```powershell
+<#
+.SYNOPSIS
+    What tools\Import-GitHubCopilotUsage.ps1 and tools\Import-FoundryUsage.ps1 share: the connection to the
+    Copilot database, writing a set of rows to one of their tables, and the run's own log.
+
+.DESCRIPTION
+    Dot-sourced by the two tools; it runs nothing by itself. Every table is written the same way: the rows go
+    to a temporary table in one bulk copy, then, in one transaction, the rows they replace are deleted and the
+    new ones inserted. So a load can be run again over the same days, and a reader never sees a table half
+    written.
+#>
+
+function New-UsageConnection {
+    <# An open connection to the Copilot database: Windows authentication, encrypted, as the other tools connect. #>
+    param([string] $SqlServer, [string] $Database, [switch] $TrustServerCertificate, [string] $ConnectionString)
+    $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
+    if ($ConnectionString) { $b = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($ConnectionString) }
+    else {
+        $b['Data Source'] = $SqlServer; $b['Initial Catalog'] = $Database; $b['Integrated Security'] = $true
+        $b['Encrypt'] = $true; $b['TrustServerCertificate'] = [bool] $TrustServerCertificate
+    }
+    $b['Application Name'] = 'Copilot external usage'
+    $c = [System.Data.SqlClient.SqlConnection]::new($b.ConnectionString)
+    $c.Open()
+    $c
+}
+
+function Invoke-UsageSql {
+    <# One statement on the connection: a scalar back. Parameters by name; $null goes in as NULL. #>
+    param([System.Data.SqlClient.SqlConnection] $Connection, [string] $Sql, [hashtable] $Parameters = @{}, [System.Data.SqlClient.SqlTransaction] $Transaction)
+    $cmd = $Connection.CreateCommand()
+    $cmd.CommandText = $Sql; $cmd.CommandTimeout = 600; $cmd.Transaction = $Transaction
+    foreach ($k in $Parameters.Keys) { [void] $cmd.Parameters.AddWithValue($k, $(if ($null -eq $Parameters[$k]) { [DBNull]::Value } else { $Parameters[$k] })) }
+    $cmd.ExecuteScalar()
+}
+
+function Test-UsageSchema {
+    <# Whether the tables are there: the tools stop, saying what to run, when they are not. #>
+    param([System.Data.SqlClient.SqlConnection] $Connection)
+    [int] (Invoke-UsageSql $Connection "SELECT CASE WHEN OBJECT_ID(N'audit.ExternalUsageRun', N'U') IS NULL THEN 0 ELSE 1 END;") -eq 1
+}
+
+function ConvertTo-UsageTable {
+    <#
+        Rows (objects) as a DataTable with the columns named, in order, each of the type given: what
+        Write-UsageTable takes. A property a row lacks, or one that is $null or '', is NULL. Pure, for the tests.
+    #>
+    param([AllowEmptyCollection()][object[]] $Rows, [System.Collections.Specialized.OrderedDictionary] $Columns)
+    $t = [System.Data.DataTable]::new()
+    foreach ($name in $Columns.Keys) { [void] $t.Columns.Add($name, $Columns[$name]) }
+    foreach ($r in $Rows) {
+        $row = $t.NewRow()
+        foreach ($name in $Columns.Keys) {
+            $p = $r.PSObject.Properties[$name]
+            $v = if ($p) { $p.Value } else { $null }
+            $row[$name] = if ($null -eq $v -or ($v -is [string] -and $v -eq '' -and $Columns[$name] -ne [string])) { [DBNull]::Value } else { $v }
+        }
+        $t.Rows.Add($row)
+    }
+    , $t
+}
+
+function Write-UsageTable {
+    <#
+        Writes the rows to -Table, replacing what they supersede, in one transaction. What is replaced is either
+        every row matching -ReplaceWhere (a whole scope, or a scope's month; its parameters in -ReplaceParameters),
+        or, without it, each row with the same -Key as a new one. Returns how many rows were written.
+    #>
+    param(
+        [System.Data.SqlClient.SqlConnection] $Connection,
+        [string] $Table,
+        [System.Data.DataTable] $Rows,
+        [string[]] $Key = @(),
+        [string] $ReplaceWhere,
+        [hashtable] $ReplaceParameters = @{}
+    )
+    if ($Table -notmatch '^audit\.[A-Za-z]+$') { throw "Not a table of these tools: $Table" }
+    $cols = @($Rows.Columns | ForEach-Object { "[$($_.ColumnName)]" }) -join ', '
+    [void] (Invoke-UsageSql $Connection "IF OBJECT_ID(N'tempdb..#usage') IS NOT NULL DROP TABLE #usage; SELECT TOP (0) $cols INTO #usage FROM $Table;")
+    if ($Rows.Rows.Count -gt 0) {
+        $bulk = [System.Data.SqlClient.SqlBulkCopy]::new($Connection)
+        try {
+            $bulk.DestinationTableName = '#usage'; $bulk.BulkCopyTimeout = 600
+            foreach ($c in $Rows.Columns) { [void] $bulk.ColumnMappings.Add($c.ColumnName, $c.ColumnName) }
+            $bulk.WriteToServer($Rows)
+        }
+        finally { $bulk.Close() }
+    }
+    $tx = $Connection.BeginTransaction()
+    try {
+        if ($ReplaceWhere) { [void] (Invoke-UsageSql $Connection "DELETE FROM $Table WHERE $ReplaceWhere;" $ReplaceParameters $tx) }
+        elseif ($Key.Count -gt 0) {
+            $on = @($Key | ForEach-Object { "t.[$_] = s.[$_]" }) -join ' AND '
+            [void] (Invoke-UsageSql $Connection "DELETE t FROM $Table AS t JOIN #usage AS s ON $on;" @{} $tx)
+        }
+        [void] (Invoke-UsageSql $Connection "INSERT INTO $Table ($cols) SELECT $cols FROM #usage;" @{} $tx)
+        $tx.Commit()
+    }
+    catch { $tx.Rollback(); throw }
+    finally { [void] (Invoke-UsageSql $Connection "IF OBJECT_ID(N'tempdb..#usage') IS NOT NULL DROP TABLE #usage;") }
+    $Rows.Rows.Count
+}
+
+function Start-UsageRun {
+    <# Records the run from its start, so a failure shows too. Returns its id. #>
+    param([System.Data.SqlClient.SqlConnection] $Connection, [ValidateSet('GitHub', 'Foundry')][string] $Source, [string] $Scope, $FromDay, $ToDay)
+    [int] (Invoke-UsageSql $Connection @'
+INSERT INTO audit.ExternalUsageRun (Source, Scope, FromDay, ToDay, Host) VALUES (@s, LEFT(@scope, 400), @f, @t, @h);
+SELECT CAST(SCOPE_IDENTITY() AS INT);
+'@ @{ '@s' = $Source; '@scope' = $Scope; '@f' = $FromDay; '@t' = $ToDay; '@h' = [Environment]::MachineName })
+}
+
+function Complete-UsageRun {
+    <# How the run ended: Succeeded, Partial (a part of it could not be read, and Detail says which) or Failed. #>
+    param([System.Data.SqlClient.SqlConnection] $Connection, [int] $RunId, [ValidateSet('Succeeded', 'Partial', 'Failed')][string] $Status,
+          [int] $Rows, [string] $Detail, $ExpiresUtc)
+    [void] (Invoke-UsageSql $Connection @'
+UPDATE audit.ExternalUsageRun SET EndedUtc = SYSUTCDATETIME(), Status = @st, RowsWritten = @r, Detail = LEFT(@d, 2000), CredentialExpiresUtc = @e WHERE RunId = @id;
+'@ @{ '@st' = $Status; '@r' = $Rows; '@d' = $Detail; '@e' = $ExpiresUtc; '@id' = $RunId })
+}
+
+function Get-UsageDay {
+    <# The UTC days a load covers: -Days of them, ending yesterday. Pure, for the tests. #>
+    param([ValidateRange(1, 400)][int] $Days, [datetime] $Today = [datetime]::UtcNow.Date)
+    $last = $Today.Date.AddDays(-1)
+    , @(for ($i = $Days - 1; $i -ge 0; $i--) { $last.AddDays(-$i) })
+}
+```
+
+### C.24 `tools/Import-GitHubCopilotUsage.ps1`
+
+Fills the four `audit.GitHubCopilot...` tables from GitHub's REST API, for an enterprise or an organization. Optional; the nightly run calls it when the settings name one. 396 lines.
+
+```powershell
+<#
+.SYNOPSIS
+    Loads GitHub Copilot's seats, daily usage and cost for an enterprise (or an organization) into the Copilot
+    database. First plumbing (2.6.2): the tables and the load; no report reads them yet.
+
+.DESCRIPTION
+    Reads GitHub's REST API with a token and writes four tables (sql\Create-CopilotExternalUsageSchema.sql,
+    which Install-CopilotAudit.ps1 runs):
+
+      1. Seats (audit.GitHubCopilotSeat): every seat as it stands, who holds it, the plan (business or
+         enterprise), when it was assigned and when it was last used. Replaced whole.
+      2. Daily usage (audit.GitHubCopilotDay): the enterprise-1-day (or organization-1-day) usage metrics
+         report of each day asked for: active users, interactions, code generated and accepted, lines of code.
+         The whole record is kept as JSON too, for the breakdowns that have no columns yet.
+      3. Usage by person (audit.GitHubCopilotUserDay): the users-1-day report of each day: what each person did,
+         and the AI credits they used.
+      4. Cost (audit.GitHubCopilotCost): GitHub's billing usage for this month and the last, the lines whose
+         product is Copilot: quantity, price and the net amount charged.
+
+    A seat's cost is its plan's price a month (19 USD for Copilot Business, 39 USD for Copilot Enterprise at
+    GitHub's list price, 2026): the seats table has the plan, and the cost table has what GitHub billed, the
+    seats and the AI credits beyond the ones included.
+
+    Each part is read on its own. A part the token may not read (billing needs an administrator) is left out
+    and named in the run's detail, and the run ends Partial; the others are loaded. Days GitHub has no report
+    for yet are skipped: its usage metrics can be three days behind. Loading the same days again replaces
+    them, so the nightly run reads a trailing window (-Days, 10 by default).
+
+    The run is recorded in audit.ExternalUsageRun, which Admin > Health shows, with the day the token expires.
+
+    THE TOKEN. A GitHub token with read access to the enterprise's (or organization's) Copilot metrics, seats
+    and billing: for an enterprise, a classic personal access token with manage_billing:copilot and
+    read:enterprise held by an enterprise owner or billing manager, or a GitHub App installation token with
+    the matching permissions. It is read, in this order, from -Token, from the environment variable
+    GITHUB_COPILOT_TOKEN, or from the file -TokenPath names. Save it to that file once with -SaveToken: it is
+    encrypted for this computer (Windows data protection, machine scope), so the nightly task's account can
+    read it here and the file is useless anywhere else. Keep the file readable by administrators and the
+    task's account only. The token is sent to GitHub's API and to nothing else: a report's file is fetched
+    from the address GitHub returns, without it.
+
+    With no -Enterprise or -Organization, everything comes from copilot-audit.settings.psd1: GitHubEnterprise
+    or GitHubOrganization, GitHubTokenPath, and SqlServer, Database and TrustServerCertificate.
+
+.PARAMETER Enterprise
+    The enterprise's slug, as in github.com/enterprises/<slug>. For GitHub Copilot Enterprise bought at the
+    enterprise level, this is the one to give.
+
+.PARAMETER Organization
+    An organization's name, for Copilot bought by one organization. Give one of the two.
+
+.PARAMETER Days
+    How many complete UTC days to read, ending yesterday. Default 10. GitHub keeps up to a year.
+
+.PARAMETER SaveToken
+    Ask for the token and save it, encrypted for this computer, to -TokenPath. Nothing is loaded.
+
+.EXAMPLE
+    .\tools\Import-GitHubCopilotUsage.ps1 -SaveToken
+.EXAMPLE
+    .\tools\Import-GitHubCopilotUsage.ps1 -Enterprise contoso -SqlServer SQLPROD01 -Days 90
+.EXAMPLE
+    .\tools\Import-GitHubCopilotUsage.ps1          # as the nightly run does, from the settings file
+#>
+#Requires -Version 7.2
+[CmdletBinding()]
+param(
+    [string] $Enterprise,
+    [string] $Organization,
+    [ValidateRange(1, 366)][int] $Days = 10,
+    [string] $SqlServer,
+    [string] $Database = 'CopilotAudit',
+    [switch] $TrustServerCertificate,
+    [string] $ConnectionString,
+    [securestring] $Token,
+    [string] $TokenPath,
+    [switch] $SaveToken,
+    [string] $SettingsPath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'copilot-audit.settings.psd1'),
+    # GitHub Enterprise Cloud with data residency has its own API host (https://api.<tenant>.ghe.com); the tests point this at a mock.
+    [string] $ApiBase = 'https://api.github.com',
+    [string] $ApiVersion = '2026-03-10'
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ExternalUsage.Common.ps1')
+
+function Write-Line([string] $Text) { Write-Information ("{0:u} {1}" -f [datetime]::UtcNow, $Text) -InformationAction Continue }
+
+function Protect-GitHubToken {
+    <# The token as bytes only this computer can read back (Windows data protection, machine scope). #>
+    param([securestring] $Secret)
+    Add-Type -AssemblyName System.Security
+    $plain = [System.Net.NetworkCredential]::new('', $Secret).Password
+    [System.Security.Cryptography.ProtectedData]::Protect([System.Text.Encoding]::UTF8.GetBytes($plain), $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
+}
+
+function Unprotect-GitHubToken {
+    param([byte[]] $Bytes)
+    Add-Type -AssemblyName System.Security
+    [System.Text.Encoding]::UTF8.GetString([System.Security.Cryptography.ProtectedData]::Unprotect($Bytes, $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine))
+}
+
+function Get-GitHubScope {
+    <# What is loaded and where its endpoints are: an enterprise, or an organization. Pure, for the tests. #>
+    param([string] $Enterprise, [string] $Organization)
+    if ($Enterprise -and $Organization) { throw 'Give -Enterprise or -Organization, not both: each is loaded on its own.' }
+    if ($Enterprise) {
+        $e = [uri]::EscapeDataString($Enterprise)
+        return [pscustomobject]@{ Name = "enterprise:$Enterprise"; Metrics = "/enterprises/$e/copilot/metrics/reports"; Report = 'enterprise-1-day'
+                                  Seats = "/enterprises/$e/copilot/billing/seats"; Billing = "/enterprises/$e/settings/billing/usage" }
+    }
+    if ($Organization) {
+        $o = [uri]::EscapeDataString($Organization)
+        return [pscustomobject]@{ Name = "org:$Organization"; Metrics = "/orgs/$o/copilot/metrics/reports"; Report = 'organization-1-day'
+                                  Seats = "/orgs/$o/copilot/billing/seats"; Billing = "/organizations/$o/settings/billing/usage" }
+    }
+    throw 'Give -Enterprise or -Organization, or set GitHubEnterprise or GitHubOrganization in the settings file.'
+}
+
+function ConvertFrom-GitHubReportFile {
+    <#
+        The records of a usage metrics report file: one JSON object a line (NDJSON), or one JSON array, or one
+        object. Blank lines are skipped. Pure, for the tests.
+    #>
+    param([AllowNull()][AllowEmptyString()][string] $Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return , @() }
+    $t = $Text.Trim().TrimStart([char] 0xFEFF)
+    if ($t.StartsWith('[')) { return , @($t | ConvertFrom-Json -Depth 64) }
+    $lines = @($t -split "`r?`n" | Where-Object { $_.Trim() })
+    if ($lines.Count -gt 1 -or -not $t.Contains("`n")) {
+        try { return , @($lines | ForEach-Object { $_ | ConvertFrom-Json -Depth 64 }) }
+        catch { Write-Verbose "Not one object a line; read as a single document: $($_.Exception.Message)" }
+    }
+    , @($t | ConvertFrom-Json -Depth 64)
+}
+
+function Get-Field {
+    <# A property of a record, or $null where it has none: the reports gain and lose fields. #>
+    param($Record, [string] $Name)
+    if ($null -eq $Record) { return $null }
+    $p = $Record.PSObject.Properties[$Name]
+    if ($p) { $p.Value } else { $null }
+}
+
+function ConvertTo-UtcTime {
+    <# A time as GitHub writes it (ISO 8601, or "2026-12-31 00:00:00 UTC"), in UTC; $null where there is none or it cannot be read. #>
+    param($Value)
+    if ($null -eq $Value -or "$Value" -eq '') { return $null }
+    if ($Value -is [datetime]) { return $Value.ToUniversalTime() }
+    $s = "$Value".Trim() -replace ' UTC$', 'Z'
+    $d = [datetimeoffset]::MinValue
+    if ([datetimeoffset]::TryParse($s, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal, [ref] $d)) { $d.UtcDateTime } else { $null }
+}
+
+function ConvertTo-GitHubSeatRow {
+    <# A seat as GitHub lists it, as a row of audit.GitHubCopilotSeat. Pure, for the tests. #>
+    param($Seat, [string] $Scope)
+    $who = Get-Field $Seat 'assignee'
+    $team = Get-Field $Seat 'assigning_team'
+    $org = Get-Field $Seat 'organization'
+    [pscustomobject]@{
+        Scope = $Scope; Login = [string] (Get-Field $who 'login'); UserId = Get-Field $who 'id'
+        Organization = $(if ($org) { [string] (Get-Field $org 'login') })
+        AssigningTeam = $(if ($team) { [string] ((Get-Field $team 'slug'), (Get-Field $team 'name') | Where-Object { $_ } | Select-Object -First 1) })
+        PlanType = [string] (Get-Field $Seat 'plan_type')
+        CreatedUtc = ConvertTo-UtcTime (Get-Field $Seat 'created_at'); LastActivityUtc = ConvertTo-UtcTime (Get-Field $Seat 'last_activity_at')
+        LastActivityEditor = [string] (Get-Field $Seat 'last_activity_editor'); LastAuthenticatedUtc = ConvertTo-UtcTime (Get-Field $Seat 'last_authenticated_at')
+        PendingCancellationDate = $(if (Get-Field $Seat 'pending_cancellation_date') { ([datetime] (Get-Field $Seat 'pending_cancellation_date')).Date })
+    }
+}
+
+function ConvertTo-GitHubDayRow {
+    <# A day's record of the enterprise or organization report, as a row of audit.GitHubCopilotDay. Pure, for the tests. #>
+    param($Record, [string] $Scope, [datetime] $Day)
+    $d = Get-Field $Record 'day'
+    [pscustomobject]@{
+        Scope = $Scope; Day = $(if ($d) { ([datetime] $d).Date } else { $Day.Date })
+        DailyActiveUsers = Get-Field $Record 'daily_active_users'; WeeklyActiveUsers = Get-Field $Record 'weekly_active_users'
+        MonthlyActiveUsers = Get-Field $Record 'monthly_active_users'; MonthlyActiveChatUsers = Get-Field $Record 'monthly_active_chat_users'
+        MonthlyActiveAgentUsers = Get-Field $Record 'monthly_active_agent_users'
+        Interactions = Get-Field $Record 'user_initiated_interaction_count'; CodeGenerations = Get-Field $Record 'code_generation_activity_count'
+        CodeAcceptances = Get-Field $Record 'code_acceptance_activity_count'
+        LocSuggestedToAdd = Get-Field $Record 'loc_suggested_to_add_sum'; LocSuggestedToDelete = Get-Field $Record 'loc_suggested_to_delete_sum'
+        LocAdded = Get-Field $Record 'loc_added_sum'; LocDeleted = Get-Field $Record 'loc_deleted_sum'
+        Json = ($Record | ConvertTo-Json -Depth 64 -Compress)
+    }
+}
+
+function ConvertTo-GitHubUserDayRow {
+    <# A person's day in the users report, as a row of audit.GitHubCopilotUserDay; $null for a record with no user id. Pure, for the tests. #>
+    param($Record, [string] $Scope, [datetime] $Day)
+    $id = Get-Field $Record 'user_id'
+    if ($null -eq $id) { return $null }
+    $d = Get-Field $Record 'day'
+    [pscustomobject]@{
+        Scope = $Scope; Day = $(if ($d) { ([datetime] $d).Date } else { $Day.Date }); UserId = [long] $id; Login = [string] (Get-Field $Record 'user_login')
+        Interactions = Get-Field $Record 'user_initiated_interaction_count'; CodeGenerations = Get-Field $Record 'code_generation_activity_count'
+        CodeAcceptances = Get-Field $Record 'code_acceptance_activity_count'; LocAdded = Get-Field $Record 'loc_added_sum'; LocDeleted = Get-Field $Record 'loc_deleted_sum'
+        AiCreditsUsed = Get-Field $Record 'ai_credits_used'
+        UsedChat = Get-Field $Record 'used_chat'; UsedAgent = Get-Field $Record 'used_agent'; UsedCli = Get-Field $Record 'used_cli'
+    }
+}
+
+function ConvertTo-GitHubCostRow {
+    <#
+        A line of the billing usage, as a row of audit.GitHubCopilotCost; $null for a line of another product
+        (Actions, Packages ...) or one with no date. Pure, for the tests.
+    #>
+    param($Item, [string] $Scope)
+    $product = [string] (Get-Field $Item 'product'); $sku = [string] (Get-Field $Item 'sku')
+    if ($product -notmatch 'copilot' -and $sku -notmatch 'copilot') { return $null }
+    $date = ConvertTo-UtcTime (Get-Field $Item 'date')
+    if ($null -eq $date) { return $null }
+    $quantity = Get-Field $Item 'quantity'; if ($null -eq $quantity) { $quantity = Get-Field $Item 'grossQuantity' }
+    [pscustomobject]@{
+        Scope = $Scope; UsageDate = $date.Date; Product = $product; Sku = $sku; Model = [string] (Get-Field $Item 'model')
+        Organization = [string] (Get-Field $Item 'organizationName'); UnitType = [string] (Get-Field $Item 'unitType')
+        PricePerUnit = Get-Field $Item 'pricePerUnit'; Quantity = $quantity
+        GrossAmount = Get-Field $Item 'grossAmount'; DiscountAmount = Get-Field $Item 'discountAmount'; NetAmount = Get-Field $Item 'netAmount'
+    }
+}
+
+function Invoke-GitHubApi {
+    <#
+        One GET of GitHub's API, with the token. Returns the status, the body as an object and the response's
+        headers. 204 (nothing to give) and 404 come back as a status, not an error; anything else that is not
+        a success throws with GitHub's own message. A rate limit is waited out once.
+    #>
+    param([string] $Uri, [string] $BearerToken, [string] $Version)
+    $headers = @{ Accept = 'application/vnd.github+json'; Authorization = "Bearer $BearerToken"; 'X-GitHub-Api-Version' = $Version; 'User-Agent' = 'copilot-audit-backfill' }
+    for ($try = 1; ; $try++) {
+        $r = Invoke-WebRequest -Uri $Uri -Headers $headers -SkipHttpErrorCheck -TimeoutSec 120
+        $status = [int] $r.StatusCode
+        if ($status -in 403, 429 -and $try -eq 1) {
+            $wait = 0
+            if ($r.Headers.ContainsKey('Retry-After')) { $wait = [int] "$(@($r.Headers['Retry-After'])[0])" }
+            elseif ($r.Headers.ContainsKey('X-RateLimit-Remaining') -and "$(@($r.Headers['X-RateLimit-Remaining'])[0])" -eq '0') { $wait = 60 }
+            if ($wait -gt 0 -and $wait -le 300) { Write-Line "GitHub asked to wait $wait s (rate limit)."; Start-Sleep -Seconds $wait; continue }
+        }
+        $body = $null
+        if ($status -ne 204 -and $r.Content) { try { $body = $r.Content | ConvertFrom-Json -Depth 64 } catch { $body = $null } }
+        if ($status -ge 400 -and $status -ne 404) {
+            $message = if ($body -and (Get-Field $body 'message')) { Get-Field $body 'message' } else { "HTTP $status" }
+            throw "GitHub answered $status for $(([uri] $Uri).AbsolutePath): $message"
+        }
+        return [pscustomobject]@{ Status = $status; Body = $body; Headers = $r.Headers }
+    }
+}
+
+function Get-GitHubReport {
+    <#
+        The records of one usage metrics report for one day: asks for the report, then fetches each file it
+        links to. The token goes to the API only, never to a file's address. Nothing for a day GitHub has no
+        report for (204 or 404).
+    #>
+    param([string] $Base, [string] $Path, [datetime] $Day, [string] $BearerToken, [string] $Version)
+    $r = Invoke-GitHubApi -Uri ("{0}{1}?day={2:yyyy-MM-dd}" -f $Base, $Path, $Day) -BearerToken $BearerToken -Version $Version
+    if ($r.Status -in 204, 404 -or $null -eq $r.Body) { return , @() }
+    $records = [System.Collections.Generic.List[object]]::new()
+    foreach ($link in @(Get-Field $r.Body 'download_links')) {
+        if (-not $link) { continue }
+        $file = Invoke-WebRequest -Uri $link -Headers @{ 'User-Agent' = 'copilot-audit-backfill' } -TimeoutSec 300
+        $text = if ($file.Content -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($file.Content) } else { [string] $file.Content }
+        foreach ($rec in (ConvertFrom-GitHubReportFile $text)) { $records.Add($rec) }
+    }
+    , $records.ToArray()
+}
+
+function Get-GitHubSeat {
+    <# Every seat, a page of 100 at a time, until GitHub has given as many as it says there are. #>
+    param([string] $Base, [string] $Path, [string] $BearerToken, [string] $Version)
+    $seats = [System.Collections.Generic.List[object]]::new()
+    $headers = $null
+    for ($page = 1; $page -le 5000; $page++) {
+        $r = Invoke-GitHubApi -Uri ("{0}{1}?per_page=100&page={2}" -f $Base, $Path, $page) -BearerToken $BearerToken -Version $Version
+        if ($r.Status -eq 404) { throw "GitHub has no Copilot seats at ${Path}: check the enterprise or organization name, and that the token may read it." }
+        $headers = $r.Headers
+        $got = @(Get-Field $r.Body 'seats')
+        foreach ($s in $got) { if ($s) { $seats.Add($s) } }
+        $total = Get-Field $r.Body 'total_seats'
+        if ($got.Count -eq 0 -or ($null -ne $total -and $seats.Count -ge [int] $total)) { break }
+    }
+    [pscustomobject]@{ Seats = $seats.ToArray(); Headers = $headers }
+}
+
+function Invoke-Main {
+    # What the command line does not give comes from the settings file.
+    $setting = @{}
+    if (Test-Path -LiteralPath $SettingsPath) { $setting = Import-PowerShellDataFile -LiteralPath $SettingsPath }
+    function Setting($k) { if ($setting.Contains($k) -and $setting[$k]) { $setting[$k] } }
+    if (-not $TokenPath) { $script:TokenPath = if (Setting 'GitHubTokenPath') { Setting 'GitHubTokenPath' } else { Join-Path (Split-Path $SettingsPath -Parent) 'github-copilot.token' } }
+
+    if ($SaveToken) {
+        $secret = if ($Token) { $Token } else { Read-Host -AsSecureString -Prompt 'GitHub token (it is not shown)' }
+        [System.IO.File]::WriteAllBytes($TokenPath, (Protect-GitHubToken $secret))
+        Write-Line "Saved to $TokenPath, encrypted for this computer. Let only administrators and the nightly task's account read the file."
+        return
+    }
+
+    if (-not $Enterprise -and -not $Organization) { $script:Enterprise = Setting 'GitHubEnterprise'; $script:Organization = Setting 'GitHubOrganization' }
+    $scope = Get-GitHubScope -Enterprise $Enterprise -Organization $Organization
+    if (-not $PSBoundParameters.ContainsKey('ApiBase') -and (Setting 'GitHubApiBase')) { $script:ApiBase = [string] (Setting 'GitHubApiBase') }
+    $script:ApiBase = $ApiBase.TrimEnd('/')
+    if (-not $ConnectionString) {
+        if (-not $SqlServer) { $script:SqlServer = Setting 'SqlServer' }
+        if (-not $PSBoundParameters.ContainsKey('Database') -and (Setting 'Database')) { $script:Database = Setting 'Database' }
+        if (Setting 'TrustServerCertificate') { $script:TrustServerCertificate = $true }
+        if (-not $SqlServer) { throw 'Give -SqlServer, or SqlServer in the settings file.' }
+    }
+
+    $bearer = if ($Token) { [System.Net.NetworkCredential]::new('', $Token).Password }
+              elseif ($env:GITHUB_COPILOT_TOKEN) { $env:GITHUB_COPILOT_TOKEN }
+              elseif (Test-Path -LiteralPath $TokenPath) { Unprotect-GitHubToken ([System.IO.File]::ReadAllBytes($TokenPath)) }
+              else { throw "No GitHub token: run this once with -SaveToken (it writes $TokenPath), or set GITHUB_COPILOT_TOKEN." }
+
+    $conn = New-UsageConnection -SqlServer $SqlServer -Database $Database -TrustServerCertificate:$TrustServerCertificate -ConnectionString $ConnectionString
+    try {
+        if (-not (Test-UsageSchema $conn)) { throw "The tables are not in $($conn.Database) yet: run Install-CopilotAudit.ps1 from this release first." }
+        $days = Get-UsageDay -Days $Days
+        $runId = Start-UsageRun $conn -Source GitHub -Scope $scope.Name -FromDay $days[0] -ToDay $days[-1]
+        $written = 0; $done = [System.Collections.Generic.List[string]]::new(); $skipped = [System.Collections.Generic.List[string]]::new(); $expires = $null
+        try {
+            # 1. Seats, whole.
+            try {
+                $s = Get-GitHubSeat -Base $ApiBase -Path $scope.Seats -BearerToken $bearer -Version $ApiVersion
+                if ($s.Headers -and $s.Headers.ContainsKey('github-authentication-token-expiration')) { $expires = ConvertTo-UtcTime "$(@($s.Headers['github-authentication-token-expiration'])[0])" }
+                $rows = @($s.Seats | ForEach-Object { ConvertTo-GitHubSeatRow $_ $scope.Name } | Where-Object { $_.Login } | Sort-Object Login -Unique)
+                $n = Write-UsageTable $conn 'audit.GitHubCopilotSeat' (ConvertTo-UsageTable $rows ([ordered]@{
+                        Scope = [string]; Login = [string]; UserId = [long]; Organization = [string]; AssigningTeam = [string]; PlanType = [string]; CreatedUtc = [datetime]
+                        LastActivityUtc = [datetime]; LastActivityEditor = [string]; LastAuthenticatedUtc = [datetime]; PendingCancellationDate = [datetime] })) `
+                    -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = $scope.Name }
+                $written += $n; $done.Add("$n seat(s)"); Write-Line "Seats: $n."
+            }
+            catch { $skipped.Add("seats ($($_.Exception.Message))"); Write-Warning "Seats were not loaded: $($_.Exception.Message)" }
+
+            # 2 and 3. The day's report, and each person's day.
+            try {
+                $dayRows = [System.Collections.Generic.List[object]]::new(); $userRows = [System.Collections.Generic.List[object]]::new(); $none = 0
+                foreach ($day in $days) {
+                    $records = Get-GitHubReport -Base $ApiBase -Path "$($scope.Metrics)/$($scope.Report)" -Day $day -BearerToken $bearer -Version $ApiVersion
+                    if ($records.Count -eq 0) { $none++; continue }
+                    foreach ($rec in $records) { $dayRows.Add((ConvertTo-GitHubDayRow $rec $scope.Name $day)) }
+                    foreach ($rec in (Get-GitHubReport -Base $ApiBase -Path "$($scope.Metrics)/users-1-day" -Day $day -BearerToken $bearer -Version $ApiVersion)) {
+                        $u = ConvertTo-GitHubUserDayRow $rec $scope.Name $day
+                        if ($u) { $userRows.Add($u) }
+                    }
+                }
+                # One row a day and one a person a day: a report in several files, or a person listed twice, is its last record.
+                $dayTable = ConvertTo-UsageTable @($dayRows | Group-Object { $_.Day } | ForEach-Object { $_.Group[-1] }) ([ordered]@{
+                        Scope = [string]; Day = [datetime]; DailyActiveUsers = [int]; WeeklyActiveUsers = [int]; MonthlyActiveUsers = [int]; MonthlyActiveChatUsers = [int]
+                        MonthlyActiveAgentUsers = [int]; Interactions = [long]; CodeGenerations = [long]; CodeAcceptances = [long]; LocSuggestedToAdd = [long]
+                        LocSuggestedToDelete = [long]; LocAdded = [long]; LocDeleted = [long]; Json = [string] })
+                $userTable = ConvertTo-UsageTable @($userRows | Group-Object { "$($_.Day)|$($_.UserId)" } | ForEach-Object { $_.Group[-1] }) ([ordered]@{
+                        Scope = [string]; Day = [datetime]; UserId = [long]; Login = [string]; Interactions = [long]; CodeGenerations = [long]; CodeAcceptances = [long]
+                        LocAdded = [long]; LocDeleted = [long]; AiCreditsUsed = [decimal]; UsedChat = [bool]; UsedAgent = [bool]; UsedCli = [bool] })
+                $n1 = Write-UsageTable $conn 'audit.GitHubCopilotDay' $dayTable -Key 'Scope', 'Day'
+                $n2 = Write-UsageTable $conn 'audit.GitHubCopilotUserDay' $userTable -Key 'Scope', 'Day', 'UserId'
+                $written += $n1 + $n2; $done.Add("$n1 day(s) of usage, $n2 person-day(s)")
+                Write-Line "Usage: $n1 day(s), $n2 person-day(s); $none of $($days.Count) day(s) had no report yet."
+            }
+            catch { $skipped.Add("usage ($($_.Exception.Message))"); Write-Warning "Usage was not loaded: $($_.Exception.Message)" }
+
+            # 4. Cost: this month and the last, each replaced whole.
+            try {
+                $today = [datetime]::UtcNow.Date; $n = 0
+                foreach ($month in @($today.AddMonths(-1), $today)) {
+                    $r = Invoke-GitHubApi -Uri ("{0}{1}?year={2}&month={3}" -f $ApiBase, $scope.Billing, $month.Year, $month.Month) -BearerToken $bearer -Version $ApiVersion
+                    if ($r.Status -eq 404) { throw 'GitHub has no billing usage for it: the token needs an administrator of the enterprise or organization, on the enhanced billing platform.' }
+                    $rows = @(@(Get-Field $r.Body 'usageItems') | ForEach-Object { if ($_) { ConvertTo-GitHubCostRow $_ $scope.Name } } | Where-Object { $_ })
+                    $first = [datetime]::new($month.Year, $month.Month, 1)
+                    $n += Write-UsageTable $conn 'audit.GitHubCopilotCost' (ConvertTo-UsageTable $rows ([ordered]@{
+                            Scope = [string]; UsageDate = [datetime]; Product = [string]; Sku = [string]; Model = [string]; Organization = [string]; UnitType = [string]
+                            PricePerUnit = [decimal]; Quantity = [decimal]; GrossAmount = [decimal]; DiscountAmount = [decimal]; NetAmount = [decimal] })) `
+                        -ReplaceWhere 'Scope = @scope AND UsageDate >= @from AND UsageDate < @to' -ReplaceParameters @{ '@scope' = $scope.Name; '@from' = $first; '@to' = $first.AddMonths(1) }
+                }
+                $written += $n; $done.Add("$n cost line(s)"); Write-Line "Cost: $n line(s) for this month and the last."
+            }
+            catch { $skipped.Add("cost ($($_.Exception.Message))"); Write-Warning "Cost was not loaded: $($_.Exception.Message)" }
+
+            $status = if ($skipped.Count -eq 0) { 'Succeeded' } elseif ($done.Count -gt 0) { 'Partial' } else { 'Failed' }
+            $detail = (@($(if ($done.Count) { 'Loaded ' + ($done -join ', ') + '.' }), $(if ($skipped.Count) { 'Not loaded: ' + ($skipped -join '; ') + '.' })) | Where-Object { $_ }) -join ' '
+            Complete-UsageRun $conn -RunId $runId -Status $status -Rows $written -Detail $detail -ExpiresUtc $expires
+            Write-Line "$status. $detail"
+            if ($expires) { Write-Line ("The token expires {0:yyyy-MM-dd}." -f $expires) }
+            if ($status -eq 'Failed') { exit 1 }
+        }
+        catch {
+            Complete-UsageRun $conn -RunId $runId -Status Failed -Rows $written -Detail $_.Exception.Message -ExpiresUtc $expires
+            throw
+        }
+    }
+    finally { $conn.Dispose() }
+}
+
+# Dot-sourcing (tests) loads the functions without running anything.
+if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
+```
+
+### C.25 `tools/Import-FoundryUsage.ps1`
+
+Fills the three `audit.Foundry...` tables from Azure Resource Manager, Azure Monitor and Cost Management, for the subscriptions named. Optional; the nightly run calls it when the settings name them. 408 lines.
+
+```powershell
+<#
+.SYNOPSIS
+    Loads the usage and cost of Microsoft Foundry and Azure OpenAI model deployments, for the subscriptions
+    named, into the Copilot database. First plumbing (2.6.2): the tables and the load; no report reads them yet.
+
+.DESCRIPTION
+    Signs in to Azure Resource Manager as an app registration with a certificate (by default the pipeline's
+    own app and certificate) and writes three tables (sql\Create-CopilotExternalUsageSchema.sql, which
+    Install-CopilotAudit.ps1 runs):
+
+      1. Deployments (audit.FoundryDeployment): every model deployment of every Azure OpenAI (kind OpenAI) and
+         Foundry (kind AIServices) account in each subscription, as it stands: model, version, SKU, capacity.
+      2. Usage (audit.FoundryUsageDay): requests and input, output and total tokens, per deployment and model
+         per UTC day, from Azure Monitor's metrics of each account. The current metrics are read first
+         (ModelRequests, InputTokens, OutputTokens, TotalTokens); an account that reports none is read from
+         the older Azure OpenAI ones (AzureOpenAIRequests, ProcessedPromptTokens, GeneratedTokens,
+         TokenTransaction).
+      3. Cost (audit.FoundryCostDay): the actual cost of each account per meter per day, from Cost Management.
+
+    What these cannot give: who made a request. Azure Monitor has no user, key or application on these
+    metrics; usage is by account, deployment and model. Cost is by account and meter, not by deployment.
+
+    Azure Monitor keeps 93 days, and cost for an open month is an estimate until five days after it ends, so
+    the nightly run reads a trailing window (-Days, 10 by default) and writes those days again. For a first
+    load give -Days 90.
+
+    Each part is read on its own: one the app may not read is left out and named in the run's detail, and the
+    run ends Partial. The run is recorded in audit.ExternalUsageRun, which Admin > Health shows.
+
+    THE APP'S ACCESS. On each subscription, the app registration needs Monitoring Reader (the accounts, their
+    deployments and their metrics) and Cost Management Reader (cost); add Reader if listing the accounts is
+    refused. Nothing here needs a Microsoft Graph permission or a key of the accounts.
+
+    With no -SubscriptionId, everything comes from copilot-audit.settings.psd1: FoundrySubscriptions, and
+    FoundryTenantId, FoundryClientId and FoundryCertificateThumbprint where the app is not the pipeline's
+    (else TenantId, ClientId and CertificateThumbprint), and SqlServer, Database and TrustServerCertificate.
+
+.PARAMETER SubscriptionId
+    The Azure subscriptions to read, by id.
+
+.PARAMETER Days
+    How many complete UTC days to read, ending yesterday. Default 10; at most 90 (Azure Monitor keeps 93).
+
+.EXAMPLE
+    .\tools\Import-FoundryUsage.ps1 -SubscriptionId 00000000-0000-0000-0000-000000000000 -TenantId contoso.onmicrosoft.com `
+        -ClientId <app-id> -CertificateThumbprint <thumbprint> -SqlServer SQLPROD01 -Days 90
+.EXAMPLE
+    .\tools\Import-FoundryUsage.ps1          # as the nightly run does, from the settings file
+#>
+#Requires -Version 7.2
+[CmdletBinding()]
+param(
+    [string[]] $SubscriptionId,
+    [ValidateRange(1, 90)][int] $Days = 10,
+    [string] $TenantId,
+    [string] $ClientId,
+    [string] $CertificateThumbprint,
+    [string] $SqlServer,
+    [string] $Database = 'CopilotAudit',
+    [switch] $TrustServerCertificate,
+    [string] $ConnectionString,
+    [string] $SettingsPath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'copilot-audit.settings.psd1'),
+    # A token already in hand, in place of signing in (the tests); and the endpoints, for a sovereign cloud or a mock.
+    [securestring] $AccessToken,
+    [string] $ArmEndpoint = 'https://management.azure.com',
+    [string] $LoginEndpoint = 'https://login.microsoftonline.com'
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'ExternalUsage.Common.ps1')
+
+$script:AccountsVersion = '2024-10-01'
+$script:MetricsVersion = '2023-10-01'
+$script:CostVersion = '2023-11-01'
+$script:CurrentMetrics = 'ModelRequests', 'InputTokens', 'OutputTokens', 'TotalTokens'
+$script:OlderMetrics = 'AzureOpenAIRequests', 'ProcessedPromptTokens', 'GeneratedTokens', 'TokenTransaction'
+# Which column of audit.FoundryUsageDay each metric fills.
+$script:MetricColumn = @{
+    ModelRequests = 'Requests'; InputTokens = 'InputTokens'; OutputTokens = 'OutputTokens'; TotalTokens = 'TotalTokens'
+    AzureOpenAIRequests = 'Requests'; ProcessedPromptTokens = 'InputTokens'; GeneratedTokens = 'OutputTokens'; TokenTransaction = 'TotalTokens'
+}
+
+function Write-Line([string] $Text) { Write-Information ("{0:u} {1}" -f [datetime]::UtcNow, $Text) -InformationAction Continue }
+
+function ConvertTo-Base64Url([byte[]] $Bytes) { [Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_') }
+
+function New-ClientAssertion {
+    <#
+        The signed statement an app signs in to Entra with in place of a secret: a JWT signed with the
+        certificate's private key (PS256), naming the certificate by the SHA-256 thumbprint of its DER encoding
+        (x5t#S256), good for ten minutes. Needs the certificate with its private key; nothing leaves the machine
+        but the signature.
+    #>
+    param([System.Security.Cryptography.X509Certificates.X509Certificate2] $Certificate, [string] $Tenant, [string] $Client, [string] $Login,
+          [datetime] $Now = [datetime]::UtcNow)
+    $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($Certificate)
+    if ($null -eq $rsa) { throw "The certificate $($Certificate.Thumbprint) has no RSA private key this account can use." }
+    $epoch = [datetime]::new(1970, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
+    $nbf = [long] ($Now.ToUniversalTime() - $epoch).TotalSeconds
+    $thumb = ConvertTo-Base64Url ([System.Security.Cryptography.SHA256]::HashData($Certificate.RawData))
+    $header = [ordered]@{ alg = 'PS256'; typ = 'JWT'; 'x5t#S256' = $thumb } | ConvertTo-Json -Compress
+    $claims = [ordered]@{ aud = "$($Login.TrimEnd('/'))/$Tenant/oauth2/v2.0/token"; iss = $Client; sub = $Client; jti = [guid]::NewGuid().ToString()
+                          nbf = $nbf; iat = $nbf; exp = $nbf + 600 } | ConvertTo-Json -Compress
+    $unsigned = (ConvertTo-Base64Url ([System.Text.Encoding]::UTF8.GetBytes($header))) + '.' + (ConvertTo-Base64Url ([System.Text.Encoding]::UTF8.GetBytes($claims)))
+    $signature = $rsa.SignData([System.Text.Encoding]::ASCII.GetBytes($unsigned), [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pss)
+    $unsigned + '.' + (ConvertTo-Base64Url $signature)
+}
+
+function Get-ArmToken {
+    <# An app-only token for Azure Resource Manager, by the certificate in LocalMachine\My or CurrentUser\My. #>
+    param([string] $Tenant, [string] $Client, [string] $Thumbprint, [string] $Login, [string] $Arm)
+    $clean = ("$Thumbprint" -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    $cert = $null
+    foreach ($store in 'Cert:\LocalMachine\My', 'Cert:\CurrentUser\My') { $cert = Get-Item -LiteralPath "$store\$clean" -ErrorAction SilentlyContinue; if ($cert) { break } }
+    if (-not $cert) { throw "No certificate $clean in LocalMachine\My or CurrentUser\My." }
+    $r = Invoke-RestMethod -Method Post -Uri "$($Login.TrimEnd('/'))/$Tenant/oauth2/v2.0/token" -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 60 -Body @{
+        client_id = $Client; scope = "$($Arm.TrimEnd('/'))/.default"; grant_type = 'client_credentials'
+        client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+        client_assertion = (New-ClientAssertion -Certificate $cert -Tenant $Tenant -Client $Client -Login $Login)
+    }
+    $r.access_token
+}
+
+function Invoke-Arm {
+    <#
+        One call of Azure Resource Manager with the token. Throttling (429) is waited out, for as long as Azure
+        says, up to three times. Any other failure throws with Azure's own message.
+    #>
+    param([string] $Uri, [string] $BearerToken, [string] $Method = 'Get', $Body)
+    for ($try = 1; ; $try++) {
+        $p = @{ Uri = $Uri; Method = $Method; Headers = @{ Authorization = "Bearer $BearerToken" }; SkipHttpErrorCheck = $true; TimeoutSec = 180 }
+        if ($null -ne $Body) { $p.Body = ($Body | ConvertTo-Json -Depth 20 -Compress); $p.ContentType = 'application/json' }
+        $r = Invoke-WebRequest @p
+        $status = [int] $r.StatusCode
+        if ($status -eq 429 -and $try -le 3) {
+            $wait = 30
+            foreach ($h in 'x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after', 'Retry-After') {
+                if ($r.Headers.ContainsKey($h)) { $n = 0; if ([int]::TryParse("$(@($r.Headers[$h])[0])", [ref] $n) -and $n -gt 0) { $wait = [Math]::Min($n, 300); break } }
+            }
+            Write-Line "Azure asked to wait $wait s (throttled)."; Start-Sleep -Seconds $wait; continue
+        }
+        $parsed = $null
+        if ($status -ne 204 -and $r.Content) { try { $parsed = $r.Content | ConvertFrom-Json -Depth 64 } catch { $parsed = $null } }
+        if ($status -ge 400) {
+            $message = "HTTP $status"
+            if ($parsed -and $parsed.PSObject.Properties['error'] -and $parsed.error) { $message = "$($parsed.error.code): $($parsed.error.message)" }
+            throw "Azure answered $status for $(([uri] $Uri).AbsolutePath): $message"
+        }
+        return $parsed
+    }
+}
+
+function Get-ArmList {
+    <# Every item of a list that comes a page at a time (value[] and nextLink). #>
+    param([string] $Uri, [string] $BearerToken)
+    $all = [System.Collections.Generic.List[object]]::new()
+    for ($next = $Uri; $next; ) {
+        $page = Invoke-Arm -Uri $next -BearerToken $BearerToken
+        if ($null -eq $page) { break }
+        foreach ($v in @($page.value)) { if ($v) { $all.Add($v) } }
+        $next = if ($page.PSObject.Properties['nextLink']) { $page.nextLink } else { $null }
+    }
+    $all.ToArray()
+}
+
+function Split-ResourceId {
+    <# An account's resource id as its subscription, resource group and name; $null for anything else. Pure, for the tests. #>
+    param([string] $ResourceId)
+    if ("$ResourceId" -match '(?i)^/subscriptions/(?<s>[^/]+)/resourceGroups/(?<g>[^/]+)/providers/Microsoft\.CognitiveServices/accounts/(?<a>[^/]+)') {
+        [pscustomobject]@{ SubscriptionId = $Matches.s.ToLowerInvariant(); ResourceGroup = $Matches.g; Account = $Matches.a }
+    }
+}
+
+function ConvertFrom-ArmMetric {
+    <#
+        Azure Monitor's answer as one flat row per metric, time series and day that has a total: the metric's
+        name, the series' dimensions (their names in lower case, as Azure returns them in either case), the UTC
+        day and the total. A metric Azure reports an error for is left out. Pure, for the tests.
+    #>
+    param($Response)
+    $rows = [System.Collections.Generic.List[object]]::new()
+    if ($null -eq $Response -or -not $Response.PSObject.Properties['value']) { return , @() }
+    foreach ($m in @($Response.value)) {
+        if ($null -eq $m) { continue }
+        if ($m.PSObject.Properties['errorCode'] -and $m.errorCode -and $m.errorCode -ne 'Success') { continue }
+        foreach ($series in @($m.timeseries)) {
+            if ($null -eq $series) { continue }
+            $dims = @{}
+            if ($series.PSObject.Properties['metadatavalues']) {
+                foreach ($d in @($series.metadatavalues)) { if ($d) { $dims["$($d.name.value)".ToLowerInvariant()] = "$($d.value)" } }
+            }
+            foreach ($point in @($series.data)) {
+                if ($null -eq $point -or -not $point.PSObject.Properties['total'] -or $null -eq $point.total) { continue }
+                $at = if ($point.timeStamp -is [datetime]) { $point.timeStamp.ToUniversalTime() } else { [datetimeoffset]::Parse("$($point.timeStamp)", [cultureinfo]::InvariantCulture).UtcDateTime }
+                $rows.Add([pscustomobject]@{ Metric = "$($m.name.value)"; Dimensions = $dims; Day = $at.Date; Total = [double] $point.total })
+            }
+        }
+    }
+    , $rows.ToArray()
+}
+
+function Merge-FoundryUsage {
+    <#
+        Those flat rows as rows of audit.FoundryUsageDay for one account: one per deployment, model, version and
+        day, with each metric in its column. A series that does not name its model (the older token metrics)
+        takes the model its deployment has now. Pure, for the tests.
+    #>
+    param([AllowEmptyCollection()][object[]] $Metric, $Where, [hashtable] $ModelOf = @{})
+    $byKey = [ordered]@{}
+    foreach ($m in $Metric) {
+        $column = $script:MetricColumn[$m.Metric]
+        if (-not $column) { continue }
+        $deployment = "$($m.Dimensions['modeldeploymentname'])"
+        if (-not $deployment) { continue }
+        $known = $ModelOf[$deployment.ToLowerInvariant()]
+        $model = if ($m.Dimensions['modelname']) { "$($m.Dimensions['modelname'])" } elseif ($known) { "$($known.ModelName)" } else { '' }
+        $version = if ($m.Dimensions['modelversion']) { "$($m.Dimensions['modelversion'])" } elseif ($known) { "$($known.ModelVersion)" } else { '' }
+        $key = "$deployment|$model|$version|$($m.Day.ToString('yyyy-MM-dd'))".ToLowerInvariant()
+        if (-not $byKey.Contains($key)) {
+            $byKey[$key] = [pscustomobject]@{ SubscriptionId = $Where.SubscriptionId; ResourceGroup = $Where.ResourceGroup; Account = $Where.Account
+                                              Deployment = $deployment; ModelName = $model; ModelVersion = $version; Day = $m.Day
+                                              Requests = $null; InputTokens = $null; OutputTokens = $null; TotalTokens = $null }
+        }
+        # Several series can fall on one row (the same deployment by region, or by status code): they add up.
+        $byKey[$key].$column = [long] ([double] "0$($byKey[$key].$column)" + $m.Total)
+    }
+    , @($byKey.Values)
+}
+
+function ConvertFrom-CostQuery {
+    <#
+        Cost Management's answer as rows: the resource, the meter, the day, the cost and its currency. Its
+        columns are found by name, never by place: the cost column is Cost or PreTaxCost, and the day is a number
+        (20261005) or a date. Pure, for the tests.
+    #>
+    param($Response)
+    if ($null -eq $Response -or -not $Response.PSObject.Properties['properties'] -or $null -eq $Response.properties) { return , @() }
+    $names = @($Response.properties.columns | ForEach-Object { "$($_.name)" })
+    function At([string[]] $any) { foreach ($n in $any) { $i = [array]::FindIndex([string[]] $names, [Predicate[string]] { param($x) $x -ieq $n }); if ($i -ge 0) { return $i } }; -1 }
+    $cost = At 'Cost', 'PreTaxCost', 'CostUSD'; $date = At 'UsageDate', 'Date'; $currency = At 'Currency'; $resource = At 'ResourceId'; $meter = At 'Meter', 'MeterName'
+    if ($cost -lt 0 -or $date -lt 0 -or $resource -lt 0) { throw "Cost Management's answer has no cost, date or resource column (it has: $($names -join ', '))." }
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($r in @($Response.properties.rows)) {
+        if ($null -eq $r) { continue }
+        $d = "$($r[$date])"
+        $day = if ($d -match '^\d{8}$') { [datetime]::ParseExact($d, 'yyyyMMdd', [cultureinfo]::InvariantCulture) } else { ([datetime] $r[$date]).Date }
+        $rows.Add([pscustomobject]@{ ResourceId = "$($r[$resource])"; Meter = $(if ($meter -ge 0) { "$($r[$meter])" } else { '' }); Day = $day
+                                     Cost = [decimal] $r[$cost]; Currency = $(if ($currency -ge 0) { "$($r[$currency])" }) })
+    }
+    , $rows.ToArray()
+}
+
+function Get-CostQueryBody {
+    <# The question asked of Cost Management: actual cost a day, by resource and meter, for Cognitive Services accounts. Pure, for the tests. #>
+    param([datetime] $From, [datetime] $To)
+    [ordered]@{
+        type = 'ActualCost'; timeframe = 'Custom'
+        timePeriod = [ordered]@{ from = $From.ToString('yyyy-MM-ddT00:00:00Z'); to = $To.ToString('yyyy-MM-ddT23:59:59Z') }
+        dataset = [ordered]@{
+            granularity = 'Daily'
+            aggregation = [ordered]@{ totalCost = [ordered]@{ name = 'Cost'; function = 'Sum' } }
+            grouping = @([ordered]@{ type = 'Dimension'; name = 'ResourceId' }, [ordered]@{ type = 'Dimension'; name = 'Meter' })
+            filter = [ordered]@{ dimensions = [ordered]@{ name = 'ResourceType'; operator = 'In'; values = @('microsoft.cognitiveservices/accounts') } }
+        }
+    }
+}
+
+function Get-FoundryMetric {
+    <# One set of metrics for one account over the days, a series for every deployment, model and version. #>
+    param([string] $Arm, [string] $ResourceId, [string[]] $Names, [string] $Filter, [datetime] $From, [datetime] $To, [string] $BearerToken)
+    $q = "api-version=$script:MetricsVersion&metricnames=$([uri]::EscapeDataString($Names -join ','))&interval=P1D&aggregation=total&top=1000" +
+         "&timespan=$([uri]::EscapeDataString($From.ToString('yyyy-MM-ddT00:00:00Z') + '/' + $To.AddDays(1).ToString('yyyy-MM-ddT00:00:00Z')))" +
+         "&`$filter=$([uri]::EscapeDataString($Filter))"
+    # Unrolled, a row at a time: the caller gathers them with @().
+    $rows = ConvertFrom-ArmMetric (Invoke-Arm -Uri "$($Arm.TrimEnd('/'))$ResourceId/providers/Microsoft.Insights/metrics?$q" -BearerToken $BearerToken)
+    foreach ($r in $rows) { $r }
+}
+
+function Invoke-Main {
+    $setting = @{}
+    if (Test-Path -LiteralPath $SettingsPath) { $setting = Import-PowerShellDataFile -LiteralPath $SettingsPath }
+    function Setting($k) { if ($setting.Contains($k) -and $setting[$k]) { $setting[$k] } }
+    if (-not $SubscriptionId) { $script:SubscriptionId = @(Setting 'FoundrySubscriptions') }
+    $subs = @($SubscriptionId | ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ } | Select-Object -Unique)
+    if ($subs.Count -eq 0) { throw 'Give -SubscriptionId, or set FoundrySubscriptions in the settings file.' }
+    if (-not $TenantId) { $script:TenantId = if (Setting 'FoundryTenantId') { Setting 'FoundryTenantId' } else { Setting 'TenantId' } }
+    if (-not $ClientId) { $script:ClientId = if (Setting 'FoundryClientId') { Setting 'FoundryClientId' } else { Setting 'ClientId' } }
+    if (-not $CertificateThumbprint) { $script:CertificateThumbprint = if (Setting 'FoundryCertificateThumbprint') { Setting 'FoundryCertificateThumbprint' } else { Setting 'CertificateThumbprint' } }
+    if (-not $ConnectionString) {
+        if (-not $SqlServer) { $script:SqlServer = Setting 'SqlServer' }
+        if (-not $PSBoundParameters.ContainsKey('Database') -and (Setting 'Database')) { $script:Database = Setting 'Database' }
+        if (Setting 'TrustServerCertificate') { $script:TrustServerCertificate = $true }
+        if (-not $SqlServer) { throw 'Give -SqlServer, or SqlServer in the settings file.' }
+    }
+
+    $conn = New-UsageConnection -SqlServer $SqlServer -Database $Database -TrustServerCertificate:$TrustServerCertificate -ConnectionString $ConnectionString
+    try {
+        if (-not (Test-UsageSchema $conn)) { throw "The tables are not in $($conn.Database) yet: run Install-CopilotAudit.ps1 from this release first." }
+        $days = Get-UsageDay -Days $Days
+        $from = $days[0]; $to = $days[-1]
+        $runId = Start-UsageRun $conn -Source Foundry -Scope ($subs -join ', ') -FromDay $from -ToDay $to
+        $written = 0; $done = [System.Collections.Generic.List[string]]::new(); $skipped = [System.Collections.Generic.List[string]]::new()
+        try {
+            $bearer = if ($AccessToken) { [System.Net.NetworkCredential]::new('', $AccessToken).Password }
+                      else {
+                          if (-not ($TenantId -and $ClientId -and $CertificateThumbprint)) { throw 'Signing in needs -TenantId, -ClientId and -CertificateThumbprint (or the settings file''s).' }
+                          Get-ArmToken -Tenant $TenantId -Client $ClientId -Thumbprint $CertificateThumbprint -Login $LoginEndpoint -Arm $ArmEndpoint
+                      }
+            $arm = $ArmEndpoint.TrimEnd('/')
+            $deployments = 0; $usage = 0; $cost = 0; $accountsRead = 0
+            foreach ($sub in $subs) {
+                # 1. The accounts and their deployments.
+                $accounts = @()
+                try {
+                    $accounts = @(Get-ArmList -Uri "$arm/subscriptions/$sub/providers/Microsoft.CognitiveServices/accounts?api-version=$script:AccountsVersion" -BearerToken $bearer |
+                                  Where-Object { "$($_.kind)" -in 'OpenAI', 'AIServices' })
+                    $depRows = [System.Collections.Generic.List[object]]::new()
+                    $modelOf = @{}   # account id -> deployment -> its model, for the metrics that do not name it
+                    foreach ($a in $accounts) {
+                        $where = Split-ResourceId $a.id
+                        if (-not $where) { continue }
+                        $modelOf[$a.id] = @{}
+                        foreach ($d in @(Get-ArmList -Uri "$arm$($a.id)/deployments?api-version=$script:AccountsVersion" -BearerToken $bearer)) {
+                            $model = if ($d.PSObject.Properties['properties'] -and $d.properties.PSObject.Properties['model']) { $d.properties.model } else { $null }
+                            $sku = if ($d.PSObject.Properties['sku']) { $d.sku } else { $null }
+                            $row = [pscustomobject]@{ SubscriptionId = $where.SubscriptionId; ResourceGroup = $where.ResourceGroup; Account = $where.Account; Deployment = "$($d.name)"
+                                                      Kind = "$($a.kind)"; Location = "$($a.location)"
+                                                      ModelName = $(if ($model) { "$($model.name)" }); ModelVersion = $(if ($model -and $model.PSObject.Properties['version']) { "$($model.version)" })
+                                                      ModelPublisher = $(if ($model -and $model.PSObject.Properties['publisher']) { "$($model.publisher)" })
+                                                      SkuName = $(if ($sku) { "$($sku.name)" }); Capacity = $(if ($sku -and $sku.PSObject.Properties['capacity']) { $sku.capacity }) }
+                            $depRows.Add($row); $modelOf[$a.id]["$($d.name)".ToLowerInvariant()] = $row
+                        }
+                    }
+                    $deployments += Write-UsageTable $conn 'audit.FoundryDeployment' (ConvertTo-UsageTable $depRows.ToArray() ([ordered]@{
+                            SubscriptionId = [string]; ResourceGroup = [string]; Account = [string]; Deployment = [string]; Kind = [string]; Location = [string]; ModelName = [string]
+                            ModelVersion = [string]; ModelPublisher = [string]; SkuName = [string]; Capacity = [int] })) -ReplaceWhere 'SubscriptionId = @s' -ReplaceParameters @{ '@s' = $sub }
+                    $accountsRead += $accounts.Count
+                }
+                catch { $skipped.Add("deployments of $sub ($($_.Exception.Message))"); Write-Warning "Deployments of $sub were not loaded: $($_.Exception.Message)"; continue }
+
+                # 2. Usage, account by account: the current metrics, else the older ones.
+                try {
+                    $rows = [System.Collections.Generic.List[object]]::new()
+                    foreach ($a in $accounts) {
+                        $where = Split-ResourceId $a.id
+                        if (-not $where) { continue }
+                        $flat = @()
+                        try { $flat = @(Get-FoundryMetric -Arm $arm -ResourceId $a.id -Names $script:CurrentMetrics -Filter "ModelDeploymentName eq '*' and ModelName eq '*' and ModelVersion eq '*'" -From $from -To $to -BearerToken $bearer) }
+                        catch { Write-Verbose "$($a.name) has no current model metrics: $($_.Exception.Message)" }
+                        if (@($flat | Where-Object { $_.Total -gt 0 }).Count -eq 0) {
+                            $flat = @(Get-FoundryMetric -Arm $arm -ResourceId $a.id -Names $script:OlderMetrics[0] -Filter "ModelDeploymentName eq '*' and ModelName eq '*' and ModelVersion eq '*'" -From $from -To $to -BearerToken $bearer) +
+                                    @(Get-FoundryMetric -Arm $arm -ResourceId $a.id -Names $script:OlderMetrics[1..3] -Filter "ModelDeploymentName eq '*' and ModelVersion eq '*'" -From $from -To $to -BearerToken $bearer)
+                        }
+                        foreach ($r in (Merge-FoundryUsage -Metric $flat -Where $where -ModelOf $modelOf[$a.id])) { $rows.Add($r) }
+                    }
+                    $usage += Write-UsageTable $conn 'audit.FoundryUsageDay' (ConvertTo-UsageTable $rows.ToArray() ([ordered]@{
+                            SubscriptionId = [string]; ResourceGroup = [string]; Account = [string]; Deployment = [string]; ModelName = [string]; ModelVersion = [string]; Day = [datetime]
+                            Requests = [long]; InputTokens = [long]; OutputTokens = [long]; TotalTokens = [long] })) `
+                        -ReplaceWhere 'SubscriptionId = @s AND [Day] BETWEEN @f AND @t' -ReplaceParameters @{ '@s' = $sub; '@f' = $from; '@t' = $to }
+                }
+                catch { $skipped.Add("usage of $sub ($($_.Exception.Message))"); Write-Warning "Usage of $sub was not loaded: $($_.Exception.Message)" }
+
+                # 3. Cost: one question for the subscription and the days, its pages followed.
+                try {
+                    $mine = [System.Collections.Generic.HashSet[string]]::new([string[]] @($accounts | ForEach-Object { "$($_.id)".ToLowerInvariant() }))
+                    $rows = [System.Collections.Generic.List[object]]::new()
+                    $body = Get-CostQueryBody -From $from -To $to
+                    for ($next = "$arm/subscriptions/$sub/providers/Microsoft.CostManagement/query?api-version=$script:CostVersion"; $next; ) {
+                        $page = Invoke-Arm -Uri $next -BearerToken $bearer -Method Post -Body $body
+                        foreach ($c in (ConvertFrom-CostQuery $page)) {
+                            # Only the accounts read above: the same resource type holds Speech, Vision and the rest.
+                            if (-not $mine.Contains($c.ResourceId.ToLowerInvariant())) { continue }
+                            $where = Split-ResourceId $c.ResourceId
+                            $rows.Add([pscustomobject]@{ SubscriptionId = $where.SubscriptionId; ResourceGroup = $where.ResourceGroup; Account = $where.Account
+                                                         Meter = $c.Meter; Day = $c.Day; Cost = $c.Cost; Currency = $c.Currency })
+                        }
+                        $next = if ($page -and $page.PSObject.Properties['properties'] -and $page.properties.PSObject.Properties['nextLink']) { $page.properties.nextLink } else { $null }
+                    }
+                    # A resource and meter billed in two lines on one day is one row: its costs add up.
+                    $summed = @($rows | Group-Object { "$($_.ResourceGroup)|$($_.Account)|$($_.Meter)|$($_.Day.ToString('yyyyMMdd'))".ToLowerInvariant() } | ForEach-Object {
+                            $first = $_.Group[0]
+                            [pscustomobject]@{ SubscriptionId = $first.SubscriptionId; ResourceGroup = $first.ResourceGroup; Account = $first.Account; Meter = $first.Meter; Day = $first.Day
+                                               Cost = [decimal] ($_.Group | Measure-Object Cost -Sum).Sum; Currency = $first.Currency } })
+                    $cost += Write-UsageTable $conn 'audit.FoundryCostDay' (ConvertTo-UsageTable $summed ([ordered]@{
+                            SubscriptionId = [string]; ResourceGroup = [string]; Account = [string]; Meter = [string]; Day = [datetime]; Cost = [decimal]; Currency = [string] })) `
+                        -ReplaceWhere 'SubscriptionId = @s AND [Day] BETWEEN @f AND @t' -ReplaceParameters @{ '@s' = $sub; '@f' = $from; '@t' = $to }
+                }
+                catch { $skipped.Add("cost of $sub ($($_.Exception.Message))"); Write-Warning "Cost of $sub was not loaded: $($_.Exception.Message)" }
+            }
+            $written = $deployments + $usage + $cost
+            $done.Add("$accountsRead account(s), $deployments deployment(s), $usage usage row(s), $cost cost row(s)")
+            $status = if ($skipped.Count -eq 0) { 'Succeeded' } elseif ($written -gt 0) { 'Partial' } else { 'Failed' }
+            $detail = (@("Loaded $($done -join ', ') for $($days.Count) day(s).", $(if ($skipped.Count) { 'Not loaded: ' + ($skipped -join '; ') + '.' })) | Where-Object { $_ }) -join ' '
+            Complete-UsageRun $conn -RunId $runId -Status $status -Rows $written -Detail $detail
+            Write-Line "$status. $detail"
+            if ($status -eq 'Failed') { exit 1 }
+        }
+        catch {
+            Complete-UsageRun $conn -RunId $runId -Status Failed -Rows $written -Detail $_.Exception.Message
+            throw
+        }
+    }
+    finally { $conn.Dispose() }
+}
+
+# Dot-sourcing (tests) loads the functions without running anything.
+if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
+```
+
+### C.26 `dashboard/Install-CopilotInsights.ps1`
 
 The dashboard's installer on the web server. With `-GrantDatabaseAccess` it runs the three dashboard scripts and adds the site's account to its database role. 532 lines.
 

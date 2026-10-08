@@ -101,11 +101,31 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         Panels.Add(new("Send a test", new HtmlString(Form("test", Input("to", "To", Viewer.Upn, 30) + Button("Send a test email"))),
             "Sends one message with the settings saved above and records the result below.", "half"));
 
-        var log = await Db.QueryAsync<(DateTime AtUtc, string Kind, string Subject, string? Recipients, string Status, string? Error)>(
-            "SELECT TOP (50) AtUtc, Kind, Subject, Recipients, Status, Error FROM dash.NotificationLog ORDER BY LogId DESC;");
-        var t = new Table { Zone = Zone, Headers = ["When (UTC)", "Kind", "Subject", "To", "Result", "Why not"], EmptyText = "Nothing sent yet." };
-        foreach (var l in log) t.Rows.Add([l.AtUtc, l.Kind, l.Subject, l.Recipients, new HtmlString($"<span class=\"{(l.Status == "Sent" ? "status-ok" : "status-warn")}\">{E(l.Status)}</span>"), l.Error]);
-        Panels.Add(new("Recently sent", t.Render(), "Kept for the days set in Admin > Privacy and retention."));
+        /* The conversation with the mail server is kept from 2.6.2 (dash.NotificationLog.Detail); a database not yet upgraded has none. */
+        var kept = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.NotificationLog', N'Detail') IS NULL THEN 0 ELSE 1 END") == 1;
+        var log = await Db.QueryAsync<(DateTime AtUtc, string Kind, string Subject, string? Recipients, string Status, string? Error, string? Detail)>(
+            $"SELECT TOP (50) AtUtc, Kind, Subject, Recipients, Status, Error, {(kept ? "Detail" : "CAST(NULL AS NVARCHAR(MAX))")} FROM dash.NotificationLog ORDER BY LogId DESC;");
+
+        /* Where to look when email does not arrive: the last test's whole conversation, open on the page. */
+        var last = log.FirstOrDefault(l => l.Kind == "Test" && l.Detail is not null);
+        var where = "<ul class=\"sub\">" +
+            "<li><b>This page, Recently sent</b>: every message the dashboard tried to send, with why not. For a test, and for any message that was not sent, <i>show</i> under Conversation opens what was said to the mail server and what it answered.</li>" +
+            "<li><b>The last test</b>, below: send a test above, and its conversation is shown here whole. Read it from the top: the server and port, the security used, who signed in, then each command (C:) and the server's answer (S:). The line that fails is the last one.</li>" +
+            "<li><b>The database</b>: the same rows are in dash.NotificationLog (Status, Error, Detail), kept for the days set in Admin > Privacy and retention.</li>" +
+            "<li><b>The web server's Windows Application log</b>, source <i>Copilot Insights</i>: each alert, sent or not; and source <i>.NET Runtime</i> or <i>IIS AspNetCore Module V2</i> if the site itself failed.</li></ul>" +
+            "<p class=\"sub\">Common answers: <i>535</i> or <i>Authentication unsuccessful</i> is the user name or password, or the server does not allow that sign-in; no <i>250-AUTH</i> line after EHLO means the server offers no sign-in on that port, or only after STARTTLS; " +
+            "<i>530 Must issue a STARTTLS command first</i> needs Security StartTls; a certificate that is not trusted needs the relay's certificate trusted on this web server (or, in a lab, Accept any server certificate); " +
+            "<i>550 5.7.60</i> or <i>SendAsDenied</i> means the account may not send as the From address; nothing after <i>Server ...</i> means the server and port were never reached (name, firewall).</p>";
+        Panels.Add(new("Troubleshooting: where the logs are", new HtmlString(where +
+            (last.Detail is null ? "<p class=\"muted\">No test has been sent since the conversation began to be kept. Send a test above.</p>"
+                : $"<h3>The last test, {E(When(last.AtUtc))}: {E(last.Status == "Sent" ? "sent" : "not sent")}</h3><pre class=\"log whole\">{E(last.Detail)}</pre>")),
+            "The password is never in a conversation, nor the message itself."));
+
+        var t = new Table { Zone = Zone, Headers = ["When (UTC)", "Kind", "Subject", "To", "Result", "Why not", "Conversation"], EmptyText = "Nothing sent yet." };
+        foreach (var l in log)
+            t.Rows.Add([l.AtUtc, l.Kind, l.Subject, l.Recipients, new HtmlString($"<span class=\"{(l.Status == "Sent" ? "status-ok" : "status-warn")}\">{E(l.Status)}</span>"), l.Error,
+                l.Detail is null ? null : new HtmlString($"<details><summary>show</summary><pre class=\"log\">{E(l.Detail)}</pre></details>")]);
+        Panels.Add(new("Recently sent", t.Render(), "Kept for the days set in Admin > Privacy and retention. The conversation with the mail server is kept for a test and for a message that was not sent."));
     }
 
     public Task<IActionResult> OnPostMailAsync(string? MailMode, string? MailFrom, string? MailReplyTo, string? DashboardUrl, string? ExoAuth, string? ExoTenantId,
@@ -272,7 +292,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
         var ot = new Table { Zone = Zone, Headers = ["Manager", "Sign-in", "Since (UTC)", ""], EmptyText = "Every eligible manager gets the digest." };
         foreach (var o in optedOut)
             ot.Rows.Add([o.DisplayName, o.Upn, o.UpdatedUtc, new HtmlString(Form("optin", Hidden("upn", o.Upn) + Button("Send it again", quiet: true)))]);
-        Panels.Add(new("Managers who do not get the digest", new HtmlString(Form("optout", Input("upn", "Manager (UPN)", null, 34) + Button("Stop their digest")) + ot.Render().Value),
+        Panels.Add(new("Managers who do not get the digest", new HtmlString(Form("optout", PersonBox("upn", "Manager (name or UPN)", null, 34) + Button("Stop their digest")) + ot.Render().Value),
             "For a manager who asks not to get it. Earlier opt-outs are kept.", "half"));
 
         var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();

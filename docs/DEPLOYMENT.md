@@ -358,7 +358,7 @@ It also reports the accounts it skipped: other employee types, no UPN, a UPN ove
 >
 > A blank `Name` is accounts with no type, often service, shared-mailbox or test accounts. Then pass the codes to keep, such as `-EmployeeTypes 'EMP','NONW','OTHER'`, or `-EmployeeTypes @()` for every account, and set `EmployeeTypes` to the same in `copilot-audit.settings.psd1` so the nightly run agrees. Loading more is harmless: the type is a column reports can filter on, and a Copilot user who isn't loaded shows with no department.
 
-> **Check the department and the country.** The log says how many rows have a department and how many a country. If no one has a department, the attribute is misnamed or the account running the export cannot read it: AD returns nothing for an attribute it may not read, with no error. Count what an attribute holds the same way as the types above, with `-Properties <attribute>`. A department is kept to 200 characters; longer ones are cut, and the log says how many. Where the department is not AD's `department`, pass `-DepartmentAttribute` here and set `DepartmentAttribute` in `copilot-audit.settings.psd1` (see *Where the department is* above).
+> **One name for a country.** The export gives a country one name however AD spells it (`USA`, `United States` and `United States of America (the)` are all *United States*), and its log lists each spelling it changed. Add your own with `CountryNames = @{ 'spelling' = 'name' }` in the settings file ([RUNBOOK.md](../RUNBOOK.md), section 5d). The log says how many rows have a department and how many a country. If no one has a department, the attribute is misnamed or the account running the export cannot read it: AD returns nothing for an attribute it may not read, with no error. Count what an attribute holds the same way as the types above, with `-Properties <attribute>`. A department is kept to 200 characters; longer ones are cut, and the log says how many. Where the department is not AD's `department`, pass `-DepartmentAttribute` here and set `DepartmentAttribute` in `copilot-audit.settings.psd1` (see *Where the department is* above).
 
 ### Step 10. Load current Copilot licenses
 
@@ -745,6 +745,35 @@ For a group with several Microsoft 365 tenants, each gets its own app registrati
 
 The new tenant's admin consents to the same three Graph permissions for its own app. The nightly task then loads every tenant in turn, and a failure in one does not stop the others.
 
+### Step 26. GitHub Copilot and Foundry usage (optional)
+
+*Job server, as an administrator, with a GitHub enterprise owner and an Azure administrator each doing a part. About an hour each, plus the wait for their part.*
+
+From 2.6.2 the nightly run can also load AI use outside Microsoft 365 Copilot, into tables of its own in the Copilot database. Each is set up on its own, and neither is needed by anything else:
+
+| Source | What is loaded | Needs | Guide |
+|---|---|---|---|
+| GitHub Copilot Enterprise or Business | Seats, daily use, each person's day with AI credits, and what GitHub billed | The enterprise's slug, and a classic personal access token of an enterprise owner with `manage_billing:copilot` and `read:enterprise`; the *Copilot usage metrics* policy on | [GITHUB-COPILOT-USAGE.md](GITHUB-COPILOT-USAGE.md) |
+| Microsoft Foundry and Azure OpenAI | Model deployments, daily requests and tokens, and daily cost by meter | The subscription ids, and *Monitoring Reader* and *Cost Management Reader* on each for the pipeline's app (or an app of its own) | [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md) |
+
+Each guide lists the values to collect, has a part written to hand to the administrator who does that side, and ends with how to check the first load. In short:
+
+```powershell
+# GitHub: save the token once (it asks, and does not show it), load 90 days, then name the enterprise in the settings
+.\tools\Import-GitHubCopilotUsage.ps1 -SaveToken
+.\tools\Import-GitHubCopilotUsage.ps1 -Enterprise contoso -SqlServer SQLPROD01 -Days 90
+# Foundry: load 90 days (Azure Monitor keeps 93), then name the subscriptions in the settings
+.\tools\Import-FoundryUsage.ps1 -SubscriptionId 1f2e3d4c-0000-0000-0000-000000000000 -SqlServer SQLPROD01 -Days 90
+```
+
+```powershell
+# copilot-audit.settings.psd1
+    GitHubEnterprise     = 'contoso'
+    FoundrySubscriptions = @('1f2e3d4c-0000-0000-0000-000000000000')
+```
+
+With a setting in place, the nightly run loads that source as a last step. Without it, the run skips the step with a line in its log. A loader that fails is recorded and does not fail the night. Admin › Health shows each one's last run.
+
 ## Running it
 
 Everything here is a command. `M` is `.\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01`; `-Task Status` shows what is loaded and when each step last ran.
@@ -908,6 +937,7 @@ One site has run it since 2.4.0 (29 September 2026). These parts are still not p
 - **Agent authoring history on an existing install.** The license-event load asks for Copilot Studio's operations from the night 2.3.0 is installed; records from before are not fetched into that database. A new install's history load includes them.
 - **The CSV importer on a real portal export.** It has been tested on lab records reshaped to the export's format, not on a file downloaded from the Purview portal. Import one real export and check its summary before loading the rest.
 - **Export compatibility.** `audit.vCopilotAuditRecord` reproduces the Purview portal export's columns, but its JSON hasn't been compared byte for byte with a portal CSV. Check one record before repointing reports built on the portal export.
+- **The GitHub Copilot and Foundry usage loads (2.6.2).** `tools\Import-GitHubCopilotUsage.ps1` and `tools\Import-FoundryUsage.ps1` run end to end in the tests against stand-ins that answer as GitHub and Microsoft document their APIs: seats over pages, report files, billing lines; accounts, deployments, metrics old and new, cost, throttling, a refused token. Neither has called GitHub or Azure. Check the first real load of each against the service's own pages, as its guide says.
 - **The setup scripts.** `tools\Install-CopilotJobServer.ps1` (certificate, private key, batch-logon right, gMSA, scheduled task) and `tools\New-CopilotAuditApp.ps1` (app, consent, certificate upload) are tested against stand-ins: a simulated tenant, and their pure parts. They haven't run on a domain-joined server or against a real tenant. `Invoke-CopilotPipeline.ps1` is tested for its plan and for running steps in their own processes, with stand-in steps. Run step 3, then check the app in the Entra admin center and the task in Task Scheduler.
 
 Figures under "How much space" and the build times come from a scale test on 8 cores and 31 GB of RAM. Copilot in Power BI requirements follow Microsoft Learn as of 25 September 2026; check the current pages before purchasing capacity.

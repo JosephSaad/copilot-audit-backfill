@@ -205,23 +205,32 @@ public sealed partial class Notifier
 
         /* ---- The app certificate ----------------------------------------------------------------- */
 
+        /// <summary>
+        /// Each certificate the pipeline signs in with is watched on its own: the audit app's, and the agent workbook
+        /// app's where the workbook comes from SharePoint Online. An alert at the configured days, 14, 3, and when it
+        /// has expired; and one when the settings name a certificate the job server does not hold.
+        /// </summary>
         public async Task CertificateAsync()
         {
-            if (await _db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') IS NULL THEN 0 ELSE 1 END") == 0) return;
-            var cert = (await _db.QueryAsync<(string? Thumbprint, DateTime? ExpiresUtc, string? Subject)>(
-                "SELECT TOP (1) CertificateThumbprint, CertificateExpiresUtc, CertificateSubject FROM audit.PipelineRun WHERE CertificateExpiresUtc IS NOT NULL ORDER BY RunId DESC;")).FirstOrDefault();
-            if (cert.ExpiresUtc is null) return;
-            var left = (cert.ExpiresUtc.Value - DateTime.UtcNow).TotalDays;
             var warn = await _settings.IntAsync("CertificateWarnDays", 30);
-            var step = CertificateWarning.Step(left, warn);
-            if (step is null) return;
-            var key = $"{cert.Thumbprint}|{step}";
-            var seen = await StateAsync("certificate");
-            if (seen == key) return;
-            var subject = left <= 0 ? "The Copilot pipeline's certificate has expired" : $"The Copilot pipeline's certificate expires in {Math.Ceiling(left):0} day(s)";
-            await RaiseAsync("certificate", seen, key, "Certificate", "AlertAdminTo", subject,
-                [$"The app certificate {cert.Subject} ({cert.Thumbprint}) that the job server signs in to Microsoft Graph with expires {cert.ExpiresUtc:yyyy-MM-dd HH:mm} UTC. When it does, the nightly load stops.",
-                 "Renew it: run tools\\Install-CopilotJobServer.ps1 -RegisterApp on the job server as an administrator (a new certificate, uploaded to the app, its thumbprint in the settings). The operations guide has the steps."], "/admin/health");
+            foreach (var cert in await Certificates.ReadAsync(_db))
+            {
+                var left = Certificates.DaysLeft(cert, DateTime.UtcNow);
+                var step = !cert.Found ? "missing" : left is { } d ? CertificateWarning.Step(d, warn) : null;
+                if (step is null) continue;
+                var key = $"{cert.Thumbprint}|{step}";
+                var state = Certificates.StateKey(cert.Purpose);
+                var seen = await StateAsync(state);
+                if (seen == key) continue;
+                var name = Certificates.Name(cert.Purpose);
+                var subject = !cert.Found ? $"The {name} is not on the job server"
+                    : left <= 0 ? $"The {name} has expired" : $"The {name} expires in {Math.Ceiling(left!.Value):0} day(s)";
+                var first = !cert.Found
+                    ? $"The settings name the certificate {cert.Thumbprint}, and the job server{(cert.Host is null ? "" : " " + cert.Host)} holds none with that thumbprint."
+                    : $"The certificate {cert.Subject} ({cert.Thumbprint}) expires {cert.ExpiresUtc:yyyy-MM-dd HH:mm} UTC.";
+                await RaiseAsync(state, seen, key, "Certificate", "AlertAdminTo", subject,
+                    [first + " " + Certificates.UsedFor(cert.Purpose), Certificates.Renew(cert.Purpose) + " The operations guide has the steps."], "/admin/health");
+            }
         }
 
         /* ---- Manager digests ------------------------------------------------------------------ */

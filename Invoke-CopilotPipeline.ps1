@@ -150,13 +150,16 @@ function Get-PipelineStep {
     $readLic = @(@(if (Has 'SessionLicenseDatabases') { $Setting.SessionLicenseDatabases } elseif ($lic) { $lic }) |
                  ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $steps = [System.Collections.Generic.List[object]]::new()
-    function Add($name, $script, $argsTable) { $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable }) }
+    function Add($name, $script, $argsTable, [switch] $Optional) {
+        $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
+    }
 
     $directory = {
         if (Has 'TargetDomain') {
             $a = $sql + @{ Database = $Setting.Database; TargetDomain = $Setting.TargetDomain }
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
             if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # 2.5.0: where the department is
+            if (Has 'CountryNames') { $a.CountryNames = $Setting.CountryNames }   # the administrator's own names for countries
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' $a
         }
     }
@@ -198,8 +201,45 @@ function Get-PipelineStep {
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
         if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }
         Add 'Copilot interactions' 'Invoke-CopilotAuditBackfill.ps1' $inter
+        # Usage and cost of AI outside Microsoft 365 Copilot (2.6.2), where the settings name the source. Last, and
+        # optional: a failure of one is recorded with its step and in audit.ExternalUsageRun, and fails nothing else.
+        if ((Has 'GitHubEnterprise') -or (Has 'GitHubOrganization')) {
+            $g = $sql + @{ Database = $Setting.Database }
+            if (Has 'GitHubEnterprise') { $g.Enterprise = [string] $Setting.GitHubEnterprise } else { $g.Organization = [string] $Setting.GitHubOrganization }
+            if (Has 'GitHubTokenPath') { $g.TokenPath = [string] $Setting.GitHubTokenPath }
+            if (Has 'GitHubApiBase') { $g.ApiBase = [string] $Setting.GitHubApiBase }
+            Add 'GitHub Copilot usage' 'tools/Import-GitHubCopilotUsage.ps1' $g -Optional
+        }
+        if ((Has 'FoundrySubscriptions') -and ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
+            $f = $sql + @{ Database = $Setting.Database; SubscriptionId = @($Setting.FoundrySubscriptions)
+                           TenantId = $(if (Has 'FoundryTenantId') { $Setting.FoundryTenantId } else { $Setting.TenantId })
+                           ClientId = $(if (Has 'FoundryClientId') { $Setting.FoundryClientId } else { $Setting.ClientId })
+                           CertificateThumbprint = $(if (Has 'FoundryCertificateThumbprint') { $Setting.FoundryCertificateThumbprint } else { $Setting.CertificateThumbprint }) }
+            Add 'Foundry usage and cost' 'tools/Import-FoundryUsage.ps1' $f -Optional
+        }
     }
     , $steps.ToArray()
+}
+
+function Get-PipelineSkipNote {
+    <#
+        A line for the log for each optional loader the nightly run leaves out because the settings do not
+        configure it (2.6.2): which one, and the setting that would turn it on. Nothing for one that is
+        configured. Skipping is never a failure. Pure, for the tests.
+    #>
+    param([System.Collections.IDictionary] $Setting)
+    function Has($k) { $Setting.Contains($k) -and $Setting[$k] }
+    $notes = [System.Collections.Generic.List[string]]::new()
+    if (-not ((Has 'GitHubEnterprise') -or (Has 'GitHubOrganization'))) {
+        $notes.Add('GitHub Copilot usage: skipped, not configured (set GitHubEnterprise, or GitHubOrganization, in the settings file to load it).')
+    }
+    if (-not (Has 'FoundrySubscriptions')) {
+        $notes.Add('Foundry usage and cost: skipped, not configured (set FoundrySubscriptions in the settings file to load it).')
+    }
+    elseif (-not ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
+        $notes.Add('Foundry usage and cost: skipped, FoundrySubscriptions is set but there is no certificate to sign in with (FoundryCertificateThumbprint, or CertificateThumbprint).')
+    }
+    , $notes.ToArray()
 }
 
 function Invoke-PipelineStep {
@@ -319,6 +359,73 @@ function Get-PipelineCertificate {
     }
 }
 
+function Get-PipelineCertificateUse {
+    <#
+        Every certificate the pipeline signs in with, from the settings: what it is for, its thumbprint, and the
+        app registration and tenant it signs in as. Purview: the app that reads the audit log and the licenses
+        through Microsoft Graph. AgentWorkbook: the app that fetches the agent workbook from SharePoint Online,
+        where the settings name a site and a certificate for it (a workbook from a share or an address signs in as
+        the task's account, with no certificate). Pure, for the tests.
+    #>
+    param([System.Collections.IDictionary] $T)
+    function Has($k) { $T.Contains($k) -and $T[$k] }
+    # A thumbprint as the certificate dialog copies it can carry spaces and an invisible mark: hexadecimal digits only.
+    function Clean($v) { ("$v" -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() }
+    $uses = [System.Collections.Generic.List[object]]::new()
+    if (Has 'CertificateThumbprint') {
+        $uses.Add([pscustomobject]@{ Purpose = 'Purview'; Thumbprint = (Clean $T.CertificateThumbprint)
+                                     ClientId = $(if (Has 'ClientId') { "$($T.ClientId)" }); TenantId = $(if (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    if ((Has 'AgentWorkbookSiteUrl') -and (Has 'AgentWorkbookCertificateThumbprint')) {
+        $uses.Add([pscustomobject]@{ Purpose = 'AgentWorkbook'; Thumbprint = (Clean $T.AgentWorkbookCertificateThumbprint)
+                                     ClientId = $(if (Has 'AgentWorkbookClientId') { "$($T.AgentWorkbookClientId)" })
+                                     TenantId = $(if (Has 'AgentWorkbookTenantId') { "$($T.AgentWorkbookTenantId)" } elseif (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    # Foundry (2.6.2): only where its loader signs in with a certificate of its own, not the audit app's.
+    if ((Has 'FoundrySubscriptions') -and (Has 'FoundryCertificateThumbprint')) {
+        $uses.Add([pscustomobject]@{ Purpose = 'Foundry'; Thumbprint = (Clean $T.FoundryCertificateThumbprint)
+                                     ClientId = $(if (Has 'FoundryClientId') { "$($T.FoundryClientId)" } elseif (Has 'ClientId') { "$($T.ClientId)" })
+                                     TenantId = $(if (Has 'FoundryTenantId') { "$($T.FoundryTenantId)" } elseif (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    , $uses.ToArray()
+}
+
+function Write-PipelineCertificate {
+    <#
+        Records each of those certificates as the job server holds it now (audit.PipelineCertificate), for Admin >
+        Health and the dashboard's expiry alerts: subject, issuer, validity, the store it is in, and the app it signs
+        in as. One the settings name that is in neither store is recorded as not found. A certificate no longer in
+        use (the workbook moved to a share) has its row removed. Never fails the run, as the run's own record.
+    #>
+    param([System.Collections.IDictionary] $T, [string] $Log)
+    $uses = Get-PipelineCertificateUse $T   # an array already: wrapped again it would be one item holding them all
+    foreach ($u in $uses) {
+        $cert = $null; $where = $null
+        foreach ($store in 'LocalMachine\My', 'CurrentUser\My') {
+            $cert = Get-Item -LiteralPath "Cert:\$store\$($u.Thumbprint)" -ErrorAction SilentlyContinue
+            if ($cert) { $where = $store; break }
+        }
+        [void] (Write-PipelineRecord $T -Log $Log -Parameters @{
+                '@p' = $u.Purpose; '@t' = $u.Thumbprint; '@f' = [bool] $cert
+                '@s' = $(if ($cert) { $cert.Subject }); '@i' = $(if ($cert) { $cert.Issuer })
+                '@nb' = $(if ($cert) { $cert.NotBefore.ToUniversalTime() }); '@e' = $(if ($cert) { $cert.NotAfter.ToUniversalTime() })
+                '@st' = $where; '@c' = $u.ClientId; '@tn' = $u.TenantId; '@h' = [Environment]::MachineName
+            } -Sql @"
+IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC sp_executesql N'
+MERGE audit.PipelineCertificate AS t USING (SELECT @p AS Purpose) AS s ON t.Purpose = s.Purpose
+WHEN MATCHED THEN UPDATE SET Thumbprint = @t, Found = @f, Subject = LEFT(@s, 400), Issuer = LEFT(@i, 400), NotBeforeUtc = @nb, ExpiresUtc = @e,
+                             Store = @st, ClientId = LEFT(@c, 64), TenantId = LEFT(@tn, 256), Host = @h, SeenUtc = SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (Purpose, Thumbprint, Found, Subject, Issuer, NotBeforeUtc, ExpiresUtc, Store, ClientId, TenantId, Host)
+                      VALUES (@p, @t, @f, LEFT(@s, 400), LEFT(@i, 400), @nb, @e, @st, LEFT(@c, 64), LEFT(@tn, 256), @h);',
+    N'@p VARCHAR(32), @t VARCHAR(64), @f BIT, @s NVARCHAR(4000), @i NVARCHAR(4000), @nb DATETIME2(0), @e DATETIME2(0), @st VARCHAR(32), @c NVARCHAR(4000), @tn NVARCHAR(4000), @h NVARCHAR(128)',
+    @p = @p, @t = @t, @f = @f, @s = @s, @i = @i, @nb = @nb, @e = @e, @st = @st, @c = @c, @tn = @tn, @h = @h;
+"@)
+    }
+    # What is no longer used is no longer watched. The names are this script's own.
+    $keep = (@($uses | ForEach-Object { "'$($_.Purpose)'" }) + "''") -join ', '
+    [void] (Write-PipelineRecord $T -Log $Log -Parameters @{} -Sql "IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC (N'DELETE FROM audit.PipelineCertificate WHERE Purpose NOT IN ($($keep.Replace("'", "''")));');")
+}
+
 function Invoke-TenantRun {
     <# One tenant's run: its steps in order, recorded in its own database. Returns $true when every step succeeded. #>
     param([System.Collections.IDictionary] $T, [string] $Log, [string] $Label)
@@ -335,6 +442,8 @@ function Invoke-TenantRun {
         [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@t' = $cert.Thumbprint; '@e' = $cert.NotAfter.ToUniversalTime(); '@s' = $cert.Subject } -Sql `
             "IF COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') IS NOT NULL EXEC sp_executesql N'UPDATE audit.PipelineRun SET CertificateThumbprint = @t, CertificateExpiresUtc = @e, CertificateSubject = LEFT(@s, 400) WHERE RunId = @r;', N'@r INT, @t VARCHAR(64), @e DATETIME2(0), @s NVARCHAR(4000)', @r = @r, @t = @t, @e = @e, @s = @s;")
     }
+    # Each certificate the run signs in with, for Admin > Health and the expiry alerts: the audit app's and the agent workbook's.
+    Write-PipelineCertificate $T -Log $Log
     $n = 0
     foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
         $n++
@@ -342,6 +451,12 @@ function Invoke-TenantRun {
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }
         $code = Invoke-PipelineStep -Step $step -Log $Log
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@c' = $code } -Sql 'UPDATE audit.PipelineRunStep SET EndedUtc = SYSUTCDATETIME(), ExitCode = @c WHERE RunId = @r AND StepNo = @n;') }
+        if ($code -ne 0 -and $step.PSObject.Properties['Optional'] -and $step.Optional) {
+            # An optional step (2.6.2): its failure is on its own row and in the log, and the run goes on.
+            "$(Get-Date -Format s) $($step.Name) failed (exit code $code). It is optional: the run goes on. Its own log is audit.ExternalUsageRun (Admin > Health)." |
+                Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+            continue
+        }
         if ($code -ne 0) {
             "$(Get-Date -Format s) $($step.Name) failed (exit code $code). Run the same command again to resume." |
                 Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
@@ -351,6 +466,10 @@ function Invoke-TenantRun {
             }
             return $false
         }
+    }
+    # The optional loaders the settings do not configure: a note each, and no more.
+    if (-not $History) {
+        foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
     if (-not $History) { Invoke-Retention -Setting $T -Log $Log }
     if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded' WHERE RunId = @r;") }

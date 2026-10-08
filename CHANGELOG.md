@@ -4,6 +4,130 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.2] - 2026-10-08
+
+Every box that takes a person searches by the start of a first or a last name, from the third letter; Admin › Email
+keeps the conversation with the mail server, to troubleshoot email that does not arrive; first plumbing to load the
+usage and cost of GitHub Copilot and of Microsoft Foundry and Azure OpenAI; both certificates on Admin › Health; and
+one name for a country the directory spells several ways.
+
+To upgrade from 2.6.1 (or 2.6.0): with the nightly task disabled, replace the job server's scripts, run
+`Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once (it adds `audit.PipelineCertificate`, the eight tables
+of `Create-CopilotExternalUsageSchema.sql` and the column `dash.NotificationLog.Detail`; nothing is rebuilt and no
+data changes), then install the dashboard package over the one in place and enable the task again. The dashboard
+works over a database not yet upgraded: it then keeps no mail conversations and shows the one certificate. The two
+new loaders do nothing until they are set up: a nightly run whose settings name neither skips both, with a line each
+in its log.
+
+### Fixed
+- **One country showed as several where the directory spells it several ways.** A client's Regions › Countries and
+  offices had *USA*, *United States* and *United States of America (the)* as three countries, each with its own
+  adoption. The directory load (`tools\Export-UsersWithHierarchy-ToSql.ps1`) now gives a country one name however
+  Active Directory spells it: its two- or three-letter ISO code, its English name, that name with *(the)* after it
+  or turned round as ISO's own list writes it (*Korea, Republic of*), with dots or in any case (*U.S.A.*, *usa*),
+  and spellings in common use (*UK*, *Great Britain*, *Holland*, *Viet Nam*). The name is the English one a
+  two-letter code already got (*United States*, *United Kingdom*). A value that names no country known is loaded as
+  it is. Every report, the Power BI model and the `bi.Users` view read the loaded name, so all of them count the
+  country once from the night after the upgrade; nothing is rebuilt and no table changes.
+
+### Added
+- **A person is found by three letters of a first or a last name.** Every box that takes a person now works one way:
+  Compliance › Person record, the two managers of Leadership › Compare two teams, and on the Admin pages the person
+  to grant or check in Access, an agent's owner, and a manager's digest. Nothing is searched until the third letter;
+  then the names whose first name or last name begins with what was typed are offered, up to 20 (*mor* finds Avery
+  Morgan and Morgan Petrov, not Seymour Hill; *avery mor* narrows it). A sign-in matches from its start too, and one
+  typed in full is taken as it is. Who is offered is who the page may show: the viewer's part of the organization on
+  a report, managers with a team at least the minimum group size on Compare, the whole directory on Admin pages. In
+  privacy mode no report offers names. Each search is in the audit log (kind *Lookup*).
+- **The mail server's conversation, on Admin › Email.** For every test message, and for every message that is not
+  sent, the dashboard keeps what was said: the server, port and security it used and who signed in, each command it
+  sent and each answer, and how it ended, with every cause of a failure. A new panel, *Troubleshooting: where the
+  logs are*, shows the last test's conversation whole, names the other places to look (`dash.NotificationLog`, the
+  web server's Windows Application log) and says what the common answers mean. *Recently sent* has a *Conversation*
+  column with each kept conversation under **show**. What follows `AUTH` is masked and the message's own lines are
+  left out: neither a password nor a digest's figures are kept. New column `dash.NotificationLog.Detail`.
+- **GitHub Copilot usage and cost: `tools\Import-GitHubCopilotUsage.ps1`.** For a GitHub enterprise (Copilot
+  Enterprise or Business), or one organization, from GitHub's REST API: every seat (`audit.GitHubCopilotSeat`), each
+  day's usage metrics report (`audit.GitHubCopilotDay`, with the whole record as JSON), each person's day with the AI
+  credits they used (`audit.GitHubCopilotUserDay`), and the billing usage lines for Copilot, this month and the last
+  (`audit.GitHubCopilotCost`: quantity, price, gross, discount and net, in US dollars). The token is saved once on
+  the job server (`-SaveToken`), encrypted for that computer, and is sent to GitHub's API only, never to a report
+  file's address. `docs/GITHUB-COPILOT-USAGE.md` lists the values needed and has a part to hand to the enterprise
+  owner: the policy to turn on, the token to create and its two scopes.
+- **Foundry and Azure OpenAI usage and cost: `tools\Import-FoundryUsage.ps1`.** For the Azure subscriptions named:
+  every model deployment of their Azure OpenAI and Foundry accounts (`audit.FoundryDeployment`), requests and input,
+  output and total tokens per deployment, model and day from Azure Monitor (`audit.FoundryUsageDay`; the current
+  metrics, or the older Azure OpenAI ones for an account that reports none), and the actual cost per account, meter
+  and day from Cost Management (`audit.FoundryCostDay`). It signs in as the pipeline's own app with its certificate,
+  or as an app of its own (`FoundryTenantId`, `FoundryClientId`, `FoundryCertificateThumbprint`), whose certificate
+  Admin › Health then tracks with the others. `docs/FOUNDRY-USAGE.md` lists the values needed and has a part to hand
+  to the Azure administrator: the two reader roles to assign.
+- **Both loaders are optional steps of the nightly run.** Each is the run's last step when
+  `copilot-audit.settings.psd1` names its source (`GitHubEnterprise` or `GitHubOrganization`; `FoundrySubscriptions`).
+  **Where the settings do not, the run skips it and notes that in its log**, with the setting that turns it on.
+  **A loader that fails does not fail the night**: its step row keeps the exit code, the log says the step is
+  optional, and the run ends as it would have. Each part of a load is read on its own, so a part the token or the
+  app may not read is left out and named, and the run ends *Partial*. A load can be run again over the same days:
+  each table's rows are replaced in one transaction.
+- **`audit.ExternalUsageRun`**, one row per run of either loader, and **Admin › Health › Other AI usage: GitHub
+  Copilot and Foundry**: each source's last run, the days and rows, the newest day held and, for GitHub, when the
+  token expires; amber for a partial load, a token within 14 days of expiry or no load for two days, red for a failed
+  one with the service's own message. A source never loaded says it is optional and names its loader.
+- **`Create-CopilotExternalUsageSchema.sql`** creates the eight tables; `Install-CopilotAudit.ps1` runs it, and the
+  dashboard's account may read them.
+- **`tests/Test-ExternalUsage.ps1`** (in CI), and a section of the SQL integration test that runs both loaders end
+  to end against a stand-in for each service.
+- **Both certificates on Admin › Health.** The pipeline signs in with two: one for the app that reads the audit log
+  from Microsoft Purview, and one for the app that fetches the agent workbook from SharePoint Online. Health tracked
+  only the first. *Certificates and audit searches* now has a card for each, green, amber inside the warning days
+  or red once expired, and **Certificate details** sets the two side by side: what each is used for, subject,
+  issuer, thumbprint, valid from, expiry, the app registration and tenant it signs in as, the store it is in, the
+  job server, when it was last checked, and how to renew it. A certificate the settings name that the job server
+  does not hold is shown as not found, in red.
+- **The expiry alert watches each certificate on its own**: at *Warn about the app certificate* days (30), 14 and 3,
+  and when it has expired, naming the certificate and what stops when it does; and once when the settings name one
+  the job server does not hold. The audit app's keeps the state it had, so the upgrade sends no warning twice.
+- **`audit.PipelineCertificate`**, one row for each certificate, rewritten by `Invoke-CopilotPipeline.ps1` at the start
+  of every run (`Create-CopilotAuditSchema.sql`; `Install-CopilotAudit.ps1` adds it). A workbook fetched from a share
+  or an address signs in as the task's account, with no certificate, and has no row. Until the job server and the
+  database are upgraded, Health and the alert go on showing the one certificate each run recorded with itself.
+- **`CountryNames` in `copilot-audit.settings.psd1`** (`-CountryNames` on the directory load): your own names,
+  spelling = name, on top of the ones the script knows. A name given there wins, and reaches the script's own name
+  for a country too: `'United States' = 'USA'` makes every spelling of it *USA*.
+- **The directory load's log lists what it renamed**, with how many people each: *Countries given one name: USA ->
+  United States (4,120); United States of America (the) -> United States (212)*.
+
+### Changed
+- **Leadership › Compare two teams no longer carries every manager's name in the page.** Its two boxes offered up
+  to 2,000 managers from a list sent with the page; they now ask for the matches as you type, as every other box.
+- **`Invoke-CopilotPipeline.ps1` has optional steps.** A step marked optional that fails is logged and recorded, and
+  the run goes on. Only the two new loaders are optional; every other step stops the run as before.
+- **The schema documents follow this release**: `docs/SCHEMA.md` (102 tables, 37 views, 1,323 columns, from 19
+  scripts; a new section for the eight tables), `docs/REPORTING.md` and `docs/REPORTING-REFERENCE.md` (the new
+  tables among the other layers, the two nightly steps, the scripts' text), and both Word versions.
+
+### Known limits
+- **Neither loader has called the real service.** Both run end to end in the tests against stand-ins that answer as
+  GitHub and Microsoft document their APIs (seats over pages, report files, billing lines; accounts, deployments,
+  metrics, cost, throttling, a refused token). The first real load of each should be checked against the service's
+  own pages, as its guide says. Not verified at all: the hosts GitHub's report download links point to, and the
+  fields inside a usage report beyond those the columns use.
+- **No report reads the new tables yet**, and nothing in `bi` or `dash` does. A reporting tool can, with `SELECT` on
+  them, which the `CopilotReporting` role does not hold: an administrator grants it table by table.
+- **A GitHub login is not joined to a Microsoft 365 sign-in**, so GitHub's figures cannot be cut by department or
+  manager. Foundry's usage has no person at all: Azure Monitor reports by account, deployment and model.
+- **Foundry's cost is by account and meter, not by deployment**, and only accounts of kind *OpenAI* and *AIServices*
+  are read.
+- **Days in the new tables are UTC days**, as each service reports them, not the reporting time zone's.
+- **The GitHub token is encrypted for the job server, not for one account** (Windows data protection, machine
+  scope): restrict who can read its file, as the guide says.
+- **The name search was checked through its address and the page's markup, on the demo company**; the script that
+  asks as you type was read, and the layout audit loaded every page with it, but no keystrokes were typed in a
+  browser by a test.
+- **The mail conversation was checked against a stand-in relay** on this machine, with a sign-in accepted and one
+  refused, without TLS. A real relay's STARTTLS exchange is logged by the same library and was not exercised.
+- The Word documents and the guides' SQL carry the limits 2.6.1 listed.
+
 ## [2.6.1] - 2026-10-07
 
 The two reporting guides as Word documents, and both guides brought up to this release. Nothing in the scripts, the

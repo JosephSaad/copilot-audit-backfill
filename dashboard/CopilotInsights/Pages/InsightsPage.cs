@@ -372,6 +372,43 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         return Page();
     }
 
+    /// <summary>Whose names this page's name boxes may offer (see <see cref="CopilotInsights.Data.PersonLookup"/>); none unless the page says.</summary>
+    public virtual CopilotInsights.Data.LookupKind Lookup => CopilotInsights.Data.LookupKind.None;
+
+    /// <summary>
+    /// The names a name box offers for what has been typed, as JSON: nothing under three letters, at most twenty, a
+    /// first or a last name beginning with them. The page's own checks come first (its role, its section, privacy
+    /// mode), and its scope decides who can be found. Each search is in the audit log, as a page view is.
+    /// </summary>
+    public async Task<IActionResult> OnGetPeopleAsync(string? q)
+    {
+        if (!await PrepareAsync()) return new JsonResult(Array.Empty<object>()) { StatusCode = Response.StatusCode };
+        if (Lookup == CopilotInsights.Data.LookupKind.None) return NotFound();
+        /* In privacy mode nobody is offered by name, but on a page privacy mode leaves open (a person's own record, on request). */
+        var none = PrivacyMode && !AllowedInPrivacyMode;
+        var found = none ? [] : await CopilotInsights.Data.PersonLookup.FindAsync(Db, Ctx, Lookup, q);
+        if (CopilotInsights.Data.PersonLookup.Term(q) is { } term)
+            await S.Audit.WriteAsync(Viewer, "Lookup", Request.Path, AdminOnly ? null : Ctx.ScopeLabel, $"\"{term}\": {found.Count} offered");
+        Response.Headers.CacheControl = "no-store";
+        return new JsonResult(found.Select(p => new { value = p.Upn, label = CopilotInsights.Data.PersonLookup.Label(p, Lookup == CopilotInsights.Data.LookupKind.Managers) }));
+    }
+
+    /// <summary>
+    /// A box that takes a person: as three letters of a first or a last name are typed, the names that match are offered
+    /// (site.js asks <see cref="OnGetPeopleAsync"/>), and choosing one fills in the sign-in. A sign-in typed in full is
+    /// taken as it is, with or without script. Boxes on one page can share one list (<paramref name="list"/>).
+    /// </summary>
+    protected string PersonBox(string name, string label, string? value, int size = 34, string? tip = null, string list = "people-found")
+    {
+        var lookup = E(Request.Path + "?handler=people" + TenantQuery);
+        var text = tip is null ? E(label) : ((HtmlString)InfoTip.After(label, tip)).Value;
+        return $"<label>{text}<input type=\"text\" name=\"{name}\" value=\"{E(value)}\" size=\"{size}\" list=\"{list}\" autocomplete=\"off\" " +
+               $"data-lookup=\"{lookup}\" data-min=\"{CopilotInsights.Data.PersonLookup.MinLetters}\" placeholder=\"3 letters of a first or last name\"/></label>" +
+               (_lists.Add(list) ? $"<datalist id=\"{list}\"></datalist>" : "");
+    }
+
+    readonly HashSet<string> _lists = [];
+
     public async Task<IActionResult> OnGetCsvAsync()
     {
         if (!await PrepareAsync()) return Page();

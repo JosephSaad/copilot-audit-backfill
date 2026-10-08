@@ -198,6 +198,8 @@ A few views set their own window, and each one says so on the page:
 - **Unused licenses:** today's licenses against an idle time chosen on the page.
 - **Agents known:** every agent the log has ever seen.
 
+**Boxes that take a person (2.6.2).** Wherever a page asks for a person (Compliance › Person record, the two managers of Leadership › Compare two teams, a grant or a check in Admin › Access, an agent's owner, a manager's digest), type three letters of their first or their last name: nothing is searched before the third letter, and the names offered are those whose first or last name begins with what was typed (*mor* finds Avery Morgan and Morgan Petrov, not Seymour Hill). Up to 20 are offered; type more to narrow them. Choosing one fills in the sign-in; a sign-in typed in full is taken as it is. Who can be found is who the page can show: people in your part of the organization on a report, managers with a team large enough to show on Compare, anyone in the directory on the Admin pages. Each search is in the audit log, and in privacy mode no report offers names.
+
 **Only the controls that matter (2.5.0).** A report shows the period box only where the period changes it, and the *Look inside a team* list, with the *Showing* path beside it, only where the part of the organization changes it. A view with a window of its own says what it covers where the period box would be. The License pool, the Group overview and the Person record have no team list: the tenant's seats, each tenant's whole organization and one person's record do not change with it.
 
 ## Premium use and the license rules
@@ -264,6 +266,8 @@ Both are rebuilt incrementally with the rest of the pipeline. On the demo (2,317
 
 The site sends its own email, from a background task that runs every five minutes with the site (the installer starts the site with IIS, so it runs with nobody signed in). With several web servers, one sends at a time: they share a lock in SQL Server. Each alert, digest and manager digest is also marked as sent before it goes (2.4.12), so a database that can be read but not written sends nothing rather than the same message every five minutes, and two servers never send one twice. Everything is set in **Admin › Email** and **Admin › Alerts and digests** and stored in the database; nothing is in a settings file.
 
+**When email does not arrive (2.6.2).** Admin › Email keeps what was said between the site and the mail server: for every test message, and for every message that was not sent. *Troubleshooting: where the logs are* shows the last test's conversation whole (the server, port and security, who signed in, each command and the server's answer, and how it ended), lists the other places to look (`dash.NotificationLog`, the web server's Windows Application log) and says what the common answers mean. *Recently sent* has each kept conversation under **show**. What follows an `AUTH` command is masked and the message's own lines are left out, so neither the password nor a digest's figures are kept.
+
 **How it sends** (Admin › Email):
 
 | Mode | Server | Sign-in |
@@ -280,7 +284,7 @@ Passwords and client secrets are stored in `dash.Secret`, encrypted by SQL Serve
 |---|---|
 | Pipeline failed | A run of `Invoke-CopilotPipeline.ps1` failed: the step and its last log lines. Also a run still marked as running after 12 hours. |
 | Stale data | The dashboard's data is older than *FreshnessHours* (36). Once a day while it lasts. Every page also shows a banner. |
-| App certificate | The certificate the pipeline signs in to Graph with expires within *CertificateWarnDays* (30), then again at 14 and 3 days, and when it has expired. |
+| App certificate | A certificate the pipeline signs in with expires within *CertificateWarnDays* (30), then again at 14 and 3 days, and when it has expired. Each of the two is watched on its own: the Purview audit app's, and the SharePoint agent workbook app's where one is set up. Also when the settings name a certificate the job server does not hold. |
 | Security signals | After each refresh, for the last complete day: jailbreak attempts, prompt injections, blocked resources, and interactions touching content at or above a label order, when a day reaches its threshold or is the set number of times its 28-day average. |
 | Drops and spikes | A department's day at least 50% below, or 200% above, its average for that weekday over the four weeks before. Departments smaller than the minimum group size are not judged. |
 | License pool | 95% of the Copilot seats bought are assigned. Once a week while it lasts. |
@@ -531,7 +535,7 @@ Admin shows no usage data by itself. An administrator who should also see the re
 - how many people sit under it;
 - how many people in the data are matched to AD;
 - the latest day with data;
-- the app certificate the pipeline signs in with, and when it expires;
+- each certificate the pipeline signs in with, the Purview audit app's and the SharePoint agent workbook app's, with when it expires and its details side by side;
 - the audit searches: those waiting at Microsoft Purview for a load under way, how many had to be resubmitted or failed, and what the last load took (when it was merged, the records it fetched and how many were new, and in how many searches). A load's searches are listed only while it runs, and are counted with the load once it is merged; a load merged before that count was kept shows its records without it;
 - the last ten dashboard refreshes.
 
