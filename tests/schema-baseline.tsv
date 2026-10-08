@@ -1,0 +1,1819 @@
+# release 2.6.2
+# The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
+# The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
+# Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
+C	copilot	audit.AgentCatalog	U	1	AgentCatalogId	int	0	I
+C	copilot	audit.AgentCatalog	U	2	AppIdentity	nvarchar(200)	0	
+C	copilot	audit.AgentCatalog	U	3	AgentId	nvarchar(400)	0	
+C	copilot	audit.AgentCatalog	U	4	AgentName	nvarchar(400)	1	
+C	copilot	audit.AgentCatalog	U	5	NameSeenUtc	datetime2(0)	1	
+C	copilot	audit.AgentCatalog	U	6	FirstSeenUtc	datetime2(0)	1	
+C	copilot	audit.AgentCatalog	U	7	LastSeenUtc	datetime2(0)	1	
+C	copilot	audit.CopilotAudit	U	1	RecordId	varchar(64)	0	
+C	copilot	audit.CopilotAudit	U	10	ObjectId	nvarchar(4000)	1	
+C	copilot	audit.CopilotAudit	U	11	ClientIp	varchar(128)	1	
+C	copilot	audit.CopilotAudit	U	12	AdministrativeUnits	nvarchar(4000)	1	
+C	copilot	audit.CopilotAudit	U	13	AuditDataGz	varbinary(max)	1	
+C	copilot	audit.CopilotAudit	U	14	WindowId	bigint	0	
+C	copilot	audit.CopilotAudit	U	15	LoadId	int	1	
+C	copilot	audit.CopilotAudit	U	16	CsvImportId	int	1	
+C	copilot	audit.CopilotAudit	U	2	CreatedDateTime	datetime2(7)	0	
+C	copilot	audit.CopilotAudit	U	3	RecordType	varchar(128)	1	
+C	copilot	audit.CopilotAudit	U	4	Operation	varchar(128)	1	
+C	copilot	audit.CopilotAudit	U	5	OrganizationId	varchar(64)	1	
+C	copilot	audit.CopilotAudit	U	6	UserType	varchar(64)	1	
+C	copilot	audit.CopilotAudit	U	7	UserId	nvarchar(512)	1	
+C	copilot	audit.CopilotAudit	U	8	UserPrincipalName	nvarchar(512)	1	
+C	copilot	audit.CopilotAudit	U	9	Service	varchar(128)	1	
+C	copilot	audit.CopilotAuditStage	U	1	WindowId	bigint	0	
+C	copilot	audit.CopilotAuditStage	U	10	UserPrincipalName	nvarchar(512)	1	
+C	copilot	audit.CopilotAuditStage	U	11	Service	varchar(128)	1	
+C	copilot	audit.CopilotAuditStage	U	12	ObjectId	nvarchar(4000)	1	
+C	copilot	audit.CopilotAuditStage	U	13	ClientIp	varchar(128)	1	
+C	copilot	audit.CopilotAuditStage	U	14	AdministrativeUnits	nvarchar(4000)	1	
+C	copilot	audit.CopilotAuditStage	U	15	AuditDataGz	varbinary(max)	1	
+C	copilot	audit.CopilotAuditStage	U	16	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotAuditStage	U	2	Attempt	int	0	
+C	copilot	audit.CopilotAuditStage	U	3	RecordId	varchar(64)	0	
+C	copilot	audit.CopilotAuditStage	U	4	CreatedDateTime	datetime2(7)	0	
+C	copilot	audit.CopilotAuditStage	U	5	RecordType	varchar(128)	1	
+C	copilot	audit.CopilotAuditStage	U	6	Operation	varchar(128)	1	
+C	copilot	audit.CopilotAuditStage	U	7	OrganizationId	varchar(64)	1	
+C	copilot	audit.CopilotAuditStage	U	8	UserType	varchar(64)	1	
+C	copilot	audit.CopilotAuditStage	U	9	UserId	nvarchar(512)	1	
+C	copilot	audit.CopilotBackfillRange	U	1	Id	tinyint	0	
+C	copilot	audit.CopilotBackfillRange	U	2	RangeStartUtc	datetime2(0)	0	
+C	copilot	audit.CopilotBackfillRange	U	3	RangeEndUtc	datetime2(0)	0	
+C	copilot	audit.CopilotBackfillRange	U	4	Operations	nvarchar(400)	0	
+C	copilot	audit.CopilotBackfillRange	U	5	StartedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotBackfillRange	U	6	CompletedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotBackfillRange	U	7	Source	varchar(8)	1	
+C	copilot	audit.CopilotBackfillWindow	U	1	WindowId	bigint	0	I
+C	copilot	audit.CopilotBackfillWindow	U	10	RowsLoaded	bigint	1	
+C	copilot	audit.CopilotBackfillWindow	U	11	SubmittedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotBackfillWindow	U	12	CompletedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotBackfillWindow	U	13	LastError	nvarchar(2000)	1	
+C	copilot	audit.CopilotBackfillWindow	U	14	CreatedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotBackfillWindow	U	15	UpdatedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotBackfillWindow	U	2	ParentWindowId	bigint	1	
+C	copilot	audit.CopilotBackfillWindow	U	3	StartUtc	datetime2(0)	0	
+C	copilot	audit.CopilotBackfillWindow	U	4	EndUtc	datetime2(0)	0	
+C	copilot	audit.CopilotBackfillWindow	U	5	Status	varchar(16)	0	
+C	copilot	audit.CopilotBackfillWindow	U	6	QueryId	varchar(64)	1	
+C	copilot	audit.CopilotBackfillWindow	U	7	Attempts	int	0	D
+C	copilot	audit.CopilotBackfillWindow	U	8	Submissions	int	0	D
+C	copilot	audit.CopilotBackfillWindow	U	9	ApproxRecords	bigint	1	
+C	copilot	audit.CopilotCsvFile	U	1	FileId	int	0	I
+C	copilot	audit.CopilotCsvFile	U	10	RowsOtherOperation	bigint	1	
+C	copilot	audit.CopilotCsvFile	U	11	RowsStaged	bigint	1	
+C	copilot	audit.CopilotCsvFile	U	12	EarliestRecordUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvFile	U	13	LatestRecordUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvFile	U	14	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotCsvFile	U	2	ImportId	int	0	
+C	copilot	audit.CopilotCsvFile	U	3	FileName	nvarchar(260)	0	
+C	copilot	audit.CopilotCsvFile	U	4	FullPath	nvarchar(1024)	0	
+C	copilot	audit.CopilotCsvFile	U	5	Sha256	char(64)	0	
+C	copilot	audit.CopilotCsvFile	U	6	SizeBytes	bigint	0	
+C	copilot	audit.CopilotCsvFile	U	7	LastWriteUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvFile	U	8	RowsRead	bigint	1	
+C	copilot	audit.CopilotCsvFile	U	9	RowsRejected	bigint	1	
+C	copilot	audit.CopilotCsvImport	U	1	ImportId	int	0	I
+C	copilot	audit.CopilotCsvImport	U	10	RowsStaged	bigint	1	
+C	copilot	audit.CopilotCsvImport	U	11	RowsDuplicate	bigint	1	
+C	copilot	audit.CopilotCsvImport	U	12	RowsAlreadyLoaded	bigint	1	
+C	copilot	audit.CopilotCsvImport	U	13	RowsAdded	bigint	1	
+C	copilot	audit.CopilotCsvImport	U	14	EarliestAddedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvImport	U	15	LatestAddedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvImport	U	16	CoveredFromUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvImport	U	17	CoveredToUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvImport	U	18	DerivedRefreshedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvImport	U	2	FolderPath	nvarchar(1024)	0	
+C	copilot	audit.CopilotCsvImport	U	3	Operations	nvarchar(400)	0	
+C	copilot	audit.CopilotCsvImport	U	4	StartedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotCsvImport	U	5	MergedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotCsvImport	U	6	FilesLoaded	int	1	
+C	copilot	audit.CopilotCsvImport	U	7	RowsRead	bigint	1	
+C	copilot	audit.CopilotCsvImport	U	8	RowsRejected	bigint	1	
+C	copilot	audit.CopilotCsvImport	U	9	RowsOtherOperation	bigint	1	
+C	copilot	audit.CopilotCsvReject	U	1	FileId	int	0	
+C	copilot	audit.CopilotCsvReject	U	2	LineNumber	bigint	0	
+C	copilot	audit.CopilotCsvReject	U	3	RecordId	varchar(64)	1	
+C	copilot	audit.CopilotCsvReject	U	4	Reason	nvarchar(400)	0	
+C	copilot	audit.CopilotCsvStage	U	1	FileId	int	0	
+C	copilot	audit.CopilotCsvStage	U	10	UserPrincipalName	nvarchar(512)	1	
+C	copilot	audit.CopilotCsvStage	U	11	Service	varchar(128)	1	
+C	copilot	audit.CopilotCsvStage	U	12	ObjectId	nvarchar(4000)	1	
+C	copilot	audit.CopilotCsvStage	U	13	ClientIp	varchar(128)	1	
+C	copilot	audit.CopilotCsvStage	U	14	AdministrativeUnits	nvarchar(4000)	1	
+C	copilot	audit.CopilotCsvStage	U	15	AuditDataGz	varbinary(max)	1	
+C	copilot	audit.CopilotCsvStage	U	2	LineNumber	bigint	0	
+C	copilot	audit.CopilotCsvStage	U	3	RecordId	varchar(64)	0	
+C	copilot	audit.CopilotCsvStage	U	4	CreatedDateTime	datetime2(7)	0	
+C	copilot	audit.CopilotCsvStage	U	5	RecordType	varchar(128)	1	
+C	copilot	audit.CopilotCsvStage	U	6	Operation	varchar(128)	1	
+C	copilot	audit.CopilotCsvStage	U	7	OrganizationId	varchar(64)	1	
+C	copilot	audit.CopilotCsvStage	U	8	UserType	varchar(64)	1	
+C	copilot	audit.CopilotCsvStage	U	9	UserId	nvarchar(512)	1	
+C	copilot	audit.CopilotInteraction	U	1	RecordId	varchar(64)	0	
+C	copilot	audit.CopilotInteraction	U	10	ThreadId	nvarchar(400)	1	
+C	copilot	audit.CopilotInteraction	U	11	PromptCount	int	1	
+C	copilot	audit.CopilotInteraction	U	12	AccessedResourceCount	int	1	
+C	copilot	audit.CopilotInteraction	U	13	UsedWebSearch	bit	1	
+C	copilot	audit.CopilotInteraction	U	2	CreatedDateTime	datetime2(0)	0	
+C	copilot	audit.CopilotInteraction	U	3	ActivityDate	date	0	
+C	copilot	audit.CopilotInteraction	U	4	UserPrincipalName	nvarchar(512)	1	
+C	copilot	audit.CopilotInteraction	U	5	AppHost	nvarchar(100)	1	
+C	copilot	audit.CopilotInteraction	U	6	AppIdentity	nvarchar(200)	1	
+C	copilot	audit.CopilotInteraction	U	7	ClientRegion	nvarchar(20)	1	
+C	copilot	audit.CopilotInteraction	U	8	ModelName	nvarchar(200)	1	
+C	copilot	audit.CopilotInteraction	U	9	ModelProvider	nvarchar(200)	1	
+C	copilot	audit.CopilotLicense	U	1	UserPrincipalName	nvarchar(512)	0	
+C	copilot	audit.CopilotLicense	U	10	CapabilityStatus	nvarchar(50)	1	
+C	copilot	audit.CopilotLicense	U	11	DirectoryStatus	nvarchar(20)	1	
+C	copilot	audit.CopilotLicense	U	2	IsCopilotLic	bit	1	
+C	copilot	audit.CopilotLicense	U	3	UpdatedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotLicense	U	4	SkuPartNumber	nvarchar(100)	1	
+C	copilot	audit.CopilotLicense	U	5	LicensedSinceUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLicense	U	6	EntraAccountEnabled	bit	1	
+C	copilot	audit.CopilotLicense	U	7	EmployeeHireDate	date	1	
+C	copilot	audit.CopilotLicense	U	8	EmployeeLeaveUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLicense	U	9	UserType	nvarchar(20)	1	
+C	copilot	audit.CopilotLoad	U	1	LoadId	int	0	I
+C	copilot	audit.CopilotLoad	U	10	RowsAlreadyLoaded	bigint	1	
+C	copilot	audit.CopilotLoad	U	11	DerivedRefreshedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLoad	U	12	Searches	int	1	
+C	copilot	audit.CopilotLoad	U	13	SearchesResubmitted	int	1	
+C	copilot	audit.CopilotLoad	U	2	RangeStartUtc	datetime2(0)	0	
+C	copilot	audit.CopilotLoad	U	3	RangeEndUtc	datetime2(0)	0	
+C	copilot	audit.CopilotLoad	U	4	Operations	nvarchar(400)	0	
+C	copilot	audit.CopilotLoad	U	5	StartedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotLoad	U	6	DownloadedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLoad	U	7	MergedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLoad	U	8	RowsStaged	bigint	1	
+C	copilot	audit.CopilotLoad	U	9	RowsAdded	bigint	1	
+C	copilot	audit.CopilotLoadStage	U	1	WindowId	bigint	0	
+C	copilot	audit.CopilotLoadStage	U	10	UserPrincipalName	nvarchar(512)	1	
+C	copilot	audit.CopilotLoadStage	U	11	Service	varchar(128)	1	
+C	copilot	audit.CopilotLoadStage	U	12	ObjectId	nvarchar(4000)	1	
+C	copilot	audit.CopilotLoadStage	U	13	ClientIp	varchar(128)	1	
+C	copilot	audit.CopilotLoadStage	U	14	AdministrativeUnits	nvarchar(4000)	1	
+C	copilot	audit.CopilotLoadStage	U	15	AuditDataGz	varbinary(max)	1	
+C	copilot	audit.CopilotLoadStage	U	16	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotLoadStage	U	2	Attempt	int	0	
+C	copilot	audit.CopilotLoadStage	U	3	RecordId	varchar(64)	0	
+C	copilot	audit.CopilotLoadStage	U	4	CreatedDateTime	datetime2(7)	0	
+C	copilot	audit.CopilotLoadStage	U	5	RecordType	varchar(128)	1	
+C	copilot	audit.CopilotLoadStage	U	6	Operation	varchar(128)	1	
+C	copilot	audit.CopilotLoadStage	U	7	OrganizationId	varchar(64)	1	
+C	copilot	audit.CopilotLoadStage	U	8	UserType	varchar(64)	1	
+C	copilot	audit.CopilotLoadStage	U	9	UserId	nvarchar(512)	1	
+C	copilot	audit.CopilotLoadWindow	U	1	WindowId	bigint	0	I
+C	copilot	audit.CopilotLoadWindow	U	10	RowsLoaded	bigint	1	
+C	copilot	audit.CopilotLoadWindow	U	11	SubmittedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLoadWindow	U	12	CompletedUtc	datetime2(0)	1	
+C	copilot	audit.CopilotLoadWindow	U	13	LastError	nvarchar(2000)	1	
+C	copilot	audit.CopilotLoadWindow	U	14	CreatedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotLoadWindow	U	15	UpdatedUtc	datetime2(0)	0	D
+C	copilot	audit.CopilotLoadWindow	U	2	ParentWindowId	bigint	1	
+C	copilot	audit.CopilotLoadWindow	U	3	StartUtc	datetime2(0)	0	
+C	copilot	audit.CopilotLoadWindow	U	4	EndUtc	datetime2(0)	0	
+C	copilot	audit.CopilotLoadWindow	U	5	Status	varchar(16)	0	
+C	copilot	audit.CopilotLoadWindow	U	6	QueryId	varchar(64)	1	
+C	copilot	audit.CopilotLoadWindow	U	7	Attempts	int	0	D
+C	copilot	audit.CopilotLoadWindow	U	8	Submissions	int	0	D
+C	copilot	audit.CopilotLoadWindow	U	9	ApproxRecords	bigint	1	
+C	copilot	audit.CopilotSession	U	1	SessionKey	bigint	0	I
+C	copilot	audit.CopilotSession	U	10	SessionTimeoutMinutes	int	0	
+C	copilot	audit.CopilotSession	U	11	CalendarDaysTouched_InSessionSpan	int	0	
+C	copilot	audit.CopilotSession	U	12	PromptCount	int	0	
+C	copilot	audit.CopilotSession	U	13	SessionType	nvarchar(20)	0	
+C	copilot	audit.CopilotSession	U	14	PrimaryApp	nvarchar(200)	1	
+C	copilot	audit.CopilotSession	U	15	AppCategory	nvarchar(50)	0	
+C	copilot	audit.CopilotSession	U	16	IsM365CopilotLicensed	bit	1	
+C	copilot	audit.CopilotSession	U	17	Division	nvarchar(400)	1	
+C	copilot	audit.CopilotSession	U	18	Department	nvarchar(400)	1	
+C	copilot	audit.CopilotSession	U	19	JobTitle	nvarchar(400)	1	
+C	copilot	audit.CopilotSession	U	2	AppContext	nvarchar(4000)	1	
+C	copilot	audit.CopilotSession	U	20	ManagerUPN	nvarchar(1024)	1	
+C	copilot	audit.CopilotSession	U	21	AvgMinutesPerPrompt_InferredSessionSpan	decimal(12,2)	0	
+C	copilot	audit.CopilotSession	U	22	AvgMinutesPerPromptPerCalendarDay_InferredSpan	decimal(12,2)	0	
+C	copilot	audit.CopilotSession	U	23	AvgMinutesPerPrompt_NormalizedByCalendarDays	decimal(12,2)	0	
+C	copilot	audit.CopilotSession	U	24	MetricVersion	nvarchar(200)	0	
+C	copilot	audit.CopilotSession	U	3	UserUPN	nvarchar(512)	0	
+C	copilot	audit.CopilotSession	U	4	SessionOrdinal_Derived	int	0	
+C	copilot	audit.CopilotSession	U	5	SessionStart_PromptSubmittedDateTime	datetime2(0)	0	
+C	copilot	audit.CopilotSession	U	6	SessionEnd_PromptSubmittedDateTime	datetime2(0)	0	
+C	copilot	audit.CopilotSession	U	7	InferredSessionSpanMinutes	decimal(12,2)	0	
+C	copilot	audit.CopilotSession	U	8	InferredSessionSpanHours	decimal(12,2)	0	
+C	copilot	audit.CopilotSession	U	9	InferredSessionSpanDays	decimal(12,6)	0	
+C	copilot	audit.CopilotSessionRun	U	1	RunId	int	0	I
+C	copilot	audit.CopilotSessionRun	U	10	SessionsWritten	int	0	
+C	copilot	audit.CopilotSessionRun	U	11	WeeklyGroups	int	0	
+C	copilot	audit.CopilotSessionRun	U	12	SessionTimeoutMinutes	int	0	
+C	copilot	audit.CopilotSessionRun	U	13	ContextFallback	nvarchar(20)	0	
+C	copilot	audit.CopilotSessionRun	U	14	ReportingTimeZone	nvarchar(128)	0	
+C	copilot	audit.CopilotSessionRun	U	15	LicenseEventDatabase	nvarchar(1000)	1	
+C	copilot	audit.CopilotSessionRun	U	16	MetricVersion	nvarchar(200)	0	
+C	copilot	audit.CopilotSessionRun	U	17	RebuiltFrom	datetime2(0)	1	
+C	copilot	audit.CopilotSessionRun	U	2	RunStartUtc	datetime2(0)	0	
+C	copilot	audit.CopilotSessionRun	U	3	RunEndUtc	datetime2(0)	0	
+C	copilot	audit.CopilotSessionRun	U	4	RowsRead	int	0	
+C	copilot	audit.CopilotSessionRun	U	5	RowsWithOriginalAppContext	int	0	
+C	copilot	audit.CopilotSessionRun	U	6	RowsRecoveredFromLocation	int	0	
+C	copilot	audit.CopilotSessionRun	U	7	RowsSkippedMissingContext	int	0	
+C	copilot	audit.CopilotSessionRun	U	8	RowsSkippedMissingUser	int	0	
+C	copilot	audit.CopilotSessionRun	U	9	RowsSkippedBadTimestamp	int	0	
+C	copilot	audit.CopilotWeeklyRollup	U	1	WeekEnding	date	0	
+C	copilot	audit.CopilotWeeklyRollup	U	10	WeeklyPromptCount	int	0	
+C	copilot	audit.CopilotWeeklyRollup	U	11	WeeklyInferredSessionSpanMinutes	decimal(14,2)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	12	WeeklyInferredSessionSpanHours	decimal(14,2)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	13	WeeklyInferredSessionSpanDays	decimal(14,6)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	14	ActiveDaysWithUsageInWeek	int	0	
+C	copilot	audit.CopilotWeeklyRollup	U	15	DistinctAppContextsInWeek	int	0	
+C	copilot	audit.CopilotWeeklyRollup	U	16	FirstPromptSubmittedDateTime_InWeek	datetime2(0)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	17	LastPromptSubmittedDateTime_InWeek	datetime2(0)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	18	Division	nvarchar(400)	1	
+C	copilot	audit.CopilotWeeklyRollup	U	19	Department	nvarchar(400)	1	
+C	copilot	audit.CopilotWeeklyRollup	U	2	WeekYear	int	0	
+C	copilot	audit.CopilotWeeklyRollup	U	20	JobTitle	nvarchar(400)	1	
+C	copilot	audit.CopilotWeeklyRollup	U	21	ManagerUPN	nvarchar(1024)	1	
+C	copilot	audit.CopilotWeeklyRollup	U	22	AvgMinutesPerPrompt_InferredSpan_Weekly	decimal(12,2)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	23	MetricVersion	nvarchar(200)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	3	WeekNumber	int	0	
+C	copilot	audit.CopilotWeeklyRollup	U	4	WeekLabel	nvarchar(10)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	5	UserUPN	nvarchar(512)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	6	PrimaryApp	nvarchar(200)	1	
+C	copilot	audit.CopilotWeeklyRollup	U	7	AppCategory	nvarchar(50)	0	
+C	copilot	audit.CopilotWeeklyRollup	U	8	IsM365CopilotLicensed	bit	1	
+C	copilot	audit.CopilotWeeklyRollup	U	9	WeeklySessionCount	int	0	
+C	copilot	audit.ExternalUsageRun	U	1	RunId	int	0	I
+C	copilot	audit.ExternalUsageRun	U	10	Detail	nvarchar(2000)	1	
+C	copilot	audit.ExternalUsageRun	U	11	CredentialExpiresUtc	datetime2(0)	1	
+C	copilot	audit.ExternalUsageRun	U	12	Host	nvarchar(128)	1	
+C	copilot	audit.ExternalUsageRun	U	2	Source	varchar(16)	0	
+C	copilot	audit.ExternalUsageRun	U	3	Scope	nvarchar(400)	1	
+C	copilot	audit.ExternalUsageRun	U	4	StartedUtc	datetime2(0)	0	D
+C	copilot	audit.ExternalUsageRun	U	5	EndedUtc	datetime2(0)	1	
+C	copilot	audit.ExternalUsageRun	U	6	Status	varchar(16)	0	D
+C	copilot	audit.ExternalUsageRun	U	7	FromDay	date	1	
+C	copilot	audit.ExternalUsageRun	U	8	ToDay	date	1	
+C	copilot	audit.ExternalUsageRun	U	9	RowsWritten	int	1	
+C	copilot	audit.FoundryCostDay	U	1	SubscriptionId	varchar(36)	0	
+C	copilot	audit.FoundryCostDay	U	2	ResourceGroup	nvarchar(90)	0	
+C	copilot	audit.FoundryCostDay	U	3	Account	nvarchar(64)	0	
+C	copilot	audit.FoundryCostDay	U	4	Meter	nvarchar(200)	0	
+C	copilot	audit.FoundryCostDay	U	5	Day	date	0	
+C	copilot	audit.FoundryCostDay	U	6	Cost	decimal(19,6)	0	
+C	copilot	audit.FoundryCostDay	U	7	Currency	nvarchar(8)	1	
+C	copilot	audit.FoundryCostDay	U	8	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FoundryDeployment	U	1	SubscriptionId	varchar(36)	0	
+C	copilot	audit.FoundryDeployment	U	10	SkuName	nvarchar(50)	1	
+C	copilot	audit.FoundryDeployment	U	11	Capacity	int	1	
+C	copilot	audit.FoundryDeployment	U	12	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FoundryDeployment	U	2	ResourceGroup	nvarchar(90)	0	
+C	copilot	audit.FoundryDeployment	U	3	Account	nvarchar(64)	0	
+C	copilot	audit.FoundryDeployment	U	4	Deployment	nvarchar(64)	0	
+C	copilot	audit.FoundryDeployment	U	5	Kind	nvarchar(50)	1	
+C	copilot	audit.FoundryDeployment	U	6	Location	nvarchar(50)	1	
+C	copilot	audit.FoundryDeployment	U	7	ModelName	nvarchar(100)	1	
+C	copilot	audit.FoundryDeployment	U	8	ModelVersion	nvarchar(32)	1	
+C	copilot	audit.FoundryDeployment	U	9	ModelPublisher	nvarchar(100)	1	
+C	copilot	audit.FoundryUsageDay	U	1	SubscriptionId	varchar(36)	0	
+C	copilot	audit.FoundryUsageDay	U	10	OutputTokens	bigint	1	
+C	copilot	audit.FoundryUsageDay	U	11	TotalTokens	bigint	1	
+C	copilot	audit.FoundryUsageDay	U	12	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FoundryUsageDay	U	2	ResourceGroup	nvarchar(90)	0	
+C	copilot	audit.FoundryUsageDay	U	3	Account	nvarchar(64)	0	
+C	copilot	audit.FoundryUsageDay	U	4	Deployment	nvarchar(64)	0	
+C	copilot	audit.FoundryUsageDay	U	5	ModelName	nvarchar(100)	0	
+C	copilot	audit.FoundryUsageDay	U	6	ModelVersion	nvarchar(32)	0	
+C	copilot	audit.FoundryUsageDay	U	7	Day	date	0	
+C	copilot	audit.FoundryUsageDay	U	8	Requests	bigint	1	
+C	copilot	audit.FoundryUsageDay	U	9	InputTokens	bigint	1	
+C	copilot	audit.GitHubCopilotCost	U	1	CostId	bigint	0	I
+C	copilot	audit.GitHubCopilotCost	U	10	Quantity	decimal(19,4)	1	
+C	copilot	audit.GitHubCopilotCost	U	11	GrossAmount	decimal(19,4)	1	
+C	copilot	audit.GitHubCopilotCost	U	12	DiscountAmount	decimal(19,4)	1	
+C	copilot	audit.GitHubCopilotCost	U	13	NetAmount	decimal(19,4)	1	
+C	copilot	audit.GitHubCopilotCost	U	14	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.GitHubCopilotCost	U	2	Scope	nvarchar(120)	0	
+C	copilot	audit.GitHubCopilotCost	U	3	UsageDate	date	0	
+C	copilot	audit.GitHubCopilotCost	U	4	Product	nvarchar(100)	1	
+C	copilot	audit.GitHubCopilotCost	U	5	Sku	nvarchar(200)	1	
+C	copilot	audit.GitHubCopilotCost	U	6	Model	nvarchar(200)	1	
+C	copilot	audit.GitHubCopilotCost	U	7	Organization	nvarchar(100)	1	
+C	copilot	audit.GitHubCopilotCost	U	8	UnitType	nvarchar(50)	1	
+C	copilot	audit.GitHubCopilotCost	U	9	PricePerUnit	decimal(19,6)	1	
+C	copilot	audit.GitHubCopilotDay	U	1	Scope	nvarchar(120)	0	
+C	copilot	audit.GitHubCopilotDay	U	10	CodeAcceptances	bigint	1	
+C	copilot	audit.GitHubCopilotDay	U	11	LocSuggestedToAdd	bigint	1	
+C	copilot	audit.GitHubCopilotDay	U	12	LocSuggestedToDelete	bigint	1	
+C	copilot	audit.GitHubCopilotDay	U	13	LocAdded	bigint	1	
+C	copilot	audit.GitHubCopilotDay	U	14	LocDeleted	bigint	1	
+C	copilot	audit.GitHubCopilotDay	U	15	Json	nvarchar(max)	1	
+C	copilot	audit.GitHubCopilotDay	U	16	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.GitHubCopilotDay	U	2	Day	date	0	
+C	copilot	audit.GitHubCopilotDay	U	3	DailyActiveUsers	int	1	
+C	copilot	audit.GitHubCopilotDay	U	4	WeeklyActiveUsers	int	1	
+C	copilot	audit.GitHubCopilotDay	U	5	MonthlyActiveUsers	int	1	
+C	copilot	audit.GitHubCopilotDay	U	6	MonthlyActiveChatUsers	int	1	
+C	copilot	audit.GitHubCopilotDay	U	7	MonthlyActiveAgentUsers	int	1	
+C	copilot	audit.GitHubCopilotDay	U	8	Interactions	bigint	1	
+C	copilot	audit.GitHubCopilotDay	U	9	CodeGenerations	bigint	1	
+C	copilot	audit.GitHubCopilotSeat	U	1	Scope	nvarchar(120)	0	
+C	copilot	audit.GitHubCopilotSeat	U	10	LastAuthenticatedUtc	datetime2(0)	1	
+C	copilot	audit.GitHubCopilotSeat	U	11	PendingCancellationDate	date	1	
+C	copilot	audit.GitHubCopilotSeat	U	12	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.GitHubCopilotSeat	U	2	Login	nvarchar(100)	0	
+C	copilot	audit.GitHubCopilotSeat	U	3	UserId	bigint	1	
+C	copilot	audit.GitHubCopilotSeat	U	4	Organization	nvarchar(100)	1	
+C	copilot	audit.GitHubCopilotSeat	U	5	AssigningTeam	nvarchar(200)	1	
+C	copilot	audit.GitHubCopilotSeat	U	6	PlanType	varchar(16)	1	
+C	copilot	audit.GitHubCopilotSeat	U	7	CreatedUtc	datetime2(0)	1	
+C	copilot	audit.GitHubCopilotSeat	U	8	LastActivityUtc	datetime2(0)	1	
+C	copilot	audit.GitHubCopilotSeat	U	9	LastActivityEditor	nvarchar(200)	1	
+C	copilot	audit.GitHubCopilotUserDay	U	1	Scope	nvarchar(120)	0	
+C	copilot	audit.GitHubCopilotUserDay	U	10	AiCreditsUsed	decimal(19,4)	1	
+C	copilot	audit.GitHubCopilotUserDay	U	11	UsedChat	bit	1	
+C	copilot	audit.GitHubCopilotUserDay	U	12	UsedAgent	bit	1	
+C	copilot	audit.GitHubCopilotUserDay	U	13	UsedCli	bit	1	
+C	copilot	audit.GitHubCopilotUserDay	U	14	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.GitHubCopilotUserDay	U	2	Day	date	0	
+C	copilot	audit.GitHubCopilotUserDay	U	3	UserId	bigint	0	
+C	copilot	audit.GitHubCopilotUserDay	U	4	Login	nvarchar(100)	1	
+C	copilot	audit.GitHubCopilotUserDay	U	5	Interactions	bigint	1	
+C	copilot	audit.GitHubCopilotUserDay	U	6	CodeGenerations	bigint	1	
+C	copilot	audit.GitHubCopilotUserDay	U	7	CodeAcceptances	bigint	1	
+C	copilot	audit.GitHubCopilotUserDay	U	8	LocAdded	bigint	1	
+C	copilot	audit.GitHubCopilotUserDay	U	9	LocDeleted	bigint	1	
+C	copilot	audit.GroupMember	U	1	GroupName	nvarchar(256)	0	
+C	copilot	audit.GroupMember	U	2	UserPrincipalName	nvarchar(256)	0	
+C	copilot	audit.GroupMember	U	3	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.LicenseSku	U	1	SkuId	uniqueidentifier	0	
+C	copilot	audit.LicenseSku	U	10	CapturedUtc	datetime2(0)	0	D
+C	copilot	audit.LicenseSku	U	2	SkuPartNumber	nvarchar(100)	0	
+C	copilot	audit.LicenseSku	U	3	IsCopilot	bit	0	
+C	copilot	audit.LicenseSku	U	4	Enabled	int	0	
+C	copilot	audit.LicenseSku	U	5	Warning	int	0	
+C	copilot	audit.LicenseSku	U	6	Suspended	int	0	
+C	copilot	audit.LicenseSku	U	7	LockedOut	int	0	
+C	copilot	audit.LicenseSku	U	8	Consumed	int	0	
+C	copilot	audit.LicenseSku	U	9	CapabilityStatus	nvarchar(32)	1	
+C	copilot	audit.LicenseSkuDay	U	1	SnapshotDate	date	0	
+C	copilot	audit.LicenseSkuDay	U	2	SkuId	uniqueidentifier	0	
+C	copilot	audit.LicenseSkuDay	U	3	SkuPartNumber	nvarchar(100)	0	
+C	copilot	audit.LicenseSkuDay	U	4	IsCopilot	bit	0	
+C	copilot	audit.LicenseSkuDay	U	5	Enabled	int	0	
+C	copilot	audit.LicenseSkuDay	U	6	Warning	int	0	
+C	copilot	audit.LicenseSkuDay	U	7	Suspended	int	0	
+C	copilot	audit.LicenseSkuDay	U	8	LockedOut	int	0	
+C	copilot	audit.LicenseSkuDay	U	9	Consumed	int	0	
+C	copilot	audit.PipelineCertificate	U	1	Purpose	varchar(32)	0	
+C	copilot	audit.PipelineCertificate	U	10	TenantId	nvarchar(256)	1	
+C	copilot	audit.PipelineCertificate	U	11	Host	nvarchar(128)	1	
+C	copilot	audit.PipelineCertificate	U	12	SeenUtc	datetime2(0)	0	D
+C	copilot	audit.PipelineCertificate	U	2	Thumbprint	varchar(64)	0	
+C	copilot	audit.PipelineCertificate	U	3	Found	bit	0	
+C	copilot	audit.PipelineCertificate	U	4	Subject	nvarchar(400)	1	
+C	copilot	audit.PipelineCertificate	U	5	Issuer	nvarchar(400)	1	
+C	copilot	audit.PipelineCertificate	U	6	NotBeforeUtc	datetime2(0)	1	
+C	copilot	audit.PipelineCertificate	U	7	ExpiresUtc	datetime2(0)	1	
+C	copilot	audit.PipelineCertificate	U	8	Store	varchar(32)	1	
+C	copilot	audit.PipelineCertificate	U	9	ClientId	nvarchar(64)	1	
+C	copilot	audit.PipelineRun	U	1	RunId	int	0	I
+C	copilot	audit.PipelineRun	U	10	CertificateThumbprint	varchar(64)	1	
+C	copilot	audit.PipelineRun	U	11	CertificateExpiresUtc	datetime2(0)	1	
+C	copilot	audit.PipelineRun	U	12	CertificateSubject	nvarchar(400)	1	
+C	copilot	audit.PipelineRun	U	2	Kind	varchar(16)	0	
+C	copilot	audit.PipelineRun	U	3	StartedUtc	datetime2(0)	0	D
+C	copilot	audit.PipelineRun	U	4	EndedUtc	datetime2(0)	1	
+C	copilot	audit.PipelineRun	U	5	Status	varchar(16)	0	D
+C	copilot	audit.PipelineRun	U	6	FailedStep	nvarchar(200)	1	
+C	copilot	audit.PipelineRun	U	7	Detail	nvarchar(4000)	1	
+C	copilot	audit.PipelineRun	U	8	Host	nvarchar(128)	1	
+C	copilot	audit.PipelineRun	U	9	RunAs	nvarchar(256)	1	
+C	copilot	audit.PipelineRunStep	U	1	RunId	int	0	
+C	copilot	audit.PipelineRunStep	U	2	StepNo	tinyint	0	
+C	copilot	audit.PipelineRunStep	U	3	Name	nvarchar(200)	0	
+C	copilot	audit.PipelineRunStep	U	4	StartedUtc	datetime2(0)	0	D
+C	copilot	audit.PipelineRunStep	U	5	EndedUtc	datetime2(0)	1	
+C	copilot	audit.PipelineRunStep	U	6	ExitCode	int	1	
+C	copilot	audit.PipelineSetting	U	1	Name	sysname	0	
+C	copilot	audit.PipelineSetting	U	2	Value	nvarchar(400)	1	
+C	copilot	audit.PipelineSetting	U	3	UpdatedUtc	datetime2(0)	0	D
+C	copilot	audit.PipelineSetting	U	4	UpdatedBy	nvarchar(256)	0	D
+C	copilot	audit.RawLogAccessedResource	U	1	RecordId	nvarchar(440)	0	
+C	copilot	audit.RawLogAccessedResource	U	10	SensitivityLabelId	uniqueidentifier	1	
+C	copilot	audit.RawLogAccessedResource	U	11	XPIADetected	bit	1	
+C	copilot	audit.RawLogAccessedResource	U	12	Status	varchar(64)	1	
+C	copilot	audit.RawLogAccessedResource	U	13	PolicyDetails	nvarchar(max)	1	
+C	copilot	audit.RawLogAccessedResource	U	14	PolicyOutcomes	nvarchar(400)	1	
+C	copilot	audit.RawLogAccessedResource	U	15	IsBlocked	bit	0	
+C	copilot	audit.RawLogAccessedResource	U	2	Ordinal	smallint	0	
+C	copilot	audit.RawLogAccessedResource	U	3	Action	nvarchar(450)	1	
+C	copilot	audit.RawLogAccessedResource	U	4	Type	nvarchar(200)	1	
+C	copilot	audit.RawLogAccessedResource	U	5	Id	nvarchar(1000)	1	
+C	copilot	audit.RawLogAccessedResource	U	6	Name	nvarchar(4000)	1	
+C	copilot	audit.RawLogAccessedResource	U	7	SiteUrl	nvarchar(max)	1	
+C	copilot	audit.RawLogAccessedResource	U	8	Site	nvarchar(400)	1	
+C	copilot	audit.RawLogAccessedResource	U	9	ListItemUniqueId	uniqueidentifier	1	
+C	copilot	audit.RawLogContext	U	1	RecordId	nvarchar(440)	0	
+C	copilot	audit.RawLogContext	U	2	Ordinal	smallint	0	
+C	copilot	audit.RawLogContext	U	3	Id	nvarchar(4000)	1	
+C	copilot	audit.RawLogContext	U	4	Type	varchar(64)	1	
+C	copilot	audit.RawLogContext	U	5	ContainerId	varchar(64)	1	
+C	copilot	audit.RawLogFlattened	U	1	RecordId	nvarchar(450)	0	
+C	copilot	audit.RawLogFlattened	U	10	AIPlugin	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	11	JailbreakDetected	nvarchar(5)	1	
+C	copilot	audit.RawLogFlattened	U	12	PromptInjectionDetected	nvarchar(5)	1	
+C	copilot	audit.RawLogFlattened	U	13	BlockedResourceUrls	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	14	SensitivityLabelIds	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	15	IsCopilotLic	bit	1	
+C	copilot	audit.RawLogFlattened	U	16	UtcTimeStamp	datetime2(0)	1	
+C	copilot	audit.RawLogFlattened	U	17	AppIdentity	nvarchar(200)	1	
+C	copilot	audit.RawLogFlattened	U	18	ThreadId	nvarchar(400)	1	
+C	copilot	audit.RawLogFlattened	U	19	AgentId	nvarchar(400)	1	
+C	copilot	audit.RawLogFlattened	U	2	TimeStamp	nvarchar(4000)	1	
+C	copilot	audit.RawLogFlattened	U	20	AgentName	nvarchar(400)	1	
+C	copilot	audit.RawLogFlattened	U	21	ModelName	nvarchar(200)	1	
+C	copilot	audit.RawLogFlattened	U	22	ModelProvider	nvarchar(200)	1	
+C	copilot	audit.RawLogFlattened	U	23	AccessedResourceCount	int	1	
+C	copilot	audit.RawLogFlattened	U	24	PromptCount	int	1	
+C	copilot	audit.RawLogFlattened	U	25	FlattenedUtc	datetime2(0)	0	D
+C	copilot	audit.RawLogFlattened	U	26	OrganizationId	uniqueidentifier	1	
+C	copilot	audit.RawLogFlattened	U	27	UserKey	uniqueidentifier	1	
+C	copilot	audit.RawLogFlattened	U	28	ClientIP	varchar(64)	1	
+C	copilot	audit.RawLogFlattened	U	29	ApplicationName	nvarchar(200)	1	
+C	copilot	audit.RawLogFlattened	U	3	User	nvarchar(4000)	1	
+C	copilot	audit.RawLogFlattened	U	30	PlatformAgentId	varchar(256)	1	
+C	copilot	audit.RawLogFlattened	U	31	ResultStatus	varchar(64)	1	
+C	copilot	audit.RawLogFlattened	U	32	AppAccessContext_APIId	varchar(64)	1	
+C	copilot	audit.RawLogFlattened	U	33	CopilotEventData_LicenseType	varchar(32)	1	
+C	copilot	audit.RawLogFlattened	U	34	CopilotEventData_ConversationId	varchar(256)	1	
+C	copilot	audit.RawLogFlattened	U	35	CopilotEventData_CorrelationId	uniqueidentifier	1	
+C	copilot	audit.RawLogFlattened	U	36	CopilotEventData_SensitivityLabelId	uniqueidentifier	1	
+C	copilot	audit.RawLogFlattened	U	37	CopilotEventData_TargetAgentName	nvarchar(200)	1	
+C	copilot	audit.RawLogFlattened	U	38	CopilotEventData_TargetPlatformAgentId	varchar(256)	1	
+C	copilot	audit.RawLogFlattened	U	39	CopilotEventData_DLPEvaluationDeferred	tinyint	1	
+C	copilot	audit.RawLogFlattened	U	4	App	nvarchar(4000)	1	
+C	copilot	audit.RawLogFlattened	U	40	CopilotEventData_MemoryUpdated	bit	1	
+C	copilot	audit.RawLogFlattened	U	41	CopilotEventData_MemoryCorrelationId	varchar(64)	1	
+C	copilot	audit.RawLogFlattened	U	42	CopilotEventData_FabricCapacityId	uniqueidentifier	1	
+C	copilot	audit.RawLogFlattened	U	43	CopilotEventData_PlatformAgentId	varchar(256)	1	
+C	copilot	audit.RawLogFlattened	U	44	CopilotEventData_TaskId	uniqueidentifier	1	
+C	copilot	audit.RawLogFlattened	U	45	ModelVersion	varchar(32)	1	
+C	copilot	audit.RawLogFlattened	U	46	MessageCount	int	1	
+C	copilot	audit.RawLogFlattened	U	47	CopilotEventData_AISystemPlugin	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	48	CopilotEventData_ModelTransparencyDetails	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	49	CopilotEventData_ParticipatingAgents	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	5	Location	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	50	CopilotEventData_SourceThreadIds	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	6	App context	nvarchar(4000)	1	
+C	copilot	audit.RawLogFlattened	U	7	Accessed Resources	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	8	Accessed Resource Locations	nvarchar(max)	1	
+C	copilot	audit.RawLogFlattened	U	9	Action	nvarchar(max)	1	
+C	copilot	audit.RawLogRecordShape	U	1	ShapeHash	binary(32)	0	
+C	copilot	audit.RawLogRecordShape	U	10	AgentPlatform	varchar(64)	1	
+C	copilot	audit.RawLogRecordShape	U	11	AgentBlueprintId	uniqueidentifier	1	
+C	copilot	audit.RawLogRecordShape	U	12	AppAccessContext_ClientAppId	uniqueidentifier	1	
+C	copilot	audit.RawLogRecordShape	U	13	CopilotEventData_PlatformAgentType	varchar(64)	1	
+C	copilot	audit.RawLogRecordShape	U	14	CopilotEventData_IsSpawnTask	bit	1	
+C	copilot	audit.RawLogRecordShape	U	15	HasAdminUnits	bit	0	
+C	copilot	audit.RawLogRecordShape	U	16	HasMessageIds	bit	0	
+C	copilot	audit.RawLogRecordShape	U	17	HasGuardrailDetails	bit	0	
+C	copilot	audit.RawLogRecordShape	U	18	HasTargetTaskIds	bit	0	
+C	copilot	audit.RawLogRecordShape	U	19	Records	bigint	0	
+C	copilot	audit.RawLogRecordShape	U	2	RecordType	smallint	1	
+C	copilot	audit.RawLogRecordShape	U	20	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	audit.RawLogRecordShape	U	21	LastSeenUtc	datetime2(0)	0	D
+C	copilot	audit.RawLogRecordShape	U	3	Operation	varchar(64)	1	
+C	copilot	audit.RawLogRecordShape	U	4	Workload	varchar(32)	1	
+C	copilot	audit.RawLogRecordShape	U	5	UserType	tinyint	1	
+C	copilot	audit.RawLogRecordShape	U	6	Version	tinyint	1	
+C	copilot	audit.RawLogRecordShape	U	7	CopilotLogVersion	varchar(32)	1	
+C	copilot	audit.RawLogRecordShape	U	8	SubjectType	tinyint	1	
+C	copilot	audit.RawLogRecordShape	U	9	AgentVersion	varchar(32)	1	
+C	copilot	audit.SessionAppCategory	U	1	App	nvarchar(200)	0	
+C	copilot	audit.SessionAppCategory	U	2	AppCategory	nvarchar(50)	0	
+C	copilot	audit.UserDirectory	U	1	UserPrincipalName	nvarchar(256)	0	
+C	copilot	audit.UserDirectory	U	10	Office	nvarchar(128)	1	
+C	copilot	audit.UserDirectory	U	11	City	nvarchar(128)	1	
+C	copilot	audit.UserDirectory	U	12	Country	nvarchar(128)	1	
+C	copilot	audit.UserDirectory	U	13	Company	nvarchar(64)	1	
+C	copilot	audit.UserDirectory	U	14	ManagerUPN	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	15	ManagerName	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	16	OrgDepth	tinyint	0	
+C	copilot	audit.UserDirectory	U	17	Mgr1	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	18	Mgr2	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	19	Mgr3	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	2	Mail	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	20	Mgr4	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	21	Mgr5	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	22	Mgr6	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	23	Mgr7	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	24	Mgr8	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	25	Mgr9	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	26	Mgr10	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	27	Mgr11	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	28	Mgr12	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	29	Mgr13	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	3	FullName	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	30	Mgr14	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	31	Mgr15	nvarchar(256)	1	
+C	copilot	audit.UserDirectory	U	32	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.UserDirectory	U	33	Sid	varchar(184)	1	
+C	copilot	audit.UserDirectory	U	34	AccountExpiresUtc	datetime2(0)	1	
+C	copilot	audit.UserDirectory	U	4	EmployeeType	nvarchar(32)	1	
+C	copilot	audit.UserDirectory	U	5	IsManager	bit	0	
+C	copilot	audit.UserDirectory	U	6	AccountEnabled	bit	0	
+C	copilot	audit.UserDirectory	U	7	JobTitle	nvarchar(128)	1	
+C	copilot	audit.UserDirectory	U	8	Department	nvarchar(200)	1	
+C	copilot	audit.UserDirectory	U	9	Division	nvarchar(256)	1	
+C	copilot	audit.UserLicenseSku	U	1	UserPrincipalName	nvarchar(512)	0	
+C	copilot	audit.UserLicenseSku	U	2	SkuId	uniqueidentifier	0	
+C	copilot	audit.UserLicenseSku	U	3	CapturedUtc	datetime2(0)	0	D
+C	copilot	audit.ValueCatalog	U	1	ColumnId	smallint	0	
+C	copilot	audit.ValueCatalog	U	2	Value	nvarchar(400)	0	
+C	copilot	audit.ValueCatalog	U	3	Records	bigint	0	
+C	copilot	audit.ValueCatalog	U	4	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	audit.ValueCatalog	U	5	LastSeenUtc	datetime2(0)	0	D
+C	copilot	audit.ValueCatalogColumn	U	1	ColumnId	smallint	0	
+C	copilot	audit.ValueCatalogColumn	U	2	TableName	sysname	0	
+C	copilot	audit.ValueCatalogColumn	U	3	ColumnName	sysname	0	
+C	copilot	audit.ValueCatalogColumn	U	4	Label	nvarchar(200)	0	
+C	copilot	audit.ValueCatalogColumn	U	5	DistinctValues	int	0	D
+C	copilot	audit.ValueCatalogColumn	U	6	Capped	bit	0	D
+C	copilot	audit.ValueCatalogColumn	U	7	UpdatedUtc	datetime2(0)	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	1	JsonUserId	nvarchar(512)	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	10	UsedWebSearch	bit	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	2	AppHost	nvarchar(100)	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	3	AppIdentity	nvarchar(200)	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	4	ClientRegion	nvarchar(20)	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	5	ModelName	nvarchar(200)	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	6	ModelProvider	nvarchar(200)	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	7	ThreadId	nvarchar(400)	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	8	PromptCount	int	1	
+C	copilot	audit.fnShredCopilotInteraction	IF	9	AccessedResourceCount	int	1	
+C	copilot	audit.vCopilotAdoption	V	1	UserPrincipalName	nvarchar(512)	0	
+C	copilot	audit.vCopilotAdoption	V	10	EmployeeType	nvarchar(32)	1	
+C	copilot	audit.vCopilotAdoption	V	11	AccountEnabled	bit	1	
+C	copilot	audit.vCopilotAdoption	V	12	Interactions	bigint	1	
+C	copilot	audit.vCopilotAdoption	V	13	FirstInteractionUtc	datetime2(0)	1	
+C	copilot	audit.vCopilotAdoption	V	14	LastInteractionUtc	datetime2(0)	1	
+C	copilot	audit.vCopilotAdoption	V	15	NeverUsed	int	0	
+C	copilot	audit.vCopilotAdoption	V	16	DaysToFirstUse	int	1	
+C	copilot	audit.vCopilotAdoption	V	2	IsCopilotLic	bit	1	
+C	copilot	audit.vCopilotAdoption	V	3	SkuPartNumber	nvarchar(100)	1	
+C	copilot	audit.vCopilotAdoption	V	4	LicensedSinceUtc	datetime2(0)	1	
+C	copilot	audit.vCopilotAdoption	V	5	Division	nvarchar(256)	1	
+C	copilot	audit.vCopilotAdoption	V	6	Department	nvarchar(200)	1	
+C	copilot	audit.vCopilotAdoption	V	7	Office	nvarchar(128)	1	
+C	copilot	audit.vCopilotAdoption	V	8	Country	nvarchar(128)	1	
+C	copilot	audit.vCopilotAdoption	V	9	ManagerUPN	nvarchar(256)	1	
+C	copilot	audit.vCopilotAuditRecord	V	1	RecordId	varchar(64)	0	
+C	copilot	audit.vCopilotAuditRecord	V	2	CreationDate	datetime2(7)	0	
+C	copilot	audit.vCopilotAuditRecord	V	3	RecordType	varchar(128)	1	
+C	copilot	audit.vCopilotAuditRecord	V	4	Operation	varchar(128)	1	
+C	copilot	audit.vCopilotAuditRecord	V	5	UserId	nvarchar(512)	1	
+C	copilot	audit.vCopilotAuditRecord	V	6	AuditData	nvarchar(max)	1	
+C	copilot	audit.vCopilotAuditRecord	V	7	AssociatedAdminUnits	nvarchar(4000)	1	
+C	copilot	audit.vCopilotAuditRecord	V	8	AssociatedAdminUnitsNames	nvarchar(max)	1	
+C	copilot	audit.vCopilotDailyUsage	V	1	ActivityDate	date	0	
+C	copilot	audit.vCopilotDailyUsage	V	2	AppHost	nvarchar(100)	1	
+C	copilot	audit.vCopilotDailyUsage	V	3	Interactions	int	1	
+C	copilot	audit.vCopilotDailyUsage	V	4	ActiveUsers	int	1	
+C	copilot	audit.vCopilotDailyUsage	V	5	Prompts	int	1	
+C	copilot	audit.vCopilotDailyUsage	V	6	WebGroundedInteractions	int	1	
+C	copilot	audit.vCopilotSessionSummary	V	1	AppContext	nvarchar(4000)	1	
+C	copilot	audit.vCopilotSessionSummary	V	10	CalendarDaysTouched_InSessionSpan	int	0	
+C	copilot	audit.vCopilotSessionSummary	V	11	PromptCount	int	0	
+C	copilot	audit.vCopilotSessionSummary	V	12	SessionType	nvarchar(20)	0	
+C	copilot	audit.vCopilotSessionSummary	V	13	PrimaryApp	nvarchar(200)	1	
+C	copilot	audit.vCopilotSessionSummary	V	14	AppCategory	nvarchar(50)	0	
+C	copilot	audit.vCopilotSessionSummary	V	15	IsM365CopilotLicensed	varchar(5)	0	
+C	copilot	audit.vCopilotSessionSummary	V	16	Division	nvarchar(400)	1	
+C	copilot	audit.vCopilotSessionSummary	V	17	Department	nvarchar(400)	1	
+C	copilot	audit.vCopilotSessionSummary	V	18	JobTitle	nvarchar(400)	1	
+C	copilot	audit.vCopilotSessionSummary	V	19	ManagerUPN	nvarchar(1024)	1	
+C	copilot	audit.vCopilotSessionSummary	V	2	UserUPN	nvarchar(512)	0	
+C	copilot	audit.vCopilotSessionSummary	V	20	AvgMinutesPerPrompt_InferredSessionSpan	decimal(12,2)	0	
+C	copilot	audit.vCopilotSessionSummary	V	21	AvgMinutesPerPromptPerCalendarDay_InferredSpan	decimal(12,2)	0	
+C	copilot	audit.vCopilotSessionSummary	V	22	AvgMinutesPerPrompt_NormalizedByCalendarDays	decimal(12,2)	0	
+C	copilot	audit.vCopilotSessionSummary	V	23	MetricVersion	nvarchar(200)	0	
+C	copilot	audit.vCopilotSessionSummary	V	3	SessionOrdinal_Derived	int	0	
+C	copilot	audit.vCopilotSessionSummary	V	4	SessionStart_PromptSubmittedDateTime	varchar(19)	1	
+C	copilot	audit.vCopilotSessionSummary	V	5	SessionEnd_PromptSubmittedDateTime	varchar(19)	1	
+C	copilot	audit.vCopilotSessionSummary	V	6	InferredSessionSpanMinutes	decimal(12,2)	0	
+C	copilot	audit.vCopilotSessionSummary	V	7	InferredSessionSpanHours	decimal(12,2)	0	
+C	copilot	audit.vCopilotSessionSummary	V	8	InferredSessionSpanDays	decimal(12,6)	0	
+C	copilot	audit.vCopilotSessionSummary	V	9	SessionTimeoutMinutes	int	0	
+C	copilot	audit.vCopilotUsageByDepartment	V	1	Department	nvarchar(200)	0	
+C	copilot	audit.vCopilotUsageByDepartment	V	2	ActivityDate	date	0	
+C	copilot	audit.vCopilotUsageByDepartment	V	3	AppHost	nvarchar(100)	1	
+C	copilot	audit.vCopilotUsageByDepartment	V	4	Interactions	bigint	1	
+C	copilot	audit.vCopilotUsageByDepartment	V	5	ActiveUsers	int	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	1	WeekEnding	varchar(10)	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	10	WeeklyPromptCount	int	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	11	WeeklyInferredSessionSpanMinutes	decimal(14,2)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	12	WeeklyInferredSessionSpanHours	decimal(14,2)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	13	WeeklyInferredSessionSpanDays	decimal(14,6)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	14	ActiveDaysWithUsageInWeek	int	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	15	DistinctAppContextsInWeek	int	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	16	FirstPromptSubmittedDateTime_InWeek	varchar(19)	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	17	LastPromptSubmittedDateTime_InWeek	varchar(19)	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	18	Division	nvarchar(400)	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	19	Department	nvarchar(400)	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	2	WeekYear	int	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	20	JobTitle	nvarchar(400)	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	21	ManagerUPN	nvarchar(1024)	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	22	AvgMinutesPerPrompt_InferredSpan_Weekly	decimal(12,2)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	23	MetricVersion	nvarchar(200)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	3	WeekNumber	int	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	4	WeekLabel	nvarchar(10)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	5	UserUPN	nvarchar(512)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	6	PrimaryApp	nvarchar(200)	1	
+C	copilot	audit.vCopilotWeeklyRollup	V	7	AppCategory	nvarchar(50)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	8	IsM365CopilotLicensed	varchar(5)	0	
+C	copilot	audit.vCopilotWeeklyRollup	V	9	WeeklySessionCount	int	0	
+C	copilot	bi.AccessedResources	V	1	ActivityHour	datetime2(0)	0	
+C	copilot	bi.AccessedResources	V	10	XPIADetected	bit	0	
+C	copilot	bi.AccessedResources	V	11	FileTypeKey	int	0	
+C	copilot	bi.AccessedResources	V	2	DateKey	int	0	
+C	copilot	bi.AccessedResources	V	3	UserKey	int	0	
+C	copilot	bi.AccessedResources	V	4	AppKey	int	0	
+C	copilot	bi.AccessedResources	V	5	ResourceTypeKey	int	0	
+C	copilot	bi.AccessedResources	V	6	ResourceActionKey	int	0	
+C	copilot	bi.AccessedResources	V	7	SiteKey	int	0	
+C	copilot	bi.AccessedResources	V	8	SensitivityLabelKey	int	0	
+C	copilot	bi.AccessedResources	V	9	IsBlocked	bit	0	
+C	copilot	bi.AgentEvents	V	1	RecordId	varchar(64)	0	
+C	copilot	bi.AgentEvents	V	10	ComponentType	nvarchar(100)	1	
+C	copilot	bi.AgentEvents	V	2	EventUtc	datetime2(0)	0	
+C	copilot	bi.AgentEvents	V	3	DateKey	int	0	
+C	copilot	bi.AgentEvents	V	4	Action	varchar(16)	0	
+C	copilot	bi.AgentEvents	V	5	Operation	nvarchar(100)	0	
+C	copilot	bi.AgentEvents	V	6	ActorKey	int	1	
+C	copilot	bi.AgentEvents	V	7	BotId	nvarchar(100)	1	
+C	copilot	bi.AgentEvents	V	8	BotSchemaName	nvarchar(200)	1	
+C	copilot	bi.AgentEvents	V	9	ComponentName	nvarchar(200)	1	
+C	copilot	bi.Agents	V	1	AgentKey	int	0	I
+C	copilot	bi.Agents	V	2	AgentId	nvarchar(400)	0	
+C	copilot	bi.Agents	V	3	AgentName	nvarchar(400)	1	
+C	copilot	bi.Agents	V	4	AgentSource	nvarchar(30)	1	
+C	copilot	bi.Agents	V	5	NamedInAudit	bit	0	
+C	copilot	bi.Apps	V	1	AppKey	int	0	I
+C	copilot	bi.Apps	V	2	App	nvarchar(200)	0	
+C	copilot	bi.Apps	V	3	AppCategory	nvarchar(50)	0	
+C	copilot	bi.Calendar	V	1	DateKey	int	0	
+C	copilot	bi.Calendar	V	10	IsWeekday	bit	0	
+C	copilot	bi.Calendar	V	11	WeekEnding	date	0	
+C	copilot	bi.Calendar	V	12	WeekYear	smallint	0	
+C	copilot	bi.Calendar	V	13	WeekNumber	tinyint	0	
+C	copilot	bi.Calendar	V	14	WeekLabel	char(8)	0	
+C	copilot	bi.Calendar	V	2	Date	date	0	
+C	copilot	bi.Calendar	V	3	Year	smallint	0	
+C	copilot	bi.Calendar	V	4	Quarter	tinyint	0	
+C	copilot	bi.Calendar	V	5	MonthNumber	tinyint	0	
+C	copilot	bi.Calendar	V	6	MonthName	nvarchar(10)	0	
+C	copilot	bi.Calendar	V	7	YearMonth	char(7)	0	
+C	copilot	bi.Calendar	V	8	DayOfWeekNumber	tinyint	0	
+C	copilot	bi.Calendar	V	9	DayOfWeekName	nvarchar(10)	0	
+C	copilot	bi.DepartmentWeek	V	1	WeekEnding	date	0	
+C	copilot	bi.DepartmentWeek	V	2	Department	nvarchar(200)	0	
+C	copilot	bi.DepartmentWeek	V	3	ActivePeople	int	1	
+C	copilot	bi.DepartmentWeek	V	4	Interactions	bigint	1	
+C	copilot	bi.DepartmentWeek	V	5	Sessions	bigint	1	
+C	copilot	bi.DepartmentWeek	V	6	Hidden	bit	1	
+C	copilot	bi.DimAgent	U	1	AgentKey	int	0	I
+C	copilot	bi.DimAgent	U	2	AgentId	nvarchar(400)	0	
+C	copilot	bi.DimAgent	U	3	AgentName	nvarchar(400)	1	
+C	copilot	bi.DimAgent	U	4	AgentSource	nvarchar(30)	1	
+C	copilot	bi.DimAgent	U	5	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	bi.DimAgent	U	6	NamedInAudit	bit	0	D
+C	copilot	bi.DimApp	U	1	AppKey	int	0	I
+C	copilot	bi.DimApp	U	2	App	nvarchar(200)	0	
+C	copilot	bi.DimApp	U	3	AppCategory	nvarchar(50)	0	D
+C	copilot	bi.DimApp	U	4	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	bi.DimDate	U	1	DateKey	int	0	
+C	copilot	bi.DimDate	U	10	IsWeekday	bit	0	
+C	copilot	bi.DimDate	U	11	WeekEnding	date	0	
+C	copilot	bi.DimDate	U	12	WeekYear	smallint	0	
+C	copilot	bi.DimDate	U	13	WeekNumber	tinyint	0	
+C	copilot	bi.DimDate	U	14	WeekLabel	char(8)	0	
+C	copilot	bi.DimDate	U	2	Date	date	0	
+C	copilot	bi.DimDate	U	3	Year	smallint	0	
+C	copilot	bi.DimDate	U	4	Quarter	tinyint	0	
+C	copilot	bi.DimDate	U	5	MonthNumber	tinyint	0	
+C	copilot	bi.DimDate	U	6	MonthName	nvarchar(10)	0	
+C	copilot	bi.DimDate	U	7	YearMonth	char(7)	0	
+C	copilot	bi.DimDate	U	8	DayOfWeekNumber	tinyint	0	
+C	copilot	bi.DimDate	U	9	DayOfWeekName	nvarchar(10)	0	
+C	copilot	bi.DimFileType	U	1	FileTypeKey	int	0	I
+C	copilot	bi.DimFileType	U	2	FileType	nvarchar(64)	0	
+C	copilot	bi.DimLicenseStatus	U	1	LicenseStatusKey	tinyint	0	
+C	copilot	bi.DimLicenseStatus	U	2	LicenseStatus	nvarchar(20)	0	
+C	copilot	bi.DimLicenseType	U	1	LicenseTypeKey	int	0	I
+C	copilot	bi.DimLicenseType	U	2	LicenseType	nvarchar(32)	0	
+C	copilot	bi.DimModel	U	1	ModelKey	int	0	I
+C	copilot	bi.DimModel	U	2	ModelProvider	nvarchar(200)	0	
+C	copilot	bi.DimModel	U	3	ModelName	nvarchar(200)	0	
+C	copilot	bi.DimModel	U	4	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	bi.DimResourceAction	U	1	ResourceActionKey	int	0	I
+C	copilot	bi.DimResourceAction	U	2	ResourceAction	nvarchar(450)	0	
+C	copilot	bi.DimResourceType	U	1	ResourceTypeKey	int	0	I
+C	copilot	bi.DimResourceType	U	2	ResourceType	nvarchar(200)	0	
+C	copilot	bi.DimSensitivityLabel	U	1	SensitivityLabelKey	int	0	I
+C	copilot	bi.DimSensitivityLabel	U	2	LabelId	uniqueidentifier	1	
+C	copilot	bi.DimSensitivityLabel	U	3	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	bi.DimSite	U	1	SiteKey	int	0	I
+C	copilot	bi.DimSite	U	2	Site	nvarchar(400)	0	
+C	copilot	bi.DimSite	U	3	Host	nvarchar(400)	0	
+C	copilot	bi.DimSite	U	4	IsPersonal	bit	0	
+C	copilot	bi.DimSite	U	5	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	bi.DimSku	U	1	SkuKey	int	0	I
+C	copilot	bi.DimSku	U	2	Sku	nvarchar(200)	0	
+C	copilot	bi.DimSku	U	3	IsCopilot	bit	0	
+C	copilot	bi.DimSku	U	4	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	bi.DimUser	U	1	UserKey	int	0	I
+C	copilot	bi.DimUser	U	10	CompanyName	nvarchar(200)	1	
+C	copilot	bi.DimUser	U	11	EmployeeType	nvarchar(32)	1	
+C	copilot	bi.DimUser	U	12	IsManager	bit	1	
+C	copilot	bi.DimUser	U	13	AccountEnabled	bit	1	
+C	copilot	bi.DimUser	U	14	ManagerUpn	nvarchar(512)	1	
+C	copilot	bi.DimUser	U	15	ManagerName	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	16	OrgDepth	tinyint	1	
+C	copilot	bi.DimUser	U	17	OrgLevel1	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	18	OrgLevel2	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	19	OrgLevel3	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	2	UserPrincipalName	nvarchar(512)	0	
+C	copilot	bi.DimUser	U	20	OrgLevel4	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	21	OrgLevel5	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	22	OrgLevel6	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	23	OrgLevel7	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	24	OrgLevel8	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	25	OrgLevel9	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	26	OrgLevel10	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	27	OrgLevel11	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	28	OrgLevel12	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	29	OrgLevel13	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	3	DisplayName	nvarchar(400)	1	
+C	copilot	bi.DimUser	U	30	OrgLevel14	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	31	OrgLevel15	nvarchar(256)	1	
+C	copilot	bi.DimUser	U	32	DirectoryStatus	nvarchar(20)	0	D
+C	copilot	bi.DimUser	U	33	CopilotLicenseToday	nvarchar(12)	0	D
+C	copilot	bi.DimUser	U	34	CopilotSku	nvarchar(100)	1	
+C	copilot	bi.DimUser	U	35	LicensedSinceUtc	datetime2(0)	1	
+C	copilot	bi.DimUser	U	36	FirstSeenUtc	datetime2(0)	0	D
+C	copilot	bi.DimUser	U	4	Division	nvarchar(200)	1	
+C	copilot	bi.DimUser	U	5	Department	nvarchar(200)	1	
+C	copilot	bi.DimUser	U	6	JobTitle	nvarchar(200)	1	
+C	copilot	bi.DimUser	U	7	OfficeLocation	nvarchar(200)	1	
+C	copilot	bi.DimUser	U	8	City	nvarchar(200)	1	
+C	copilot	bi.DimUser	U	9	Country	nvarchar(200)	1	
+C	copilot	bi.EventMarkers	V	1	Day	date	0	
+C	copilot	bi.EventMarkers	V	2	DateKey	int	1	
+C	copilot	bi.EventMarkers	V	3	Label	nvarchar(100)	0	
+C	copilot	bi.EventMarkers	V	4	Kind	varchar(16)	0	
+C	copilot	bi.FactAccessedResource	U	1	RecordId	nvarchar(450)	0	
+C	copilot	bi.FactAccessedResource	U	10	SiteKey	int	0	
+C	copilot	bi.FactAccessedResource	U	11	SensitivityLabelKey	int	0	
+C	copilot	bi.FactAccessedResource	U	12	IsBlocked	bit	0	
+C	copilot	bi.FactAccessedResource	U	13	XPIADetected	bit	0	
+C	copilot	bi.FactAccessedResource	U	14	FileTypeKey	int	0	D
+C	copilot	bi.FactAccessedResource	U	2	Ordinal	smallint	0	
+C	copilot	bi.FactAccessedResource	U	3	CreatedUtc	datetime2(0)	0	
+C	copilot	bi.FactAccessedResource	U	4	ActivityHour	datetime2(0)	0	
+C	copilot	bi.FactAccessedResource	U	5	DateKey	int	0	
+C	copilot	bi.FactAccessedResource	U	6	UserKey	int	0	
+C	copilot	bi.FactAccessedResource	U	7	AppKey	int	0	
+C	copilot	bi.FactAccessedResource	U	8	ResourceTypeKey	int	0	
+C	copilot	bi.FactAccessedResource	U	9	ResourceActionKey	int	0	
+C	copilot	bi.FactAgentEvent	U	1	RecordId	varchar(64)	0	
+C	copilot	bi.FactAgentEvent	U	10	ComponentName	nvarchar(200)	1	
+C	copilot	bi.FactAgentEvent	U	11	ComponentType	nvarchar(100)	1	
+C	copilot	bi.FactAgentEvent	U	2	EventUtc	datetime2(0)	0	
+C	copilot	bi.FactAgentEvent	U	3	DateKey	int	0	
+C	copilot	bi.FactAgentEvent	U	4	Action	varchar(16)	0	
+C	copilot	bi.FactAgentEvent	U	5	Operation	nvarchar(100)	0	
+C	copilot	bi.FactAgentEvent	U	6	ActorUpn	nvarchar(512)	1	
+C	copilot	bi.FactAgentEvent	U	7	ActorKey	int	1	
+C	copilot	bi.FactAgentEvent	U	8	BotId	nvarchar(100)	1	
+C	copilot	bi.FactAgentEvent	U	9	BotSchemaName	nvarchar(200)	1	
+C	copilot	bi.FactInteraction	U	1	RecordId	nvarchar(450)	0	
+C	copilot	bi.FactInteraction	U	10	LicenseStatusKey	tinyint	0	
+C	copilot	bi.FactInteraction	U	11	PromptCount	int	0	
+C	copilot	bi.FactInteraction	U	12	AccessedResourceCount	int	0	
+C	copilot	bi.FactInteraction	U	13	UsedWebSearch	bit	0	
+C	copilot	bi.FactInteraction	U	14	JailbreakDetected	bit	0	
+C	copilot	bi.FactInteraction	U	15	PromptInjectionDetected	bit	0	
+C	copilot	bi.FactInteraction	U	16	HasBlockedResource	bit	0	
+C	copilot	bi.FactInteraction	U	17	HasSensitivityLabel	bit	0	
+C	copilot	bi.FactInteraction	U	18	PremiumUse	bit	0	D
+C	copilot	bi.FactInteraction	U	19	UseCaseKey	int	0	D
+C	copilot	bi.FactInteraction	U	2	CreatedUtc	datetime2(0)	0	
+C	copilot	bi.FactInteraction	U	20	UseKind	tinyint	1	
+C	copilot	bi.FactInteraction	U	21	LicenseTypeKey	int	0	D
+C	copilot	bi.FactInteraction	U	22	SensitivityLabelKey	int	0	D
+C	copilot	bi.FactInteraction	U	23	MessageCount	int	0	D
+C	copilot	bi.FactInteraction	U	24	MemoryUpdated	bit	0	D
+C	copilot	bi.FactInteraction	U	25	DlpEvaluationDeferred	bit	0	D
+C	copilot	bi.FactInteraction	U	26	CalledAnotherAgent	bit	0	D
+C	copilot	bi.FactInteraction	U	27	TargetAgentName	nvarchar(400)	1	
+C	copilot	bi.FactInteraction	U	3	ActivityHour	datetime2(0)	0	
+C	copilot	bi.FactInteraction	U	4	DateKey	int	0	
+C	copilot	bi.FactInteraction	U	5	HourOfDay	tinyint	0	
+C	copilot	bi.FactInteraction	U	6	UserKey	int	0	
+C	copilot	bi.FactInteraction	U	7	AppKey	int	0	
+C	copilot	bi.FactInteraction	U	8	AgentKey	int	0	
+C	copilot	bi.FactInteraction	U	9	ModelKey	int	0	
+C	copilot	bi.FactLicenseChange	U	1	RecordId	varchar(64)	0	
+C	copilot	bi.FactLicenseChange	U	2	ChangedUtc	datetime2(0)	0	
+C	copilot	bi.FactLicenseChange	U	3	DateKey	int	0	
+C	copilot	bi.FactLicenseChange	U	4	UserKey	int	0	
+C	copilot	bi.FactLicenseChange	U	5	SkuKey	int	0	
+C	copilot	bi.FactLicenseChange	U	6	Change	smallint	0	
+C	copilot	bi.FactLicenseChange	U	7	ChangedBy	nvarchar(512)	1	
+C	copilot	bi.FactLicensedDay	U	1	DateKey	int	0	
+C	copilot	bi.FactLicensedDay	U	2	UserKey	int	0	
+C	copilot	bi.FactSession	U	1	SessionKey	bigint	0	
+C	copilot	bi.FactSession	U	10	IsMultiTurn	bit	0	
+C	copilot	bi.FactSession	U	2	SessionStart	datetime2(0)	0	
+C	copilot	bi.FactSession	U	3	SessionEnd	datetime2(0)	0	
+C	copilot	bi.FactSession	U	4	DateKey	int	0	
+C	copilot	bi.FactSession	U	5	UserKey	int	0	
+C	copilot	bi.FactSession	U	6	AppKey	int	0	
+C	copilot	bi.FactSession	U	7	LicenseStatusKey	tinyint	0	
+C	copilot	bi.FactSession	U	8	PromptCount	int	0	
+C	copilot	bi.FactSession	U	9	SpanMinutes	decimal(12,2)	0	
+C	copilot	bi.FileTypes	V	1	FileTypeKey	int	0	I
+C	copilot	bi.FileTypes	V	2	FileType	nvarchar(64)	0	
+C	copilot	bi.Interactions	V	1	ActivityHour	datetime2(0)	0	
+C	copilot	bi.Interactions	V	10	SensitivityLabelKey	int	0	
+C	copilot	bi.Interactions	V	11	PromptCount	int	0	
+C	copilot	bi.Interactions	V	12	MessageCount	int	0	
+C	copilot	bi.Interactions	V	13	AccessedResourceCount	int	0	
+C	copilot	bi.Interactions	V	14	UsedWebSearch	bit	0	
+C	copilot	bi.Interactions	V	15	JailbreakDetected	bit	0	
+C	copilot	bi.Interactions	V	16	PromptInjectionDetected	bit	0	
+C	copilot	bi.Interactions	V	17	HasBlockedResource	bit	0	
+C	copilot	bi.Interactions	V	18	HasSensitivityLabel	bit	0	
+C	copilot	bi.Interactions	V	19	MemoryUpdated	bit	0	
+C	copilot	bi.Interactions	V	2	DateKey	int	0	
+C	copilot	bi.Interactions	V	20	DlpEvaluationDeferred	bit	0	
+C	copilot	bi.Interactions	V	21	CalledAnotherAgent	bit	0	
+C	copilot	bi.Interactions	V	22	PremiumUse	bit	0	
+C	copilot	bi.Interactions	V	23	UseCaseKey	int	0	
+C	copilot	bi.Interactions	V	3	HourOfDay	tinyint	0	
+C	copilot	bi.Interactions	V	4	UserKey	int	0	
+C	copilot	bi.Interactions	V	5	AppKey	int	0	
+C	copilot	bi.Interactions	V	6	AgentKey	int	0	
+C	copilot	bi.Interactions	V	7	ModelKey	int	0	
+C	copilot	bi.Interactions	V	8	LicenseStatusKey	tinyint	0	
+C	copilot	bi.Interactions	V	9	LicenseTypeKey	int	0	
+C	copilot	bi.JobFamilies	V	1	UserKey	int	0	
+C	copilot	bi.JobFamilies	V	2	JobFamily	nvarchar(100)	0	
+C	copilot	bi.LicenseChanges	V	1	ChangedUtc	datetime2(0)	0	
+C	copilot	bi.LicenseChanges	V	2	DateKey	int	0	
+C	copilot	bi.LicenseChanges	V	3	UserKey	int	0	
+C	copilot	bi.LicenseChanges	V	4	SkuKey	int	0	
+C	copilot	bi.LicenseChanges	V	5	Change	smallint	0	
+C	copilot	bi.LicenseChanges	V	6	ChangedBy	nvarchar(512)	1	
+C	copilot	bi.LicensePool	V	1	SnapshotDate	date	0	
+C	copilot	bi.LicensePool	V	2	SkuPartNumber	nvarchar(100)	0	
+C	copilot	bi.LicensePool	V	3	IsCopilot	bit	0	
+C	copilot	bi.LicensePool	V	4	Bought	int	1	
+C	copilot	bi.LicensePool	V	5	Assigned	int	0	
+C	copilot	bi.LicensePool	V	6	Available	int	1	
+C	copilot	bi.LicensePool	V	7	InGracePeriod	int	0	
+C	copilot	bi.LicensePool	V	8	Suspended	int	0	
+C	copilot	bi.LicenseStatuses	V	1	LicenseStatusKey	tinyint	0	
+C	copilot	bi.LicenseStatuses	V	2	LicenseStatus	nvarchar(20)	0	
+C	copilot	bi.LicenseTypes	V	1	LicenseTypeKey	int	0	I
+C	copilot	bi.LicenseTypes	V	2	LicenseType	nvarchar(32)	0	
+C	copilot	bi.LicensedDays	V	1	DateKey	int	0	
+C	copilot	bi.LicensedDays	V	2	UserKey	int	0	
+C	copilot	bi.Models	V	1	ModelKey	int	0	I
+C	copilot	bi.Models	V	2	ModelProvider	nvarchar(200)	0	
+C	copilot	bi.Models	V	3	ModelName	nvarchar(200)	0	
+C	copilot	bi.OrgSecurity	V	1	ViewerUpn	nvarchar(256)	0	
+C	copilot	bi.OrgSecurity	V	2	UserKey	int	0	
+C	copilot	bi.OrgSecurity	V	3	WholeOrganization	bit	1	
+C	copilot	bi.RebuildInProgress	U	1	StartedUtc	datetime2(0)	0	
+C	copilot	bi.RefreshRun	U	1	RunId	int	0	I
+C	copilot	bi.RefreshRun	U	10	LicenseChangeRows	int	0	
+C	copilot	bi.RefreshRun	U	11	LicensedDayRows	int	0	
+C	copilot	bi.RefreshRun	U	12	SessionRunId	int	1	
+C	copilot	bi.RefreshRun	U	13	AccessedResourceRows	bigint	1	
+C	copilot	bi.RefreshRun	U	14	RecategorizedFromDateKey	int	1	
+C	copilot	bi.RefreshRun	U	2	StartedUtc	datetime2(0)	0	
+C	copilot	bi.RefreshRun	U	3	EndedUtc	datetime2(0)	0	
+C	copilot	bi.RefreshRun	U	4	SinceUtc	datetime2(0)	1	
+C	copilot	bi.RefreshRun	U	5	ReportingTimeZone	sysname	0	
+C	copilot	bi.RefreshRun	U	6	LicenseEventDatabase	nvarchar(1000)	1	
+C	copilot	bi.RefreshRun	U	7	InteractionRows	bigint	0	
+C	copilot	bi.RefreshRun	U	8	InteractionsSkipped	bigint	0	
+C	copilot	bi.RefreshRun	U	9	SessionRows	int	0	
+C	copilot	bi.ResourceActions	V	1	ResourceActionKey	int	0	I
+C	copilot	bi.ResourceActions	V	2	ResourceAction	nvarchar(450)	0	
+C	copilot	bi.ResourceTypes	V	1	ResourceTypeKey	int	0	I
+C	copilot	bi.ResourceTypes	V	2	ResourceType	nvarchar(200)	0	
+C	copilot	bi.SensitivityLabels	V	1	SensitivityLabelKey	int	0	I
+C	copilot	bi.SensitivityLabels	V	2	LabelId	nvarchar(36)	1	
+C	copilot	bi.Sessions	V	1	SessionKey	bigint	0	
+C	copilot	bi.Sessions	V	10	IsMultiTurn	bit	0	
+C	copilot	bi.Sessions	V	2	SessionStart	datetime2(0)	0	
+C	copilot	bi.Sessions	V	3	SessionEnd	datetime2(0)	0	
+C	copilot	bi.Sessions	V	4	DateKey	int	0	
+C	copilot	bi.Sessions	V	5	UserKey	int	0	
+C	copilot	bi.Sessions	V	6	AppKey	int	0	
+C	copilot	bi.Sessions	V	7	LicenseStatusKey	tinyint	0	
+C	copilot	bi.Sessions	V	8	PromptCount	int	0	
+C	copilot	bi.Sessions	V	9	SpanMinutes	decimal(12,2)	0	
+C	copilot	bi.Sites	V	1	SiteKey	int	0	I
+C	copilot	bi.Sites	V	2	Site	nvarchar(400)	0	
+C	copilot	bi.Sites	V	3	Host	nvarchar(400)	0	
+C	copilot	bi.Sites	V	4	IsPersonal	bit	0	
+C	copilot	bi.Skus	V	1	SkuKey	int	0	I
+C	copilot	bi.Skus	V	2	Sku	nvarchar(200)	0	
+C	copilot	bi.Skus	V	3	IsCopilot	bit	0	
+C	copilot	bi.UseCases	V	1	UseCaseKey	int	1	
+C	copilot	bi.UseCases	V	2	App	nvarchar(200)	0	
+C	copilot	bi.UseCases	V	3	WebGrounded	bit	1	
+C	copilot	bi.UseCases	V	4	WithAgent	bit	1	
+C	copilot	bi.UseCases	V	5	UseCase	nvarchar(100)	0	
+C	copilot	bi.Users	V	1	UserKey	int	0	I
+C	copilot	bi.Users	V	10	City	nvarchar(200)	1	
+C	copilot	bi.Users	V	11	Country	nvarchar(200)	1	
+C	copilot	bi.Users	V	12	CompanyName	nvarchar(200)	1	
+C	copilot	bi.Users	V	13	EmployeeType	nvarchar(32)	1	
+C	copilot	bi.Users	V	14	IsManager	bit	1	
+C	copilot	bi.Users	V	15	AccountEnabled	bit	1	
+C	copilot	bi.Users	V	16	OrgDepth	tinyint	1	
+C	copilot	bi.Users	V	17	OrgLevel1	nvarchar(256)	1	
+C	copilot	bi.Users	V	18	OrgLevel2	nvarchar(256)	1	
+C	copilot	bi.Users	V	19	OrgLevel3	nvarchar(256)	1	
+C	copilot	bi.Users	V	2	UserPrincipalName	nvarchar(512)	1	
+C	copilot	bi.Users	V	20	OrgLevel4	nvarchar(256)	1	
+C	copilot	bi.Users	V	21	OrgLevel5	nvarchar(256)	1	
+C	copilot	bi.Users	V	22	OrgLevel6	nvarchar(256)	1	
+C	copilot	bi.Users	V	23	OrgLevel7	nvarchar(256)	1	
+C	copilot	bi.Users	V	24	OrgLevel8	nvarchar(256)	1	
+C	copilot	bi.Users	V	25	OrgLevel9	nvarchar(256)	1	
+C	copilot	bi.Users	V	26	OrgLevel10	nvarchar(256)	1	
+C	copilot	bi.Users	V	27	OrgLevel11	nvarchar(256)	1	
+C	copilot	bi.Users	V	28	OrgLevel12	nvarchar(256)	1	
+C	copilot	bi.Users	V	29	OrgLevel13	nvarchar(256)	1	
+C	copilot	bi.Users	V	3	DisplayName	nvarchar(400)	1	
+C	copilot	bi.Users	V	30	OrgLevel14	nvarchar(256)	1	
+C	copilot	bi.Users	V	31	OrgLevel15	nvarchar(256)	1	
+C	copilot	bi.Users	V	32	DirectoryStatus	nvarchar(20)	0	
+C	copilot	bi.Users	V	33	CopilotLicenseToday	nvarchar(12)	0	
+C	copilot	bi.Users	V	34	CopilotSku	nvarchar(100)	1	
+C	copilot	bi.Users	V	35	LicensedSinceUtc	datetime2(0)	1	
+C	copilot	bi.Users	V	4	ManagerUpn	nvarchar(512)	1	
+C	copilot	bi.Users	V	5	ManagerName	nvarchar(256)	1	
+C	copilot	bi.Users	V	6	Division	nvarchar(200)	1	
+C	copilot	bi.Users	V	7	Department	nvarchar(200)	1	
+C	copilot	bi.Users	V	8	JobTitle	nvarchar(200)	1	
+C	copilot	bi.Users	V	9	OfficeLocation	nvarchar(200)	1	
+C	copilot	bi.ValueNames	V	1	TableName	sysname	0	
+C	copilot	bi.ValueNames	V	2	ColumnName	sysname	0	
+C	copilot	bi.ValueNames	V	3	ColumnLabel	nvarchar(200)	0	
+C	copilot	bi.ValueNames	V	4	Value	nvarchar(400)	0	
+C	copilot	bi.ValueNames	V	5	Name	nvarchar(200)	1	
+C	copilot	bi.ValueNames	V	6	Records	bigint	0	
+C	copilot	bi.ValueNames	V	7	FirstSeenUtc	datetime2(0)	0	
+C	copilot	bi.ValueNames	V	8	LastSeenUtc	datetime2(0)	0	
+C	copilot	bi.fnAgentIdentity	IF	1	AgentId	nvarchar(400)	1	
+C	copilot	bi.fnAgentIdentity	IF	2	AgentSource	nvarchar(14)	1	
+C	copilot	bi.fnAgentIdentity	IF	3	DerivedName	nvarchar(400)	1	
+C	copilot	dash.Agent	V	1	AgentKey	int	0	
+C	copilot	dash.Agent	V	10	InProduction	bit	1	
+C	copilot	dash.Agent	V	2	AgentId	nvarchar(400)	0	
+C	copilot	dash.Agent	V	3	AgentSource	nvarchar(30)	1	
+C	copilot	dash.Agent	V	4	AgentName	nvarchar(400)	1	
+C	copilot	dash.Agent	V	5	AuditName	nvarchar(400)	1	
+C	copilot	dash.Agent	V	6	Owner	nvarchar(256)	1	
+C	copilot	dash.Agent	V	7	FirstSeenUtc	datetime2(0)	1	
+C	copilot	dash.Agent	V	8	InventoryAgentId	nvarchar(100)	1	
+C	copilot	dash.Agent	V	9	IsShared	bit	1	
+C	copilot	dash.AgentAlias	U	1	AgentKey	int	0	
+C	copilot	dash.AgentAlias	U	2	FriendlyName	nvarchar(200)	0	
+C	copilot	dash.AgentAlias	U	3	Owner	nvarchar(256)	1	
+C	copilot	dash.AgentAlias	U	4	Notes	nvarchar(400)	1	
+C	copilot	dash.AgentAlias	U	5	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.AgentAlias	U	6	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.AgentChildLink	U	1	LinkId	int	0	I
+C	copilot	dash.AgentChildLink	U	10	ChildInventoryAgentId	nvarchar(100)	1	
+C	copilot	dash.AgentChildLink	U	11	ParentEnvironment	nvarchar(400)	1	
+C	copilot	dash.AgentChildLink	U	2	ChildAgentName	nvarchar(400)	0	
+C	copilot	dash.AgentChildLink	U	3	ParentInventoryAgentId	nvarchar(100)	1	
+C	copilot	dash.AgentChildLink	U	4	ParentAgentName	nvarchar(400)	1	
+C	copilot	dash.AgentChildLink	U	5	ParentAgentKey	int	1	
+C	copilot	dash.AgentChildLink	U	6	RelationshipType	nvarchar(200)	1	
+C	copilot	dash.AgentChildLink	U	7	IsValid	bit	1	
+C	copilot	dash.AgentChildLink	U	8	ChildKey	nvarchar(450)	1	
+C	copilot	dash.AgentChildLink	U	9	ChildKind	nvarchar(20)	1	
+C	copilot	dash.AgentInventory	U	1	InventoryAgentId	nvarchar(100)	0	
+C	copilot	dash.AgentInventory	U	10	ViewerUsers	int	1	
+C	copilot	dash.AgentInventory	U	11	ViewerGroups	int	1	
+C	copilot	dash.AgentInventory	U	12	EditorUsers	int	1	
+C	copilot	dash.AgentInventory	U	13	EditorGroups	int	1	
+C	copilot	dash.AgentInventory	U	14	IsShared	bit	1	X
+C	copilot	dash.AgentInventory	U	15	InProduction	bit	0	D
+C	copilot	dash.AgentInventory	U	16	LoadedUtc	datetime2(0)	0	D
+C	copilot	dash.AgentInventory	U	17	EnvironmentSku	nvarchar(100)	1	
+C	copilot	dash.AgentInventory	U	18	Authentication	nvarchar(200)	1	
+C	copilot	dash.AgentInventory	U	19	IsQuarantined	bit	1	
+C	copilot	dash.AgentInventory	U	2	AgentKey	int	1	
+C	copilot	dash.AgentInventory	U	20	IsWebSearchEnabled	bit	1	
+C	copilot	dash.AgentInventory	U	21	IsAutonomous	bit	0	D
+C	copilot	dash.AgentInventory	U	3	AgentName	nvarchar(400)	1	
+C	copilot	dash.AgentInventory	U	4	OwnerUpn	nvarchar(256)	1	
+C	copilot	dash.AgentInventory	U	5	Environment	nvarchar(400)	1	
+C	copilot	dash.AgentInventory	U	6	SchemaName	nvarchar(400)	1	
+C	copilot	dash.AgentInventory	U	7	CreatedAt	datetime2(0)	1	
+C	copilot	dash.AgentInventory	U	8	LastPublishedAt	datetime2(0)	1	
+C	copilot	dash.AgentInventory	U	9	Channels	nvarchar(400)	1	
+C	copilot	dash.AgentInventoryRun	U	1	RunId	int	0	I
+C	copilot	dash.AgentInventoryRun	U	10	Status	nvarchar(20)	0	D
+C	copilot	dash.AgentInventoryRun	U	11	Message	nvarchar(2000)	1	
+C	copilot	dash.AgentInventoryRun	U	2	StartedUtc	datetime2(0)	0	D
+C	copilot	dash.AgentInventoryRun	U	3	EndedUtc	datetime2(0)	1	
+C	copilot	dash.AgentInventoryRun	U	4	Source	nvarchar(800)	1	
+C	copilot	dash.AgentInventoryRun	U	5	FileCreatedUtc	datetime2(0)	1	
+C	copilot	dash.AgentInventoryRun	U	6	InventoryRows	int	1	
+C	copilot	dash.AgentInventoryRun	U	7	ProductionRows	int	1	
+C	copilot	dash.AgentInventoryRun	U	8	ChildLinkRows	int	1	
+C	copilot	dash.AgentInventoryRun	U	9	Matched	int	1	
+C	copilot	dash.AgentUse	U	1	AgentKey	int	0	
+C	copilot	dash.AgentUse	U	2	FirstDateKey	int	0	
+C	copilot	dash.AgentUse	U	3	LastDateKey	int	0	
+C	copilot	dash.AgentUse	U	4	Interactions	bigint	0	
+C	copilot	dash.AlertState	U	1	AlertKey	nvarchar(200)	0	
+C	copilot	dash.AlertState	U	2	LastValue	nvarchar(400)	1	
+C	copilot	dash.AlertState	U	3	LastFiredUtc	datetime2(0)	0	D
+C	copilot	dash.AuditLog	U	1	LogId	bigint	0	I
+C	copilot	dash.AuditLog	U	2	AtUtc	datetime2(0)	0	D
+C	copilot	dash.AuditLog	U	3	Viewer	nvarchar(256)	0	
+C	copilot	dash.AuditLog	U	4	Kind	varchar(12)	0	
+C	copilot	dash.AuditLog	U	5	Page	nvarchar(200)	1	
+C	copilot	dash.AuditLog	U	6	Scope	nvarchar(400)	1	
+C	copilot	dash.AuditLog	U	7	Detail	nvarchar(2000)	1	
+C	copilot	dash.AuditLog	U	8	ClientIp	varchar(64)	1	
+C	copilot	dash.DigestPreference	U	1	Upn	nvarchar(256)	0	
+C	copilot	dash.DigestPreference	U	2	ManagerDigestOptOut	bit	0	D
+C	copilot	dash.DigestPreference	U	3	PersonalDigest	bit	0	D
+C	copilot	dash.DigestPreference	U	4	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.DigestSend	U	1	Upn	nvarchar(256)	0	
+C	copilot	dash.DigestSend	U	2	Kind	varchar(16)	0	
+C	copilot	dash.DigestSend	U	3	PeriodKey	varchar(16)	0	
+C	copilot	dash.DigestSend	U	4	SentUtc	datetime2(0)	0	D
+C	copilot	dash.DigestSend	U	5	Status	varchar(16)	0	
+C	copilot	dash.EventMarker	U	1	MarkerId	int	0	I
+C	copilot	dash.EventMarker	U	2	Day	date	0	
+C	copilot	dash.EventMarker	U	3	Label	nvarchar(100)	0	
+C	copilot	dash.EventMarker	U	4	Kind	varchar(16)	0	
+C	copilot	dash.EventMarker	U	5	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.Extract	U	1	ExtractId	int	0	I
+C	copilot	dash.Extract	U	10	Enabled	bit	0	D
+C	copilot	dash.Extract	U	11	LastRunUtc	datetime2(0)	1	
+C	copilot	dash.Extract	U	12	LastStatus	nvarchar(400)	1	
+C	copilot	dash.Extract	U	13	CreatedBy	nvarchar(256)	0	
+C	copilot	dash.Extract	U	14	FailedTries	tinyint	0	D
+C	copilot	dash.Extract	U	15	RetryAfterUtc	datetime2(0)	1	
+C	copilot	dash.Extract	U	2	Name	nvarchar(100)	0	
+C	copilot	dash.Extract	U	3	Dataset	varchar(32)	0	
+C	copilot	dash.Extract	U	4	Folder	nvarchar(400)	0	
+C	copilot	dash.Extract	U	5	Frequency	varchar(8)	0	
+C	copilot	dash.Extract	U	6	DayOfWeek	tinyint	1	
+C	copilot	dash.Extract	U	7	DayOfMonth	tinyint	1	
+C	copilot	dash.Extract	U	8	HourLocal	tinyint	0	D
+C	copilot	dash.Extract	U	9	Days	int	0	D
+C	copilot	dash.FlagCase	U	1	RecordId	varchar(64)	0	
+C	copilot	dash.FlagCase	U	2	Status	varchar(16)	0	
+C	copilot	dash.FlagCase	U	3	Owner	nvarchar(256)	1	
+C	copilot	dash.FlagCase	U	4	Note	nvarchar(2000)	1	
+C	copilot	dash.FlagCase	U	5	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.FlagCase	U	6	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.FlaggedInteraction	U	1	DateKey	int	0	
+C	copilot	dash.FlaggedInteraction	U	2	UserKey	int	0	
+C	copilot	dash.FlaggedInteraction	U	3	RecordId	nvarchar(450)	0	
+C	copilot	dash.FlaggedInteraction	U	4	ActivityHour	datetime2(0)	0	
+C	copilot	dash.FlaggedInteraction	U	5	AppKey	int	0	
+C	copilot	dash.FlaggedInteraction	U	6	AgentKey	int	0	
+C	copilot	dash.FlaggedInteraction	U	7	JailbreakDetected	bit	0	
+C	copilot	dash.FlaggedInteraction	U	8	PromptInjectionDetected	bit	0	
+C	copilot	dash.FlaggedInteraction	U	9	HasBlockedResource	bit	0	
+C	copilot	dash.JobFamilyRule	U	1	RuleId	int	0	I
+C	copilot	dash.JobFamilyRule	U	2	Pattern	nvarchar(200)	0	
+C	copilot	dash.JobFamilyRule	U	3	Family	nvarchar(100)	0	
+C	copilot	dash.JobFamilyRule	U	4	Priority	int	0	D
+C	copilot	dash.JobFamilyRule	U	5	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.JobFamilyRule	U	6	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.LicenseAction	U	1	ActionId	bigint	0	I
+C	copilot	dash.LicenseAction	U	2	Kind	varchar(16)	0	
+C	copilot	dash.LicenseAction	U	3	Upn	nvarchar(256)	0	
+C	copilot	dash.LicenseAction	U	4	ExportedUtc	datetime2(0)	0	D
+C	copilot	dash.LicenseAction	U	5	ExportedBy	nvarchar(256)	0	
+C	copilot	dash.LicenseContract	U	1	ContractId	int	0	I
+C	copilot	dash.LicenseContract	U	2	Name	nvarchar(200)	0	
+C	copilot	dash.LicenseContract	U	3	Seats	int	0	
+C	copilot	dash.LicenseContract	U	4	MonthlyPrice	decimal(12,2)	0	
+C	copilot	dash.LicenseContract	U	5	StartDate	date	0	
+C	copilot	dash.LicenseContract	U	6	RenewalDate	date	0	
+C	copilot	dash.LicenseContract	U	7	Note	nvarchar(400)	1	
+C	copilot	dash.LicenseContract	U	8	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.LicenseContract	U	9	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.NonHumanException	U	1	Upn	nvarchar(256)	0	
+C	copilot	dash.NonHumanException	U	2	Reason	nvarchar(400)	0	
+C	copilot	dash.NonHumanException	U	3	ConfirmedBy	nvarchar(256)	0	
+C	copilot	dash.NonHumanException	U	4	ConfirmedUtc	datetime2(0)	0	D
+C	copilot	dash.NotificationLog	U	1	LogId	bigint	0	I
+C	copilot	dash.NotificationLog	U	2	AtUtc	datetime2(0)	0	D
+C	copilot	dash.NotificationLog	U	3	Kind	varchar(32)	0	
+C	copilot	dash.NotificationLog	U	4	Subject	nvarchar(400)	0	
+C	copilot	dash.NotificationLog	U	5	Recipients	nvarchar(2000)	1	
+C	copilot	dash.NotificationLog	U	6	Status	varchar(16)	0	
+C	copilot	dash.NotificationLog	U	7	Error	nvarchar(2000)	1	
+C	copilot	dash.NotificationLog	U	8	Detail	nvarchar(max)	1	
+C	copilot	dash.OrgClosure	U	1	AncestorUpn	nvarchar(256)	0	
+C	copilot	dash.OrgClosure	U	2	DescendantUpn	nvarchar(256)	0	
+C	copilot	dash.OrgClosure	U	3	Depth	tinyint	0	
+C	copilot	dash.Person	U	1	Upn	nvarchar(256)	0	
+C	copilot	dash.Person	U	2	DisplayName	nvarchar(256)	1	
+C	copilot	dash.Person	U	3	ManagerUpn	nvarchar(256)	1	
+C	copilot	dash.Person	U	4	Department	nvarchar(200)	1	
+C	copilot	dash.Person	U	5	AccountEnabled	bit	1	
+C	copilot	dash.Person	U	6	Level	tinyint	1	
+C	copilot	dash.Person	U	7	DirectReports	int	0	
+C	copilot	dash.Person	U	8	PeopleBelow	int	0	
+C	copilot	dash.Person	U	9	Sid	varchar(184)	1	
+C	copilot	dash.RefreshRun	U	1	RunId	int	0	I
+C	copilot	dash.RefreshRun	U	2	StartedUtc	datetime2(0)	0	
+C	copilot	dash.RefreshRun	U	3	EndedUtc	datetime2(0)	0	
+C	copilot	dash.RefreshRun	U	4	SinceUtc	datetime2(0)	1	
+C	copilot	dash.RefreshRun	U	5	FromDateKey	int	1	
+C	copilot	dash.RefreshRun	U	6	People	int	0	
+C	copilot	dash.RefreshRun	U	7	ClosureRows	int	0	
+C	copilot	dash.RefreshRun	U	8	UserDayRows	int	0	
+C	copilot	dash.RefreshRun	U	9	BiRunId	int	1	
+C	copilot	dash.ResourceDay	U	1	DateKey	int	0	
+C	copilot	dash.ResourceDay	U	2	UserKey	int	0	
+C	copilot	dash.ResourceDay	U	3	Kind	varchar(8)	0	
+C	copilot	dash.ResourceDay	U	4	Item	nvarchar(400)	0	
+C	copilot	dash.ResourceDay	U	5	Interactions	int	0	
+C	copilot	dash.RoleGrant	U	1	GrantId	int	0	I
+C	copilot	dash.RoleGrant	U	2	Principal	nvarchar(256)	0	
+C	copilot	dash.RoleGrant	U	3	PrincipalType	varchar(8)	0	
+C	copilot	dash.RoleGrant	U	4	Role	varchar(32)	0	
+C	copilot	dash.RoleGrant	U	5	Note	nvarchar(400)	1	
+C	copilot	dash.RoleGrant	U	6	GrantedBy	nvarchar(256)	0	
+C	copilot	dash.RoleGrant	U	7	GrantedUtc	datetime2(0)	0	D
+C	copilot	dash.SavedView	U	1	ViewId	int	0	I
+C	copilot	dash.SavedView	U	2	Owner	nvarchar(256)	0	
+C	copilot	dash.SavedView	U	3	Name	nvarchar(100)	0	
+C	copilot	dash.SavedView	U	4	Url	nvarchar(600)	0	
+C	copilot	dash.SavedView	U	5	IsStart	bit	0	D
+C	copilot	dash.SavedView	U	6	CreatedUtc	datetime2(0)	0	D
+C	copilot	dash.Secret	U	1	Name	varchar(64)	0	
+C	copilot	dash.Secret	U	2	Cipher	varbinary(8000)	0	
+C	copilot	dash.Secret	U	3	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.Secret	U	4	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.SensitivityLabel	U	1	LabelId	nvarchar(64)	0	
+C	copilot	dash.SensitivityLabel	U	2	Name	nvarchar(200)	0	
+C	copilot	dash.SensitivityLabel	U	3	Rank	tinyint	1	
+C	copilot	dash.SensitivityLabel	U	4	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.SensitivityLabel	U	5	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.Setting	U	1	Name	varchar(64)	0	
+C	copilot	dash.Setting	U	2	Value	nvarchar(400)	1	
+C	copilot	dash.Setting	U	3	Description	nvarchar(400)	1	
+C	copilot	dash.Setting	U	4	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.Setting	U	5	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.Subscription	U	1	SubscriptionId	int	0	I
+C	copilot	dash.Subscription	U	10	Days	int	0	D
+C	copilot	dash.Subscription	U	11	Enabled	bit	0	D
+C	copilot	dash.Subscription	U	12	LastSentUtc	datetime2(0)	1	
+C	copilot	dash.Subscription	U	13	LastStatus	nvarchar(400)	1	
+C	copilot	dash.Subscription	U	14	CreatedBy	nvarchar(256)	0	
+C	copilot	dash.Subscription	U	15	CreatedUtc	datetime2(0)	0	D
+C	copilot	dash.Subscription	U	16	FailedTries	tinyint	0	D
+C	copilot	dash.Subscription	U	17	RetryAfterUtc	datetime2(0)	1	
+C	copilot	dash.Subscription	U	2	Name	nvarchar(200)	0	
+C	copilot	dash.Subscription	U	3	Report	varchar(32)	0	
+C	copilot	dash.Subscription	U	4	Recipients	nvarchar(2000)	0	
+C	copilot	dash.Subscription	U	5	Frequency	varchar(8)	0	
+C	copilot	dash.Subscription	U	6	DayOfWeek	tinyint	1	
+C	copilot	dash.Subscription	U	7	DayOfMonth	tinyint	1	
+C	copilot	dash.Subscription	U	8	HourLocal	tinyint	0	D
+C	copilot	dash.Subscription	U	9	RootUpn	nvarchar(256)	1	
+C	copilot	dash.Target	U	1	TargetId	int	0	I
+C	copilot	dash.Target	U	2	RootUpn	nvarchar(256)	1	
+C	copilot	dash.Target	U	3	Metric	varchar(16)	0	
+C	copilot	dash.Target	U	4	TargetValue	decimal(12,2)	0	
+C	copilot	dash.Target	U	5	StartDate	date	0	
+C	copilot	dash.Target	U	6	DueDate	date	0	
+C	copilot	dash.Target	U	7	Note	nvarchar(400)	1	
+C	copilot	dash.Target	U	8	CreatedBy	nvarchar(256)	0	
+C	copilot	dash.Target	U	9	CreatedUtc	datetime2(0)	0	D
+C	copilot	dash.TimeSaving	U	1	App	nvarchar(200)	0	
+C	copilot	dash.TimeSaving	U	2	Minutes	decimal(6,2)	0	
+C	copilot	dash.TimeSaving	U	3	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.TimeSaving	U	4	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.TrainingAttendance	U	1	Upn	nvarchar(256)	0	
+C	copilot	dash.TrainingAttendance	U	2	Session	nvarchar(190)	0	
+C	copilot	dash.TrainingAttendance	U	3	AttendedOn	date	0	
+C	copilot	dash.TrainingAttendance	U	4	ImportedBy	nvarchar(256)	0	
+C	copilot	dash.TrainingAttendance	U	5	ImportedUtc	datetime2(0)	0	D
+C	copilot	dash.UseCaseRule	U	1	RuleId	int	0	I
+C	copilot	dash.UseCaseRule	U	2	AppPattern	nvarchar(200)	0	
+C	copilot	dash.UseCaseRule	U	3	WebGrounded	bit	1	
+C	copilot	dash.UseCaseRule	U	4	WithAgent	bit	1	
+C	copilot	dash.UseCaseRule	U	5	UseCase	nvarchar(100)	0	
+C	copilot	dash.UseCaseRule	U	6	Priority	int	0	D
+C	copilot	dash.UseCaseRule	U	7	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.UseCaseRule	U	8	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.UserDay	U	1	DateKey	int	0	
+C	copilot	dash.UserDay	U	10	Jailbreak	int	0	
+C	copilot	dash.UserDay	U	11	PromptInjection	int	0	
+C	copilot	dash.UserDay	U	12	BlockedResource	int	0	
+C	copilot	dash.UserDay	U	13	LabeledContent	int	0	
+C	copilot	dash.UserDay	U	14	Sessions	int	0	
+C	copilot	dash.UserDay	U	15	MultiTurnSessions	int	0	
+C	copilot	dash.UserDay	U	16	PremiumUse	int	0	D
+C	copilot	dash.UserDay	U	2	UserKey	int	0	
+C	copilot	dash.UserDay	U	3	Interactions	int	0	
+C	copilot	dash.UserDay	U	4	Prompts	int	0	
+C	copilot	dash.UserDay	U	5	AppsUsed	tinyint	0	
+C	copilot	dash.UserDay	U	6	AgentInteractions	int	0	
+C	copilot	dash.UserDay	U	7	WebGrounded	int	0	
+C	copilot	dash.UserDay	U	8	ChatInteractions	int	0	
+C	copilot	dash.UserDay	U	9	LicensedUse	int	0	
+C	copilot	dash.ValueName	U	1	ColumnId	smallint	0	
+C	copilot	dash.ValueName	U	2	Value	nvarchar(400)	0	
+C	copilot	dash.ValueName	U	3	Name	nvarchar(200)	0	
+C	copilot	dash.ValueName	U	4	Note	nvarchar(400)	1	
+C	copilot	dash.ValueName	U	5	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.ValueName	U	6	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.fnScopeUsers	IF	1	UserKey	int	0	
+C	license	audit.AgentEvent	U	1	RecordId	varchar(64)	0	
+C	license	audit.AgentEvent	U	10	ResultStatus	nvarchar(50)	1	
+C	license	audit.AgentEvent	U	11	UpdateDetails	nvarchar(4000)	1	
+C	license	audit.AgentEvent	U	12	ShreddedUtc	datetime2(0)	0	D
+C	license	audit.AgentEvent	U	2	CreatedUtc	datetime2(0)	0	
+C	license	audit.AgentEvent	U	3	Operation	nvarchar(100)	0	
+C	license	audit.AgentEvent	U	4	Action	varchar(16)	0	
+C	license	audit.AgentEvent	U	5	ActorUpn	nvarchar(512)	1	
+C	license	audit.AgentEvent	U	6	BotId	nvarchar(100)	1	
+C	license	audit.AgentEvent	U	7	BotSchemaName	nvarchar(200)	1	
+C	license	audit.AgentEvent	U	8	ComponentName	nvarchar(200)	1	
+C	license	audit.AgentEvent	U	9	ComponentType	nvarchar(100)	1	
+C	license	audit.CopilotAuditStage	U	1	WindowId	bigint	0	
+C	license	audit.CopilotAuditStage	U	10	UserPrincipalName	nvarchar(512)	1	
+C	license	audit.CopilotAuditStage	U	11	Service	varchar(128)	1	
+C	license	audit.CopilotAuditStage	U	12	ObjectId	nvarchar(4000)	1	
+C	license	audit.CopilotAuditStage	U	13	ClientIp	varchar(128)	1	
+C	license	audit.CopilotAuditStage	U	14	AdministrativeUnits	nvarchar(4000)	1	
+C	license	audit.CopilotAuditStage	U	15	AuditDataGz	varbinary(max)	1	
+C	license	audit.CopilotAuditStage	U	16	LoadedUtc	datetime2(0)	0	D
+C	license	audit.CopilotAuditStage	U	2	Attempt	int	0	
+C	license	audit.CopilotAuditStage	U	3	RecordId	varchar(64)	0	
+C	license	audit.CopilotAuditStage	U	4	CreatedDateTime	datetime2(7)	0	
+C	license	audit.CopilotAuditStage	U	5	RecordType	varchar(128)	1	
+C	license	audit.CopilotAuditStage	U	6	Operation	varchar(128)	1	
+C	license	audit.CopilotAuditStage	U	7	OrganizationId	varchar(64)	1	
+C	license	audit.CopilotAuditStage	U	8	UserType	varchar(64)	1	
+C	license	audit.CopilotAuditStage	U	9	UserId	nvarchar(512)	1	
+C	license	audit.CopilotBackfillRange	U	1	Id	tinyint	0	
+C	license	audit.CopilotBackfillRange	U	2	RangeStartUtc	datetime2(0)	0	
+C	license	audit.CopilotBackfillRange	U	3	RangeEndUtc	datetime2(0)	0	
+C	license	audit.CopilotBackfillRange	U	4	Operations	nvarchar(400)	0	
+C	license	audit.CopilotBackfillRange	U	5	StartedUtc	datetime2(0)	0	D
+C	license	audit.CopilotBackfillRange	U	6	CompletedUtc	datetime2(0)	1	
+C	license	audit.CopilotBackfillWindow	U	1	WindowId	bigint	0	I
+C	license	audit.CopilotBackfillWindow	U	10	RowsLoaded	bigint	1	
+C	license	audit.CopilotBackfillWindow	U	11	SubmittedUtc	datetime2(0)	1	
+C	license	audit.CopilotBackfillWindow	U	12	CompletedUtc	datetime2(0)	1	
+C	license	audit.CopilotBackfillWindow	U	13	LastError	nvarchar(2000)	1	
+C	license	audit.CopilotBackfillWindow	U	14	CreatedUtc	datetime2(0)	0	D
+C	license	audit.CopilotBackfillWindow	U	15	UpdatedUtc	datetime2(0)	0	D
+C	license	audit.CopilotBackfillWindow	U	2	ParentWindowId	bigint	1	
+C	license	audit.CopilotBackfillWindow	U	3	StartUtc	datetime2(0)	0	
+C	license	audit.CopilotBackfillWindow	U	4	EndUtc	datetime2(0)	0	
+C	license	audit.CopilotBackfillWindow	U	5	Status	varchar(16)	0	
+C	license	audit.CopilotBackfillWindow	U	6	QueryId	varchar(64)	1	
+C	license	audit.CopilotBackfillWindow	U	7	Attempts	int	0	D
+C	license	audit.CopilotBackfillWindow	U	8	Submissions	int	0	D
+C	license	audit.CopilotBackfillWindow	U	9	ApproxRecords	bigint	1	
+C	license	audit.CopilotLoad	U	1	LoadId	int	0	I
+C	license	audit.CopilotLoad	U	10	RowsAlreadyLoaded	bigint	1	
+C	license	audit.CopilotLoad	U	11	DerivedRefreshedUtc	datetime2(0)	1	
+C	license	audit.CopilotLoad	U	12	Searches	int	1	
+C	license	audit.CopilotLoad	U	13	SearchesResubmitted	int	1	
+C	license	audit.CopilotLoad	U	2	RangeStartUtc	datetime2(0)	0	
+C	license	audit.CopilotLoad	U	3	RangeEndUtc	datetime2(0)	0	
+C	license	audit.CopilotLoad	U	4	Operations	nvarchar(400)	0	
+C	license	audit.CopilotLoad	U	5	StartedUtc	datetime2(0)	0	D
+C	license	audit.CopilotLoad	U	6	DownloadedUtc	datetime2(0)	1	
+C	license	audit.CopilotLoad	U	7	MergedUtc	datetime2(0)	1	
+C	license	audit.CopilotLoad	U	8	RowsStaged	bigint	1	
+C	license	audit.CopilotLoad	U	9	RowsAdded	bigint	1	
+C	license	audit.CopilotLoadStage	U	1	WindowId	bigint	0	
+C	license	audit.CopilotLoadStage	U	10	UserPrincipalName	nvarchar(512)	1	
+C	license	audit.CopilotLoadStage	U	11	Service	varchar(128)	1	
+C	license	audit.CopilotLoadStage	U	12	ObjectId	nvarchar(4000)	1	
+C	license	audit.CopilotLoadStage	U	13	ClientIp	varchar(128)	1	
+C	license	audit.CopilotLoadStage	U	14	AdministrativeUnits	nvarchar(4000)	1	
+C	license	audit.CopilotLoadStage	U	15	AuditDataGz	varbinary(max)	1	
+C	license	audit.CopilotLoadStage	U	16	LoadedUtc	datetime2(0)	0	D
+C	license	audit.CopilotLoadStage	U	2	Attempt	int	0	
+C	license	audit.CopilotLoadStage	U	3	RecordId	varchar(64)	0	
+C	license	audit.CopilotLoadStage	U	4	CreatedDateTime	datetime2(7)	0	
+C	license	audit.CopilotLoadStage	U	5	RecordType	varchar(128)	1	
+C	license	audit.CopilotLoadStage	U	6	Operation	varchar(128)	1	
+C	license	audit.CopilotLoadStage	U	7	OrganizationId	varchar(64)	1	
+C	license	audit.CopilotLoadStage	U	8	UserType	varchar(64)	1	
+C	license	audit.CopilotLoadStage	U	9	UserId	nvarchar(512)	1	
+C	license	audit.CopilotLoadWindow	U	1	WindowId	bigint	0	I
+C	license	audit.CopilotLoadWindow	U	10	RowsLoaded	bigint	1	
+C	license	audit.CopilotLoadWindow	U	11	SubmittedUtc	datetime2(0)	1	
+C	license	audit.CopilotLoadWindow	U	12	CompletedUtc	datetime2(0)	1	
+C	license	audit.CopilotLoadWindow	U	13	LastError	nvarchar(2000)	1	
+C	license	audit.CopilotLoadWindow	U	14	CreatedUtc	datetime2(0)	0	D
+C	license	audit.CopilotLoadWindow	U	15	UpdatedUtc	datetime2(0)	0	D
+C	license	audit.CopilotLoadWindow	U	2	ParentWindowId	bigint	1	
+C	license	audit.CopilotLoadWindow	U	3	StartUtc	datetime2(0)	0	
+C	license	audit.CopilotLoadWindow	U	4	EndUtc	datetime2(0)	0	
+C	license	audit.CopilotLoadWindow	U	5	Status	varchar(16)	0	
+C	license	audit.CopilotLoadWindow	U	6	QueryId	varchar(64)	1	
+C	license	audit.CopilotLoadWindow	U	7	Attempts	int	0	D
+C	license	audit.CopilotLoadWindow	U	8	Submissions	int	0	D
+C	license	audit.CopilotLoadWindow	U	9	ApproxRecords	bigint	1	
+C	license	audit.LicenseEvent	U	1	RecordId	varchar(64)	0	
+C	license	audit.LicenseEvent	U	10	ShreddedUtc	datetime2(0)	0	D
+C	license	audit.LicenseEvent	U	11	ChunkGroupId	nvarchar(100)	1	
+C	license	audit.LicenseEvent	U	12	ChunkSeq	int	1	
+C	license	audit.LicenseEvent	U	2	CreatedDateTime	datetime2(0)	0	
+C	license	audit.LicenseEvent	U	3	ActivityDate	date	0	
+C	license	audit.LicenseEvent	U	4	Operation	nvarchar(200)	1	
+C	license	audit.LicenseEvent	U	5	ResultStatus	nvarchar(50)	1	
+C	license	audit.LicenseEvent	U	6	ActorUpn	nvarchar(512)	1	
+C	license	audit.LicenseEvent	U	7	TargetUpn	nvarchar(512)	1	
+C	license	audit.LicenseEvent	U	8	TargetObjectId	nvarchar(200)	1	
+C	license	audit.LicenseEvent	U	9	CorrelationId	nvarchar(200)	1	
+C	license	audit.LicenseEventChunk	U	1	ChunkGroupId	nvarchar(100)	0	
+C	license	audit.LicenseEventChunk	U	2	Seq	int	0	
+C	license	audit.LicenseEventChunk	U	3	RecordId	varchar(64)	0	
+C	license	audit.LicenseEventChunk	U	4	Body	nvarchar(max)	1	
+C	license	audit.LicenseEventProperty	U	1	RecordId	varchar(64)	0	
+C	license	audit.LicenseEventProperty	U	2	Ordinal	int	0	
+C	license	audit.LicenseEventProperty	U	3	Name	nvarchar(400)	1	
+C	license	audit.LicenseEventProperty	U	4	OldValue	nvarchar(max)	1	
+C	license	audit.LicenseEventProperty	U	5	NewValue	nvarchar(max)	1	
+C	license	audit.LicenseEventProperty	U	6	Source	varchar(10)	0	D
+C	license	audit.LicenseSkuChange	U	1	RecordId	varchar(64)	0	
+C	license	audit.LicenseSkuChange	U	2	Sku	nvarchar(200)	0	
+C	license	audit.LicenseSkuChange	U	3	Change	nvarchar(7)	0	
+C	license	audit.LicenseSkuChange	U	4	CreatedDateTime	datetime2(0)	0	
+C	license	audit.LicenseSkuChange	U	5	ActivityDate	date	0	
+C	license	audit.LicenseSkuChange	U	6	ActorUpn	nvarchar(512)	1	
+C	license	audit.LicenseSkuChange	U	7	TargetUpn	nvarchar(512)	1	
+C	license	audit.LicenseSkuChange	U	8	FromChunks	int	0	
+C	license	audit.LicenseSkuChangeRun	U	1	RunId	int	0	I
+C	license	audit.LicenseSkuChangeRun	U	2	StartedUtc	datetime2(0)	0	
+C	license	audit.LicenseSkuChangeRun	U	3	EndedUtc	datetime2(0)	0	
+C	license	audit.LicenseSkuChangeRun	U	4	SinceUtc	datetime2(0)	1	
+C	license	audit.LicenseSkuChangeRun	U	5	Events	int	0	
+C	license	audit.LicenseSkuChangeRun	U	6	Changes	int	0	
+C	license	audit.PipelineCertificate	U	1	Purpose	varchar(32)	0	
+C	license	audit.PipelineCertificate	U	10	TenantId	nvarchar(256)	1	
+C	license	audit.PipelineCertificate	U	11	Host	nvarchar(128)	1	
+C	license	audit.PipelineCertificate	U	12	SeenUtc	datetime2(0)	0	D
+C	license	audit.PipelineCertificate	U	2	Thumbprint	varchar(64)	0	
+C	license	audit.PipelineCertificate	U	3	Found	bit	0	
+C	license	audit.PipelineCertificate	U	4	Subject	nvarchar(400)	1	
+C	license	audit.PipelineCertificate	U	5	Issuer	nvarchar(400)	1	
+C	license	audit.PipelineCertificate	U	6	NotBeforeUtc	datetime2(0)	1	
+C	license	audit.PipelineCertificate	U	7	ExpiresUtc	datetime2(0)	1	
+C	license	audit.PipelineCertificate	U	8	Store	varchar(32)	1	
+C	license	audit.PipelineCertificate	U	9	ClientId	nvarchar(64)	1	
+C	license	audit.PipelineRun	U	1	RunId	int	0	I
+C	license	audit.PipelineRun	U	10	CertificateThumbprint	varchar(64)	1	
+C	license	audit.PipelineRun	U	11	CertificateExpiresUtc	datetime2(0)	1	
+C	license	audit.PipelineRun	U	12	CertificateSubject	nvarchar(400)	1	
+C	license	audit.PipelineRun	U	2	Kind	varchar(16)	0	
+C	license	audit.PipelineRun	U	3	StartedUtc	datetime2(0)	0	D
+C	license	audit.PipelineRun	U	4	EndedUtc	datetime2(0)	1	
+C	license	audit.PipelineRun	U	5	Status	varchar(16)	0	D
+C	license	audit.PipelineRun	U	6	FailedStep	nvarchar(200)	1	
+C	license	audit.PipelineRun	U	7	Detail	nvarchar(4000)	1	
+C	license	audit.PipelineRun	U	8	Host	nvarchar(128)	1	
+C	license	audit.PipelineRun	U	9	RunAs	nvarchar(256)	1	
+C	license	audit.PipelineRunStep	U	1	RunId	int	0	
+C	license	audit.PipelineRunStep	U	2	StepNo	tinyint	0	
+C	license	audit.PipelineRunStep	U	3	Name	nvarchar(200)	0	
+C	license	audit.PipelineRunStep	U	4	StartedUtc	datetime2(0)	0	D
+C	license	audit.PipelineRunStep	U	5	EndedUtc	datetime2(0)	1	
+C	license	audit.PipelineRunStep	U	6	ExitCode	int	1	
+C	license	audit.PipelineSetting	U	1	Name	sysname	0	
+C	license	audit.PipelineSetting	U	2	Value	nvarchar(400)	1	
+C	license	audit.PipelineSetting	U	3	UpdatedUtc	datetime2(0)	0	D
+C	license	audit.PipelineSetting	U	4	UpdatedBy	nvarchar(256)	0	D
+C	license	audit.fnShredCopilotInteraction	IF	1	JsonUserId	nvarchar(512)	1	
+C	license	audit.fnShredCopilotInteraction	IF	10	UsedWebSearch	bit	1	
+C	license	audit.fnShredCopilotInteraction	IF	2	AppHost	nvarchar(100)	1	
+C	license	audit.fnShredCopilotInteraction	IF	3	AppIdentity	nvarchar(200)	1	
+C	license	audit.fnShredCopilotInteraction	IF	4	ClientRegion	nvarchar(20)	1	
+C	license	audit.fnShredCopilotInteraction	IF	5	ModelName	nvarchar(200)	1	
+C	license	audit.fnShredCopilotInteraction	IF	6	ModelProvider	nvarchar(200)	1	
+C	license	audit.fnShredCopilotInteraction	IF	7	ThreadId	nvarchar(400)	1	
+C	license	audit.fnShredCopilotInteraction	IF	8	PromptCount	int	1	
+C	license	audit.fnShredCopilotInteraction	IF	9	AccessedResourceCount	int	1	
+C	license	audit.vLicenseChange	V	1	RecordId	varchar(64)	0	
+C	license	audit.vLicenseChange	V	10	NewValue	nvarchar(max)	1	
+C	license	audit.vLicenseChange	V	11	FromPairedRecord	int	0	
+C	license	audit.vLicenseChange	V	12	FromChunks	int	0	
+C	license	audit.vLicenseChange	V	2	CreatedDateTime	datetime2(0)	0	
+C	license	audit.vLicenseChange	V	3	ActivityDate	date	0	
+C	license	audit.vLicenseChange	V	4	Operation	nvarchar(200)	1	
+C	license	audit.vLicenseChange	V	5	ActorUpn	nvarchar(512)	1	
+C	license	audit.vLicenseChange	V	6	TargetUpn	nvarchar(512)	1	
+C	license	audit.vLicenseChange	V	7	CorrelationId	nvarchar(200)	1	
+C	license	audit.vLicenseChange	V	8	PropertyName	nvarchar(400)	1	
+C	license	audit.vLicenseChange	V	9	OldValue	nvarchar(max)	1	
+C	license	audit.vLicenseLifecycle	V	1	TargetUpn	nvarchar(512)	1	
+C	license	audit.vLicenseLifecycle	V	2	AccountCreatedUtc	datetime2(0)	1	
+C	license	audit.vLicenseLifecycle	V	3	AccountDeletedUtc	datetime2(0)	1	
+C	license	audit.vLicenseLifecycle	V	4	FirstLicenseChangeUtc	datetime2(0)	1	
+C	license	audit.vLicenseLifecycle	V	5	LastLicenseChangeUtc	datetime2(0)	1	
+C	license	audit.vLicenseLifecycle	V	6	LicenseChangeCount	int	1	
+C	license	audit.vLicenseLifecycle	V	7	EventCount	int	1	
+C	license	audit.vLicenseSkuChange	V	1	RecordId	varchar(64)	0	
+C	license	audit.vLicenseSkuChange	V	2	CreatedDateTime	datetime2(0)	0	
+C	license	audit.vLicenseSkuChange	V	3	ActivityDate	date	0	
+C	license	audit.vLicenseSkuChange	V	4	ActorUpn	nvarchar(512)	1	
+C	license	audit.vLicenseSkuChange	V	5	TargetUpn	nvarchar(512)	1	
+C	license	audit.vLicenseSkuChange	V	6	FromChunks	int	0	
+C	license	audit.vLicenseSkuChange	V	7	Sku	nvarchar(200)	0	
+C	license	audit.vLicenseSkuChange	V	8	Change	nvarchar(7)	0	
+C	license	audit.vLicenseSkuChangeFromRecords	V	1	RecordId	varchar(64)	0	
+C	license	audit.vLicenseSkuChangeFromRecords	V	2	CreatedDateTime	datetime2(0)	0	
+C	license	audit.vLicenseSkuChangeFromRecords	V	3	ActivityDate	date	0	
+C	license	audit.vLicenseSkuChangeFromRecords	V	4	ActorUpn	nvarchar(512)	1	
+C	license	audit.vLicenseSkuChangeFromRecords	V	5	TargetUpn	nvarchar(512)	1	
+C	license	audit.vLicenseSkuChangeFromRecords	V	6	FromChunks	int	0	
+C	license	audit.vLicenseSkuChangeFromRecords	V	7	Sku	nvarchar(max)	1	
+C	license	audit.vLicenseSkuChangeFromRecords	V	8	Change	nvarchar(7)	0	
+G	copilot	CopilotInsightsApp	DELETE	dash.AgentAlias
+G	copilot	CopilotInsightsApp	DELETE	dash.AlertState
+G	copilot	CopilotInsightsApp	DELETE	dash.DigestPreference
+G	copilot	CopilotInsightsApp	DELETE	dash.DigestSend
+G	copilot	CopilotInsightsApp	DELETE	dash.EventMarker
+G	copilot	CopilotInsightsApp	DELETE	dash.Extract
+G	copilot	CopilotInsightsApp	DELETE	dash.FlagCase
+G	copilot	CopilotInsightsApp	DELETE	dash.JobFamilyRule
+G	copilot	CopilotInsightsApp	DELETE	dash.LicenseAction
+G	copilot	CopilotInsightsApp	DELETE	dash.LicenseContract
+G	copilot	CopilotInsightsApp	DELETE	dash.NonHumanException
+G	copilot	CopilotInsightsApp	DELETE	dash.RoleGrant
+G	copilot	CopilotInsightsApp	DELETE	dash.SavedView
+G	copilot	CopilotInsightsApp	DELETE	dash.SensitivityLabel
+G	copilot	CopilotInsightsApp	DELETE	dash.Setting
+G	copilot	CopilotInsightsApp	DELETE	dash.Subscription
+G	copilot	CopilotInsightsApp	DELETE	dash.Target
+G	copilot	CopilotInsightsApp	DELETE	dash.TimeSaving
+G	copilot	CopilotInsightsApp	DELETE	dash.TrainingAttendance
+G	copilot	CopilotInsightsApp	DELETE	dash.UseCaseRule
+G	copilot	CopilotInsightsApp	DELETE	dash.ValueName
+G	copilot	CopilotInsightsApp	EXECUTE	audit.ReportingTimeZone
+G	copilot	CopilotInsightsApp	EXECUTE	dash.fnValueName
+G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_ApplyRetention
+G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_GetSecret
+G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_RefreshDashboard
+G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetPrivacyMode
+G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetSecret
+G	copilot	CopilotInsightsApp	INSERT	audit.SessionAppCategory
+G	copilot	CopilotInsightsApp	INSERT	dash.AgentAlias
+G	copilot	CopilotInsightsApp	INSERT	dash.AlertState
+G	copilot	CopilotInsightsApp	INSERT	dash.AuditLog
+G	copilot	CopilotInsightsApp	INSERT	dash.DigestPreference
+G	copilot	CopilotInsightsApp	INSERT	dash.DigestSend
+G	copilot	CopilotInsightsApp	INSERT	dash.EventMarker
+G	copilot	CopilotInsightsApp	INSERT	dash.Extract
+G	copilot	CopilotInsightsApp	INSERT	dash.FlagCase
+G	copilot	CopilotInsightsApp	INSERT	dash.JobFamilyRule
+G	copilot	CopilotInsightsApp	INSERT	dash.LicenseAction
+G	copilot	CopilotInsightsApp	INSERT	dash.LicenseContract
+G	copilot	CopilotInsightsApp	INSERT	dash.NonHumanException
+G	copilot	CopilotInsightsApp	INSERT	dash.NotificationLog
+G	copilot	CopilotInsightsApp	INSERT	dash.RoleGrant
+G	copilot	CopilotInsightsApp	INSERT	dash.SavedView
+G	copilot	CopilotInsightsApp	INSERT	dash.SensitivityLabel
+G	copilot	CopilotInsightsApp	INSERT	dash.Setting
+G	copilot	CopilotInsightsApp	INSERT	dash.Subscription
+G	copilot	CopilotInsightsApp	INSERT	dash.Target
+G	copilot	CopilotInsightsApp	INSERT	dash.TimeSaving
+G	copilot	CopilotInsightsApp	INSERT	dash.TrainingAttendance
+G	copilot	CopilotInsightsApp	INSERT	dash.UseCaseRule
+G	copilot	CopilotInsightsApp	INSERT	dash.ValueName
+G	copilot	CopilotInsightsApp	SELECT	SCHEMA::bi
+G	copilot	CopilotInsightsApp	SELECT	SCHEMA::dash
+G	copilot	CopilotInsightsApp	SELECT	audit.CopilotBackfillWindow
+G	copilot	CopilotInsightsApp	SELECT	audit.CopilotCsvImport
+G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLicense
+G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLoad
+G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLoadWindow
+G	copilot	CopilotInsightsApp	SELECT	audit.CopilotSessionRun
+G	copilot	CopilotInsightsApp	SELECT	audit.ExternalUsageRun
+G	copilot	CopilotInsightsApp	SELECT	audit.FoundryCostDay
+G	copilot	CopilotInsightsApp	SELECT	audit.FoundryDeployment
+G	copilot	CopilotInsightsApp	SELECT	audit.FoundryUsageDay
+G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotCost
+G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotDay
+G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotSeat
+G	copilot	CopilotInsightsApp	SELECT	audit.GitHubCopilotUserDay
+G	copilot	CopilotInsightsApp	SELECT	audit.GroupMember
+G	copilot	CopilotInsightsApp	SELECT	audit.LicenseSku
+G	copilot	CopilotInsightsApp	SELECT	audit.LicenseSkuDay
+G	copilot	CopilotInsightsApp	SELECT	audit.PipelineCertificate
+G	copilot	CopilotInsightsApp	SELECT	audit.PipelineRun
+G	copilot	CopilotInsightsApp	SELECT	audit.PipelineRunStep
+G	copilot	CopilotInsightsApp	SELECT	audit.PipelineSetting
+G	copilot	CopilotInsightsApp	SELECT	audit.SessionAppCategory
+G	copilot	CopilotInsightsApp	SELECT	audit.UserDirectory
+G	copilot	CopilotInsightsApp	SELECT	audit.UserLicenseSku
+G	copilot	CopilotInsightsApp	SELECT	audit.ValueCatalog
+G	copilot	CopilotInsightsApp	SELECT	audit.ValueCatalogColumn
+G	copilot	CopilotInsightsApp	UPDATE	audit.SessionAppCategory
+G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAlias
+G	copilot	CopilotInsightsApp	UPDATE	dash.AlertState
+G	copilot	CopilotInsightsApp	UPDATE	dash.DigestPreference
+G	copilot	CopilotInsightsApp	UPDATE	dash.DigestSend
+G	copilot	CopilotInsightsApp	UPDATE	dash.EventMarker
+G	copilot	CopilotInsightsApp	UPDATE	dash.Extract
+G	copilot	CopilotInsightsApp	UPDATE	dash.FlagCase
+G	copilot	CopilotInsightsApp	UPDATE	dash.JobFamilyRule
+G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseAction
+G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseContract
+G	copilot	CopilotInsightsApp	UPDATE	dash.NonHumanException
+G	copilot	CopilotInsightsApp	UPDATE	dash.RoleGrant
+G	copilot	CopilotInsightsApp	UPDATE	dash.SavedView
+G	copilot	CopilotInsightsApp	UPDATE	dash.SensitivityLabel
+G	copilot	CopilotInsightsApp	UPDATE	dash.Setting
+G	copilot	CopilotInsightsApp	UPDATE	dash.Subscription
+G	copilot	CopilotInsightsApp	UPDATE	dash.Target
+G	copilot	CopilotInsightsApp	UPDATE	dash.TimeSaving
+G	copilot	CopilotInsightsApp	UPDATE	dash.TrainingAttendance
+G	copilot	CopilotInsightsApp	UPDATE	dash.UseCaseRule
+G	copilot	CopilotInsightsApp	UPDATE	dash.ValueName
+G	copilot	CopilotReporting	SELECT	bi.AccessedResources
+G	copilot	CopilotReporting	SELECT	bi.AgentEvents
+G	copilot	CopilotReporting	SELECT	bi.Agents
+G	copilot	CopilotReporting	SELECT	bi.Apps
+G	copilot	CopilotReporting	SELECT	bi.Calendar
+G	copilot	CopilotReporting	SELECT	bi.DepartmentWeek
+G	copilot	CopilotReporting	SELECT	bi.EventMarkers
+G	copilot	CopilotReporting	SELECT	bi.FileTypes
+G	copilot	CopilotReporting	SELECT	bi.Interactions
+G	copilot	CopilotReporting	SELECT	bi.JobFamilies
+G	copilot	CopilotReporting	SELECT	bi.LicenseChanges
+G	copilot	CopilotReporting	SELECT	bi.LicensePool
+G	copilot	CopilotReporting	SELECT	bi.LicenseStatuses
+G	copilot	CopilotReporting	SELECT	bi.LicenseTypes
+G	copilot	CopilotReporting	SELECT	bi.LicensedDays
+G	copilot	CopilotReporting	SELECT	bi.Models
+G	copilot	CopilotReporting	SELECT	bi.OrgSecurity
+G	copilot	CopilotReporting	SELECT	bi.ResourceActions
+G	copilot	CopilotReporting	SELECT	bi.ResourceTypes
+G	copilot	CopilotReporting	SELECT	bi.SensitivityLabels
+G	copilot	CopilotReporting	SELECT	bi.Sessions
+G	copilot	CopilotReporting	SELECT	bi.Sites
+G	copilot	CopilotReporting	SELECT	bi.Skus
+G	copilot	CopilotReporting	SELECT	bi.UseCases
+G	copilot	CopilotReporting	SELECT	bi.Users
+G	copilot	CopilotReporting	SELECT	bi.ValueNames
+O	copilot	audit.AgentCatalog	U
+O	copilot	audit.CopilotAudit	U
+O	copilot	audit.CopilotAuditStage	U
+O	copilot	audit.CopilotBackfillRange	U
+O	copilot	audit.CopilotBackfillWindow	U
+O	copilot	audit.CopilotCsvFile	U
+O	copilot	audit.CopilotCsvImport	U
+O	copilot	audit.CopilotCsvReject	U
+O	copilot	audit.CopilotCsvStage	U
+O	copilot	audit.CopilotInteraction	U
+O	copilot	audit.CopilotLicense	U
+O	copilot	audit.CopilotLoad	U
+O	copilot	audit.CopilotLoadStage	U
+O	copilot	audit.CopilotLoadWindow	U
+O	copilot	audit.CopilotSession	U
+O	copilot	audit.CopilotSessionRun	U
+O	copilot	audit.CopilotWeeklyRollup	U
+O	copilot	audit.ExternalUsageRun	U
+O	copilot	audit.FoundryCostDay	U
+O	copilot	audit.FoundryDeployment	U
+O	copilot	audit.FoundryUsageDay	U
+O	copilot	audit.GitHubCopilotCost	U
+O	copilot	audit.GitHubCopilotDay	U
+O	copilot	audit.GitHubCopilotSeat	U
+O	copilot	audit.GitHubCopilotUserDay	U
+O	copilot	audit.GroupMember	U
+O	copilot	audit.LicenseSku	U
+O	copilot	audit.LicenseSkuDay	U
+O	copilot	audit.PipelineCertificate	U
+O	copilot	audit.PipelineRun	U
+O	copilot	audit.PipelineRunStep	U
+O	copilot	audit.PipelineSetting	U
+O	copilot	audit.RawLogAccessedResource	U
+O	copilot	audit.RawLogContext	U
+O	copilot	audit.RawLogFlattened	U
+O	copilot	audit.RawLogRecordShape	U
+O	copilot	audit.ReportingTimeZone	FN
+O	copilot	audit.SessionAppCategory	U
+O	copilot	audit.UserDirectory	U
+O	copilot	audit.UserLicenseSku	U
+O	copilot	audit.ValueCatalog	U
+O	copilot	audit.ValueCatalogColumn	U
+O	copilot	audit.fnShredCopilotInteraction	IF
+O	copilot	audit.usp_BackfillAgentNames	P
+O	copilot	audit.usp_BuildCopilotSessions	P
+O	copilot	audit.usp_CatalogAgents	P
+O	copilot	audit.usp_CatalogValues	P
+O	copilot	audit.usp_FlattenCopilotAudit	P
+O	copilot	audit.usp_MergeCopilotCsv	P
+O	copilot	audit.usp_MergeCopilotLoad	P
+O	copilot	audit.usp_PurgeCopilotAuditJson	P
+O	copilot	audit.vCopilotAdoption	V
+O	copilot	audit.vCopilotAuditRecord	V
+O	copilot	audit.vCopilotDailyUsage	V
+O	copilot	audit.vCopilotSessionSummary	V
+O	copilot	audit.vCopilotUsageByDepartment	V
+O	copilot	audit.vCopilotWeeklyRollup	V
+O	copilot	bi.AccessedResources	V
+O	copilot	bi.AgentEvents	V
+O	copilot	bi.Agents	V
+O	copilot	bi.Apps	V
+O	copilot	bi.Calendar	V
+O	copilot	bi.DepartmentWeek	V
+O	copilot	bi.DimAgent	U
+O	copilot	bi.DimApp	U
+O	copilot	bi.DimDate	U
+O	copilot	bi.DimFileType	U
+O	copilot	bi.DimLicenseStatus	U
+O	copilot	bi.DimLicenseType	U
+O	copilot	bi.DimModel	U
+O	copilot	bi.DimResourceAction	U
+O	copilot	bi.DimResourceType	U
+O	copilot	bi.DimSensitivityLabel	U
+O	copilot	bi.DimSite	U
+O	copilot	bi.DimSku	U
+O	copilot	bi.DimUser	U
+O	copilot	bi.EventMarkers	V
+O	copilot	bi.FactAccessedResource	U
+O	copilot	bi.FactAgentEvent	U
+O	copilot	bi.FactInteraction	U
+O	copilot	bi.FactLicenseChange	U
+O	copilot	bi.FactLicensedDay	U
+O	copilot	bi.FactSession	U
+O	copilot	bi.FileTypes	V
+O	copilot	bi.Interactions	V
+O	copilot	bi.JobFamilies	V
+O	copilot	bi.LicenseChanges	V
+O	copilot	bi.LicensePool	V
+O	copilot	bi.LicenseStatuses	V
+O	copilot	bi.LicenseTypes	V
+O	copilot	bi.LicensedDays	V
+O	copilot	bi.Models	V
+O	copilot	bi.OrgSecurity	V
+O	copilot	bi.RebuildInProgress	U
+O	copilot	bi.RefreshRun	U
+O	copilot	bi.ResourceActions	V
+O	copilot	bi.ResourceTypes	V
+O	copilot	bi.SensitivityLabels	V
+O	copilot	bi.Sessions	V
+O	copilot	bi.Sites	V
+O	copilot	bi.Skus	V
+O	copilot	bi.UseCases	V
+O	copilot	bi.Users	V
+O	copilot	bi.ValueNames	V
+O	copilot	bi.fnAgentIdentity	IF
+O	copilot	bi.usp_NameAgents	P
+O	copilot	bi.usp_RefreshBi	P
+O	copilot	dash.Agent	V
+O	copilot	dash.AgentAlias	U
+O	copilot	dash.AgentChildLink	U
+O	copilot	dash.AgentInventory	U
+O	copilot	dash.AgentInventoryRun	U
+O	copilot	dash.AgentUse	U
+O	copilot	dash.AlertState	U
+O	copilot	dash.AuditLog	U
+O	copilot	dash.DigestPreference	U
+O	copilot	dash.DigestSend	U
+O	copilot	dash.EventMarker	U
+O	copilot	dash.Extract	U
+O	copilot	dash.FlagCase	U
+O	copilot	dash.FlaggedInteraction	U
+O	copilot	dash.JobFamilyRule	U
+O	copilot	dash.LicenseAction	U
+O	copilot	dash.LicenseContract	U
+O	copilot	dash.NonHumanException	U
+O	copilot	dash.NotificationLog	U
+O	copilot	dash.OrgClosure	U
+O	copilot	dash.Person	U
+O	copilot	dash.RefreshRun	U
+O	copilot	dash.ResourceDay	U
+O	copilot	dash.RoleGrant	U
+O	copilot	dash.SavedView	U
+O	copilot	dash.Secret	U
+O	copilot	dash.SensitivityLabel	U
+O	copilot	dash.Setting	U
+O	copilot	dash.Subscription	U
+O	copilot	dash.Target	U
+O	copilot	dash.TimeSaving	U
+O	copilot	dash.TrainingAttendance	U
+O	copilot	dash.UseCaseRule	U
+O	copilot	dash.UserDay	U
+O	copilot	dash.ValueName	U
+O	copilot	dash.fnScopeUsers	IF
+O	copilot	dash.fnValueName	FN
+O	copilot	dash.usp_ApplyRetention	P
+O	copilot	dash.usp_GetSecret	P
+O	copilot	dash.usp_RefreshDashboard	P
+O	copilot	dash.usp_SetPrivacyMode	P
+O	copilot	dash.usp_SetSecret	P
+O	license	audit.AgentEvent	U
+O	license	audit.CopilotAuditStage	U
+O	license	audit.CopilotBackfillRange	U
+O	license	audit.CopilotBackfillWindow	U
+O	license	audit.CopilotLoad	U
+O	license	audit.CopilotLoadStage	U
+O	license	audit.CopilotLoadWindow	U
+O	license	audit.LicenseEvent	U
+O	license	audit.LicenseEventChunk	U
+O	license	audit.LicenseEventProperty	U
+O	license	audit.LicenseSkuChange	U
+O	license	audit.LicenseSkuChangeRun	U
+O	license	audit.PipelineCertificate	U
+O	license	audit.PipelineRun	U
+O	license	audit.PipelineRunStep	U
+O	license	audit.PipelineSetting	U
+O	license	audit.ReportingTimeZone	FN
+O	license	audit.fnShredCopilotInteraction	IF
+O	license	audit.usp_MergeCopilotLoad	P
+O	license	audit.usp_RefreshLicenseSkuChange	P
+O	license	audit.usp_ShredAgentEvents	P
+O	license	audit.usp_ShredLicenseEvents	P
+O	license	audit.vLicenseChange	V
+O	license	audit.vLicenseLifecycle	V
+O	license	audit.vLicenseSkuChange	V
+O	license	audit.vLicenseSkuChangeFromRecords	V
+P	copilot	audit.fnShredCopilotInteraction	IF	1	@AuditDataGz	varbinary(max)	0	0
+P	copilot	audit.usp_BackfillAgentNames	P	1	@BatchSize	int	0	1
+P	copilot	audit.usp_BackfillAgentNames	P	2	@Others	bit	0	1
+P	copilot	audit.usp_BuildCopilotSessions	P	1	@SessionTimeoutMinutes	int	0	1
+P	copilot	audit.usp_BuildCopilotSessions	P	2	@ReportingTimeZone	sysname	0	1
+P	copilot	audit.usp_BuildCopilotSessions	P	3	@ContextFallback	nvarchar(20)	0	1
+P	copilot	audit.usp_BuildCopilotSessions	P	4	@MetricVersion	nvarchar(200)	0	1
+P	copilot	audit.usp_BuildCopilotSessions	P	5	@LicenseEventDatabase	nvarchar(1000)	0	1
+P	copilot	audit.usp_BuildCopilotSessions	P	6	@SinceUtc	datetime2(0)	0	1
+P	copilot	audit.usp_CatalogValues	P	1	@Rebuild	bit	0	1
+P	copilot	audit.usp_FlattenCopilotAudit	P	1	@SinceUtc	datetime2(0)	0	1
+P	copilot	audit.usp_FlattenCopilotAudit	P	2	@RebuildAll	bit	0	1
+P	copilot	audit.usp_FlattenCopilotAudit	P	3	@BatchSize	int	0	1
+P	copilot	audit.usp_MergeCopilotCsv	P	1	@ImportId	int	0	0
+P	copilot	audit.usp_MergeCopilotCsv	P	2	@CoveredFromUtc	datetime2(0)	0	1
+P	copilot	audit.usp_MergeCopilotCsv	P	3	@CoveredToUtc	datetime2(0)	0	1
+P	copilot	audit.usp_MergeCopilotCsv	P	4	@ReportingTimeZone	sysname	0	1
+P	copilot	audit.usp_MergeCopilotLoad	P	1	@ReportingTimeZone	sysname	0	1
+P	copilot	audit.usp_PurgeCopilotAuditJson	P	1	@RetainDays	int	0	0
+P	copilot	audit.usp_PurgeCopilotAuditJson	P	2	@DeleteRows	bit	0	1
+P	copilot	audit.usp_PurgeCopilotAuditJson	P	3	@PurgeStaging	bit	0	1
+P	copilot	audit.usp_PurgeCopilotAuditJson	P	4	@PurgeFlattened	bit	0	1
+P	copilot	audit.usp_PurgeCopilotAuditJson	P	5	@BatchSize	int	0	1
+P	copilot	audit.usp_PurgeCopilotAuditJson	P	6	@WhatIf	bit	0	1
+P	copilot	bi.fnAgentIdentity	IF	1	@AppIdentity	nvarchar(400)	0	0
+P	copilot	bi.fnAgentIdentity	IF	2	@AgentId	nvarchar(400)	0	0
+P	copilot	bi.usp_RefreshBi	P	1	@SinceUtc	datetime2(0)	0	1
+P	copilot	bi.usp_RefreshBi	P	2	@ReportingTimeZone	sysname	0	1
+P	copilot	bi.usp_RefreshBi	P	3	@LicenseEventDatabase	nvarchar(1000)	0	1
+P	copilot	dash.fnScopeUsers	IF	1	@RootUpn	nvarchar(256)	0	0
+P	copilot	dash.fnValueName	FN	1	@ColumnId	smallint	0	0
+P	copilot	dash.fnValueName	FN	2	@Value	nvarchar(400)	0	0
+P	copilot	dash.usp_GetSecret	P	1	@Name	varchar(64)	0	0
+P	copilot	dash.usp_GetSecret	P	2	@Value	nvarchar(2000)	1	0
+P	copilot	dash.usp_RefreshDashboard	P	1	@SinceUtc	datetime2(0)	0	1
+P	copilot	dash.usp_SetPrivacyMode	P	1	@Mode	nvarchar(16)	0	0
+P	copilot	dash.usp_SetPrivacyMode	P	2	@By	nvarchar(256)	0	0
+P	copilot	dash.usp_SetSecret	P	1	@Name	varchar(64)	0	0
+P	copilot	dash.usp_SetSecret	P	2	@Value	nvarchar(2000)	0	0
+P	copilot	dash.usp_SetSecret	P	3	@By	nvarchar(256)	0	0
+P	license	audit.fnShredCopilotInteraction	IF	1	@AuditDataGz	varbinary(max)	0	0
+P	license	audit.usp_MergeCopilotLoad	P	1	@ReportingTimeZone	sysname	0	1
+P	license	audit.usp_RefreshLicenseSkuChange	P	1	@All	bit	0	1
+P	license	audit.usp_RefreshLicenseSkuChange	P	2	@SinceShreddedUtc	datetime2(0)	0	1
+P	license	audit.usp_ShredAgentEvents	P	1	@SinceUtc	datetime2(0)	0	1
+P	license	audit.usp_ShredAgentEvents	P	2	@RebuildAll	bit	0	1
+P	license	audit.usp_ShredLicenseEvents	P	1	@SinceUtc	datetime2(0)	0	1
+P	license	audit.usp_ShredLicenseEvents	P	2	@RebuildAll	bit	0	1
+P	license	audit.usp_ShredLicenseEvents	P	3	@BatchSize	int	0	1
+P	license	audit.usp_ShredLicenseEvents	P	4	@ReportingTimeZone	sysname	0	1

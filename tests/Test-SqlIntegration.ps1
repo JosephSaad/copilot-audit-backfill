@@ -3965,6 +3965,90 @@ finally {
 }
 
 # ---------------------------------------------------------------------------
+# 20. Schema compatibility (2.6.3). A release may add to the schema and may not
+# take away from it: what this checkout installs is compared with
+# tests/schema-baseline.tsv, the shape of the last release, and an install over
+# an earlier release must end with the schema a new install has.
+# tests/SchemaCompatibility.ps1 has the rules; tests/Test-SchemaCompatibility.ps1
+# proves them without a server.
+# ---------------------------------------------------------------------------
+Write-Host "`n20. Schema compatibility (tests/schema-baseline.tsv, tools/dev/schema/Update-SchemaBaseline.ps1)" -ForegroundColor Cyan
+
+. (Join-Path $PSScriptRoot 'SchemaCompatibility.ps1')
+$baseline = Read-SchemaBaseline -Path (Join-Path $PSScriptRoot 'schema-baseline.tsv')
+$compatFloor = 'v2.6.2'   # the first release the promise was made for; an install over it is always tried
+$compatDbs = [System.Collections.Generic.List[string]]::new()
+$compatDirs = [System.Collections.Generic.List[string]]::new()
+$dropDb = { param([string] $Name) Invoke-SqlText -Catalog master -Sql "IF DB_ID(N'$Name') IS NOT NULL BEGIN ALTER DATABASE [$Name] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$Name]; END;" }
+$installed = {
+    # Installs each checkout in -From in turn into a new pair of databases, and reads the shape they end with.
+    param([string] $Name, [string[]] $From)
+    $db = "$($script:ITDatabase)_$Name"; $lic = "${db}Lic"
+    foreach ($d in $db, $lic) { $compatDbs.Add($d); [void] (& $dropDb $d) }
+    foreach ($r in $From) { Install-SchemaForSnapshot -Root $r -Install ($conn + @{ Database = $db; LicenseDatabase = $lic }) -ConnectionString (New-ConnString $db) }
+    [string[]] $shape = @(Get-SchemaSnapshot -ConnectionString (New-ConnString $db) -Database copilot) + @(Get-SchemaSnapshot -ConnectionString (New-ConnString $lic) -Database license)
+    [array]::Sort($shape, [StringComparer]::Ordinal)
+    return $shape
+}
+# A table altered in place numbers a new column last and a table created anew numbers it where the script has it, so
+# two tables with the same columns are the same table: a table's column is compared without its number.
+$unnumbered = { param([string[]] $Lines) foreach ($l in $Lines) { $p = $l.Split("`t"); if ($p[0] -eq 'C' -and $p[3] -eq 'U') { $p[4] = '' }; $p -join "`t" } }
+try {
+    [string[]] $fresh = & $installed 'Compat' @($root)
+    $breaks = @(Compare-SchemaSnapshot -Baseline $baseline.Lines -Current $fresh)
+    Assert-That ($breaks.Count -eq 0) "what this checkout installs takes nothing away from the schema of $($baseline.Release): $($baseline.Lines.Count) baseline lines, $($fresh.Count) now$(if ($breaks.Count) { ' - ' + (($breaks | Select-Object -First 12) -join '; ') })"
+
+    $tags = @(); $head = ''
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $tags = @(& git -C $root tag --list 'v*' --sort=-v:refname 2>$null | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })
+        $head = "$(& git -C $root rev-parse HEAD 2>$null)"
+    }
+    if (-not $tags.Count) {
+        # CI checks the whole history out for this (fetch-depth: 0); a source zip has none, and then only the
+        # baseline is compared.
+        Assert-That (-not $env:GITHUB_ACTIONS) 'the release tags are there to install an earlier release from (in CI: the checkout takes the whole history)'
+        Write-Host '  (no release tags here: the installs over an earlier release are not tried)' -ForegroundColor Yellow
+    }
+    else {
+        # A baseline is taken when a release is cut. Until the release has its tag, the baseline has to be exactly
+        # what the checkout installs: that is what makes it the truth the next release is held to.
+        if ("v$($baseline.Release)" -notin $tags) {
+            $notIn = @($fresh | Where-Object { $_ -cnotin $baseline.Lines })
+            Assert-That ($notIn.Count -eq 0 -and $fresh.Count -eq $baseline.Lines.Count) "release $($baseline.Release) is being cut: the baseline is what it installs, line for line ($($notIn.Count) not in it$(if ($notIn.Count) { ', the first: ' + $notIn[0].Replace("`t", ' ') }); run tools/dev/schema/Update-SchemaBaseline.ps1)"
+        }
+        $previous = $tags | Where-Object { "$(& git -C $root rev-list -n 1 $_ 2>$null)" -ne $head } | Select-Object -First 1
+        # The baseline as the last release shipped it, not as this checkout has it: one rewritten to fit a break
+        # would pass every check above.
+        if ($previous) {
+            $shipped = @(& git -C $root show "${previous}:tests/schema-baseline.tsv" 2>$null | Where-Object { $_ -and -not $_.StartsWith('#') })
+            if ($LASTEXITCODE -eq 0 -and $shipped.Count) {
+                $shippedBreaks = @(Compare-SchemaSnapshot -Baseline $shipped -Current $fresh)
+                Assert-That ($shippedBreaks.Count -eq 0) "nor from the baseline $previous shipped with$(if ($shippedBreaks.Count) { ' - ' + (($shippedBreaks | Select-Object -First 12) -join '; ') })"
+            }
+            else { Write-Host "  ($previous shipped no baseline: it came before the check)" -ForegroundColor DarkGray }
+        }
+        $global:LASTEXITCODE = 0
+        foreach ($tag in @($compatFloor, $previous | Where-Object { $_ -and $_ -in $tags } | Select-Object -Unique)) {
+            $old = Join-Path ([System.IO.Path]::GetTempPath()) "copilot-schema-$($tag.TrimStart('v'))-$PID"
+            $compatDirs.Add($old); $compatDirs.Add("$old.zip")
+            & git -C $root archive --format=zip -o "$old.zip" $tag Install-CopilotAudit.ps1 sql
+            if ($LASTEXITCODE -ne 0) { throw "git archive $tag failed." }
+            Expand-Archive -LiteralPath "$old.zip" -DestinationPath $old -Force
+            [string[]] $upgraded = & $installed "Up$($tag -replace '\D', '')" @($old, $root)
+            $upBreaks = @(Compare-SchemaSnapshot -Baseline $baseline.Lines -Current $upgraded)
+            $a = @(& $unnumbered $upgraded); $b = @(& $unnumbered $fresh)
+            $onlyUpgraded = @($a | Where-Object { $_ -cnotin $b }); $onlyFresh = @($b | Where-Object { $_ -cnotin $a })
+            Assert-That ($upBreaks.Count -eq 0 -and $onlyUpgraded.Count -eq 0 -and $onlyFresh.Count -eq 0) `
+                "installed over $tag, the databases end with the schema a new install has ($($upgraded.Count) lines; only when upgraded: $($onlyUpgraded.Count), only when new: $($onlyFresh.Count)$(if ($onlyFresh.Count) { ', the first: ' + $onlyFresh[0].Replace("`t", ' ') })$(if ($onlyUpgraded.Count) { ', the first left behind: ' + $onlyUpgraded[0].Replace("`t", ' ') })$(if ($upBreaks.Count) { '; ' + $upBreaks[0] }))"
+        }
+    }
+}
+finally {
+    foreach ($d in $compatDbs) { try { & $dropDb $d } catch { Write-Host "  (could not drop ${d}: $($_.Exception.Message))" -ForegroundColor DarkYellow } }
+    foreach ($d in $compatDirs) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

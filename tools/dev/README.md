@@ -56,6 +56,33 @@ python tools/dev/schema/build_md.py
 2. **When a script is new,** add it to the script list in `build.py`.
 3. **Do not commit the generated file as it comes.** The committed `docs/SCHEMA.md` carries column notes written by hand, which the scripts' DDL does not have, and the column order of a database upgraded release by release. Compare the two (`git diff docs/SCHEMA.md`), keep the committed file, and carry into it what the release changed: the counts, new sections, new columns, types and indexes.
 
+## Schema compatibility
+
+From 2.6.3 a release may add to the schema and may not take away from it. A report, a Grafana panel or an older dashboard written against one release keeps working against the next, and an install over a database in use loses nothing. [tests/SchemaCompatibility.ps1](../../tests/SchemaCompatibility.ps1) has the rules:
+
+- no table, view, procedure, function, column, parameter or grant to a role goes away, and none changes kind;
+- a column or parameter keeps its type or widens it (a longer string, a larger integer, a decimal with as many digits on both sides of the point);
+- a table's column that took NULL still does, and a new one takes NULL, has a default or fills itself;
+- a view's columns keep their places, and new ones go after them;
+- a parameter keeps its place and direction, and a new one has a default.
+
+[tests/schema-baseline.tsv](../../tests/schema-baseline.tsv) is the shape of the last release: both databases, installed with the dashboard, the first load's tables and a reporting account. Three things hold a change to it:
+
+1. `tests/Test-SchemaCompatibility.ps1` proves the rules without a server, and fails when the baseline is not of the release `CHANGELOG.md` names last.
+2. Section 20 of `tests/Test-SqlIntegration.ps1` installs the checkout and compares it with the baseline, and with the baseline the last release's tag carries, so a baseline rewritten to fit a break does not pass.
+3. The same section installs 2.6.2 and the last release from their tags, installs the checkout over each, and fails unless the databases end with the schema a new install has. This is what catches a column added to a `CREATE TABLE` and never to the tables already there. It needs the release tags: CI checks out the whole history for it, and a checkout without tags skips it and says so.
+
+When a change breaks the baseline, change the schema, not the baseline: keep what was there, add the new thing beside it, and mark the old one as replaced in `docs/SCHEMA.md`.
+
+**When cutting a release,** take the baseline again once the changelog names the release, and commit it:
+
+```powershell
+pwsh tools/dev/schema/Update-SchemaBaseline.ps1 -SqlServer localhost
+```
+
+It installs into two databases of its own and drops them. It writes nothing when the checkout breaks the baseline in place, and lists what broke. `-Check` compares without writing. Until the release has its tag, section 20 also fails unless the baseline is, line for line, what the release installs.
+
+What it does not see: the meaning of a column whose name and type stay the same; indexes and keys; `audit.CopilotAudit` as `sql/Finalize-CopilotAudit.sql` builds it after a backfill (the baseline has it as the first nightly load or CSV import makes it); and the two tables left over from 1.x.
 ## Reporting reference
 
 [docs/REPORTING.md](../../docs/REPORTING.md) and the guide at the top of [docs/REPORTING-REFERENCE.md](../../docs/REPORTING-REFERENCE.md) (its Part A) are written by hand, for a team building its own reports. The rest of the reference is generated:
@@ -75,9 +102,10 @@ pwsh tools/dev/schema/Build-ReportingReference.ps1
 Work through every step, in this order, before tagging.
 
 1. **Version.** Update `CHANGELOG.md` with the version, date and a summary. If the release needs a fresh install rather than an upgrade, say so at the top of the entry.
+   - Then take the schema baseline again: `pwsh tools/dev/schema/Update-SchemaBaseline.ps1 -SqlServer localhost` (see [Schema compatibility](#schema-compatibility)). If it refuses, the release breaks the schema: fix that first.
 2. **Unit and script tests:**
    - `dotnet test dashboard/CopilotInsights.Tests`;
-   - the test scripts `tests/Test-Engine.ps1`, `Test-Orchestrator.ps1`, `Test-UserDirectory.ps1`, `Test-DataHealth.ps1`, `Test-Precache.ps1`, `Test-Provisioning.ps1`, `Test-ExternalUsage.ps1`, `Test-OperationsGuide.ps1`, `Test-Spelling.ps1`, `Test-SqlScriptOrder.ps1`, `Test-PowerBiModel.ps1`, `Test-Workflows.ps1`, `Test-CsvImport.ps1`, `Test-NightlyProfile.ps1` and `Test-ReportingReference.ps1`.
+   - the test scripts `tests/Test-Engine.ps1`, `Test-Orchestrator.ps1`, `Test-UserDirectory.ps1`, `Test-DataHealth.ps1`, `Test-Precache.ps1`, `Test-Provisioning.ps1`, `Test-ExternalUsage.ps1`, `Test-SchemaCompatibility.ps1`, `Test-OperationsGuide.ps1`, `Test-Spelling.ps1`, `Test-SqlScriptOrder.ps1`, `Test-PowerBiModel.ps1`, `Test-Workflows.ps1`, `Test-CsvImport.ps1`, `Test-NightlyProfile.ps1` and `Test-ReportingReference.ps1`.
 3. **SQL integration.** Run `tests/Test-SqlIntegration.ps1` against a local SQL Server, with `SQLIT_SERVER` and `SQLIT_INTEGRATED=1` set.
 4. **Analyzer.** `Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1` must report nothing, because CI fails on any finding.
 5. **Demo and UI.**
