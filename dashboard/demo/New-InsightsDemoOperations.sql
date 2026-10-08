@@ -43,6 +43,14 @@ FROM bi.DimUser AS u JOIN l ON l.UserPrincipalName = u.UserPrincipalName AND l.n
 UPDATE audit.CopilotLicense SET EmployeeHireDate = DATEADD(DAY, -(ABS(CHECKSUM(UserPrincipalName)) % 150), @today)
 WHERE ABS(CHECKSUM(UserPrincipalName)) % 9 = 0;
 
+/* ---- The two certificates the pipeline signs in with: one well in date, one inside the warning ---- */
+DELETE FROM audit.PipelineCertificate;
+INSERT INTO audit.PipelineCertificate (Purpose, Thumbprint, Found, Subject, Issuer, NotBeforeUtc, ExpiresUtc, Store, ClientId, TenantId, Host)
+VALUES ('Purview', '3F2A9C0D1B4E5F60718293A4B5C6D7E8F9012345', 1, N'CN=Copilot audit backfill (JOBSRV01)', N'CN=Copilot audit backfill (JOBSRV01)',
+        DATEADD(DAY, -120, SYSUTCDATETIME()), DATEADD(DAY, 245, SYSUTCDATETIME()), 'LocalMachine\My', N'11111111-2222-3333-4444-555555555555', N'contoso.onmicrosoft.com', N'JOBSRV01'),
+       ('AgentWorkbook', 'A1B2C3D4E5F60718293A4B5C6D7E8F9012345678', 1, N'CN=Copilot agent workbook (JOBSRV01)', N'CN=Contoso Issuing CA 2, DC=contoso, DC=com',
+        DATEADD(DAY, -344, SYSUTCDATETIME()), DATEADD(DAY, 21, SYSUTCDATETIME()), 'LocalMachine\My', N'66666666-7777-8888-9999-000000000000', N'contoso.onmicrosoft.com', N'JOBSRV01');
+
 /* ---- Pipeline runs ---- */
 DELETE FROM audit.PipelineRunStep;
 DELETE FROM audit.PipelineRun;

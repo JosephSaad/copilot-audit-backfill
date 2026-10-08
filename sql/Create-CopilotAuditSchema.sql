@@ -238,3 +238,27 @@ IF OBJECT_ID(N'audit.PipelineRunStep', N'U') IS NULL
    and 3 days before (2.3.0). */
 IF COL_LENGTH(N'audit.PipelineRun', N'CertificateThumbprint') IS NULL
     ALTER TABLE audit.PipelineRun ADD CertificateThumbprint VARCHAR(64) NULL, CertificateExpiresUtc DATETIME2(0) NULL, CertificateSubject NVARCHAR(400) NULL;
+
+/*  Every certificate the pipeline signs in with, as the job server holds it: one row for each, rewritten at
+    the start of every run. There are two: Purview, for the app that reads the audit log and the licenses
+    through Microsoft Graph, and AgentWorkbook, for the app that fetches the agent workbook from SharePoint
+    Online, where the settings name one. Admin > Health shows each with its details, and the dashboard warns
+    30, 14 and 3 days before either expires. A thumbprint the settings name that the job server holds no
+    certificate for is recorded too, with Found = 0. audit.PipelineRun keeps the audit app's certificate with
+    each run, as before. */
+IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NULL
+    CREATE TABLE audit.PipelineCertificate
+    (
+        Purpose      VARCHAR(32)     NOT NULL CONSTRAINT PK_PipelineCertificate PRIMARY KEY,   -- Purview | AgentWorkbook
+        Thumbprint   VARCHAR(64)     NOT NULL,   -- as the settings file names it
+        Found        BIT             NOT NULL,   -- 0: no certificate of that thumbprint on the job server
+        Subject      NVARCHAR(400)   NULL,
+        Issuer       NVARCHAR(400)   NULL,
+        NotBeforeUtc DATETIME2(0)    NULL,
+        ExpiresUtc   DATETIME2(0)    NULL,
+        Store        VARCHAR(32)     NULL,       -- LocalMachine\My | CurrentUser\My
+        ClientId     NVARCHAR(64)    NULL,       -- the app registration it signs in as
+        TenantId     NVARCHAR(256)   NULL,
+        Host         NVARCHAR(128)   NULL,       -- the job server that holds it
+        SeenUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_PipelineCertificate_Seen DEFAULT (SYSUTCDATETIME())
+    );

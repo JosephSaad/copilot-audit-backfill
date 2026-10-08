@@ -38,7 +38,7 @@ The Copilot database has three schemas, one per layer:
 | `bi` | A star schema: narrow fact tables with integer keys, small dimensions, and a view over each. | **Yes. The `bi` views are the reporting interface.** |
 | `dash` | What the Copilot Insights web dashboard keeps for itself: its settings, roles, org chart, daily rollups and the agent inventory. | Not by default. See section 12. |
 
-In numbers, release 2.6.1 creates 95 tables and 37 views. A report needs 26 of them: the views in `bi`.
+In numbers, release 2.6.1 creates 96 tables and 37 views. A report needs 26 of them: the views in `bi`.
 
 **What a record is.** One audit record is one Copilot interaction: a person's prompt and Copilot's response, in one app, at one moment. It says who, when, which app, which agent and model, what Copilot read to answer (files, mail, sites, web searches), and what the safety checks found. **It does not contain the prompt or the response text.** No table here has them.
 

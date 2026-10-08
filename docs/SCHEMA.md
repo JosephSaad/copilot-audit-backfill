@@ -2,12 +2,12 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-93 tables (plus 2 left over from 1.x), 37 views, 1210 columns, from 18 scripts.
+94 tables (plus 2 left over from 1.x), 37 views, 1222 columns, from 18 scripts.
 
 ## Contents
 
 - [The scripts](#the-scripts)
-- [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep)
+- [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep), [`audit.PipelineCertificate`](#auditpipelinecertificate)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.AgentCatalog`](#auditagentcatalog), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
 - [Licenses and the user directory](#licenses-and-the-user-directory): [`audit.CopilotLicense`](#auditcopilotlicense), [`audit.UserDirectory`](#audituserdirectory), [`audit.GroupMember`](#auditgroupmember), [`audit.LicenseSku`](#auditlicensesku), [`audit.LicenseSkuDay`](#auditlicenseskuday), [`audit.UserLicenseSku`](#audituserlicensesku), [`audit.vCopilotAdoption`](#auditvcopilotadoption), [`audit.vCopilotUsageByDepartment`](#auditvcopilotusagebydepartment)
@@ -27,7 +27,7 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 
 | Script | Database | Run | Creates |
 |---|---|---|---|
-| `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage. The shared function fnShredCopilotInteraction. |
+| `sql/Create-CopilotAuditSchema.sql` | Both | Automatically, at the start of every run of Invoke-CopilotAuditBackfill.ps1 and of the CSV importer | Backfill and load state and staging: CopilotBackfillRange, CopilotBackfillWindow, CopilotAuditStage, CopilotLoad, CopilotLoadWindow, CopilotLoadStage. The pipeline's settings, runs, steps and certificates: PipelineSetting, PipelineRun, PipelineRunStep, PipelineCertificate. The shared function fnShredCopilotInteraction. |
 | `sql/Finalize-CopilotAudit.sql` | Both | By -Finalize or -FinalizeOnly, once, after the backfill | CopilotAudit and CopilotInteraction (dropped and rebuilt from staging), vCopilotDailyUsage, vCopilotAuditRecord. |
 | `sql/Create-CopilotLoadProcedure.sql` | Both | Automatically, by every -Incremental run | usp_MergeCopilotLoad, which appends each nightly load. |
 | `sql/Create-CopilotCsvImport.sql` | Copilot (or license, if importing there) | Automatically, by tools/Import-CopilotAuditCsv.ps1 | CopilotCsvImport, CopilotCsvFile, CopilotCsvReject, CopilotCsvStage, usp_MergeCopilotCsv. In a database with no backfill, also CopilotAudit, CopilotInteraction and their two views. Adds CopilotAudit.CsvImportId and CopilotBackfillRange.Source. |
@@ -270,6 +270,31 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_PipelineRunStep`: primary key, clustered (RunId, StepNo)
+
+### audit.PipelineCertificate
+
+*Table.*One row for each certificate the pipeline signs in with, as the job server held it at the start of its last run: Purview, for the app that reads the audit log and the licenses through Microsoft Graph, and AgentWorkbook, for the app that fetches the agent workbook from SharePoint Online, where the settings name one. Invoke-CopilotPipeline.ps1 rewrites it every run and removes the row of a certificate no longer in use. Admin &gt; Health shows each with its details, and the dashboard's alert watches each one's expiry. audit.PipelineRun still keeps the audit app's certificate with each run.
+
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Purpose` | varchar(32) | **no** | **PK** | Purview \| AgentWorkbook |
+| 2 | `Thumbprint` | varchar(64) | **no** |  | as the settings file names it |
+| 3 | `Found` | bit | **no** |  | 0: no certificate of that thumbprint on the job server |
+| 4 | `Subject` | nvarchar(400) | yes |  |  |
+| 5 | `Issuer` | nvarchar(400) | yes |  |  |
+| 6 | `NotBeforeUtc` | datetime2(0) | yes |  |  |
+| 7 | `ExpiresUtc` | datetime2(0) | yes |  |  |
+| 8 | `Store` | varchar(32) | yes |  | LocalMachine\\My \| CurrentUser\\My |
+| 9 | `ClientId` | nvarchar(64) | yes |  | the app registration it signs in as |
+| 10 | `TenantId` | nvarchar(256) | yes |  |  |
+| 11 | `Host` | nvarchar(128) | yes |  | the job server that holds it |
+| 12 | `SeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_PipelineCertificate`: primary key, clustered (Purpose)
 
 ## Final records
 

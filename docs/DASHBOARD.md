@@ -280,7 +280,7 @@ Passwords and client secrets are stored in `dash.Secret`, encrypted by SQL Serve
 |---|---|
 | Pipeline failed | A run of `Invoke-CopilotPipeline.ps1` failed: the step and its last log lines. Also a run still marked as running after 12 hours. |
 | Stale data | The dashboard's data is older than *FreshnessHours* (36). Once a day while it lasts. Every page also shows a banner. |
-| App certificate | The certificate the pipeline signs in to Graph with expires within *CertificateWarnDays* (30), then again at 14 and 3 days, and when it has expired. |
+| App certificate | A certificate the pipeline signs in with expires within *CertificateWarnDays* (30), then again at 14 and 3 days, and when it has expired. Each of the two is watched on its own: the Purview audit app's, and the SharePoint agent workbook app's where one is set up. Also when the settings name a certificate the job server does not hold. |
 | Security signals | After each refresh, for the last complete day: jailbreak attempts, prompt injections, blocked resources, and interactions touching content at or above a label order, when a day reaches its threshold or is the set number of times its 28-day average. |
 | Drops and spikes | A department's day at least 50% below, or 200% above, its average for that weekday over the four weeks before. Departments smaller than the minimum group size are not judged. |
 | License pool | 95% of the Copilot seats bought are assigned. Once a week while it lasts. |
@@ -531,7 +531,7 @@ Admin shows no usage data by itself. An administrator who should also see the re
 - how many people sit under it;
 - how many people in the data are matched to AD;
 - the latest day with data;
-- the app certificate the pipeline signs in with, and when it expires;
+- each certificate the pipeline signs in with, the Purview audit app's and the SharePoint agent workbook app's, with when it expires and its details side by side;
 - the audit searches: those waiting at Microsoft Purview for a load under way, how many had to be resubmitted or failed, and what the last load took (when it was merged, the records it fetched and how many were new, and in how many searches). A load's searches are listed only while it runs, and are counted with the load once it is merged; a load merged before that count was kept shows its records without it;
 - the last ten dashboard refreshes.
 

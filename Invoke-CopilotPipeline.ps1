@@ -320,6 +320,67 @@ function Get-PipelineCertificate {
     }
 }
 
+function Get-PipelineCertificateUse {
+    <#
+        Every certificate the pipeline signs in with, from the settings: what it is for, its thumbprint, and the
+        app registration and tenant it signs in as. Purview: the app that reads the audit log and the licenses
+        through Microsoft Graph. AgentWorkbook: the app that fetches the agent workbook from SharePoint Online,
+        where the settings name a site and a certificate for it (a workbook from a share or an address signs in as
+        the task's account, with no certificate). Pure, for the tests.
+    #>
+    param([System.Collections.IDictionary] $T)
+    function Has($k) { $T.Contains($k) -and $T[$k] }
+    # A thumbprint as the certificate dialog copies it can carry spaces and an invisible mark: hexadecimal digits only.
+    function Clean($v) { ("$v" -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() }
+    $uses = [System.Collections.Generic.List[object]]::new()
+    if (Has 'CertificateThumbprint') {
+        $uses.Add([pscustomobject]@{ Purpose = 'Purview'; Thumbprint = (Clean $T.CertificateThumbprint)
+                                     ClientId = $(if (Has 'ClientId') { "$($T.ClientId)" }); TenantId = $(if (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    if ((Has 'AgentWorkbookSiteUrl') -and (Has 'AgentWorkbookCertificateThumbprint')) {
+        $uses.Add([pscustomobject]@{ Purpose = 'AgentWorkbook'; Thumbprint = (Clean $T.AgentWorkbookCertificateThumbprint)
+                                     ClientId = $(if (Has 'AgentWorkbookClientId') { "$($T.AgentWorkbookClientId)" })
+                                     TenantId = $(if (Has 'AgentWorkbookTenantId') { "$($T.AgentWorkbookTenantId)" } elseif (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    , $uses.ToArray()
+}
+
+function Write-PipelineCertificate {
+    <#
+        Records each of those certificates as the job server holds it now (audit.PipelineCertificate), for Admin >
+        Health and the dashboard's expiry alerts: subject, issuer, validity, the store it is in, and the app it signs
+        in as. One the settings name that is in neither store is recorded as not found. A certificate no longer in
+        use (the workbook moved to a share) has its row removed. Never fails the run, as the run's own record.
+    #>
+    param([System.Collections.IDictionary] $T, [string] $Log)
+    $uses = Get-PipelineCertificateUse $T   # an array already: wrapped again it would be one item holding them all
+    foreach ($u in $uses) {
+        $cert = $null; $where = $null
+        foreach ($store in 'LocalMachine\My', 'CurrentUser\My') {
+            $cert = Get-Item -LiteralPath "Cert:\$store\$($u.Thumbprint)" -ErrorAction SilentlyContinue
+            if ($cert) { $where = $store; break }
+        }
+        [void] (Write-PipelineRecord $T -Log $Log -Parameters @{
+                '@p' = $u.Purpose; '@t' = $u.Thumbprint; '@f' = [bool] $cert
+                '@s' = $(if ($cert) { $cert.Subject }); '@i' = $(if ($cert) { $cert.Issuer })
+                '@nb' = $(if ($cert) { $cert.NotBefore.ToUniversalTime() }); '@e' = $(if ($cert) { $cert.NotAfter.ToUniversalTime() })
+                '@st' = $where; '@c' = $u.ClientId; '@tn' = $u.TenantId; '@h' = [Environment]::MachineName
+            } -Sql @"
+IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC sp_executesql N'
+MERGE audit.PipelineCertificate AS t USING (SELECT @p AS Purpose) AS s ON t.Purpose = s.Purpose
+WHEN MATCHED THEN UPDATE SET Thumbprint = @t, Found = @f, Subject = LEFT(@s, 400), Issuer = LEFT(@i, 400), NotBeforeUtc = @nb, ExpiresUtc = @e,
+                             Store = @st, ClientId = LEFT(@c, 64), TenantId = LEFT(@tn, 256), Host = @h, SeenUtc = SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (Purpose, Thumbprint, Found, Subject, Issuer, NotBeforeUtc, ExpiresUtc, Store, ClientId, TenantId, Host)
+                      VALUES (@p, @t, @f, LEFT(@s, 400), LEFT(@i, 400), @nb, @e, @st, LEFT(@c, 64), LEFT(@tn, 256), @h);',
+    N'@p VARCHAR(32), @t VARCHAR(64), @f BIT, @s NVARCHAR(4000), @i NVARCHAR(4000), @nb DATETIME2(0), @e DATETIME2(0), @st VARCHAR(32), @c NVARCHAR(4000), @tn NVARCHAR(4000), @h NVARCHAR(128)',
+    @p = @p, @t = @t, @f = @f, @s = @s, @i = @i, @nb = @nb, @e = @e, @st = @st, @c = @c, @tn = @tn, @h = @h;
+"@)
+    }
+    # What is no longer used is no longer watched. The names are this script's own.
+    $keep = (@($uses | ForEach-Object { "'$($_.Purpose)'" }) + "''") -join ', '
+    [void] (Write-PipelineRecord $T -Log $Log -Parameters @{} -Sql "IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC (N'DELETE FROM audit.PipelineCertificate WHERE Purpose NOT IN ($($keep.Replace("'", "''")));');")
+}
+
 function Invoke-TenantRun {
     <# One tenant's run: its steps in order, recorded in its own database. Returns $true when every step succeeded. #>
     param([System.Collections.IDictionary] $T, [string] $Log, [string] $Label)
@@ -336,6 +397,8 @@ function Invoke-TenantRun {
         [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@t' = $cert.Thumbprint; '@e' = $cert.NotAfter.ToUniversalTime(); '@s' = $cert.Subject } -Sql `
             "IF COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') IS NOT NULL EXEC sp_executesql N'UPDATE audit.PipelineRun SET CertificateThumbprint = @t, CertificateExpiresUtc = @e, CertificateSubject = LEFT(@s, 400) WHERE RunId = @r;', N'@r INT, @t VARCHAR(64), @e DATETIME2(0), @s NVARCHAR(4000)', @r = @r, @t = @t, @e = @e, @s = @s;")
     }
+    # Each certificate the run signs in with, for Admin > Health and the expiry alerts: the audit app's and the agent workbook's.
+    Write-PipelineCertificate $T -Log $Log
     $n = 0
     foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
         $n++

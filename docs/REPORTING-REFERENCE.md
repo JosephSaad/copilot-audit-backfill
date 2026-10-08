@@ -11,7 +11,7 @@ Written for release 2.6.1. The SQL in Part A was run against a demo database of 
 | Part | What it is | Kept current by |
 |---|---|---|
 | **A. The guide** | How the schema is created, filled and used, the reporting views column by column, the figures, the Grafana setup and queries, and the other layers. | Hand, each release |
-| **B. Every table and view, column by column** | All 95 tables and 37 views: types, keys, defaults, indexes, and the script that creates each. The same text as [SCHEMA.md](SCHEMA.md). | `tools/dev/schema/Build-ReportingReference.ps1`, from `docs/SCHEMA.md` |
+| **B. Every table and view, column by column** | All 96 tables and 37 views: types, keys, defaults, indexes, and the script that creates each. The same text as [SCHEMA.md](SCHEMA.md). | `tools/dev/schema/Build-ReportingReference.ps1`, from `docs/SCHEMA.md` |
 | **C. The scripts** | The full text of the installer, the 18 SQL scripts and the three other PowerShell scripts that create or fill the schema. | The same tool, from the scripts themselves |
 
 Parts B and C are generated. A test in CI (`tests/Test-ReportingReference.ps1`) fails when either is behind its source, so what you read here is what the release runs.
@@ -91,7 +91,7 @@ The schemas of the Copilot database:
 
 | Schema | Tables | Views | What it is |
 |---|--:|--:|---|
-| `audit` | 40 | 10 | Loading state and staging; the final records; the flattened records; licenses and the user directory; sessions; the CSV import; and, in the license-event database, the license events. |
+| `audit` | 41 | 10 | Loading state and staging; the final records; the flattened records; licenses and the user directory; sessions; the CSV import; and, in the license-event database, the license events. |
 | `bi` | 21 | 26 | The star schema: 13 dimension tables, 6 fact tables, 2 tables of refresh state, and the 26 views a reporting tool reads. |
 | `dash` | 34 | 1 | The dashboard's own: settings, roles, reference names, its audit log, the org chart, the daily rollups, the agent inventory, and the operations tables (alerts, digests, targets, extracts). |
 | `dbo` | 3 | | Only when an agent workbook is loaded: `dbo.AgentInventory`, `dbo.AgentsInProd` and `dbo.ParentChildAgent`, each sheet as it is in the workbook, every column as text. |
@@ -111,7 +111,7 @@ The scripts it runs, in order:
 
 | # | Script | Database | Creates |
 |--:|---|---|---|
-| 1 | `Create-CopilotAuditSchema.sql` | Both | The loading tables: `CopilotBackfillRange`, `CopilotBackfillWindow`, `CopilotAuditStage`, `CopilotLoad`, `CopilotLoadWindow`, `CopilotLoadStage`. `PipelineSetting`, `PipelineRun`, `PipelineRunStep`. The functions `audit.fnShredCopilotInteraction` and `audit.ReportingTimeZone`. |
+| 1 | `Create-CopilotAuditSchema.sql` | Both | The loading tables: `CopilotBackfillRange`, `CopilotBackfillWindow`, `CopilotAuditStage`, `CopilotLoad`, `CopilotLoadWindow`, `CopilotLoadStage`. `PipelineSetting`, `PipelineRun`, `PipelineRunStep`, `PipelineCertificate`. The functions `audit.fnShredCopilotInteraction` and `audit.ReportingTimeZone`. |
 | 2 | `Create-CopilotLoadProcedure.sql` | Both | `audit.usp_MergeCopilotLoad`. |
 | 3 | `Create-CopilotFlattenedSchema.sql` | Copilot | `RawLogFlattened`, `RawLogAccessedResource`, `RawLogContext`, `RawLogRecordShape`, `ValueCatalog`, `ValueCatalogColumn`, `AgentCatalog`; `CopilotLicense` if it is not there yet. |
 | 4 | `Create-CopilotFlattenProcedure.sql` | Copilot | `audit.usp_FlattenCopilotAudit`, `audit.usp_CatalogValues`, `audit.usp_CatalogAgents`, `audit.usp_BackfillAgentNames`. |
@@ -1261,6 +1261,7 @@ Every object, by layer. Part B has each one's columns.
 | `CopilotLoadWindow`, `CopilotLoadStage` | The load in progress. Emptied after each merge. |
 | `PipelineSetting` | Settings and marks the procedures read: the reporting time zone, privacy mode, and the marks long jobs leave. |
 | `PipelineRun`, `PipelineRunStep` | One row per nightly run and per step: status, the step that failed, the log's last lines. |
+| `PipelineCertificate` | One row for each certificate the pipeline signs in with (the audit app's, and the agent workbook app's): subject, issuer, validity, thumbprint, the app it signs in as, and whether the job server holds it. |
 
 **Final records** (`audit`, both databases).
 
@@ -1632,6 +1633,31 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_PipelineRunStep`: primary key, clustered (RunId, StepNo)
+
+#### audit.PipelineCertificate
+
+*Table.*One row for each certificate the pipeline signs in with, as the job server held it at the start of its last run: Purview, for the app that reads the audit log and the licenses through Microsoft Graph, and AgentWorkbook, for the app that fetches the agent workbook from SharePoint Online, where the settings name one. Invoke-CopilotPipeline.ps1 rewrites it every run and removes the row of a certificate no longer in use. Admin &gt; Health shows each with its details, and the dashboard's alert watches each one's expiry. audit.PipelineRun still keeps the audit app's certificate with each run.
+
+**Script** `Create-CopilotAuditSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Purpose` | varchar(32) | **no** | **PK** | Purview \| AgentWorkbook |
+| 2 | `Thumbprint` | varchar(64) | **no** |  | as the settings file names it |
+| 3 | `Found` | bit | **no** |  | 0: no certificate of that thumbprint on the job server |
+| 4 | `Subject` | nvarchar(400) | yes |  |  |
+| 5 | `Issuer` | nvarchar(400) | yes |  |  |
+| 6 | `NotBeforeUtc` | datetime2(0) | yes |  |  |
+| 7 | `ExpiresUtc` | datetime2(0) | yes |  |  |
+| 8 | `Store` | varchar(32) | yes |  | LocalMachine\\My \| CurrentUser\\My |
+| 9 | `ClientId` | nvarchar(64) | yes |  | the app registration it signs in as |
+| 10 | `TenantId` | nvarchar(256) | yes |  |  |
+| 11 | `Host` | nvarchar(128) | yes |  | the job server that holds it |
+| 12 | `SeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_PipelineCertificate`: primary key, clustered (Purpose)
 
 ### Final records
 
@@ -4837,7 +4863,7 @@ if ($todo) { Write-Host 'Still to do:'; $todo | ForEach-Object { Write-Host "  -
 
 ### C.2 `sql/Create-CopilotAuditSchema.sql`
 
-Both databases. Loading state and staging, the pipeline's settings and run log, and the shared function that reads an interaction out of the record JSON. 240 lines.
+Both databases. Loading state and staging, the pipeline's settings and run log, and the shared function that reads an interaction out of the record JSON. 264 lines.
 
 ```sql
 /*
@@ -5080,6 +5106,30 @@ IF OBJECT_ID(N'audit.PipelineRunStep', N'U') IS NULL
    and 3 days before (2.3.0). */
 IF COL_LENGTH(N'audit.PipelineRun', N'CertificateThumbprint') IS NULL
     ALTER TABLE audit.PipelineRun ADD CertificateThumbprint VARCHAR(64) NULL, CertificateExpiresUtc DATETIME2(0) NULL, CertificateSubject NVARCHAR(400) NULL;
+
+/*  Every certificate the pipeline signs in with, as the job server holds it: one row for each, rewritten at
+    the start of every run. There are two: Purview, for the app that reads the audit log and the licenses
+    through Microsoft Graph, and AgentWorkbook, for the app that fetches the agent workbook from SharePoint
+    Online, where the settings name one. Admin > Health shows each with its details, and the dashboard warns
+    30, 14 and 3 days before either expires. A thumbprint the settings name that the job server holds no
+    certificate for is recorded too, with Found = 0. audit.PipelineRun keeps the audit app's certificate with
+    each run, as before. */
+IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NULL
+    CREATE TABLE audit.PipelineCertificate
+    (
+        Purpose      VARCHAR(32)     NOT NULL CONSTRAINT PK_PipelineCertificate PRIMARY KEY,   -- Purview | AgentWorkbook
+        Thumbprint   VARCHAR(64)     NOT NULL,   -- as the settings file names it
+        Found        BIT             NOT NULL,   -- 0: no certificate of that thumbprint on the job server
+        Subject      NVARCHAR(400)   NULL,
+        Issuer       NVARCHAR(400)   NULL,
+        NotBeforeUtc DATETIME2(0)    NULL,
+        ExpiresUtc   DATETIME2(0)    NULL,
+        Store        VARCHAR(32)     NULL,       -- LocalMachine\My | CurrentUser\My
+        ClientId     NVARCHAR(64)    NULL,       -- the app registration it signs in as
+        TenantId     NVARCHAR(256)   NULL,
+        Host         NVARCHAR(128)   NULL,       -- the job server that holds it
+        SeenUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_PipelineCertificate_Seen DEFAULT (SYSUTCDATETIME())
+    );
 ```
 
 ### C.3 `sql/Create-CopilotLoadProcedure.sql`
@@ -10899,7 +10949,7 @@ DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),
                              (N'PipelineRunStep'), (N'PipelineSetting'), (N'LicenseSku'), (N'LicenseSkuDay'), (N'CopilotLicense'), (N'UserLicenseSku'),
-                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember')) AS v (name)
+                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember'), (N'PipelineCertificate')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;
@@ -12976,7 +13026,7 @@ GO
 
 ### C.20 `Invoke-CopilotPipeline.ps1`
 
-The nightly run and the first load of history: the order in which every table is filled. 403 lines.
+The nightly run and the first load of history: the order in which every table is filled. 466 lines.
 
 ```powershell
 <#
@@ -13301,6 +13351,67 @@ function Get-PipelineCertificate {
     }
 }
 
+function Get-PipelineCertificateUse {
+    <#
+        Every certificate the pipeline signs in with, from the settings: what it is for, its thumbprint, and the
+        app registration and tenant it signs in as. Purview: the app that reads the audit log and the licenses
+        through Microsoft Graph. AgentWorkbook: the app that fetches the agent workbook from SharePoint Online,
+        where the settings name a site and a certificate for it (a workbook from a share or an address signs in as
+        the task's account, with no certificate). Pure, for the tests.
+    #>
+    param([System.Collections.IDictionary] $T)
+    function Has($k) { $T.Contains($k) -and $T[$k] }
+    # A thumbprint as the certificate dialog copies it can carry spaces and an invisible mark: hexadecimal digits only.
+    function Clean($v) { ("$v" -replace '[^0-9A-Fa-f]', '').ToUpperInvariant() }
+    $uses = [System.Collections.Generic.List[object]]::new()
+    if (Has 'CertificateThumbprint') {
+        $uses.Add([pscustomobject]@{ Purpose = 'Purview'; Thumbprint = (Clean $T.CertificateThumbprint)
+                                     ClientId = $(if (Has 'ClientId') { "$($T.ClientId)" }); TenantId = $(if (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    if ((Has 'AgentWorkbookSiteUrl') -and (Has 'AgentWorkbookCertificateThumbprint')) {
+        $uses.Add([pscustomobject]@{ Purpose = 'AgentWorkbook'; Thumbprint = (Clean $T.AgentWorkbookCertificateThumbprint)
+                                     ClientId = $(if (Has 'AgentWorkbookClientId') { "$($T.AgentWorkbookClientId)" })
+                                     TenantId = $(if (Has 'AgentWorkbookTenantId') { "$($T.AgentWorkbookTenantId)" } elseif (Has 'TenantId') { "$($T.TenantId)" }) })
+    }
+    , $uses.ToArray()
+}
+
+function Write-PipelineCertificate {
+    <#
+        Records each of those certificates as the job server holds it now (audit.PipelineCertificate), for Admin >
+        Health and the dashboard's expiry alerts: subject, issuer, validity, the store it is in, and the app it signs
+        in as. One the settings name that is in neither store is recorded as not found. A certificate no longer in
+        use (the workbook moved to a share) has its row removed. Never fails the run, as the run's own record.
+    #>
+    param([System.Collections.IDictionary] $T, [string] $Log)
+    $uses = Get-PipelineCertificateUse $T   # an array already: wrapped again it would be one item holding them all
+    foreach ($u in $uses) {
+        $cert = $null; $where = $null
+        foreach ($store in 'LocalMachine\My', 'CurrentUser\My') {
+            $cert = Get-Item -LiteralPath "Cert:\$store\$($u.Thumbprint)" -ErrorAction SilentlyContinue
+            if ($cert) { $where = $store; break }
+        }
+        [void] (Write-PipelineRecord $T -Log $Log -Parameters @{
+                '@p' = $u.Purpose; '@t' = $u.Thumbprint; '@f' = [bool] $cert
+                '@s' = $(if ($cert) { $cert.Subject }); '@i' = $(if ($cert) { $cert.Issuer })
+                '@nb' = $(if ($cert) { $cert.NotBefore.ToUniversalTime() }); '@e' = $(if ($cert) { $cert.NotAfter.ToUniversalTime() })
+                '@st' = $where; '@c' = $u.ClientId; '@tn' = $u.TenantId; '@h' = [Environment]::MachineName
+            } -Sql @"
+IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC sp_executesql N'
+MERGE audit.PipelineCertificate AS t USING (SELECT @p AS Purpose) AS s ON t.Purpose = s.Purpose
+WHEN MATCHED THEN UPDATE SET Thumbprint = @t, Found = @f, Subject = LEFT(@s, 400), Issuer = LEFT(@i, 400), NotBeforeUtc = @nb, ExpiresUtc = @e,
+                             Store = @st, ClientId = LEFT(@c, 64), TenantId = LEFT(@tn, 256), Host = @h, SeenUtc = SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (Purpose, Thumbprint, Found, Subject, Issuer, NotBeforeUtc, ExpiresUtc, Store, ClientId, TenantId, Host)
+                      VALUES (@p, @t, @f, LEFT(@s, 400), LEFT(@i, 400), @nb, @e, @st, LEFT(@c, 64), LEFT(@tn, 256), @h);',
+    N'@p VARCHAR(32), @t VARCHAR(64), @f BIT, @s NVARCHAR(4000), @i NVARCHAR(4000), @nb DATETIME2(0), @e DATETIME2(0), @st VARCHAR(32), @c NVARCHAR(4000), @tn NVARCHAR(4000), @h NVARCHAR(128)',
+    @p = @p, @t = @t, @f = @f, @s = @s, @i = @i, @nb = @nb, @e = @e, @st = @st, @c = @c, @tn = @tn, @h = @h;
+"@)
+    }
+    # What is no longer used is no longer watched. The names are this script's own.
+    $keep = (@($uses | ForEach-Object { "'$($_.Purpose)'" }) + "''") -join ', '
+    [void] (Write-PipelineRecord $T -Log $Log -Parameters @{} -Sql "IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NOT NULL EXEC (N'DELETE FROM audit.PipelineCertificate WHERE Purpose NOT IN ($($keep.Replace("'", "''")));');")
+}
+
 function Invoke-TenantRun {
     <# One tenant's run: its steps in order, recorded in its own database. Returns $true when every step succeeded. #>
     param([System.Collections.IDictionary] $T, [string] $Log, [string] $Label)
@@ -13317,6 +13428,8 @@ function Invoke-TenantRun {
         [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@t' = $cert.Thumbprint; '@e' = $cert.NotAfter.ToUniversalTime(); '@s' = $cert.Subject } -Sql `
             "IF COL_LENGTH(N'audit.PipelineRun', N'CertificateExpiresUtc') IS NOT NULL EXEC sp_executesql N'UPDATE audit.PipelineRun SET CertificateThumbprint = @t, CertificateExpiresUtc = @e, CertificateSubject = LEFT(@s, 400) WHERE RunId = @r;', N'@r INT, @t VARCHAR(64), @e DATETIME2(0), @s NVARCHAR(4000)', @r = @r, @t = @t, @e = @e, @s = @s;")
     }
+    # Each certificate the run signs in with, for Admin > Health and the expiry alerts: the audit app's and the agent workbook's.
+    Write-PipelineCertificate $T -Log $Log
     $n = 0
     foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
         $n++

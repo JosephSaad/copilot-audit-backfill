@@ -37,7 +37,7 @@ Nothing needs doing while it is healthy: the nightly task loads and builds every
 | Data freshness | Every page shows a yellow banner when the data is older than *FreshnessHours* (36) or the last run failed | No banner |
 | Alerts sent, and any that could not be | **Admin › Email**, *Recently sent* | *Sent* |
 | Directory coverage | **Admin › Health**, *Directory and security model* | 95% or more of people matched to AD and placed under the top |
-| The app certificate and audit searches | **Admin › Health**, *Certificate and audit searches* | Certificate more than 30 days from expiry; no failed searches, few waiting |
+| The app certificates and audit searches | **Admin › Health**, *Certificates and audit searches* | Each certificate found on the job server and more than 30 days from expiry (the Purview audit app's, and the SharePoint agent workbook app's where one is set up); no failed searches, few waiting |
 | Gaps in AD | **Admin › Directory quality** | Few people without a manager, department, title or email |
 | Every report built ahead this morning (2.5.1) | **Admin › Health**, *Report speed*, on each web server; or `precache\precache.log` in the site's folder | *Last pre-cache* today, *built*, the slowest page from memory under a second |
 
@@ -159,7 +159,7 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 
 **Teams, ServiceNow or any webhook.** Admin › Alerts and digests › *Teams, ServiceNow or any webhook*: an https address (stored encrypted) and a format. *Teams* posts an adaptive card of plain text (use a Teams Workflows "post to a channel when a webhook request is received" address, or an incoming webhook); *Json* posts `{source, kind, subject, lines, link, atUtc}` for ServiceNow, Splunk or anything else. **Post a test alert** checks it. Every alert then goes to the webhook as well as email.
 
-**The app certificate.** The pipeline records its certificate at the start of each run; an alert goes to the pipeline recipients at *Warn about the app certificate* days before it expires (30 by default), again at 14 and 3 days, and when it has expired.
+**The app certificates.** The pipeline signs in with up to two: one for the app that reads the audit log from Microsoft Purview, and one for the app that fetches the agent workbook from SharePoint Online, where the settings name a site. It records each at the start of every run. Each is watched on its own: an alert goes to the pipeline recipients at *Warn about the app certificate* days before it expires (30 by default), again at 14 and 3 days, and when it has expired; and one when the settings name a certificate the job server does not hold. Admin › Health › *Certificate details* sets the two side by side: subject, issuer, thumbprint, valid from, expiry, the app registration and tenant, the store it is in, the job server and when it was last checked.
 
 **Nothing arrives.** Admin › Email › *Recently sent* gives the reason for each message not sent: email off, no recipients, or the server's own answer (a refused password, a certificate that did not validate, a closed connection). An alert whose email failed, with no webhook to take it, is emailed again an hour later, three tries in all (2.4.12); *Where the checks stand* shows one waiting.
 
@@ -371,7 +371,9 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 
 **Running the job-server setup again** keeps every setting in `copilot-audit.settings.psd1`, those added by hand (`IncludeLeaveDates`) and empty ones (`EmployeeTypes = @()`) too, and the task's time set with `-At` (2.4.12; before, a re-run put `EmployeeTypes` back to EMP and NONW, dropped `IncludeLeaveDates`, and moved the task to 02:00).
 
-**The app's certificate.** Within 30 days of expiry, run `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` on the job server: a new certificate, its private key for the gMSA, uploaded next to the old one to the app of every tenant in the settings (you sign in to each), and its thumbprint in the settings. Remove the old certificate from the apps after the next good run. A run without `-RegisterApp` keeps the certificate it has until it expires (2.4.12; before, any run in those 30 days switched to a new certificate no app had, and the nightly sign-in failed).
+**The agent workbook app's certificate.** It is renewed by hand, apart from the audit app's: put a new certificate in the job server's LocalMachine\My, give the task's account read access to its private key, upload its public key to the workbook's app registration, and set `AgentWorkbookCertificateThumbprint` in `copilot-audit.settings.psd1`. Remove the old one from the app after the next good run. Admin › Health shows the new expiry after that run.
+
+**The audit app's certificate.** Within 30 days of expiry, run `.\tools\Install-CopilotJobServer.ps1 -RegisterApp` on the job server: a new certificate, its private key for the gMSA, uploaded next to the old one to the app of every tenant in the settings (you sign in to each), and its thumbprint in the settings. Remove the old certificate from the apps after the next good run. A run without `-RegisterApp` keeps the certificate it has until it expires (2.4.12; before, any run in those 30 days switched to a new certificate no app had, and the nightly sign-in failed).
 
 **Exchange Online.** If the dashboard sends with a mailbox password, move it to OAuth (Admin › Email) before Microsoft turns SMTP AUTH passwords off for your tenant.
 
@@ -381,7 +383,7 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 
 | Admin page | What it is for |
 |---|---|
-| Admin › Health | Report speed (when the report pages were last built ahead on this web server, the last morning pre-cache and its slowest page from memory, and how the cache works), pipeline runs and each step's freshness, directory coverage, the latest day with data, the app certificate, the audit searches waiting and what the last load took, and a manual refresh |
+| Admin › Health | Report speed (when the report pages were last built ahead on this web server, the last morning pre-cache and its slowest page from memory, and how the cache works), pipeline runs and each step's freshness, directory coverage, the latest day with data, each certificate the pipeline signs in with (the Purview audit app's and the SharePoint agent workbook app's) and its details, the audit searches waiting and what the last load took, and a manual refresh |
 | Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles, checking someone's access |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, and everything sent or not |

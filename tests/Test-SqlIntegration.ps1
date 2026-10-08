@@ -188,7 +188,7 @@ $objects = Invoke-SqlText -As Table -Sql @"
 SELECT name FROM sys.tables WHERE SCHEMA_NAME(schema_id) = 'audit' ORDER BY name;
 "@
 $names = @($objects.Rows | ForEach-Object { $_.name })
-Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow,PipelineRun,PipelineRunStep,PipelineSetting') `
+Assert-That (($names -join ',') -eq 'CopilotAuditStage,CopilotBackfillRange,CopilotBackfillWindow,CopilotLoad,CopilotLoadStage,CopilotLoadWindow,PipelineCertificate,PipelineRun,PipelineRunStep,PipelineSetting') `
     "Create-CopilotAuditSchema.sql built the backfill and incremental-load tables, and is idempotent ($($names -join ', '))"
 
 $heap = Invoke-SqlText -As Scalar -Sql @"
@@ -3428,6 +3428,25 @@ Assert-That ([int] $named.InView -eq 1 -and "$($named.Fn)" -eq 'Named app' -and 
     $bad = @{ SqlServer = 'no-such-server.invalid'; Database = 'x'; ConnectionString = 'Server=no-such-server.invalid;Database=x;Integrated Security=true;Connect Timeout=2' }
     $threw = try { [void] (Write-PipelineRecord $bad -Log $log -Parameters @{} -Sql 'SELECT 1;'); $false } catch { $true }
     Assert-That (-not $threw -and (Get-Content $log -Raw) -like '*not recorded in audit.PipelineRun*') 'and a database it cannot reach costs a line in the log, not the run'
+    Remove-Item $log -ErrorAction SilentlyContinue
+
+    # Both certificates the run signs in with are recorded for Admin > Health: neither thumbprint is on this machine, so
+    # each is recorded as not found; with the workbook moved to a share, its row goes.
+    $both = $setting + @{ TenantId = 't'; ClientId = 'audit-app'; CertificateThumbprint = '00 11 22'; AgentWorkbookSiteUrl = 'https://contoso.sharepoint.com/sites/AI'
+                          AgentWorkbookClientId = 'workbook-app'; AgentWorkbookCertificateThumbprint = 'AABBCC' }
+    Write-PipelineCertificate $both -Log $log
+    $certs = Invoke-SqlText -As Table -Sql 'SELECT Purpose, Thumbprint, Found, ClientId, TenantId, Host, ExpiresUtc FROM audit.PipelineCertificate ORDER BY Purpose;'
+    Assert-That ($certs.Rows.Count -eq 2 -and "$($certs.Rows[0].Purpose)|$($certs.Rows[1].Purpose)" -eq 'AgentWorkbook|Purview') "the pipeline records both certificates ($($certs.Rows.Count) row(s))"
+    Assert-That ("$($certs.Rows[1].Thumbprint)" -eq '001122' -and "$($certs.Rows[1].ClientId)" -eq 'audit-app' -and "$($certs.Rows[0].ClientId)" -eq 'workbook-app' -and "$($certs.Rows[0].TenantId)" -eq 't') `
+        'each with its cleaned thumbprint, and the app and tenant it signs in as'
+    Assert-That (-not [bool] $certs.Rows[0].Found -and -not [bool] $certs.Rows[1].Found -and $certs.Rows[0].ExpiresUtc -is [DBNull] -and "$($certs.Rows[0].Host)" -eq [Environment]::MachineName) `
+        'a thumbprint this machine holds no certificate for is recorded as not found, with the machine that looked'
+    Write-PipelineCertificate $both -Log $log
+    Assert-That ([int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.PipelineCertificate;') -eq 2) 'a second run rewrites the two rows, and adds none'
+    $both.Remove('AgentWorkbookSiteUrl'); $both.AgentWorkbookUrl = '\\fileserver\agents.xlsx'
+    Write-PipelineCertificate $both -Log $log
+    Assert-That ("$(Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(Purpose, ',') FROM audit.PipelineCertificate;")" -eq 'Purview') 'a workbook moved to a share no longer has a certificate watched'
+    Assert-That (-not (Test-Path $log)) 'and nothing failed on the way: a failure would have left a line in the log'
     Remove-Item $log -ErrorAction SilentlyContinue
 
     # 2.4.12: a database with no audit.CopilotAudit yet (its history not loaded) is "not loaded". The check named the

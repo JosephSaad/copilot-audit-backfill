@@ -18,6 +18,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   country once from the night after the upgrade; nothing is rebuilt and no table changes.
 
 ### Added
+- **Both certificates on Admin › Health.** The pipeline signs in with two: one for the app that reads the audit log
+  from Microsoft Purview, and one for the app that fetches the agent workbook from SharePoint Online. Health tracked
+  only the first. *Certificates and audit searches* now has a card for each, green, amber inside the warning days
+  or red once expired, and **Certificate details** sets the two side by side: what each is used for, subject,
+  issuer, thumbprint, valid from, expiry, the app registration and tenant it signs in as, the store it is in, the
+  job server, when it was last checked, and how to renew it. A certificate the settings name that the job server
+  does not hold is shown as not found, in red.
+- **The expiry alert watches each certificate on its own**: at *Warn about the app certificate* days (30), 14 and 3,
+  and when it has expired, naming the certificate and what stops when it does; and once when the settings name one
+  the job server does not hold. The audit app's keeps the state it had, so the upgrade sends no warning twice.
+- **`audit.PipelineCertificate`**, one row for each certificate, rewritten by `Invoke-CopilotPipeline.ps1` at the start
+  of every run (`Create-CopilotAuditSchema.sql`; `Install-CopilotAudit.ps1` adds it). A workbook fetched from a share
+  or an address signs in as the task's account, with no certificate, and has no row. Until the job server and the
+  database are upgraded, Health and the alert go on showing the one certificate each run recorded with itself.
 - **`CountryNames` in `copilot-audit.settings.psd1`** (`-CountryNames` on the directory load): your own names,
   spelling = name, on top of the ones the script knows. A name given there wins, and reaches the script's own name
   for a country too: `'United States' = 'USA'` makes every spelling of it *USA*.
