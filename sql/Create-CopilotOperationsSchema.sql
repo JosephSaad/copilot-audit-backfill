@@ -198,6 +198,12 @@ IF OBJECT_ID(N'dash.NotificationLog', N'U') IS NULL
         INDEX IX_DashNotificationLog_At (AtUtc)
     );
 
+/* What was said between the dashboard and the mail server for a message (2.6.2), for troubleshooting on
+   Admin > Email: where it connected and how, each command and the server's answer, and how it ended. Kept
+   for every test message and every message that was not sent; never the password, nor the message itself. */
+IF COL_LENGTH(N'dash.NotificationLog', N'Detail') IS NULL
+    ALTER TABLE dash.NotificationLog ADD Detail NVARCHAR(MAX) NULL;
+
 /* Which alert fired last on what, so an alert is sent once per occurrence, not every few minutes. */
 IF OBJECT_ID(N'dash.AlertState', N'U') IS NULL
     CREATE TABLE dash.AlertState
@@ -550,7 +556,9 @@ DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),
                              (N'PipelineRunStep'), (N'PipelineSetting'), (N'LicenseSku'), (N'LicenseSkuDay'), (N'CopilotLicense'), (N'UserLicenseSku'),
-                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember'), (N'PipelineCertificate')) AS v (name)
+                             (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember'), (N'PipelineCertificate'),
+                             (N'GitHubCopilotSeat'), (N'GitHubCopilotDay'), (N'GitHubCopilotUserDay'), (N'GitHubCopilotCost'),
+                             (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;

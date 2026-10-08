@@ -249,7 +249,7 @@ IF COL_LENGTH(N'audit.PipelineRun', N'CertificateThumbprint') IS NULL
 IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NULL
     CREATE TABLE audit.PipelineCertificate
     (
-        Purpose      VARCHAR(32)     NOT NULL CONSTRAINT PK_PipelineCertificate PRIMARY KEY,   -- Purview | AgentWorkbook
+        Purpose      VARCHAR(32)     NOT NULL CONSTRAINT PK_PipelineCertificate PRIMARY KEY,   -- Purview | AgentWorkbook | Foundry
         Thumbprint   VARCHAR(64)     NOT NULL,   -- as the settings file names it
         Found        BIT             NOT NULL,   -- 0: no certificate of that thumbprint on the job server
         Subject      NVARCHAR(400)   NULL,

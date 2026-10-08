@@ -12,6 +12,8 @@ public abstract class AdminPage(PageServices s) : InsightsPage(s)
     public override string Persona => "Admin";
     public override bool AdminOnly => true;
     public override bool UsesFilters => false;
+    /* An administrator names a person to grant, check or exempt: anyone in the directory can be found. */
+    public override CopilotInsights.Data.LookupKind Lookup => CopilotInsights.Data.LookupKind.Directory;
 
 }
 
@@ -173,7 +175,7 @@ FROM w;")).Single();
         }
         catch (Microsoft.Data.SqlClient.SqlException) { OpsCard("Audit searches", "No search windows in this database (records were not fetched from the audit log here, or this is not installed).", "status-warn"); }
         Panels.Add(new("Certificates and audit searches", new HtmlString(ops.Append("</div>").ToString()),
-            "The pipeline signs in with one certificate to read the audit log from Microsoft Purview, and with a second to fetch the agent workbook from SharePoint Online, where one is set up. Each expires on its own date, and an alert goes out before either does (Admin > Alerts and digests)."));
+            "The pipeline signs in with one certificate to read the audit log from Microsoft Purview, and with a second to fetch the agent workbook from SharePoint Online, where one is set up; the Foundry usage load can have one of its own. Each expires on its own date, and an alert goes out before any does (Admin > Alerts and digests)."));
         if (certs.Count > 0)
         {
             /* Every detail the job server recorded, a certificate to a column, so two read side by side. */
@@ -185,6 +187,21 @@ FROM w;")).Single();
             Panels.Add(new("Certificate details", ct.Render(),
                 "As the job server held each certificate at the start of its last run. A certificate the settings name that the job server does not hold is shown as not found."));
         }
+
+        /* AI usage outside Microsoft 365 Copilot (2.6.2): the last run of each optional loader. Plumbing so far: no report reads the tables. */
+        try
+        {
+            var loaded = await ExternalUsage.ReadAsync(Db);
+            var ext = new StringBuilder("<div class=\"cards\">");
+            foreach (var source in new[] { ExternalUsage.GitHub, ExternalUsage.Foundry })
+            {
+                var (text, cls) = ExternalUsage.Status(source, loaded.FirstOrDefault(r => r.Source == source), DateTime.UtcNow, d => When(d));
+                ext.Append($"<div class=\"card\"><h3 class=\"{cls}\">{E(ExternalUsage.Name(source))}</h3><p>{E(text)}</p></div>");
+            }
+            Panels.Add(new("Other AI usage: GitHub Copilot and Foundry", new HtmlString(ext.Append("</div>").ToString()),
+                "Optional loads of usage and cost from GitHub Copilot and from Foundry and Azure OpenAI, into tables of their own (audit.GitHubCopilot... and audit.Foundry...). Each run is a row of audit.ExternalUsageRun. No report reads these tables yet; a reporting tool can."));
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { /* A site account not yet granted the table (the installer grants it): the panel is left out. */ }
 
         var runs = await Db.QueryAsync<(DateTime StartedUtc, DateTime EndedUtc, DateTime? SinceUtc, int People, int ClosureRows, int UserDayRows)>(
             "SELECT TOP (10) StartedUtc, EndedUtc, SinceUtc, People, ClosureRows, UserDayRows FROM dash.RefreshRun ORDER BY RunId DESC;");
@@ -373,7 +390,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             $" Now: {(keep == 0 ? "none" : $"levels 1 to {keep}")}."));
 
         Panels.Add(new("Grant a role", new HtmlString(Form("grant",
-            Input("principal", "User (UPN) or group (DOMAIN\\Group)", null, 34) +
+            PersonBox("principal", "User (name or UPN) or group (DOMAIN\\Group)", null, 34) +
             Select("type", "Type", ["User", "Group"], "User") +
             "<fieldset class=\"roles\"><legend>Roles</legend>" +
             string.Concat(Roles.All.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}</label>")) + "</fieldset>" +
@@ -425,7 +442,7 @@ WHERE g.Principal IN @list;", new { list });
 
         /* Effective access for one person. */
         var who = Request.Query["who"].FirstOrDefault()?.Trim();
-        var body = new StringBuilder($"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\">{Input("who", "UPN", who, 34)}{Button("Check")}</form>");
+        var body = new StringBuilder($"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\">{PersonBox("who", "Person (name or UPN)", who, 34)}{Button("Check")}</form>");
         if (!string.IsNullOrEmpty(who))
         {
             var p = (await Db.QueryAsync<(string Upn, string? DisplayName, byte? Level, int PeopleBelow, string? ManagerUpn)>(
@@ -596,7 +613,7 @@ WHERE a.AgentSource <> N'(no agent)'
         };
         foreach (var a in agents)
             t.Rows.Add([a.AuditName ?? a.AgentId, a.AgentSource, a.FirstSeenUtc.Date, new HtmlString(Form("alias",
-                $"<input type=\"hidden\" name=\"key\" value=\"{a.AgentKey}\"/>" + Input("name", "Friendly name", a.FriendlyName, 22) + Input("owner", "Owner", a.Owner, 22) + Button("Save")))]);
+                $"<input type=\"hidden\" name=\"key\" value=\"{a.AgentKey}\"/>" + Input("name", "Friendly name", a.FriendlyName, 22) + PersonBox("owner", "Owner", a.Owner, 22) + Button("Save")))]);
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["unnamed"] = "Unnamed first", ["new"] = "Newest", ["name"] = "Name" }).Value + t.Render().Value),
             "An agent appears under the friendly name the audit log gives it, the latest when its maker renames it; where the log gives none, under a name read from its id (a Copilot Studio agent's schema name). A name given here shows everywhere instead; clear it to go back."));
 

@@ -348,6 +348,10 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `dashboard/Install-CopilotInsights.ps1` | Installs or updates it on IIS, with Windows authentication and its database grants. |
 | `dashboard/demo/` | A synthetic 2,317-person company to try the dashboard on. |
 | `dashboard/CopilotInsights.Tests/` | The dashboard's unit tests. |
+| `tools/Import-GitHubCopilotUsage.ps1` | Optional (2.6.2): GitHub Copilot's seats, daily use, each person's day and cost, for an enterprise or an organization, into four `audit.GitHubCopilot...` tables. The nightly run calls it when the settings name `GitHubEnterprise`. Setup: `docs/GITHUB-COPILOT-USAGE.md`. |
+| `tools/Import-FoundryUsage.ps1` | Optional (2.6.2): Foundry and Azure OpenAI deployments, daily requests and tokens, and daily cost, for the subscriptions named, into three `audit.Foundry...` tables. The nightly run calls it when the settings name `FoundrySubscriptions`. Setup: `docs/FOUNDRY-USAGE.md`. |
+| `tools/ExternalUsage.Common.ps1` | What those two share: writing a set of rows over the ones it replaces, and the run log `audit.ExternalUsageRun`. |
+| `docs/GITHUB-COPILOT-USAGE.md`, `docs/FOUNDRY-USAGE.md` | One setup guide for each of those loaders: the values needed, a part to hand to the GitHub or Azure administrator, the steps on the job server, checks and troubleshooting (2.6.2). |
 | `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each. |
 | `docs/REPORTING.md` | Reporting on the data with Grafana or another SQL tool, in brief: the `bi` views, access, the figures, the Grafana setup and queries to start from (2.5.9). |
 | `docs/REPORTING.docx`, `docs/REPORTING-REFERENCE.docx` | The two reporting guides as Word documents, to hand to a team outside the repository (2.6.1). Made from the Markdown by `tools/dev/schema/build_docx.py`. |

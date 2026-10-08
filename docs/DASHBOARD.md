@@ -198,6 +198,8 @@ A few views set their own window, and each one says so on the page:
 - **Unused licenses:** today's licenses against an idle time chosen on the page.
 - **Agents known:** every agent the log has ever seen.
 
+**Boxes that take a person (2.6.2).** Wherever a page asks for a person (Compliance › Person record, the two managers of Leadership › Compare two teams, a grant or a check in Admin › Access, an agent's owner, a manager's digest), type three letters of their first or their last name: nothing is searched before the third letter, and the names offered are those whose first or last name begins with what was typed (*mor* finds Avery Morgan and Morgan Petrov, not Seymour Hill). Up to 20 are offered; type more to narrow them. Choosing one fills in the sign-in; a sign-in typed in full is taken as it is. Who can be found is who the page can show: people in your part of the organization on a report, managers with a team large enough to show on Compare, anyone in the directory on the Admin pages. Each search is in the audit log, and in privacy mode no report offers names.
+
 **Only the controls that matter (2.5.0).** A report shows the period box only where the period changes it, and the *Look inside a team* list, with the *Showing* path beside it, only where the part of the organization changes it. A view with a window of its own says what it covers where the period box would be. The License pool, the Group overview and the Person record have no team list: the tenant's seats, each tenant's whole organization and one person's record do not change with it.
 
 ## Premium use and the license rules
@@ -263,6 +265,8 @@ Both are rebuilt incrementally with the rest of the pipeline. On the demo (2,317
 ## Email, alerts and digests
 
 The site sends its own email, from a background task that runs every five minutes with the site (the installer starts the site with IIS, so it runs with nobody signed in). With several web servers, one sends at a time: they share a lock in SQL Server. Each alert, digest and manager digest is also marked as sent before it goes (2.4.12), so a database that can be read but not written sends nothing rather than the same message every five minutes, and two servers never send one twice. Everything is set in **Admin › Email** and **Admin › Alerts and digests** and stored in the database; nothing is in a settings file.
+
+**When email does not arrive (2.6.2).** Admin › Email keeps what was said between the site and the mail server: for every test message, and for every message that was not sent. *Troubleshooting: where the logs are* shows the last test's conversation whole (the server, port and security, who signed in, each command and the server's answer, and how it ended), lists the other places to look (`dash.NotificationLog`, the web server's Windows Application log) and says what the common answers mean. *Recently sent* has each kept conversation under **show**. What follows an `AUTH` command is masked and the message's own lines are left out, so neither the password nor a digest's figures are kept.
 
 **How it sends** (Admin › Email):
 

@@ -27,12 +27,14 @@ public static class Certificates
 {
     public const string Purview = "Purview";
     public const string AgentWorkbook = "AgentWorkbook";
+    public const string Foundry = "Foundry";
 
     /// <summary>The certificate's name on the page and in an alert.</summary>
     public static string Name(string purpose) => purpose switch
     {
         Purview => "Purview audit app certificate",
         AgentWorkbook => "SharePoint agent workbook app certificate",
+        Foundry => "Foundry usage app certificate",
         _ => purpose + " certificate",
     };
 
@@ -41,6 +43,7 @@ public static class Certificates
     {
         Purview => "Signs the job server in to Microsoft Graph, to read Copilot's audit records from Microsoft Purview and the licenses. When it expires, the nightly load stops.",
         AgentWorkbook => "Signs the job server in to SharePoint Online, to fetch the agent workbook. When it expires, the agent inventory stops being updated and the nightly run fails at that step.",
+        Foundry => "Signs the job server in to Azure, to read the usage and cost of Foundry and Azure OpenAI deployments. When it expires, those tables stop being updated; the rest of the nightly run goes on.",
         _ => "Used by the pipeline.",
     };
 
@@ -49,6 +52,7 @@ public static class Certificates
     {
         Purview => "Renew it: run tools\\Install-CopilotJobServer.ps1 -RegisterApp on the job server as an administrator (a new certificate, uploaded to the app, its thumbprint in the settings).",
         AgentWorkbook => "Renew it: put a new certificate in the job server's LocalMachine\\My, readable by the task's account, upload its public key to the workbook's app registration, and set AgentWorkbookCertificateThumbprint in copilot-audit.settings.psd1.",
+        Foundry => "Renew it: put a new certificate in the job server's LocalMachine\\My, readable by the task's account, upload its public key to the app registration, and set FoundryCertificateThumbprint in copilot-audit.settings.psd1.",
         _ => "Renew it on the job server.",
     };
 

@@ -18,9 +18,8 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
     public override string Intro => "Two managers' teams side by side, each manager with everyone under them, over the same period. Totals only: no one is named but the two managers.";
     /* The two teams are chosen on the page, so the way down the organization would change nothing. */
     public override bool UsesTeam => false;
-
-    /// <summary>The most managers offered in the two boxes: the largest teams. Any other manager's sign-in can be typed.</summary>
-    public const int Offered = 2000;
+    /* The two boxes offer managers with a team that can be shown, in the viewer's part of the organization. */
+    public override LookupKind Lookup => LookupKind.Managers;
 
     sealed record Side(string Upn, string Name, ReportContext Ctx, Totals T, List<TrendRow> Trend);
 
@@ -35,25 +34,14 @@ public sealed class CompareModel(PageServices s, Metrics m) : InsightsPage(s)
             return;
         }
 
-        /* The managers offered: those in the viewer's part of the organization with a team that can reach the minimum
-           group size, the largest teams first when there are more than the boxes hold. */
-        var managers = await Db.QueryAsync<(string Upn, string? Name, string? Department, int PeopleBelow)>($@"
-SELECT TOP ({Offered}) p.Upn, p.DisplayName, p.Department, p.PeopleBelow
-FROM dash.Person AS p {Ctx.PersonScope("p.Upn")}
-WHERE p.PeopleBelow + 1 >= @minGroup AND p.PeopleBelow > 0
-ORDER BY p.PeopleBelow DESC, p.DisplayName;", Ctx.Args());
-        var options = string.Concat(managers.OrderBy(x => x.Name ?? x.Upn, StringComparer.OrdinalIgnoreCase).Select(x =>
-            $"<option value=\"{E(x.Upn)}\">{E(x.Name ?? x.Upn)}{(string.IsNullOrWhiteSpace(x.Department) ? "" : ", " + E(x.Department))} ({x.PeopleBelow:#,0} {(x.PeopleBelow == 1 ? "person" : "people")})</option>"));
-        string Box(string name, string label, string? value, string tip) =>
-            $"<label>{Html(InfoTip.After(label, tip))}<input type=\"text\" name=\"{name}\" value=\"{E(value)}\" size=\"34\" list=\"managers\" autocomplete=\"off\" placeholder=\"Name or sign-in\"/></label>";
+        /* Each box offers managers once three letters of a first or a last name are typed (PersonBox): those in the
+           viewer's part of the organization with a team that can reach the minimum group size. */
         var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Days}\"/>" +
-                   Box("a", "First\u00A0manager", a, "Start typing a name and choose the manager from the list, or type their sign-in (name@domain). The team is the manager and everyone under them, at any depth.") +
-                   Box("b", "Second\u00A0manager", b, "The manager of the team to set beside the first. The two teams may overlap: one manager can report to the other.") +
-                   $"<datalist id=\"managers\">{options}</datalist>{Button("Compare")}</form>";
-        var listed = managers.Count >= Offered ? $" The list offers the {Offered:#,0} largest teams; type the sign-in of any other manager." : "";
+                   PersonBox("a", "First manager", a, tip: "Type three letters of the manager's first or last name and choose them from the names offered, or type their sign-in (name@domain). The team is the manager and everyone under them, at any depth.") +
+                   PersonBox("b", "Second manager", b, tip: "The manager of the team to set beside the first. The two teams may overlap: one manager can report to the other.") +
+                   $"{Button("Compare")}</form>";
         Panels.Add(new("Which two teams", new HtmlString(form),
-            $"A team is shown when it has at least {Ctx.MinGroupSize} enabled people, and only where you may see it.{listed}"));
-
+            $"Names are offered from three letters on, by first or last name. A team is shown when it has at least {Ctx.MinGroupSize} enabled people, and only where you may see it."));
         if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return;
         if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) { Notice = "Choose two different managers: both boxes name the same one."; return; }
 

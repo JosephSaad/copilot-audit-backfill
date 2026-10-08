@@ -165,6 +165,8 @@ namespace CopilotInsights.Pages.Compliance
         public override string Persona => "Compliance";
         public override string? RequiredRole => Roles.Compliance;
         public override bool AllowedInPrivacyMode => true;
+        /* The box offers people with Copilot records, in the part of the organization the viewer may see. */
+        public override CopilotInsights.Data.LookupKind Lookup => CopilotInsights.Data.LookupKind.People;
         /// <summary>The scope here only decides who can be looked up (2.5.0); the team box would drop the person chosen.</summary>
         public override bool UsesTeam => false;
         public override string Intro => "Everything recorded about one person's Copilot use, for a data-subject access request or an investigation. Each look and download is in the audit log, with whose record it was. Copilot's audit records hold no prompt or response text: for the content itself, use Purview eDiscovery with the record ids below.";
@@ -204,8 +206,9 @@ namespace CopilotInsights.Pages.Compliance
         {
             var upn = Request.Query["upn"].FirstOrDefault()?.Trim();
             var form = $"<form class=\"admin\" method=\"get\" action=\"{E(Request.Path)}\"><input type=\"hidden\" name=\"d\" value=\"{Ctx.Days}\"/>" +
-                       $"<label>Sign-in (UPN)<input type=\"text\" name=\"upn\" value=\"{E(upn)}\" size=\"36\"/></label><button class=\"btn\" type=\"submit\">Look up</button></form>";
-            Panels.Add(new("Whose record", new HtmlString(form), "The period above sets how far back the interactions go; choose 365 days for everything the dashboard holds.", "half"));
+                       PersonBox("upn", "Person", upn, 36, "Type three letters of the person's first or last name and choose them from the names offered, or type their sign-in (name@domain). Only people with Copilot records, in the part of the organization you may see, are offered.") +
+                       "<button class=\"btn\" type=\"submit\">Look up</button></form>";
+            Panels.Add(new("Whose record", new HtmlString(form), "Names are offered from three letters on, by first or last name. The period above sets how far back the interactions go; choose 365 days for everything the dashboard holds.", "half"));
             if (string.IsNullOrEmpty(upn)) return;
 
             var who = (await Db.QueryAsync<Who>($@"

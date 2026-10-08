@@ -215,7 +215,7 @@ Write-Step "Tables, views and procedures in $Database"
 $copilotScripts = 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql',
                   'Create-CopilotFlattenedSchema.sql', 'Create-CopilotFlattenProcedure.sql', 'Create-CopilotPurgeProcedure.sql',
                   'Create-CopilotEnrichmentSchema.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql',
-                  'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql'
+                  'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql', 'Create-CopilotExternalUsageSchema.sql'
 if ($Dashboard) { $copilotScripts += 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql' }
 foreach ($s in $copilotScripts) { Invoke-SqlFile $Database $s }
 if (-not $SkipLicenseDatabase) {

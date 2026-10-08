@@ -3778,6 +3778,193 @@ if ($script:ITIntegrated) {
 else { Write-Host '  SKIP  Measure-CopilotNightly.ps1 connects with Windows authentication only' -ForegroundColor Yellow }
 
 # ---------------------------------------------------------------------------
+Write-Host "`n19. AI usage outside Microsoft 365 Copilot (Create-CopilotExternalUsageSchema.sql, tools/Import-GitHubCopilotUsage.ps1, tools/Import-FoundryUsage.ps1)" -ForegroundColor Cyan
+
+$extSql = Get-Content -LiteralPath (Join-Path $root 'sql' 'Create-CopilotExternalUsageSchema.sql') -Raw
+Invoke-SqlText -Sql $extSql
+Invoke-SqlText -Sql $extSql   # re-runnable
+$extTables = "$(Invoke-SqlText -As Scalar -Sql "SELECT STRING_AGG(name, ',') WITHIN GROUP (ORDER BY name) FROM sys.tables WHERE schema_id = SCHEMA_ID('audit') AND (name LIKE 'GitHubCopilot%' OR name LIKE 'Foundry%' OR name = 'ExternalUsageRun');")"
+Assert-That ($extTables -eq 'ExternalUsageRun,FoundryCostDay,FoundryDeployment,FoundryUsageDay,GitHubCopilotCost,GitHubCopilotDay,GitHubCopilotSeat,GitHubCopilotUserDay') "the script makes its eight tables, and runs again unchanged ($extTables)"
+
+# A stand-in for GitHub's API and for Azure's, on this machine: it answers as each service is documented to.
+$probe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0); $probe.Start(); $mockPort = $probe.LocalEndpoint.Port; $probe.Stop()
+$extDays = @(0..2 | ForEach-Object { [datetime]::UtcNow.Date.AddDays(-3 + $_).ToString('yyyy-MM-dd') })   # the three days a -Days 3 load covers
+$extSub = 'aaaa1111-0000-0000-0000-000000000000'
+$mockScript = {
+    param([int] $Port, [string[]] $Days, [string] $Sub)
+    $base = "http://localhost:$Port"
+    $listener = [System.Net.HttpListener]::new(); $listener.Prefixes.Add("$base/"); $listener.Start()
+    $costAsked = 0
+    function Send($ctx, [int] $status, [string] $body = '', [hashtable] $headers = @{}) {
+        $ctx.Response.StatusCode = $status
+        foreach ($k in $headers.Keys) { $ctx.Response.Headers[$k] = "$($headers[$k])" }
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+        $ctx.Response.ContentType = 'application/json'; $ctx.Response.ContentLength64 = $bytes.Length
+        if ($bytes.Length) { $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length) }
+        $ctx.Response.Close()
+    }
+    function Series([string] $metric, [hashtable] $dims, [hashtable] $totals) {
+        @{ name = @{ value = $metric }; timeseries = @(@{ metadatavalues = @($dims.Keys | ForEach-Object { @{ name = @{ value = $_ }; value = $dims[$_] } })
+                                                           data = @($totals.Keys | ForEach-Object { @{ timeStamp = "$($_)T00:00:00Z"; total = $totals[$_] } }) }) }
+    }
+    $acct = "/subscriptions/$Sub/resourceGroups/rg-ai/providers/Microsoft.CognitiveServices/accounts"
+    while ($listener.IsListening) {
+        $ctx = $listener.GetContext(); $rq = $ctx.Request; $path = $rq.Url.AbsolutePath; $q = $rq.QueryString; $auth = "$($rq.Headers['Authorization'])"
+        try {
+            if ($path -eq '/stop') { Send $ctx 200 '{}'; break }
+            # ---- GitHub ----
+            if ($path -like '/files/*') {
+                if ($auth) { Send $ctx 400 '{"message":"the token was sent to a file"}'; continue }
+                $day = $path.Substring($path.Length - 10)
+                if ($path -like '/files/ent-*') { Send $ctx 200 "{`"day`":`"$day`",`"daily_active_users`":10,`"monthly_active_users`":25,`"user_initiated_interaction_count`":300,`"loc_added_sum`":900,`"totals_by_ide`":[{`"ide`":`"vscode`"}]}`n" }
+                else { Send $ctx 200 "{`"day`":`"$day`",`"user_id`":1,`"user_login`":`"mona`",`"ai_credits_used`":1.5,`"used_chat`":true,`"used_agent`":false}`n{`"day`":`"$day`",`"user_id`":2,`"user_login`":`"hubot`",`"user_initiated_interaction_count`":7}`n" }
+                continue
+            }
+            if ($path -like '/gh/*') {
+                if ($auth -ne 'Bearer good-token' -or $rq.Headers['X-GitHub-Api-Version'] -ne '2026-03-10') { Send $ctx 401 '{"message":"Bad credentials"}'; continue }
+                if ($path -eq '/gh/enterprises/contoso/copilot/billing/seats') {
+                    $seats = if ($q['page'] -eq '1') { '{"assignee":{"login":"mona","id":1},"plan_type":"enterprise","created_at":"2025-11-02T09:30:00Z","last_activity_at":"2026-10-06T18:00:00Z","organization":{"login":"octo"}},{"assignee":{"login":"hubot","id":2},"plan_type":"enterprise"}' }
+                             elseif ($q['page'] -eq '2') { '{"assignee":{"login":"octocat","id":3},"plan_type":"business","pending_cancellation_date":"2026-11-01"}' } else { '' }
+                    Send $ctx 200 "{`"total_seats`":3,`"seats`":[$seats]}" @{ 'github-authentication-token-expiration' = '2027-01-31 00:00:00 UTC' }; continue
+                }
+                if ($path -like '/gh/enterprises/contoso/copilot/metrics/reports/*') {
+                    $day = $q['day']
+                    if ($day -eq $Days[2]) { Send $ctx 204; continue }   # the newest day has no report yet
+                    $kind = if ($path -like '*/enterprise-1-day') { 'ent' } else { 'users' }
+                    Send $ctx 200 "{`"report_day`":`"$day`",`"download_links`":[`"$base/files/$kind-$day`"]}"; continue
+                }
+                if ($path -eq '/gh/enterprises/contoso/settings/billing/usage') {
+                    $d = '{0}-{1:00}-01T00:00:00Z' -f $q['year'], [int] $q['month']
+                    Send $ctx 200 "{`"usageItems`":[{`"date`":`"$d`",`"product`":`"copilot`",`"sku`":`"Copilot Enterprise`",`"quantity`":3,`"unitType`":`"UserMonths`",`"pricePerUnit`":39,`"grossAmount`":117,`"discountAmount`":17,`"netAmount`":100,`"organizationName`":`"octo`"},{`"date`":`"$d`",`"product`":`"actions`",`"sku`":`"Actions Linux`",`"quantity`":5,`"netAmount`":1}]}"; continue
+                }
+                Send $ctx 404 '{"message":"Not Found"}'; continue
+            }
+            # ---- Azure ----
+            if ($path -like '/arm/*') {
+                if ($auth -ne 'Bearer arm-token') { Send $ctx 401 '{"error":{"code":"InvalidAuthenticationToken","message":"no"}}'; continue }
+                $p = $path.Substring(4)
+                if ($p -like '/subscriptions/bbbb*') { Send $ctx 403 '{"error":{"code":"AuthorizationFailed","message":"The client does not have authorization."}}'; continue }
+                if ($p -eq "/subscriptions/$Sub/providers/Microsoft.CognitiveServices/accounts") {
+                    if ($q['page'] -eq '2') { Send $ctx 200 (@{ value = @(@{ id = "$acct/aoai-legacy"; name = 'aoai-legacy'; kind = 'OpenAI'; location = 'westeurope' }, @{ id = "$acct/speech-1"; name = 'speech-1'; kind = 'SpeechServices'; location = 'eastus' }) } | ConvertTo-Json -Depth 9) }
+                    else { Send $ctx 200 (@{ value = @(@{ id = "$acct/foundry-east"; name = 'foundry-east'; kind = 'AIServices'; location = 'eastus' }); nextLink = "$base/arm$p`?api-version=$($q['api-version'])&page=2" } | ConvertTo-Json -Depth 9) }
+                    continue
+                }
+                if ($p -eq "$acct/foundry-east/deployments") { Send $ctx 200 '{"value":[{"name":"chat","sku":{"name":"GlobalStandard","capacity":50},"properties":{"model":{"format":"OpenAI","name":"gpt-4o","version":"2024-11-20","publisher":"OpenAI"}}}]}'; continue }
+                if ($p -eq "$acct/aoai-legacy/deployments") { Send $ctx 200 '{"value":[{"name":"Legacy","sku":{"name":"Standard","capacity":10},"properties":{"model":{"name":"gpt-35-turbo","version":"0125"}}}]}'; continue }
+                if ($p -like '*/providers/Microsoft.Insights/metrics') {
+                    $names = "$($q['metricnames'])".Split(','); $value = @()
+                    $full = @{ ModelDeploymentName = 'chat'; ModelName = 'gpt-4o'; ModelVersion = '2024-11-20' }
+                    if ($p -like '*/foundry-east/*' -and $names -contains 'ModelRequests') {
+                        $value = @((Series 'ModelRequests' $full @{ $Days[0] = 100; $Days[1] = 40 }), (Series 'InputTokens' $full @{ $Days[0] = 5000; $Days[1] = 2000 }),
+                                   (Series 'OutputTokens' $full @{ $Days[0] = 1000; $Days[1] = 400 }), (Series 'TotalTokens' $full @{ $Days[0] = 6000; $Days[1] = 2400 }))
+                    }
+                    elseif ($p -like '*/aoai-legacy/*' -and $names -contains 'AzureOpenAIRequests') { $value = @((Series 'AzureOpenAIRequests' @{ modeldeploymentname = 'Legacy'; modelname = 'gpt-35-turbo'; modelversion = '0125' } @{ $Days[0] = 9 })) }
+                    elseif ($p -like '*/aoai-legacy/*' -and $names -contains 'ProcessedPromptTokens') {
+                        $only = @{ modeldeploymentname = 'Legacy' }
+                        $value = @((Series 'ProcessedPromptTokens' $only @{ $Days[0] = 700 }), (Series 'GeneratedTokens' $only @{ $Days[0] = 300 }), (Series 'TokenTransaction' $only @{ $Days[0] = 1000 }))
+                    }
+                    else { $value = @($names | ForEach-Object { @{ name = @{ value = $_ }; timeseries = @() } }) }
+                    Send $ctx 200 (@{ value = $value } | ConvertTo-Json -Depth 12); continue
+                }
+                if ($p -eq "/subscriptions/$Sub/providers/Microsoft.CostManagement/query" -and $rq.HttpMethod -eq 'POST') {
+                    $costAsked++
+                    if ($costAsked -eq 1) { Send $ctx 429 '{"error":{"code":"429","message":"Too many requests"}}' @{ 'x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after' = 1 }; continue }
+                    $n0 = [int] $Days[0].Replace('-', ''); $n1 = [int] $Days[1].Replace('-', ''); $lower = $acct.ToLowerInvariant()
+                    Send $ctx 200 (@{ properties = @{ nextLink = $null
+                                columns = @(@{ name = 'Cost'; type = 'Number' }, @{ name = 'UsageDate'; type = 'Number' }, @{ name = 'ResourceId'; type = 'String' }, @{ name = 'Meter'; type = 'String' }, @{ name = 'Currency'; type = 'String' })
+                                rows = @(, @(1.25, $n0, "$lower/foundry-east", 'gpt-4o Input Tokens', 'USD')) + @(, @(0.75, $n0, "$lower/foundry-east", 'gpt-4o Input Tokens', 'USD')) +
+                                       @(, @(0.5, $n1, "$lower/foundry-east", 'gpt-4o Output Tokens', 'USD')) + @(, @(9.99, $n0, "$lower/speech-1", 'Speech Standard', 'USD')) } } | ConvertTo-Json -Depth 12)
+                    continue
+                }
+                Send $ctx 404 '{"error":{"code":"NotFound","message":"no such thing"}}'; continue
+            }
+            Send $ctx 404 '{}'
+        }
+        catch { try { Send $ctx 500 (@{ message = "$_" } | ConvertTo-Json) } catch { Write-Verbose "$_" } }
+    }
+    $listener.Stop()
+}
+$mock = Start-ThreadJob -ScriptBlock $mockScript -ArgumentList $mockPort, $extDays, $extSub
+try {
+    $mockUp = $false
+    foreach ($try in 1..50) { try { [void] (Invoke-WebRequest -Uri "http://localhost:$mockPort/nothing" -SkipHttpErrorCheck -TimeoutSec 2); $mockUp = $true; break } catch { Start-Sleep -Milliseconds 200 } }
+    Assert-That $mockUp 'the stand-in for the two services is listening'
+    $extConn = New-ConnString $script:ITDatabase
+    $noSettings = Join-Path ([System.IO.Path]::GetTempPath()) "no-settings-$PID.psd1"   # not there: everything comes from the command line
+
+    # ---- GitHub Copilot, for an enterprise ----
+    $gh = Join-Path $root 'tools' 'Import-GitHubCopilotUsage.ps1'
+    $env:GITHUB_COPILOT_TOKEN = 'good-token'
+    $ghOut = & $gh -Enterprise contoso -Days 3 -ConnectionString $extConn -ApiBase "http://localhost:$mockPort/gh" -SettingsPath $noSettings 6>&1 3>&1 | Out-String
+    $ghRun = (Invoke-SqlText -As Table -Sql "SELECT TOP (1) Status, Scope, RowsWritten, Detail, CredentialExpiresUtc, FromDay, ToDay, Host FROM audit.ExternalUsageRun WHERE Source = 'GitHub' ORDER BY RunId DESC;").Rows[0]
+    Assert-That ("$($ghRun.Status)" -eq 'Succeeded' -and "$($ghRun.Scope)" -eq 'enterprise:contoso' -and [int] $ghRun.RowsWritten -eq 11) "GitHub: the load of an enterprise succeeds and says so in its run ($($ghRun.Status), $($ghRun.RowsWritten) rows: $($ghRun.Detail)) $(if ("$($ghRun.Status)" -ne 'Succeeded') { $ghOut })"
+    Assert-That (([datetime] $ghRun.CredentialExpiresUtc) -eq [datetime] '2027-01-31' -and ([datetime] $ghRun.FromDay).ToString('yyyy-MM-dd') -eq $extDays[0] -and ([datetime] $ghRun.ToDay).ToString('yyyy-MM-dd') -eq $extDays[2]) `
+        'with the days it covered and when its token expires, as GitHub says in its answer'
+    $seats = Invoke-SqlText -As Table -Sql "SELECT Login, UserId, PlanType, Organization, CreatedUtc, PendingCancellationDate FROM audit.GitHubCopilotSeat WHERE Scope = 'enterprise:contoso' ORDER BY Login;"
+    Assert-That ($seats.Rows.Count -eq 3 -and "$($seats.Rows[1].Login)" -eq 'mona' -and "$($seats.Rows[1].Organization)" -eq 'octo' -and "$($seats.Rows[2].PlanType)" -eq 'business' -and
+                 ([datetime] $seats.Rows[2].PendingCancellationDate) -eq [datetime] '2026-11-01' -and $seats.Rows[0].CreatedUtc -is [DBNull]) "every seat, over both pages ($($seats.Rows.Count))"
+    $ghDays = Invoke-SqlText -As Table -Sql "SELECT [Day], DailyActiveUsers, MonthlyActiveUsers, Interactions, LocAdded, CodeGenerations, Json FROM audit.GitHubCopilotDay WHERE Scope = 'enterprise:contoso' ORDER BY [Day];"
+    Assert-That ($ghDays.Rows.Count -eq 2 -and ([datetime] $ghDays.Rows[0].Day).ToString('yyyy-MM-dd') -eq $extDays[0] -and [int] $ghDays.Rows[0].DailyActiveUsers -eq 10 -and [long] $ghDays.Rows[0].Interactions -eq 300 -and
+                 $ghDays.Rows[0].CodeGenerations -is [DBNull] -and "$($ghDays.Rows[0].Json)" -like '*totals_by_ide*') 'a row for each day GitHub has a report for, from the file it links to; the newest day, not reported yet, is left for the next run'
+    $ghUsers = Invoke-SqlText -As Table -Sql "SELECT [Day], UserId, Login, AiCreditsUsed, UsedChat, Interactions FROM audit.GitHubCopilotUserDay WHERE Scope = 'enterprise:contoso' ORDER BY [Day], UserId;"
+    Assert-That ($ghUsers.Rows.Count -eq 4 -and "$($ghUsers.Rows[0].Login)" -eq 'mona' -and [decimal] $ghUsers.Rows[0].AiCreditsUsed -eq 1.5 -and [bool] $ghUsers.Rows[0].UsedChat -and [long] $ghUsers.Rows[1].Interactions -eq 7) `
+        "each person's day, with the AI credits they used ($($ghUsers.Rows.Count) rows)"
+    $ghCost = Invoke-SqlText -As Table -Sql "SELECT UsageDate, Product, Sku, Quantity, PricePerUnit, GrossAmount, DiscountAmount, NetAmount FROM audit.GitHubCopilotCost WHERE Scope = 'enterprise:contoso' ORDER BY UsageDate;"
+    Assert-That ($ghCost.Rows.Count -eq 2 -and "$($ghCost.Rows[0].Sku)" -eq 'Copilot Enterprise' -and [decimal] $ghCost.Rows[0].NetAmount -eq 100 -and [decimal] $ghCost.Rows[0].GrossAmount -eq 117 -and [decimal] $ghCost.Rows[0].PricePerUnit -eq 39) `
+        'what GitHub billed for Copilot this month and last, and no other product''s lines'
+    [void] (& $gh -Enterprise contoso -Days 3 -ConnectionString $extConn -ApiBase "http://localhost:$mockPort/gh" -SettingsPath $noSettings 6>&1 3>&1)
+    $again = "$(Invoke-SqlText -As Scalar -Sql "SELECT CONCAT((SELECT COUNT(*) FROM audit.GitHubCopilotSeat), '/', (SELECT COUNT(*) FROM audit.GitHubCopilotDay), '/', (SELECT COUNT(*) FROM audit.GitHubCopilotUserDay), '/', (SELECT COUNT(*) FROM audit.GitHubCopilotCost));")"
+    Assert-That ($again -eq '3/2/4/2') "run again over the same days, every table holds the same rows once ($again)"
+    $env:GITHUB_COPILOT_TOKEN = 'wrong-token'
+    [void] (& $gh -Enterprise contoso -Days 3 -ConnectionString $extConn -ApiBase "http://localhost:$mockPort/gh" -SettingsPath $noSettings 6>&1 3>&1)
+    $ghCode = $LASTEXITCODE
+    $refused = (Invoke-SqlText -As Table -Sql "SELECT TOP (1) Status, Detail FROM audit.ExternalUsageRun WHERE Source = 'GitHub' ORDER BY RunId DESC;").Rows[0]
+    $kept = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.GitHubCopilotSeat;')
+    Assert-That ($ghCode -eq 1 -and "$($refused.Status)" -eq 'Failed' -and "$($refused.Detail)" -like '*Bad credentials*' -and "$($refused.Detail)" -notlike '*wrong-token*' -and $kept -eq 3) `
+        'a token GitHub refuses: the run is recorded as failed with GitHub''s own words, the exit code says so, and what was loaded before stays'
+    Remove-Item Env:\GITHUB_COPILOT_TOKEN
+
+    # ---- Foundry and Azure OpenAI ----
+    $fo = Join-Path $root 'tools' 'Import-FoundryUsage.ps1'
+    $armToken = [securestring]::new(); foreach ($ch in 'arm-token'.ToCharArray()) { $armToken.AppendChar($ch) }
+    $foOut = & $fo -SubscriptionId $extSub.ToUpperInvariant() -Days 3 -ConnectionString $extConn -AccessToken $armToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings 6>&1 3>&1 | Out-String
+    $foRun = (Invoke-SqlText -As Table -Sql "SELECT TOP (1) Status, Scope, RowsWritten, Detail FROM audit.ExternalUsageRun WHERE Source = 'Foundry' ORDER BY RunId DESC;").Rows[0]
+    Assert-That ("$($foRun.Status)" -eq 'Succeeded' -and "$($foRun.Scope)" -eq $extSub -and [int] $foRun.RowsWritten -eq 7) "Foundry: the load of a subscription succeeds and says so in its run ($($foRun.Status), $($foRun.RowsWritten) rows: $($foRun.Detail)) $(if ("$($foRun.Status)" -ne 'Succeeded') { $foOut })"
+    $deps = Invoke-SqlText -As Table -Sql 'SELECT Account, Deployment, Kind, Location, ModelName, ModelVersion, ModelPublisher, SkuName, Capacity, ResourceGroup FROM audit.FoundryDeployment ORDER BY Account;'
+    Assert-That ($deps.Rows.Count -eq 2 -and "$($deps.Rows[0].Account)|$($deps.Rows[0].Kind)|$($deps.Rows[0].ModelName)" -eq 'aoai-legacy|OpenAI|gpt-35-turbo' -and "$($deps.Rows[1].Deployment)" -eq 'chat' -and
+                 "$($deps.Rows[1].SkuName)" -eq 'GlobalStandard' -and [int] $deps.Rows[1].Capacity -eq 50 -and "$($deps.Rows[1].ModelPublisher)" -eq 'OpenAI' -and "$($deps.Rows[1].ResourceGroup)" -eq 'rg-ai') `
+        "the deployments of the Foundry and the Azure OpenAI account, over both pages of accounts; a Speech account is not one ($($deps.Rows.Count))"
+    $use = Invoke-SqlText -As Table -Sql 'SELECT Account, Deployment, ModelName, ModelVersion, [Day], Requests, InputTokens, OutputTokens, TotalTokens FROM audit.FoundryUsageDay ORDER BY Account, [Day];'
+    Assert-That ($use.Rows.Count -eq 3 -and "$($use.Rows[1].Account)|$($use.Rows[1].Deployment)|$($use.Rows[1].ModelName)" -eq 'foundry-east|chat|gpt-4o' -and ([datetime] $use.Rows[1].Day).ToString('yyyy-MM-dd') -eq $extDays[0] -and
+                 [long] $use.Rows[1].Requests -eq 100 -and [long] $use.Rows[1].InputTokens -eq 5000 -and [long] $use.Rows[1].OutputTokens -eq 1000 -and [long] $use.Rows[1].TotalTokens -eq 6000 -and [long] $use.Rows[2].Requests -eq 40) `
+        "requests and tokens per deployment, model and day, from the current metrics ($($use.Rows.Count) rows)"
+    Assert-That ("$($use.Rows[0].Account)|$($use.Rows[0].ModelName)|$($use.Rows[0].ModelVersion)" -eq 'aoai-legacy|gpt-35-turbo|0125' -and [long] $use.Rows[0].Requests -eq 9 -and [long] $use.Rows[0].InputTokens -eq 700 -and
+                 [long] $use.Rows[0].OutputTokens -eq 300 -and [long] $use.Rows[0].TotalTokens -eq 1000) 'an account that reports none of them is read from the older Azure OpenAI metrics, into the same row'
+    $costs = Invoke-SqlText -As Table -Sql 'SELECT Account, Meter, [Day], Cost, Currency FROM audit.FoundryCostDay ORDER BY [Day], Meter;'
+    Assert-That ($costs.Rows.Count -eq 2 -and [decimal] $costs.Rows[0].Cost -eq 2 -and "$($costs.Rows[0].Meter)" -eq 'gpt-4o Input Tokens' -and "$($costs.Rows[0].Currency)" -eq 'USD' -and [decimal] $costs.Rows[1].Cost -eq 0.5 -and
+                 "$($costs.Rows[0].Account)" -eq 'foundry-east') 'cost per account, meter and day: two lines of one meter add up, the Speech account''s cost is not taken, and a throttled question is asked again'
+    $global:LASTEXITCODE = 0   # a run that does not fail leaves the exit code as it was
+    [void] (& $fo -SubscriptionId $extSub, 'bbbb2222-0000-0000-0000-000000000000' -Days 3 -ConnectionString $extConn -AccessToken $armToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings 6>&1 3>&1)
+    $foCode = $LASTEXITCODE
+    $part = (Invoke-SqlText -As Table -Sql "SELECT TOP (1) Status, Detail, RowsWritten FROM audit.ExternalUsageRun WHERE Source = 'Foundry' ORDER BY RunId DESC;").Rows[0]
+    $foAgain = "$(Invoke-SqlText -As Scalar -Sql "SELECT CONCAT((SELECT COUNT(*) FROM audit.FoundryDeployment), '/', (SELECT COUNT(*) FROM audit.FoundryUsageDay), '/', (SELECT COUNT(*) FROM audit.FoundryCostDay));")"
+    Assert-That ("$($part.Status)" -eq 'Partial' -and "$($part.Detail)" -like '*bbbb2222*AuthorizationFailed*' -and $foCode -eq 0 -and $foAgain -eq '2/3/2') `
+        "with a second subscription the app may not read: that one is named in the run, which ends Partial, and the first is loaded again with the same rows once ($($part.Status), $foAgain)"
+    $badToken = [securestring]::new(); foreach ($ch in 'expired'.ToCharArray()) { $badToken.AppendChar($ch) }
+    [void] (& $fo -SubscriptionId $extSub -Days 3 -ConnectionString $extConn -AccessToken $badToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings 6>&1 3>&1)
+    $foFailed = $LASTEXITCODE
+    Assert-That ($foFailed -eq 1 -and "$(Invoke-SqlText -As Scalar -Sql "SELECT TOP (1) Status FROM audit.ExternalUsageRun WHERE Source = 'Foundry' ORDER BY RunId DESC;")" -eq 'Failed' -and
+                 [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.FoundryUsageDay;') -eq 3) 'a token Azure refuses: failed, by the run and the exit code, and what was loaded before stays'
+    $noTables = try { & $fo -SubscriptionId $extSub -ConnectionString (New-ConnString 'master') -AccessToken $armToken -ArmEndpoint "http://localhost:$mockPort/arm" -SettingsPath $noSettings 6>&1 | Out-Null; '' } catch { $_.Exception.Message }
+    Assert-That ($noTables -like '*run Install-CopilotAudit.ps1*') 'and a database without the tables is refused, saying what to run'
+}
+finally {
+    Remove-Item Env:\GITHUB_COPILOT_TOKEN -ErrorAction SilentlyContinue
+    try { [void] (Invoke-WebRequest -Uri "http://localhost:$mockPort/stop" -SkipHttpErrorCheck -TimeoutSec 5) } catch { Write-Verbose "$_" }
+    $mock | Wait-Job -Timeout 10 | Out-Null; $mock | Remove-Job -Force -ErrorAction SilentlyContinue
+}
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

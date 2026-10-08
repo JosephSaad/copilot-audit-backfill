@@ -43,6 +43,7 @@ $scripts = @(
     @{ Path = 'sql/Create-CopilotSessionProcedure.sql';      Note = 'Copilot database. `audit.usp_BuildCopilotSessions`.' }
     @{ Path = 'sql/Create-CopilotBiSchema.sql';              Note = 'Copilot database. The `bi` star schema: dimensions, facts and the views a reporting tool reads.' }
     @{ Path = 'sql/Create-CopilotBiProcedure.sql';           Note = 'Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema.' }
+    @{ Path = 'sql/Create-CopilotExternalUsageSchema.sql';   Note = 'Copilot database. AI usage outside Microsoft 365 Copilot (2.6.2): the tables for GitHub Copilot''s seats, use and cost, for Foundry and Azure OpenAI deployments, use and cost, and the two loaders'' run log.' }
     @{ Path = 'sql/Create-CopilotDashboardSchema.sql';       Note = 'Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory.' }
     @{ Path = 'sql/Create-CopilotDashboardProcedure.sql';    Note = 'Copilot database, with `-Dashboard`. `dash.usp_RefreshDashboard`, which rebuilds the org chart and the rollups.' }
     @{ Path = 'sql/Create-CopilotOperationsSchema.sql';      Note = 'Copilot database, with `-Dashboard`. The dashboard''s operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views.' }
@@ -53,6 +54,9 @@ $scripts = @(
     @{ Path = 'sql/Create-CopilotCsvImport.sql';             Note = 'Run by `tools/Import-CopilotAuditCsv.ps1`, not by the installer: the CSV import tables and `audit.usp_MergeCopilotCsv`.' }
     @{ Path = 'Invoke-CopilotPipeline.ps1';                  Note = 'The nightly run and the first load of history: the order in which every table is filled.' }
     @{ Path = 'tools/Import-AgentWorkbook.ps1';              Note = 'Creates and fills the three `dbo` tables of the agent workbook, then `dash.AgentInventory` and `dash.AgentChildLink`.' }
+    @{ Path = 'tools/ExternalUsage.Common.ps1';              Note = 'What the two loaders below share: how a set of rows replaces the ones it supersedes in one transaction, and the run log (`audit.ExternalUsageRun`).' }
+    @{ Path = 'tools/Import-GitHubCopilotUsage.ps1';         Note = 'Fills the four `audit.GitHubCopilot...` tables from GitHub''s REST API, for an enterprise or an organization. Optional; the nightly run calls it when the settings name one.' }
+    @{ Path = 'tools/Import-FoundryUsage.ps1';               Note = 'Fills the three `audit.Foundry...` tables from Azure Resource Manager, Azure Monitor and Cost Management, for the subscriptions named. Optional; the nightly run calls it when the settings name them.' }
     @{ Path = 'dashboard/Install-CopilotInsights.ps1';       Note = 'The dashboard''s installer on the web server. With `-GrantDatabaseAccess` it runs the three dashboard scripts and adds the site''s account to its database role.' }
 )
 

@@ -68,6 +68,38 @@
   document.querySelectorAll('select[data-navigate]').forEach(function (s) {
     s.addEventListener('change', function () { if (s.value) location.href = s.value; });
   });
+  // A box that takes a person (PersonBox): nothing is asked until three letters are typed, then, a quarter of a second
+  // after the typing stops, the names whose first or last name begins with them are offered. Choosing one fills in the
+  // sign-in. A sign-in typed in full needs no search.
+  document.querySelectorAll('input[data-lookup]').forEach(function (box) {
+    var list = document.getElementById(box.getAttribute('list'));
+    var min = parseInt(box.getAttribute('data-min'), 10) || 3;
+    var timer = null, asked = '';
+    if (!list) return;
+    function offer(rows) {
+      while (list.firstChild) list.removeChild(list.firstChild);
+      rows.forEach(function (r) {
+        var o = document.createElement('option');
+        o.value = r.value; o.label = r.label; o.textContent = r.label;
+        list.appendChild(o);
+      });
+    }
+    box.addEventListener('input', function () {
+      var q = box.value.replace(/\s+/g, ' ').trim();
+      window.clearTimeout(timer);
+      if (q.replace(/[^0-9A-Za-zÀ-￿]/g, '').length < min) { asked = ''; offer([]); return; }
+      // Choosing a name puts its sign-in in the box: that is an answer, not a search.
+      for (var i = 0; i < list.options.length; i++) if (list.options[i].value === box.value) return;
+      if (q === asked) return;
+      timer = window.setTimeout(function () {
+        asked = q;
+        fetch(box.getAttribute('data-lookup') + '&q=' + encodeURIComponent(q), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (rows) { if (asked === q) offer(rows); })
+          .catch(function () { });
+      }, 250);
+    });
+  });
   document.querySelectorAll('[data-print]').forEach(function (b) {
     b.addEventListener('click', function () { window.print(); });
   });

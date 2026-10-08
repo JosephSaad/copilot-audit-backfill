@@ -176,6 +176,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
     {
         string? error;
         string status;
+        string? detail = null;
         if (to.Count == 0) { status = "NoRecipients"; error = "No recipients are set."; }
         else
         {
@@ -184,25 +185,41 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
             if (problems.Count > 0) { status = cfg.Mode == MailMode.Off ? "MailOff" : "Failed"; error = string.Join(" ", problems); }
             else
             {
-                try { await SendCoreAsync(cfg, to, subject, html, text, ct); status = "Sent"; error = null; }
+                /* What is said to the mail server and what it answers (2.6.2), kept with a test message and with any
+                   message that is not sent: the place to look when email does not arrive (Admin > Email). */
+                using var said = new MemoryStream();
+                try
+                {
+                    await SendCoreAsync(cfg, to, subject, html, text, ct, said); status = "Sent"; error = null;
+                    if (kind == "Test") detail = SmtpTranscript.Compose(cfg, Said(said), null);
+                }
                 /* A timeout is an OperationCanceledException as well: it is a failed send, not the site stopping (2.4.12). */
                 catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                 {
                     status = "Failed"; error = ex is OperationCanceledException ? "The mail server or Entra did not answer in time." : Describe(ex);
+                    detail = SmtpTranscript.Compose(cfg, Said(said), ex);
                     log.LogWarning(ex, "Email '{Subject}' was not sent", subject);
                 }
             }
         }
+        var row = new { kind, subject = Cut(subject, 400), to = Cut(string.Join("; ", to.Select(a => a.Address)), 2000), status, error = error is null ? null : Cut(error, 2000), detail };
         try
         {
-            await db.ExecuteAsync("INSERT INTO dash.NotificationLog (Kind, Subject, Recipients, Status, Error) VALUES (@kind, @subject, @to, @status, @error);",
-                new { kind, subject = Cut(subject, 400), to = Cut(string.Join("; ", to.Select(a => a.Address)), 2000), status, error = error is null ? null : Cut(error, 2000) });
+            try { await db.ExecuteAsync("INSERT INTO dash.NotificationLog (Kind, Subject, Recipients, Status, Error, Detail) VALUES (@kind, @subject, @to, @status, @error, @detail);", row); }
+            /* A database from before the Detail column (207: invalid column name): the row as it always was. */
+            catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number == 207)
+            {
+                await db.ExecuteAsync("INSERT INTO dash.NotificationLog (Kind, Subject, Recipients, Status, Error) VALUES (@kind, @subject, @to, @status, @error);", row);
+            }
         }
         catch (Exception ex) { log.LogError(ex, "Could not write dash.NotificationLog"); }
         return (status, error);
     }
 
-    async Task SendCoreAsync(MailConfig cfg, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct)
+    /// <summary>The protocol log so far, as text; empty when nothing was said (the server was never reached).</summary>
+    static string Said(MemoryStream said) => System.Text.Encoding.UTF8.GetString(said.GetBuffer(), 0, (int)said.Length);
+
+    async Task SendCoreAsync(MailConfig cfg, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct, Stream said)
     {
         var msg = new MimeMessage();
         msg.From.Add(MailboxAddress.Parse(cfg.From!));
@@ -211,7 +228,8 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
         msg.Subject = subject;
         msg.Body = new BodyBuilder { HtmlBody = html, TextBody = text }.ToMessageBody();
 
-        using var client = new SmtpClient { Timeout = 60_000 };
+        /* The library writes each line of the conversation to the stream, with what it knows to be a secret already hidden. */
+        using var client = new SmtpClient(new MailKit.ProtocolLogger(said, leaveOpen: true)) { Timeout = 60_000 };
         if (cfg.AcceptAnyCertificate) client.ServerCertificateValidationCallback = (_, _, _, _) => true;
         var (host, port, tls) = cfg.Endpoint();
         await client.ConnectAsync(host, port, tls, ct);
