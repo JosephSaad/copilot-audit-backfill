@@ -96,7 +96,7 @@ Six fact views carry the numbers. Each joins to the dimension views by integer k
 | `bi.Calendar` | `DateKey` (yyyymmdd as an integer) | The date, month, quarter, weekday, and the Saturday-to-Friday week (`WeekEnding`, `WeekLabel`) |
 | `bi.Users` | `UserKey` | Sign-in name, display name, department, division, job title, office, country, manager, the management chain (`OrgLevel1` to `OrgLevel15`), and today's license |
 | `bi.Apps` | `AppKey` | The app (Word, Excel, Microsoft Teams, Copilot Chat ...) and its category: *Copilot Chat* or *In-App Copilot* |
-| `bi.Agents` | `AgentKey` | The agent, its name and source (*Copilot Studio*, *Microsoft*, *Agent ID*). Key 1, *(no agent)*, is Copilot itself |
+| `bi.Agents` | `AgentKey` | The agent, its name and source (*Copilot Studio*, *Microsoft*, *Agent ID*). Key 1, *(no agent)*, is Copilot itself. From 2.6.3 an agent the audit log names two ways is one row |
 | `bi.Models` | `ModelKey` | Model provider and name |
 | `bi.LicenseStatuses` | `LicenseStatusKey` | 0 *Unknown*, 1 *Licensed*, 2 *Not licensed*: the license held at the time of use |
 | `bi.LicenseTypes` | `LicenseTypeKey` | The license the record itself reports: *Premium*, *Starter*, *(not reported)* |

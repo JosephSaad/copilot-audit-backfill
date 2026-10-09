@@ -256,7 +256,13 @@ INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'I
     }
     'NameAgent' {
         Need 'AgentId' $AgentId
-        $key = Invoke-Sql -Scalar -Sql 'SELECT AgentKey FROM bi.DimAgent WHERE AgentId = @a' -Parameters @{ '@a' = $AgentId }
+        # 2.6.3: either identity of an agent the audit log names two ways names the one agent.
+        $key = Invoke-Sql -Scalar -Parameters @{ '@a' = $AgentId } -Sql @'
+DECLARE @k INT;
+IF COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL SELECT @k = AgentKey FROM bi.DimAgent WHERE AgentId = @a;
+ELSE EXEC sp_executesql N'SELECT @k = COALESCE(MergedIntoKey, AgentKey) FROM bi.DimAgent WHERE AgentId = @a', N'@a NVARCHAR(400), @k INT OUTPUT', @a, @k OUTPUT;
+SELECT @k;
+'@
         if ($null -eq $key -or $key -is [DBNull]) { throw "No agent $AgentId in bi.DimAgent." }
         Invoke-Sql -Parameters @{ '@k' = $key; '@n' = $FriendlyName; '@o' = $Owner; '@by' = $me } -Sql @"
 IF NULLIF(@n, N'') IS NULL DELETE FROM dash.AgentAlias WHERE AgentKey = @k;

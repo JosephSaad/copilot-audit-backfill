@@ -14,7 +14,9 @@
        transaction, so a reader never sees it empty. A sheet that is empty or missing leaves its table as it was.
     3. Fills dash.AgentInventory (one row per agent the workbook lists, the current agents) and
        dash.AgentChildLink, matching each agent to the one the audit log knows: by the schema name its identity
-       ends in, then the bot id, the title id or the Entra agent id it holds.
+       ends in, then the bot id, the title id or the Entra agent id it holds. An agent the audit log names two
+       ways (2.6.3) becomes one: its second identity is marked in bi.DimAgent and bi.usp_MergeAgents moves its
+       interactions to the agent.
     4. Names the agents in the report tables (bi.usp_NameAgents): the workbook's name, or the audit log's for an
        agent the workbook does not list or leaves unnamed.
     5. Records the load in dash.AgentInventoryRun, which Admin > Health shows.
@@ -43,6 +45,7 @@ param(
     [string] $SqlServer,
     [string] $Database = 'CopilotAudit',
     [switch] $TrustServerCertificate,
+    [string] $ConnectionString,               # for the tests: used as it is, in place of -SqlServer and -Database
     [string] $SettingsPath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'copilot-audit.settings.psd1'),
     [hashtable] $Sheets = @{ 'AgentInventory' = 'dbo.AgentInventory'; 'AgentsInProd' = 'dbo.AgentsInProd'; 'ParentChildAgent' = 'dbo.ParentChildAgent' }
 )
@@ -66,12 +69,12 @@ if (-not $SiteUrl -and -not $Url) {
     if (Setting 'TrustServerCertificate') { $TrustServerCertificate = $true }
     if (-not $SiteUrl -and -not $Url) { throw "Neither AgentWorkbookSiteUrl nor AgentWorkbookUrl is in $SettingsPath." }
 }
-if (-not $SqlServer) { throw 'Give -SqlServer, or SqlServer in the settings file.' }
+if (-not $SqlServer -and -not $ConnectionString) { throw 'Give -SqlServer, or SqlServer in the settings file.' }
 if ($SiteUrl -and -not ($ClientId -and $CertificateThumbprint -and $TenantId)) {
     throw 'SharePoint Online needs the workbook app: -TenantId, -ClientId and -CertificateThumbprint (AgentWorkbookClientId and AgentWorkbookCertificateThumbprint in the settings).'
 }
 
-$conn = [System.Data.SqlClient.SqlConnection]::new("Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$([bool] $TrustServerCertificate)")
+$conn = [System.Data.SqlClient.SqlConnection]::new($(if ($ConnectionString) { $ConnectionString } else { "Server=$SqlServer;Database=$Database;Integrated Security=true;Encrypt=true;TrustServerCertificate=$([bool] $TrustServerCertificate)" }))
 $conn.Open()
 function Sql([string] $Text, $Tx, [switch] $Scalar) {
     $c = $conn.CreateCommand(); $c.CommandText = $Text; $c.Transaction = $Tx; $c.CommandTimeout = 0
@@ -150,6 +153,10 @@ try {
         if (-not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
             throw 'dash.AgentInventory predates 2.5.8: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
         }
+        # 2.6.3: second identities are folded into their agent where bi.DimAgent can say so (a database upgraded to 2.6.3).
+        $canMerge = [bool] (Sql "SELECT CASE WHEN COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL THEN 0 ELSE 1 END" $null -Scalar)
+        $mainKey = if ($canMerge) { 'COALESCE(d.MergedIntoKey, d.AgentKey)' } else { 'd.AgentKey' }
+        $markMerged = if ($canMerge) { 'UPDATE d SET MergedIntoKey = g.MainKey FROM bi.DimAgent AS d JOIN #merge AS g ON g.OwnKey = d.AgentKey WHERE d.MergedIntoKey IS NULL;' } else { '' }
         $tx = $conn.BeginTransaction()
         try {
             Sql @"
@@ -174,11 +181,18 @@ DELETE FROM #w WHERE Id IS NULL;
       5  The bot id, or 6 the Entra agent id, anywhere in the identity (records keyed by AgentId alone)
     1-3 are exact. 4-6 are taken only where one agent of the workbook claims the audit log's agent: a schema name
     used in two environments matches neither. Microsoft's own agents (MicrosoftAgent.*) are not in the workbook.
+
+    2.6.3: the audit log names some agents two ways (an agent made in Microsoft 365 Copilot is rule 1's identity on
+    some records and rule 2's on others), and the workbook's one row holds both ids. An agent of the workbook keeps
+    one link, the one it had, and every other identity it matches exactly (1-3) is marked as another name for that
+    agent (bi.DimAgent.MergedIntoKey); bi.usp_MergeAgents then moves its interactions there. Marked only where no
+    other agent of the workbook claims the identity, and never undone here. AgentKey below is the agent an identity
+    stands for; OwnKey is the identity's own row.
 */
 UPDATE #w SET TitleId = N'T_' + TitleId WHERE TitleId IS NOT NULL AND TitleId NOT LIKE N'T[_]%';
 DECLARE @g NVARCHAR(200) = N'%' + REPLICATE(N'[0-9a-fA-F]', 8) + N'-' + REPLICATE(N'[0-9a-fA-F]', 4) + N'-' + REPLICATE(N'[0-9a-fA-F]', 4)
                          + N'-' + REPLICATE(N'[0-9a-fA-F]', 4) + N'-' + REPLICATE(N'[0-9a-fA-F]', 12) + N'%';
-SELECT d.AgentKey, d.AgentId, i.DerivedName AS KSchema,
+SELECT $mainKey AS AgentKey, d.AgentKey AS OwnKey, d.AgentId, i.DerivedName AS KSchema,
        CASE WHEN PATINDEX(@g, d.AgentId) > 0 THEN SUBSTRING(d.AgentId, PATINDEX(@g, d.AgentId), 36) END AS KGuid,
        CAST(CASE WHEN d.AgentId LIKE N'Copilot.Studio.%' AND d.AgentId NOT LIKE N'Copilot.Studio.Declarative.%' THEN 1 ELSE 0 END AS BIT) AS Studio
 INTO #d FROM bi.DimAgent AS d CROSS APPLY bi.fnAgentIdentity(d.AgentId, d.AgentId) AS i WHERE d.AgentId <> N'(none)';
@@ -189,26 +203,39 @@ IF COL_LENGTH(N'audit.AgentEvent', N'BotSchemaName') IS NOT NULL
     EXEC (N'INSERT INTO #b (BotId, SchemaName) SELECT DISTINCT LEFT(CAST(BotId AS NVARCHAR(100)), 100), BotSchemaName
             FROM audit.AgentEvent WHERE BotId IS NOT NULL AND NULLIF(BotSchemaName, N'''') IS NOT NULL;');
 
-SELECT x.Id, x.AgentKey, MIN(x.Rnk) AS Rnk INTO #c
-FROM (SELECT w.Id, d.AgentKey, 1 AS Rnk FROM #w AS w JOIN #d AS d ON d.AgentId = N'Copilot.Studio.' + w.EnvironmentId + N'-' + w.SchemaName
-      UNION ALL SELECT w.Id, d.AgentKey, 2 FROM #w AS w JOIN #d AS d ON d.AgentId = N'Copilot.Studio.Declarative.' + w.TitleId OR d.AgentId = w.TitleId
-      UNION ALL SELECT w.Id, d.AgentKey, 3 FROM #w AS w JOIN #b AS b ON b.BotId = w.Id
+SELECT x.Id, x.AgentKey, x.OwnKey, MIN(x.Rnk) AS Rnk INTO #cx
+FROM (SELECT w.Id, d.AgentKey, d.OwnKey, 1 AS Rnk FROM #w AS w JOIN #d AS d ON d.AgentId = N'Copilot.Studio.' + w.EnvironmentId + N'-' + w.SchemaName
+      UNION ALL SELECT w.Id, d.AgentKey, d.OwnKey, 2 FROM #w AS w JOIN #d AS d ON d.AgentId = N'Copilot.Studio.Declarative.' + w.TitleId OR d.AgentId = w.TitleId
+      UNION ALL SELECT w.Id, d.AgentKey, d.OwnKey, 3 FROM #w AS w JOIN #b AS b ON b.BotId = w.Id
                 JOIN #d AS d ON d.AgentId = N'Copilot.Studio.' + w.EnvironmentId + N'-' + b.SchemaName
-      UNION ALL SELECT w.Id, d.AgentKey, 4 FROM #w AS w JOIN #d AS d ON d.Studio = 1 AND d.KSchema = w.SchemaName
-      UNION ALL SELECT w.Id, d.AgentKey, 4 FROM #w AS w JOIN #d AS d ON d.Studio = 1 AND w.SchemaName LIKE N'%-%'
+      UNION ALL SELECT w.Id, d.AgentKey, d.OwnKey, 4 FROM #w AS w JOIN #d AS d ON d.Studio = 1 AND d.KSchema = w.SchemaName
+      UNION ALL SELECT w.Id, d.AgentKey, d.OwnKey, 4 FROM #w AS w JOIN #d AS d ON d.Studio = 1 AND w.SchemaName LIKE N'%-%'
                 AND RIGHT(d.AgentId, LEN(w.SchemaName) + 1) = N'-' + w.SchemaName
-      UNION ALL SELECT w.Id, d.AgentKey, 4 FROM #w AS w JOIN #b AS b ON b.BotId = w.Id JOIN #d AS d ON d.Studio = 1 AND d.KSchema = b.SchemaName
-      UNION ALL SELECT w.Id, d.AgentKey, 5 FROM #w AS w JOIN #d AS d ON d.KGuid = w.Id OR d.AgentId = w.Id
-      UNION ALL SELECT w.Id, d.AgentKey, 6 FROM #w AS w JOIN #d AS d ON d.KGuid = w.EntraAgentId OR d.AgentId = w.EntraAgentId) AS x
-GROUP BY x.Id, x.AgentKey;
+      UNION ALL SELECT w.Id, d.AgentKey, d.OwnKey, 4 FROM #w AS w JOIN #b AS b ON b.BotId = w.Id JOIN #d AS d ON d.Studio = 1 AND d.KSchema = b.SchemaName
+      UNION ALL SELECT w.Id, d.AgentKey, d.OwnKey, 5 FROM #w AS w JOIN #d AS d ON d.KGuid = w.Id OR d.AgentId = w.Id
+      UNION ALL SELECT w.Id, d.AgentKey, d.OwnKey, 6 FROM #w AS w JOIN #d AS d ON d.KGuid = w.EntraAgentId OR d.AgentId = w.EntraAgentId) AS x
+GROUP BY x.Id, x.AgentKey, x.OwnKey;
+SELECT Id, AgentKey, MIN(Rnk) AS Rnk INTO #c FROM #cx GROUP BY Id, AgentKey;
 
-/* Each workbook agent's best match; then each audit agent's best claimants, kept unless a loose match is shared. */
+/* Each workbook agent's best match, the exact one it was linked to before coming first, so an agent keeps its key
+   when a second identity of it turns up; then each audit agent's best claimants, kept unless a loose match is shared. */
 SELECT Id, AgentKey, Rnk INTO #p
-FROM (SELECT Id, AgentKey, Rnk, ROW_NUMBER() OVER (PARTITION BY Id ORDER BY Rnk, AgentKey) AS rn FROM #c) AS y WHERE rn = 1;
+FROM (SELECT c.Id, c.AgentKey, c.Rnk,
+             ROW_NUMBER() OVER (PARTITION BY c.Id ORDER BY CASE WHEN c.Rnk <= 3 AND prev.AgentKey = c.AgentKey THEN 0 ELSE 1 END, c.Rnk, c.AgentKey) AS rn
+      FROM #c AS c LEFT JOIN dash.AgentInventory AS prev ON prev.InventoryAgentId = c.Id) AS y WHERE rn = 1;
 SELECT p.Id, p.AgentKey, p.Rnk INTO #m
 FROM #p AS p
 JOIN (SELECT AgentKey, MIN(Rnk) AS Best FROM #p GROUP BY AgentKey) AS k ON k.AgentKey = p.AgentKey AND p.Rnk = k.Best
 WHERE p.Rnk <= 3 OR (SELECT COUNT(*) FROM #p AS q WHERE q.AgentKey = p.AgentKey AND q.Rnk = p.Rnk) = 1;
+
+/* 2.6.3: the other identities of each linked agent. */
+SELECT x.OwnKey, MIN(m.AgentKey) AS MainKey INTO #merge
+FROM #cx AS x JOIN #m AS m ON m.Id = x.Id
+WHERE x.Rnk <= 3 AND m.Rnk <= 3 AND x.AgentKey <> m.AgentKey AND x.AgentKey = x.OwnKey
+  AND NOT EXISTS (SELECT 1 FROM #m AS o WHERE o.AgentKey = x.OwnKey)
+  AND (SELECT COUNT(DISTINCT y.Id) FROM #cx AS y WHERE y.OwnKey = x.OwnKey AND y.Rnk <= 3) = 1
+GROUP BY x.OwnKey;
+$markMerged
 
 DELETE FROM dash.AgentInventory;
 INSERT INTO dash.AgentInventory (InventoryAgentId, AgentKey, AgentName, OwnerUpn, Environment, SchemaName, CreatedAt, LastPublishedAt,
@@ -293,6 +320,7 @@ FROM #pl AS l JOIN #ck AS c ON c.ChildKey = l.ChildKey;
             $tx.Commit()
         }
         catch { $tx.Rollback(); throw }
+        if ($canMerge) { Sql "IF OBJECT_ID(N'bi.usp_MergeAgents', N'P') IS NOT NULL EXEC bi.usp_MergeAgents;" $null }
         Sql "IF OBJECT_ID(N'bi.usp_NameAgents', N'P') IS NOT NULL EXEC bi.usp_NameAgents;" $null
         $matched = Sql 'SELECT COUNT(*) FROM dash.AgentInventory WHERE AgentKey IS NOT NULL' $null -Scalar
         $total = Sql 'SELECT COUNT(*) FROM dash.AgentInventory' $null -Scalar
@@ -307,6 +335,11 @@ FROM (SELECT Rnk, COUNT(*) AS n FROM #m GROUP BY Rnk) AS x;
         if ($how -and $how -isnot [DBNull]) { Write-Host "  matched by: $how." }
         $loose = Sql "SELECT COUNT(DISTINCT p.Id) FROM #p AS p WHERE NOT EXISTS (SELECT 1 FROM #m AS m WHERE m.Id = p.Id);" $null -Scalar
         if ($loose) { Write-Host "  $loose agent(s) left unmatched: their schema name is in more than one environment, or another agent of the workbook claims the same one." }
+        if ($canMerge) {
+            $folded = Sql 'SELECT COUNT(*) FROM #merge' $null -Scalar
+            $second = Sql 'SELECT COUNT(*) FROM bi.DimAgent WHERE MergedIntoKey IS NOT NULL' $null -Scalar
+            if ($second) { Write-Host "  $second second identit$(if ($second -eq 1) { 'y' } else { 'ies' }) of an agent the audit log names two ways $(if ($second -eq 1) { 'is' } else { 'are' }) counted with the agent ($folded found in this workbook)." }
+        }
     }
 
     if ($runId) {

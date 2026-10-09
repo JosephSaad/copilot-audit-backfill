@@ -352,7 +352,8 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `tools/Import-FoundryUsage.ps1` | Optional (2.6.2): Foundry and Azure OpenAI deployments, daily requests and tokens, and daily cost, for the subscriptions named, into three `audit.Foundry...` tables. The nightly run calls it when the settings name `FoundrySubscriptions`. Setup: `docs/FOUNDRY-USAGE.md`. |
 | `tools/ExternalUsage.Common.ps1` | What those two share: writing a set of rows over the ones it replaces, and the run log `audit.ExternalUsageRun`. |
 | `docs/GITHUB-COPILOT-USAGE.md`, `docs/FOUNDRY-USAGE.md` | One setup guide for each of those loaders: the values needed, a part to hand to the GitHub or Azure administrator, the steps on the job server, checks and troubleshooting (2.6.2). |
-| `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each. |
+| `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each; the naming conventions; what each `bi` table and view is for and what uses it; and the compatibility promise (2.6.3). |
+| `docs/SCRIPTS.md` | Every script in summary: what it does, who runs it and when (2.6.3). |
 | `docs/REPORTING.md` | Reporting on the data with Grafana or another SQL tool, in brief: the `bi` views, access, the figures, the Grafana setup and queries to start from (2.5.9). |
 | `docs/REPORTING.docx`, `docs/REPORTING-REFERENCE.docx` | The two reporting guides as Word documents, to hand to a team outside the repository (2.6.1). Made from the Markdown by `tools/dev/schema/build_docx.py`. |
 | `docs/REPORTING-REFERENCE.md` | The same in full: how the schema is created and filled, every reporting view column by column, each figure as SQL, every table and view, and the text of the scripts that create them (2.5.9). |

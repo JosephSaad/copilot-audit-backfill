@@ -65,6 +65,9 @@ jobs:
       - name: Test-ExternalUsage
         shell: bash
         run: pwsh -NoProfile -File tests/Test-ExternalUsage.ps1
+      - name: Test-SchemaCompatibility
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-SchemaCompatibility.ps1
       - name: Test-OperationsGuide
         shell: pwsh
         run: pwsh -NoProfile -File tests/Test-OperationsGuide.ps1
@@ -185,6 +188,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The whole history, for its release tags: the test installs over an earlier release (section 20).
+          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:

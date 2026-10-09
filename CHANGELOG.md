@@ -4,6 +4,109 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.3] - 2026-10-08
+
+An agent the audit log names two ways is one agent, with all its use and the workbook's name and owner; Admin › Access
+removes every role of one person or group, or of several at once; the schema is held to backward compatibility from
+this release on; and three new parts of the documentation: the naming conventions, what uses each `bi` table and
+view, and every script in summary.
+
+To upgrade from 2.6.2 (or 2.6.0, 2.6.1): with the nightly task disabled, replace the job server's scripts, run
+`Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once, then install the dashboard package over the one in
+place and enable the task again. The installer adds one column, `bi.DimAgent.MergedIntoKey`, and the procedure
+`bi.usp_MergeAgents`, and runs it: the interactions kept under an agent's second identity move to the agent, once.
+On a large database that first run rewrites those interactions in batches and can take some minutes; every run after
+it reads one column and moves nothing. Agents the workbook proves are one are folded in by the next run of the agent
+workbook load, the same night. Refresh the Power BI model in full once afterwards, as the installer says when it
+moved anything. Nothing else is rebuilt.
+
+### Fixed
+- **One agent was counted as two where the audit log names it two ways.** A client's agent reports listed hundreds
+  of agents the workbook "did not match", though the workbook held every one of them. Three cases, each now one
+  agent with all its interactions under one key:
+  - **An agent made in Microsoft 365 Copilot.** Records name it `Copilot.Studio.Default-<tenant>-<its id>` or
+    `Copilot.Studio.Declarative.T_<its title id>`. Nothing in a record ties the two, but the agent workbook's row
+    holds both ids. `tools\Import-AgentWorkbook.ps1` linked a workbook agent to one identity only, so the other was
+    left without the workbook's name, owner and inventory details. It now marks every other identity the row matches
+    exactly as another name for the agent. An agent keeps the key it had, so nothing that points at it moves.
+  - **A SharePoint agent, and a declarative agent, written with and without its prefix**:
+    `SharePointAgents.Declarative.SPO_<id>` and `SPO_<id>`, `Copilot.Studio.Declarative.T_<id>` and `T_<id>`. The
+    agent is the one with the prefix. This needs no workbook.
+  - **One of Microsoft's own agents under two variants**, such as
+    `MicrosoftAgent.Word Drafting Agent.BuiltIn_WordDraftingAgent` and `...WordDraftingAgent`. The name in the id is
+    Microsoft's own for the agent, so the same name is the same agent: the one seen first. This needs no workbook.
+  Agents of your own that only share a name are never merged: two makers' *New Agent* have different ids and are two
+  agents. The workbook's "matched" count does not change: it counts workbook agents the log knows, and they were
+  linked already. What changes is the number of agents listed, the use shown for each, and the list of agents in use
+  that the workbook does not cover, which is now only the agents it really does not list.
+
+### Added
+- **`bi.usp_MergeAgents`** (`Create-CopilotBiProcedure.sql`) and **`bi.DimAgent.MergedIntoKey`**. A row of
+  `bi.DimAgent` whose `MergedIntoKey` is set is a second identity of the agent with that key. The procedure sets it
+  for the prefix and Microsoft cases, follows a chain to its end, clears a mark that cannot stand, and moves what was
+  kept under the second identity to the agent: the interactions (`bi.FactInteraction`), the flagged ones
+  (`dash.FlaggedInteraction`), the workbook's links (`dash.AgentInventory`, `dash.AgentChildLink`), a name given by
+  hand (`dash.AgentAlias`, where the agent has none), and `dash.AgentUse`. `bi.usp_RefreshBi` runs it at the end of
+  every refresh and writes an interaction that arrives under a second identity with the agent's key from the start;
+  the workbook load and the installer run it too. Nothing is deleted: the second identity's row stays, as the record
+  of the name.
+- **`bi.Agents` and `dash.Agent` list an agent once.** Both leave out the rows that are a second identity. A report
+  that counts agents should count `bi.Agents`, not `bi.DimAgent`.
+- **Admin › Access: remove every role of one person or group.** *Remove all*, at the end of a row's roles, removes
+  every role that person or group holds, after asking.
+- **Admin › Access: remove several people's roles at once.** A tick box on each row of the grants, *Select all on
+  this page*, and *Remove every role from the selected* under the table. Up to 500 at once. Both removals are admin
+  changes like any other: refused to anyone but an administrator, and recorded in the audit log with each person or
+  group and the roles they held. An administrator who clears their own account is told so. Someone cleared keeps
+  what their level and their AD groups give them.
+- **The schema is held to backward compatibility.** From this release a release may add to the schema and may not
+  take away from it: no table, view, procedure, column, parameter or grant to a role is dropped or renamed, a column
+  keeps its type or widens it, a view keeps its columns in their places, and a new column or parameter never has to
+  be given. `tests/schema-baseline.tsv` is the shape of the last release, both databases. CI compares what a build
+  installs with it and with the baseline the last release's tag carries, then installs 2.6.2 and the last release
+  from their tags, installs the build over each, and fails unless the databases end with the schema a new install
+  has. `tools/dev/schema/Update-SchemaBaseline.ps1` takes the baseline again at each release, and refuses when the
+  release breaks the one in place. This release changes the schema within the rule: one column that takes NULL, and
+  one procedure.
+- **`docs/SCRIPTS.md`: every script in summary.** What each script does, who runs it and when: setup and upgrade,
+  the nightly run and the loaders it calls, the day-to-day tools, each SQL script in the order the installer runs
+  them, the dashboard's, Power BI's, the development tools and the tests.
+- **`docs/SCHEMA.md`: the naming conventions.** What a schema, a prefix, a suffix and a column's ending say about an
+  object: who it is for, what kind it is, and what one row of it is.
+- **`docs/SCHEMA.md`: what each `bi` table and view is for, and what uses it.** Every dimension and fact table with
+  the view over it and its readers (the dashboard, its rollups, the Power BI model, reporting accounts), the
+  housekeeping tables, and the views with no table of their own.
+- **`tests/Test-SchemaCompatibility.ps1`** (in CI) and two sections of the SQL integration test: schema
+  compatibility, and one agent with two identities, which runs the workbook load end to end through a stand-in for
+  the Excel reader.
+- **`tools\Import-AgentWorkbook.ps1 -ConnectionString`**, for the tests, which sign in to SQL Server with a login.
+
+### Changed
+- **The agent workbook load prefers the link an agent had.** When a second identity of an agent turns up that would
+  match better, the agent keeps its key and the newcomer is folded into it.
+- **`tools\Invoke-CopilotMaintenance.ps1 -Task NameAgent`** names the agent whichever of its identities is given.
+- **CI checks out the whole history for the SQL integration job**, for the release tags it installs over.
+- **The schema documents follow this release**: `docs/SCHEMA.md` (102 tables, 37 views, 1,324 columns, from 19
+  scripts), `docs/REPORTING.md` and `docs/REPORTING-REFERENCE.md`, and both Word versions.
+
+### Known limits
+- **Checked on test data shaped like the client's, not on the client's.** The three cases were taken from query
+  results a client sent (the ids, the workbook's columns, the counts) and reproduced in the tests. The first run on a
+  real database, and the minutes it takes at 120 million interactions, were not measured.
+- **The workbook case needs the workbook's row to hold both ids** (`SchemaName` with `EnvironmentId`, and `TitleId`).
+  An agent the workbook does not list, or lists without a title id, stays as the log names it.
+- **A merge is not undone.** If a workbook row was wrong, clear `MergedIntoKey` by hand; the interactions already
+  moved stay with the agent until `bi` is rebuilt (`-Task RebuildBi`).
+- **Microsoft's agents are merged on the name in their id alone.** Two different Microsoft agents given the same
+  name segment would be counted as one.
+- **Removing roles was checked on the demo company**: the page's markup, both requests and the audit log. The tick
+  boxes and *Select all on this page* were not clicked in a browser by a test.
+- **Compatibility is checked on the shape of the schema**: not on the meaning of a column whose name and type stay
+  the same, nor on indexes and keys, nor on `audit.CopilotAudit` as the backfill's finalize script builds it.
+- **The usage map of the `bi` schema was written from the code**, by which files read each table and view; it names
+  the dashboard's report areas, not every page.
+- The limits 2.6.2 listed for the two usage loaders, the name search and the mail log still stand.
+
 ## [2.6.2] - 2026-10-08
 
 Every box that takes a person searches by the start of a first or a last name, from the third letter; Admin › Email

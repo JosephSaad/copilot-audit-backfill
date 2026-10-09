@@ -147,8 +147,124 @@ BEGIN
       AND (ISNULL(d.AgentName, N'') <> ISNULL(v.AgentName, N'') COLLATE Latin1_General_100_BIN2
            OR d.NamedInAudit <> v.NamedInAudit OR ISNULL(d.AgentSource, N'') <> i.AgentSource);
 
-    DECLARE @msg NVARCHAR(200) = CONCAT(N'Agents: ', (SELECT COUNT(*) FROM bi.DimAgent WHERE NamedInAudit = 1), N' of ',
-                                        (SELECT COUNT(*) FROM bi.DimAgent WHERE AgentId <> N'(none)'), N' named by the audit log.');
+    DECLARE @msg NVARCHAR(200) = CONCAT(N'Agents: ', (SELECT COUNT(*) FROM bi.DimAgent WHERE NamedInAudit = 1 AND MergedIntoKey IS NULL), N' of ',
+                                        (SELECT COUNT(*) FROM bi.DimAgent WHERE AgentId <> N'(none)' AND MergedIntoKey IS NULL), N' named by the audit log.');
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+END;
+GO
+
+/*
+    bi.usp_MergeAgents (2.6.3): makes one agent of the identities marked as another name for it.
+
+    bi.DimAgent.MergedIntoKey says a row is a second identity of the agent with that key. Two things set it:
+      - tools/Import-AgentWorkbook.ps1, from the workbook row that holds both ids of an agent;
+      - this procedure, for an id the audit log writes with and without its prefix: a SharePoint agent is
+        SharePointAgents.Declarative.SPO_<id> on some records and SPO_<id> on others, and a declarative Copilot
+        Studio agent Copilot.Studio.Declarative.T_<id> and T_<id>. The agent is the one with the prefix;
+      - this procedure, for Microsoft's own agents, which the log writes as MicrosoftAgent.<name>.<variant>: the name
+        is Microsoft's own for the agent, so MicrosoftAgent.Word Drafting Agent.BuiltIn_WordDraftingAgent and
+        MicrosoftAgent.Word Drafting Agent.WordDraftingAgent are one agent, the one seen first. Agents of your own
+        that share a name are never merged by it: two makers' "New Agent" are two agents.
+    It then moves what was kept under the second identity to the agent:
+      - the interactions (bi.FactInteraction) and the flagged ones (dash.FlaggedInteraction);
+      - the workbook's link to it (dash.AgentInventory, dash.AgentChildLink);
+      - an administrator's own name for it (dash.AgentAlias), where the agent has none;
+      - dash.AgentUse, the first and last day of use, built again.
+    A mark that points at a row itself marked is followed to the end first, and one that would point at itself or at
+    Copilot's own row is cleared. Nothing is deleted, and a second run finds nothing to move: the refresh writes new
+    interactions under the agent's key from the start. The first run on a large database rewrites the interactions
+    of every merged identity once, in batches; after it, a run reads one column and changes nothing.
+*/
+IF OBJECT_ID(N'bi.usp_MergeAgents', N'P') IS NULL
+    EXEC (N'CREATE PROCEDURE bi.usp_MergeAgents AS BEGIN SET NOCOUNT ON; END;');
+GO
+
+ALTER PROCEDURE bi.usp_MergeAgents
+    @BatchSize INT = 1000000
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    IF COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL RETURN;
+
+    /* The same id with and without its prefix. The id after the prefix is long and the audit log's own, so a row
+       whose whole id is that text is the same agent, not a namesake. */
+    UPDATE b SET MergedIntoKey = f.AgentKey
+    FROM bi.DimAgent AS b
+    JOIN bi.DimAgent AS f ON f.AgentId IN (N'SharePointAgents.Declarative.' + b.AgentId, N'Copilot.Studio.Declarative.' + b.AgentId)
+    WHERE b.MergedIntoKey IS NULL AND b.AgentId <> N'(none)' AND LEN(b.AgentId) >= 20
+      AND (b.AgentId LIKE N'SPO[_]%' OR b.AgentId LIKE N'T[_]%');
+
+    /* Microsoft's own agents by the name in their id; the first seen is the agent, and stays it. */
+    UPDATE d SET MergedIntoKey = m.MainKey
+    FROM bi.DimAgent AS d
+    CROSS APPLY bi.fnAgentIdentity(d.AgentId, d.AgentId) AS i
+    JOIN (SELECT i2.DerivedName, MIN(d2.AgentKey) AS MainKey
+          FROM bi.DimAgent AS d2 CROSS APPLY bi.fnAgentIdentity(d2.AgentId, d2.AgentId) AS i2
+          WHERE d2.AgentId LIKE N'MicrosoftAgent.%' AND d2.MergedIntoKey IS NULL AND i2.DerivedName IS NOT NULL
+          GROUP BY i2.DerivedName HAVING COUNT(*) > 1) AS m ON m.DerivedName = i.DerivedName
+    WHERE d.AgentId LIKE N'MicrosoftAgent.%' AND d.MergedIntoKey IS NULL AND d.AgentKey <> m.MainKey;
+
+    /* Marks that cannot stand: on Copilot's own row, at a row that is gone, at itself. */
+    UPDATE d SET MergedIntoKey = NULL
+    FROM bi.DimAgent AS d
+    WHERE d.MergedIntoKey IS NOT NULL
+      AND (d.AgentId = N'(none)' OR d.MergedIntoKey = d.AgentKey
+           OR NOT EXISTS (SELECT 1 FROM bi.DimAgent AS t WHERE t.AgentKey = d.MergedIntoKey AND t.AgentId <> N'(none)'));
+    /* A chain is followed to its end; a ring, which has none, is cut. */
+    DECLARE @hops INT = 0;
+    WHILE @hops < 20
+    BEGIN
+        UPDATE d SET MergedIntoKey = t.MergedIntoKey
+        FROM bi.DimAgent AS d JOIN bi.DimAgent AS t ON t.AgentKey = d.MergedIntoKey
+        WHERE t.MergedIntoKey IS NOT NULL AND t.MergedIntoKey <> d.AgentKey;
+        IF @@ROWCOUNT = 0 BREAK;
+        SET @hops += 1;
+    END;
+    UPDATE d SET MergedIntoKey = NULL
+    FROM bi.DimAgent AS d JOIN bi.DimAgent AS t ON t.AgentKey = d.MergedIntoKey
+    WHERE t.MergedIntoKey IS NOT NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM bi.DimAgent WHERE MergedIntoKey IS NOT NULL) RETURN;
+
+    DECLARE @moved BIGINT = 0, @n INT = 1;
+    WHILE @n > 0
+    BEGIN
+        UPDATE TOP (@BatchSize) f SET AgentKey = d.MergedIntoKey
+        FROM bi.FactInteraction AS f JOIN bi.DimAgent AS d ON d.AgentKey = f.AgentKey
+        WHERE d.MergedIntoKey IS NOT NULL;
+        SET @n = @@ROWCOUNT;
+        SET @moved += @n;
+    END;
+
+    IF OBJECT_ID(N'dash.FlaggedInteraction', N'U') IS NOT NULL
+        EXEC (N'UPDATE f SET AgentKey = d.MergedIntoKey
+                FROM dash.FlaggedInteraction AS f JOIN bi.DimAgent AS d ON d.AgentKey = f.AgentKey
+                WHERE d.MergedIntoKey IS NOT NULL;');
+    IF OBJECT_ID(N'dash.AgentInventory', N'U') IS NOT NULL
+        EXEC (N'UPDATE i SET AgentKey = d.MergedIntoKey
+                FROM dash.AgentInventory AS i JOIN bi.DimAgent AS d ON d.AgentKey = i.AgentKey
+                WHERE d.MergedIntoKey IS NOT NULL;');
+    IF OBJECT_ID(N'dash.AgentChildLink', N'U') IS NOT NULL
+        EXEC (N'UPDATE l SET ParentAgentKey = d.MergedIntoKey
+                FROM dash.AgentChildLink AS l JOIN bi.DimAgent AS d ON d.AgentKey = l.ParentAgentKey
+                WHERE d.MergedIntoKey IS NOT NULL;');
+    IF OBJECT_ID(N'dash.AgentAlias', N'U') IS NOT NULL
+        EXEC (N'UPDATE a SET AgentKey = d.MergedIntoKey
+                FROM dash.AgentAlias AS a JOIN bi.DimAgent AS d ON d.AgentKey = a.AgentKey
+                WHERE d.MergedIntoKey IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM dash.AgentAlias AS o WHERE o.AgentKey = d.MergedIntoKey)
+                  AND a.AgentKey = (SELECT MIN(x.AgentKey) FROM dash.AgentAlias AS x JOIN bi.DimAgent AS dx ON dx.AgentKey = x.AgentKey
+                                    WHERE dx.MergedIntoKey = d.MergedIntoKey);');
+    IF @moved > 0 AND OBJECT_ID(N'dash.AgentUse', N'U') IS NOT NULL
+        EXEC (N'BEGIN TRANSACTION;
+                DELETE FROM dash.AgentUse;
+                INSERT INTO dash.AgentUse (AgentKey, FirstDateKey, LastDateKey, Interactions)
+                SELECT AgentKey, MIN(DateKey), MAX(DateKey), COUNT_BIG(*) FROM bi.FactInteraction GROUP BY AgentKey;
+                COMMIT TRANSACTION;');
+
+    DECLARE @msg NVARCHAR(300) = CONCAT(N'Agents: ', (SELECT COUNT(*) FROM bi.DimAgent WHERE MergedIntoKey IS NOT NULL),
+                                        N' second identities folded into their agent; ', @moved, N' interaction(s) moved.');
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
 END;
 GO
@@ -665,7 +781,7 @@ BEGIN
                DATEADD(HOUR, DATEPART(HOUR, t.LocalTs), CAST(CAST(t.LocalTs AS DATE) AS DATETIME2(0))),
                YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
                DATEPART(HOUR, t.LocalTs),
-               u.UserKey, a.AppKey, g.AgentKey, m.ModelKey,
+               u.UserKey, a.AppKey, COALESCE(g.MergedIntoKey, g.AgentKey), m.ModelKey,   -- 2.6.3: one agent, two identities
                ls.LicenseStatusKey,
                s.PromptCount, s.AccessedResourceCount, s.UsedWebSearch, s.JailbreakDetected,
                s.PromptInjectionDetected, s.HasBlockedResource, s.HasSensitivityLabel,
@@ -729,6 +845,10 @@ BEGIN
         COMMIT TRANSACTION;
 
     /* ---- 5. Dimension attributes ------------------------------------------ */
+
+    /* 2.6.3: an agent the audit log names two ways is one agent; what this refresh wrote under a second identity
+       met for the first time is moved to it. */
+    EXEC bi.usp_MergeAgents;
 
     /* Every agent's name, from the whole history's records rather than this window's (2.4.11). */
     EXEC bi.usp_NameAgents;

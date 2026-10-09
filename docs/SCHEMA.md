@@ -2,11 +2,15 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-102 tables (plus 2 left over from 1.x), 37 views, 1323 columns, from 19 scripts.
+102 tables (plus 2 left over from 1.x), 37 views, 1324 columns, from 19 scripts.
+
+**Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
 ## Contents
 
 - [The scripts](#the-scripts)
+- [Naming conventions](#naming-conventions)
+- [The bi schema: what each table and view is for, and what uses it](#the-bi-schema-what-each-table-and-view-is-for-and-what-uses-it)
 - [Loading and state](#loading-and-state): [`audit.CopilotBackfillRange`](#auditcopilotbackfillrange), [`audit.CopilotBackfillWindow`](#auditcopilotbackfillwindow), [`audit.CopilotAuditStage`](#auditcopilotauditstage), [`audit.CopilotLoad`](#auditcopilotload), [`audit.CopilotLoadWindow`](#auditcopilotloadwindow), [`audit.CopilotLoadStage`](#auditcopilotloadstage), [`audit.PipelineSetting`](#auditpipelinesetting), [`audit.PipelineRun`](#auditpipelinerun), [`audit.PipelineRunStep`](#auditpipelinerunstep), [`audit.PipelineCertificate`](#auditpipelinecertificate)
 - [Final records](#final-records): [`audit.CopilotAudit`](#auditcopilotaudit), [`audit.CopilotInteraction`](#auditcopilotinteraction), [`audit.vCopilotAuditRecord`](#auditvcopilotauditrecord), [`audit.vCopilotDailyUsage`](#auditvcopilotdailyusage)
 - [Flattened records](#flattened-records): [`audit.RawLogFlattened`](#auditrawlogflattened), [`audit.RawLogAccessedResource`](#auditrawlogaccessedresource), [`audit.RawLogContext`](#auditrawlogcontext), [`audit.ValueCatalog`](#auditvaluecatalog), [`audit.ValueCatalogColumn`](#auditvaluecatalogcolumn), [`audit.AgentCatalog`](#auditagentcatalog), [`audit.RawLogRecordShape`](#auditrawlogrecordshape)
@@ -51,6 +55,121 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 **Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the license-event section. The license-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the license-event tables and views.
 
 **Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organization to it.
+
+## Naming conventions
+
+A name says who an object is for, what kind of object it is, and what one row of it is. New objects follow the same rules.
+
+**The schema says who the object is for.**
+
+| Schema | What lives there | Who reads it |
+|---|---|---|
+| `audit` | What the pipeline loads and works out: the records, the flattened records, licenses, the directory, sessions, and the loads' own state | The pipeline; an analyst who needs record-level detail |
+| `bi` | The star schema for reporting | Power BI, Grafana and other reporting tools, through the views and the `CopilotReporting` role; the dashboard |
+| `dash` | What the dashboard itself keeps: settings, roles, rollups, logs and what its Admin pages edit | The dashboard only |
+| `dbo` | The agent workbook's sheets, as they are in the workbook | The dashboard's agent pages |
+
+**The prefix says what kind of object it is.**
+
+| Prefix | Meaning | Example |
+|---|---|---|
+| `v` (in `audit`) | A view | `audit.vCopilotAdoption`, `audit.vLicenseChange` |
+| `usp_` | A stored procedure | `audit.usp_FlattenCopilotAudit`, `bi.usp_RefreshBi` |
+| `fn` | A function | `audit.fnShredCopilotInteraction`, `bi.fnAgentIdentity` |
+| `Dim` (in `bi`) | A dimension table: one row per thing interactions are cut by | `bi.DimUser`, `bi.DimAgent` |
+| `Fact` (in `bi`) | A fact table: one row per thing that happened | `bi.FactInteraction`, `bi.FactSession` |
+| None, a plural (in `bi`) | The view a report reads, over the `Dim` or `Fact` of that name | `bi.Users` over `bi.DimUser`, `bi.Interactions` over `bi.FactInteraction` |
+
+Views in `bi` and `dash` carry no `v`: in `bi` the views are what a report is meant to read, and the tables are the part with the prefix.
+
+**The suffix says what one row is.**
+
+| Suffix | One row is | Example |
+|---|---|---|
+| `Day` | One thing on one day | `dash.UserDay`, `audit.FoundryUsageDay`, `audit.LicenseSkuDay` |
+| `Week` | One thing in one week | `bi.DepartmentWeek` |
+| `Run` | One run of a job, with its start, end and status | `audit.PipelineRun`, `bi.RefreshRun`, `audit.ExternalUsageRun` |
+| `Stage` | Rows waiting to be merged, emptied afterwards | `audit.CopilotLoadStage`, `audit.CopilotCsvStage` |
+| `Window`, `Range` | A slice of time a load works through | `audit.CopilotBackfillWindow`, `audit.CopilotBackfillRange` |
+| `Catalog` | Every distinct value seen | `audit.ValueCatalog`, `audit.AgentCatalog` |
+| `Log` | A record of what happened, only added to | `dash.AuditLog`, `dash.NotificationLog` |
+| `Rule` | A classification an administrator defines | `dash.JobFamilyRule`, `dash.UseCaseRule` |
+| `Setting` | A name and its value | `audit.PipelineSetting`, `dash.Setting` |
+
+**The stem says the source or the subject.** `Copilot…` is Microsoft 365 Copilot's audit records (`CopilotAudit`, `CopilotInteraction`, `CopilotSession`); `RawLog…` is their flattened form; `License…` is license events and SKUs; `Pipeline…` is the nightly run itself; `GitHubCopilot…` and `Foundry…` are the two sources added in 2.6.2.
+
+**Columns.**
+
+| Pattern | Meaning | Example |
+|---|---|---|
+| `…Utc` | A time in UTC | `StartedUtc`, `LoadedUtc`, `FirstSeenUtc` |
+| `Day`, `DateKey` | A date in the reporting time zone; `DateKey` is that date as a number, `yyyymmdd` | `20261008` |
+| `…Key` (in `bi`) | The number that joins a fact to its dimension. It means nothing by itself and is never shown | `UserKey`, `AgentKey` |
+| `…Id` | An identifier that comes from the source | `RecordId`, `AgentId`, `SubscriptionId` |
+| `Is…`, `Has…`, `Used…` | Yes or no | `IsShared`, `HasBlockedResource`, `UsedWebSearch` |
+| `Rows…`, `…Count`, `Interactions` | A count | `RowsWritten`, `PromptCount` |
+
+Scripts follow the same idea: `Create-…Schema.sql` creates tables and views, `Create-…Procedure.sql` creates the procedure that fills them, and a PowerShell tool is named for what it does to what (`Import-AgentWorkbook.ps1`, `Test-CopilotDataHealth.ps1`). [SCRIPTS.md](SCRIPTS.md) summarizes every script.
+
+## The bi schema: what each table and view is for, and what uses it
+
+`bi` is a star schema: narrow fact tables with number keys, small dimension tables, and a view over each for reports. `bi.usp_RefreshBi` fills the tables every night from the `audit` tables, and nothing else writes to them. Three kinds of reader use it:
+
+- **The dashboard** reads the `Dim` and `Fact` tables directly, and `dash.usp_RefreshDashboard` builds the dashboard's rollups from the facts.
+- **The Power BI model** (`powerbi\generate_model.py`) imports the views, and only the views.
+- **Reporting accounts** (Grafana, a report of your own) are members of `CopilotReporting`, which is granted the views and not the tables, so privacy mode's pseudonyms cannot be read around.
+
+So write a report against the views. Join a fact view to a dimension view on the `…Key` column they share.
+
+**Dimension tables.** One row per thing; filled as new values arrive, and a row keeps its key for good.
+
+| Table | One row per | View over it | Read by |
+|---|---|---|---|
+| `bi.DimDate` | Day, with its week, month, quarter and year | `bi.Calendar` | Every dashboard report that has a period; the model |
+| `bi.DimUser` | Person, with department, title, location, manager chain, license today | `bi.Users` | Nearly every dashboard report; the model; `bi.OrgSecurity` |
+| `bi.DimApp` | App Copilot ran in, with its category | `bi.Apps` | The dashboard's app, adoption, agent, security and region reports; the model |
+| `bi.DimAgent` | Identity the audit log gives an agent. A row with no `MergedIntoKey` is an agent (2.6.3) | `bi.Agents` | The dashboard's agent reports and agent workbook pages; `dash.Agent`; the model |
+| `bi.DimModel` | AI model | `bi.Models` | The dashboard's governance report; the model |
+| `bi.DimSku` | License SKU | `bi.Skus` | The dashboard's licensing reports; the model |
+| `bi.DimLicenseStatus` | License status at the time of use: licensed, not licensed, unknown | `bi.LicenseStatuses` | The model |
+| `bi.DimLicenseType` | License type | `bi.LicenseTypes` | The dashboard's licensing and forecasting reports; the model |
+| `bi.DimSensitivityLabel` | Sensitivity label | `bi.SensitivityLabels` | The dashboard's security and compliance reports and its label rollup; the model |
+| `bi.DimFileType` | File type of a resource Copilot read | `bi.FileTypes` | The dashboard's use-by-license report; the model |
+| `bi.DimResourceType` | Kind of resource: a file, a mail, a meeting | `bi.ResourceTypes` | The dashboard's app and compliance reports; the model |
+| `bi.DimResourceAction` | What was done with a resource | `bi.ResourceActions` | The model |
+| `bi.DimSite` | SharePoint site or OneDrive | `bi.Sites` | The dashboard's site report and its site rollup; the model |
+
+**Fact tables.** One row per thing that happened; a nightly refresh rewrites the days since the last one.
+
+| Table | One row per | View over it | Read by |
+|---|---|---|---|
+| `bi.FactInteraction` | Copilot interaction: who, when, in which app, with which agent and model, under which license | `bi.Interactions` | Most dashboard reports; the rollups `dash.UserDay`, `dash.FlaggedInteraction` and `dash.AgentUse`; the model |
+| `bi.FactSession` | Session: a run of one person's prompts close together | `bi.Sessions` | The dashboard's session and use-by-license reports; the model |
+| `bi.FactLicenseChange` | License assigned or removed | `bi.LicenseChanges` | The dashboard's license changes report; the model |
+| `bi.FactLicensedDay` | Person and day on which they held a license | `bi.LicensedDays` | The dashboard's adoption, licensing and forecasting reports and its data API; the model |
+| `bi.FactAccessedResource` | Resource an interaction read | `bi.AccessedResources` | The dashboard's compliance, app and resource reports; the rollup `dash.ResourceDay`; the model |
+| `bi.FactAgentEvent` | Agent created, changed, published, shared or deleted | `bi.AgentEvents` | The dashboard's agent build report; the health check; the model |
+
+**Housekeeping tables.** No view; not for reports.
+
+| Table | What it holds | Read by |
+|---|---|---|
+| `bi.RefreshRun` | One row per refresh of the schema: when, what it covered, how many rows | Admin › Health; `dash.usp_RefreshDashboard`, to know what changed; the maintenance and nightly-profile tools |
+| `bi.RebuildInProgress` | A row while a full rebuild is running, so a reader knows the facts are incomplete | `bi.usp_RefreshBi`, `dash.usp_RefreshDashboard`, the health check |
+
+**Views with no table of their own.** Each is built from other tables and views.
+
+| View | What it gives | Built from | Read by |
+|---|---|---|---|
+| `bi.OrgSecurity` | One row per viewer and person they may see: what Power BI's row-level security filters by. Empty in privacy mode | The org chart and the dashboard's role grants | The model |
+| `bi.DepartmentWeek` | Active people, interactions and sessions by department and week, with small groups hidden: for a report that must not show individuals | The dashboard's daily rollup, `dash.UserDay` | The dashboard's delivery report; the model |
+| `bi.UseCases` | The use case of an interaction: the app, whether it searched the web, whether an agent answered | `bi.DimApp` and the dashboard's use-case rules | The dashboard's board pack; the model |
+| `bi.JobFamilies` | Each person's job family | The dashboard's job-family rules | The model |
+| `bi.LicensePool` | The tenant's seats, one row per SKU per night | The nightly license snapshot from Microsoft Graph, `audit.LicenseSkuDay` | The model |
+| `bi.ValueNames` | Each distinct value of the coded columns of the flattened records, with the name an administrator gave it | `audit.ValueCatalog` and `dash.ValueName` | Admin › Value names; the model |
+| `bi.EventMarkers` | Dates marked on trend charts: a launch, a training wave | `dash.EventMarker` | The model |
+
+**Procedures and the function.** `bi.usp_RefreshBi` fills the schema; `bi.usp_NameAgents` names the agents at the end of every refresh; `bi.usp_MergeAgents` (2.6.3) makes one agent of the identities the audit log gives the same agent; `bi.fnAgentIdentity` is the one rule for which agent a record belongs to.
 
 ## Loading and state
 
@@ -1599,7 +1718,7 @@ Indexes and constraints:
 
 ### bi.DimAgent
 
-*Table.* One row per agent: the one the record's AppIdentity names (a Copilot Studio or Agent Builder agent, one of Microsoft's), else its AgentId (2.4.11; bi.fnAgentIdentity is the rule). AgentName is a label on the key: the friendly name the audit log gave the agent last, else one read from its id, so a renamed agent keeps its key and its history. (no agent) is Copilot itself.
+*Table.* One row per identity the audit log gives an agent: the one the record's AppIdentity names (a Copilot Studio or Agent Builder agent, one of Microsoft's), else its AgentId (2.4.11; bi.fnAgentIdentity is the rule). AgentName is a label on the key: the friendly name the audit log gave the agent last, else one read from its id, so a renamed agent keeps its key and its history. (no agent) is Copilot itself. From 2.6.3 an agent the log names two ways is one agent: the row of its second identity carries MergedIntoKey, its interactions are kept under the agent's key, and bi.Agents and dash.Agent list the agent once. The rows with no MergedIntoKey are the agents.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 
@@ -1611,6 +1730,7 @@ Indexes and constraints:
 | 5 | `FirstSeenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 6 | `NamedInAudit` | bit | **no** | `0` | 1 when AgentName is the audit log's own name for the agent, 0 when it was read from the id (2.4.11) |
 | 7 | `AgentSource` | nvarchar(30) | yes |  | Copilot Studio \| Microsoft \| Agent ID \| (no agent) |
+| 8 | `MergedIntoKey` | int | yes |  | 2.6.3: the AgentKey of the agent this row is a second identity of; NULL on an agent's own row. Set by tools\Import-AgentWorkbook.ps1 (the workbook's row holds both ids of an agent) and by bi.usp_MergeAgents (an id written with and without its prefix; the variants of one of Microsoft's agents) |
 
 Indexes and constraints:
 
@@ -2121,7 +2241,7 @@ One view per table above, leaving out the lineage columns. The model imports the
 
 ### bi.Agents
 
-*View.* bi.DimAgent for the model.
+*View.* bi.DimAgent for the model: the agents, one row each. From 2.6.3 the second identity of an agent the audit log names two ways is not listed; its interactions are the agent's.
 
 **Script** `Create-CopilotBiSchema.sql` · **In** Copilot database
 

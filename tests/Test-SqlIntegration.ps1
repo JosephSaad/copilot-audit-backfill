@@ -3965,6 +3965,237 @@ finally {
 }
 
 # ---------------------------------------------------------------------------
+# 20. Schema compatibility (2.6.3). A release may add to the schema and may not
+# take away from it: what this checkout installs is compared with
+# tests/schema-baseline.tsv, the shape of the last release, and an install over
+# an earlier release must end with the schema a new install has.
+# tests/SchemaCompatibility.ps1 has the rules; tests/Test-SchemaCompatibility.ps1
+# proves them without a server.
+# ---------------------------------------------------------------------------
+Write-Host "`n20. Schema compatibility (tests/schema-baseline.tsv, tools/dev/schema/Update-SchemaBaseline.ps1)" -ForegroundColor Cyan
+
+. (Join-Path $PSScriptRoot 'SchemaCompatibility.ps1')
+$baseline = Read-SchemaBaseline -Path (Join-Path $PSScriptRoot 'schema-baseline.tsv')
+$compatFloor = 'v2.6.2'   # the first release the promise was made for; an install over it is always tried
+$compatDbs = [System.Collections.Generic.List[string]]::new()
+$compatDirs = [System.Collections.Generic.List[string]]::new()
+$dropDb = { param([string] $Name) Invoke-SqlText -Catalog master -Sql "IF DB_ID(N'$Name') IS NOT NULL BEGIN ALTER DATABASE [$Name] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$Name]; END;" }
+$installed = {
+    # Installs each checkout in -From in turn into a new pair of databases, and reads the shape they end with.
+    param([string] $Name, [string[]] $From)
+    $db = "$($script:ITDatabase)_$Name"; $lic = "${db}Lic"
+    foreach ($d in $db, $lic) { $compatDbs.Add($d); [void] (& $dropDb $d) }
+    foreach ($r in $From) { Install-SchemaForSnapshot -Root $r -Install ($conn + @{ Database = $db; LicenseDatabase = $lic }) -ConnectionString (New-ConnString $db) }
+    [string[]] $shape = @(Get-SchemaSnapshot -ConnectionString (New-ConnString $db) -Database copilot) + @(Get-SchemaSnapshot -ConnectionString (New-ConnString $lic) -Database license)
+    [array]::Sort($shape, [StringComparer]::Ordinal)
+    return $shape
+}
+# A table altered in place numbers a new column last and a table created anew numbers it where the script has it, so
+# two tables with the same columns are the same table: a table's column is compared without its number.
+$unnumbered = { param([string[]] $Lines) foreach ($l in $Lines) { $p = $l.Split("`t"); if ($p[0] -eq 'C' -and $p[3] -eq 'U') { $p[4] = '' }; $p -join "`t" } }
+try {
+    [string[]] $fresh = & $installed 'Compat' @($root)
+    $breaks = @(Compare-SchemaSnapshot -Baseline $baseline.Lines -Current $fresh)
+    Assert-That ($breaks.Count -eq 0) "what this checkout installs takes nothing away from the schema of $($baseline.Release): $($baseline.Lines.Count) baseline lines, $($fresh.Count) now$(if ($breaks.Count) { ' - ' + (($breaks | Select-Object -First 12) -join '; ') })"
+
+    $tags = @(); $head = ''
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $tags = @(& git -C $root tag --list 'v*' --sort=-v:refname 2>$null | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })
+        $head = "$(& git -C $root rev-parse HEAD 2>$null)"
+    }
+    if (-not $tags.Count) {
+        # CI checks the whole history out for this (fetch-depth: 0); a source zip has none, and then only the
+        # baseline is compared.
+        Assert-That (-not $env:GITHUB_ACTIONS) 'the release tags are there to install an earlier release from (in CI: the checkout takes the whole history)'
+        Write-Host '  (no release tags here: the installs over an earlier release are not tried)' -ForegroundColor Yellow
+    }
+    else {
+        # A baseline is taken when a release is cut. Until the release has its tag, the baseline has to be exactly
+        # what the checkout installs: that is what makes it the truth the next release is held to.
+        if ("v$($baseline.Release)" -notin $tags) {
+            $notIn = @($fresh | Where-Object { $_ -cnotin $baseline.Lines })
+            Assert-That ($notIn.Count -eq 0 -and $fresh.Count -eq $baseline.Lines.Count) "release $($baseline.Release) is being cut: the baseline is what it installs, line for line ($($notIn.Count) not in it$(if ($notIn.Count) { ', the first: ' + $notIn[0].Replace("`t", ' ') }); run tools/dev/schema/Update-SchemaBaseline.ps1)"
+        }
+        $previous = $tags | Where-Object { "$(& git -C $root rev-list -n 1 $_ 2>$null)" -ne $head } | Select-Object -First 1
+        # The baseline as the last release shipped it, not as this checkout has it: one rewritten to fit a break
+        # would pass every check above.
+        if ($previous) {
+            $shipped = @(& git -C $root show "${previous}:tests/schema-baseline.tsv" 2>$null | Where-Object { $_ -and -not $_.StartsWith('#') })
+            if ($LASTEXITCODE -eq 0 -and $shipped.Count) {
+                $shippedBreaks = @(Compare-SchemaSnapshot -Baseline $shipped -Current $fresh)
+                Assert-That ($shippedBreaks.Count -eq 0) "nor from the baseline $previous shipped with$(if ($shippedBreaks.Count) { ' - ' + (($shippedBreaks | Select-Object -First 12) -join '; ') })"
+            }
+            else { Write-Host "  ($previous shipped no baseline: it came before the check)" -ForegroundColor DarkGray }
+        }
+        $global:LASTEXITCODE = 0
+        foreach ($tag in @($compatFloor, $previous | Where-Object { $_ -and $_ -in $tags } | Select-Object -Unique)) {
+            $old = Join-Path ([System.IO.Path]::GetTempPath()) "copilot-schema-$($tag.TrimStart('v'))-$PID"
+            $compatDirs.Add($old); $compatDirs.Add("$old.zip")
+            & git -C $root archive --format=zip -o "$old.zip" $tag Install-CopilotAudit.ps1 sql
+            if ($LASTEXITCODE -ne 0) { throw "git archive $tag failed." }
+            Expand-Archive -LiteralPath "$old.zip" -DestinationPath $old -Force
+            [string[]] $upgraded = & $installed "Up$($tag -replace '\D', '')" @($old, $root)
+            $upBreaks = @(Compare-SchemaSnapshot -Baseline $baseline.Lines -Current $upgraded)
+            $a = @(& $unnumbered $upgraded); $b = @(& $unnumbered $fresh)
+            $onlyUpgraded = @($a | Where-Object { $_ -cnotin $b }); $onlyFresh = @($b | Where-Object { $_ -cnotin $a })
+            Assert-That ($upBreaks.Count -eq 0 -and $onlyUpgraded.Count -eq 0 -and $onlyFresh.Count -eq 0) `
+                "installed over $tag, the databases end with the schema a new install has ($($upgraded.Count) lines; only when upgraded: $($onlyUpgraded.Count), only when new: $($onlyFresh.Count)$(if ($onlyFresh.Count) { ', the first: ' + $onlyFresh[0].Replace("`t", ' ') })$(if ($onlyUpgraded.Count) { ', the first left behind: ' + $onlyUpgraded[0].Replace("`t", ' ') })$(if ($upBreaks.Count) { '; ' + $upBreaks[0] }))"
+        }
+    }
+}
+finally {
+    foreach ($d in $compatDbs) { try { & $dropDb $d } catch { Write-Host "  (could not drop ${d}: $($_.Exception.Message))" -ForegroundColor DarkYellow } }
+    foreach ($d in $compatDirs) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+# ---------------------------------------------------------------------------
+# 21. One agent, two identities (2.6.3). The audit log names some agents two
+# ways and counted each as two agents. The agent workbook's row holds both ids
+# of a Copilot Studio agent, and an id written with and without its prefix is
+# the same agent without any workbook: tools/Import-AgentWorkbook.ps1 and
+# bi.usp_MergeAgents make one agent of them, and the refresh keeps it one.
+# The workbook is read through a stand-in for the ImportExcel module, so the
+# tool runs here as it does on a job server, without a real .xlsx.
+# ---------------------------------------------------------------------------
+Write-Host "`n21. One agent, two identities (bi.usp_MergeAgents, tools/Import-AgentWorkbook.ps1)" -ForegroundColor Cyan
+
+$mgEnv = 'Default-11111111-2222-3333-4444-555555555555'
+$mgA = 'aaaaaaaa-0000-4000-8000-000000000001'; $mgD = 'dddddddd-0000-4000-8000-000000000004'; $mgE = 'eeeeeeee-0000-4000-8000-000000000005'
+$mgT1 = 'T_0a1b2c3d-1111-2222-3333-444455556666'; $mgT3 = 'T_0a1b2c3d-7777-8888-9999-aaaabbbbcccc'
+$mgSpo = 'SPO_MGIwNzVlMzQtNTdiNi00MmZhLTkyMzQtYmRkZTUwODc0ODgx_01UKPOBYXDSCKISBNMIRAL64IU7YYFZXEU'
+$mgId = @{
+    A1 = "Copilot.Studio.$mgEnv-$mgA"; A2 = "Copilot.Studio.Declarative.$mgT1"; A3 = $mgT1
+    B1 = "SharePointAgents.Declarative.$mgSpo"; B2 = $mgSpo
+    D0 = "Copilot.Studio.$mgEnv-$mgD"; D1 = "Copilot.Studio.Declarative.$mgT3"
+    M1 = 'MicrosoftAgent.It Merge Agent.BuiltIn_ItMergeAgent'; M2 = 'MicrosoftAgent.It Merge Agent.P_0a1b2c3d-aaaa-bbbb-cccc-ddddeeeeffff'
+    M3 = 'MicrosoftAgent.It Merge Agent Two.ItMergeAgentTwo'
+}
+$mgKeys = {
+    $t = Invoke-SqlText -As Table -Sql "SELECT AgentId, AgentKey, MergedIntoKey FROM bi.DimAgent WHERE AgentId IN ($(($mgId.Values | ForEach-Object { "N'$_'" }) -join ', '));"
+    $k = @{}
+    foreach ($r in $t.Rows) { $name = ($mgId.GetEnumerator() | Where-Object Value -eq "$($r.AgentId)").Key; $k[$name] = [int] $r.AgentKey; $k["$name>"] = if ($r.MergedIntoKey -is [DBNull]) { 0 } else { [int] $r.MergedIntoKey } }
+    $k
+}
+$mgUse = { param([int] $Key) [int] (Invoke-SqlText -As Scalar -Sql "SELECT COUNT(*) FROM bi.FactInteraction WHERE AgentKey = $Key;") }
+
+# Two records the suite has kept become the two identities of one Copilot Studio agent, and the refresh keys them as
+# 2.6.2 did: two agents. The other identities are written as the refresh would have written them.
+Invoke-SqlText -Sql @"
+UPDATE audit.RawLogFlattened SET AppIdentity = N'$($mgId.A1)', AgentId = NULL, AgentName = NULL WHERE RecordId = N'c-01';
+UPDATE audit.RawLogFlattened SET AppIdentity = N'$($mgId.A2)', AgentId = NULL, AgentName = NULL WHERE RecordId = N'c-02';
+"@
+Invoke-SqlText -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l; EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = [datetime] '2026-09-14'; '@l' = $licDb } -TimeoutSeconds 1800
+Invoke-SqlText -Sql @"
+UPDATE bi.DimAgent SET MergedIntoKey = NULL WHERE MergedIntoKey IS NOT NULL;
+INSERT INTO bi.DimAgent (AgentId, AgentSource)
+SELECT v.Id, v.Src FROM (VALUES (N'$($mgId.A3)', N'Agent ID'), (N'$($mgId.B1)', N'Agent ID'), (N'$($mgId.B2)', N'Agent ID'),
+                                (N'$($mgId.D0)', N'Copilot Studio'), (N'$($mgId.D1)', N'Copilot Studio'),
+                                (N'$($mgId.M1)', N'Microsoft'), (N'$($mgId.M2)', N'Microsoft'), (N'$($mgId.M3)', N'Microsoft')) AS v (Id, Src)
+WHERE NOT EXISTS (SELECT 1 FROM bi.DimAgent AS d WHERE d.AgentId = v.Id);
+SELECT TOP (1) * INTO #one FROM bi.FactInteraction WHERE RecordId = N'c-01';
+DECLARE @r NVARCHAR(40), @a NVARCHAR(400);
+DECLARE c CURSOR LOCAL FAST_FORWARD FOR
+    SELECT v.Rec, v.Id FROM (VALUES (N'm-a3', N'$($mgId.A3)'), (N'm-b1', N'$($mgId.B1)'), (N'm-b2a', N'$($mgId.B2)'), (N'm-b2b', N'$($mgId.B2)'),
+                                 (N'm-m1', N'$($mgId.M1)'), (N'm-m2', N'$($mgId.M2)'), (N'm-m3', N'$($mgId.M3)')) AS v (Rec, Id);
+OPEN c; FETCH NEXT FROM c INTO @r, @a;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    UPDATE #one SET RecordId = @r, AgentKey = (SELECT AgentKey FROM bi.DimAgent WHERE AgentId = @a);
+    INSERT INTO bi.FactInteraction SELECT * FROM #one;
+    FETCH NEXT FROM c INTO @r, @a;
+END;
+CLOSE c; DEALLOCATE c;
+DELETE FROM dash.AgentAlias WHERE UpdatedBy = N'it-merge';
+INSERT INTO dash.AgentAlias (AgentKey, FriendlyName, Owner, UpdatedBy)
+SELECT AgentKey, N'Named by hand', N'owner@contoso.com', N'it-merge' FROM bi.DimAgent WHERE AgentId = N'$($mgId.A2)';
+"@
+$k0 = & $mgKeys
+Assert-That ($k0.Count -eq 20 -and (& $mgUse $k0.A1) -eq 1 -and (& $mgUse $k0.A2) -eq 1 -and (& $mgUse $k0.B2) -eq 2) `
+    "before: the refresh keyed the two identities of one agent as two agents, each with a part of its use ($((& $mgUse $k0.A1)) and $((& $mgUse $k0.A2)))"
+
+# The workbook: one row holds both ids of the agent. Two more rows share a title id, which is then nobody's second identity.
+$mgDir = Join-Path ([System.IO.Path]::GetTempPath()) "it-workbook-$PID"
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $mgDir 'ImportExcel')
+Set-Content -LiteralPath (Join-Path $mgDir 'ImportExcel' 'ImportExcel.psm1') -Encoding utf8 -Value @'
+function Import-Excel {
+    param([string] $Path, [string] $WorksheetName)
+    $all = Get-Content -Raw -LiteralPath $env:IT_FAKE_WORKBOOK | ConvertFrom-Json
+    if ($all.PSObject.Properties.Name -contains $WorksheetName) { @($all.$WorksheetName) }
+}
+Export-ModuleMember -Function Import-Excel
+'@
+$mgBook = Join-Path $mgDir 'agents.json'; $mgFile = Join-Path $mgDir 'agents.xlsx'
+Set-Content -LiteralPath $mgFile -Value 'a stand-in: the sheets come from agents.json'
+@{ AgentInventory = @(
+    [ordered]@{ AgentId = $mgA; AgentName = 'Merged agent'; OwnerIdUPN = 'maker@contoso.com'; EnvironmentDisplayName = 'Contoso (default)'; EnvironmentId = $mgEnv.ToLowerInvariant(); SchemaName = $mgA; TitleId = $mgT1 },
+    [ordered]@{ AgentId = $mgD; AgentName = 'Shared title, first'; OwnerIdUPN = 'maker@contoso.com'; EnvironmentDisplayName = 'Contoso (default)'; EnvironmentId = $mgEnv.ToLowerInvariant(); SchemaName = $mgD; TitleId = $mgT3 },
+    [ordered]@{ AgentId = $mgE; AgentName = 'Shared title, second'; OwnerIdUPN = 'maker@contoso.com'; EnvironmentDisplayName = 'Contoso (default)'; EnvironmentId = $mgEnv.ToLowerInvariant(); SchemaName = $mgE; TitleId = $mgT3.Substring(2) }
+) } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $mgBook -Encoding utf8
+$mgWorkbook = Join-Path $root 'tools' 'Import-AgentWorkbook.ps1'
+$mgPath = $env:PSModulePath
+try {
+    $env:IT_FAKE_WORKBOOK = $mgBook
+    $env:PSModulePath = $mgDir + [System.IO.Path]::PathSeparator + $env:PSModulePath
+    $mgOut = & $mgWorkbook -Url $mgFile -ConnectionString (New-ConnString $script:ITDatabase) 6>&1 3>&1 | Out-String
+    $k = & $mgKeys
+    Assert-That ($k.'A2>' -eq $k.A1 -and $k.'A3>' -eq $k.A1 -and $k.'A1>' -eq 0) `
+        "the workbook's row holds both ids of the agent: the second identity is marked as another name for it, and the same id without its prefix follows it there ($($k.'A2>'), $($k.'A3>') -> $($k.A1))"
+    Assert-That ((& $mgUse $k.A1) -eq 3 -and (& $mgUse $k.A2) -eq 0 -and (& $mgUse $k.A3) -eq 0) "and its interactions are the agent's: three, none left under the other identities ($((& $mgUse $k.A1)))"
+    Assert-That ($k.'B2>' -eq $k.B1 -and (& $mgUse $k.B1) -eq 3 -and (& $mgUse $k.B2) -eq 0) `
+        "a SharePoint agent the log writes with and without its prefix is one agent with no workbook at all ($((& $mgUse $k.B1)) interactions)"
+    Assert-That ($k.'M2>' -eq $k.M1 -and $k.'M1>' -eq 0 -and $k.'M3>' -eq 0 -and (& $mgUse $k.M1) -eq 2 -and (& $mgUse $k.M3) -eq 1) `
+        "two variants of one of Microsoft's agents are that agent, the one seen first; another whose name only starts the same is not ($((& $mgUse $k.M1)) and $((& $mgUse $k.M3)))"
+    $mgLinks = Invoke-SqlText -As Table -Sql "SELECT InventoryAgentId, AgentKey FROM dash.AgentInventory WHERE InventoryAgentId IN (N'$mgA', N'$mgD', N'$mgE') ORDER BY InventoryAgentId;"
+    Assert-That ($mgLinks.Rows.Count -eq 3 -and [int] $mgLinks.Rows[0].AgentKey -eq $k.A1 -and [int] $mgLinks.Rows[1].AgentKey -eq $k.D0 -and [int] $mgLinks.Rows[2].AgentKey -eq $k.D1 -and $k.'D1>' -eq 0 -and $k.'D0>' -eq 0) `
+        'a title id two agents of the workbook hold is the second one''s own link, so it is nobody''s second identity'
+    $mgSeen = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM bi.Agents WHERE AgentId IN (N'$($mgId.A2)', N'$($mgId.A3)', N'$($mgId.B2)')) AS BiSecond,
+       (SELECT COUNT(*) FROM dash.Agent WHERE AgentId IN (N'$($mgId.A2)', N'$($mgId.A3)', N'$($mgId.B2)')) AS DashSecond,
+       (SELECT CONCAT(AgentName, '/', Owner) FROM dash.Agent WHERE AgentKey = $($k.A1)) AS Named,
+       (SELECT Interactions FROM dash.AgentUse WHERE AgentKey = $($k.A1)) AS Uses,
+       (SELECT COUNT(*) FROM dash.AgentUse WHERE AgentKey IN ($($k.A2), $($k.A3), $($k.B2))) AS SecondUses,
+       (SELECT CONCAT(a.FriendlyName, '/', COUNT(*) OVER ()) FROM dash.AgentAlias AS a WHERE a.UpdatedBy = N'it-merge' AND a.AgentKey = $($k.A1)) AS Alias;
+"@).Rows[0]
+    Assert-That ([int] $mgSeen.BiSecond -eq 0 -and [int] $mgSeen.DashSecond -eq 0 -and "$($mgSeen.Named)" -eq 'Merged agent/maker@contoso.com' -and [long] $mgSeen.Uses -eq 3 -and [int] $mgSeen.SecondUses -eq 0) `
+        "bi.Agents and dash.Agent list the agent once, with the workbook's name and owner and all of its use ($($mgSeen.Named), $($mgSeen.Uses))"
+    Assert-That ("$($mgSeen.Alias)" -eq 'Named by hand/1') "a name given by hand to the second identity is the agent's now ($($mgSeen.Alias))"
+    Assert-That ($mgOut -like '*4 second identities of an agent the audit log names two ways are counted with the agent (2 found in this workbook)*') 'and the tool says how many identities it folded: four in all, two of them from the workbook''s row (the title id with and without its prefix)'
+
+    # Again: nothing moves, and the agent keeps its key.
+    $mgOut2 = & $mgWorkbook -Url $mgFile -ConnectionString (New-ConnString $script:ITDatabase) 6>&1 3>&1 | Out-String
+    $k2 = & $mgKeys
+    Assert-That ($k2.A1 -eq $k.A1 -and $k2.'A2>' -eq $k.A1 -and (& $mgUse $k2.A1) -eq 3 -and [int] (Invoke-SqlText -As Scalar -Sql "SELECT AgentKey FROM dash.AgentInventory WHERE InventoryAgentId = N'$mgA';") -eq $k.A1 -and
+                 $mgOut2 -like '*(0 found in this workbook)*') 'loaded again, the agent keeps its key and its link, and nothing moves'
+
+    # The refresh writes a record that arrives under the second identity with the agent's key from the start.
+    Invoke-SqlText -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l; EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = [datetime] '2026-09-14'; '@l' = $licDb } -TimeoutSeconds 1800
+    $mgAfter = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT COUNT(*) FROM bi.FactInteraction WHERE RecordId IN (N'c-01', N'c-02') AND AgentKey = $($k.A1)) AS BothRecords,
+       (SELECT COUNT(*) FROM bi.FactInteraction AS f JOIN bi.DimAgent AS d ON d.AgentKey = f.AgentKey WHERE d.MergedIntoKey IS NOT NULL) AS UnderSecond,
+       (SELECT COUNT(*) FROM bi.DimAgent WHERE AgentId = N'$($mgId.A2)') AS SecondRows,
+       (SELECT Interactions FROM dash.AgentUse WHERE AgentKey = $($k.A1)) AS Uses;
+"@).Rows[0]
+    Assert-That ([int] $mgAfter.BothRecords -eq 2 -and [int] $mgAfter.UnderSecond -eq 0 -and [int] $mgAfter.SecondRows -eq 1 -and [long] $mgAfter.Uses -eq 2) `
+        "a refresh writes the record of the second identity under the agent, and none under a second identity ($($mgAfter.BothRecords) of 2; the agent's use: $($mgAfter.Uses))"
+
+    # Marks that cannot stand are cleared, and a ring is cut, not followed for ever.
+    Invoke-SqlText -Sql @"
+UPDATE bi.DimAgent SET MergedIntoKey = AgentKey WHERE AgentId = N'$($mgId.D0)';
+UPDATE bi.DimAgent SET MergedIntoKey = (SELECT AgentKey FROM bi.DimAgent WHERE AgentId = N'(none)') WHERE AgentId = N'$($mgId.D1)';
+UPDATE bi.DimAgent SET MergedIntoKey = $($k.B2) WHERE AgentKey = $($k.B1);
+EXEC bi.usp_MergeAgents;
+"@
+    $k3 = & $mgKeys
+    Assert-That ($k3.'D0>' -eq 0 -and $k3.'D1>' -eq 0 -and -not ($k3.'B1>' -ne 0 -and $k3.'B2>' -ne 0) -and $k3.'A2>' -eq $k.A1) `
+        "a mark at itself or at Copilot's own row is cleared, and two rows marked at each other are not both left marked ($($k3.'D0>'), $($k3.'D1>'), $($k3.'B1>')/$($k3.'B2>'))"
+}
+finally {
+    $env:PSModulePath = $mgPath; Remove-Item Env:\IT_FAKE_WORKBOOK -ErrorAction SilentlyContinue
+    Remove-Module ImportExcel -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $mgDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red
