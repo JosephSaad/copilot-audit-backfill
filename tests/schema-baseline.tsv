@@ -1,4 +1,4 @@
-# release 2.6.2
+# release 2.6.3
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -690,6 +690,7 @@ C	copilot	bi.DimAgent	U	3	AgentName	nvarchar(400)	1
 C	copilot	bi.DimAgent	U	4	AgentSource	nvarchar(30)	1	
 C	copilot	bi.DimAgent	U	5	FirstSeenUtc	datetime2(0)	0	D
 C	copilot	bi.DimAgent	U	6	NamedInAudit	bit	0	D
+C	copilot	bi.DimAgent	U	7	MergedIntoKey	int	1	
 C	copilot	bi.DimApp	U	1	AppKey	int	0	I
 C	copilot	bi.DimApp	U	2	App	nvarchar(200)	0	
 C	copilot	bi.DimApp	U	3	AppCategory	nvarchar(50)	0	D
@@ -1697,6 +1698,7 @@ O	copilot	bi.UseCases	V
 O	copilot	bi.Users	V
 O	copilot	bi.ValueNames	V
 O	copilot	bi.fnAgentIdentity	IF
+O	copilot	bi.usp_MergeAgents	P
 O	copilot	bi.usp_NameAgents	P
 O	copilot	bi.usp_RefreshBi	P
 O	copilot	dash.Agent	V
@@ -1793,6 +1795,7 @@ P	copilot	audit.usp_PurgeCopilotAuditJson	P	5	@BatchSize	int	0	1
 P	copilot	audit.usp_PurgeCopilotAuditJson	P	6	@WhatIf	bit	0	1
 P	copilot	bi.fnAgentIdentity	IF	1	@AppIdentity	nvarchar(400)	0	0
 P	copilot	bi.fnAgentIdentity	IF	2	@AgentId	nvarchar(400)	0	0
+P	copilot	bi.usp_MergeAgents	P	1	@BatchSize	int	0	1
 P	copilot	bi.usp_RefreshBi	P	1	@SinceUtc	datetime2(0)	0	1
 P	copilot	bi.usp_RefreshBi	P	2	@ReportingTimeZone	sysname	0	1
 P	copilot	bi.usp_RefreshBi	P	3	@LicenseEventDatabase	nvarchar(1000)	0	1
