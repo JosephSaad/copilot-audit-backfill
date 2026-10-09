@@ -3290,6 +3290,15 @@ SELECT (SELECT AppCategory FROM audit.SessionAppCategory WHERE App = N'Teams') A
 "@).Rows[0]
 Assert-That ("$($mt.Teams)" -eq 'Copilot Chat' -and "$($mt.Grant_)" -eq 'Group/Admin' -and "$($mt.Cost)" -eq '31.5' -and "$($mt.Payg)" -eq '0.15') 'maintenance tasks set an app category, grant a role and change settings (the pay-as-you-go cost too), without SQL'
 Assert-That ([int] $mt.ALevel -eq 2 -and [int] $mt.Logged -ge 3) "a new top of the organization takes effect at once (user A now level $($mt.ALevel)), and every change is audit-logged"
+# 2.6.4: Persona, with the Admin pages it opens; granted again, its pages are replaced.
+& $maint @conn -Database $script:ITDatabase -Task GrantRole -Principal 'CONTOSO\Insights-Helpdesk' -PrincipalType Group -Role Persona -Pages '/admin/health', '/admin/audit' | Out-Null
+$persona1 = [string] (Invoke-SqlText -As Scalar -Sql "SELECT Pages FROM dash.RoleGrant WHERE Principal = N'CONTOSO\Insights-Helpdesk' AND Role = 'Persona';")
+& $maint @conn -Database $script:ITDatabase -Task GrantRole -Principal 'CONTOSO\Insights-Helpdesk' -PrincipalType Group -Role Persona -Pages '/admin/directory' | Out-Null
+$persona2 = [string] (Invoke-SqlText -As Scalar -Sql "SELECT Pages FROM dash.RoleGrant WHERE Principal = N'CONTOSO\Insights-Helpdesk' AND Role = 'Persona';")
+$noPages = try { & $maint @conn -Database $script:ITDatabase -Task GrantRole -Principal 'CONTOSO\Other' -PrincipalType Group -Role Persona | Out-Null; '' } catch { $_.Exception.Message }
+Invoke-SqlText -Sql "DELETE FROM dash.RoleGrant WHERE Principal = N'CONTOSO\Insights-Helpdesk';"
+Assert-That ($persona1 -eq '/admin/health,/admin/audit' -and $persona2 -eq '/admin/directory' -and $noPages -like '*needs -Pages*') `
+    "2.6.4: GrantRole -Role Persona records the Admin pages it opens ($persona1), replaces them when granted again ($persona2), and needs -Pages"
 $refused = try { & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'nobody@contoso.com'; '' } catch { $_.Exception.Message }
 Assert-That ($refused -like '*not in the directory*') 'a top of the organization not in the directory is refused'
 # 2.4.12: with no -LicenseEventDatabases, maintenance reads the license databases the database's last build read, not
@@ -4159,6 +4168,15 @@ SELECT (SELECT COUNT(*) FROM bi.Agents WHERE AgentId IN (N'$($mgId.A2)', N'$($mg
     Assert-That ([int] $mgSeen.BiSecond -eq 0 -and [int] $mgSeen.DashSecond -eq 0 -and "$($mgSeen.Named)" -eq 'Merged agent/maker@contoso.com' -and [long] $mgSeen.Uses -eq 3 -and [int] $mgSeen.SecondUses -eq 0) `
         "bi.Agents and dash.Agent list the agent once, with the workbook's name and owner and all of its use ($($mgSeen.Named), $($mgSeen.Uses))"
     Assert-That ("$($mgSeen.Alias)" -eq 'Named by hand/1') "a name given by hand to the second identity is the agent's now ($($mgSeen.Alias))"
+    # 2.6.4: an agent the log knows by an Agent Builder identity is Agent Builder, with no CreatedIn in the workbook.
+    $mgKind = (Invoke-SqlText -As Table -Sql @"
+SELECT (SELECT CopilotType FROM dash.AgentInventory WHERE InventoryAgentId = N'$mgA') AS Inv,
+       (SELECT CONCAT(CopilotType, '/', EnvironmentType) FROM bi.Agents WHERE AgentKey = $($k.A1)) AS Bi,
+       (SELECT CONCAT(CopilotType, '/', EnvironmentType) FROM dash.Agent WHERE AgentKey = $($k.A1)) AS Dash,
+       (SELECT CONCAT(CopilotType, '/', EnvironmentType) FROM bi.Agents WHERE AgentId = N'$($mgId.M1)') AS Microsoft;
+"@).Rows[0]
+    Assert-That ("$($mgKind.Inv)" -eq 'Agent Builder' -and "$($mgKind.Bi)" -eq 'Agent Builder/(not given)' -and "$($mgKind.Dash)" -eq 'Agent Builder/(not given)' -and "$($mgKind.Microsoft)" -eq 'Microsoft/(not in the workbook)') `
+        "2.6.4: the Copilot type and environment type of an agent, in the workbook, bi.Agents and dash.Agent ($($mgKind.Inv); $($mgKind.Bi); $($mgKind.Dash); $($mgKind.Microsoft))"
     Assert-That ($mgOut -like '*4 second identities of an agent the audit log names two ways are counted with the agent (2 found in this workbook)*') 'and the tool says how many identities it folded: four in all, two of them from the workbook''s row (the title id with and without its prefix)'
 
     # Again: nothing moves, and the agent keeps its key.

@@ -1731,6 +1731,8 @@ Indexes and constraints:
 | 6 | `NamedInAudit` | bit | **no** | `0` | 1 when AgentName is the audit log's own name for the agent, 0 when it was read from the id (2.4.11) |
 | 7 | `AgentSource` | nvarchar(30) | yes |  | Copilot Studio \| Microsoft \| Agent ID \| (no agent) |
 | 8 | `MergedIntoKey` | int | yes |  | 2.6.3: the AgentKey of the agent this row is a second identity of; NULL on an agent's own row. Set by tools\Import-AgentWorkbook.ps1 (the workbook's row holds both ids of an agent) and by bi.usp_MergeAgents (an id written with and without its prefix; the variants of one of Microsoft's agents) |
+| 9 | `CopilotType` | nvarchar(40) | yes |  | 2.6.4: Copilot Studio \| Agent Builder \| Microsoft \| Other \| (no agent): the agent workbook's CreatedIn where it lists the agent, else read from the id (Copilot.Studio.Declarative.* is Agent Builder; an agent with such a second identity too). Set by bi.usp_NameAgents |
+| 10 | `EnvironmentType` | nvarchar(100) | yes |  | 2.6.4: the agent workbook's EnvironmentSku (Production, Sandbox, Developer, Default ...), (not given) where it is blank, (not in the workbook) for an agent it does not list. Set by bi.usp_NameAgents |
 
 Indexes and constraints:
 
@@ -2252,6 +2254,8 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 3 | `AgentName` | nvarchar(400) | yes |  |  |
 | 4 | `AgentSource` | nvarchar(30) | yes |  |  |
 | 5 | `NamedInAudit` | bit | **no** |  |  |
+| 6 | `CopilotType` | nvarchar(40) | yes |  | (2.6.4) |
+| 7 | `EnvironmentType` | nvarchar(100) | yes |  | (2.6.4) |
 
 ### bi.Models
 
@@ -2518,7 +2522,7 @@ Indexes and constraints:
 
 ### dash.RoleGrant
 
-*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Organization sees the whole organization; the persona roles unlock named detail.
+*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Persona (2.6.4) runs the Admin pages in its Pages; Organization sees the whole organization; the persona roles unlock named detail.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2531,13 +2535,14 @@ Indexes and constraints:
 | 5 | `Note` | nvarchar(400) | yes |  |  |
 | 6 | `GrantedBy` | nvarchar(256) | **no** |  |  |
 | 7 | `GrantedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 8 | `Pages` | nvarchar(1000) | yes |  | 2.6.4: for the Persona role, the Admin pages it opens, by path, comma-separated (/admin/health,/admin/audit); NULL for every other role |
 
 Indexes and constraints:
 
 - `PK_DashRoleGrant`: primary key, clustered (GrantId)
 - `UQ_DashRoleGrant`: unique, nonclustered (Principal, Role)
 - `CK_DashRoleGrant_Type`: check `([PrincipalType]='Group' OR [PrincipalType]='User')`
-- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin')`
+- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Persona' OR [Role]='Admin')`
 
 ### dash.AgentAlias
 
@@ -2780,6 +2785,7 @@ Indexes and constraints:
 | 19 | `IsQuarantined` | bit | yes |  | IsQuarantined (2.5.8) |
 | 20 | `IsWebSearchEnabled` | bit | yes |  | IsWebSearchEnabled (2.5.8) |
 | 21 | `IsAutonomous` | bit | **no** | `0` | Triggers or Flows set (2.5.8): no interaction does not make it unused |
+| 22 | `CopilotType` | nvarchar(40) | yes |  | 2.6.4: Copilot Studio, Agent Builder or Other, from CreatedIn; without it, Agent Builder for an agent matched exactly to an Agent Builder identity (Copilot.Studio.Declarative.*) or with a title id and no schema name, else Copilot Studio |
 
 Indexes and constraints:
 
@@ -2856,6 +2862,8 @@ The workbook's sheets themselves are loaded as they come into `dbo.AgentInventor
 | 8 | `InventoryAgentId` | nvarchar(100) | yes |  | the agent's dash.AgentInventory row (2.5.6) |
 | 9 | `IsShared` | bit | yes |  | (2.5.6) |
 | 10 | `InProduction` | bit | yes |  | (2.5.6) |
+| 11 | `CopilotType` | nvarchar(40) | yes |  | the Agents pages' Copilot type filter (2.6.4): the workbook row's, else bi.DimAgent's |
+| 12 | `EnvironmentType` | nvarchar(100) | yes |  | the Agents pages' Environment filter (2.6.4): the workbook row's EnvironmentSku, else bi.DimAgent's ((not in the workbook)) |
 
 ## dash: operations (2.3.0)
 

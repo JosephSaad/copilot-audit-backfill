@@ -189,18 +189,20 @@ namespace CopilotInsights.Pages.Agents
         public override string Title => "Agent hand-offs";
         public override string Persona => "Agents";
         public override string Intro => "When one agent hands a request to another agent: how often, and to which agents.";
+        /// <summary>2.6.4: by the agent that hands the request on.</summary>
+        public override AgentFilters AgentFilter => AgentFilters.Both;
 
         protected override async Task BuildAsync()
         {
             var tr = await Db.QueryAsync<(DateTime Bucket, long Calls, long All)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CAST(f.CalledAnotherAgent AS INT)), COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+WHERE f.DateKey BETWEEN @k0 AND @k1{AgentKeyFilter("f.AgentKey")} GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             var targets = await Db.QueryAsync<(string Target, long N, int People)>($@"
 SELECT COALESCE(vn.Name, f.TargetAgentName), COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 12 AND vn.Value = f.TargetAgentName
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1
+WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1{AgentKeyFilter("f.AgentKey")}
 GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
             long calls = tr.Sum(x => x.Calls), all = tr.Sum(x => x.All);
             Kpis.Add(new("Hand-offs", Num(calls), $"{Pct(Ratio(calls, all))} of interactions"));
@@ -209,7 +211,7 @@ GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
             Panels.Add(new("Hand-offs over time", Chart.Columns(Labels(), [new Series("Hand-offs", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.Calls)).ToList(), 5)], Fmt.Count, "Hand-offs"),
                 TrendNote, "half"));
             Panels.Add(new("Agents called", Chart.Bars(targets.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Target, t.N, Note: AgentPeople(t.People))).ToList(), Fmt.Count, "Target agents"),
-                targets.Count == 0 ? "No agent called another in the period." : null, "half"));
+                (targets.Count == 0 ? "No agent called another in the period." : "") + AgentFilterNote() is { Length: > 0 } note ? note.Trim() : null, "half"));
         }
     }
 }

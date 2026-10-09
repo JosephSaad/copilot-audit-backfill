@@ -133,6 +133,33 @@ BEGIN
                       FROM dash.AgentInventory WHERE AgentKey IS NOT NULL AND NULLIF(LTRIM(RTRIM(AgentName)), N'''') IS NOT NULL) AS x
                 WHERE rn = 1;');
 
+    /* 2.6.4: the kind of agent and the type of its environment, the workbook's where it lists the agent. */
+    CREATE TABLE #kind (AgentKey INT NOT NULL PRIMARY KEY, CopilotType NVARCHAR(40) COLLATE DATABASE_DEFAULT NULL,
+                        EnvironmentType NVARCHAR(100) COLLATE DATABASE_DEFAULT NULL);
+    IF COL_LENGTH(N'dash.AgentInventory', N'CopilotType') IS NOT NULL
+        EXEC (N'INSERT INTO #kind (AgentKey, CopilotType, EnvironmentType)
+                SELECT AgentKey, CopilotType, ISNULL(EnvironmentSku, N''(not given)'')
+                FROM (SELECT AgentKey, CopilotType, NULLIF(LTRIM(RTRIM(EnvironmentSku)), N'''') AS EnvironmentSku,
+                             ROW_NUMBER() OVER (PARTITION BY AgentKey ORDER BY InProduction DESC, LastPublishedAt DESC, InventoryAgentId) AS rn
+                      FROM dash.AgentInventory WHERE AgentKey IS NOT NULL) AS x
+                WHERE rn = 1;');
+    IF COL_LENGTH(N'bi.DimAgent', N'CopilotType') IS NOT NULL
+        EXEC (N'UPDATE d
+                SET CopilotType = v.CopilotType, EnvironmentType = v.EnvironmentType
+                FROM bi.DimAgent AS d
+                LEFT JOIN #kind AS k ON k.AgentKey = d.AgentKey
+                CROSS APPLY (SELECT CASE WHEN d.AgentId = N''(none)'' THEN N''(no agent)''
+                                         WHEN k.CopilotType IS NOT NULL THEN k.CopilotType
+                                         /* an agent known by two identities is an Agent Builder agent when either is */
+                                         WHEN d.AgentId LIKE N''Copilot.Studio.Declarative.%''
+                                              OR EXISTS (SELECT 1 FROM bi.DimAgent AS o WHERE o.MergedIntoKey = d.AgentKey
+                                                         AND o.AgentId LIKE N''Copilot.Studio.Declarative.%'') THEN N''Agent Builder''
+                                         WHEN d.AgentId LIKE N''Copilot.Studio.%'' THEN N''Copilot Studio''
+                                         WHEN d.AgentId LIKE N''MicrosoftAgent.%'' THEN N''Microsoft'' ELSE N''Other'' END AS CopilotType,
+                                    CASE WHEN d.AgentId = N''(none)'' THEN N''(no agent)''
+                                         ELSE COALESCE(k.EnvironmentType, N''(not in the workbook)'') END AS EnvironmentType) AS v
+                WHERE ISNULL(d.CopilotType, N'''') <> v.CopilotType OR ISNULL(d.EnvironmentType, N'''') <> v.EnvironmentType;');
+
     UPDATE d
     SET AgentName    = v.AgentName,
         NamedInAudit = v.NamedInAudit,

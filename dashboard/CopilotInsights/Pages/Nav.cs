@@ -64,15 +64,15 @@ public static class Nav
     ];
 
     /// <summary>
-    /// Whether a page is open to the viewer: admin pages to administrators, role pages to holders
+    /// Whether a page is open to the viewer: admin pages to administrators (and to a Persona granted them), role pages to holders
     /// of the role, and report pages to anyone with data to see (in the directory, or granted
     /// Organization). The navigation and the start page show only these; the rest are not listed.
     /// Outside the dashboard's levels (2.4.4), only an administrator's Admin pages are.
     /// </summary>
     public static bool Allowed(NavPage page, Viewer viewer, bool privacyMode = false) =>
-        !viewer.Admitted ? page.Admin && viewer.IsAdmin
+        !viewer.Admitted ? page.Admin && viewer.CanAdmin(page.Path)
         : page.ManyTenants ? (viewer.OrgWide || viewer.InDirectory)
-        : page.Admin ? viewer.IsAdmin
+        : page.Admin ? viewer.CanAdmin(page.Path)
                    : (viewer.OrgWide || viewer.InDirectory) && (page.Role is null || ((!privacyMode || page.InPrivacy) && viewer.Has(page.Role)));
 
     /// <summary>The groups and pages this viewer may open; a group with none is left out.</summary>

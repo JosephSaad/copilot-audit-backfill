@@ -10,6 +10,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
     public override string Title => "Agents in use";
     public override string Persona => "Agents";
     public override string Intro => "Every agent people used in the period: how many people, how often, whether they come back, and which agents are new.";
+    public override AgentFilters AgentFilter => AgentFilters.Both;
 
     sealed class Row
     {
@@ -35,14 +36,14 @@ WITH u AS (SELECT f.AgentKey, f.UserKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.Dat
 SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, SUM(u.N) AS N, COUNT(*) AS People,
        COUNT(CASE WHEN u.Days > 1 THEN 1 END) AS Returning, ag.IsShared, ag.InventoryAgentId
 FROM u JOIN dash.Agent AS ag ON ag.AgentKey = u.AgentKey
-WHERE ag.AgentSource <> N'(no agent)'
+WHERE ag.AgentSource <> N'(no agent)'{AgentKeyFilter("ag.AgentKey")}
 GROUP BY ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, ag.FirstSeenUtc, ag.IsShared, ag.InventoryAgentId;", Ctx.Args());
         var trend = await Db.QueryAsync<(int AgentKey, DateTime Bucket, int People)>($@"
 SELECT f.AgentKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 JOIN bi.DimAgent AS a ON a.AgentKey = f.AgentKey AND a.AgentSource <> N'(no agent)'
-WHERE f.DateKey BETWEEN @k0 AND @k1
+WHERE f.DateKey BETWEEN @k0 AND @k1{AgentKeyFilter("f.AgentKey")}
 GROUP BY f.AgentKey, {Ctx.BucketSql("d")};", Ctx.Args());
         var buckets = Buckets();
         var axis = Labels();
@@ -50,7 +51,10 @@ GROUP BY f.AgentKey, {Ctx.BucketSql("d")};", Ctx.Args());
 
         Kpis.Add(new("Agents used", Num(rows.Count), $"{rows.Count(r => r.AgentSource == "Copilot Studio"):#,0} built in Copilot Studio"));
         Kpis.Add(new("New in the period", Num(rows.Count(isNew)), "first used in the period"));
-        Kpis.Add(new("People using agents", Num(await Db.ScalarAsync<int>($@"
+        /* 2.6.4: with a filter, the people who used the agents it leaves, from the interactions; the daily rollup has every agent. */
+        Kpis.Add(new("People using agents", Num(await Db.ScalarAsync<int>(AgentFiltered ? $@"
+SELECT COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+WHERE f.DateKey BETWEEN @k0 AND @k1{AgentKeyFilter("f.AgentKey")};" : $@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args()))));
         Kpis.Add(new("Interactions through an agent", Num(rows.Sum(r => r.N))));
@@ -61,7 +65,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
             /* 2.5.8: an autonomous agent (triggers or flows) with no interaction is not counted as unused, as on Agent inventory. */
             var auto = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END;") == 1;
             var inv = await Db.QueryAsync<(string Id, int? AgentKey, bool Autonomous)>(
-                $"SELECT InventoryAgentId, AgentKey, {(auto ? "IsAutonomous" : "CAST(0 AS BIT)")} FROM dash.AgentInventory;");
+                $"SELECT i.InventoryAgentId, i.AgentKey, {(auto ? "i.IsAutonomous" : "CAST(0 AS BIT)")} FROM dash.AgentInventory AS i WHERE 1 = 1{InventoryFilter("i")};", Ctx.Args());
             var used = rows.Select(r => r.AgentKey).ToHashSet();
             var listedUsed = inv.Count(i => i.AgentKey is { } k && used.Contains(k));
             var autonomous = inv.Count(i => i.Autonomous && !(i.AgentKey is { } k && used.Contains(k)));
@@ -103,7 +107,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
         }
         Panels.Add(new("All agents", WithTrendNote(t.Render()),
             $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from the agent workbook; an agent it does not list (one since deleted) has the one set in Admin › Reference data, else the audit log's. Select an agent for its detail." +
-            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : "")));
+            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : "") + AgentFilterNote()));
     }
 }
 

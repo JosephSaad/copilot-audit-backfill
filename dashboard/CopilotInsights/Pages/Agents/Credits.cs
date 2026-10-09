@@ -15,6 +15,7 @@ public sealed class CreditsModel(PageServices s) : InsightsPage(s)
     public override string Title => "Agents costing credits";
     public override string Persona => "Agents";
     public override string Intro => "What each agent's use by people without a Copilot license costs in Copilot Credits a month. Restrict or retire an agent few people use that costs much; where its users each spend more than a license costs, licensing them is cheaper.";
+    public override AgentFilters AgentFilter => AgentFilters.Both;
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -61,7 +62,7 @@ a AS (SELECT g.AgentKey, SUM(g.N) AS I, SUM(CASE WHEN g.Lic = 0 THEN g.N ELSE 0 
       FROM g GROUP BY g.AgentKey),
 x AS (SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, a.I, a.U, a.People, a.UPeople
       FROM a JOIN dash.Agent AS ag ON ag.AgentKey = a.AgentKey
-      WHERE ag.AgentSource <> N'(no agent)')
+      WHERE ag.AgentSource <> N'(no agent)'{AgentKeyFilter("ag.AgentKey")})
 SELECT x.* INTO #x FROM x;
 SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x
 WHERE (@q IS NULL OR x.AgentName LIKE @q OR x.Owner LIKE @q)
@@ -99,6 +100,6 @@ SELECT COUNT(CASE WHEN x.U > 0 THEN 1 END), ISNULL(SUM(x.U), 0) FROM #x AS x;", 
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Without a license: interactions by people who held no Copilot license at the time; pay-as-you-go charges for these in Copilot Credits. Credits a month: those interactions, " +
             $"scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access). An agent grounded only in public data is not charged, so this errs high. " +
-            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent.", "full", CsvUrl()));
+            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent." + AgentFilterNote(), "full", CsvUrl()));
     }
 }

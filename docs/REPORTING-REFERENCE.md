@@ -2995,6 +2995,8 @@ Indexes and constraints:
 | 6 | `NamedInAudit` | bit | **no** | `0` | 1 when AgentName is the audit log's own name for the agent, 0 when it was read from the id (2.4.11) |
 | 7 | `AgentSource` | nvarchar(30) | yes |  | Copilot Studio \| Microsoft \| Agent ID \| (no agent) |
 | 8 | `MergedIntoKey` | int | yes |  | 2.6.3: the AgentKey of the agent this row is a second identity of; NULL on an agent's own row. Set by tools\Import-AgentWorkbook.ps1 (the workbook's row holds both ids of an agent) and by bi.usp_MergeAgents (an id written with and without its prefix; the variants of one of Microsoft's agents) |
+| 9 | `CopilotType` | nvarchar(40) | yes |  | 2.6.4: Copilot Studio \| Agent Builder \| Microsoft \| Other \| (no agent): the agent workbook's CreatedIn where it lists the agent, else read from the id (Copilot.Studio.Declarative.* is Agent Builder; an agent with such a second identity too). Set by bi.usp_NameAgents |
+| 10 | `EnvironmentType` | nvarchar(100) | yes |  | 2.6.4: the agent workbook's EnvironmentSku (Production, Sandbox, Developer, Default ...), (not given) where it is blank, (not in the workbook) for an agent it does not list. Set by bi.usp_NameAgents |
 
 Indexes and constraints:
 
@@ -3516,6 +3518,8 @@ One view per table above, leaving out the lineage columns. The model imports the
 | 3 | `AgentName` | nvarchar(400) | yes |  |  |
 | 4 | `AgentSource` | nvarchar(30) | yes |  |  |
 | 5 | `NamedInAudit` | bit | **no** |  |  |
+| 6 | `CopilotType` | nvarchar(40) | yes |  | (2.6.4) |
+| 7 | `EnvironmentType` | nvarchar(100) | yes |  | (2.6.4) |
 
 #### bi.Models
 
@@ -3782,7 +3786,7 @@ Indexes and constraints:
 
 #### dash.RoleGrant
 
-*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Organization sees the whole organization; the persona roles unlock named detail.
+*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Persona (2.6.4) runs the Admin pages in its Pages; Organization sees the whole organization; the persona roles unlock named detail.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -3795,13 +3799,14 @@ Indexes and constraints:
 | 5 | `Note` | nvarchar(400) | yes |  |  |
 | 6 | `GrantedBy` | nvarchar(256) | **no** |  |  |
 | 7 | `GrantedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 8 | `Pages` | nvarchar(1000) | yes |  | 2.6.4: for the Persona role, the Admin pages it opens, by path, comma-separated (/admin/health,/admin/audit); NULL for every other role |
 
 Indexes and constraints:
 
 - `PK_DashRoleGrant`: primary key, clustered (GrantId)
 - `UQ_DashRoleGrant`: unique, nonclustered (Principal, Role)
 - `CK_DashRoleGrant_Type`: check `([PrincipalType]='Group' OR [PrincipalType]='User')`
-- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin')`
+- `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Persona' OR [Role]='Admin')`
 
 #### dash.AgentAlias
 
@@ -4044,6 +4049,7 @@ Indexes and constraints:
 | 19 | `IsQuarantined` | bit | yes |  | IsQuarantined (2.5.8) |
 | 20 | `IsWebSearchEnabled` | bit | yes |  | IsWebSearchEnabled (2.5.8) |
 | 21 | `IsAutonomous` | bit | **no** | `0` | Triggers or Flows set (2.5.8): no interaction does not make it unused |
+| 22 | `CopilotType` | nvarchar(40) | yes |  | 2.6.4: Copilot Studio, Agent Builder or Other, from CreatedIn; without it, Agent Builder for an agent matched exactly to an Agent Builder identity (Copilot.Studio.Declarative.*) or with a title id and no schema name, else Copilot Studio |
 
 Indexes and constraints:
 
@@ -4120,6 +4126,8 @@ The workbook's sheets themselves are loaded as they come into `dbo.AgentInventor
 | 8 | `InventoryAgentId` | nvarchar(100) | yes |  | the agent's dash.AgentInventory row (2.5.6) |
 | 9 | `IsShared` | bit | yes |  | (2.5.6) |
 | 10 | `InProduction` | bit | yes |  | (2.5.6) |
+| 11 | `CopilotType` | nvarchar(40) | yes |  | the Agents pages' Copilot type filter (2.6.4): the workbook row's, else bi.DimAgent's |
+| 12 | `EnvironmentType` | nvarchar(100) | yes |  | the Agents pages' Environment filter (2.6.4): the workbook row's EnvironmentSku, else bi.DimAgent's ((not in the workbook)) |
 
 ### dash: operations (2.3.0)
 
@@ -8284,7 +8292,7 @@ GO
 
 ### C.10 `sql/Create-CopilotBiSchema.sql`
 
-Copilot database. The `bi` star schema: dimensions, facts and the views a reporting tool reads. 700 lines.
+Copilot database. The `bi` star schema: dimensions, facts and the views a reporting tool reads. 724 lines.
 
 ```sql
 /*
@@ -8503,6 +8511,30 @@ IF COL_LENGTH(N'bi.DimAgent', N'NamedInAudit') IS NULL
 */
 IF COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL
     ALTER TABLE bi.DimAgent ADD MergedIntoKey INT NULL;
+
+/*
+    2.6.4: what kind of agent it is, and the type of environment it lives in, for the Agents pages' filters and the
+    report's slicers. bi.usp_NameAgents sets both at the end of every refresh and every workbook load.
+      CopilotType      Copilot Studio | Agent Builder | Microsoft | Other | (no agent): the agent workbook's CreatedIn
+                       where it lists the agent, else read from the identity (Copilot.Studio.Declarative.* is an agent
+                       made with Agent Builder, Copilot Studio lite; any other Copilot.Studio.* one made in Copilot
+                       Studio; MicrosoftAgent.* one of Microsoft's own).
+      EnvironmentType  the workbook's EnvironmentSku (Production, Sandbox, Developer, Default, ...), or
+                       (not in the workbook) for an agent it does not list.
+*/
+IF COL_LENGTH(N'bi.DimAgent', N'CopilotType') IS NULL
+BEGIN
+    ALTER TABLE bi.DimAgent ADD CopilotType NVARCHAR(40) NULL;
+    EXEC (N'UPDATE bi.DimAgent SET CopilotType = CASE WHEN AgentId = N''(none)'' THEN N''(no agent)''
+                                                      WHEN AgentId LIKE N''Copilot.Studio.Declarative.%'' THEN N''Agent Builder''
+                                                      WHEN AgentId LIKE N''Copilot.Studio.%'' THEN N''Copilot Studio''
+                                                      WHEN AgentId LIKE N''MicrosoftAgent.%'' THEN N''Microsoft'' ELSE N''Other'' END;');
+END;
+IF COL_LENGTH(N'bi.DimAgent', N'EnvironmentType') IS NULL
+BEGIN
+    ALTER TABLE bi.DimAgent ADD EnvironmentType NVARCHAR(100) NULL;
+    EXEC (N'UPDATE bi.DimAgent SET EnvironmentType = CASE WHEN AgentId = N''(none)'' THEN N''(no agent)'' ELSE N''(not in the workbook)'' END;');
+END;
 
 /*
     bi.fnAgentIdentity: who the agent of a record is, from its AppIdentity and
@@ -8977,7 +9009,7 @@ SELECT AppKey, App, AppCategory FROM bi.DimApp;');
 
 /* 2.6.3: an agent the audit log names two ways is listed once, under the identity its interactions are kept with. */
 EXEC (N'CREATE OR ALTER VIEW bi.Agents AS
-SELECT AgentKey, AgentId, AgentName, AgentSource, NamedInAudit FROM bi.DimAgent WHERE MergedIntoKey IS NULL;');
+SELECT AgentKey, AgentId, AgentName, AgentSource, NamedInAudit, CopilotType, EnvironmentType FROM bi.DimAgent WHERE MergedIntoKey IS NULL;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Models AS
 SELECT ModelKey, ModelProvider, ModelName FROM bi.DimModel;');
@@ -8991,7 +9023,7 @@ SELECT LicenseStatusKey, LicenseStatus FROM bi.DimLicenseStatus;');
 
 ### C.11 `sql/Create-CopilotBiProcedure.sql`
 
-Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema. 1084 lines.
+Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema. 1111 lines.
 
 ```sql
 /*
@@ -9128,6 +9160,33 @@ BEGIN
                              ROW_NUMBER() OVER (PARTITION BY AgentKey ORDER BY InProduction DESC, LastPublishedAt DESC, InventoryAgentId) AS rn
                       FROM dash.AgentInventory WHERE AgentKey IS NOT NULL AND NULLIF(LTRIM(RTRIM(AgentName)), N'''') IS NOT NULL) AS x
                 WHERE rn = 1;');
+
+    /* 2.6.4: the kind of agent and the type of its environment, the workbook's where it lists the agent. */
+    CREATE TABLE #kind (AgentKey INT NOT NULL PRIMARY KEY, CopilotType NVARCHAR(40) COLLATE DATABASE_DEFAULT NULL,
+                        EnvironmentType NVARCHAR(100) COLLATE DATABASE_DEFAULT NULL);
+    IF COL_LENGTH(N'dash.AgentInventory', N'CopilotType') IS NOT NULL
+        EXEC (N'INSERT INTO #kind (AgentKey, CopilotType, EnvironmentType)
+                SELECT AgentKey, CopilotType, ISNULL(EnvironmentSku, N''(not given)'')
+                FROM (SELECT AgentKey, CopilotType, NULLIF(LTRIM(RTRIM(EnvironmentSku)), N'''') AS EnvironmentSku,
+                             ROW_NUMBER() OVER (PARTITION BY AgentKey ORDER BY InProduction DESC, LastPublishedAt DESC, InventoryAgentId) AS rn
+                      FROM dash.AgentInventory WHERE AgentKey IS NOT NULL) AS x
+                WHERE rn = 1;');
+    IF COL_LENGTH(N'bi.DimAgent', N'CopilotType') IS NOT NULL
+        EXEC (N'UPDATE d
+                SET CopilotType = v.CopilotType, EnvironmentType = v.EnvironmentType
+                FROM bi.DimAgent AS d
+                LEFT JOIN #kind AS k ON k.AgentKey = d.AgentKey
+                CROSS APPLY (SELECT CASE WHEN d.AgentId = N''(none)'' THEN N''(no agent)''
+                                         WHEN k.CopilotType IS NOT NULL THEN k.CopilotType
+                                         /* an agent known by two identities is an Agent Builder agent when either is */
+                                         WHEN d.AgentId LIKE N''Copilot.Studio.Declarative.%''
+                                              OR EXISTS (SELECT 1 FROM bi.DimAgent AS o WHERE o.MergedIntoKey = d.AgentKey
+                                                         AND o.AgentId LIKE N''Copilot.Studio.Declarative.%'') THEN N''Agent Builder''
+                                         WHEN d.AgentId LIKE N''Copilot.Studio.%'' THEN N''Copilot Studio''
+                                         WHEN d.AgentId LIKE N''MicrosoftAgent.%'' THEN N''Microsoft'' ELSE N''Other'' END AS CopilotType,
+                                    CASE WHEN d.AgentId = N''(none)'' THEN N''(no agent)''
+                                         ELSE COALESCE(k.EnvironmentType, N''(not in the workbook)'') END AS EnvironmentType) AS v
+                WHERE ISNULL(d.CopilotType, N'''') <> v.CopilotType OR ISNULL(d.EnvironmentType, N'''') <> v.EnvironmentType;');
 
     UPDATE d
     SET AgentName    = v.AgentName,
@@ -10312,7 +10371,7 @@ END;
 
 ### C.13 `sql/Create-CopilotDashboardSchema.sql`
 
-Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 361 lines.
+Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 378 lines.
 
 ```sql
 /*
@@ -10384,12 +10443,21 @@ IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
         Principal     NVARCHAR(256)   NOT NULL,   -- a UPN, or DOMAIN\Group
         PrincipalType VARCHAR(8)      NOT NULL CONSTRAINT CK_DashRoleGrant_Type CHECK (PrincipalType IN ('User', 'Group')),
         Role          VARCHAR(32)     NOT NULL CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
-                          ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')),
+                          ('Admin', 'Persona', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')),
         Note          NVARCHAR(400)   NULL,
         GrantedBy     NVARCHAR(256)   NOT NULL,
         GrantedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashRoleGrant_Granted DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT UQ_DashRoleGrant UNIQUE (Principal, Role)
     );
+
+/* 2.6.4: Persona, a role for some of the Admin pages: which ones, as their paths, comma-separated (/admin/health,/admin/audit). */
+IF COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL ALTER TABLE dash.RoleGrant ADD Pages NVARCHAR(1000) NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND definition LIKE N'%Persona%')
+BEGIN
+    IF OBJECT_ID(N'dash.CK_DashRoleGrant_Role', N'C') IS NOT NULL ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
+    ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
+        ('Admin', 'Persona', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement'));
+END;
 
 /* Friendly names and owners for agents, set by an administrator: they come before the name the audit log gives. */
 IF OBJECT_ID(N'dash.AgentAlias', N'U') IS NULL
@@ -10640,6 +10708,10 @@ IF COL_LENGTH(N'dash.AgentInventory', N'IsWebSearchEnabled') IS NULL ALTER TABLE
 IF COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL
     ALTER TABLE dash.AgentInventory ADD IsAutonomous BIT NOT NULL CONSTRAINT DF_DashAgentInventory_Autonomous DEFAULT (0);
 
+/* 2.6.4: what kind of agent it is, for the Agents pages' filter: Copilot Studio or Agent Builder (Copilot Studio lite),
+   from the workbook's CreatedIn, else the ids it gives (see tools/Import-AgentWorkbook.ps1). */
+IF COL_LENGTH(N'dash.AgentInventory', N'CopilotType') IS NULL ALTER TABLE dash.AgentInventory ADD CopilotType NVARCHAR(40) NULL;
+
 /* Each workbook load, for Admin > Health: when, which file, and what reached the tables. */
 IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NULL
     CREATE TABLE dash.AgentInventoryRun
@@ -10666,12 +10738,16 @@ SELECT a.AgentKey, a.AgentId, a.AgentSource,
        COALESCE(NULLIF(inv.AgentName, N''''), al.FriendlyName, a.AgentName, a.AgentId) AS AgentName,
        a.AgentName AS AuditName, COALESCE(inv.OwnerUpn, al.Owner) AS Owner,
        COALESCE(CAST(fd.[Date] AS DATETIME2(0)), a.FirstSeenUtc) AS FirstSeenUtc,   -- first used, in the reporting zone
-       inv.InventoryAgentId, CAST(ISNULL(inv.IsShared, 0) AS BIT) AS IsShared, CAST(ISNULL(inv.InProduction, 0) AS BIT) AS InProduction
+       inv.InventoryAgentId, CAST(ISNULL(inv.IsShared, 0) AS BIT) AS IsShared, CAST(ISNULL(inv.InProduction, 0) AS BIT) AS InProduction,
+       /* 2.6.4: the Agents pages filter on these. Set by bi.usp_NameAgents; the workbook''s own until it next runs. */
+       COALESCE(inv.CopilotType, a.CopilotType, N''Other'') AS CopilotType,
+       CASE WHEN inv.InventoryAgentId IS NULL THEN COALESCE(a.EnvironmentType, N''(not in the workbook)'')
+            ELSE COALESCE(NULLIF(LTRIM(RTRIM(inv.EnvironmentSku)), N''''), N''(not given)'') END AS EnvironmentType
 FROM bi.DimAgent AS a
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = a.AgentKey
 LEFT JOIN dash.AgentUse AS u ON u.AgentKey = a.AgentKey
 LEFT JOIN bi.DimDate AS fd ON fd.DateKey = u.FirstDateKey
-OUTER APPLY (SELECT TOP (1) i.InventoryAgentId, i.AgentName, i.OwnerUpn, i.IsShared, i.InProduction
+OUTER APPLY (SELECT TOP (1) i.InventoryAgentId, i.AgentName, i.OwnerUpn, i.IsShared, i.InProduction, i.CopilotType, i.EnvironmentSku
              FROM dash.AgentInventory AS i WHERE i.AgentKey = a.AgentKey
              ORDER BY i.InProduction DESC, i.LastPublishedAt DESC, i.InventoryAgentId) AS inv
 /* 2.6.3: an agent the audit log names two ways is one agent here, under the identity its interactions are kept with. */
@@ -14177,7 +14253,7 @@ if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
 
 ### C.22 `tools/Import-AgentWorkbook.ps1`
 
-Creates and fills the three `dbo` tables of the agent workbook, then `dash.AgentInventory` and `dash.AgentChildLink`. 361 lines.
+Creates and fills the three `dbo` tables of the agent workbook, then `dash.AgentInventory` and `dash.AgentChildLink`. 372 lines.
 
 ```powershell
 <#
@@ -14332,8 +14408,8 @@ try {
         if ($pcCols -and -not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentChildLink', N'ChildKey') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
             throw 'dash.AgentChildLink predates 2.5.7: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
         }
-        if (-not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
-            throw 'dash.AgentInventory predates 2.5.8: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
+        if (-not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'CopilotType') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
+            throw 'dash.AgentInventory predates 2.6.4: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
         }
         # 2.6.3: second identities are folded into their agent where bi.DimAgent can say so (a database upgraded to 2.6.3).
         $canMerge = [bool] (Sql "SELECT CASE WHEN COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL THEN 0 ELSE 1 END" $null -Scalar)
@@ -14348,7 +14424,7 @@ SELECT CAST(LEFT($(T 'AgentId'), 100) AS NVARCHAR(100)) AS Id, $(T 'AgentName') 
        $(N 'ViewerGroups') AS ViewerGroups, $(N 'EditorUsers') AS EditorUsers, $(N 'EditorGroups') AS EditorGroups,
        $(T 'TitleId') AS TitleId, $(T 'EntraAgentId') AS EntraAgentId, $(T 'EnvironmentId') AS EnvironmentId,
        $(T 'EnvironmentSku') AS EnvironmentSku, $(T 'Authentication') AS Authentication, $(B 'IsQuarantined') AS IsQuarantined,
-       $(B 'IsWebSearchEnabled') AS IsWebSearchEnabled,
+       $(B 'IsWebSearchEnabled') AS IsWebSearchEnabled, $(T 'CreatedIn') AS CreatedIn,
        CASE WHEN COALESCE($(T 'Triggers'), $(T 'Flows')) IS NOT NULL AND COALESCE($(T 'Triggers'), $(T 'Flows')) NOT IN (N'0', N'[]', N'None') THEN 1 ELSE 0 END AS IsAutonomous
 INTO #w FROM $inv AS w;
 DELETE FROM #w WHERE Id IS NULL;
@@ -14422,10 +14498,21 @@ $markMerged
 DELETE FROM dash.AgentInventory;
 INSERT INTO dash.AgentInventory (InventoryAgentId, AgentKey, AgentName, OwnerUpn, Environment, SchemaName, CreatedAt, LastPublishedAt,
                                  Channels, ViewerUsers, ViewerGroups, EditorUsers, EditorGroups, InProduction,
-                                 EnvironmentSku, Authentication, IsQuarantined, IsWebSearchEnabled, IsAutonomous)
+                                 EnvironmentSku, Authentication, IsQuarantined, IsWebSearchEnabled, IsAutonomous, CopilotType)
 SELECT x.Id, m.AgentKey, LEFT(x.AgentName, 400), LEFT(x.OwnerUpn, 256), LEFT(x.Environment, 400), LEFT(x.SchemaName, 400), x.CreatedAt,
        x.LastPublishedAt, LEFT(x.Channels, 400), x.ViewerUsers, x.ViewerGroups, x.EditorUsers, x.EditorGroups, $inProd,
-       LEFT(x.EnvironmentSku, 100), LEFT(x.Authentication, 200), x.IsQuarantined, x.IsWebSearchEnabled, x.IsAutonomous
+       LEFT(x.EnvironmentSku, 100), LEFT(x.Authentication, 200), x.IsQuarantined, x.IsWebSearchEnabled, x.IsAutonomous,
+       /* 2.6.4: the kind of agent, for the Agents pages' filter. The workbook's CreatedIn says it. Without it, an agent
+          the audit log knows by an Agent Builder identity (Copilot.Studio.Declarative.*, matched exactly) was made with
+          Agent Builder, as is one with a title id and no schema name; the rest were made in Copilot Studio. */
+       CASE WHEN x.CreatedIn LIKE N'%lite%' OR x.CreatedIn LIKE N'%Agent Builder%' OR x.CreatedIn LIKE N'%Microsoft 365%' OR x.CreatedIn LIKE N'%M365%'
+                 THEN N'Agent Builder'
+            WHEN x.CreatedIn LIKE N'%Studio%' THEN N'Copilot Studio'
+            WHEN x.CreatedIn IS NOT NULL THEN N'Other'
+            WHEN x.TitleId IS NOT NULL AND x.SchemaName IS NULL THEN N'Agent Builder'
+            WHEN EXISTS (SELECT 1 FROM #cx AS c JOIN #d AS dd ON dd.OwnKey = c.OwnKey
+                         WHERE c.Id = x.Id AND c.Rnk <= 3 AND dd.AgentId LIKE N'Copilot.Studio.Declarative.%') THEN N'Agent Builder'
+            ELSE N'Copilot Studio' END
 FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY Id ORDER BY LastPublishedAt DESC) AS rn FROM #w) AS x
 LEFT JOIN #m AS m ON m.Id = x.Id
 WHERE x.rn = 1;

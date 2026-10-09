@@ -4,6 +4,53 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.4] - 2026-10-09
+
+A new role, Persona, for some of the Admin pages: an administrator ticks which of the fourteen it opens. And two
+filters on the Agents pages: the type of the agent's environment and the kind of agent (Copilot type), in Power BI too.
+
+To upgrade from 2.6.3: with the nightly task disabled, replace the job server's scripts, run
+`Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once, then install the dashboard package over the one in
+place and enable the task again. The installer adds columns only: `dash.RoleGrant.Pages`, `dash.AgentInventory.CopilotType`,
+`bi.DimAgent.CopilotType` and `bi.DimAgent.EnvironmentType`, and lets `dash.RoleGrant` hold the Persona role. The next
+agent workbook load fills in each agent's Copilot type; until then it is read from the agent's id. Refresh the Power
+BI model once afterwards for the two new columns of Agents. Nothing is rebuilt.
+
+### Added
+- **The Persona role (Admin › Access).** A role for the Admin pages and nothing else, like Admin, but for the pages
+  ticked when it is granted: any of Health, Access, Directory quality, Email, Alerts and digests, Targets and
+  assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Reports shown,
+  Scheduled extracts, Training records and Audit log. Someone with it sees those pages in the navigation, opens them
+  and makes their changes; any other Admin page is refused, and every change is in the audit log as before. Granting
+  Persona again to someone who has it replaces their pages; the grants table shows each Persona's pages. A person
+  with Persona from more than one grant (their own and a group's) has the pages of all of them.
+  - **Only an administrator grants or removes Admin or Persona.** A Persona given the Access page can grant and remove
+    the other roles, but not those two, so it cannot make itself or anyone more than it is.
+  - **Persona, like Admin, shows no usage data and does not let anyone past the dashboard's level limit**
+    (Who can open the dashboard): outside the levels, a Persona keeps its Admin pages only.
+  - `tools\Invoke-CopilotMaintenance.ps1 -Task GrantRole -Role Persona -Pages '/admin/health', '/admin/audit'` grants
+    it from the job server.
+- **Environment and Copilot type filters on the Agents pages.** In the filter bar, beside Period and Showing, both
+  *All* to begin with, and kept from one Agents page to the next:
+  - **Environment**: the type of the Power Platform environment the agent lives in, the agent workbook's
+    `EnvironmentSku` (Production, Sandbox, Developer, Default and so on). An agent the workbook does not list is
+    *(not in the workbook)*.
+  - **Copilot type**: Copilot Studio, Agent Builder (Copilot Studio lite), Microsoft (Microsoft's own agents) or
+    Other. The workbook's `CreatedIn` where it lists the agent; otherwise from the agent's ids
+    (`Copilot.Studio.Declarative.*` is Agent Builder, any other `Copilot.Studio.*` Copilot Studio, `MicrosoftAgent.*`
+    Microsoft). An agent known by two ids (2.6.3), as one made in Microsoft 365 Copilot is, is Agent Builder when
+    either id says so.
+  - Both filters on Agents in use, Agent inventory, Shared agents, Agents in production, Agents without an owner,
+    Agent checks, Agents costing credits and Agent hand-offs (by the agent that hands off). The environment only on
+    Build and publish and on Child agent usage (by the parent's environment). Agent detail has neither.
+- **Power BI: `CopilotType` and `EnvironmentType` on Agents** (`bi.Agents`, from two new columns of `bi.DimAgent`
+  that `bi.usp_NameAgents` keeps up to date), as slicers for any agent report.
+- **`dash.Agent` gains `CopilotType` and `EnvironmentType`**, and `dash.AgentInventory` gains `CopilotType`, filled by
+  `tools\Import-AgentWorkbook.ps1`.
+
+### Changed
+- `tools\Import-AgentWorkbook.ps1` asks for the 2.6.4 schema (`Install-CopilotAudit.ps1 -Dashboard`) before it loads.
+
 ## [2.6.3] - 2026-10-08
 
 An agent the audit log names two ways is one agent, with all its use and the workbook's name and owner; Admin › Access

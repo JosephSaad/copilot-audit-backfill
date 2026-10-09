@@ -155,6 +155,18 @@ public sealed class ReportContext
 {
     public static readonly int[] DayChoices = [7, 14, 30, 90, 180, 365];
 
+    /// <summary>
+    /// The Agents pages' filters (2.6.4): the type of the agent's environment (?env=, the workbook's EnvironmentSku) and
+    /// the kind of agent (?ctype=). Null for all. Kept by <see cref="Url"/> from one Agents page to the next; a page that
+    /// offers them checks them against its choices (InsightsPage.AgentBar) before using them.
+    /// </summary>
+    public string? AgentEnv { get; set; }
+    public string? AgentType { get; set; }
+
+    /// <summary>The kinds of agent the Copilot type filter offers, with what it shows for each.</summary>
+    public static readonly (string Value, string Label)[] AgentTypes =
+        [("Copilot Studio", "Copilot Studio"), ("Agent Builder", "Agent Builder (Copilot Studio lite)"), ("Microsoft", "Microsoft"), ("Other", "Other")];
+
     public required Viewer Viewer { get; init; }
     public required int Days { get; init; }
     public required DateTime Start { get; init; }
@@ -262,6 +274,7 @@ public sealed class ReportContext
         {
             root = Root, d0 = Start, d1 = End, k0 = StartKey, k1 = EndKey, k7 = Key(End.AddDays(-6)),
             minGroup = MinGroupSize, inactiveKey = Key(End.AddDays(-(InactiveDays - 1))), daily = Daily ? 1 : 0,
+            aenv = AgentEnv, atype = AgentType,
         });
         if (extra is not null) d.AddDynamicParams(extra);
         return d;
@@ -275,6 +288,12 @@ public sealed class ReportContext
         var q = new List<string> { $"d={days ?? Days}" };
         var o = org ?? (keepOrg ? Root : null);
         if (o is not null && !(o == Viewer.Upn && !Viewer.OrgWide)) q.Add("org=" + Uri.EscapeDataString(o));
+        /* 2.6.4: the Agents filters go with the Agents pages, and only there. */
+        if (path.StartsWith("/agents", StringComparison.OrdinalIgnoreCase))
+        {
+            if (AgentEnv is not null) q.Add("env=" + Uri.EscapeDataString(AgentEnv));
+            if (AgentType is not null) q.Add("ctype=" + Uri.EscapeDataString(AgentType));
+        }
         if (!string.IsNullOrEmpty(extra)) q.Add(extra);
         return path + "?" + string.Join("&", q);
     }
@@ -297,8 +316,14 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
     /// organization, with a note (2.4.10). The data API and the digests keep to what was asked for, and so to nothing:
     /// a digest for a manager who has left must not start showing everyone.
     /// </param>
-    public Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request, bool forPage = false) =>
-        CreateAsync(viewer, int.TryParse(request.Query["d"], out var dq) ? dq : null, request.Query["org"].FirstOrDefault(), forPage);
+    public async Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request, bool forPage = false)
+    {
+        var c = await CreateAsync(viewer, int.TryParse(request.Query["d"], out var dq) ? dq : null, request.Query["org"].FirstOrDefault(), forPage);
+        static string? Asked(string? v) => string.IsNullOrWhiteSpace(v) || v.Trim().Length > 100 ? null : v.Trim();
+        c.AgentEnv = Asked(request.Query["env"].FirstOrDefault());
+        c.AgentType = Asked(request.Query["ctype"].FirstOrDefault());
+        return c;
+    }
 
     /// <summary>The same without a request: for email digests and the data API.</summary>
     public async Task<ReportContext> CreateAsync(Viewer viewer, int? requestedDays, string? requested, bool forPage = false)

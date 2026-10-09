@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Principal;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using CopilotInsights.Data;
 
 namespace CopilotInsights.Infrastructure;
 
@@ -9,13 +10,18 @@ namespace CopilotInsights.Infrastructure;
 public static class Roles
 {
     public const string Admin = "Admin", Organization = "Organization", Adoption = "Adoption", Licensing = "Licensing",
-        Security = "Security", Compliance = "Compliance", Agents = "Agents", Enablement = "Enablement";
+        Security = "Security", Compliance = "Compliance", Agents = "Agents", Enablement = "Enablement", Persona = "Persona";
 
-    public static readonly string[] All = [Admin, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement];
+    public static readonly string[] All = [Admin, Persona, Organization, Adoption, Licensing, Security, Compliance, Agents, Enablement];
+
+    /// <summary>The roles that open Admin pages and nothing else (2.6.4): neither lets anyone past the dashboard's limit.</summary>
+    public static bool AdminOnly(string role) =>
+        string.Equals(role, Admin, StringComparison.OrdinalIgnoreCase) || string.Equals(role, Persona, StringComparison.OrdinalIgnoreCase);
 
     public static readonly Dictionary<string, string> Describe = new()
     {
         [Admin] = "Runs the admin module: access, settings, reference data, health and the audit log. Sees no usage data by itself.",
+        [Persona] = "Runs the Admin pages ticked for them, and no others. Sees no usage data by itself, and cannot grant or remove Admin or Persona.",
         [Organization] = "Sees the whole organization's aggregates, whatever their place in it.",
         [Adoption] = "The Adoption section, and in it the named people who were licensed but have not started.",
         [Licensing] = "The Licensing and Forecasting sections, and in them the named unused licenses, unlicensed Copilot Chat users and license recommendations.",
@@ -45,7 +51,15 @@ public sealed class Viewer
     /// <summary>The limit in force when they signed in: 0 for none, else levels 1 to this.</summary>
     public int MaxLevel { get; init; }
 
+    /// <summary>The Admin pages a Persona grant opens (2.6.4), by path: empty for everyone else.</summary>
+    public IReadOnlySet<string> AdminPages { get; init; } = new HashSet<string>();
+
+    /// <summary>A full administrator: every Admin page, and the only one who may grant Admin or Persona.</summary>
     public bool IsAdmin => Roles.Contains(Infrastructure.Roles.Admin);
+    /// <summary>Whether the viewer may open and change this Admin page: an administrator, or a Persona granted it (2.6.4).</summary>
+    public bool CanAdmin(string? path) => IsAdmin || AdminPages.Contains(PersonaPages.Normalize(path));
+    /// <summary>Any Admin page at all.</summary>
+    public bool AnyAdmin => IsAdmin || AdminPages.Count > 0;
     public bool OrgWide => AccessRules.SeesWholeOrganization(Level, Roles);
     public bool Has(string role) => Roles.Contains(role);
     public string Name => DisplayName ?? Upn ?? WindowsName;
@@ -61,14 +75,14 @@ public static class AccessRules
     /// <summary>
     /// The dashboard's limit (2.4.4): with <paramref name="maxLevel"/> 0 everyone may use it, as before;
     /// otherwise only levels 1 to <paramref name="maxLevel"/> below the configured top, and anyone granted
-    /// a role other than Admin (Admin > Access is the list of exceptions). Administrators alone are not
-    /// admitted: they keep the Admin pages, which show no usage data. The level comes from the directory
-    /// record of the SID-checked sign-in, never from the request.
+    /// a role other than Admin or Persona (Admin > Access is the list of exceptions). Administrators alone
+    /// are not admitted: they keep the Admin pages, which show no usage data. The level comes from the
+    /// directory record of the SID-checked sign-in, never from the request.
     /// </summary>
     public static bool MayUseDashboard(int? level, IReadOnlySet<string> roles, int maxLevel) =>
         maxLevel <= 0
         || level is { } l && l >= 1 && l <= maxLevel
-        || roles.Any(r => !string.Equals(r, Roles.Admin, StringComparison.OrdinalIgnoreCase));
+        || roles.Any(r => !Roles.AdminOnly(r));
 
     /// <summary>
     /// The SID comparison: the directory records no SID for the person, or records exactly the SID in the
@@ -134,12 +148,12 @@ public sealed class ViewerService(
         var windowsName = user.Identity?.Name ?? "(anonymous)";
         var upn = await ResolveUpnAsync(user, windowsName);
 
-        var roles = await RolesForAsync(upn, windowsName, user);
+        var (roles, pages) = await RolesForAsync(upn, windowsName, user);
         if (IsBootstrapAdmin(upn, windowsName, user)) roles.Add(Roles.Admin);
-        return await BuildAsync(windowsName, upn, roles);
+        return await BuildAsync(windowsName, upn, roles, pages);
     }
 
-    async Task<Viewer> BuildAsync(string windowsName, string? upn, HashSet<string> roles)
+    async Task<Viewer> BuildAsync(string windowsName, string? upn, HashSet<string> roles, HashSet<string> pages)
     {
         PersonRow? p = null;
         if (upn is not null)
@@ -150,7 +164,7 @@ public sealed class ViewerService(
         {
             WindowsName = windowsName, Upn = upn, DisplayName = p?.DisplayName, Level = p?.Level,
             InDirectory = p is not null, PeopleBelow = p?.PeopleBelow ?? 0, Roles = roles,
-            MaxLevel = max, Admitted = AccessRules.MayUseDashboard(p?.Level, roles, max),
+            MaxLevel = max, Admitted = AccessRules.MayUseDashboard(p?.Level, roles, max), AdminPages = pages,
         };
     }
 
@@ -159,19 +173,25 @@ public sealed class ViewerService(
         public int? LevelInt => Level;
     }
 
-    async Task<HashSet<string>> RolesForAsync(string? upn, string windowsName, ClaimsPrincipal? user)
+    /// <summary>The roles granted to the account, its UPN or its groups, and the Admin pages of every Persona grant among them.</summary>
+    async Task<(HashSet<string> Roles, HashSet<string> Pages)> RolesForAsync(string? upn, string windowsName, ClaimsPrincipal? user)
     {
-        var grants = await db.QueryAsync<(string Principal, string PrincipalType, string Role)>(
-            "SELECT Principal, PrincipalType, Role FROM dash.RoleGrant");
+        /* Pages arrived in 2.6.4: until the schema script is run again, there are none. */
+        var grants = await db.QueryAsync<(string Principal, string PrincipalType, string Role, string? Pages)>(@"
+IF COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL SELECT Principal, PrincipalType, Role, CAST(NULL AS NVARCHAR(1000)) AS Pages FROM dash.RoleGrant;
+ELSE EXEC (N'SELECT Principal, PrincipalType, Role, Pages FROM dash.RoleGrant;');");
         var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var g in grants)
         {
             /* Whatever the grant says it is: a DOMAIN\name recorded as a user may be a group, and the other way round. */
             var hit = Same(g.Principal, upn) || Same(g.Principal, windowsName)
                       || (user is not null && IsInGroup(user, g.Principal));
-            if (hit) roles.Add(g.Role);
+            if (!hit) continue;
+            roles.Add(g.Role);
+            if (string.Equals(g.Role, Roles.Persona, StringComparison.OrdinalIgnoreCase)) pages.UnionWith(PersonaPages.Parse(g.Pages));
         }
-        return roles;
+        return (roles, pages);
     }
 
     bool IsBootstrapAdmin(string? upn, string windowsName, ClaimsPrincipal user) =>

@@ -29,6 +29,7 @@ static class Workbook
 public abstract class AgentListPage(PageServices s) : InsightsPage(s)
 {
     public override string Persona => "Agents";
+    public override AgentFilters AgentFilter => AgentFilters.Both;
 
     /// <summary>Which of the workbook's agents the page lists, over dash.AgentInventory AS i.</summary>
     protected abstract string Where { get; }
@@ -110,7 +111,7 @@ LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = i.AgentKey
 LEFT JOIN dash.AgentUse AS au ON au.AgentKey = i.AgentKey
 LEFT JOIN bi.DimDate AS ld ON ld.DateKey = au.LastDateKey
 LEFT JOIN #u AS u ON u.AgentKey = i.AgentKey
-WHERE {Where};
+WHERE {Where}{InventoryFilter("i")};
 SELECT COUNT(*) AS Agents, COUNT(CASE WHEN N > 0 THEN 1 END) AS Used, COUNT(CASE WHEN N = 0 AND IsAutonomous = 1 THEN 1 END) AS Autonomous,
        ISNULL(SUM(CAST(IsShared AS INT)), 0) AS Shared, ISNULL(SUM(CAST(InProduction AS INT)), 0) AS Production, COUNT(AgentKey) AS Matched
 FROM #x;
@@ -162,7 +163,7 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
         Panels.Add(new(listTitle, new HtmlString(tabs + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             listNote + " Names and owners come from the agent workbook; where it leaves one out, from Admin › Reference data, then the audit log. Owners are shown by their name in the directory, or by sign-in where it does not have them. " +
             $"An autonomous agent (one with triggers or flows) can work with nobody chatting to it, so with no interaction it is *Autonomous*, not *Not used*. People are left out where fewer than {Ctx.MinGroupSize} used an agent." +
-            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : ""), "full", CsvUrl()));
+            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : "") + AgentFilterNote(), "full", CsvUrl()));
         return true;
     }
 }
@@ -206,6 +207,7 @@ public sealed class OwnersModel(PageServices s) : InsightsPage(s)
     public override string Title => "Agents without an owner";
     public override string Persona => "Agents";
     public override string Intro => "Agents from the agent workbook whose owner has left the directory, has a disabled account, or is not set, with their use in the period: the agents that need a new owner first. Below, every agent by its owner's department.";
+    public override AgentFilters AgentFilter => AgentFilters.Both;
 
     sealed class Row
     {
@@ -259,7 +261,8 @@ CROSS APPLY (SELECT NULLIF(LTRIM(RTRIM(COALESCE(i.OwnerUpn, al.Owner))), N'') AS
 LEFT JOIN audit.UserDirectory AS ud ON ud.UserPrincipalName = o.Owner
 LEFT JOIN dash.AgentUse AS au ON au.AgentKey = i.AgentKey
 LEFT JOIN bi.DimDate AS ld ON ld.DateKey = au.LastDateKey
-LEFT JOIN #u AS u ON u.AgentKey = i.AgentKey;
+LEFT JOIN #u AS u ON u.AgentKey = i.AgentKey
+WHERE 1 = 1{InventoryFilter("i")};
 SELECT * FROM #x WHERE OwnerState <> N'Active' ORDER BY N DESC, People DESC, AgentName;
 SELECT ISNULL(NULLIF(OwnerDepartment, N''), N'(owner not in the directory)') AS Department, COUNT(*) AS Agents,
        COUNT(CASE WHEN N > 0 THEN 1 END) AS Used, SUM(N) AS N, COUNT(CASE WHEN OwnerState <> N'Active' THEN 1 END) AS Ownerless
@@ -285,7 +288,7 @@ FROM #x GROUP BY ISNULL(NULLIF(OwnerDepartment, N''), N'(owner not in the direct
         CsvTable = t;
         Panels.Add(new("Agents that need a new owner", t.Render(),
             "Most used first. The owner is the workbook's OwnerIdUPN, looked up in the directory loaded from Active Directory each night: not found most likely means they left. The owner's manager is who to ask for a new one." +
-            (PrivacyMode ? " Privacy mode is on, so people are not named." : ""), "full", CsvUrl()));
+            (PrivacyMode ? " Privacy mode is on, so people are not named." : "") + AgentFilterNote(), "full", CsvUrl()));
 
         var dt = new Table { Headers = ["Owner's department", "Agents", "Used in the period", "Interactions in the period", "Without an active owner"], Numeric = new HashSet<int> { 1, 2, 3, 4 } };
         foreach (var d in depts) dt.Rows.Add([d.Department, d.Agents, d.Used, d.N, d.Ownerless]);
@@ -303,6 +306,8 @@ public sealed class ChecksModel(PageServices s) : InsightsPage(s)
     public override string Title => "Agent checks";
     public override string Persona => "Agents";
     public override string Intro => "Where an agent's settings in the agent workbook and its use in the audit log disagree: quarantined but used, web search off but searching the web, a developer environment with many users, production with none, no authentication, or an owner who has gone.";
+
+    public override AgentFilters AgentFilter => AgentFilters.Both;
 
     /// <summary>People in the period from which a developer-environment agent should move to production.</summary>
     const int DevPeople = 25;
@@ -357,7 +362,8 @@ LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = i.AgentKey
 {(dir ? "LEFT JOIN audit.UserDirectory AS ud ON ud.UserPrincipalName = NULLIF(LTRIM(RTRIM(COALESCE(i.OwnerUpn, al.Owner))), N'')" : "")}
 LEFT JOIN dash.AgentUse AS au ON au.AgentKey = i.AgentKey
 LEFT JOIN bi.DimDate AS ld ON ld.DateKey = au.LastDateKey
-LEFT JOIN #u AS u ON u.AgentKey = i.AgentKey;
+LEFT JOIN #u AS u ON u.AgentKey = i.AgentKey
+WHERE 1 = 1{InventoryFilter("i")};
 SELECT c.[Check], x.InventoryAgentId, x.AgentKey, x.Name AS AgentName, x.Owner1 AS Owner, x.Environment, x.N, x.People, x.WebSearches, x.LastUsed
 FROM #x AS x
 CROSS APPLY (VALUES
@@ -394,7 +400,7 @@ ORDER BY x.N DESC, x.Name;", Ctx.Args(new { dev = DevPeople }));
         CsvTable = t;
         Panels.Add(new("Findings", new HtmlString(tabs + t.Render().Value),
             "A breach is an agent doing what its settings say it should not; a review is one to look at. Settings come from the agent workbook, use from the audit log for the period chosen." +
-            (dir ? "" : " The directory is not loaded, so owners are not checked."), "full", CsvUrl()));
+            (dir ? "" : " The directory is not loaded, so owners are not checked.") + AgentFilterNote(), "full", CsvUrl()));
     }
 }
 /// <summary>
@@ -407,6 +413,8 @@ public sealed class ChildModel(PageServices s) : InsightsPage(s)
     public override string Title => "Child agent usage";
     public override string Persona => "Agents";
     public override string Intro => "Agents that other agents call, from the workbook's ParentChildAgent sheet: child agents, which live inside their one parent, and connected agents, agents of their own that several parents can call. How many parent agents call each and which, each parent's use in the period from the audit log, and each child's total across its parents.";
+    /// <summary>2.6.4: by the type of the parent's environment.</summary>
+    public override AgentFilters AgentFilter => AgentFilters.Environment;
 
     sealed class Row
     {
@@ -433,6 +441,9 @@ public sealed class ChildModel(PageServices s) : InsightsPage(s)
             Notice = "No parent and child agents are loaded. tools\\Import-AgentWorkbook.ps1 loads them each night from the agent workbook's ParentChildAgent sheet (after Install-CopilotAudit.ps1 -Dashboard from 2.5.7).";
             return;
         }
+        /* 2.6.4: the links whose parent is in an environment of the type chosen; a parent the workbook does not list has none. */
+        var parentEnv = AgentEnv is null ? "" :
+            $"LEFT JOIN dash.AgentInventory AS pe ON pe.InventoryAgentId = l.ParentInventoryAgentId WHERE CASE WHEN pe.InventoryAgentId IS NULL THEN N'(not in the workbook)' ELSE {InventoryEnvSql("pe")} END = @aenv";
         var (rows, people) = await Db.QueryTwoAsync<Row, (string ChildKey, int People)>($@"
 SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.UserKey) AS People
 INTO #u
@@ -448,11 +459,12 @@ SELECT l.ChildKey, MAX(l.ChildAgentName) AS ChildAgentName, MAX(l.ChildKind) AS 
 FROM dash.AgentChildLink AS l
 LEFT JOIN bi.DimAgent AS d ON d.AgentKey = l.ParentAgentKey
 LEFT JOIN #u AS u ON u.AgentKey = l.ParentAgentKey
+{parentEnv}
 GROUP BY l.ChildKey, l.ParentInventoryAgentId;
 /* The people behind each child, counted once though they used several of its parents. */
 SELECT c.ChildKey, COUNT(DISTINCT f.UserKey) AS People
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN (SELECT DISTINCT ChildKey, ParentAgentKey FROM dash.AgentChildLink WHERE ParentAgentKey IS NOT NULL) AS c ON c.ParentAgentKey = f.AgentKey
+JOIN (SELECT DISTINCT l.ChildKey, l.ParentAgentKey FROM dash.AgentChildLink AS l {(parentEnv == "" ? "WHERE" : parentEnv + " AND")} l.ParentAgentKey IS NOT NULL) AS c ON c.ParentAgentKey = f.AgentKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY c.ChildKey;", Ctx.Args());
 
@@ -497,6 +509,6 @@ GROUP BY c.ChildKey;", Ctx.Args());
                          r.People == 0 ? 0 : AtLeastMin(r.People), r.N, r.N > 0 ? "Used" : "Not used"]);
         CsvTable = pt;
         Panels.Add(new(chosenName is null ? "Each parent agent" : $"Parent agents calling {chosenName}", pt.Render(),
-            "A parent's use is its own, from the audit log: the audit log does not say which of its interactions reached the child.", "full", CsvUrl()));
+            "A parent's use is its own, from the audit log: the audit log does not say which of its interactions reached the child." + AgentFilterNote(), "full", CsvUrl()));
     }
 }

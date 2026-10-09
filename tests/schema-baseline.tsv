@@ -1,4 +1,4 @@
-# release 2.6.3
+# release 2.6.4
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -661,6 +661,8 @@ C	copilot	bi.Agents	V	2	AgentId	nvarchar(400)	0
 C	copilot	bi.Agents	V	3	AgentName	nvarchar(400)	1	
 C	copilot	bi.Agents	V	4	AgentSource	nvarchar(30)	1	
 C	copilot	bi.Agents	V	5	NamedInAudit	bit	0	
+C	copilot	bi.Agents	V	6	CopilotType	nvarchar(40)	1	
+C	copilot	bi.Agents	V	7	EnvironmentType	nvarchar(100)	1	
 C	copilot	bi.Apps	V	1	AppKey	int	0	I
 C	copilot	bi.Apps	V	2	App	nvarchar(200)	0	
 C	copilot	bi.Apps	V	3	AppCategory	nvarchar(50)	0	
@@ -691,6 +693,8 @@ C	copilot	bi.DimAgent	U	4	AgentSource	nvarchar(30)	1
 C	copilot	bi.DimAgent	U	5	FirstSeenUtc	datetime2(0)	0	D
 C	copilot	bi.DimAgent	U	6	NamedInAudit	bit	0	D
 C	copilot	bi.DimAgent	U	7	MergedIntoKey	int	1	
+C	copilot	bi.DimAgent	U	8	CopilotType	nvarchar(40)	1	
+C	copilot	bi.DimAgent	U	9	EnvironmentType	nvarchar(100)	1	
 C	copilot	bi.DimApp	U	1	AppKey	int	0	I
 C	copilot	bi.DimApp	U	2	App	nvarchar(200)	0	
 C	copilot	bi.DimApp	U	3	AppCategory	nvarchar(50)	0	D
@@ -990,6 +994,8 @@ C	copilot	bi.fnAgentIdentity	IF	2	AgentSource	nvarchar(14)	1
 C	copilot	bi.fnAgentIdentity	IF	3	DerivedName	nvarchar(400)	1	
 C	copilot	dash.Agent	V	1	AgentKey	int	0	
 C	copilot	dash.Agent	V	10	InProduction	bit	1	
+C	copilot	dash.Agent	V	11	CopilotType	nvarchar(40)	1	
+C	copilot	dash.Agent	V	12	EnvironmentType	nvarchar(100)	1	
 C	copilot	dash.Agent	V	2	AgentId	nvarchar(400)	0	
 C	copilot	dash.Agent	V	3	AgentSource	nvarchar(30)	1	
 C	copilot	dash.Agent	V	4	AgentName	nvarchar(400)	1	
@@ -1029,6 +1035,7 @@ C	copilot	dash.AgentInventory	U	19	IsQuarantined	bit	1
 C	copilot	dash.AgentInventory	U	2	AgentKey	int	1	
 C	copilot	dash.AgentInventory	U	20	IsWebSearchEnabled	bit	1	
 C	copilot	dash.AgentInventory	U	21	IsAutonomous	bit	0	D
+C	copilot	dash.AgentInventory	U	22	CopilotType	nvarchar(40)	1	
 C	copilot	dash.AgentInventory	U	3	AgentName	nvarchar(400)	1	
 C	copilot	dash.AgentInventory	U	4	OwnerUpn	nvarchar(256)	1	
 C	copilot	dash.AgentInventory	U	5	Environment	nvarchar(400)	1	
@@ -1171,6 +1178,7 @@ C	copilot	dash.RoleGrant	U	4	Role	varchar(32)	0
 C	copilot	dash.RoleGrant	U	5	Note	nvarchar(400)	1	
 C	copilot	dash.RoleGrant	U	6	GrantedBy	nvarchar(256)	0	
 C	copilot	dash.RoleGrant	U	7	GrantedUtc	datetime2(0)	0	D
+C	copilot	dash.RoleGrant	U	8	Pages	nvarchar(1000)	1	
 C	copilot	dash.SavedView	U	1	ViewId	int	0	I
 C	copilot	dash.SavedView	U	2	Owner	nvarchar(256)	0	
 C	copilot	dash.SavedView	U	3	Name	nvarchar(100)	0	

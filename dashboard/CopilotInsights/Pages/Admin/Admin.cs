@@ -323,8 +323,12 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         public string GrantedBy { get; set; } = "";
         public DateTime GrantedUtc { get; set; }
         public string? DisplayName { get; set; }
+        public string? Pages { get; set; }
         public int TotalRows { get; set; }
     }
+
+    /// <summary>Whether dash.RoleGrant has the Pages column a Persona grant needs (2.6.4: added by the schema script).</summary>
+    async Task<bool> HasPagesAsync() => await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN 0 ELSE 1 END;") == 1;
 
     protected override async Task BuildAsync()
     {
@@ -361,7 +365,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         var deepest = Math.Min(15, Math.Max(max, levels.Where(l => l.Level is not null).Select(l => (int)l.Level!.Value).DefaultIfEmpty(0).Max()));
         var everyone = levels.Sum(l => l.N);
         var granted = await Db.QueryAsync<(string PrincipalType, int N)>(
-            "SELECT PrincipalType, COUNT(DISTINCT Principal) FROM dash.RoleGrant WHERE Role <> 'Admin' GROUP BY PrincipalType;");
+            "SELECT PrincipalType, COUNT(DISTINCT Principal) FROM dash.RoleGrant WHERE Role NOT IN ('Admin', 'Persona') GROUP BY PrincipalType;");
         int Grants(string type) => granted.FirstOrDefault(g => g.PrincipalType == type).N;
         var choices = new List<(string Value, string Label)> { ("0", $"Everyone in the directory ({everyone:#,0} people)") };
         for (var n = 1; n <= deepest; n++)
@@ -370,8 +374,8 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             $"<label>Open to<select name=\"MaxViewerLevel\">" +
             string.Concat(choices.Select(c => $"<option value=\"{c.Value}\"{(c.Value == max.ToString() ? " selected" : "")}>{E(c.Label)}</option>")) + "</select></label>" +
             Button("Save", "Change who can open the dashboard? It applies from the next page, export and data API call, on every web server, and to the manager digests within a minute."))),
-            $"Level 1 is the top of the organization, level 2 reports to them, and so on. Whatever their level, anyone granted a role other than Admin (Grant a role, below) is let in too: " +
-            $"{Grants("User"):#,0} people and {Grants("Group"):#,0} groups today. Administrators outside the levels keep the Admin pages, so a wrong choice can be put right here. " +
+            $"Level 1 is the top of the organization, level 2 reports to them, and so on. Whatever their level, anyone granted a role other than Admin or Persona (Grant a role, below) is let in too: " +
+            $"{Grants("User"):#,0} people and {Grants("Group"):#,0} groups today. Administrators outside the levels keep the Admin pages (a Persona, those granted to them), so a wrong choice can be put right here. " +
             "Managers below the levels stop getting the manager digest. People with no level (not under the top) are left out by any limit." +
             (max > 0 ? $" Now: levels 1 to {max}." : " Now: everyone.")));
 
@@ -389,14 +393,23 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             "Lists of accounts nobody can use keep everyone: disabled and departed accounts, departures ahead and non-human accounts." +
             $" Now: {(keep == 0 ? "none" : $"levels 1 to {keep}")}."));
 
+        /* 2.6.4: Admin and Persona are for full administrators to give; a Persona picks which Admin pages it opens. */
+        var hasPages = await HasPagesAsync();
+        var offered = Roles.All.Where(r => Viewer.IsAdmin || !Roles.AdminOnly(r)).Where(r => hasPages || r != Roles.Persona).ToList();
+        var pagePicker = !offered.Contains(Roles.Persona) ? "" :
+            "<fieldset class=\"roles\"><legend>Persona: the Admin pages it opens</legend>" +
+            string.Concat(PersonaPages.Choices.Select(pg => $"<label><input type=\"checkbox\" name=\"adminPage\" value=\"{E(pg.Path)}\"/> {E(pg.Title)}</label>")) + "</fieldset>";
         Panels.Add(new("Grant a role", new HtmlString(Form("grant",
             PersonBox("principal", "User (name or UPN) or group (DOMAIN\\Group)", null, 34) +
             Select("type", "Type", ["User", "Group"], "User") +
             "<fieldset class=\"roles\"><legend>Roles</legend>" +
-            string.Concat(Roles.All.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}</label>")) + "</fieldset>" +
+            string.Concat(offered.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}</label>")) + "</fieldset>" +
+            pagePicker +
             Input("note", "Why (optional)", null, 30) + Button("Grant")) +
-            "<ul class=\"sub\">" + string.Concat(Roles.All.Select(r => $"<li><b>{E(r)}</b>: {E(Roles.Describe[r])}</li>")) + "</ul>"),
-            "Tick every role the person or group should have; one grant gives them all. A group grant follows AD membership at sign-in, so it is the easiest to run at scale."));
+            "<ul class=\"sub\">" + string.Concat(offered.Select(r => $"<li><b>{E(r)}</b>: {E(Roles.Describe[r])}</li>")) + "</ul>"),
+            "Tick every role the person or group should have; one grant gives them all. A group grant follows AD membership at sign-in, so it is the easiest to run at scale." +
+            (offered.Contains(Roles.Persona) ? " For Persona, tick the Admin pages it opens too; granting Persona again to someone who holds it replaces their pages." : "") +
+            (hasPages || !Viewer.IsAdmin ? "" : " Persona needs the 2.6.4 schema: run Create-CopilotDashboardSchema.sql again to offer it.")));
 
         var roleFilter = Request.Query["role"].FirstOrDefault() is { } rf && Roles.All.Contains(rf) ? rf : null;
         /* One row per person or group, with every role they hold (2.4.2); paged by principal. */
@@ -415,7 +428,7 @@ GROUP BY g.Principal
         pg.Total = principals.FirstOrDefault().TotalRows;
         var list = principals.Select(x => x.Principal).ToList();
         var grants = list.Count == 0 ? [] : await Db.QueryAsync<GrantRow>(@"
-SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, p.DisplayName
+SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, p.DisplayName" + (hasPages ? ", g.Pages" : "") + @"
 FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
 WHERE g.Principal IN @list;", new { list });
         var t = new Table
@@ -432,6 +445,7 @@ WHERE g.Principal IN @list;", new { list });
             if (mine.Count == 0) continue;
             var roleCell = string.Concat(mine.Select(g =>
                 $"<span class=\"grant\">{E(g.Role)}" +
+                (g.Role == Roles.Persona ? $" <small>({E(PersonaPages.Names(g.Pages))})</small>" : "") +
                 Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}")) + "</span>")) +
                 "<span class=\"grant all\">" + Form("revokeall", Hidden("principal", principal) +
                     $"<button class=\"btn quiet\" type=\"submit\" title=\"{E($"Remove every role from {principal}")}\" data-confirm=\"{E($"Remove every role from {principal}? They keep only what their level and their groups give them.")}\">Remove all</button>") + "</span>";
@@ -468,7 +482,7 @@ WHERE g.Principal IN @list;", new { list });
                   $"<p>Sees: <b>{(org ? "the whole organization" : p.PeopleBelow > 0 ? $"themselves and the {p.PeopleBelow:#,0} people under them" : "their own use")}</b>" +
                   $"{(org && roles.Contains(Roles.Organization) && p.Level is not (1 or 2) ? " (by the Organization role)" : "")}.</p>");
             if (!AccessRules.MayUseDashboard(p.Level, roles, max))
-                body.Append($"<p><b>Cannot open the dashboard</b>: it is open to levels 1 to {max}, and they hold no role directly{(roles.Contains(Roles.Admin) ? " other than Admin, which gives them the Admin pages only" : "")}. A group grant would still let them in.</p>");
+                body.Append($"<p><b>Cannot open the dashboard</b>: it is open to levels 1 to {max}, and they hold no role directly{(roles.Any(Roles.AdminOnly) ? " other than Admin or Persona, which give them Admin pages only" : "")}. A group grant would still let them in.</p>");
             body.Append($"<p>Roles granted to the account directly: {(roles.Count == 0 ? "none" : E(string.Join(", ", roles)))}. Group grants are resolved when they sign in, so check the groups above too.</p>");
         }
         Panels.Add(new("Check someone's access", new HtmlString(body.ToString()), null, "half"));
@@ -554,7 +568,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         return $"Left off revoke and train lists: {Say(before)} before, {Say(ProtectedLevels)} now.";
     });
 
-    public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string? note) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string[]? adminPage, string? note) => AdminChangeAsync(async () =>
     {
         principal = principal?.Trim();
         if (string.IsNullOrEmpty(principal) || principal.Length > 256) throw new ArgumentException("give a UPN or DOMAIN\\Group.");
@@ -563,22 +577,45 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         if (roles.Count == 0) throw new ArgumentException("tick at least one role.");
         if (type == "User" && !principal.Contains('@') && !principal.Contains('\\')) throw new ArgumentException("a user is a UPN (name@domain) or DOMAIN\\name.");
         if (type == "Group" && !principal.Contains('\\')) throw new ArgumentException("a group is DOMAIN\\Group.");
+        /* 2.6.4: a Persona runs only the Admin pages given to it, so it cannot make itself, or anyone, more than that. */
+        if (!Viewer.IsAdmin && roles.Any(Roles.AdminOnly)) throw new ArgumentException("only an administrator can grant Admin or Persona.");
+        string? pages = null;
+        if (roles.Contains(Roles.Persona))
+        {
+            if (!await HasPagesAsync()) throw new ArgumentException("Persona needs the 2.6.4 schema: run Create-CopilotDashboardSchema.sql again.");
+            pages = PersonaPages.Format(adminPage) ?? throw new ArgumentException("tick the Admin pages the Persona role opens.");
+        }
         var added = new List<string>();
+        var repaged = "";
         foreach (var r in roles)
         {
+            /* Persona again, for someone who holds it: their pages are replaced. */
+            if (r == Roles.Persona && await Db.ExecuteAsync(
+                    "UPDATE dash.RoleGrant SET Pages = @pages, GrantedBy = @by, GrantedUtc = SYSUTCDATETIME() WHERE Principal = @principal AND Role = 'Persona' AND ISNULL(Pages, N'') <> @pages;",
+                    new { principal, pages, by = Viewer.Upn ?? Viewer.WindowsName }) > 0)
+            {
+                repaged = $" {principal}'s Persona pages are now: {PersonaPages.Names(pages)}.";
+                continue;
+            }
             var n = await Db.ExecuteAsync(@"
 IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Role = @role)
     INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (@principal, @type, @role, @note, @by);",
                 new { principal, type, role = r, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by = Viewer.Upn ?? Viewer.WindowsName });
+            if (n > 0 && r == Roles.Persona)
+                await Db.ExecuteAsync("UPDATE dash.RoleGrant SET Pages = @pages WHERE Principal = @principal AND Role = 'Persona';", new { principal, pages });
             if (n > 0) added.Add(r);
         }
-        var had = roles.Except(added).ToList();
-        return (added.Count > 0 ? $"Granted {string.Join(", ", added)} to {type.ToLowerInvariant()} {principal}." : "")
-             + (had.Count > 0 ? $"{(added.Count > 0 ? " " : "")}{principal} already had {string.Join(", ", had)}." : "");
+        var had = roles.Except(added).Where(r => r != Roles.Persona || repaged == "").ToList();
+        return ((added.Count > 0 ? $"Granted {string.Join(", ", added)} to {type.ToLowerInvariant()} {principal}" +
+                    (added.Contains(Roles.Persona) ? $", with the Admin pages {PersonaPages.Names(pages)}." : ".") : "")
+             + (had.Count > 0 ? $" {principal} already had {string.Join(", ", had)}." : "") + repaged).Trim();
     });
 
     public Task<IActionResult> OnPostRevokeAsync(int id) => AdminChangeAsync(async () =>
     {
+        /* 2.6.4: Admin and Persona are removed by an administrator only. */
+        if (!Viewer.IsAdmin && await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.RoleGrant WHERE GrantId = @id AND Role IN ('Admin', 'Persona');", new { id }) > 0)
+            throw new ArgumentException("only an administrator can remove Admin or Persona.");
         var g = (await Db.QueryAsync<(string Principal, string Role)>("DELETE FROM dash.RoleGrant OUTPUT deleted.Principal, deleted.Role WHERE GrantId = @id;", new { id })).FirstOrDefault();
         return g.Principal is null ? "That grant was already gone." : $"Removed {g.Role} from {g.Principal}.";
     });
@@ -594,6 +631,8 @@ IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Rol
         var list = RoleGrants.Clean(asked);
         if (list.Count == 0) throw new ArgumentException("tick at least one person or group.");
         if (list.Count > RoleGrants.MaxAtOnce) throw new ArgumentException($"at most {RoleGrants.MaxAtOnce} at once.");
+        if (!Viewer.IsAdmin && await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.RoleGrant WHERE Principal IN @list AND Role IN ('Admin', 'Persona');", new { list }) > 0)
+            throw new ArgumentException("only an administrator can remove Admin or Persona, and someone selected holds one.");
         var gone = await Db.QueryAsync<(string Principal, string Role)>(
             "DELETE FROM dash.RoleGrant OUTPUT deleted.Principal, deleted.Role WHERE Principal IN @list;", new { list });
         return RoleGrants.Removed(gone, list, Viewer.Upn);

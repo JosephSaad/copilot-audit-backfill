@@ -132,7 +132,7 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
         var viewer = new Viewer
         {
             WindowsName = "(warm-up)", Upn = null, DisplayName = "Warm-up", Level = 1, InDirectory = true, PeopleBelow = 0,
-            Roles = new HashSet<string>(Roles.All.Where(r => r != Roles.Admin), StringComparer.OrdinalIgnoreCase),
+            Roles = new HashSet<string>(Roles.All.Where(r => !Roles.AdminOnly(r)), StringComparer.OrdinalIgnoreCase),
         };
         List<(CompiledPageActionDescriptor Page, string Path)> pages;
         using (var s0 = scopes.CreateScope()) pages = await PagesAsync(s0.ServiceProvider);
