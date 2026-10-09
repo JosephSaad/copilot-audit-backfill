@@ -302,6 +302,8 @@ h1 button.infob { width: 18px; height: 18px; font-size: 12px; vertical-align: 5p
 form.admin { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 8px 0; }
 form.admin label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 2px; }
 form.admin label { max-width: 100%; min-width: 0; }
+form.admin label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); padding-bottom: 5px; }   /* 2.6.3: a tick box with its words beside it */
+td .grant.all { margin-right: 0; }
 form.admin select { max-width: 100%; min-width: 0; }
 form.admin input, form.admin select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px; }
 /* A heading or a paragraph inside a form takes a line to itself, above the fields it is about (2.4.10: it sat beside them). */

@@ -420,24 +420,36 @@ FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
 WHERE g.Principal IN @list;", new { list });
         var t = new Table
         {
-            Zone = Zone, Headers = ["Principal", "Name", "Type", "Roles", "Why", "Granted by", "Last granted (UTC)"], EmptyText = "No grants yet.",
-            Server = new(pg, Request, ["principal", "name", "type", null, null, "by", "new"], new HashSet<int> { 6 }),
+            Zone = Zone, Headers = ["Select", "Principal", "Name", "Type", "Roles", "Why", "Granted by", "Last granted (UTC)"], EmptyText = "No grants yet.",
+            Server = new(pg, Request, [null, "principal", "name", "type", null, null, "by", "new"], new HashSet<int> { 7 }),
         };
+        /* 2.6.3: every role of one person or group at once (Remove all, on their row), and of everyone ticked (below
+           the table). The tick boxes belong to that one form by its id: a row's own forms cannot hold them. */
+        const string many = "revoke-many";
         foreach (var principal in list)
         {
             var mine = grants.Where(g => g.Principal == principal).OrderBy(g => Array.IndexOf(Roles.All, g.Role)).ToList();
             if (mine.Count == 0) continue;
             var roleCell = string.Concat(mine.Select(g =>
                 $"<span class=\"grant\">{E(g.Role)}" +
-                Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}")) + "</span>"));
-            t.Rows.Add([principal, mine[0].DisplayName, mine[0].PrincipalType, new HtmlString(roleCell),
+                Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}")) + "</span>")) +
+                "<span class=\"grant all\">" + Form("revokeall", Hidden("principal", principal) +
+                    $"<button class=\"btn quiet\" type=\"submit\" title=\"{E($"Remove every role from {principal}")}\" data-confirm=\"{E($"Remove every role from {principal}? They keep only what their level and their groups give them.")}\">Remove all</button>") + "</span>";
+            var tick = $"<input type=\"checkbox\" name=\"principal\" value=\"{E(principal)}\" form=\"{many}\" aria-label=\"{E($"Select {principal}")}\" title=\"{E($"Select {principal}, to remove every role from several at once")}\"/>";
+            t.Rows.Add([new HtmlString(tick), principal, mine[0].DisplayName, mine[0].PrincipalType, new HtmlString(roleCell),
                         string.Join("; ", mine.Select(g => g.Note).Where(n => !string.IsNullOrWhiteSpace(n)).Distinct()),
                         string.Join(", ", mine.Select(g => g.GrantedBy).Distinct()), mine.Max(g => g.GrantedUtc)]);
         }
         var tabs = "<a href=\"" + E(Request.Path) + "\"" + (roleFilter is null ? " class=\"on\"" : "") + ">All roles</a>" +
             string.Concat(Roles.All.Select(r => $" · <a href=\"{E(Request.Path + "?role=" + r)}\"{(r == roleFilter ? " class=\"on\"" : "")}>{r}</a>"));
         Panels.Add(new("Grants", new HtmlString($"<p class=\"sub\">Role: {tabs}</p>" +
-            pg.Controls(Request, new Dictionary<string, string> { ["principal"] = "Principal", ["new"] = "Newest" }).Value + t.Render().Value),
+            pg.Controls(Request, new Dictionary<string, string> { ["principal"] = "Principal", ["new"] = "Newest" }).Value + t.Render().Value +
+            (list.Count == 0 ? "" :
+                $"<form id=\"{many}\" class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=revokemany" + TenantQuery)}\">{Token()}" +
+                $"<label class=\"check\" title=\"Tick or clear every person and group on this page\"><input type=\"checkbox\" data-check-all=\"{many}\"/> Select all on this page</label>" +
+                Button("Remove every role from the selected", "Remove every role from each person and group ticked? They keep only what their level and their groups give them.") + "</form>")),
+            "The x beside a role removes that role. Remove all removes every role the person or group holds. To clear several at once, tick them and use the button under the table. " +
+            "Each removal is recorded in the audit log and takes effect from the person's next page. " +
             "Administrators named in the site's configuration (Insights:BootstrapAdmins) are not listed here and cannot be removed from this page."));
 
         /* Effective access for one person. */
@@ -570,6 +582,22 @@ IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Rol
         var g = (await Db.QueryAsync<(string Principal, string Role)>("DELETE FROM dash.RoleGrant OUTPUT deleted.Principal, deleted.Role WHERE GrantId = @id;", new { id })).FirstOrDefault();
         return g.Principal is null ? "That grant was already gone." : $"Removed {g.Role} from {g.Principal}.";
     });
+
+    /// <summary>Every role of one person or group (2.6.3).</summary>
+    public Task<IActionResult> OnPostRevokeAllAsync(string? principal) => AdminChangeAsync(() => RemoveEveryRoleAsync([principal]));
+
+    /// <summary>Every role of each person and group ticked (2.6.3).</summary>
+    public Task<IActionResult> OnPostRevokeManyAsync(string[]? principal) => AdminChangeAsync(() => RemoveEveryRoleAsync(principal));
+
+    async Task<string> RemoveEveryRoleAsync(IEnumerable<string?>? asked)
+    {
+        var list = RoleGrants.Clean(asked);
+        if (list.Count == 0) throw new ArgumentException("tick at least one person or group.");
+        if (list.Count > RoleGrants.MaxAtOnce) throw new ArgumentException($"at most {RoleGrants.MaxAtOnce} at once.");
+        var gone = await Db.QueryAsync<(string Principal, string Role)>(
+            "DELETE FROM dash.RoleGrant OUTPUT deleted.Principal, deleted.Role WHERE Principal IN @list;", new { list });
+        return RoleGrants.Removed(gone, list, Viewer.Upn);
+    }
 }
 
 /* ---- Reference data ---------------------------------------------------------------------- */

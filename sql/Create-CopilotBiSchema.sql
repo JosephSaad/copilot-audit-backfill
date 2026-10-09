@@ -201,6 +201,21 @@ IF COL_LENGTH(N'bi.DimAgent', N'NamedInAudit') IS NULL
     ALTER TABLE bi.DimAgent ADD NamedInAudit BIT NOT NULL CONSTRAINT DF_DimAgent_NamedInAudit DEFAULT (0);
 
 /*
+    2.6.3: one agent, two identities. The audit log names some agents two ways: a Copilot Studio agent made in
+    Microsoft 365 Copilot is Copilot.Studio.Default-<tenant>-<its id> on some records and
+    Copilot.Studio.Declarative.T_<its title id> on others, and nothing in a record says they are one agent. The agent
+    workbook does: one row holds both ids. tools/Import-AgentWorkbook.ps1 sets MergedIntoKey on the row of the second
+    identity, to the key of the agent it is another name for, and bi.usp_MergeAgents moves its interactions there.
+    bi.usp_MergeAgents sets it itself for an id written with and without its prefix (a SharePoint agent) and for the
+    variants of one of Microsoft's own agents, which need no workbook.
+    From then on the agent is the one row with no MergedIntoKey: the refresh writes an interaction that arrives under
+    either identity with that key, and bi.Agents and dash.Agent list it once. The row of the second identity stays,
+    as the record of the name. NULL everywhere without a workbook.
+*/
+IF COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL
+    ALTER TABLE bi.DimAgent ADD MergedIntoKey INT NULL;
+
+/*
     bi.fnAgentIdentity: who the agent of a record is, from its AppIdentity and
     AgentId. One row: the id bi.DimAgent keys on, where it came from, and the
     name to show when the audit log gives none.
@@ -671,8 +686,9 @@ CROSS JOIN (SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WH
 EXEC (N'CREATE OR ALTER VIEW bi.Apps AS
 SELECT AppKey, App, AppCategory FROM bi.DimApp;');
 
+/* 2.6.3: an agent the audit log names two ways is listed once, under the identity its interactions are kept with. */
 EXEC (N'CREATE OR ALTER VIEW bi.Agents AS
-SELECT AgentKey, AgentId, AgentName, AgentSource, NamedInAudit FROM bi.DimAgent;');
+SELECT AgentKey, AgentId, AgentName, AgentSource, NamedInAudit FROM bi.DimAgent WHERE MergedIntoKey IS NULL;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Models AS
 SELECT ModelKey, ModelProvider, ModelName FROM bi.DimModel;');

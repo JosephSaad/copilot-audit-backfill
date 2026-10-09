@@ -405,6 +405,12 @@
   })();
 
   // The admin forms put the question on the button.
+  /* 2.6.3: a box that ticks or clears every box of one form (Admin > Access: the people and groups on the page). */
+  document.querySelectorAll('input[data-check-all]').forEach(function (all) {
+    all.addEventListener('change', function () {
+      document.querySelectorAll('input[type="checkbox"][form="' + all.getAttribute('data-check-all') + '"]').forEach(function (b) { b.checked = all.checked; });
+    });
+  });
   document.querySelectorAll('button[data-confirm]').forEach(function (b) {
     b.addEventListener('click', function (e) { if (!window.confirm(b.getAttribute('data-confirm'))) e.preventDefault(); });
   });

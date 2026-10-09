@@ -356,4 +356,6 @@ LEFT JOIN dash.AgentUse AS u ON u.AgentKey = a.AgentKey
 LEFT JOIN bi.DimDate AS fd ON fd.DateKey = u.FirstDateKey
 OUTER APPLY (SELECT TOP (1) i.InventoryAgentId, i.AgentName, i.OwnerUpn, i.IsShared, i.InProduction
              FROM dash.AgentInventory AS i WHERE i.AgentKey = a.AgentKey
-             ORDER BY i.InProduction DESC, i.LastPublishedAt DESC, i.InventoryAgentId) AS inv;');
+             ORDER BY i.InProduction DESC, i.LastPublishedAt DESC, i.InventoryAgentId) AS inv
+/* 2.6.3: an agent the audit log names two ways is one agent here, under the identity its interactions are kept with. */
+WHERE a.MergedIntoKey IS NULL;');

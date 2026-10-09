@@ -463,6 +463,19 @@ if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp
     }
 }
 
+# 2.6.3: an agent the audit log names two ways is one agent (an id written with and without its prefix, the variants of
+# one of Microsoft's own, the two ids the agent workbook holds for one agent). The nightly refresh keeps it so; this
+# does it at the upgrade, so the reports do not wait a night. A moment once done: it then finds nothing to move.
+if (-not $fullBuild -and (Test-Object $Database 'bi.usp_MergeAgents' 'P') -and (Test-Object $Database 'bi.FactInteraction')) {
+    $secondBefore = [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT COUNT(*) FROM bi.DimAgent WHERE MergedIntoKey IS NOT NULL;')
+    Invoke-Sql -Catalog $Database -Sql 'EXEC bi.usp_MergeAgents; EXEC bi.usp_NameAgents;'
+    $secondNow = [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT COUNT(*) FROM bi.DimAgent WHERE MergedIntoKey IS NOT NULL;')
+    if ($secondNow -gt $secondBefore) {
+        Write-Done "agents: $($secondNow - $secondBefore) second identit$(if ($secondNow - $secondBefore -eq 1) { 'y' } else { 'ies' }) of an agent the audit log names two ways now counted with the agent (2.6.3)."
+        $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): interactions kept under the second identity of an agent moved to the agent.'
+    }
+}
+
 # 2.4.6: each resource Copilot read carries its file type. Resources loaded before have none, so bi is refreshed in full
 # once - decided from the data, not from this run, so an install stopped part way finishes it the next time.
 # 2.4.8: each interaction carries what its record says about licensed use (UseKind), which Premium use is now decided
