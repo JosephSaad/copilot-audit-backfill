@@ -209,10 +209,6 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// <summary>A page that shows no usage data and that an administrator outside the dashboard's levels may still open (the start page).</summary>
     public virtual bool OpenToAdmins => false;
     public virtual bool UsesFilters => true;
-    /// <summary>Which of the Agents filters the page offers (2.6.4): the environment's type, the kind of agent, or both.</summary>
-    public virtual AgentFilters AgentFilter => AgentFilters.None;
-    /// <summary>The Agents filters' choices on this page, or null when it offers none (or the database predates them).</summary>
-    public AgentFilterBar? AgentBar { get; private set; }
     /// <summary>
     /// A page whose figures do not follow the period filter says what window they use instead,
     /// shown in the filter bar where the period's dates usually are.
@@ -334,7 +330,6 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     {
         Viewer = await S.Viewers.GetAsync();
         Ctx = await S.Contexts.CreateAsync(Viewer, Request, forPage: true);
-        await LoadAgentBarAsync();
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
         DataZone = CopilotInsights.Data.Zones.Label(CopilotInsights.Data.Zones.Resolve(null, await S.Settings.ReportingTimeZoneAsync()));
@@ -343,9 +338,8 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */
         var turnedOff = !AdminOnly && Pages.HiddenReports.Is(HiddenReports, Request.Path);
         if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin > Reports shown.";
-        else if (!Viewer.Admitted && !(AdminOnly ? Viewer.CanAdmin(Request.Path) : OpenToAdmins && Viewer.AnyAdmin)) Denied = LimitRefusal(Viewer);
-        else if (AdminOnly && !Viewer.CanAdmin(Request.Path))
-            Denied = Viewer.AnyAdmin ? "This Admin page is not one granted to you. An administrator can add it to your Persona role in Admin > Access." : "This page is for dashboard administrators.";
+        else if (!Viewer.Admitted && !(Viewer.IsAdmin && (AdminOnly || OpenToAdmins))) Denied = LimitRefusal(Viewer);
+        else if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
         else if (Nav.SectionOf(Request.Path) is { Role: { } section } g && !Viewer.Has(section))
             Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin > Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
@@ -368,7 +362,7 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     public static string LimitRefusal(Viewer viewer) =>
         $"This dashboard is for leaders at levels 1 to {viewer.MaxLevel} of the organization" +
         (viewer.Level is { } l ? $"; you are at level {l}." : ", and your account is not placed in the org chart.") +
-        (viewer.IsAdmin ? " As an administrator, you can open the Admin pages." : viewer.AnyAdmin ? " You can open the Admin pages granted to you." : " An administrator can grant access in Admin > Access.");
+        (viewer.IsAdmin ? " As an administrator, you can open the Admin pages." : " An administrator can grant access in Admin > Access.");
 
     public virtual async Task<IActionResult> OnGetAsync()
     {
@@ -432,7 +426,7 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     protected async Task<IActionResult> AdminChangeAsync(Func<Task<string>> change)
     {
         if (!await PrepareAsync()) return Page();
-        if (!Viewer.CanAdmin(Request.Path))
+        if (!Viewer.IsAdmin)
         {
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, "admin change refused");
             return StatusCode(403);
@@ -620,53 +614,6 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
             $"<p class=\"sub\"><label>Department <select class=\"pick\" aria-label=\"Department\" data-navigate>" +
             $"<option value=\"{E(Ctx.Url(Request.Path))}\"{(chosen is null ? " selected" : "")}>All departments</option>{options}</select></label></p>"));
     }
-
-    /// <summary>
-    /// The Agents filters' choices (2.6.4): every environment type the agents and the workbook have, and the kinds of agent.
-    /// A value asked for that is not among them is dropped, so the page shows everything rather than nothing.
-    /// </summary>
-    async Task LoadAgentBarAsync()
-    {
-        if (AgentFilter == AgentFilters.None) return;   // kept for the next Agents page, not used here
-        if (await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'CopilotType') IS NULL THEN 0 ELSE 1 END;") != 1) return;
-        var envs = (await Db.QueryAsync<string>($@"
-SELECT EnvironmentType FROM dash.Agent WHERE AgentSource <> N'(no agent)'
-UNION SELECT {InventoryEnvSql("i")} FROM dash.AgentInventory AS i;")).Where(e => !string.IsNullOrWhiteSpace(e))
-            .OrderBy(e => e.StartsWith('(') ? 1 : 0).ThenBy(e => e, StringComparer.OrdinalIgnoreCase).ToList();
-        var showType = AgentFilter == AgentFilters.Both;
-        Ctx.AgentEnv = envs.FirstOrDefault(e => string.Equals(e, Ctx.AgentEnv, StringComparison.OrdinalIgnoreCase));
-        /* A kind of agent asked for on a page without the filter is kept for the next Agents page, but not used here. */
-        var type = ReportContext.AgentTypes.Select(t => t.Value).FirstOrDefault(t => string.Equals(t, Ctx.AgentType, StringComparison.OrdinalIgnoreCase));
-        if (showType || type is null) Ctx.AgentType = type;
-        AgentBar = new(envs, showType);
-    }
-
-    /// <summary>The environment type filtered on (2.6.4), or null for all.</summary>
-    protected string? AgentEnv => AgentBar is null ? null : Ctx.AgentEnv;
-    /// <summary>The kind of agent filtered on (2.6.4), or null for all (always, on a page without that filter).</summary>
-    protected string? AgentType => AgentBar is { ShowType: true } ? Ctx.AgentType : null;
-    /// <summary>Whether either Agents filter is narrowing the page.</summary>
-    protected bool AgentFiltered => AgentEnv is not null || AgentType is not null;
-
-    /// <summary>A workbook row's environment type, as the filter offers it (2.6.4).</summary>
-    public static string InventoryEnvSql(string alias) => $"COALESCE(NULLIF(LTRIM(RTRIM({alias}.EnvironmentSku)), N''), N'(not given)')";
-
-    /// <summary>
-    /// SQL (2.6.4) that keeps an agent key column to the agents the filters leave, through dash.Agent: " AND col IN (...)",
-    /// or nothing. Its parameters, @aenv and @atype, are in Ctx.Args.
-    /// </summary>
-    protected string AgentKeyFilter(string column) => !AgentFiltered ? "" :
-        $" AND {column} IN (SELECT fa.AgentKey FROM dash.Agent AS fa WHERE 1 = 1" +
-        (AgentEnv is null ? "" : " AND fa.EnvironmentType = @aenv") + (AgentType is null ? "" : " AND fa.CopilotType = @atype") + ")";
-
-    /// <summary>The same for rows of dash.AgentInventory (2.6.4), by the workbook's own environment type and kind of agent.</summary>
-    protected string InventoryFilter(string alias) =>
-        (AgentEnv is null ? "" : $" AND {InventoryEnvSql(alias)} = @aenv") + (AgentType is null ? "" : $" AND ISNULL({alias}.CopilotType, N'Other') = @atype");
-
-    /// <summary>What the filters leave, for a panel's note: "" when they leave everything.</summary>
-    protected string AgentFilterNote() => !AgentFiltered ? "" :
-        " Filtered to " + string.Join(" and ", new[] { AgentType is null ? null : $"{ReportContext.AgentTypes.First(t => t.Value == AgentType).Label} agents",
-                                                      AgentEnv is null ? null : $"the environment type {AgentEnv}" }.Where(x => x is not null)) + ".";
 
     /// <summary>
     /// People's display names for their sign-ins (2.5.8): every Owner column shows a name. From the directory loaded from

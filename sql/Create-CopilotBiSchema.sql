@@ -216,30 +216,6 @@ IF COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL
     ALTER TABLE bi.DimAgent ADD MergedIntoKey INT NULL;
 
 /*
-    2.6.4: what kind of agent it is, and the type of environment it lives in, for the Agents pages' filters and the
-    report's slicers. bi.usp_NameAgents sets both at the end of every refresh and every workbook load.
-      CopilotType      Copilot Studio | Agent Builder | Microsoft | Other | (no agent): the agent workbook's CreatedIn
-                       where it lists the agent, else read from the identity (Copilot.Studio.Declarative.* is an agent
-                       made with Agent Builder, Copilot Studio lite; any other Copilot.Studio.* one made in Copilot
-                       Studio; MicrosoftAgent.* one of Microsoft's own).
-      EnvironmentType  the workbook's EnvironmentSku (Production, Sandbox, Developer, Default, ...), or
-                       (not in the workbook) for an agent it does not list.
-*/
-IF COL_LENGTH(N'bi.DimAgent', N'CopilotType') IS NULL
-BEGIN
-    ALTER TABLE bi.DimAgent ADD CopilotType NVARCHAR(40) NULL;
-    EXEC (N'UPDATE bi.DimAgent SET CopilotType = CASE WHEN AgentId = N''(none)'' THEN N''(no agent)''
-                                                      WHEN AgentId LIKE N''Copilot.Studio.Declarative.%'' THEN N''Agent Builder''
-                                                      WHEN AgentId LIKE N''Copilot.Studio.%'' THEN N''Copilot Studio''
-                                                      WHEN AgentId LIKE N''MicrosoftAgent.%'' THEN N''Microsoft'' ELSE N''Other'' END;');
-END;
-IF COL_LENGTH(N'bi.DimAgent', N'EnvironmentType') IS NULL
-BEGIN
-    ALTER TABLE bi.DimAgent ADD EnvironmentType NVARCHAR(100) NULL;
-    EXEC (N'UPDATE bi.DimAgent SET EnvironmentType = CASE WHEN AgentId = N''(none)'' THEN N''(no agent)'' ELSE N''(not in the workbook)'' END;');
-END;
-
-/*
     bi.fnAgentIdentity: who the agent of a record is, from its AppIdentity and
     AgentId. One row: the id bi.DimAgent keys on, where it came from, and the
     name to show when the audit log gives none.
@@ -712,7 +688,7 @@ SELECT AppKey, App, AppCategory FROM bi.DimApp;');
 
 /* 2.6.3: an agent the audit log names two ways is listed once, under the identity its interactions are kept with. */
 EXEC (N'CREATE OR ALTER VIEW bi.Agents AS
-SELECT AgentKey, AgentId, AgentName, AgentSource, NamedInAudit, CopilotType, EnvironmentType FROM bi.DimAgent WHERE MergedIntoKey IS NULL;');
+SELECT AgentKey, AgentId, AgentName, AgentSource, NamedInAudit FROM bi.DimAgent WHERE MergedIntoKey IS NULL;');
 
 EXEC (N'CREATE OR ALTER VIEW bi.Models AS
 SELECT ModelKey, ModelProvider, ModelName FROM bi.DimModel;');

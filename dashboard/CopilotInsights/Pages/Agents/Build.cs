@@ -14,7 +14,6 @@ public sealed class BuildModel(PageServices s) : InsightsPage(s)
     public override string Title => "Build and publish";
     public override string Persona => "Agents";
     public override string Intro => "Copilot Studio agents created, published, shared, changed and deleted, from Copilot Studio's own audit records: each agent's lifecycle, and how much building goes on. The makers' names need the Agents role.";
-    public override AgentFilters AgentFilter => AgentFilters.Environment;
 
     sealed class Life
     {
@@ -41,19 +40,13 @@ public sealed class BuildModel(PageServices s) : InsightsPage(s)
         var named = Viewer.Has(Roles.Agents) && !PrivacyMode;
         /* Makers in scope: a manager sees the building their own people do; whole-organization viewers see all of it. */
         var scope = Ctx.Root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = e.ActorKey";
-        /* 2.6.4: an event's environment type: its agent's row in the workbook (by bot id), else the agent's by its schema name. */
-        var env = AgentEnv is null ? "" : $@" AND COALESCE(
-    (SELECT TOP (1) {InventoryEnvSql("wi")} FROM dash.AgentInventory AS wi WHERE wi.InventoryAgentId = e.BotId),
-    (SELECT TOP (1) fa.EnvironmentType FROM dash.Agent AS fa WHERE fa.AgentSource = N'Copilot Studio' AND e.BotSchemaName IS NOT NULL
-        AND RIGHT(fa.AgentId, LEN(e.BotSchemaName) + 1) = N'-' + e.BotSchemaName ORDER BY CASE WHEN fa.InventoryAgentId IS NULL THEN 1 ELSE 0 END),
-    N'(not in the workbook)') = @aenv";
         var byAction = await Db.QueryAsync<(DateTime Bucket, string Action, int N)>($@"
 SELECT {Ctx.BucketSql("d")}, e.Action, COUNT(*)
 FROM bi.FactAgentEvent AS e {scope} JOIN bi.DimDate AS d ON d.DateKey = e.DateKey
-WHERE e.DateKey BETWEEN @k0 AND @k1{env}
+WHERE e.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
         int Count(string a) => byAction.Where(x => x.Action == a).Sum(x => x.N);
-        var makers = await Db.ScalarAsync<int>($@"SELECT COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1{env};", Ctx.Args());
+        var makers = await Db.ScalarAsync<int>($@"SELECT COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1;", Ctx.Args());
         Kpis.Add(new("Agents created", Num(Count("Created"))));
         Kpis.Add(new("Times published", Num(Count("Published"))));
         Kpis.Add(new("Times shared", Num(Count("Shared"))));
@@ -66,7 +59,7 @@ GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
             TrendNote + " Component: topics, skills and other parts added, changed or removed."));
 
         var life = await Db.QueryAsync<Life>($@"
-WITH e AS (SELECT e.* FROM bi.FactAgentEvent AS e {scope} WHERE e.BotSchemaName IS NOT NULL{env})
+WITH e AS (SELECT e.* FROM bi.FactAgentEvent AS e {scope} WHERE e.BotSchemaName IS NOT NULL)
 SELECT e.BotSchemaName,
        MIN(CASE WHEN e.Action = 'Created' THEN e.EventUtc END) AS Created,
        MIN(CASE WHEN e.Action = 'Published' THEN e.EventUtc END) AS FirstPublished,
@@ -107,6 +100,6 @@ ORDER BY MAX(e.EventUtc) DESC;", Ctx.Args());
         CsvTable = t;
         Panels.Add(new("Every agent's lifecycle", t.Render(),
             $"{neverPublished} created and never published. All time, not only the period. Name agents and give them owners in Admin > Reference data." +
-            (named ? "" : " The makers' names are shown to the Agents role.") + AgentFilterNote(), "full", CsvUrl()));
+            (named ? "" : " The makers' names are shown to the Agents role."), "full", CsvUrl()));
     }
 }

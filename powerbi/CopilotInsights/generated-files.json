@@ -17,7 +17,7 @@
     "CopilotInsights.SemanticModel/definition/roles/Organization.tmdl": "d56e84b8bb22d94a8b96595f4052c7775850cf17bf1a2d759b768df013f53495",
     "CopilotInsights.SemanticModel/definition/tables/AccessedResources.tmdl": "a7f4983f7d7ce52e1670a47e740a6626084c8a2594d8ebe00f40176cb4a4708c",
     "CopilotInsights.SemanticModel/definition/tables/AgentEvents.tmdl": "36af6220828b4fc75ec5d260751434736b4406c197fa44405ef93d3207523eaa",
-    "CopilotInsights.SemanticModel/definition/tables/Agents.tmdl": "5124192434569c60463a0739161b00f5de3ac1a95578585c68a29d63f8317603",
+    "CopilotInsights.SemanticModel/definition/tables/Agents.tmdl": "7919bd3a06e863255c16a5a4a8fb63c4ee454b50bf0866916afd6009edd08f2b",
     "CopilotInsights.SemanticModel/definition/tables/Apps.tmdl": "a8a9f88fae7ea4b45e76e0011d67211758d878d59e75a74fd20c4ef45cb9b9b2",
     "CopilotInsights.SemanticModel/definition/tables/Calendar.tmdl": "4acc3f92451f1a6a88e6dc9016d34929b2fc5ef3372806c93c3118f4c8b00bbd",
     "CopilotInsights.SemanticModel/definition/tables/DepartmentWeek.tmdl": "c25f479dd4156aecab445727c31c3d2a1cdf2be9c8904db92301eaffcb3acf13",

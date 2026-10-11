@@ -150,8 +150,8 @@ try {
         if ($pcCols -and -not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentChildLink', N'ChildKey') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
             throw 'dash.AgentChildLink predates 2.5.7: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
         }
-        if (-not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'CopilotType') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
-            throw 'dash.AgentInventory predates 2.6.4: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
+        if (-not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
+            throw 'dash.AgentInventory predates 2.5.8: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
         }
         # 2.6.3: second identities are folded into their agent where bi.DimAgent can say so (a database upgraded to 2.6.3).
         $canMerge = [bool] (Sql "SELECT CASE WHEN COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL THEN 0 ELSE 1 END" $null -Scalar)
@@ -166,7 +166,7 @@ SELECT CAST(LEFT($(T 'AgentId'), 100) AS NVARCHAR(100)) AS Id, $(T 'AgentName') 
        $(N 'ViewerGroups') AS ViewerGroups, $(N 'EditorUsers') AS EditorUsers, $(N 'EditorGroups') AS EditorGroups,
        $(T 'TitleId') AS TitleId, $(T 'EntraAgentId') AS EntraAgentId, $(T 'EnvironmentId') AS EnvironmentId,
        $(T 'EnvironmentSku') AS EnvironmentSku, $(T 'Authentication') AS Authentication, $(B 'IsQuarantined') AS IsQuarantined,
-       $(B 'IsWebSearchEnabled') AS IsWebSearchEnabled, $(T 'CreatedIn') AS CreatedIn,
+       $(B 'IsWebSearchEnabled') AS IsWebSearchEnabled,
        CASE WHEN COALESCE($(T 'Triggers'), $(T 'Flows')) IS NOT NULL AND COALESCE($(T 'Triggers'), $(T 'Flows')) NOT IN (N'0', N'[]', N'None') THEN 1 ELSE 0 END AS IsAutonomous
 INTO #w FROM $inv AS w;
 DELETE FROM #w WHERE Id IS NULL;
@@ -240,21 +240,10 @@ $markMerged
 DELETE FROM dash.AgentInventory;
 INSERT INTO dash.AgentInventory (InventoryAgentId, AgentKey, AgentName, OwnerUpn, Environment, SchemaName, CreatedAt, LastPublishedAt,
                                  Channels, ViewerUsers, ViewerGroups, EditorUsers, EditorGroups, InProduction,
-                                 EnvironmentSku, Authentication, IsQuarantined, IsWebSearchEnabled, IsAutonomous, CopilotType)
+                                 EnvironmentSku, Authentication, IsQuarantined, IsWebSearchEnabled, IsAutonomous)
 SELECT x.Id, m.AgentKey, LEFT(x.AgentName, 400), LEFT(x.OwnerUpn, 256), LEFT(x.Environment, 400), LEFT(x.SchemaName, 400), x.CreatedAt,
        x.LastPublishedAt, LEFT(x.Channels, 400), x.ViewerUsers, x.ViewerGroups, x.EditorUsers, x.EditorGroups, $inProd,
-       LEFT(x.EnvironmentSku, 100), LEFT(x.Authentication, 200), x.IsQuarantined, x.IsWebSearchEnabled, x.IsAutonomous,
-       /* 2.6.4: the kind of agent, for the Agents pages' filter. The workbook's CreatedIn says it. Without it, an agent
-          the audit log knows by an Agent Builder identity (Copilot.Studio.Declarative.*, matched exactly) was made with
-          Agent Builder, as is one with a title id and no schema name; the rest were made in Copilot Studio. */
-       CASE WHEN x.CreatedIn LIKE N'%lite%' OR x.CreatedIn LIKE N'%Agent Builder%' OR x.CreatedIn LIKE N'%Microsoft 365%' OR x.CreatedIn LIKE N'%M365%'
-                 THEN N'Agent Builder'
-            WHEN x.CreatedIn LIKE N'%Studio%' THEN N'Copilot Studio'
-            WHEN x.CreatedIn IS NOT NULL THEN N'Other'
-            WHEN x.TitleId IS NOT NULL AND x.SchemaName IS NULL THEN N'Agent Builder'
-            WHEN EXISTS (SELECT 1 FROM #cx AS c JOIN #d AS dd ON dd.OwnKey = c.OwnKey
-                         WHERE c.Id = x.Id AND c.Rnk <= 3 AND dd.AgentId LIKE N'Copilot.Studio.Declarative.%') THEN N'Agent Builder'
-            ELSE N'Copilot Studio' END
+       LEFT(x.EnvironmentSku, 100), LEFT(x.Authentication, 200), x.IsQuarantined, x.IsWebSearchEnabled, x.IsAutonomous
 FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY Id ORDER BY LastPublishedAt DESC) AS rn FROM #w) AS x
 LEFT JOIN #m AS m ON m.Id = x.Id
 WHERE x.rn = 1;
