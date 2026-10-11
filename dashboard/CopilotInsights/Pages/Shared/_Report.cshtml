@@ -66,7 +66,7 @@
     var showPeriodBox = Model.UsesPeriod && Model.OwnWindow is null;
     var showWindow = Model.OwnWindow is not null || Model.UsesPeriod;
 }
-@if (Model.UsesFilters && (showPeriodBox || showWindow || Model.UsesTeam || Model.AgentBar is not null))
+@if (Model.UsesFilters && (showPeriodBox || showWindow || Model.UsesTeam))
 {
     <form class="filters" method="get" action="@path">
         @* A page with a window of its own (today's licenses, the last 30 days whatever the period) has no period to choose
@@ -86,37 +86,11 @@
         {
             <input type="hidden" name="d" value="@c.Days" />
         }
-        @* The Agents filters (2.6.4): the environment's type and the kind of agent, All by default. *@
-        @if (Model.AgentBar is { } ab)
-        {
-            <label>Environment
-                <select name="env" data-autosubmit>
-                    <option value="" selected="@(c.AgentEnv is null)">All</option>
-                    @foreach (var e in ab.Environments)
-                    {
-                        <option value="@e" selected="@(e == c.AgentEnv)">@e</option>
-                    }
-                </select>
-            </label>
-            @if (ab.ShowType)
-            {
-                <label>Copilot type
-                    <select name="ctype" data-autosubmit>
-                        <option value="" selected="@(c.AgentType is null)">All</option>
-                        @foreach (var t in ReportContext.AgentTypes)
-                        {
-                            <option value="@t.Value" selected="@(t.Value == c.AgentType)">@t.Label</option>
-                        }
-                    </select>
-                </label>
-            }
-        }
         @if (c.Root is not null && (c.Root != c.Viewer.Upn || c.Viewer.OrgWide))
         {
             <input type="hidden" name="org" value="@c.Root" />
         }
-        @foreach (var k in Context.Request.Query.Keys.Where(k => k is not ("d" or "org" or "handler" or "p")
-                                                                && !(Model.AgentBar is not null && k == "env") && !(Model.AgentBar is { ShowType: true } && k == "ctype")))
+        @foreach (var k in Context.Request.Query.Keys.Where(k => k is not ("d" or "org" or "handler" or "p")))
         {
             <input type="hidden" name="@k" value="@Context.Request.Query[k]" />
         }

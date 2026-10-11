@@ -67,21 +67,12 @@ IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
         Principal     NVARCHAR(256)   NOT NULL,   -- a UPN, or DOMAIN\Group
         PrincipalType VARCHAR(8)      NOT NULL CONSTRAINT CK_DashRoleGrant_Type CHECK (PrincipalType IN ('User', 'Group')),
         Role          VARCHAR(32)     NOT NULL CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
-                          ('Admin', 'Persona', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')),
+                          ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')),
         Note          NVARCHAR(400)   NULL,
         GrantedBy     NVARCHAR(256)   NOT NULL,
         GrantedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashRoleGrant_Granted DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT UQ_DashRoleGrant UNIQUE (Principal, Role)
     );
-
-/* 2.6.4: Persona, a role for some of the Admin pages: which ones, as their paths, comma-separated (/admin/health,/admin/audit). */
-IF COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL ALTER TABLE dash.RoleGrant ADD Pages NVARCHAR(1000) NULL;
-IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND definition LIKE N'%Persona%')
-BEGIN
-    IF OBJECT_ID(N'dash.CK_DashRoleGrant_Role', N'C') IS NOT NULL ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
-    ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
-        ('Admin', 'Persona', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement'));
-END;
 
 /* Friendly names and owners for agents, set by an administrator: they come before the name the audit log gives. */
 IF OBJECT_ID(N'dash.AgentAlias', N'U') IS NULL
@@ -332,10 +323,6 @@ IF COL_LENGTH(N'dash.AgentInventory', N'IsWebSearchEnabled') IS NULL ALTER TABLE
 IF COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL
     ALTER TABLE dash.AgentInventory ADD IsAutonomous BIT NOT NULL CONSTRAINT DF_DashAgentInventory_Autonomous DEFAULT (0);
 
-/* 2.6.4: what kind of agent it is, for the Agents pages' filter: Copilot Studio or Agent Builder (Copilot Studio lite),
-   from the workbook's CreatedIn, else the ids it gives (see tools/Import-AgentWorkbook.ps1). */
-IF COL_LENGTH(N'dash.AgentInventory', N'CopilotType') IS NULL ALTER TABLE dash.AgentInventory ADD CopilotType NVARCHAR(40) NULL;
-
 /* Each workbook load, for Admin > Health: when, which file, and what reached the tables. */
 IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NULL
     CREATE TABLE dash.AgentInventoryRun
@@ -362,16 +349,12 @@ SELECT a.AgentKey, a.AgentId, a.AgentSource,
        COALESCE(NULLIF(inv.AgentName, N''''), al.FriendlyName, a.AgentName, a.AgentId) AS AgentName,
        a.AgentName AS AuditName, COALESCE(inv.OwnerUpn, al.Owner) AS Owner,
        COALESCE(CAST(fd.[Date] AS DATETIME2(0)), a.FirstSeenUtc) AS FirstSeenUtc,   -- first used, in the reporting zone
-       inv.InventoryAgentId, CAST(ISNULL(inv.IsShared, 0) AS BIT) AS IsShared, CAST(ISNULL(inv.InProduction, 0) AS BIT) AS InProduction,
-       /* 2.6.4: the Agents pages filter on these. Set by bi.usp_NameAgents; the workbook''s own until it next runs. */
-       COALESCE(inv.CopilotType, a.CopilotType, N''Other'') AS CopilotType,
-       CASE WHEN inv.InventoryAgentId IS NULL THEN COALESCE(a.EnvironmentType, N''(not in the workbook)'')
-            ELSE COALESCE(NULLIF(LTRIM(RTRIM(inv.EnvironmentSku)), N''''), N''(not given)'') END AS EnvironmentType
+       inv.InventoryAgentId, CAST(ISNULL(inv.IsShared, 0) AS BIT) AS IsShared, CAST(ISNULL(inv.InProduction, 0) AS BIT) AS InProduction
 FROM bi.DimAgent AS a
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = a.AgentKey
 LEFT JOIN dash.AgentUse AS u ON u.AgentKey = a.AgentKey
 LEFT JOIN bi.DimDate AS fd ON fd.DateKey = u.FirstDateKey
-OUTER APPLY (SELECT TOP (1) i.InventoryAgentId, i.AgentName, i.OwnerUpn, i.IsShared, i.InProduction, i.CopilotType, i.EnvironmentSku
+OUTER APPLY (SELECT TOP (1) i.InventoryAgentId, i.AgentName, i.OwnerUpn, i.IsShared, i.InProduction
              FROM dash.AgentInventory AS i WHERE i.AgentKey = a.AgentKey
              ORDER BY i.InProduction DESC, i.LastPublishedAt DESC, i.InventoryAgentId) AS inv
 /* 2.6.3: an agent the audit log names two ways is one agent here, under the identity its interactions are kept with. */

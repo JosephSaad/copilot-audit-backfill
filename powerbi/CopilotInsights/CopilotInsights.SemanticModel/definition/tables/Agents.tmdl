@@ -38,20 +38,6 @@ table Agents
 		summarizeBy: none
 		sourceColumn: NamedInAudit
 
-	/// What the agent was made with: Copilot Studio, Agent Builder (Copilot Studio lite), Microsoft (one of Microsoft's own) or Other. The agent workbook's CreatedIn where it lists the agent, else read from the agent's id.
-	column CopilotType
-		dataType: string
-		lineageTag: 81207c61-ef01-546e-836b-fd474b6a0cab
-		summarizeBy: none
-		sourceColumn: CopilotType
-
-	/// The type of the Power Platform environment the agent lives in (the agent workbook's EnvironmentSku: Production, Sandbox, Developer, Default and so on), or (not in the workbook) for an agent the workbook does not list.
-	column EnvironmentType
-		dataType: string
-		lineageTag: 70b2601b-17cf-5d36-a68b-2a5b077259da
-		summarizeBy: none
-		sourceColumn: EnvironmentType
-
 	partition Agents = m
 		mode: import
 		source =

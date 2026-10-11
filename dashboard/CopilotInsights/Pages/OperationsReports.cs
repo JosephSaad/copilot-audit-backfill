@@ -295,7 +295,7 @@ FROM dash.Agent AS a
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = a.AgentKey
 LEFT JOIN dash.AgentUse AS au ON au.AgentKey = a.AgentKey
 LEFT JOIN #u AS u ON u.AgentKey = a.AgentKey
-WHERE a.AgentSource <> N'(no agent)'{AgentKeyFilter("a.AgentKey")}
+WHERE a.AgentSource <> N'(no agent)'
 ORDER BY a.FirstSeenUtc DESC;", Ctx.Args());
             Kpis.Add(new("Agents seen", Num(rows.Count)));
             Kpis.Add(new("New in the period", Num(rows.Count(r => r.FirstSeenUtc >= Ctx.Start))));

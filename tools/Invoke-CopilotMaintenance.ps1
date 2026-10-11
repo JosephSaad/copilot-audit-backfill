@@ -15,8 +15,6 @@
     -Task SetAppCategory       Put -App in -Category (Copilot Chat or In-App Copilot). Add -Apply
                                to rebuild sessions and bi with it now rather than on the next load.
     -Task GrantRole            Give -Principal (a UPN, DOMAIN\user or DOMAIN\Group) a dashboard -Role.
-                               Persona (2.6.4) opens only the Admin pages in -Pages, such as
-                               '/admin/health', '/admin/audit'; granting it again replaces them.
     -Task RevokeRole           Take it away again.
     -Task SetOrgTop            Make -Upn the top of the organization for the dashboard, or -Clear
                                to go back to the one found in the org chart. Rebuilds the org chart.
@@ -51,8 +49,6 @@
     .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task SetAppCategory -App 'Copilot Notebooks' -Category 'Copilot Chat' -Apply
 .EXAMPLE
     .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task GrantRole -Principal 'CONTOSO\Copilot-Insights-Admins' -Role Admin
-.EXAMPLE
-    .\tools\Invoke-CopilotMaintenance.ps1 -SqlServer SQLPROD01 -Task GrantRole -Principal 'CONTOSO\Copilot-Helpdesk' -Role Persona -Pages '/admin/health', '/admin/directory'
 #>
 #Requires -Version 5.1
 [CmdletBinding()]
@@ -71,11 +67,7 @@ param(
     [string] $App,
     [ValidateSet('Copilot Chat', 'In-App Copilot')][string] $Category,
     [string] $Principal,
-    [ValidateSet('Admin', 'Persona', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')][string] $Role,
-    # GrantRole -Role Persona: the Admin pages it opens, by path.
-    [ValidateSet('/admin/health', '/admin/access', '/admin/directory', '/admin/email', '/admin/notifications', '/admin/assumptions', '/admin/privacy',
-                 '/admin/reference', '/admin/values', '/admin/classifications', '/admin/reports', '/admin/extracts', '/admin/training', '/admin/audit')]
-    [string[]] $Pages,
+    [ValidateSet('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')][string] $Role,
     [string] $Note,
     [ValidateSet('User', 'Group')][string] $PrincipalType,
     [string] $Upn,
@@ -224,18 +216,12 @@ IF @@ROWCOUNT = 0 INSERT INTO audit.SessionAppCategory (App, AppCategory) VALUES
             }
             catch { Write-Warning "Could not ask AD whether $Principal is a group; recorded as a user (-PrincipalType Group to say otherwise). The dashboard matches it either way." }
         }
-        $pageList = $null
-        if ($Role -eq 'Persona') {
-            if (-not $Pages) { throw '-Role Persona needs -Pages: the Admin pages it opens, such as /admin/health.' }
-            $pageList = ($Pages | Select-Object -Unique) -join ','
-        }
-        Invoke-Sql -Parameters @{ '@p' = $Principal; '@t' = $type; '@r' = $Role; '@n' = $Note; '@by' = $me; '@pages' = $pageList } -Sql @"
+        Invoke-Sql -Parameters @{ '@p' = $Principal; '@t' = $type; '@r' = $Role; '@n' = $Note; '@by' = $me } -Sql @"
 IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @p AND Role = @r)
     INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (@p, @t, @r, @n, @by);
-IF @r = 'Persona' EXEC sp_executesql N'UPDATE dash.RoleGrant SET Pages = @pages WHERE Principal = @p AND Role = ''Persona'';', N'@pages NVARCHAR(1000), @p NVARCHAR(256)', @pages = @pages, @p = @p;
-INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'Invoke-CopilotMaintenance', CONCAT(N'Granted ', @r, N' to ', @p, N' ' + @pages));
+INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'Invoke-CopilotMaintenance', CONCAT(N'Granted ', @r, N' to ', @p));
 "@
-        Write-Host "$Principal ($type) has $Role$(if ($Role -eq 'Persona') { " ($pageList)" })."
+        Write-Host "$Principal ($type) has $Role."
     }
     'RevokeRole' {
         Need 'Principal' $Principal; Need 'Role' $Role

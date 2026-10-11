@@ -495,7 +495,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
                 try
                 {
                     var v = await viewer();
-                    if (!v.CanAdmin("/admin/notifications")) { done.Add(Line("Not run: you are not an administrator in this tenant.")); continue; }
+                    if (!v.IsAdmin) { done.Add(Line("Not run: you are not an administrator in this tenant.")); continue; }
                     var lines = await run();
                     if (t.Name != here.Name) await record(v, lines);
                     done.AddRange(lines.Select(Line));

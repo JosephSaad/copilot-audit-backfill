@@ -123,7 +123,7 @@ Pages without a role mark show aggregates only: counts, rates and trends for the
 | | Job families | Adoption and use by job family, from the job-title rules in Admin › Classifications and events | Family | No |
 | App owners | Apps | Each app's reach, return visits, prompts per person and resources read, with a trend line | App | No |
 | | App detail | One app: people over time, what Copilot read in it, departments, agents | App | No |
-| Admin | Health, Access, Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Reports shown, Scheduled extracts, Training records, Audit log | See [Running it](#running-it), the sections below and [OPERATIONS.md](OPERATIONS.md) | | **Admin**, or **Persona** for the pages ticked |
+| Admin | Health, Access, Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Reports shown, Scheduled extracts, Training records, Audit log | See [Running it](#running-it), the sections below and [OPERATIONS.md](OPERATIONS.md) | | **Admin** |
 
 An L2 manager, who reports directly to the CEO, sees the whole organization. The Leadership pages are theirs, and so are the Regions, People, App owners and Governance pages. Whole-organization access doesn't include a role's section or its named lists: those need the role.
 
@@ -158,7 +158,6 @@ A viewer can look inside any part of their own scope, one level at a time. The b
 | Role | Gives |
 |---|---|
 | Admin | The admin module. **No usage data by itself.** |
-| Persona | The Admin pages ticked when it is granted, and no others (2.6.4). **No usage data by itself.** Cannot grant or remove Admin or Persona |
 | Organization | The whole organization's aggregates, at any level |
 | Adoption | The Adoption section; in it, named people who were licensed but have not started |
 | Licensing | The Licensing and Forecasting sections; in them, named unused licenses, unlicensed Copilot Chat users, the use ranking, rollout waves and license action outcomes |
@@ -200,10 +199,6 @@ A few views set their own window, and each one says so on the page:
 - **Agents known:** every agent the log has ever seen.
 
 **Removing roles (2.6.3).** In Admin › Access › *Grants*, each person or group is one row with every role they hold. The × beside a role removes that role; *Remove all* removes every role of that person or group; and to clear several at once, tick their rows, or *Select all on this page*, and choose *Remove every role from the selected*. Each asks first and is recorded in the audit log with the roles that went. Someone cleared keeps what their level and their AD groups give them, and administrators named in the site's configuration are not listed and cannot be removed here.
-
-**Persona (2.6.4).** For someone who should run some of the Admin pages but not all of them: a help desk with Health and Directory quality, an auditor with the Audit log. In Admin › Access › *Grant a role*, tick **Persona** and, under *Persona: the Admin pages it opens*, the pages; granting it again to someone who holds it replaces their pages, and the grants list shows them beside the role. They see those pages in the navigation and nothing else of Admin; any other Admin page is refused and recorded in the audit log, as are their changes. Like Admin, Persona shows no usage data and does not let anyone past the dashboard's level limit. Only an administrator grants or removes Admin or Persona, so a Persona with the Access page can manage the other roles but not raise anyone, itself included. From the job server: `tools\Invoke-CopilotMaintenance.ps1 -Task GrantRole -Principal <who> -Role Persona -Pages '/admin/health', '/admin/directory'`.
-
-**Agents filters (2.6.4).** The Agents pages have two filters in the filter bar, beside Period and Showing, both *All* to begin with and kept from one Agents page to the next. **Environment** is the type of the agent's Power Platform environment, the agent workbook's `EnvironmentSku` (Production, Sandbox, Developer, Default and so on); an agent the workbook does not list is *(not in the workbook)*. **Copilot type** is Copilot Studio, Agent Builder (Copilot Studio lite), Microsoft (Microsoft's own agents) or Other: the workbook's `CreatedIn` where it lists the agent, else read from the agent's id. Both are on Agents in use, Agent inventory, Shared agents, Agents in production, Agents without an owner, Agent checks, Agents costing credits and Agent hand-offs (by the agent that hands off); the environment alone on Build and publish and Child agent usage (by the parent's environment); neither on Agent detail. The Power BI model has the same two columns on Agents.
 
 **One agent, one row (2.6.3).** The audit log names some agents two ways: an agent made in Microsoft 365 Copilot under two ids, a SharePoint agent with and without a prefix, one of Microsoft's agents under two variants. Each used to appear as two agents with its use split between them, and the second had no owner or inventory details. They are one agent now, with all its use, in every agent report. Agents of your own that only share a name stay separate. The nightly run keeps it so; nothing needs setting up.
 

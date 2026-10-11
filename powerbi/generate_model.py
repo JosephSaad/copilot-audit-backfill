@@ -238,8 +238,6 @@ TABLES = {
             ("AgentName", "string", dict(desc="The agent's friendly name: the latest the audit log gave it (AgentName). Where the log gives none, a name read from the id: a Copilot Studio agent's schema name, or Microsoft's own name for one of its agents.")),
             ("AgentSource", "string", dict(desc="Copilot Studio, Microsoft, Agent ID or (no agent).")),
             ("NamedInAudit", "boolean", dict(desc="True when Agent Name is the audit log's own name for the agent; false when it was read from the id.")),
-            ("CopilotType", "string", dict(desc="What the agent was made with: Copilot Studio, Agent Builder (Copilot Studio lite), Microsoft (one of Microsoft's own) or Other. The agent workbook's CreatedIn where it lists the agent, else read from the agent's id.")),
-            ("EnvironmentType", "string", dict(desc="The type of the Power Platform environment the agent lives in (the agent workbook's EnvironmentSku: Production, Sandbox, Developer, Default and so on), or (not in the workbook) for an agent the workbook does not list.")),
         ]),
     "Models": dict(
         desc="The AI model that answered.",
