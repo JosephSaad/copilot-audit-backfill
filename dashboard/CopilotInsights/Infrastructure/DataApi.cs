@@ -128,7 +128,8 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
         var audit = sp.GetRequiredService<AuditLog>();
         var path = "/api/v1/" + name;
         string? refusal = null;
-        if (role == Roles.Admin) { if (!viewer.IsAdmin) refusal = "administrators only"; }
+        /* The only Admin call is health: for whoever may open Admin > Health, a limited administrator too (2.6.4). */
+        if (role == Roles.Admin) { if (!viewer.CanAdmin("/admin/" + name)) refusal = "administrators only"; }
         else if (!viewer.Admitted) refusal = $"the dashboard is for levels 1 to {viewer.MaxLevel} of the organization";
         else if (!viewer.OrgWide && !viewer.InDirectory) refusal = "not in the directory, and not granted Organization";
         else if (c.OrgWhy == OrgRefusal.Privacy) refusal = "privacy mode is on: no report on a manager's part of the organization";

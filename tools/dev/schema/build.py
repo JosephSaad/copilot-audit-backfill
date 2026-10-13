@@ -181,7 +181,7 @@ AREAS = [
     ]),
     ('dash', 'dash: the Copilot Insights dashboard', 'What the dashboard (dashboard/CopilotInsights, see DASHBOARD.md) keeps besides the bi schema it reads: its settings, roles, reference names and audit log, which the admin module edits, and the org chart and daily rollups dash.usp_RefreshDashboard rebuilds after each bi refresh.', [
         ('dash.Setting', 'Settings the admin module edits: OrgTopUpn (the top of the organization), MinGroupSize, DefaultDays, InactiveDays. Seeded; edits survive re-running the script.'),
-        ('dash.RoleGrant', 'Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Organization sees the whole organization; the persona roles unlock named detail.'),
+        ('dash.RoleGrant', 'Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail.'),
         ('dash.AgentAlias', 'Friendly names and owners for agents, which the audit log names by schema name. Edited in Admin > Reference data.'),
         ('dash.SensitivityLabel', 'Names and order for sensitivity labels, which the audit log records by id only. Edited in Admin > Reference data.'),
         ('dash.AuditLog', 'Every page view, refusal, export and admin change: who, what page, what scope, what filters or change, and from where.'),

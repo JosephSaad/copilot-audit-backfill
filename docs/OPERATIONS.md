@@ -64,7 +64,7 @@ The dashboard installer schedules it (07:00 Eastern unless given `-PrecacheAt` a
 
 | Role | Gives |
 |---|---|
-| Admin | The Admin pages |
+| Admin | The Admin pages: all fourteen, or only the ones ticked for that person or group (2.6.4) |
 | Organization | The whole organization's aggregates, whatever the person's level |
 | Adoption | Named people licensed but not started |
 | Licensing | Named unused licenses, Copilot Chat users, licenses on disabled accounts, upgrade/train/revoke lists, the use ranking, rollout waves, license action outcomes, and their export files |
@@ -79,6 +79,17 @@ The dashboard installer schedules it (07:00 Eastern unless given `-PrecacheAt` a
 M -Task GrantRole -Principal 'USERS\Copilot-Insights-Licensing' -PrincipalType Group -Role Licensing -Note 'licensing team'
 M -Task RevokeRole -Principal 'ada.lovelace@contoso.com' -Role Licensing
 ```
+
+**Limit an administrator to some Admin pages (2.6.4).** Admin › Access › *Grant a role*: tick **Admin**, then tick, under *Admin pages*, the pages that person or group should run, any of the fourteen: Health, Access, Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Reports shown, Scheduled extracts, Training records and Audit log. They see those pages in the navigation and no other Admin page, can change what is on them, and are refused the rest, page, form and file. With none ticked, or all fourteen, Admin is the whole role, as every Admin grant was before.
+
+- **To change someone's pages,** grant Admin to them again with the new pages ticked: the pages are replaced, and the message says what the role now covers. Granting it again with none ticked makes them a full administrator.
+- **The grants list** shows a limited Admin role with its pages in brackets, and *Check someone's access* says what a person's Admin role covers.
+- **Only a full administrator gives, limits or removes Admin.** Someone limited to Admin › Access can grant and remove the other roles and change that page's settings, and cannot make themselves, or anyone, an administrator. Nobody can limit their own Admin role.
+- **A person in several grants** gets the pages of all of them (their own and their groups'); one whole Admin grant among them makes them a full administrator.
+- **Outside the dashboard's levels,** a limited administrator keeps their Admin pages, as a full one keeps all of them.
+- **The data API's `health` call** answers whoever may open Admin › Health.
+- **From the job server,** `M -Task GrantRole ... -Role Admin` grants the whole role; limit it from the page. Administrators named in the site's configuration (`Insights:BootstrapAdmins`) are always full administrators.
+- **Before the database is upgraded,** a 2.6.4 dashboard treats every Admin grant as whole and offers no pages to tick: run `Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard`, which adds the column the pages are kept in.
 
 **Set the time zone.** Admin › Access › *Settings* › *Time zone* (2.4.10). Every time the dashboard shows (the audit log, pipeline runs, when a license was read, when an alert went out) and the hour digests, alerts and extracts are sent is in this zone, and each column says which ("When (Eastern Time)"); before, they were in UTC. Left on *Default* it is the zone the data's days are cut in, which a new install takes from its server (and an install made before 2.4.10 without `-ReportingTimeZone` has as Eastern time); on a database without one, the web server's own. Choosing a zone here changes what is shown and when things are sent, at once. It does not move the days in the reports: those are cut when the data is loaded and cannot be changed afterwards.
 
@@ -388,7 +399,7 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 | Admin page | What it is for |
 |---|---|
 | Admin › Health | Report speed (when the report pages were last built ahead on this web server, the last morning pre-cache and its slowest page from memory, and how the cache works), pipeline runs and each step's freshness, directory coverage, the latest day with data, each certificate the pipeline signs in with (the Purview audit app's, the SharePoint agent workbook app's and the Foundry usage app's where it has its own) and its details, the audit searches waiting and what the last load took, the last run of the optional GitHub Copilot and Foundry usage loads (2.6.2), and a manual refresh |
-| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles, checking someone's access |
+| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles, limiting an administrator to some Admin pages (2.6.4), checking someone's access |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, where the logs are with the last test's conversation with the mail server (2.6.2), and everything sent or not, with the conversation of each test and each message not sent |
 | Admin › Alerts and digests | Alert recipients and thresholds, digests, manager digests and the managers who do not get them, the webhook, running the checks now |

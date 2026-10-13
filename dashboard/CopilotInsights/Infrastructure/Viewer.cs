@@ -15,7 +15,7 @@ public static class Roles
 
     public static readonly Dictionary<string, string> Describe = new()
     {
-        [Admin] = "Runs the admin module: access, settings, reference data, health and the audit log. Sees no usage data by itself.",
+        [Admin] = "Runs the admin module: access, settings, reference data, health and the audit log; or only the Admin pages ticked for them. Sees no usage data by itself.",
         [Organization] = "Sees the whole organization's aggregates, whatever their place in it.",
         [Adoption] = "The Adoption section, and in it the named people who were licensed but have not started.",
         [Licensing] = "The Licensing and Forecasting sections, and in them the named unused licenses, unlicensed Copilot Chat users and license recommendations.",
@@ -45,7 +45,18 @@ public sealed class Viewer
     /// <summary>The limit in force when they signed in: 0 for none, else levels 1 to this.</summary>
     public int MaxLevel { get; init; }
 
+    /// <summary>
+    /// The Admin pages an Admin grant limited to some pages opens (2.6.4), by path. Empty for everyone else, a full
+    /// administrator among them: their Admin role is in <see cref="Roles"/>, a limited one's is not.
+    /// </summary>
+    public IReadOnlySet<string> AdminPaths { get; init; } = new HashSet<string>();
+
+    /// <summary>A full administrator: every Admin page, and the only one who may grant, limit or remove Admin.</summary>
     public bool IsAdmin => Roles.Contains(Infrastructure.Roles.Admin);
+    /// <summary>Whether the viewer may open and change this Admin page: a full administrator, or one limited to pages that include it (2.6.4).</summary>
+    public bool CanAdmin(string? path) => IsAdmin || AdminPaths.Contains(CopilotInsights.Data.AdminPages.Normalize(path));
+    /// <summary>Any Admin page at all.</summary>
+    public bool AnyAdmin => IsAdmin || AdminPaths.Count > 0;
     public bool OrgWide => AccessRules.SeesWholeOrganization(Level, Roles);
     public bool Has(string role) => Roles.Contains(role);
     public string Name => DisplayName ?? Upn ?? WindowsName;
@@ -134,12 +145,12 @@ public sealed class ViewerService(
         var windowsName = user.Identity?.Name ?? "(anonymous)";
         var upn = await ResolveUpnAsync(user, windowsName);
 
-        var roles = await RolesForAsync(upn, windowsName, user);
+        var (roles, paths) = await RolesForAsync(upn, windowsName, user);
         if (IsBootstrapAdmin(upn, windowsName, user)) roles.Add(Roles.Admin);
-        return await BuildAsync(windowsName, upn, roles);
+        return await BuildAsync(windowsName, upn, roles, paths);
     }
 
-    async Task<Viewer> BuildAsync(string windowsName, string? upn, HashSet<string> roles)
+    async Task<Viewer> BuildAsync(string windowsName, string? upn, HashSet<string> roles, HashSet<string> paths)
     {
         PersonRow? p = null;
         if (upn is not null)
@@ -151,6 +162,7 @@ public sealed class ViewerService(
             WindowsName = windowsName, Upn = upn, DisplayName = p?.DisplayName, Level = p?.Level,
             InDirectory = p is not null, PeopleBelow = p?.PeopleBelow ?? 0, Roles = roles,
             MaxLevel = max, Admitted = AccessRules.MayUseDashboard(p?.Level, roles, max),
+            AdminPaths = roles.Contains(Roles.Admin) ? new HashSet<string>() : paths,
         };
     }
 
@@ -159,19 +171,30 @@ public sealed class ViewerService(
         public int? LevelInt => Level;
     }
 
-    async Task<HashSet<string>> RolesForAsync(string? upn, string windowsName, ClaimsPrincipal? user)
+    /// <summary>
+    /// The roles granted to the account, its UPN or its groups, and the Admin pages of every Admin grant among them that
+    /// is limited to some (2.6.4). Such a grant adds its pages and not the Admin role; a grant with no pages named is
+    /// the whole role, whatever the others say.
+    /// </summary>
+    async Task<(HashSet<string> Roles, HashSet<string> Paths)> RolesForAsync(string? upn, string windowsName, ClaimsPrincipal? user)
     {
-        var grants = await db.QueryAsync<(string Principal, string PrincipalType, string Role)>(
-            "SELECT Principal, PrincipalType, Role FROM dash.RoleGrant");
+        /* Pages arrived in 2.6.4: until the schema script is run again, no grant has any, and every Admin grant is whole. */
+        var grants = await db.QueryAsync<(string Principal, string PrincipalType, string Role, string? Pages)>(@"
+IF COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL SELECT Principal, PrincipalType, Role, CAST(NULL AS NVARCHAR(1000)) AS Pages FROM dash.RoleGrant;
+ELSE EXEC (N'SELECT Principal, PrincipalType, Role, Pages FROM dash.RoleGrant;');");
         var roles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var g in grants)
         {
             /* Whatever the grant says it is: a DOMAIN\name recorded as a user may be a group, and the other way round. */
             var hit = Same(g.Principal, upn) || Same(g.Principal, windowsName)
                       || (user is not null && IsInGroup(user, g.Principal));
-            if (hit) roles.Add(g.Role);
+            if (!hit) continue;
+            if (string.Equals(g.Role, Roles.Admin, StringComparison.OrdinalIgnoreCase) && CopilotInsights.Data.AdminPages.Limits(g.Pages))
+                paths.UnionWith(CopilotInsights.Data.AdminPages.Parse(g.Pages));
+            else roles.Add(g.Role);
         }
-        return roles;
+        return (roles, paths);
     }
 
     bool IsBootstrapAdmin(string? upn, string windowsName, ClaimsPrincipal user) =>

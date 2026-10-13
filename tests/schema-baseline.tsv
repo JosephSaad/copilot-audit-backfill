@@ -1,4 +1,4 @@
-# release 2.6.3
+# release 2.6.4
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1171,6 +1171,7 @@ C	copilot	dash.RoleGrant	U	4	Role	varchar(32)	0
 C	copilot	dash.RoleGrant	U	5	Note	nvarchar(400)	1	
 C	copilot	dash.RoleGrant	U	6	GrantedBy	nvarchar(256)	0	
 C	copilot	dash.RoleGrant	U	7	GrantedUtc	datetime2(0)	0	D
+C	copilot	dash.RoleGrant	U	8	Pages	nvarchar(1000)	1	
 C	copilot	dash.SavedView	U	1	ViewId	int	0	I
 C	copilot	dash.SavedView	U	2	Owner	nvarchar(256)	0	
 C	copilot	dash.SavedView	U	3	Name	nvarchar(100)	0	

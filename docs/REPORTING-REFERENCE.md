@@ -3782,7 +3782,7 @@ Indexes and constraints:
 
 #### dash.RoleGrant
 
-*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module; Organization sees the whole organization; the persona roles unlock named detail.
+*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail.
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -3795,6 +3795,7 @@ Indexes and constraints:
 | 5 | `Note` | nvarchar(400) | yes |  |  |
 | 6 | `GrantedBy` | nvarchar(256) | **no** |  |  |
 | 7 | `GrantedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 8 | `Pages` | nvarchar(1000) | yes |  | 2.6.4: the Admin pages an Admin grant is limited to, as their paths, comma-separated (/admin/health,/admin/audit); NULL is the whole role, and what every other role has |
 
 Indexes and constraints:
 
@@ -10312,7 +10313,7 @@ END;
 
 ### C.13 `sql/Create-CopilotDashboardSchema.sql`
 
-Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 361 lines.
+Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 378 lines.
 
 ```sql
 /*
@@ -10390,6 +10391,23 @@ IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
         GrantedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashRoleGrant_Granted DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT UQ_DashRoleGrant UNIQUE (Principal, Role)
     );
+
+/* 2.6.4: an Admin grant can be limited to some of the Admin pages: their paths, comma-separated
+   (/admin/health,/admin/audit). NULL, as on every grant before, is the whole role. Other roles leave it NULL. */
+IF COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL ALTER TABLE dash.RoleGrant ADD Pages NVARCHAR(1000) NULL;
+/* The 2.6.4 build that was withdrawn kept such pages under a role of its own, Persona. Where a database has any, they
+   become Admin grants limited to the same pages (an Admin grant the same person already holds wins), and the role's
+   check goes back to the eight roles. */
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_DashRoleGrant_Role' AND parent_object_id = OBJECT_ID(N'dash.RoleGrant') AND definition LIKE N'%Persona%')
+BEGIN
+    EXEC (N'DELETE p FROM dash.RoleGrant AS p
+            WHERE p.Role = ''Persona'' AND (NULLIF(LTRIM(RTRIM(p.Pages)), N'''') IS NULL
+                  OR EXISTS (SELECT 1 FROM dash.RoleGrant AS a WHERE a.Principal = p.Principal AND a.Role = ''Admin''));');
+    ALTER TABLE dash.RoleGrant DROP CONSTRAINT CK_DashRoleGrant_Role;
+    UPDATE dash.RoleGrant SET Role = 'Admin' WHERE Role = 'Persona';
+    ALTER TABLE dash.RoleGrant ADD CONSTRAINT CK_DashRoleGrant_Role CHECK (Role IN
+        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement'));
+END;
 
 /* Friendly names and owners for agents, set by an administrator: they come before the name the audit log gives. */
 IF OBJECT_ID(N'dash.AgentAlias', N'U') IS NULL

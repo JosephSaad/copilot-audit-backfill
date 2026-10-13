@@ -270,11 +270,18 @@ public sealed class ReportContext
     public string ScopeLabel => Root is null ? "Whole organization" : $"{RootName ?? Root} and their organization";
     public string PeriodLabel => $"{Start:d MMM yyyy} to {End:d MMM yyyy}";
 
+    /// <summary>
+    /// Query values a page keeps on every link to itself: its own filters, which choosing a period or a part of the
+    /// organization must not drop. The page sets it; links to other pages do not carry it.
+    /// </summary>
+    public (string Path, string Query)? Kept { get; set; }
+
     public string Url(string path, int? days = null, string? org = null, bool keepOrg = true, string? extra = null)
     {
         var q = new List<string> { $"d={days ?? Days}" };
         var o = org ?? (keepOrg ? Root : null);
         if (o is not null && !(o == Viewer.Upn && !Viewer.OrgWide)) q.Add("org=" + Uri.EscapeDataString(o));
+        if (Kept is { } k && string.Equals(path, k.Path, StringComparison.OrdinalIgnoreCase)) q.Add(k.Query);
         if (!string.IsNullOrEmpty(extra)) q.Add(extra);
         return path + "?" + string.Join("&", q);
     }

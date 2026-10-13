@@ -266,6 +266,11 @@ namespace CopilotInsights.Pages.Agents
         public override bool UsesFilters => true;
         public override string Intro => "Every current agent, from the agent workbook, with its owner and whether it is shared or in production, and its use in the period from the audit log: an agent no one used is flagged. Without a workbook, every agent the audit log has shown. New agents raise an alert when that is switched on.";
         protected override string Where => "1 = 1";
+        /// <summary>The page's filters, each a column of the workbook's sheet. To add one, add a line: new("env", "Environment type", "EnvironmentSku").</summary>
+        protected override IReadOnlyList<WorkbookFilter> Filters =>
+        [
+            new("createdin", "Created in", "CreatedIn"),
+        ];
 
         sealed class Row
         {

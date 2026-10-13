@@ -114,7 +114,7 @@ app.Use(async (ctx, next) =>
         && !ctx.Request.Path.StartsWithSegments("/api"))
     {
         var viewer = await ctx.RequestServices.GetRequiredService<ViewerService>().GetAsync();
-        if (!viewer.Admitted && !viewer.IsAdmin)
+        if (!viewer.Admitted && !viewer.AnyAdmin)
         {
             await ctx.RequestServices.GetRequiredService<AuditLog>().WriteAsync(viewer, "Denied", ctx.Request.Path, null, "outside the dashboard's levels");
             ctx.Response.StatusCode = 403;

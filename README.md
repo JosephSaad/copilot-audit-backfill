@@ -354,6 +354,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `docs/GITHUB-COPILOT-USAGE.md`, `docs/FOUNDRY-USAGE.md` | One setup guide for each of those loaders: the values needed, a part to hand to the GitHub or Azure administrator, the steps on the job server, checks and troubleshooting (2.6.2). |
 | `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each; the naming conventions; what each `bi` table and view is for and what uses it; and the compatibility promise (2.6.3). |
 | `docs/SCRIPTS.md` | Every script in summary: what it does, who runs it and when (2.6.3). |
+| `docs/BUILD-FROM-SOURCE.md` | Compiling the dashboard yourself after changing its source: the SDK, the 24 NuGet packages a build needs, and how to build with no internet access (2.6.4). |
 | `docs/REPORTING.md` | Reporting on the data with Grafana or another SQL tool, in brief: the `bi` views, access, the figures, the Grafana setup and queries to start from (2.5.9). |
 | `docs/REPORTING.docx`, `docs/REPORTING-REFERENCE.docx` | The two reporting guides as Word documents, to hand to a team outside the repository (2.6.1). Made from the Markdown by `tools/dev/schema/build_docx.py`. |
 | `docs/REPORTING-REFERENCE.md` | The same in full: how the schema is created and filled, every reporting view column by column, each figure as SQL, every table and view, and the text of the scripts that create them (2.5.9). |
