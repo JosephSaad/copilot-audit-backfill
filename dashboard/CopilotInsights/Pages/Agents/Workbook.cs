@@ -22,6 +22,13 @@ static class Workbook
 }
 
 /// <summary>
+/// A filter on a list of the workbook's agents: one column of the workbook's AgentInventory sheet, offered as a box of
+/// the values the column holds. <paramref name="Key"/> is its name in the address (?createdin=...),
+/// <paramref name="Label"/> what the box is called, <paramref name="Column"/> the sheet's column heading.
+/// </summary>
+public sealed record WorkbookFilter(string Key, string Label, string Column);
+
+/// <summary>
 /// A list of the workbook's agents with their use in the period from the audit log (2.5.6): the inventory, shared
 /// agents and agents in production. The workbook is the list; an agent no one used in the period is flagged, unless it
 /// runs on its own (triggers or flows: an autonomous agent, 2.5.8), which no interaction does not make unused.
@@ -35,6 +42,61 @@ public abstract class AgentListPage(PageServices s) : InsightsPage(s)
     protected virtual bool SharingColumns => false;
     protected virtual bool ChannelColumn => false;
     protected virtual string DefaultSort => "most";
+
+    /// <summary>
+    /// The filters the page offers, none unless it says so. Each is a column of the sheet as the workbook load keeps it
+    /// (dbo.AgentInventory, every column as text), so a new filter is one more line here and nothing else: no column to
+    /// add to a table, no change to the load. A column the loaded workbook does not have is not offered.
+    /// </summary>
+    protected virtual IReadOnlyList<WorkbookFilter> Filters => [];
+
+    /// <summary>A filter as this request has it: the values to choose from, and the one chosen (null: all).</summary>
+    sealed record FilterState(WorkbookFilter Filter, IReadOnlyList<string> Choices, string? Value);
+
+    /// <summary>
+    /// Each filter's choices, read from the sheet, and what the address asks for. A value that is not one of the
+    /// choices is dropped, so the page shows everything rather than nothing, and only a value the sheet holds reaches
+    /// the query. The column names are the page's own, never input.
+    /// </summary>
+    async Task<List<FilterState>> LoadFiltersAsync()
+    {
+        var states = new List<FilterState>();
+        foreach (var f in Filters)
+        {
+            if (!f.Column.All(ch => char.IsLetterOrDigit(ch) || ch is '_' or ' ')) continue;
+            var choices = await Db.QueryAsync<string>($@"
+IF COL_LENGTH(N'dbo.AgentInventory', N'{f.Column}') IS NULL SELECT CAST(NULL AS NVARCHAR(200)) WHERE 1 = 0;
+ELSE EXEC (N'SELECT DISTINCT TOP (200) LTRIM(RTRIM(CAST([{f.Column}] AS NVARCHAR(200)))) AS V FROM dbo.AgentInventory
+             WHERE NULLIF(LTRIM(RTRIM(CAST([{f.Column}] AS NVARCHAR(200)))), N'''') IS NOT NULL ORDER BY V;');");
+            if (choices.Count == 0) continue;
+            var asked = Request.Query[f.Key].FirstOrDefault()?.Trim();
+            states.Add(new(f, choices, choices.FirstOrDefault(c => string.Equals(c, asked, StringComparison.OrdinalIgnoreCase))));
+        }
+        /* The choices made stay on the page's own links: the period, the way down the organization, All and Not used. */
+        var kept = states.Where(x => x.Value is not null).Select(x => $"{Uri.EscapeDataString(x.Filter.Key)}={Uri.EscapeDataString(x.Value!)}").ToList();
+        if (kept.Count > 0) Ctx.Kept = (Request.Path, string.Join("&", kept));
+        return states;
+    }
+
+    /// <summary>SQL that keeps dash.AgentInventory AS i to the agents whose sheet row has each value chosen; its parameters are @wf0, @wf1...</summary>
+    static string FilterSql(List<FilterState> states) => string.Concat(states.Select((x, n) => x.Value is null ? "" : $@"
+  AND EXISTS (SELECT 1 FROM dbo.AgentInventory AS w
+              WHERE LEFT(LTRIM(RTRIM(CAST(w.AgentId AS NVARCHAR(4000)))), 100) = i.InventoryAgentId
+                AND LTRIM(RTRIM(CAST(w.[{x.Filter.Column}] AS NVARCHAR(200)))) = @wf{n})"));
+
+    /// <summary>The filters' boxes, All first; choosing one reloads the page, keeping the period, the organization, the search and the sort.</summary>
+    string FilterBoxes(List<FilterState> states)
+    {
+        if (states.Count == 0) return "";
+        var keys = states.Select(x => x.Filter.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hidden = string.Concat(Request.Query.Where(kv => kv.Key is not ("p" or "handler") && !keys.Contains(kv.Key))
+            .Select(kv => $"<input type=\"hidden\" name=\"{E(kv.Key)}\" value=\"{E(kv.Value.ToString())}\"/>"));
+        var boxes = string.Concat(states.Select(x =>
+            $"<label>{E(x.Filter.Label)} <select name=\"{E(x.Filter.Key)}\" data-autosubmit>" +
+            $"<option value=\"\"{(x.Value is null ? " selected" : "")}>All</option>" +
+            string.Concat(x.Choices.Select(c => $"<option value=\"{E(c)}\"{(c == x.Value ? " selected" : "")}>{E(c)}</option>")) + "</select></label>"));
+        return $"<form class=\"pager\" method=\"get\">{hidden}{boxes}</form>";
+    }
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -90,6 +152,11 @@ public abstract class AgentListPage(PageServices s) : InsightsPage(s)
         if (!await Workbook.HasAsync(Db)) return false;
         var pg = new Paging(Request, Sorts, DefaultSort);
         var unused = Request.Query["only"].FirstOrDefault() == "unused";
+        var filters = await LoadFiltersAsync();
+        var args = Ctx.Args(new { q = pg.Like, unused = unused ? 1 : 0 });
+        for (var n = 0; n < filters.Count; n++)
+            if (filters[n].Value is { } chosen) args.Add($"wf{n}", chosen);
+        var filterNote = string.Concat(filters.Where(x => x.Value is not null).Select(x => $" Filtered to {x.Filter.Label}: {x.Value}."));
         var (totals, rows) = await Db.QueryTwoAsync<Totals, Row>($@"
 SELECT f.AgentKey, COUNT_BIG(*) AS N, COUNT(DISTINCT f.UserKey) AS People
 INTO #u
@@ -110,14 +177,14 @@ LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = i.AgentKey
 LEFT JOIN dash.AgentUse AS au ON au.AgentKey = i.AgentKey
 LEFT JOIN bi.DimDate AS ld ON ld.DateKey = au.LastDateKey
 LEFT JOIN #u AS u ON u.AgentKey = i.AgentKey
-WHERE {Where};
+WHERE {Where}{FilterSql(filters)};
 SELECT COUNT(*) AS Agents, COUNT(CASE WHEN N > 0 THEN 1 END) AS Used, COUNT(CASE WHEN N = 0 AND IsAutonomous = 1 THEN 1 END) AS Autonomous,
        ISNULL(SUM(CAST(IsShared AS INT)), 0) AS Shared, ISNULL(SUM(CAST(InProduction AS INT)), 0) AS Production, COUNT(AgentKey) AS Matched
 FROM #x;
 SELECT *, COUNT(*) OVER () AS TotalRows
 FROM #x
 WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) AND (@unused = 0 OR (N = 0 AND IsAutonomous = 0))
-{pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like, unused = unused ? 1 : 0 }));
+{pg.OrderAndPage()};", args);
         var t0 = totals.Single();
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var notUsed = t0.Agents - t0.Used - t0.Autonomous;
@@ -159,10 +226,10 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
         CsvTable = t;
         var tabs = $"<p class=\"sub\"><a href=\"{E(Ctx.Url(Request.Path))}\"{(unused ? "" : " class=\"on\"")}>All</a> · " +
                    $"<a href=\"{E(Ctx.Url(Request.Path, extra: "only=unused"))}\"{(unused ? " class=\"on\"" : "")}>Not used in the period</a></p>";
-        Panels.Add(new(listTitle, new HtmlString(tabs + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        Panels.Add(new(listTitle, new HtmlString(tabs + FilterBoxes(filters) + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             listNote + " Names and owners come from the agent workbook; where it leaves one out, from Admin › Reference data, then the audit log. Owners are shown by their name in the directory, or by sign-in where it does not have them. " +
             $"An autonomous agent (one with triggers or flows) can work with nobody chatting to it, so with no interaction it is *Autonomous*, not *Not used*. People are left out where fewer than {Ctx.MinGroupSize} used an agent." +
-            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : ""), "full", CsvUrl()));
+            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : "") + filterNote, "full", CsvUrl()));
         return true;
     }
 }

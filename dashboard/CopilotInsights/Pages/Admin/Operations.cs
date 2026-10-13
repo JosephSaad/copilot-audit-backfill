@@ -473,16 +473,17 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();
         var from = tenants.Current.Name;
         var done = await EveryTenantAsync(tenants, () => S.Viewers.ResolveAsync(), () => notifier.RunOnceAsync(HttpContext.RequestAborted),
-            (v, lines) => S.Audit.WriteAsync(v, "Admin", Request.Path, null, $"The checks ran, from tenant {from}. " + string.Join(" · ", lines)));
+            (v, lines) => S.Audit.WriteAsync(v, "Admin", Request.Path, null, $"The checks ran, from tenant {from}. " + string.Join(" · ", lines)), Request.Path);
         return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
     });
 
     /// <summary>
     /// Runs <paramref name="run"/> in each tenant where <paramref name="viewer"/> is an administrator, and says so for the
     /// others; <paramref name="record"/> writes the run into another tenant's audit log (this tenant's is the page's).
+    /// An administrator there is a full one, or one whose Admin pages there include <paramref name="page"/> (2.6.4).
     /// </summary>
     public static async Task<List<string>> EveryTenantAsync(TenantAccessor tenants, Func<Task<Viewer>> viewer, Func<Task<List<string>>> run,
-        Func<Viewer, IReadOnlyList<string>, Task> record)
+        Func<Viewer, IReadOnlyList<string>, Task> record, string? page = null)
     {
         var here = tenants.Current;
         var done = new List<string>();
@@ -495,7 +496,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
                 try
                 {
                     var v = await viewer();
-                    if (!v.IsAdmin) { done.Add(Line("Not run: you are not an administrator in this tenant.")); continue; }
+                    if (!v.CanAdmin(page)) { done.Add(Line("Not run: you are not an administrator in this tenant.")); continue; }
                     var lines = await run();
                     if (t.Name != here.Name) await record(v, lines);
                     done.AddRange(lines.Select(Line));

@@ -311,11 +311,15 @@ public abstract class InsightsPage(PageServices s) : PageModel
         if (PrivacyMode) return [];
         try
         {
+            /* Full administrators only (2.6.4): one limited to some Admin pages may not have Access among them. */
             return await Db.QueryAsync<string>(@"
+DECLARE @full NVARCHAR(100) = CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN N'' ELSE N' AND NULLIF(LTRIM(RTRIM(g.Pages)), N'''') IS NULL' END;
+DECLARE @sql NVARCHAR(MAX) = N'
 SELECT TOP (3) COALESCE(p.DisplayName, g.Principal)
 FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
-WHERE g.Role = N'Admin' AND g.PrincipalType = N'User'
-ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
+WHERE g.Role = N''Admin'' AND g.PrincipalType = N''User''' + @full + N'
+ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;';
+EXEC sys.sp_executesql @sql;");
         }
         catch (Microsoft.Data.SqlClient.SqlException) { return []; }
     }
@@ -338,8 +342,9 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */
         var turnedOff = !AdminOnly && Pages.HiddenReports.Is(HiddenReports, Request.Path);
         if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin > Reports shown.";
-        else if (!Viewer.Admitted && !(Viewer.IsAdmin && (AdminOnly || OpenToAdmins))) Denied = LimitRefusal(Viewer);
-        else if (AdminOnly && !Viewer.IsAdmin) Denied = "This page is for dashboard administrators.";
+        else if (!Viewer.Admitted && !(AdminOnly ? Viewer.CanAdmin(Request.Path) : OpenToAdmins && Viewer.AnyAdmin)) Denied = LimitRefusal(Viewer);
+        else if (AdminOnly && !Viewer.CanAdmin(Request.Path))
+            Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin > Access." : "This page is for dashboard administrators.";
         else if (Nav.SectionOf(Request.Path) is { Role: { } section } g && !Viewer.Has(section))
             Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin > Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
@@ -362,7 +367,7 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     public static string LimitRefusal(Viewer viewer) =>
         $"This dashboard is for leaders at levels 1 to {viewer.MaxLevel} of the organization" +
         (viewer.Level is { } l ? $"; you are at level {l}." : ", and your account is not placed in the org chart.") +
-        (viewer.IsAdmin ? " As an administrator, you can open the Admin pages." : " An administrator can grant access in Admin > Access.");
+        (viewer.IsAdmin ? " As an administrator, you can open the Admin pages." : viewer.AnyAdmin ? " You can open the Admin pages your Admin role covers." : " An administrator can grant access in Admin > Access.");
 
     public virtual async Task<IActionResult> OnGetAsync()
     {
@@ -426,7 +431,8 @@ ORDER BY CASE WHEN p.AccountEnabled = 1 THEN 0 ELSE 1 END, g.GrantedUtc;");
     protected async Task<IActionResult> AdminChangeAsync(Func<Task<string>> change)
     {
         if (!await PrepareAsync()) return Page();
-        if (!Viewer.IsAdmin)
+        /* On an Admin page, whoever may open it (2.6.4: a limited administrator, their own pages); elsewhere, full administrators. */
+        if (!Viewer.CanAdmin(Request.Path))
         {
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, "admin change refused");
             return StatusCode(403);

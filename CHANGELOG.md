@@ -4,6 +4,68 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.4] - 2026-10-13
+
+An administrator can be limited to some of the fourteen Admin pages; Agents › Agent inventory filters on where an
+agent was made; and a new guide to compiling the dashboard yourself, with the NuGet packages a build needs.
+
+This is not the 2.6.4 published on 2026-10-10 and withdrawn the next day. That build gave chosen Admin pages through a
+role of its own, Persona; this one limits the Admin role itself. A database that build was installed over is carried
+across by the installer (see *To upgrade*).
+
+To upgrade from 2.6.3: with the nightly task disabled, replace the job server's scripts, run
+`Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once, then install the dashboard package over the one in
+place and enable the task again. The installer adds one column, `dash.RoleGrant.Pages`, which takes NULL. Nothing is
+rebuilt and no figure changes. Every Admin grant in place stays a full administrator. Where the withdrawn build left
+Persona grants, each becomes an Admin grant limited to the same pages, unless the same person or group already holds
+Admin, which stands. A 2.6.4 dashboard over a database not yet upgraded works: every Admin grant is whole, and no
+pages are offered to tick.
+
+### Added
+- **Admin › Access: an administrator for some Admin pages only.** In *Grant a role*, with Admin ticked, tick under
+  *Admin pages* any of the fourteen: Health, Access, Directory quality, Email, Alerts and digests, Targets and
+  assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Reports shown,
+  Scheduled extracts, Training records, Audit log. That person or group sees those pages in the navigation and no
+  other Admin page, changes what is on them, and is refused the rest: the page, its forms and its files. None
+  ticked, or all fourteen, is the whole role, as every Admin grant was.
+  - Granting Admin again to someone who holds it replaces their pages, and the message says what the role now covers.
+  - The grants list shows a limited Admin role with its pages in brackets; *Check someone's access* says what a
+    person's Admin role covers.
+  - Only a full administrator gives, limits or removes Admin, so someone limited to Access cannot make themselves,
+    or anyone, an administrator. They can grant and remove the other roles. Nobody can limit their own Admin role.
+  - Someone in several grants gets the pages of all of them; one whole Admin grant among them makes them a full
+    administrator. Administrators named in `Insights:BootstrapAdmins` are always full.
+  - Outside the dashboard's levels a limited administrator keeps their pages, as a full one keeps all of them. The
+    data API's `health` call answers whoever may open Admin › Health. A change on a report page that only an
+    administrator may make (a contract on Budget and renewal) stays with full administrators.
+  - `dash.RoleGrant.Pages` holds the pages as their paths, comma-separated; NULL is the whole role.
+- **Agents › Agent inventory: a *Created in* filter.** A box with the values the workbook's `CreatedIn` column holds
+  (*Copilot Studio*, *Copilot Studio Lite*), *All* first. A choice keeps the list, its counts and its CSV to those
+  agents. The period and the part of the organization still decide the use shown, and the choice stays on the page's
+  own links: the period, the way down the organization, *All* and *Not used*, the sort and the search. It is read
+  from `dbo.AgentInventory`, the sheet as the nightly workbook load keeps it; only a value the column holds reaches
+  the query, as a parameter. The box appears when a workbook with the column is loaded.
+- **Filters on a workbook list are one line each.** A page that lists the workbook's agents names its filters as
+  `new("createdin", "Created in", "CreatedIn")`: the name in the address, the box's label, the sheet's column. No
+  column is added to a table and the load does not change. Agent inventory has the one; Shared agents and the other
+  lists have none.
+- **`docs/BUILD-FROM-SOURCE.md`: compiling the dashboard yourself.** What a build needs (the .NET 10 SDK, the
+  source, the NuGet packages), the 24 packages by name and version with what brings each in, building and installing
+  with internet access, and building with none from a folder of the packages. A test fails when the list is not what
+  a restore brings.
+
+### Changed
+- **The Admin role's description** on Admin › Access says it can be limited to pages.
+- **A page that was refused names full administrators** as the people to ask, not one limited to some pages.
+
+### Known limits
+- **The pages of an Admin grant are set on Admin › Access only.** `Invoke-CopilotMaintenance.ps1 -Task GrantRole
+  -Role Admin` grants the whole role.
+- **The *Created in* filter was tested on the demo database** with a workbook shaped like a client's sample, and not
+  against a client's own workbook.
+- **Building with no internet access was tested on one PC**, with the package folder as the only source and an
+  unreachable proxy standing in for no network, not on a server without a route out.
+
 ## [2.6.3] - 2026-10-08
 
 An agent the audit log names two ways is one agent, with all its use and the workbook's name and owner; Admin › Access

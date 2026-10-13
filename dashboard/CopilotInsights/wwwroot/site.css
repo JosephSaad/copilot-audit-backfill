@@ -352,6 +352,8 @@ form.admin fieldset.roles legend { font-size: 12px; color: var(--muted); padding
 form.admin fieldset.roles label { flex-direction: row; align-items: center; gap: 4px; color: var(--ink); font-size: 13px; }
 td .grant { display: inline-flex; align-items: center; gap: 4px; margin: 0 16px 2px 0; white-space: nowrap; }
 td .grant form.admin { display: inline-flex; }
+/* The pages an Admin grant is limited to (2.6.4): a list that may be long, so it wraps where the role's name does not. */
+td .grant small { white-space: normal; color: var(--muted); }
 td .grant button.x { width: 18px; height: 18px; padding: 0; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 td form.admin { margin: 0; flex-wrap: nowrap; }
 td form.admin label { flex-direction: row; align-items: center; gap: 4px; }
