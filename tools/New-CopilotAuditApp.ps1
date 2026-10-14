@@ -25,7 +25,7 @@
     run only adds a renewed certificate.
 
     Uses Microsoft.Graph.Authentication only, from the Modules folder next to
-    the scripts when present (the offline bundle).
+    the scripts when present (tools\Save-CopilotAuditModules.ps1 fills it).
 
 .PARAMETER TenantId
     The tenant: its id or a verified domain (contoso.onmicrosoft.com).
@@ -172,7 +172,7 @@ function Invoke-Main {
     [CmdletBinding(SupportsShouldProcess)] param()
     foreach ($cmd in 'Connect-MgGraph', 'Invoke-MgGraphRequest', 'Get-MgContext') {
         if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-            throw "$cmd not found. Install Microsoft.Graph.Authentication, or run this from the offline bundle, which has it in its Modules folder."
+            throw "$cmd not found. Install Microsoft.Graph.Authentication, or save it into the Modules folder beside the scripts (tools\Save-CopilotAuditModules.ps1)."
         }
     }
     $cert = if ($CertificatePath) { Get-CertificateCredential $CertificatePath } else { $null }

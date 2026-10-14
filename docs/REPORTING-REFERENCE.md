@@ -13667,7 +13667,7 @@ GO
 
 ### C.21 `Invoke-CopilotPipeline.ps1`
 
-The nightly run and the first load of history: the order in which every table is filled. 521 lines.
+The nightly run and the first load of history: the order in which every table is filled. 550 lines.
 
 ```powershell
 <#
@@ -13757,6 +13757,8 @@ $script:AgentOperations = 'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpda
                           'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
                           'BotComponentCollectionCreate', 'BotComponentCollectionDelete'
 $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
+# The delete guard's exit code (2.6.5): a loader that kept its table's last good load, which the night goes on from.
+. (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
 
 function Get-PipelineSetting {
@@ -13822,6 +13824,12 @@ function Get-PipelineStep {
     $readLic = @(@(if (Has 'SessionLicenseDatabases') { $Setting.SessionLicenseDatabases } elseif ($lic) { $lic }) |
                  ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $steps = [System.Collections.Generic.List[object]]::new()
+    # The delete guard's percentage for a loader (2.6.5), where the settings set one: <Loader>MaxDropPercent, 0 to turn it off.
+    # Without one, the loader's own default (15) applies.
+    function Drop($argsTable, $key) {
+        if ($Setting.Contains($key) -and $null -ne $Setting[$key] -and "$($Setting[$key])" -ne '') { $argsTable.MaxDropPercent = [double] $Setting[$key] }
+        $argsTable
+    }
     function Add($name, $script, $argsTable, [switch] $Optional) {
         $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
     }
@@ -13832,13 +13840,13 @@ function Get-PipelineStep {
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
             if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # 2.5.0: where the department is
             if (Has 'CountryNames') { $a.CountryNames = $Setting.CountryNames }   # the administrator's own names for countries
-            Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' $a
+            Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' (Drop $a 'UserDirectoryMaxDropPercent')
         }
     }
     $licenses = {
         $l = $sql + $app + @{ Database = $Setting.Database; AllLicensedUsers = $true }
         if (Has 'IncludeLeaveDates') { $l.IncludeLeaveDates = $true }   # 2.4.3: needs User-LifeCycleInfo.Read.All
-        Add 'Copilot licenses from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' $l
+        Add 'Copilot licenses from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' (Drop $l 'LicenseMaxDropPercent')
     }
 
     if ($History) {
@@ -13866,9 +13874,9 @@ function Get-PipelineStep {
                            ClientId = $Setting.AgentWorkbookClientId; CertificateThumbprint = $Setting.AgentWorkbookCertificateThumbprint }
             if (Has 'AgentWorkbookFolder') { $w.Folder = $Setting.AgentWorkbookFolder }
             if (Has 'AgentWorkbookFilter') { $w.FileFilter = $Setting.AgentWorkbookFilter }
-            Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' $w
+            Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' (Drop $w 'AgentWorkbookMaxDropPercent')
         }
-        elseif (Has 'AgentWorkbookUrl') { Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' ($sql + @{ Database = $Setting.Database; Url = $Setting.AgentWorkbookUrl }) }
+        elseif (Has 'AgentWorkbookUrl') { Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' (Drop ($sql + @{ Database = $Setting.Database; Url = $Setting.AgentWorkbookUrl }) 'AgentWorkbookMaxDropPercent') }
         if ($lic) { Add 'License events' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; Incremental = $true; Operations = $script:LicenseOperations }) }
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
         if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }
@@ -13880,14 +13888,14 @@ function Get-PipelineStep {
             if (Has 'GitHubEnterprise') { $g.Enterprise = [string] $Setting.GitHubEnterprise } else { $g.Organization = [string] $Setting.GitHubOrganization }
             if (Has 'GitHubTokenPath') { $g.TokenPath = [string] $Setting.GitHubTokenPath }
             if (Has 'GitHubApiBase') { $g.ApiBase = [string] $Setting.GitHubApiBase }
-            Add 'GitHub Copilot usage' 'tools/Import-GitHubCopilotUsage.ps1' $g -Optional
+            Add 'GitHub Copilot usage' 'tools/Import-GitHubCopilotUsage.ps1' (Drop $g 'GitHubSeatMaxDropPercent') -Optional
         }
         if ((Has 'FoundrySubscriptions') -and ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
             $f = $sql + @{ Database = $Setting.Database; SubscriptionId = @($Setting.FoundrySubscriptions)
                            TenantId = $(if (Has 'FoundryTenantId') { $Setting.FoundryTenantId } else { $Setting.TenantId })
                            ClientId = $(if (Has 'FoundryClientId') { $Setting.FoundryClientId } else { $Setting.ClientId })
                            CertificateThumbprint = $(if (Has 'FoundryCertificateThumbprint') { $Setting.FoundryCertificateThumbprint } else { $Setting.CertificateThumbprint }) }
-            Add 'Foundry usage and cost' 'tools/Import-FoundryUsage.ps1' $f -Optional
+            Add 'Foundry usage and cost' 'tools/Import-FoundryUsage.ps1' (Drop $f 'FoundryDeploymentMaxDropPercent') -Optional
         }
     }
     , $steps.ToArray()
@@ -13922,6 +13930,17 @@ function Invoke-PipelineStep {
     & pwsh -NoProfile -NonInteractive -Command { param($s, $a) $global:LASTEXITCODE = 0; & $s @a; exit $LASTEXITCODE } -args $Step.Script, $Step.Arguments 2>&1 |
         Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
     $LASTEXITCODE
+}
+
+function Get-DropGuardDetail {
+    <#
+        The run's detail when the delete guard refused a load (2.6.5): which steps, and the guard's own lines from the
+        log, the last five, so Admin > Health says why without opening the log. At most 4,000 characters.
+    #>
+    param([string[]] $Step, [string] $Log)
+    $why = @(if ($Log -and (Test-Path -LiteralPath $Log)) { Get-Content -LiteralPath $Log | Where-Object { $_ -match 'the delete guard allows at most' } | Select-Object -Last 5 })
+    $text = "Refused by the delete guard: $($Step -join ', '). Each table kept its last good load; the rest of the run went on." + $(if ($why.Count) { "`n" + ($why -join "`n") } else { '' })
+    $text.Substring(0, [Math]::Min(4000, $text.Length))
 }
 
 function Get-PipelineConnectionString {
@@ -14117,12 +14136,20 @@ function Invoke-TenantRun {
     # Each certificate the run signs in with, for Admin > Health and the expiry alerts: the audit app's and the agent workbook's.
     Write-PipelineCertificate $T -Log $Log
     $n = 0
+    $refused = [System.Collections.Generic.List[string]]::new()
     foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
         $n++
         if ($Label) { $step.Name = "$Label $($step.Name)" }
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }
         $code = Invoke-PipelineStep -Step $step -Log $Log
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@c' = $code } -Sql 'UPDATE audit.PipelineRunStep SET EndedUtc = SYSUTCDATETIME(), ExitCode = @c WHERE RunId = @r AND StepNo = @n;') }
+        if ($code -eq $script:DropRefusedExitCode) {
+            # Refused by the delete guard (2.6.5): the table kept its last good load, so the steps after it can run.
+            "$(Get-Date -Format s) $($step.Name) was refused by the delete guard: its table keeps the last good load (the reason is above). The run goes on." |
+                Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+            $refused.Add($step.Name)
+            continue
+        }
         if ($code -ne 0 -and $step.PSObject.Properties['Optional'] -and $step.Optional) {
             # An optional step (2.6.2): its failure is on its own row and in the log, and the run goes on.
             "$(Get-Date -Format s) $($step.Name) failed (exit code $code). It is optional: the run goes on. Its own log is audit.ExternalUsageRun (Admin > Health)." |
@@ -14144,7 +14171,9 @@ function Invoke-TenantRun {
         foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
     if (-not $History) { Invoke-Retention -Setting $T -Log $Log }
-    if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded' WHERE RunId = @r;") }
+    # A load the delete guard refused is named in the run's detail, which Admin > Health shows, with its reason.
+    $detail = if ($refused.Count) { Get-DropGuardDetail -Step $refused -Log $Log } else { $null }
+    if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@d' = $detail } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', Detail = @d WHERE RunId = @r;") }
     $true
 }
 
@@ -14195,7 +14224,7 @@ if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
 
 ### C.22 `tools/Import-AgentWorkbook.ps1`
 
-Creates and fills the three `dbo` tables of the agent workbook, then `dash.AgentInventory` and `dash.AgentChildLink`. 361 lines.
+Creates and fills the three `dbo` tables of the agent workbook, then `dash.AgentInventory` and `dash.AgentChildLink`. 395 lines.
 
 ```powershell
 <#
@@ -14221,19 +14250,27 @@ Creates and fills the three `dbo` tables of the agent workbook, then `dash.Agent
        agent the workbook does not list or leaves unnamed.
     5. Records the load in dash.AgentInventoryRun, which Admin > Health shows.
 
+    THE DELETE GUARD (2.6.5). Before anything is replaced, each sheet's rows are counted against its table's. When
+    a sheet has more than -MaxDropPercent fewer rows than its table holds (AgentWorkbookMaxDropPercent in the
+    settings file, 15 by default), the whole workbook is refused: no table changes, the run is recorded as failed
+    with the reason, and the nightly run says so. 10,000 agents last night and 8,000 tonight is a 20% drop: refused
+    at 15. If the drop is real, run this once with -AllowDrop. -MaxDropPercent 0 turns the guard off.
+
     With no -SiteUrl or -Url, everything comes from the settings file beside the scripts
     (copilot-audit.settings.psd1): AgentWorkbookSiteUrl, AgentWorkbookFolder, AgentWorkbookFilter,
     AgentWorkbookTenantId (else TenantId), AgentWorkbookClientId and AgentWorkbookCertificateThumbprint, or
     AgentWorkbookUrl; and SqlServer, Database and TrustServerCertificate.
 
-    Reads .xlsx with the ImportExcel module, which the offline zip carries in its Modules folder (2.5.7). For
-    SharePoint Online, put PnP.PowerShell there too (Save-Module PnP.PowerShell -Path <scripts>\Modules; it needs
-    PowerShell 7.4.6 or later), so the nightly task's account finds it.
+    Reads .xlsx with the ImportExcel module: install it for the nightly task's account, or put it in a Modules
+    folder beside the scripts, where it is found first. For SharePoint Online, PnP.PowerShell too (it needs
+    PowerShell 7.4.6 or later).
 
 .EXAMPLE
     .\tools\Import-AgentWorkbook.ps1          # as the nightly run does, from the settings file
 .EXAMPLE
     .\tools\Import-AgentWorkbook.ps1 -Url '\\fileserver\Copilot\Agents.xlsx' -SqlServer SQLPROD01
+.EXAMPLE
+    .\tools\Import-AgentWorkbook.ps1 -AllowDrop        # tonight's workbook really has fewer agents: load it anyway
 #>
 #Requires -Version 7.2
 param(
@@ -14247,16 +14284,20 @@ param(
     [switch] $TrustServerCertificate,
     [string] $ConnectionString,               # for the tests: used as it is, in place of -SqlServer and -Database
     [string] $SettingsPath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'copilot-audit.settings.psd1'),
-    [hashtable] $Sheets = @{ 'AgentInventory' = 'dbo.AgentInventory'; 'AgentsInProd' = 'dbo.AgentsInProd'; 'ParentChildAgent' = 'dbo.ParentChildAgent' }
+    [hashtable] $Sheets = @{ 'AgentInventory' = 'dbo.AgentInventory'; 'AgentsInProd' = 'dbo.AgentsInProd'; 'ParentChildAgent' = 'dbo.ParentChildAgent' },
+    [ValidateRange(0, 100)][double] $MaxDropPercent = 15,   # the delete guard (2.6.5): the most a sheet may shrink, in %; 0 is off
+    [switch] $AllowDrop                                      # load a workbook the guard would refuse, once
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'DropGuard.ps1')
 $modules = Join-Path (Split-Path $PSScriptRoot -Parent) 'Modules'
 if (Test-Path $modules) { $env:PSModulePath = "$modules;$env:PSModulePath" }
 
 # What the command line does not give comes from the settings file.
+$s = if (Test-Path -LiteralPath $SettingsPath) { Import-PowerShellDataFile -LiteralPath $SettingsPath } else { @{} }
+$MaxDropPercent = Resolve-MaxDropPercent -What 'Agent workbook' -Given $MaxDropPercent -WasGiven $PSBoundParameters.ContainsKey('MaxDropPercent') -Settings $s
 if (-not $SiteUrl -and -not $Url) {
     if (-not (Test-Path -LiteralPath $SettingsPath)) { throw "Give -SiteUrl or -Url, or put AgentWorkbookSiteUrl or AgentWorkbookUrl in $SettingsPath." }
-    $s = Import-PowerShellDataFile -LiteralPath $SettingsPath
     function Setting($k) { if ($s.Contains($k) -and $s[$k]) { $s[$k] } }
     $SiteUrl = Setting 'AgentWorkbookSiteUrl'; $Url = Setting 'AgentWorkbookUrl'
     if (Setting 'AgentWorkbookFolder') { $Folder = Setting 'AgentWorkbookFolder' }
@@ -14285,6 +14326,7 @@ function Q([string] $s) { if ($null -eq $s) { 'NULL' } else { "N'" + $s.Replace(
 # The load is recorded for Admin > Health, from its start, so a failure shows too.
 $runId = Sql "IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NOT NULL BEGIN INSERT INTO dash.AgentInventoryRun DEFAULT VALUES; SELECT CAST(SCOPE_IDENTITY() AS INT); END" $null -Scalar
 $file = Join-Path ([IO.Path]::GetTempPath()) "agent-workbook-$PID.xlsx"
+$refused = $false
 try {
     Import-Module ImportExcel
     $source = $Url; $created = $null
@@ -14302,20 +14344,36 @@ try {
     elseif ($Url -match '^https?://') { Invoke-WebRequest -Uri $Url -OutFile $file -UseDefaultCredentials }
     else { Copy-Item -LiteralPath $Url -Destination $file; $created = (Get-Item -LiteralPath $Url).CreationTimeUtc }
 
-    # 1. Each sheet as it is, into its own table.
-    $loaded = @{}
-    foreach ($sheet in $Sheets.Keys) {
+    # 1. Each sheet as it is, read whole before any table is touched.
+    $read = [ordered]@{}
+    foreach ($sheet in @($Sheets.Keys | Sort-Object)) {
         $table = $Sheets[$sheet]
         $rows = @(Import-Excel -Path $file -WorksheetName $sheet)
         if (-not $rows) { Write-Warning "Sheet $sheet is empty or missing: $table left as it is."; continue }
         $dt = [System.Data.DataTable]::new()
-        $cols = $rows[0].PSObject.Properties.Name
+        $cols = @($rows[0].PSObject.Properties.Name)   # a list even for a sheet of one column, whose name alone would be a string
         foreach ($c in $cols) { [void] $dt.Columns.Add($c, [string]) }
         foreach ($r in $rows) {
             [void] $dt.Rows.Add(@($cols | ForEach-Object {
                 $v = $r.$_
                 if ($null -eq $v) { [DBNull]::Value } elseif ($v -is [datetime]) { $v.ToString('yyyy-MM-dd HH:mm:ss') } else { "$v" } }))
         }
+        $read[$sheet] = [pscustomobject]@{ Table = $table; Data = $dt; Columns = $cols }
+    }
+
+    # 2. The delete guard (2.6.5): every sheet against what its table holds, before any is replaced.
+    foreach ($sheet in $read.Keys) {
+        $table = $read[$sheet].Table
+        $q = ($table -split '\.' | ForEach-Object { "[$($_.Trim('[]'))]" }) -join '.'
+        $before = [long] (Sql "IF OBJECT_ID(N'$table', N'U') IS NULL SELECT CAST(0 AS BIGINT); ELSE EXEC (N'SELECT COUNT_BIG(*) FROM $q;');" $null -Scalar)
+        Assert-DropGuard -What "Sheet $sheet ($table)" -Before $before -After $read[$sheet].Data.Rows.Count -MaxDropPercent $MaxDropPercent `
+                         -Setting 'AgentWorkbookMaxDropPercent' -AllowDrop:$AllowDrop
+    }
+
+    # 3. Each sheet into its own table.
+    $loaded = @{}
+    foreach ($sheet in $read.Keys) {
+        $table = $read[$sheet].Table; $dt = $read[$sheet].Data; $cols = $read[$sheet].Columns
         $q = ($table -split '\.' | ForEach-Object { "[$($_.Trim('[]'))]" }) -join '.'
         Sql "IF OBJECT_ID(N'$table', N'U') IS NULL CREATE TABLE $q ([$($cols[0].Replace(']', ']]'))] NVARCHAR(MAX) NULL);" $null
         foreach ($c in $cols) { Sql "IF COL_LENGTH(N'$table', N'$($c.Replace("'", "''"))') IS NULL ALTER TABLE $q ADD [$($c.Replace(']', ']]'))] NVARCHAR(MAX) NULL;" $null }
@@ -14335,7 +14393,7 @@ try {
         Write-Host "$sheet -> $table`: $($dt.Rows.Count) row(s)."
     }
 
-    # 2. The inventory the reports read, matched to the agents the audit log knows. A column the sheet lacks is NULL.
+    # 4. The inventory the reports read, matched to the agents the audit log knows. A column the sheet lacks is NULL.
     $inv = $Sheets['AgentInventory']; $prod = $Sheets['AgentsInProd']; $pc = $Sheets['ParentChildAgent']
     if ($inv -and (Sql "SELECT CASE WHEN OBJECT_ID(N'$inv', N'U') IS NULL OR OBJECT_ID(N'dash.AgentInventory', N'U') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
         function Columns($t) { $c = $conn.CreateCommand(); $c.CommandText = "SELECT name FROM sys.columns WHERE object_id = OBJECT_ID(N'$t')"; $r = $c.ExecuteReader(); $n = @(); while ($r.Read()) { $n += $r.GetString(0) }; $r.Dispose(); $n }
@@ -14556,14 +14614,19 @@ WHERE RunId = $runId;
 }
 catch {
     if ($runId) { Sql "UPDATE dash.AgentInventoryRun SET EndedUtc = SYSUTCDATETIME(), Status = N'Failed', Message = $(Q ([string] $_.Exception.Message).Substring(0, [Math]::Min(2000, ([string] $_.Exception.Message).Length))) WHERE RunId = $runId;" $null }
-    throw
+    $refused = Test-DropRefusal $_
+    if (-not $refused) { throw }
+    # Written as the rest of the run is, so the nightly log has it (a warning from the step's process is not kept there).
+    Write-Host "Refused: $($_.Exception.Message)"
 }
 finally { $conn.Dispose(); Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue }
+# Refused by the delete guard (2.6.5): every table kept the last workbook, and the nightly run goes on.
+if ($refused) { exit $script:DropRefusedExitCode }
 ```
 
 ### C.23 `tools/ExternalUsage.Common.ps1`
 
-What the two loaders below share: how a set of rows replaces the ones it supersedes in one transaction, and the run log (`audit.ExternalUsageRun`). 127 lines.
+What the two loaders below share: how a set of rows replaces the ones it supersedes in one transaction, and the run log (`audit.ExternalUsageRun`). 142 lines.
 
 ```powershell
 <#
@@ -14575,8 +14638,11 @@ What the two loaders below share: how a set of rows replaces the ones it superse
     Dot-sourced by the two tools; it runs nothing by itself. Every table is written the same way: the rows go
     to a temporary table in one bulk copy, then, in one transaction, the rows they replace are deleted and the
     new ones inserted. So a load can be run again over the same days, and a reader never sees a table half
-    written.
+    written. A table replaced whole for its scope (the seats, the deployments) is held by the delete guard
+    (2.6.5, tools\DropGuard.ps1, which this loads).
 #>
+
+. (Join-Path $PSScriptRoot 'DropGuard.ps1')
 
 function New-UsageConnection {
     <# An open connection to the Copilot database: Windows authentication, encrypted, as the other tools connect. #>
@@ -14633,6 +14699,10 @@ function Write-UsageTable {
         Writes the rows to -Table, replacing what they supersede, in one transaction. What is replaced is either
         every row matching -ReplaceWhere (a whole scope, or a scope's month; its parameters in -ReplaceParameters),
         or, without it, each row with the same -Key as a new one. Returns how many rows were written.
+
+        With -MaxDropPercent above 0 and -ReplaceWhere (2.6.5), the delete guard first: when the new rows are more
+        than that percentage fewer than the rows they replace, nothing is written and the guard's refusal is thrown
+        (tools\DropGuard.ps1). -What names the rows for the message, -Setting the setting the percentage is in.
     #>
     param(
         [System.Data.SqlClient.SqlConnection] $Connection,
@@ -14640,9 +14710,17 @@ function Write-UsageTable {
         [System.Data.DataTable] $Rows,
         [string[]] $Key = @(),
         [string] $ReplaceWhere,
-        [hashtable] $ReplaceParameters = @{}
+        [hashtable] $ReplaceParameters = @{},
+        [double] $MaxDropPercent = 0,
+        [string] $What = $Table,
+        [string] $Setting,
+        [switch] $AllowDrop
     )
     if ($Table -notmatch '^audit\.[A-Za-z]+$') { throw "Not a table of these tools: $Table" }
+    if ($MaxDropPercent -gt 0 -and $ReplaceWhere) {
+        $before = [long] (Invoke-UsageSql $Connection "SELECT COUNT_BIG(*) FROM $Table WHERE $ReplaceWhere;" $ReplaceParameters)
+        Assert-DropGuard -What $What -Before $before -After $Rows.Rows.Count -MaxDropPercent $MaxDropPercent -Setting $Setting -AllowDrop:$AllowDrop
+    }
     $cols = @($Rows.Columns | ForEach-Object { "[$($_.ColumnName)]" }) -join ', '
     [void] (Invoke-UsageSql $Connection "IF OBJECT_ID(N'tempdb..#usage') IS NOT NULL DROP TABLE #usage; SELECT TOP (0) $cols INTO #usage FROM $Table;")
     if ($Rows.Rows.Count -gt 0) {
@@ -14697,7 +14775,7 @@ function Get-UsageDay {
 
 ### C.24 `tools/Import-GitHubCopilotUsage.ps1`
 
-Fills the four `audit.GitHubCopilot...` tables from GitHub's REST API, for an enterprise or an organization. Optional; the nightly run calls it when the settings name one. 396 lines.
+Fills the four `audit.GitHubCopilot...` tables from GitHub's REST API, for an enterprise or an organization. Optional; the nightly run calls it when the settings name one. 410 lines.
 
 ```powershell
 <#
@@ -14756,6 +14834,15 @@ Fills the four `audit.GitHubCopilot...` tables from GitHub's REST API, for an en
 .PARAMETER SaveToken
     Ask for the token and save it, encrypted for this computer, to -TokenPath. Nothing is loaded.
 
+.PARAMETER MaxDropPercent
+    The delete guard (2.6.5). The seats are replaced whole for the enterprise or organization each run. When
+    GitHub lists more than this percentage fewer seats than the table holds (GitHubSeatMaxDropPercent in the
+    settings file, 15 by default), the seats are not replaced and the run ends Partial, saying why; usage and
+    cost load as usual. 0 turns the guard off.
+
+.PARAMETER AllowDrop
+    Replace the seats even when the guard would refuse, once: after seats were really taken back.
+
 .EXAMPLE
     .\tools\Import-GitHubCopilotUsage.ps1 -SaveToken
 .EXAMPLE
@@ -14779,12 +14866,15 @@ param(
     [string] $SettingsPath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'copilot-audit.settings.psd1'),
     # GitHub Enterprise Cloud with data residency has its own API host (https://api.<tenant>.ghe.com); the tests point this at a mock.
     [string] $ApiBase = 'https://api.github.com',
-    [string] $ApiVersion = '2026-03-10'
+    [string] $ApiVersion = '2026-03-10',
+    [ValidateRange(0, 100)][double] $MaxDropPercent = 15,
+    [switch] $AllowDrop
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ExternalUsage.Common.ps1')
+$script:MaxDropGiven = $PSBoundParameters.ContainsKey('MaxDropPercent')   # read here: in Invoke-Main, $PSBoundParameters is its own
 
 function Write-Line([string] $Text) { Write-Information ("{0:u} {1}" -f [datetime]::UtcNow, $Text) -InformationAction Continue }
 
@@ -14990,6 +15080,7 @@ function Invoke-Main {
     $setting = @{}
     if (Test-Path -LiteralPath $SettingsPath) { $setting = Import-PowerShellDataFile -LiteralPath $SettingsPath }
     function Setting($k) { if ($setting.Contains($k) -and $setting[$k]) { $setting[$k] } }
+    $script:MaxDropPercent = Resolve-MaxDropPercent -What 'GitHub Copilot seats' -Given $MaxDropPercent -WasGiven $script:MaxDropGiven -Settings $setting
     if (-not $TokenPath) { $script:TokenPath = if (Setting 'GitHubTokenPath') { Setting 'GitHubTokenPath' } else { Join-Path (Split-Path $SettingsPath -Parent) 'github-copilot.token' } }
 
     if ($SaveToken) {
@@ -15030,7 +15121,8 @@ function Invoke-Main {
                 $n = Write-UsageTable $conn 'audit.GitHubCopilotSeat' (ConvertTo-UsageTable $rows ([ordered]@{
                         Scope = [string]; Login = [string]; UserId = [long]; Organization = [string]; AssigningTeam = [string]; PlanType = [string]; CreatedUtc = [datetime]
                         LastActivityUtc = [datetime]; LastActivityEditor = [string]; LastAuthenticatedUtc = [datetime]; PendingCancellationDate = [datetime] })) `
-                    -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = $scope.Name }
+                    -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = $scope.Name } `
+                    -MaxDropPercent $MaxDropPercent -What "GitHub Copilot seats of $($scope.Name)" -Setting 'GitHubSeatMaxDropPercent' -AllowDrop:$AllowDrop
                 $written += $n; $done.Add("$n seat(s)"); Write-Line "Seats: $n."
             }
             catch { $skipped.Add("seats ($($_.Exception.Message))"); Write-Warning "Seats were not loaded: $($_.Exception.Message)" }
@@ -15100,7 +15192,7 @@ if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
 
 ### C.25 `tools/Import-FoundryUsage.ps1`
 
-Fills the three `audit.Foundry...` tables from Azure Resource Manager, Azure Monitor and Cost Management, for the subscriptions named. Optional; the nightly run calls it when the settings name them. 408 lines.
+Fills the three `audit.Foundry...` tables from Azure Resource Manager, Azure Monitor and Cost Management, for the subscriptions named. Optional; the nightly run calls it when the settings name them. 427 lines.
 
 ```powershell
 <#
@@ -15146,6 +15238,15 @@ Fills the three `audit.Foundry...` tables from Azure Resource Manager, Azure Mon
 .PARAMETER Days
     How many complete UTC days to read, ending yesterday. Default 10; at most 90 (Azure Monitor keeps 93).
 
+.PARAMETER MaxDropPercent
+    The delete guard (2.6.5). A subscription's deployments are replaced whole each run. When Azure lists more
+    than this percentage fewer than the table holds for it (FoundryDeploymentMaxDropPercent in the settings file,
+    15 by default), its deployments are not replaced and the run ends Partial, saying why; its usage and cost
+    load as usual. 0 turns the guard off.
+
+.PARAMETER AllowDrop
+    Replace the deployments even when the guard would refuse, once: after deployments were really removed.
+
 .EXAMPLE
     .\tools\Import-FoundryUsage.ps1 -SubscriptionId 00000000-0000-0000-0000-000000000000 -TenantId contoso.onmicrosoft.com `
         -ClientId <app-id> -CertificateThumbprint <thumbprint> -SqlServer SQLPROD01 -Days 90
@@ -15168,12 +15269,15 @@ param(
     # A token already in hand, in place of signing in (the tests); and the endpoints, for a sovereign cloud or a mock.
     [securestring] $AccessToken,
     [string] $ArmEndpoint = 'https://management.azure.com',
-    [string] $LoginEndpoint = 'https://login.microsoftonline.com'
+    [string] $LoginEndpoint = 'https://login.microsoftonline.com',
+    [ValidateRange(0, 100)][double] $MaxDropPercent = 15,
+    [switch] $AllowDrop
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ExternalUsage.Common.ps1')
+$script:MaxDropGiven = $PSBoundParameters.ContainsKey('MaxDropPercent')   # read here: in Invoke-Main, $PSBoundParameters is its own
 
 $script:AccountsVersion = '2024-10-01'
 $script:MetricsVersion = '2023-10-01'
@@ -15386,6 +15490,7 @@ function Invoke-Main {
     $setting = @{}
     if (Test-Path -LiteralPath $SettingsPath) { $setting = Import-PowerShellDataFile -LiteralPath $SettingsPath }
     function Setting($k) { if ($setting.Contains($k) -and $setting[$k]) { $setting[$k] } }
+    $script:MaxDropPercent = Resolve-MaxDropPercent -What 'Foundry deployments' -Given $MaxDropPercent -WasGiven $script:MaxDropGiven -Settings $setting
     if (-not $SubscriptionId) { $script:SubscriptionId = @(Setting 'FoundrySubscriptions') }
     $subs = @($SubscriptionId | ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ } | Select-Object -Unique)
     if ($subs.Count -eq 0) { throw 'Give -SubscriptionId, or set FoundrySubscriptions in the settings file.' }
@@ -15439,10 +15544,16 @@ function Invoke-Main {
                     }
                     $deployments += Write-UsageTable $conn 'audit.FoundryDeployment' (ConvertTo-UsageTable $depRows.ToArray() ([ordered]@{
                             SubscriptionId = [string]; ResourceGroup = [string]; Account = [string]; Deployment = [string]; Kind = [string]; Location = [string]; ModelName = [string]
-                            ModelVersion = [string]; ModelPublisher = [string]; SkuName = [string]; Capacity = [int] })) -ReplaceWhere 'SubscriptionId = @s' -ReplaceParameters @{ '@s' = $sub }
+                            ModelVersion = [string]; ModelPublisher = [string]; SkuName = [string]; Capacity = [int] })) -ReplaceWhere 'SubscriptionId = @s' -ReplaceParameters @{ '@s' = $sub } `
+                        -MaxDropPercent $MaxDropPercent -What "Foundry deployments of $sub" -Setting 'FoundryDeploymentMaxDropPercent' -AllowDrop:$AllowDrop
                     $accountsRead += $accounts.Count
                 }
-                catch { $skipped.Add("deployments of $sub ($($_.Exception.Message))"); Write-Warning "Deployments of $sub were not loaded: $($_.Exception.Message)"; continue }
+                catch {
+                    $skipped.Add("deployments of $sub ($($_.Exception.Message))"); Write-Warning "Deployments of $sub were not loaded: $($_.Exception.Message)"
+                    # Refused by the delete guard (2.6.5), the accounts were read: their usage and cost still load.
+                    if (-not (Test-DropRefusal $_)) { continue }
+                    $accountsRead += $accounts.Count
+                }
 
                 # 2. Usage, account by account: the current metrics, else the older ones.
                 try {

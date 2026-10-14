@@ -54,6 +54,15 @@
 .PARAMETER SaveToken
     Ask for the token and save it, encrypted for this computer, to -TokenPath. Nothing is loaded.
 
+.PARAMETER MaxDropPercent
+    The delete guard (2.6.5). The seats are replaced whole for the enterprise or organization each run. When
+    GitHub lists more than this percentage fewer seats than the table holds (GitHubSeatMaxDropPercent in the
+    settings file, 15 by default), the seats are not replaced and the run ends Partial, saying why; usage and
+    cost load as usual. 0 turns the guard off.
+
+.PARAMETER AllowDrop
+    Replace the seats even when the guard would refuse, once: after seats were really taken back.
+
 .EXAMPLE
     .\tools\Import-GitHubCopilotUsage.ps1 -SaveToken
 .EXAMPLE
@@ -77,12 +86,15 @@ param(
     [string] $SettingsPath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'copilot-audit.settings.psd1'),
     # GitHub Enterprise Cloud with data residency has its own API host (https://api.<tenant>.ghe.com); the tests point this at a mock.
     [string] $ApiBase = 'https://api.github.com',
-    [string] $ApiVersion = '2026-03-10'
+    [string] $ApiVersion = '2026-03-10',
+    [ValidateRange(0, 100)][double] $MaxDropPercent = 15,
+    [switch] $AllowDrop
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ExternalUsage.Common.ps1')
+$script:MaxDropGiven = $PSBoundParameters.ContainsKey('MaxDropPercent')   # read here: in Invoke-Main, $PSBoundParameters is its own
 
 function Write-Line([string] $Text) { Write-Information ("{0:u} {1}" -f [datetime]::UtcNow, $Text) -InformationAction Continue }
 
@@ -288,6 +300,7 @@ function Invoke-Main {
     $setting = @{}
     if (Test-Path -LiteralPath $SettingsPath) { $setting = Import-PowerShellDataFile -LiteralPath $SettingsPath }
     function Setting($k) { if ($setting.Contains($k) -and $setting[$k]) { $setting[$k] } }
+    $script:MaxDropPercent = Resolve-MaxDropPercent -What 'GitHub Copilot seats' -Given $MaxDropPercent -WasGiven $script:MaxDropGiven -Settings $setting
     if (-not $TokenPath) { $script:TokenPath = if (Setting 'GitHubTokenPath') { Setting 'GitHubTokenPath' } else { Join-Path (Split-Path $SettingsPath -Parent) 'github-copilot.token' } }
 
     if ($SaveToken) {
@@ -328,7 +341,8 @@ function Invoke-Main {
                 $n = Write-UsageTable $conn 'audit.GitHubCopilotSeat' (ConvertTo-UsageTable $rows ([ordered]@{
                         Scope = [string]; Login = [string]; UserId = [long]; Organization = [string]; AssigningTeam = [string]; PlanType = [string]; CreatedUtc = [datetime]
                         LastActivityUtc = [datetime]; LastActivityEditor = [string]; LastAuthenticatedUtc = [datetime]; PendingCancellationDate = [datetime] })) `
-                    -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = $scope.Name }
+                    -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = $scope.Name } `
+                    -MaxDropPercent $MaxDropPercent -What "GitHub Copilot seats of $($scope.Name)" -Setting 'GitHubSeatMaxDropPercent' -AllowDrop:$AllowDrop
                 $written += $n; $done.Add("$n seat(s)"); Write-Line "Seats: $n."
             }
             catch { $skipped.Add("seats ($($_.Exception.Message))"); Write-Warning "Seats were not loaded: $($_.Exception.Message)" }

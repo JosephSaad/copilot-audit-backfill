@@ -65,6 +65,9 @@ jobs:
       - name: Test-ExternalUsage
         shell: bash
         run: pwsh -NoProfile -File tests/Test-ExternalUsage.ps1
+      - name: Test-DropGuard
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-DropGuard.ps1
       - name: Test-SchemaCompatibility
         shell: bash
         run: pwsh -NoProfile -File tests/Test-SchemaCompatibility.ps1

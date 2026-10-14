@@ -61,6 +61,16 @@
     No effect since 2.0.0, which reads licenses only. Accepted so existing
     scheduled tasks keep working.
 
+.PARAMETER MaxDropPercent
+    The delete guard (2.6.5). audit.UserLicenseSku, every license each person
+    looked up holds, is replaced whole each run. When the new run has more than
+    this percentage fewer rows than the table holds (LicenseMaxDropPercent in
+    the settings file, 15 by default), nothing about the people is written: the
+    licenses stay as the last good run left them. 0 turns the guard off.
+
+.PARAMETER AllowDrop
+    Write a run the guard would refuse, once, when the drop is real.
+
 .EXAMPLE
     .\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit `
         -TenantId contoso.onmicrosoft.com -AllLicensedUsers
@@ -87,11 +97,15 @@ param(
     [switch]   $SkipProfiles,
 
     [ValidateRange(1, 20)] [int] $BatchSize = 20,
-    [string]   $CopilotSkuMatch = 'COPILOT'
+    [string]   $CopilotSkuMatch = 'COPILOT',
+
+    [ValidateRange(0, 100)] [double] $MaxDropPercent = 15,
+    [switch]   $AllowDrop
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'DropGuard.ps1')
 
 # A Modules folder beside the tool wins, exactly as the backfill script does,
 # so this works on a server with no gallery access too.
@@ -247,7 +261,7 @@ WHEN NOT MATCHED BY TARGET THEN INSERT ($colList) VALUES ($srcList);
 function Connect-EnrichmentGraph {
     foreach ($cmd in 'Connect-MgGraph', 'Invoke-MgGraphRequest') {
         if (-not (Get-Command -Name $cmd -ErrorAction SilentlyContinue)) {
-            throw "$cmd not found. Install Microsoft.Graph.Authentication, or use the offline bundle's Modules folder."
+            throw "$cmd not found. Install Microsoft.Graph.Authentication, or save it into the Modules folder beside the scripts (tools\Save-CopilotAuditModules.ps1)."
         }
     }
     $connect = @{ NoWelcome = $true }
@@ -617,6 +631,13 @@ WHERE UserPrincipalName IS NOT NULL;
         }
     }
 
+    # The delete guard (2.6.5), before anything about the people is written: every SKU each one holds replaces the
+    # table whole, so a lookup that came back short must not take most of the licenses with it.
+    if ((Invoke-EnrichmentSql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL THEN 0 ELSE 1 END") -eq 1) {
+        Assert-DropGuard -What 'Licenses held (audit.UserLicenseSku)' -Before ([long] (Invoke-EnrichmentSql -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.UserLicenseSku;')) `
+                         -After $skuRows.Rows.Count -MaxDropPercent $MaxDropPercent -Setting 'LicenseMaxDropPercent' -AllowDrop:$AllowDrop
+    }
+
     # The leave date only when it was asked for: a run without -IncludeLeaveDates keeps the last one read.
     $columns = @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber', 'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
                  'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') + $(if ($IncludeLeaveDates) { @('EmployeeLeaveUtc') } else { @() })
@@ -648,5 +669,13 @@ WHERE UserPrincipalName IS NOT NULL;
     Write-Log 'Re-run audit.usp_FlattenCopilotAudit to carry IsCopilotLic into audit.RawLogFlattened.'
 }
 
-# Dot-sourcing (tests) loads the functions without running anything.
-if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
+# Dot-sourcing (tests) loads the functions without running anything. Refused by the delete guard (2.6.5), nothing
+# about the people was written: a code of its own, which the nightly run records and goes on from.
+if ($MyInvocation.InvocationName -ne '.') {
+    try { Invoke-Main }
+    catch {
+        if (-not (Test-DropRefusal $_)) { throw }
+        Write-Log $_.Exception.Message -Level ERROR
+        exit $script:DropRefusedExitCode
+    }
+}

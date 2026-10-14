@@ -35,7 +35,7 @@ A new install is three commands: `tools\Install-CopilotJobServer.ps1` on the job
 | `Install-CopilotAudit.ps1` | Creates, upgrades and builds the Copilot database and the license-event database: runs every script in `sql\` in order, then whatever one-off work a release needs (a rebuild, a backfill of a new column). Safe to run again; a second run changes nothing. | An administrator, at install and at every upgrade |
 | `tools\New-CopilotAuditApp.ps1` | Registers the Entra app the pipeline signs in as: three Microsoft Graph permissions, their admin consent, and the job server's certificate. | `Install-CopilotJobServer.ps1`, or an administrator by hand |
 | `tools\Add-CopilotTenant.ps1` | Adds another Microsoft 365 tenant to the job server: its app registration, its two databases and its entry in the settings. | An administrator, for a group with several tenants |
-| `tools\Save-CopilotAuditModules.ps1` | Downloads the PowerShell modules the pipeline needs into a `Modules` folder, checking Microsoft's signatures, for a server with no access to the PowerShell Gallery. The offline release zip is built with it. | The release build; an administrator preparing an offline server |
+| `tools\Save-CopilotAuditModules.ps1` | Downloads the PowerShell modules the pipeline needs into a `Modules` folder, checking Microsoft's signatures, for a server with no access to the PowerShell Gallery. From 2.6.5 no release bundles the modules, so this, or your own feed, is where they come from. | An administrator preparing the job server |
 | `dashboard\Install-CopilotInsights.ps1` | Installs or updates the dashboard on IIS: the site, its account, its database access, its bindings, and the scheduled morning pre-cache. An update keeps what the site has. | An administrator, at install and at every upgrade |
 
 ## The nightly run
@@ -58,6 +58,7 @@ Each loads one source into the Copilot database. All can be run by hand with the
 | `tools\Import-GitHubCopilotUsage.ps1` | GitHub Copilot's seats, daily usage, each person's day and billed cost, for an enterprise or an organization. Optional: skipped, with a note in the log, when the settings do not name one. See [GITHUB-COPILOT-USAGE.md](GITHUB-COPILOT-USAGE.md). | GitHub's REST API |
 | `tools\Import-FoundryUsage.ps1` | Microsoft Foundry and Azure OpenAI deployments, their daily requests and tokens, and their daily cost. Optional, as the GitHub load is. See [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md). | Azure Resource Manager, Azure Monitor and Cost Management |
 | `tools\ExternalUsage.Common.ps1` | Not run by itself: what the two loaders above share (the database connection, writing rows to a table, the run's own log). | The two loaders |
+| `tools\DropGuard.ps1` | Not run by itself: the delete guard (2.6.5). The agent workbook, the user directory, the licenses held, GitHub's seats and Foundry's deployments each empty a table and fill it again; each refuses a load more than its own percentage smaller than the last (15% by default, a setting each in `copilot-audit.settings.psd1`), and takes `-MaxDropPercent` and `-AllowDrop`. | Those five loaders |
 
 ## Day-to-day tools
 

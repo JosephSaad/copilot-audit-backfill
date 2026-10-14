@@ -33,6 +33,13 @@
     empty or half-loaded. Licenses are not here: they come from Microsoft
     Graph, by tools/Update-CopilotAuditEnrichment.ps1.
 
+    THE DELETE GUARD (2.6.5). Before the table is replaced, the users read are
+    counted against the rows it holds. With more than -MaxDropPercent fewer
+    (UserDirectoryMaxDropPercent in the settings file, 15 by default), the load
+    stops and the table keeps the last good directory: an AD query cut short
+    must not take most of the organization out of every report. A real drop is
+    let through once with -AllowDrop; -MaxDropPercent 0 turns the guard off.
+
     After loading it reports how many of the users in the audit data it found,
     by UserPrincipalName and by mail. The audit data is joined on the UPN, so
     a low match means AD's UPN is not the one users sign in to Microsoft 365
@@ -72,6 +79,14 @@
     CountryNames the same in copilot-audit.settings.psd1 so the nightly run
     agrees.
 
+.PARAMETER MaxDropPercent
+    The delete guard (2.6.5): the most the directory may shrink from one load
+    to the next, in percent. Default 15; 0 turns the guard off.
+
+.PARAMETER AllowDrop
+    Load a directory the guard would refuse, once: after a reorganization or a
+    clean-up of accounts that really did remove them.
+
 .EXAMPLE
     .\tools\Export-UsersWithHierarchy-ToSql.ps1 -TargetDomain trusted.example.com `
         -SqlServer SQLPROD01 -Database CopilotAudit
@@ -101,12 +116,16 @@ param(
     [ValidatePattern('^[A-Za-z][A-Za-z0-9-]*$')]
     [string[]] $DepartmentAttribute = @('department'),
 
-    [hashtable] $CountryNames = @{}
+    [hashtable] $CountryNames = @{},
+
+    [ValidateRange(0, 100)] [double] $MaxDropPercent = 15,
+    [switch]   $AllowDrop
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:ToolRoot = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot 'DropGuard.ps1')
 $script:ChainColumns = 15      # Mgr1..Mgr15 in audit.UserDirectory
 $script:DepartmentWidth = 200  # audit.UserDirectory.Department, as wide as bi.DimUser's and dash.Person's
 
@@ -535,12 +554,15 @@ function Write-UserDirectory {
         Creates the enrichment tables if needed, then replaces
         audit.UserDirectory with the rows given - TRUNCATE and bulk load in
         one transaction, so a reader sees the old table or the new one, never
-        an empty or partial one.
+        an empty or partial one. First the delete guard (2.6.5): with more than
+        -MaxDropPercent fewer rows than the table holds, nothing is written.
     #>
     param(
         [Parameter(Mandatory)][string] $ConnString,
         [Parameter(Mandatory)][System.Data.DataTable] $Table,
-        [int] $BatchRows = 10000
+        [int] $BatchRows = 10000,
+        [double] $MaxDropPercent = 0,
+        [switch] $AllowDrop
     )
     $conn = [System.Data.SqlClient.SqlConnection]::new($ConnString)
     $conn.Open()
@@ -549,6 +571,12 @@ function Write-UserDirectory {
         $cmd.CommandTimeout = 300
         $cmd.CommandText = Get-Content -LiteralPath (Join-Path (Join-Path $script:ToolRoot 'sql') 'Create-CopilotEnrichmentSchema.sql') -Raw
         [void] $cmd.ExecuteNonQuery()
+
+        $cmd = $conn.CreateCommand()
+        $cmd.CommandTimeout = 300
+        $cmd.CommandText = 'SELECT COUNT_BIG(*) FROM audit.UserDirectory;'
+        Assert-DropGuard -What 'User directory (audit.UserDirectory)' -Before ([long] $cmd.ExecuteScalar()) -After $Table.Rows.Count `
+                         -MaxDropPercent $MaxDropPercent -Setting 'UserDirectoryMaxDropPercent' -AllowDrop:$AllowDrop
 
         $tx = $conn.BeginTransaction()
         try {
@@ -695,7 +723,7 @@ function Invoke-Main {
         Write-Log ("{0:N0} department(s) were longer than {1} characters and were cut." -f $rows.Clipped, $script:DepartmentWidth) -Level WARN
     }
 
-    $n = Write-UserDirectory -ConnString $connStr -Table $rows.Table -BatchRows $BatchSize
+    $n = Write-UserDirectory -ConnString $connStr -Table $rows.Table -BatchRows $BatchSize -MaxDropPercent $MaxDropPercent -AllowDrop:$AllowDrop
     Write-Log ("Loaded {0:N0} row(s) into audit.UserDirectory." -f $n)
 
     # Organization granted to AD groups: their members, for Power BI's row-level security (bi.OrgSecurity);
@@ -725,5 +753,13 @@ function Invoke-Main {
     Write-Log 'Sessions and the bi schema pick the attributes up on their next build (the next -Incremental run).'
 }
 
-# Dot-sourcing (tests) loads the functions without running anything.
-if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
+# Dot-sourcing (tests) loads the functions without running anything. Refused by the delete guard (2.6.5), the table
+# kept the last directory: a code of its own, which the nightly run records and goes on from.
+if ($MyInvocation.InvocationName -ne '.') {
+    try { Invoke-Main }
+    catch {
+        if (-not (Test-DropRefusal $_)) { throw }
+        Write-Log $_.Exception.Message -Level ERROR
+        exit $script:DropRefusedExitCode
+    }
+}

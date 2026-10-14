@@ -171,8 +171,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # A 'Modules' folder next to this script takes precedence over the machine's
-# module paths. That is how the offline release bundle ships
-# Microsoft.Graph.Authentication for servers with no PSGallery access; when the
+# module paths. That is how a server with no PSGallery access gets
+# Microsoft.Graph.Authentication (tools\Save-CopilotAuditModules.ps1); when the
 # folder is absent this does nothing and module resolution is unchanged.
 $script:BundledModules = Join-Path $PSScriptRoot 'Modules'
 if (Test-Path -LiteralPath $script:BundledModules -PathType Container) {
@@ -691,10 +691,10 @@ function Connect-AuditGraph {
     foreach ($cmd in 'Connect-MgGraph', 'Invoke-MgGraphRequest', 'Get-MgContext') {
         if (-not (Get-Command -Name $cmd -ErrorAction SilentlyContinue)) {
             $hint = if (Test-Path -LiteralPath $script:BundledModules -PathType Container) {
-                "A Modules folder is present at $script:BundledModules but does not provide $cmd - the bundle may be incomplete."
+                "A Modules folder is present at $script:BundledModules but does not provide $cmd - the folder may be incomplete: save the module into it again."
             }
             else {
-                'Install it first:  Install-Module Microsoft.Graph.Authentication -Scope CurrentUser. On a server with no gallery access, use the offline release bundle, which ships the module in a Modules folder next to this script.'
+                'Install it first:  Install-Module Microsoft.Graph.Authentication -Scope CurrentUser. On a server with no gallery access, save it into a Modules folder next to this script: tools\Save-CopilotAuditModules.ps1 on a machine that can reach the gallery, or Save-Module from your own feed.'
             }
             throw "$cmd not found. $hint"
         }

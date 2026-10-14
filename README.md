@@ -123,7 +123,7 @@ Audit log exports from the Purview portal can go into the same tables, instead o
 
 ## Servers without gallery access
 
-`Microsoft.Graph.Authentication` is the only external module the loader needs — everything else it uses, including `System.Data.SqlClient`, ships inside PowerShell 7. The agent workbook's import also needs `ImportExcel` (from 2.5.7 in the offline zip too) and, for SharePoint Online, `PnP.PowerShell`. On a locked-down server that cannot reach the PowerShell Gallery, put the modules next to the script instead of installing them.
+`Microsoft.Graph.Authentication` is the only external module the loader needs — everything else it uses, including `System.Data.SqlClient`, ships inside PowerShell 7. The agent workbook's import also needs `ImportExcel` and, for SharePoint Online, `PnP.PowerShell`. Install them from the PowerShell Gallery, or from a feed of your own that mirrors it, for the account the nightly task runs as. On a locked-down server, put them next to the script instead of installing them.
 
 On any machine that **can** reach the gallery (Windows x64 is the closest match to the usual target):
 
@@ -135,7 +135,7 @@ That pins a known-good version, saves it into a `Modules` folder beside the scri
 
 `Invoke-CopilotAuditBackfill.ps1` puts that folder at the front of `PSModulePath` at startup, so nothing is installed on the server and nothing is written outside the folder. When the folder is absent, module resolution is unchanged.
 
-Each release also carries a prebuilt `...-offline-win-x64.zip` with the module already in place, built on a Windows runner. It bundles Microsoft-owned binaries under Microsoft's own license terms — see `NOTICE-BUNDLED-MODULES.txt` inside it — so rebuild it yourself with the script above if you would rather not rely on the prebuilt copy.
+From 2.6.5 a release carries no third-party modules: the `...-offline-win-x64.zip` that bundled them is gone. Get them as above, or from your own feed.
 
 ## What you get
 
@@ -331,7 +331,8 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `sql/Create-CopilotFlattenProcedure.sql` | `audit.usp_FlattenCopilotAudit`. |
 | `sql/Create-CopilotPurgeProcedure.sql` | `audit.usp_PurgeCopilotAuditJson`. |
 | `sql/Create-CopilotEnrichmentSchema.sql` | The license and user directory tables, plus the adoption views. |
-| `tools/Save-CopilotAuditModules.ps1` | Builds the offline module bundle for a disconnected server. |
+| `tools/Save-CopilotAuditModules.ps1` | Saves the PowerShell modules the scripts need into a `Modules` folder beside them, checking their signatures, for a server with no gallery access. |
+| `tools/DropGuard.ps1` | The delete guard (2.6.5): each load that empties and refills a table refuses a new load that is more than its percentage smaller than the last. |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |
 | `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory and management chain, from on-premises AD, and the members of AD groups granted Organization, for Power BI. |
 | `sql/Create-CopilotSessionSchema.sql` | Session, weekly rollup, app-category and run-log tables, and the CSV-shaped views. |
@@ -354,7 +355,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `docs/GITHUB-COPILOT-USAGE.md`, `docs/FOUNDRY-USAGE.md` | One setup guide for each of those loaders: the values needed, a part to hand to the GitHub or Azure administrator, the steps on the job server, checks and troubleshooting (2.6.2). |
 | `docs/SCHEMA.md` | Every table and view, column by column, and the script that creates each; the naming conventions; what each `bi` table and view is for and what uses it; and the compatibility promise (2.6.3). |
 | `docs/SCRIPTS.md` | Every script in summary: what it does, who runs it and when (2.6.3). |
-| `docs/BUILD-FROM-SOURCE.md` | Compiling the dashboard yourself after changing its source: the SDK, the 24 NuGet packages a build needs, and how to build with no internet access (2.6.4). |
+| `docs/BUILD-FROM-SOURCE.md` | Compiling the dashboard yourself after changing its source: the SDK, the packages from your own feed, building and installing (2.6.4). |
 | `docs/REPORTING.md` | Reporting on the data with Grafana or another SQL tool, in brief: the `bi` views, access, the figures, the Grafana setup and queries to start from (2.5.9). |
 | `docs/REPORTING.docx`, `docs/REPORTING-REFERENCE.docx` | The two reporting guides as Word documents, to hand to a team outside the repository (2.6.1). Made from the Markdown by `tools/dev/schema/build_docx.py`. |
 | `docs/REPORTING-REFERENCE.md` | The same in full: how the schema is created and filled, every reporting view column by column, each figure as SQL, every table and view, and the text of the scripts that create them (2.5.9). |

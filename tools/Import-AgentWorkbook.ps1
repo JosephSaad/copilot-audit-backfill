@@ -21,19 +21,27 @@
        agent the workbook does not list or leaves unnamed.
     5. Records the load in dash.AgentInventoryRun, which Admin > Health shows.
 
+    THE DELETE GUARD (2.6.5). Before anything is replaced, each sheet's rows are counted against its table's. When
+    a sheet has more than -MaxDropPercent fewer rows than its table holds (AgentWorkbookMaxDropPercent in the
+    settings file, 15 by default), the whole workbook is refused: no table changes, the run is recorded as failed
+    with the reason, and the nightly run says so. 10,000 agents last night and 8,000 tonight is a 20% drop: refused
+    at 15. If the drop is real, run this once with -AllowDrop. -MaxDropPercent 0 turns the guard off.
+
     With no -SiteUrl or -Url, everything comes from the settings file beside the scripts
     (copilot-audit.settings.psd1): AgentWorkbookSiteUrl, AgentWorkbookFolder, AgentWorkbookFilter,
     AgentWorkbookTenantId (else TenantId), AgentWorkbookClientId and AgentWorkbookCertificateThumbprint, or
     AgentWorkbookUrl; and SqlServer, Database and TrustServerCertificate.
 
-    Reads .xlsx with the ImportExcel module, which the offline zip carries in its Modules folder (2.5.7). For
-    SharePoint Online, put PnP.PowerShell there too (Save-Module PnP.PowerShell -Path <scripts>\Modules; it needs
-    PowerShell 7.4.6 or later), so the nightly task's account finds it.
+    Reads .xlsx with the ImportExcel module: install it for the nightly task's account, or put it in a Modules
+    folder beside the scripts, where it is found first. For SharePoint Online, PnP.PowerShell too (it needs
+    PowerShell 7.4.6 or later).
 
 .EXAMPLE
     .\tools\Import-AgentWorkbook.ps1          # as the nightly run does, from the settings file
 .EXAMPLE
     .\tools\Import-AgentWorkbook.ps1 -Url '\\fileserver\Copilot\Agents.xlsx' -SqlServer SQLPROD01
+.EXAMPLE
+    .\tools\Import-AgentWorkbook.ps1 -AllowDrop        # tonight's workbook really has fewer agents: load it anyway
 #>
 #Requires -Version 7.2
 param(
@@ -47,16 +55,20 @@ param(
     [switch] $TrustServerCertificate,
     [string] $ConnectionString,               # for the tests: used as it is, in place of -SqlServer and -Database
     [string] $SettingsPath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'copilot-audit.settings.psd1'),
-    [hashtable] $Sheets = @{ 'AgentInventory' = 'dbo.AgentInventory'; 'AgentsInProd' = 'dbo.AgentsInProd'; 'ParentChildAgent' = 'dbo.ParentChildAgent' }
+    [hashtable] $Sheets = @{ 'AgentInventory' = 'dbo.AgentInventory'; 'AgentsInProd' = 'dbo.AgentsInProd'; 'ParentChildAgent' = 'dbo.ParentChildAgent' },
+    [ValidateRange(0, 100)][double] $MaxDropPercent = 15,   # the delete guard (2.6.5): the most a sheet may shrink, in %; 0 is off
+    [switch] $AllowDrop                                      # load a workbook the guard would refuse, once
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'DropGuard.ps1')
 $modules = Join-Path (Split-Path $PSScriptRoot -Parent) 'Modules'
 if (Test-Path $modules) { $env:PSModulePath = "$modules;$env:PSModulePath" }
 
 # What the command line does not give comes from the settings file.
+$s = if (Test-Path -LiteralPath $SettingsPath) { Import-PowerShellDataFile -LiteralPath $SettingsPath } else { @{} }
+$MaxDropPercent = Resolve-MaxDropPercent -What 'Agent workbook' -Given $MaxDropPercent -WasGiven $PSBoundParameters.ContainsKey('MaxDropPercent') -Settings $s
 if (-not $SiteUrl -and -not $Url) {
     if (-not (Test-Path -LiteralPath $SettingsPath)) { throw "Give -SiteUrl or -Url, or put AgentWorkbookSiteUrl or AgentWorkbookUrl in $SettingsPath." }
-    $s = Import-PowerShellDataFile -LiteralPath $SettingsPath
     function Setting($k) { if ($s.Contains($k) -and $s[$k]) { $s[$k] } }
     $SiteUrl = Setting 'AgentWorkbookSiteUrl'; $Url = Setting 'AgentWorkbookUrl'
     if (Setting 'AgentWorkbookFolder') { $Folder = Setting 'AgentWorkbookFolder' }
@@ -85,6 +97,7 @@ function Q([string] $s) { if ($null -eq $s) { 'NULL' } else { "N'" + $s.Replace(
 # The load is recorded for Admin > Health, from its start, so a failure shows too.
 $runId = Sql "IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NOT NULL BEGIN INSERT INTO dash.AgentInventoryRun DEFAULT VALUES; SELECT CAST(SCOPE_IDENTITY() AS INT); END" $null -Scalar
 $file = Join-Path ([IO.Path]::GetTempPath()) "agent-workbook-$PID.xlsx"
+$refused = $false
 try {
     Import-Module ImportExcel
     $source = $Url; $created = $null
@@ -102,20 +115,36 @@ try {
     elseif ($Url -match '^https?://') { Invoke-WebRequest -Uri $Url -OutFile $file -UseDefaultCredentials }
     else { Copy-Item -LiteralPath $Url -Destination $file; $created = (Get-Item -LiteralPath $Url).CreationTimeUtc }
 
-    # 1. Each sheet as it is, into its own table.
-    $loaded = @{}
-    foreach ($sheet in $Sheets.Keys) {
+    # 1. Each sheet as it is, read whole before any table is touched.
+    $read = [ordered]@{}
+    foreach ($sheet in @($Sheets.Keys | Sort-Object)) {
         $table = $Sheets[$sheet]
         $rows = @(Import-Excel -Path $file -WorksheetName $sheet)
         if (-not $rows) { Write-Warning "Sheet $sheet is empty or missing: $table left as it is."; continue }
         $dt = [System.Data.DataTable]::new()
-        $cols = $rows[0].PSObject.Properties.Name
+        $cols = @($rows[0].PSObject.Properties.Name)   # a list even for a sheet of one column, whose name alone would be a string
         foreach ($c in $cols) { [void] $dt.Columns.Add($c, [string]) }
         foreach ($r in $rows) {
             [void] $dt.Rows.Add(@($cols | ForEach-Object {
                 $v = $r.$_
                 if ($null -eq $v) { [DBNull]::Value } elseif ($v -is [datetime]) { $v.ToString('yyyy-MM-dd HH:mm:ss') } else { "$v" } }))
         }
+        $read[$sheet] = [pscustomobject]@{ Table = $table; Data = $dt; Columns = $cols }
+    }
+
+    # 2. The delete guard (2.6.5): every sheet against what its table holds, before any is replaced.
+    foreach ($sheet in $read.Keys) {
+        $table = $read[$sheet].Table
+        $q = ($table -split '\.' | ForEach-Object { "[$($_.Trim('[]'))]" }) -join '.'
+        $before = [long] (Sql "IF OBJECT_ID(N'$table', N'U') IS NULL SELECT CAST(0 AS BIGINT); ELSE EXEC (N'SELECT COUNT_BIG(*) FROM $q;');" $null -Scalar)
+        Assert-DropGuard -What "Sheet $sheet ($table)" -Before $before -After $read[$sheet].Data.Rows.Count -MaxDropPercent $MaxDropPercent `
+                         -Setting 'AgentWorkbookMaxDropPercent' -AllowDrop:$AllowDrop
+    }
+
+    # 3. Each sheet into its own table.
+    $loaded = @{}
+    foreach ($sheet in $read.Keys) {
+        $table = $read[$sheet].Table; $dt = $read[$sheet].Data; $cols = $read[$sheet].Columns
         $q = ($table -split '\.' | ForEach-Object { "[$($_.Trim('[]'))]" }) -join '.'
         Sql "IF OBJECT_ID(N'$table', N'U') IS NULL CREATE TABLE $q ([$($cols[0].Replace(']', ']]'))] NVARCHAR(MAX) NULL);" $null
         foreach ($c in $cols) { Sql "IF COL_LENGTH(N'$table', N'$($c.Replace("'", "''"))') IS NULL ALTER TABLE $q ADD [$($c.Replace(']', ']]'))] NVARCHAR(MAX) NULL;" $null }
@@ -135,7 +164,7 @@ try {
         Write-Host "$sheet -> $table`: $($dt.Rows.Count) row(s)."
     }
 
-    # 2. The inventory the reports read, matched to the agents the audit log knows. A column the sheet lacks is NULL.
+    # 4. The inventory the reports read, matched to the agents the audit log knows. A column the sheet lacks is NULL.
     $inv = $Sheets['AgentInventory']; $prod = $Sheets['AgentsInProd']; $pc = $Sheets['ParentChildAgent']
     if ($inv -and (Sql "SELECT CASE WHEN OBJECT_ID(N'$inv', N'U') IS NULL OR OBJECT_ID(N'dash.AgentInventory', N'U') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
         function Columns($t) { $c = $conn.CreateCommand(); $c.CommandText = "SELECT name FROM sys.columns WHERE object_id = OBJECT_ID(N'$t')"; $r = $c.ExecuteReader(); $n = @(); while ($r.Read()) { $n += $r.GetString(0) }; $r.Dispose(); $n }
@@ -356,6 +385,11 @@ WHERE RunId = $runId;
 }
 catch {
     if ($runId) { Sql "UPDATE dash.AgentInventoryRun SET EndedUtc = SYSUTCDATETIME(), Status = N'Failed', Message = $(Q ([string] $_.Exception.Message).Substring(0, [Math]::Min(2000, ([string] $_.Exception.Message).Length))) WHERE RunId = $runId;" $null }
-    throw
+    $refused = Test-DropRefusal $_
+    if (-not $refused) { throw }
+    # Written as the rest of the run is, so the nightly log has it (a warning from the step's process is not kept there).
+    Write-Host "Refused: $($_.Exception.Message)"
 }
 finally { $conn.Dispose(); Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue }
+# Refused by the delete guard (2.6.5): every table kept the last workbook, and the nightly run goes on.
+if ($refused) { exit $script:DropRefusedExitCode }

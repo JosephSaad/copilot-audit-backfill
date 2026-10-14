@@ -85,6 +85,8 @@ $script:AgentOperations = 'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpda
                           'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
                           'BotComponentCollectionCreate', 'BotComponentCollectionDelete'
 $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
+# The delete guard's exit code (2.6.5): a loader that kept its table's last good load, which the night goes on from.
+. (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
 
 function Get-PipelineSetting {
@@ -150,6 +152,12 @@ function Get-PipelineStep {
     $readLic = @(@(if (Has 'SessionLicenseDatabases') { $Setting.SessionLicenseDatabases } elseif ($lic) { $lic }) |
                  ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $steps = [System.Collections.Generic.List[object]]::new()
+    # The delete guard's percentage for a loader (2.6.5), where the settings set one: <Loader>MaxDropPercent, 0 to turn it off.
+    # Without one, the loader's own default (15) applies.
+    function Drop($argsTable, $key) {
+        if ($Setting.Contains($key) -and $null -ne $Setting[$key] -and "$($Setting[$key])" -ne '') { $argsTable.MaxDropPercent = [double] $Setting[$key] }
+        $argsTable
+    }
     function Add($name, $script, $argsTable, [switch] $Optional) {
         $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
     }
@@ -160,13 +168,13 @@ function Get-PipelineStep {
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
             if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # 2.5.0: where the department is
             if (Has 'CountryNames') { $a.CountryNames = $Setting.CountryNames }   # the administrator's own names for countries
-            Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' $a
+            Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' (Drop $a 'UserDirectoryMaxDropPercent')
         }
     }
     $licenses = {
         $l = $sql + $app + @{ Database = $Setting.Database; AllLicensedUsers = $true }
         if (Has 'IncludeLeaveDates') { $l.IncludeLeaveDates = $true }   # 2.4.3: needs User-LifeCycleInfo.Read.All
-        Add 'Copilot licenses from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' $l
+        Add 'Copilot licenses from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' (Drop $l 'LicenseMaxDropPercent')
     }
 
     if ($History) {
@@ -194,9 +202,9 @@ function Get-PipelineStep {
                            ClientId = $Setting.AgentWorkbookClientId; CertificateThumbprint = $Setting.AgentWorkbookCertificateThumbprint }
             if (Has 'AgentWorkbookFolder') { $w.Folder = $Setting.AgentWorkbookFolder }
             if (Has 'AgentWorkbookFilter') { $w.FileFilter = $Setting.AgentWorkbookFilter }
-            Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' $w
+            Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' (Drop $w 'AgentWorkbookMaxDropPercent')
         }
-        elseif (Has 'AgentWorkbookUrl') { Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' ($sql + @{ Database = $Setting.Database; Url = $Setting.AgentWorkbookUrl }) }
+        elseif (Has 'AgentWorkbookUrl') { Add 'Agent workbook from Excel' 'tools/Import-AgentWorkbook.ps1' (Drop ($sql + @{ Database = $Setting.Database; Url = $Setting.AgentWorkbookUrl }) 'AgentWorkbookMaxDropPercent') }
         if ($lic) { Add 'License events' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; Incremental = $true; Operations = $script:LicenseOperations }) }
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
         if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }
@@ -208,14 +216,14 @@ function Get-PipelineStep {
             if (Has 'GitHubEnterprise') { $g.Enterprise = [string] $Setting.GitHubEnterprise } else { $g.Organization = [string] $Setting.GitHubOrganization }
             if (Has 'GitHubTokenPath') { $g.TokenPath = [string] $Setting.GitHubTokenPath }
             if (Has 'GitHubApiBase') { $g.ApiBase = [string] $Setting.GitHubApiBase }
-            Add 'GitHub Copilot usage' 'tools/Import-GitHubCopilotUsage.ps1' $g -Optional
+            Add 'GitHub Copilot usage' 'tools/Import-GitHubCopilotUsage.ps1' (Drop $g 'GitHubSeatMaxDropPercent') -Optional
         }
         if ((Has 'FoundrySubscriptions') -and ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
             $f = $sql + @{ Database = $Setting.Database; SubscriptionId = @($Setting.FoundrySubscriptions)
                            TenantId = $(if (Has 'FoundryTenantId') { $Setting.FoundryTenantId } else { $Setting.TenantId })
                            ClientId = $(if (Has 'FoundryClientId') { $Setting.FoundryClientId } else { $Setting.ClientId })
                            CertificateThumbprint = $(if (Has 'FoundryCertificateThumbprint') { $Setting.FoundryCertificateThumbprint } else { $Setting.CertificateThumbprint }) }
-            Add 'Foundry usage and cost' 'tools/Import-FoundryUsage.ps1' $f -Optional
+            Add 'Foundry usage and cost' 'tools/Import-FoundryUsage.ps1' (Drop $f 'FoundryDeploymentMaxDropPercent') -Optional
         }
     }
     , $steps.ToArray()
@@ -250,6 +258,17 @@ function Invoke-PipelineStep {
     & pwsh -NoProfile -NonInteractive -Command { param($s, $a) $global:LASTEXITCODE = 0; & $s @a; exit $LASTEXITCODE } -args $Step.Script, $Step.Arguments 2>&1 |
         Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
     $LASTEXITCODE
+}
+
+function Get-DropGuardDetail {
+    <#
+        The run's detail when the delete guard refused a load (2.6.5): which steps, and the guard's own lines from the
+        log, the last five, so Admin > Health says why without opening the log. At most 4,000 characters.
+    #>
+    param([string[]] $Step, [string] $Log)
+    $why = @(if ($Log -and (Test-Path -LiteralPath $Log)) { Get-Content -LiteralPath $Log | Where-Object { $_ -match 'the delete guard allows at most' } | Select-Object -Last 5 })
+    $text = "Refused by the delete guard: $($Step -join ', '). Each table kept its last good load; the rest of the run went on." + $(if ($why.Count) { "`n" + ($why -join "`n") } else { '' })
+    $text.Substring(0, [Math]::Min(4000, $text.Length))
 }
 
 function Get-PipelineConnectionString {
@@ -445,12 +464,20 @@ function Invoke-TenantRun {
     # Each certificate the run signs in with, for Admin > Health and the expiry alerts: the audit app's and the agent workbook's.
     Write-PipelineCertificate $T -Log $Log
     $n = 0
+    $refused = [System.Collections.Generic.List[string]]::new()
     foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
         $n++
         if ($Label) { $step.Name = "$Label $($step.Name)" }
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }
         $code = Invoke-PipelineStep -Step $step -Log $Log
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@c' = $code } -Sql 'UPDATE audit.PipelineRunStep SET EndedUtc = SYSUTCDATETIME(), ExitCode = @c WHERE RunId = @r AND StepNo = @n;') }
+        if ($code -eq $script:DropRefusedExitCode) {
+            # Refused by the delete guard (2.6.5): the table kept its last good load, so the steps after it can run.
+            "$(Get-Date -Format s) $($step.Name) was refused by the delete guard: its table keeps the last good load (the reason is above). The run goes on." |
+                Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+            $refused.Add($step.Name)
+            continue
+        }
         if ($code -ne 0 -and $step.PSObject.Properties['Optional'] -and $step.Optional) {
             # An optional step (2.6.2): its failure is on its own row and in the log, and the run goes on.
             "$(Get-Date -Format s) $($step.Name) failed (exit code $code). It is optional: the run goes on. Its own log is audit.ExternalUsageRun (Admin > Health)." |
@@ -472,7 +499,9 @@ function Invoke-TenantRun {
         foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
     if (-not $History) { Invoke-Retention -Setting $T -Log $Log }
-    if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded' WHERE RunId = @r;") }
+    # A load the delete guard refused is named in the run's detail, which Admin > Health shows, with its reason.
+    $detail = if ($refused.Count) { Get-DropGuardDetail -Step $refused -Log $Log } else { $null }
+    if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@d' = $detail } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', Detail = @d WHERE RunId = @r;") }
     $true
 }
 

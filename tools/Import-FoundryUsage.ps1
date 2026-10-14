@@ -41,6 +41,15 @@
 .PARAMETER Days
     How many complete UTC days to read, ending yesterday. Default 10; at most 90 (Azure Monitor keeps 93).
 
+.PARAMETER MaxDropPercent
+    The delete guard (2.6.5). A subscription's deployments are replaced whole each run. When Azure lists more
+    than this percentage fewer than the table holds for it (FoundryDeploymentMaxDropPercent in the settings file,
+    15 by default), its deployments are not replaced and the run ends Partial, saying why; its usage and cost
+    load as usual. 0 turns the guard off.
+
+.PARAMETER AllowDrop
+    Replace the deployments even when the guard would refuse, once: after deployments were really removed.
+
 .EXAMPLE
     .\tools\Import-FoundryUsage.ps1 -SubscriptionId 00000000-0000-0000-0000-000000000000 -TenantId contoso.onmicrosoft.com `
         -ClientId <app-id> -CertificateThumbprint <thumbprint> -SqlServer SQLPROD01 -Days 90
@@ -63,12 +72,15 @@ param(
     # A token already in hand, in place of signing in (the tests); and the endpoints, for a sovereign cloud or a mock.
     [securestring] $AccessToken,
     [string] $ArmEndpoint = 'https://management.azure.com',
-    [string] $LoginEndpoint = 'https://login.microsoftonline.com'
+    [string] $LoginEndpoint = 'https://login.microsoftonline.com',
+    [ValidateRange(0, 100)][double] $MaxDropPercent = 15,
+    [switch] $AllowDrop
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'ExternalUsage.Common.ps1')
+$script:MaxDropGiven = $PSBoundParameters.ContainsKey('MaxDropPercent')   # read here: in Invoke-Main, $PSBoundParameters is its own
 
 $script:AccountsVersion = '2024-10-01'
 $script:MetricsVersion = '2023-10-01'
@@ -281,6 +293,7 @@ function Invoke-Main {
     $setting = @{}
     if (Test-Path -LiteralPath $SettingsPath) { $setting = Import-PowerShellDataFile -LiteralPath $SettingsPath }
     function Setting($k) { if ($setting.Contains($k) -and $setting[$k]) { $setting[$k] } }
+    $script:MaxDropPercent = Resolve-MaxDropPercent -What 'Foundry deployments' -Given $MaxDropPercent -WasGiven $script:MaxDropGiven -Settings $setting
     if (-not $SubscriptionId) { $script:SubscriptionId = @(Setting 'FoundrySubscriptions') }
     $subs = @($SubscriptionId | ForEach-Object { "$_".Trim().ToLowerInvariant() } | Where-Object { $_ } | Select-Object -Unique)
     if ($subs.Count -eq 0) { throw 'Give -SubscriptionId, or set FoundrySubscriptions in the settings file.' }
@@ -334,10 +347,16 @@ function Invoke-Main {
                     }
                     $deployments += Write-UsageTable $conn 'audit.FoundryDeployment' (ConvertTo-UsageTable $depRows.ToArray() ([ordered]@{
                             SubscriptionId = [string]; ResourceGroup = [string]; Account = [string]; Deployment = [string]; Kind = [string]; Location = [string]; ModelName = [string]
-                            ModelVersion = [string]; ModelPublisher = [string]; SkuName = [string]; Capacity = [int] })) -ReplaceWhere 'SubscriptionId = @s' -ReplaceParameters @{ '@s' = $sub }
+                            ModelVersion = [string]; ModelPublisher = [string]; SkuName = [string]; Capacity = [int] })) -ReplaceWhere 'SubscriptionId = @s' -ReplaceParameters @{ '@s' = $sub } `
+                        -MaxDropPercent $MaxDropPercent -What "Foundry deployments of $sub" -Setting 'FoundryDeploymentMaxDropPercent' -AllowDrop:$AllowDrop
                     $accountsRead += $accounts.Count
                 }
-                catch { $skipped.Add("deployments of $sub ($($_.Exception.Message))"); Write-Warning "Deployments of $sub were not loaded: $($_.Exception.Message)"; continue }
+                catch {
+                    $skipped.Add("deployments of $sub ($($_.Exception.Message))"); Write-Warning "Deployments of $sub were not loaded: $($_.Exception.Message)"
+                    # Refused by the delete guard (2.6.5), the accounts were read: their usage and cost still load.
+                    if (-not (Test-DropRefusal $_)) { continue }
+                    $accountsRead += $accounts.Count
+                }
 
                 # 2. Usage, account by account: the current metrics, else the older ones.
                 try {
