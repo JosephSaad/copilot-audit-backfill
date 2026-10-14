@@ -14351,7 +14351,7 @@ try {
         $rows = @(Import-Excel -Path $file -WorksheetName $sheet)
         if (-not $rows) { Write-Warning "Sheet $sheet is empty or missing: $table left as it is."; continue }
         $dt = [System.Data.DataTable]::new()
-        $cols = $rows[0].PSObject.Properties.Name
+        $cols = @($rows[0].PSObject.Properties.Name)   # a list even for a sheet of one column, whose name alone would be a string
         foreach ($c in $cols) { [void] $dt.Columns.Add($c, [string]) }
         foreach ($r in $rows) {
             [void] $dt.Rows.Add(@($cols | ForEach-Object {
