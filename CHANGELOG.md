@@ -45,6 +45,8 @@ otherwise: a night whose source really did shrink by more is refused, and is let
     uploads only add, so none of them needs a guard.
   - `tools\DropGuard.ps1` holds the rule; `tests\Test-DropGuard.ps1` tests it, and the SQL integration test runs the
     workbook, directory, license and seat guards against a database.
+  - `tests\Test-Workflows.ps1` now also fails on a workflow step joined to the line before it, and on a blank line
+    inside a command continued with `\`: GitHub reports either only as a workflow that never ran.
 
 ### Fixed
 - **A workbook sheet with one column failed the agent workbook load** ("[System.Char] does not contain a method named

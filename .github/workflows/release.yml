@@ -46,7 +46,8 @@ jobs:
         run: pwsh -NoProfile -File tests/Test-Provisioning.ps1
       - name: Test-ExternalUsage
         shell: bash
-        run: pwsh -NoProfile -File tests/Test-ExternalUsage.ps1      - name: Test-DropGuard
+        run: pwsh -NoProfile -File tests/Test-ExternalUsage.ps1
+      - name: Test-DropGuard
         shell: bash
         run: pwsh -NoProfile -File tests/Test-DropGuard.ps1
       - name: Test-SchemaCompatibility
@@ -207,7 +208,6 @@ jobs:
         with:
           persist-credentials: false
 
-
       - name: Download the dashboard site
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -262,7 +262,6 @@ jobs:
         run: |
           set -euo pipefail
           sha256sum -c "${{ steps.build.outputs.name }}.zip.sha256"
-
           sha256sum -c "${{ steps.build.outputs.site }}.zip.sha256"
 
       - name: Extract the changelog entry
@@ -292,13 +291,11 @@ jobs:
         run: |
           set -euo pipefail
           NAME="${{ steps.build.outputs.name }}"
-
           SITE="${{ steps.build.outputs.site }}"
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --notes-file notes.md \
             "${NAME}.zip" \
             "${NAME}.zip.sha256" \
-
             "${SITE}.zip" \
             "${SITE}.zip.sha256"

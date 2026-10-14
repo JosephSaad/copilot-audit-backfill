@@ -81,6 +81,15 @@ Assert-That ($ciJobs.Contains('analyze') -and $jobs.Contains('analyze') -and $jo
 $analyzeCheck = $jobs['analyze'].IndexOf('Get-UnsignedModuleFile')
 Assert-That ($jobs['analyze'] -match 'Save-Module PSScriptAnalyzer -RequiredVersion [\d.]+' -and $analyzeCheck -gt 0 -and $jobs['analyze'].IndexOf('Import-Module') -gt $analyzeCheck) 'which takes the analyzer at a fixed version and checks its signatures before loading it'
 Assert-That ($jobs['publish'] -match 'needs: \[test, sql-integration, analyze, dashboard\]') 'and publishes only when all of them pass'
+# 2.6.5: two slips an edit can make that GitHub only reports as a workflow that never ran. A step joined to the line
+# before it ("run: ...ps1      - name: Next"), and a blank line inside a command continued with "\", which ends the
+# command there: the release would have been created without the files listed after it.
+foreach ($wf in 'ci.yml', 'release.yml') {
+    $lines = Get-Content -LiteralPath (Join-Path $root '.github' 'workflows' $wf)
+    $joined = @($lines | Where-Object { $_ -match '\S\s+- (name|uses):\s' -and $_ -notmatch '^\s*#' })
+    $broken = @(for ($i = 0; $i -lt $lines.Count - 1; $i++) { if ($lines[$i] -match '\\\s*$' -and $lines[$i + 1].Trim() -eq '') { $i + 1 } })
+    Assert-That ($joined.Count -eq 0 -and $broken.Count -eq 0) "$wf has every step on a line of its own, and no command continued onto a blank line ($($joined -join ' | ')$($broken -join ', '))"
+}
 # 2.6.5: the modules are the operator's to install; the release carries none of them.
 Assert-That (-not $jobs.Contains('bundle') -and (Get-Content -Raw -LiteralPath (Join-Path $root '.github' 'workflows' 'release.yml')) -notmatch 'offline-win-x64') `
     'and builds no offline zip of bundled modules (2.6.5)'
