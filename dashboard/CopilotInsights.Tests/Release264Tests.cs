@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using CopilotInsights.Data;
 using CopilotInsights.Infrastructure;
 using CopilotInsights.Pages;
@@ -176,42 +174,6 @@ public class WorkbookFilterTests
         Assert.Contains("createdin=", ctx.Url("/Agents/Inventory"));
         Assert.DoesNotContain("createdin", ctx.Url("/agents/shared"));
         Assert.DoesNotContain("createdin", new ReportContext { Viewer = v, Days = 30, Start = new(2026, 9, 1), End = new(2026, 9, 30), MinGroupSize = 5, InactiveDays = 30 }.Url("/agents/inventory"));
-    }
-}
-
-/// <summary>docs/BUILD-FROM-SOURCE.md lists the NuGet packages a build needs (2.6.4): the ones a restore brings, no more and no fewer.</summary>
-public class BuildFromSourceTests
-{
-    [Fact]
-    public void The_guide_lists_every_package_a_restore_brings_at_its_version()
-    {
-        var root = Repo.Root();
-        var assets = Path.Combine(root, "dashboard", "CopilotInsights", "obj", "project.assets.json");
-        Assert.True(File.Exists(assets), "the dashboard has not been restored: " + assets);
-        using var doc = JsonDocument.Parse(File.ReadAllText(assets));
-        var restored = doc.RootElement.GetProperty("libraries").EnumerateObject()
-            .Where(l => l.Value.GetProperty("type").GetString() == "package")
-            .Select(l => l.Name.Replace('/', ' ')).Order(StringComparer.OrdinalIgnoreCase).ToList();
-
-        var guide = File.ReadAllText(Path.Combine(root, "docs", "BUILD-FROM-SOURCE.md"));
-        var table = Regex.Match(guide, @"<!-- packages:start -->(.*?)<!-- packages:end -->", RegexOptions.Singleline).Groups[1].Value;
-        var listed = Regex.Matches(table, @"^\| `([^`]+)` \| ([^ |]+) \|", RegexOptions.Multiline)
-            .Select(m => $"{m.Groups[1].Value} {m.Groups[2].Value}").Order(StringComparer.OrdinalIgnoreCase).ToList();
-
-        Assert.Equal(restored, listed);
-        Assert.Contains($"all {restored.Count},", guide);
-        Assert.Contains($"The {restored.Count} packages below", guide);
-    }
-
-    [Fact]
-    public void The_five_the_project_names_are_marked_as_its_own()
-    {
-        var root = Repo.Root();
-        var project = File.ReadAllText(Path.Combine(root, "dashboard", "CopilotInsights", "CopilotInsights.csproj"));
-        var named = Regex.Matches(project, "<PackageReference Include=\"([^\"]+)\" Version=\"([^\"]+)\"").Select(m => (Id: m.Groups[1].Value, Version: m.Groups[2].Value)).ToList();
-        var guide = File.ReadAllText(Path.Combine(root, "docs", "BUILD-FROM-SOURCE.md"));
-        Assert.Equal(5, named.Count);
-        Assert.All(named, p => Assert.Contains($"| `{p.Id}` | {p.Version} | the project |", guide));
     }
 }
 

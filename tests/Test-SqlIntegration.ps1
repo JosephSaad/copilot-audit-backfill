@@ -911,6 +911,24 @@ SELECT (SELECT CONCAT(ISNULL(CAST(IsCopilotLic AS VARCHAR(4)), 'NULL'), '/', Dir
         Assert-That ("$($reclaim.Reclaimed)" -eq '0/Found' -and "$($reclaim.Gone_)" -eq 'NULL/NotFound') `
             "2.4.12: a reclaimed license is recorded as unlicensed ($($reclaim.Reclaimed)), and a person who left as not found ($($reclaim.Gone_))"
         Invoke-SqlText -Sql "DELETE FROM audit.CopilotLicense WHERE UserPrincipalName IN (N'user50@contoso.com', N'gone@contoso.com'); DELETE FROM audit.UserLicenseSku WHERE UserPrincipalName = N'user50@contoso.com';"
+
+        # 2.6.5: the delete guard. Forty more licenses held than tonight's lookup finds is a drop of more than 15%:
+        # nothing about the people is written, and the table keeps what it had. -AllowDrop lets it through.
+        Invoke-SqlText -Sql "INSERT INTO audit.UserLicenseSku (UserPrincipalName, SkuId) SELECT CONCAT(N'extra', n, N'@contoso.com'), NEWID() FROM (SELECT TOP (40) ROW_NUMBER() OVER (ORDER BY object_id) AS n FROM sys.objects) AS x;"
+        $heldBefore = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.UserLicenseSku')
+        Invoke-SqlText -Sql "UPDATE audit.CopilotLicense SET SkuPartNumber = N'guard-marker' WHERE UserPrincipalName = N'user1@contoso.com';"
+        $refusal = $null
+        try { Invoke-Main } catch { $refusal = $_ }
+        $heldAfter = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.UserLicenseSku')
+        $marker = "$(Invoke-SqlText -As Scalar -Sql "SELECT SkuPartNumber FROM audit.CopilotLicense WHERE UserPrincipalName = N'user1@contoso.com';")"
+        Assert-That ($refusal -and (Test-DropRefusal $refusal) -and $heldAfter -eq $heldBefore -and $marker -eq 'guard-marker' -and "$refusal" -like '*LicenseMaxDropPercent*') `
+            "2.6.5: a license run that finds more than 15% fewer licenses held than the table has is refused, and writes nothing about the people ($heldBefore kept; $refusal)"
+        $AllowDrop = $true
+        Invoke-Main
+        $AllowDrop = $false
+        $heldLet = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.UserLicenseSku')
+        Assert-That ($heldLet -eq 66 -and "$(Invoke-SqlText -As Scalar -Sql "SELECT SkuPartNumber FROM audit.CopilotLicense WHERE UserPrincipalName = N'user1@contoso.com';")" -ne 'guard-marker') `
+            "and -AllowDrop writes it: the licenses held are tonight's again ($heldLet)"
       }
     }
     finally {
@@ -4193,6 +4211,133 @@ finally {
     $env:PSModulePath = $mgPath; Remove-Item Env:\IT_FAKE_WORKBOOK -ErrorAction SilentlyContinue
     Remove-Module ImportExcel -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $mgDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# ---------------------------------------------------------------------------
+# 22. The delete guard (2.6.5). A load that empties a table and fills it again is refused when it would leave the
+# table more than its percentage smaller than the last load did (tools/DropGuard.ps1): the agent workbook, the user
+# directory and GitHub's seats here, end to end against this database; the licenses held in section 8.
+Write-Host "`n22. The delete guard (tools/DropGuard.ps1)" -ForegroundColor Cyan
+. (Join-Path $root 'tools' 'DropGuard.ps1')
+$dgDir = Join-Path ([System.IO.Path]::GetTempPath()) "it-guard-$PID"
+$null = New-Item -ItemType Directory -Force -Path (Join-Path $dgDir 'ImportExcel')
+Set-Content -LiteralPath (Join-Path $dgDir 'ImportExcel' 'ImportExcel.psm1') -Encoding utf8 -Value @'
+function Import-Excel {
+    param([string] $Path, [string] $WorksheetName)
+    $all = Get-Content -Raw -LiteralPath $env:IT_FAKE_WORKBOOK | ConvertFrom-Json
+    if ($all.PSObject.Properties.Name -contains $WorksheetName) { @($all.$WorksheetName) }
+}
+Export-ModuleMember -Function Import-Excel
+'@
+$dgBook = Join-Path $dgDir 'agents.json'; $dgFile = Join-Path $dgDir 'agents.xlsx'
+Set-Content -LiteralPath $dgFile -Value 'a stand-in: the sheets come from agents.json'
+function Write-GuardBook([int] $Agents) {
+    @{ AgentInventory = @(1..$Agents | ForEach-Object { [ordered]@{ AgentId = "guard-agent-$_"; AgentName = "Guard agent $_"; OwnerIdUPN = 'maker@contoso.com' } }) } |
+        ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $dgBook -Encoding utf8
+}
+$dgWorkbook = Join-Path $root 'tools' 'Import-AgentWorkbook.ps1'
+$dgSettings = Join-Path $dgDir 'none.settings.psd1'   # no settings file: the guard's own default, 15%
+$dgPath = $env:PSModulePath
+$dgCount = { [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM dbo.AgentInventory') }
+$dgLast = { (Invoke-SqlText -As Table -Sql 'SELECT TOP (1) Status, ISNULL(Message, N'''') AS Message, ISNULL(InventoryRows, -1) AS InventoryRows FROM dash.AgentInventoryRun ORDER BY RunId DESC;').Rows[0] }
+try {
+    $env:IT_FAKE_WORKBOOK = $dgBook
+    $env:PSModulePath = $dgDir + [System.IO.Path]::PathSeparator + $env:PSModulePath
+    $cs = New-ConnString $script:ITDatabase
+    Write-GuardBook 20
+    $null = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings 6>&1 3>&1 | Out-String
+    $twenty = & $dgCount
+    Assert-That ($twenty -eq 20) "a workbook that grows loads as before ($twenty agents)"
+
+    # 20 to 16 is 20% fewer: refused at 15%, and nothing changes.
+    Write-GuardBook 16
+    $global:LASTEXITCODE = 0
+    $dgSaid = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings 6>&1 3>&1 | Out-String
+    $dgCode = $LASTEXITCODE
+    $run = & $dgLast
+    Assert-That ($dgCode -eq 3 -and (& $dgCount) -eq 20 -and [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM dash.AgentInventory') -eq 20 -and $dgSaid -like '*the delete guard allows at most 15% fewer*') `
+        "a workbook with 20% fewer agents is refused at 15%: the sheet's table and the inventory keep their 20, and it ends with exit code 3, which the nightly run goes on from ($dgCode)"
+    Assert-That ($run.Status -eq 'Failed' -and "$($run.Message)" -like '*16 row(s) where the last load left 20, 20% fewer*AgentWorkbookMaxDropPercent*') `
+        "and the run is recorded as failed, with why, for Admin > Health ($($run.Status): $($run.Message))"
+
+    # 20 to 17 is exactly 15% fewer: allowed. Then 17 to 14 (17.6%) with the guard raised to 20 for the run.
+    Write-GuardBook 17
+    $null = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings 6>&1 3>&1 | Out-String
+    Assert-That ((& $dgCount) -eq 17 -and (& $dgLast).Status -eq 'Succeeded') 'a drop of exactly the percentage loads (20 to 17 at 15%)'
+    Write-GuardBook 14
+    $null = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings -MaxDropPercent 20 6>&1 3>&1 | Out-String
+    Assert-That ((& $dgCount) -eq 14) '-MaxDropPercent sets the percentage for the run (17 to 14 at 20%)'
+
+    # The settings file's AgentWorkbookMaxDropPercent, then -AllowDrop, then 0 (off).
+    Set-Content -LiteralPath $dgSettings -Value "@{ AgentWorkbookMaxDropPercent = 50 }" -Encoding utf8
+    Write-GuardBook 8
+    $null = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings 6>&1 3>&1 | Out-String
+    Assert-That ((& $dgCount) -eq 8) 'the percentage comes from AgentWorkbookMaxDropPercent in the settings file (14 to 8 at 50%)'
+    Remove-Item -LiteralPath $dgSettings
+    Write-GuardBook 2
+    $dgWarn = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings -AllowDrop 6>&1 3>&1 | Out-String
+    Assert-That ((& $dgCount) -eq 2 -and $dgWarn -like '*let through by -AllowDrop*') '-AllowDrop loads a workbook the guard would refuse, and says so (8 to 2)'
+    Write-GuardBook 20
+    $null = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings 6>&1 3>&1 | Out-String
+    Write-GuardBook 1
+    $null = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings -MaxDropPercent 0 6>&1 3>&1 | Out-String
+    Assert-That ((& $dgCount) -eq 1) '-MaxDropPercent 0 turns the guard off (20 to 1)'
+
+    # A sheet left out of the workbook is not a drop: its table stays as it was, as before 2.6.5.
+    @{ AgentsInProd = @([ordered]@{ AgentId = 'guard-agent-1' }) } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $dgBook -Encoding utf8
+    $null = & $dgWorkbook -Url $dgFile -ConnectionString $cs -SettingsPath $dgSettings 6>&1 3>&1 | Out-String
+    Assert-That ((& $dgCount) -eq 1) 'a missing sheet leaves its table alone, and is not counted as a drop'
+}
+finally {
+    $env:PSModulePath = $dgPath; Remove-Item Env:\IT_FAKE_WORKBOOK -ErrorAction SilentlyContinue
+    Remove-Module ImportExcel -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $dgDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# The user directory, through the tool's own functions (the directory search needs a domain), as section 8 does.
+& {
+    . (Join-Path $root 'tools' 'Export-UsersWithHierarchy-ToSql.ps1')
+    $connStr = New-ConnString $script:ITDatabase
+    $people = { param([int] $n) ConvertTo-UserDirectoryTable -EmployeeTypeMap @{ 'EMP' = 'EMPLOYEE' } -EmployeeTypes @('EMP') -Entries @(0..($n - 1) | ForEach-Object {
+        [pscustomobject]@{ dn = "CN=g$_,DC=corp"; upn = "guard$_@contoso.com"; mail = "guard$_@contoso.com"; disp = "Guard $_"; title = 'Analyst'; dept = 'Risk'; div = 'Corporate'
+                           off = 'Floor 1'; city = 'Toronto'; country = 'Canada'; company = 'Contoso'; etype = 'EMP'; mgr = $(if ($_ -gt 0) { 'CN=g0,DC=corp' }); uac = 512 } }) }
+    $kept = Invoke-SqlText -As Table -Sql 'SELECT * FROM audit.UserDirectory'
+    $before = $kept.Rows.Count
+    $null = Write-UserDirectory -ConnString $connStr -Table (& $people 100).Table -MaxDropPercent 15 -AllowDrop
+    $dirError = $null
+    try { $null = Write-UserDirectory -ConnString $connStr -Table (& $people 80).Table -MaxDropPercent 15 } catch { $dirError = $_ }
+    $after = [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.UserDirectory')
+    Assert-That ($dirError -and (Test-DropRefusal $dirError) -and $after -eq 100 -and "$dirError" -like '*UserDirectoryMaxDropPercent*') `
+        "a directory of 80 people where the last load left 100 is refused at 15%: the 100 stay ($after)"
+    $null = Write-UserDirectory -ConnString $connStr -Table (& $people 90).Table -MaxDropPercent 15
+    Assert-That ([int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.UserDirectory') -eq 90) 'and one of 90 (10% fewer) loads'
+    # Put section 8's directory back.
+    Invoke-SqlText -Sql 'TRUNCATE TABLE audit.UserDirectory;'
+    if ($before -gt 0) {
+        $bulk = [System.Data.SqlClient.SqlBulkCopy]::new($connStr)
+        try { $bulk.DestinationTableName = 'audit.UserDirectory'; foreach ($c in $kept.Columns) { [void] $bulk.ColumnMappings.Add($c.ColumnName, $c.ColumnName) }; $bulk.WriteToServer($kept) }
+        finally { $bulk.Close() }
+    }
+    Assert-That ([int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.UserDirectory') -eq $before) "section 8's directory is put back ($before)"
+}
+
+# GitHub's seats, replaced whole for their scope: through the writer both external loaders use.
+& {
+    . (Join-Path $root 'tools' 'ExternalUsage.Common.ps1')
+    $conn = New-UsageConnection -ConnectionString (New-ConnString $script:ITDatabase)
+    try {
+        $seats = { param([int] $n) ConvertTo-UsageTable @(1..$n | ForEach-Object { [pscustomobject]@{ Scope = 'org:guard'; Login = "seat$_"; UserId = [long] $_ } }) ([ordered]@{ Scope = [string]; Login = [string]; UserId = [long] }) }
+        $w = { param($t) Write-UsageTable $conn 'audit.GitHubCopilotSeat' $t -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = 'org:guard' } -MaxDropPercent 15 -What 'GitHub Copilot seats of org:guard' -Setting 'GitHubSeatMaxDropPercent' }
+        $null = & $w (& $seats 10)
+        $seatError = $null
+        try { $null = & $w (& $seats 8) } catch { $seatError = $_ }
+        $held = [int] (Invoke-UsageSql $conn "SELECT COUNT(*) FROM audit.GitHubCopilotSeat WHERE Scope = N'org:guard';")
+        Assert-That ($seatError -and (Test-DropRefusal $seatError) -and $held -eq 10) "8 seats where the table holds 10 are refused at 15%, and the 10 stay ($held)"
+        $null = Write-UsageTable $conn 'audit.GitHubCopilotSeat' (& $seats 8) -ReplaceWhere 'Scope = @scope' -ReplaceParameters @{ '@scope' = 'org:guard' } -MaxDropPercent 15 -AllowDrop
+        Assert-That ([int] (Invoke-UsageSql $conn "SELECT COUNT(*) FROM audit.GitHubCopilotSeat WHERE Scope = N'org:guard';") -eq 8) 'and -AllowDrop writes them'
+        [void] (Invoke-UsageSql $conn "DELETE FROM audit.GitHubCopilotSeat WHERE Scope = N'org:guard';")
+    }
+    finally { $conn.Dispose() }
 }
 
 # ---------------------------------------------------------------------------

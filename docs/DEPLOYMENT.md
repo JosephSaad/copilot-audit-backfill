@@ -145,15 +145,17 @@ The app needs no Purview role: the Audit Reader role applies to a person signing
 
 *Job server, in an elevated PowerShell 7 window, as a sysadmin on SQL Server. About 20 minutes.*
 
-**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take `copilot-audit-backfill-v2.5.4-offline-win-x64.zip` and its `.sha256` from the [v2.5.4 release](https://github.com/JosephSaad/copilot-audit-backfill/releases/tag/v2.5.4). The offline zip already contains the external modules next to the scripts: `Microsoft.Graph.Authentication`, and from 2.5.7 `ImportExcel` for the agent workbook (PnP.PowerShell, for a workbook on SharePoint Online, is not in it: `Save-Module PnP.PowerShell -Path <scripts>\Modules`). That matters here: a module installed for your own account would be invisible to the gMSA.
+**Before you start.** Ask AD for the group managed service account (gMSA), `CORP\gmsa-copilot$` here, with the job server allowed to retrieve its password. Install PowerShell 7.4 (7.2 is the minimum). Then take the release's source zip, `copilot-audit-backfill-vX.Y.Z.zip`, and its `.sha256`, from the release page. Since 2.6.5 no release bundles the external modules (the offline zip is gone): save them into a `Modules` folder next to the scripts, from the PowerShell Gallery or your own feed that mirrors it. That matters here: a module installed for your own account would be invisible to the gMSA. The scripts need `Microsoft.Graph.Authentication`, `ImportExcel` for the agent workbook, and `PnP.PowerShell` for a workbook on SharePoint Online; `.\tools\Save-CopilotAuditModules.ps1` saves the first two at the versions the release was tested with, signatures and hashes checked.
 
 ```powershell
-$zip = 'copilot-audit-backfill-v2.5.4-offline-win-x64.zip'
+$zip = 'copilot-audit-backfill-v2.6.5.zip'
 (Get-FileHash ".\$zip" -Algorithm SHA256).Hash   # must equal the first value in "$zip.sha256"
 Unblock-File ".\$zip"
 Expand-Archive ".\$zip" -DestinationPath 'D:\'
-Rename-Item 'D:\copilot-audit-backfill-v2.5.4-offline-win-x64' 'CopilotAudit'
+Rename-Item 'D:\copilot-audit-backfill-v2.6.5' 'CopilotAudit'
 cd D:\CopilotAudit
+.\tools\Save-CopilotAuditModules.ps1                                  # where the server can reach the gallery
+Save-Module PnP.PowerShell -Path .\Modules -Repository PSGallery      # only for a workbook on SharePoint Online
 ```
 
 **Then one command:**
@@ -170,7 +172,7 @@ cd D:\CopilotAudit
 3. **Connectivity.** Checks `login.microsoftonline.com` and `graph.microsoft.com` on 443, and warns if they aren't reachable directly (a system proxy is fine).
 4. **Databases.** Runs step 4's `Install-CopilotAudit.ps1` with the service account.
 5. **App registration.** With `-RegisterApp`, runs step 2's script with the new certificate.
-6. **Settings.** Writes `copilot-audit.settings.psd1` next to the scripts: the server, databases, tenant, client id, thumbprint, users' domain and log folder. Every later command reads them.
+6. **Settings.** Writes `copilot-audit.settings.psd1` next to the scripts: the server, databases, tenant, client id, thumbprint, users' domain and log folder. Every later command reads them. The delete guard's percentages (2.6.5) are not written: each load that replaces a whole table refuses one 15% smaller than the last unless you add its own setting, such as `UserDirectoryMaxDropPercent = 10`. [OPERATIONS.md](OPERATIONS.md#the-pipeline) lists the five.
 7. **The nightly task.** Registers *Copilot audit - nightly*, daily at 02:00 (`-At` to change it), as the gMSA, running `Invoke-CopilotPipeline.ps1` (steps 12-13).
 
 It ends by listing what is left. Run it again at any time with no parameters, and it redoes only what is missing. A new certificate is made only with `-RegisterApp`, which uploads it to the app of every tenant in the settings: without it, a certificate within 30 days of expiry is kept, and the list says to renew it (2.4.12; before, any run in those 30 days switched to a new certificate no app had, and the nightly sign-in failed). `-SkipDatabase` and `-RegisterApp` aren't saved in the settings, so pass them again on each run that needs them.

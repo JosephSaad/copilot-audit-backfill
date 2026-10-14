@@ -105,7 +105,7 @@ Work through every step, in this order, before tagging.
    - Then take the schema baseline again: `pwsh tools/dev/schema/Update-SchemaBaseline.ps1 -SqlServer localhost` (see [Schema compatibility](#schema-compatibility)). If it refuses, the release breaks the schema: fix that first.
 2. **Unit and script tests:**
    - `dotnet test dashboard/CopilotInsights.Tests`;
-   - the test scripts `tests/Test-Engine.ps1`, `Test-Orchestrator.ps1`, `Test-UserDirectory.ps1`, `Test-DataHealth.ps1`, `Test-Precache.ps1`, `Test-Provisioning.ps1`, `Test-ExternalUsage.ps1`, `Test-SchemaCompatibility.ps1`, `Test-OperationsGuide.ps1`, `Test-Spelling.ps1`, `Test-SqlScriptOrder.ps1`, `Test-PowerBiModel.ps1`, `Test-Workflows.ps1`, `Test-CsvImport.ps1`, `Test-NightlyProfile.ps1` and `Test-ReportingReference.ps1`.
+   - the test scripts `tests/Test-Engine.ps1`, `Test-Orchestrator.ps1`, `Test-UserDirectory.ps1`, `Test-DataHealth.ps1`, `Test-Precache.ps1`, `Test-Provisioning.ps1`, `Test-ExternalUsage.ps1`, `Test-DropGuard.ps1`, `Test-SchemaCompatibility.ps1`, `Test-OperationsGuide.ps1`, `Test-Spelling.ps1`, `Test-SqlScriptOrder.ps1`, `Test-PowerBiModel.ps1`, `Test-Workflows.ps1`, `Test-CsvImport.ps1`, `Test-NightlyProfile.ps1` and `Test-ReportingReference.ps1`.
 3. **SQL integration.** Run `tests/Test-SqlIntegration.ps1` against a local SQL Server, with `SQLIT_SERVER` and `SQLIT_INTEGRATED=1` set.
 4. **Analyzer.** `Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1` must report nothing, because CI fails on any finding.
 5. **Demo and UI.**

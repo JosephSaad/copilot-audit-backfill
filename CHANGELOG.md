@@ -4,6 +4,72 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.5] - 2026-10-14
+
+A delete guard on every load that empties a table and fills it again, each with its own percentage; and the release
+no longer carries third-party modules or the NuGet package list.
+
+To upgrade from 2.6.4: with the nightly task disabled, replace the job server's scripts and enable the task again.
+Nothing in the databases changes, and the dashboard is the same as 2.6.4's (installing its package again is harmless).
+**The offline zip is gone**: before replacing the scripts, keep the `Modules` folder beside them, or fill it again from
+your own feed (`Microsoft.Graph.Authentication`, `ImportExcel`, and `PnP.PowerShell` for a workbook on SharePoint
+Online). From the first night, each guarded load compares with what the table holds, at 15% unless the settings say
+otherwise: a night whose source really did shrink by more is refused, and is let through once with `-AllowDrop`.
+
+### Added
+- **The delete guard.** Five loads replace a whole table each run. Each now counts what it read against what the
+  table holds, before it deletes anything, and refuses a load that is more than its percentage smaller: 10,000 rows
+  last night and 8,000 tonight is 20% fewer, refused at 15. The table keeps the last good load, so a source that
+  answered with part of its rows (an AD query cut short, a workbook saved half-filled, an API that returned one page)
+  can no longer empty the reports. A first load, a load that grows or stays level, and a drop of exactly the
+  percentage go ahead.
+
+  | Load | What it replaces | Setting |
+  |---|---|---|
+  | Agent workbook, `tools\Import-AgentWorkbook.ps1` | Each sheet's table, and the agent inventory read from them. Every sheet is checked before any is replaced, and the whole workbook is refused if one fails. | `AgentWorkbookMaxDropPercent` |
+  | User directory from AD, `tools\Export-UsersWithHierarchy-ToSql.ps1` | `audit.UserDirectory` | `UserDirectoryMaxDropPercent` |
+  | Licenses from Graph, `tools\Update-CopilotAuditEnrichment.ps1` | `audit.UserLicenseSku`. Nothing about the people is written when it is refused; the license pool still is. | `LicenseMaxDropPercent` |
+  | GitHub Copilot, `tools\Import-GitHubCopilotUsage.ps1` | `audit.GitHubCopilotSeat`, for the scope. Usage and cost still load; the run ends *Partial*. | `GitHubSeatMaxDropPercent` |
+  | Foundry, `tools\Import-FoundryUsage.ps1` | `audit.FoundryDeployment`, per subscription. Usage and cost still load; the run ends *Partial*. | `FoundryDeploymentMaxDropPercent` |
+
+  - **Each percentage is its own**, 15 by default, set in `copilot-audit.settings.psd1` as a number from 0 to 100; 0
+    turns that guard off. The nightly run passes each loader its own. Each loader also takes `-MaxDropPercent` for one
+    run, and `-AllowDrop` to let a real drop through once.
+  - **A refusal does not stop the night.** The workbook, directory and license loaders end with exit code 3 when
+    refused. The nightly run records it on the step, says in its log that the table kept its last good load, and goes
+    on: the license events and interactions still load. The run ends *Succeeded*, and its detail on Admin › Health ›
+    *Pipeline runs* names each refused step with the guard's reason. Any other failure still stops the run.
+  - **The reason names** the table, both counts, the drop, the limit and the setting. The workbook's refusal is also
+    on its own Health panel, as a failed run; GitHub's and Foundry's in their runs' detail.
+  - The other loads only add or update rows, or rebuild from what is already in the database, and the dashboard's
+    uploads only add, so none of them needs a guard.
+  - `tools\DropGuard.ps1` holds the rule; `tests\Test-DropGuard.ps1` tests it, and the SQL integration test runs the
+    workbook, directory, license and seat guards against a database.
+
+### Fixed
+- **A workbook sheet with one column failed the agent workbook load** ("[System.Char] does not contain a method named
+  'Replace'"): PowerShell gives a single column's name as a string, not a list, and the loader took its first letter
+  as the column. A sheet such as `AgentsInProd` with only `AgentId` now loads. Found by the 2.6.5 tests.
+
+### Removed
+- **The offline zip of bundled PowerShell modules** (`copilot-audit-backfill-vX.Y.Z-offline-win-x64.zip`, with
+  `Microsoft.Graph.Authentication` and `ImportExcel`). The release has the source zip and the dashboard package, each
+  with its checksum, and the two reporting guides. The modules come from the PowerShell Gallery or your own feed;
+  `tools\Save-CopilotAuditModules.ps1` still saves them into a `Modules` folder beside the scripts, at the tested
+  versions, signatures and hashes checked, and the scripts still look there first.
+- **The NuGet package list** in `docs/BUILD-FROM-SOURCE.md`, with the test that kept it, and the guide's section on
+  building from a copied folder of packages. A build restores from nuget.org or your own feed; the guide says how to
+  name a feed. The prebuilt dashboard package is unchanged.
+
+### Known limits
+- **The guard has no minimum.** A table of a few rows trips it with one removal (4 Foundry deployments to 3 is 25%).
+  Raise that loader's setting, or set it to 0, where small numbers are normal.
+- **A refused license run still writes the license pool**, which is replaced whole too but holds one row a SKU; it
+  is not guarded.
+- **Not tested against a real directory, workbook or API.** The guards ran against a database with stand-ins for
+  Excel, Graph and the GitHub writer, and the nightly run's handling of exit code 3 was tested on its own step
+  runner, not in a whole night.
+
 ## [2.6.4] - 2026-10-13
 
 An administrator can be limited to some of the fourteen Admin pages; Agents › Agent inventory filters on where an

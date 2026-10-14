@@ -46,7 +46,9 @@ jobs:
         run: pwsh -NoProfile -File tests/Test-Provisioning.ps1
       - name: Test-ExternalUsage
         shell: bash
-        run: pwsh -NoProfile -File tests/Test-ExternalUsage.ps1
+        run: pwsh -NoProfile -File tests/Test-ExternalUsage.ps1      - name: Test-DropGuard
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-DropGuard.ps1
       - name: Test-SchemaCompatibility
         shell: bash
         run: pwsh -NoProfile -File tests/Test-SchemaCompatibility.ps1
@@ -122,7 +124,7 @@ jobs:
 
   analyze:
     # The same analysis as ci.yml's (2.4.12: the release ran without it). The analyzer is saved at a fixed
-    # version and its signatures checked before it is loaded, as the bundle's module is.
+    # version and its signatures checked before it is loaded, as tools/Save-CopilotAuditModules.ps1 checks the modules it saves.
     name: PSScriptAnalyzer
     runs-on: windows-latest
     steps:
@@ -194,85 +196,9 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  bundle:
-    name: Offline module bundle (Windows x64)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Stage the tool and save the modules
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $name  = "copilot-audit-backfill-$env:GITHUB_REF_NAME-offline-win-x64"
-          $stage = Join-Path 'offline' $name
-          New-Item -ItemType Directory -Path $stage -Force | Out-Null
-
-          # Everything the operator needs, minus CI plumbing.
-          Get-ChildItem -Path . -Force |
-            Where-Object { $_.Name -notin '.git', '.github', '.gitignore', 'offline' } |
-            Copy-Item -Destination $stage -Recurse -Force
-
-          # The same script that ships in tools/, so the release exercises the
-          # documented path rather than a CI-only copy of it. It checks every
-          # file that can run is signed by the module's publisher before loading
-          # it, verifies the saved module resolves from the bundle alone and
-          # writes a manifest.
-          ./tools/Save-CopilotAuditModules.ps1 -Path $stage -Force
-
-          $psd1 = Get-ChildItem -Path (Join-Path $stage 'Modules') -Recurse -Filter 'Microsoft.Graph.Authentication.psd1' |
-                  Select-Object -First 1
-          $ver = if ($psd1) { (Import-PowerShellDataFile -LiteralPath $psd1.FullName).ModuleVersion } else { 'unknown' }
-          $xl = Get-ChildItem -Path (Join-Path $stage 'Modules') -Recurse -Filter 'ImportExcel.psd1' | Select-Object -First 1
-          $xlVer = if ($xl) { (Import-PowerShellDataFile -LiteralPath $xl.FullName).ModuleVersion } else { 'unknown' }
-
-          # Built line by line: a PowerShell here-string would have to start at
-          # column 0, which ends the YAML block scalar this step lives in.
-          $notice = @(
-            'This archive bundles third-party PowerShell modules so the tool can run on a'
-            'server with no PowerShell Gallery access.'
-            ''
-            "  Microsoft.Graph.Authentication $ver"
-            '  Publisher : Microsoft'
-            '  Copyright : (c) Microsoft Corporation. All rights reserved.'
-            '  Source    : https://www.powershellgallery.com/packages/Microsoft.Graph.Authentication'
-            '  Project   : https://github.com/microsoftgraph/msgraph-sdk-powershell'
-            '  License   : https://aka.ms/devservicesagreement'
-            ''
-            "  ImportExcel $xlVer (reads the agent workbook, tools/Import-AgentWorkbook.ps1)"
-            '  Author    : Douglas Finke'
-            '  Source    : https://www.powershellgallery.com/packages/ImportExcel'
-            '  Project   : https://github.com/dfinke/ImportExcel'
-            '  License   : Apache License 2.0 (Modules/ImportExcel/<version>/LICENSE.txt)'
-            '  It carries EPPlus 4.5 (EPPlus.dll, Jan Kallman), under the GNU LGPL:'
-            '  https://github.com/JanKallman/EPPlus'
-            ''
-            'They are redistributed here only so the tool can be installed on a disconnected'
-            "server. Each module's own license terms govern it; this project's MIT"
-            'LICENSE covers only the files outside the Modules folder.'
-            'Modules/MODULES-MANIFEST.csv lists a SHA-256 for every bundled file.'
-            ''
-            'To build this bundle yourself instead of trusting this archive, run'
-            'tools/Save-CopilotAuditModules.ps1 on any machine with gallery access.'
-          ) -join [Environment]::NewLine
-          Set-Content -Path (Join-Path $stage 'NOTICE-BUNDLED-MODULES.txt') -Value $notice -Encoding UTF8
-
-          Compress-Archive -Path $stage -DestinationPath "$name.zip" -CompressionLevel Optimal
-          Get-Item "$name.zip" | Select-Object Name, Length
-
-      - name: Upload the bundle for the publish job
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: offline-bundle
-          path: copilot-audit-backfill-*-offline-win-x64.zip
-          retention-days: 1
-          if-no-files-found: error
-
   publish:
     name: Publish release
-    needs: [test, sql-integration, analyze, dashboard, bundle]
+    needs: [test, sql-integration, analyze, dashboard]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -281,11 +207,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download the offline bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: offline-bundle
-          path: dist
 
       - name: Download the dashboard site
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -316,17 +237,8 @@ jobs:
 
           sha256sum "${NAME}.zip" > "${NAME}.zip.sha256"
 
-          # The offline bundle was built on windows-latest and came down as an
-          # artifact; checksum it here so both files are hashed the same way.
-          OFFLINE="${NAME}-offline-win-x64"
-          if [ ! -f "dist/${OFFLINE}.zip" ]; then
-            echo "The offline bundle dist/${OFFLINE}.zip is missing" >&2
-            ls -la dist || true
-            exit 1
-          fi
-          mv "dist/${OFFLINE}.zip" .
-          sha256sum "${OFFLINE}.zip" > "${OFFLINE}.zip.sha256"
-          echo "offline=${OFFLINE}" >> "$GITHUB_OUTPUT"
+          # 2.6.5: no offline zip of bundled PowerShell modules. The modules the scripts need come from the
+          # PowerShell Gallery, or a feed that mirrors it (tools/Save-CopilotAuditModules.ps1 saves them).
 
           # The published dashboard, ready for dashboard/Install-CopilotInsights.ps1 -PackagePath.
           SITE="copilot-insights-${VERSION}"
@@ -340,20 +252,17 @@ jobs:
 
           echo "--- archive ---"
           unzip -l "${NAME}.zip"
-          echo "--- offline bundle ---"
-          unzip -l "${OFFLINE}.zip" | tail -5
-          du -h "${OFFLINE}.zip"
           echo "--- checksums ---"
-          cat "${NAME}.zip.sha256" "${OFFLINE}.zip.sha256"
+          cat "${NAME}.zip.sha256" "${SITE}.zip.sha256"
 
       # This proves only that nothing changed between two steps of this job. Where the files came
-      # from rests on the pinned actions, the read-only tokens and the bundle's signature check.
+      # from rests on the pinned actions and the read-only tokens.
       - name: Read the archives back against their checksums
         shell: bash
         run: |
           set -euo pipefail
           sha256sum -c "${{ steps.build.outputs.name }}.zip.sha256"
-          sha256sum -c "${{ steps.build.outputs.offline }}.zip.sha256"
+
           sha256sum -c "${{ steps.build.outputs.site }}.zip.sha256"
 
       - name: Extract the changelog entry
@@ -383,14 +292,13 @@ jobs:
         run: |
           set -euo pipefail
           NAME="${{ steps.build.outputs.name }}"
-          OFFLINE="${{ steps.build.outputs.offline }}"
+
           SITE="${{ steps.build.outputs.site }}"
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --notes-file notes.md \
             "${NAME}.zip" \
             "${NAME}.zip.sha256" \
-            "${OFFLINE}.zip" \
-            "${OFFLINE}.zip.sha256" \
+
             "${SITE}.zip" \
             "${SITE}.zip.sha256"

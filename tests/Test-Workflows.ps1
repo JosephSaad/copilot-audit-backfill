@@ -1,8 +1,9 @@
 <#
 .SYNOPSIS
     Checks how the release is built (2.4.12): least-privilege tokens, actions and images pinned
-    so they cannot change under it, the same tests as CI, and the signature check on the module
-    the offline bundle downloads.
+    so they cannot change under it, the same tests as CI, and the signature check on the modules
+    tools/Save-CopilotAuditModules.ps1 downloads. From 2.6.5 the release ships no bundled
+    modules: no offline zip.
 
 .DESCRIPTION
     Before 2.4.12 every job of release.yml had a token that could write to the repository and its
@@ -79,16 +80,19 @@ Assert-That ($jobs['sql-integration'] -match 'tests/Test-SqlIntegration\.ps1' -a
 Assert-That ($ciJobs.Contains('analyze') -and $jobs.Contains('analyze') -and $jobs['analyze'] -match 'Invoke-ScriptAnalyzer' -and $jobs['analyze'] -match 'PSScriptAnalyzerSettings\.psd1') 'and PSScriptAnalyzer, as CI does'
 $analyzeCheck = $jobs['analyze'].IndexOf('Get-UnsignedModuleFile')
 Assert-That ($jobs['analyze'] -match 'Save-Module PSScriptAnalyzer -RequiredVersion [\d.]+' -and $analyzeCheck -gt 0 -and $jobs['analyze'].IndexOf('Import-Module') -gt $analyzeCheck) 'which takes the analyzer at a fixed version and checks its signatures before loading it'
-Assert-That ($jobs['publish'] -match 'needs: \[test, sql-integration, analyze, dashboard, bundle\]') 'and publishes only when all of them pass'
+Assert-That ($jobs['publish'] -match 'needs: \[test, sql-integration, analyze, dashboard\]') 'and publishes only when all of them pass'
+# 2.6.5: the modules are the operator's to install; the release carries none of them.
+Assert-That (-not $jobs.Contains('bundle') -and (Get-Content -Raw -LiteralPath (Join-Path $root '.github' 'workflows' 'release.yml')) -notmatch 'offline-win-x64') `
+    'and builds no offline zip of bundled modules (2.6.5)'
 
 # ---------------------------------------------------------------------------
-Write-Host "`n4. The bundled module is checked before it runs" -ForegroundColor Cyan
+Write-Host "`n4. A downloaded module is checked before it runs" -ForegroundColor Cyan
 $save = Join-Path $root 'tools' 'Save-CopilotAuditModules.ps1'
 $saveText = [System.IO.File]::ReadAllText($save)
 $checkAt = $saveText.IndexOf('Get-UnsignedModuleFile -Path $modulesDir')
 $importAt = $saveText.IndexOf('Import-Module -Name $name')
 Assert-That ($checkAt -gt 0 -and $importAt -gt $checkAt) 'Save-CopilotAuditModules.ps1 checks the signatures before it imports the module'
-Assert-That ($jobs['bundle'] -match 'Save-CopilotAuditModules\.ps1') 'and the release builds the bundle with it'
+Assert-That ($jobs['analyze'] -match 'Save-CopilotAuditModules\.ps1') 'and the release checks the analyzer it downloads with the same check'
 if (-not (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)) {
     Write-Host '  SKIP  the signature check itself needs Windows' -ForegroundColor Yellow
 }

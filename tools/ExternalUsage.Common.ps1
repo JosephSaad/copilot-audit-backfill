@@ -7,8 +7,11 @@
     Dot-sourced by the two tools; it runs nothing by itself. Every table is written the same way: the rows go
     to a temporary table in one bulk copy, then, in one transaction, the rows they replace are deleted and the
     new ones inserted. So a load can be run again over the same days, and a reader never sees a table half
-    written.
+    written. A table replaced whole for its scope (the seats, the deployments) is held by the delete guard
+    (2.6.5, tools\DropGuard.ps1, which this loads).
 #>
+
+. (Join-Path $PSScriptRoot 'DropGuard.ps1')
 
 function New-UsageConnection {
     <# An open connection to the Copilot database: Windows authentication, encrypted, as the other tools connect. #>
@@ -65,6 +68,10 @@ function Write-UsageTable {
         Writes the rows to -Table, replacing what they supersede, in one transaction. What is replaced is either
         every row matching -ReplaceWhere (a whole scope, or a scope's month; its parameters in -ReplaceParameters),
         or, without it, each row with the same -Key as a new one. Returns how many rows were written.
+
+        With -MaxDropPercent above 0 and -ReplaceWhere (2.6.5), the delete guard first: when the new rows are more
+        than that percentage fewer than the rows they replace, nothing is written and the guard's refusal is thrown
+        (tools\DropGuard.ps1). -What names the rows for the message, -Setting the setting the percentage is in.
     #>
     param(
         [System.Data.SqlClient.SqlConnection] $Connection,
@@ -72,9 +79,17 @@ function Write-UsageTable {
         [System.Data.DataTable] $Rows,
         [string[]] $Key = @(),
         [string] $ReplaceWhere,
-        [hashtable] $ReplaceParameters = @{}
+        [hashtable] $ReplaceParameters = @{},
+        [double] $MaxDropPercent = 0,
+        [string] $What = $Table,
+        [string] $Setting,
+        [switch] $AllowDrop
     )
     if ($Table -notmatch '^audit\.[A-Za-z]+$') { throw "Not a table of these tools: $Table" }
+    if ($MaxDropPercent -gt 0 -and $ReplaceWhere) {
+        $before = [long] (Invoke-UsageSql $Connection "SELECT COUNT_BIG(*) FROM $Table WHERE $ReplaceWhere;" $ReplaceParameters)
+        Assert-DropGuard -What $What -Before $before -After $Rows.Rows.Count -MaxDropPercent $MaxDropPercent -Setting $Setting -AllowDrop:$AllowDrop
+    }
     $cols = @($Rows.Columns | ForEach-Object { "[$($_.ColumnName)]" }) -join ', '
     [void] (Invoke-UsageSql $Connection "IF OBJECT_ID(N'tempdb..#usage') IS NOT NULL DROP TABLE #usage; SELECT TOP (0) $cols INTO #usage FROM $Table;")
     if ($Rows.Rows.Count -gt 0) {
