@@ -525,6 +525,7 @@ GRANT INSERT, UPDATE, DELETE ON dash.Subscription TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.AlertState TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Target TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TimeSaving TO CopilotInsightsApp;
+IF OBJECT_ID(N'dash.CostPrice', N'U') IS NOT NULL GRANT UPDATE ON dash.CostPrice TO CopilotInsightsApp;   -- 2.6.6: Admin > Targets and assumptions sets the prices
 GRANT INSERT, UPDATE, DELETE ON dash.TrainingAttendance TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;

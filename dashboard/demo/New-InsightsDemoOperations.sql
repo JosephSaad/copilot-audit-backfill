@@ -13,6 +13,7 @@
 SET NOCOUNT ON;
 
 DECLARE @licensed INT = (SELECT COUNT(*) FROM audit.CopilotLicense WHERE IsCopilotLic = 1);
+DECLARE @people INT = (SELECT COUNT(*) FROM audit.UserDirectory);
 DECLARE @today DATE = CAST(SYSUTCDATETIME() AS DATE);
 
 /* ---- The license pool ---- */
@@ -22,8 +23,8 @@ DECLARE @d INT = 59;
 WHILE @d >= 0
 BEGIN
     INSERT INTO audit.LicenseSkuDay (SnapshotDate, SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed)
-    VALUES (DATEADD(DAY, -@d, @today), '639dec6b-bb19-468b-871c-c5c441c4b0cb', N'Microsoft_365_Copilot', 1, 1300, 0, 0, 0, @licensed - @d / 3),
-           (DATEADD(DAY, -@d, @today), '06ebc4ee-1bb5-47dd-8120-11324bc54e06', N'SPE_E5', 0, 2500, 0, 0, 0, 2317 - @d);
+    VALUES (DATEADD(DAY, -@d, @today), '639dec6b-bb19-468b-871c-c5c441c4b0cb', N'Microsoft_365_Copilot', 1, (@licensed + 60) / 50 * 50, 0, 0, 0, @licensed - @d / 3),
+           (DATEADD(DAY, -@d, @today), '06ebc4ee-1bb5-47dd-8120-11324bc54e06', N'SPE_E5', 0, (@people + 250) / 100 * 100, 0, 0, 0, @people - @d);
     SET @d -= 1;
 END;
 INSERT INTO audit.LicenseSku (SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed, CapabilityStatus)

@@ -758,6 +758,8 @@ From 2.6.2 the nightly run can also load AI use outside Microsoft 365 Copilot, i
 | GitHub Copilot Enterprise or Business | Seats, daily use, each person's day with AI credits, and what GitHub billed | The enterprise's slug, and a classic personal access token of an enterprise owner with `manage_billing:copilot` and `read:enterprise`; the *Copilot usage metrics* policy on | [GITHUB-COPILOT-USAGE.md](GITHUB-COPILOT-USAGE.md) |
 | Microsoft Foundry and Azure OpenAI | Model deployments, daily requests and tokens, and daily cost by meter | The subscription ids, and *Monitoring Reader* and *Cost Management Reader* on each for the pipeline's app (or an app of its own) | [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md) |
 
+**Fabric, Copilot in Power BI and the Power Platform (2.6.6)** come from each source's own export, not an API, so they need no permission: the Fabric Capacity Metrics app, a flow inventory (the CoE Starter Kit's, or the admin center's), and the Power Platform admin center's usage, capacity and Copilot Credit reports. Load each with `tools\Import-CostCsv.ps1` after it is exported; [OPERATIONS.md](OPERATIONS.md#costs-and-savings) lists each table's headings and the export that fills it. Leadership › Costs and savings shows each area once its source is loaded. Their licenses (Power Automate, Power Apps, Power BI, Copilot Credit packs) already come from Graph with the others; set their prices in Admin › Targets and assumptions.
+
 Each guide lists the values to collect, has a part written to hand to the administrator who does that side, and ends with how to check the first load. In short:
 
 ```powershell

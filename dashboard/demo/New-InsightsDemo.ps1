@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
     Builds a demo database for the Copilot Insights dashboard: a synthetic
-    2,317-person company with six months of Copilot use.
+    company of 5,000 people (-People) with six months of Copilot use, and its
+    spend on Fabric, the Power Platform, GitHub Copilot and Foundry (2.6.6).
 
 .DESCRIPTION
     Creates the database (replacing it with -Force), runs the repository's
@@ -28,7 +29,8 @@ param(
     [string] $Database = 'CopilotInsightsDemo',
     [switch] $TrustServerCertificate,
     [switch] $Force,
-    [string[]] $Admins = @()   # UPNs or DOMAIN\user names to make Admin in the demo
+    [string[]] $Admins = @(),  # UPNs or DOMAIN\user names to make Admin in the demo
+    [ValidateRange(400, 5200)][int] $People = 5000   # 2,317 is the demo before 2.6.6; names stay unique up to 5,200
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,7 +85,7 @@ try {
     }
     Step 'Demo company and six months of use' {
         $cmd = $conn.CreateCommand(); $cmd.CommandTimeout = 0
-        $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoData.sql') -Raw
+        $cmd.CommandText = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoData.sql') -Raw).Replace('DECLARE @people INT = 5000;', "DECLARE @people INT = $People;")
         $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
         $r = $t.Rows[0]
         Write-Host ("   {0:N0} people, {1:N0} licensed today, {2:N0} license events, {3:N0} sessions, {4:N0} interactions by {5:N0} people" -f `
@@ -94,6 +96,14 @@ try {
     Step 'bi star schema' { Invoke-Batch $conn "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$Database';" }
     Step 'License pool, pipeline runs, training and targets' {
         Invoke-Batch $conn (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoOperations.sql') -Raw)
+    }
+    Step 'Fabric, Power Platform, GitHub Copilot and Foundry costs' {
+        $cmd = $conn.CreateCommand(); $cmd.CommandTimeout = 0
+        $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoCosts.sql') -Raw
+        $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
+        $r = $t.Rows[0]
+        Write-Host ("   {0:N0} Fabric capacity-days, {1:N0} flows, {2:N0} people's Power Platform activity, {3:N0} GitHub Copilot seats, {4:N0} Foundry cost-days" -f `
+                    $r.FabricDays, $r.Flows, $r.Activity, $r.Seats, $r.FoundryCostDays)
     }
     Step 'Dashboard settings, names and demo roles' {
         $admins = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Admin', N'Demo administrator', N'demo')" }) -join ",`n"

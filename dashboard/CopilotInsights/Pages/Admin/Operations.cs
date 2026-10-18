@@ -582,7 +582,46 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
             Input("ChampionsPerDepartment", "Champions to suggest per department", V("ChampionsPerDepartment"), 4, "number") +
             Input("RolloutWaveSize", "People in a rollout wave", V("RolloutWaveSize"), 6, "number") + Button("Save"))),
             "With a group, the license exports add and remove its members; without one, they assign or remove the license itself. The license price is in Admin > Access.", "half"));
+
+        /* 2.6.6: what Leadership > Costs and savings prices and values with. */
+        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.CostPrice', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
+        {
+            var prices = await Db.QueryAsync<(string Item, string Area, string Name, string Unit, decimal MonthlyPrice)>(
+                "SELECT Item, Area, Name, Unit, MonthlyPrice FROM dash.CostPrice ORDER BY Area, Name;");
+            var pt = new Table { Headers = ["Area", "What", "Item (SKU part number)", "Per", $"Price ({V("LicenseCurrency")})"] };
+            foreach (var p in prices)
+                pt.Rows.Add([p.Area, p.Name, p.Item, p.Unit, new HtmlString(Form("price", Hidden("item", p.Item) +
+                    Input("price", $"Price a {p.Unit}", p.MonthlyPrice.ToString("0.####", CultureInfo.InvariantCulture), 7) + Button("Save", quiet: true)))]);
+            Panels.Add(new("Costs and savings", new HtmlString(Form("costs",
+                Input("FabricReservedDiscount", "Fabric reservation discount (0.41 is 41%)", V("FabricReservedDiscount"), 6) +
+                Input("FlowMinutesPerRun", "Minutes one flow run saves (default)", V("FlowMinutesPerRun"), 5) +
+                Input("PowerBiCopilotMinutes", "Minutes one Copilot in Power BI request saves", V("PowerBiCopilotMinutes"), 5) +
+                Input("CostIdleDays", "Unused after (days), for seats, licenses and AI accounts", V("CostIdleDays"), 4, "number") + Button("Save")) + pt.Render().Value),
+                "What Leadership > Costs and savings counts with. The prices are list prices in USD when installed: put in what your agreement pays, a month for a license or a GB, " +
+                "and per credit for a credit. A license is matched to Graph's license pool by its SKU part number. Hourly cost is under Time saved, above."));
+        }
     }
+
+    public Task<IActionResult> OnPostCostsAsync(string? FabricReservedDiscount, string? FlowMinutesPerRun, string? PowerBiCopilotMinutes, string? CostIdleDays) => AdminChangeAsync(async () =>
+    {
+        static decimal Num(string? v, string what, decimal min, decimal max) =>
+            decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) && d >= min && d <= max ? d : throw new ArgumentException($"{what} is a number from {min} to {max}.");
+        return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, new Dictionary<string, string?>
+        {
+            ["FabricReservedDiscount"] = Num(FabricReservedDiscount, "the reservation discount", 0, 0.9m).ToString(CultureInfo.InvariantCulture),
+            ["FlowMinutesPerRun"] = Num(FlowMinutesPerRun, "the minutes a flow run saves", 0, 240).ToString(CultureInfo.InvariantCulture),
+            ["PowerBiCopilotMinutes"] = Num(PowerBiCopilotMinutes, "the minutes a Copilot in Power BI request saves", 0, 240).ToString(CultureInfo.InvariantCulture),
+            ["CostIdleDays"] = SettingWriter.Int(CostIdleDays, "Unused after", 7, 180).ToString(CultureInfo.InvariantCulture),
+        }));
+    });
+
+    public Task<IActionResult> OnPostPriceAsync(string? item, string? price) => AdminChangeAsync(async () =>
+    {
+        if (!decimal.TryParse(price, NumberStyles.Number, CultureInfo.InvariantCulture, out var p) || p < 0 || p > 1000000) throw new ArgumentException("the price is a number, such as 15 or 0.01.");
+        var name = await Db.ScalarAsync<string?>("SELECT Name FROM dash.CostPrice WHERE Item = @item;", new { item }) ?? throw new ArgumentException("no such price.");
+        await Db.ExecuteAsync("UPDATE dash.CostPrice SET MonthlyPrice = @p, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Item = @item;", new { p, item, by = Viewer.Upn ?? Viewer.WindowsName });
+        return $"{name}: {p.ToString("0.####", CultureInfo.InvariantCulture)}.";
+    });
 
     public Task<IActionResult> OnPostTargetAsync(string? root, string? metric, string? value, DateTime? start, DateTime? due, string? note) => AdminChangeAsync(async () =>
     {

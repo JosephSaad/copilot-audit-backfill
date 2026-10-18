@@ -4341,6 +4341,59 @@ finally {
 }
 
 # ---------------------------------------------------------------------------
+# 23. Cost exports (2.6.6): tools/Import-CostCsv.ps1 loads a CSV into the tables Leadership > Costs and savings reads.
+Write-Host "`n23. Cost exports (tools/Import-CostCsv.ps1)" -ForegroundColor Cyan
+$ccDir = Join-Path ([System.IO.Path]::GetTempPath()) "it-cost-$PID"
+$null = New-Item -ItemType Directory -Force -Path $ccDir
+$ccTool = Join-Path $root 'tools' 'Import-CostCsv.ps1'
+$ccSettings = Join-Path $ccDir 'none.settings.psd1'
+$ccCs = New-ConnString $script:ITDatabase
+try {
+    # Headings in any case, a column the table lacks, a number with a thousands comma, a date with a time and a Z,
+    # a row whose day cannot be read, and the same capacity and day twice (the last one counts).
+    Set-Content -LiteralPath (Join-Path $ccDir 'cap.csv') -Encoding utf8 -Value @'
+capacityid,Day,CapacityName,SKU,CapacityUnits,Billing,ActiveHours,CuSecondsUsed,PeakPercent,ThrottledMinutes,Cost,Currency,Comment
+fab-it,2026-09-01,fab-it,F64,64,PayAsYouGo,24,"1,234,567.5",61.5,0,276.48,USD,first
+fab-it,2026-09-02T00:00:00Z,fab-it,F64,64,PayAsYouGo,24,1000000,40,0,276.48,USD,second
+fab-it,not a day,fab-it,F64,64,PayAsYouGo,24,1,1,0,1,USD,bad
+fab-it,2026-09-01,fab-it,F64,64,PayAsYouGo,24,2000000,70,12,276.48,USD,again
+'@
+    $ccOut = & $ccTool -Table FabricCapacityDay -Path (Join-Path $ccDir 'cap.csv') -ConnectionString $ccCs -SettingsPath $ccSettings 6>&1 3>&1 | Out-String
+    $cap = (Invoke-SqlText -As Table -Sql "SELECT COUNT(*) AS N, MAX(CASE WHEN [Day] = '2026-09-01' THEN CuSecondsUsed END) AS Cu1, MAX(CASE WHEN [Day] = '2026-09-01' THEN ThrottledMinutes END) AS T1, MAX(CASE WHEN [Day] = '2026-09-02' THEN PeakPercent END) AS P2 FROM audit.FabricCapacityDay WHERE CapacityId = N'fab-it';").Rows[0]
+    Assert-That ([int] $cap.N -eq 2 -and [decimal] $cap.Cu1 -eq 2000000 -and [int] $cap.T1 -eq 12 -and [decimal] $cap.P2 -eq 40) `
+        "a capacity's days load: a date with a time, the same day twice keeping the last row ($($cap.N) days; $($cap.Cu1), $($cap.T1), $($cap.P2))"
+    Assert-That ($ccOut -like '*2 left out*' -and $ccOut -like '*Comment*') "a row whose key cannot be read, and the repeat, are counted as left out, and a heading with no column is named ($($ccOut.Trim() -replace '\s+', ' '))"
+
+    # Loaded again with one day changed: replaced, and nothing else touched.
+    Set-Content -LiteralPath (Join-Path $ccDir 'cap2.csv') -Encoding utf8 -Value "CapacityId,Day,Cost`nfab-it,2026-09-02,100.5"
+    $null = & $ccTool -Table FabricCapacityDay -Path (Join-Path $ccDir 'cap2.csv') -ConnectionString $ccCs -SettingsPath $ccSettings 6>&1 3>&1 | Out-String
+    $again = (Invoke-SqlText -As Table -Sql "SELECT COUNT(*) AS N, MAX(CASE WHEN [Day] = '2026-09-02' THEN Cost END) AS C2, MAX(CASE WHEN [Day] = '2026-09-01' THEN Cost END) AS C1 FROM audit.FabricCapacityDay WHERE CapacityId = N'fab-it';").Rows[0]
+    Assert-That ([int] $again.N -eq 2 -and [decimal] $again.C2 -eq 100.5 -and [decimal] $again.C1 -eq 276.48) 'a day loaded again replaces itself, and the others stay'
+
+    # A file without the key cannot load.
+    Set-Content -LiteralPath (Join-Path $ccDir 'nokey.csv') -Encoding utf8 -Value "CapacityId,Cost`nfab-it,1"
+    $noKey = try { & $ccTool -Table FabricCapacityDay -Path (Join-Path $ccDir 'nokey.csv') -ConnectionString $ccCs -SettingsPath $ccSettings 6>$null 3>$null | Out-Null; '' } catch { "$_" }
+    Assert-That ($noKey -like '*has no Day heading*keyed by CapacityId, Day*') "a file without the table's key is refused, naming it ($noKey)"
+
+    # The flow inventory, replaced whole: yes and no read as bits; 20 flows, then 15 (25% fewer) is held by the guard.
+    $flows = 1..20 | ForEach-Object { "Default,flow-$_,Flow $_,owner$_@contoso.com,$(if ($_ % 2) { 'Yes' } else { 'False' }),PerUser,Started,$($_ * 10)" }
+    Set-Content -LiteralPath (Join-Path $ccDir 'flows.csv') -Encoding utf8 -Value (@('EnvironmentName,FlowId,FlowName,OwnerUpn,IsPremium,LicenseModel,State,Runs30') + $flows)
+    $null = & $ccTool -Table PowerAutomateFlow -Path (Join-Path $ccDir 'flows.csv') -ConnectionString $ccCs -SettingsPath $ccSettings -Replace 6>&1 3>&1 | Out-String
+    $f1 = (Invoke-SqlText -As Table -Sql "SELECT COUNT(*) AS N, SUM(CAST(IsPremium AS INT)) AS P, SUM(Runs30) AS R FROM audit.PowerAutomateFlow;").Rows[0]
+    Assert-That ([int] $f1.N -eq 20 -and [int] $f1.P -eq 10 -and [int] $f1.R -eq 2100) "a flow inventory loads, Yes and False read as yes and no ($($f1.N) flows, $($f1.P) premium)"
+    Set-Content -LiteralPath (Join-Path $ccDir 'flows15.csv') -Encoding utf8 -Value (@('EnvironmentName,FlowId,FlowName,OwnerUpn,IsPremium,LicenseModel,State,Runs30') + $flows[0..14])
+    $global:LASTEXITCODE = 0
+    $ccSaid = & $ccTool -Table PowerAutomateFlow -Path (Join-Path $ccDir 'flows15.csv') -ConnectionString $ccCs -SettingsPath $ccSettings -Replace 6>&1 3>&1 | Out-String
+    $ccCode = $LASTEXITCODE
+    Assert-That ($ccCode -eq 3 -and [int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.PowerAutomateFlow') -eq 20 -and $ccSaid -like '*CostImportMaxDropPercent*') `
+        "replacing it with 25% fewer flows is refused by the delete guard: the 20 stay, exit code 3 ($ccCode)"
+    $null = & $ccTool -Table PowerAutomateFlow -Path (Join-Path $ccDir 'flows15.csv') -ConnectionString $ccCs -SettingsPath $ccSettings -Replace -AllowDrop 6>&1 3>&1 | Out-String
+    Assert-That ([int] (Invoke-SqlText -As Scalar -Sql 'SELECT COUNT(*) FROM audit.PowerAutomateFlow') -eq 15) 'and -AllowDrop lets it through: what the file does not list is gone'
+    Invoke-SqlText -Sql "DELETE FROM audit.PowerAutomateFlow; DELETE FROM audit.FabricCapacityDay WHERE CapacityId = N'fab-it';"
+}
+finally { Remove-Item -LiteralPath $ccDir -Recurse -Force -ErrorAction SilentlyContinue }
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

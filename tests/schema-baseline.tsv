@@ -1,4 +1,4 @@
-# release 2.6.5
+# release 2.6.6
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -258,6 +258,27 @@ C	copilot	audit.ExternalUsageRun	U	6	Status	varchar(16)	0	D
 C	copilot	audit.ExternalUsageRun	U	7	FromDay	date	1	
 C	copilot	audit.ExternalUsageRun	U	8	ToDay	date	1	
 C	copilot	audit.ExternalUsageRun	U	9	RowsWritten	int	1	
+C	copilot	audit.FabricCapacityDay	U	1	CapacityId	nvarchar(200)	0	
+C	copilot	audit.FabricCapacityDay	U	10	PeakPercent	decimal(9,2)	1	
+C	copilot	audit.FabricCapacityDay	U	11	ThrottledMinutes	int	1	
+C	copilot	audit.FabricCapacityDay	U	12	Cost	decimal(19,4)	1	
+C	copilot	audit.FabricCapacityDay	U	13	Currency	nvarchar(8)	1	
+C	copilot	audit.FabricCapacityDay	U	14	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.FabricCapacityDay	U	2	Day	date	0	
+C	copilot	audit.FabricCapacityDay	U	3	CapacityName	nvarchar(200)	1	
+C	copilot	audit.FabricCapacityDay	U	4	Sku	varchar(16)	1	
+C	copilot	audit.FabricCapacityDay	U	5	CapacityUnits	int	1	
+C	copilot	audit.FabricCapacityDay	U	6	Region	nvarchar(64)	1	
+C	copilot	audit.FabricCapacityDay	U	7	Billing	varchar(16)	1	
+C	copilot	audit.FabricCapacityDay	U	8	ActiveHours	decimal(5,2)	1	
+C	copilot	audit.FabricCapacityDay	U	9	CuSecondsUsed	decimal(19,2)	1	
+C	copilot	audit.FabricWorkloadDay	U	1	CapacityId	nvarchar(200)	0	
+C	copilot	audit.FabricWorkloadDay	U	2	Day	date	0	
+C	copilot	audit.FabricWorkloadDay	U	3	Workload	nvarchar(64)	0	
+C	copilot	audit.FabricWorkloadDay	U	4	CuSeconds	decimal(19,2)	1	
+C	copilot	audit.FabricWorkloadDay	U	5	Operations	bigint	1	
+C	copilot	audit.FabricWorkloadDay	U	6	Users	int	1	
+C	copilot	audit.FabricWorkloadDay	U	7	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.FoundryCostDay	U	1	SubscriptionId	varchar(36)	0	
 C	copilot	audit.FoundryCostDay	U	2	ResourceGroup	nvarchar(90)	0	
 C	copilot	audit.FoundryCostDay	U	3	Account	nvarchar(64)	0	
@@ -402,6 +423,37 @@ C	copilot	audit.PipelineSetting	U	1	Name	sysname	0
 C	copilot	audit.PipelineSetting	U	2	Value	nvarchar(400)	1	
 C	copilot	audit.PipelineSetting	U	3	UpdatedUtc	datetime2(0)	0	D
 C	copilot	audit.PipelineSetting	U	4	UpdatedBy	nvarchar(256)	0	D
+C	copilot	audit.PowerAutomateFlow	U	1	EnvironmentName	nvarchar(200)	0	
+C	copilot	audit.PowerAutomateFlow	U	10	Runs30	int	1	
+C	copilot	audit.PowerAutomateFlow	U	11	FailedRuns30	int	1	
+C	copilot	audit.PowerAutomateFlow	U	12	MinutesSavedPerRun	decimal(9,2)	1	
+C	copilot	audit.PowerAutomateFlow	U	13	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.PowerAutomateFlow	U	2	FlowId	nvarchar(100)	0	
+C	copilot	audit.PowerAutomateFlow	U	3	FlowName	nvarchar(400)	1	
+C	copilot	audit.PowerAutomateFlow	U	4	OwnerUpn	nvarchar(256)	1	
+C	copilot	audit.PowerAutomateFlow	U	5	IsPremium	bit	1	
+C	copilot	audit.PowerAutomateFlow	U	6	LicenseModel	varchar(16)	1	
+C	copilot	audit.PowerAutomateFlow	U	7	State	varchar(16)	1	
+C	copilot	audit.PowerAutomateFlow	U	8	CreatedUtc	datetime2(0)	1	
+C	copilot	audit.PowerAutomateFlow	U	9	LastRunUtc	datetime2(0)	1	
+C	copilot	audit.PowerPlatformCapacityDay	U	1	Day	date	0	
+C	copilot	audit.PowerPlatformCapacityDay	U	2	CapacityType	varchar(16)	0	
+C	copilot	audit.PowerPlatformCapacityDay	U	3	EntitledGb	decimal(19,2)	1	
+C	copilot	audit.PowerPlatformCapacityDay	U	4	UsedGb	decimal(19,2)	1	
+C	copilot	audit.PowerPlatformCapacityDay	U	5	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.PowerPlatformCreditDay	U	1	Day	date	0	
+C	copilot	audit.PowerPlatformCreditDay	U	2	EnvironmentName	nvarchar(200)	0	
+C	copilot	audit.PowerPlatformCreditDay	U	3	Product	varchar(32)	0	
+C	copilot	audit.PowerPlatformCreditDay	U	4	Billing	varchar(16)	0	
+C	copilot	audit.PowerPlatformCreditDay	U	5	Credits	decimal(19,2)	1	
+C	copilot	audit.PowerPlatformCreditDay	U	6	Cost	decimal(19,4)	1	
+C	copilot	audit.PowerPlatformCreditDay	U	7	Currency	nvarchar(8)	1	
+C	copilot	audit.PowerPlatformCreditDay	U	8	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.PowerPlatformUserActivity	U	1	UserPrincipalName	nvarchar(256)	0	
+C	copilot	audit.PowerPlatformUserActivity	U	2	Product	varchar(32)	0	
+C	copilot	audit.PowerPlatformUserActivity	U	3	LastActiveUtc	datetime2(0)	1	
+C	copilot	audit.PowerPlatformUserActivity	U	4	ActiveDays30	int	1	
+C	copilot	audit.PowerPlatformUserActivity	U	5	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.RawLogAccessedResource	U	1	RecordId	nvarchar(440)	0	
 C	copilot	audit.RawLogAccessedResource	U	10	SensitivityLabelId	uniqueidentifier	1	
 C	copilot	audit.RawLogAccessedResource	U	11	XPIADetected	bit	1	
@@ -1062,6 +1114,15 @@ C	copilot	dash.AuditLog	U	5	Page	nvarchar(200)	1
 C	copilot	dash.AuditLog	U	6	Scope	nvarchar(400)	1	
 C	copilot	dash.AuditLog	U	7	Detail	nvarchar(2000)	1	
 C	copilot	dash.AuditLog	U	8	ClientIp	varchar(64)	1	
+C	copilot	dash.CostPrice	U	1	Item	varchar(64)	0	
+C	copilot	dash.CostPrice	U	2	Area	nvarchar(40)	0	
+C	copilot	dash.CostPrice	U	3	Name	nvarchar(200)	0	
+C	copilot	dash.CostPrice	U	4	Unit	nvarchar(40)	0	
+C	copilot	dash.CostPrice	U	5	MonthlyPrice	decimal(19,4)	0	
+C	copilot	dash.CostPrice	U	6	Currency	nvarchar(8)	1	
+C	copilot	dash.CostPrice	U	7	Note	nvarchar(400)	1	
+C	copilot	dash.CostPrice	U	8	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.CostPrice	U	9	UpdatedUtc	datetime2(0)	0	D
 C	copilot	dash.DigestPreference	U	1	Upn	nvarchar(256)	0	
 C	copilot	dash.DigestPreference	U	2	ManagerDigestOptOut	bit	0	D
 C	copilot	dash.DigestPreference	U	3	PersonalDigest	bit	0	D
@@ -1527,6 +1588,8 @@ G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLoad
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLoadWindow
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotSessionRun
 G	copilot	CopilotInsightsApp	SELECT	audit.ExternalUsageRun
+G	copilot	CopilotInsightsApp	SELECT	audit.FabricCapacityDay
+G	copilot	CopilotInsightsApp	SELECT	audit.FabricWorkloadDay
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryCostDay
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryDeployment
 G	copilot	CopilotInsightsApp	SELECT	audit.FoundryUsageDay
@@ -1541,6 +1604,10 @@ G	copilot	CopilotInsightsApp	SELECT	audit.PipelineCertificate
 G	copilot	CopilotInsightsApp	SELECT	audit.PipelineRun
 G	copilot	CopilotInsightsApp	SELECT	audit.PipelineRunStep
 G	copilot	CopilotInsightsApp	SELECT	audit.PipelineSetting
+G	copilot	CopilotInsightsApp	SELECT	audit.PowerAutomateFlow
+G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformCapacityDay
+G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformCreditDay
+G	copilot	CopilotInsightsApp	SELECT	audit.PowerPlatformUserActivity
 G	copilot	CopilotInsightsApp	SELECT	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	SELECT	audit.UserDirectory
 G	copilot	CopilotInsightsApp	SELECT	audit.UserLicenseSku
@@ -1549,6 +1616,7 @@ G	copilot	CopilotInsightsApp	SELECT	audit.ValueCatalogColumn
 G	copilot	CopilotInsightsApp	UPDATE	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAlias
 G	copilot	CopilotInsightsApp	UPDATE	dash.AlertState
+G	copilot	CopilotInsightsApp	UPDATE	dash.CostPrice
 G	copilot	CopilotInsightsApp	UPDATE	dash.DigestPreference
 G	copilot	CopilotInsightsApp	UPDATE	dash.DigestSend
 G	copilot	CopilotInsightsApp	UPDATE	dash.EventMarker
@@ -1612,6 +1680,8 @@ O	copilot	audit.CopilotSession	U
 O	copilot	audit.CopilotSessionRun	U
 O	copilot	audit.CopilotWeeklyRollup	U
 O	copilot	audit.ExternalUsageRun	U
+O	copilot	audit.FabricCapacityDay	U
+O	copilot	audit.FabricWorkloadDay	U
 O	copilot	audit.FoundryCostDay	U
 O	copilot	audit.FoundryDeployment	U
 O	copilot	audit.FoundryUsageDay	U
@@ -1626,6 +1696,10 @@ O	copilot	audit.PipelineCertificate	U
 O	copilot	audit.PipelineRun	U
 O	copilot	audit.PipelineRunStep	U
 O	copilot	audit.PipelineSetting	U
+O	copilot	audit.PowerAutomateFlow	U
+O	copilot	audit.PowerPlatformCapacityDay	U
+O	copilot	audit.PowerPlatformCreditDay	U
+O	copilot	audit.PowerPlatformUserActivity	U
 O	copilot	audit.RawLogAccessedResource	U
 O	copilot	audit.RawLogContext	U
 O	copilot	audit.RawLogFlattened	U
@@ -1710,6 +1784,7 @@ O	copilot	dash.AgentInventoryRun	U
 O	copilot	dash.AgentUse	U
 O	copilot	dash.AlertState	U
 O	copilot	dash.AuditLog	U
+O	copilot	dash.CostPrice	U
 O	copilot	dash.DigestPreference	U
 O	copilot	dash.DigestSend	U
 O	copilot	dash.EventMarker	U

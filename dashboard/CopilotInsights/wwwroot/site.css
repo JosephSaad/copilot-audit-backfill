@@ -407,3 +407,65 @@ th[aria-sort="ascending"] .sort::after { content: "\00a0\2191"; color: var(--acc
 th[aria-sort="descending"] .sort::after { content: "\00a0\2193"; color: var(--accent); }
 @media print { th .sort::after { content: none; } }
 svg.chart .bshown { fill: var(--muted); font-size: 11px; white-space: pre; }
+
+/* ---- Leadership > Costs and savings (2.6.6) ---------------------------------------------------- */
+.kpi.good .kvalue { color: var(--good); }
+/* The ledger: one row an area, its spend as a bar whose hatched end is the part that can be saved. On a phone each
+   row becomes a card: the name, the bar across, then the four figures two to a row, each with its label. */
+.ledger { display: grid; gap: 0; font-variant-numeric: tabular-nums; }
+.lrow { display: grid; grid-template-columns: minmax(180px, 1.6fr) 92px minmax(120px, 2.2fr) 92px 92px 64px; gap: 12px; align-items: center;
+  padding: 9px 4px; border-bottom: 1px solid var(--rule); }
+.lrow .n { text-align: right; white-space: nowrap; }
+.lhead { font-size: 12px; color: var(--muted); padding-top: 0; }
+.lhead .lbarh { color: var(--faint); }
+.lname { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 550; }
+.lname a { color: inherit; }
+.dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 3px; }
+.lbar { display: block; height: 14px; background: color-mix(in srgb, var(--rule) 45%, transparent); border-radius: 4px; overflow: hidden; }
+.lspend { display: flex; justify-content: flex-end; height: 100%; background: var(--c); border-radius: 4px; min-width: 2px; }
+.lsave { display: block; height: 100%; background: repeating-linear-gradient(135deg, var(--surface) 0 3px, transparent 3px 7px); opacity: 0.85;
+  box-shadow: inset 2px 0 0 var(--surface); }
+.lsv { color: var(--good); font-weight: 600; }
+.ltotal { border-bottom: 0; font-weight: 650; }
+.ltotal .lsv { color: var(--good); }
+@media (max-width: 760px) {
+  .lhead { display: none; }
+  .lrow { grid-template-columns: 1fr 1fr; gap: 6px 14px; padding: 12px 2px; }
+  .lrow .lname, .lrow .lbar { grid-column: 1 / -1; }
+  .lrow .n { display: flex; justify-content: space-between; text-align: left; }
+  .lrow .n::before { content: attr(data-l); color: var(--muted); font-weight: 400; font-size: 13px; }
+  .ltotal .lbar { display: none; }
+}
+/* The opportunities, ranked: what, why and what to do on the left, what it is worth on the right. */
+.opps { list-style: none; margin: 0; padding: 0; counter-reset: opp; }
+.opp { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 16px; padding: 12px 0 12px 34px; border-bottom: 1px solid var(--rule); position: relative; }
+.opps:not(.compact) .opp { counter-increment: opp; }
+.opps:not(.compact) .opp::before { content: counter(opp); position: absolute; left: 0; top: 12px; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 13px; display: grid; place-items: center; }
+.opps.compact .opp { padding-left: 0; grid-template-columns: minmax(0, 1fr) 120px; }
+.opp:last-child { border-bottom: 0; }
+.opp h3 { margin: 3px 0 4px; font-size: 15px; line-height: 1.35; }
+.opp h3 a { color: inherit; }
+.opp p { margin: 2px 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.opp .oact { color: var(--ink); }
+.ohead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--muted); }
+.conf { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--rule); }
+.conf.high { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--rule)); }
+.conf.low { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--rule)); }
+.oworth { text-align: right; display: flex; flex-direction: column; gap: 1px; font-variant-numeric: tabular-nums; }
+.oworth b { font-size: 20px; color: var(--good); }
+.opp.grow .oworth b { color: var(--accent); }
+.opp.risk .oworth b { color: var(--warn); }
+.oworth span { font-size: 12px; color: var(--muted); }
+@media (max-width: 640px) {
+  .opp, .opps.compact .opp { grid-template-columns: 1fr; gap: 6px; }
+  .oworth { text-align: left; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+}
+/* A few figures as label and value, for a narrow panel. */
+.facts { display: grid; gap: 10px; margin: 0; }
+.facts div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+.facts div:last-child { border-bottom: 0; }
+.facts .fl { font-size: 13px; color: var(--muted); }
+.facts b { text-align: right; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.facts p { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--faint); }
+@media print { .opp { break-inside: avoid; } }

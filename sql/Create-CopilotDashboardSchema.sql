@@ -54,10 +54,56 @@ USING (VALUES
     ('LicenseMonthlyCost', N'30', N'What one Copilot license costs a month, for the license recommendations.'),
     ('LicenseCurrency', N'USD', N'The currency LicenseMonthlyCost is in.'),
     ('MaxViewerLevel', N'0', N'Who can open the dashboard (2.4.4): 0 everyone in the directory; N levels 1 to N below the top, and anyone granted a role other than Admin. Set in Admin > Access.'),
-    ('ProtectedLevels', N'5', N'Levels 1 to N of the organization are never on a revoke, reclaim, pay-as-you-go or training list (2.4.6); 0 for none. Set in Admin > Access.')
+    ('ProtectedLevels', N'5', N'Levels 1 to N of the organization are never on a revoke, reclaim, pay-as-you-go or training list (2.4.6); 0 for none. Set in Admin > Access.'),
+    /* 2.6.6: the assumptions Leadership > Costs and savings values and prices with. */
+    ('FabricReservedDiscount', N'0.41', N'2.6.6: what a one-year reservation takes off a Fabric capacity''s pay-as-you-go price, as a fraction (0.41 is 41%).'),
+    ('FlowMinutesPerRun', N'3', N'2.6.6: the minutes one run of a cloud flow saves, where the flow inventory gives none for it.'),
+    ('PowerBiCopilotMinutes', N'3', N'2.6.6: the minutes one Copilot in Power BI or Fabric request saves an analyst.'),
+    ('CostIdleDays', N'30', N'2.6.6: a GitHub Copilot seat, a premium Power Platform license or a model deployment unused this many days counts as idle.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);
+
+/*
+    2.6.6: what a license or unit of capacity costs a month, for Leadership > Costs and savings. A license is
+    matched to audit.LicenseSku by its SKU part number (Item); the other items are units the page prices: a GB of
+    Dataverse capacity over the entitlement, a pay-as-you-go Copilot Credit, a capacity pack, a GitHub Copilot
+    seat. Seeded with list prices in USD as of 2026; a row an administrator changed is kept on every install.
+    A license whose part number is not here is left out of the spend, and the page says how many are.
+*/
+IF OBJECT_ID(N'dash.CostPrice', N'U') IS NULL
+    CREATE TABLE dash.CostPrice
+    (
+        Item         VARCHAR(64)     NOT NULL CONSTRAINT PK_DashCostPrice PRIMARY KEY,
+        Area         NVARCHAR(40)    NOT NULL,   -- Microsoft 365 Copilot | GitHub Copilot | Power Automate | Power Apps | Power BI | Copilot Studio | Dataverse
+        Name         NVARCHAR(200)   NOT NULL,
+        Unit         NVARCHAR(40)    NOT NULL,   -- user, flow, GB, credit, pack, seat
+        MonthlyPrice DECIMAL(19, 4)  NOT NULL,   -- a month, for a license; for a credit, each
+        Currency     NVARCHAR(8)     NULL,       -- NULL: LicenseCurrency
+        Note         NVARCHAR(400)   NULL,
+        UpdatedBy    NVARCHAR(256)   NULL,
+        UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostPrice_Updated DEFAULT (SYSUTCDATETIME())
+    );
+MERGE dash.CostPrice AS t
+USING (VALUES
+    ('POWERAUTOMATE_ATTENDED_RPA',   N'Power Automate',  N'Power Automate Premium',             N'user',   15,    N'Premium connectors, desktop flows (attended RPA), process mining.'),
+    ('FLOW_PER_USER',                N'Power Automate',  N'Power Automate per user (earlier plan)', N'user', 15,  NULL),
+    ('POWERAUTOMATE_UNATTENDED_RPA', N'Power Automate',  N'Power Automate Process',             N'flow',   150,   N'One flow or bot, run unattended, whoever triggers it.'),
+    ('FLOW_PER_PROCESS',             N'Power Automate',  N'Power Automate Process (earlier name)', N'flow', 150,  NULL),
+    ('POWERAPPS_PER_USER',           N'Power Apps',      N'Power Apps Premium',                 N'user',   20,    NULL),
+    ('POWERAPPS_PER_APP_NEW',        N'Power Apps',      N'Power Apps per app',                 N'user',   5,     NULL),
+    ('PBI_PREMIUM_PER_USER',         N'Power BI',        N'Power BI Premium Per User',          N'user',   24,    NULL),
+    ('POWER_BI_PRO',                 N'Power BI',        N'Power BI Pro',                       N'user',   14,    NULL),
+    ('COPILOT_STUDIO_PAYG_CREDIT',   N'Copilot Studio',  N'Copilot Credit, pay-as-you-go',      N'credit', 0.01,  N'Billed through an Azure subscription.'),
+    ('COPILOT_STUDIO_PACK',          N'Copilot Studio',  N'Copilot Credit capacity pack',       N'pack',   200,   N'25,000 credits a month, prepaid: 0.008 a credit.'),
+    ('DATAVERSE_DATABASE_GB',        N'Dataverse',       N'Dataverse database capacity',        N'GB',     40,    N'Each GB over the entitlement.'),
+    ('DATAVERSE_FILE_GB',            N'Dataverse',       N'Dataverse file capacity',            N'GB',     2,     N'Each GB over the entitlement.'),
+    ('DATAVERSE_LOG_GB',             N'Dataverse',       N'Dataverse log capacity',             N'GB',     10,    N'Each GB over the entitlement.'),
+    ('GITHUB_COPILOT_BUSINESS',      N'GitHub Copilot',  N'GitHub Copilot Business',            N'seat',   19,    NULL),
+    ('GITHUB_COPILOT_ENTERPRISE',    N'GitHub Copilot',  N'GitHub Copilot Enterprise',          N'seat',   39,    NULL)
+) AS s (Item, Area, Name, Unit, MonthlyPrice, Note)
+ON t.Item = s.Item
+WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, UpdatedBy) VALUES (s.Item, s.Area, s.Name, s.Unit, s.MonthlyPrice, s.Note, N'install');
 
 /* Roles granted to people (by UPN) or AD groups (DOMAIN\Group). */
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL

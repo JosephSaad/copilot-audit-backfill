@@ -38,6 +38,7 @@ public static class NavText
         ["/leadership/mix"] = ("Where people use Copilot: which apps, chat or in-app, and how much through agents.", "What it is used for"),
         ["/leadership/usecases"] = ("What Copilot is used for: email, meetings, writing, analysis, research and agents.", "What it is used for"),
         ["/leadership/value"] = ("An estimate of the hours Copilot saved and what they are worth.", "What it is used for"),
+        ["/leadership/costs"] = ("What AI and automation cost, what can be saved, and what they return, all areas on one page.", "What it is used for"),
         ["/leadership/boardpack"] = ("The program on one page for the board: use, targets, value, licenses and risk.", "Reporting"),
 
         ["/adoption"] = ("From license to habit: how many licensed people started, are active, and keep going.", "Overview"),

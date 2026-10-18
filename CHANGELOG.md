@@ -4,6 +4,77 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.6] - 2026-10-18
+
+One page for the whole AI and automation bill: **Leadership › Costs and savings** shows what Microsoft 365 Copilot,
+Copilot Studio's credits, Fabric with Copilot in Power BI, Power BI, Power Automate, Power Apps with Dataverse, GitHub
+Copilot and Foundry cost a month, what of it can be saved, and what it returns, with the savings ranked by what they
+are worth. Six new tables hold the Fabric and Power Platform sources, loaded from their own exports; the demo company
+grows to 5,000 people, with a realistic six months of that spend.
+
+To upgrade from 2.6.5: with the nightly task disabled, replace the job server's scripts, run
+`Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once, then install the dashboard package over the one in
+place and enable the task again. The installer adds six tables (`audit.FabricCapacityDay`, `audit.FabricWorkloadDay`,
+`audit.PowerAutomateFlow`, `audit.PowerPlatformUserActivity`, `audit.PowerPlatformCapacityDay`,
+`audit.PowerPlatformCreditDay`), the price list `dash.CostPrice` and four settings; nothing existing changes and
+nothing is rebuilt. The page shows Microsoft 365 Copilot, and GitHub Copilot and Foundry where their loaders run, from
+the first visit. Load the Fabric and Power Platform exports with `tools\Import-CostCsv.ps1` to add their areas, and
+put your agreement's prices in Admin › Targets and assumptions.
+
+### Added
+- **Leadership › Costs and savings.** For whole-organization viewers and the Licensing role.
+  - *The headline:* the spend a month and a year, the savings found and their share of the spend, the value
+    delivered (time saved at the hourly cost), the return on the spend (and once the savings are taken), and what
+    this dashboard's license exports have already saved.
+  - *Where the money goes:* a ledger of the eight areas, each with its spend, a bar whose hatched end is the part
+    that can be saved, the savings, the value and the return; how each was worked out behind its information icon.
+  - *Savings to take:* every saving the rules find, ranked by what it saves a month and a year, each with its
+    evidence, what to do and a confidence (High: the data shows it; Medium: it follows from a change you make; Low:
+    it rests on a price or a discount), linked to the page with the detail where there is one; and a CSV of them all.
+  - *Spend by month* for the last six whole months, *Savings by area*, *Copilot in Power BI* (its share of the
+    capacity, its cost, requests, cost a request, value and return), *Grow the return* (people to train, heavy free
+    users to license, failing flows, throttled capacity) and *What this is built from* (the sources loaded and not).
+  - The rules: Copilot licenses unused, on disabled accounts, or better on pay-as-you-go (the same rules as the
+    Licensing pages, protected levels respected); Copilot Credits past the packs that would cost less as packs, and
+    packs unused; Fabric capacities idle, oversized (peaks under 45%), better reserved or paused at weekends, and
+    throttled; Power BI, Power Automate and Power Apps licenses unused in 30 days (a Power Automate holder who owns a
+    premium flow that ran counts as using it); Process licenses on flows that run under 100 times a month; Dataverse
+    capacity over the entitlement; GitHub Copilot seats idle; a Foundry account that cost money and answered nothing.
+  - Every figure a month: licenses held now at their price, and each usage source's last 30 days. A cached load
+    takes about 30 ms on the 5,000-person demo; the page has no team filter, as the spend is the tenant's.
+- **Six tables for the new sources** (`Create-CopilotExternalUsageSchema.sql`), each filled from its source's own
+  export, no API permission needed: Fabric capacity days (the Capacity Metrics app, with the capacity's cost), Fabric
+  workload days (Copilot in Power BI is a workload of its own), the cloud flow inventory, who used Power BI, Power
+  Apps, Power Automate and Copilot Studio, Dataverse capacity, and Copilot Credits.
+- **`tools\Import-CostCsv.ps1`** loads a CSV into any of them, by the table's own column names: adds and replaces
+  by each row's key, reads dates and numbers the same whatever the machine's language, leaves out and counts a row
+  whose key cannot be read, keeps the last of a repeated key, names headings it has no column for, and with
+  `-Replace` makes the file the whole table, held by the delete guard (`CostImportMaxDropPercent`).
+- **Prices and assumptions** in Admin › Targets and assumptions › *Costs and savings*: the price of each license
+  and unit (`dash.CostPrice`, seeded with list prices in USD), the Fabric reservation discount (41%), the minutes a
+  flow run and a Copilot in Power BI request save (3), and the days after which a seat, license or AI account is
+  idle (30).
+- **The demo company has 5,000 people** (`New-InsightsDemo.ps1 -People`, 400 to 5,200; 2,317 before), and
+  `New-InsightsDemoCosts.sql` gives it six months of spend for every rule to find: three Fabric capacities (a
+  reserved production F128 throttled at month end with Copilot in Power BI growing on it, an oversized development
+  F64 on pay-as-you-go idle at weekends, an idle sandbox), Power Platform licenses with a share unused, 921 flows,
+  Dataverse over its database and log entitlement, Copilot Credits outgrowing their packs, 384 GitHub Copilot seats
+  with a fifth idle, and a provisioned Foundry deployment nobody has called in five weeks. Names stay unique, and the
+  first 2,317 people are who they were.
+
+### Changed
+- **The demo keeps levels 1 to 3 off the revoke and train lists**, not 1 to 5: with five levels, the default kept
+  the whole demo company off them and left those pages empty. A real install's setting is unchanged.
+
+### Known limits
+- **The new sources are loaded from exports, by hand or on a schedule you set**: no loader calls the Fabric or Power
+  Platform APIs yet. Each export has to be shaped to the table's headings (OPERATIONS.md lists them).
+- **Prices are list prices in USD** until set; licenses with part numbers not in the price list are left out of the
+  spend. Check `audit.LicenseSku` for your tenant's part numbers.
+- **Value is counted only where it is measured** (Copilot, flows, Copilot in Power BI), at minutes per use that are
+  assumptions; GitHub Copilot, Foundry and the licenses without usage show no value, so the return errs low.
+- **Tested on the demo database and the SQL integration suite only**, not against a real tenant's exports.
+
 ## [2.6.5] - 2026-10-14
 
 A delete guard on every load that empties a table and fills it again, each with its own percentage; and the release

@@ -16,6 +16,7 @@ Nothing here needs SQL typed by hand, but for looking inside a slow night ([A sl
 - [Names for codes and ids](#names-for-codes-and-ids)
 - [Email, alerts and digests](#email-alerts-and-digests)
 - [Targets, value and training](#targets-value-and-training)
+- [Costs and savings](#costs-and-savings)
 - [Classifications, events and extracts](#classifications-events-and-extracts)
 - [Acting on the license recommendations](#acting-on-the-license-recommendations)
 - [Triage and investigations](#triage-and-investigations)
@@ -187,6 +188,50 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 **Champions.** How many to suggest per department: Admin › Targets and assumptions › *Licensing and champions*. The list is Enablement › Champions, for the Enablement role.
 
 **Contracts.** The Copilot agreements (seats, price per seat, start and renewal dates) are entered by an administrator on **Forecasting › Budget and renewal** itself (*Add a contract*, and *Remove* on each). The page then shows the cost and how many seats the use supports at renewal.
+
+## Costs and savings
+
+**Leadership › Costs and savings (2.6.6)** puts everything the company spends on AI and automation on one page, a month at a time: what each area costs, what of it can be saved, what it returns, the savings ranked by what they are worth, and what is holding the return back. It is for people who see the whole organization, and for the Licensing role. Each area appears once its source is loaded; one that is not is listed under *What this is built from*, never shown as zero.
+
+| Area | Where its figures come from | What the page finds |
+|---|---|---|
+| Microsoft 365 Copilot | The audit log and the licenses from Graph, as every other page | Unused licenses to revoke, licenses on disabled accounts, light users better on pay-as-you-go; people to train and heavy free users to license |
+| Copilot Studio and AI Builder | `audit.PowerPlatformCreditDay`, and the capacity packs in Graph's license pool | Pay-as-you-go credits that would cost less as packs; packs left unused |
+| Fabric and Copilot in Power BI | `audit.FabricCapacityDay` and `audit.FabricWorkloadDay` | Idle capacities, capacities to size down, to reserve or to pause at weekends; throttling; Copilot's share of the capacity, its cost and its value |
+| Power BI licenses | Graph's license pool, and `audit.PowerPlatformUserActivity` | Pro and Premium Per User licenses unused in 30 days |
+| Power Automate | Graph's license pool, `audit.PowerAutomateFlow` and the activity | Premium licenses unused (and owning no premium flow that ran); Process licenses on flows that run under 100 times a month; flows failing a third of their runs; the value of the flows' runs |
+| Power Apps and Dataverse | Graph's license pool, the activity, and `audit.PowerPlatformCapacityDay` | Premium licenses unused; Dataverse database, file and log capacity over the entitlement |
+| GitHub Copilot | `tools\Import-GitHubCopilotUsage.ps1` (2.6.2) | Seats unused in 30 days, or never |
+| Foundry and Azure OpenAI | `tools\Import-FoundryUsage.ps1` (2.6.2) | An account that cost money and answered no request: a provisioned (PTU) deployment left running |
+
+**Load a source.** Each new table is filled from its source's own export with `tools\Import-CostCsv.ps1`, on the job server; none needs an API permission. Shape the export so its headings are the table's columns (the key columns are required; others may be left out), then load it:
+
+```powershell
+.\tools\Import-CostCsv.ps1 -Table FabricCapacityDay -Path .\fabric-capacity.csv
+.\tools\Import-CostCsv.ps1 -Table PowerAutomateFlow -Path .\flows.csv -Replace
+```
+
+| Table | Export | Key headings | The other headings |
+|---|---|---|---|
+| `FabricCapacityDay` | The Fabric Capacity Metrics app (its capacity utilization by day) with the capacity's cost from Azure Cost Management | `CapacityId`, `Day` | `CapacityName`, `Sku`, `CapacityUnits`, `Region`, `Billing` (PayAsYouGo or Reserved), `ActiveHours`, `CuSecondsUsed`, `PeakPercent`, `ThrottledMinutes`, `Cost`, `Currency` |
+| `FabricWorkloadDay` | The Capacity Metrics app's items by workload; Copilot's operations as a workload whose name starts with *Copilot* | `CapacityId`, `Day`, `Workload` | `CuSeconds`, `Operations`, `Users` |
+| `PowerAutomateFlow` | A flow inventory: the CoE Starter Kit's, or the admin center's export | `EnvironmentName`, `FlowId` | `FlowName`, `OwnerUpn`, `IsPremium`, `LicenseModel` (PerUser, Process or Standard), `State`, `CreatedUtc`, `LastRunUtc`, `Runs30`, `FailedRuns30`, `MinutesSavedPerRun` |
+| `PowerPlatformUserActivity` | The admin center's usage reports (Power Apps, Power Automate, Copilot Studio) and Power BI's activity | `UserPrincipalName`, `Product` (Power BI, Power Apps, Power Automate or Copilot Studio) | `LastActiveUtc`, `ActiveDays30` |
+| `PowerPlatformCapacityDay` | The admin center's capacity report | `Day`, `CapacityType` (Database, File or Log) | `EntitledGb`, `UsedGb` |
+| `PowerPlatformCreditDay` | The admin center's Copilot Credits and AI Builder consumption | `Day`, `EnvironmentName`, `Product` (Copilot Studio or AI Builder), `Billing` (Prepaid or PayAsYouGo) | `Credits`, `Cost`, `Currency` |
+
+- **A load adds and replaces by the key**: a day or a flow loaded again replaces itself, nothing else changes, so a week or six months can be loaded and loaded again. `-Replace` makes the file the whole table, for the inventories that are a picture of now (the flows, who used what); the delete guard holds a file more than 15% smaller than the table (`CostImportMaxDropPercent`, `-AllowDrop` once).
+- **Values** are read as the column's type whatever the machine's language: dates as yyyy-MM-dd, with or without a time; numbers with a point for decimals; True, False, Yes, No, 1 or 0. A blank is NULL. A row whose key cannot be read is left out and counted, and a key given twice keeps its last row. The tool names any heading the table has no column for.
+- **Load them on a schedule** that matches the export: the capacity and credit days daily or weekly, the inventories when they are refreshed. The page reads each source's last 30 days, whatever day it ends.
+
+**Prices and assumptions.** Admin › Targets and assumptions › *Costs and savings*: the price of each license and unit (`dash.CostPrice`, seeded with list prices in USD: put in what your agreement pays), the Fabric reservation discount (41% by default), the minutes a flow run and a Copilot in Power BI request save (3 each), and the days after which a seat, a license or an AI account counts as idle (30). A license is priced by its SKU part number, as Graph's license pool names it; one with no price is left out of the spend. The hourly cost the value is counted at is *Time saved*'s, and the Copilot license's price is Admin › Access's.
+
+**How the figures are counted.**
+
+- **Spend** is a month: licenses held now at their price, and for everything billed by use, the last 30 days of what the source charged.
+- **Savings** are what would stop being spent if the action beside each were taken: High confidence where the data shows it outright (a seat nobody used in 30 days), Medium where it follows from a change you make (a smaller capacity), Low where it rests on a price or a discount. A capacity on a reservation saves nothing until renewal, so its idle cost is shown as at stake, not saved.
+- **Value** is time saved at the hourly cost: Copilot's interactions (as Leadership › Value counts them), the flows' successful runs, and Copilot in Power BI's requests. Areas whose value is not measured show a dash, so the return understates rather than flatters.
+- **Already saved** is the Copilot licenses exported from this dashboard to revoke, or from disabled accounts, that have since gone.
 
 ## Classifications, events and extracts
 
@@ -419,7 +464,7 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, where the logs are with the last test's conversation with the mail server (2.6.2), and everything sent or not, with the conversation of each test and each message not sent |
 | Admin › Alerts and digests | Alert recipients and thresholds, digests, manager digests and the managers who do not get them, the webhook, running the checks now |
-| Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size |
+| Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size, and the prices and assumptions of Leadership › Costs and savings (2.6.6) |
 | Admin › Privacy and retention | Privacy mode, retention of logs and JSON, the data API |
 | Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories, which accounts are not a person (non-human accounts) |
 | Admin › Value names | Names for every cataloged code, one by one or by CSV, with the mapping file to download |

@@ -1,8 +1,9 @@
 /*
     Copilot Insights - demo data
     ------------------------------------------------------------------------
-    A synthetic company for trying the dashboard without real data: 2,317
-    people in five levels (a CEO, six divisions, 30 departments, 120 teams),
+    A synthetic company for trying the dashboard without real data: 5,000
+    people by default (New-InsightsDemo.ps1 -People sets it, 2,317 before
+    2.6.6) in five levels (a CEO, six divisions, 30 departments, 120 teams),
     Copilot licenses rolled out in waves over 26 weeks with their license
     history, and about half a million interactions shaped like real use -
     champions, regular, light and dormant users, unlicensed people on the
@@ -20,6 +21,10 @@ SET NOCOUNT ON;
 
 DECLARE @today DATE = CAST(SYSUTCDATETIME() AS DATE);
 DECLARE @days  INT  = 182;
+DECLARE @people INT = 5000;   -- New-InsightsDemo.ps1 -People replaces this line
+/* Staff are spread evenly over the 120 teams: a team, its department (four teams) and its division (twenty). At
+   2,317 people, the demo before 2.6.6, that is 18 to a team, exactly as it was. */
+DECLARE @perTeam INT = CEILING((@people - 157) / 120.0);
 
 /* ---- People ------------------------------------------------------------- */
 
@@ -37,7 +42,17 @@ INSERT INTO #last VALUES (0,N'Morgan'),(1,N'Chen'),(2,N'Patel'),(3,N'Nguyen'),(4
  (29,N'Ahmed'),(30,N'Kowalski'),(31,N'Reyes'),(32,N'Clarke'),(33,N'Yilmaz'),(34,N'Bauer'),(35,N'Jensen'),(36,N'Castillo'),(37,N'Adeyemi'),
  (38,N'Hughes'),(39,N'Wong'),(40,N'Pereira'),(41,N'Schmidt'),(42,N'Mahmoud'),(43,N'Olsen'),(44,N'Rivera'),(45,N'Bianchi'),(46,N'Kaur'),
  (47,N'Lindqvist'),(48,N'Osei'),(49,N'Marin'),(50,N'Fraser'),(51,N'Petrov'),(52,N'Abe'),(53,N'Grant'),(54,N'Vargas'),(55,N'Nowak'),(56,N'Ito'),
- (57,N'Barros'),(58,N'Quinn'),(59,N'Saleh');
+ (57,N'Barros'),(58,N'Quinn'),(59,N'Saleh'),
+ /* 2.6.6: more surnames, for the people past the 2,400th. */
+ (60,N'Achebe'),(61,N'Lund'),(62,N'Ferreira'),(63,N'Takahashi'),(64,N'Gallagher'),(65,N'Moreno'),(66,N'Varga'),(67,N'Nakamura'),
+ (68,N'Owusu'),(69,N'Romano'),(70,N'Svensson'),(71,N'Delgado'),(72,N'Chaudhry'),(73,N'Petersen'),(74,N'Kowalczyk'),(75,N'Bennett'),
+ (76,N'Mwangi'),(77,N'Leclerc'),(78,N'Yamamoto'),(79,N'Ortiz'),(80,N'Hakimi'),(81,N'Lindgren'),(82,N'Zhou'),(83,N'Doyle'),
+ (84,N'Esposito'),(85,N'Andersen'),(86,N'Banerjee'),(87,N'Hoffmann'),(88,N'Nkemelu'),(89,N'Carvalho'),(90,N'Ishikawa'),(91,N'Mendez'),
+ (92,N'Rahman'),(93,N'Kristiansen'),(94,N'Fontaine'),(95,N'Oyelaran'),(96,N'Ricci'),(97,N'Halvorsen'),(98,N'Gupta'),(99,N'Sandoval'),
+ (100,N'Becker'),(101,N'Okonkwo'),(102,N'Laine'),(103,N'Santos'),(104,N'Matsumoto'),(105,N'Kelleher'),(106,N'Iqbal'),(107,N'Novotny'),
+ (108,N'Aguilar'),(109,N'Wagner'),(110,N'Boateng'),(111,N'Marchetti'),(112,N'Holm'),(113,N'Sharma'),(114,N'Duarte'),(115,N'Fujita'),
+ (116,N'Kavanagh'),(117,N'Benali'),(118,N'Nyberg'),(119,N'Ramos'),(120,N'Weber'),(121,N'Asante'),(122,N'Conti'),(123,N'Eklund'),
+ (124,N'Malhotra'),(125,N'Pacheco'),(126,N'Mori'),(127,N'Brennan'),(128,N'Toure'),(129,N'Vasquez');
 
 /* Division: name, the head's title, SharePoint site, license share for staff (%), rollout wave (days ago). */
 CREATE TABLE #div (d INT PRIMARY KEY, Division NVARCHAR(40), HeadTitle NVARCHAR(80), Site NVARCHAR(40), LicPct INT, WaveDaysAgo INT, Office NVARCHAR(40), City NVARCHAR(40), Country NVARCHAR(40), Loc NVARCHAR(4));
@@ -58,24 +73,27 @@ INSERT INTO #dept VALUES
  (4,0,N'Talent Acquisition'),(4,1,N'HR Business Partners'),(4,2,N'Learning'),(4,3,N'Total Rewards'),(4,4,N'Employee Experience'),
  (5,0,N'Corporate Legal'),(5,1,N'Compliance'),(5,2,N'Contracts'),(5,3,N'Privacy'),(5,4,N'Risk');
 
-/* Ids: 0 the CEO; 1-6 division heads; 7-36 department directors; 37-156 team managers; 157-2316 staff. */
-WITH t AS (SELECT TOP (2317) ISNULL(CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS INT), 0) AS id FROM sys.all_columns a CROSS JOIN sys.all_columns b)
+/* Ids: 0 the CEO; 1-6 division heads; 7-36 department directors; 37-156 team managers; 157 on, staff. */
+WITH t AS (SELECT TOP (@people) ISNULL(CAST(ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS INT), 0) AS id FROM sys.all_columns a CROSS JOIN sys.all_columns b)
 SELECT t.id,
        CASE WHEN t.id = 0 THEN 1 WHEN t.id <= 6 THEN 2 WHEN t.id <= 36 THEN 3 WHEN t.id <= 156 THEN 4 ELSE 5 END AS Lvl,
        CASE WHEN t.id = 0 THEN NULL WHEN t.id <= 6 THEN t.id - 1 WHEN t.id <= 36 THEN (t.id - 7) / 5
-            WHEN t.id <= 156 THEN (t.id - 37) / 20 ELSE (t.id - 157) / 360 END AS d,
+            WHEN t.id <= 156 THEN (t.id - 37) / 20 ELSE (t.id - 157) / (@perTeam * 20) END AS d,
        CASE WHEN t.id <= 6 THEN NULL WHEN t.id <= 36 THEN (t.id - 7) % 5
-            WHEN t.id <= 156 THEN ((t.id - 37) / 4) % 5 ELSE ((t.id - 157) / 72) % 5 END AS k,
+            WHEN t.id <= 156 THEN ((t.id - 37) / 4) % 5 ELSE ((t.id - 157) / (@perTeam * 4)) % 5 END AS k,
        CASE WHEN t.id = 0 THEN NULL WHEN t.id <= 6 THEN 0 WHEN t.id <= 36 THEN 1 + (t.id - 7) / 5
-            WHEN t.id <= 156 THEN 7 + (t.id - 37) / 4 ELSE 37 + (t.id - 157) / 18 END AS ManagerId,
+            WHEN t.id <= 156 THEN 7 + (t.id - 37) / 4 ELSE 37 + (t.id - 157) / @perTeam END AS ManagerId,
        f.n AS First, l.n AS Last,
        ABS(CAST(SUBSTRING(HASHBYTES('MD5', CONCAT(N'person', t.id)), 1, 4) AS INT)) AS h
 INTO #org
 FROM t
 JOIN #first AS f ON f.i = t.id % 40
 /* Unique names with varied surnames at every level: for a given first name
-   (id % 40) the surname index steps with id / 40, which is below 60. */
-JOIN #last AS l ON l.i = (t.id / 40 + 17 * (t.id % 40)) % 60;
+   (id % 40) the surname index steps with id / 40, which is below 60 for the
+   first 2,400 people; past them it steps through 70 more surnames (2.6.6), so
+   every name is unique up to 5,200 people. */
+JOIN #last AS l ON l.i = CASE WHEN t.id < 2400 THEN (t.id / 40 + 17 * (t.id % 40)) % 60
+                              ELSE 60 + ((t.id - 2400) / 40 + 17 * (t.id % 40)) % 70 END;
 ALTER TABLE #org ADD PRIMARY KEY (id);
 ALTER TABLE #org ADD Upn NVARCHAR(256), FullName NVARCHAR(100);
 UPDATE #org SET Upn = LOWER(CONCAT(First, N'.', Last, N'@contoso.com')), FullName = CONCAT(First, N' ', Last);

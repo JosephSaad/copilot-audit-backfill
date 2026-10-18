@@ -13,7 +13,7 @@ public static class Nav
     [
         new("Leadership", "Executives and department heads", [
             new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
-            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"),
+            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"),
             new("Board pack", "/leadership/boardpack")]),
         new("Adoption", "Copilot program leads", [
             new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"),
