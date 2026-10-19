@@ -192,7 +192,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         if (reassign > 0)
             Rec("save", "Revoke and reassign", $"{reassign:#,0} licenses",
                 $"Move licenses unused for {Ctx.InactiveDays}+ days to the heavy Copilot Chat users who would use them. Costs nothing; turns {Money(reassign * price)} a month of idle spend into use.",
-                A("Revoke list", "/forecasting/actions", Roles.Licensing, "kind=revoke") + " " + A("Upgrade list", "/forecasting/actions", Roles.Licensing, "kind=upgrade"));
+                A("Unused licenses", "/licensing/unused", Roles.Licensing) + " " + A("Upgrade list", "/forecasting/actions", Roles.Licensing, "kind=upgrade"));
         if (idle - reassign > 0)
             Rec("save", "Reclaim what is left", Money((idle - reassign) * price) + " a month",
                 $"{idle - reassign:#,0} licenses unused for {Ctx.InactiveDays}+ days with no one waiting for them. Reclaim at renewal, or after a reminder.",
@@ -236,7 +236,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         }
         CsvTable = t;
         Panels.Add(new("By department", t.Render(),
-            "Unused licenses: held by someone who has not used Copilot within the unused-after days (Admin > Access). Light users: license holders who used it on 1 or 2 days in the last 30. " +
+            "Unused licenses: held at least the unused-after days (Admin > Access) by someone who has not used Copilot within them, the protected levels left out, as Licensing › Unused licenses lists them. Light users: license holders who used it on 1 or 2 days in the last 30. " +
             "Heavy demand: people without a license who used the free Copilot Chat on 6 or more of the last 30 days. Suggested change: heavy demand less unused licenses, within the department; negative is licenses to release." +
             (folded > 0 ? " " + FoldNote(folded, "department") : ""), "full", CsvUrl()));
     }

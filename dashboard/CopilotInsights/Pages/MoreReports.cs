@@ -35,7 +35,7 @@ namespace CopilotInsights.Pages.Leadership
             /* Premium + free only = Adoption: every active license holder either used a Premium feature or did not. */
             double Premium(Totals t) => t.LicensedNow > 0 ? t.PremiumLicensed / (double)t.LicensedNow : 0;
             double FreeOnly(Totals t) => t.LicensedNow > 0 ? (t.ActiveLicensed - t.PremiumLicensed) / (double)t.LicensedNow : 0;
-            Kpis.Add(new("People using Copilot", Num(now.Active), Delta(now.Active, before.Active), Href: Open("/licensing/ranking") ?? Open("/adoption")));
+            Kpis.Add(new("People using Copilot", Num(now.Active), Delta(now.Active, before.Active), Href: Open("/licensing/ranking")));
             Kpis.Add(new("Adoption", Pct(Adopt(now)), Delta(Adopt(now), Adopt(before), pct: true), Href: Open("/adoption")));
             if (split)
             {

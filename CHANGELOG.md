@@ -4,25 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.6.7] - 2026-10-19
+
+A headline figure now opens a page that shows the same number, or has no link: a check that followed every linked
+figure on the 77 report pages, for the whole organization and for a team, found figures opening pages that counted
+another way. *Unused for 30 days* is counted one way on the three pages that show it, and Engagement's *Need a nudge*
+opens the people it counts.
+
+To upgrade from 2.6.6: install the dashboard package over the one in place. Nothing in the database changes; the job
+server's scripts are as 2.6.6 had them.
 
 ### Fixed
 - **Engagement's *Need a nudge* opened the power users**: People by engagement shows one segment, Power unless one is
   chosen, and the figure chose none. It now opens *Need a nudge* there, the one-off and not-started people together with
   the protected levels left out, as the figure counts them (692 in the demo: 168 and 524).
+- ***Unused for 30 days* counts as Unused licenses lists it**, on Licensing and on Forecasting › License optimization:
+  someone licensed fewer than the inactive days ago is not yet a candidate to reclaim (524 against a list of 515 in the
+  demo). On License optimization the figure, *Who they are* and the reassign card open that list, and the department
+  table counts the same way.
+- **Licensing's *Licenses in use* counts every idle license**: those held by the protected levels counted as in use.
+  It now has no link: it is a share, not a list.
+- **Leadership's *Active in the last 7 days*** was described as a share of Premium license holders; it counts everyone
+  who used Copilot, licensed or not, and now says so.
 
 ### Changed
-- **More headline figures lead to their detail**, each to a page that shows the same number: on the Board pack and
-  the Scorecard, people using Copilot, adoption and licenses; on Chargeback, the licenses held and the unused spend;
-  on Licensing, the licenses in use; on Forecasting › License optimization, the licenses held and those unused; on the
-  agent lists, those not used, shared and in production.
-- **Adoption and people using Copilot open a page with the same figure**: on Leadership, the Board pack and the
-  Scorecard, adoption opens Adoption (Usage by license counts enabled accounts only, so it read 80.6% for 80.4%), people
-  using Copilot opens Usage ranking where the viewer may open it, and Leadership's active in the last 7 days opens
-  Adoption, which shows it.
-- ***Unused for 30 days* counts as Unused licenses lists it**, on Licensing and on License optimization: someone
-  licensed fewer than the inactive days ago is not yet a candidate to reclaim (524 against a list of 515 in the demo).
-  License optimization's *Who they are* opens that list.
+- **Headline figures open the page that shows them**:
+  - Licenses (Board pack), Premium license holders (Scorecard) and Licenses held (License optimization) open Licensing,
+    which shows the licenses held today; License pool counts the Copilot add-on's seats, which is fewer.
+  - Adoption on Leadership, the Board pack and the Scorecard opens Adoption. Usage by license counts enabled accounts
+    only (80.6% for 80.4% in the demo).
+  - People using Copilot opens Use ranking, for those with the Licensing role; for anyone else it has no link.
+  - Chargeback's Licenses held opens Usage by license, which shows the same number.
+  - On the agent lists, *Not used in the period* opens the same list showing only those.
+- **Figures counted another way than any list have no link**: Chargeback's unused spend (the period's, by its own
+  rule), and the agent lists' shared and in production (counted within the page's own list and filters).
+
+### Known limits
+- **The links are checked against the demo**, at whole organization and for one team, signed in with every role and
+  with the Licensing role taken away; the unit tests check the links in the code, not the numbers. Four figures open
+  what they are derived from rather than the same number: Have started (a share) its complement, credits billed their
+  cost, and interactions their breakdown or the people behind them.
+- **A full bi rebuild can still take minutes on one month**, as in 2.6.6: the fix follows in its own release.
+
 ## [2.6.6] - 2026-10-19
 
 One page for the whole AI and automation bill: **Leadership › Costs and savings** shows what Microsoft 365 Copilot,

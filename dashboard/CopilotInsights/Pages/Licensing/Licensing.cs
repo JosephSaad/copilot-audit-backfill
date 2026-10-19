@@ -15,15 +15,18 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     {
         var t = await m.TotalsAsync(Ctx);
         var tr = await m.TrendAsync(Ctx);
-        /* 2.6.7: counted as Unused licenses lists them, so the figure and the list it opens agree: someone licensed fewer
-           than the inactive days ago is not yet a candidate to reclaim. */
-        var unused = await Db.ScalarAsync<int>($@"
-SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
+        /* Licenses held today without use in the inactive days: all of them, for the share in use; and (2.6.7) the
+           candidates to reclaim, counted as Unused licenses lists them (licensed at least the inactive days ago, the
+           protected levels left out), so that figure and the list it opens agree. */
+        var (idle, unused) = (await Db.QueryAsync<(int Idle, int Unused)>($@"
+SELECT COUNT(*),
+       COUNT(CASE WHEN (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
+                   AND pl.Upn IS NULL THEN 1 END)
+FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
+{CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}   -- a join: a subquery cannot sit inside COUNT
 WHERE ld.DateKey = @k1
-  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0)
-  AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
-  AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")};", Ctx.Args(new { idle = Ctx.InactiveDays }));
+  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0);", Ctx.Args(new { idle = Ctx.InactiveDays }))).Single();
         var changes = await Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END)
 FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")}
@@ -38,7 +41,7 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new("Licensed today", Num(t.LicensedNow), $"{(t.LicensedNow - start >= 0 ? "+" : "")}{t.LicensedNow - start:#,0} since the start of the period"));
         Kpis.Add(new("Assigned in the period", Num(added), Href: Open("/licensing/changes")));
         Kpis.Add(new("Removed in the period", Num(removed), Href: Open("/licensing/changes")));
-        Kpis.Add(new("Licenses in use", Pct(Ratio(t.LicensedNow - unused, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days", Href: Open("/licensing/unused")));
+        Kpis.Add(new("Licenses in use", Pct(Ratio(t.LicensedNow - idle, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days"));
         Kpis.Add(new($"Unused for {Ctx.InactiveDays} days", Num(unused), "candidates to reclaim", unused > 0 ? "crit" : null, Href: Open("/licensing/unused")));
 
         var buckets = Buckets();

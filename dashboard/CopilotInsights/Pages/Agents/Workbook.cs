@@ -193,8 +193,8 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
         Kpis.Add(new("Used in the period", Num(t0.Used), Pct(Ratio(t0.Used, t0.Agents)) + " of them"));
         Kpis.Add(new("Not used in the period", Num(notUsed), "no interaction in the audit log, and not autonomous", notUsed > 0 ? "warn" : null, Open(Request.Path, extra: "only=unused")));
         Kpis.Add(new("Autonomous", Num(t0.Autonomous), "triggers or flows, with no interaction: they can work with nobody chatting to them"));
-        Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups", Href: Request.Path == "/agents/shared" ? null : Open("/agents/shared")));
-        Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet", Href: Request.Path == "/agents/production" ? null : Open("/agents/production")));
+        Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups"));
+        Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet"));
 
         var headers = new List<string> { "Agent", "Owner", "Environment" };
         var keys = new List<string?> { "name", "owner", "env" };
