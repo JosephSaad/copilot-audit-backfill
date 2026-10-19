@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Engagement's *Need a nudge* opened the power users**: People by engagement shows one segment, Power unless one is
+  chosen, and the figure chose none. It now opens *Need a nudge* there, the one-off and not-started people together with
+  the protected levels left out, as the figure counts them (692 in the demo: 168 and 524).
+
+### Changed
+- **More headline figures lead to their detail**, each to a page that shows the same number: on the Board pack and
+  the Scorecard, people using Copilot, adoption and licenses; on Chargeback, the licenses held and the unused spend;
+  on Licensing, the licenses in use; on Forecasting › License optimization, the licenses held and those unused; on the
+  agent lists, those not used, shared and in production.
+- **Adoption and people using Copilot open a page with the same figure**: on Leadership, the Board pack and the
+  Scorecard, adoption opens Adoption (Usage by license counts enabled accounts only, so it read 80.6% for 80.4%), people
+  using Copilot opens Usage ranking where the viewer may open it, and Leadership's active in the last 7 days opens
+  Adoption, which shows it.
+- ***Unused for 30 days* counts as Unused licenses lists it**, on Licensing and on License optimization: someone
+  licensed fewer than the inactive days ago is not yet a candidate to reclaim (524 against a list of 515 in the demo).
+  License optimization's *Who they are* opens that list.
 ## [2.6.6] - 2026-10-19
 
 One page for the whole AI and automation bill: **Leadership › Costs and savings** shows what Microsoft 365 Copilot,

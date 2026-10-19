@@ -35,14 +35,14 @@ namespace CopilotInsights.Pages.Leadership
             /* Premium + free only = Adoption: every active license holder either used a Premium feature or did not. */
             double Premium(Totals t) => t.LicensedNow > 0 ? t.PremiumLicensed / (double)t.LicensedNow : 0;
             double FreeOnly(Totals t) => t.LicensedNow > 0 ? (t.ActiveLicensed - t.PremiumLicensed) / (double)t.LicensedNow : 0;
-            Kpis.Add(new("People using Copilot", Num(now.Active), Delta(now.Active, before.Active)));
-            Kpis.Add(new("Adoption", Pct(Adopt(now)), Delta(Adopt(now), Adopt(before), pct: true)));
+            Kpis.Add(new("People using Copilot", Num(now.Active), Delta(now.Active, before.Active), Href: Open("/licensing/ranking") ?? Open("/adoption")));
+            Kpis.Add(new("Adoption", Pct(Adopt(now)), Delta(Adopt(now), Adopt(before), pct: true), Href: Open("/adoption")));
             if (split)
             {
                 Kpis.Add(new("Premium adoption", Pct(Premium(now)), Delta(Premium(now), Premium(before), pct: true)));
                 Kpis.Add(new("Free-only adoption", Pct(FreeOnly(now)), Delta(FreeOnly(now), FreeOnly(before), pct: true)));
             }
-            Kpis.Add(new("Premium license holders", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow)));
+            Kpis.Add(new("Premium license holders", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow), Href: Open("/licensing")));
             Kpis.Add(new("Interactions", Num(now.Interactions), Delta(now.Interactions, before.Interactions)));
             Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
 

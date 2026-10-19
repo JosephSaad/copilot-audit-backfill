@@ -15,11 +15,15 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     {
         var t = await m.TotalsAsync(Ctx);
         var tr = await m.TrendAsync(Ctx);
+        /* 2.6.7: counted as Unused licenses lists them, so the figure and the list it opens agree: someone licensed fewer
+           than the inactive days ago is not yet a candidate to reclaim. */
         var unused = await Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
+JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 WHERE ld.DateKey = @k1
   AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0)
-  AND {CopilotInsights.Data.ProtectedLevels.Not("(SELECT du.UserPrincipalName FROM bi.DimUser AS du WHERE du.UserKey = ld.UserKey)")};", Ctx.Args());
+  AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
+  AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")};", Ctx.Args(new { idle = Ctx.InactiveDays }));
         var changes = await Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END)
 FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")}
@@ -34,7 +38,7 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new("Licensed today", Num(t.LicensedNow), $"{(t.LicensedNow - start >= 0 ? "+" : "")}{t.LicensedNow - start:#,0} since the start of the period"));
         Kpis.Add(new("Assigned in the period", Num(added), Href: Open("/licensing/changes")));
         Kpis.Add(new("Removed in the period", Num(removed), Href: Open("/licensing/changes")));
-        Kpis.Add(new("Licenses in use", Pct(Ratio(t.LicensedNow - unused, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days"));
+        Kpis.Add(new("Licenses in use", Pct(Ratio(t.LicensedNow - unused, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days", Href: Open("/licensing/unused")));
         Kpis.Add(new($"Unused for {Ctx.InactiveDays} days", Num(unused), "candidates to reclaim", unused > 0 ? "crit" : null, Href: Open("/licensing/unused")));
 
         var buckets = Buckets();

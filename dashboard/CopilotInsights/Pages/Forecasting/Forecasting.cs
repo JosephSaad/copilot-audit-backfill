@@ -155,7 +155,9 @@ SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
        COUNT(*) AS People,
        COUNT(ld.UserKey) AS Held,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 THEN 1 END) AS Active,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND pl.Upn IS NULL THEN 1 END) AS Idle,
+       /* 2.6.7: unused as Licensing › Unused licenses lists them: a license newer than the inactive days is not yet idle. */
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND pl.Upn IS NULL
+                   AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1)) THEN 1 END) AS Idle,
        COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND pl.Upn IS NULL THEN 1 END) AS Light,
        COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy THEN 1 END) AS Demand
 FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
@@ -164,7 +166,7 @@ LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN ever AS ev ON ev.UserKey = du.UserKey
 {CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}
 WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR ld.UserKey IS NOT NULL OR a.D > 0
-GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { k30, heavy = 6 }));
+GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { k30, heavy = 6, idle = Ctx.InactiveDays }));
 
         int held = rows.Sum(r => r.Held), idle = rows.Sum(r => r.Idle), light = rows.Sum(r => r.Light), demand = rows.Sum(r => r.Demand), active = rows.Sum(r => r.Active);
         var hist = await Weekly.HistoryAsync(Db, Ctx);
@@ -176,8 +178,8 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         var change = target - held;
         var reassign = Math.Min(idle, demand);
 
-        Kpis.Add(new("Licenses held", Num(held), $"{Pct(Ratio(active, held))} used in the last 30 days"));
-        Kpis.Add(new($"Unused for {Ctx.InactiveDays} days or more", Num(idle), $"{Money(idle * price)} a month", idle > 0 ? "crit" : null, Href: Open("/forecasting/actions", extra: "kind=revoke")));
+        Kpis.Add(new("Licenses held", Num(held), $"{Pct(Ratio(active, held))} used in the last 30 days", Href: Open("/licensing")));
+        Kpis.Add(new($"Unused for {Ctx.InactiveDays} days or more", Num(idle), $"{Money(idle * price)} a month", idle > 0 ? "crit" : null, Href: Open("/licensing/unused")));
         Kpis.Add(new("Heavy Copilot Chat users", Num(demand), "no license, used it on 6+ of the last 30 days", Href: Open("/forecasting/actions", extra: "kind=upgrade")));
         Kpis.Add(new("Right size in 13 weeks", Num(target), change == 0 ? "as held" : change > 0 ? $"{change:#,0} more than held" : $"{-change:#,0} fewer than held"));
 
@@ -194,7 +196,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
         if (idle - reassign > 0)
             Rec("save", "Reclaim what is left", Money((idle - reassign) * price) + " a month",
                 $"{idle - reassign:#,0} licenses unused for {Ctx.InactiveDays}+ days with no one waiting for them. Reclaim at renewal, or after a reminder.",
-                A("Who they are", "/forecasting/actions", Roles.Licensing, "kind=revoke"));
+                A("Who they are", "/licensing/unused", Roles.Licensing));
         if (demand - reassign > 0)
             Rec("spend", "Upgrade proven Copilot Chat users", $"{demand - reassign:#,0} licenses",
                 $"Heavy Copilot Chat users with no license and none free to move: {Money((demand - reassign) * price)} a month, for people already using Copilot most days.",

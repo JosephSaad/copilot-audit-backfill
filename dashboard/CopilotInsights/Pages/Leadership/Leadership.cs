@@ -16,10 +16,10 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var adopted = await m.AdoptedAsync(Ctx);
         var x = Labels();
 
-        Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in {Here}" : "in the period", Href: Open("/adoption")));
+        Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in {Here}" : "in the period", Href: Open("/licensing/ranking") ?? Open("/adoption")));
         Kpis.Add(new("Premium licenses today", Num(t.LicensedNow), t.People > 0 ? $"{Pct(Ratio(t.LicensedNow, t.People))} of people" : null, Href: Open("/licensing")));
-        Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), "Premium license holders who used Copilot in the period", Href: Open("/adoption/by-license")));
-        Kpis.Add(new("Active in the last 7 days", Num(t.ActiveLast7), t.LicensedNow > 0 ? $"{Pct(Ratio(t.ActiveLast7, t.LicensedNow))} of Premium license holders" : null, Href: Open("/adoption/retention")));
+        Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), "Premium license holders who used Copilot in the period", Href: Open("/adoption")));
+        Kpis.Add(new("Active in the last 7 days", Num(t.ActiveLast7), t.LicensedNow > 0 ? $"{Pct(Ratio(t.ActiveLast7, t.LicensedNow))} of Premium license holders" : null, Href: Open("/adoption")));
         Kpis.Add(new("Interactions", Num(t.Interactions), t.Active > 0 ? $"{t.Interactions / (double)t.Active:#,0.0} per active person" : null, Href: Open("/leadership/mix")));
 
         Panels.Add(new("People using Copilot",
