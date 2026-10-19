@@ -25,7 +25,8 @@ DECLARE @today DATE = CAST(SYSUTCDATETIME() AS DATE);
 DECLARE @days INT = 182;
 /* Everything scales with the company: the counts below are for about 2,300 people, the demo before 2.6.6, and are
    multiplied out for the size New-InsightsDemo.ps1 built (5,000 by default). */
-DECLARE @people INT = (SELECT COUNT(*) FROM audit.UserDirectory WHERE AccountEnabled = 1);
+/* People in the org chart: the service accounts New-InsightsDemoTenant.sql adds (no manager, and nobody under them) are not. */
+DECLARE @people INT = (SELECT COUNT(*) FROM audit.UserDirectory WHERE AccountEnabled = 1 AND (ManagerUPN IS NOT NULL OR IsManager = 1));
 DECLARE @scale FLOAT = @people / 2300.0;
 DECLARE @big BIT = CASE WHEN @people >= 3500 THEN 1 ELSE 0 END;   -- a company this size runs a capacity twice the size
 
@@ -43,7 +44,7 @@ ALTER TABLE #day ADD PRIMARY KEY ([Day]);
 
 /* A repeatable "random" number from 0 to 1 for any text. */
 DROP TABLE IF EXISTS #people;
-SELECT d.UserPrincipalName AS Upn, d.Department, d.Division, d.OrgDepth,
+SELECT d.UserPrincipalName AS Upn, d.Department, d.Division, d.OrgDepth, d.IsManager,
        ABS(CAST(SUBSTRING(HASHBYTES('MD5', CONCAT(N'cost', d.UserPrincipalName)), 1, 4) AS INT)) % 10000 / 10000.0 AS R1,
        ABS(CAST(SUBSTRING(HASHBYTES('MD5', CONCAT(N'cost2', d.UserPrincipalName)), 1, 4) AS INT)) % 10000 / 10000.0 AS R2,
        ROW_NUMBER() OVER (ORDER BY HASHBYTES('MD5', CONCAT(N'order', d.UserPrincipalName))) AS Seq
@@ -59,7 +60,7 @@ DECLARE @e7 INT = CAST(ROUND(120 * @scale, 0) AS INT);
 INSERT INTO #suite (Upn, Suite, AddOn, AlsoE5)
 SELECT TOP (@e7) p.Upn, N'E7', CASE WHEN p.R2 < 0.15 THEN 1 ELSE 0 END, CASE WHEN p.R2 > 0.95 THEN 1 ELSE 0 END
 FROM #people AS p JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = p.Upn AND cl.IsCopilotLic = 1
-ORDER BY CASE WHEN p.OrgDepth <= 2 THEN 0 WHEN p.Division = N'Technology' THEN 1 ELSE 2 END, p.R1;
+ORDER BY CASE WHEN p.OrgDepth <= 2 AND p.IsManager = 1 THEN 0 WHEN p.Division = N'Technology' THEN 1 ELSE 2 END, p.R1;
 INSERT INTO #suite (Upn, Suite, AddOn, AlsoE5)
 SELECT p.Upn, CASE WHEN p.Division = N'Operations' OR p.Department IN (N'Customer Care', N'Facilities', N'Logistics', N'Quality') OR p.R1 < 0.10 THEN N'E3' ELSE N'E5' END, 0, 0
 FROM #people AS p WHERE NOT EXISTS (SELECT 1 FROM #suite AS s WHERE s.Upn = p.Upn);

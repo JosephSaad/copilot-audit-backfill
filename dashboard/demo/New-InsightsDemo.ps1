@@ -12,7 +12,11 @@
     sensitivity labels, and grants a persona role to one person per persona,
     so every page and the security model can be tried as each of them. It also
     adds a license pool, pipeline runs (one failed), training records, targets
-    and a digest, for the operations pages.
+    and a digest, for the operations pages. From 2.6.6 it adds what a real tenant
+    has beyond its staff (New-InsightsDemoTenant.sql: service and guest accounts,
+    leave dates, the agent workbook and its agents' use) and loads the workbook
+    as the nightly import would, with Copilot Studio's authoring records
+    (New-InsightsDemoAgents.sql), so no page is empty.
 
     Point the dashboard's connection string at this database. To see it as one
     of its people, map your Windows account to their UPN under
@@ -91,6 +95,14 @@ try {
         Write-Host ("   {0:N0} people, {1:N0} licensed today, {2:N0} license events, {3:N0} sessions, {4:N0} interactions by {5:N0} people" -f `
                     $r.People, $r.LicensedToday, $r.LicenseEvents, $r.Sessions, $r.Interactions, $r.ActiveEver)
     }
+    Step 'Service accounts, guests, leave dates, the agent workbook and its agents'' use' {
+        $cmd = $conn.CreateCommand(); $cmd.CommandTimeout = 0
+        $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoTenant.sql') -Raw
+        $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
+        $r = $t.Rows[0]
+        Write-Host ("   {0:N0} accounts that are not people, {1:N0} guests, {2:N0} leave dates, {3:N0} agents in the workbook, {4:N0} people paying in credits, {5:N0} interactions" -f `
+                    $r.Accounts, $r.Guests, $r.Leaving, $r.Agents, $r.CreditUsers, $r.Interactions)
+    }
     $conn.Dispose(); $conn = Get-Conn $Database   # a fresh session: no temp tables left over from the seed
     Step 'Sessions' { Invoke-Batch $conn "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N'$Database';" }
     Step 'bi star schema' { Invoke-Batch $conn "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$Database';" }
@@ -130,6 +142,14 @@ JOIN audit.UserDirectory AS d ON d.Department = v.Dept AND d.OrgDepth = 2
 WHERE NOT EXISTS (SELECT 1 FROM dash.RoleGrant AS g WHERE g.Principal = d.UserPrincipalName AND g.Role = v.Role);
 $(if ($admins) { "INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES $admins;" })
 "@
+    }
+    Step 'Agent workbook load and authoring records' {
+        $cmd = $conn.CreateCommand(); $cmd.CommandTimeout = 0
+        $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoAgents.sql') -Raw
+        $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
+        $r = $t.Rows[0]
+        Write-Host ("   {0:N0} agents ({1:N0} seen in the audit log, {2:N0} in production), {3:N0} parent and child links, {4:N0} authoring records" -f `
+                    $r.Agents, $r.Matched, $r.InProduction, $r.Links, $r.AuthoringEvents)
     }
     Step 'Dashboard refresh' { Invoke-Batch $conn 'EXEC dash.usp_RefreshDashboard;' }
     $cmd = $conn.CreateCommand()

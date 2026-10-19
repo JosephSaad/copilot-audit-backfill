@@ -8,8 +8,8 @@
     history, and about half a million interactions shaped like real use -
     champions, regular, light and dormant users, unlicensed people on the
     free Copilot Chat, Copilot Studio agents launched over time, a shifting
-    model mix, SharePoint sites with sensitivity labels, and rare security
-    flags.
+    model mix, SharePoint sites with sensitivity labels, rare security
+    flags, and (2.6.6) new joiners with their hire dates.
 
     Deterministic: every choice comes from a hash, so the same database comes
     out every time (relative to today). Run by New-InsightsDemo.ps1 into an
@@ -148,14 +148,29 @@ FROM #org AS o
 LEFT JOIN #div AS dv ON dv.d = o.d;
 UPDATE #u SET RemovedOn = NULL WHERE Licensed = 0 OR RemovedOn <= LicensedOn;
 
+/* 2.6.6: new joiners, hired 8 to 87 days ago, about 37 for every 2,300 people, for Adoption > New joiners. Each keeps
+   the license their division's share gave them (so the licensed set is as it was), but from a few days after they
+   started, and uses Copilot only from their first day; the four-week ramp below then applies from the license. Taken
+   from past the 2,317th person where the company is big enough, so the people of the demo before 2.6.6 stay as they
+   were, and more of them from Engineering and Marketing, the departments that are hiring. */
+ALTER TABLE #u ADD HiredOn DATE NULL;
+DECLARE @joiners INT = CAST(ROUND(37 * @people / 2300.0, 0) AS INT);
+WITH j AS (SELECT TOP (@joiners) u.id
+           FROM #u AS u JOIN #org AS o ON o.id = u.id JOIN #dept AS dp ON dp.d = o.d AND dp.k = o.k
+           WHERE u.Lvl = 5 AND u.h % 53 <> 0 AND u.RemovedOn IS NULL
+           ORDER BY CASE WHEN u.id >= 2317 THEN 0 ELSE 1 END,
+                    (u.h / 13) % 1000 * CASE WHEN dp.Department IN (N'Engineering', N'Marketing') THEN 1 ELSE 5 END, u.id)
+UPDATE u SET HiredOn = DATEADD(DAY, -(8 + (u.h / 17) % 80), @today) FROM #u AS u JOIN j ON j.id = u.id;
+UPDATE #u SET LicensedOn = DATEADD(DAY, (h / 19) % 8, HiredOn) WHERE HiredOn IS NOT NULL;
+
 TRUNCATE TABLE audit.CopilotLicense;
-INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic, SkuPartNumber, LicensedSinceUtc, CapabilityStatus, DirectoryStatus)
+INSERT INTO audit.CopilotLicense (UserPrincipalName, IsCopilotLic, SkuPartNumber, LicensedSinceUtc, CapabilityStatus, DirectoryStatus, EmployeeHireDate)
 SELECT Upn,
        CASE WHEN Licensed = 1 AND RemovedOn IS NULL THEN 1 ELSE 0 END,
        CASE WHEN Licensed = 1 AND RemovedOn IS NULL THEN N'Microsoft_365_Copilot' END,
        CASE WHEN Licensed = 1 AND RemovedOn IS NULL THEN CAST(DATEADD(HOUR, 14, CAST(LicensedOn AS DATETIME2(0))) AS DATETIME2(0)) END,
        CASE WHEN Licensed = 1 AND RemovedOn IS NULL THEN N'Enabled' END,
-       N'Found'
+       N'Found', HiredOn
 FROM #u;
 
 DELETE FROM audit.LicenseEventProperty;
@@ -198,8 +213,9 @@ SELECT u.id, u.Upn, u.d, u.Seg, u.Site, u.Loc, dd.Day, dd.DaysAgo,
 INTO #active
 FROM #u AS u
 CROSS JOIN #days AS dd
-WHERE (u.Licensed = 1 AND u.Seg < 3 AND dd.Day >= u.LicensedOn AND (u.RemovedOn IS NULL OR dd.Day < u.RemovedOn))
-   OR (u.FreeChat = 1 AND (u.Licensed = 0 OR dd.Day < u.LicensedOn));
+WHERE ((u.Licensed = 1 AND u.Seg < 3 AND dd.Day >= u.LicensedOn AND (u.RemovedOn IS NULL OR dd.Day < u.RemovedOn))
+       OR (u.FreeChat = 1 AND (u.Licensed = 0 OR dd.Day < u.LicensedOn)))
+  AND (u.HiredOn IS NULL OR dd.Day >= u.HiredOn);   -- a new joiner from their first day
 
 DELETE a FROM #active AS a
 JOIN #u AS u ON u.id = a.id
