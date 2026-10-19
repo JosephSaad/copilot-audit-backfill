@@ -32,10 +32,10 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         var removed = changes.Sum(c => c.Removed);
 
         Kpis.Add(new("Licensed today", Num(t.LicensedNow), $"{(t.LicensedNow - start >= 0 ? "+" : "")}{t.LicensedNow - start:#,0} since the start of the period"));
-        Kpis.Add(new("Assigned in the period", Num(added), Href: Ctx.Url("/licensing/changes")));
-        Kpis.Add(new("Removed in the period", Num(removed), Href: Ctx.Url("/licensing/changes")));
+        Kpis.Add(new("Assigned in the period", Num(added), Href: Open("/licensing/changes")));
+        Kpis.Add(new("Removed in the period", Num(removed), Href: Open("/licensing/changes")));
         Kpis.Add(new("Licenses in use", Pct(Ratio(t.LicensedNow - unused, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days"));
-        Kpis.Add(new($"Unused for {Ctx.InactiveDays} days", Num(unused), "candidates to reclaim", unused > 0 ? "crit" : null, Href: Ctx.Url("/licensing/unused")));
+        Kpis.Add(new($"Unused for {Ctx.InactiveDays} days", Num(unused), "candidates to reclaim", unused > 0 ? "crit" : null, Href: Open("/licensing/unused")));
 
         var buckets = Buckets();
         Panels.Add(new("Licenses held", Chart.Line(Labels(), [new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1)], Fmt.Count, "Licenses held"),

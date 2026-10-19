@@ -71,7 +71,7 @@ SELECT COUNT(CASE WHEN x.U > 0 THEN 1 END), ISNULL(SUM(x.U), 0) FROM #x AS x;", 
         var (charging, allU) = all.Single();
 
         Kpis.Add(new("Agents charging credits", Num(charging), "used by people without a license"));
-        Kpis.Add(new($"Credits a month ({cur})", Num((long)Monthly(allU)), $"at {rate:#,0.00##} {cur} an interaction", Href: Ctx.Url("/licensing/credit-use")));
+        Kpis.Add(new($"Credits a month ({cur})", Num((long)Monthly(allU)), $"at {rate:#,0.00##} {cur} an interaction", Href: Open("/licensing/credit-use")));
 
         var t = new Table
         {

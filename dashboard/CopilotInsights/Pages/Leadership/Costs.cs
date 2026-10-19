@@ -62,7 +62,15 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     Func<string, string> Area = _ => "";
 
     /// <summary>A link to the page with the named detail where there is one, else to the area's own view.</summary>
-    string Go(string text, string? href, string area) => href is null && area == Here ? E(text) : $"<a href=\"{E(href ?? Area(area))}\">{E(text)}</a>";
+    string Go(string text, string? href, string area)
+    {
+        /* The page with the named detail where this viewer may open it; else the area's own view; inside that view, plain text. */
+        var to = href is null ? null : Open(href);
+        return to is null && area == Here ? E(text) : $"<a href=\"{E(to ?? Area(area))}\">{E(text)}</a>";
+    }
+
+    /// <summary>Admin › Targets and assumptions, as a link for an administrator who may open it, as its name for anyone else.</summary>
+    string AdminLink() => Open("/admin/assumptions") is { } u ? $"<a href=\"{E(u)}\">Admin › Targets and assumptions</a>" : "Admin › Targets and assumptions";
 
     /// <summary>The area whose own view is shown, if any: nothing in it links to itself.</summary>
     string? Here;
@@ -105,12 +113,12 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         var hours = v.HourlyCost > 0 ? value / v.HourlyCost : 0;
         sb.Append(Tile($"Value a month ({cur}, estimate)", $"The time Copilot, the flows and Copilot in Power BI save, at Admin's hourly cost of {CostRules.Money(v.HourlyCost, cur)}. People: the hours over {HoursAMonth:0} working hours a month.",
             N(value), "value", $"{hours:#,0} hours saved at {CostRules.Money(v.HourlyCost, cur)} an hour",
-            hours >= HoursAMonth ? $"<span class=\"cb-people\"><b>{hours / HoursAMonth:#,0}</b> people's working time</span>" : "", ("Value and time saved", "/leadership/value")));
+            hours >= HoursAMonth ? $"<span class=\"cb-people\"><b>{hours / HoursAMonth:#,0}</b> people's working time</span>" : "", (Open("/leadership/value") is { } vu ? ("Value and time saved", vu) : null)));
         sb.Append(Tile("Return on the spend", spend > 0 && value > 0 ? $"Value a month over spend a month: every {CostRules.Money(1, cur)} spent returns {CostRules.Money(Math.Round(value / spend, 2), cur)}. The marker on the dial is the return once the savings are taken: the same value for less spend." : "Value a month over spend a month.",
             spend > 0 ? Times(value / spend) : "—", "roi", after > 0 && saving > 0 ? $"{Times(value / after)} once the savings are taken" : "value over spend",
             spend > 0 ? Gauge((double)(value / spend), after > 0 && saving > 0 ? (double)(value / after) : null) : ""));
         sb.Append(Tile($"Already saved a month ({cur})", "Copilot licenses taken back after this dashboard's exports named them, at their price a month.",
-            N(v.RealizedSaving), "done", v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet", "", ("License action outcomes", "/forecasting/outcomes")));
+            N(v.RealizedSaving), "done", v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet", "", (Open("/forecasting/outcomes") is { } ou ? ("License action outcomes", ou) : null)));
         sb.Append("</div>");
 
         /* The cards, most important first, two to a row so the page reads in a few screens: what to take (with how sure it
@@ -166,7 +174,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
             wide.Add(cls => Card($"Spend by month ({cur})", "The last six whole months by area. Copilot from the add-on's licensed days; the other licenses from the license pool's daily counts; the rest from what each source billed. A source shows from the first month it covers.",
                 cls, chart is ChartSvg c ? c.Render(Narrow ? 320 : cls == "c12" ? 900 : 720) : chart.Value ?? ""));
         }
-        if (v.Suites is { } su) narrow.Add(cls => SuitesCard(su, cur, cls, Ctx));
+        if (v.Suites is { } su) narrow.Add(cls => SuitesCard(su, cur, cls, Open));
         if (cif is not null)
         {
             var per = cif.Requests > 0 ? cif.Cost / cif.Requests : 0;
@@ -183,7 +191,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         narrow.Add(cls => Card("What this is built from", "Every source is optional: an area appears once its source is loaded, and one that is not is listed here rather than shown as zero.", cls,
             "<ul class=\"cb-src\">" + string.Concat(v.Sources.Select(x => $"<li class=\"ok\">{E(x)}</li>")) +
             string.Concat(v.Missing.Select(x => $"<li class=\"no\">{E(x)} <small>not loaded yet, so not counted</small></li>")) + "</ul>" +
-            $"<p class=\"cb-foot\">Prices and assumptions: <a href=\"/admin/assumptions\">Admin › Targets and assumptions</a> (an hour at {E(CostRules.Money(v.HourlyCost, cur))}).</p>"));
+            $"<p class=\"cb-foot\">Prices and assumptions: {AdminLink()} (an hour at {E(CostRules.Money(v.HourlyCost, cur))}).</p>"));
         for (var i = 0; i < Math.Max(wide.Count, narrow.Count); i++)
         {
             var pair = i < wide.Count && i < narrow.Count;
@@ -242,18 +250,20 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
             (others.Count == 0 ? "" : "<p class=\"cb-sub\">To grow the return, and risks</p><div class=\"cb-grow\">" + string.Concat(others.Select(o => GrowCard(o, cur))) + "</div>")));
 
         /* How it is counted, and where its detail is. */
-        var reports = Reports.TryGetValue(a.Name, out var rs) ? rs : [];
+        /* Only the reports this viewer may open. */
+        var reports = (Reports.TryGetValue(a.Name, out var rs) ? rs : []).Select(r => (r.Text, Href: Open(r.Href))).Where(r => r.Href is not null).ToArray();
         sb.Append(Card("How it is counted", "What the area's figures are worked out from, and the reports that name what is behind them.", "c4",
             $"<p class=\"cb-basis\">{E(a.Basis)}.</p>" +
             (reports.Length == 0 ? "<p class=\"cb-foot\">No report lists this area's detail beyond the tables on this page.</p>"
-                : "<p class=\"cb-sub\">The detail, in the reports</p><ul class=\"cb-links\">" + string.Concat(reports.Select(r => $"<li><a href=\"{E(Ctx.Url(r.Href))}\">{E(r.Text)} ›</a></li>")) + "</ul>") +
-            $"<p class=\"cb-foot\">Prices and assumptions: <a href=\"/admin/assumptions\">Admin › Targets and assumptions</a>.</p>"));
+                : "<p class=\"cb-sub\">The detail, in the reports</p><ul class=\"cb-links\">" + string.Concat(reports.Select(r => $"<li><a href=\"{E(r.Href!)}\">{E(r.Text)} ›</a></li>")) + "</ul>") +
+            $"<p class=\"cb-foot\">Prices and assumptions: {AdminLink()}.</p>"));
 
         /* What it is made of. */
         foreach (var d in (v.Details ?? []).Where(d => d.Area == a.Name))
         {
             var t = new Table { Headers = d.Headers, Numeric = d.Numeric };
-            foreach (var r in d.Rows) t.Rows.Add(r);
+            /* A row's link to a list this viewer cannot open is shown as its name only. */
+            foreach (var r in d.Rows) t.Rows.Add([.. r.Select(cell => cell is Link l ? (Open(l.Href) is { } to ? new Link(l.Text, to) : l.Text) : cell)]);
             sb.Append(Card(d.Title, d.Note ?? d.Title, "c12", t.Render().Value ?? ""));
         }
 
@@ -271,7 +281,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
                 $"<div class=\"cif\"><div class=\"cif-big\"><b>{(cif.Cost > 0 ? Times(cif.Value / cif.Cost) : "—")}</b><span>return on {M(cif.Cost, cur)} a month of capacity: {M(cif.Value, cur)} of value</span></div>" +
                 $"<div class=\"cif-grid\">{Stat("Capacity it uses", $"{cif.Share:P1}", $"on {Count(cif.Capacities, "capacity", "capacities")}")}{Stat("Requests a month", cif.Requests.ToString("#,0", Inv), $"by up to {cif.Users:#,0} people a day")}</div></div>"));
         if (a.Name is CostAreas.Copilot or CostAreas.PowerBi && v.Suites is { } su)
-            sb.Append(SuitesCard(su, cur, "c12", Ctx));
+            sb.Append(SuitesCard(su, cur, "c12", Open));
         return sb.Append("</div></div>").ToString();
     }
 
@@ -330,11 +340,11 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     /// Licensing › Suite fit finds (E7 to E5, E5 to E3, a second suite, training first), outside the AI totals: a
     /// suite's price buys much that cannot be split from it, so its savings are a review, not a sum to add.
     /// </summary>
-    static string SuitesCard(SuiteSummary s, string cur, string cls, ReportContext ctx)
+    static string SuitesCard(SuiteSummary s, string cur, string cls, Func<string, string?, string?> open)
     {
         var sb = new StringBuilder("<ul class=\"cb-suite\">");
         foreach (var h in s.Held)
-            sb.Append($"<li><span class=\"sn\"><a href=\"{E(ctx.Url("/licensing/suites", extra: $"suite={Uri.EscapeDataString(h.Suite)}"))}\">{E(h.Suite)}</a></span><span class=\"sh\">{h.Holders:#,0} × {E(CostRules.Money(h.Price, cur))}</span>" +
+            sb.Append($"<li><span class=\"sn\">{(open("/licensing/suites", $"suite={Uri.EscapeDataString(h.Suite)}") is { } su ? $"<a href=\"{E(su)}\">{E(h.Suite)}</a>" : E(h.Suite))}</span><span class=\"sh\">{h.Holders:#,0} × {E(CostRules.Money(h.Price, cur))}</span>" +
                       (h.Includes.Length > 0 ? $"<small>{E(h.Includes)} inside: {E(M(h.IncludedValue, cur))} at list, not AI spend</small>" : "") + "</li>");
         sb.Append("</ul>");
         if (s.Moves.Count > 0)
@@ -351,13 +361,13 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
                     SuiteMove.CutSeats => $"Cut {m.People:#,0} unassigned {Short(m.From)} seats",
                     _ => $"{m.People:#,0} from {Short(m.From)} to {Short(m.To ?? "")}",
                 };
-                var link = m.Move == SuiteMove.CutSeats ? ctx.Url("/licensing/pool")
-                    : ctx.Url("/licensing/suites", extra: (m.Move == SuiteMove.DropDuplicate ? "copy=suite" : $"move={m.Move.ToString().ToLowerInvariant()}") + $"&suite={Uri.EscapeDataString(m.From)}");
-                sb.Append($"<li><span class=\"mw\"><a href=\"{E(link)}\">{E(what)}</a></span><b title=\"{(m.Move == SuiteMove.Train ? "riding on it" : "saved")} a month\">{E(N(worth))}</b><span class=\"conf {m.Confidence.ToLowerInvariant()}\">{E(m.Confidence)}</span></li>");
+                var link = m.Move == SuiteMove.CutSeats ? open("/licensing/pool", null)
+                    : open("/licensing/suites", (m.Move == SuiteMove.DropDuplicate ? "copy=suite" : $"move={m.Move.ToString().ToLowerInvariant()}") + $"&suite={Uri.EscapeDataString(m.From)}");
+                sb.Append($"<li><span class=\"mw\">{(link is null ? E(what) : $"<a href=\"{E(link)}\">{E(what)}</a>")}</span><b title=\"{(m.Move == SuiteMove.Train ? "riding on it" : "saved")} a month\">{E(N(worth))}</b><span class=\"conf {m.Confidence.ToLowerInvariant()}\">{E(m.Confidence)}</span></li>");
             }            sb.Append("</ul>");
         }
         else sb.Append("<p class=\"cb-foot\">Every holder's suite fits what the data shows of them.</p>");
-        sb.Append($"<p class=\"cb-foot\">{(s.PowerBiKnown ? "" : "Power BI activity is not loaded, so no E5 holder is offered E3. ")}Outside the savings above: each move names what to check first in <a href=\"/licensing/suites\">Licensing › Suite fit</a>.</p>");
+        sb.Append($"<p class=\"cb-foot\">{(s.PowerBiKnown ? "" : "Power BI activity is not loaded, so no E5 holder is offered E3. ")}Outside the savings above: each move names what to check first in {(open("/licensing/suites", null) is { } sf ? $"<a href=\"{E(sf)}\">Licensing › Suite fit</a>" : "Licensing › Suite fit, for the Licensing role")}.</p>");
         return Card(s.Saving > 0 ? $"Suites: {M(s.Saving, cur)} a month to review" : "Suites",
             "E3, E5 and E7 as Admin › Targets and assumptions prices them. A suite's price also buys security, compliance and Teams, which cannot be split from it, so none of it is counted as AI spend, and Copilot or Power BI Pro inside it is not priced again. " +
             "A standalone one on a suite's holder is paid twice, and counted with its area above. A move down rests on Copilot and Power BI use, the only parts of a suite the data sees, so these are a review, not savings to add.", cls, sb.ToString());

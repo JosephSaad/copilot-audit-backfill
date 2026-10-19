@@ -35,9 +35,9 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
 
         var counts = await reports.ActionCountsAsync(Ctx);
         int revoke = counts.GetValueOrDefault("revoke"), train = counts.GetValueOrDefault("train"), upgrade = counts.GetValueOrDefault("upgrade");
-        Kpis.Add(new("Licenses to take back", Num(revoke), "license holders with no licensed use in the last 30 days", Href: Ctx.Url("/forecasting/actions", extra: "kind=revoke")));
-        Kpis.Add(new("License holders to train", Num(train), "license holders who use Copilot only a little", Href: Ctx.Url("/forecasting/actions", extra: "kind=train")));
-        Kpis.Add(new("People ready for a license", Num(upgrade), "regular users of the free Copilot Chat who hold no license", Href: Ctx.Url("/forecasting/actions", extra: "kind=upgrade")));
+        Kpis.Add(new("Licenses to take back", Num(revoke), "license holders with no licensed use in the last 30 days", Href: Open("/forecasting/actions", extra: "kind=revoke")));
+        Kpis.Add(new("License holders to train", Num(train), "license holders who use Copilot only a little", Href: Open("/forecasting/actions", extra: "kind=train")));
+        Kpis.Add(new("People ready for a license", Num(upgrade), "regular users of the free Copilot Chat who hold no license", Href: Open("/forecasting/actions", extra: "kind=upgrade")));
 
         Add("License holders with no licensed use in the last 30 days", revoke,
             "Each is a license paid for and not used: take it back, or find out what is in the way.", "/forecasting/actions");

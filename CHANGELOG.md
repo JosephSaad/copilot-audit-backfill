@@ -94,6 +94,8 @@ put your agreement's prices in Admin › Targets and assumptions.
   months, a table of what it is made of (capacities, licenses bought and assigned, flows, accounts, seats) and the
   reports that name the people; a confidence lists its savings alone. A report's headline figure can now link to
   its detail (`Kpi.Href`), and Leadership's overview, What to act on and the section start pages do.
+  A link is shown only where the viewer may open its page (`InsightsPage.Open`, the menu's own test): a leader
+  without the Licensing role sees the figures, and no link to the lists that name people.
 - **Suite seats bought and assigned to nobody** are a move to review (E3, E5 and E7), and Licensing › Credit use
   shows the credits the admin center billed beside its estimate.
 

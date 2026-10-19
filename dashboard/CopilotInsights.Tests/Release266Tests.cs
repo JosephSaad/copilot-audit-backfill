@@ -341,8 +341,14 @@ public class CostDrillDownTests
         Assert.Contains("conf={c}", page);                       // a confidence lists its savings alone
         Assert.Contains("\"#areas\"", page);                     // spend leads to every area
         Assert.Contains("/forecasting/outcomes", page);          // what was saved leads to the outcomes
-        Assert.Contains("ctx.Url(\"/licensing/suites\", extra:", page);   // each suite move leads to its people
-        Assert.Contains("href is null && area == Here ? E(text)", page);   // an area's view does not link to itself
+        Assert.Contains("open(\"/licensing/suites\", (m.Move == SuiteMove.DropDuplicate", page);   // each suite move leads to its people
+        Assert.Contains("to is null && area == Here ? E(text)", page);   // an area's view does not link to itself
+        /* A link goes only where the viewer may go: every headline figure's link, and the page's own, through Open. */
+        Assert.Contains("var to = href is null ? null : Open(href);", page);
+        var pages = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!Directory.Exists(Path.Combine(pages.FullName, "CopilotInsights", "Pages"))) pages = pages.Parent!;
+        foreach (var f in Directory.GetFiles(Path.Combine(pages.FullName, "CopilotInsights", "Pages"), "*.cs", SearchOption.AllDirectories))
+            Assert.DoesNotContain("Href: Ctx.Url(", File.ReadAllText(f));
         var data = Source.Read("Data", "CostData.cs");
         foreach (var area in new[] { "CostAreas.Copilot", "CostAreas.Studio", "CostAreas.Fabric", "CostAreas.Automate", "CostAreas.Apps", "CostAreas.GitHub", "CostAreas.Foundry" })
             Assert.Contains($"details.Add(new({area}", data);

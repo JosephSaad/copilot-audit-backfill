@@ -74,7 +74,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—"));
         var nudge = await Db.ScalarAsync<int>($@"WITH {Segments.People(Ctx)}
 SELECT COUNT(*) FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey WHERE p.Segment IN (N'One-off', N'Not started') AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")};", Ctx.Args(new { w }));
-        Kpis.Add(new("Need a nudge", Num(nudge), "licensed or active, but one day or none", Href: Ctx.Url("/enablement/people")));
+        Kpis.Add(new("Need a nudge", Num(nudge), "licensed or active, but one day or none", Href: Open("/enablement/people")));
 
         Panels.Add(new("Engagement segments",
             Chart.Bars(Segments.Order.Select((name, i) => new Bar(name, Seg(name), Viewer.Has(Roles.Enablement) ? Ctx.Url("/enablement/people", extra: "seg=" + name) : null, Slot: Segments.Slots[i])).ToList(), Fmt.Count, "People by segment"),

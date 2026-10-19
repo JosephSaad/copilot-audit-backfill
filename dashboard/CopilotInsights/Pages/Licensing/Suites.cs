@@ -54,8 +54,8 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         Kpis.Add(new("Suite holders", Num(v.Rows.Count), $"{Count(v.Rows.Select(r => r.Holder.Suite.Name).Distinct().Count(), "suite")} held"));
         Kpis.Add(new($"Suite moves to review a month ({cur})", Num((long)Math.Round(summary.Saving)), $"{M(summary.Saving * 12)} a year; outside Costs and savings' AI savings", summary.Saving > 0 ? "good" : null));
         Kpis.Add(new($"Licenses held twice ({cur})", Num((long)Math.Round(copies.Sum(CopyWorth))), $"{Count(copies.Count, "person", "people")} with an add-on the suite covers: AI savings on Costs and savings",
-            Href: Ctx.Url(Request.Path, extra: "copy=addon")));
-        Kpis.Add(new("To train before deciding", Num(moves.Count(r => r.Fit.Move == SuiteMove.Train)), "E7 holders who barely use Copilot", Href: Ctx.Url(Request.Path, extra: "move=train")));
+            Href: Open(Request.Path, extra: "copy=addon")));
+        Kpis.Add(new("To train before deciding", Num(moves.Count(r => r.Fit.Move == SuiteMove.Train)), "E7 holders who barely use Copilot", Href: Open(Request.Path, extra: "move=train")));
         /* The suites held, what each costs and includes. */
         var st = new Table { Headers = ["Suite", "Holders", $"Price a month ({cur})", "Includes, so not counted as AI spend", "Also brings"], Numeric = new HashSet<int> { 1, 2 } };
         foreach (var g in v.Rows.GroupBy(r => r.Holder.Suite.Name).OrderByDescending(g => g.First().Holder.Suite.Tier).ThenBy(g => g.Key))

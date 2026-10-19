@@ -484,6 +484,25 @@ EXEC sys.sp_executesql @sql;");
 
     /* ---- forms the pages write themselves (anti-forgery token included) ---------------------- */
 
+    /// <summary>
+    /// The address of a report, the period and team kept, if this viewer may open it; null if not (2.6.6). A figure or
+    /// row that leads to its detail links only where the detail would open: a leader without the Licensing role sees
+    /// the count of licenses to take back, but no link to the list that names the people. The test is the menu's
+    /// (<see cref="Nav.Allowed"/>), section role included; a page the menu does not list is open.
+    /// </summary>
+    protected string? Open(string path, string? extra = null)
+    {
+        /* A path that carries its own query ("/forecasting/actions?kind=revoke") keeps it after the period and team. */
+        var parts = path.Split('?', 2);
+        var bare = parts[0];
+        if (parts.Length > 1 && parts[1].Length > 0) extra = extra is null ? parts[1] : parts[1] + "&" + extra;
+        foreach (var g in Nav.Groups)
+            foreach (var page in g.Pages)
+                if (string.Equals(page.Path, bare, StringComparison.OrdinalIgnoreCase))
+                    return (g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode) ? Ctx.Url(bare, extra: extra) : null;
+        return Ctx.Url(bare, extra: extra);
+    }
+
     protected string Form(string handler, string body, string? extraQuery = null) =>
         $"<form class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=" + handler + (extraQuery is null ? "" : "&" + extraQuery) + TenantQuery)}\">{Token()}{body}</form>";
 

@@ -30,7 +30,7 @@ SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.LabeledContent > 0;", Ctx.Args());
         Kpis.Add(new("Interactions with labeled content", Num(labeled), $"{Pct(Ratio(labeled, all))} of all interactions"));
         Kpis.Add(new("People", Num(people), "whose Copilot use touched labeled content"));
-        Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted", Href: Ctx.Url("/compliance/access")));
+        Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted", Href: Open("/compliance/access")));
 
         var labels = await Db.QueryAsync<(DateTime Bucket, string Label, int Rank, int N)>($@"
 SELECT {Ctx.BucketSql("d")}, {Sites.LabelName}, ISNULL(MAX(sl.Rank), 255), SUM(rd.Interactions)
