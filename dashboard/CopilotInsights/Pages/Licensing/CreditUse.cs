@@ -95,7 +95,7 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
             $"<p class=\"sub\">Try a cap: {capLinks}</p>" +
             $"<div class=\"facts\"><div><span class=\"fl\">People who would reach it</span><b>{over:#,0}</b><p>of {billed.Count:#,0} billed</p></div>" +
             $"<div><span class=\"fl\">Credits above it a month</span><b>{N(above)}</b><p>{M(above * r.CreditPrice)}: refused by the cap, or paid by a pack or a license</p></div>" +
-            $"<div><span class=\"fl\">Unlicensed people costing more than a license</span><b>{overLicense:#,0}</b><p>{N(licenseCredits)} credits or more a month: cheaper licensed, see Better with a license</p></div></div>"),
+            $"<div><span class=\"fl\">Unlicensed people costing more than a license</span><b>{overLicense:#,0}</b><p>{N(licenseCredits)} credits or more a month: cheaper licensed, see {(Open("/licensing/license-for-credits") is { } lfc ? $"<a href=\"{WebUtility.HtmlEncode(lfc)}\">Better with a license</a>" : "Better with a license")}</p></div></div>"),
             "Copilot Credits can be capped per person in the Power Platform admin center (or limited by environment and agent). This shows what a cap would touch, from the estimate.", "half"));
 
         /* By department. */

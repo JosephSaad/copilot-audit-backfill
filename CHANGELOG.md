@@ -118,6 +118,10 @@ put your agreement's prices in Admin › Targets and assumptions.
   interaction, so the three pages give one figure. An unknown license status is no longer taken for none, and Copilot
   Chat without an agent, which is free, is no longer counted as metered. Agents costing credits shows credits and their
   cost apart. Better on pay-as-you-go still prices a licensed person's use an interaction at a time.
+- **A full bi rebuild no longer slows to a crawl on one month**: each month's interactions are keyed on their record
+  before the accessed resources join to them. As a heap, with the small dimensions' statistics taken while nearly
+  empty, one month's resource insert could read the month's interactions once per resource row: a demo rebuild took 12
+  minutes instead of under one. Seen on a full rebuild; a nightly refresh reads a few days, not a month.
 - **A license held twice is counted once, the same way, on both pages**: an add-on beside the suite that covers it,
   for enabled people outside the protected levels, the Copilot add-on only when the revoke list does not take it already.
 - **The demo keeps levels 1 to 3 off the revoke and train lists**, not 1 to 5: with five levels, the default kept

@@ -105,7 +105,7 @@ Each loads one source into the Copilot database. All can be run by hand with the
 | `dashboard\Install-CopilotInsights.ps1` | Installs or updates the site on IIS (see [Setting up and upgrading](#setting-up-and-upgrading)). | An administrator |
 | `dashboard\Invoke-InsightsPrecache.ps1` | Builds every report page ahead on the web server and waits until it is done, so the first reader of the day does not wait. | The scheduled task *Copilot Insights pre-cache*, each morning |
 | `dashboard\demo\New-InsightsDemo.ps1` | Builds a demo database: a synthetic company of 5,000 people (`-People`, 400 to 5,200; 2,317 before 2.6.6) with six months of Copilot use and its spend on Fabric, the Power Platform, GitHub Copilot and Foundry, to try the dashboard without real data. | Anyone evaluating or developing |
-| `dashboard\demo\New-InsightsDemoData.sql`, `New-InsightsDemoOperations.sql`, `New-InsightsDemoCosts.sql` | The demo's data: the people, licenses and interactions, then the data for the operations pages, then (2.6.6) the costs. | `New-InsightsDemo.ps1` |
+| `dashboard\demo\New-InsightsDemoData.sql`, `New-InsightsDemoTenant.sql`, `New-InsightsDemoOperations.sql`, `New-InsightsDemoCosts.sql`, `New-InsightsDemoAgents.sql` | The demo's data: the people, licenses and interactions; (2.6.6) the rest of the tenant (service and shared accounts, guests, leave dates, the agent workbook and its agents' use, people paying in credits); the data for the operations pages; the costs; and, after the bi build, the agent inventory load, child agents and authoring records. | `New-InsightsDemo.ps1` |
 
 ## Power BI
 
