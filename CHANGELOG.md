@@ -4,23 +4,27 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.6.6] - 2026-10-18
+## [2.6.6] - 2026-10-19
 
 One page for the whole AI and automation bill: **Leadership › Costs and savings** shows what Microsoft 365 Copilot,
 Copilot Studio's credits, Fabric with Copilot in Power BI, Power BI, Power Automate, Power Apps with Dataverse, GitHub
 Copilot and Foundry cost a month, what of it can be saved, and what it returns, with the savings ranked by what they
-are worth. Six new tables hold the Fabric and Power Platform sources, loaded from their own exports; the demo company
-grows to 5,000 people, with a realistic six months of that spend.
+are worth and each figure leading to the people or resources behind it. Two Licensing pages go with it:
+**Suite fit**, for E3, E5 and E7, where a saving is a move down or training rather than a license taken back, and
+**Credit use**, an estimate of Copilot Credits and tokens by person, which the agent credit pages now share. Six new
+tables hold the Fabric and Power Platform sources, loaded from their own exports; the demo company grows to 5,000
+people, with its agents, guests, service accounts and a realistic six months of that spend.
 
 To upgrade from 2.6.5: with the nightly task disabled, replace the job server's scripts, run
 `Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once, then install the dashboard package over the one in
 place and enable the task again. The installer adds six tables (`audit.FabricCapacityDay`, `audit.FabricWorkloadDay`,
 `audit.PowerAutomateFlow`, `audit.PowerPlatformUserActivity`, `audit.PowerPlatformCapacityDay`,
-`audit.PowerPlatformCreditDay`), the price list `dash.CostPrice` and four settings; nothing existing changes and
-nothing is rebuilt. The page shows Microsoft 365 Copilot, and GitHub Copilot and Foundry where their loaders run, from
-the first visit. Load the Fabric and Power Platform exports with `tools\Import-CostCsv.ps1` to add their areas, and
-put your agreement's prices in Admin › Targets and assumptions.
-
+`audit.PowerPlatformCreditDay`), the price list `dash.CostPrice`, the suite list `dash.CostSuite`, the column
+`audit.LicenseSku.CopilotInSuite`, the views `dash.CopilotSuiteOnly` and `dash.CopilotSuiteHolder`, and ten settings;
+nothing existing changes and nothing is rebuilt. The next license lookup marks the suites with Copilot inside. The page
+shows Microsoft 365 Copilot, and GitHub Copilot and Foundry where their loaders run, from the first visit. Load the
+Fabric and Power Platform exports with `tools\Import-CostCsv.ps1` to add their areas, and put your agreement's prices,
+suites and credit rates in Admin › Targets and assumptions.
 ### Added
 - **Leadership › Costs and savings.** For whole-organization viewers and the Licensing role.
   - Laid out as a dashboard, the most important first and the cards two to a row, so it reads in about two screens;
@@ -131,13 +135,21 @@ put your agreement's prices in Admin › Targets and assumptions.
   Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
   put in your agreement's.
 - **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
-  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **The new sources are loaded from exports, by hand or on a schedule you set**: no loader calls the Fabric or Power
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.
+- **The new sources are loaded from exports, by hand or on a schedule you set**: no loader calls the Fabric or Power
   Platform APIs yet. Each export has to be shaped to the table's headings (OPERATIONS.md lists them).
 - **Prices are list prices in USD** until set; licenses with part numbers not in the price list are left out of the
   spend. Check `audit.LicenseSku` for your tenant's part numbers.
 - **Value is counted only where it is measured** (Copilot, flows, Copilot in Power BI), at minutes per use that are
   assumptions; GitHub Copilot, Foundry and the licenses without usage show no value, so the return errs low.
 - **Tested on the demo database and the SQL integration suite only**, not against a real tenant's exports.
+- **The credit estimate is only as good as its rates**: credits an answer, for grounding and for an agent action are
+  set in Admin, not read from Microsoft, and a classic, scripted answer costs less than counted. Where the admin
+  center's consumption export is loaded, Credit use shows the two side by side: bring the rates near it.
+- **A full bi rebuild can take minutes on one month** (`bi.usp_RefreshBi`'s accessed-resource insert, a plan chosen
+  on statistics taken while the dimensions were nearly empty): seen on the demo, 12 minutes instead of under one. A
+  nightly refresh reads a few days. The fix follows in its own release.
+- **Not tried in Power BI Desktop**: the Power BI model is unchanged (`generate_model.py` writes it as 2.6.5 had it), and was not refreshed against the demo.
 
 ## [2.6.5] - 2026-10-14
 
