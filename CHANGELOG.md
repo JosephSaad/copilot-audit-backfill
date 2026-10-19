@@ -23,17 +23,22 @@ put your agreement's prices in Admin › Targets and assumptions.
 
 ### Added
 - **Leadership › Costs and savings.** For whole-organization viewers and the Licensing role.
-  - *The headline:* the spend a month and a year, the savings found and their share of the spend, the value
-    delivered (time saved at the hourly cost), the return on the spend (and once the savings are taken), and what
-    this dashboard's license exports have already saved.
-  - *Where the money goes:* a ledger of the eight areas, each with its spend, a bar whose hatched end is the part
-    that can be saved, the savings, the value and the return; how each was worked out behind its information icon.
-  - *Savings to take:* every saving the rules find, ranked by what it saves a month and a year, each with its
-    evidence, what to do and a confidence (High: the data shows it; Medium: it follows from a change you make; Low:
-    it rests on a price or a discount), linked to the page with the detail where there is one; and a CSV of them all.
-  - *Spend by month* for the last six whole months, *Savings by area*, *Copilot in Power BI* (its share of the
-    capacity, its cost, requests, cost a request, value and return), *Grow the return* (people to train, heavy free
-    users to license, failing flows, throttled capacity) and *What this is built from* (the sources loaded and not).
+  - Laid out as a dashboard, from 390 pixels wide to 1600, in the light theme and the dark.
+  - *The headline:* one sentence (the spend, its return, and what taking the savings would do), then five tiles: the
+    spend a month and a year with its last six months, the savings found with their share of the spend, the value
+    delivered (time saved at the hourly cost, in hours and in people's working time), the return on the spend as a
+    dial marked where it would be once the savings are taken, and what this dashboard's license exports have saved.
+  - *Where the money goes* (a ring of the areas' shares), *From spend to return* (spend, savings, the spend once
+    they are taken, and value, on one scale) and *Savings by confidence* (High: the data shows it; Medium: it
+    follows from a change you make; Low: it rests on a price or a discount).
+  - *Savings to take:* every saving the rules find, ranked by what it saves a month and a year: the three largest as
+    cards with their evidence and what to do, the rest as rows with theirs behind an information icon, each linked
+    to the page with the detail where there is one; and a CSV of them all.
+  - *Every area, side by side:* each area's spend, a bar whose hatched end is the part that can be saved, its last
+    six months, the savings, the value and the return; how each was worked out behind its information icon.
+  - *Spend by month* for the last six whole months, *Copilot in Power BI* (its return, share of the capacity, cost,
+    requests and cost a request), *Grow the return* (people to train, heavy free users to license, failing flows,
+    throttled capacity) and *What this is built from* (the sources loaded and not).
   - The rules: Copilot licenses unused, on disabled accounts, or better on pay-as-you-go (the same rules as the
     Licensing pages, protected levels respected); Copilot Credits past the packs that would cost less as packs, and
     packs unused; Fabric capacities idle, oversized (peaks under 45%), better reserved or paused at weekends, and
