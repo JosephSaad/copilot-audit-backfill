@@ -368,6 +368,19 @@ function Invoke-Retention {
     catch { "$(Get-Date -Format s) Retention was not applied: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
 }
 
+function Invoke-ReservationSnapshot {
+    <#
+        2.6.8: keeps last month's Copilot reservation position (Leadership >
+        Copilot reservations) once, as it was, after the licenses are read:
+        dash.usp_TakeReservationSnapshot does nothing until the register has
+        rows, or when the month is already kept. A failure is logged, not fatal.
+    #>
+    param([System.Collections.IDictionary] $Setting, [string] $Log)
+    try {
+        $null = Invoke-PipelineSql $Setting -Timeout 600 -Sql "IF OBJECT_ID(N'dash.usp_TakeReservationSnapshot', N'P') IS NOT NULL EXEC dash.usp_TakeReservationSnapshot;"
+    }
+    catch { "$(Get-Date -Format s) The reservation snapshot was not taken: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
+}
 function Get-PipelineCertificate {
     <# The app certificate in LocalMachine\My (or CurrentUser\My), or nothing. #>
     param([System.Collections.IDictionary] $T)
@@ -499,6 +512,7 @@ function Invoke-TenantRun {
         foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
     if (-not $History) { Invoke-Retention -Setting $T -Log $Log }
+    if (-not $History) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
     # A load the delete guard refused is named in the run's detail, which Admin > Health shows, with its reason.
     $detail = if ($refused.Count) { Get-DropGuardDetail -Step $refused -Log $Log } else { $null }
     if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@d' = $detail } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', Detail = @d WHERE RunId = @r;") }

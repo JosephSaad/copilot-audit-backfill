@@ -17,6 +17,7 @@ Nothing here needs SQL typed by hand, but for looking inside a slow night ([A sl
 - [Email, alerts and digests](#email-alerts-and-digests)
 - [Targets, value and training](#targets-value-and-training)
 - [Costs and savings](#costs-and-savings)
+- [Copilot reservations](#copilot-reservations)
 - [Classifications, events and extracts](#classifications-events-and-extracts)
 - [Acting on the license recommendations](#acting-on-the-license-recommendations)
 - [Triage and investigations](#triage-and-investigations)
@@ -254,6 +255,32 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 - **Savings** are what would stop being spent if the action beside each were taken: High confidence where the data shows it outright (a seat nobody used in 30 days), Medium where it follows from a change you make (a smaller capacity), Low where it rests on a price or a discount. A capacity on a reservation saves nothing until renewal, so its idle cost is shown as at stake, not saved.
 - **Value** is time saved at the hourly cost: Copilot's interactions (as Leadership › Value counts them), the flows' successful runs, and Copilot in Power BI's requests. Areas whose value is not measured show a dash, so the return understates rather than flatters.
 - **Already saved** is the Copilot licenses exported from this dashboard to revoke, or from disabled accounts, that have since gone.
+
+## Copilot reservations
+
+**Leadership › Copilot reservations** (2.6.8) sets each line of business's reserved Microsoft 365 Copilot seats against the add-on licenses its people hold, and shows what that bills. Leaders see the organizations led from inside their part of the organization; the whole-organization view and the Licensing role see every organization, the reconciliation with the license pool and the purchase gate. The people behind each figure are on **Licensing › Reservation holders**, for the Licensing role. Administrators keep everything below on the page itself.
+
+**The register.** One row per persistent chargeback organization: its **Org ID** (kept for good, so a reorganization does not move the billing), name, leader's sign-in, cost center, reserved seats, and the dates it is effective from and to. *Add an organization's reservation* adds one; *Add several at once* takes lines pasted from a spreadsheet, all checked before any is added:
+
+```text
+OrgId,Organization,Leader,Reserved,From,CostCenter,To
+LOB-01,Retail Banking,leader.one@contoso.com,7403,2027-01-01,CC-100
+LOB-EXEC,Executive Leadership,,17,2027-01-01,CC-001
+```
+
+A header line is skipped; the leader may be empty for a pool with no one under it; cost center and the end date are optional. To change a reservation (a true-up or an April true-down), give the old row an end date by adding it again with one, or remove it, and add a new row from the date the change applies: past month-end snapshots keep what they were. Every change is in the audit log.
+
+**Who counts where.** An organization's people are everyone under its leader in the org chart, the leader included. A person under two listed leaders (one reporting to the other) counts with the nearer one, so nobody is in two organizations. Allocated licenses are the **Microsoft 365 Copilot add-on** held today; Copilot held only inside a suite (E7) and Technology-funded accounts are not counted. Add-on holders under no listed leader are shown as an exception, to map.
+
+**The figures.** Reserved; Entra allocated; unused reserved capacity (MAX(reserved − allocated, 0) per organization); allocation over reservation (MAX(allocated − reserved, 0)); billable licenses (reserved plus allocation over reservation); utilization (allocated over reserved, N/A with nothing reserved); the monthly obligation (billable times the rate) and the remaining obligation (the months left in the year after this one). Each is worked out per organization, then summed. The billable rule is the policy's and the page says it awaits Finance's confirmation.
+
+**The rate.** *Rate and purchase gate* › *Add a rate*: Finance's rate a license a month after any discount (18 for 30 less 40%), from the date it applies. Without one, obligations show *Pending Finance Decision*.
+
+**The purchase gate.** The unassigned add-on licenses counted at the baseline (1,136 in the policy's example) and the share to assign first (95%): the page shows how many are assigned since, and whether a purchase may be considered (at 95% of 1,136, 1,079 assigned, leaving a buffer of 57). Empty: no gate.
+
+**The Technology-funded register.** Approved executive, service, test, shared, migration and exception accounts: sign-in, category, accountable owner, approval reference, from and review dates. Their licenses are counted once in the Technology pool, never in a line of business. Accounts the dashboard reads as non-human that are not in the register are listed as an exception; one past its review date too.
+
+**Snapshots.** Each night after the licenses are read, the pipeline keeps the last month-end's position once (`dash.usp_TakeReservationSnapshot`), and never rewrites it: the reserved seats, the allocated licenses on that day and the rate in force, for every organization, those under no leader and the Technology pool. The org chart used is the one on the night it was kept. *Month-end snapshots* lists them; *View* shows one as it was. Every snapshot is **Operational, not certified**: certification, adjustments and the December close come in a later release.
 
 ## Classifications, events and extracts
 

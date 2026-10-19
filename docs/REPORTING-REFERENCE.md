@@ -4602,6 +4602,97 @@ Indexes and constraints:
 
 - `PK_DashNonHumanException`: primary key, clustered (Upn)
 
+#### dash.Reservation
+
+*Table.* The Copilot reservation register (2.6.8, Leadership &gt; Copilot reservations): the Microsoft 365 Copilot seats each persistent chargeback organization reserved, effective from one date to another. The people a row covers are everyone under its leader in the org chart (`dash.fnReservationMember`).
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ReservationId` | int | **no** | **PK** identity |  |
+| 2 | `OrgId` | nvarchar(64) | **no** |  | the persistent chargeback organization ID |
+| 3 | `Name` | nvarchar(200) | **no** |  |  |
+| 4 | `LeaderUpn` | nvarchar(256) | yes |  | whose people it covers; NULL: a pool with no one under it |
+| 5 | `CostCenter` | nvarchar(100) | yes |  |  |
+| 6 | `Reserved` | int | **no** |  |  |
+| 7 | `EffectiveFrom` | date | **no** |  |  |
+| 8 | `EffectiveTo` | date | yes |  | NULL: open |
+| 9 | `Note` | nvarchar(400) | yes |  |  |
+| 10 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 11 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashReservation`: primary key, clustered (ReservationId)
+- `IX_DashReservation_Org`: nonclustered (OrgId, EffectiveFrom)
+- `CK_DashReservation_Reserved`: check `([Reserved]>=(0))`
+
+#### dash.ReservationRate
+
+*Table.* The rate a reserved seat is charged a month, from a date (2.6.8): Finance's, after any discount. No row in force: the page shows Pending Finance Decision.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `EffectiveFrom` | date | **no** | **PK** |  |
+| 2 | `MonthlyRate` | decimal(12,2) | **no** |  |  |
+| 3 | `Currency` | nvarchar(8) | yes |  | NULL: LicenseCurrency |
+| 4 | `Note` | nvarchar(400) | yes |  |  |
+| 5 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 6 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashReservationRate`: primary key, clustered (EffectiveFrom)
+- `CK_DashReservationRate_Rate`: check `([MonthlyRate]>=(0))`
+
+#### dash.TechnologyAllocation
+
+*Table.* Technology-funded allocations (2.6.8): approved executive, service, test, shared, migration and exception accounts whose license the Technology pool funds, never a line of business.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Upn` | nvarchar(256) | **no** | **PK** |  |
+| 2 | `Category` | nvarchar(40) | **no** |  | Executive, Service, Test, Shared, Migration or Exception |
+| 3 | `Owner` | nvarchar(256) | **no** |  | the accountable owner |
+| 4 | `ApprovalRef` | nvarchar(200) | yes |  |  |
+| 5 | `EffectiveFrom` | date | **no** |  |  |
+| 6 | `ReviewDate` | date | yes |  |  |
+| 7 | `Note` | nvarchar(400) | yes |  |  |
+| 8 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 9 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashTechnologyAllocation`: primary key, clustered (Upn)
+
+#### dash.ReservationSnapshot
+
+*Table.* Each month-end's reservation position, kept as it was (2.6.8): one row per organization, plus `~unmapped` (add-on holders under no listed leader) and `~technology` (the Technology pool), written once by `dash.usp_TakeReservationSnapshot` and never rewritten. The inputs are kept; the dashboard works out unused, over, billable and the obligations from them.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SnapshotDate` | date | **no** | **PK** | the month-end day |
+| 2 | `OrgId` | nvarchar(64) | **no** | **PK** |  |
+| 3 | `Name` | nvarchar(200) | **no** |  |  |
+| 4 | `LeaderUpn` | nvarchar(256) | yes |  |  |
+| 5 | `CostCenter` | nvarchar(100) | yes |  |  |
+| 6 | `Reserved` | int | **no** |  |  |
+| 7 | `Allocated` | int | **no** |  | add-on licenses held that day |
+| 8 | `MonthlyRate` | decimal(12,2) | yes |  | NULL: no rate was in force |
+| 9 | `State` | varchar(16) | **no** | `'Operational'` |  |
+| 10 | `TakenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashReservationSnapshot`: primary key, clustered (SnapshotDate, OrgId)
+
 #### dash.SavedView
 
 *Table.* Unused since 2.4.4, which removed saved views; kept, with its rows. Each was a page and its query, one of which could be the start page.
@@ -11539,7 +11630,7 @@ GO
 
 ### C.15 `sql/Create-CopilotOperationsSchema.sql`
 
-Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 735 lines.
+Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 877 lines.
 
 ```sql
 /*
@@ -11560,6 +11651,11 @@ Copilot database, with `-Dashboard`. The dashboard's operations tables, its data
       dash.TrainingAttendance
                         who attended which training, for the effect report
       dash.ValueName    readable names for the codes in audit.ValueCatalog
+      dash.Reservation, dash.ReservationRate, dash.TechnologyAllocation,
+      dash.ReservationSnapshot, dash.fnReservationMember,
+      dash.usp_TakeReservationSnapshot
+                        2.6.8: Copilot reservations, their rate, the Technology
+                        pool, and each month's position kept as it was
       dash.usp_ApplyRetention, dash.usp_SetPrivacyMode, dash.usp_SetSecret,
       dash.usp_GetSecret
       CopilotInsightsApp
@@ -11891,6 +11987,138 @@ IF OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL
         ConfirmedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_DashNonHumanException_Confirmed DEFAULT (SYSUTCDATETIME())
     );
 
+/* ---- Copilot reservations (2.6.8) -------------------------------------------- */
+
+/* The reservation register: the Microsoft 365 Copilot seats each line of business, leader or group committed to, by
+   persistent chargeback organization (OrgId). A row is effective from one date to another (NULL: open), so a change is
+   a new row and the old one keeps its dates. The people a row covers are everyone under its leader in the org chart
+   (dash.fnReservationMember). Entered on Leadership > Copilot reservations by an administrator. */
+IF OBJECT_ID(N'dash.Reservation', N'U') IS NULL
+    CREATE TABLE dash.Reservation
+    (
+        ReservationId INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashReservation PRIMARY KEY,
+        OrgId         NVARCHAR(64)    NOT NULL,   -- the persistent chargeback organization ID
+        Name          NVARCHAR(200)   NOT NULL,
+        LeaderUpn     NVARCHAR(256)   NULL,       -- whose people it covers; NULL: a pool with no one under it
+        CostCenter    NVARCHAR(100)   NULL,
+        Reserved      INT             NOT NULL CONSTRAINT CK_DashReservation_Reserved CHECK (Reserved >= 0),
+        EffectiveFrom DATE            NOT NULL,
+        EffectiveTo   DATE            NULL,
+        Note          NVARCHAR(400)   NULL,
+        UpdatedBy     NVARCHAR(256)   NOT NULL,
+        UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashReservation_Updated DEFAULT (SYSUTCDATETIME()),
+        INDEX IX_DashReservation_Org (OrgId, EffectiveFrom)
+    );
+
+/* The rate a reserved seat is charged a month, effective from a date (Finance's, after any discount). No row: the
+   page shows Pending Finance Decision rather than a figure. */
+IF OBJECT_ID(N'dash.ReservationRate', N'U') IS NULL
+    CREATE TABLE dash.ReservationRate
+    (
+        EffectiveFrom DATE            NOT NULL CONSTRAINT PK_DashReservationRate PRIMARY KEY,
+        MonthlyRate   DECIMAL(12, 2)  NOT NULL CONSTRAINT CK_DashReservationRate_Rate CHECK (MonthlyRate >= 0),
+        Currency      NVARCHAR(8)     NULL,       -- NULL: LicenseCurrency
+        Note          NVARCHAR(400)   NULL,
+        UpdatedBy     NVARCHAR(256)   NOT NULL,
+        UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashReservationRate_Updated DEFAULT (SYSUTCDATETIME())
+    );
+
+/* Technology-funded allocations: approved executive, service, test, shared, migration and exception accounts whose
+   license is charged to the Technology pool, never to a line of business. One row per account. */
+IF OBJECT_ID(N'dash.TechnologyAllocation', N'U') IS NULL
+    CREATE TABLE dash.TechnologyAllocation
+    (
+        Upn           NVARCHAR(256)   NOT NULL CONSTRAINT PK_DashTechnologyAllocation PRIMARY KEY,
+        Category      NVARCHAR(40)    NOT NULL,   -- Executive | Service | Test | Shared | Migration | Exception
+        Owner         NVARCHAR(256)   NOT NULL,
+        ApprovalRef   NVARCHAR(200)   NULL,
+        EffectiveFrom DATE            NOT NULL,
+        ReviewDate    DATE            NULL,
+        Note          NVARCHAR(400)   NULL,
+        UpdatedBy     NVARCHAR(256)   NOT NULL,
+        UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashTechnologyAllocation_Updated DEFAULT (SYSUTCDATETIME())
+    );
+
+/* Each month's position, kept as it was: one row per organization (and ~unmapped, ~technology) at the last day of a
+   month, written once by dash.usp_TakeReservationSnapshot and never rewritten. The inputs are stored (reserved,
+   allocated, rate); the dashboard works out unused, over, billable and the obligations from them, one way. */
+IF OBJECT_ID(N'dash.ReservationSnapshot', N'U') IS NULL
+    CREATE TABLE dash.ReservationSnapshot
+    (
+        SnapshotDate  DATE            NOT NULL,
+        OrgId         NVARCHAR(64)    NOT NULL,   -- ~unmapped: licensed, under no leader; ~technology: the Technology pool
+        Name          NVARCHAR(200)   NOT NULL,
+        LeaderUpn     NVARCHAR(256)   NULL,
+        CostCenter    NVARCHAR(100)   NULL,
+        Reserved      INT             NOT NULL,
+        Allocated     INT             NOT NULL,
+        MonthlyRate   DECIMAL(12, 2)  NULL,       -- NULL: no rate was in force
+        State         VARCHAR(16)     NOT NULL CONSTRAINT DF_DashReservationSnapshot_State DEFAULT ('Operational'),
+        TakenUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_DashReservationSnapshot_Taken DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_DashReservationSnapshot PRIMARY KEY (SnapshotDate, OrgId)
+    );
+
+/* The people each reservation covers on a date: everyone under its leader in the org chart, the leader included.
+   Under two listed leaders (one reporting to the other), a person counts with the nearer one, so nobody is in two
+   organizations; the same leader on two rows falls to the lower ReservationId (the page lists it as an exception). */
+EXEC (N'
+CREATE OR ALTER FUNCTION dash.fnReservationMember (@AsOf DATE)
+RETURNS TABLE
+AS
+RETURN
+WITH r AS (SELECT ReservationId, LeaderUpn FROM dash.Reservation
+           WHERE LeaderUpn IS NOT NULL AND EffectiveFrom <= @AsOf AND (EffectiveTo IS NULL OR EffectiveTo >= @AsOf)),
+m AS (SELECT r.ReservationId, c.DescendantUpn,
+             ROW_NUMBER() OVER (PARTITION BY c.DescendantUpn ORDER BY c.Depth, r.ReservationId) AS n
+      FROM r JOIN dash.OrgClosure AS c ON c.AncestorUpn = r.LeaderUpn)
+SELECT m.ReservationId, u.UserKey, u.UserPrincipalName AS Upn
+FROM m JOIN bi.DimUser AS u ON u.UserPrincipalName = m.DescendantUpn
+WHERE m.n = 1;');
+
+/* The month-end snapshot: by default the last day of the month before the latest licensed day loaded, once. Allocated
+   is the Microsoft 365 Copilot add-on held that day (bi.FactLicensedDay, less Copilot held only inside a suite), Technology
+   accounts counted in their own pool. The org chart is today's. A snapshot already taken is left as it is. */
+EXEC (N'
+CREATE OR ALTER PROCEDURE dash.usp_TakeReservationSnapshot
+    @AsOf DATE = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF NOT EXISTS (SELECT 1 FROM dash.Reservation) RETURN;
+    DECLARE @last INT = (SELECT MAX(DateKey) FROM bi.FactLicensedDay);
+    IF @last IS NULL RETURN;
+    DECLARE @lastDay DATE = CONVERT(DATE, CAST(@last AS CHAR(8)), 112);
+    IF @AsOf IS NULL SET @AsOf = EOMONTH(@lastDay, -1);
+    DECLARE @k INT = YEAR(@AsOf) * 10000 + MONTH(@AsOf) * 100 + DAY(@AsOf);
+    IF @AsOf > @lastDay OR NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay WHERE DateKey = @k) RETURN;
+    IF EXISTS (SELECT 1 FROM dash.ReservationSnapshot WHERE SnapshotDate = @AsOf) RETURN;
+    DECLARE @rate DECIMAL(12, 2) = (SELECT TOP (1) MonthlyRate FROM dash.ReservationRate WHERE EffectiveFrom <= @AsOf ORDER BY EffectiveFrom DESC);
+
+    SELECT u.UserKey, u.UserPrincipalName AS Upn,
+           CAST(CASE WHEN t.Upn IS NOT NULL THEN 1 ELSE 0 END AS BIT) AS Tech
+    INTO #held
+    FROM bi.FactLicensedDay AS ld
+    JOIN bi.DimUser AS u ON u.UserKey = ld.UserKey
+    LEFT JOIN dash.TechnologyAllocation AS t ON t.Upn = u.UserPrincipalName AND t.EffectiveFrom <= @AsOf
+    WHERE ld.DateKey = @k
+      AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS so WHERE so.Upn = u.UserPrincipalName);
+
+    INSERT INTO dash.ReservationSnapshot (SnapshotDate, OrgId, Name, LeaderUpn, CostCenter, Reserved, Allocated, MonthlyRate)
+    SELECT @AsOf, r.OrgId, MAX(r.Name), NULLIF(MAX(ISNULL(r.LeaderUpn, N'''')), N''''), NULLIF(MAX(ISNULL(r.CostCenter, N'''')), N''''), SUM(r.Reserved),
+           ISNULL((SELECT COUNT(*) FROM dash.fnReservationMember(@AsOf) AS m JOIN #held AS h ON h.UserKey = m.UserKey AND h.Tech = 0
+                   JOIN dash.Reservation AS r2 ON r2.ReservationId = m.ReservationId WHERE r2.OrgId = r.OrgId), 0),
+           @rate
+    FROM dash.Reservation AS r
+    WHERE r.EffectiveFrom <= @AsOf AND (r.EffectiveTo IS NULL OR r.EffectiveTo >= @AsOf)
+    GROUP BY r.OrgId;
+
+    INSERT INTO dash.ReservationSnapshot (SnapshotDate, OrgId, Name, Reserved, Allocated, MonthlyRate)
+    SELECT @AsOf, N''~unmapped'', N''Under no listed leader'', 0,
+           (SELECT COUNT(*) FROM #held AS h WHERE h.Tech = 0 AND NOT EXISTS (SELECT 1 FROM dash.fnReservationMember(@AsOf) AS m WHERE m.UserKey = h.UserKey)), @rate
+    UNION ALL
+    SELECT @AsOf, N''~technology'', N''Technology-funded pool'', 0, (SELECT COUNT(*) FROM #held WHERE Tech = 1), @rate;
+END;');
+
 /* Each person's saved views; one may be their start page. Unused since 2.4.4, which removed My Copilot; kept, with its rows. */
 IF OBJECT_ID(N'dash.SavedView', N'U') IS NULL
     CREATE TABLE dash.SavedView
@@ -11998,7 +12226,9 @@ USING (VALUES
     ('NonHumanPatterns',       NULL,     N'More sign-in patterns that mark a non-human account, comma-separated, * for any text (bot-*, *-svc).'),
     ('NonHumanEmployeeTypes',  NULL,     N'Employee types that mark a non-human account, comma-separated (SERVICE, RESOURCE).'),
     ('NonHumanGroups',         NULL,     N'AD groups (DOMAIN\Group) whose members are non-human accounts, comma-separated; the directory load reads their members.'),
-    ('NonHumanAlert',          N'1',     N'1 alerts Security and Licensing the first time a Copilot license is found on a non-human account; 0 does not.')
+    ('NonHumanAlert',          N'1',     N'1 alerts Security and Licensing the first time a Copilot license is found on a non-human account; 0 does not.'),
+    ('ReservationGatePercent', N'95',    N'2.6.8: no more Copilot licenses are bought until this share of the purchase-gate baseline is assigned (Leadership > Copilot reservations).'),
+    ('ReservationGateBaseline', NULL,    N'2.6.8: the unassigned Copilot add-on licenses the purchase gate counts from (1,136 in the policy example); empty: no gate.')
 ) AS src (Name, Value, Description)
 ON t.Name = src.Name
 WHEN MATCHED AND ISNULL(t.Description, N'') <> src.Description THEN UPDATE SET Description = src.Description
@@ -12078,6 +12308,9 @@ GRANT INSERT, UPDATE, DELETE ON dash.DigestPreference TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.DigestSend TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.LicenseAction TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.LicenseContract TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.Reservation TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.ReservationRate TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.TechnologyAllocation TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.NonHumanException TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;
@@ -14181,7 +14414,7 @@ GO
 
 ### C.21 `Invoke-CopilotPipeline.ps1`
 
-The nightly run and the first load of history: the order in which every table is filled. 550 lines.
+The nightly run and the first load of history: the order in which every table is filled. 564 lines.
 
 ```powershell
 <#
@@ -14554,6 +14787,19 @@ function Invoke-Retention {
     catch { "$(Get-Date -Format s) Retention was not applied: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
 }
 
+function Invoke-ReservationSnapshot {
+    <#
+        2.6.8: keeps last month's Copilot reservation position (Leadership >
+        Copilot reservations) once, as it was, after the licenses are read:
+        dash.usp_TakeReservationSnapshot does nothing until the register has
+        rows, or when the month is already kept. A failure is logged, not fatal.
+    #>
+    param([System.Collections.IDictionary] $Setting, [string] $Log)
+    try {
+        $null = Invoke-PipelineSql $Setting -Timeout 600 -Sql "IF OBJECT_ID(N'dash.usp_TakeReservationSnapshot', N'P') IS NOT NULL EXEC dash.usp_TakeReservationSnapshot;"
+    }
+    catch { "$(Get-Date -Format s) The reservation snapshot was not taken: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
+}
 function Get-PipelineCertificate {
     <# The app certificate in LocalMachine\My (or CurrentUser\My), or nothing. #>
     param([System.Collections.IDictionary] $T)
@@ -14685,6 +14931,7 @@ function Invoke-TenantRun {
         foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
     if (-not $History) { Invoke-Retention -Setting $T -Log $Log }
+    if (-not $History) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
     # A load the delete guard refused is named in the run's detail, which Admin > Health shows, with its reason.
     $detail = if ($refused.Count) { Get-DropGuardDetail -Step $refused -Log $Log } else { $null }
     if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@d' = $detail } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', Detail = @d WHERE RunId = @r;") }

@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-110 tables (plus 2 left over from 1.x), 39 views, 1400 columns, from 19 scripts.
+114 tables (plus 2 left over from 1.x), 39 views, 1436 columns, from 19 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -23,7 +23,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
 - [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
-- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
+- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
 ## The scripts
@@ -48,13 +48,13 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-LicenseEventProcedure.sql` | License events | By hand, once (step 7) | usp_ShredLicenseEvents, and usp_RefreshLicenseSkuChange (2.5.4), which the shred runs at its end. Installed over events shredded before 2.5.4, it works out their SKU changes once. |
 | `sql/Create-CopilotExternalUsageSchema.sql` | Copilot | By Install-CopilotAudit.ps1 | AI usage outside Microsoft 365 Copilot (2.6.2): GitHubCopilotSeat, GitHubCopilotDay, GitHubCopilotUserDay and GitHubCopilotCost, filled by tools/Import-GitHubCopilotUsage.ps1; FoundryDeployment, FoundryUsageDay and FoundryCostDay, filled by tools/Import-FoundryUsage.ps1; and ExternalUsageRun, each run of either. From 2.6.6, FabricCapacityDay, FabricWorkloadDay, PowerAutomateFlow, PowerPlatformUserActivity, PowerPlatformCapacityDay and PowerPlatformCreditDay, filled by tools/Import-CostCsv.ps1, for Leadership > Costs and savings. |
 | `sql/Create-CopilotDashboardSchema.sql` | Copilot | By hand, once, for the dashboard (step 22) | The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun, CostPrice and CostSuite (2.6.6, seeded); the views dash.Agent, dash.CopilotSuiteOnly and dash.CopilotSuiteHolder (2.6.6) and the function dash.fnScopeUsers. |
-| `sql/Create-CopilotOperationsSchema.sql` | Copilot | By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess | The dashboard's operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, license actions and contracts, saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers. |
+| `sql/Create-CopilotOperationsSchema.sql` | Copilot | By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess | The dashboard's operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, license actions and contracts, Copilot reservations, their rate, the Technology-funded pool and month-end snapshots (2.6.8), saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers. |
 | `sql/Create-AgentEventProcedure.sql` | License events | By Install-CopilotAudit.ps1, and after each license-event load | audit.AgentEvent and audit.usp_ShredAgentEvents (2.3.0): Copilot Studio authoring records, one row each. |
 | `sql/Create-CopilotDashboardProcedure.sql` | Copilot | By hand, once, for the dashboard (step 22) | dash.usp_RefreshDashboard, which the backfill's -Incremental run and the CSV importer call after bi.usp_RefreshBi. |
 
 **Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the license-event section. The license-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the license-event tables and views.
 
-**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organization to it.
+**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organization to it. `dash.fnReservationMember(@AsOf)` (inline, 2.6.8) returns each reservation's people on a day: everyone under its leader, a person under two listed leaders counted with the nearer one; `dash.usp_TakeReservationSnapshot` (2.6.8), which the nightly run calls, keeps the last month-end's reservation position once.
 
 ## Naming conventions
 
@@ -3337,6 +3337,97 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_DashNonHumanException`: primary key, clustered (Upn)
+
+### dash.Reservation
+
+*Table.* The Copilot reservation register (2.6.8, Leadership &gt; Copilot reservations): the Microsoft 365 Copilot seats each persistent chargeback organization reserved, effective from one date to another. The people a row covers are everyone under its leader in the org chart (`dash.fnReservationMember`).
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ReservationId` | int | **no** | **PK** identity |  |
+| 2 | `OrgId` | nvarchar(64) | **no** |  | the persistent chargeback organization ID |
+| 3 | `Name` | nvarchar(200) | **no** |  |  |
+| 4 | `LeaderUpn` | nvarchar(256) | yes |  | whose people it covers; NULL: a pool with no one under it |
+| 5 | `CostCenter` | nvarchar(100) | yes |  |  |
+| 6 | `Reserved` | int | **no** |  |  |
+| 7 | `EffectiveFrom` | date | **no** |  |  |
+| 8 | `EffectiveTo` | date | yes |  | NULL: open |
+| 9 | `Note` | nvarchar(400) | yes |  |  |
+| 10 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 11 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashReservation`: primary key, clustered (ReservationId)
+- `IX_DashReservation_Org`: nonclustered (OrgId, EffectiveFrom)
+- `CK_DashReservation_Reserved`: check `([Reserved]>=(0))`
+
+### dash.ReservationRate
+
+*Table.* The rate a reserved seat is charged a month, from a date (2.6.8): Finance's, after any discount. No row in force: the page shows Pending Finance Decision.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `EffectiveFrom` | date | **no** | **PK** |  |
+| 2 | `MonthlyRate` | decimal(12,2) | **no** |  |  |
+| 3 | `Currency` | nvarchar(8) | yes |  | NULL: LicenseCurrency |
+| 4 | `Note` | nvarchar(400) | yes |  |  |
+| 5 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 6 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashReservationRate`: primary key, clustered (EffectiveFrom)
+- `CK_DashReservationRate_Rate`: check `([MonthlyRate]>=(0))`
+
+### dash.TechnologyAllocation
+
+*Table.* Technology-funded allocations (2.6.8): approved executive, service, test, shared, migration and exception accounts whose license the Technology pool funds, never a line of business.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Upn` | nvarchar(256) | **no** | **PK** |  |
+| 2 | `Category` | nvarchar(40) | **no** |  | Executive, Service, Test, Shared, Migration or Exception |
+| 3 | `Owner` | nvarchar(256) | **no** |  | the accountable owner |
+| 4 | `ApprovalRef` | nvarchar(200) | yes |  |  |
+| 5 | `EffectiveFrom` | date | **no** |  |  |
+| 6 | `ReviewDate` | date | yes |  |  |
+| 7 | `Note` | nvarchar(400) | yes |  |  |
+| 8 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 9 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashTechnologyAllocation`: primary key, clustered (Upn)
+
+### dash.ReservationSnapshot
+
+*Table.* Each month-end's reservation position, kept as it was (2.6.8): one row per organization, plus `~unmapped` (add-on holders under no listed leader) and `~technology` (the Technology pool), written once by `dash.usp_TakeReservationSnapshot` and never rewritten. The inputs are kept; the dashboard works out unused, over, billable and the obligations from them.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SnapshotDate` | date | **no** | **PK** | the month-end day |
+| 2 | `OrgId` | nvarchar(64) | **no** | **PK** |  |
+| 3 | `Name` | nvarchar(200) | **no** |  |  |
+| 4 | `LeaderUpn` | nvarchar(256) | yes |  |  |
+| 5 | `CostCenter` | nvarchar(100) | yes |  |  |
+| 6 | `Reserved` | int | **no** |  |  |
+| 7 | `Allocated` | int | **no** |  | add-on licenses held that day |
+| 8 | `MonthlyRate` | decimal(12,2) | yes |  | NULL: no rate was in force |
+| 9 | `State` | varchar(16) | **no** | `'Operational'` |  |
+| 10 | `TakenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashReservationSnapshot`: primary key, clustered (SnapshotDate, OrgId)
 
 ### dash.SavedView
 

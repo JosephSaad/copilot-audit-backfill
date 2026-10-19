@@ -25,6 +25,8 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
         /* 2.6.6: what Leadership > Costs and savings reads that tools\Import-CostCsv.ps1 or an administrator can change outside a nightly run. */
         "dash.CostPrice", "dash.CostSuite", "audit.FabricCapacityDay", "audit.FabricWorkloadDay", "audit.PowerAutomateFlow", "audit.PowerPlatformUserActivity",
         "audit.PowerPlatformCapacityDay", "audit.PowerPlatformCreditDay",
+        /* 2.6.8: the reservation register, its rate, the Technology pool and the month-end snapshots (Leadership > Copilot reservations). */
+        "dash.Reservation", "dash.ReservationRate", "dash.TechnologyAllocation", "dash.ReservationSnapshot",
     ];
 
     /// <summary>A table people change all day, and the query that gives its version: one short string that differs after any change.</summary>
