@@ -10687,7 +10687,7 @@ END;
 
 ### C.13 `sql/Create-CopilotDashboardSchema.sql`
 
-Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 513 lines.
+Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 516 lines.
 
 ```sql
 /*
@@ -10829,6 +10829,9 @@ IF OBJECT_ID(N'dash.CostSuite', N'U') IS NULL
         UpdatedBy    NVARCHAR(256)   NULL,
         UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostSuite_Updated DEFAULT (SYSUTCDATETIME())
     );
+/* The first draft's wider patterns, which matched education suites and E3's bot license: gone unless an administrator changed them. */
+DELETE FROM dash.CostSuite WHERE UpdatedBy = N'install'
+   AND SkuPattern IN (N'SPE_E5%', N'SPE_E3%', N'Microsoft_365_E5%', N'Microsoft_365_E7%', N'M365_E7%', N'SPE_E7%', N'ENTERPRISEPACK%', N'ENTERPRISEPREMIUM%');
 MERGE dash.CostSuite AS t
 /* Exact part numbers ([_] is an underscore, not a wildcard), so the education suites (ENTERPRISEPREMIUM_STUDENT and the
    like) and E3's unattended license for bots (SPE_E3_RPA1) are not priced as these; E7's are its likely forms. */
