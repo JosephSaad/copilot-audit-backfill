@@ -15,6 +15,12 @@ static class Segments
     public static readonly string[] Order = ["Power", "Regular", "Occasional", "One-off", "Not started"];
     public static readonly int[] Slots = [3, 1, 4, 2, 8];
 
+    /// <summary>
+    /// 2.6.7: the two segments Engagement's *Need a nudge* counts together, one-off and not started, listed as one on People
+    /// by engagement so the figure and its list agree. Not a segment of its own: nobody is in it and in another.
+    /// </summary>
+    public const string Nudge = "Need a nudge";
+
     public static string Sql(string days) => $@"CASE WHEN {days} >= CEILING(@w * 0.5) AND {days} >= 3 THEN N'Power'
                   WHEN {days} >= CEILING(@w * 0.2) AND {days} >= 2 THEN N'Regular'
                   WHEN {days} >= 2 THEN N'Occasional' WHEN {days} = 1 THEN N'One-off' ELSE N'Not started' END";
@@ -74,7 +80,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—"));
         var nudge = await Db.ScalarAsync<int>($@"WITH {Segments.People(Ctx)}
 SELECT COUNT(*) FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey WHERE p.Segment IN (N'One-off', N'Not started') AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")};", Ctx.Args(new { w }));
-        Kpis.Add(new("Need a nudge", Num(nudge), "licensed or active, but one day or none", Href: Open("/enablement/people")));
+        Kpis.Add(new(Segments.Nudge, Num(nudge), "licensed or active, but one day or none", Href: Open("/enablement/people", extra: "seg=" + Uri.EscapeDataString(Segments.Nudge))));
 
         Panels.Add(new("Engagement segments",
             Chart.Bars(Segments.Order.Select((name, i) => new Bar(name, Seg(name), Viewer.Has(Roles.Enablement) ? Ctx.Url("/enablement/people", extra: "seg=" + name) : null, Slot: Segments.Slots[i])).ToList(), Fmt.Count, "People by segment"),
@@ -159,7 +165,8 @@ public sealed class PeopleModel(PageServices s) : InsightsPage(s)
     {
         var w = await Segments.WorkdaysAsync(Db, Ctx);
         var segParam = Request.Query["seg"].FirstOrDefault();
-        var seg = segParam is not null && Segments.Order.Contains(segParam) ? segParam : "Power";
+        var seg = segParam is not null && (Segments.Order.Contains(segParam) || segParam == Segments.Nudge) ? segParam : "Power";
+        var nudged = seg is "One-off" or "Not started" or Segments.Nudge;   // the segments the protected levels are kept out of
         var pg = new Paging(Request, Sorts, seg is "Power" or "Regular" ? "days" : "dept");
         var rows = await Db.QueryAsync<Row>($@"
 WITH {Segments.People(Ctx)}
@@ -167,10 +174,10 @@ SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.JobTitle, du.Mana
        dl.[Date] AS Last, COUNT(*) OVER () AS TotalRows
 FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = p.LastKey
-WHERE p.Segment = @seg
-  AND (@seg NOT IN (N'One-off', N'Not started') OR {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
+WHERE (p.Segment = @seg OR (@seg = @nudge AND p.Segment IN (N'One-off', N'Not started')))
+  AND (@nudged = 0 OR {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")})
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
-{pg.OrderAndPage()};", Ctx.Args(new { w, seg, q = pg.Like }));
+{pg.OrderAndPage()};", Ctx.Args(new { w, seg, q = pg.Like, nudge = Segments.Nudge, nudged = nudged ? 1 : 0 }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
         var t = new Table
         {
@@ -182,9 +189,9 @@ WHERE p.Segment = @seg
             t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.JobTitle, r.ManagerName, r.D, r.I, Pct(Ratio(r.MT, r.S)), r.Last]);
         CsvTable = t;
         Kpis.Add(new(seg, Num(pg.Total), $"people, out of {w} working days in the period"));
-        var tabs = string.Join(" · ", Segments.Order.Select(sg =>
+        var tabs = string.Join(" · ", Segments.Order.Append(Segments.Nudge).Select(sg =>
             $"<a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "seg=" + Uri.EscapeDataString(sg)))}\"{(sg == seg ? " class=\"on\"" : "")}>{sg}</a>"));
-        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Segment: {tabs}</p>" + (seg is "One-off" or "Not started" ? await ProtectedNoteAsync() : "") + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            "Segments are defined on the Engagement page.", "full", CsvUrl()));
+        Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Segment: {tabs}</p>" + (nudged ? await ProtectedNoteAsync() : "") + pg.Controls(Request, SortLabels).Value + t.Render().Value),
+            "Segments are defined on the Engagement page. Need a nudge: one-off and not started together, as Engagement counts them.", "full", CsvUrl()));
     }
 }

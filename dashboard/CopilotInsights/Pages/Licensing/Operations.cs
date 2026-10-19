@@ -108,7 +108,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         var rows = Groups.Fold(this, await metrics.ByAttributeAsync(Ctx, by), Ctx.MinGroupSize, out var folded);
         var licensed = rows.Sum(r => r.Licensed);
         var used = rows.Sum(r => r.ActiveLicensed);
-        Kpis.Add(new("Licenses held", Num(licensed), $"{licensed * price:#,0} {cur} a month"));
+        Kpis.Add(new("Licenses held", Num(licensed), $"{licensed * price:#,0} {cur} a month", Href: Open("/adoption/by-license")));
         Kpis.Add(new("Used in the period", Num(used), licensed > 0 ? Pct(Ratio(used, licensed)) : null));
         Kpis.Add(new("Unused spend", $"{(licensed - used) * price:#,0} {cur}", "a month, on licenses not used in the period", licensed - used > 0 ? "warn" : null));
         Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month"));

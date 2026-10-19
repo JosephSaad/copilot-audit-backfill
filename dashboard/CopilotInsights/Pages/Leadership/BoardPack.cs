@@ -24,10 +24,10 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         string Change(double now, double? before) => before is not double b ? OpsReports.NoFullPeriodBefore(first)
             : b == 0 ? "none in the period before" : $"{now / b - 1:+0%;-0%;0%} on the period before";
         double? Adopt(Totals? x) => x is { LicensedNow: > 0 } ? (double)x.ActiveLicensed / x.LicensedNow : null;
-        Kpis.Add(new("People using Copilot", Num(t.Active), Change(t.Active, p?.Active)));
-        Kpis.Add(new("Adoption", Pct(Adopt(t)), Adopt(p) is double a0 && Adopt(t) is double a1 ? $"{(a1 - a0) * 100:+0.#;-0.#;0} points" : "of licensed people"));
+        Kpis.Add(new("People using Copilot", Num(t.Active), Change(t.Active, p?.Active), Href: Open("/licensing/ranking")));
+        Kpis.Add(new("Adoption", Pct(Adopt(t)), Adopt(p) is double a0 && Adopt(t) is double a1 ? $"{(a1 - a0) * 100:+0.#;-0.#;0} points" : "of licensed people", Href: Open("/adoption")));
         Kpis.Add(new("Interactions", Num(t.Interactions), Change(t.Interactions, p?.Interactions)));
-        Kpis.Add(new("Licenses", Num(t.LicensedNow), $"{t.ActiveLicensed:#,0} used in the period"));
+        Kpis.Add(new("Licenses", Num(t.LicensedNow), $"{t.ActiveLicensed:#,0} used in the period", Href: Open("/licensing")));
 
         Panels.Add(new("Print", new HtmlString(
             "<button type=\"button\" class=\"btn\" data-print>Print or save as PDF</button>" +
