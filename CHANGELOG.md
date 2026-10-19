@@ -118,6 +118,8 @@ put your agreement's prices in Admin › Targets and assumptions.
   interaction, so the three pages give one figure. An unknown license status is no longer taken for none, and Copilot
   Chat without an agent, which is free, is no longer counted as metered. Agents costing credits shows credits and their
   cost apart. Better on pay-as-you-go still prices a licensed person's use an interaction at a time.
+- **Build and publish names every agent's owner the agents pages know**: the agent inventory's, else the one set in
+  Admin, where it read only Admin's.
 - **A full bi rebuild no longer slows to a crawl on one month**: each month's interactions are keyed on their record
   before the accessed resources join to them. As a heap, with the small dimensions' statistics taken while nearly
   empty, one month's resource insert could read the month's interactions once per resource row: a demo rebuild took 12

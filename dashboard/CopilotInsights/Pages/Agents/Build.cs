@@ -70,7 +70,7 @@ SELECT e.BotSchemaName,
        MAX(CASE WHEN e.Action = 'Deleted' THEN e.EventUtc END) AS Deleted,
        COUNT(DISTINCT e.ActorUpn) AS Makers,
        (SELECT TOP (1) x.ActorUpn FROM e AS x WHERE x.BotSchemaName = e.BotSchemaName ORDER BY x.EventUtc DESC) AS LastMaker,
-       MAX(al.FriendlyName) AS FriendlyName, MAX(CASE WHEN ag.AgentName <> e.BotSchemaName THEN ag.AgentName END) AS LogName, MAX(al.Owner) AS Owner
+       MAX(al.FriendlyName) AS FriendlyName, MAX(CASE WHEN ag.AgentName <> e.BotSchemaName THEN ag.AgentName END) AS LogName, MAX(COALESCE(da.Owner, al.Owner)) AS Owner
 FROM e
 /* A Copilot Studio agent's id ends in its schema name (Copilot.Studio.<environment>-<schema name>). It was found by
    its name, which was the schema name until 2.4.11 named agents as the audit log does; then the alias and owner
@@ -78,6 +78,8 @@ FROM e
 LEFT JOIN bi.DimAgent AS ag ON ag.AgentId = e.BotSchemaName
     OR (ag.AgentSource = N'Copilot Studio' AND RIGHT(ag.AgentId, LEN(e.BotSchemaName) + 1) = N'-' + e.BotSchemaName)
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = ag.AgentKey
+/* 2.6.6: the owner the agents pages show (dash.Agent: the agent inventory's, else Admin's alias), not the alias's alone. */
+LEFT JOIN dash.Agent AS da ON da.AgentKey = ag.AgentKey
 GROUP BY e.BotSchemaName
 ORDER BY MAX(e.EventUtc) DESC;", Ctx.Args());
         var neverPublished = life.Count(l => l.Created is not null && l.FirstPublished is null && l.Deleted is null);
