@@ -96,6 +96,7 @@ put your agreement's prices in Admin › Targets and assumptions.
   its detail (`Kpi.Href`), and Leadership's overview, What to act on and the section start pages do.
   A link is shown only where the viewer may open its page (`InsightsPage.Open`, the menu's own test): a leader
   without the Licensing role sees the figures, and no link to the lists that name people.
+  Leadership › What to act on lists the savings found and the suite moves to review, for those who may see them.
 - **Suite seats bought and assigned to nobody** are a move to review (E3, E5 and E7), and Licensing › Credit use
   shows the credits the admin center billed beside its estimate.
 
