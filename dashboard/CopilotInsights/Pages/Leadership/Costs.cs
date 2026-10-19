@@ -50,7 +50,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         foreach (var o in v.Opportunities) csv.Rows.Add([o.Kind.ToString(), o.Area, o.Title, o.Evidence, o.Action, Math.Round(o.Saving), Math.Round(o.Saving * 12), Math.Round(o.AtStake), o.Confidence]);
         CsvTable = csv;
         /* An area's own view (?area=<its color slot>), or the whole page, its savings narrowed to one confidence (?conf=). */
-        Area = name => Ctx.Url(Request.Path, extra: $"area={CostAreas.Slot(name)}");
+        Area = name => Ctx.Url(Request.Path, keepOrg: false, extra: $"area={CostAreas.Slot(name)}");
         var pick = int.TryParse(Request.Query["area"], out var slot) ? v.Areas.FirstOrDefault(a => CostAreas.Slot(a.Name) == slot) : null;
         var only = Request.Query["conf"].FirstOrDefault() is "High" or "Medium" or "Low" ? Request.Query["conf"].ToString() : null;
         Board = new HtmlString(pick is null ? Render(v, only) : RenderArea(v, pick));
@@ -65,15 +65,18 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     string Go(string text, string? href, string area)
     {
         /* The page with the named detail where this viewer may open it; else the area's own view; inside that view, plain text. */
-        var to = href is null ? null : Open(href);
-        return to is null && area == Here ? E(text) : $"<a href=\"{E(to ?? Area(area))}\">{E(text)}</a>";
+        var to = href is null ? null : Whole(href);
+        return to is null && area == OpenArea ? E(text) : $"<a href=\"{E(to ?? Area(area))}\">{E(text)}</a>";
     }
 
     /// <summary>Admin › Targets and assumptions, as a link for an administrator who may open it, as its name for anyone else.</summary>
-    string AdminLink() => Open("/admin/assumptions") is { } u ? $"<a href=\"{E(u)}\">Admin › Targets and assumptions</a>" : "Admin › Targets and assumptions";
+    string AdminLink() => Whole("/admin/assumptions") is { } u ? $"<a href=\"{E(u)}\">Admin › Targets and assumptions</a>" : "Admin › Targets and assumptions";
+
+    /// <summary>A report this viewer may open, for the whole organization: the page counts it whole, whatever the team chosen.</summary>
+    string? Whole(string path, string? extra = null) => Open(path, extra, keepOrg: false);
 
     /// <summary>The area whose own view is shown, if any: nothing in it links to itself.</summary>
-    string? Here;
+    string? OpenArea;
 
     string Render(CostView v, string? only = null)
     {
@@ -89,7 +92,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         sb.Append("<p class=\"cb-say\">").Append($"AI and automation cost <b>{M(spend, cur)}</b> a month");
         if (spend > 0 && value > 0) sb.Append($" and return an estimated <b>{Times(value / spend)}</b> that in time saved");
         sb.Append('.');
-        if (saving > 0) sb.Append($" Taking the {Count(save.Count, "saving")} found would cut the bill by <b>{saving / spend:P0}</b> ({M(saving * 12, cur)} a year)" +
+        if (saving > 0) sb.Append($" Taking the {Count(allSave.Count, "saving")} found would cut the bill by <b>{saving / spend:P0}</b> ({M(saving * 12, cur)} a year)" +
                                   (after > 0 && value > 0 ? $" and lift the return to <b>{Times(value / after)}</b>." : "."));
         if (v.Suites is { Saving: > 0 } ss) sb.Append($" A further {M(ss.Saving, cur)} a month in suite moves is worth reviewing.");
         sb.Append("</p>");
@@ -113,12 +116,12 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         var hours = v.HourlyCost > 0 ? value / v.HourlyCost : 0;
         sb.Append(Tile($"Value a month ({cur}, estimate)", $"The time Copilot, the flows and Copilot in Power BI save, at Admin's hourly cost of {CostRules.Money(v.HourlyCost, cur)}. People: the hours over {HoursAMonth:0} working hours a month.",
             N(value), "value", $"{hours:#,0} hours saved at {CostRules.Money(v.HourlyCost, cur)} an hour",
-            hours >= HoursAMonth ? $"<span class=\"cb-people\"><b>{hours / HoursAMonth:#,0}</b> people's working time</span>" : "", (Open("/leadership/value") is { } vu ? ("Value and time saved", vu) : null)));
+            hours >= HoursAMonth ? $"<span class=\"cb-people\"><b>{hours / HoursAMonth:#,0}</b> people's working time</span>" : "", (Whole("/leadership/value") is { } vu ? ("Value and time saved", vu) : null)));
         sb.Append(Tile("Return on the spend", spend > 0 && value > 0 ? $"Value a month over spend a month: every {CostRules.Money(1, cur)} spent returns {CostRules.Money(Math.Round(value / spend, 2), cur)}. The marker on the dial is the return once the savings are taken: the same value for less spend." : "Value a month over spend a month.",
             spend > 0 ? Times(value / spend) : "—", "roi", after > 0 && saving > 0 ? $"{Times(value / after)} once the savings are taken" : "value over spend",
             spend > 0 ? Gauge((double)(value / spend), after > 0 && saving > 0 ? (double)(value / after) : null) : ""));
         sb.Append(Tile($"Already saved a month ({cur})", "Copilot licenses taken back after this dashboard's exports named them, at their price a month.",
-            N(v.RealizedSaving), "done", v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet", "", (Open("/forecasting/outcomes") is { } ou ? ("License action outcomes", ou) : null)));
+            N(v.RealizedSaving), "done", v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet", "", (Whole("/forecasting/outcomes") is { } ou ? ("License action outcomes", ou) : null)));
         sb.Append("</div>");
 
         /* The cards, most important first, two to a row so the page reads in a few screens: what to take (with how sure it
@@ -128,7 +131,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         /* The savings, ranked: the three largest with their evidence and what to do, the next seven as rows, the rest on request. */
         sb.Append(Card(only is null ? $"Savings to take: {M(saving, cur)} a month" : $"{only}-confidence savings: {M(save.Sum(o => o.Saving), cur)} a month",
             "Ranked by what each saves a month. Each says what the data shows and what to do; its title opens the page with the named detail, or the area's own view. The CSV has every one, with the opportunities to grow the return.", "c8 cb-anchor",
-            (only is null ? "" : $"<p class=\"cb-filter\">Showing the {E(only.ToLowerInvariant())}-confidence savings only. <a href=\"{E(Ctx.Url(Request.Path))}#savings\">Show every saving</a></p>") +
+            (only is null ? "" : $"<p class=\"cb-filter\">Showing the {E(only.ToLowerInvariant())}-confidence savings only. <a href=\"{E(Ctx.Url(Request.Path, keepOrg: false))}#savings\">Show every saving</a></p>") +
             (save.Count == 0 ? "<p class=\"sub\">Nothing found: every area the sources cover is as lean as these rules can tell.</p>" :
             "<ol class=\"cb-top\">" + string.Concat(save.Take(3).Select((o, i) => TopRow(o, i + 1, cur))) + "</ol>" + Rest(save, cur)), CsvUrl(), "savings"));
 
@@ -137,7 +140,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
                            ("Medium", "c-med", "It follows from a change you make: a smaller capacity, a different license."),
                            ("Low", "c-low", "It rests on a price or a discount that your agreement may not match.") }
             .Select(c => (c.Item1, c.Item2, c.Item3, Sum: allSave.Where(o => o.Confidence == c.Item1).Sum(o => o.Saving), N: allSave.Count(o => o.Confidence == c.Item1))).ToList();
-        string ConfUrl(string c) => E(Ctx.Url(Request.Path, extra: $"conf={c}")) + "#savings";
+        string ConfUrl(string c) => E(Ctx.Url(Request.Path, keepOrg: false, extra: $"conf={c}")) + "#savings";
         sb.Append("<div class=\"c4 rail\">");
         sb.Append(Card("Savings by confidence", "How sure each saving is. Take the high-confidence ones first: they need no more than a decision. Select one to list its savings alone.", "",
             "<div class=\"cb-stack\" role=\"img\" aria-label=\"Savings by confidence\">" +
@@ -222,12 +225,12 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     {
         var cur = v.Currency;
         var slot = CostAreas.Slot(a.Name);
-        Here = a.Name;
+        OpenArea = a.Name;
         var mine = v.Opportunities.Where(o => o.Area == a.Name).ToList();
         var save = mine.Where(o => o.Kind == OpportunityKind.Save).ToList();
         var others = mine.Where(o => o.Kind != OpportunityKind.Save).ToList();
         var sb = new StringBuilder($"<div class=\"cboard\" style=\"--c:var(--s{slot})\">");
-        sb.Append($"<nav class=\"cb-crumb\" aria-label=\"Areas\"><a href=\"{E(Ctx.Url(Request.Path))}\">‹ Costs and savings</a><span class=\"cb-here\"><i class=\"dot\" style=\"background:var(--s{slot})\"></i>{E(a.Name)}</span>" +
+        sb.Append($"<nav class=\"cb-crumb\" aria-label=\"Areas\"><a href=\"{E(Ctx.Url(Request.Path, keepOrg: false))}\">‹ Costs and savings</a><span class=\"cb-here\"><i class=\"dot\" style=\"background:var(--s{slot})\"></i>{E(a.Name)}</span>" +
                   "<span class=\"cb-areas\">" + string.Concat(v.Areas.Where(x => x.Name != a.Name).Select(x => $"<a href=\"{E(Area(x.Name))}\"><i class=\"dot\" style=\"background:var(--s{CostAreas.Slot(x.Name)})\"></i>{E(x.Name)}</a>")) + "</span></nav>");
 
         sb.Append("<div class=\"cb-kpis\">");
@@ -251,7 +254,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
 
         /* How it is counted, and where its detail is. */
         /* Only the reports this viewer may open. */
-        var reports = (Reports.TryGetValue(a.Name, out var rs) ? rs : []).Select(r => (r.Text, Href: Open(r.Href))).Where(r => r.Href is not null).ToArray();
+        var reports = (Reports.TryGetValue(a.Name, out var rs) ? rs : []).Select(r => (r.Text, Href: Whole(r.Href))).Where(r => r.Href is not null).ToArray();
         sb.Append(Card("How it is counted", "What the area's figures are worked out from, and the reports that name what is behind them.", "c4",
             $"<p class=\"cb-basis\">{E(a.Basis)}.</p>" +
             (reports.Length == 0 ? "<p class=\"cb-foot\">No report lists this area's detail beyond the tables on this page.</p>"
@@ -263,7 +266,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         {
             var t = new Table { Headers = d.Headers, Numeric = d.Numeric };
             /* A row's link to a list this viewer cannot open is shown as its name only. */
-            foreach (var r in d.Rows) t.Rows.Add([.. r.Select(cell => cell is Link l ? (Open(l.Href) is { } to ? new Link(l.Text, to) : l.Text) : cell)]);
+            foreach (var r in d.Rows) t.Rows.Add([.. r.Select(cell => cell is Link l ? (Whole(l.Href) is { } to ? new Link(l.Text, to) : l.Text) : cell)]);
             sb.Append(Card(d.Title, d.Note ?? d.Title, "c12", t.Render().Value ?? ""));
         }
 
@@ -324,7 +327,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
                       Go(a.Name, null, a.Name) + ((HtmlString)InfoTip.Icon(a.Basis, $"How {a.Name}'s figures are worked out")).Value + "</span>" +
                       $"<span role=\"cell\" class=\"n\" data-l=\"Spend\">{N(a.Spend)}</span>" +
                       $"<span role=\"cell\" class=\"lbar\" aria-hidden=\"true\"><span class=\"lspend\" style=\"width:{Pct(a.Spend, max)}%;--c:var(--s{slot})\"><span class=\"lsave\" style=\"width:{savePct.ToString("0.#", Inv)}%\"></span></span></span>" +
-                      $"<span role=\"cell\" class=\"lsp\" data-l=\"Six months\">{(line.Count(x => x > 0) >= 2 ? Spark(line, $"var(--s{slot})", $"{a.Name}'s spend over the last six whole months") : "<span class=\"muted\">—</span>")}</span>" +
+                      $"<span role=\"cell\" class=\"lsp\" data-l=\"Six months\">{(line.Count(x => x > 0) >= 2 ? Spark(line, $"var(--s{slot})", $"Spend of {a.Name} over the last six whole months") : "<span class=\"muted\">—</span>")}</span>" +
                       $"<span role=\"cell\" class=\"n lsv\" data-l=\"Savings\">{(a.Saving > 0 ? N(a.Saving) : "—")}</span>" +
                       $"<span role=\"cell\" class=\"n\" data-l=\"Value\">{(a.Value is { } x ? N(x) : "—")}</span>" +
                       $"<span role=\"cell\" class=\"n\" data-l=\"Return\">{roi}</span></div>");

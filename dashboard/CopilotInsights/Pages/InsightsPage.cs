@@ -490,7 +490,13 @@ EXEC sys.sp_executesql @sql;");
     /// the count of licenses to take back, but no link to the list that names the people. The test is the menu's
     /// (<see cref="Nav.Allowed"/>), section role included; a page the menu does not list is open.
     /// </summary>
-    protected string? Open(string path, string? extra = null)
+    protected string? Open(string path, string? extra = null) => Open(path, extra, keepOrg: true);
+
+    /// <summary>
+    /// The same, choosing whether the team shown is kept: a page that shows the whole organization whatever the team
+    /// (Costs and savings) passes false, so its figures lead to lists of the whole organization, as they count it.
+    /// </summary>
+    protected string? Open(string path, string? extra, bool keepOrg)
     {
         /* A path that carries its own query ("/forecasting/actions?kind=revoke") keeps it after the period and team. */
         var parts = path.Split('?', 2);
@@ -499,8 +505,8 @@ EXEC sys.sp_executesql @sql;");
         foreach (var g in Nav.Groups)
             foreach (var page in g.Pages)
                 if (string.Equals(page.Path, bare, StringComparison.OrdinalIgnoreCase))
-                    return (g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode) ? Ctx.Url(bare, extra: extra) : null;
-        return Ctx.Url(bare, extra: extra);
+                    return (g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode) ? Ctx.Url(bare, keepOrg: keepOrg, extra: extra) : null;
+        return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
     }
 
     protected string Form(string handler, string body, string? extraQuery = null) =>

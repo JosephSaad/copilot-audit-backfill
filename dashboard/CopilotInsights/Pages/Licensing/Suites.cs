@@ -47,9 +47,10 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         /* Summed as the Suites card on Costs and savings sums them (SuiteData.Summarize), so the two pages agree: a copy of
            the Copilot add-on or of Power BI Pro is an AI saving, counted with its area there, and shown apart here. */
         var summary = SuiteData.Summarize(v, 0);
-        bool AddOnCopy(SuiteRow r) => (r.Holder.CopilotAddOn && r.Holder.Suite.HasCopilot) || (r.Holder.PowerBiAddOn && r.Holder.Suite.HasPowerBi);
-        var copies = v.Rows.Where(r => r.Holder.Enabled && !r.Holder.Protected && AddOnCopy(r)).ToList();
-        decimal CopyWorth(SuiteRow r) => (r.Holder.CopilotAddOn && r.Holder.Suite.HasCopilot ? v.CopilotPrice : 0) + (r.Holder.PowerBiAddOn && r.Holder.Suite.HasPowerBi ? v.PowerBiPrice : 0);
+        /* The add-on a suite covers, as Costs and savings counts it (SuiteData.AddOnCopy), so the two pages agree. */
+        var today = Ctx.End.Date;
+        decimal CopyWorth(SuiteRow r) { var (cp, pb) = SuiteData.AddOnCopy(r, today); return (cp ? v.CopilotPrice : 0) + (pb ? v.PowerBiPrice : 0); }
+        var copies = v.Rows.Where(r => SuiteData.AddOnCopy(r, today) is (true, _) or (_, true)).ToList();
 
         Kpis.Add(new("Suite holders", Num(v.Rows.Count), $"{Count(v.Rows.Select(r => r.Holder.Suite.Name).Distinct().Count(), "suite")} held"));
         Kpis.Add(new($"Suite moves to review a month ({cur})", Num((long)Math.Round(summary.Saving)), $"{M(summary.Saving * 12)} a year; outside Costs and savings' AI savings", summary.Saving > 0 ? "good" : null));
@@ -79,6 +80,13 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         if (!v.PowerBiKnown && v.Rows.Any(r => r.Holder.Suite.HasPowerBi && !r.Holder.Suite.HasCopilot))
             Notice = "Power BI activity is not loaded, so whether E5's Power BI Pro is used is not known, and no E5 holder is offered a move. Load it with tools\\Import-CostCsv.ps1 -Table PowerPlatformUserActivity.";
 
+        string CopyWhy(SuiteRow r) => SuiteData.AddOnCopy(r, today) switch
+        {
+            (true, true) => $"{r.Holder.Suite.Name} includes Microsoft 365 Copilot and Power BI Pro, and both are held as add-ons as well.",
+            (true, _) => $"{r.Holder.Suite.Name} includes Microsoft 365 Copilot, and the add-on is held as well.",
+            _ => $"{r.Holder.Suite.Name} includes Power BI Pro, and it is held as an add-on as well.",
+        };
+
         /* The people. */
         var move = Enum.TryParse<SuiteMove>(Request.Query["move"].FirstOrDefault(), true, out var mv) ? mv : (SuiteMove?)null;
         var pg = new Paging(Request, Sorts, "saving");
@@ -100,7 +108,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
             "copilot" => shown.OrderByDescending(r => r.Holder.CopilotDays).ThenBy(r => r.Name ?? r.Upn),
             "move" => shown.OrderBy(r => r.Fit.Move).ThenBy(r => r.Name ?? r.Upn),
             "upn" => shown.OrderBy(r => r.Upn, StringComparer.OrdinalIgnoreCase),
-            _ => shown.OrderByDescending(r => r.Fit.Saving + r.Fit.AtStake).ThenBy(r => r.Name ?? r.Upn),
+            _ => copy == "addon" ? shown.OrderByDescending(CopyWorth).ThenBy(r => r.Name ?? r.Upn) : shown.OrderByDescending(r => r.Fit.Saving + r.Fit.AtStake).ThenBy(r => r.Name ?? r.Upn),
         }).ToList();
         if (pg.Reversed) ordered.Reverse();
         pg.Total = ordered.Count;
@@ -116,14 +124,17 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         foreach (var r in page)
             t.Rows.Add([r.Name, r.Upn, r.Department, r.Holder.Suite.Name, r.Holder.CopilotDays,
                 r.Holder.UsesPowerBi is null ? "Not loaded" : r.Holder.UsesPowerBi.Value ? "Used" : "Not used",
-                SuiteRules.Label(r.Fit.Move), r.Fit.To, Math.Round(r.Fit.Move == SuiteMove.Train ? r.Fit.AtStake : r.Fit.Saving), r.Fit.Confidence,
-                new HtmlString(WebUtility.HtmlEncode(r.Fit.Why) + (r.Fit.Check.Length > 0 ? $"<span class=\"cellnote\">Check: {WebUtility.HtmlEncode(r.Fit.Check)}</span>" : ""))]);
+                /* Listing the add-on copies: what dropping the copy saves, which is what the figure above sums. */
+                copy == "addon" ? "Remove the add-on" : SuiteRules.Label(r.Fit.Move), copy == "addon" ? "" : r.Fit.To,
+                Math.Round(copy == "addon" ? CopyWorth(r) : r.Fit.Move == SuiteMove.Train ? r.Fit.AtStake : r.Fit.Saving), copy == "addon" ? "High" : r.Fit.Confidence,
+                new HtmlString(copy == "addon" ? WebUtility.HtmlEncode(CopyWhy(r))
+                    : WebUtility.HtmlEncode(r.Fit.Why) + (r.Fit.Check.Length > 0 ? $"<span class=\"cellnote\">Check: {WebUtility.HtmlEncode(r.Fit.Check)}</span>" : ""))]);
         CsvTable = t;
         var all = move is null && suite is null && copy is null ? "" : $"<p class=\"sub\"><a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path))}\">Every move, every suite</a></p>";
         Panels.Add(new(copy == "addon" ? "People with an add-on their suite covers" : copy == "suite" ? $"People with a second suite{(suite is null ? "" : $" beside {suite}")}" : move is { } m ? $"People to {SuiteRules.Label(m).ToLowerInvariant()}{(suite is null ? "" : $" on {suite}")}" : suite is not null ? $"Every holder of {suite}" : "People whose suite could change",
             new HtmlString(all + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "Copilot days: days in the last 30 with use that needs the Copilot license, as Upgrade, train or revoke counts them. Power BI: any use in the window, from the Power Platform activity export. " +
-            "Protected levels (Admin > Access) are never offered a move; a copy held twice is shown for everyone. Agree each move with the person's manager, and with security and compliance for any move off E5.", "full", CsvUrl()));
+            "Protected levels (Admin > Access) are never offered a move, nor a copy to drop; a disabled account's licenses are reclaimed whatever its level. Agree each move with the person's manager, and with security and compliance for any move off E5.", "full", CsvUrl()));
     }
 
     static string Includes(Suite s) => string.Join(", ", new[] { s.HasCopilot ? "Microsoft 365 Copilot" : null, s.HasPowerBi ? "Power BI Pro" : null }.OfType<string>()) is { Length: > 0 } x ? x : "Neither Copilot nor Power BI Pro";

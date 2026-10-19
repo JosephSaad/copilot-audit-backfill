@@ -142,8 +142,9 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args())).Single();
         /* The add-on held beside a suite with Copilot in it: paid twice. Those the revoke rule takes already (unused,
            licensed over 30 days, not protected) are counted there, not twice. */
         var today = c.End.Date;
-        var twiceCopilot = fit.Rows.Count(r => r.Holder.Enabled && r.Holder.CopilotAddOn && r.Holder.Suite.HasCopilot
-            && !(r.Holder.CopilotDays == 0 && !r.Holder.Protected && (r.Holder.CopilotSince is null || (today - r.Holder.CopilotSince.Value).TotalDays >= Pages.Forecasting.ActionsModel.RevokeAfterDays)));
+        var twiceCopilot = fit.Rows.Count(r => SuiteData.AddOnCopy(r, today).Copilot);
+        /* Power BI Pro beside a suite that includes it, as Suite fit counts it (protected people kept, disabled ones leavers). */
+        var twicePowerBi = fit.Rows.Count(r => SuiteData.AddOnCopy(r, today).PowerBi);
         string SuitesWith(Func<Suite, bool> has) => string.Join(" and ", fit.Rows.Select(r => r.Holder.Suite).Where(has).Select(s => s.Name).Distinct().OrderBy(n => n, StringComparer.Ordinal));
         if (counts.Licensed > 0)
         {
@@ -249,7 +250,8 @@ FROM x GROUP BY SkuPartNumber;", new { items, idleDays });
             {
                 var pr = prices[h.SkuPartNumber];
                 if (pr.Unit != "flow" && h.Known > 0 && CostRules.IdleLicenses(displayArea, pr.Name, h.Holders, h.Idle, pr.MonthlyPrice, cur) is { } o) opps.Add(o);
-                if (CostRules.HeldTwice(displayArea, pr.Name, h.TwiceIn ?? "the suite", h.Twice, pr.MonthlyPrice, cur, "/licensing/suites?copy=addon") is { } tw) opps.Add(tw);
+                var twice = h.SkuPartNumber.Equals("POWER_BI_PRO", StringComparison.OrdinalIgnoreCase) ? twicePowerBi : h.Twice;
+                if (CostRules.HeldTwice(displayArea, pr.Name, h.TwiceIn ?? "the suite", twice, pr.MonthlyPrice, cur, "/licensing/suites?copy=addon") is { } tw) opps.Add(tw);
                 /* Per-user licenses only: a Process license is assigned to a flow, a pack to the tenant. */
                 if (pr.Unit == "user" && CostRules.Unassigned(displayArea, pr.Name, h.Bought, h.Consumed, pr.MonthlyPrice, cur) is { } un) opps.Add(un);
             }

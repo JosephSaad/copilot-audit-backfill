@@ -73,7 +73,7 @@ public static class DataApi
         }, section: Roles.Security));
 
         api.MapGet("/license-pool", (HttpContext h, CancellationToken _) => Run(h, "license-pool", null, async (x, _) =>
-            new { skus = (await x.GetRequiredService<OpsData>().PoolAsync()).Select(p => new { p.SkuPartNumber, p.SkuId, p.IsCopilot, p.Bought, assigned = p.Consumed, p.Available, p.CapturedUtc }) }, section: Roles.Licensing));
+            new { skus = (await x.GetRequiredService<OpsData>().PoolAsync()).Select(p => new { p.SkuPartNumber, p.SkuId, p.IsCopilot, p.IsSuite, p.Bought, assigned = p.Consumed, p.Available, p.CapturedUtc }) }, section: Roles.Licensing));
 
         api.MapGet("/value", (HttpContext h, CancellationToken _) => Run(h, "value", null, async (x, c) =>
         {

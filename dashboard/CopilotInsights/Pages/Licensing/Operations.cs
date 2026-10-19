@@ -54,7 +54,14 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         var copilot = pool.Where(p => p.IsCopilot).ToList();
         int bought = copilot.Sum(p => p.Bought), assigned = copilot.Sum(p => p.Consumed);
         /* The use set against the tenant's seats is the tenant's (2.4.12, see OpsReports.Tenant). */
-        var t = await metrics.TotalsAsync(OpsReports.Tenant(Ctx));
+        var tc = OpsReports.Tenant(Ctx);
+        var t = await metrics.TotalsAsync(tc);
+        /* 2.6.6: those who hold Copilot only inside a suite (E7) are not the add-on's seats: their use is left out too. */
+        var inSuite = await Db.ScalarAsync<int>($@"
+SELECT COUNT(*) FROM bi.FactLicensedDay AS ld JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
+WHERE ld.DateKey = @k1 AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.UserPrincipalName")}
+  AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.LicensedUse > 0);", tc.Args());
+        t.ActiveLicensed = Math.Max(0, t.ActiveLicensed - inSuite);
         Kpis.Add(new("Copilot seats bought", Num(bought), $"{copilot.Sum(p => p.Warning):#,0} in the grace period after expiry"));
         Kpis.Add(new("Seats assigned", Num(assigned), bought > 0 ? $"{Pct(Ratio(assigned, bought))} of those bought" : null,
             bought > 0 && assigned >= bought * (await S.Settings.IntAsync("PoolWarnPercent", 95)) / 100.0 ? "warn" : null));

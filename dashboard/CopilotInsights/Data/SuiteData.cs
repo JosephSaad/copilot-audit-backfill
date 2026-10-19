@@ -104,13 +104,26 @@ LEFT JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = sh.Upn;", c.Args(
                 r.PowerBi < 0 ? null : r.PowerBi == 1, r.Protected == 1, r.Enabled == 1, r.CopilotSince);
             list.Add(new(r.DisplayName, r.Upn, r.Department, h, SuiteRules.Fit(h, SuiteRules.Lower(held[0], suites), copilotPrice, biPrice, today, cur)));
         }
-        /* Each suite's seats: bought and assigned, from the pool. */
-        var seats = (await db.QueryAsync<(string SkuPattern, int Bought, int Assigned)>(@"
+        /* Each suite's seats: bought and assigned, from the pool. They are the tenant's, so only where the whole organization is shown. */
+        var seats = scoped && c.Root is not null ? [] : (await db.QueryAsync<(string SkuPattern, int Bought, int Assigned)>(@"
 SELECT cs.SkuPattern, SUM(s.Enabled + s.Warning), SUM(s.Consumed)
 FROM audit.LicenseSku AS s JOIN dash.CostSuite AS cs ON cs.Enabled = 1 AND s.SkuPartNumber LIKE cs.SkuPattern
 GROUP BY cs.SkuPattern;")).Where(x => byPattern.ContainsKey(x.SkuPattern))
             .GroupBy(x => byPattern[x.SkuPattern].Name).Select(g => new SuiteSeats(byPattern[g.First().SkuPattern], g.Sum(x => x.Bought), g.Sum(x => x.Assigned))).ToList();
         return new(suites, list, biKnown, cur, copilotPrice, biPrice, seats);
+    }
+
+    /// <summary>
+    /// The add-on a holder's suite already covers, as an AI saving (2.6.6), defined once for Costs and savings and Suite
+    /// fit: the Copilot add-on beside E7, unless the revoke list takes it already (unused, licensed 30 days or more), and
+    /// Power BI Pro beside E5 or E7; for enabled holders not at a protected level, as every list treats them.
+    /// </summary>
+    public static (bool Copilot, bool PowerBi) AddOnCopy(SuiteRow r, DateTime today)
+    {
+        var h = r.Holder;
+        if (!h.Enabled || h.Protected) return (false, false);
+        var revoked = h.CopilotDays == 0 && (h.CopilotSince is null || (today - h.CopilotSince.Value).TotalDays >= Pages.Forecasting.ActionsModel.RevokeAfterDays);
+        return (h.CopilotAddOn && h.Suite.HasCopilot && !revoked, h.PowerBiAddOn && h.Suite.HasPowerBi);
     }
 
     /// <summary>

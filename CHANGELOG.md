@@ -101,12 +101,20 @@ put your agreement's prices in Admin › Targets and assumptions.
   shows the credits the admin center billed beside its estimate.
 
 ### Changed
-- **Every report''s heading is shorter**: the title and who the page is for on one line, what it helps with and what
+- **Every report's heading is shorter**: the title and who the page is for on one line, what it helps with and what
   to do on the next, and less space around them and the filter bar, so the figures start about 100 pixels higher. *Helps you* and *Do* stay whole, side by side where they fit.
 - **A chart of six points draws all six labels**: the one before the last was left out wherever every point had
   room for its own (every month chart, every short trend).
 - **The license pool's Copilot seats are the add-on's**: a suite with Copilot inside (E7) is shown as such and is
   never counted, assigned or removed as the add-on, by any page or export.
+- **Copilot held only inside a suite stays off the add-on's lists**: the License pool's *Used in the last 30 days*,
+  *Licenses on disabled accounts* and the train list leave out E7 holders without the add-on. Suite fit reclaims a
+  leaver's suite and lists the E7 holders to train.
+- **Links from Costs and savings open the whole organization**, as the page itself counts it, and only to pages the
+  viewer may open. Unassigned suite seats, and Credit use's comparison with what the admin center billed, are shown
+  only where the whole organization is: both are the tenant's.
+- **A license held twice is counted once, the same way, on both pages**: an add-on beside the suite that covers it,
+  for enabled people outside the protected levels, the Copilot add-on only when the revoke list does not take it already.
 - **The demo keeps levels 1 to 3 off the revoke and train lists**, not 1 to 5: with five levels, the default kept
   the whole demo company off them and left those pages empty. A real install's setting is unchanged.
 

@@ -140,6 +140,8 @@ FROM audit.LicenseSku ORDER BY CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 0 EL
         var hasEntra = await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL THEN 0 ELSE 1 END") == 1;
         var entra = hasEntra ? "cl.EntraAccountEnabled" : "CAST(NULL AS BIT)";
         var scope = root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = u.UserKey";
+        /* 2.6.6: Copilot held only inside a suite (E7) is not an add-on to take back: Suite fit reclaims the suite. */
+        var addOn = await HasAsync("dash.CopilotSuiteOnly") ? $"AND {CopilotSuites.NotOnlyInSuite("u.UserPrincipalName")}" : "";
         return await db.QueryAsync<LeaverRow>($@"
 WITH today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay)
 SELECT u.UserPrincipalName, u.DisplayName, u.Department, u.ManagerName,
@@ -154,7 +156,7 @@ FROM bi.FactLicensedDay AS ld
 JOIN today ON ld.DateKey = today.K
 JOIN bi.DimUser AS u ON u.UserKey = ld.UserKey {scope}
 LEFT JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = u.UserPrincipalName
-WHERE (u.AccountEnabled = 0 OR u.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' OR {entra} = 0)
+WHERE (u.AccountEnabled = 0 OR u.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' OR {entra} = 0) {addOn}
   AND (@q IS NULL OR u.DisplayName LIKE @q OR u.UserPrincipalName LIKE @q OR u.Department LIKE @q)
 {orderAndPage};", new { root, q });
     }

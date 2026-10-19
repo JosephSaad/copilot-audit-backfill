@@ -47,7 +47,7 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
         if (total.Credits > 0) Kpis.Add(new("Top tenth's share", $"{top / total.Credits:P0}", "of the credits, by the people who use most"));
         /* The estimate beside what was billed (the admin center's consumption export), where it is loaded: the rates in
            Admin are right when the two come near each other. */
-        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.PowerPlatformCreditDay', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
+        if (Ctx.Root is null && await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.PowerPlatformCreditDay', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
         {
             var billedNow = (await Db.QueryAsync<(decimal Credits, int Days)>(@"
 WITH last AS (SELECT MAX([Day]) AS D FROM audit.PowerPlatformCreditDay WHERE Product = 'Copilot Studio')

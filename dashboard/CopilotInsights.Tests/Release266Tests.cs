@@ -278,7 +278,8 @@ public class SuiteRulesTests
     public void A_Copilot_inside_a_suite_is_never_on_the_revoke_list()
     {
         Assert.Contains("dash.CopilotSuiteOnly", Pages.Forecasting.ActionsModel.Kinds["revoke"].Where);
-        Assert.DoesNotContain("CopilotSuiteOnly", Pages.Forecasting.ActionsModel.Kinds["train"].Where);
+        /* Suite fit lists the E7 holders to train (its Train move), so the Actions list and Costs and savings leave them out. */
+        Assert.Contains("dash.CopilotSuiteOnly", Pages.Forecasting.ActionsModel.Kinds["train"].Where);
         Assert.Contains(Nav.Groups.First(g => g.Persona == "Licensing").Pages, p => p.Path == "/licensing/suites");
         Assert.NotNull(Guidance.For("/licensing/suites"));
     }
@@ -342,9 +343,9 @@ public class CostDrillDownTests
         Assert.Contains("\"#areas\"", page);                     // spend leads to every area
         Assert.Contains("/forecasting/outcomes", page);          // what was saved leads to the outcomes
         Assert.Contains("open(\"/licensing/suites\", (m.Move == SuiteMove.DropDuplicate", page);   // each suite move leads to its people
-        Assert.Contains("to is null && area == Here ? E(text)", page);   // an area's view does not link to itself
+        Assert.Contains("to is null && area == OpenArea ? E(text)", page);   // an area's view does not link to itself
         /* A link goes only where the viewer may go: every headline figure's link, and the page's own, through Open. */
-        Assert.Contains("var to = href is null ? null : Open(href);", page);
+        Assert.Contains("var to = href is null ? null : Whole(href);", page);
         var pages = new DirectoryInfo(AppContext.BaseDirectory);
         while (!Directory.Exists(Path.Combine(pages.FullName, "CopilotInsights", "Pages"))) pages = pages.Parent!;
         foreach (var f in Directory.GetFiles(Path.Combine(pages.FullName, "CopilotInsights", "Pages"), "*.cs", SearchOption.AllDirectories))
