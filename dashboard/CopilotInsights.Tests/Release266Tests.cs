@@ -166,3 +166,115 @@ public class CostRulesTests
         Assert.Contains("public override bool UsesTeam => false;", page);
     }
 }
+
+/// <summary>The suites (2.6.6): what fits each holder of E3, E5 and E7, and what is paid twice or bought for nobody.</summary>
+public class SuiteRulesTests
+{
+    static readonly Suite E3 = new("SPE_E3%", "Microsoft 365 E3", "Microsoft 365", 3, 39, new HashSet<string>(), null);
+    static readonly Suite E5 = new("SPE_E5%", "Microsoft 365 E5", "Microsoft 365", 5, 60, new HashSet<string> { SuiteRules.PowerBiPro }, null);
+    static readonly Suite E7 = new("Microsoft_365_E7%", "Microsoft 365 E7", "Microsoft 365", 7, 99, new HashSet<string> { SuiteRules.Copilot, SuiteRules.PowerBiPro }, null);
+    static readonly Suite O3 = new("ENTERPRISEPACK%", "Office 365 E3", "Office 365", 3, 26, new HashSet<string>(), null);
+    static readonly Suite[] All = [E3, E5, E7, O3];
+    static readonly DateTime Today = new(2026, 10, 17);
+
+    static SuiteFit Fit(Suite s, int copilotDays = 0, bool addOn = false, bool bi = false, Suite? also = null, bool? usesBi = null,
+        bool prot = false, bool enabled = true, DateTime? since = null) =>
+        SuiteRules.Fit(new SuiteHolder("a@contoso.com", s, copilotDays, addOn, bi, also, usesBi, prot, enabled, since ?? Today.AddDays(-200)),
+            SuiteRules.Lower(s, All), 30, 14, Today, "USD");
+
+    [Fact]
+    public void The_next_suite_down_stays_in_its_family()
+    {
+        Assert.Same(E5, SuiteRules.Lower(E7, All));
+        Assert.Same(E3, SuiteRules.Lower(E5, All));
+        Assert.Null(SuiteRules.Lower(E3, All));
+        Assert.Null(SuiteRules.Lower(O3, All));
+    }
+
+    [Fact]
+    public void A_license_the_suite_includes_is_dropped_whatever_the_use()
+    {
+        var f = Fit(E7, copilotDays: 20, addOn: true, bi: true);
+        Assert.Equal(SuiteMove.DropDuplicate, f.Move);
+        Assert.Equal(44m, f.Saving);
+        Assert.Equal("High", f.Confidence);
+        Assert.Equal(60m, Fit(E7, copilotDays: 20, also: E5).Saving);
+        /* E3 includes no Power BI Pro: a standalone one on E3 is no copy. */
+        Assert.NotEqual(SuiteMove.DropDuplicate, Fit(E3, bi: true, usesBi: true).Move);
+    }
+
+    [Fact]
+    public void E7_without_Copilot_use_moves_to_E5_light_use_trains_first_and_regular_use_stays()
+    {
+        var down = Fit(E7, copilotDays: 0);
+        Assert.Equal(SuiteMove.Downgrade, down.Move);
+        Assert.Equal("Microsoft 365 E5", down.To);
+        Assert.Equal(39m, down.Saving);
+        Assert.Equal("Medium", down.Confidence);
+        Assert.Contains("Agent 365", down.Check);
+
+        var train = Fit(E7, copilotDays: 2);
+        Assert.Equal(SuiteMove.Train, train.Move);
+        Assert.Equal(0m, train.Saving);
+        Assert.Equal(39m, train.AtStake);
+
+        /* E5 and the add-on (60 + 30) cost 9 less than E7 (99): a low-confidence move, as Agent 365 and the Entra Suite are unseen. */
+        var regular = Fit(E7, copilotDays: 12);
+        Assert.Equal(SuiteMove.DowngradeWithCopilot, regular.Move);
+        Assert.Equal(9m, regular.Saving);
+        Assert.Equal("Low", regular.Confidence);
+    }
+
+    [Fact]
+    public void E5_moves_to_E3_only_on_Power_BI_use_and_never_with_more_than_low_confidence()
+    {
+        var unused = Fit(E5, usesBi: false);
+        Assert.Equal(SuiteMove.Downgrade, unused.Move);
+        Assert.Equal(21m, unused.Saving);
+        Assert.Equal("Low", unused.Confidence);
+        Assert.Contains("security", unused.Check);
+
+        var used = Fit(E5, usesBi: true);
+        Assert.Equal(SuiteMove.DowngradeWithPowerBi, used.Move);
+        Assert.Equal(7m, used.Saving);
+
+        /* Activity not loaded: nobody's use is known, so no move. */
+        Assert.Equal(SuiteMove.Keep, Fit(E5, usesBi: null).Move);
+    }
+
+    [Fact]
+    public void Protected_new_and_disabled_holders_are_kept_or_taken_back()
+    {
+        Assert.Equal(SuiteMove.Keep, Fit(E7, prot: true).Move);
+        Assert.Equal(SuiteMove.Keep, Fit(E7, since: Today.AddDays(-10)).Move);
+        var gone = Fit(E5, enabled: false);
+        Assert.Equal(SuiteMove.Reclaim, gone.Move);
+        Assert.Equal(60m, gone.Saving);
+        /* A copy is a copy even on a protected level. */
+        Assert.Equal(SuiteMove.DropDuplicate, Fit(E7, addOn: true, prot: true).Move);
+    }
+
+    [Fact]
+    public void Licenses_paid_twice_and_seats_bought_for_nobody_are_savings()
+    {
+        var twice = CostRules.HeldTwice(CostAreas.PowerBi, "Power BI Pro", "Microsoft 365 E5", 120, 14, "USD");
+        Assert.NotNull(twice);
+        Assert.Equal(1680m, twice!.Saving);
+        Assert.Equal("High", twice.Confidence);
+        Assert.Null(CostRules.HeldTwice(CostAreas.PowerBi, "Power BI Pro", "Microsoft 365 E5", 0, 14, "USD"));
+
+        var spare = CostRules.Unassigned(CostAreas.Apps, "Power Apps Premium", 2000, 776, 20, "USD");
+        Assert.Equal(24480m, spare!.Saving);
+        Assert.Equal("Medium", spare.Confidence);
+        Assert.Null(CostRules.Unassigned(CostAreas.Apps, "Power Apps Premium", 776, 776, 20, "USD"));
+    }
+
+    [Fact]
+    public void A_Copilot_inside_a_suite_is_never_on_the_revoke_list()
+    {
+        Assert.Contains("dash.CopilotSuiteOnly", Pages.Forecasting.ActionsModel.Kinds["revoke"].Where);
+        Assert.DoesNotContain("CopilotSuiteOnly", Pages.Forecasting.ActionsModel.Kinds["train"].Where);
+        Assert.Contains(Nav.Groups.First(g => g.Persona == "Licensing").Pages, p => p.Path == "/licensing/suites");
+        Assert.NotNull(Guidance.For("/licensing/suites"));
+    }
+}

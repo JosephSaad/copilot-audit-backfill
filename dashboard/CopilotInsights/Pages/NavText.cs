@@ -64,6 +64,7 @@ public static class NavText
         ["/licensing/license-for-credits"] = ("People without a license whose credits cost more than a license would.", "Cost savings"),
         ["/licensing/fading"] = ("License holders who used Copilot regularly and now use it much less.", "Cost savings"),
         ["/licensing/overlap"] = ("People holding the Copilot license and another Copilot-family license too.", "Cost savings"),
+        ["/licensing/suites"] = ("Which of E3, E5 and E7 fits each holder: copies to drop, people to train, moves down.", "Cost savings"),
         ["/licensing/leavers"] = ("Licenses on accounts that are disabled or have left: nobody can use them.", "Policy breaches"),
         ["/licensing/non-person"] = ("Copilot licenses on service, shared, test and other accounts that are not a person.", "Policy breaches"),
         ["/licensing/departures"] = ("License holders due to leave: reclaim each license on the last day.", "Changes ahead"),

@@ -430,8 +430,16 @@ BEGIN
         (or throughout, if it is not known) when licensed today; never, when
         not. A user in neither is not in #known: Unknown.
     */
+    /* 2.6.6: a suite with Copilot inside (E7, marked in the license pool) is a Copilot SKU too, so moving from the
+       Copilot add-on to E7 is a change of SKU, not a license taken away. */
+    DROP TABLE IF EXISTS #suite;
+    CREATE TABLE #suite (Sku NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
+    IF COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+        EXEC (N'INSERT INTO #suite (Sku) SELECT DISTINCT SkuPartNumber FROM audit.LicenseSku WHERE CopilotInSuite = 1;');
+
     DROP TABLE IF EXISTS #ev;
-    SELECT DISTINCT Upn, Sku, ChangedUtc AS Ts, Added INTO #ev FROM #chg WHERE Sku LIKE N'%COPILOT%';
+    SELECT DISTINCT Upn, Sku, ChangedUtc AS Ts, Added INTO #ev FROM #chg
+    WHERE Sku LIKE N'%COPILOT%' OR Sku IN (SELECT Sku FROM #suite);
 
     DROP TABLE IF EXISTS #held;
     CREATE TABLE #held
@@ -552,7 +560,7 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimApp AS d WHERE d.App = n.App);
 
     INSERT INTO bi.DimSku (Sku, IsCopilot)
-    SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' THEN 1 ELSE 0 END FROM #chg AS c
+    SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' OR c.Sku IN (SELECT Sku FROM #suite) THEN 1 ELSE 0 END FROM #chg AS c
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimSku AS d WHERE d.Sku = c.Sku);
 
     /* ---- 3. Calendar ------------------------------------------------------- */

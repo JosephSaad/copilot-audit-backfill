@@ -105,6 +105,68 @@ USING (VALUES
 ON t.Item = s.Item
 WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, UpdatedBy) VALUES (s.Item, s.Area, s.Name, s.Unit, s.MonthlyPrice, s.Note, N'install');
 
+/*
+    2.6.6: the suites (Microsoft 365 and Office 365 E3, E5, E7): their price, their place in the family, and what of
+    the priced items above they include. Costs and savings counts as AI spend only what is bought on top of a suite:
+    an item a suite includes costs nothing more, and a standalone license of it on a suite's holder is paid twice. A
+    suite's own price also buys security, compliance, Teams and more that cannot be split out, so no share of it is
+    counted as AI spend; Licensing > Suite fit instead finds who a lower tier would serve (E7 to E5, E5 to E3).
+    Includes is a comma-separated list of dash.CostPrice items, and COPILOT for Microsoft 365 Copilot; Covers says
+    what else the suite brings, for the page. Prices are list prices in USD as Microsoft published them for July
+    2026: set the agreement's in Admin > Targets and assumptions. A row an administrator changed is kept.
+*/
+IF OBJECT_ID(N'dash.CostSuite', N'U') IS NULL
+    CREATE TABLE dash.CostSuite
+    (
+        SkuPattern   NVARCHAR(100)   NOT NULL CONSTRAINT PK_DashCostSuite PRIMARY KEY,   -- a LIKE pattern on the SKU part number
+        Suite        NVARCHAR(100)   NOT NULL,
+        Family       NVARCHAR(40)    NOT NULL,   -- Microsoft 365 | Office 365: a move down stays in the family
+        Tier         TINYINT         NOT NULL,   -- 3, 5, 7
+        MonthlyPrice DECIMAL(19, 4)  NOT NULL,   -- a user a month; 0: not known, so never a move's target
+        Currency     NVARCHAR(8)     NULL,       -- NULL: LicenseCurrency
+        Includes     NVARCHAR(400)   NOT NULL CONSTRAINT DF_DashCostSuite_Includes DEFAULT (N''),
+        Covers       NVARCHAR(400)   NULL,
+        Enabled      BIT             NOT NULL CONSTRAINT DF_DashCostSuite_Enabled DEFAULT (1),
+        UpdatedBy    NVARCHAR(256)   NULL,
+        UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostSuite_Updated DEFAULT (SYSUTCDATETIME())
+    );
+MERGE dash.CostSuite AS t
+USING (VALUES
+    (N'SPE_E3%',            N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
+    (N'SPE_E5%',            N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft_365_E5%',  N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft_365_E7%',  N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'M365_E7%',           N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'SPE_E7%',            N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'ENTERPRISEPACK%',    N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
+    (N'ENTERPRISEPREMIUM%', N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.')
+) AS s (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers)
+ON t.SkuPattern = s.SkuPattern
+WHEN NOT MATCHED THEN INSERT (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers, UpdatedBy)
+    VALUES (s.SkuPattern, s.Suite, s.Family, s.Tier, s.MonthlyPrice, s.Includes, s.Covers, N'install');
+
+/* 2.6.6: the license pool's suite mark, also added here so the dashboard reads it before the next license lookup
+   runs the enrichment's own schema (Create-CopilotEnrichmentSchema.sql adds it too). */
+IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
+    ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
+
+/* 2.6.6: the people who hold Microsoft 365 Copilot only through a suite (E7) and not as the add-on as well: their
+   Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
+   full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
+   Create-CopilotDashboardSchema.sql both write it, so whichever runs last with the tables there leaves the full one. */
+IF SCHEMA_ID(N'dash') IS NOT NULL
+BEGIN
+    IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteOnly AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1
+  AND NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku AS au JOIN audit.LicenseSku AS sa ON sa.SkuId = au.SkuId
+                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0);');
+    ELSE IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
+        EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+END;
+
 /* Roles granted to people (by UPN) or AD groups (DOMAIN\Group). */
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
     CREATE TABLE dash.RoleGrant

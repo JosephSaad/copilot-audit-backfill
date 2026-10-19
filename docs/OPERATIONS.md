@@ -195,10 +195,10 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 
 | Area | Where its figures come from | What the page finds |
 |---|---|---|
-| Microsoft 365 Copilot | The audit log and the licenses from Graph, as every other page | Unused licenses to revoke, licenses on disabled accounts, light users better on pay-as-you-go; people to train and heavy free users to license |
+| Microsoft 365 Copilot | The audit log and the licenses from Graph, as every other page | Unused licenses to revoke, licenses on disabled accounts, light users better on pay-as-you-go, add-ons held beside E7, add-ons bought and assigned to nobody; people to train and heavy free users to license |
 | Copilot Studio and AI Builder | `audit.PowerPlatformCreditDay`, and the capacity packs in Graph's license pool | Pay-as-you-go credits that would cost less as packs; packs left unused |
 | Fabric and Copilot in Power BI | `audit.FabricCapacityDay` and `audit.FabricWorkloadDay` | Idle capacities, capacities to size down, to reserve or to pause at weekends; throttling; Copilot's share of the capacity, its cost and its value |
-| Power BI licenses | Graph's license pool, and `audit.PowerPlatformUserActivity` | Pro and Premium Per User licenses unused in 30 days |
+| Power BI licenses | Graph's license pool, and `audit.PowerPlatformUserActivity` | Pro and Premium Per User licenses unused in 30 days; Pro held beside E5 or E7, which include it; licenses bought and assigned to nobody |
 | Power Automate | Graph's license pool, `audit.PowerAutomateFlow` and the activity | Premium licenses unused (and owning no premium flow that ran); Process licenses on flows that run under 100 times a month; flows failing a third of their runs; the value of the flows' runs |
 | Power Apps and Dataverse | Graph's license pool, the activity, and `audit.PowerPlatformCapacityDay` | Premium licenses unused; Dataverse database, file and log capacity over the entitlement |
 | GitHub Copilot | `tools\Import-GitHubCopilotUsage.ps1` (2.6.2) | Seats unused in 30 days, or never |
@@ -225,6 +225,14 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 - **Load them on a schedule** that matches the export: the capacity and credit days daily or weekly, the inventories when they are refreshed. The page reads each source's last 30 days, whatever day it ends.
 
 **Prices and assumptions.** Admin › Targets and assumptions › *Costs and savings*: the price of each license and unit (`dash.CostPrice`, seeded with list prices in USD: put in what your agreement pays), the Fabric reservation discount (41% by default), the minutes a flow run and a Copilot in Power BI request save (3 each), and the days after which a seat, a license or an AI account counts as idle (30). A license is priced by its SKU part number, as Graph's license pool names it; one with no price is left out of the spend. The hourly cost the value is counted at is *Time saved*'s, and the Copilot license's price is Admin › Access's.
+
+**Suites: E3, E5 and E7 (2.6.6).** A suite is not one product to keep or revoke: Microsoft 365 E5 includes Power BI Pro, E7 includes Microsoft 365 Copilot, and both also buy security, compliance, Teams and more that cannot be split from their price. So:
+
+- **No share of a suite's price is counted as AI spend.** Copilot and Power BI Pro inside a suite cost nothing more, and are listed in the *Suites* card at their list value, not added to the spend. Only what is bought on top (the Copilot add-on, a standalone Power BI Pro, the Power Platform licenses) is spend, at the seats bought: a seat bought and assigned to nobody is paid all the same, and is a saving.
+- **A license held twice is a High-confidence saving**: a standalone Power BI Pro on someone whose E5 or E7 includes it, the Copilot add-on on someone on E7, or E5 left beside E7.
+- **Copilot inside E7 is never on a list to revoke**: it cannot be taken off alone. Its holders are licensed for Copilot on every page (the license lookup's `-CopilotSuiteSku` names the suites, `Microsoft_365_E7*` and the like by default: check License pool for your E7's part number and pass it if it differs), and moving from the add-on to E7 keeps them licensed through the change.
+- **Licensing › Suite fit** lists each holder with the suite that would serve them, from their Copilot and Power BI use in the last 30 days, and what to check first. E7 with no Copilot use: E5 (Medium, as Agent 365 and the Entra Suite are not in the data). E7 with light use: train first. E7 with regular use: E5 and the add-on where cheaper (Low). E5 with no Power BI use: E3; with it, E3 and Power BI Pro where cheaper (both Low, and only with security, compliance and telephony's agreement, since Defender, Purview, Entra ID P2 and Teams Phone are not in the data). A disabled account's suite can be taken back (Medium). Protected levels are never offered a move. These moves are a review, outside the page's AI savings, and the *Suites* card on Costs and savings sums them.
+- **Admin › Targets and assumptions › Suites** sets each suite's price (list prices in USD for July 2026 are seeded: put in your agreement's), what it includes (`COPILOT`, `POWER_BI_PRO`) and whether it is counted (`dash.CostSuite`). E5 holders are offered a move only once Power BI activity is loaded (`PowerPlatformUserActivity`, product Power BI), as nobody's use of its Power BI Pro is known before.
 
 **How the figures are counted.**
 

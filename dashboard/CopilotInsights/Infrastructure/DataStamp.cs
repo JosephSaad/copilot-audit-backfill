@@ -23,7 +23,7 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
         "dash.JobFamilyRule", "dash.UseCaseRule", "dash.EventMarker", "dash.LicenseContract", "audit.PipelineSetting", "audit.SessionAppCategory",
         "dash.AgentInventoryRun",   // 2.5.6: each load of the agent workbook adds a row, so the agent reports are read again
         /* 2.6.6: what Leadership > Costs and savings reads that tools\Import-CostCsv.ps1 or an administrator can change outside a nightly run. */
-        "dash.CostPrice", "audit.FabricCapacityDay", "audit.FabricWorkloadDay", "audit.PowerAutomateFlow", "audit.PowerPlatformUserActivity",
+        "dash.CostPrice", "dash.CostSuite", "audit.FabricCapacityDay", "audit.FabricWorkloadDay", "audit.PowerAutomateFlow", "audit.PowerPlatformUserActivity",
         "audit.PowerPlatformCapacityDay", "audit.PowerPlatformCreditDay",
     ];
 

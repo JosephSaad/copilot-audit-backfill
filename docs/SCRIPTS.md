@@ -53,7 +53,7 @@ Each loads one source into the Copilot database. All can be run by hand with the
 | Script | What it loads | From |
 |---|---|---|
 | `tools\Export-UsersWithHierarchy-ToSql.ps1` | The user directory, `audit.UserDirectory`: each person's title, department, division, office, country, manager and management chain, which every report is cut by. | On-premises Active Directory |
-| `tools\Update-CopilotAuditEnrichment.ps1` | Who holds a Copilot license today, and the tenant's license pool. | Microsoft Graph |
+| `tools\Update-CopilotAuditEnrichment.ps1` | Who holds a Copilot license today, and the tenant's license pool. From 2.6.6 a suite with Copilot inside (Microsoft 365 E7; `-CopilotSuiteSku`, `Microsoft_365_E7*` and the like by default) licenses its holders too, and is marked in the pool so the dashboard never offers to revoke it alone. | Microsoft Graph |
 | `tools\Import-AgentWorkbook.ps1` | The agent inventory workbook: each sheet into its own table, then `dash.AgentInventory`, matched to the agents the audit log knows. From 2.6.3 it also marks the second identity of an agent the audit log names two ways. | An Excel workbook on SharePoint Online or a file share |
 | `tools\Import-GitHubCopilotUsage.ps1` | GitHub Copilot's seats, daily usage, each person's day and billed cost, for an enterprise or an organization. Optional: skipped, with a note in the log, when the settings do not name one. See [GITHUB-COPILOT-USAGE.md](GITHUB-COPILOT-USAGE.md). | GitHub's REST API |
 | `tools\Import-FoundryUsage.ps1` | Microsoft Foundry and Azure OpenAI deployments, their daily requests and tokens, and their daily cost. Optional, as the GitHub load is. See [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md). | Azure Resource Manager, Azure Monitor and Cost Management |

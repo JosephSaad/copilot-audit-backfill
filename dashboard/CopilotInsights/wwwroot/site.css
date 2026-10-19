@@ -292,9 +292,10 @@ tr:hover td { background: var(--ground); }
 .ph-title { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
 .ph-title h1 { margin: 0; }
 .ph-title .who { display: inline-block; font-size: 12px; color: var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 1px 9px; }
-.guide { margin: 3px 0 0; font-size: 13.5px; line-height: 1.45; }
-.guide > span { margin-right: 16px; }
-.guide b { font-weight: 600; margin-right: 4px; }
+/* Helps you and Do as two units, each kept whole: side by side where they fit, the second under the first where not. */
+.guide { margin: 4px 0 0; font-size: 13.5px; line-height: 1.45; display: flex; flex-wrap: wrap; gap: 2px 32px; }
+.guide > span { flex: 0 1 auto; display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.guide b { font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
 button.infob { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 6px; padding: 0;
   border: 1px solid var(--faint); border-radius: 50%; background: transparent; color: var(--muted); font: italic 600 11px/1 Georgia, serif;
   cursor: pointer; vertical-align: 2px; flex: none; }
@@ -508,6 +509,19 @@ svg.donut .d-sub { text-anchor: middle; fill: var(--muted); font: 11px var(--san
 .cb-conf small { display: block; color: var(--faint); font-size: 12px; }
 .sw { display: block; width: 12px; height: 12px; border-radius: 3px; }
 
+/* The suites (2.6.6): each held, with what it includes; then the moves to review, each with its worth and confidence. */
+.cb-suite, .cb-moves { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.cb-suite li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding-bottom: 6px; border-bottom: 1px dashed var(--rule); }
+.cb-suite li:last-child { border-bottom: 0; }
+.cb-suite .sn { font-weight: 600; }
+.cb-suite .sh { color: var(--muted); white-space: nowrap; }
+.cb-suite small, .cb-moves small { grid-column: 1 / -1; color: var(--faint); font-size: 12px; }
+.cb-sub { margin: 12px 0 6px; font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.cb-moves li { display: grid; grid-template-columns: minmax(0, 1fr) auto 64px; gap: 0 10px; align-items: baseline; padding: 3px 0; }
+.cb-moves b { color: var(--good); white-space: nowrap; text-align: right; }
+.cb-moves .conf { justify-self: end; }
+/* The sources across a whole row: in columns. */
+.cb-grid > .panel.c12 .cb-src { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); column-gap: 28px; }
 /* The savings: the three largest as rows with their evidence (what it is worth on the right), the rest as table rows. */
 .cb-top { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .tc { --c: var(--accent); display: grid; grid-template-columns: 24px minmax(0, 1fr) 150px; gap: 12px; align-items: start; min-width: 0;

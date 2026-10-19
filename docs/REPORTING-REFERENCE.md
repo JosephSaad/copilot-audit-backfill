@@ -2076,7 +2076,7 @@ Indexes and constraints:
 
 *Table.* The tenant's subscriptions as of the license tool's last run (2.3.0): per SKU, seats enabled, in the grace period, suspended and assigned, and whether it is a Copilot SKU.
 
-**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
+**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database · **Columns added by** `Create-CopilotDashboardSchema.sql`
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -2090,6 +2090,7 @@ Indexes and constraints:
 | 8 | `Consumed` | int | **no** |  | consumedUnits: seats assigned |
 | 9 | `CapabilityStatus` | nvarchar(32) | yes |  |  |
 | 10 | `CapturedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 11 | `CopilotInSuite` | bit | yes |  | 2.6.6: a suite with Microsoft 365 Copilot inside (E7). NULL before 2.6.6. |
 
 Indexes and constraints:
 
@@ -3931,6 +3932,40 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_DashCostPrice`: primary key, clustered (Item)
+
+#### dash.CostSuite
+
+*Table.* The suites (2.6.6): Microsoft 365 and Office 365 E3, E5 and E7 by SKU part number pattern, with family, tier, price a month, and the priced items each includes (COPILOT, POWER_BI_PRO). Costs and savings counts none of a suite's price as AI spend and nothing it includes again; Licensing &gt; Suite fit compares each holder's suite with the next one down. Set in Admin &gt; Targets and assumptions.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SkuPattern` | nvarchar(100) | **no** | **PK** | a LIKE pattern on the SKU part number |
+| 2 | `Suite` | nvarchar(100) | **no** |  |  |
+| 3 | `Family` | nvarchar(40) | **no** |  | Microsoft 365 \| Office 365: a move down stays in the family |
+| 4 | `Tier` | tinyint | **no** |  | 3, 5, 7 |
+| 5 | `MonthlyPrice` | decimal(19,4) | **no** |  | a user a month; 0: not known, so never a move's target |
+| 6 | `Currency` | nvarchar(8) | yes |  | NULL: LicenseCurrency |
+| 7 | `Includes` | nvarchar(400) | **no** | `N''` |  |
+| 8 | `Covers` | nvarchar(400) | yes |  |  |
+| 9 | `Enabled` | bit | **no** | `1` |  |
+| 10 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 11 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashCostSuite`: primary key, clustered (SkuPattern)
+
+#### dash.CopilotSuiteOnly
+
+*View.* A view (2.6.6): the people who hold Microsoft 365 Copilot only through a suite (E7), and not the add-on as well. Never on a list to revoke: their Copilot cannot be taken off alone. Empty until the license pool and its suite mark exist.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Upn` | nvarchar(512) | **no** |  |  |
 
 #### dash.RoleGrant
 
@@ -7459,7 +7494,7 @@ GO
 
 ### C.7 `sql/Create-CopilotEnrichmentSchema.sql`
 
-Copilot database. Current licenses, the user directory and the adoption views. 269 lines.
+Copilot database. Current licenses, the user directory and the adoption views. 291 lines.
 
 ```sql
 /*
@@ -7591,6 +7626,11 @@ IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NULL
         Consumed       INT              NOT NULL,
         CONSTRAINT PK_LicenseSkuDay PRIMARY KEY (SnapshotDate, SkuId)
     );
+
+/* 2.6.6: a suite that carries Copilot inside it (Microsoft 365 E7; the tool's -CopilotSuiteSku). Its holders are
+   licensed for Copilot, but the Copilot cannot be taken off alone, and its price is the suite's. NULL before 2.6.6. */
+IF COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
+    ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
 
 /* 2.4.3: every SKU each person looked up holds (assignedLicenses), not only Copilot, so the dashboard can find
    licenses that overlap. Replaced whole by each run; names come from audit.LicenseSku. */
@@ -7731,6 +7771,23 @@ FROM audit.CopilotInteraction AS i
 LEFT JOIN audit.UserDirectory AS d
        ON d.UserPrincipalName = i.UserPrincipalName
 GROUP BY ISNULL(d.Department, N''(unknown)''), i.ActivityDate, i.AppHost;');
+
+/* 2.6.6: the people who hold Microsoft 365 Copilot only through a suite (E7) and not as the add-on as well: their
+   Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
+   full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
+   Create-CopilotDashboardSchema.sql both write it, so whichever runs last with the tables there leaves the full one. */
+IF SCHEMA_ID(N'dash') IS NOT NULL
+BEGIN
+    IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteOnly AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1
+  AND NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku AS au JOIN audit.LicenseSku AS sa ON sa.SkuId = au.SkuId
+                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0);');
+    ELSE IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
+        EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+END;
 ```
 
 ### C.8 `sql/Create-CopilotSessionSchema.sql`
@@ -9144,7 +9201,7 @@ SELECT LicenseStatusKey, LicenseStatus FROM bi.DimLicenseStatus;');
 
 ### C.11 `sql/Create-CopilotBiProcedure.sql`
 
-Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema. 1084 lines.
+Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema. 1092 lines.
 
 ```sql
 /*
@@ -9579,8 +9636,16 @@ BEGIN
         (or throughout, if it is not known) when licensed today; never, when
         not. A user in neither is not in #known: Unknown.
     */
+    /* 2.6.6: a suite with Copilot inside (E7, marked in the license pool) is a Copilot SKU too, so moving from the
+       Copilot add-on to E7 is a change of SKU, not a license taken away. */
+    DROP TABLE IF EXISTS #suite;
+    CREATE TABLE #suite (Sku NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
+    IF COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+        EXEC (N'INSERT INTO #suite (Sku) SELECT DISTINCT SkuPartNumber FROM audit.LicenseSku WHERE CopilotInSuite = 1;');
+
     DROP TABLE IF EXISTS #ev;
-    SELECT DISTINCT Upn, Sku, ChangedUtc AS Ts, Added INTO #ev FROM #chg WHERE Sku LIKE N'%COPILOT%';
+    SELECT DISTINCT Upn, Sku, ChangedUtc AS Ts, Added INTO #ev FROM #chg
+    WHERE Sku LIKE N'%COPILOT%' OR Sku IN (SELECT Sku FROM #suite);
 
     DROP TABLE IF EXISTS #held;
     CREATE TABLE #held
@@ -9701,7 +9766,7 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimApp AS d WHERE d.App = n.App);
 
     INSERT INTO bi.DimSku (Sku, IsCopilot)
-    SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' THEN 1 ELSE 0 END FROM #chg AS c
+    SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' OR c.Sku IN (SELECT Sku FROM #suite) THEN 1 ELSE 0 END FROM #chg AS c
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimSku AS d WHERE d.Sku = c.Sku);
 
     /* ---- 3. Calendar ------------------------------------------------------- */
@@ -10597,7 +10662,7 @@ END;
 
 ### C.13 `sql/Create-CopilotDashboardSchema.sql`
 
-Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 424 lines.
+Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 486 lines.
 
 ```sql
 /*
@@ -10706,6 +10771,68 @@ USING (VALUES
 ) AS s (Item, Area, Name, Unit, MonthlyPrice, Note)
 ON t.Item = s.Item
 WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, UpdatedBy) VALUES (s.Item, s.Area, s.Name, s.Unit, s.MonthlyPrice, s.Note, N'install');
+
+/*
+    2.6.6: the suites (Microsoft 365 and Office 365 E3, E5, E7): their price, their place in the family, and what of
+    the priced items above they include. Costs and savings counts as AI spend only what is bought on top of a suite:
+    an item a suite includes costs nothing more, and a standalone license of it on a suite's holder is paid twice. A
+    suite's own price also buys security, compliance, Teams and more that cannot be split out, so no share of it is
+    counted as AI spend; Licensing > Suite fit instead finds who a lower tier would serve (E7 to E5, E5 to E3).
+    Includes is a comma-separated list of dash.CostPrice items, and COPILOT for Microsoft 365 Copilot; Covers says
+    what else the suite brings, for the page. Prices are list prices in USD as Microsoft published them for July
+    2026: set the agreement's in Admin > Targets and assumptions. A row an administrator changed is kept.
+*/
+IF OBJECT_ID(N'dash.CostSuite', N'U') IS NULL
+    CREATE TABLE dash.CostSuite
+    (
+        SkuPattern   NVARCHAR(100)   NOT NULL CONSTRAINT PK_DashCostSuite PRIMARY KEY,   -- a LIKE pattern on the SKU part number
+        Suite        NVARCHAR(100)   NOT NULL,
+        Family       NVARCHAR(40)    NOT NULL,   -- Microsoft 365 | Office 365: a move down stays in the family
+        Tier         TINYINT         NOT NULL,   -- 3, 5, 7
+        MonthlyPrice DECIMAL(19, 4)  NOT NULL,   -- a user a month; 0: not known, so never a move's target
+        Currency     NVARCHAR(8)     NULL,       -- NULL: LicenseCurrency
+        Includes     NVARCHAR(400)   NOT NULL CONSTRAINT DF_DashCostSuite_Includes DEFAULT (N''),
+        Covers       NVARCHAR(400)   NULL,
+        Enabled      BIT             NOT NULL CONSTRAINT DF_DashCostSuite_Enabled DEFAULT (1),
+        UpdatedBy    NVARCHAR(256)   NULL,
+        UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostSuite_Updated DEFAULT (SYSUTCDATETIME())
+    );
+MERGE dash.CostSuite AS t
+USING (VALUES
+    (N'SPE_E3%',            N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
+    (N'SPE_E5%',            N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft_365_E5%',  N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft_365_E7%',  N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'M365_E7%',           N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'SPE_E7%',            N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'ENTERPRISEPACK%',    N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
+    (N'ENTERPRISEPREMIUM%', N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.')
+) AS s (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers)
+ON t.SkuPattern = s.SkuPattern
+WHEN NOT MATCHED THEN INSERT (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers, UpdatedBy)
+    VALUES (s.SkuPattern, s.Suite, s.Family, s.Tier, s.MonthlyPrice, s.Includes, s.Covers, N'install');
+
+/* 2.6.6: the license pool's suite mark, also added here so the dashboard reads it before the next license lookup
+   runs the enrichment's own schema (Create-CopilotEnrichmentSchema.sql adds it too). */
+IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
+    ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
+
+/* 2.6.6: the people who hold Microsoft 365 Copilot only through a suite (E7) and not as the add-on as well: their
+   Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
+   full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
+   Create-CopilotDashboardSchema.sql both write it, so whichever runs last with the tables there leaves the full one. */
+IF SCHEMA_ID(N'dash') IS NOT NULL
+BEGIN
+    IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteOnly AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1
+  AND NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku AS au JOIN audit.LicenseSku AS sa ON sa.SkuId = au.SkuId
+                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0);');
+    ELSE IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
+        EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+END;
 
 /* Roles granted to people (by UPN) or AD groups (DOMAIN\Group). */
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
@@ -11357,7 +11484,7 @@ GO
 
 ### C.15 `sql/Create-CopilotOperationsSchema.sql`
 
-Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 734 lines.
+Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 735 lines.
 
 ```sql
 /*
@@ -11888,6 +12015,7 @@ GRANT INSERT, UPDATE, DELETE ON dash.AlertState TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Target TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TimeSaving TO CopilotInsightsApp;
 IF OBJECT_ID(N'dash.CostPrice', N'U') IS NOT NULL GRANT UPDATE ON dash.CostPrice TO CopilotInsightsApp;   -- 2.6.6: Admin > Targets and assumptions sets the prices
+IF OBJECT_ID(N'dash.CostSuite', N'U') IS NOT NULL GRANT UPDATE ON dash.CostSuite TO CopilotInsightsApp;   -- 2.6.6: and turns a suite's inclusions on or off
 GRANT INSERT, UPDATE, DELETE ON dash.TrainingAttendance TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;

@@ -132,6 +132,26 @@ public static class CostRules
             $"{idle:#,0} of {holders:#,0} holders ({(decimal)idle / Math.Max(1, holders):P0}) have not used {ProductOf(product)} in the last 30 days, at {Money(price, cur)} each a month.",
             "Ask their managers, then remove the license; reassign it before buying more.", Math.Round(idle * price, 2), 0, "High", href);
 
+    /// <summary>
+    /// A standalone license on people whose suite already includes it (2.6.6): Power BI Pro on E5 or E7, the Copilot
+    /// add-on on E7. Paid twice, whatever they use: certain.
+    /// </summary>
+    public static Opportunity? HeldTwice(string area, string product, string suites, int people, decimal price, string cur, string? href = null) =>
+        people <= 0 || price <= 0 ? null
+        : new(area, OpportunityKind.Save, $"Remove {people:#,0} {product} license{(people == 1 ? "" : "s")} {suites} already include{(suites.Contains(" and ") || suites.Contains(", ") ? "" : "s")}",
+            $"{people:#,0} {(people == 1 ? "person holds" : "people hold")} a standalone {product} at {Money(price, cur)} a month on top of {suites}, which includes it.",
+            "Remove the standalone license; the suite keeps the same features.", Math.Round(people * price, 2), 0, "High", href);
+
+    /// <summary>
+    /// Licenses bought and assigned to nobody (2.6.6): paid for every month all the same. Medium, as most agreements
+    /// let them go only at the renewal; assign them first where people are waiting.
+    /// </summary>
+    public static Opportunity? Unassigned(string area, string product, int bought, int assigned, decimal price, string cur, string? href = "/licensing/pool") =>
+        bought - assigned <= 0 || price <= 0 ? null
+        : new(area, OpportunityKind.Save, $"Cut {bought - assigned:#,0} unassigned {product} license{(bought - assigned == 1 ? "" : "s")}",
+            $"{bought:#,0} bought and {assigned:#,0} assigned: {bought - assigned:#,0} paid for at {Money(price, cur)} a month with nobody on {(bought - assigned == 1 ? "it" : "them")}.",
+            "Assign them to the people waiting for one; reduce the count at the next renewal for the rest.", Math.Round((bought - assigned) * price, 2), 0, "Medium", href);
+
     static string ProductOf(string license) => license.StartsWith("Power BI", StringComparison.Ordinal) ? "Power BI"
         : license.StartsWith("Power Automate", StringComparison.Ordinal) ? "Power Automate" : license.StartsWith("Power Apps", StringComparison.Ordinal) ? "Power Apps" : license;
 

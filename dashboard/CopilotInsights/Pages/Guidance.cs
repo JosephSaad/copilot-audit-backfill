@@ -55,6 +55,7 @@ public static class Guidance
         ["/security/non-human"] = new("Find Copilot on service, shared, test and guest accounts, which the license does not allow.", "Have each license removed, or confirmed as a person by an administrator, and watch for the alert."),
         ["/compliance/non-human"] = new("Show that Copilot is licensed only to people, as policy requires.", "Follow up each breach until its license is removed or the account is confirmed as a person."),
         ["/licensing/overlap"] = new("Find people paying for two licenses that overlap.", "Drop the second license where the first covers the use."),
+        ["/licensing/suites"] = new("See which of E3, E5 and E7 fits each holder, and what a move down saves.", "Drop the copies now; agree each move down with the manager, and with security for E5."),
         ["/licensing/departures"] = new("Reclaim licenses on the last day, not weeks after.", "Plan the leavers' removals; export the ones past their date now."),
 
         // Security

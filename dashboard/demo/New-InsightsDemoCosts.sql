@@ -49,6 +49,60 @@ SELECT d.UserPrincipalName AS Upn, d.Department, d.Division, d.OrgDepth,
        ROW_NUMBER() OVER (ORDER BY HASHBYTES('MD5', CONCAT(N'order', d.UserPrincipalName))) AS Seq
 INTO #people FROM audit.UserDirectory AS d WHERE d.AccountEnabled = 1;
 
+/* ---- Suites (2.6.6): Microsoft 365 E3 for operations and the front line, E5 for the rest, and an E7 pilot ---- */
+/* E7: the executive team and the Technology division's Copilot holders, about one in nine of those licensed. Most
+   dropped the Copilot add-on when they moved to E7; a few still hold it, and a few kept E5 beside it. The disabled
+   accounts keep the E5 they had. */
+DROP TABLE IF EXISTS #suite;
+CREATE TABLE #suite (Upn NVARCHAR(256) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY, Suite NVARCHAR(10) NOT NULL, AddOn BIT NOT NULL, AlsoE5 BIT NOT NULL);
+DECLARE @e7 INT = CAST(ROUND(120 * @scale, 0) AS INT);
+INSERT INTO #suite (Upn, Suite, AddOn, AlsoE5)
+SELECT TOP (@e7) p.Upn, N'E7', CASE WHEN p.R2 < 0.15 THEN 1 ELSE 0 END, CASE WHEN p.R2 > 0.95 THEN 1 ELSE 0 END
+FROM #people AS p JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = p.Upn AND cl.IsCopilotLic = 1
+ORDER BY CASE WHEN p.OrgDepth <= 2 THEN 0 WHEN p.Division = N'Technology' THEN 1 ELSE 2 END, p.R1;
+INSERT INTO #suite (Upn, Suite, AddOn, AlsoE5)
+SELECT p.Upn, CASE WHEN p.Division = N'Operations' OR p.Department IN (N'Customer Care', N'Facilities', N'Logistics', N'Quality') OR p.R1 < 0.10 THEN N'E3' ELSE N'E5' END, 0, 0
+FROM #people AS p WHERE NOT EXISTS (SELECT 1 FROM #suite AS s WHERE s.Upn = p.Upn);
+INSERT INTO #suite (Upn, Suite, AddOn, AlsoE5)
+SELECT d.UserPrincipalName, N'E5', 0, 0 FROM audit.UserDirectory AS d
+WHERE d.AccountEnabled = 0 AND NOT EXISTS (SELECT 1 FROM #suite AS s WHERE s.Upn = d.UserPrincipalName);
+
+/* The pool: each suite bought with a little to spare, and the Copilot add-on for everyone licensed who is not on E7
+   alone, with about 3% bought and never assigned. */
+DECLARE @nE3 INT = (SELECT COUNT(*) FROM #suite WHERE Suite = N'E3'),
+        @nE5 INT = (SELECT COUNT(*) FROM #suite WHERE Suite = N'E5' OR AlsoE5 = 1),
+        @nE7 INT = (SELECT COUNT(*) FROM #suite WHERE Suite = N'E7');
+DECLARE @addOn INT = (SELECT COUNT(*) FROM audit.CopilotLicense AS cl WHERE cl.IsCopilotLic = 1
+                      AND NOT EXISTS (SELECT 1 FROM #suite AS s WHERE s.Upn = cl.UserPrincipalName AND s.Suite = N'E7' AND s.AddOn = 0));
+DROP TABLE IF EXISTS #pool;
+CREATE TABLE #pool (SkuId UNIQUEIDENTIFIER NOT NULL, Part NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL, IsCopilot BIT NOT NULL, Bought INT NOT NULL, Held INT NOT NULL);
+INSERT INTO #pool VALUES
+    ('05e9a617-0261-4cee-bb44-138d3ef5d965', N'SPE_E3',                0, (@nE3 + 60) / 10 * 10, @nE3),
+    ('06ebc4ee-1bb5-47dd-8120-11324bc54e06', N'SPE_E5',                0, (@nE5 + 80) / 10 * 10, @nE5),
+    ('7e7e7e70-0e70-4e70-9e70-7e7e7e7e7e70', N'Microsoft_365_E7',      1, @nE7 + 10,             @nE7),
+    ('639dec6b-bb19-468b-871c-c5c441c4b0cb', N'Microsoft_365_Copilot', 1, (@addOn * 103 / 100 + 9) / 10 * 10, @addOn);
+DELETE FROM audit.LicenseSkuDay WHERE SkuPartNumber IN (SELECT Part FROM #pool);
+INSERT INTO audit.LicenseSkuDay (SnapshotDate, SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed)
+SELECT d.[Day], p.SkuId, p.Part, p.IsCopilot, p.Bought, 0, 0, 0, p.Held - CASE WHEN p.Part = N'Microsoft_365_Copilot' THEN d.Ago / 3 ELSE 0 END
+FROM #day AS d CROSS JOIN #pool AS p;
+DELETE FROM audit.LicenseSku WHERE SkuPartNumber IN (SELECT Part FROM #pool);
+INSERT INTO audit.LicenseSku (SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed, CapabilityStatus)
+SELECT SkuId, Part, IsCopilot, Bought, 0, 0, 0, Held, N'Enabled' FROM #pool;
+IF COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+    EXEC (N'UPDATE audit.LicenseSku SET CopilotInSuite = CASE WHEN SkuPartNumber = N''Microsoft_365_E7'' THEN 1 ELSE 0 END;');
+
+/* Who holds what: each person's suite, the E5 a few kept beside E7, and the add-on. */
+DELETE u FROM audit.UserLicenseSku AS u JOIN #pool AS p ON p.SkuId = u.SkuId;
+INSERT INTO audit.UserLicenseSku (UserPrincipalName, SkuId)
+SELECT s.Upn, p.SkuId FROM #suite AS s JOIN #pool AS p ON p.Part = CASE s.Suite WHEN N'E3' THEN N'SPE_E3' WHEN N'E5' THEN N'SPE_E5' ELSE N'Microsoft_365_E7' END
+UNION
+SELECT s.Upn, p.SkuId FROM #suite AS s JOIN #pool AS p ON p.Part = N'SPE_E5' WHERE s.AlsoE5 = 1
+UNION
+SELECT cl.UserPrincipalName, p.SkuId FROM audit.CopilotLicense AS cl JOIN #pool AS p ON p.Part = N'Microsoft_365_Copilot'
+WHERE cl.IsCopilotLic = 1 AND NOT EXISTS (SELECT 1 FROM #suite AS s WHERE s.Upn = cl.UserPrincipalName AND s.Suite = N'E7' AND s.AddOn = 0);
+UPDATE cl SET SkuPartNumber = N'Microsoft_365_E7'
+FROM audit.CopilotLicense AS cl JOIN #suite AS s ON s.Upn = cl.UserPrincipalName AND s.Suite = N'E7' AND s.AddOn = 0;
+
 /* ---- Power Platform licenses (the pool, from Graph's subscribedSkus) ---- */
 /* Each SKU: bought now, held now, and how many were held six months ago (it grows to now in a straight line). */
 DROP TABLE IF EXISTS #sku;
@@ -56,7 +110,7 @@ CREATE TABLE #sku (SkuId UNIQUEIDENTIFIER, Part NVARCHAR(100), Bought INT, HeldN
 INSERT INTO #sku
 SELECT SkuId, Part, CAST(ROUND(Bought * @scale, 0) AS INT), CAST(ROUND(HeldNow * @scale, 0) AS INT), CAST(ROUND(HeldThen * @scale, 0) AS INT)
 FROM (VALUES
-    ('f8a1db68-be16-40ed-86d5-cb42ce701560', N'POWER_BI_PRO',                 1450, 1382, 1240),
+    ('f8a1db68-be16-40ed-86d5-cb42ce701560', N'POWER_BI_PRO',                  640,  600,  545),
     ('c1d032e0-5619-4761-9b5c-75b6831e1711', N'PBI_PREMIUM_PER_USER',           60,   52,   38),
     ('eda1941c-3c4f-4995-b5eb-e85a42175ab9', N'POWERAUTOMATE_ATTENDED_RPA',    320,  296,  205),
     ('3539d28c-6e35-4a30-b3a9-cd43d5d3e0e2', N'POWERAUTOMATE_UNATTENDED_RPA',   12,   12,    8),
@@ -79,8 +133,9 @@ SELECT SkuId, Part, 0, Bought, 0, 0, 0, HeldNow, N'Enabled' FROM #sku;
 DROP TABLE IF EXISTS #held;
 CREATE TABLE #held (Upn NVARCHAR(256), Part NVARCHAR(100));
 INSERT INTO #held
-SELECT TOP (@nPro) p.Upn, N'POWER_BI_PRO' FROM #people AS p
-ORDER BY CASE WHEN p.Division IN (N'Finance', N'Sales', N'Technology') THEN 0 WHEN p.Division = N'Operations' THEN 1 ELSE 2 END, p.R1;
+SELECT TOP (@nPro) p.Upn, N'POWER_BI_PRO' FROM #people AS p JOIN #suite AS su ON su.Upn = p.Upn
+ORDER BY CASE WHEN su.Suite <> N'E3' AND p.R2 > 0.965 THEN 0 WHEN su.Suite = N'E3' THEN 1 ELSE 2 END,
+         CASE WHEN p.Division IN (N'Finance', N'Sales', N'Technology') THEN 0 WHEN p.Division = N'Operations' THEN 1 ELSE 2 END, p.R1;
 INSERT INTO #held
 SELECT TOP (@nPpu) p.Upn, N'PBI_PREMIUM_PER_USER' FROM #people AS p
 ORDER BY CASE WHEN p.Department IN (N'Data & Analytics', N'FP&A') THEN 0 ELSE 1 END, p.R2;
@@ -111,6 +166,12 @@ CROSS APPLY (SELECT CASE WHEN h.Part IN (N'POWER_BI_PRO', N'PBI_PREMIUM_PER_USER
                          WHEN h.Part = N'POWERAPPS_PER_USER' AND p.R1 > 0.835 THEN 1
                          WHEN h.Part = N'POWER_BI_PRO' AND p.R2 < 0.14 THEN 1
                          WHEN h.Part = N'PBI_PREMIUM_PER_USER' AND p.R2 > 0.875 THEN 1 ELSE 0 END AS Idle) AS x;
+/* Power BI through E5 and E7: two in five open it in a month, more in Finance and Sales; the rest never do. */
+INSERT INTO audit.PowerPlatformUserActivity (UserPrincipalName, Product, LastActiveUtc, ActiveDays30)
+SELECT s.Upn, 'Power BI', DATEADD(HOUR, -(1 + CAST(p.R2 * 300 AS INT)), CAST(@today AS DATETIME2(0))), 1 + CAST(p.R1 * 14 AS INT)
+FROM #suite AS s JOIN #people AS p ON p.Upn = s.Upn
+WHERE s.Suite IN (N'E5', N'E7') AND (p.R1 < 0.40 OR p.Division IN (N'Finance', N'Sales'))
+  AND NOT EXISTS (SELECT 1 FROM audit.PowerPlatformUserActivity AS a WHERE a.UserPrincipalName = s.Upn AND a.Product = 'Power BI');
 /* Copilot Studio's makers: the people who build the company's agents. */
 INSERT INTO audit.PowerPlatformUserActivity (UserPrincipalName, Product, LastActiveUtc, ActiveDays30)
 SELECT TOP (CAST(64 * @scale AS INT)) p.Upn, 'Copilot Studio', DATEADD(HOUR, -(2 + CAST(p.R1 * 90 AS INT)), CAST(@today AS DATETIME2(0))), 1 + CAST(p.R2 * 16 AS INT)
@@ -318,7 +379,7 @@ UPDATE dash.Setting SET Value = N'65', UpdatedBy = N'demo' WHERE Name = N'Hourly
 IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy) VALUES (N'HourlyCost', N'65', N'Demo: the loaded cost of an hour of work.', N'demo');
 
 /* The session goes on to the dashboard's refresh, whose procedure has temporary tables of the same names. */
-DROP TABLE IF EXISTS #n, #day, #people, #sku, #held, #flowname, #cap;
+DROP TABLE IF EXISTS #n, #day, #people, #sku, #held, #flowname, #cap, #suite, #pool;
 
 SELECT (SELECT COUNT(*) FROM audit.FabricCapacityDay) AS FabricDays, (SELECT COUNT(*) FROM audit.FabricWorkloadDay) AS WorkloadDays,
        (SELECT COUNT(*) FROM audit.PowerAutomateFlow) AS Flows, (SELECT COUNT(*) FROM audit.PowerPlatformUserActivity) AS Activity,

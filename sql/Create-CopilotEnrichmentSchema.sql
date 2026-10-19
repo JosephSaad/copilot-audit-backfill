@@ -128,6 +128,11 @@ IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NULL
         CONSTRAINT PK_LicenseSkuDay PRIMARY KEY (SnapshotDate, SkuId)
     );
 
+/* 2.6.6: a suite that carries Copilot inside it (Microsoft 365 E7; the tool's -CopilotSuiteSku). Its holders are
+   licensed for Copilot, but the Copilot cannot be taken off alone, and its price is the suite's. NULL before 2.6.6. */
+IF COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
+    ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
+
 /* 2.4.3: every SKU each person looked up holds (assignedLicenses), not only Copilot, so the dashboard can find
    licenses that overlap. Replaced whole by each run; names come from audit.LicenseSku. */
 IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL
@@ -267,3 +272,20 @@ FROM audit.CopilotInteraction AS i
 LEFT JOIN audit.UserDirectory AS d
        ON d.UserPrincipalName = i.UserPrincipalName
 GROUP BY ISNULL(d.Department, N''(unknown)''), i.ActivityDate, i.AppHost;');
+
+/* 2.6.6: the people who hold Microsoft 365 Copilot only through a suite (E7) and not as the add-on as well: their
+   Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
+   full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
+   Create-CopilotDashboardSchema.sql both write it, so whichever runs last with the tables there leaves the full one. */
+IF SCHEMA_ID(N'dash') IS NOT NULL
+BEGIN
+    IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteOnly AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1
+  AND NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku AS au JOIN audit.LicenseSku AS sa ON sa.SkuId = au.SkuId
+                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0);');
+    ELSE IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
+        EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+END;

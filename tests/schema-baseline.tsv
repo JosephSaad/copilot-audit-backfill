@@ -372,6 +372,7 @@ C	copilot	audit.GroupMember	U	2	UserPrincipalName	nvarchar(256)	0
 C	copilot	audit.GroupMember	U	3	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.LicenseSku	U	1	SkuId	uniqueidentifier	0	
 C	copilot	audit.LicenseSku	U	10	CapturedUtc	datetime2(0)	0	D
+C	copilot	audit.LicenseSku	U	11	CopilotInSuite	bit	1	
 C	copilot	audit.LicenseSku	U	2	SkuPartNumber	nvarchar(100)	0	
 C	copilot	audit.LicenseSku	U	3	IsCopilot	bit	0	
 C	copilot	audit.LicenseSku	U	4	Enabled	int	0	
@@ -1114,6 +1115,7 @@ C	copilot	dash.AuditLog	U	5	Page	nvarchar(200)	1
 C	copilot	dash.AuditLog	U	6	Scope	nvarchar(400)	1	
 C	copilot	dash.AuditLog	U	7	Detail	nvarchar(2000)	1	
 C	copilot	dash.AuditLog	U	8	ClientIp	varchar(64)	1	
+C	copilot	dash.CopilotSuiteOnly	V	1	Upn	nvarchar(512)	0	
 C	copilot	dash.CostPrice	U	1	Item	varchar(64)	0	
 C	copilot	dash.CostPrice	U	2	Area	nvarchar(40)	0	
 C	copilot	dash.CostPrice	U	3	Name	nvarchar(200)	0	
@@ -1123,6 +1125,17 @@ C	copilot	dash.CostPrice	U	6	Currency	nvarchar(8)	1
 C	copilot	dash.CostPrice	U	7	Note	nvarchar(400)	1	
 C	copilot	dash.CostPrice	U	8	UpdatedBy	nvarchar(256)	1	
 C	copilot	dash.CostPrice	U	9	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.CostSuite	U	1	SkuPattern	nvarchar(100)	0	
+C	copilot	dash.CostSuite	U	10	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.CostSuite	U	11	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.CostSuite	U	2	Suite	nvarchar(100)	0	
+C	copilot	dash.CostSuite	U	3	Family	nvarchar(40)	0	
+C	copilot	dash.CostSuite	U	4	Tier	tinyint	0	
+C	copilot	dash.CostSuite	U	5	MonthlyPrice	decimal(19,4)	0	
+C	copilot	dash.CostSuite	U	6	Currency	nvarchar(8)	1	
+C	copilot	dash.CostSuite	U	7	Includes	nvarchar(400)	0	D
+C	copilot	dash.CostSuite	U	8	Covers	nvarchar(400)	1	
+C	copilot	dash.CostSuite	U	9	Enabled	bit	0	D
 C	copilot	dash.DigestPreference	U	1	Upn	nvarchar(256)	0	
 C	copilot	dash.DigestPreference	U	2	ManagerDigestOptOut	bit	0	D
 C	copilot	dash.DigestPreference	U	3	PersonalDigest	bit	0	D
@@ -1617,6 +1630,7 @@ G	copilot	CopilotInsightsApp	UPDATE	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAlias
 G	copilot	CopilotInsightsApp	UPDATE	dash.AlertState
 G	copilot	CopilotInsightsApp	UPDATE	dash.CostPrice
+G	copilot	CopilotInsightsApp	UPDATE	dash.CostSuite
 G	copilot	CopilotInsightsApp	UPDATE	dash.DigestPreference
 G	copilot	CopilotInsightsApp	UPDATE	dash.DigestSend
 G	copilot	CopilotInsightsApp	UPDATE	dash.EventMarker
@@ -1784,7 +1798,9 @@ O	copilot	dash.AgentInventoryRun	U
 O	copilot	dash.AgentUse	U
 O	copilot	dash.AlertState	U
 O	copilot	dash.AuditLog	U
+O	copilot	dash.CopilotSuiteOnly	V
 O	copilot	dash.CostPrice	U
+O	copilot	dash.CostSuite	U
 O	copilot	dash.DigestPreference	U
 O	copilot	dash.DigestSend	U
 O	copilot	dash.EventMarker	U

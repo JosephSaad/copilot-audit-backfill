@@ -69,6 +69,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         sb.Append('.');
         if (saving > 0) sb.Append($" Taking the {Count(save.Count, "saving")} found would cut the bill by <b>{saving / spend:P0}</b> ({M(saving * 12, cur)} a year)" +
                                   (after > 0 && value > 0 ? $" and lift the return to <b>{Times(value / after)}</b>." : "."));
+        if (v.Suites is { Saving: > 0 } ss) sb.Append($" A further {M(ss.Saving, cur)} a month in suite moves is worth reviewing.");
         sb.Append("</p>");
 
         /* Five tiles: the figure, a line on it, and a picture of it. */
@@ -131,15 +132,28 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         sb.Append(Card("Every area, side by side", "Each area's spend a month, the part that can be saved (the hatched end of its bar), its last six whole months, and the value its use returns. The icon beside each says how its figures are worked out.", "c12",
             Ledger(v, months)));
 
-        /* What holds the return back, and Copilot in Power BI's own return beside it. */
+        /* Then the wide cards (what holds the return back, the trend) each beside a narrow one, in order of weight: the
+           suites, Copilot in Power BI, the sources. What is left over takes a row of its own. */
         var cif = v.CopilotInFabric;
+        var wide = new List<Func<string, string>>();
+        var narrow = new List<Func<string, string>>();
         if (grow.Count > 0)
-            sb.Append(Card("Grow the return", "Spend that is not yet returning what it could: people to train, licenses to hand on, work being lost. The figure is the monthly value or spend each holds back.", cif is null ? "c12" : "c8",
+            wide.Add(cls => Card("Grow the return", "Spend that is not yet returning what it could: people to train, licenses to hand on, work being lost. The figure is the monthly value or spend each holds back.", cls,
                 "<div class=\"cb-grow\">" + string.Concat(grow.Select(o => GrowCard(o, cur))) + "</div>"));
+        if (months.Count >= 2)
+        {
+            var labels = months.Select(m => m.Month.ToString("MMM yyyy", Inv)).ToList();
+            var series = CostAreas.All.Where(a => months.Any(m => m.ByArea.ContainsKey(a.Name)))
+                .Select(a => new Series(a.Name, months.Select(m => m.ByArea.TryGetValue(a.Name, out var x) ? (double?)(double)x : null).ToList(), a.Slot)).ToList();
+            var chart = Chart.Columns(labels, series, Fmt.Count, $"Spend a month by area, {cur}, the last six whole months");
+            wide.Add(cls => Card($"Spend by month ({cur})", "The last six whole months by area. Copilot from the add-on's licensed days; the other licenses from the license pool's daily counts; the rest from what each source billed. A source shows from the first month it covers.",
+                cls, chart is ChartSvg c ? c.Render(Narrow ? 320 : cls == "c12" ? 900 : 720) : chart.Value ?? ""));
+        }
+        if (v.Suites is { } su) narrow.Add(cls => SuitesCard(su, cur, cls));
         if (cif is not null)
         {
             var per = cif.Requests > 0 ? cif.Cost / cif.Requests : 0;
-            sb.Append(Card("Copilot in Power BI", "Copilot runs on the Fabric capacity the report's workspace is on, so its cost is its share of that capacity's. Requests come from the Capacity Metrics app's Copilot operations; value at Admin's minutes a request and hourly cost.", grow.Count > 0 ? "c4" : "c12",
+            narrow.Add(cls => Card("Copilot in Power BI", "Copilot runs on the Fabric capacity the report's workspace is on, so its cost is its share of that capacity's. Requests come from the Capacity Metrics app's Copilot operations; value at Admin's minutes a request and hourly cost.", cls,
                 "<div class=\"cif\">" +
                 $"<div class=\"cif-big\"><b>{(cif.Cost > 0 ? Times(cif.Value / cif.Cost) : "—")}</b><span>return on its share of the capacity: {M(cif.Value, cur)} of value a month</span></div>" +
                 "<div class=\"cif-grid\">" +
@@ -149,21 +163,16 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
                 Stat("Cost a request", CostRules.Money(Math.Round(per, 2), cur), "capacity cost over requests") +
                 "</div></div>"));
         }
-
-        /* Last, the context: the trend, and what the page is built from. */
-        if (months.Count >= 2)
-        {
-            var labels = months.Select(m => m.Month.ToString("MMM yyyy", Inv)).ToList();
-            var series = CostAreas.All.Where(a => months.Any(m => m.ByArea.ContainsKey(a.Name)))
-                .Select(a => new Series(a.Name, months.Select(m => m.ByArea.TryGetValue(a.Name, out var x) ? (double?)(double)x : null).ToList(), a.Slot)).ToList();
-            var chart = Chart.Columns(labels, series, Fmt.Count, $"Spend a month by area, {cur}, the last six whole months");
-            sb.Append(Card($"Spend by month ({cur})", "The last six whole months by area. Copilot from the licensed days; the other licenses from the license pool's daily counts; the rest from what each source billed. A source shows from the first month it covers.",
-                "c8", chart is ChartSvg c ? c.Render(Narrow ? 320 : 720) : chart.Value ?? ""));
-        }
-        sb.Append(Card("What this is built from", "Every source is optional: an area appears once its source is loaded, and one that is not is listed here rather than shown as zero.", months.Count >= 2 ? "c4" : "c12",
+        narrow.Add(cls => Card("What this is built from", "Every source is optional: an area appears once its source is loaded, and one that is not is listed here rather than shown as zero.", cls,
             "<ul class=\"cb-src\">" + string.Concat(v.Sources.Select(x => $"<li class=\"ok\">{E(x)}</li>")) +
             string.Concat(v.Missing.Select(x => $"<li class=\"no\">{E(x)} <small>not loaded yet, so not counted</small></li>")) + "</ul>" +
             $"<p class=\"cb-foot\">Prices and assumptions: <a href=\"/admin/assumptions\">Admin › Targets and assumptions</a> (an hour at {E(CostRules.Money(v.HourlyCost, cur))}).</p>"));
+        for (var i = 0; i < Math.Max(wide.Count, narrow.Count); i++)
+        {
+            var pair = i < wide.Count && i < narrow.Count;
+            if (i < wide.Count) sb.Append(wide[i](pair ? "c8" : "c12"));
+            if (i < narrow.Count) sb.Append(narrow[i](pair ? "c4" : "c12"));
+        }
 
         return sb.Append("</div></div>").ToString();
     }
@@ -217,6 +226,47 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
                   $"<span role=\"cell\" class=\"n\" data-l=\"Return\">{(v.Spend > 0 ? Times(v.Value / v.Spend) : "—")}</span></div>");
         return sb.Append("</div>").ToString();
     }
+
+    /// <summary>
+    /// The suites (2.6.6): what each held costs, what it includes that is not counted again as AI spend, and the moves
+    /// Licensing › Suite fit finds (E7 to E5, E5 to E3, a second suite, training first), outside the AI totals: a
+    /// suite's price buys much that cannot be split from it, so its savings are a review, not a sum to add.
+    /// </summary>
+    static string SuitesCard(SuiteSummary s, string cur, string cls)
+    {
+        var sb = new StringBuilder("<ul class=\"cb-suite\">");
+        foreach (var h in s.Held)
+            sb.Append($"<li><span class=\"sn\">{E(h.Suite)}</span><span class=\"sh\">{h.Holders:#,0} × {E(CostRules.Money(h.Price, cur))}</span>" +
+                      (h.Includes.Length > 0 ? $"<small>{E(h.Includes)} inside: {E(M(h.IncludedValue, cur))} at list, not AI spend</small>" : "") + "</li>");
+        sb.Append("</ul>");
+        if (s.Moves.Count > 0)
+        {
+            sb.Append($"<p class=\"cb-sub\">Moves to review ({E(cur)} a month)</p><ul class=\"cb-moves\">");
+            foreach (var m in s.Moves.Take(5))
+            {
+                var worth = m.Move == SuiteMove.Train ? m.AtStake : m.Saving;
+                var what = m.Move switch
+                {
+                    SuiteMove.Train => $"Train {m.People:#,0} on {Short(m.From)} first",
+                    SuiteMove.Reclaim => $"Take back {m.People:#,0} {Short(m.From)} from disabled accounts",
+                    SuiteMove.DropDuplicate => $"Drop the second suite beside {Short(m.From)} for {m.People:#,0}",
+                    SuiteMove.DowngradeWithCopilot => $"{m.People:#,0} from {Short(m.From)} to E5 and the Copilot add-on",
+                    SuiteMove.DowngradeWithPowerBi => $"{m.People:#,0} from {Short(m.From)} to E3 and Power BI Pro",
+                    _ => $"{m.People:#,0} from {Short(m.From)} to {Short(m.To ?? "")}",
+                };
+                sb.Append($"<li><span class=\"mw\">{E(what)}</span><b title=\"{(m.Move == SuiteMove.Train ? "riding on it" : "saved")} a month\">{E(N(worth))}</b><span class=\"conf {m.Confidence.ToLowerInvariant()}\">{E(m.Confidence)}</span></li>");
+            }
+            sb.Append("</ul>");
+        }
+        else sb.Append("<p class=\"cb-foot\">Every holder's suite fits what the data shows of them.</p>");
+        sb.Append($"<p class=\"cb-foot\">{(s.PowerBiKnown ? "" : "Power BI activity is not loaded, so no E5 holder is offered E3. ")}Outside the savings above: each move names what to check first in <a href=\"/licensing/suites\">Licensing › Suite fit</a>.</p>");
+        return Card(s.Saving > 0 ? $"Suites: {M(s.Saving, cur)} a month to review" : "Suites",
+            "E3, E5 and E7 as Admin › Targets and assumptions prices them. A suite's price also buys security, compliance and Teams, which cannot be split from it, so none of it is counted as AI spend, and Copilot or Power BI Pro inside it is not priced again. " +
+            "A standalone one on a suite's holder is paid twice, and counted with its area above. A move down rests on Copilot and Power BI use, the only parts of a suite the data sees, so these are a review, not savings to add.", cls, sb.ToString());
+    }
+
+    /// <summary>"Microsoft 365 E5" as "E5", for a narrow card; any other name as it is.</summary>
+    static string Short(string suite) => suite.StartsWith("Microsoft 365 ", StringComparison.Ordinal) ? suite["Microsoft 365 ".Length..] : suite;
 
     /// <summary>One of the three largest savings: its rank, area and confidence, the evidence and what to do, and what it is worth.</summary>
     static string TopRow(Opportunity o, int rank, string cur) =>

@@ -30,7 +30,8 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         ["upgrade"] = ("Upgrade to Premium", $"lic.UserKey IS NULL AND a.D >= {UpgradeDays}", "Upgrade to Premium"),
         /* Train and revoke leave out the protected levels (2.4.6): everyone who reads Kinds, the page, its files, Swap, the counts, the digest and the API, does too. */
         ["train"] = ("Train", $"lic.UserKey IS NOT NULL AND a.P BETWEEN 1 AND {LightMax} AND {Data.ProtectedLevels.Not("du.UserPrincipalName")}", "Train, then review"),
-        ["revoke"] = ("Revoke", $"lic.UserKey IS NOT NULL AND ISNULL(a.P, 0) = 0 AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -{RevokeAfterDays}, @d1)) AND {Data.ProtectedLevels.Not("du.UserPrincipalName")}", "Revoke"),
+        /* Nor a Copilot held only through a suite (2.6.6, E7): it cannot be taken off alone. */
+        ["revoke"] = ("Revoke", $"lic.UserKey IS NOT NULL AND ISNULL(a.P, 0) = 0 AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -{RevokeAfterDays}, @d1)) AND {Data.ProtectedLevels.Not("du.UserPrincipalName")} AND {Data.CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}", "Revoke"),
     };
 
     /// <summary>

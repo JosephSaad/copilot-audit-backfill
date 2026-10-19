@@ -67,14 +67,34 @@ put your agreement's prices in Admin › Targets and assumptions.
   with a fifth idle, and a provisioned Foundry deployment nobody has called in five weeks. Names stay unique, and the
   first 2,317 people are who they were.
 
+- **Suites: E3, E5 and E7.** Saving on a license is seldom revoking it once suites are in play, so the dashboard now
+  knows them (`dash.CostSuite`: Microsoft 365 and Office 365 E3, E5 and E7, their price, and what each includes).
+  - *Licensing › Suite fit*, a new page: each holder with the suite that would serve them, from their Copilot and
+    Power BI use. E7 with no Copilot use to E5 (Medium); with light use, train first; with regular use, E5 and the
+    add-on where cheaper (Low). E5 with no Power BI use to E3, with it to E3 and Power BI Pro where cheaper (Low,
+    and only with security, compliance and telephony's agreement). Copies held beside a suite to drop (High), and
+    suites on disabled accounts (Medium). Each move names what the data cannot see and must be checked first.
+  - *Costs and savings*: none of a suite's price is counted as AI spend, nor Copilot or Power BI Pro inside it;
+    a standalone one on a suite's holder is a saving (High); seats bought and assigned to nobody are a saving
+    (Medium), the spend being the seats bought; and a *Suites* card shows what the suites include and the moves to
+    review, outside the AI savings.
+  - Copilot inside E7 licenses its holders on every page (the license lookup's `-CopilotSuiteSku`), is never on a
+    list to revoke (`dash.CopilotSuiteOnly`), and a move from the add-on to E7 keeps them licensed through it.
+  - Admin › Targets and assumptions › *Suites*: each suite's price, what it includes, and on or off.
+
 ### Changed
 - **Every report's heading is shorter**: the title and who the page is for on one line, what it helps with and what
-  to do on the next, and less space around them and the filter bar, so the figures start about 100 pixels higher.
+  to do on the next, and less space around them and the filter bar, so the figures start about 100 pixels higher. *Helps you* and *Do* stay whole, side by side where they fit.
 - **The demo keeps levels 1 to 3 off the revoke and train lists**, not 1 to 5: with five levels, the default kept
   the whole demo company off them and left those pages empty. A real install's setting is unchanged.
 
 ### Known limits
-- **The new sources are loaded from exports, by hand or on a schedule you set**: no loader calls the Fabric or Power
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **The new sources are loaded from exports, by hand or on a schedule you set**: no loader calls the Fabric or Power
   Platform APIs yet. Each export has to be shaped to the table's headings (OPERATIONS.md lists them).
 - **Prices are list prices in USD** until set; licenses with part numbers not in the price list are left out of the
   spend. Check `audit.LicenseSku` for your tenant's part numbers.
@@ -142,7 +162,12 @@ otherwise: a night whose source really did shrink by more is refused, and is let
   name a feed. The prebuilt dashboard package is unchanged.
 
 ### Known limits
-- **The guard has no minimum.** A table of a few rows trips it with one removal (4 Foundry deployments to 3 is 25%).
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **The guard has no minimum.** A table of a few rows trips it with one removal (4 Foundry deployments to 3 is 25%).
   Raise that loader's setting, or set it to 0, where small numbers are normal.
 - **A refused license run still writes the license pool**, which is replaced whole too but holds one row a SKU; it
   is not guarded.
@@ -205,7 +230,12 @@ pages are offered to tick.
 - **A page that was refused names full administrators** as the people to ask, not one limited to some pages.
 
 ### Known limits
-- **The pages of an Admin grant are set on Admin › Access only.** `Invoke-CopilotMaintenance.ps1 -Task GrantRole
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **The pages of an Admin grant are set on Admin › Access only.** `Invoke-CopilotMaintenance.ps1 -Task GrantRole
   -Role Admin` grants the whole role.
 - **The *Created in* filter was tested on the demo database** with a workbook shaped like a client's sample, and not
   against a client's own workbook.
@@ -298,7 +328,12 @@ moved anything. Nothing else is rebuilt.
   scripts), `docs/REPORTING.md` and `docs/REPORTING-REFERENCE.md`, and both Word versions.
 
 ### Known limits
-- **Checked on test data shaped like the client's, not on the client's.** The three cases were taken from query
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **Checked on test data shaped like the client's, not on the client's.** The three cases were taken from query
   results a client sent (the ids, the workbook's columns, the counts) and reproduced in the tests. The first run on a
   real database, and the minutes it takes at 120 million interactions, were not measured.
 - **The workbook case needs the workbook's row to hold both ids** (`SchemaName` with `EnvironmentId`, and `TitleId`).
@@ -418,7 +453,12 @@ in its log.
   tables among the other layers, the two nightly steps, the scripts' text), and both Word versions.
 
 ### Known limits
-- **Neither loader has called the real service.** Both run end to end in the tests against stand-ins that answer as
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **Neither loader has called the real service.** Both run end to end in the tests against stand-ins that answer as
   GitHub and Microsoft document their APIs (seats over pages, report files, billing lines; accounts, deployments,
   metrics, cost, throttling, a refused token). The first real load of each should be checked against the service's
   own pages, as its guide says. Not verified at all: the hosts GitHub's report download links point to, and the
@@ -462,7 +502,12 @@ of 2.6.0. The Word documents are attached to the release, and are in the source 
   as a member of `CopilotReporting`: 63 blocks, none with an error.
 
 ### Known limits
-- **The Word documents were checked by opening them in Word and reading them back, not page by page**: their
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **The Word documents were checked by opening them in Word and reading them back, not page by page**: their
   headings, tables, lists and code blocks are all there and no Markdown is left in the text. A link is its text,
   not a link.
 - **Nothing in CI reads a Word file**, so the two can fall behind the Markdown if the checklist step is missed. The
@@ -535,7 +580,12 @@ dashboard works over a database not yet upgraded, and shows the last load withou
   either off in Admin › Reports shown is left in place and does nothing.
 
 ### Known limits
-- **The least-used reports are not removed.** These seven stay, and are the ones to turn off in Admin › Reports
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **The least-used reports are not removed.** These seven stay, and are the ones to turn off in Admin › Reports
   shown where they are not wanted: Enablement › Conversation depth, Regions › Working patterns, Adoption › Drops and
   spikes, Forecasting › License action outcomes, Compliance › Labeled content by unit, Adoption › Retention by
   license month, Agents › Agent hand-offs. The list is a judgment from what each shows, not from how often it is
@@ -585,7 +635,12 @@ the repository.
   It said 90 and 1,162, the counts from before the agent workbook's three tables and the columns added since.
 
 ### Known limits
-- **The guides' SQL was not run inside Grafana.** Every `sql` block of both ran against the demo database as a member
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- **The guides' SQL was not run inside Grafana.** Every `sql` block of both ran against the demo database as a member
   of `CopilotReporting`, with Grafana's macros (`$__timeFrom()`, `$__timeTo()`) and the `tz` variable replaced by
   fixed values: 63 blocks, none with an error (the one over `bi.AgentEvents` returns no rows there, as the demo has no Copilot Studio records). The data source settings, the macros and `${__user.login}` are as
   Grafana documents them; check them against the Grafana version in use.
@@ -783,7 +838,12 @@ To upgrade from 2.5.5 (or 2.5.4):
   seconds. `OwnerIdUPN` is read as the sample workbooks name it (2.5.5 read `OwnerUPN`).
 
 ### Known limits
-- The workbook lists Copilot Studio agents; Microsoft's own agents (Researcher, Analyst) keep the audit log's names.
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- The workbook lists Copilot Studio agents; Microsoft's own agents (Researcher, Analyst) keep the audit log's names.
 - A new agent first used tonight is matched to the workbook the next night, after tonight's load has seen it.
 
 ## [2.5.5] - 2026-10-05
@@ -825,7 +885,12 @@ as before. To use it:
   shows on Admin › Health.
 
 ### Known limits
-- The download signs in as the task's Windows account, which suits an intranet site, SharePoint
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- The download signs in as the task's Windows account, which suits an intranet site, SharePoint
   Server or a file share. A SharePoint Online or OneDrive link needs a sign-in the script does not
   make: copy the workbook to a share the account can read, and point `AgentWorkbookUrl` at it.
 - `AgentInventory` must carry the columns `AgentId`, `AgentName`, `SchemaName`, `TitleId`,
@@ -1036,7 +1101,12 @@ index stay, unused.
   stages, how it reads a log, and that it only reads.
 
 ### Known limits
-- Every time above is the lab's: a database of 120 million interactions (40,000,000 records,
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- Every time above is the lab's: a database of 120 million interactions (40,000,000 records,
   210,000 people) with a license history made for the test, of 4,000,000 events (2,800,000
   *Update user* records that are not license changes, and 300,000 changes each raised twice and
   split in two), on one workstation with 8 cores and 31 GB, SQL Server 2025 Enterprise Developer.
@@ -1117,7 +1187,12 @@ figure changes; only which days the daily charts draw.
   at another width.
 
 ### Known limits
-- The two days are counted from the last day with any record, not from the hour the load reached. A
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- The two days are counted from the last day with any record, not from the hour the load reached. A
   load that reaches only the first hours of a day still makes that day the last record's day.
 - Weekly charts are not held back: on a Saturday morning the week to Friday is drawn, though a late
   record for its last day or two can still raise it at the next load.
@@ -1168,7 +1243,12 @@ changes; only which points the weekly charts draw.
   it is whole inside the chart, and left out where that would crowd the label before it.
 
 ### Known limits
-- A week shows on the weekly charts once it is over: on a Thursday, they end at the Friday before,
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- A week shows on the weekly charts once it is over: on a Thursday, they end at the Friday before,
   and the days since show only in the KPIs and the tables.
 - Page speed was not measured again at 120 million interactions: no query changed, only which of the
   points already read a chart draws.
@@ -1238,7 +1318,12 @@ rebuilt. No KPI, table, digest or data API figure changes; only the points of th
   median and 0.06 at most, where it took 0.42 and 0.77.
 
 ### Known limits
-- Measured on the lab's 120-million-interaction database (210,000 people) with SQL Server 2025
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- Measured on the lab's 120-million-interaction database (210,000 people) with SQL Server 2025
   Enterprise Developer (8 cores, MAXDOP 6), the site on the same machine: every report page for the
   whole organization at every period came from memory in 0.06 seconds at most, and a page inside a
   part of 70,000 people in 0.08. Building every page ahead took 10.5 minutes; the pre-cache, with
@@ -1364,7 +1449,12 @@ figure changes. If your directory keeps the department in another attribute, set
   stays at the end.
 
 ### Known limits
-- A trend reads the days before its period, 27 or three weeks, so its first point has its whole
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- A trend reads the days before its period, 27 or three weeks, so its first point has its whole
   28-day window: a 30-day period reads 57 days of the trend's tables, a 7-day period 34, and a
   365-day period about 6% more. This was tried on the demo database (180,000 interactions), not
   at 40 or 120 million, where the page times in DEPLOYMENT.md, *What has run in the lab*, were
@@ -1897,7 +1987,12 @@ and a database role for reporting accounts (`CopilotReporting`), all added by th
   directory as `DOMAIN\name` or through a group.
 
 ### Known limits
-- A person whose sign-in name changes can count as two users for a few days, until the
+- **Microsoft 365 E7's SKU part number is assumed** (`Microsoft_365_E7`, `M365_E7`, `SPE_E7`, each with anything
+  after it): no tenant with E7 was tried. Check License pool and set the license lookup's `-CopilotSuiteSku` and
+  Admin's *Suites* to the name you see. The suite prices are Microsoft's list prices for July 2026 as published:
+  put in your agreement's.
+- **A suite move rests on Copilot and Power BI use only**: Defender, Purview, Entra ID P2, Teams Phone, Agent 365
+  and the Entra Suite are not in the data, so a move off E5 or E7 is a review, never a saving counted on the page.- A person whose sign-in name changes can count as two users for a few days, until the
   directory load records the new name.
 - The dashboard's labeled-content alert can count one interaction twice when it carries two
   labels that both rank high.
