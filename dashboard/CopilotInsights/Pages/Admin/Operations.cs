@@ -601,6 +601,17 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 "and per credit for a credit. A license is matched to Graph's license pool by its SKU part number. Hourly cost is under Time saved, above."));
         }
 
+        /* 2.6.6: what Licensing > Credit use estimates credits and tokens with. */
+        Panels.Add(new("Credit estimate", new HtmlString(Form("credits",
+            Input("CreditsPerAnswer", "Credits a billed agent answer costs", V("CreditsPerAnswer"), 4) +
+            Input("CreditsPerGrounding", "Credits grounding in work data adds", V("CreditsPerGrounding"), 4) +
+            Input("CreditsPerAction", "Credits an agent action adds", V("CreditsPerAction"), 4) +
+            Input("TokensPerTurn", "Tokens a turn takes", V("TokensPerTurn"), 7, "number") +
+            Input("TokensPerResource", "Tokens each resource read adds", V("TokensPerResource"), 7, "number") +
+            Input("TokensPerAnswer", "Tokens an answer gives back", V("TokensPerAnswer"), 7, "number") + Button("Save"))),
+            "What Licensing > Credit use estimates with. Credits: Microsoft's list rates are 2 for a generative answer, 10 more for grounding in the organization's data, 5 for an action; " +
+            "a credit's price is the Copilot Credit, pay-as-you-go, under Costs and savings. Tokens are a rough figure (Microsoft reports none for Microsoft 365 Copilot): what a turn takes before grounding, what each file or mail read adds, and an answer.", "half"));
+
         /* 2.6.6: the suites, their price, what they include, and on or off. */
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.CostSuite', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
         {
@@ -618,6 +629,21 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 "set your agreement's. Off leaves a suite out of both pages. The E7 rows are Microsoft's announced part numbers' likely forms: check License pool for yours, and the license lookup's -CopilotSuiteSku with it."));
         }
     }
+
+    public Task<IActionResult> OnPostCreditsAsync(string? CreditsPerAnswer, string? CreditsPerGrounding, string? CreditsPerAction, string? TokensPerTurn, string? TokensPerResource, string? TokensPerAnswer) => AdminChangeAsync(async () =>
+    {
+        static decimal Num(string? v, string what, decimal min, decimal max) =>
+            decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) && d >= min && d <= max ? d : throw new ArgumentException($"{what} is a number from {min} to {max}.");
+        return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, new Dictionary<string, string?>
+        {
+            ["CreditsPerAnswer"] = Num(CreditsPerAnswer, "the credits an answer costs", 0, 100).ToString(CultureInfo.InvariantCulture),
+            ["CreditsPerGrounding"] = Num(CreditsPerGrounding, "the credits grounding adds", 0, 100).ToString(CultureInfo.InvariantCulture),
+            ["CreditsPerAction"] = Num(CreditsPerAction, "the credits an action adds", 0, 100).ToString(CultureInfo.InvariantCulture),
+            ["TokensPerTurn"] = SettingWriter.Int(TokensPerTurn, "Tokens a turn", 0, 200000).ToString(CultureInfo.InvariantCulture),
+            ["TokensPerResource"] = SettingWriter.Int(TokensPerResource, "Tokens a resource", 0, 200000).ToString(CultureInfo.InvariantCulture),
+            ["TokensPerAnswer"] = SettingWriter.Int(TokensPerAnswer, "Tokens an answer", 0, 200000).ToString(CultureInfo.InvariantCulture),
+        }));
+    });
 
     public Task<IActionResult> OnPostSuiteAsync(string? pattern, string? price, string? includes, string? enabled) => AdminChangeAsync(async () =>
     {

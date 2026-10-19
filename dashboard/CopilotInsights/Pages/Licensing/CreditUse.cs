@@ -1,0 +1,136 @@
+using System.Globalization;
+using System.Net;
+using CopilotInsights.Charts;
+using CopilotInsights.Data;
+using CopilotInsights.Infrastructure;
+using Microsoft.AspNetCore.Html;
+
+namespace CopilotInsights.Pages.Licensing;
+
+/// <summary>
+/// Copilot Credits, and tokens, by person (2.6.6): an estimate, since Microsoft reports neither per person. Every agent
+/// is counted (Copilot Studio's, Copilot Studio lite's in Microsoft 365 Copilot, SharePoint's), and every use that bills
+/// credits: an agent without a license, or in a Copilot Studio channel. For a credit policy: how the credits spread across
+/// people, who would reach a cap a month, and the agents and departments behind them. The rules are <see cref="CreditRules"/>.
+/// </summary>
+public sealed class CreditUseModel(PageServices s, CreditData credits) : InsightsPage(s)
+{
+    public override string Title => "Credit use";
+    public override string Persona => "Licensing";
+    public override string? RequiredRole => Roles.Licensing;
+    public override string Intro => "An estimate of the Copilot Credits each person's use costs, a month, and of the tokens behind it. Microsoft reports neither per person, so both are worked out from the audit log: "
+        + "each agent answer billed to the organization (an agent used without a Microsoft 365 Copilot license, or in a Copilot Studio channel) at the credits Admin > Targets and assumptions sets, more where it read work data or called another agent. "
+        + "A licensed person's agents inside Microsoft 365 Copilot, and Copilot Chat without an agent, bill nothing. Tokens are a rough figure for sizing, never a measurement.";
+
+    static readonly int[] Caps = [0, 250, 500, 1000, 2500, 5000];
+    static readonly Dictionary<string, string> Sorts = new() { ["credits"] = "credits", ["name"] = "name", ["dept"] = "dept", ["tokens"] = "tokens", ["inter"] = "inter", ["upn"] = "upn" };
+    static readonly Dictionary<string, string> SortLabels = new() { ["credits"] = "Most credits", ["tokens"] = "Most tokens", ["name"] = "Name", ["dept"] = "Department" };
+
+    protected override async Task BuildAsync()
+    {
+        var v = await credits.BuildAsync(Ctx);
+        var cur = v.Currency;
+        var r = v.Rates;
+        if (v.People.Count == 0) { Notice = "Nobody here used Copilot in the period."; return; }
+        var billed = v.People.Where(p => p.Month.Credits > 0).ToList();
+        var total = v.People.Aggregate(new CreditEstimate(0, 0, 0), (a, p) => new(a.Credits + p.Month.Credits, a.Cost + p.Month.Cost, a.Tokens + p.Month.Tokens));
+        var sorted = billed.Select(p => p.Month.Credits).OrderBy(x => x).ToList();
+        decimal Pct(double q) => sorted.Count == 0 ? 0 : sorted[Math.Clamp((int)Math.Ceiling(q * sorted.Count) - 1, 0, sorted.Count - 1)];
+        var top = billed.OrderByDescending(p => p.Month.Credits).Take(Math.Max(1, billed.Count / 10)).Sum(p => p.Month.Credits);
+        string N(decimal x) => x.ToString("#,0", CultureInfo.InvariantCulture);
+        string M(decimal x) => CostRules.Money(Math.Round(x, x >= 100 ? 0 : 2), cur);
+
+        Kpis.Add(new("Credits a month (estimate)", N(total.Credits), $"{M(total.Cost)} at {r.CreditPrice.ToString("0.###", CultureInfo.InvariantCulture)} {cur} a credit"));
+        Kpis.Add(new("People using credits", Num(billed.Count), $"of {v.People.Count:#,0} who used Copilot"));
+        Kpis.Add(new("Credits a person a month", billed.Count == 0 ? "—" : N(Pct(0.5)), billed.Count == 0 ? "nobody billed" : $"the median; the top tenth use {N(Pct(0.9))} or more"));
+        Kpis.Add(new("Tokens a month (rough)", CreditRules.Tokens(total.Tokens), "every interaction, at the token sizes set"));
+        if (total.Credits > 0) Kpis.Add(new("Top tenth's share", $"{top / total.Credits:P0}", "of the credits, by the people who use most"));
+
+        /* The use by kind: what bills and what does not, and why. */
+        long Sum(Func<CreditPerson, long> f) => v.People.Sum(f);
+        var all = Sum(p => p.Use.Interactions); var agent = Sum(p => p.Use.WithAgent); var bill = Sum(p => p.Use.Billed);
+        var work = Sum(p => p.Use.BilledWork); var calls = Sum(p => p.Use.BilledActions);
+        var scale = 30m / Math.Max(1, v.Days);
+        var kt = new Table { Headers = ["Use", "Interactions a month", "Credits each", "Credits a month"], Numeric = new HashSet<int> { 1, 2, 3 }, Sortable = false };
+        kt.Rows.Add(["Copilot without an agent (Copilot Chat, in the apps)", Math.Round((all - agent) * scale), 0, 0]);
+        kt.Rows.Add(["Agents a licensed person used inside Microsoft 365 Copilot", Math.Round((agent - bill) * scale), 0, 0]);
+        kt.Rows.Add(["Agent answers billed, without work data", Math.Round((bill - work) * scale), r.Generative, Math.Round((bill - work) * r.Generative * scale)]);
+        kt.Rows.Add(["Agent answers billed, grounded in work data", Math.Round(work * scale), r.Generative + r.Graph, Math.Round(work * (r.Generative + r.Graph) * scale)]);
+        kt.Rows.Add(["Of those, an agent calling another (an action)", Math.Round(calls * scale), r.Action, Math.Round(calls * r.Action * scale)]);
+        Panels.Add(new("What bills credits", kt.Render(),
+            "Billed: an agent used by someone without a Microsoft 365 Copilot license at the time, or in a Copilot Studio channel (Teams, a website), where a license does not cover it. Grounded: the answer read files, mail or pages, or Copilot marked it work mode. " +
+            "Credits each are Admin's; the list rates are 2 for a generative answer, 10 more for Graph grounding, 5 for an action. A classic, scripted answer costs less, so this errs high.", "half"));
+
+        /* How the credits spread: people by band. */
+        var bands = new (decimal From, decimal To, string Label)[] { (0.0001m, 100, "Under 100"), (100, 500, "100 to 500"), (500, 1000, "500 to 1,000"), (1000, 2500, "1,000 to 2,500"), (2500, 5000, "2,500 to 5,000"), (5000, decimal.MaxValue, "5,000 or more") };
+        var bars = bands.Select(b => new Bar(b.Label, billed.Count(p => p.Month.Credits >= b.From && p.Month.Credits < b.To))).ToList();
+        Panels.Add(new("People by credits a month", Chart.Bars(bars, Fmt.Count, "People by estimated Copilot Credits a month"),
+            "Each person billed credits in the period, by their estimate brought to a month. A credit policy usually caps the long tail on the right, or licenses it.", "half"));
+
+        /* A cap a person a month, for the policy. */
+        /* Unless one is chosen, the smallest cap the top tenth reaches: where a policy would start to bite. */
+        var p90 = Pct(0.9);
+        var cap = int.TryParse(Request.Query["cap"], out var cp) && Caps.Contains(cp) ? cp : Caps.Where(x => x > 0 && x >= p90).DefaultIfEmpty(Caps[^1]).First();
+        var (over, above) = CreditRules.Cap(billed.Select(p => p.Month.Credits), cap);
+        var licensePrice = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var lp) ? lp : 30m;
+        var licenseCredits = r.CreditPrice > 0 ? licensePrice / r.CreditPrice : 0;
+        var overLicense = billed.Count(p => !p.Licensed && p.Month.Credits >= licenseCredits && licenseCredits > 0);
+        var capLinks = string.Join(" ", Caps.Where(x => x > 0).Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"cap={x}"))}\"{(x == cap ? " class=\"on\"" : "")}>{x:#,0}</a>"));
+        Panels.Add(new($"A cap of {cap:#,0} credits a person a month", new HtmlString(
+            $"<p class=\"sub\">Try a cap: {capLinks}</p>" +
+            $"<div class=\"facts\"><div><span class=\"fl\">People who would reach it</span><b>{over:#,0}</b><p>of {billed.Count:#,0} billed</p></div>" +
+            $"<div><span class=\"fl\">Credits above it a month</span><b>{N(above)}</b><p>{M(above * r.CreditPrice)}: refused by the cap, or paid by a pack or a license</p></div>" +
+            $"<div><span class=\"fl\">Unlicensed people costing more than a license</span><b>{overLicense:#,0}</b><p>{N(licenseCredits)} credits or more a month: cheaper licensed, see Better with a license</p></div></div>"),
+            "Copilot Credits can be capped per person in the Power Platform admin center (or limited by environment and agent). This shows what a cap would touch, from the estimate.", "half"));
+
+        /* By department. */
+        var dt = new Table { Headers = ["Department", "People billed", "Credits a month", $"Cost a month ({cur})", "Credits a person", "Tokens a month (rough)"], Numeric = new HashSet<int> { 1, 2, 3, 4 } };
+        foreach (var g in billed.GroupBy(p => p.Department ?? "(none)").OrderByDescending(g => g.Sum(p => p.Month.Credits)).Take(15))
+        {
+            var n = g.Count();
+            dt.Rows.Add([g.Key, AtLeastMin(n), Math.Round(g.Sum(p => p.Month.Credits)), Math.Round(g.Sum(p => p.Month.Cost)), n >= Ctx.MinGroupSize ? Math.Round(g.Sum(p => p.Month.Credits) / n) : null,
+                CreditRules.Tokens(g.Sum(p => p.Month.Tokens))]);
+        }
+        Panels.Add(new("By department", dt.Render(), "The fifteen departments billed most. A credit a person is shown only where the minimum group size or more were billed.", "half"));
+
+        /* By agent. */
+        var at = new Table { Headers = ["Agent", "Built in", "People billed", "Billed answers a month", "Credits a month", $"Cost a month ({cur})"], Numeric = new HashSet<int> { 2, 3, 4, 5 } };
+        foreach (var a in v.Agents.Where(a => a.Month.Credits > 0).OrderByDescending(a => a.Month.Credits).Take(15))
+            at.Rows.Add([new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url("/agents/detail", extra: $"agent={a.AgentKey}"))}\">{WebUtility.HtmlEncode(a.Name)}</a>"), a.Source,
+                AtLeastMin(a.People), Math.Round(a.Use.Billed * scale), Math.Round(a.Month.Credits), Math.Round(a.Month.Cost)]);
+        Panels.Add(new("By agent", at.Rows.Count == 0 ? new HtmlString("<p class=\"muted\">No agent billed credits in the period.</p>") : at.Render(),
+            "The fifteen agents that billed most: the ones a policy or an environment limit acts on first.", "half"));
+
+        /* The people. */
+        var pg = new Paging(Request, Sorts, "credits");
+        IEnumerable<CreditPerson> shown = v.People.Where(p => p.Month.Credits > 0 || pg.SortKey == "tokens");
+        if (pg.Search is { } q)
+            shown = shown.Where(p => (p.Name ?? "").Contains(q, StringComparison.OrdinalIgnoreCase) || p.Upn.Contains(q, StringComparison.OrdinalIgnoreCase) || (p.Department ?? "").Contains(q, StringComparison.OrdinalIgnoreCase));
+        var ordered = (pg.SortKey switch
+        {
+            "name" => shown.OrderBy(p => p.Name ?? p.Upn, StringComparer.CurrentCulture),
+            "dept" => shown.OrderBy(p => p.Department ?? "", StringComparer.CurrentCulture).ThenBy(p => p.Name ?? p.Upn),
+            "tokens" => shown.OrderByDescending(p => p.Month.Tokens),
+            "inter" => shown.OrderByDescending(p => p.Use.Interactions),
+            "upn" => shown.OrderBy(p => p.Upn, StringComparer.OrdinalIgnoreCase),
+            _ => shown.OrderByDescending(p => p.Month.Credits).ThenBy(p => p.Name ?? p.Upn),
+        }).ToList();
+        if (pg.Reversed) ordered.Reverse();
+        pg.Total = ordered.Count;
+        var page = pg.ForExport ? ordered : ordered.Skip((pg.Page - 1) * Paging.PageSize).Take(Paging.PageSize).ToList();
+        var t = new Table
+        {
+            Headers = ["Name", "Sign-in", "Department", "Licensed", "Interactions a month", "Billed agent answers a month", "Credits a month", $"Cost a month ({cur})", "Tokens a month (rough)", $"Over a cap of {cap:#,0}"],
+            Numeric = new HashSet<int> { 4, 5, 6, 7 },
+            EmptyText = "Nobody's use billed credits in the period.",
+            Server = new(pg, Request, ["name", "upn", "dept", null, "inter", null, "credits", "credits", "tokens", null], new HashSet<int> { 4, 6, 7, 8 }),
+        };
+        foreach (var p in page)
+            t.Rows.Add([p.Name, p.Upn, p.Department, p.Licensed ? "Yes" : "No", Math.Round(p.Use.Interactions * scale), Math.Round(p.Use.Billed * scale), Math.Round(p.Month.Credits),
+                Math.Round(p.Month.Cost, 2), CreditRules.Tokens(p.Month.Tokens), p.Month.Credits > cap ? "Yes" : ""]);
+        CsvTable = t;
+        Panels.Add(new("People", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
+            $"Each person whose use billed credits, most first, brought to a month from the {v.Days} days the data covers. Tokens: every interaction at {r.TokensPerTurn:#,0} a turn, {r.TokensPerResource:#,0} a resource read and {r.TokensPerAnswer:#,0} an answer (Admin), a rough figure for sizing. " +
+            "Sort by tokens to see everyone, billed or not.", "full", CsvUrl()));
+    }
+}

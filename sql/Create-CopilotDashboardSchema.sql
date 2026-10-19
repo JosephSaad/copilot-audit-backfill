@@ -59,7 +59,14 @@ USING (VALUES
     ('FabricReservedDiscount', N'0.41', N'2.6.6: what a one-year reservation takes off a Fabric capacity''s pay-as-you-go price, as a fraction (0.41 is 41%).'),
     ('FlowMinutesPerRun', N'3', N'2.6.6: the minutes one run of a cloud flow saves, where the flow inventory gives none for it.'),
     ('PowerBiCopilotMinutes', N'3', N'2.6.6: the minutes one Copilot in Power BI or Fabric request saves an analyst.'),
-    ('CostIdleDays', N'30', N'2.6.6: a GitHub Copilot seat, a premium Power Platform license or a model deployment unused this many days counts as idle.')
+    ('CostIdleDays', N'30', N'2.6.6: a GitHub Copilot seat, a premium Power Platform license or a model deployment unused this many days counts as idle.'),
+    /* 2.6.6: what Licensing > Credit use estimates Copilot Credits and tokens with. */
+    ('CreditsPerAnswer', N'2', N'2.6.6: Copilot Credits a billed agent answer costs (a generative answer).'),
+    ('CreditsPerGrounding', N'10', N'2.6.6: Copilot Credits grounding a billed answer in the organization''s data (Microsoft Graph) adds.'),
+    ('CreditsPerAction', N'5', N'2.6.6: Copilot Credits an agent action adds; counted where an agent calls another.'),
+    ('TokensPerTurn', N'1500', N'2.6.6: the tokens one Copilot turn takes before grounding (instructions, prompt, history), for the rough token estimate.'),
+    ('TokensPerResource', N'1000', N'2.6.6: the tokens each file, mail or page read for grounding adds, for the rough token estimate.'),
+    ('TokensPerAnswer', N'400', N'2.6.6: the tokens one answer gives back, for the rough token estimate.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);

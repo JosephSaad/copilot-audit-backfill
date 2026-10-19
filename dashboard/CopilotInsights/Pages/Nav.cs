@@ -25,7 +25,7 @@ public static class Nav
             new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
             new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
-            new("Overlapping licenses", "/licensing/overlap", Roles.Licensing), new("Suite fit", "/licensing/suites", Roles.Licensing),
+            new("Overlapping licenses", "/licensing/overlap", Roles.Licensing), new("Suite fit", "/licensing/suites", Roles.Licensing), new("Credit use", "/licensing/credit-use", Roles.Licensing),
             new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing), new("Copilot on non-human accounts", "/licensing/non-person", Roles.Licensing),
             new("Departures ahead", "/licensing/departures", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [

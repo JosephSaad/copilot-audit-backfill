@@ -278,3 +278,41 @@ public class SuiteRulesTests
         Assert.NotNull(Guidance.For("/licensing/suites"));
     }
 }
+
+/// <summary>The credit estimate (2.6.6): credits for what bills, tokens for everything, a month at a time, and a cap.</summary>
+public class CreditRulesTests
+{
+    [Fact]
+    public void Only_billed_answers_cost_credits_more_for_work_data_and_actions()
+    {
+        /* 100 interactions, 40 with an agent, 30 billed: 10 of them grounded in work data, 2 calling another agent. */
+        var e = CreditRules.Estimate(new CreditUse(100, 40, 30, 10, 2, 50, 100), new CreditRates());
+        Assert.Equal(30 * 2 + 10 * 10 + 2 * 5, e.Credits);
+        Assert.Equal(1.7m, e.Cost);
+        Assert.Equal(100 * 1500L + 50 * 1000L + 100 * 400L, e.Tokens);
+        /* Nothing billed: no credits, but the tokens are still there. */
+        var free = CreditRules.Estimate(new CreditUse(10, 10, 0, 0, 0, 0, 10), new CreditRates());
+        Assert.Equal(0m, free.Credits);
+        Assert.True(free.Tokens > 0);
+    }
+
+    [Fact]
+    public void A_window_is_brought_to_thirty_days_and_a_cap_counts_who_reaches_it()
+    {
+        var m = CreditRules.Monthly(new CreditEstimate(150, 1.5m, 1000), 15);
+        Assert.Equal(300m, m.Credits);
+        Assert.Equal(2000L, m.Tokens);
+        Assert.Equal((2, 700m), CreditRules.Cap([100m, 600m, 1100m], 500));
+        Assert.Equal((0, 0m), CreditRules.Cap([100m, 600m], 0));
+        Assert.Equal("1.2M", CreditRules.Tokens(1_200_000));
+        Assert.Equal("340K", CreditRules.Tokens(340_000));
+    }
+
+    [Fact]
+    public void The_page_is_for_licensing_and_in_its_menu()
+    {
+        Assert.Contains(Nav.Groups.First(g => g.Persona == "Licensing").Pages, p => p.Path == "/licensing/credit-use");
+        Assert.NotNull(Guidance.For("/licensing/credit-use"));
+        Assert.Contains("RequiredRole => Roles.Licensing", Source.Read("Pages", "Licensing", "CreditUse.cs"));
+    }
+}

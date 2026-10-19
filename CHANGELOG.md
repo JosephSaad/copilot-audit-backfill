@@ -82,6 +82,13 @@ put your agreement's prices in Admin › Targets and assumptions.
     list to revoke (`dash.CopilotSuiteOnly`), and a move from the add-on to E7 keeps them licensed through it.
   - Admin › Targets and assumptions › *Suites*: each suite's price, what it includes, and on or off.
 
+- **Licensing › Credit use**: Copilot Credits, and tokens, by person, estimated from the audit log, since Microsoft
+  reports neither per person. Every agent (Copilot Studio, Copilot Studio lite, SharePoint) and every use that bills:
+  an agent used without a license, or in a Copilot Studio channel; more where it read work data or called another
+  agent. For a credit policy: people by credits a month, what a cap a person would touch, the departments and agents
+  that bill most, and the unlicensed people costing more than a license. Tokens are a rough figure for sizing. The
+  rates are Admin › Targets and assumptions › *Credit estimate*'s (Microsoft's list rates by default).
+
 ### Changed
 - **Every report's heading is shorter**: the title and who the page is for on one line, what it helps with and what
   to do on the next, and less space around them and the filter bar, so the figures start about 100 pixels higher. *Helps you* and *Do* stay whole, side by side where they fit.
