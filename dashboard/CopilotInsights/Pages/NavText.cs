@@ -39,6 +39,7 @@ public static class NavText
         ["/leadership/usecases"] = ("What Copilot is used for: email, meetings, writing, analysis, research and agents.", "What it is used for"),
         ["/leadership/value"] = ("An estimate of the hours Copilot saved and what they are worth.", "What it is used for"),
         ["/leadership/costs"] = ("What AI and automation cost, what can be saved, and what they return, all areas on one page.", "What it is used for"),
+        ["/leadership/reservations"] = ("Each organization's reserved Copilot seats against its licenses, and what it bills.", "Cost savings"),
         ["/leadership/boardpack"] = ("The program on one page for the board: use, targets, value, licenses and risk.", "Reporting"),
 
         ["/adoption"] = ("From license to habit: how many licensed people started, are active, and keep going.", "Overview"),
@@ -66,6 +67,7 @@ public static class NavText
         ["/licensing/overlap"] = ("People holding the Copilot license and another Copilot-family license too.", "Cost savings"),
         ["/licensing/credit-use"] = ("Copilot Credits and tokens by person and agent, estimated, with a cap to try.", "Cost savings"),
         ["/licensing/suites"] = ("Which of E3, E5 and E7 fits each holder: copies to drop, people to train, moves down.", "Cost savings"),
+        ["/licensing/reservation-holders"] = ("The people behind each organization's allocated Copilot licenses.", "Cost savings"),
         ["/licensing/leavers"] = ("Licenses on accounts that are disabled or have left: nobody can use them.", "Policy breaches"),
         ["/licensing/non-person"] = ("Copilot licenses on service, shared, test and other accounts that are not a person.", "Policy breaches"),
         ["/licensing/departures"] = ("License holders due to leave: reclaim each license on the last day.", "Changes ahead"),

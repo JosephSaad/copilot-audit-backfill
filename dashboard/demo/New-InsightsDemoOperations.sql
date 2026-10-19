@@ -138,3 +138,38 @@ IF OBJECT_ID(N'dash.FlagCase', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM d
     SELECT TOP (6) f.RecordId, CASE WHEN ROW_NUMBER() OVER (ORDER BY f.RecordId) <= 2 THEN 'Investigating' WHEN ROW_NUMBER() OVER (ORDER BY f.RecordId) <= 4 THEN 'Closed' ELSE 'FalsePositive' END,
            N'mei.osei@contoso.com', N'Demo triage', N'mei.osei@contoso.com'
     FROM bi.FactInteraction AS f WHERE f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 ORDER BY f.RecordId;
+
+/* 2.6.8: the reservation register for Leadership > Copilot reservations: fifteen organizations, as a client's policy
+   has them, some inside others (the nearer leader takes their people), one over its reservation, some under, and
+   Executive Leadership as a pool with no one under it. The rate is 18 a seat a month (30 less 40%), from January; the
+   purchase gate counts from 120 unassigned add-on licenses. Two service accounts and a test account are approved
+   Technology-funded allocations; the rest of the detected non-human accounts stay candidates. */
+IF OBJECT_ID(N'dash.Reservation', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.Reservation)
+BEGIN
+    DECLARE @resYear DATE = DATEFROMPARTS(YEAR(GETDATE()), 1, 1);
+    INSERT INTO dash.Reservation (OrgId, Name, LeaderUpn, CostCenter, Reserved, EffectiveFrom, Note, UpdatedBy)
+    VALUES (N'LOB-TECH',     N'Technology',              N'riley.rossi@contoso.com',   N'CC-1100', 230, @resYear, NULL, N'demo'),
+           (N'LOB-TECH-SEC', N'Security',                N'mei.osei@contoso.com',      N'CC-1140', 150, @resYear, NULL, N'demo'),
+           (N'LOB-TECH-DA',  N'Data and Analytics',      N'ivan.smith@contoso.com',    N'CC-1160', 140, @resYear, NULL, N'demo'),
+           (N'LOB-TECH-ENG', N'Engineering',             N'aisha.murphy@contoso.com',  N'CC-1120', 120, @resYear, NULL, N'demo'),
+           (N'LOB-SALES',    N'Sales',                   N'morgan.petrov@contoso.com', N'CC-2100', 420, @resYear, NULL, N'demo'),
+           (N'LOB-SALES-OPS',N'Sales Operations',        N'grace.pereira@contoso.com', N'CC-2140', 100, @resYear, NULL, N'demo'),
+           (N'LOB-FIN',      N'Finance',                 N'jordan.mensah@contoso.com', N'CC-3100', 300, @resYear, NULL, N'demo'),
+           (N'LOB-FIN-ACC',  N'Accounting',              N'alex.saleh@contoso.com',    N'CC-3120', 100, @resYear, NULL, N'demo'),
+           (N'LOB-PEOPLE',   N'People',                  N'casey.ivanova@contoso.com', N'CC-4100', 320, @resYear, NULL, N'demo'),
+           (N'LOB-OPS',      N'Operations',              N'taylor.bauer@contoso.com',  N'CC-5100', 290, @resYear, NULL, N'demo'),
+           (N'LOB-OPS-SC',   N'Supply Chain',            N'fatima.brown@contoso.com',  N'CC-5140',  60, @resYear, NULL, N'demo'),
+           (N'LOB-LEGAL',    N'Legal',                   N'jamie.mahmoud@contoso.com', N'CC-6100', 240, @resYear, NULL, N'demo'),
+           (N'LOB-LEGAL-CMP',N'Compliance',              N'hannah.walsh@contoso.com',  N'CC-6120',  50, @resYear, NULL, N'demo'),
+           (N'LOB-RISK',     N'Risk',                    N'marco.novak@contoso.com',   N'CC-6140',  40, @resYear, NULL, N'demo'),
+           (N'LOB-EXEC',     N'Executive Leadership',    NULL,                         N'CC-0100',  17, @resYear, N'A pool with no one under it in the org chart.', N'demo');
+    INSERT INTO dash.ReservationRate (EffectiveFrom, MonthlyRate, Note, UpdatedBy)
+    VALUES (@resYear, 18, N'Microsoft 365 Copilot at 30 a month, less 40%.', N'demo');
+    INSERT INTO dash.TechnologyAllocation (Upn, Category, Owner, ApprovalRef, EffectiveFrom, ReviewDate, Note, UpdatedBy)
+    SELECT v.Upn, v.Category, N'lucas.reyes@contoso.com', v.Ref, @resYear, DATEADD(MONTH, v.Months, CAST(GETDATE() AS DATE)), NULL, N'demo'
+    FROM (VALUES (N'svc-copilot-reports@contoso.com', N'Service', N'CHG-20431', 6),
+                 (N'shared.finance@contoso.com',       N'Shared',  N'CHG-20457', 3),
+                 (N'test.copilot01@contoso.com',       N'Test',    N'CHG-20502', -1)) AS v (Upn, Category, Ref, Months)
+    WHERE EXISTS (SELECT 1 FROM audit.CopilotLicense AS c WHERE c.UserPrincipalName = v.Upn);
+    UPDATE dash.Setting SET Value = N'120' WHERE Name = N'ReservationGateBaseline';
+END;

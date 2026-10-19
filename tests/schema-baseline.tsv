@@ -1,4 +1,4 @@
-# release 2.6.7
+# release 2.6.8
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1234,6 +1234,33 @@ C	copilot	dash.RefreshRun	U	6	People	int	0
 C	copilot	dash.RefreshRun	U	7	ClosureRows	int	0	
 C	copilot	dash.RefreshRun	U	8	UserDayRows	int	0	
 C	copilot	dash.RefreshRun	U	9	BiRunId	int	1	
+C	copilot	dash.Reservation	U	1	ReservationId	int	0	I
+C	copilot	dash.Reservation	U	10	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.Reservation	U	11	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.Reservation	U	2	OrgId	nvarchar(64)	0	
+C	copilot	dash.Reservation	U	3	Name	nvarchar(200)	0	
+C	copilot	dash.Reservation	U	4	LeaderUpn	nvarchar(256)	1	
+C	copilot	dash.Reservation	U	5	CostCenter	nvarchar(100)	1	
+C	copilot	dash.Reservation	U	6	Reserved	int	0	
+C	copilot	dash.Reservation	U	7	EffectiveFrom	date	0	
+C	copilot	dash.Reservation	U	8	EffectiveTo	date	1	
+C	copilot	dash.Reservation	U	9	Note	nvarchar(400)	1	
+C	copilot	dash.ReservationRate	U	1	EffectiveFrom	date	0	
+C	copilot	dash.ReservationRate	U	2	MonthlyRate	decimal(12,2)	0	
+C	copilot	dash.ReservationRate	U	3	Currency	nvarchar(8)	1	
+C	copilot	dash.ReservationRate	U	4	Note	nvarchar(400)	1	
+C	copilot	dash.ReservationRate	U	5	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.ReservationRate	U	6	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.ReservationSnapshot	U	1	SnapshotDate	date	0	
+C	copilot	dash.ReservationSnapshot	U	10	TakenUtc	datetime2(0)	0	D
+C	copilot	dash.ReservationSnapshot	U	2	OrgId	nvarchar(64)	0	
+C	copilot	dash.ReservationSnapshot	U	3	Name	nvarchar(200)	0	
+C	copilot	dash.ReservationSnapshot	U	4	LeaderUpn	nvarchar(256)	1	
+C	copilot	dash.ReservationSnapshot	U	5	CostCenter	nvarchar(100)	1	
+C	copilot	dash.ReservationSnapshot	U	6	Reserved	int	0	
+C	copilot	dash.ReservationSnapshot	U	7	Allocated	int	0	
+C	copilot	dash.ReservationSnapshot	U	8	MonthlyRate	decimal(12,2)	1	
+C	copilot	dash.ReservationSnapshot	U	9	State	varchar(16)	0	D
 C	copilot	dash.ResourceDay	U	1	DateKey	int	0	
 C	copilot	dash.ResourceDay	U	2	UserKey	int	0	
 C	copilot	dash.ResourceDay	U	3	Kind	varchar(8)	0	
@@ -1293,6 +1320,15 @@ C	copilot	dash.Target	U	6	DueDate	date	0
 C	copilot	dash.Target	U	7	Note	nvarchar(400)	1	
 C	copilot	dash.Target	U	8	CreatedBy	nvarchar(256)	0	
 C	copilot	dash.Target	U	9	CreatedUtc	datetime2(0)	0	D
+C	copilot	dash.TechnologyAllocation	U	1	Upn	nvarchar(256)	0	
+C	copilot	dash.TechnologyAllocation	U	2	Category	nvarchar(40)	0	
+C	copilot	dash.TechnologyAllocation	U	3	Owner	nvarchar(256)	0	
+C	copilot	dash.TechnologyAllocation	U	4	ApprovalRef	nvarchar(200)	1	
+C	copilot	dash.TechnologyAllocation	U	5	EffectiveFrom	date	0	
+C	copilot	dash.TechnologyAllocation	U	6	ReviewDate	date	1	
+C	copilot	dash.TechnologyAllocation	U	7	Note	nvarchar(400)	1	
+C	copilot	dash.TechnologyAllocation	U	8	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.TechnologyAllocation	U	9	UpdatedUtc	datetime2(0)	0	D
 C	copilot	dash.TimeSaving	U	1	App	nvarchar(200)	0	
 C	copilot	dash.TimeSaving	U	2	Minutes	decimal(6,2)	0	
 C	copilot	dash.TimeSaving	U	3	UpdatedBy	nvarchar(256)	0	
@@ -1332,6 +1368,9 @@ C	copilot	dash.ValueName	U	3	Name	nvarchar(200)	0
 C	copilot	dash.ValueName	U	4	Note	nvarchar(400)	1	
 C	copilot	dash.ValueName	U	5	UpdatedBy	nvarchar(256)	0	
 C	copilot	dash.ValueName	U	6	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.fnReservationMember	IF	1	ReservationId	int	0	
+C	copilot	dash.fnReservationMember	IF	2	UserKey	int	0	
+C	copilot	dash.fnReservationMember	IF	3	Upn	nvarchar(512)	0	
 C	copilot	dash.fnScopeUsers	IF	1	UserKey	int	0	
 C	license	audit.AgentEvent	U	1	RecordId	varchar(64)	0	
 C	license	audit.AgentEvent	U	10	ResultStatus	nvarchar(50)	1	
@@ -1552,12 +1591,15 @@ G	copilot	CopilotInsightsApp	DELETE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseContract
 G	copilot	CopilotInsightsApp	DELETE	dash.NonHumanException
+G	copilot	CopilotInsightsApp	DELETE	dash.Reservation
+G	copilot	CopilotInsightsApp	DELETE	dash.ReservationRate
 G	copilot	CopilotInsightsApp	DELETE	dash.RoleGrant
 G	copilot	CopilotInsightsApp	DELETE	dash.SavedView
 G	copilot	CopilotInsightsApp	DELETE	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	DELETE	dash.Setting
 G	copilot	CopilotInsightsApp	DELETE	dash.Subscription
 G	copilot	CopilotInsightsApp	DELETE	dash.Target
+G	copilot	CopilotInsightsApp	DELETE	dash.TechnologyAllocation
 G	copilot	CopilotInsightsApp	DELETE	dash.TimeSaving
 G	copilot	CopilotInsightsApp	DELETE	dash.TrainingAttendance
 G	copilot	CopilotInsightsApp	DELETE	dash.UseCaseRule
@@ -1583,12 +1625,15 @@ G	copilot	CopilotInsightsApp	INSERT	dash.LicenseAction
 G	copilot	CopilotInsightsApp	INSERT	dash.LicenseContract
 G	copilot	CopilotInsightsApp	INSERT	dash.NonHumanException
 G	copilot	CopilotInsightsApp	INSERT	dash.NotificationLog
+G	copilot	CopilotInsightsApp	INSERT	dash.Reservation
+G	copilot	CopilotInsightsApp	INSERT	dash.ReservationRate
 G	copilot	CopilotInsightsApp	INSERT	dash.RoleGrant
 G	copilot	CopilotInsightsApp	INSERT	dash.SavedView
 G	copilot	CopilotInsightsApp	INSERT	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	INSERT	dash.Setting
 G	copilot	CopilotInsightsApp	INSERT	dash.Subscription
 G	copilot	CopilotInsightsApp	INSERT	dash.Target
+G	copilot	CopilotInsightsApp	INSERT	dash.TechnologyAllocation
 G	copilot	CopilotInsightsApp	INSERT	dash.TimeSaving
 G	copilot	CopilotInsightsApp	INSERT	dash.TrainingAttendance
 G	copilot	CopilotInsightsApp	INSERT	dash.UseCaseRule
@@ -1641,12 +1686,15 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseContract
 G	copilot	CopilotInsightsApp	UPDATE	dash.NonHumanException
+G	copilot	CopilotInsightsApp	UPDATE	dash.Reservation
+G	copilot	CopilotInsightsApp	UPDATE	dash.ReservationRate
 G	copilot	CopilotInsightsApp	UPDATE	dash.RoleGrant
 G	copilot	CopilotInsightsApp	UPDATE	dash.SavedView
 G	copilot	CopilotInsightsApp	UPDATE	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	UPDATE	dash.Setting
 G	copilot	CopilotInsightsApp	UPDATE	dash.Subscription
 G	copilot	CopilotInsightsApp	UPDATE	dash.Target
+G	copilot	CopilotInsightsApp	UPDATE	dash.TechnologyAllocation
 G	copilot	CopilotInsightsApp	UPDATE	dash.TimeSaving
 G	copilot	CopilotInsightsApp	UPDATE	dash.TrainingAttendance
 G	copilot	CopilotInsightsApp	UPDATE	dash.UseCaseRule
@@ -1817,6 +1865,9 @@ O	copilot	dash.NotificationLog	U
 O	copilot	dash.OrgClosure	U
 O	copilot	dash.Person	U
 O	copilot	dash.RefreshRun	U
+O	copilot	dash.Reservation	U
+O	copilot	dash.ReservationRate	U
+O	copilot	dash.ReservationSnapshot	U
 O	copilot	dash.ResourceDay	U
 O	copilot	dash.RoleGrant	U
 O	copilot	dash.SavedView	U
@@ -1825,11 +1876,13 @@ O	copilot	dash.SensitivityLabel	U
 O	copilot	dash.Setting	U
 O	copilot	dash.Subscription	U
 O	copilot	dash.Target	U
+O	copilot	dash.TechnologyAllocation	U
 O	copilot	dash.TimeSaving	U
 O	copilot	dash.TrainingAttendance	U
 O	copilot	dash.UseCaseRule	U
 O	copilot	dash.UserDay	U
 O	copilot	dash.ValueName	U
+O	copilot	dash.fnReservationMember	IF
 O	copilot	dash.fnScopeUsers	IF
 O	copilot	dash.fnValueName	FN
 O	copilot	dash.usp_ApplyRetention	P
@@ -1837,6 +1890,7 @@ O	copilot	dash.usp_GetSecret	P
 O	copilot	dash.usp_RefreshDashboard	P
 O	copilot	dash.usp_SetPrivacyMode	P
 O	copilot	dash.usp_SetSecret	P
+O	copilot	dash.usp_TakeReservationSnapshot	P
 O	license	audit.AgentEvent	U
 O	license	audit.CopilotAuditStage	U
 O	license	audit.CopilotBackfillRange	U
@@ -1893,6 +1947,7 @@ P	copilot	bi.usp_MergeAgents	P	1	@BatchSize	int	0	1
 P	copilot	bi.usp_RefreshBi	P	1	@SinceUtc	datetime2(0)	0	1
 P	copilot	bi.usp_RefreshBi	P	2	@ReportingTimeZone	sysname	0	1
 P	copilot	bi.usp_RefreshBi	P	3	@LicenseEventDatabase	nvarchar(1000)	0	1
+P	copilot	dash.fnReservationMember	IF	1	@AsOf	date	0	0
 P	copilot	dash.fnScopeUsers	IF	1	@RootUpn	nvarchar(256)	0	0
 P	copilot	dash.fnValueName	FN	1	@ColumnId	smallint	0	0
 P	copilot	dash.fnValueName	FN	2	@Value	nvarchar(400)	0	0
@@ -1904,6 +1959,7 @@ P	copilot	dash.usp_SetPrivacyMode	P	2	@By	nvarchar(256)	0	0
 P	copilot	dash.usp_SetSecret	P	1	@Name	varchar(64)	0	0
 P	copilot	dash.usp_SetSecret	P	2	@Value	nvarchar(2000)	0	0
 P	copilot	dash.usp_SetSecret	P	3	@By	nvarchar(256)	0	0
+P	copilot	dash.usp_TakeReservationSnapshot	P	1	@AsOf	date	0	1
 P	license	audit.fnShredCopilotInteraction	IF	1	@AuditDataGz	varbinary(max)	0	0
 P	license	audit.usp_MergeCopilotLoad	P	1	@ReportingTimeZone	sysname	0	1
 P	license	audit.usp_RefreshLicenseSkuChange	P	1	@All	bit	0	1

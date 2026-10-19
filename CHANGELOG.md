@@ -4,6 +4,68 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.8] - 2026-10-19
+
+Microsoft 365 Copilot reservations and chargeback: **Leadership › Copilot reservations** sets each line of business's
+reserved seats against the add-on licenses its people hold, and shows what that bills, as the client's reservation
+policy defines it: reserved, allocated, unused, over, billable, utilization and the monthly and remaining obligation by
+organization, the reconciliation with the license pool, the purchase gate, exceptions to clear, and month-end snapshots
+kept as they were. It is the current operational state, never certified; certification, adjustments, OIM intent and
+the December close follow in later releases.
+
+To upgrade from 2.6.7: with the nightly task disabled, replace the job server's scripts (the pipeline now keeps the
+month-end snapshot), run `Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once, then install the dashboard
+package over the one in place and enable the task again. The installer adds four tables (`dash.Reservation`,
+`dash.ReservationRate`, `dash.TechnologyAllocation`, `dash.ReservationSnapshot`), the function
+`dash.fnReservationMember`, the procedure `dash.usp_TakeReservationSnapshot` and two settings; nothing existing
+changes. Then, on Leadership › Copilot reservations, an administrator pastes the reservation register (Org ID,
+organization, leader's sign-in, reserved, from), adds the rate (18 a license a month for 30 less 40%), sets the
+purchase-gate baseline, and approves the Technology-funded accounts. The first snapshot is kept the next night.
+
+### Added
+- **Leadership › Copilot reservations.** For leaders, each seeing the organizations led from inside their part of the
+  organization; the whole-organization view and the Licensing role see all.
+  - A state line first: *Current operational state, not certified*, the day of the licenses read, and that billable
+    licenses follow the policy's rule pending Finance's confirmation; or, for a snapshot, *Operational, not certified*
+    and the day it was kept.
+  - Figures: reserved; Entra allocated (the Microsoft 365 Copilot add-on); unused reserved capacity (the sum of
+    MAX(reserved − allocated, 0) by organization); allocation over reservation (the sum of MAX(allocated − reserved,
+    0)); billable (reserved plus allocation over reservation); the monthly obligation (billable times the rate in force)
+    and the remaining obligation (the months left in the year); add-on holders under no listed leader; the
+    Technology-funded pool. Without a rate the obligations read *Pending Finance Decision*.
+  - One row for each organization: Org ID, leader, cost center, reserved, allocated, unused, over, billable,
+    utilization (N/A with nothing reserved), status (*Within*, *At* or *Over reservation*, *No reservation*, *Data
+    exception*) and its monthly obligation, then those under no listed leader, the Technology pool and the total.
+  - **Reconciliation and purchase gate**, for the whole organization: the add-on licenses bought, assigned and
+    unassigned; the holders as counted here, and the difference to reconcile; the unused reserved capacity beside the
+    unassigned inventory; and the purchase gate (no purchase until 95% of the baseline's unassigned licenses are
+    assigned: at 1,136, 1,079, leaving a buffer of 57).
+  - **Exceptions**: leaders not in the directory, a leader on two organizations, holders under no listed leader,
+    non-human-looking accounts not in the Technology register, Technology allocations past their review date, licenses
+    on disabled or departed accounts, and no rate in force; each with what to do and where.
+  - **Month-end snapshots**, each kept once by the nightly run and never rewritten, with *View* to show one as it was.
+  - For administrators: the **reservation register** (one at a time, or pasted from a spreadsheet, all checked before
+    any is added), the **rate** by effective date, the **purchase gate**, and the **Technology-funded register**
+    (account, category, accountable owner, approval reference, from and review dates). Every change is audited.
+- **Licensing › Reservation holders**: the people an organization's allocated licenses count, those under no listed
+  leader, or the Technology pool, with manager, licensed since and last use. For the Licensing role.
+- `dash.usp_TakeReservationSnapshot`, run by the nightly pipeline after the licenses are read (a failure is logged and
+  fails nothing), and `dash.fnReservationMember`.
+
+### Known limits
+- **Who counts where is a default**: an organization's people are everyone under its leader in the org chart, and a
+  person under two listed leaders counts with the nearer one. A persistent chargeback hierarchy from another source, and
+  cost-center mapping beyond the register's column, are not read.
+- **Billable follows the policy's MAX(reserved, allocated) rule**, labeled pending Finance confirmation: the
+  reserved-capacity proposal would bill on reservations alone. The purchase gate counts unassigned inventory; which pool
+  it should count is Finance's to decide, and the unused reserved capacity is shown beside it.
+- **Not yet built**: OIM approved intent, certification and sign-off, adjustments with approval lineage, recovery and
+  overlap, true-down credits and new-reservation charges, the December close and the January chargeback output, and
+  the masking of named users by role. Snapshots use the org chart of the night they were kept.
+- **Tested on the demo database** (5,000 people, 15 reservations) and the SQL integration suite, not on the client's
+  register or tenant.
+- **A full bi rebuild can still take minutes on one month**, as in 2.6.6 and 2.6.7: its fix follows in its own release.
+
 ## [2.6.7] - 2026-10-19
 
 A headline figure now opens a page that shows the same number, or has no link: a check that followed every linked
@@ -3220,7 +3282,7 @@ the web servers and the users are in different domains.
   - licence changes: time held before removal, removals from people still using it, licences given back;
   - a leadership scorecard;
   - retention and habit cohorts;
-  - signals and labelled content by unit;
+  - signals and labeled content by unit;
   - agent hand-offs;
   - conversation depth;
   - governance controls;
@@ -3605,7 +3667,7 @@ detail, and a planner that sizes windows from what it actually loads.
   carry the old CSVs' exact column names and formats.
   - The script's rules: a new session after 60 minutes idle or on a new
     calendar day in the reporting time zone; primary app and licence from the
-    first prompt; weeks run Saturday to Friday, labelled by the Friday, week 1
+    first prompt; weeks run Saturday to Friday, labeled by the Friday, week 1
     ending on the year's first Friday; a session counts in the week of its
     last prompt.
   - Two settings where the Graph data differs from the CSV. The script's
