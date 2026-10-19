@@ -36,11 +36,25 @@
     Every step resumes where it stopped, so after Ctrl+C or a reboot the same
     command carries on.
 
+    -PowerAppsActivity (2.6.9, from a console): only who used Power Apps,
+    from the audit log's Power Apps records, for -Days days (else
+    PowerAppsActivityDays in the settings, else 30), into
+    audit.PowerPlatformUserActivity: tools\Import-PowerAppsActivity.ps1 for
+    each tenant, signed in as its app. Nothing else is loaded, nor recorded as
+    a pipeline run; the load records itself in audit.ExternalUsageRun. With
+    PowerAppsActivity = $true in the settings, the nightly run does the same
+    as an optional last step.
+
 .PARAMETER History
     Load the history instead of the nightly run.
 
+.PARAMETER PowerAppsActivity
+    Load only who used Power Apps, for -Days days (2.6.9).
+
 .PARAMETER Days
     How many days of history (-History). Default: HistoryDays in the settings, 180.
+    With -PowerAppsActivity, how many days of Power Apps records: default
+    PowerAppsActivityDays in the settings, 30.
 
 .PARAMETER Tenant
     With several tenants (Tenants in the settings), run only this one, by
@@ -65,11 +79,14 @@
     .\Invoke-CopilotPipeline.ps1 -History
 .EXAMPLE
     .\Invoke-CopilotPipeline.ps1          # what the nightly task runs
+.EXAMPLE
+    .\Invoke-CopilotPipeline.ps1 -PowerAppsActivity -Days 180   # only who used Power Apps, 180 days back
 #>
 #Requires -Version 7.2
 [CmdletBinding()]
 param(
     [switch] $History,
+    [switch] $PowerAppsActivity,
     [ValidateRange(1, 3650)][int] $Days,
     [string] $Tenant,
     [string] $SettingsPath
@@ -140,7 +157,7 @@ function Get-PipelineStep {
         the plan out, so the plan can be tested without running anything.
     #>
     param([System.Collections.IDictionary] $Setting, [switch] $History, [int] $Days, [datetime] $Today = [datetime]::UtcNow.Date,
-          [string] $Root = $PSScriptRoot)
+          [string] $Root = $PSScriptRoot, [switch] $PowerAppsActivity)
     function Has($k) { $Setting.Contains($k) -and $Setting[$k] }
     $app = @{ TenantId = $Setting.TenantId; ClientId = $Setting.ClientId; CertificateThumbprint = $Setting.CertificateThumbprint }
     $sql = @{ SqlServer = $Setting.SqlServer }
@@ -160,6 +177,18 @@ function Get-PipelineStep {
     }
     function Add($name, $script, $argsTable, [switch] $Optional) {
         $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
+    }
+    # Who used Power Apps (2.6.9), from the audit log's Power Apps records, signed in as this tenant's app. Everything
+    # is passed, so each tenant loads into its own database as its own app; the days are -Days, else the setting, else 30.
+    $powerApps = {
+        param([int] $n)
+        $pa = $sql + $app + @{ Database = $Setting.Database }
+        if ($n) { $pa.Days = $n } elseif (Has 'PowerAppsActivityDays') { $pa.Days = [int] $Setting.PowerAppsActivityDays }
+        Add 'Power Apps activity' 'tools/Import-PowerAppsActivity.ps1' (Drop $pa 'PowerAppsActivityMaxDropPercent') -Optional
+    }
+    if ($PowerAppsActivity) {
+        & $powerApps $Days
+        return , $steps.ToArray()
     }
 
     $directory = {
@@ -225,6 +254,7 @@ function Get-PipelineStep {
                            CertificateThumbprint = $(if (Has 'FoundryCertificateThumbprint') { $Setting.FoundryCertificateThumbprint } else { $Setting.CertificateThumbprint }) }
             Add 'Foundry usage and cost' 'tools/Import-FoundryUsage.ps1' (Drop $f 'FoundryDeploymentMaxDropPercent') -Optional
         }
+        if (Has 'PowerAppsActivity') { & $powerApps 0 }
     }
     , $steps.ToArray()
 }
@@ -246,6 +276,9 @@ function Get-PipelineSkipNote {
     }
     elseif (-not ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
         $notes.Add('Foundry usage and cost: skipped, FoundrySubscriptions is set but there is no certificate to sign in with (FoundryCertificateThumbprint, or CertificateThumbprint).')
+    }
+    if (-not (Has 'PowerAppsActivity')) {
+        $notes.Add('Power Apps activity: skipped, not configured (set PowerAppsActivity = $true in the settings file to load it).')
     }
     , $notes.ToArray()
 }
@@ -519,12 +552,38 @@ function Invoke-TenantRun {
     $true
 }
 
+function Invoke-PowerAppsActivityRun {
+    <#
+        -PowerAppsActivity (2.6.9): the Power Apps activity load alone, for one tenant. Not a pipeline run: no row in
+        audit.PipelineRun, so Admin > Health's last night is still the last night; the load records itself in
+        audit.ExternalUsageRun. Returns $true when it loaded, or when the delete guard kept the last load (said in
+        the log).
+    #>
+    param([System.Collections.IDictionary] $T, [string] $Log, [string] $Label)
+    foreach ($step in (Get-PipelineStep -Setting $T -PowerAppsActivity -Days $Days)) {
+        if ($Label) { $step.Name = "$Label $($step.Name)" }
+        $code = Invoke-PipelineStep -Step $step -Log $Log
+        if ($code -eq $script:DropRefusedExitCode) {
+            "$(Get-Date -Format s) $($step.Name) was refused by the delete guard: the Power Apps rows keep the last good load (the reason is above). Run again with fewer missing days, or pass -AllowDrop to tools\Import-PowerAppsActivity.ps1." |
+                Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+            continue
+        }
+        if ($code -ne 0) {
+            "$(Get-Date -Format s) $($step.Name) failed (exit code $code). Its reason is above, and in audit.ExternalUsageRun (Admin > Health)." |
+                Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+            return $false
+        }
+    }
+    $true
+}
+
 function Invoke-Main {
+    if ($History -and $PowerAppsActivity) { throw 'Give -History or -PowerAppsActivity, not both.' }
     $s = Get-PipelineSetting $SettingsPath
     $logDir = if ($s.Contains('LogPath') -and $s.LogPath) { $s.LogPath } else { Join-Path $PSScriptRoot 'logs' }
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     # A log of its own for each run (2.5.6): a second run on one day appended to the first's.
-    $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($History) { 'history' } else { 'nightly' }), (Get-Date))
+    $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($History) { 'history' } elseif ($PowerAppsActivity) { 'powerapps' } else { 'nightly' }), (Get-Date))
     $keep = if ($s.Contains('LogRetentionDays') -and $s.LogRetentionDays) { [int] $s.LogRetentionDays } else { 90 }
     Get-ChildItem -LiteralPath $logDir -Filter '*.log' | Where-Object LastWriteTime -lt (Get-Date).AddDays(-$keep) | Remove-Item -ErrorAction SilentlyContinue
 
@@ -539,7 +598,7 @@ function Invoke-Main {
         $ok = $false; $lock = $null
         try {
             $lock = Enter-PipelineRun $t
-            if ($lock) { $ok = Invoke-TenantRun -T $t -Log $log -Label $label }
+            if ($lock) { $ok = if ($PowerAppsActivity) { Invoke-PowerAppsActivityRun -T $t -Log $log -Label $label } else { Invoke-TenantRun -T $t -Log $log -Label $label } }
             else {
                 "$(Get-Date -Format s) $label Another run is using $($t.Database) now (the nightly task, an upgrade or a rebuild): nothing was run. Run this again when it has finished." |
                     Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue

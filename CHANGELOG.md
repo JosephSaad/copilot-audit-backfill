@@ -4,6 +4,49 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.9] - Unreleased
+
+Who used Power Apps comes from the audit log, with the app the Copilot load already uses: one command loads it as far
+back as asked, and the nightly run can keep it current. Leadership › Costs and savings then finds Power Apps licenses
+nobody used without a CSV export.
+
+To upgrade from 2.6.8: with the nightly task disabled, replace the job server's scripts and enable the task again.
+Nothing in the databases or the dashboard changes. To load the history once:
+`.\Invoke-CopilotPipeline.ps1 -PowerAppsActivity -Days 180`; to keep it every night, add `PowerAppsActivity = $true`
+(and `PowerAppsActivityDays`, 30 by default) to `copilot-audit.settings.psd1`.
+
+### Added
+- **`tools\Import-PowerAppsActivity.ps1`.** Searches the audit log for Power Apps' own records (record type
+  `powerAppsApp`: an app launched, created, edited, shared or deleted) through Microsoft Graph's audit search, signed
+  in as the pipeline's app by its certificate. `AuditLogsQuery.Read.All` already covers every record type, so nothing
+  new is granted. Each person becomes one row of `audit.PowerPlatformUserActivity`, product `Power Apps`: the last time
+  a record names them, and on how many of the last 30 days they used it. Nothing else about the records is kept.
+  - **`-Days`**, 1 to 365, ending yesterday (UTC). Microsoft keeps audit records for 180 days unless a retention
+    policy kept more.
+  - **Only the Power Apps rows are replaced**; Power BI or Power Automate rows a CSV loaded stay. The delete guard holds
+    a run that finds more than `PowerAppsActivityMaxDropPercent` (15) fewer people; `-AllowDrop` lets it through once.
+    A refused run ends with exit code 3, as the other guarded loads do.
+  - **The searches:** one window for the whole range; a window Graph says passed its record cap is split in two and
+    searched again, down to an hour. A run stops after `-MaxSearches` (20), as the daily budget of audit searches is
+    the tenant's, shared with the Copilot load. Each run is a row of `audit.ExternalUsageRun`, source `PowerApps`.
+- **`Invoke-CopilotPipeline.ps1 -PowerAppsActivity -Days N`** runs that load alone, for each tenant in the settings as
+  its own app, and is not recorded as a pipeline run, so Admin › Health's last night stays the last night. With
+  `PowerAppsActivity = $true` in the settings, the nightly run calls it as its last, optional step; without, the log
+  says it was skipped.
+- `tests\Test-PowerAppsActivity.ps1`, against the Graph stand-in, which now answers a search for Power Apps' records.
+
+### Changed
+- Signing in as an app by its certificate (`New-ClientAssertion`, `Get-AppOnlyToken`) moved from the Foundry loader to
+  `tools\ExternalUsage.Common.ps1`, which both loaders use.
+
+### Known limits
+- **Not run against a real tenant.** The record type name is Graph's documented `powerAppsApp`, and the searches,
+  pages and cap splitting ran against the stand-in only. Check the first run's people against Purview's Audit search
+  for the same days.
+- **Admin › Health does not show it yet**: its panel lists GitHub Copilot and Foundry. Read the run in
+  `audit.ExternalUsageRun` (`WHERE Source = 'PowerApps'`) or in the pipeline's log.
+- **Power BI and Power Automate** still come from a CSV. Power Automate's audit records cover editing flows, not
+  running them, so they would show people who only run flows as idle.
 ## [2.6.8] - 2026-10-19
 
 Microsoft 365 Copilot reservations and chargeback: **Leadership › Copilot reservations** sets each line of business's

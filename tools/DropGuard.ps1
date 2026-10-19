@@ -8,7 +8,8 @@
     (tools\Import-AgentWorkbook.ps1), the user directory from AD (tools\Export-UsersWithHierarchy-ToSql.ps1), the
     licenses each person holds (tools\Update-CopilotAuditEnrichment.ps1), GitHub Copilot's seats
     (tools\Import-GitHubCopilotUsage.ps1) and Foundry's deployments (tools\Import-FoundryUsage.ps1); and from 2.6.6 a cost
-    export loaded with tools\Import-CostCsv.ps1 -Replace. It runs
+    export loaded with tools\Import-CostCsv.ps1 -Replace; and from 2.6.9 who used Power Apps
+    (tools\Import-PowerAppsActivity.ps1). It runs
     nothing by itself, and works in Windows PowerShell 5.1 as well as PowerShell 7, as the directory load does.
 
     Each loader counts the rows the table holds now and the rows the new load would put in, before it deletes
@@ -37,6 +38,7 @@ $script:DropGuardSetting = [ordered]@{
     'GitHub Copilot seats' = 'GitHubSeatMaxDropPercent'
     'Foundry deployments' = 'FoundryDeploymentMaxDropPercent'
     'Cost import'         = 'CostImportMaxDropPercent'   # 2.6.6: tools\Import-CostCsv.ps1 -Replace
+    'Power Apps activity' = 'PowerAppsActivityMaxDropPercent'   # 2.6.9: tools\Import-PowerAppsActivity.ps1
 }
 
 function Get-DropRefusal {

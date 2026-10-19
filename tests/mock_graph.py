@@ -47,6 +47,8 @@ CFG = {
     "report_approx_count": True,    # False: beta status omits approximateReturnedRecordCount, as a live tenant did
     "stall_page_body": 0,           # >0: that page (by pages served) sends its headers and half its body, then goes silent
     "stall_seconds": 600,           # ...for this long, as a proxy that drops a connection without a reset
+    "powerapps_every": 20,          # a search for Power Apps' records (2.6.9) finds every Nth record's time, as a Power Apps one
+    "powerapps_cap": 0,             # >0: the record cap for those searches, so a long window must be split
 }
 if len(sys.argv) > 2:
     CFG.update(json.loads(sys.argv[2]))
@@ -117,6 +119,27 @@ def records_in(start, end):
 
 def count_in(start, end):
     return len(records_in(start, end))
+
+
+def powerapps_in(start, end):
+    """The Power Apps records in [start, end): every powerapps_every-th record's id and time."""
+    return [(rid, t) for rid, t in records_in(start, end) if seq(rid) % CFG["powerapps_every"] == 0]
+
+
+def powerapps_json(rid, t):
+    """One Power Apps audit record, as Graph returns it: user7@contoso.com launched an app, or a system action (no UPN)."""
+    k = seq(rid) // CFG["powerapps_every"]
+    ts = t.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    # 30 people, user0..user29, every third record naming them in other capitals; every 97th a system action.
+    system = k % 97 == 96
+    upn = "PowerApps Service" if system else ("User%d@Contoso.com" % (k % 30) if k % 3 == 0 else "user%d@contoso.com" % (k % 30))
+    return {
+        "@odata.type": "#microsoft.graph.security.auditLogRecord",
+        "id": "pa-" + rid, "createdDateTime": ts, "auditLogRecordType": "powerAppsApp",
+        "operation": "LaunchPowerApp", "organizationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "userType": "regular", "userId": upn, "userPrincipalName": None if system else upn,
+        "service": "PowerApps", "auditData": {"Operation": "LaunchPowerApp", "UserId": upn},
+    }
 
 
 def seq(rid):
@@ -307,13 +330,17 @@ class Handler(BaseHTTPRequestHandler):
                 qid = "q%05d" % state["next_q"]
                 s = parse_ts(body["filterStartDateTime"])
                 e = parse_ts(body["filterEndDateTime"])
-                assert "CopilotInteraction" in body["operationFilters"], body
+                kind = "powerapps" if body.get("recordTypeFilters") == ["powerAppsApp"] else "copilot"
+                if kind == "powerapps":
+                    state["powerapps_searches"] = state.get("powerapps_searches", 0) + 1
+                else:
+                    assert "CopilotInteraction" in body["operationFilters"], body
                 fail_at = parse_ts(CFG["fail_first_query_covering"])
-                fail = (not state["failed_once"]) and s <= fail_at < e
+                fail = kind == "copilot" and (not state["failed_once"]) and s <= fail_at < e
                 if fail:
                     state["failed_once"] = True
                 state["queries"][qid] = {"start": s, "end": e, "polls": 0, "fail": fail,
-                                         "status": "notStarted", "records": None}
+                                         "status": "notStarted", "records": None, "kind": kind}
             return self.send_json(201, {"id": qid, "status": "notStarted"})
 
         if path == "/v1.0/$batch":
@@ -477,9 +504,11 @@ class Handler(BaseHTTPRequestHandler):
                "filterStartDateTime": q["start"].strftime("%Y-%m-%dT%H:%M:%SZ"),
                "filterEndDateTime": q["end"].strftime("%Y-%m-%dT%H:%M:%SZ")}
         if ver == "beta" and status == "succeeded":
-            n = count_in(q["start"], q["end"])
-            obj["recordCountLimit"] = CFG["cap"]
-            obj["isRecordCountLimitExceeded"] = n > CFG["cap"]
+            pa = q.get("kind") == "powerapps"
+            n = len(powerapps_in(q["start"], q["end"])) if pa else count_in(q["start"], q["end"])
+            cap = (CFG["powerapps_cap"] or CFG["cap"]) if pa else CFG["cap"]
+            obj["recordCountLimit"] = cap
+            obj["isRecordCountLimitExceeded"] = n > cap
             if CFG["report_approx_count"]:
                 obj["approximateReturnedRecordCount"] = n
         return self.send_json(200, obj)
@@ -508,13 +537,15 @@ class Handler(BaseHTTPRequestHandler):
             skip = int(qs.get("$skiptoken", ["0"])[0])
 
             with lock:
+                pa = q.get("kind") == "powerapps"
                 if q["records"] is None:
-                    q["records"] = records_in(q["start"], q["end"])[: CFG["cap"]]
+                    q["records"] = (powerapps_in(q["start"], q["end"])[: (CFG["powerapps_cap"] or CFG["cap"])] if pa
+                                    else records_in(q["start"], q["end"])[: CFG["cap"]])
                 recs = q["records"]
 
             time.sleep(CFG["page_latency_ms"] / 1000.0)
             chunk = recs[skip: skip + top]
-            obj = {"value": [record_json(rid, t) for rid, t in chunk]}
+            obj = {"value": [(powerapps_json if pa else record_json)(rid, t) for rid, t in chunk]}
             if skip + top < len(recs):
                 obj["@odata.nextLink"] = "%s/v1.0/security/auditLog/queries/%s/records?$top=%d&$skiptoken=%d" % (
                     self.base(), qid, top, skip + top)

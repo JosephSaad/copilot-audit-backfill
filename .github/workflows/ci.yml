@@ -68,6 +68,9 @@ jobs:
       - name: Test-DropGuard
         shell: bash
         run: pwsh -NoProfile -File tests/Test-DropGuard.ps1
+      - name: Test-PowerAppsActivity
+        shell: bash
+        run: pwsh -NoProfile -File tests/Test-PowerAppsActivity.ps1
       - name: Test-SchemaCompatibility
         shell: bash
         run: pwsh -NoProfile -File tests/Test-SchemaCompatibility.ps1
