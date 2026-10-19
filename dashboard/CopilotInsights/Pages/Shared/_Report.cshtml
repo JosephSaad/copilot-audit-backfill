@@ -16,15 +16,16 @@
     <div class="eyebrow">@Model.Persona</div>
     @if (guide is not null)
     {
-        <h1>@InfoTip.After(Model.Title, Model.Intro, "About this page")</h1>
-        <div class="guide">
+        @* The title and who it is for on one line, and what it helps with and what to do on the next, so the figures
+           start near the top of the screen. *@
+        <div class="ph-title">
+            <h1>@InfoTip.After(Model.Title, Model.Intro, "About this page")</h1>
             @if (who is not null)
             {
                 <span class="who">For @who</span>
             }
-            <p><b>Helps you</b> @guide.Helps</p>
-            <p><b>Do</b> @guide.Do</p>
         </div>
+        <p class="guide"><span><b>Helps you</b> @guide.Helps</span> <span><b>Do</b> @guide.Do</span></p>
     }
     else
     {

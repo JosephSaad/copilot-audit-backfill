@@ -10,9 +10,9 @@ namespace CopilotInsights.Pages.Leadership;
 /// <summary>
 /// What the company spends on AI and automation, what of it can be saved, and what it returns, on one page (2.6.6):
 /// Microsoft 365 Copilot, Copilot Studio's credits, Fabric with Copilot in Power BI, Power BI, Power Automate, Power
-/// Apps with Dataverse, GitHub Copilot and Foundry. A month at a time, laid out as a dashboard: the headline in one line
-/// and five tiles, where the money goes, what it returns, the savings ranked, each area, the trend, and what holds the
-/// return back.
+/// Apps with Dataverse, GitHub Copilot and Foundry. A month at a time, laid out as a dashboard, the most important first:
+/// the headline in a sentence and five tiles, the savings ranked beside how sure they are and where the money goes, each
+/// area, what holds the return back, then the trend and the sources.
 /// </summary>
 public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
 {
@@ -91,83 +91,55 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         sb.Append(Tile($"Value a month ({cur}, estimate)", $"The time Copilot, the flows and Copilot in Power BI save, at Admin's hourly cost of {CostRules.Money(v.HourlyCost, cur)}. People: the hours over {HoursAMonth:0} working hours a month.",
             N(value), "value", $"{hours:#,0} hours saved at {CostRules.Money(v.HourlyCost, cur)} an hour",
             hours >= HoursAMonth ? $"<span class=\"cb-people\"><b>{hours / HoursAMonth:#,0}</b> people's working time</span>" : ""));
-        sb.Append(Tile("Return on the spend", "Value a month over spend a month. The marker on the dial is the return once the savings are taken: the same value for less spend.",
+        sb.Append(Tile("Return on the spend", spend > 0 && value > 0 ? $"Value a month over spend a month: every {CostRules.Money(1, cur)} spent returns {CostRules.Money(Math.Round(value / spend, 2), cur)}. The marker on the dial is the return once the savings are taken: the same value for less spend." : "Value a month over spend a month.",
             spend > 0 ? Times(value / spend) : "—", "roi", after > 0 && saving > 0 ? $"{Times(value / after)} once the savings are taken" : "value over spend",
             spend > 0 ? Gauge((double)(value / spend), after > 0 && saving > 0 ? (double)(value / after) : null) : ""));
         sb.Append(Tile($"Already saved a month ({cur})", "Copilot licenses taken back after this dashboard's exports named them, at their price a month.",
             N(v.RealizedSaving), "done", v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet", ""));
         sb.Append("</div>");
 
+        /* The cards, most important first, two to a row so the page reads in a few screens: what to take (with how sure it
+           is, and where the money goes), each area, what holds the return back, then the trend and the sources. */
         sb.Append("<div class=\"cb-grid\">");
 
-        /* Where the money goes: a ring of the areas, largest first, with each one's figure and share. */
-        var byShare = v.Areas.Where(a => a.Spend > 0).OrderByDescending(a => a.Spend).ToList();
-        sb.Append(Card("Where the money goes", "Each area's spend a month, and its share of the whole. Select an area for its page.", "c5",
-            $"<div class=\"cb-donut\">{Donut(byShare, spend, cur)}<ul class=\"cb-legend\">" +
-            string.Concat(byShare.Select(a => $"<li><i class=\"dot\" style=\"background:var(--s{CostAreas.Slot(a.Name)})\"></i><span class=\"lg-n\">{Link(a.Name, a.Href)}</span>" +
-                                              $"<span class=\"lg-v\">{N(a.Spend)}</span><span class=\"lg-p\">{(spend > 0 ? a.Spend / spend : 0):P0}</span></li>")) +
-            "</ul></div>"));
+        /* The savings, ranked: the three largest with their evidence and what to do, the next seven as rows, the rest on request. */
+        sb.Append(Card($"Savings to take: {M(saving, cur)} a month", "Ranked by what each saves a month. Each says what the data shows and what to do; its title opens the page with the named detail. The CSV has every one, with the opportunities to grow the return.", "c8",
+            save.Count == 0 ? "<p class=\"sub\">Nothing found: every area the sources cover is as lean as these rules can tell.</p>" :
+            "<ol class=\"cb-top\">" + string.Concat(save.Take(3).Select((o, i) => TopRow(o, i + 1, cur))) + "</ol>" + Rest(save, cur), CsvUrl()));
 
-        /* From spend to return: the spend, the part that can go, what is left, and the value beside them on one scale. */
-        var top = Math.Max(spend, value);
-        string Row(string label, decimal x, string cls, string? inner = null) =>
-            $"<div class=\"br-row\"><div class=\"br-l\"><span>{E(label)}</span><b>{N(x)}</b></div><div class=\"br-t\"><span class=\"br-b {cls}\" style=\"width:{Pct(x, top)}%\">{inner}</span></div></div>";
-        sb.Append(Card($"From spend to return ({cur} a month)", "The spend today with its saveable part hatched, the spend once the savings are taken, and the value the tools return, on one scale.", "c4 pair",
-            "<div class=\"cb-bridge\">" +
-            Row("Spend today", spend, "b-spend", $"<span class=\"b-cut\" style=\"width:{Pct(saving, spend)}%\"></span>") +
-            Row("Savings found", saving, "b-save") +
-            Row("Spend once they are taken", after, "b-after") +
-            Row("Value returned (estimate)", value, "b-value") +
-            "</div>" +
-            (spend > 0 && value > 0 ? $"<p class=\"cb-foot\">Every {CostRules.Money(1, cur)} spent returns <b>{CostRules.Money(Math.Round(value / spend, 2), cur)}</b>" +
-                                      (after > 0 && saving > 0 ? $"; <b>{CostRules.Money(Math.Round(value / after, 2), cur)}</b> once the savings are taken." : ".") + "</p>" : "")));
-
-        /* How sure each saving is: the money by confidence, so the certain part can be taken first. */
+        /* Beside them: how sure each saving is, and where the money goes, the areas' shares in a ring. */
         var conf = new[] { ("High", "c-high", "The data shows it outright: a seat or a license nobody has used in 30 days."),
                            ("Medium", "c-med", "It follows from a change you make: a smaller capacity, a different license."),
                            ("Low", "c-low", "It rests on a price or a discount that your agreement may not match.") }
             .Select(c => (c.Item1, c.Item2, c.Item3, Sum: save.Where(o => o.Confidence == c.Item1).Sum(o => o.Saving), N: save.Count(o => o.Confidence == c.Item1))).ToList();
-        sb.Append(Card("Savings by confidence", "How sure each saving is. Take the high-confidence ones first: they need no more than a decision.", "c3 pair",
+        sb.Append("<div class=\"c4 rail\">");
+        sb.Append(Card("Savings by confidence", "How sure each saving is. Take the high-confidence ones first: they need no more than a decision.", "",
             "<div class=\"cb-stack\" role=\"img\" aria-label=\"Savings by confidence\">" +
             string.Concat(conf.Where(c => c.Sum > 0).Select(c => $"<span class=\"{c.Item2}\" style=\"width:{Pct(c.Sum, saving)}%\" title=\"{c.Item1}: {E(M(c.Sum, cur))}\"></span>")) + "</div>" +
             "<ul class=\"cb-conf\">" + string.Concat(conf.Select(c =>
                 $"<li><i class=\"sw {c.Item2}\"></i><span class=\"cf-n\">{T(c.Item1, c.Item3)}<small>{Count(c.N, "saving")}</small></span><b>{N(c.Sum)}</b></li>")) + "</ul>" +
             (conf[0].Sum > 0 ? $"<p class=\"cb-foot\"><b>{(saving > 0 ? conf[0].Sum / saving : 0):P0}</b> of the savings can be taken on the data alone.</p>" : "")));
+        var byShare = v.Areas.Where(a => a.Spend > 0).OrderByDescending(a => a.Spend).ToList();
+        sb.Append(Card("Where the money goes", "Each area's spend a month, and its share of the whole. Select an area for its page.", "",
+            $"<div class=\"cb-donut\">{Donut(byShare, spend, cur)}<ul class=\"cb-legend\">" +
+            string.Concat(byShare.Select(a => $"<li><i class=\"dot\" style=\"background:var(--s{CostAreas.Slot(a.Name)})\"></i><span class=\"lg-n\">{Link(a.Name, a.Href)}</span>" +
+                                              $"<span class=\"lg-v\">{N(a.Spend)}</span><span class=\"lg-p\">{(spend > 0 ? a.Spend / spend : 0):P0}</span></li>")) +
+            "</ul></div>"));
+        sb.Append("</div>");
 
-        /* The savings, ranked: the three largest as cards, every one after them a row. */
-        var rest = save.Skip(3).ToList();
-        sb.Append(Card($"Savings to take: {M(saving, cur)} a month", "Ranked by what each saves a month. Each says what the data shows and what to do; its title opens the page with the named detail. The CSV has every one, with the opportunities to grow the return.", "c12",
-            save.Count == 0 ? "<p class=\"sub\">Nothing found: every area the sources cover is as lean as these rules can tell.</p>" :
-            "<div class=\"cb-top\">" + string.Concat(save.Take(3).Select((o, i) => TopCard(o, i + 1, cur))) + "</div>" +
-            (rest.Count == 0 ? "" :
-                "<div class=\"cb-rest\" role=\"table\" aria-label=\"The other savings\"><div class=\"rr rh\" role=\"row\"><span role=\"columnheader\">#</span><span role=\"columnheader\">Saving</span>" +
-                $"<span role=\"columnheader\">Area</span><span role=\"columnheader\">Confidence</span><span role=\"columnheader\" class=\"n\">A month ({E(cur)})</span><span role=\"columnheader\" class=\"n\">A year ({E(cur)})</span></div>" +
-                string.Concat(rest.Select((o, i) =>
-                    $"<div class=\"rr\" role=\"row\"><span role=\"cell\" class=\"rk\">{i + 4}</span>" +
-                    $"<span role=\"cell\" class=\"rt\">{(o.Href is null ? E(o.Title) : $"<a href=\"{E(o.Href)}\">{E(o.Title)}</a>")}{((HtmlString)InfoTip.Icon($"{o.Evidence} Do: {o.Action}", o.Title)).Value}</span>" +
-                    $"<span role=\"cell\" class=\"ra\"><i class=\"dot\" style=\"background:var(--s{CostAreas.Slot(o.Area)})\"></i>{E(o.Area)}</span>" +
-                    $"<span role=\"cell\"><span class=\"conf {o.Confidence.ToLowerInvariant()}\">{E(o.Confidence)}</span></span>" +
-                    $"<span role=\"cell\" class=\"n rs\" data-l=\"A month\">{N(o.Saving)}</span><span role=\"cell\" class=\"n\" data-l=\"A year\">{N(o.Saving * 12)}</span></div>")) +
-                "</div>"), CsvUrl()));
-
-        /* Each area: its spend with the saveable part hatched, its last six months, savings, value and return. */
+        /* Each area side by side, across the whole row so every one reads on a line. */
         sb.Append(Card("Every area, side by side", "Each area's spend a month, the part that can be saved (the hatched end of its bar), its last six whole months, and the value its use returns. The icon beside each says how its figures are worked out.", "c12",
             Ledger(v, months)));
 
-        /* The trend, and Copilot in Power BI beside it. */
-        if (months.Count >= 2)
-        {
-            var labels = months.Select(m => m.Month.ToString("MMM yyyy", Inv)).ToList();
-            var series = CostAreas.All.Where(a => months.Any(m => m.ByArea.ContainsKey(a.Name)))
-                .Select(a => new Series(a.Name, months.Select(m => m.ByArea.TryGetValue(a.Name, out var x) ? (double?)(double)x : null).ToList(), a.Slot)).ToList();
-            var chart = Chart.Columns(labels, series, Fmt.Count, $"Spend a month by area, {cur}, the last six whole months");
-            sb.Append(Card($"Spend by month ({cur})", "The last six whole months by area. Copilot from the licensed days; the other licenses from the license pool's daily counts; the rest from what each source billed. A source shows from the first month it covers.",
-                v.CopilotInFabric is null ? "c12" : "c8", chart is ChartSvg c ? c.Render(Narrow ? 320 : v.CopilotInFabric is null ? 900 : 640) : chart.Value ?? ""));
-        }
-        if (v.CopilotInFabric is { } cif)
+        /* What holds the return back, and Copilot in Power BI's own return beside it. */
+        var cif = v.CopilotInFabric;
+        if (grow.Count > 0)
+            sb.Append(Card("Grow the return", "Spend that is not yet returning what it could: people to train, licenses to hand on, work being lost. The figure is the monthly value or spend each holds back.", cif is null ? "c12" : "c8",
+                "<div class=\"cb-grow\">" + string.Concat(grow.Select(o => GrowCard(o, cur))) + "</div>"));
+        if (cif is not null)
         {
             var per = cif.Requests > 0 ? cif.Cost / cif.Requests : 0;
-            sb.Append(Card("Copilot in Power BI", "Copilot runs on the Fabric capacity the report's workspace is on, so its cost is its share of that capacity's. Requests come from the Capacity Metrics app's Copilot operations; value at Admin's minutes a request and hourly cost.", months.Count >= 2 ? "c4" : "c12",
+            sb.Append(Card("Copilot in Power BI", "Copilot runs on the Fabric capacity the report's workspace is on, so its cost is its share of that capacity's. Requests come from the Capacity Metrics app's Copilot operations; value at Admin's minutes a request and hourly cost.", grow.Count > 0 ? "c4" : "c12",
                 "<div class=\"cif\">" +
                 $"<div class=\"cif-big\"><b>{(cif.Cost > 0 ? Times(cif.Value / cif.Cost) : "—")}</b><span>return on its share of the capacity: {M(cif.Value, cur)} of value a month</span></div>" +
                 "<div class=\"cif-grid\">" +
@@ -178,16 +150,43 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
                 "</div></div>"));
         }
 
-        /* What holds the return back, and what the page is built from. */
-        if (grow.Count > 0)
-            sb.Append(Card("Grow the return", "Spend that is not yet returning what it could: people to train, licenses to hand on, work being lost. The figure is the monthly value or spend each holds back.", "c8",
-                "<div class=\"cb-grow\">" + string.Concat(grow.Select(o => GrowCard(o, cur))) + "</div>"));
-        sb.Append(Card("What this is built from", "Every source is optional: an area appears once its source is loaded, and one that is not is listed here rather than shown as zero.", grow.Count > 0 ? "c4" : "c12",
+        /* Last, the context: the trend, and what the page is built from. */
+        if (months.Count >= 2)
+        {
+            var labels = months.Select(m => m.Month.ToString("MMM yyyy", Inv)).ToList();
+            var series = CostAreas.All.Where(a => months.Any(m => m.ByArea.ContainsKey(a.Name)))
+                .Select(a => new Series(a.Name, months.Select(m => m.ByArea.TryGetValue(a.Name, out var x) ? (double?)(double)x : null).ToList(), a.Slot)).ToList();
+            var chart = Chart.Columns(labels, series, Fmt.Count, $"Spend a month by area, {cur}, the last six whole months");
+            sb.Append(Card($"Spend by month ({cur})", "The last six whole months by area. Copilot from the licensed days; the other licenses from the license pool's daily counts; the rest from what each source billed. A source shows from the first month it covers.",
+                "c8", chart is ChartSvg c ? c.Render(Narrow ? 320 : 720) : chart.Value ?? ""));
+        }
+        sb.Append(Card("What this is built from", "Every source is optional: an area appears once its source is loaded, and one that is not is listed here rather than shown as zero.", months.Count >= 2 ? "c4" : "c12",
             "<ul class=\"cb-src\">" + string.Concat(v.Sources.Select(x => $"<li class=\"ok\">{E(x)}</li>")) +
             string.Concat(v.Missing.Select(x => $"<li class=\"no\">{E(x)} <small>not loaded yet, so not counted</small></li>")) + "</ul>" +
             $"<p class=\"cb-foot\">Prices and assumptions: <a href=\"/admin/assumptions\">Admin › Targets and assumptions</a> (an hour at {E(CostRules.Money(v.HourlyCost, cur))}).</p>"));
 
         return sb.Append("</div></div>").ToString();
+    }
+
+    /// <summary>The savings after the first three: seven as rows, and any more behind a button, so the list is never long.</summary>
+    static string Rest(IReadOnlyList<Opportunity> save, string cur)
+    {
+        const int first = 3, rows = 7;
+        if (save.Count <= first) return "";
+        string R(Opportunity o, int rank) =>
+            $"<div class=\"rr\" role=\"row\"><span role=\"cell\" class=\"rk\">{rank}</span>" +
+            $"<span role=\"cell\" class=\"rt\">{Link(o.Title, o.Href)}{((HtmlString)InfoTip.Icon($"{o.Evidence} Do: {o.Action}", o.Title)).Value}</span>" +
+            $"<span role=\"cell\" class=\"ra\"><i class=\"dot\" style=\"background:var(--s{CostAreas.Slot(o.Area)})\"></i>{E(o.Area)}</span>" +
+            $"<span role=\"cell\"><span class=\"conf {o.Confidence.ToLowerInvariant()}\">{E(o.Confidence)}</span></span>" +
+            $"<span role=\"cell\" class=\"n rs\" data-l=\"A month\">{N(o.Saving)}</span></div>";
+        var shown = save.Skip(first).Take(rows).ToList();
+        var more = save.Skip(first + rows).ToList();
+        return "<div class=\"cb-rest\" role=\"table\" aria-label=\"The other savings\"><div class=\"rr rh\" role=\"row\"><span role=\"columnheader\">#</span><span role=\"columnheader\">Saving</span>" +
+               $"<span role=\"columnheader\">Area</span><span role=\"columnheader\">Confidence</span><span role=\"columnheader\" class=\"n\">A month ({E(cur)})</span></div>" +
+               string.Concat(shown.Select((o, i) => R(o, first + 1 + i))) +
+               (more.Count == 0 ? "" : $"<details class=\"more\"><summary>{more.Count:#,0} smaller {(more.Count == 1 ? "saving" : "savings")}, {E(M(more.Sum(o => o.Saving), cur))} a month</summary>" +
+                                       string.Concat(more.Select((o, i) => R(o, first + rows + 1 + i))) + "</details>") +
+               "</div>";
     }
 
     /// <summary>The areas as a ledger: spend, its bar with the saveable part hatched, six months, savings, value and return; the total last.</summary>
@@ -219,12 +218,12 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         return sb.Append("</div>").ToString();
     }
 
-    /// <summary>One of the three largest savings: its rank, area and confidence, what it is worth, the evidence and what to do.</summary>
-    static string TopCard(Opportunity o, int rank, string cur) =>
-        $"<article class=\"tc\" style=\"--c:var(--s{CostAreas.Slot(o.Area)})\"><div class=\"tc-h\"><span class=\"tc-r\">{rank}</span><span class=\"tc-a\"><i class=\"dot\" style=\"background:var(--c)\"></i>{E(o.Area)}</span>" +
-        $"<span class=\"conf {o.Confidence.ToLowerInvariant()}\">{E(o.Confidence)} confidence</span></div>" +
-        $"<div class=\"tc-w\"><b>{E(M(o.Saving, cur))}</b><span>a month · {E(M(o.Saving * 12, cur))} a year</span></div>" +
-        $"<h3>{Link(o.Title, o.Href)}</h3><p>{E(o.Evidence)}</p><p class=\"tc-do\"><b>Do</b> {E(o.Action)}</p></article>";
+    /// <summary>One of the three largest savings: its rank, area and confidence, the evidence and what to do, and what it is worth.</summary>
+    static string TopRow(Opportunity o, int rank, string cur) =>
+        $"<li class=\"tc\" style=\"--c:var(--s{CostAreas.Slot(o.Area)})\"><span class=\"tc-r\">{rank}</span><div class=\"tc-b\">" +
+        $"<div class=\"tc-h\"><span class=\"tc-a\"><i class=\"dot\" style=\"background:var(--c)\"></i>{E(o.Area)}</span><span class=\"conf {o.Confidence.ToLowerInvariant()}\">{E(o.Confidence)} confidence</span></div>" +
+        $"<h3>{Link(o.Title, o.Href)}</h3><p>{E(o.Evidence)}</p><p class=\"tc-do\"><b>Do</b> {E(o.Action)}</p></div>" +
+        $"<div class=\"tc-w\"><b>{E(M(o.Saving, cur))}</b><span>a month</span><span>{E(M(o.Saving * 12, cur))} a year</span></div></li>";
 
     /// <summary>An opportunity to grow the return, or a risk to it: what it holds back, and what to do.</summary>
     static string GrowCard(Opportunity o, string cur) =>

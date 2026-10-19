@@ -23,22 +23,22 @@ put your agreement's prices in Admin › Targets and assumptions.
 
 ### Added
 - **Leadership › Costs and savings.** For whole-organization viewers and the Licensing role.
-  - Laid out as a dashboard, from 390 pixels wide to 1600, in the light theme and the dark.
+  - Laid out as a dashboard, the most important first and the cards two to a row, so it reads in about two screens;
+    from 390 pixels wide to 1920, in the light theme and the dark.
   - *The headline:* one sentence (the spend, its return, and what taking the savings would do), then five tiles: the
     spend a month and a year with its last six months, the savings found with their share of the spend, the value
     delivered (time saved at the hourly cost, in hours and in people's working time), the return on the spend as a
     dial marked where it would be once the savings are taken, and what this dashboard's license exports have saved.
-  - *Where the money goes* (a ring of the areas' shares), *From spend to return* (spend, savings, the spend once
-    they are taken, and value, on one scale) and *Savings by confidence* (High: the data shows it; Medium: it
-    follows from a change you make; Low: it rests on a price or a discount).
-  - *Savings to take:* every saving the rules find, ranked by what it saves a month and a year: the three largest as
-    cards with their evidence and what to do, the rest as rows with theirs behind an information icon, each linked
-    to the page with the detail where there is one; and a CSV of them all.
+  - *Savings to take:* every saving the rules find, ranked by what it saves a month: the three largest with their
+    evidence and what to do, the next seven as rows with theirs behind an information icon, any more behind a
+    button, each linked to the page with the detail where there is one; and a CSV of them all. Beside them,
+    *Savings by confidence* (High: the data shows it; Medium: it follows from a change you make; Low: it rests on a
+    price or a discount) and *Where the money goes* (a ring of the areas' shares).
   - *Every area, side by side:* each area's spend, a bar whose hatched end is the part that can be saved, its last
     six months, the savings, the value and the return; how each was worked out behind its information icon.
-  - *Spend by month* for the last six whole months, *Copilot in Power BI* (its return, share of the capacity, cost,
-    requests and cost a request), *Grow the return* (people to train, heavy free users to license, failing flows,
-    throttled capacity) and *What this is built from* (the sources loaded and not).
+  - *Grow the return* (people to train, heavy free users to license, failing flows, throttled capacity) beside
+    *Copilot in Power BI* (its return, share of the capacity, cost, requests and cost a request); then *Spend by
+    month* for the last six whole months beside *What this is built from* (the sources loaded and not).
   - The rules: Copilot licenses unused, on disabled accounts, or better on pay-as-you-go (the same rules as the
     Licensing pages, protected levels respected); Copilot Credits past the packs that would cost less as packs, and
     packs unused; Fabric capacities idle, oversized (peaks under 45%), better reserved or paused at weekends, and
@@ -68,6 +68,8 @@ put your agreement's prices in Admin › Targets and assumptions.
   first 2,317 people are who they were.
 
 ### Changed
+- **Every report's heading is shorter**: the title and who the page is for on one line, what it helps with and what
+  to do on the next, and less space around them and the filter bar, so the figures start about 100 pixels higher.
 - **The demo keeps levels 1 to 3 off the revoke and train lists**, not 1 to 5: with five levels, the default kept
   the whole demo company off them and left those pages empty. A real install's setting is unchanged.
 

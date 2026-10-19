@@ -36,7 +36,9 @@ AUDIT_JS = r"""
   const R = e => e.getBoundingClientRect();
   const name = e => (e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().split(/\s+/).join('.') : '')) ;
   const txt = e => (e.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80);
-  const visible = e => { const r = R(e); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
+  // What a closed <details> holds is not on screen, though Edge still lays it out: only its summary counts.
+  const folded = e => { const d = e.closest('details:not([open])'); return !!d && !e.closest('summary'); };
+  const visible = e => { const r = R(e); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && !folded(e); };
   const hasHover = e => !!(e.closest('[title]') || e.closest('[data-tip]') || e.querySelector && e.querySelector('title'));
   // 1. page scrolls sideways
   if (document.documentElement.scrollWidth > innerWidth + 1)
