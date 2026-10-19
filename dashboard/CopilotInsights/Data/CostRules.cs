@@ -138,7 +138,7 @@ public static class CostRules
     /// </summary>
     public static Opportunity? HeldTwice(string area, string product, string suites, int people, decimal price, string cur, string? href = null) =>
         people <= 0 || price <= 0 ? null
-        : new(area, OpportunityKind.Save, $"Remove {people:#,0} {product} license{(people == 1 ? "" : "s")} {suites} already include{(suites.Contains(" and ") || suites.Contains(", ") ? "" : "s")}",
+        : new(area, OpportunityKind.Save, $"Remove {people:#,0} {product} license{(people == 1 ? "" : "s")} that {suites} already include{(suites.Contains(" and ") || suites.Contains(", ") ? "" : "s")}",
             $"{people:#,0} {(people == 1 ? "person holds" : "people hold")} a standalone {product} at {Money(price, cur)} a month on top of {suites}, which includes it.",
             "Remove the standalone license; the suite keeps the same features.", Math.Round(people * price, 2), 0, "High", href);
 

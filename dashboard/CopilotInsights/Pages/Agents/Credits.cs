@@ -71,7 +71,7 @@ SELECT COUNT(CASE WHEN x.U > 0 THEN 1 END), ISNULL(SUM(x.U), 0) FROM #x AS x;", 
         var (charging, allU) = all.Single();
 
         Kpis.Add(new("Agents charging credits", Num(charging), "used by people without a license"));
-        Kpis.Add(new($"Credits a month ({cur})", Num((long)Monthly(allU)), $"at {rate:#,0.00##} {cur} an interaction"));
+        Kpis.Add(new($"Credits a month ({cur})", Num((long)Monthly(allU)), $"at {rate:#,0.00##} {cur} an interaction", Href: Ctx.Url("/licensing/credit-use")));
 
         var t = new Table
         {
@@ -99,6 +99,7 @@ SELECT COUNT(CASE WHEN x.U > 0 THEN 1 END), ISNULL(SUM(x.U), 0) FROM #x AS x;", 
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Without a license: interactions by people who held no Copilot license at the time; pay-as-you-go charges for these in Copilot Credits. Credits a month: those interactions, " +
             $"scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access). An agent grounded only in public data is not charged, so this errs high. " +
-            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent.", "full", CsvUrl()));
+            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent. " +
+            "Licensing > Credit use estimates the credits answer by answer instead (more where an answer read work data or called another agent), person by person.", "full", CsvUrl()));
     }
 }

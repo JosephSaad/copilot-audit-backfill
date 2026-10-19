@@ -138,15 +138,22 @@ IF OBJECT_ID(N'dash.CostSuite', N'U') IS NULL
         UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostSuite_Updated DEFAULT (SYSUTCDATETIME())
     );
 MERGE dash.CostSuite AS t
+/* Exact part numbers ([_] is an underscore, not a wildcard), so the education suites (ENTERPRISEPREMIUM_STUDENT and the
+   like) and E3's unattended license for bots (SPE_E3_RPA1) are not priced as these; E7's are its likely forms. */
 USING (VALUES
-    (N'SPE_E3%',            N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
-    (N'SPE_E5%',            N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
-    (N'Microsoft_365_E5%',  N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
-    (N'Microsoft_365_E7%',  N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
-    (N'M365_E7%',           N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
-    (N'SPE_E7%',            N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
-    (N'ENTERPRISEPACK%',    N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
-    (N'ENTERPRISEPREMIUM%', N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.')
+    (N'SPE[_]E3',                            N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
+    (N'Microsoft[_]365[_]E3[_](no[_]Teams)', N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
+    (N'SPE[_]E5',                            N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'SPE[_]E5[_]NOPSTNCONF',               N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft[_]365[_]E5[_](no[_]Teams)', N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft[_]365[_]E7%',               N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'M365[_]E7%',                          N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'SPE[_]E7%',                           N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'ENTERPRISEPACK',                      N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
+    (N'Office[_]365[_]E3[_](no[_]Teams)',    N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
+    (N'ENTERPRISEPREMIUM',                   N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.'),
+    (N'ENTERPRISEPREMIUM[_]NOPSTNCONF',      N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.'),
+    (N'Office[_]365[_]E5[_](no[_]Teams)',    N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.')
 ) AS s (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers)
 ON t.SkuPattern = s.SkuPattern
 WHEN NOT MATCHED THEN INSERT (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers, UpdatedBy)
@@ -157,21 +164,34 @@ WHEN NOT MATCHED THEN INSERT (SkuPattern, Suite, Family, Tier, MonthlyPrice, Inc
 IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
     ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
 
-/* 2.6.6: the people who hold Microsoft 365 Copilot only through a suite (E7) and not as the add-on as well: their
+/* 2.6.6: dash.CopilotSuiteHolder is everyone who holds a suite with Copilot inside (E7), with the add-on or not;
+   dash.CopilotSuiteOnly, the people who hold Microsoft 365 Copilot only through a suite and not as the add-on as well: their
    Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
    full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
    Create-CopilotDashboardSchema.sql both write it, so whichever runs last with the tables there leaves the full one. */
 IF SCHEMA_ID(N'dash') IS NOT NULL
 BEGIN
     IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+    BEGIN
         EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteOnly AS
 SELECT DISTINCT su.UserPrincipalName AS Upn
 FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
 WHERE ss.CopilotInSuite = 1
   AND NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku AS au JOIN audit.LicenseSku AS sa ON sa.SkuId = au.SkuId
-                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0);');
-    ELSE IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
-        EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0
+                    AND sa.SkuPartNumber NOT LIKE N''%STUDIO%'');');
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteHolder AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1;');
+    END
+    ELSE
+    BEGIN
+        IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
+            EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+        IF OBJECT_ID(N'dash.CopilotSuiteHolder', N'V') IS NULL
+            EXEC (N'CREATE VIEW dash.CopilotSuiteHolder AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+    END;
 END;
 
 /* Roles granted to people (by UPN) or AD groups (DOMAIN\Group). */

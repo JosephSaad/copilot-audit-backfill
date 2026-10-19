@@ -13,15 +13,15 @@ public sealed record Suite(string Pattern, string Name, string Family, int Tier,
 
 /// <summary>
 /// One person on a suite, and what the data says of them: days in the last 30 with use that needs the Copilot license;
-/// whether they also hold the Copilot add-on, a standalone Power BI Pro, or a second suite of the same family; whether
+/// whether they also hold the Copilot add-on, a standalone Power BI Pro, or other suites besides their highest; whether
 /// they used Power BI in the window (null where the activity was not loaded); protected by level, account enabled, and
 /// licensed for Copilot since when.
 /// </summary>
-public sealed record SuiteHolder(string Upn, Suite Suite, int CopilotDays, bool CopilotAddOn, bool PowerBiAddOn, Suite? AlsoHolds,
+public sealed record SuiteHolder(string Upn, Suite Suite, int CopilotDays, bool CopilotAddOn, bool PowerBiAddOn, IReadOnlyList<Suite> Others,
     bool? UsesPowerBi, bool Protected, bool Enabled, DateTime? CopilotSince);
 
-/// <summary>What fits a suite holder better, if anything.</summary>
-public enum SuiteMove { Keep, Reclaim, DropDuplicate, Train, Downgrade, DowngradeWithCopilot, DowngradeWithPowerBi }
+/// <summary>What fits a suite holder better, if anything; CutSeats is a suite's seats bought and assigned to nobody (not a person's).</summary>
+public enum SuiteMove { Keep, Reclaim, DropDuplicate, Train, Downgrade, DowngradeWithCopilot, DowngradeWithPowerBi, CutSeats }
 
 /// <summary>
 /// The move, the suite or license it leads to, what it saves a month (or, to train, the spend at stake), how sure the
@@ -35,9 +35,12 @@ public sealed record SuiteFit(SuiteMove Move, string? To, decimal Saving, decima
 /// P2, Purview, Entra ID P2) and Teams Phone. The data shows Copilot and Power BI use, and nothing of the rest, so a
 /// move down rests on the parts it can see and always names the parts it cannot. In order:
 /// <list type="number">
-/// <item>An account disabled or gone: the suite can be taken back (Medium: a mailbox kept on hold may still need it).</item>
-/// <item>A license held twice (the Copilot add-on on E7, Power BI Pro on E5 or E7, E5 beside E7): drop the copy (High).</item>
-/// <item>A protected level, or a Copilot license under 30 days old: keep.</item>
+/// <item>An account disabled or gone: its suites can be taken back (Medium: a mailbox kept on hold may still need one).
+///   Everyone, as on Licenses on disabled accounts: nobody can use them, so this is not a recommendation about a person.</item>
+/// <item>A protected level: keep, copies included, as on every other list (Admin > Access).</item>
+/// <item>A license held twice (the Copilot add-on on E7, Power BI Pro on E5 or E7, any other suite at or below the
+///   highest, Office 365 under Microsoft 365 too): drop the copies (High).</item>
+/// <item>A Copilot license under 30 days old: keep.</item>
 /// <item>E7: no Copilot use, move to E5 (Medium); light use (1 or 2 days), train first (Grow); regular use, keep, or E5
 ///   and the Copilot add-on where that costs less and Agent 365 and the Entra Suite go unused (Low).</item>
 /// <item>E5: Power BI unused, E3 (Low); Power BI used, E3 and Power BI Pro where that costs less (Low); both only after
@@ -61,19 +64,20 @@ public static class SuiteRules
     {
         var s = h.Suite;
         if (!h.Enabled)
-            return new(SuiteMove.Reclaim, null, s.Price, 0, "Medium", $"The account is disabled or gone, and still holds {s.Name}.",
+            return new(SuiteMove.Reclaim, null, s.Price + h.Others.Sum(o => o.Price), 0, "Medium",
+                $"The account is disabled or gone, and still holds {string.Join(" and ", new[] { s.Name }.Concat(h.Others.Select(o => o.Name)))}.",
                 "A mailbox kept on hold for retention may still need its license; an inactive mailbox does not.");
+        if (h.Protected) return new(SuiteMove.Keep, null, 0, 0, "", "A protected level of the organization.", "");
 
         /* Paid twice: certain, whatever else is true of them. */
         var dup = 0m; var what = new List<string>();
         if (h.CopilotAddOn && s.HasCopilot) { dup += copilotPrice; what.Add("the Microsoft 365 Copilot add-on"); }
         if (h.PowerBiAddOn && s.HasPowerBi) { dup += powerBiPrice; what.Add("a standalone Power BI Pro"); }
-        if (h.AlsoHolds is { } two && two.Family == s.Family && two.Tier < s.Tier) { dup += two.Price; what.Add(two.Name); }
+        foreach (var two in h.Others.Where(o => o.Tier <= s.Tier)) { dup += two.Price; what.Add(two.Name); }
         if (dup > 0)
             return new(SuiteMove.DropDuplicate, null, dup, 0, "High", $"Holds {string.Join(" and ", what)} as well as {s.Name}, which already includes {(what.Count == 1 ? "it" : "them")}.",
                 "Nothing: the suite covers it. Remove the extra license.");
 
-        if (h.Protected) return new(SuiteMove.Keep, null, 0, 0, "", "A protected level of the organization.", "");
         if (lower is null || lower.Price >= s.Price) return new(SuiteMove.Keep, null, 0, 0, "", $"No suite below {s.Name} with a lower price is set.", "");
         var step = s.Price - lower.Price;
 
@@ -114,6 +118,6 @@ public static class SuiteRules
     {
         SuiteMove.Reclaim => "Take back", SuiteMove.DropDuplicate => "Remove the copy", SuiteMove.Train => "Train first",
         SuiteMove.Downgrade => "Move down", SuiteMove.DowngradeWithCopilot => "Move down, add Copilot",
-        SuiteMove.DowngradeWithPowerBi => "Move down, add Power BI Pro", _ => "Keep",
+        SuiteMove.DowngradeWithPowerBi => "Move down, add Power BI Pro", SuiteMove.CutSeats => "Cut unassigned seats", _ => "Keep",
     };
 }

@@ -195,6 +195,11 @@ details.notice.access[open] .more { display: none; }
 .klabel { font-size: 12px; color: var(--muted); }
 .kvalue { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .knote { font-size: 12px; color: var(--faint); }
+/* A figure that leads to its detail (2.6.6): the figure is the link, and a chevron says so. */
+a.kvalue.klink { display: block; color: inherit; text-decoration: none; }
+a.kvalue.klink:hover, a.kvalue.klink:focus-visible { color: var(--accent); }
+a.kvalue.klink .kgo { font-size: 18px; color: var(--accent); font-weight: 600; }
+.kpi.good a.kvalue.klink { color: var(--good); }
 /* The report before this one in its section and the one after, at the foot of the page (2.4.10). */
 .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
 .pager a { display: block; min-width: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px;
@@ -500,7 +505,7 @@ svg.donut .d-sub { text-anchor: middle; fill: var(--muted); font: 11px var(--san
 .lg-p { text-align: right; color: var(--faint); font-size: 12px; }
 
 /* Savings by confidence: one bar in three parts, then each part's figure. */
-.cb-stack { display: flex; height: 16px; border-radius: 6px; overflow: hidden; gap: 2px; background: color-mix(in srgb, var(--rule) 45%, transparent); }
+.cb-stack { display: flex; height: 16px; border-radius: 6px; overflow: hidden; gap: 4px; background: color-mix(in srgb, var(--rule) 45%, transparent); }
 .cb-stack span { display: block; height: 100%; }
 .c-high { background: var(--good); } .c-med { background: var(--accent); } .c-low { background: var(--warn); }
 .cb-conf { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
@@ -517,6 +522,26 @@ svg.donut .d-sub { text-anchor: middle; fill: var(--muted); font: 11px var(--san
 .facts b { text-align: right; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .facts p { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--faint); }
 .sub a.on { font-weight: 700; text-decoration: none; color: var(--ink); }
+/* Drill-down (2.6.6): each tile's way to its detail, an area's own view and the way back, a filter shown as such. */
+.cb-more { margin-top: 6px; font-size: 12px; font-weight: 600; text-decoration: none; }
+.cb-more:hover { text-decoration: underline; }
+.cb-anchor, #areas { scroll-margin-top: 12px; }
+.cb-filter { margin: 0 0 10px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 13px; }
+.cb-conf li.on { font-weight: 700; }
+.cb-conf a, .cb-legend a, .tc-a a, .ra a, .cb-suite a, .cb-moves a { color: inherit; }
+.cb-stack a { display: block; height: 100%; }
+.cb-stack a:hover, svg.donut a:hover .d-seg { filter: brightness(1.1); }
+.cb-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--rule);
+  border-left: 4px solid var(--c, var(--accent)); font-size: 13px; }
+.cb-crumb > a { font-weight: 600; text-decoration: none; }
+.cb-here { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 15px; }
+.cb-areas { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-left: auto; font-size: 12px; }
+.cb-areas a { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); text-decoration: none; }
+.cb-areas a:hover { color: var(--accent); text-decoration: underline; }
+.cb-basis { margin: 0 0 10px; font-size: 13px; line-height: 1.5; }
+.cb-links { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.cb-links a { font-weight: 600; text-decoration: none; }
+.cb-links a:hover { text-decoration: underline; }
 /* The suites (2.6.6): each held, with what it includes; then the moves to review, each with its worth and confidence. */
 .cb-suite, .cb-moves { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
 .cb-suite li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding-bottom: 6px; border-bottom: 1px dashed var(--rule); }

@@ -19,6 +19,8 @@ public sealed class PoolRow
     public string SkuPartNumber { get; set; } = "";
     public Guid SkuId { get; set; }
     public bool IsCopilot { get; set; }
+    /// <summary>A suite with Copilot inside (2.6.6, E7): not the add-on.</summary>
+    public bool IsSuite { get; set; }
     public int Enabled { get; set; }
     public int Warning { get; set; }
     public int Suspended { get; set; }
@@ -116,11 +118,21 @@ GROUP BY d.Dept, dd.[Date];", new { k0 = ReportContext.Key(from), k1 = ReportCon
         return result;
     }
 
-    /// <summary>The license pool now: every SKU, Copilot ones first.</summary>
-    public async Task<List<PoolRow>> PoolAsync() =>
-        await HasAsync("audit.LicenseSku")
-            ? await db.QueryAsync<PoolRow>("SELECT SkuPartNumber, SkuId, IsCopilot, Enabled, Warning, Suspended, Consumed, CapturedUtc FROM audit.LicenseSku ORDER BY IsCopilot DESC, SkuPartNumber;")
-            : [];
+    /// <summary>
+    /// The license pool now: every SKU, Copilot ones first. IsCopilot is the Copilot add-on: a suite with Copilot inside
+    /// (2.6.6, E7) is IsSuite instead, so a page that counts Copilot seats, or an export that assigns or removes the
+    /// Copilot license, never takes the suite for it.
+    /// </summary>
+    public async Task<List<PoolRow>> PoolAsync()
+    {
+        if (!await HasAsync("audit.LicenseSku")) return [];
+        var suite = await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL THEN 0 ELSE 1 END;") == 1
+            ? "ISNULL(CopilotInSuite, 0)" : "CAST(0 AS BIT)";
+        return await db.QueryAsync<PoolRow>($@"
+SELECT SkuPartNumber, SkuId, CAST(CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 1 ELSE 0 END AS BIT) AS IsCopilot, CAST({suite} AS BIT) AS IsSuite,
+       Enabled, Warning, Suspended, Consumed, CapturedUtc
+FROM audit.LicenseSku ORDER BY CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 0 ELSE 1 END, SkuPartNumber;");
+    }
 
     /// <summary>Copilot licenses held today by accounts that are disabled (in AD or Entra) or gone from the directory.</summary>
     public async Task<List<LeaverRow>> LeaversAsync(string? root = null, string? q = null, string orderAndPage = "ORDER BY u.DisplayName OFFSET 0 ROWS")

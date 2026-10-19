@@ -19,8 +19,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var people = await Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND (ud.Jailbreak > 0 OR ud.PromptInjection > 0);", Ctx.Args());
-        Kpis.Add(new("Jailbreak attempts", Num(jb), all > 0 ? $"{jb * 1000.0 / all:0.00} per 1,000 interactions" : null, jb > 0 ? "crit" : null));
-        Kpis.Add(new("Prompt injection detected", Num(inj), all > 0 ? $"{inj * 1000.0 / all:0.00} per 1,000 interactions" : null, inj > 0 ? "crit" : null));
+        Kpis.Add(new("Jailbreak attempts", Num(jb), all > 0 ? $"{jb * 1000.0 / all:0.00} per 1,000 interactions" : null, jb > 0 ? "crit" : null, Href: Ctx.Url("/security/flags", extra: "status=any")));
+        Kpis.Add(new("Prompt injection detected", Num(inj), all > 0 ? $"{inj * 1000.0 / all:0.00} per 1,000 interactions" : null, inj > 0 ? "crit" : null, Href: Ctx.Url("/security/flags", extra: "status=any")));
         Kpis.Add(new("Blocked resources", Num(blk), "interactions where access to content was blocked or restricted"));
         Kpis.Add(new("People involved", Num(people), "with a jailbreak or injection flag"));
 

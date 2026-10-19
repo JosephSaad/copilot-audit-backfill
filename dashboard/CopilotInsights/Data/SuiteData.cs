@@ -11,7 +11,11 @@ public sealed record SuiteRow(string? Name, string Upn, string? Department, Suit
 /// dash.CostSuite's enabled rows; PowerBiKnown, whether Power BI activity is loaded at all (else nobody's use of E5's
 /// Power BI Pro is known, and no E5 move is offered).
 /// </summary>
-public sealed record SuiteFitView(IReadOnlyList<Suite> Suites, IReadOnlyList<SuiteRow> Rows, bool PowerBiKnown, string Currency, decimal CopilotPrice, decimal PowerBiPrice);
+/// <summary>A suite's seats in the license pool: bought (paid) and assigned.</summary>
+public sealed record SuiteSeats(Suite Suite, int Bought, int Assigned);
+
+public sealed record SuiteFitView(IReadOnlyList<Suite> Suites, IReadOnlyList<SuiteRow> Rows, bool PowerBiKnown, string Currency, decimal CopilotPrice, decimal PowerBiPrice,
+    IReadOnlyList<SuiteSeats>? Seats = null);
 
 /// <summary>
 /// Reads who holds which suite (2.6.6): every SKU each person holds (audit.UserLicenseSku, from the license lookup),
@@ -52,6 +56,9 @@ public sealed class SuiteData(Db db, Settings settings, OpsData ops)
             return new(suites, [], false, cur, copilotPrice, biPrice);
         var idleDays = (int)Math.Clamp(Dec(await settings.StringAsync("CostIdleDays"), 30m), 7, 180);
         var hasSuiteMark = await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL THEN 0 ELSE 1 END;") == 1;
+        /* Disabled or gone as Licenses on disabled accounts says it (OpsData.LeaversAsync): in AD, in Entra, or not found. */
+        var hasEntra = await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL THEN 0 ELSE 1 END") == 1;
+        var entra = hasEntra ? "cl.EntraAccountEnabled" : "CAST(NULL AS BIT)";
         var biKnown = await ops.HasAsync("audit.PowerPlatformUserActivity")
             && await db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM audit.PowerPlatformUserActivity WHERE Product = 'Power BI') THEN 1 ELSE 0 END;") == 1;
 
@@ -72,29 +79,62 @@ SELECT sh.Upn, sh.SkuPattern, du.DisplayName, du.Department, ISNULL(a.P, 0) AS C
        ISNULL(ad.Cop, 0) AS CopilotAddOn, ISNULL(ad.Bi, 0) AS PowerBiAddOn,
        {(biKnown ? "ISNULL(b.Used, 0)" : "-1")} AS PowerBi,
        CASE WHEN {ProtectedLevels.Not("sh.Upn")} THEN 0 ELSE 1 END AS Protected,
-       CASE WHEN du.UserKey IS NOT NULL AND du.AccountEnabled = 0 THEN 0 ELSE 1 END AS Enabled,
+       CASE WHEN du.AccountEnabled = 0 OR du.DirectoryStatus = N'NotFound' OR cl.DirectoryStatus = N'NotFound' OR {entra} = 0 THEN 0 ELSE 1 END AS Enabled,
        du.LicensedSinceUtc AS CopilotSince
 FROM sh
 {(scoped ? "JOIN" : "LEFT JOIN")} bi.DimUser AS du ON du.UserPrincipalName = sh.Upn
 {(scoped ? c.Scope("du.UserKey") : "")}
 LEFT JOIN a ON a.UserKey = du.UserKey
 LEFT JOIN addon AS ad ON ad.Upn = sh.Upn
-LEFT JOIN pbi AS b ON b.UserPrincipalName = sh.Upn;", c.Args(new { k30, idleDays }));
+LEFT JOIN pbi AS b ON b.UserPrincipalName = sh.Upn
+LEFT JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = sh.Upn;", c.Args(new { k30, idleDays }));
 
         var byPattern = suites.ToDictionary(s => s.Pattern, StringComparer.OrdinalIgnoreCase);
         var today = c.End.Date;
         var list = new List<SuiteRow>();
         foreach (var g in rows.GroupBy(r => r.Upn, StringComparer.OrdinalIgnoreCase))
         {
-            /* A person on two suites (E5 left beside E7 after a move up): the higher is theirs, the lower a copy. */
+            /* A person on two suites (E5 left beside E7 after a move up, Office 365 E3 beside Microsoft 365 E5): the highest
+               is theirs, Microsoft 365 before Office 365 at the same tier as it holds more; the others are copies. */
             var held = g.Select(r => byPattern.TryGetValue(r.SkuPattern, out var s) ? s : null).OfType<Suite>()
-                .GroupBy(s => s.Name).Select(x => x.First()).OrderByDescending(s => s.Tier).ToList();
+                .GroupBy(s => s.Name).Select(x => x.First()).OrderByDescending(s => s.Tier).ThenBy(s => s.Family == "Microsoft 365" ? 0 : 1).ToList();
             if (held.Count == 0) continue;
             var r = g.First();
-            var h = new SuiteHolder(r.Upn, held[0], r.CopilotDays, r.CopilotAddOn == 1, r.PowerBiAddOn == 1, held.Skip(1).FirstOrDefault(),
+            var h = new SuiteHolder(r.Upn, held[0], r.CopilotDays, r.CopilotAddOn == 1, r.PowerBiAddOn == 1, held.Skip(1).ToList(),
                 r.PowerBi < 0 ? null : r.PowerBi == 1, r.Protected == 1, r.Enabled == 1, r.CopilotSince);
             list.Add(new(r.DisplayName, r.Upn, r.Department, h, SuiteRules.Fit(h, SuiteRules.Lower(held[0], suites), copilotPrice, biPrice, today, cur)));
         }
-        return new(suites, list, biKnown, cur, copilotPrice, biPrice);
+        /* Each suite's seats: bought and assigned, from the pool. */
+        var seats = (await db.QueryAsync<(string SkuPattern, int Bought, int Assigned)>(@"
+SELECT cs.SkuPattern, SUM(s.Enabled + s.Warning), SUM(s.Consumed)
+FROM audit.LicenseSku AS s JOIN dash.CostSuite AS cs ON cs.Enabled = 1 AND s.SkuPartNumber LIKE cs.SkuPattern
+GROUP BY cs.SkuPattern;")).Where(x => byPattern.ContainsKey(x.SkuPattern))
+            .GroupBy(x => byPattern[x.SkuPattern].Name).Select(g => new SuiteSeats(byPattern[g.First().SkuPattern], g.Sum(x => x.Bought), g.Sum(x => x.Assigned))).ToList();
+        return new(suites, list, biKnown, cur, copilotPrice, biPrice, seats);
+    }
+
+    /// <summary>
+    /// The suites for Costs and savings and Suite fit's own figures, summed the same way for both (2.6.6): those held,
+    /// and the moves. A copy of the Copilot add-on or of Power BI Pro is an AI saving, counted with its area on Costs and
+    /// savings, so it is not a move here; a second suite is. Seats bought and assigned to nobody are a move too.
+    /// </summary>
+    public static SuiteSummary Summarize(SuiteFitView fit, decimal suiteCopilotValue)
+    {
+        var held = fit.Rows.GroupBy(r => r.Holder.Suite.Name).Select(g =>
+        {
+            var s = g.First().Holder.Suite;
+            var each = (s.HasCopilot ? fit.CopilotPrice : 0) + (s.HasPowerBi ? fit.PowerBiPrice : 0);
+            var inc = string.Join(" and ", new[] { s.HasCopilot ? "Microsoft 365 Copilot" : null, s.HasPowerBi ? "Power BI Pro" : null }.OfType<string>());
+            return new SuiteLine(s.Name, g.Count(), s.Price, inc, g.Count() * each);
+        }).OrderByDescending(l => l.Holders).ToList();
+        var moves = fit.Rows.Where(r => r.Fit.Move is not (SuiteMove.Keep or SuiteMove.DropDuplicate)).GroupBy(r => (r.Fit.Move, From: r.Holder.Suite.Name, r.Fit.To))
+            .Select(g => new SuiteMoveLine(g.Key.Move, g.Key.From, g.Key.To, g.Count(), Math.Round(g.Sum(r => r.Fit.Saving), 2), Math.Round(g.Sum(r => r.Fit.AtStake), 2), g.First().Fit.Confidence))
+            .Concat(fit.Rows.Where(r => r.Fit.Move == SuiteMove.DropDuplicate && r.Holder.Others.Any(o => o.Tier <= r.Holder.Suite.Tier))
+                .GroupBy(r => r.Holder.Suite.Name)
+                .Select(g => new SuiteMoveLine(SuiteMove.DropDuplicate, g.Key, null, g.Count(), Math.Round(g.Sum(r => r.Holder.Others.Where(o => o.Tier <= r.Holder.Suite.Tier).Sum(o => o.Price)), 2), 0, "High")))
+            .Concat((fit.Seats ?? []).Where(x => x.Bought > x.Assigned && x.Suite.Price > 0)
+                .Select(x => new SuiteMoveLine(SuiteMove.CutSeats, x.Suite.Name, null, x.Bought - x.Assigned, (x.Bought - x.Assigned) * x.Suite.Price, 0, "Medium")))
+            .OrderBy(m => m.Confidence switch { "High" => 0, "Medium" => 1, _ => 2 }).ThenByDescending(m => m.Saving + m.AtStake).ToList();
+        return new(held, moves, held.Sum(l => l.IncludedValue), suiteCopilotValue, fit.PowerBiKnown);
     }
 }

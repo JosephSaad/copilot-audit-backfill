@@ -562,6 +562,9 @@ BEGIN
     INSERT INTO bi.DimSku (Sku, IsCopilot)
     SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' OR c.Sku IN (SELECT Sku FROM #suite) THEN 1 ELSE 0 END FROM #chg AS c
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimSku AS d WHERE d.Sku = c.Sku);
+    /* 2.6.6: a SKU already here before it was known as a suite with Copilot inside (E7) becomes a Copilot SKU now, so
+       License changes and License inventory count its changes as the licensed days do. */
+    UPDATE bi.DimSku SET IsCopilot = 1 WHERE IsCopilot = 0 AND Sku IN (SELECT Sku FROM #suite);
 
     /* ---- 3. Calendar ------------------------------------------------------- */
     /*

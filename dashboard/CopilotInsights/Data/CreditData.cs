@@ -35,7 +35,7 @@ public sealed class CreditData(Db db, Settings settings)
 
     sealed class Row
     {
-        public int Key { get; set; } public long I { get; set; } public long A { get; set; } public long B { get; set; } public long BW { get; set; }
+        public int G { get; set; } public int Key { get; set; } public long I { get; set; } public long A { get; set; } public long B { get; set; } public long BW { get; set; }
         public long BA { get; set; } public long R { get; set; } public long M { get; set; } public int Lic { get; set; } public int People { get; set; }
     }
 
@@ -44,27 +44,26 @@ public sealed class CreditData(Db db, Settings settings)
         var rates = await RatesAsync();
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
         var days = OpsReports.DaysCovered(c, await OpsReports.FirstDayAsync(db));
-        var (byUser, byAgent) = await db.QueryTwoAsync<Row, Row>($@"
-SELECT fi.UserKey, fi.AgentKey,
-       CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS IsAgent,
-       CASE WHEN fi.LicenseStatusKey = 1 THEN 1 ELSE 0 END AS Lic,
-       CASE WHEN ag.AgentSource <> N'(no agent)' AND (fi.LicenseStatusKey <> 1 OR ap.App = N'Copilot Studio') THEN 1 ELSE 0 END AS Billed,
-       CASE WHEN fi.AccessedResourceCount > 0 OR fi.UseKind IN (1, 3) THEN 1 ELSE 0 END AS Work,
-       CAST(ISNULL(fi.CalledAnotherAgent, 0) AS INT) AS Calls,
-       CAST(ISNULL(fi.AccessedResourceCount, 0) AS BIGINT) AS Res, CAST(ISNULL(fi.MessageCount, 1) AS BIGINT) AS Msg
-INTO #ci
+        /* One pass over the fact, grouped twice (by person, by agent), with nothing copied out: at 120M interactions a
+           temporary copy of the period was the cost of the page. Billed: an agent used by someone not licensed at the time
+           (status 2; an unknown status is not taken for unlicensed), or in a Copilot Studio channel. */
+        var all = await db.QueryAsync<Row>($@"
+SELECT CASE WHEN GROUPING(fi.UserKey) = 0 THEN 0 ELSE 1 END AS G, COALESCE(fi.UserKey, fi.AgentKey) AS [Key],
+       COUNT_BIG(*) AS I, SUM(x.IsAgent) AS A, SUM(x.Billed) AS B, SUM(x.Billed * x.Work) AS BW, SUM(x.Billed * x.Calls) AS BA,
+       SUM(CAST(ISNULL(fi.AccessedResourceCount, 0) AS BIGINT)) AS R, SUM(CAST(ISNULL(fi.MessageCount, 1) AS BIGINT)) AS M,
+       MAX(x.Lic) AS Lic, COUNT(DISTINCT CASE WHEN x.Billed = 1 THEN fi.UserKey END) AS People
 FROM bi.FactInteraction AS fi {c.Scope("fi.UserKey")}
 JOIN bi.DimAgent AS ag ON ag.AgentKey = fi.AgentKey
 JOIN bi.DimApp AS ap ON ap.AppKey = fi.AppKey
-WHERE fi.DateKey BETWEEN @k0 AND @k1;
-SELECT UserKey AS [Key], COUNT_BIG(*) AS I, SUM(IsAgent) AS A, SUM(Billed) AS B, SUM(Billed * Work) AS BW, SUM(Billed * Calls) AS BA,
-       SUM(Res) AS R, SUM(Msg) AS M, MAX(Lic) AS Lic, 1 AS People
-FROM #ci GROUP BY UserKey;
-SELECT AgentKey AS [Key], COUNT_BIG(*) AS I, SUM(IsAgent) AS A, SUM(Billed) AS B, SUM(Billed * Work) AS BW, SUM(Billed * Calls) AS BA,
-       SUM(Res) AS R, SUM(Msg) AS M, MAX(Lic) AS Lic, COUNT(DISTINCT CASE WHEN Billed = 1 THEN UserKey END) AS People
-FROM #ci WHERE IsAgent = 1 GROUP BY AgentKey;
-DROP TABLE #ci;", c.Args(), timeout: 300);
-
+CROSS APPLY (SELECT CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END AS IsAgent,
+                    CASE WHEN fi.LicenseStatusKey = 1 THEN 1 ELSE 0 END AS Lic,
+                    CASE WHEN ag.AgentSource <> N'(no agent)' AND (fi.LicenseStatusKey = 2 OR ap.App = N'Copilot Studio') THEN 1 ELSE 0 END AS Billed,
+                    CASE WHEN fi.AccessedResourceCount > 0 OR fi.UseKind IN (1, 3) THEN 1 ELSE 0 END AS Work,
+                    CAST(ISNULL(fi.CalledAnotherAgent, 0) AS INT) AS Calls) AS x
+WHERE fi.DateKey BETWEEN @k0 AND @k1
+GROUP BY GROUPING SETS ((fi.UserKey), (fi.AgentKey));", c.Args(), timeout: 300);
+        var byUser = all.Where(r => r.G == 0).ToList();
+        var byAgent = all.Where(r => r.G == 1 && r.A > 0).ToList();
         static CreditUse Use(Row r) => new(r.I, r.A, r.B, r.BW, r.BA, r.R, r.M / 2);   // MessageCount counts the prompt and the answer
         var who = (await db.QueryAsync<(int UserKey, string? DisplayName, string UserPrincipalName, string? Department)>(
                 "SELECT UserKey, DisplayName, UserPrincipalName, Department FROM bi.DimUser;")).ToDictionary(u => u.UserKey);

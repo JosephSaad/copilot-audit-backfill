@@ -44,41 +44,52 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         var cur = v.Currency;
         string M(decimal x) => CostRules.Money(Math.Round(x, 0), cur);
         var moves = v.Rows.Where(r => r.Fit.Move is not SuiteMove.Keep).ToList();
-        var saves = moves.Where(r => r.Fit.Saving > 0).ToList();
-        var sure = saves.Where(r => r.Fit.Confidence == "High").Sum(r => r.Fit.Saving);
+        /* Summed as the Suites card on Costs and savings sums them (SuiteData.Summarize), so the two pages agree: a copy of
+           the Copilot add-on or of Power BI Pro is an AI saving, counted with its area there, and shown apart here. */
+        var summary = SuiteData.Summarize(v, 0);
+        bool AddOnCopy(SuiteRow r) => (r.Holder.CopilotAddOn && r.Holder.Suite.HasCopilot) || (r.Holder.PowerBiAddOn && r.Holder.Suite.HasPowerBi);
+        var copies = v.Rows.Where(r => r.Holder.Enabled && !r.Holder.Protected && AddOnCopy(r)).ToList();
+        decimal CopyWorth(SuiteRow r) => (r.Holder.CopilotAddOn && r.Holder.Suite.HasCopilot ? v.CopilotPrice : 0) + (r.Holder.PowerBiAddOn && r.Holder.Suite.HasPowerBi ? v.PowerBiPrice : 0);
 
         Kpis.Add(new("Suite holders", Num(v.Rows.Count), $"{Count(v.Rows.Select(r => r.Holder.Suite.Name).Distinct().Count(), "suite")} held"));
-        Kpis.Add(new($"Savings to review a month ({cur})", Num((long)Math.Round(saves.Sum(r => r.Fit.Saving))), $"{Count(saves.Count, "person", "people")}; {M(saves.Sum(r => r.Fit.Saving) * 12)} a year", saves.Count > 0 ? "good" : null));
-        Kpis.Add(new($"Certain: licenses held twice ({cur})", Num((long)Math.Round(sure)), $"{Count(saves.Count(r => r.Fit.Confidence == "High"), "person", "people")} with a copy the suite covers"));
-        Kpis.Add(new("To train before deciding", Num(moves.Count(r => r.Fit.Move == SuiteMove.Train)), "E7 holders who barely use Copilot"));
-
+        Kpis.Add(new($"Suite moves to review a month ({cur})", Num((long)Math.Round(summary.Saving)), $"{M(summary.Saving * 12)} a year; outside Costs and savings' AI savings", summary.Saving > 0 ? "good" : null));
+        Kpis.Add(new($"Licenses held twice ({cur})", Num((long)Math.Round(copies.Sum(CopyWorth))), $"{Count(copies.Count, "person", "people")} with an add-on the suite covers: AI savings on Costs and savings",
+            Href: Ctx.Url(Request.Path, extra: "copy=addon")));
+        Kpis.Add(new("To train before deciding", Num(moves.Count(r => r.Fit.Move == SuiteMove.Train)), "E7 holders who barely use Copilot", Href: Ctx.Url(Request.Path, extra: "move=train")));
         /* The suites held, what each costs and includes. */
         var st = new Table { Headers = ["Suite", "Holders", $"Price a month ({cur})", "Includes, so not counted as AI spend", "Also brings"], Numeric = new HashSet<int> { 1, 2 } };
         foreach (var g in v.Rows.GroupBy(r => r.Holder.Suite.Name).OrderByDescending(g => g.First().Holder.Suite.Tier).ThenBy(g => g.Key))
         {
             var s = g.First().Holder.Suite;
-            st.Rows.Add([s.Name, g.Count(), s.Price, Includes(s), s.Covers]);
+            st.Rows.Add([new Link(s.Name, Ctx.Url(Request.Path, extra: $"suite={Uri.EscapeDataString(s.Name)}")), g.Count(), s.Price, Includes(s), s.Covers]);
         }
         Panels.Add(new("Suites held", st.Render(), "Every suite turned on in Admin, with its holders here and its price. What it includes (Copilot, Power BI Pro) is not counted again as AI spend on Costs and savings; the rest of what it brings cannot be split from its price.", "half"));
 
-        /* The moves, summed. */
-        var mt = new Table { Headers = ["Move", "From", "To", "People", $"A month ({cur})", "Confidence"], Numeric = new HashSet<int> { 3, 4 } };
-        foreach (var g in moves.GroupBy(r => (r.Fit.Move, From: r.Holder.Suite.Name, r.Fit.To)).OrderByDescending(g => g.Sum(r => r.Fit.Saving + r.Fit.AtStake)))
-        {
-            var key = g.Key.Move.ToString().ToLowerInvariant();
-            mt.Rows.Add([new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"move={key}"))}\">{WebUtility.HtmlEncode(SuiteRules.Label(g.Key.Move))}</a>"),
-                g.Key.From, g.Key.To, g.Count(), Math.Round(g.Sum(r => r.Fit.Move == SuiteMove.Train ? r.Fit.AtStake : r.Fit.Saving)), g.First().Fit.Confidence]);
-        }
+        /* The moves, summed as the Suites card sums them, each leading to its people on that suite. */
+        var mt = new Table { Headers = ["Move", "From", "To", "People or seats", $"A month ({cur})", "Confidence"], Numeric = new HashSet<int> { 3, 4 } };
+        string MoveUrl(SuiteMove mv, string from) => Ctx.Url(Request.Path, extra: (mv == SuiteMove.DropDuplicate ? "copy=suite" : $"move={mv.ToString().ToLowerInvariant()}") + $"&suite={Uri.EscapeDataString(from)}");
+        foreach (var ml in summary.Moves)
+            mt.Rows.Add([ml.Move == SuiteMove.CutSeats ? SuiteRules.Label(ml.Move) : new Link(ml.Move == SuiteMove.DropDuplicate ? "Remove the second suite" : SuiteRules.Label(ml.Move), MoveUrl(ml.Move, ml.From)),
+                ml.From, ml.To, ml.People, Math.Round(ml.Move == SuiteMove.Train ? ml.AtStake : ml.Saving), ml.Confidence]);
+        if (copies.Count > 0)
+            mt.Rows.Add([new Link("Remove the add-on the suite covers", Ctx.Url(Request.Path, extra: "copy=addon")), "E5 or E7", "(an AI saving)", copies.Count, Math.Round(copies.Sum(CopyWorth)), "High"]);
         Panels.Add(new("What could change", mt.Rows.Count == 0 ? new HtmlString("<p class=\"muted\">Every holder's suite fits what the data shows of them.</p>") : mt.Render(),
-            "Each move with its people and what it saves a month (to train: what rides on it). High: a license held twice. Medium: a whole part of the suite unused. Low: rests on what the data cannot see. Select one to list its people.", "half"));
-
+            "Each move with its people (or, to cut, its unassigned seats) and what it saves a month; to train, what rides on it. High: a license held twice. Medium: a whole part of the suite unused, or seats nobody holds. Low: rests on what the data cannot see. " +
+            "The add-on a suite covers is an AI saving, counted on Costs and savings; the rest is the Suites card's review. Select one to list its people.", "half"));
         if (!v.PowerBiKnown && v.Rows.Any(r => r.Holder.Suite.HasPowerBi && !r.Holder.Suite.HasCopilot))
             Notice = "Power BI activity is not loaded, so whether E5's Power BI Pro is used is not known, and no E5 holder is offered a move. Load it with tools\\Import-CostCsv.ps1 -Table PowerPlatformUserActivity.";
 
         /* The people. */
         var move = Enum.TryParse<SuiteMove>(Request.Query["move"].FirstOrDefault(), true, out var mv) ? mv : (SuiteMove?)null;
         var pg = new Paging(Request, Sorts, "saving");
-        IEnumerable<SuiteRow> shown = move is { } only ? v.Rows.Where(r => r.Fit.Move == only) : moves;
+        /* A suite chosen (?suite=, from its row above or from Costs and savings): every holder of it, whatever fits them. */
+        var suite = Request.Query["suite"].FirstOrDefault() is { Length: > 0 } sn && v.Rows.Any(r => r.Holder.Suite.Name == sn) ? sn : null;
+        /* A copy chosen (?copy=addon or suite, from the figures above or Costs and savings): the people holding one. */
+        var copy = Request.Query["copy"].FirstOrDefault() is "addon" or "suite" ? Request.Query["copy"].ToString() : null;
+        IEnumerable<SuiteRow> shown = copy == "addon" ? copies
+            : copy == "suite" ? v.Rows.Where(r => r.Fit.Move == SuiteMove.DropDuplicate && r.Holder.Others.Any(o => o.Tier <= r.Holder.Suite.Tier))
+            : move is { } only ? v.Rows.Where(r => r.Fit.Move == only) : suite is null ? moves : v.Rows;
+        if (suite is not null) shown = shown.Where(r => r.Holder.Suite.Name == suite);
         if (pg.Search is { } q)
             shown = shown.Where(r => (r.Name ?? "").Contains(q, StringComparison.OrdinalIgnoreCase) || r.Upn.Contains(q, StringComparison.OrdinalIgnoreCase) || (r.Department ?? "").Contains(q, StringComparison.OrdinalIgnoreCase));
         var ordered = (pg.SortKey switch
@@ -108,8 +119,8 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
                 SuiteRules.Label(r.Fit.Move), r.Fit.To, Math.Round(r.Fit.Move == SuiteMove.Train ? r.Fit.AtStake : r.Fit.Saving), r.Fit.Confidence,
                 new HtmlString(WebUtility.HtmlEncode(r.Fit.Why) + (r.Fit.Check.Length > 0 ? $"<span class=\"cellnote\">Check: {WebUtility.HtmlEncode(r.Fit.Check)}</span>" : ""))]);
         CsvTable = t;
-        var all = move is null ? "" : $"<p class=\"sub\"><a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path))}\">Every move</a></p>";
-        Panels.Add(new(move is { } m ? $"People to {SuiteRules.Label(m).ToLowerInvariant()}" : "People whose suite could change",
+        var all = move is null && suite is null && copy is null ? "" : $"<p class=\"sub\"><a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path))}\">Every move, every suite</a></p>";
+        Panels.Add(new(copy == "addon" ? "People with an add-on their suite covers" : copy == "suite" ? $"People with a second suite{(suite is null ? "" : $" beside {suite}")}" : move is { } m ? $"People to {SuiteRules.Label(m).ToLowerInvariant()}{(suite is null ? "" : $" on {suite}")}" : suite is not null ? $"Every holder of {suite}" : "People whose suite could change",
             new HtmlString(all + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "Copilot days: days in the last 30 with use that needs the Copilot license, as Upgrade, train or revoke counts them. Power BI: any use in the window, from the Power Platform activity export. " +
             "Protected levels (Admin > Access) are never offered a move; a copy held twice is shown for everyone. Agree each move with the person's manager, and with security and compliance for any move off E5.", "full", CsvUrl()));

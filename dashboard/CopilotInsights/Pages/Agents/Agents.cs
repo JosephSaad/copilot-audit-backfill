@@ -70,7 +70,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
             var at = Kpis.FindIndex(k => k.Label == "Agents used");
             if (at >= 0) Kpis[at] = Kpis[at] with { Note = $"{inBook:#,0} in the agent workbook, {rows.Count - inBook:#,0} not in it (deleted, unmatched or Microsoft's)" };
             var notUsed = inv.Count - listedUsed - autonomous;
-            Kpis.Add(new("Listed agents not used", Num(notUsed), $"of {inv.Count:#,0} in the agent workbook; {listedUsed:#,0} used in the period, {autonomous:#,0} autonomous", notUsed > 0 ? "warn" : null));
+            Kpis.Add(new("Listed agents not used", Num(notUsed), $"of {inv.Count:#,0} in the agent workbook; {listedUsed:#,0} used in the period, {autonomous:#,0} autonomous", notUsed > 0 ? "warn" : null, Href: Ctx.Url("/agents/inventory")));
         }
 
         /* People per agent are a group at every point too (2.4.12): agents with fewer than the minimum in the period are

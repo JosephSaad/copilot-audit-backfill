@@ -12,12 +12,18 @@ public sealed record CostMonth(DateTime Month, IReadOnlyDictionary<string, decim
 /// <summary>Everything Leadership › Costs and savings shows, a month at a time.</summary>
 public sealed record CostView(string Currency, IReadOnlyList<CostArea> Areas, IReadOnlyList<Opportunity> Opportunities, IReadOnlyList<CostMonth> Months,
     CopilotInFabric? CopilotInFabric, decimal RealizedSaving, int RealizedLicenses, IReadOnlyList<string> Sources, IReadOnlyList<string> Missing,
-    decimal HourlyCost, SuiteSummary? Suites = null)
+    decimal HourlyCost, SuiteSummary? Suites = null, IReadOnlyList<AreaDetail>? Details = null)
 {
     public decimal Spend => Areas.Sum(a => a.Spend);
     public decimal Saving => Opportunities.Where(o => o.Kind == OpportunityKind.Save).Sum(o => o.Saving);
     public decimal Value => Areas.Sum(a => a.Value ?? 0);
 }
+
+/// <summary>
+/// The detail behind one area's figures (2.6.6), for its drill-down on Costs and savings: one table of what it is made
+/// of (each capacity, license, account, flow or kind of license), so the figure at the top can be traced to its rows.
+/// </summary>
+public sealed record AreaDetail(string Area, string Title, IReadOnlyList<string> Headers, IReadOnlyList<object?[]> Rows, IReadOnlySet<int> Numeric, string? Note = null);
 
 /// <summary>A suite held (2.6.6): its holders, price, what it includes, and the list value of that, not counted as AI spend.</summary>
 public sealed record SuiteLine(string Suite, int Holders, decimal Price, string Includes, decimal IncludedValue);
@@ -59,6 +65,8 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
 
         var areas = new List<CostArea>();
         var opps = new List<Opportunity>();
+        var details = new List<AreaDetail>();
+        static HashSet<int> Nums(params int[] i) => [.. i];
         var sources = new List<string>();
         var missing = new List<string>();
         var prices = await ops.HasAsync("dash.CostPrice")
@@ -78,7 +86,7 @@ SELECT COUNT(x.L), ISNULL(SUM(x.R), 0), ISNULL(SUM(x.T), 0), ISNULL(SUM(x.U), 0)
 FROM (SELECT lic.UserKey AS L,
              CASE WHEN lic.UserKey IS NOT NULL AND {CopilotSuites.OnlyInSuite("du.UserPrincipalName")} THEN 1 ELSE 0 END AS S,
              CASE WHEN {kinds["revoke"].Where} THEN 1 ELSE 0 END AS R,
-             CASE WHEN {kinds["train"].Where} THEN 1 ELSE 0 END AS T,
+             CASE WHEN {kinds["train"].Where} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")} THEN 1 ELSE 0 END AS T,
              CASE WHEN {kinds["upgrade"].Where} THEN 1 ELSE 0 END AS U
       FROM bi.DimUser AS du
       LEFT JOIN a ON a.UserKey = du.UserKey
@@ -94,7 +102,9 @@ SELECT COUNT(*), ISNULL(SUM(u.P + u.A), 0)
 FROM u JOIN bi.FactLicensedDay AS ld ON ld.UserKey = u.UserKey AND ld.DateKey = @k1
 JOIN bi.DimUser AS du ON du.UserKey = u.UserKey
 WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d1)) AND u.P > 0 AND u.P * 10 <= u.I
-  AND {ProtectedLevels.Not("du.UserPrincipalName")} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")};", c.Args(new { k30 }))).Single();
+  AND {ProtectedLevels.Not("du.UserPrincipalName")} AND {CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}
+  AND ISNULL(du.AccountEnabled, 1) = 1   -- a disabled account is a leaver, counted there
+  AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteHolder AS csh WHERE csh.Upn = du.UserPrincipalName);   -- the add-on beside E7 is a copy, counted there", c.Args(new { k30 }))).Single();
         /* A disabled account's Copilot inside a suite saves nothing alone: taking the suite back is Suite fit's. */
         var suiteOnly = (await db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly;")).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var leavers = (await ops.LeaversAsync()).Count(l => !suiteOnly.Contains(l.UserPrincipalName));
@@ -117,7 +127,17 @@ WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d
            its holders; the value of Copilot is shared by holder, the suite holders' part going with the suite. */
         var standalone = counts.Licensed - counts.Suite;
         var copilotSeats = addOnBought > 0 ? Math.Max(addOnBought, standalone) : standalone;
-        var suiteCopilotValue = counts.Licensed > 0 ? Math.Round(copilotValue * counts.Suite / counts.Licensed, 2) : 0;
+        /* Copilot's value goes with the use: the share of licensed interactions in the period by people whose Copilot comes
+           only with a suite is the suite's; the rest is the add-on's. */
+        var use = (await db.QueryAsync<(long All, long Suite)>(@"
+SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CASE WHEN cso.Upn IS NOT NULL THEN CAST(ud.Interactions AS BIGINT) END), 0)
+FROM dash.UserDay AS ud
+JOIN bi.FactLicensedDay AS ld ON ld.UserKey = ud.UserKey AND ld.DateKey = ud.DateKey
+JOIN bi.DimUser AS du ON du.UserKey = ud.UserKey
+LEFT JOIN dash.CopilotSuiteOnly AS cso ON cso.Upn = du.UserPrincipalName
+WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args())).Single();
+        var suiteUse = use.All > 0 ? (decimal)use.Suite / use.All : counts.Licensed > 0 ? (decimal)counts.Suite / counts.Licensed : 0;
+        var suiteCopilotValue = Math.Round(copilotValue * suiteUse, 2);
         var addOnValue = copilotValue - suiteCopilotValue;
         /* The add-on held beside a suite with Copilot in it: paid twice. Those the revoke rule takes already (unused,
            licensed over 30 days, not protected) are counted there, not twice. */
@@ -149,16 +169,28 @@ WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d
                 opps.Add(new(CostAreas.Copilot, OpportunityKind.Grow, $"License {counts.Upgrade:#,0} heavy free Copilot Chat users",
                     $"{counts.Upgrade:#,0} people without a license used free Copilot Chat on 6 or more days in the last 30: the work content they cannot reach is the value the license adds.",
                     "Hand them the licenses reclaimed above before buying more.", 0, counts.Upgrade * copilotPrice, "Low", "/forecasting/actions?kind=upgrade"));
-            if (CostRules.HeldTwice(CostAreas.Copilot, "Microsoft 365 Copilot", SuitesWith(s => s.HasCopilot), twiceCopilot, copilotPrice, cur, "/licensing/suites?move=dropduplicate") is { } tw) opps.Add(tw);
+            if (CostRules.HeldTwice(CostAreas.Copilot, "Microsoft 365 Copilot", SuitesWith(s => s.HasCopilot), twiceCopilot, copilotPrice, cur, "/licensing/suites?copy=addon") is { } tw) opps.Add(tw);
             if (CostRules.Unassigned(CostAreas.Copilot, "Microsoft 365 Copilot", addOnBought, addOnAssigned, copilotPrice, cur) is { } un) opps.Add(un);
             copilotSaving = opps.Where(o => o.Area == CostAreas.Copilot && o.Kind == OpportunityKind.Save).Sum(o => o.Saving);
-            var share = counts.Licensed > 0 ? (double)standalone / counts.Licensed : 1;
+            var share = (double)(1 - suiteUse);
             if (copilotSeats > 0)
                 areas.Add(new(CostAreas.Copilot, copilotSeats * copilotPrice, copilotSaving, addOnValue,
                     $"{copilotSeats:#,0} add-on licenses at {CostRules.Money(copilotPrice, cur)}" + (addOnBought > addOnAssigned ? $" ({addOnBought:#,0} bought, {addOnAssigned:#,0} assigned)" : "") +
                     (counts.Suite > 0 ? $"; {counts.Suite:#,0} more people hold Copilot inside a suite, in its price and not counted here" : "") +
                     $"; value: {value.ByApp.Sum(x => x.Hours) * 30 / covered * share:#,0} hours saved a month at {CostRules.Money(hourly, cur)} an hour" +
-                    (counts.Suite > 0 ? ", the add-on holders' share of Copilot's" : ""), true, "/leadership/value"));
+                    (counts.Suite > 0 ? ", the add-on holders' share of Copilot's use" : ""), true, "/leadership/value"));
+            /* The detail: each count behind the figures, linked to the list that names the people. */
+            details.Add(new(CostAreas.Copilot, "What the figures are made of", ["", "People or seats", $"A month ({cur})", "The list"], [
+                ["Add-on licenses bought", addOnBought > 0 ? addOnBought : copilotSeats, copilotSeats * copilotPrice, new Pages.Link("License pool", "/licensing/pool")],
+                ["Of them, assigned to nobody", Math.Max(0, addOnBought - addOnAssigned), Math.Max(0, addOnBought - addOnAssigned) * copilotPrice, new Pages.Link("License pool", "/licensing/pool")],
+                ["Licensed through a suite only (E7), in its price", counts.Suite, 0m, new Pages.Link("Suite fit", "/licensing/suites")],
+                ["Unused in 30 days: to revoke", counts.Revoke, counts.Revoke * copilotPrice, new Pages.Link("Upgrade, train or revoke", "/forecasting/actions?kind=revoke")],
+                ["On disabled accounts", leavers, leavers * copilotPrice, new Pages.Link("Licenses on disabled accounts", "/licensing/leavers")],
+                ["Better on pay-as-you-go", payg.People, Math.Max(0, Math.Round(payg.People * copilotPrice - payg.Metered * rate, 2)), new Pages.Link("Better on pay-as-you-go", "/licensing/payg")],
+                ["The add-on beside E7, paid twice", twiceCopilot, twiceCopilot * copilotPrice, new Pages.Link("Suite fit", "/licensing/suites?copy=addon")],
+                ["Light users to train", counts.Train, counts.Train * copilotPrice, new Pages.Link("Upgrade, train or revoke", "/forecasting/actions?kind=train")],
+                ["Heavy free Copilot Chat users to license", counts.Upgrade, counts.Upgrade * copilotPrice, new Pages.Link("Upgrade, train or revoke", "/forecasting/actions?kind=upgrade")],
+            ], Nums(1, 2), "Savings for the first rows after the add-on; the last two are opportunities at stake, not savings."));
         }
 
         /* ---- Power Platform licenses from Graph, priced, with who has not used them ---- */
@@ -174,10 +206,6 @@ WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d
             held = await db.QueryAsync<Held>($@"
 WITH flowowners AS ({(hasFlows ? "SELECT DISTINCT OwnerUpn FROM audit.PowerAutomateFlow WHERE IsPremium = 1 AND [State] = 'Started' AND Runs30 > 0" : "SELECT CAST(NULL AS NVARCHAR(256)) AS OwnerUpn WHERE 1 = 0")}),
 known AS ({(hasActivity ? "SELECT DISTINCT Product FROM audit.PowerPlatformUserActivity" : "SELECT CAST(NULL AS VARCHAR(32)) AS Product WHERE 1 = 0")}),
-insuite AS ({(hasSuites ? @"SELECT u2.UserPrincipalName AS Upn, cs.Includes, MIN(cs.Suite) AS Suite
-                FROM audit.UserLicenseSku AS u2 JOIN audit.LicenseSku AS s2 ON s2.SkuId = u2.SkuId
-                JOIN dash.CostSuite AS cs ON cs.Enabled = 1 AND cs.Includes <> N'' AND s2.SkuPartNumber LIKE cs.SkuPattern
-                GROUP BY u2.UserPrincipalName, cs.Includes" : "SELECT CAST(NULL AS NVARCHAR(512)) AS Upn, CAST(NULL AS NVARCHAR(400)) AS Includes, CAST(NULL AS NVARCHAR(100)) AS Suite WHERE 1 = 0")}),
 x AS (SELECT s.SkuPartNumber, s.Consumed, s.Enabled + s.Warning AS Bought, u.UserPrincipalName AS Upn,
              CASE WHEN u.UserPrincipalName IS NOT NULL AND k.Product IS NOT NULL AND tw.Suite IS NULL
                        AND {(hasActivity ? "ISNULL(a.ActiveDays30, 0) = 0 AND (a.LastActiveUtc IS NULL OR a.LastActiveUtc < DATEADD(DAY, -@idleDays, SYSUTCDATETIME()))" : "1 = 0")}
@@ -191,8 +219,10 @@ x AS (SELECT s.SkuPartNumber, s.Consumed, s.Enabled + s.Warning AS Bought, u.Use
       {(hasActivity ? "LEFT JOIN audit.PowerPlatformUserActivity AS a ON a.UserPrincipalName = u.UserPrincipalName AND a.Product = p.Product" : "")}
       LEFT JOIN flowowners AS fo ON fo.OwnerUpn = u.UserPrincipalName
       LEFT JOIN known AS k ON k.Product = p.Product
-      OUTER APPLY (SELECT TOP (1) i.Suite FROM insuite AS i
-                   WHERE i.Upn = u.UserPrincipalName AND N',' + REPLACE(i.Includes, N' ', N'') + N',' LIKE N'%,' + s.SkuPartNumber + N',%') AS tw
+      /* The suite that includes this license, if the holder has one: a seek on the holder's own licenses (the primary key). */
+      OUTER APPLY ({(hasSuites ? @"SELECT TOP (1) cs.Suite FROM audit.UserLicenseSku AS u2 JOIN audit.LicenseSku AS s2 ON s2.SkuId = u2.SkuId
+                   JOIN dash.CostSuite AS cs ON cs.Enabled = 1 AND cs.Includes <> N'' AND s2.SkuPartNumber LIKE cs.SkuPattern
+                   WHERE u2.UserPrincipalName = u.UserPrincipalName AND N',' + REPLACE(cs.Includes, N' ', N'') + N',' LIKE N'%,' + s.SkuPartNumber + N',%'" : "SELECT CAST(NULL AS NVARCHAR(100)) AS Suite WHERE 1 = 0")}) AS tw
       WHERE s.SkuPartNumber IN @items)
 SELECT SkuPartNumber, MAX(Consumed) AS Consumed, MAX(Bought) AS Bought, COUNT(Upn) AS Holders, SUM(Idle) AS Idle, MAX(Known) AS Known,
        SUM(Twice) AS Twice, CASE WHEN MIN(TwiceIn) = MAX(TwiceIn) THEN MIN(TwiceIn) ELSE MIN(TwiceIn) + N' and ' + MAX(TwiceIn) END AS TwiceIn
@@ -202,13 +232,24 @@ FROM x GROUP BY SkuPartNumber;", new { items, idleDays });
         }
         /* 2.6.6: the seats bought, which are paid whether assigned or not (the assigned, where the pool says fewer were bought). */
         decimal Spend(string area) => held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area).Sum(h => Math.Max(h.Bought, h.Consumed) * prices[h.SkuPartNumber].MonthlyPrice);
+        /* The detail for a licensed area: each license, bought, assigned, idle and held twice, and what it costs. */
+        void LicenseDetail(string area, string displayArea)
+        {
+            var rows = held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area).OrderByDescending(h => Math.Max(h.Bought, h.Consumed) * prices[h.SkuPartNumber].MonthlyPrice)
+                .Select(h => new object?[] { prices[h.SkuPartNumber].Name, h.SkuPartNumber, h.Bought, h.Consumed, Math.Max(0, h.Bought - h.Consumed), h.Known > 0 ? h.Idle : null, h.Twice,
+                    prices[h.SkuPartNumber].MonthlyPrice, Math.Max(h.Bought, h.Consumed) * prices[h.SkuPartNumber].MonthlyPrice }).ToList();
+            if (rows.Count > 0)
+                details.Add(new(displayArea, "Each license", ["License", "SKU part number", "Bought", "Assigned", "Assigned to nobody", "Idle 30 days", "Held beside a suite with it", $"Price ({cur})", $"A month ({cur})"],
+                    rows, Nums(2, 3, 4, 5, 6, 7, 8), "From Graph's license pool, priced from Admin's list. Idle: no use of the product in the window (a dash where its activity is not loaded)."));
+        }
         void Idle(string area, string displayArea)
         {
+            LicenseDetail(area, displayArea);
             foreach (var h in held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area))
             {
                 var pr = prices[h.SkuPartNumber];
                 if (pr.Unit != "flow" && h.Known > 0 && CostRules.IdleLicenses(displayArea, pr.Name, h.Holders, h.Idle, pr.MonthlyPrice, cur) is { } o) opps.Add(o);
-                if (CostRules.HeldTwice(displayArea, pr.Name, h.TwiceIn ?? "the suite", h.Twice, pr.MonthlyPrice, cur, "/licensing/suites?move=dropduplicate") is { } tw) opps.Add(tw);
+                if (CostRules.HeldTwice(displayArea, pr.Name, h.TwiceIn ?? "the suite", h.Twice, pr.MonthlyPrice, cur, "/licensing/suites?copy=addon") is { } tw) opps.Add(tw);
                 /* Per-user licenses only: a Process license is assigned to a flow, a pack to the tenant. */
                 if (pr.Unit == "user" && CostRules.Unassigned(displayArea, pr.Name, h.Bought, h.Consumed, pr.MonthlyPrice, cur) is { } un) opps.Add(un);
             }
@@ -248,6 +289,23 @@ FROM audit.PowerAutomateFlow AS f LEFT JOIN prem AS pr ON pr.UserPrincipalName =
                         $"{f.Failing:#,0} started flow{(f.Failing == 1 ? "" : "s")} failed on at least one run in three in the last 30 days: the work they automate is being done by hand, or not at all.",
                         "Send each owner the failure history from the Power Automate admin center; a failing premium flow still holds its license.", 0,
                         Math.Round(flowValue.Value * f.Failing / Math.Max(1, f.Started) , 2), "Medium"));
+                /* The detail: the flows worth most, and those failing. */
+                var top = await db.QueryAsync<(string Env, string Name, string? Owner, string? Model, int Runs, int Failed, decimal Minutes)>(@"
+SELECT TOP (15) EnvironmentName, ISNULL(FlowName, FlowId), OwnerUpn, LicenseModel, ISNULL(Runs30, 0), ISNULL(FailedRuns30, 0), ISNULL(MinutesSavedPerRun, @minutes)
+FROM audit.PowerAutomateFlow WHERE [State] = 'Started'
+ORDER BY (ISNULL(Runs30, 0) - ISNULL(FailedRuns30, 0)) * ISNULL(MinutesSavedPerRun, @minutes) DESC, FlowName;", new { minutes = flowMinutes });
+                if (top.Count > 0)
+                    details.Add(new(CostAreas.Automate, "The flows worth most", ["Flow", "Environment", "Owner", "License", "Runs (30 days)", "Failed", "Minutes a run", $"Value a month ({cur})"],
+                        [.. top.Select(x => new object?[] { x.Name, x.Env, x.Owner, x.Model, x.Runs, x.Failed, x.Minutes, Math.Round((x.Runs - x.Failed) * x.Minutes / 60m * hourly, 0) })],
+                        Nums(4, 5, 6, 7), "Successful runs at the minutes each saves (the inventory's, or Admin's default), at the hourly cost."));
+                var failing = await db.QueryAsync<(string Env, string Name, string? Owner, int Runs, int Failed)>(@"
+SELECT TOP (15) EnvironmentName, ISNULL(FlowName, FlowId), OwnerUpn, Runs30, FailedRuns30
+FROM audit.PowerAutomateFlow WHERE [State] = 'Started' AND Runs30 >= 10 AND FailedRuns30 * 3 >= Runs30
+ORDER BY FailedRuns30 DESC, FlowName;");
+                if (failing.Count > 0)
+                    details.Add(new(CostAreas.Automate, "Flows failing a third of their runs or more", ["Flow", "Environment", "Owner", "Runs (30 days)", "Failed", "Failure rate"],
+                        [.. failing.Select(x => new object?[] { x.Name, x.Env, x.Owner, x.Runs, x.Failed, $"{(double)x.Failed / Math.Max(1, x.Runs):P0}" })], Nums(3, 4),
+                        "Send each owner the failure history from the Power Automate admin center."));
             }
         }
         if (paSpend > 0 || flowValue is not null)
@@ -272,6 +330,10 @@ WHERE [Day] = (SELECT MAX([Day]) FROM audit.PowerPlatformCapacityDay);");
                 dvSpend += Math.Max(0, x.UsedGb - x.EntitledGb) * price;
                 if (CostRules.DataverseOverage(x.CapacityType, x.EntitledGb, x.UsedGb, price, cur) is { } o) opps.Add(o);
             }
+            if (cap.Count > 0)
+                details.Add(new(CostAreas.Apps, "Dataverse capacity", ["Capacity", "Entitled (GB)", "Used (GB)", "Over (GB)", $"Price a GB ({cur})", $"A month ({cur})"],
+                    [.. cap.Select(x => new object?[] { x.CapacityType, x.EntitledGb, x.UsedGb, Math.Max(0, x.UsedGb - x.EntitledGb), PriceOf($"DATAVERSE_{x.CapacityType.ToUpperInvariant()}_GB"),
+                        Math.Max(0, x.UsedGb - x.EntitledGb) * PriceOf($"DATAVERSE_{x.CapacityType.ToUpperInvariant()}_GB") })], Nums(1, 2, 3, 4, 5), "The admin center's capacity report, its last day."));
         }
         if (appsSpend > 0 || dvSpend > 0)
         {
@@ -298,6 +360,11 @@ FROM audit.PowerPlatformCreditDay WHERE [Day] > DATEADD(DAY, -30, (SELECT D FROM
                 if (CostRules.Credits(CostRules.Monthly(cr.Prepaid, cr.Days), packs, CostRules.Monthly(cr.Payg, cr.Days), paygCost, packPrice, cur) is { } o) opps.Add(o);
                 areas.Add(new(CostAreas.Studio, packs * packPrice + paygCost, opps.Where(x => x.Area == CostAreas.Studio && x.Kind == OpportunityKind.Save).Sum(x => x.Saving), null,
                     $"{packs:#,0} prepaid pack{(packs == 1 ? "" : "s")} at {CostRules.Money(packPrice, cur)}, and {CostRules.Money(paygCost, cur)} of pay-as-you-go credits a month; the agents' value is in Microsoft 365 Copilot's", true, "/agents/credits"));
+                details.Add(new(CostAreas.Studio, "Credits, billed", ["", "Credits a month", $"A month ({cur})", "Where to look"], [
+                    ["Prepaid packs", packs * 25000m, packs * packPrice, new Pages.Link("Agents costing credits", "/agents/credits")],
+                    ["Of them, used", Math.Round(CostRules.Monthly(cr.Prepaid, cr.Days)), null, new Pages.Link("Credit use", "/licensing/credit-use")],
+                    ["Pay-as-you-go, beyond the packs", Math.Round(CostRules.Monthly(cr.Payg, cr.Days)), paygCost, new Pages.Link("Credit use", "/licensing/credit-use")],
+                ], Nums(1, 2), "What the Power Platform admin center billed. Licensing > Credit use estimates who used them, person by person, from the audit log."));
             }
         }
 
@@ -327,6 +394,10 @@ GROUP BY w.CapacityId;")
                     return s with { CopilotShare = w.All > 0 ? (double)(w.Copilot / w.All) : 0, CopilotRequests = w.Requests, CopilotUsers = w.Users };
                 }).ToList();
                 foreach (var cap in caps) opps.AddRange(CostRules.Fabric(cap, discount, cur));
+                details.Add(new(CostAreas.Fabric, "Each capacity", ["Capacity", "SKU", "Billing", $"A month ({cur})", "Average use", "Busiest days (95th percentile)", "Weekends", "Throttled (minutes)", "Copilot's share", "Copilot requests"],
+                    [.. caps.OrderByDescending(x => x.Cost).Select(x => new object?[] { x.Name, x.Sku, x.Billing, Math.Round(CostRules.Monthly(x.Cost, x.Days)), $"{x.AvgPercent / 100:P0}", $"{x.PeakPercent / 100:P0}",
+                        $"{x.WeekendPercent / 100:P0}", x.ThrottledMinutes, x.CopilotShare > 0 ? $"{x.CopilotShare:P1}" : null, x.CopilotRequests > 0 ? x.CopilotRequests : null })],
+                    Nums(3, 7, 9), "The Capacity Metrics app's last 30 days of each capacity, with its cost from Azure Cost Management."));
                 var spend = caps.Sum(x => CostRules.Monthly(x.Cost, x.Days));
                 var copilotCost = caps.Sum(x => CostRules.Monthly(x.Cost, x.Days) * (decimal)x.CopilotShare);
                 var requests = caps.Sum(x => x.CopilotRequests);
@@ -358,6 +429,14 @@ FROM s;", new { ent = PriceOf("GITHUB_COPILOT_ENTERPRISE", 39), bus = PriceOf("G
             {
                 sources.Add("GitHub Copilot: seats and the bill from GitHub's API");
                 if (CostRules.IdleSeats(g.Seats, g.Idle, g.IdleSpend, cur) is { } o) opps.Add(o);
+                var plans = await db.QueryAsync<(string? Plan, int Seats, int Idle)>(@"
+SELECT PlanType, COUNT(*), SUM(CASE WHEN (LastActivityUtc IS NULL AND (CreatedUtc IS NULL OR CreatedUtc < DATEADD(DAY, -@idleDays, SYSUTCDATETIME())))
+                                     OR LastActivityUtc < DATEADD(DAY, -@idleDays, SYSUTCDATETIME()) THEN 1 ELSE 0 END)
+FROM audit.GitHubCopilotSeat GROUP BY PlanType;", new { idleDays });
+                details.Add(new(CostAreas.GitHub, "Seats by plan", ["Plan", "Seats", "Idle", $"Price a seat ({cur})", $"Idle a month ({cur})"],
+                    [.. plans.Select(p => { var price = p.Plan == "enterprise" ? PriceOf("GITHUB_COPILOT_ENTERPRISE", 39) : PriceOf("GITHUB_COPILOT_BUSINESS", 19);
+                        return new object?[] { p.Plan ?? "(not given)", p.Seats, p.Idle, price, p.Idle * price }; })],
+                    Nums(1, 2, 3, 4), "GitHub's seat list; idle: no Copilot activity in the window, or never since the seat was given."));
                 var spend = g.BilledDays >= 20 ? CostRules.Monthly(g.Billed, g.BilledDays) : g.SeatSpend;
                 areas.Add(new(CostAreas.GitHub, spend, opps.Where(x => x.Area == CostAreas.GitHub).Sum(x => x.Saving), null,
                     g.BilledDays >= 20 ? $"GitHub's bill for the last 30 days; {g.Seats:#,0} seats" : $"{g.Seats:#,0} seats at list price", true));
@@ -377,6 +456,10 @@ SELECT cost.Account, cost.Cost, cost.Days, ISNULL(req.Requests, 0) FROM cost LEF
                 sources.Add($"Foundry and Azure OpenAI: {accts.Count} accounts from Azure Cost Management and Azure Monitor");
                 foreach (var a in accts)
                     if (CostRules.IdleAccount(a.Account, CostRules.Monthly(a.Cost, a.Days), a.Requests, 30, cur) is { } o) opps.Add(o);
+                details.Add(new(CostAreas.Foundry, "Each account", ["Account", $"A month ({cur})", "Requests (30 days)", $"A thousand requests ({cur})"],
+                    [.. accts.OrderByDescending(a => a.Cost).Select(a => new object?[] { a.Account, Math.Round(CostRules.Monthly(a.Cost, a.Days)), a.Requests,
+                        a.Requests > 0 ? (object)Math.Round(CostRules.Monthly(a.Cost, a.Days) / a.Requests * 1000, 2) : "nothing answered" })],
+                    Nums(1, 2, 3), "Azure Cost Management's charges and Azure Monitor's requests, the last 30 days."));
                 areas.Add(new(CostAreas.Foundry, accts.Sum(a => CostRules.Monthly(a.Cost, a.Days)), opps.Where(x => x.Area == CostAreas.Foundry).Sum(x => x.Saving), null,
                     $"Azure's charges for {accts.Count} account{(accts.Count == 1 ? "" : "s")}", true));
             }
@@ -402,32 +485,15 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
   AND NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = (SELECT MAX(DateKey) FROM bi.FactLicensedDay));")
             : 0;
 
-        /* ---- The suites (2.6.6): held, what they include, and the moves Suite fit finds ---- */
+        /* ---- The suites (2.6.6): held, what they include, and the moves Suite fit finds, summed as Suite fit sums them ---- */
         SuiteSummary? suiteSummary = null;
         if (fit.Rows.Count > 0)
         {
             sources.Add($"Suites: {fit.Rows.Count:#,0} holders of {string.Join(", ", fit.Rows.Select(r => r.Holder.Suite.Name).Distinct().OrderBy(n => n, StringComparer.Ordinal))}, priced from Admin's suite list");
-            var biPrice = fit.PowerBiPrice;
-            var suiteHeld = fit.Rows.GroupBy(r => r.Holder.Suite.Name).Select(g =>
-            {
-                var s = g.First().Holder.Suite;
-                var each = (s.HasCopilot ? copilotPrice : 0) + (s.HasPowerBi ? biPrice : 0);
-                var inc = string.Join(" and ", new[] { s.HasCopilot ? "Microsoft 365 Copilot" : null, s.HasPowerBi ? "Power BI Pro" : null }.OfType<string>());
-                return new SuiteLine(s.Name, g.Count(), s.Price, inc, g.Count() * each);
-            }).OrderByDescending(l => l.Holders).ToList();
-            /* The copies of an add-on are counted with their area above; a second suite is the suites' own, whatever else that
-               person holds twice, so it is summed from the holders rather than from their one fit. */
-            var moves = fit.Rows.Where(r => r.Fit.Move is not (SuiteMove.Keep or SuiteMove.DropDuplicate)).GroupBy(r => (r.Fit.Move, From: r.Holder.Suite.Name, r.Fit.To))
-                .Select(g => new SuiteMoveLine(g.Key.Move, g.Key.From, g.Key.To, g.Count(), Math.Round(g.Sum(r => r.Fit.Saving), 2), Math.Round(g.Sum(r => r.Fit.AtStake), 2), g.First().Fit.Confidence))
-                .Concat(fit.Rows.Where(r => r.Holder.Enabled && r.Holder.AlsoHolds is { } two && two.Family == r.Holder.Suite.Family && two.Tier < r.Holder.Suite.Tier)
-                    .GroupBy(r => r.Holder.Suite.Name)
-                    .Select(g => new SuiteMoveLine(SuiteMove.DropDuplicate, g.Key, null, g.Count(), Math.Round(g.Sum(r => r.Holder.AlsoHolds!.Price), 2), 0, "High")))
-                .OrderBy(m => m.Confidence switch { "High" => 0, "Medium" => 1, _ => 2 }).ThenByDescending(m => m.Saving + m.AtStake).ToList();
-            suiteSummary = new(suiteHeld, moves, suiteHeld.Sum(l => l.IncludedValue), suiteCopilotValue, fit.PowerBiKnown);
+            suiteSummary = SuiteData.Summarize(fit, suiteCopilotValue);
         }
-
         var ordered = areas.OrderBy(a => CostAreas.Slot(a.Name)).ToList();
-        return new(cur, ordered, CostRules.Ranked(opps), await MonthsAsync(copilotPrice, prices.Values.ToList(), c), cif, realized * copilotPrice, realized, sources, missing, hourly, suiteSummary);
+        return new(cur, ordered, CostRules.Ranked(opps), await MonthsAsync(copilotPrice, prices.Values.ToList(), c), cif, realized * copilotPrice, realized, sources, missing, hourly, suiteSummary, details);
     }
 
     static string Basis(List<Held> held, Dictionary<string, Price> prices, string area, string cur) =>

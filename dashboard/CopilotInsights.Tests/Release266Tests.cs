@@ -177,9 +177,9 @@ public class SuiteRulesTests
     static readonly Suite[] All = [E3, E5, E7, O3];
     static readonly DateTime Today = new(2026, 10, 17);
 
-    static SuiteFit Fit(Suite s, int copilotDays = 0, bool addOn = false, bool bi = false, Suite? also = null, bool? usesBi = null,
+    static SuiteFit Fit(Suite s, int copilotDays = 0, bool addOn = false, bool bi = false, Suite[]? also = null, bool? usesBi = null,
         bool prot = false, bool enabled = true, DateTime? since = null) =>
-        SuiteRules.Fit(new SuiteHolder("a@contoso.com", s, copilotDays, addOn, bi, also, usesBi, prot, enabled, since ?? Today.AddDays(-200)),
+        SuiteRules.Fit(new SuiteHolder("a@contoso.com", s, copilotDays, addOn, bi, also ?? [], usesBi, prot, enabled, since ?? Today.AddDays(-200)),
             SuiteRules.Lower(s, All), 30, 14, Today, "USD");
 
     [Fact]
@@ -198,7 +198,10 @@ public class SuiteRulesTests
         Assert.Equal(SuiteMove.DropDuplicate, f.Move);
         Assert.Equal(44m, f.Saving);
         Assert.Equal("High", f.Confidence);
-        Assert.Equal(60m, Fit(E7, copilotDays: 20, also: E5).Saving);
+        Assert.Equal(60m, Fit(E7, copilotDays: 20, also: [E5]).Saving);
+        /* Office 365 E3 under Microsoft 365 E5 is a copy too, and every copy counts. */
+        Assert.Equal(26m, Fit(E5, usesBi: true, also: [O3]).Saving);
+        Assert.Equal(60m + 26m, Fit(E7, copilotDays: 20, also: [E5, O3]).Saving);
         /* E3 includes no Power BI Pro: a standalone one on E3 is no copy. */
         Assert.NotEqual(SuiteMove.DropDuplicate, Fit(E3, bi: true, usesBi: true).Move);
     }
@@ -250,8 +253,10 @@ public class SuiteRulesTests
         var gone = Fit(E5, enabled: false);
         Assert.Equal(SuiteMove.Reclaim, gone.Move);
         Assert.Equal(60m, gone.Saving);
-        /* A copy is a copy even on a protected level. */
-        Assert.Equal(SuiteMove.DropDuplicate, Fit(E7, addOn: true, prot: true).Move);
+        /* A disabled account gives back every suite it holds, protected or not, as on Licenses on disabled accounts. */
+        Assert.Equal(99m + 60m, Fit(E7, enabled: false, prot: true, also: [E5]).Saving);
+        /* A protected level is never offered anything else, a copy included, as on every other list. */
+        Assert.Equal(SuiteMove.Keep, Fit(E7, addOn: true, prot: true).Move);
     }
 
     [Fact]
@@ -314,5 +319,32 @@ public class CreditRulesTests
         Assert.Contains(Nav.Groups.First(g => g.Persona == "Licensing").Pages, p => p.Path == "/licensing/credit-use");
         Assert.NotNull(Guidance.For("/licensing/credit-use"));
         Assert.Contains("RequiredRole => Roles.Licensing", Source.Read("Pages", "Licensing", "CreditUse.cs"));
+    }
+}
+
+/// <summary>The drill-downs (2.6.6): every headline figure on Costs and savings leads to the detail behind it.</summary>
+public class CostDrillDownTests
+{
+    [Fact]
+    public void Six_months_draw_six_labels()
+    {
+        var months = new[] { "Apr 2026", "May 2026", "Jun 2026", "Jul 2026", "Aug 2026", "Sep 2026" };
+        var svg = CopilotInsights.Charts.Chart.Columns(months, [new CopilotInsights.Charts.Series("a", [1, 2, 3, 4, 5, 6], 1)], CopilotInsights.Charts.Fmt.Count, "six months").ToString()!;
+        foreach (var m in months) Assert.Contains(m.Split(' ')[0], svg);
+    }
+
+    [Fact]
+    public void Each_area_has_its_own_view_and_the_figures_lead_to_their_detail()
+    {
+        var page = Source.Read("Pages", "Leadership", "Costs.cs");
+        Assert.Contains("RenderArea(v, pick)", page);           // ?area=<slot>: an area's own view
+        Assert.Contains("conf={c}", page);                       // a confidence lists its savings alone
+        Assert.Contains("\"#areas\"", page);                     // spend leads to every area
+        Assert.Contains("/forecasting/outcomes", page);          // what was saved leads to the outcomes
+        Assert.Contains("ctx.Url(\"/licensing/suites\", extra:", page);   // each suite move leads to its people
+        Assert.Contains("href is null && area == Here ? E(text)", page);   // an area's view does not link to itself
+        var data = Source.Read("Data", "CostData.cs");
+        foreach (var area in new[] { "CostAreas.Copilot", "CostAreas.Studio", "CostAreas.Fabric", "CostAreas.Automate", "CostAreas.Apps", "CostAreas.GitHub", "CostAreas.Foundry" })
+            Assert.Contains($"details.Add(new({area}", data);
     }
 }

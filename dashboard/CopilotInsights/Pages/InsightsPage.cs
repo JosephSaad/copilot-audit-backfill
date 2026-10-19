@@ -8,7 +8,8 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace CopilotInsights.Pages;
 
-public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null);
+/// <summary>A headline figure; Href (2.6.6) is the report with the detail behind it, which the figure links to.</summary>
+public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null, string? Href = null);
 
 /// <summary>A report panel: a chart or a table, with a title and an optional explanation.</summary>
 public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null);

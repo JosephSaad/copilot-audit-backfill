@@ -89,9 +89,21 @@ put your agreement's prices in Admin › Targets and assumptions.
   that bill most, and the unlicensed people costing more than a license. Tokens are a rough figure for sizing. The
   rates are Admin › Targets and assumptions › *Credit estimate*'s (Microsoft's list rates by default).
 
+- **From the headline to the detail.** On Costs and savings each tile, area, confidence, saving and suite move
+  leads to what it is made of: each area has its own view (`?area=`), with every saving and risk in it, its six
+  months, a table of what it is made of (capacities, licenses bought and assigned, flows, accounts, seats) and the
+  reports that name the people; a confidence lists its savings alone. A report's headline figure can now link to
+  its detail (`Kpi.Href`), and Leadership's overview, What to act on and the section start pages do.
+- **Suite seats bought and assigned to nobody** are a move to review (E3, E5 and E7), and Licensing › Credit use
+  shows the credits the admin center billed beside its estimate.
+
 ### Changed
-- **Every report's heading is shorter**: the title and who the page is for on one line, what it helps with and what
+- **Every report''s heading is shorter**: the title and who the page is for on one line, what it helps with and what
   to do on the next, and less space around them and the filter bar, so the figures start about 100 pixels higher. *Helps you* and *Do* stay whole, side by side where they fit.
+- **A chart of six points draws all six labels**: the one before the last was left out wherever every point had
+  room for its own (every month chart, every short trend).
+- **The license pool's Copilot seats are the add-on's**: a suite with Copilot inside (E7) is shown as such and is
+  never counted, assigned or removed as the add-on, by any page or export.
 - **The demo keeps levels 1 to 3 off the revoke and train lists**, not 1 to 5: with five levels, the default kept
   the whole demo company off them and left those pages empty. A real install's setting is unchanged.
 

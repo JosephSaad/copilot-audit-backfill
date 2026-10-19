@@ -45,6 +45,21 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
         Kpis.Add(new("Credits a person a month", billed.Count == 0 ? "—" : N(Pct(0.5)), billed.Count == 0 ? "nobody billed" : $"the median; the top tenth use {N(Pct(0.9))} or more"));
         Kpis.Add(new("Tokens a month (rough)", CreditRules.Tokens(total.Tokens), "every interaction, at the token sizes set"));
         if (total.Credits > 0) Kpis.Add(new("Top tenth's share", $"{top / total.Credits:P0}", "of the credits, by the people who use most"));
+        /* The estimate beside what was billed (the admin center's consumption export), where it is loaded: the rates in
+           Admin are right when the two come near each other. */
+        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.PowerPlatformCreditDay', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
+        {
+            var billedNow = (await Db.QueryAsync<(decimal Credits, int Days)>(@"
+WITH last AS (SELECT MAX([Day]) AS D FROM audit.PowerPlatformCreditDay WHERE Product = 'Copilot Studio')
+SELECT ISNULL(SUM(Credits), 0), COUNT(DISTINCT [Day]) FROM audit.PowerPlatformCreditDay
+WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM last));")).Single();
+            if (billedNow.Days > 0)
+            {
+                var billedMonth = CostRules.Monthly(billedNow.Credits, billedNow.Days);
+                Kpis.Add(new("Billed by the admin center", N(billedMonth), billedMonth > 0 ? $"credits a month: the estimate is {total.Credits / billedMonth:P0} of it" : "credits a month",
+                    Href: Ctx.Url("/leadership/costs", extra: $"area={CostAreas.Slot(CostAreas.Studio)}")));
+            }
+        }
 
         /* The use by kind: what bills and what does not, and why. */
         long Sum(Func<CreditPerson, long> f) => v.People.Sum(f);
@@ -68,7 +83,7 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
             "Each person billed credits in the period, by their estimate brought to a month. A credit policy usually caps the long tail on the right, or licenses it.", "half"));
 
         /* A cap a person a month, for the policy. */
-        /* Unless one is chosen, the smallest cap the top tenth reaches: where a policy would start to bite. */
+        /* Unless one is chosen, the smallest cap offered at or above the 90th percentile: only the long tail reaches it. */
         var p90 = Pct(0.9);
         var cap = int.TryParse(Request.Query["cap"], out var cp) && Caps.Contains(cp) ? cp : Caps.Where(x => x > 0 && x >= p90).DefaultIfEmpty(Caps[^1]).First();
         var (over, above) = CreditRules.Cap(billed.Select(p => p.Month.Credits), cap);
@@ -88,7 +103,7 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
         foreach (var g in billed.GroupBy(p => p.Department ?? "(none)").OrderByDescending(g => g.Sum(p => p.Month.Credits)).Take(15))
         {
             var n = g.Count();
-            dt.Rows.Add([g.Key, AtLeastMin(n), Math.Round(g.Sum(p => p.Month.Credits)), Math.Round(g.Sum(p => p.Month.Cost)), n >= Ctx.MinGroupSize ? Math.Round(g.Sum(p => p.Month.Credits) / n) : null,
+            dt.Rows.Add([new Link(g.Key, Ctx.Url(Request.Path, extra: $"dept={Uri.EscapeDataString(g.Key)}")), AtLeastMin(n), Math.Round(g.Sum(p => p.Month.Credits)), Math.Round(g.Sum(p => p.Month.Cost)), n >= Ctx.MinGroupSize ? Math.Round(g.Sum(p => p.Month.Credits) / n) : null,
                 CreditRules.Tokens(g.Sum(p => p.Month.Tokens))]);
         }
         Panels.Add(new("By department", dt.Render(), "The fifteen departments billed most. A credit a person is shown only where the minimum group size or more were billed.", "half"));
@@ -103,7 +118,10 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
 
         /* The people. */
         var pg = new Paging(Request, Sorts, "credits");
+        /* A department chosen (?dept=, from its row above): its people only. */
+        var dept = Request.Query["dept"].FirstOrDefault() is { Length: > 0 } dn ? dn : null;
         IEnumerable<CreditPerson> shown = v.People.Where(p => p.Month.Credits > 0 || pg.SortKey == "tokens");
+        if (dept is not null) shown = shown.Where(p => (p.Department ?? "(none)") == dept);
         if (pg.Search is { } q)
             shown = shown.Where(p => (p.Name ?? "").Contains(q, StringComparison.OrdinalIgnoreCase) || p.Upn.Contains(q, StringComparison.OrdinalIgnoreCase) || (p.Department ?? "").Contains(q, StringComparison.OrdinalIgnoreCase));
         var ordered = (pg.SortKey switch
@@ -129,7 +147,7 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
             t.Rows.Add([p.Name, p.Upn, p.Department, p.Licensed ? "Yes" : "No", Math.Round(p.Use.Interactions * scale), Math.Round(p.Use.Billed * scale), Math.Round(p.Month.Credits),
                 Math.Round(p.Month.Cost, 2), CreditRules.Tokens(p.Month.Tokens), p.Month.Credits > cap ? "Yes" : ""]);
         CsvTable = t;
-        Panels.Add(new("People", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
+        Panels.Add(new(dept is null ? "People" : $"People in {dept}", new HtmlString((dept is null ? "" : $"<p class=\"sub\"><a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path))}\">Every department</a></p>") + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             $"Each person whose use billed credits, most first, brought to a month from the {v.Days} days the data covers. Tokens: every interaction at {r.TokensPerTurn:#,0} a turn, {r.TokensPerResource:#,0} a resource read and {r.TokensPerAnswer:#,0} an answer (Admin), a rough figure for sizing. " +
             "Sort by tokens to see everyone, billed or not.", "full", CsvUrl()));
     }

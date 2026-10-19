@@ -1115,6 +1115,7 @@ C	copilot	dash.AuditLog	U	5	Page	nvarchar(200)	1
 C	copilot	dash.AuditLog	U	6	Scope	nvarchar(400)	1	
 C	copilot	dash.AuditLog	U	7	Detail	nvarchar(2000)	1	
 C	copilot	dash.AuditLog	U	8	ClientIp	varchar(64)	1	
+C	copilot	dash.CopilotSuiteHolder	V	1	Upn	nvarchar(512)	0	
 C	copilot	dash.CopilotSuiteOnly	V	1	Upn	nvarchar(512)	0	
 C	copilot	dash.CostPrice	U	1	Item	varchar(64)	0	
 C	copilot	dash.CostPrice	U	2	Area	nvarchar(40)	0	
@@ -1798,6 +1799,7 @@ O	copilot	dash.AgentInventoryRun	U
 O	copilot	dash.AgentUse	U
 O	copilot	dash.AlertState	U
 O	copilot	dash.AuditLog	U
+O	copilot	dash.CopilotSuiteHolder	V
 O	copilot	dash.CopilotSuiteOnly	V
 O	copilot	dash.CostPrice	U
 O	copilot	dash.CostSuite	U
