@@ -61,16 +61,16 @@ Assert-That ((Resolve-MaxDropPercent -What 'GitHub Copilot seats' -Given 15 -Was
 $bad = $null
 try { $null = Resolve-MaxDropPercent -What 'Foundry deployments' -Given 15 -WasGiven $false -Settings @{ FoundryDeploymentMaxDropPercent = '150' } } catch { $bad = "$_" }
 Assert-That ($bad -like 'FoundryDeploymentMaxDropPercent in the settings file is ''150''*from 0 to 100*') "a setting that is not a percentage stops the load, saying so ($bad)"
-Assert-That (@($script:DropGuardSetting.Values) -join ',' -eq 'AgentWorkbookMaxDropPercent,UserDirectoryMaxDropPercent,LicenseMaxDropPercent,GitHubSeatMaxDropPercent,FoundryDeploymentMaxDropPercent,CostImportMaxDropPercent') `
-    'each of the five loaders, and the cost import (2.6.6), has a setting of its own'
+Assert-That (@($script:DropGuardSetting.Values) -join ',' -eq 'AgentWorkbookMaxDropPercent,UserDirectoryMaxDropPercent,LicenseMaxDropPercent,GitHubSeatMaxDropPercent,FoundryDeploymentMaxDropPercent,CostImportMaxDropPercent,PowerAppsActivityMaxDropPercent') `
+    'each of the five loaders, the cost import (2.6.6) and the Power Apps activity load (2.6.9) has a setting of its own'
 
 # ---- 2. The loaders -------------------------------------------------------------------------------
 Write-Host "`n2. The loaders that replace a whole table" -ForegroundColor Cyan
 $src = @{}
-foreach ($f in 'Import-AgentWorkbook.ps1', 'Export-UsersWithHierarchy-ToSql.ps1', 'Update-CopilotAuditEnrichment.ps1', 'Import-GitHubCopilotUsage.ps1', 'Import-FoundryUsage.ps1', 'ExternalUsage.Common.ps1') {
+foreach ($f in 'Import-AgentWorkbook.ps1', 'Export-UsersWithHierarchy-ToSql.ps1', 'Update-CopilotAuditEnrichment.ps1', 'Import-GitHubCopilotUsage.ps1', 'Import-FoundryUsage.ps1', 'ExternalUsage.Common.ps1', 'Import-PowerAppsActivity.ps1') {
     $src[$f] = Get-Content -Raw -LiteralPath (Join-Path $root 'tools' $f)
 }
-foreach ($f in 'Import-AgentWorkbook.ps1', 'Export-UsersWithHierarchy-ToSql.ps1', 'Update-CopilotAuditEnrichment.ps1', 'Import-GitHubCopilotUsage.ps1', 'Import-FoundryUsage.ps1') {
+foreach ($f in 'Import-AgentWorkbook.ps1', 'Export-UsersWithHierarchy-ToSql.ps1', 'Update-CopilotAuditEnrichment.ps1', 'Import-GitHubCopilotUsage.ps1', 'Import-FoundryUsage.ps1', 'Import-PowerAppsActivity.ps1') {
     $ast = [System.Management.Automation.Language.Parser]::ParseInput($src[$f], [ref] $null, [ref] $null)
     $params = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
     $max = $ast.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'MaxDropPercent' }
@@ -89,6 +89,9 @@ Assert-That ($lic.IndexOf("Assert-DropGuard -What 'Licenses held") -gt 0 -and $l
 Assert-That ($src['Import-GitHubCopilotUsage.ps1'] -match "-Setting 'GitHubSeatMaxDropPercent'" -and $src['Import-FoundryUsage.ps1'] -match "-Setting 'FoundryDeploymentMaxDropPercent'") `
     'GitHub''s seats and Foundry''s deployments go through the guard, each with its own setting'
 Assert-That ($src['Import-FoundryUsage.ps1'] -match 'if \(-not \(Test-DropRefusal \$_\)\) \{ continue \}') 'a refusal of Foundry''s deployments still loads that subscription''s usage and cost'
+$pa = $src['Import-PowerAppsActivity.ps1']
+Assert-That ($pa -match "-Setting 'PowerAppsActivityMaxDropPercent'" -and $pa -match "-ReplaceWhere 'Product = @p'" -and $pa -match "Resolve-MaxDropPercent -What 'Power Apps activity'") `
+    'the Power Apps activity load (2.6.9) replaces only the Power Apps rows, through the guard, with its own setting'
 $common = $src['ExternalUsage.Common.ps1']
 Assert-That ($common.IndexOf('Assert-DropGuard') -gt 0 -and $common.IndexOf('Assert-DropGuard') -lt $common.IndexOf('BeginTransaction')) 'the shared writer counts before it deletes'
 
@@ -102,10 +105,11 @@ function Arg($steps, [string] $Like) { $st = @($steps | Where-Object { $_.Name -
 $plain = Get-PipelineStep -Setting $s -Today $today -Root 'R:'
 Assert-That ((Arg $plain 'User directory*') -eq 'unset' -and (Arg $plain 'Agent workbook*') -eq 'unset' -and (Arg $plain 'GitHub*') -eq 'unset') `
     'with no percentage in the settings, no step is given one: each loader''s own default, 15, applies'
-$set = $s + @{ UserDirectoryMaxDropPercent = 5; LicenseMaxDropPercent = 25; AgentWorkbookMaxDropPercent = 0; GitHubSeatMaxDropPercent = 40; FoundryDeploymentMaxDropPercent = 60 }
+$set = $s + @{ UserDirectoryMaxDropPercent = 5; LicenseMaxDropPercent = 25; AgentWorkbookMaxDropPercent = 0; GitHubSeatMaxDropPercent = 40; FoundryDeploymentMaxDropPercent = 60
+               PowerAppsActivity = $true; PowerAppsActivityMaxDropPercent = 30 }
 $steps = Get-PipelineStep -Setting $set -Today $today -Root 'R:'
 Assert-That ((Arg $steps 'User directory*') -eq 5 -and (Arg $steps 'Copilot licenses*') -eq 25 -and (Arg $steps 'Agent workbook*') -eq 0 -and
-             (Arg $steps 'GitHub*') -eq 40 -and (Arg $steps 'Foundry*') -eq 60) `
+             (Arg $steps 'GitHub*') -eq 40 -and (Arg $steps 'Foundry*') -eq 60 -and (Arg $steps 'Power Apps*') -eq 30) `
     'each loader gets its own percentage from the settings file, 0 (off) included'
 $hist = Get-PipelineStep -Setting $set -History -Today $today -Root 'R:'
 Assert-That ((Arg $hist 'User directory*') -eq 5 -and (Arg $hist 'Copilot licenses*') -eq 25) 'a history load passes them too'
@@ -132,7 +136,7 @@ try {
         "and the run's detail, on Admin > Health, names the refused steps and gives the guard's own reason ($($detail -replace "`n", ' | '))"
 }
 finally { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
-foreach ($f in 'Import-AgentWorkbook.ps1', 'Export-UsersWithHierarchy-ToSql.ps1', 'Update-CopilotAuditEnrichment.ps1') {
+foreach ($f in 'Import-AgentWorkbook.ps1', 'Export-UsersWithHierarchy-ToSql.ps1', 'Update-CopilotAuditEnrichment.ps1', 'Import-PowerAppsActivity.ps1') {
     Assert-That ($src[$f] -match 'exit \$script:DropRefusedExitCode') "$f ends with it when refused"
 }
 

@@ -332,6 +332,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `sql/Create-CopilotPurgeProcedure.sql` | `audit.usp_PurgeCopilotAuditJson`. |
 | `sql/Create-CopilotEnrichmentSchema.sql` | The license and user directory tables, plus the adoption views. |
 | `tools/Save-CopilotAuditModules.ps1` | Saves the PowerShell modules the scripts need into a `Modules` folder beside them, checking their signatures, for a server with no gallery access. |
+| `tools/Import-PowerAppsActivity.ps1` | Optional (2.6.9): who used Power Apps, from the audit log's Power Apps records, `-Days` back, into `audit.PowerPlatformUserActivity`. The nightly run calls it with `PowerAppsActivity = $true`; `Invoke-CopilotPipeline.ps1 -PowerAppsActivity -Days N` runs it alone. |
 | `tools/Import-CostCsv.ps1` | Loads the Fabric, flow, Power Platform and Copilot Credit exports Leadership › Costs and savings reads (2.6.6). |
 | `tools/DropGuard.ps1` | The delete guard (2.6.5): each load that empties and refills a table refuses a new load that is more than its percentage smaller than the last. |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |

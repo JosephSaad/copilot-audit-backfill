@@ -95,43 +95,10 @@ $script:MetricColumn = @{
 
 function Write-Line([string] $Text) { Write-Information ("{0:u} {1}" -f [datetime]::UtcNow, $Text) -InformationAction Continue }
 
-function ConvertTo-Base64Url([byte[]] $Bytes) { [Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_') }
-
-function New-ClientAssertion {
-    <#
-        The signed statement an app signs in to Entra with in place of a secret: a JWT signed with the
-        certificate's private key (PS256), naming the certificate by the SHA-256 thumbprint of its DER encoding
-        (x5t#S256), good for ten minutes. Needs the certificate with its private key; nothing leaves the machine
-        but the signature.
-    #>
-    param([System.Security.Cryptography.X509Certificates.X509Certificate2] $Certificate, [string] $Tenant, [string] $Client, [string] $Login,
-          [datetime] $Now = [datetime]::UtcNow)
-    $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($Certificate)
-    if ($null -eq $rsa) { throw "The certificate $($Certificate.Thumbprint) has no RSA private key this account can use." }
-    $epoch = [datetime]::new(1970, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
-    $nbf = [long] ($Now.ToUniversalTime() - $epoch).TotalSeconds
-    $thumb = ConvertTo-Base64Url ([System.Security.Cryptography.SHA256]::HashData($Certificate.RawData))
-    $header = [ordered]@{ alg = 'PS256'; typ = 'JWT'; 'x5t#S256' = $thumb } | ConvertTo-Json -Compress
-    $claims = [ordered]@{ aud = "$($Login.TrimEnd('/'))/$Tenant/oauth2/v2.0/token"; iss = $Client; sub = $Client; jti = [guid]::NewGuid().ToString()
-                          nbf = $nbf; iat = $nbf; exp = $nbf + 600 } | ConvertTo-Json -Compress
-    $unsigned = (ConvertTo-Base64Url ([System.Text.Encoding]::UTF8.GetBytes($header))) + '.' + (ConvertTo-Base64Url ([System.Text.Encoding]::UTF8.GetBytes($claims)))
-    $signature = $rsa.SignData([System.Text.Encoding]::ASCII.GetBytes($unsigned), [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pss)
-    $unsigned + '.' + (ConvertTo-Base64Url $signature)
-}
-
 function Get-ArmToken {
     <# An app-only token for Azure Resource Manager, by the certificate in LocalMachine\My or CurrentUser\My. #>
     param([string] $Tenant, [string] $Client, [string] $Thumbprint, [string] $Login, [string] $Arm)
-    $clean = ("$Thumbprint" -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
-    $cert = $null
-    foreach ($store in 'Cert:\LocalMachine\My', 'Cert:\CurrentUser\My') { $cert = Get-Item -LiteralPath "$store\$clean" -ErrorAction SilentlyContinue; if ($cert) { break } }
-    if (-not $cert) { throw "No certificate $clean in LocalMachine\My or CurrentUser\My." }
-    $r = Invoke-RestMethod -Method Post -Uri "$($Login.TrimEnd('/'))/$Tenant/oauth2/v2.0/token" -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 60 -Body @{
-        client_id = $Client; scope = "$($Arm.TrimEnd('/'))/.default"; grant_type = 'client_credentials'
-        client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
-        client_assertion = (New-ClientAssertion -Certificate $cert -Tenant $Tenant -Client $Client -Login $Login)
-    }
-    $r.access_token
+    Get-AppOnlyToken -Tenant $Tenant -Client $Client -Thumbprint $Thumbprint -Login $Login -Resource $Arm
 }
 
 function Invoke-Arm {

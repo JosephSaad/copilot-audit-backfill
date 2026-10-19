@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-    What tools\Import-GitHubCopilotUsage.ps1 and tools\Import-FoundryUsage.ps1 share: the connection to the
-    Copilot database, writing a set of rows to one of their tables, and the run's own log.
+    What tools\Import-GitHubCopilotUsage.ps1, tools\Import-FoundryUsage.ps1 and tools\Import-PowerAppsActivity.ps1
+    share: signing in as the app by its certificate, the connection to the Copilot database, writing a set of rows
+    to one of their tables, and the run's own log.
 
 .DESCRIPTION
-    Dot-sourced by the two tools; it runs nothing by itself. Every table is written the same way: the rows go
+    Dot-sourced by the three tools; it runs nothing by itself. Every table is written the same way: the rows go
     to a temporary table in one bulk copy, then, in one transaction, the rows they replace are deleted and the
     new ones inserted. So a load can be run again over the same days, and a reader never sees a table half
     written. A table replaced whole for its scope (the seats, the deployments) is held by the delete guard
@@ -12,6 +13,49 @@
 #>
 
 . (Join-Path $PSScriptRoot 'DropGuard.ps1')
+
+function ConvertTo-Base64Url([byte[]] $Bytes) { [Convert]::ToBase64String($Bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_') }
+
+function New-ClientAssertion {
+    <#
+        The signed statement an app signs in to Entra with in place of a secret: a JWT signed with the
+        certificate's private key (PS256), naming the certificate by the SHA-256 thumbprint of its DER encoding
+        (x5t#S256), good for ten minutes. Needs the certificate with its private key; nothing leaves the machine
+        but the signature.
+    #>
+    param([System.Security.Cryptography.X509Certificates.X509Certificate2] $Certificate, [string] $Tenant, [string] $Client, [string] $Login,
+          [datetime] $Now = [datetime]::UtcNow)
+    $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($Certificate)
+    if ($null -eq $rsa) { throw "The certificate $($Certificate.Thumbprint) has no RSA private key this account can use." }
+    $epoch = [datetime]::new(1970, 1, 1, 0, 0, 0, [System.DateTimeKind]::Utc)
+    $nbf = [long] ($Now.ToUniversalTime() - $epoch).TotalSeconds
+    $thumb = ConvertTo-Base64Url ([System.Security.Cryptography.SHA256]::HashData($Certificate.RawData))
+    $header = [ordered]@{ alg = 'PS256'; typ = 'JWT'; 'x5t#S256' = $thumb } | ConvertTo-Json -Compress
+    $claims = [ordered]@{ aud = "$($Login.TrimEnd('/'))/$Tenant/oauth2/v2.0/token"; iss = $Client; sub = $Client; jti = [guid]::NewGuid().ToString()
+                          nbf = $nbf; iat = $nbf; exp = $nbf + 600 } | ConvertTo-Json -Compress
+    $unsigned = (ConvertTo-Base64Url ([System.Text.Encoding]::UTF8.GetBytes($header))) + '.' + (ConvertTo-Base64Url ([System.Text.Encoding]::UTF8.GetBytes($claims)))
+    $signature = $rsa.SignData([System.Text.Encoding]::ASCII.GetBytes($unsigned), [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pss)
+    $unsigned + '.' + (ConvertTo-Base64Url $signature)
+}
+
+function Get-AppOnlyToken {
+    <#
+        An app-only token for -Resource (Azure Resource Manager, Microsoft Graph), signed in as the app by its
+        certificate in LocalMachine\My or CurrentUser\My: Foundry's loader for Azure (2.6.2), and the Power Apps
+        activity loader for Graph (2.6.9).
+    #>
+    param([string] $Tenant, [string] $Client, [string] $Thumbprint, [string] $Login, [string] $Resource)
+    $clean = ("$Thumbprint" -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+    $cert = $null
+    foreach ($store in 'Cert:\LocalMachine\My', 'Cert:\CurrentUser\My') { $cert = Get-Item -LiteralPath "$store\$clean" -ErrorAction SilentlyContinue; if ($cert) { break } }
+    if (-not $cert) { throw "No certificate $clean in LocalMachine\My or CurrentUser\My." }
+    $r = Invoke-RestMethod -Method Post -Uri "$($Login.TrimEnd('/'))/$Tenant/oauth2/v2.0/token" -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 60 -Body @{
+        client_id = $Client; scope = "$($Resource.TrimEnd('/'))/.default"; grant_type = 'client_credentials'
+        client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+        client_assertion = (New-ClientAssertion -Certificate $cert -Tenant $Tenant -Client $Client -Login $Login)
+    }
+    $r.access_token
+}
 
 function New-UsageConnection {
     <# An open connection to the Copilot database: Windows authentication, encrypted, as the other tools connect. #>
@@ -118,7 +162,7 @@ function Write-UsageTable {
 
 function Start-UsageRun {
     <# Records the run from its start, so a failure shows too. Returns its id. #>
-    param([System.Data.SqlClient.SqlConnection] $Connection, [ValidateSet('GitHub', 'Foundry')][string] $Source, [string] $Scope, $FromDay, $ToDay)
+    param([System.Data.SqlClient.SqlConnection] $Connection, [ValidateSet('GitHub', 'Foundry', 'PowerApps')][string] $Source, [string] $Scope, $FromDay, $ToDay)
     [int] (Invoke-UsageSql $Connection @'
 INSERT INTO audit.ExternalUsageRun (Source, Scope, FromDay, ToDay, Host) VALUES (@s, LEFT(@scope, 400), @f, @t, @h);
 SELECT CAST(SCOPE_IDENTITY() AS INT);

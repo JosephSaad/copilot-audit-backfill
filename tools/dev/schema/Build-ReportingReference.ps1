@@ -54,9 +54,10 @@ $scripts = @(
     @{ Path = 'sql/Create-CopilotCsvImport.sql';             Note = 'Run by `tools/Import-CopilotAuditCsv.ps1`, not by the installer: the CSV import tables and `audit.usp_MergeCopilotCsv`.' }
     @{ Path = 'Invoke-CopilotPipeline.ps1';                  Note = 'The nightly run and the first load of history: the order in which every table is filled.' }
     @{ Path = 'tools/Import-AgentWorkbook.ps1';              Note = 'Creates and fills the three `dbo` tables of the agent workbook, then `dash.AgentInventory` and `dash.AgentChildLink`.' }
-    @{ Path = 'tools/ExternalUsage.Common.ps1';              Note = 'What the two loaders below share: how a set of rows replaces the ones it supersedes in one transaction, and the run log (`audit.ExternalUsageRun`).' }
+    @{ Path = 'tools/ExternalUsage.Common.ps1';              Note = 'What the three loaders below share: signing in as the app, how a set of rows replaces the ones it supersedes in one transaction, and the run log (`audit.ExternalUsageRun`).' }
     @{ Path = 'tools/Import-GitHubCopilotUsage.ps1';         Note = 'Fills the four `audit.GitHubCopilot...` tables from GitHub''s REST API, for an enterprise or an organization. Optional; the nightly run calls it when the settings name one.' }
     @{ Path = 'tools/Import-FoundryUsage.ps1';               Note = 'Fills the three `audit.Foundry...` tables from Azure Resource Manager, Azure Monitor and Cost Management, for the subscriptions named. Optional; the nightly run calls it when the settings name them.' }
+    @{ Path = 'tools/Import-PowerAppsActivity.ps1';          Note = 'Fills the Power Apps rows of `audit.PowerPlatformUserActivity` from the audit log''s Power Apps records (2.6.9): who used Power Apps, when last, and on how many of the last 30 days. Optional; the nightly run calls it when the settings say `PowerAppsActivity = $true`, and `Invoke-CopilotPipeline.ps1 -PowerAppsActivity -Days N` runs it alone.' }
     @{ Path = 'dashboard/Install-CopilotInsights.ps1';       Note = 'The dashboard''s installer on the web server. With `-GrantDatabaseAccess` it runs the three dashboard scripts and adds the site''s account to its database role.' }
 )
 

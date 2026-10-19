@@ -194,9 +194,10 @@ $plain = Get-PipelineStep -Setting $s -Today $today -Root 'R:'
 Assert-That (@($plain | Where-Object { $_.Name -match 'GitHub|Foundry' }).Count -eq 0 -and @($plain | Where-Object Optional).Count -eq 0) 'with neither source in the settings, the nightly run has neither step, and no optional one'
 
 $notes = Get-PipelineSkipNote $s
-Assert-That ($notes.Count -eq 2 -and $notes[0] -like 'GitHub Copilot usage: skipped, not configured*GitHubEnterprise*' -and $notes[1] -like 'Foundry usage and cost: skipped, not configured*FoundrySubscriptions*') `
+Assert-That ($notes.Count -eq 3 -and $notes[0] -like 'GitHub Copilot usage: skipped, not configured*GitHubEnterprise*' -and $notes[1] -like 'Foundry usage and cost: skipped, not configured*FoundrySubscriptions*' -and
+             $notes[2] -like 'Power Apps activity: skipped, not configured*PowerAppsActivity = $true*') `
     'and the log gets a note for each that it was skipped, naming the setting that turns it on'
-Assert-That ((Get-PipelineSkipNote ($s + @{ GitHubOrganization = 'octo'; FoundrySubscriptions = 'x' })).Count -eq 0) 'no note for a loader that is configured'
+Assert-That ((Get-PipelineSkipNote ($s + @{ GitHubOrganization = 'octo'; FoundrySubscriptions = 'x'; PowerAppsActivity = $true })).Count -eq 0) 'no note for a loader that is configured'
 $noCert = @{ TenantId = 't'; ClientId = 'c'; CertificateThumbprint = ''; SqlServer = 'SQL1'; Database = 'CopilotAudit'; FoundrySubscriptions = 'x'; GitHubEnterprise = 'contoso' }
 Assert-That (@(Get-PipelineStep -Setting $noCert -Today $today | Where-Object { $_.Name -match 'Foundry' }).Count -eq 0 -and (Get-PipelineSkipNote $noCert)[0] -like '*no certificate to sign in with*') `
     'subscriptions with no certificate to sign in with: skipped with a note as well, not a failing step'
