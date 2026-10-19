@@ -54,10 +54,148 @@ USING (VALUES
     ('LicenseMonthlyCost', N'30', N'What one Copilot license costs a month, for the license recommendations.'),
     ('LicenseCurrency', N'USD', N'The currency LicenseMonthlyCost is in.'),
     ('MaxViewerLevel', N'0', N'Who can open the dashboard (2.4.4): 0 everyone in the directory; N levels 1 to N below the top, and anyone granted a role other than Admin. Set in Admin > Access.'),
-    ('ProtectedLevels', N'5', N'Levels 1 to N of the organization are never on a revoke, reclaim, pay-as-you-go or training list (2.4.6); 0 for none. Set in Admin > Access.')
+    ('ProtectedLevels', N'5', N'Levels 1 to N of the organization are never on a revoke, reclaim, pay-as-you-go or training list (2.4.6); 0 for none. Set in Admin > Access.'),
+    /* 2.6.6: the assumptions Leadership > Costs and savings values and prices with. */
+    ('FabricReservedDiscount', N'0.41', N'2.6.6: what a one-year reservation takes off a Fabric capacity''s pay-as-you-go price, as a fraction (0.41 is 41%).'),
+    ('FlowMinutesPerRun', N'3', N'2.6.6: the minutes one run of a cloud flow saves, where the flow inventory gives none for it.'),
+    ('PowerBiCopilotMinutes', N'3', N'2.6.6: the minutes one Copilot in Power BI or Fabric request saves an analyst.'),
+    ('CostIdleDays', N'30', N'2.6.6: a GitHub Copilot seat, a premium Power Platform license or a model deployment unused this many days counts as idle.'),
+    /* 2.6.6: what Licensing > Credit use estimates Copilot Credits and tokens with. */
+    ('CreditsPerAnswer', N'2', N'2.6.6: Copilot Credits a billed agent answer costs (a generative answer).'),
+    ('CreditsPerGrounding', N'10', N'2.6.6: Copilot Credits grounding a billed answer in the organization''s data (Microsoft Graph) adds.'),
+    ('CreditsPerAction', N'5', N'2.6.6: Copilot Credits an agent action adds; counted where an agent calls another.'),
+    ('TokensPerTurn', N'1500', N'2.6.6: the tokens one Copilot turn takes before grounding (instructions, prompt, history), for the rough token estimate.'),
+    ('TokensPerResource', N'1000', N'2.6.6: the tokens each file, mail or page read for grounding adds, for the rough token estimate.'),
+    ('TokensPerAnswer', N'400', N'2.6.6: the tokens one answer gives back, for the rough token estimate.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);
+
+/*
+    2.6.6: what a license or unit of capacity costs a month, for Leadership > Costs and savings. A license is
+    matched to audit.LicenseSku by its SKU part number (Item); the other items are units the page prices: a GB of
+    Dataverse capacity over the entitlement, a pay-as-you-go Copilot Credit, a capacity pack, a GitHub Copilot
+    seat. Seeded with list prices in USD as of 2026; a row an administrator changed is kept on every install.
+    A license whose part number is not here is left out of the spend, and the page says how many are.
+*/
+IF OBJECT_ID(N'dash.CostPrice', N'U') IS NULL
+    CREATE TABLE dash.CostPrice
+    (
+        Item         VARCHAR(64)     NOT NULL CONSTRAINT PK_DashCostPrice PRIMARY KEY,
+        Area         NVARCHAR(40)    NOT NULL,   -- Microsoft 365 Copilot | GitHub Copilot | Power Automate | Power Apps | Power BI | Copilot Studio | Dataverse
+        Name         NVARCHAR(200)   NOT NULL,
+        Unit         NVARCHAR(40)    NOT NULL,   -- user, flow, GB, credit, pack, seat
+        MonthlyPrice DECIMAL(19, 4)  NOT NULL,   -- a month, for a license; for a credit, each
+        Currency     NVARCHAR(8)     NULL,       -- NULL: LicenseCurrency
+        Note         NVARCHAR(400)   NULL,
+        UpdatedBy    NVARCHAR(256)   NULL,
+        UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostPrice_Updated DEFAULT (SYSUTCDATETIME())
+    );
+MERGE dash.CostPrice AS t
+USING (VALUES
+    ('POWERAUTOMATE_ATTENDED_RPA',   N'Power Automate',  N'Power Automate Premium',             N'user',   15,    N'Premium connectors, desktop flows (attended RPA), process mining.'),
+    ('FLOW_PER_USER',                N'Power Automate',  N'Power Automate per user (earlier plan)', N'user', 15,  NULL),
+    ('POWERAUTOMATE_UNATTENDED_RPA', N'Power Automate',  N'Power Automate Process',             N'flow',   150,   N'One flow or bot, run unattended, whoever triggers it.'),
+    ('FLOW_PER_PROCESS',             N'Power Automate',  N'Power Automate Process (earlier name)', N'flow', 150,  NULL),
+    ('POWERAPPS_PER_USER',           N'Power Apps',      N'Power Apps Premium',                 N'user',   20,    NULL),
+    ('POWERAPPS_PER_APP_NEW',        N'Power Apps',      N'Power Apps per app',                 N'user',   5,     NULL),
+    ('PBI_PREMIUM_PER_USER',         N'Power BI',        N'Power BI Premium Per User',          N'user',   24,    NULL),
+    ('POWER_BI_PRO',                 N'Power BI',        N'Power BI Pro',                       N'user',   14,    NULL),
+    ('COPILOT_STUDIO_PAYG_CREDIT',   N'Copilot Studio',  N'Copilot Credit, pay-as-you-go',      N'credit', 0.01,  N'Billed through an Azure subscription.'),
+    ('COPILOT_STUDIO_PACK',          N'Copilot Studio',  N'Copilot Credit capacity pack',       N'pack',   200,   N'25,000 credits a month, prepaid: 0.008 a credit.'),
+    ('DATAVERSE_DATABASE_GB',        N'Dataverse',       N'Dataverse database capacity',        N'GB',     40,    N'Each GB over the entitlement.'),
+    ('DATAVERSE_FILE_GB',            N'Dataverse',       N'Dataverse file capacity',            N'GB',     2,     N'Each GB over the entitlement.'),
+    ('DATAVERSE_LOG_GB',             N'Dataverse',       N'Dataverse log capacity',             N'GB',     10,    N'Each GB over the entitlement.'),
+    ('GITHUB_COPILOT_BUSINESS',      N'GitHub Copilot',  N'GitHub Copilot Business',            N'seat',   19,    NULL),
+    ('GITHUB_COPILOT_ENTERPRISE',    N'GitHub Copilot',  N'GitHub Copilot Enterprise',          N'seat',   39,    NULL)
+) AS s (Item, Area, Name, Unit, MonthlyPrice, Note)
+ON t.Item = s.Item
+WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, UpdatedBy) VALUES (s.Item, s.Area, s.Name, s.Unit, s.MonthlyPrice, s.Note, N'install');
+
+/*
+    2.6.6: the suites (Microsoft 365 and Office 365 E3, E5, E7): their price, their place in the family, and what of
+    the priced items above they include. Costs and savings counts as AI spend only what is bought on top of a suite:
+    an item a suite includes costs nothing more, and a standalone license of it on a suite's holder is paid twice. A
+    suite's own price also buys security, compliance, Teams and more that cannot be split out, so no share of it is
+    counted as AI spend; Licensing > Suite fit instead finds who a lower tier would serve (E7 to E5, E5 to E3).
+    Includes is a comma-separated list of dash.CostPrice items, and COPILOT for Microsoft 365 Copilot; Covers says
+    what else the suite brings, for the page. Prices are list prices in USD as Microsoft published them for July
+    2026: set the agreement's in Admin > Targets and assumptions. A row an administrator changed is kept.
+*/
+IF OBJECT_ID(N'dash.CostSuite', N'U') IS NULL
+    CREATE TABLE dash.CostSuite
+    (
+        SkuPattern   NVARCHAR(100)   NOT NULL CONSTRAINT PK_DashCostSuite PRIMARY KEY,   -- a LIKE pattern on the SKU part number
+        Suite        NVARCHAR(100)   NOT NULL,
+        Family       NVARCHAR(40)    NOT NULL,   -- Microsoft 365 | Office 365: a move down stays in the family
+        Tier         TINYINT         NOT NULL,   -- 3, 5, 7
+        MonthlyPrice DECIMAL(19, 4)  NOT NULL,   -- a user a month; 0: not known, so never a move's target
+        Currency     NVARCHAR(8)     NULL,       -- NULL: LicenseCurrency
+        Includes     NVARCHAR(400)   NOT NULL CONSTRAINT DF_DashCostSuite_Includes DEFAULT (N''),
+        Covers       NVARCHAR(400)   NULL,
+        Enabled      BIT             NOT NULL CONSTRAINT DF_DashCostSuite_Enabled DEFAULT (1),
+        UpdatedBy    NVARCHAR(256)   NULL,
+        UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostSuite_Updated DEFAULT (SYSUTCDATETIME())
+    );
+/* The first draft's wider patterns, which matched education suites and E3's bot license: gone unless an administrator changed them. */
+DELETE FROM dash.CostSuite WHERE UpdatedBy = N'install'
+   AND SkuPattern IN (N'SPE_E5%', N'SPE_E3%', N'Microsoft_365_E5%', N'Microsoft_365_E7%', N'M365_E7%', N'SPE_E7%', N'ENTERPRISEPACK%', N'ENTERPRISEPREMIUM%');
+MERGE dash.CostSuite AS t
+/* Exact part numbers ([_] is an underscore, not a wildcard), so the education suites (ENTERPRISEPREMIUM_STUDENT and the
+   like) and E3's unattended license for bots (SPE_E3_RPA1) are not priced as these; E7's are its likely forms. */
+USING (VALUES
+    (N'SPE[_]E3',                            N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
+    (N'Microsoft[_]365[_]E3[_](no[_]Teams)', N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
+    (N'SPE[_]E5',                            N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'SPE[_]E5[_]NOPSTNCONF',               N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft[_]365[_]E5[_](no[_]Teams)', N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft[_]365[_]E7%',               N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'M365[_]E7%',                          N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'SPE[_]E7%',                           N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'ENTERPRISEPACK',                      N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
+    (N'Office[_]365[_]E3[_](no[_]Teams)',    N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
+    (N'ENTERPRISEPREMIUM',                   N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.'),
+    (N'ENTERPRISEPREMIUM[_]NOPSTNCONF',      N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.'),
+    (N'Office[_]365[_]E5[_](no[_]Teams)',    N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.')
+) AS s (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers)
+ON t.SkuPattern = s.SkuPattern
+WHEN NOT MATCHED THEN INSERT (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers, UpdatedBy)
+    VALUES (s.SkuPattern, s.Suite, s.Family, s.Tier, s.MonthlyPrice, s.Includes, s.Covers, N'install');
+
+/* 2.6.6: the license pool's suite mark, also added here so the dashboard reads it before the next license lookup
+   runs the enrichment's own schema (Create-CopilotEnrichmentSchema.sql adds it too). */
+IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
+    ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
+
+/* 2.6.6: dash.CopilotSuiteHolder is everyone who holds a suite with Copilot inside (E7), with the add-on or not;
+   dash.CopilotSuiteOnly, the people who hold Microsoft 365 Copilot only through a suite and not as the add-on as well: their
+   Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
+   full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
+   Create-CopilotDashboardSchema.sql both write it, so whichever runs last with the tables there leaves the full one. */
+IF SCHEMA_ID(N'dash') IS NOT NULL
+BEGIN
+    IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+    BEGIN
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteOnly AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1
+  AND NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku AS au JOIN audit.LicenseSku AS sa ON sa.SkuId = au.SkuId
+                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0
+                    AND sa.SkuPartNumber NOT LIKE N''%STUDIO%'');');
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteHolder AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1;');
+    END
+    ELSE
+    BEGIN
+        IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
+            EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+        IF OBJECT_ID(N'dash.CopilotSuiteHolder', N'V') IS NULL
+            EXEC (N'CREATE VIEW dash.CopilotSuiteHolder AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+    END;
+END;
 
 /* Roles granted to people (by UPN) or AD groups (DOMAIN\Group). */
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL

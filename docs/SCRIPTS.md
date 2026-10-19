@@ -53,11 +53,12 @@ Each loads one source into the Copilot database. All can be run by hand with the
 | Script | What it loads | From |
 |---|---|---|
 | `tools\Export-UsersWithHierarchy-ToSql.ps1` | The user directory, `audit.UserDirectory`: each person's title, department, division, office, country, manager and management chain, which every report is cut by. | On-premises Active Directory |
-| `tools\Update-CopilotAuditEnrichment.ps1` | Who holds a Copilot license today, and the tenant's license pool. | Microsoft Graph |
+| `tools\Update-CopilotAuditEnrichment.ps1` | Who holds a Copilot license today, and the tenant's license pool. From 2.6.6 a suite with Copilot inside (Microsoft 365 E7; `-CopilotSuiteSku`, `Microsoft_365_E7*` and the like by default) licenses its holders too, and is marked in the pool so the dashboard never offers to revoke it alone. | Microsoft Graph |
 | `tools\Import-AgentWorkbook.ps1` | The agent inventory workbook: each sheet into its own table, then `dash.AgentInventory`, matched to the agents the audit log knows. From 2.6.3 it also marks the second identity of an agent the audit log names two ways. | An Excel workbook on SharePoint Online or a file share |
 | `tools\Import-GitHubCopilotUsage.ps1` | GitHub Copilot's seats, daily usage, each person's day and billed cost, for an enterprise or an organization. Optional: skipped, with a note in the log, when the settings do not name one. See [GITHUB-COPILOT-USAGE.md](GITHUB-COPILOT-USAGE.md). | GitHub's REST API |
 | `tools\Import-FoundryUsage.ps1` | Microsoft Foundry and Azure OpenAI deployments, their daily requests and tokens, and their daily cost. Optional, as the GitHub load is. See [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md). | Azure Resource Manager, Azure Monitor and Cost Management |
 | `tools\ExternalUsage.Common.ps1` | Not run by itself: what the two loaders above share (the database connection, writing rows to a table, the run's own log). | The two loaders |
+| `tools\Import-CostCsv.ps1` | Loads a CSV export into one of the tables Leadership › Costs and savings reads (2.6.6): Fabric capacity and workload days, the cloud flow inventory, Power Platform activity, Dataverse capacity, Copilot Credits. Adds and replaces by each row's key; `-Replace` makes the file the whole table, held by the delete guard. See [OPERATIONS.md](OPERATIONS.md#costs-and-savings). | An administrator, after each export (by hand or on a schedule) |
 | `tools\DropGuard.ps1` | Not run by itself: the delete guard (2.6.5). The agent workbook, the user directory, the licenses held, GitHub's seats and Foundry's deployments each empty a table and fill it again; each refuses a load more than its own percentage smaller than the last (15% by default, a setting each in `copilot-audit.settings.psd1`), and takes `-MaxDropPercent` and `-AllowDrop`. | Those five loaders |
 
 ## Day-to-day tools
@@ -103,8 +104,8 @@ Each loads one source into the Copilot database. All can be run by hand with the
 |---|---|---|
 | `dashboard\Install-CopilotInsights.ps1` | Installs or updates the site on IIS (see [Setting up and upgrading](#setting-up-and-upgrading)). | An administrator |
 | `dashboard\Invoke-InsightsPrecache.ps1` | Builds every report page ahead on the web server and waits until it is done, so the first reader of the day does not wait. | The scheduled task *Copilot Insights pre-cache*, each morning |
-| `dashboard\demo\New-InsightsDemo.ps1` | Builds a demo database: a synthetic company of 2,317 people with six months of Copilot use, to try the dashboard without real data. | Anyone evaluating or developing |
-| `dashboard\demo\New-InsightsDemoData.sql`, `New-InsightsDemoOperations.sql` | The demo's data: the people, licenses and interactions, then the data for the operations pages. | `New-InsightsDemo.ps1` |
+| `dashboard\demo\New-InsightsDemo.ps1` | Builds a demo database: a synthetic company of 5,000 people (`-People`, 400 to 5,200; 2,317 before 2.6.6) with six months of Copilot use and its spend on Fabric, the Power Platform, GitHub Copilot and Foundry, to try the dashboard without real data. | Anyone evaluating or developing |
+| `dashboard\demo\New-InsightsDemoData.sql`, `New-InsightsDemoTenant.sql`, `New-InsightsDemoOperations.sql`, `New-InsightsDemoCosts.sql`, `New-InsightsDemoAgents.sql` | The demo's data: the people, licenses and interactions; (2.6.6) the rest of the tenant (service and shared accounts, guests, leave dates, the agent workbook and its agents' use, people paying in credits); the data for the operations pages; the costs; and, after the bi build, the agent inventory load, child agents and authoring records. | `New-InsightsDemo.ps1` |
 
 ## Power BI
 

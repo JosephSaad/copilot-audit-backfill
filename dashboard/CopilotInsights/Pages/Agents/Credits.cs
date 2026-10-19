@@ -1,104 +1,107 @@
 using System.Globalization;
 using System.Net;
+using CopilotInsights.Data;
 using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Pages.Agents;
 
 /// <summary>
-/// What each agent costs in Copilot Credits (2.4.3): its use by people who held no Copilot license at the
-/// time, which pay-as-you-go charges for, at the price in Admin > Access. An agent with few users and a
+/// What each agent costs in Copilot Credits (2.4.3; 2.6.6 on the credit estimate): its billed use, an agent used by
+/// someone without a Copilot license at the time or in a Copilot Studio channel, estimated answer by answer as Licensing
+/// › Credit use estimates it (<see cref="CreditData"/>), so the two pages give one figure. An agent with few users and a
 /// high bill is one to restrict or retire; one whose users each spend more than a license is cheaper licensed.
 /// </summary>
-public sealed class CreditsModel(PageServices s) : InsightsPage(s)
+public sealed class CreditsModel(PageServices s, CreditData creditData) : InsightsPage(s)
 {
     public override string Title => "Agents costing credits";
     public override string Persona => "Agents";
-    public override string Intro => "What each agent's use by people without a Copilot license costs in Copilot Credits a month. Restrict or retire an agent few people use that costs much; where its users each spend more than a license costs, licensing them is cheaper.";
+    public override string Intro => "What each agent's billed use costs in Copilot Credits a month, estimated as Licensing › Credit use estimates it. Restrict or retire an agent few people use that costs much; where its users each spend more than a license costs, licensing them is cheaper.";
 
+    /* The keys the list sorts by; it is sorted in memory, as the estimate is worked out per agent after the read. */
     static readonly Dictionary<string, string> Sorts = new()
     {
-        ["credits"] = "x.U DESC, x.AgentName", ["users"] = "x.UPeople DESC, x.AgentName", ["name"] = "x.AgentName",
-        ["source"] = "x.AgentSource, x.AgentName, x.AgentKey", ["owner"] = "x.Owner, x.AgentName, x.AgentKey", ["inter"] = "x.I DESC, x.AgentName, x.AgentKey",
-        ["people"] = "x.People DESC, x.AgentName, x.AgentKey", ["each"] = "CASE WHEN x.UPeople > 0 THEN x.U * 1.0 / x.UPeople ELSE 0 END DESC, x.AgentName, x.AgentKey",
+        ["credits"] = "", ["users"] = "", ["name"] = "", ["source"] = "", ["owner"] = "", ["inter"] = "", ["billed"] = "", ["people"] = "", ["each"] = "",
     };
-    static readonly Dictionary<string, string> SortLabels = new() { ["credits"] = "Most credits", ["users"] = "Most unlicensed users", ["name"] = "Name" };
+    static readonly Dictionary<string, string> SortLabels = new() { ["credits"] = "Most credits", ["users"] = "Most people billed", ["name"] = "Name" };
 
     sealed class Row
     {
         public int AgentKey { get; set; }
-        public string AgentName { get; set; } = "";
-        public string? AgentSource { get; set; }
         public string? Owner { get; set; }
-        public long I { get; set; }
-        public long U { get; set; }
         public int People { get; set; }
-        public int UPeople { get; set; }
-        public int TotalRows { get; set; }
     }
 
     protected override async Task BuildAsync()
     {
-        static decimal Dec(string? v, decimal fallback) => decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) ? d : fallback;
-        var price = Dec(await S.Settings.StringAsync("LicenseMonthlyCost"), 30m);
-        var rate = Dec(await S.Settings.StringAsync("PaygInteractionCost"), 0.12m);
-        var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
-        /* A month is scaled from the days the data covers, not the period's (2.4.12, see OpsReports.DaysCovered). */
-        var days = CopilotInsights.Data.OpsReports.DaysCovered(Ctx, await CopilotInsights.Data.OpsReports.FirstDayAsync(Db));
-        decimal Monthly(long n) => n * rate * 30m / days;
+        var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var lp) ? lp : 30m;
+        var v = await creditData.BuildAsync(Ctx);
+        var cur = v.Currency;
+        /* Each agent's owner and everyone who used it, billed or not: the estimate counts only the people billed. */
+        var more = (await Db.QueryAsync<Row>($@"
+SELECT ag.AgentKey, ag.Owner, COUNT(DISTINCT f.UserKey) AS People
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
+WHERE f.DateKey BETWEEN @k0 AND @k1 AND ag.AgentSource <> N'(no agent)'
+GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.AgentKey).ToDictionary(g => g.Key, g => g.First());
 
         var pg = new Paging(Request, Sorts, "credits");
-        /* One row per agent, person and whether they were licensed at the time, then counted: the distinct people come
-           from a few hundred thousand rows rather than the fact's millions. The figures above the list are every agent's,
-           read on their own (2.4.12): taken from the page's first row, they were 0 when a search matched no agent. */
-        var (rows, all) = await Db.QueryTwoAsync<Row, (int Charging, long AllU)>($@"
-WITH g AS (SELECT f.AgentKey, f.UserKey, CAST(CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END AS BIT) AS Lic, COUNT_BIG(*) AS N
-           FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.AgentKey, f.UserKey, CAST(CASE WHEN f.LicenseStatusKey = 1 THEN 1 ELSE 0 END AS BIT)),
-a AS (SELECT g.AgentKey, SUM(g.N) AS I, SUM(CASE WHEN g.Lic = 0 THEN g.N ELSE 0 END) AS U,
-             COUNT(DISTINCT g.UserKey) AS People, COUNT(DISTINCT CASE WHEN g.Lic = 0 THEN g.UserKey END) AS UPeople
-      FROM g GROUP BY g.AgentKey),
-x AS (SELECT ag.AgentKey, ag.AgentName, ag.AgentSource, ag.Owner, a.I, a.U, a.People, a.UPeople
-      FROM a JOIN dash.Agent AS ag ON ag.AgentKey = a.AgentKey
-      WHERE ag.AgentSource <> N'(no agent)')
-SELECT x.* INTO #x FROM x;
-SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x
-WHERE (@q IS NULL OR x.AgentName LIKE @q OR x.Owner LIKE @q)
-{pg.OrderAndPage()};
-SELECT COUNT(CASE WHEN x.U > 0 THEN 1 END), ISNULL(SUM(x.U), 0) FROM #x AS x;", Ctx.Args(new { q = pg.Like }), timeout: 300);
-        pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-        var (charging, allU) = all.Single();
+        var charging = v.Agents.Where(a => a.Month.Credits > 0).ToList();
+        Kpis.Add(new("Agents charging credits", Num(charging.Count), $"of {Num(v.Agents.Count)} used: billed use by people without a license, or in a Copilot Studio channel"));
+        Kpis.Add(new("Credits a month (estimate)", Num((long)Math.Round(charging.Sum(a => a.Month.Credits))),
+            $"{CopilotInsights.Data.CostRules.Money(Math.Round(charging.Sum(a => a.Month.Cost)), cur)} at {v.Rates.CreditPrice:#,0.00##} {cur} a credit", Href: Open("/licensing/credit-use")));
+        Kpis.Add(new("People billed", Num(v.People.Count(p => p.Use.Billed > 0 && p.Use.WithAgent > 0)), "used an agent that bills"));
 
-        Kpis.Add(new("Agents charging credits", Num(charging), "used by people without a license"));
-        Kpis.Add(new($"Credits a month ({cur})", Num((long)Monthly(allU)), $"at {rate:#,0.00##} {cur} an interaction"));
+        var ownerName = await NamesAsync(v.Agents.Select(a => more.TryGetValue(a.AgentKey, out var m) ? m.Owner : null));
+        string? Owner(CreditAgent a) => more.TryGetValue(a.AgentKey, out var m) ? m.Owner : null;
+        int All(CreditAgent a) => more.TryGetValue(a.AgentKey, out var m) ? m.People : a.People;
+        decimal Each(CreditAgent a) => a.People > 0 ? a.Month.Cost / a.People : 0;
+
+        IEnumerable<CreditAgent> shown = v.Agents;
+        if (pg.Search is { } q)
+            shown = shown.Where(a => a.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || (Owner(a) ?? "").Contains(q, StringComparison.OrdinalIgnoreCase));
+        var ordered = (pg.SortKey switch
+        {
+            "name" => shown.OrderBy(a => a.Name, StringComparer.CurrentCulture),
+            "source" => shown.OrderBy(a => a.Source ?? "").ThenBy(a => a.Name),
+            "owner" => shown.OrderBy(a => Owner(a) ?? "").ThenBy(a => a.Name),
+            "inter" => shown.OrderByDescending(a => a.Use.WithAgent).ThenBy(a => a.Name),
+            "billed" => shown.OrderByDescending(a => a.Use.Billed).ThenBy(a => a.Name),
+            "people" => shown.OrderByDescending(All).ThenBy(a => a.Name),
+            "users" => shown.OrderByDescending(a => a.People).ThenBy(a => a.Name),
+            "each" => shown.OrderByDescending(Each).ThenBy(a => a.Name),
+            _ => shown.OrderByDescending(a => a.Month.Credits).ThenBy(a => a.Name),
+        }).ToList();
+        if (pg.Reversed) ordered.Reverse();
+        pg.Total = ordered.Count;
+        var page = pg.ForExport ? ordered : ordered.Skip((pg.Page - 1) * Paging.PageSize).Take(Paging.PageSize).ToList();
 
         var t = new Table
         {
-            Headers = ["Agent", "Built in", "Owner", "Interactions", "Interactions without a license", "People", "People without a license", $"Credits a month ({cur})", $"Credits a person a month ({cur})", "Suggestion"],
-            Numeric = new HashSet<int> { 3, 4, 5, 6, 7, 8 },
+            Headers = ["Agent", "Built in", "Owner", "Interactions", "Billed", "People", "People billed", "Credits a month", $"Cost a month ({cur})", $"A person billed a month ({cur})", "Suggestion"],
+            Numeric = new HashSet<int> { 3, 4, 5, 6, 7, 8, 9 },
             EmptyText = "No agent was used in the period.",
-            /* Without a license (interactions) and Credits a month are the same count, so both sort by credits. */
-            Server = new(pg, Request, ["name", "source", "owner", "inter", "credits", "people", "users", "credits", "each", null], new HashSet<int> { 3, 4, 5, 6, 7, 8 }),
+            Server = new(pg, Request, ["name", "source", "owner", "inter", "billed", "people", "users", "credits", "credits", "each", null], new HashSet<int> { 3, 4, 5, 6, 7, 8, 9 }),
         };
-        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: owners by name
-        foreach (var r in rows)
+        foreach (var a in page)
         {
-            var credits = Monthly(r.U);
-            var each = r.UPeople > 0 ? credits / r.UPeople : 0m;
+            var each = Each(a);
             /* An agent's people are a group: shown at the minimum group size or more (2.4.12), with what they would reveal. */
-            var few = r.UPeople > 0 && AtLeastMin(r.UPeople) is null;
-            var suggestion = r.U == 0 ? "No credits: its users hold licenses"
+            var few = a.People > 0 && AtLeastMin(a.People) is null;
+            var suggestion = a.Month.Credits == 0 ? "No credits: its users hold licenses"
                 : each >= price ? "Its users each cost more than a license: see Licensing › Better with a license"
-                : r.UPeople < Ctx.MinGroupSize && credits >= price ? "Few users, a license's worth of credits or more: restrict or retire"
+                : a.People < Ctx.MinGroupSize && a.Month.Cost >= price ? "Few users, a license's worth of credits or more: restrict or retire"
                 : "";
-            var name = new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}"))}\">{WebUtility.HtmlEncode(r.AgentName)}</a>");
-            t.Rows.Add([name, r.AgentSource, ownerName(r.Owner), r.I, r.U, r.People == 0 ? 0 : AtLeastMin(r.People), r.UPeople == 0 ? 0 : AtLeastMin(r.UPeople), Math.Round(credits, 2), few ? null : Math.Round(each, 2), suggestion]);
+            var name = new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url("/agents/detail", extra: $"agent={a.AgentKey}"))}\">{WebUtility.HtmlEncode(a.Name)}</a>");
+            var all = All(a);
+            t.Rows.Add([name, a.Source, ownerName(Owner(a)), a.Use.WithAgent, a.Use.Billed, all == 0 ? 0 : AtLeastMin(all), a.People == 0 ? 0 : AtLeastMin(a.People),
+                Math.Round(a.Month.Credits), Math.Round(a.Month.Cost, 2), few ? null : Math.Round(each, 2), suggestion]);
         }
         CsvTable = t;
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            $"Without a license: interactions by people who held no Copilot license at the time; pay-as-you-go charges for these in Copilot Credits. Credits a month: those interactions, " +
-            $"scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access). An agent grounded only in public data is not charged, so this errs high. " +
-            $"A person a month: the credits over the people without a license who used it, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent.", "full", CsvUrl()));
+            $"Billed: interactions with the agent by people who held no Copilot license at the time, or in a Copilot Studio channel; an unknown license is not taken for none. " +
+            $"Credits a month: each billed answer at {v.Rates.Generative:#,0.##} credits, {v.Rates.Graph:#,0.##} more where it read work data and {v.Rates.Action:#,0.##} where it called another agent, " +
+            $"scaled to 30 days, at {v.Rates.CreditPrice:#,0.00##} {cur} a credit (Admin › Targets and assumptions): the same estimate as Licensing › Credit use. It errs high. " +
+            $"A person billed a month: the cost over the people billed, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent.", "full", CsvUrl()));
     }
 }

@@ -39,6 +39,9 @@ builder.Services.AddSingleton<SecretStore>();
 builder.Services.AddSingleton<Mailer>();
 builder.Services.AddScoped<OpsData>();
 builder.Services.AddScoped<OpsReports>();
+builder.Services.AddScoped<CopilotInsights.Data.CostData>();
+builder.Services.AddScoped<CopilotInsights.Data.SuiteData>();
+builder.Services.AddScoped<CopilotInsights.Data.CreditData>();
 /* A background service that fails is logged, and the site goes on (2.4.12): .NET's default stops the whole site,
    which a mail server that did not answer once did, again after every restart. */
 builder.Services.Configure<HostOptions>(o => o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);

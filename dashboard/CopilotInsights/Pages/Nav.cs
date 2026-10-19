@@ -13,7 +13,7 @@ public static class Nav
     [
         new("Leadership", "Executives and department heads", [
             new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
-            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"),
+            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"),
             new("Board pack", "/leadership/boardpack")]),
         new("Adoption", "Copilot program leads", [
             new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"),
@@ -25,7 +25,7 @@ public static class Nav
             new("Unused licenses", "/licensing/unused", Roles.Licensing), new("Use ranking", "/licensing/ranking", Roles.Licensing),
             new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
             new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
-            new("Overlapping licenses", "/licensing/overlap", Roles.Licensing),
+            new("Overlapping licenses", "/licensing/overlap", Roles.Licensing), new("Suite fit", "/licensing/suites", Roles.Licensing), new("Credit use", "/licensing/credit-use", Roles.Licensing),
             new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing), new("Copilot on non-human accounts", "/licensing/non-person", Roles.Licensing),
             new("Departures ahead", "/licensing/departures", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [

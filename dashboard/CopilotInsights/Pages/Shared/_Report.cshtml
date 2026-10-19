@@ -16,15 +16,16 @@
     <div class="eyebrow">@Model.Persona</div>
     @if (guide is not null)
     {
-        <h1>@InfoTip.After(Model.Title, Model.Intro, "About this page")</h1>
-        <div class="guide">
+        @* The title and who it is for on one line, and what it helps with and what to do on the next, so the figures
+           start near the top of the screen. *@
+        <div class="ph-title">
+            <h1>@InfoTip.After(Model.Title, Model.Intro, "About this page")</h1>
             @if (who is not null)
             {
                 <span class="who">For @who</span>
             }
-            <p><b>Helps you</b> @guide.Helps</p>
-            <p><b>Do</b> @guide.Do</p>
         </div>
+        <p class="guide"><span><b>Helps you</b> @guide.Helps</span> <span><b>Do</b> @guide.Do</span></p>
     }
     else
     {
@@ -149,7 +150,15 @@
             var figure = k.Note is { Length: <= 40 } kn && kn.Any(char.IsDigit);
             <div class="kpi @(k.Tone)">
                 <div class="klabel">@InfoTip.After(k.Label, guide is not null && !figure ? k.Note : null)</div>
-                <div class="kvalue">@k.Value</div>
+                @if (k.Href is not null)
+                {
+                    @* The figure leads to the report with its detail (2.6.6). *@
+                    <a class="kvalue klink" href="@k.Href" title="The detail behind this figure">@k.Value<span class="kgo" aria-hidden="true"> ›</span></a>
+                }
+                else
+                {
+                    <div class="kvalue">@k.Value</div>
+                }
                 @if (k.Note is not null && (guide is null || figure))
                 {
                     <div class="knote">@k.Note</div>

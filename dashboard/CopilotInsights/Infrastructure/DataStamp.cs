@@ -22,6 +22,9 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
         "dash.Setting", "dash.Target", "dash.TimeSaving", "dash.TrainingAttendance", "dash.ValueName", "dash.AgentAlias", "dash.SensitivityLabel",
         "dash.JobFamilyRule", "dash.UseCaseRule", "dash.EventMarker", "dash.LicenseContract", "audit.PipelineSetting", "audit.SessionAppCategory",
         "dash.AgentInventoryRun",   // 2.5.6: each load of the agent workbook adds a row, so the agent reports are read again
+        /* 2.6.6: what Leadership > Costs and savings reads that tools\Import-CostCsv.ps1 or an administrator can change outside a nightly run. */
+        "dash.CostPrice", "dash.CostSuite", "audit.FabricCapacityDay", "audit.FabricWorkloadDay", "audit.PowerAutomateFlow", "audit.PowerPlatformUserActivity",
+        "audit.PowerPlatformCapacityDay", "audit.PowerPlatformCreditDay",
     ];
 
     /// <summary>A table people change all day, and the query that gives its version: one short string that differs after any change.</summary>

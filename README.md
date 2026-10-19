@@ -278,7 +278,7 @@ A web dashboard over the same database, for people who will never open Power BI:
     -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -HostName insights.contoso.com -CertificateThumbprint <thumbprint> -GrantDatabaseAccess
 ```
 
-`dash.usp_RefreshDashboard` keeps its org chart and daily rollups current: every `-Incremental` run and CSV import calls it after `bi`. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** has every page, the security model, the install and how the first administrator gets in; `dashboard/demo/New-InsightsDemo.ps1` builds a 2,317-person demo company to try it on.
+`dash.usp_RefreshDashboard` keeps its org chart and daily rollups current: every `-Incremental` run and CSV import calls it after `bi`. **[docs/DASHBOARD.md](docs/DASHBOARD.md)** has every page, the security model, the install and how the first administrator gets in; `dashboard/demo/New-InsightsDemo.ps1` builds a 5,000-person demo company to try it on.
 
 ## Tests
 
@@ -332,6 +332,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `sql/Create-CopilotPurgeProcedure.sql` | `audit.usp_PurgeCopilotAuditJson`. |
 | `sql/Create-CopilotEnrichmentSchema.sql` | The license and user directory tables, plus the adoption views. |
 | `tools/Save-CopilotAuditModules.ps1` | Saves the PowerShell modules the scripts need into a `Modules` folder beside them, checking their signatures, for a server with no gallery access. |
+| `tools/Import-CostCsv.ps1` | Loads the Fabric, flow, Power Platform and Copilot Credit exports Leadership › Costs and savings reads (2.6.6). |
 | `tools/DropGuard.ps1` | The delete guard (2.6.5): each load that empties and refills a table refuses a new load that is more than its percentage smaller than the last. |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |
 | `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory and management chain, from on-premises AD, and the members of AD groups granted Organization, for Power BI. |
@@ -347,7 +348,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `sql/Create-CopilotDashboardProcedure.sql` | `dash.usp_RefreshDashboard`, which rebuilds the org chart and rollups after `bi`. |
 | `dashboard/CopilotInsights/` | The Copilot Insights web dashboard (ASP.NET Core 10, Razor Pages). |
 | `dashboard/Install-CopilotInsights.ps1` | Installs or updates it on IIS, with Windows authentication and its database grants. |
-| `dashboard/demo/` | A synthetic 2,317-person company to try the dashboard on. |
+| `dashboard/demo/` | A synthetic 5,000-person company to try the dashboard on, with its AI and automation spend (2.6.6). |
 | `dashboard/CopilotInsights.Tests/` | The dashboard's unit tests. |
 | `tools/Import-GitHubCopilotUsage.ps1` | Optional (2.6.2): GitHub Copilot's seats, daily use, each person's day and cost, for an enterprise or an organization, into four `audit.GitHubCopilot...` tables. The nightly run calls it when the settings name `GitHubEnterprise`. Setup: `docs/GITHUB-COPILOT-USAGE.md`. |
 | `tools/Import-FoundryUsage.ps1` | Optional (2.6.2): Foundry and Azure OpenAI deployments, daily requests and tokens, and daily cost, for the subscriptions named, into three `audit.Foundry...` tables. The nightly run calls it when the settings name `FoundrySubscriptions`. Setup: `docs/FOUNDRY-USAGE.md`. |

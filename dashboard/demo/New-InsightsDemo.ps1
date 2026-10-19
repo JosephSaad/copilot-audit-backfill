@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
     Builds a demo database for the Copilot Insights dashboard: a synthetic
-    2,317-person company with six months of Copilot use.
+    company of 5,000 people (-People) with six months of Copilot use, and its
+    spend on Fabric, the Power Platform, GitHub Copilot and Foundry (2.6.6).
 
 .DESCRIPTION
     Creates the database (replacing it with -Force), runs the repository's
@@ -11,7 +12,11 @@
     sensitivity labels, and grants a persona role to one person per persona,
     so every page and the security model can be tried as each of them. It also
     adds a license pool, pipeline runs (one failed), training records, targets
-    and a digest, for the operations pages.
+    and a digest, for the operations pages. From 2.6.6 it adds what a real tenant
+    has beyond its staff (New-InsightsDemoTenant.sql: service and guest accounts,
+    leave dates, the agent workbook and its agents' use) and loads the workbook
+    as the nightly import would, with Copilot Studio's authoring records
+    (New-InsightsDemoAgents.sql), so no page is empty.
 
     Point the dashboard's connection string at this database. To see it as one
     of its people, map your Windows account to their UPN under
@@ -28,7 +33,8 @@ param(
     [string] $Database = 'CopilotInsightsDemo',
     [switch] $TrustServerCertificate,
     [switch] $Force,
-    [string[]] $Admins = @()   # UPNs or DOMAIN\user names to make Admin in the demo
+    [string[]] $Admins = @(),  # UPNs or DOMAIN\user names to make Admin in the demo
+    [ValidateRange(400, 5200)][int] $People = 5000   # 2,317 is the demo before 2.6.6; names stay unique up to 5,200
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,17 +89,33 @@ try {
     }
     Step 'Demo company and six months of use' {
         $cmd = $conn.CreateCommand(); $cmd.CommandTimeout = 0
-        $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoData.sql') -Raw
+        $cmd.CommandText = (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoData.sql') -Raw).Replace('DECLARE @people INT = 5000;', "DECLARE @people INT = $People;")
         $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
         $r = $t.Rows[0]
         Write-Host ("   {0:N0} people, {1:N0} licensed today, {2:N0} license events, {3:N0} sessions, {4:N0} interactions by {5:N0} people" -f `
                     $r.People, $r.LicensedToday, $r.LicenseEvents, $r.Sessions, $r.Interactions, $r.ActiveEver)
+    }
+    Step 'Service accounts, guests, leave dates, the agent workbook and its agents'' use' {
+        $cmd = $conn.CreateCommand(); $cmd.CommandTimeout = 0
+        $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoTenant.sql') -Raw
+        $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
+        $r = $t.Rows[0]
+        Write-Host ("   {0:N0} accounts that are not people, {1:N0} guests, {2:N0} leave dates, {3:N0} agents in the workbook, {4:N0} people paying in credits, {5:N0} interactions" -f `
+                    $r.Accounts, $r.Guests, $r.Leaving, $r.Agents, $r.CreditUsers, $r.Interactions)
     }
     $conn.Dispose(); $conn = Get-Conn $Database   # a fresh session: no temp tables left over from the seed
     Step 'Sessions' { Invoke-Batch $conn "EXEC audit.usp_BuildCopilotSessions @LicenseEventDatabase = N'$Database';" }
     Step 'bi star schema' { Invoke-Batch $conn "EXEC bi.usp_RefreshBi @LicenseEventDatabase = N'$Database';" }
     Step 'License pool, pipeline runs, training and targets' {
         Invoke-Batch $conn (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoOperations.sql') -Raw)
+    }
+    Step 'Fabric, Power Platform, GitHub Copilot and Foundry costs' {
+        $cmd = $conn.CreateCommand(); $cmd.CommandTimeout = 0
+        $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoCosts.sql') -Raw
+        $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
+        $r = $t.Rows[0]
+        Write-Host ("   {0:N0} Fabric capacity-days, {1:N0} flows, {2:N0} people's Power Platform activity, {3:N0} GitHub Copilot seats, {4:N0} Foundry cost-days" -f `
+                    $r.FabricDays, $r.Flows, $r.Activity, $r.Seats, $r.FoundryCostDays)
     }
     Step 'Dashboard settings, names and demo roles' {
         $admins = ($Admins | ForEach-Object { "(N'$($_.Replace("'", "''"))', 'User', 'Admin', N'Demo administrator', N'demo')" }) -join ",`n"
@@ -120,6 +142,14 @@ JOIN audit.UserDirectory AS d ON d.Department = v.Dept AND d.OrgDepth = 2
 WHERE NOT EXISTS (SELECT 1 FROM dash.RoleGrant AS g WHERE g.Principal = d.UserPrincipalName AND g.Role = v.Role);
 $(if ($admins) { "INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES $admins;" })
 "@
+    }
+    Step 'Agent workbook load and authoring records' {
+        $cmd = $conn.CreateCommand(); $cmd.CommandTimeout = 0
+        $cmd.CommandText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'New-InsightsDemoAgents.sql') -Raw
+        $t = [System.Data.DataTable]::new(); $t.Load($cmd.ExecuteReader())
+        $r = $t.Rows[0]
+        Write-Host ("   {0:N0} agents ({1:N0} seen in the audit log, {2:N0} in production), {3:N0} parent and child links, {4:N0} authoring records" -f `
+                    $r.Agents, $r.Matched, $r.InProduction, $r.Links, $r.AuthoringEvents)
     }
     Step 'Dashboard refresh' { Invoke-Batch $conn 'EXEC dash.usp_RefreshDashboard;' }
     $cmd = $conn.CreateCommand()

@@ -54,7 +54,14 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         var copilot = pool.Where(p => p.IsCopilot).ToList();
         int bought = copilot.Sum(p => p.Bought), assigned = copilot.Sum(p => p.Consumed);
         /* The use set against the tenant's seats is the tenant's (2.4.12, see OpsReports.Tenant). */
-        var t = await metrics.TotalsAsync(OpsReports.Tenant(Ctx));
+        var tc = OpsReports.Tenant(Ctx);
+        var t = await metrics.TotalsAsync(tc);
+        /* 2.6.6: those who hold Copilot only inside a suite (E7) are not the add-on's seats: their use is left out too. */
+        var inSuite = await Db.ScalarAsync<int>($@"
+SELECT COUNT(*) FROM bi.FactLicensedDay AS ld JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
+WHERE ld.DateKey = @k1 AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.UserPrincipalName")}
+  AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.LicensedUse > 0);", tc.Args());
+        t.ActiveLicensed = Math.Max(0, t.ActiveLicensed - inSuite);
         Kpis.Add(new("Copilot seats bought", Num(bought), $"{copilot.Sum(p => p.Warning):#,0} in the grace period after expiry"));
         Kpis.Add(new("Seats assigned", Num(assigned), bought > 0 ? $"{Pct(Ratio(assigned, bought))} of those bought" : null,
             bought > 0 && assigned >= bought * (await S.Settings.IntAsync("PoolWarnPercent", 95)) / 100.0 ? "warn" : null));
@@ -70,14 +77,16 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
 
         var days = await Db.QueryAsync<(DateTime Day, int Bought, int Assigned)>(@"
 SELECT SnapshotDate, SUM(Enabled + Warning), SUM(Consumed) FROM audit.LicenseSkuDay
-WHERE IsCopilot = 1 AND SnapshotDate BETWEEN @d0 AND @d1 GROUP BY SnapshotDate ORDER BY SnapshotDate;", Ctx.Args());
+WHERE IsCopilot = 1 AND SnapshotDate BETWEEN @d0 AND @d1
+  AND SkuId NOT IN (SELECT SkuId FROM @suites)   -- 2.6.6: a suite with Copilot inside (E7) is not the add-on's seats
+GROUP BY SnapshotDate ORDER BY SnapshotDate;".Replace("@suites", pool.Any(p => p.IsSuite) ? $"(VALUES {string.Join(", ", pool.Where(p => p.IsSuite).Select(p => $"(CAST('{p.SkuId}' AS UNIQUEIDENTIFIER))"))}) AS st (SkuId)" : "(SELECT CAST(NULL AS UNIQUEIDENTIFIER)) AS st (SkuId) WHERE 1 = 0"), Ctx.Args());
         if (days.Count > 1)
             Panels.Add(new("Bought and assigned over time", Chart.Line(days.Select(d => d.Day.ToString("d MMM")).ToList(),
                 [new Series("Bought", days.Select(d => (double?)d.Bought).ToList(), 1), new Series("Assigned", days.Select(d => (double?)d.Assigned).ToList(), 3)],
                 Fmt.Count, "Copilot seats bought and assigned"), "One point per night the license tool ran.", "half"));
 
         var tb = new Table { Zone = Zone, Headers = ["License (SKU)", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Last read (UTC)"], Numeric = new HashSet<int> { 2, 3, 4, 5, 6 } };
-        foreach (var p in pool) tb.Rows.Add([p.SkuPartNumber, p.IsCopilot ? "Yes" : "", p.Bought, p.Consumed, p.Available, p.Warning, p.Suspended, p.CapturedUtc]);
+        foreach (var p in pool) tb.Rows.Add([p.SkuPartNumber, p.IsCopilot ? "Yes" : p.IsSuite ? "Inside the suite" : "", p.Bought, p.Consumed, p.Available, p.Warning, p.Suspended, p.CapturedUtc]);
         CsvTable = tb;
         Panels.Add(new("Every subscription in the tenant", tb.Render(), $"Copilot SKU ids, for the license export script: {string.Join(", ", copilot.Select(p => $"{p.SkuPartNumber} {p.SkuId}"))}.", "full", CsvUrl()));
     }

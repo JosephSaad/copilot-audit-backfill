@@ -8,7 +8,8 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace CopilotInsights.Pages;
 
-public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null);
+/// <summary>A headline figure; Href (2.6.6) is the report with the detail behind it, which the figure links to.</summary>
+public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null, string? Href = null);
 
 /// <summary>A report panel: a chart or a table, with a title and an optional explanation.</summary>
 public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null);
@@ -482,6 +483,31 @@ EXEC sys.sp_executesql @sql;");
     }
 
     /* ---- forms the pages write themselves (anti-forgery token included) ---------------------- */
+
+    /// <summary>
+    /// The address of a report, the period and team kept, if this viewer may open it; null if not (2.6.6). A figure or
+    /// row that leads to its detail links only where the detail would open: a leader without the Licensing role sees
+    /// the count of licenses to take back, but no link to the list that names the people. The test is the menu's
+    /// (<see cref="Nav.Allowed"/>), section role included; a page the menu does not list is open.
+    /// </summary>
+    protected string? Open(string path, string? extra = null) => Open(path, extra, keepOrg: true);
+
+    /// <summary>
+    /// The same, choosing whether the team shown is kept: a page that shows the whole organization whatever the team
+    /// (Costs and savings) passes false, so its figures lead to lists of the whole organization, as they count it.
+    /// </summary>
+    protected string? Open(string path, string? extra, bool keepOrg)
+    {
+        /* A path that carries its own query ("/forecasting/actions?kind=revoke") keeps it after the period and team. */
+        var parts = path.Split('?', 2);
+        var bare = parts[0];
+        if (parts.Length > 1 && parts[1].Length > 0) extra = extra is null ? parts[1] : parts[1] + "&" + extra;
+        foreach (var g in Nav.Groups)
+            foreach (var page in g.Pages)
+                if (string.Equals(page.Path, bare, StringComparison.OrdinalIgnoreCase))
+                    return (g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode) ? Ctx.Url(bare, keepOrg: keepOrg, extra: extra) : null;
+        return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+    }
 
     protected string Form(string handler, string body, string? extraQuery = null) =>
         $"<form class=\"admin\" method=\"post\" action=\"{E(Request.Path + "?handler=" + handler + (extraQuery is null ? "" : "&" + extraQuery) + TenantQuery)}\">{Token()}{body}</form>";

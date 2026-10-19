@@ -21,6 +21,7 @@ public static class Guidance
         ["/leadership/compare"] = new("Set two managers' teams side by side, whatever their size.", "Ask the lead of the team ahead what they did, and share it with the other."),
         ["/leadership/mix"] = new("See where Copilot earns its place: which apps, and how much through agents.", "Back the apps and agents that carry use; question the ones that do not."),
         ["/leadership/value"] = new("Put an estimated value on Copilot, with your own assumptions.", "Check the minutes and the hourly cost in Admin before you quote the figure."),
+        ["/leadership/costs"] = new("See what AI and automation cost, what can be saved, and what they return, in one view.", "Take the top three savings this month; send the growth items to their owners."),
         ["/leadership/usecases"] = new("Know what people use Copilot for, not just how much.", "Share the common use cases as examples; fund training for the missing ones."),
         ["/leadership/boardpack"] = new("Report the program to the board on one page.", "Print it or save it as a PDF for the steering group."),
         ["/group"] = new("See every tenant in the group together.", "Compare the tenants, and share what works in the strongest."),
@@ -54,6 +55,8 @@ public static class Guidance
         ["/security/non-human"] = new("Find Copilot on service, shared, test and guest accounts, which the license does not allow.", "Have each license removed, or confirmed as a person by an administrator, and watch for the alert."),
         ["/compliance/non-human"] = new("Show that Copilot is licensed only to people, as policy requires.", "Follow up each breach until its license is removed or the account is confirmed as a person."),
         ["/licensing/overlap"] = new("Find people paying for two licenses that overlap.", "Drop the second license where the first covers the use."),
+        ["/licensing/credit-use"] = new("Estimate each person's Copilot Credits and tokens, and what a cap would touch.", "Set the credit policy's cap from the spread; license the people above a license's worth."),
+        ["/licensing/suites"] = new("See which of E3, E5 and E7 fits each holder, and what a move down saves.", "Drop the copies now; agree each move down with the manager, and with security for E5."),
         ["/licensing/departures"] = new("Reclaim licenses on the last day, not weeks after.", "Plan the leavers' removals; export the ones past their date now."),
 
         // Security

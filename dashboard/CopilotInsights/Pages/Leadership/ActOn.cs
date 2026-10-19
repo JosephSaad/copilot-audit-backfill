@@ -9,7 +9,7 @@ namespace CopilotInsights.Pages.Leadership;
 /// that has the detail. Counts only; the names behind a count stay on the report it links to, with that report's role.
 /// A finding of none is left out, so an empty page is good news.
 /// </summary>
-public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports reports) : InsightsPage(s)
+public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports reports, CostData costs) : InsightsPage(s)
 {
     public override string Title => "What to act on";
     public override string Persona => "Leadership";
@@ -35,9 +35,9 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
 
         var counts = await reports.ActionCountsAsync(Ctx);
         int revoke = counts.GetValueOrDefault("revoke"), train = counts.GetValueOrDefault("train"), upgrade = counts.GetValueOrDefault("upgrade");
-        Kpis.Add(new("Licenses to take back", Num(revoke), "license holders with no licensed use in the last 30 days"));
-        Kpis.Add(new("License holders to train", Num(train), "license holders who use Copilot only a little"));
-        Kpis.Add(new("People ready for a license", Num(upgrade), "regular users of the free Copilot Chat who hold no license"));
+        Kpis.Add(new("Licenses to take back", Num(revoke), "license holders with no licensed use in the last 30 days", Href: Open("/forecasting/actions", extra: "kind=revoke")));
+        Kpis.Add(new("License holders to train", Num(train), "license holders who use Copilot only a little", Href: Open("/forecasting/actions", extra: "kind=train")));
+        Kpis.Add(new("People ready for a license", Num(upgrade), "regular users of the free Copilot Chat who hold no license", Href: Open("/forecasting/actions", extra: "kind=upgrade")));
 
         Add("License holders with no licensed use in the last 30 days", revoke,
             "Each is a license paid for and not used: take it back, or find out what is in the way.", "/forecasting/actions");
@@ -65,6 +65,20 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
         var targets = await reports.TargetsAsync(Ctx);
         Add("Adoption targets behind their line or missed", targets.Count(x => x.Status is "Behind" or "Missed"),
             "A target behind its line needs its push now, not at the deadline.", "/adoption/targets");
+
+        /* What could be saved (2.6.6): Costs and savings is the organization's, so its findings show to those who see the
+           whole of it, or hold the Licensing role, and only when the page shows the whole organization. */
+        if (Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing)))
+        {
+            var v = await costs.BuildAsync(Ctx);
+            var save = v.Opportunities.Where(o => o.Kind == OpportunityKind.Save).ToList();
+            if (save.Count > 0)
+                t.Rows.Add([$"Savings found in AI and automation: {CostRules.Money(Math.Round(v.Saving), v.Currency)} a month", save.Count,
+                    $"{v.Saving / Math.Max(1, v.Spend):P0} of the spend. The largest: {save[0].Title} ({CostRules.Money(Math.Round(save[0].Saving), v.Currency)} a month).", Where("/leadership/costs")]);
+            if (v.Suites is { Saving: > 0 } su)
+                t.Rows.Add([$"Suite moves to review: {CostRules.Money(Math.Round(su.Saving), v.Currency)} a month", su.Moves.Sum(m => m.People),
+                    "E7 to E5, E5 to E3, second suites, unassigned seats: each with what to check before moving.", Where("/licensing/suites")]);
+        }
 
         /* The security signals are the Security section's: counted here for its holders only, as on the board pack. */
         if (Viewer.Has(Roles.Security))

@@ -146,7 +146,9 @@ public static class Chart
         var room = Room(every);
         var list = new List<(int, List<string>)>();
         for (var i = 0; i < x.Count; i++)
-            if ((i % every == 0 && (i == x.Count - 1 || x.Count - 1 - i >= Math.Max(2, every * 0.85))) || i == x.Count - 1)
+            /* A label too near the last is left out where labels are thinned; where every point has room for its own (every
+               is 1), none is: six months drew five labels, the one before the last missing (2.6.6). */
+            if ((i % every == 0 && (i == x.Count - 1 || every == 1 || x.Count - 1 - i >= Math.Max(2, every * 0.85))) || i == x.Count - 1)
                 list.Add((i, WrapLines(x[i], room)));
         return list;
     }

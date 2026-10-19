@@ -2076,7 +2076,7 @@ Indexes and constraints:
 
 *Table.* The tenant's subscriptions as of the license tool's last run (2.3.0): per SKU, seats enabled, in the grace period, suspended and assigned, and whether it is a Copilot SKU.
 
-**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
+**Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database · **Columns added by** `Create-CopilotDashboardSchema.sql`
 
 | # | Column | Type | Null | Default / key | Notes |
 |--:|---|---|---|---|---|
@@ -2090,6 +2090,7 @@ Indexes and constraints:
 | 8 | `Consumed` | int | **no** |  | consumedUnits: seats assigned |
 | 9 | `CapabilityStatus` | nvarchar(32) | yes |  |  |
 | 10 | `CapturedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 11 | `CopilotInSuite` | bit | yes |  | 2.6.6: a suite with Microsoft 365 Copilot inside (E7). NULL before 2.6.6. |
 
 Indexes and constraints:
 
@@ -2464,7 +2465,7 @@ Indexes and constraints:
 | 14 | `AdministrativeUnits` | nvarchar(4000) | yes |  |  |
 | 15 | `AuditDataGz` | varbinary(max) | yes |  |  |
 
-### AI usage outside Microsoft 365 Copilot (2.6.2)
+### AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)
 
 Usage and cost of GitHub Copilot and of Microsoft Foundry and Azure OpenAI deployments, each loaded by a tool of its own (tools/Import-GitHubCopilotUsage.ps1, tools/Import-FoundryUsage.ps1) into tables of its own, beside the Copilot audit data and not mixed into it. First plumbing: no report, `bi` view or `dash` table reads them yet; a reporting tool can, with SELECT on the tables. Days are UTC days, as each service reports them, not the reporting time zone's. A table stays empty until its loader is set up ([GITHUB-COPILOT-USAGE.md](GITHUB-COPILOT-USAGE.md), [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md)).
 
@@ -2673,6 +2674,136 @@ Indexes and constraints:
 
 - `PK_ExternalUsageRun`: primary key, clustered (RunId)
 - `IX_ExternalUsageRun_Source`: nonclustered (Source, RunId)
+
+#### audit.FabricCapacityDay
+
+*Table.* One row per Fabric capacity per day (2.6.6), from the Capacity Metrics app and the capacity's cost: its size, the capacity unit seconds used, the day's peak, the minutes it throttled, the hours it ran and what it cost. Leadership &gt; Costs and savings reads each capacity's last 30 days. Loaded with tools/Import-CostCsv.ps1.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `CapacityId` | nvarchar(200) | **no** | **PK** | the capacity's id, or its name where the export has no id |
+| 2 | `Day` | date | **no** | **PK** |  |
+| 3 | `CapacityName` | nvarchar(200) | yes |  |  |
+| 4 | `Sku` | varchar(16) | yes |  | F2 ... F2048, or P1 ... P5 |
+| 5 | `CapacityUnits` | int | yes |  | the SKU's capacity units: F64 is 64 |
+| 6 | `Region` | nvarchar(64) | yes |  |  |
+| 7 | `Billing` | varchar(16) | yes |  | PayAsYouGo \| Reserved |
+| 8 | `ActiveHours` | decimal(5,2) | yes |  | hours it ran: 24, or fewer on a day it was paused |
+| 9 | `CuSecondsUsed` | decimal(19,2) | yes |  | capacity unit seconds used, after smoothing |
+| 10 | `PeakPercent` | decimal(9,2) | yes |  | the day's highest utilization, as a percentage of the capacity |
+| 11 | `ThrottledMinutes` | int | yes |  | minutes interactive work was delayed or rejected |
+| 12 | `Cost` | decimal(19,4) | yes |  | what the day cost, in Currency |
+| 13 | `Currency` | nvarchar(8) | yes |  |  |
+| 14 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FabricCapacityDay`: primary key, clustered (CapacityId, Day)
+
+#### audit.FabricWorkloadDay
+
+*Table.* One row per capacity, day and workload (2.6.6): the capacity units each kind of work used, its operations and people. A workload whose name starts with Copilot is Copilot in Power BI or Fabric, whose share of the capacity, and so of its cost, the costs page shows.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `CapacityId` | nvarchar(200) | **no** | **PK** |  |
+| 2 | `Day` | date | **no** | **PK** |  |
+| 3 | `Workload` | nvarchar(64) | **no** | **PK** | Power BI, Copilot in Power BI, Data Engineering, Data Warehouse ... |
+| 4 | `CuSeconds` | decimal(19,2) | yes |  |  |
+| 5 | `Operations` | bigint | yes |  | queries, refreshes, notebook runs, Copilot requests |
+| 6 | `Users` | int | yes |  | distinct people behind them that day |
+| 7 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_FabricWorkloadDay`: primary key, clustered (CapacityId, Day, Workload)
+
+#### audit.PowerAutomateFlow
+
+*Table.* Every cloud flow as a flow inventory last listed it (2.6.6): owner, premium or not, how it is licensed, its state and its runs in the last 30 days. The costs page finds Process licenses on quiet flows, failing flows, and the value of the runs. Usually loaded with -Replace.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `EnvironmentName` | nvarchar(200) | **no** | **PK** |  |
+| 2 | `FlowId` | nvarchar(100) | **no** | **PK** |  |
+| 3 | `FlowName` | nvarchar(400) | yes |  |  |
+| 4 | `OwnerUpn` | nvarchar(256) | yes |  |  |
+| 5 | `IsPremium` | bit | yes |  | uses a premium connector, so its owner needs a premium license |
+| 6 | `LicenseModel` | varchar(16) | yes |  | PerUser \| Process \| Standard |
+| 7 | `State` | varchar(16) | yes |  | Started \| Stopped \| Suspended |
+| 8 | `CreatedUtc` | datetime2(0) | yes |  |  |
+| 9 | `LastRunUtc` | datetime2(0) | yes |  |  |
+| 10 | `Runs30` | int | yes |  | runs in the last 30 days |
+| 11 | `FailedRuns30` | int | yes |  |  |
+| 12 | `MinutesSavedPerRun` | decimal(9,2) | yes |  |  |
+| 13 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_PowerAutomateFlow`: primary key, clustered (EnvironmentName, FlowId)
+
+#### audit.PowerPlatformUserActivity
+
+*Table.* Who used Power BI, Power Apps, Power Automate and Copilot Studio lately (2.6.6), from the admin center's usage exports. With audit.UserLicenseSku, a premium license held by someone who does not use the product.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `UserPrincipalName` | nvarchar(256) | **no** | **PK** |  |
+| 2 | `Product` | varchar(32) | **no** | **PK** | Power Apps \| Power Automate \| Copilot Studio |
+| 3 | `LastActiveUtc` | datetime2(0) | yes |  |  |
+| 4 | `ActiveDays30` | int | yes |  |  |
+| 5 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_PowerPlatformUserActivity`: primary key, clustered (UserPrincipalName, Product)
+
+#### audit.PowerPlatformCapacityDay
+
+*Table.* The tenant's Dataverse database, file and log capacity each day it was read (2.6.6): entitled and used. Used over entitled is overage, billed as add-on capacity.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Day` | date | **no** | **PK** |  |
+| 2 | `CapacityType` | varchar(16) | **no** | **PK** | Database \| File \| Log |
+| 3 | `EntitledGb` | decimal(19,2) | yes |  |  |
+| 4 | `UsedGb` | decimal(19,2) | yes |  |  |
+| 5 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_PowerPlatformCapacityDay`: primary key, clustered (Day, CapacityType)
+
+#### audit.PowerPlatformCreditDay
+
+*Table.* Copilot Credits (Copilot Studio's agents) and AI Builder credits per environment and day (2.6.6), and how they were paid: from a prepaid pack, or pay-as-you-go with its cost.
+
+**Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Day` | date | **no** | **PK** |  |
+| 2 | `EnvironmentName` | nvarchar(200) | **no** | **PK** |  |
+| 3 | `Product` | varchar(32) | **no** | **PK** | Copilot Studio \| AI Builder |
+| 4 | `Billing` | varchar(16) | **no** | **PK** | Prepaid \| PayAsYouGo |
+| 5 | `Credits` | decimal(19,2) | yes |  |  |
+| 6 | `Cost` | decimal(19,4) | yes |  | what pay-as-you-go charged; for Prepaid, NULL (the pack is a license) |
+| 7 | `Currency` | nvarchar(8) | yes |  |  |
+| 8 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_PowerPlatformCreditDay`: primary key, clustered (Day, EnvironmentName, Product, Billing)
 
 ### License events (license-event database)
 
@@ -3780,6 +3911,71 @@ Indexes and constraints:
 
 - `PK_DashSetting`: primary key, clustered (Name)
 
+#### dash.CostPrice
+
+*Table.* What a license or a unit of capacity costs (2.6.6), for Leadership &gt; Costs and savings: a license matched to audit.LicenseSku by its SKU part number, and the units the page prices (a GB over the Dataverse entitlement, a Copilot Credit, a capacity pack, a GitHub Copilot seat). Seeded with list prices in USD; an administrator sets them in Admin &gt; Targets and assumptions, and a changed row is kept on every install.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Item` | varchar(64) | **no** | **PK** |  |
+| 2 | `Area` | nvarchar(40) | **no** |  | Microsoft 365 Copilot \| GitHub Copilot \| Power Automate \| Power Apps \| Power BI \| Copilot Studio \| Dataverse |
+| 3 | `Name` | nvarchar(200) | **no** |  |  |
+| 4 | `Unit` | nvarchar(40) | **no** |  | user, flow, GB, credit, pack, seat |
+| 5 | `MonthlyPrice` | decimal(19,4) | **no** |  | a month, for a license; for a credit, each |
+| 6 | `Currency` | nvarchar(8) | yes |  | NULL: LicenseCurrency |
+| 7 | `Note` | nvarchar(400) | yes |  |  |
+| 8 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 9 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashCostPrice`: primary key, clustered (Item)
+
+#### dash.CostSuite
+
+*Table.* The suites (2.6.6): Microsoft 365 and Office 365 E3, E5 and E7 by SKU part number pattern, with family, tier, price a month, and the priced items each includes (COPILOT, POWER_BI_PRO). Costs and savings counts none of a suite's price as AI spend and nothing it includes again; Licensing &gt; Suite fit compares each holder's suite with the next one down. Set in Admin &gt; Targets and assumptions.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SkuPattern` | nvarchar(100) | **no** | **PK** | a LIKE pattern on the SKU part number |
+| 2 | `Suite` | nvarchar(100) | **no** |  |  |
+| 3 | `Family` | nvarchar(40) | **no** |  | Microsoft 365 \| Office 365: a move down stays in the family |
+| 4 | `Tier` | tinyint | **no** |  | 3, 5, 7 |
+| 5 | `MonthlyPrice` | decimal(19,4) | **no** |  | a user a month; 0: not known, so never a move's target |
+| 6 | `Currency` | nvarchar(8) | yes |  | NULL: LicenseCurrency |
+| 7 | `Includes` | nvarchar(400) | **no** | `N''` |  |
+| 8 | `Covers` | nvarchar(400) | yes |  |  |
+| 9 | `Enabled` | bit | **no** | `1` |  |
+| 10 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 11 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashCostSuite`: primary key, clustered (SkuPattern)
+
+#### dash.CopilotSuiteOnly
+
+*View.* A view (2.6.6): the people who hold Microsoft 365 Copilot only through a suite (E7), and not the add-on as well. Never on a list to revoke: their Copilot cannot be taken off alone. Empty until the license pool and its suite mark exist.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Upn` | nvarchar(512) | **no** |  |  |
+
+#### dash.CopilotSuiteHolder
+
+*View.* A view (2.6.6): everyone who holds a suite with Microsoft 365 Copilot inside (E7), with the add-on beside it or not. Costs and savings leaves them out of the move to pay-as-you-go, as the add-on beside E7 is a copy, counted as such. Empty until the license pool and its suite mark exist.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Upn` | nvarchar(512) | **no** |  |  |
 #### dash.RoleGrant
 
 *Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail.
@@ -7307,7 +7503,7 @@ GO
 
 ### C.7 `sql/Create-CopilotEnrichmentSchema.sql`
 
-Copilot database. Current licenses, the user directory and the adoption views. 269 lines.
+Copilot database. Current licenses, the user directory and the adoption views. 304 lines.
 
 ```sql
 /*
@@ -7439,6 +7635,11 @@ IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NULL
         Consumed       INT              NOT NULL,
         CONSTRAINT PK_LicenseSkuDay PRIMARY KEY (SnapshotDate, SkuId)
     );
+
+/* 2.6.6: a suite that carries Copilot inside it (Microsoft 365 E7; the tool's -CopilotSuiteSku). Its holders are
+   licensed for Copilot, but the Copilot cannot be taken off alone, and its price is the suite's. NULL before 2.6.6. */
+IF COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
+    ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
 
 /* 2.4.3: every SKU each person looked up holds (assignedLicenses), not only Copilot, so the dashboard can find
    licenses that overlap. Replaced whole by each run; names come from audit.LicenseSku. */
@@ -7579,6 +7780,36 @@ FROM audit.CopilotInteraction AS i
 LEFT JOIN audit.UserDirectory AS d
        ON d.UserPrincipalName = i.UserPrincipalName
 GROUP BY ISNULL(d.Department, N''(unknown)''), i.ActivityDate, i.AppHost;');
+
+/* 2.6.6: dash.CopilotSuiteHolder is everyone who holds a suite with Copilot inside (E7), with the add-on or not;
+   dash.CopilotSuiteOnly, the people who hold Microsoft 365 Copilot only through a suite and not as the add-on as well: their
+   Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
+   full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
+   Create-CopilotDashboardSchema.sql both write it, so whichever runs last with the tables there leaves the full one. */
+IF SCHEMA_ID(N'dash') IS NOT NULL
+BEGIN
+    IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+    BEGIN
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteOnly AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1
+  AND NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku AS au JOIN audit.LicenseSku AS sa ON sa.SkuId = au.SkuId
+                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0
+                    AND sa.SkuPartNumber NOT LIKE N''%STUDIO%'');');
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteHolder AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1;');
+    END
+    ELSE
+    BEGIN
+        IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
+            EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+        IF OBJECT_ID(N'dash.CopilotSuiteHolder', N'V') IS NULL
+            EXEC (N'CREATE VIEW dash.CopilotSuiteHolder AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+    END;
+END;
 ```
 
 ### C.8 `sql/Create-CopilotSessionSchema.sql`
@@ -8992,7 +9223,7 @@ SELECT LicenseStatusKey, LicenseStatus FROM bi.DimLicenseStatus;');
 
 ### C.11 `sql/Create-CopilotBiProcedure.sql`
 
-Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema. 1084 lines.
+Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema. 1095 lines.
 
 ```sql
 /*
@@ -9427,8 +9658,16 @@ BEGIN
         (or throughout, if it is not known) when licensed today; never, when
         not. A user in neither is not in #known: Unknown.
     */
+    /* 2.6.6: a suite with Copilot inside (E7, marked in the license pool) is a Copilot SKU too, so moving from the
+       Copilot add-on to E7 is a change of SKU, not a license taken away. */
+    DROP TABLE IF EXISTS #suite;
+    CREATE TABLE #suite (Sku NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
+    IF COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+        EXEC (N'INSERT INTO #suite (Sku) SELECT DISTINCT SkuPartNumber FROM audit.LicenseSku WHERE CopilotInSuite = 1;');
+
     DROP TABLE IF EXISTS #ev;
-    SELECT DISTINCT Upn, Sku, ChangedUtc AS Ts, Added INTO #ev FROM #chg WHERE Sku LIKE N'%COPILOT%';
+    SELECT DISTINCT Upn, Sku, ChangedUtc AS Ts, Added INTO #ev FROM #chg
+    WHERE Sku LIKE N'%COPILOT%' OR Sku IN (SELECT Sku FROM #suite);
 
     DROP TABLE IF EXISTS #held;
     CREATE TABLE #held
@@ -9549,8 +9788,11 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimApp AS d WHERE d.App = n.App);
 
     INSERT INTO bi.DimSku (Sku, IsCopilot)
-    SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' THEN 1 ELSE 0 END FROM #chg AS c
+    SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' OR c.Sku IN (SELECT Sku FROM #suite) THEN 1 ELSE 0 END FROM #chg AS c
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimSku AS d WHERE d.Sku = c.Sku);
+    /* 2.6.6: a SKU already here before it was known as a suite with Copilot inside (E7) becomes a Copilot SKU now, so
+       License changes and License inventory count its changes as the licensed days do. */
+    UPDATE bi.DimSku SET IsCopilot = 1 WHERE IsCopilot = 0 AND Sku IN (SELECT Sku FROM #suite);
 
     /* ---- 3. Calendar ------------------------------------------------------- */
     /*
@@ -10083,7 +10325,7 @@ GO
 
 ### C.12 `sql/Create-CopilotExternalUsageSchema.sql`
 
-Copilot database. AI usage outside Microsoft 365 Copilot (2.6.2): the tables for GitHub Copilot's seats, use and cost, for Foundry and Azure OpenAI deployments, use and cost, and the two loaders' run log. 223 lines.
+Copilot database. AI usage outside Microsoft 365 Copilot (2.6.2): the tables for GitHub Copilot's seats, use and cost, for Foundry and Azure OpenAI deployments, use and cost, and the two loaders' run log. 355 lines.
 
 ```sql
 /*
@@ -10115,8 +10357,22 @@ Copilot database. AI usage outside Microsoft 365 Copilot (2.6.2): the tables for
       audit.ExternalUsageRun         one row per run of either tool, for
                                      Admin > Health
 
-    This is plumbing: the tables, the loads and their log. No report reads them
-    yet, and nothing in bi or dash depends on them. A person here is a GitHub
+      Microsoft Fabric, Copilot in Power BI and the Power Platform (2.6.6),
+      from each source's own export (tools/Import-CostCsv.ps1), for
+      Leadership > Costs and savings:
+        audit.FabricCapacityDay      one row per capacity per day: size,
+                                     use, peak, throttling and cost
+        audit.FabricWorkloadDay      one row per capacity, day and workload,
+                                     Copilot in Power BI among them
+        audit.PowerAutomateFlow      every cloud flow: owner, premium or not,
+                                     how it is licensed, its runs
+        audit.PowerPlatformUserActivity  who used Power Apps, Power Automate
+                                     and Copilot Studio lately
+        audit.PowerPlatformCapacityDay   Dataverse capacity entitled and used
+        audit.PowerPlatformCreditDay Copilot Studio and AI Builder credits
+
+    From 2.6.6 Leadership > Costs and savings reads them all, beside the
+    licenses; nothing in bi or dash depends on them. A person here is a GitHub
     login, which is not a Microsoft 365 sign-in; nothing joins the two yet.
 
     Days are UTC days, as each service reports them, not the reporting time
@@ -10275,6 +10531,118 @@ IF OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NULL
         CONSTRAINT PK_FoundryCostDay PRIMARY KEY (SubscriptionId, ResourceGroup, Account, Meter, [Day])
     );
 
+/* ---- Microsoft Fabric, Copilot in Power BI and the Power Platform (2.6.6) ---- */
+/*
+    What the executive page Leadership > Costs and savings reads beside the licenses, GitHub and Foundry: each a
+    table a source's own export fills (tools/Import-CostCsv.ps1 loads a CSV of it), keyed so a day or an item
+    loaded again replaces itself. The Fabric Capacity Metrics app gives the capacity and workload days, the Power
+    Platform admin center the capacity, credits and per-user activity, and an inventory of the tenant's flows (the
+    CoE Starter Kit's, or the admin center's export) the flows. The licenses themselves (Power Automate, Power
+    Apps, Fabric and Power BI) are already in audit.LicenseSku, from Graph; their prices are in dash.CostPrice.
+*/
+
+/* One row per Fabric capacity per day: its size, how much of it was used, how often it was throttled, and what
+   it cost. ActiveHours is under 24 on a day it was paused for part of. */
+IF OBJECT_ID(N'audit.FabricCapacityDay', N'U') IS NULL
+    CREATE TABLE audit.FabricCapacityDay
+    (
+        CapacityId       NVARCHAR(200)  NOT NULL,   -- the capacity's id, or its name where the export has no id
+        [Day]            DATE           NOT NULL,
+        CapacityName     NVARCHAR(200)  NULL,
+        Sku              VARCHAR(16)    NULL,       -- F2 ... F2048, or P1 ... P5
+        CapacityUnits    INT            NULL,       -- the SKU's capacity units: F64 is 64
+        Region           NVARCHAR(64)   NULL,
+        Billing          VARCHAR(16)    NULL,       -- PayAsYouGo | Reserved
+        ActiveHours      DECIMAL(5, 2)  NULL,       -- hours it ran: 24, or fewer on a day it was paused
+        CuSecondsUsed    DECIMAL(19, 2) NULL,       -- capacity unit seconds used, after smoothing
+        PeakPercent      DECIMAL(9, 2)  NULL,       -- the day's highest utilization, as a percentage of the capacity
+        ThrottledMinutes INT            NULL,       -- minutes interactive work was delayed or rejected
+        Cost             DECIMAL(19, 4) NULL,       -- what the day cost, in Currency
+        Currency         NVARCHAR(8)    NULL,
+        LoadedUtc        DATETIME2(0)   NOT NULL CONSTRAINT DF_FabricCapacityDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FabricCapacityDay PRIMARY KEY (CapacityId, [Day])
+    );
+
+/* One row per capacity, day and workload: the capacity units each kind of work used. Copilot in Power BI and
+   Copilot in Fabric are workloads of their own here (a name that starts with Copilot), so their share of the
+   capacity, and so of its cost, can be told apart. */
+IF OBJECT_ID(N'audit.FabricWorkloadDay', N'U') IS NULL
+    CREATE TABLE audit.FabricWorkloadDay
+    (
+        CapacityId  NVARCHAR(200)  NOT NULL,
+        [Day]       DATE           NOT NULL,
+        Workload    NVARCHAR(64)   NOT NULL,   -- Power BI, Copilot in Power BI, Data Engineering, Data Warehouse ...
+        CuSeconds   DECIMAL(19, 2) NULL,
+        Operations  BIGINT         NULL,       -- queries, refreshes, notebook runs, Copilot requests
+        Users       INT            NULL,       -- distinct people behind them that day
+        LoadedUtc   DATETIME2(0)   NOT NULL CONSTRAINT DF_FabricWorkloadDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FabricWorkloadDay PRIMARY KEY (CapacityId, [Day], Workload)
+    );
+
+/* Every cloud flow of the tenant as the inventory last listed it: who owns it, whether it needs a premium
+   license, how it is licensed, and how much it ran in the last 30 days. MinutesSavedPerRun, where someone has
+   estimated it for a flow, values its runs; else Admin's FlowMinutesPerRun does. */
+IF OBJECT_ID(N'audit.PowerAutomateFlow', N'U') IS NULL
+    CREATE TABLE audit.PowerAutomateFlow
+    (
+        EnvironmentName    NVARCHAR(200)  NOT NULL,
+        FlowId             NVARCHAR(100)  NOT NULL,
+        FlowName           NVARCHAR(400)  NULL,
+        OwnerUpn           NVARCHAR(256)  NULL,
+        IsPremium          BIT            NULL,       -- uses a premium connector, so its owner needs a premium license
+        LicenseModel       VARCHAR(16)    NULL,       -- PerUser | Process | Standard
+        [State]            VARCHAR(16)    NULL,       -- Started | Stopped | Suspended
+        CreatedUtc         DATETIME2(0)   NULL,
+        LastRunUtc         DATETIME2(0)   NULL,
+        Runs30             INT            NULL,       -- runs in the last 30 days
+        FailedRuns30       INT            NULL,
+        MinutesSavedPerRun DECIMAL(9, 2)  NULL,
+        LoadedUtc          DATETIME2(0)   NOT NULL CONSTRAINT DF_PowerAutomateFlow_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PowerAutomateFlow PRIMARY KEY (EnvironmentName, FlowId)
+    );
+
+/* Who used each Power Platform product lately, from the admin center's usage export: with audit.UserLicenseSku,
+   a premium license held by someone who does not use the product. */
+IF OBJECT_ID(N'audit.PowerPlatformUserActivity', N'U') IS NULL
+    CREATE TABLE audit.PowerPlatformUserActivity
+    (
+        UserPrincipalName NVARCHAR(256) NOT NULL,
+        Product           VARCHAR(32)   NOT NULL,   -- Power Apps | Power Automate | Copilot Studio
+        LastActiveUtc     DATETIME2(0)  NULL,
+        ActiveDays30      INT           NULL,
+        LoadedUtc         DATETIME2(0)  NOT NULL CONSTRAINT DF_PowerPlatformUserActivity_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PowerPlatformUserActivity PRIMARY KEY (UserPrincipalName, Product)
+    );
+
+/* The tenant's Dataverse capacity each day it was read: what the licenses entitle it to and what it uses. Used
+   over entitled is overage, billed as add-on capacity. */
+IF OBJECT_ID(N'audit.PowerPlatformCapacityDay', N'U') IS NULL
+    CREATE TABLE audit.PowerPlatformCapacityDay
+    (
+        [Day]        DATE           NOT NULL,
+        CapacityType VARCHAR(16)    NOT NULL,   -- Database | File | Log
+        EntitledGb   DECIMAL(19, 2) NULL,
+        UsedGb       DECIMAL(19, 2) NULL,
+        LoadedUtc    DATETIME2(0)   NOT NULL CONSTRAINT DF_PowerPlatformCapacityDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PowerPlatformCapacityDay PRIMARY KEY ([Day], CapacityType)
+    );
+
+/* Copilot Credits (Copilot Studio's agents) and AI Builder credits used, per environment and day, and how they
+   were paid for: from a prepaid capacity pack, or pay-as-you-go through an Azure subscription. */
+IF OBJECT_ID(N'audit.PowerPlatformCreditDay', N'U') IS NULL
+    CREATE TABLE audit.PowerPlatformCreditDay
+    (
+        [Day]           DATE           NOT NULL,
+        EnvironmentName NVARCHAR(200)  NOT NULL,
+        Product         VARCHAR(32)    NOT NULL,   -- Copilot Studio | AI Builder
+        Billing         VARCHAR(16)    NOT NULL,   -- Prepaid | PayAsYouGo
+        Credits         DECIMAL(19, 2) NULL,
+        Cost            DECIMAL(19, 4) NULL,       -- what pay-as-you-go charged; for Prepaid, NULL (the pack is a license)
+        Currency        NVARCHAR(8)    NULL,
+        LoadedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_PowerPlatformCreditDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PowerPlatformCreditDay PRIMARY KEY ([Day], EnvironmentName, Product, Billing)
+    );
+
 /* ---- The loads' own log ---------------------------------------------------- */
 
 /* One row per run of either tool, from its start, so a failure shows too. Admin > Health reads the last of
@@ -10308,12 +10676,18 @@ BEGIN
     GRANT SELECT ON audit.FoundryUsageDay TO CopilotInsightsApp;
     GRANT SELECT ON audit.FoundryCostDay TO CopilotInsightsApp;
     GRANT SELECT ON audit.ExternalUsageRun TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FabricCapacityDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FabricWorkloadDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.PowerAutomateFlow TO CopilotInsightsApp;
+    GRANT SELECT ON audit.PowerPlatformUserActivity TO CopilotInsightsApp;
+    GRANT SELECT ON audit.PowerPlatformCapacityDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.PowerPlatformCreditDay TO CopilotInsightsApp;
 END;
 ```
 
 ### C.13 `sql/Create-CopilotDashboardSchema.sql`
 
-Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 378 lines.
+Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 516 lines.
 
 ```sql
 /*
@@ -10372,10 +10746,148 @@ USING (VALUES
     ('LicenseMonthlyCost', N'30', N'What one Copilot license costs a month, for the license recommendations.'),
     ('LicenseCurrency', N'USD', N'The currency LicenseMonthlyCost is in.'),
     ('MaxViewerLevel', N'0', N'Who can open the dashboard (2.4.4): 0 everyone in the directory; N levels 1 to N below the top, and anyone granted a role other than Admin. Set in Admin > Access.'),
-    ('ProtectedLevels', N'5', N'Levels 1 to N of the organization are never on a revoke, reclaim, pay-as-you-go or training list (2.4.6); 0 for none. Set in Admin > Access.')
+    ('ProtectedLevels', N'5', N'Levels 1 to N of the organization are never on a revoke, reclaim, pay-as-you-go or training list (2.4.6); 0 for none. Set in Admin > Access.'),
+    /* 2.6.6: the assumptions Leadership > Costs and savings values and prices with. */
+    ('FabricReservedDiscount', N'0.41', N'2.6.6: what a one-year reservation takes off a Fabric capacity''s pay-as-you-go price, as a fraction (0.41 is 41%).'),
+    ('FlowMinutesPerRun', N'3', N'2.6.6: the minutes one run of a cloud flow saves, where the flow inventory gives none for it.'),
+    ('PowerBiCopilotMinutes', N'3', N'2.6.6: the minutes one Copilot in Power BI or Fabric request saves an analyst.'),
+    ('CostIdleDays', N'30', N'2.6.6: a GitHub Copilot seat, a premium Power Platform license or a model deployment unused this many days counts as idle.'),
+    /* 2.6.6: what Licensing > Credit use estimates Copilot Credits and tokens with. */
+    ('CreditsPerAnswer', N'2', N'2.6.6: Copilot Credits a billed agent answer costs (a generative answer).'),
+    ('CreditsPerGrounding', N'10', N'2.6.6: Copilot Credits grounding a billed answer in the organization''s data (Microsoft Graph) adds.'),
+    ('CreditsPerAction', N'5', N'2.6.6: Copilot Credits an agent action adds; counted where an agent calls another.'),
+    ('TokensPerTurn', N'1500', N'2.6.6: the tokens one Copilot turn takes before grounding (instructions, prompt, history), for the rough token estimate.'),
+    ('TokensPerResource', N'1000', N'2.6.6: the tokens each file, mail or page read for grounding adds, for the rough token estimate.'),
+    ('TokensPerAnswer', N'400', N'2.6.6: the tokens one answer gives back, for the rough token estimate.')
 ) AS s (Name, Value, Description)
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);
+
+/*
+    2.6.6: what a license or unit of capacity costs a month, for Leadership > Costs and savings. A license is
+    matched to audit.LicenseSku by its SKU part number (Item); the other items are units the page prices: a GB of
+    Dataverse capacity over the entitlement, a pay-as-you-go Copilot Credit, a capacity pack, a GitHub Copilot
+    seat. Seeded with list prices in USD as of 2026; a row an administrator changed is kept on every install.
+    A license whose part number is not here is left out of the spend, and the page says how many are.
+*/
+IF OBJECT_ID(N'dash.CostPrice', N'U') IS NULL
+    CREATE TABLE dash.CostPrice
+    (
+        Item         VARCHAR(64)     NOT NULL CONSTRAINT PK_DashCostPrice PRIMARY KEY,
+        Area         NVARCHAR(40)    NOT NULL,   -- Microsoft 365 Copilot | GitHub Copilot | Power Automate | Power Apps | Power BI | Copilot Studio | Dataverse
+        Name         NVARCHAR(200)   NOT NULL,
+        Unit         NVARCHAR(40)    NOT NULL,   -- user, flow, GB, credit, pack, seat
+        MonthlyPrice DECIMAL(19, 4)  NOT NULL,   -- a month, for a license; for a credit, each
+        Currency     NVARCHAR(8)     NULL,       -- NULL: LicenseCurrency
+        Note         NVARCHAR(400)   NULL,
+        UpdatedBy    NVARCHAR(256)   NULL,
+        UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostPrice_Updated DEFAULT (SYSUTCDATETIME())
+    );
+MERGE dash.CostPrice AS t
+USING (VALUES
+    ('POWERAUTOMATE_ATTENDED_RPA',   N'Power Automate',  N'Power Automate Premium',             N'user',   15,    N'Premium connectors, desktop flows (attended RPA), process mining.'),
+    ('FLOW_PER_USER',                N'Power Automate',  N'Power Automate per user (earlier plan)', N'user', 15,  NULL),
+    ('POWERAUTOMATE_UNATTENDED_RPA', N'Power Automate',  N'Power Automate Process',             N'flow',   150,   N'One flow or bot, run unattended, whoever triggers it.'),
+    ('FLOW_PER_PROCESS',             N'Power Automate',  N'Power Automate Process (earlier name)', N'flow', 150,  NULL),
+    ('POWERAPPS_PER_USER',           N'Power Apps',      N'Power Apps Premium',                 N'user',   20,    NULL),
+    ('POWERAPPS_PER_APP_NEW',        N'Power Apps',      N'Power Apps per app',                 N'user',   5,     NULL),
+    ('PBI_PREMIUM_PER_USER',         N'Power BI',        N'Power BI Premium Per User',          N'user',   24,    NULL),
+    ('POWER_BI_PRO',                 N'Power BI',        N'Power BI Pro',                       N'user',   14,    NULL),
+    ('COPILOT_STUDIO_PAYG_CREDIT',   N'Copilot Studio',  N'Copilot Credit, pay-as-you-go',      N'credit', 0.01,  N'Billed through an Azure subscription.'),
+    ('COPILOT_STUDIO_PACK',          N'Copilot Studio',  N'Copilot Credit capacity pack',       N'pack',   200,   N'25,000 credits a month, prepaid: 0.008 a credit.'),
+    ('DATAVERSE_DATABASE_GB',        N'Dataverse',       N'Dataverse database capacity',        N'GB',     40,    N'Each GB over the entitlement.'),
+    ('DATAVERSE_FILE_GB',            N'Dataverse',       N'Dataverse file capacity',            N'GB',     2,     N'Each GB over the entitlement.'),
+    ('DATAVERSE_LOG_GB',             N'Dataverse',       N'Dataverse log capacity',             N'GB',     10,    N'Each GB over the entitlement.'),
+    ('GITHUB_COPILOT_BUSINESS',      N'GitHub Copilot',  N'GitHub Copilot Business',            N'seat',   19,    NULL),
+    ('GITHUB_COPILOT_ENTERPRISE',    N'GitHub Copilot',  N'GitHub Copilot Enterprise',          N'seat',   39,    NULL)
+) AS s (Item, Area, Name, Unit, MonthlyPrice, Note)
+ON t.Item = s.Item
+WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, UpdatedBy) VALUES (s.Item, s.Area, s.Name, s.Unit, s.MonthlyPrice, s.Note, N'install');
+
+/*
+    2.6.6: the suites (Microsoft 365 and Office 365 E3, E5, E7): their price, their place in the family, and what of
+    the priced items above they include. Costs and savings counts as AI spend only what is bought on top of a suite:
+    an item a suite includes costs nothing more, and a standalone license of it on a suite's holder is paid twice. A
+    suite's own price also buys security, compliance, Teams and more that cannot be split out, so no share of it is
+    counted as AI spend; Licensing > Suite fit instead finds who a lower tier would serve (E7 to E5, E5 to E3).
+    Includes is a comma-separated list of dash.CostPrice items, and COPILOT for Microsoft 365 Copilot; Covers says
+    what else the suite brings, for the page. Prices are list prices in USD as Microsoft published them for July
+    2026: set the agreement's in Admin > Targets and assumptions. A row an administrator changed is kept.
+*/
+IF OBJECT_ID(N'dash.CostSuite', N'U') IS NULL
+    CREATE TABLE dash.CostSuite
+    (
+        SkuPattern   NVARCHAR(100)   NOT NULL CONSTRAINT PK_DashCostSuite PRIMARY KEY,   -- a LIKE pattern on the SKU part number
+        Suite        NVARCHAR(100)   NOT NULL,
+        Family       NVARCHAR(40)    NOT NULL,   -- Microsoft 365 | Office 365: a move down stays in the family
+        Tier         TINYINT         NOT NULL,   -- 3, 5, 7
+        MonthlyPrice DECIMAL(19, 4)  NOT NULL,   -- a user a month; 0: not known, so never a move's target
+        Currency     NVARCHAR(8)     NULL,       -- NULL: LicenseCurrency
+        Includes     NVARCHAR(400)   NOT NULL CONSTRAINT DF_DashCostSuite_Includes DEFAULT (N''),
+        Covers       NVARCHAR(400)   NULL,
+        Enabled      BIT             NOT NULL CONSTRAINT DF_DashCostSuite_Enabled DEFAULT (1),
+        UpdatedBy    NVARCHAR(256)   NULL,
+        UpdatedUtc   DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCostSuite_Updated DEFAULT (SYSUTCDATETIME())
+    );
+/* The first draft's wider patterns, which matched education suites and E3's bot license: gone unless an administrator changed them. */
+DELETE FROM dash.CostSuite WHERE UpdatedBy = N'install'
+   AND SkuPattern IN (N'SPE_E5%', N'SPE_E3%', N'Microsoft_365_E5%', N'Microsoft_365_E7%', N'M365_E7%', N'SPE_E7%', N'ENTERPRISEPACK%', N'ENTERPRISEPREMIUM%');
+MERGE dash.CostSuite AS t
+/* Exact part numbers ([_] is an underscore, not a wildcard), so the education suites (ENTERPRISEPREMIUM_STUDENT and the
+   like) and E3's unattended license for bots (SPE_E3_RPA1) are not priced as these; E7's are its likely forms. */
+USING (VALUES
+    (N'SPE[_]E3',                            N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
+    (N'Microsoft[_]365[_]E3[_](no[_]Teams)', N'Microsoft 365 E3', N'Microsoft 365', 3, 39, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat, Intune, Entra ID P1. No Power BI Pro.'),
+    (N'SPE[_]E5',                            N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'SPE[_]E5[_]NOPSTNCONF',               N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft[_]365[_]E5[_](no[_]Teams)', N'Microsoft 365 E5', N'Microsoft 365', 5, 60, N'POWER_BI_PRO',         N'E3, with Power BI Pro, Defender for Office 365 and Endpoint P2, Purview, Entra ID P2, Teams Phone and audio conferencing.'),
+    (N'Microsoft[_]365[_]E7%',               N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'M365[_]E7%',                          N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'SPE[_]E7%',                           N'Microsoft 365 E7', N'Microsoft 365', 7, 99, N'COPILOT,POWER_BI_PRO', N'E5, with Microsoft 365 Copilot, Agent 365 and the Entra Suite, as Microsoft announced it in 2026: check against your agreement.'),
+    (N'ENTERPRISEPACK',                      N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
+    (N'Office[_]365[_]E3[_](no[_]Teams)',    N'Office 365 E3',    N'Office 365',    3, 26, N'',                     N'Power Apps and Power Automate with standard connectors, Copilot Chat. No Power BI Pro.'),
+    (N'ENTERPRISEPREMIUM',                   N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.'),
+    (N'ENTERPRISEPREMIUM[_]NOPSTNCONF',      N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.'),
+    (N'Office[_]365[_]E5[_](no[_]Teams)',    N'Office 365 E5',    N'Office 365',    5, 41, N'POWER_BI_PRO',         N'Office 365 E3, with Power BI Pro, Defender for Office 365 P2, Purview, Teams Phone and audio conferencing.')
+) AS s (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers)
+ON t.SkuPattern = s.SkuPattern
+WHEN NOT MATCHED THEN INSERT (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers, UpdatedBy)
+    VALUES (s.SkuPattern, s.Suite, s.Family, s.Tier, s.MonthlyPrice, s.Includes, s.Covers, N'install');
+
+/* 2.6.6: the license pool's suite mark, also added here so the dashboard reads it before the next license lookup
+   runs the enrichment's own schema (Create-CopilotEnrichmentSchema.sql adds it too). */
+IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
+    ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
+
+/* 2.6.6: dash.CopilotSuiteHolder is everyone who holds a suite with Copilot inside (E7), with the add-on or not;
+   dash.CopilotSuiteOnly, the people who hold Microsoft 365 Copilot only through a suite and not as the add-on as well: their
+   Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
+   full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
+   Create-CopilotDashboardSchema.sql both write it, so whichever runs last with the tables there leaves the full one. */
+IF SCHEMA_ID(N'dash') IS NOT NULL
+BEGIN
+    IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NOT NULL
+    BEGIN
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteOnly AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1
+  AND NOT EXISTS (SELECT 1 FROM audit.UserLicenseSku AS au JOIN audit.LicenseSku AS sa ON sa.SkuId = au.SkuId
+                  WHERE au.UserPrincipalName = su.UserPrincipalName AND sa.IsCopilot = 1 AND ISNULL(sa.CopilotInSuite, 0) = 0
+                    AND sa.SkuPartNumber NOT LIKE N''%STUDIO%'');');
+        EXEC (N'CREATE OR ALTER VIEW dash.CopilotSuiteHolder AS
+SELECT DISTINCT su.UserPrincipalName AS Upn
+FROM audit.UserLicenseSku AS su JOIN audit.LicenseSku AS ss ON ss.SkuId = su.SkuId
+WHERE ss.CopilotInSuite = 1;');
+    END
+    ELSE
+    BEGIN
+        IF OBJECT_ID(N'dash.CopilotSuiteOnly', N'V') IS NULL
+            EXEC (N'CREATE VIEW dash.CopilotSuiteOnly AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+        IF OBJECT_ID(N'dash.CopilotSuiteHolder', N'V') IS NULL
+            EXEC (N'CREATE VIEW dash.CopilotSuiteHolder AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
+    END;
+END;
 
 /* Roles granted to people (by UPN) or AD groups (DOMAIN\Group). */
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
@@ -11027,7 +11539,7 @@ GO
 
 ### C.15 `sql/Create-CopilotOperationsSchema.sql`
 
-Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 733 lines.
+Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 735 lines.
 
 ```sql
 /*
@@ -11557,6 +12069,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.Subscription TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.AlertState TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Target TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TimeSaving TO CopilotInsightsApp;
+IF OBJECT_ID(N'dash.CostPrice', N'U') IS NOT NULL GRANT UPDATE ON dash.CostPrice TO CopilotInsightsApp;   -- 2.6.6: Admin > Targets and assumptions sets the prices
+IF OBJECT_ID(N'dash.CostSuite', N'U') IS NOT NULL GRANT UPDATE ON dash.CostSuite TO CopilotInsightsApp;   -- 2.6.6: and turns a suite's inclusions on or off
 GRANT INSERT, UPDATE, DELETE ON dash.TrainingAttendance TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;

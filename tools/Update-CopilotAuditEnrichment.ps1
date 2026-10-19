@@ -61,6 +61,15 @@
     No effect since 2.0.0, which reads licenses only. Accepted so existing
     scheduled tasks keep working.
 
+.PARAMETER CopilotSuiteSku
+    The suites that carry Microsoft 365 Copilot inside them (2.6.6), as SKU
+    part number patterns (-like, case-insensitive): Microsoft 365 E7 by default.
+    A person who holds one is licensed for Copilot, as with the Copilot add-on,
+    and the license pool marks the suite (audit.LicenseSku.CopilotInSuite), so
+    the dashboard never offers to revoke a Copilot that cannot be taken off
+    alone, nor prices it as an add-on. Check the part number License pool shows
+    for your E7 and pass it here if it differs; @() turns it off.
+
 .PARAMETER MaxDropPercent
     The delete guard (2.6.5). audit.UserLicenseSku, every license each person
     looked up holds, is replaced whole each run. When the new run has more than
@@ -98,6 +107,7 @@ param(
 
     [ValidateRange(1, 20)] [int] $BatchSize = 20,
     [string]   $CopilotSkuMatch = 'COPILOT',
+    [string[]] $CopilotSuiteSku = @('Microsoft_365_E7*', 'M365_E7*', 'SPE_E7*'),
 
     [ValidateRange(0, 100)] [double] $MaxDropPercent = 15,
     [switch]   $AllowDrop
@@ -361,7 +371,7 @@ function ConvertTo-LicensePoolRow {
         The license pool from /subscribedSkus: one row per SKU with the seats
         bought (prepaidUnits) and assigned (consumedUnits). Pure, for the tests.
     #>
-    param([object[]] $Sku, [hashtable] $CopilotSku)
+    param([object[]] $Sku, [hashtable] $CopilotSku, [hashtable] $SuiteSku = @{})
     foreach ($s in @($Sku)) {
         $id = "$(Get-Prop $s 'skuId')"
         $guid = [guid]::Empty
@@ -374,6 +384,7 @@ function ConvertTo-LicensePoolRow {
             SkuId            = $guid
             SkuPartNumber    = "$(Get-Prop $s 'skuPartNumber')"
             IsCopilot        = [bool] $CopilotSku.ContainsKey($id)
+            CopilotInSuite   = [bool] $SuiteSku.ContainsKey($id)
             Enabled          = [int] (Get-Prop $pre 'enabled')
             Warning          = [int] (Get-Prop $pre 'warning')
             Suspended        = [int] (Get-Prop $pre 'suspended')
@@ -401,8 +412,8 @@ function Save-LicensePool {
             $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx
             $cmd.CommandText = @'
 IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL
-    INSERT INTO audit.LicenseSku (SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed, CapabilityStatus)
-    VALUES (@id, @part, @cop, @en, @warn, @sus, @lock, @used, @cap);
+    INSERT INTO audit.LicenseSku (SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed, CapabilityStatus, CopilotInSuite)
+    VALUES (@id, @part, @cop, @en, @warn, @sus, @lock, @used, @cap, @suite);
 IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NOT NULL
     INSERT INTO audit.LicenseSkuDay (SnapshotDate, SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed)
     VALUES (CAST(SYSUTCDATETIME() AS DATE), @id, @part, @cop, @en, @warn, @sus, @lock, @used);
@@ -410,6 +421,7 @@ IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NOT NULL
             $cmd.Parameters.Add('@id', [System.Data.SqlDbType]::UniqueIdentifier).Value = $r.SkuId
             $cmd.Parameters.Add('@part', [System.Data.SqlDbType]::NVarChar, 100).Value = $r.SkuPartNumber
             $cmd.Parameters.Add('@cop', [System.Data.SqlDbType]::Bit).Value = $r.IsCopilot
+            $cmd.Parameters.Add('@suite', [System.Data.SqlDbType]::Bit).Value = [bool] $r.CopilotInSuite
             $cmd.Parameters.Add('@en', [System.Data.SqlDbType]::Int).Value = $r.Enabled
             $cmd.Parameters.Add('@warn', [System.Data.SqlDbType]::Int).Value = $r.Warning
             $cmd.Parameters.Add('@sus', [System.Data.SqlDbType]::Int).Value = $r.Suspended
@@ -480,11 +492,21 @@ function Invoke-Main {
     # ---- Which Copilot SKUs exist in this tenant ---------------------------
     $skus = Get-GraphPaged -Uri '/v1.0/subscribedSkus'
     $copilotSkus = @{}
+    # The suites with Copilot inside (2.6.6, E7): licensed like the add-on, and marked so the dashboard prices and
+    # recommends them as part of the suite.
+    $suiteSkus = @{}
     foreach ($s in $skus) {
         $part = "$(Get-Prop $s 'skuPartNumber')"
         if ($part -and $part.ToUpperInvariant().Contains($CopilotSkuMatch.ToUpperInvariant())) {
             $copilotSkus["$(Get-Prop $s 'skuId')"] = $part
         }
+        elseif ($part -and @($CopilotSuiteSku | Where-Object { $_ -and $part -like $_ }).Count -gt 0) {
+            $copilotSkus["$(Get-Prop $s 'skuId')"] = $part
+            $suiteSkus["$(Get-Prop $s 'skuId')"] = $part
+        }
+    }
+    if ($suiteSkus.Count -gt 0) {
+        Write-Log ('Suites with Copilot inside: ' + (($suiteSkus.Values | Sort-Object -Unique) -join ', ') + '. Their holders are licensed for Copilot.')
     }
     if ($copilotSkus.Count -eq 0) {
         Write-Log "No subscribed SKU matched '$CopilotSkuMatch'. Every user will be recorded as unlicensed." -Level WARN
@@ -495,7 +517,7 @@ function Invoke-Main {
     $copilotPlans = Get-CopilotPlanId -Sku $skus -CopilotSku $copilotSkus
     Write-Log "The Copilot SKUs carry $($copilotPlans.Count) service plan(s) of their own: a user's 'licensed since' is the earliest of them."
     # The same response carries the seat counts: bought against assigned, for the license pool report.
-    $pool = @(ConvertTo-LicensePoolRow -Sku $skus -CopilotSku $copilotSkus)
+    $pool = @(ConvertTo-LicensePoolRow -Sku $skus -CopilotSku $copilotSkus -SuiteSku $suiteSkus)
     $poolSaved = Save-LicensePool -Rows $pool
     foreach ($p in @($pool | Where-Object IsCopilot)) {
         Write-Log ("License pool {0}: {1:N0} bought, {2:N0} assigned." -f $p.SkuPartNumber, ($p.Enabled + $p.Warning), $p.Consumed)
@@ -596,7 +618,7 @@ WHERE UserPrincipalName IS NOT NULL;
             }
 
             # License, and every SKU they hold (2.4.3), for the overlap report
-            $matchedSku = $null
+            $matchedSku = $null; $matchedIsSuite = $false
             $held = @{}
             foreach ($al in @(Get-Prop $user 'assignedLicenses')) {
                 $id = "$(Get-Prop $al 'skuId')"
@@ -605,7 +627,10 @@ WHERE UserPrincipalName IS NOT NULL;
                     $held[$g] = $true
                     [void] $skuRows.Rows.Add("$(Get-Prop $user 'userPrincipalName')", $g)
                 }
-                if ($id -and -not $matchedSku -and $copilotSkus.ContainsKey($id)) { $matchedSku = $copilotSkus[$id] }
+                # The add-on before a suite (2.6.6): someone with both is recorded by the add-on, which can be taken back.
+                if ($id -and $copilotSkus.ContainsKey($id) -and (-not $matchedSku -or ($matchedIsSuite -and -not $suiteSkus.ContainsKey($id)))) {
+                    $matchedSku = $copilotSkus[$id]; $matchedIsSuite = $suiteSkus.ContainsKey($id)
+                }
             }
             $since = $null; $capability = $null
             if ($matchedSku) {

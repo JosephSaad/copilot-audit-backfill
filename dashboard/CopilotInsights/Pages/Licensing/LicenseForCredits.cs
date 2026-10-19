@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net;
+using CopilotInsights.Data;
 using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
 using Microsoft.AspNetCore.Mvc;
@@ -7,121 +8,111 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// The reverse of Better on pay-as-you-go (2.4.3): people without a Copilot license whose use is charged
-/// in Copilot Credits (agents, and Copilot Chat over work content) at a rate a license would cost less than.
+/// The reverse of Better on pay-as-you-go (2.4.3; 2.6.6 on the credit estimate): people without a Copilot license whose
+/// agent use is billed in Copilot Credits at a cost a license would beat. The credits are Licensing › Credit use's
+/// estimate (<see cref="CreditData"/>), so this list, Credit use and Agents › Agents costing credits agree.
 /// </summary>
-public sealed class LicenseForCreditsModel(PageServices s) : InsightsPage(s)
+public sealed class LicenseForCreditsModel(PageServices s, CreditData creditData) : InsightsPage(s)
 {
     public override string Title => "Better with a license";
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
-    public override string Intro => "People without a Copilot license whose use is paid for in Copilot Credits: agents, and Copilot Chat over work files, mail and sites. Where their credits cost more a month than a license, the license is the cheaper way to pay for the same use, and it adds Copilot in the apps.";
+    public override string Intro => "People without a Copilot license whose agent use is paid for in Copilot Credits. Where their credits cost more a month than a license, the license is the cheaper way to pay for the same use, and it adds Copilot in the apps.";
 
+    /* The keys the list sorts by; it is sorted in memory, as the estimate is worked out per person after the read. */
     static readonly Dictionary<string, string> Sorts = new()
     {
-        ["credits"] = "x.M DESC, x.DisplayName", ["name"] = "x.DisplayName, x.UserPrincipalName", ["dept"] = "x.Department, x.DisplayName",
-        ["upn"] = "x.UserPrincipalName", ["manager"] = "x.ManagerName, x.DisplayName", ["use"] = "x.I DESC, x.DisplayName, x.UserPrincipalName",
-        ["agents"] = "x.A DESC, x.DisplayName, x.UserPrincipalName", ["work"] = "x.W DESC, x.DisplayName, x.UserPrincipalName", ["days"] = "x.Days DESC, x.DisplayName, x.UserPrincipalName",
+        ["credits"] = "", ["name"] = "", ["dept"] = "", ["upn"] = "", ["manager"] = "", ["use"] = "", ["agents"] = "", ["work"] = "", ["days"] = "",
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["credits"] = "Most credits", ["name"] = "Name", ["dept"] = "Department" };
 
-    sealed class Row
+    sealed class Who
     {
-        public string? DisplayName { get; set; }
-        public string UserPrincipalName { get; set; } = "";
-        public string? Department { get; set; }
+        public int UserKey { get; set; }
         public string? ManagerName { get; set; }
-        public long I { get; set; }
-        public long M { get; set; }
-        public long A { get; set; }
-        public long W { get; set; }
         public int Days { get; set; }
-        public int TotalRows { get; set; }
     }
 
-    /* Metered: an interaction through an agent, or in Copilot Chat that read work content and did not search the web
-       (the Premium rule's chat half), by someone who holds no license today. An agent grounded only in public data is
-       not charged, so the estimate errs high; that is why the page shows the credits beside the license, not a verdict. */
-    string Sql(string select, string tail) => $@"
-WITH g AS (SELECT f.UserKey, f.AppKey, f.AgentKey, CAST(CASE WHEN f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0 THEN 1 ELSE 0 END AS BIT) AS Work,
-                  COUNT_BIG(*) AS N
-           FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.UserKey, f.AppKey, f.AgentKey, CAST(CASE WHEN f.AccessedResourceCount > 0 AND f.UsedWebSearch = 0 THEN 1 ELSE 0 END AS BIT)),
-m AS (SELECT g.UserKey, SUM(g.N) AS I,
-             SUM(CASE WHEN ag.AgentSource <> N'(no agent)' OR (a.AppCategory = N'Copilot Chat' AND g.Work = 1) THEN g.N ELSE 0 END) AS M,
-             SUM(CASE WHEN ag.AgentSource <> N'(no agent)' THEN g.N ELSE 0 END) AS A,
-             SUM(CASE WHEN ag.AgentSource = N'(no agent)' AND a.AppCategory = N'Copilot Chat' AND g.Work = 1 THEN g.N ELSE 0 END) AS W
-      FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey JOIN bi.DimAgent AS ag ON ag.AgentKey = g.AgentKey
-      GROUP BY g.UserKey),
-d AS (SELECT ud.UserKey, COUNT(*) AS Days FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0 GROUP BY ud.UserKey),
-x AS (SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.ManagerName, m.I, m.M, m.A, m.W, ISNULL(d.Days, 0) AS Days
-      FROM m
-      JOIN bi.DimUser AS du ON du.UserKey = m.UserKey
-      LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = m.UserKey AND ld.DateKey = @k1
-      LEFT JOIN d ON d.UserKey = m.UserKey
-      WHERE ld.UserKey IS NULL AND ISNULL(du.AccountEnabled, 1) = 1 AND m.M * @rate * 30 >= @floor * @days)
-{select}
-{tail}";
+    sealed record Row(CreditPerson P, string? Manager, int Days);
 
-    async Task<(decimal Price, decimal Rate, string Cur, int Days)> TermsAsync()
+    /// <summary>
+    /// Everyone without a license today, account enabled, whose billed use is estimated at <paramref name="floor"/> or
+    /// more a month: the people the page lists and its exports name.
+    /// </summary>
+    async Task<(List<Row> Rows, decimal Price, string Cur)> ReadAsync(decimal? floor)
     {
-        static decimal Dec(string? v, decimal fallback) => decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) ? d : fallback;
-        /* A month is scaled from the days the data covers, not the period's (2.4.12, see OpsReports.DaysCovered). */
-        return (Dec(await S.Settings.StringAsync("LicenseMonthlyCost"), 30m), Dec(await S.Settings.StringAsync("PaygInteractionCost"), 0.12m),
-                await S.Settings.StringAsync("LicenseCurrency") ?? "USD", CopilotInsights.Data.OpsReports.DaysCovered(Ctx, await CopilotInsights.Data.OpsReports.FirstDayAsync(Db)));
+        var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var lp) ? lp : 30m;
+        var v = await creditData.BuildAsync(Ctx);
+        var min = floor ?? price;
+        /* Unlicensed throughout the window, as Credit use counts them: someone licensed part of it is not billed for that part. */
+        var billed = v.People.Where(p => !p.Licensed && p.Use.Billed > 0 && p.Month.Cost >= min).ToList();
+        if (billed.Count == 0) return ([], price, v.Currency);
+        var who = (await Db.QueryAsync<Who>($@"
+SELECT du.UserKey, du.ManagerName, (SELECT COUNT(*) FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0) AS Days
+FROM bi.DimUser AS du
+WHERE du.UserKey IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@keys, ','))
+  AND ISNULL(du.AccountEnabled, 1) = 1
+  AND NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = @k1);",
+            Ctx.Args(new { keys = string.Join(",", billed.Select(p => p.UserKey)) }), timeout: 300)).ToDictionary(w => w.UserKey);
+        return (billed.Where(p => who.ContainsKey(p.UserKey)).Select(p => new Row(p, who[p.UserKey].ManagerName, who[p.UserKey].Days)).ToList(), price, v.Currency);
     }
 
     bool AllShown => Request.Query["show"].FirstOrDefault() == "all";
 
     protected override async Task BuildAsync()
     {
-        var (price, rate, cur, days) = await TermsAsync();
-        var floor = AllShown ? 0.01m : price;   // a month's credits at or above this are listed
+        var (rows, price, cur) = await ReadAsync(AllShown ? 0.01m : null);
         var pg = new Paging(Request, Sorts, "credits");
-        /* The figures above the list are everyone's, read on their own (2.4.12): taken from the page's first row, they were
-           0 when a search matched nobody or the page was past the end. */
-        var (rows, all) = await Db.QueryTwoAsync<Row, (int People, long AllM)>(Sql("SELECT x.* INTO #x FROM x;", "") + $@"
-SELECT x.*, COUNT(*) OVER () AS TotalRows FROM #x AS x WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
-{pg.OrderAndPage()};
-SELECT COUNT(*), ISNULL(SUM(x.M), 0) FROM #x AS x;", Ctx.Args(new { q = pg.Like, rate, floor, days }), timeout: 300);
-        pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-        decimal Monthly(long m) => m * rate * 30m / days;
-
-        var (people, allM) = all.Single();
-        var credits = Monthly(allM);
-        Kpis.Add(new(AllShown ? "Paying in credits" : "Cheaper with a license", Num(people),
-            AllShown ? "without a license, with metered use" : $"credits a month at or over the license's {price:#,0.##} {cur}"));
-        Kpis.Add(new($"Credits a month ({cur})", Num((long)credits), "their metered use, scaled to 30 days"));
+        var cost = rows.Sum(r => r.P.Month.Cost);
+        Kpis.Add(new(AllShown ? "Paying in credits" : "Cheaper with a license", Num(rows.Count),
+            AllShown ? "without a license, with billed agent use" : $"credits a month at or over the license's {price:#,0.##} {cur}"));
+        Kpis.Add(new($"Credits a month ({cur})", Num((long)cost), $"{Num((long)Math.Round(rows.Sum(r => r.P.Month.Credits)))} credits, estimated as Credit use estimates them",
+            Href: Open("/licensing/credit-use")));
         if (!AllShown)
-            Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, credits - people * price)), $"licensing them instead, at {price:#,0.##} each"));
+            Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, cost - rows.Count * price)), $"licensing them instead, at {price:#,0.##} each"));
+
+        IEnumerable<Row> shown = rows;
+        if (pg.Search is { } q)
+            shown = shown.Where(r => (r.P.Name ?? "").Contains(q, StringComparison.OrdinalIgnoreCase) || r.P.Upn.Contains(q, StringComparison.OrdinalIgnoreCase) || (r.P.Department ?? "").Contains(q, StringComparison.OrdinalIgnoreCase));
+        var ordered = (pg.SortKey switch
+        {
+            "name" => shown.OrderBy(r => r.P.Name ?? r.P.Upn, StringComparer.CurrentCulture),
+            "dept" => shown.OrderBy(r => r.P.Department ?? "", StringComparer.CurrentCulture).ThenBy(r => r.P.Name ?? r.P.Upn),
+            "upn" => shown.OrderBy(r => r.P.Upn, StringComparer.OrdinalIgnoreCase),
+            "manager" => shown.OrderBy(r => r.Manager ?? "", StringComparer.CurrentCulture).ThenBy(r => r.P.Name ?? r.P.Upn),
+            "use" => shown.OrderByDescending(r => r.P.Use.Interactions).ThenBy(r => r.P.Name ?? r.P.Upn),
+            "agents" => shown.OrderByDescending(r => r.P.Use.Billed).ThenBy(r => r.P.Name ?? r.P.Upn),
+            "work" => shown.OrderByDescending(r => r.P.Use.BilledWork).ThenBy(r => r.P.Name ?? r.P.Upn),
+            "days" => shown.OrderByDescending(r => r.Days).ThenBy(r => r.P.Name ?? r.P.Upn),
+            _ => shown.OrderByDescending(r => r.P.Month.Cost).ThenBy(r => r.P.Name ?? r.P.Upn),
+        }).ToList();
+        if (pg.Reversed) ordered.Reverse();
+        pg.Total = ordered.Count;
+        var page = pg.ForExport ? ordered : ordered.Skip((pg.Page - 1) * Paging.PageSize).Take(Paging.PageSize).ToList();
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "Interactions", "Metered", "Through agents", "Chat over work content", "Days used",
-                       $"Credits a month ({cur})", $"Against the license ({cur})"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "Interactions", "Billed agent answers", "Of them, read work data", "Days used",
+                       "Credits a month", $"Cost a month ({cur})", $"Against the license ({cur})"],
             Numeric = new HashSet<int> { 4, 5, 6, 7, 8, 9, 10 },
-            EmptyText = AllShown ? "Nobody without a license has use charged in credits." : "Nobody without a license uses credits worth more than a license.",
-            /* Metered, credits a month and against the license all follow the metered count: one key. */
-            Server = new(pg, Request, ["name", "upn", "dept", "manager", "use", "credits", "agents", "work", "days", "credits", "credits"], new HashSet<int> { 4, 5, 6, 7, 8, 9, 10 }),
+            EmptyText = AllShown ? "Nobody without a license has agent use billed in credits." : "Nobody without a license uses credits worth more than a license.",
+            /* Credits, their cost and against the license all follow the estimate: one key. */
+            Server = new(pg, Request, ["name", "upn", "dept", "manager", "use", "agents", "work", "days", "credits", "credits", "credits"], new HashSet<int> { 4, 5, 6, 7, 8, 9, 10 }),
         };
-        foreach (var r in rows)
-        {
-            var c = Monthly(r.M);
-            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.I, r.M, r.A, r.W, r.Days, Math.Round(c, 2), Math.Round(c - price, 2)]);
-        }
+        foreach (var r in page)
+            t.Rows.Add([r.P.Name, r.P.Upn, r.P.Department, r.Manager, r.P.Use.Interactions, r.P.Use.Billed, r.P.Use.BilledWork, r.Days,
+                Math.Round(r.P.Month.Credits), Math.Round(r.P.Month.Cost, 2), Math.Round(r.P.Month.Cost - price, 2)]);
         CsvTable = t;
         var show = string.Join(" · ", new[] { ("cheaper", "Cheaper with a license"), ("all", "Everyone paying in credits") }.Select(o =>
             $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"show={o.Item1}"))}\"{((o.Item1 == "all") == AllShown ? " class=\"on\"" : "")}>{o.Item2}</a>"));
-        var exports = AllShown || people == 0 ? "" :
+        var exports = AllShown || rows.Count == 0 ? "" :
             $"<div class=\"sub\">License them: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk add members file")} · " +
             $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Show: {show}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-            $"Metered: interactions through an agent, or in Copilot Chat that read work content without searching the web, by people with no Copilot license today. " +
-            $"Credits a month: those interactions, scaled to 30 days, at {rate:#,0.00##} {cur} each (set in Admin > Access); an agent grounded only in public data costs nothing, so this errs high. " +
-            "Against the license: the credits less the license cost; above zero, the license is cheaper.", "full", CsvUrl()));
+            "Billed: answers from an agent to people with no Copilot license at the time, or in a Copilot Studio channel; Copilot Chat without an agent is free, so it is not counted. " +
+            "Credits a month: the estimate of Licensing › Credit use, at the rates in Admin › Targets and assumptions, scaled to 30 days; it errs high. " +
+            "Listed: no license today, and an enabled account. Against the license: the cost less the license's; above zero, the license is cheaper.", "full", CsvUrl()));
     }
-
     /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
     public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
     public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
@@ -129,9 +120,8 @@ SELECT COUNT(*), ISNULL(SUM(x.M), 0) FROM #x AS x;", Ctx.Args(new { q = pg.Like,
     async Task<IActionResult> ExportAsync(bool script)
     {
         if (!await PrepareAsync()) return Page();
-        var (price, rate, _, days) = await TermsAsync();
-        var upns = await Db.QueryAsync<string>(Sql("SELECT x.UserPrincipalName FROM x", "ORDER BY x.UserPrincipalName;"),
-            Ctx.Args(new { rate, floor = price, days }), timeout: 300);
+        var upns = (await ReadAsync(null)).Rows.Select(r => r.P.Upn).Order(StringComparer.OrdinalIgnoreCase).ToList();
+
         var skuId = (await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().PoolAsync()).FirstOrDefault(p => p.IsCopilot)?.SkuId.ToString();
         var text = script
             ? CopilotInsights.Data.LicenseExport.Script("upgrade", upns, await S.Settings.StringAsync("LicenseGroupId"), skuId, Viewer.Upn ?? Viewer.WindowsName, DateTime.UtcNow)

@@ -13,6 +13,7 @@
 SET NOCOUNT ON;
 
 DECLARE @licensed INT = (SELECT COUNT(*) FROM audit.CopilotLicense WHERE IsCopilotLic = 1);
+DECLARE @people INT = (SELECT COUNT(*) FROM audit.UserDirectory);
 DECLARE @today DATE = CAST(SYSUTCDATETIME() AS DATE);
 
 /* ---- The license pool ---- */
@@ -22,8 +23,8 @@ DECLARE @d INT = 59;
 WHILE @d >= 0
 BEGIN
     INSERT INTO audit.LicenseSkuDay (SnapshotDate, SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed)
-    VALUES (DATEADD(DAY, -@d, @today), '639dec6b-bb19-468b-871c-c5c441c4b0cb', N'Microsoft_365_Copilot', 1, 1300, 0, 0, 0, @licensed - @d / 3),
-           (DATEADD(DAY, -@d, @today), '06ebc4ee-1bb5-47dd-8120-11324bc54e06', N'SPE_E5', 0, 2500, 0, 0, 0, 2317 - @d);
+    VALUES (DATEADD(DAY, -@d, @today), '639dec6b-bb19-468b-871c-c5c441c4b0cb', N'Microsoft_365_Copilot', 1, (@licensed + 60) / 50 * 50, 0, 0, 0, @licensed - @d / 3),
+           (DATEADD(DAY, -@d, @today), '06ebc4ee-1bb5-47dd-8120-11324bc54e06', N'SPE_E5', 0, (@people + 250) / 100 * 100, 0, 0, 0, @people - @d);
     SET @d -= 1;
 END;
 INSERT INTO audit.LicenseSku (SkuId, SkuPartNumber, IsCopilot, Enabled, Warning, Suspended, LockedOut, Consumed, CapabilityStatus)
@@ -39,9 +40,11 @@ FROM audit.UserDirectory AS u JOIN l ON l.UserPrincipalName = u.UserPrincipalNam
 WITH l AS (SELECT UserPrincipalName, ROW_NUMBER() OVER (ORDER BY UserPrincipalName) AS n FROM audit.CopilotLicense WHERE IsCopilotLic = 1)
 UPDATE u SET AccountEnabled = 0
 FROM bi.DimUser AS u JOIN l ON l.UserPrincipalName = u.UserPrincipalName AND l.n = 13;
-/* Hire dates for a slice of people, a few weeks to a few months ago. */
-UPDATE audit.CopilotLicense SET EmployeeHireDate = DATEADD(DAY, -(ABS(CHECKSUM(UserPrincipalName)) % 150), @today)
-WHERE ABS(CHECKSUM(UserPrincipalName)) % 9 = 0;
+/* Hire dates: the new joiners have theirs from New-InsightsDemoData.sql (2.6.6); everyone else in the org chart was
+   hired one to seventeen years ago. Accounts outside it (service accounts, guests) have none, as in Entra. */
+UPDATE c SET EmployeeHireDate = DATEADD(DAY, -(400 + ABS(CHECKSUM(c.UserPrincipalName)) % 6000), @today)
+FROM audit.CopilotLicense AS c JOIN audit.UserDirectory AS u ON u.UserPrincipalName = c.UserPrincipalName
+WHERE c.EmployeeHireDate IS NULL AND u.OrgDepth IS NOT NULL;
 
 /* ---- The two certificates the pipeline signs in with: one well in date, one inside the warning ---- */
 DELETE FROM audit.PipelineCertificate;
@@ -72,7 +75,7 @@ END;
 /* ---- Training, targets, assumptions, a digest ---- */
 DELETE FROM dash.TrainingAttendance;
 WITH a AS (SELECT u.UserPrincipalName, ROW_NUMBER() OVER (ORDER BY CHECKSUM(u.UserPrincipalName)) AS n
-           FROM bi.DimUser AS u WHERE u.DirectoryStatus = N'Found' AND u.AccountEnabled = 1)
+           FROM bi.DimUser AS u WHERE u.DirectoryStatus = N'Found' AND u.AccountEnabled = 1 AND u.OrgDepth IS NOT NULL)   -- people, not service accounts
 INSERT INTO dash.TrainingAttendance (Upn, Session, AttendedOn, ImportedBy)
 SELECT UserPrincipalName, CASE WHEN n <= 40 THEN N'Copilot in Outlook and Teams' ELSE N'Prompting that works' END,
        DATEADD(DAY, CASE WHEN n <= 40 THEN -75 ELSE -45 END, @today), N'demo'
@@ -92,34 +95,8 @@ IF NOT EXISTS (SELECT 1 FROM dash.Subscription)
     INSERT INTO dash.Subscription (Name, Report, Recipients, Frequency, DayOfWeek, HourLocal, Days, CreatedBy, LastSentUtc)
     VALUES (N'Monday leadership summary', 'Leadership', N'leadership@contoso.com', 'Weekly', 1, 7, 30, N'demo', SYSUTCDATETIME());
 
-/* ---- Copilot Studio authoring: agents created, published, shared, changed, one deleted ---- */
-IF OBJECT_ID(N'audit.AgentEvent', N'U') IS NOT NULL
-BEGIN
-    DELETE FROM audit.AgentEvent;
-    WITH makers AS (SELECT TOP (6) UserPrincipalName, ROW_NUMBER() OVER (ORDER BY CHECKSUM(UserPrincipalName)) AS n
-                    FROM bi.DimUser WHERE DirectoryStatus = N'Found' AND AccountEnabled = 1 ORDER BY CHECKSUM(UserPrincipalName)),
-    agents AS (SELECT a.n, a.Schema_, a.Maker, a.Born FROM (VALUES
-                   (1, N'cr1a2_hrHelper', 1, 160), (2, N'cr1a2_itServiceDesk', 2, 140), (3, N'cr1a2_policyFinder', 3, 120),
-                   (4, N'cr1a2_travelBooker', 4, 90), (5, N'cr1a2_salesCoach', 5, 60), (6, N'cr1a2_contractReview', 6, 35),
-                   (7, N'cr1a2_onboardingBuddy', 1, 20), (8, N'cr1a2_expenseChecker', 2, 9)) AS a (n, Schema_, Maker, Born)),
-    steps AS (SELECT s.Op, s.Offset FROM (VALUES
-                  (N'BotCreate', 0), (N'BotComponentCreate', 1), (N'BotComponentCreate', 2), (N'BotComponentUpdate', 4),
-                  (N'BotUpdateOperation-BotPublish', 5), (N'BotUpdateOperation-BotShare', 6), (N'BotComponentUpdate', 20),
-                  (N'BotUpdateOperation-BotPublish', 21)) AS s (Op, Offset))
-    INSERT INTO audit.AgentEvent (RecordId, CreatedUtc, Operation, Action, ActorUpn, BotId, BotSchemaName, ComponentName, ComponentType)
-    SELECT CONCAT('demo-agent-', a.n, '-', ROW_NUMBER() OVER (PARTITION BY a.n ORDER BY s.Offset, s.Op)),
-           DATEADD(HOUR, 10, CAST(DATEADD(DAY, -a.Born + s.Offset, @today) AS DATETIME2(0))), s.Op,
-           CASE WHEN s.Op = N'BotCreate' THEN 'Created' WHEN s.Op LIKE N'%Publish%' THEN 'Published' WHEN s.Op LIKE N'%Share%' THEN 'Shared'
-                WHEN s.Op LIKE N'BotComponent%' THEN 'Component' ELSE 'Updated' END,
-           m.UserPrincipalName, CONCAT('00000000-0000-4000-9000-00000000000', a.n), a.Schema_,
-           CASE WHEN s.Op LIKE N'BotComponent%' THEN CONCAT(a.Schema_, '.topic.Greeting') END, CASE WHEN s.Op LIKE N'BotComponent%' THEN N'Topic' END
-    FROM agents AS a JOIN makers AS m ON m.n = a.Maker CROSS JOIN steps AS s
-    WHERE DATEADD(DAY, -a.Born + s.Offset, @today) <= @today;
-    /* One agent retired. */
-    INSERT INTO audit.AgentEvent (RecordId, CreatedUtc, Operation, Action, ActorUpn, BotId, BotSchemaName)
-    SELECT 'demo-agent-4-del', DATEADD(DAY, -12, CAST(@today AS DATETIME2(0))), N'BotDelete', 'Deleted', ActorUpn, BotId, BotSchemaName
-    FROM audit.AgentEvent WHERE RecordId = 'demo-agent-4-1';
-END;
+/* Copilot Studio's authoring records are written with the agent workbook, for the same agents, by
+   New-InsightsDemoAgents.sql (2.6.6). */
 
 /* ---- 2.3.0, second part: job families, a contract, events on the trends, license exports, triage ---- */
 IF OBJECT_ID(N'dash.JobFamilyRule', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.JobFamilyRule)

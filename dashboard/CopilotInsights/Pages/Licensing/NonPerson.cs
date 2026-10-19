@@ -151,7 +151,8 @@ SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedU
                         Button("Flag it again", $"Flag {x.UserPrincipalName} again?", quiet: true)))] : cells);
                 }
                 Panels.Add(new("Confirmed as people", ct.Render(),
-                    "Accounts a rule matched that an administrator confirmed are a person, with the reason. They are not breaches and raise no alert. Each change is in the audit log.", "half"));
+                    /* Full width (2.6.6): a guest's sign-in and the reason do not fit beside another table. */
+                    "Accounts a rule matched that an administrator confirmed are a person, with the reason. They are not breaches and raise no alert. Each change is in the audit log.", "full"));
             }
 
             var tt = new Table { Headers = ["Employee type", "License holders"], Numeric = new HashSet<int> { 1 } };

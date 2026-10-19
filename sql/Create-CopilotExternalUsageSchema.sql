@@ -27,8 +27,22 @@
       audit.ExternalUsageRun         one row per run of either tool, for
                                      Admin > Health
 
-    This is plumbing: the tables, the loads and their log. No report reads them
-    yet, and nothing in bi or dash depends on them. A person here is a GitHub
+      Microsoft Fabric, Copilot in Power BI and the Power Platform (2.6.6),
+      from each source's own export (tools/Import-CostCsv.ps1), for
+      Leadership > Costs and savings:
+        audit.FabricCapacityDay      one row per capacity per day: size,
+                                     use, peak, throttling and cost
+        audit.FabricWorkloadDay      one row per capacity, day and workload,
+                                     Copilot in Power BI among them
+        audit.PowerAutomateFlow      every cloud flow: owner, premium or not,
+                                     how it is licensed, its runs
+        audit.PowerPlatformUserActivity  who used Power Apps, Power Automate
+                                     and Copilot Studio lately
+        audit.PowerPlatformCapacityDay   Dataverse capacity entitled and used
+        audit.PowerPlatformCreditDay Copilot Studio and AI Builder credits
+
+    From 2.6.6 Leadership > Costs and savings reads them all, beside the
+    licenses; nothing in bi or dash depends on them. A person here is a GitHub
     login, which is not a Microsoft 365 sign-in; nothing joins the two yet.
 
     Days are UTC days, as each service reports them, not the reporting time
@@ -187,6 +201,118 @@ IF OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NULL
         CONSTRAINT PK_FoundryCostDay PRIMARY KEY (SubscriptionId, ResourceGroup, Account, Meter, [Day])
     );
 
+/* ---- Microsoft Fabric, Copilot in Power BI and the Power Platform (2.6.6) ---- */
+/*
+    What the executive page Leadership > Costs and savings reads beside the licenses, GitHub and Foundry: each a
+    table a source's own export fills (tools/Import-CostCsv.ps1 loads a CSV of it), keyed so a day or an item
+    loaded again replaces itself. The Fabric Capacity Metrics app gives the capacity and workload days, the Power
+    Platform admin center the capacity, credits and per-user activity, and an inventory of the tenant's flows (the
+    CoE Starter Kit's, or the admin center's export) the flows. The licenses themselves (Power Automate, Power
+    Apps, Fabric and Power BI) are already in audit.LicenseSku, from Graph; their prices are in dash.CostPrice.
+*/
+
+/* One row per Fabric capacity per day: its size, how much of it was used, how often it was throttled, and what
+   it cost. ActiveHours is under 24 on a day it was paused for part of. */
+IF OBJECT_ID(N'audit.FabricCapacityDay', N'U') IS NULL
+    CREATE TABLE audit.FabricCapacityDay
+    (
+        CapacityId       NVARCHAR(200)  NOT NULL,   -- the capacity's id, or its name where the export has no id
+        [Day]            DATE           NOT NULL,
+        CapacityName     NVARCHAR(200)  NULL,
+        Sku              VARCHAR(16)    NULL,       -- F2 ... F2048, or P1 ... P5
+        CapacityUnits    INT            NULL,       -- the SKU's capacity units: F64 is 64
+        Region           NVARCHAR(64)   NULL,
+        Billing          VARCHAR(16)    NULL,       -- PayAsYouGo | Reserved
+        ActiveHours      DECIMAL(5, 2)  NULL,       -- hours it ran: 24, or fewer on a day it was paused
+        CuSecondsUsed    DECIMAL(19, 2) NULL,       -- capacity unit seconds used, after smoothing
+        PeakPercent      DECIMAL(9, 2)  NULL,       -- the day's highest utilization, as a percentage of the capacity
+        ThrottledMinutes INT            NULL,       -- minutes interactive work was delayed or rejected
+        Cost             DECIMAL(19, 4) NULL,       -- what the day cost, in Currency
+        Currency         NVARCHAR(8)    NULL,
+        LoadedUtc        DATETIME2(0)   NOT NULL CONSTRAINT DF_FabricCapacityDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FabricCapacityDay PRIMARY KEY (CapacityId, [Day])
+    );
+
+/* One row per capacity, day and workload: the capacity units each kind of work used. Copilot in Power BI and
+   Copilot in Fabric are workloads of their own here (a name that starts with Copilot), so their share of the
+   capacity, and so of its cost, can be told apart. */
+IF OBJECT_ID(N'audit.FabricWorkloadDay', N'U') IS NULL
+    CREATE TABLE audit.FabricWorkloadDay
+    (
+        CapacityId  NVARCHAR(200)  NOT NULL,
+        [Day]       DATE           NOT NULL,
+        Workload    NVARCHAR(64)   NOT NULL,   -- Power BI, Copilot in Power BI, Data Engineering, Data Warehouse ...
+        CuSeconds   DECIMAL(19, 2) NULL,
+        Operations  BIGINT         NULL,       -- queries, refreshes, notebook runs, Copilot requests
+        Users       INT            NULL,       -- distinct people behind them that day
+        LoadedUtc   DATETIME2(0)   NOT NULL CONSTRAINT DF_FabricWorkloadDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_FabricWorkloadDay PRIMARY KEY (CapacityId, [Day], Workload)
+    );
+
+/* Every cloud flow of the tenant as the inventory last listed it: who owns it, whether it needs a premium
+   license, how it is licensed, and how much it ran in the last 30 days. MinutesSavedPerRun, where someone has
+   estimated it for a flow, values its runs; else Admin's FlowMinutesPerRun does. */
+IF OBJECT_ID(N'audit.PowerAutomateFlow', N'U') IS NULL
+    CREATE TABLE audit.PowerAutomateFlow
+    (
+        EnvironmentName    NVARCHAR(200)  NOT NULL,
+        FlowId             NVARCHAR(100)  NOT NULL,
+        FlowName           NVARCHAR(400)  NULL,
+        OwnerUpn           NVARCHAR(256)  NULL,
+        IsPremium          BIT            NULL,       -- uses a premium connector, so its owner needs a premium license
+        LicenseModel       VARCHAR(16)    NULL,       -- PerUser | Process | Standard
+        [State]            VARCHAR(16)    NULL,       -- Started | Stopped | Suspended
+        CreatedUtc         DATETIME2(0)   NULL,
+        LastRunUtc         DATETIME2(0)   NULL,
+        Runs30             INT            NULL,       -- runs in the last 30 days
+        FailedRuns30       INT            NULL,
+        MinutesSavedPerRun DECIMAL(9, 2)  NULL,
+        LoadedUtc          DATETIME2(0)   NOT NULL CONSTRAINT DF_PowerAutomateFlow_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PowerAutomateFlow PRIMARY KEY (EnvironmentName, FlowId)
+    );
+
+/* Who used each Power Platform product lately, from the admin center's usage export: with audit.UserLicenseSku,
+   a premium license held by someone who does not use the product. */
+IF OBJECT_ID(N'audit.PowerPlatformUserActivity', N'U') IS NULL
+    CREATE TABLE audit.PowerPlatformUserActivity
+    (
+        UserPrincipalName NVARCHAR(256) NOT NULL,
+        Product           VARCHAR(32)   NOT NULL,   -- Power Apps | Power Automate | Copilot Studio
+        LastActiveUtc     DATETIME2(0)  NULL,
+        ActiveDays30      INT           NULL,
+        LoadedUtc         DATETIME2(0)  NOT NULL CONSTRAINT DF_PowerPlatformUserActivity_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PowerPlatformUserActivity PRIMARY KEY (UserPrincipalName, Product)
+    );
+
+/* The tenant's Dataverse capacity each day it was read: what the licenses entitle it to and what it uses. Used
+   over entitled is overage, billed as add-on capacity. */
+IF OBJECT_ID(N'audit.PowerPlatformCapacityDay', N'U') IS NULL
+    CREATE TABLE audit.PowerPlatformCapacityDay
+    (
+        [Day]        DATE           NOT NULL,
+        CapacityType VARCHAR(16)    NOT NULL,   -- Database | File | Log
+        EntitledGb   DECIMAL(19, 2) NULL,
+        UsedGb       DECIMAL(19, 2) NULL,
+        LoadedUtc    DATETIME2(0)   NOT NULL CONSTRAINT DF_PowerPlatformCapacityDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PowerPlatformCapacityDay PRIMARY KEY ([Day], CapacityType)
+    );
+
+/* Copilot Credits (Copilot Studio's agents) and AI Builder credits used, per environment and day, and how they
+   were paid for: from a prepaid capacity pack, or pay-as-you-go through an Azure subscription. */
+IF OBJECT_ID(N'audit.PowerPlatformCreditDay', N'U') IS NULL
+    CREATE TABLE audit.PowerPlatformCreditDay
+    (
+        [Day]           DATE           NOT NULL,
+        EnvironmentName NVARCHAR(200)  NOT NULL,
+        Product         VARCHAR(32)    NOT NULL,   -- Copilot Studio | AI Builder
+        Billing         VARCHAR(16)    NOT NULL,   -- Prepaid | PayAsYouGo
+        Credits         DECIMAL(19, 2) NULL,
+        Cost            DECIMAL(19, 4) NULL,       -- what pay-as-you-go charged; for Prepaid, NULL (the pack is a license)
+        Currency        NVARCHAR(8)    NULL,
+        LoadedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_PowerPlatformCreditDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_PowerPlatformCreditDay PRIMARY KEY ([Day], EnvironmentName, Product, Billing)
+    );
+
 /* ---- The loads' own log ---------------------------------------------------- */
 
 /* One row per run of either tool, from its start, so a failure shows too. Admin > Health reads the last of
@@ -220,4 +346,10 @@ BEGIN
     GRANT SELECT ON audit.FoundryUsageDay TO CopilotInsightsApp;
     GRANT SELECT ON audit.FoundryCostDay TO CopilotInsightsApp;
     GRANT SELECT ON audit.ExternalUsageRun TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FabricCapacityDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.FabricWorkloadDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.PowerAutomateFlow TO CopilotInsightsApp;
+    GRANT SELECT ON audit.PowerPlatformUserActivity TO CopilotInsightsApp;
+    GRANT SELECT ON audit.PowerPlatformCapacityDay TO CopilotInsightsApp;
+    GRANT SELECT ON audit.PowerPlatformCreditDay TO CopilotInsightsApp;
 END;
