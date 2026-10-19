@@ -9223,7 +9223,7 @@ SELECT LicenseStatusKey, LicenseStatus FROM bi.DimLicenseStatus;');
 
 ### C.11 `sql/Create-CopilotBiProcedure.sql`
 
-Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema. 1099 lines.
+Copilot database. `bi.usp_RefreshBi`, which fills the `bi` schema. 1095 lines.
 
 ```sql
 /*
@@ -9917,10 +9917,6 @@ BEGIN
         /* Planned per window: a plan cached from a month-sized full rebuild
            would scan the table for a two-day refresh. */
         OPTION (RECOMPILE);
-        /* 2.6.6: keyed on the record, for the resources' join to it below. As a heap, with the small dimensions'
-           statistics taken while they were nearly empty, one month's insert chose nested loops that read the whole of
-           #src once per resource row: a demo rebuild went from under a minute to twelve. */
-        CREATE CLUSTERED INDEX CX_src ON #src (RecordId);
 
         INSERT INTO bi.DimUser (UserPrincipalName)
         SELECT DISTINCT s.Upn FROM #src AS s
