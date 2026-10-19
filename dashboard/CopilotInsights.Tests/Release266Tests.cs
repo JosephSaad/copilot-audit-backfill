@@ -321,6 +321,20 @@ public class CreditRulesTests
         Assert.NotNull(Guidance.For("/licensing/credit-use"));
         Assert.Contains("RequiredRole => Roles.Licensing", Source.Read("Pages", "Licensing", "CreditUse.cs"));
     }
+
+    [Fact]
+    public void Agent_credits_and_better_with_a_license_use_the_same_estimate()
+    {
+        /* One figure on three pages: each reads CreditData, none prices an interaction at a flat rate of its own. */
+        foreach (var (dir, file) in new[] { ("Agents", "Credits.cs"), ("Licensing", "LicenseForCredits.cs"), ("Licensing", "CreditUse.cs") })
+        {
+            var page = Source.Read("Pages", dir, file);
+            Assert.Contains("CreditData", page);
+            Assert.DoesNotContain("PaygInteractionCost", page);
+        }
+        /* Unlicensed throughout the window, as Credit use counts the people cheaper licensed. */
+        Assert.Contains("!p.Licensed && p.Use.Billed > 0", Source.Read("Pages", "Licensing", "LicenseForCredits.cs"));
+    }
 }
 
 /// <summary>The drill-downs (2.6.6): every headline figure on Costs and savings leads to the detail behind it.</summary>

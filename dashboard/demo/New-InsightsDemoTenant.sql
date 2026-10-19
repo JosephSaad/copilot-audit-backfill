@@ -15,7 +15,7 @@
         dbo.AgentsInProd, dbo.ParentChildAgent), 46 agents in nine environments, and the use of the 25 agents it
         lists beyond the eight New-InsightsDemoData.sql launches, each by the departments it was built for, growing
         from its launch. New-InsightsDemoAgents.sql, after the bi build, loads the workbook into the dashboard.
-      - About 9 people without a license whose use of agents, paid in Copilot Credits, costs more than a license.
+      - About 9 people without a license whose work runs through agents, paid in Copilot Credits: the busiest cost more than a license.
 
     Counts are for 5,000 people and scale with -People (@scale, as in New-InsightsDemoCosts.sql: per 2,300 people).
 */
@@ -340,8 +340,8 @@ WHERE hh.v % 1000 < c.DayPm * CASE WHEN d.Weekend = 1 THEN 1 ELSE 10 END / 10
                     * CASE WHEN c.LaunchAgo - d.DaysAgo < 35 THEN (c.LaunchAgo - d.DaysAgo + 5) / 40.0 ELSE 1.0 END;
 
 /* Credits: people with no license, ever, whose work runs through an agent - case handlers, the service desk,
-   recruiters, the contracts team and deal desk analysts - three to five sessions a working day, three to six prompts
-   each: about 12 to 30 metered interactions a day, worth more a month in Copilot Credits than a license costs. */
+   recruiters, the contracts team and deal desk analysts - four to six sessions a working day, three to six prompts
+   each: about 16 to 36 billed interactions a day; for the busiest, more a month in Copilot Credits than a license costs. */
 SELECT TOP (CAST(ROUND(4 * @scale, 0) AS INT)) p.Upn, p.Loc,
        CASE p.Department WHEN N'Customer Care' THEN 24 WHEN N'IT Operations' THEN 2 WHEN N'Talent Acquisition' THEN 14
                          WHEN N'Contracts' THEN 5 ELSE 20 END AS a,
@@ -353,7 +353,7 @@ JOIN audit.CopilotLicense AS cl ON cl.UserPrincipalName = p.Upn AND cl.IsCopilot
 WHERE p.Department IN (N'Customer Care', N'IT Operations', N'Talent Acquisition', N'Contracts', N'Sales Operations')
   AND NOT EXISTS (SELECT 1 FROM #lic AS l WHERE l.Upn = p.Upn)
 ORDER BY HASHBYTES('MD5', CONCAT(N'credit', p.Upn));
-WITH k AS (SELECT n FROM (VALUES (1), (2), (3), (4), (5)) AS v (n))
+WITH k AS (SELECT n FROM (VALUES (1), (2), (3), (4), (5), (6)) AS v (n))
 INSERT INTO #x (Kind, Upn, [Day], DaysAgo, StartUtc, App, Ident, Prompts, WebPm, ReadPm, Site, Doc, LabelPm, Label, Jailbreak, Blocked, Calls, Loc, h)
 SELECT 'c', u.Upn, d.[Day], d.DaysAgo,
        DATEADD(MINUTE, hh.v % 40, DATEADD(HOUR, 12 + 2 * k.n - 1, CAST(d.[Day] AS DATETIME2(0)))),
@@ -363,7 +363,7 @@ SELECT 'c', u.Upn, d.[Day], d.DaysAgo,
 FROM #credit AS u
 JOIN #cat AS c ON c.a = u.a
 JOIN #days AS d ON d.Weekend = 0 AND d.DaysAgo <= CASE WHEN c.LaunchAgo IS NULL OR c.LaunchAgo > 150 THEN 150 ELSE c.LaunchAgo END
-JOIN k ON k.n <= 3 + u.h % 3
+JOIN k ON k.n <= 4 + u.h % 3
 CROSS APPLY (SELECT ABS(CAST(SUBSTRING(HASHBYTES('MD5', CONCAT(N'cday', u.Upn, N'-', d.DaysAgo, N'-', k.n)), 1, 4) AS INT)) AS v) AS hh
 WHERE ABS(CAST(SUBSTRING(HASHBYTES('MD5', CONCAT(N'cday', u.Upn, N'-', d.DaysAgo)), 1, 4) AS INT)) % 100 < 88;
 

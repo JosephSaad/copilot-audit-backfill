@@ -113,6 +113,11 @@ put your agreement's prices in Admin › Targets and assumptions.
 - **Links from Costs and savings open the whole organization**, as the page itself counts it, and only to pages the
   viewer may open. Unassigned suite seats, and Credit use's comparison with what the admin center billed, are shown
   only where the whole organization is: both are the tenant's.
+- **Agents costing credits and Better with a license use Credit use's estimate**: credits an answer, more where it read
+  work data or called another agent, at the rates in Admin › Targets and assumptions, instead of a flat price an
+  interaction, so the three pages give one figure. An unknown license status is no longer taken for none, and Copilot
+  Chat without an agent, which is free, is no longer counted as metered. Agents costing credits shows credits and their
+  cost apart. Better on pay-as-you-go still prices a licensed person's use an interaction at a time.
 - **A license held twice is counted once, the same way, on both pages**: an add-on beside the suite that covers it,
   for enabled people outside the protected levels, the Copilot add-on only when the revoke list does not take it already.
 - **The demo keeps levels 1 to 3 off the revoke and train lists**, not 1 to 5: with five levels, the default kept
