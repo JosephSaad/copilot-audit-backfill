@@ -82,8 +82,8 @@ matches, add `ComplianceDLPSharePoint` and `ComplianceDLPExchange` (and `DLPEndp
 
 ### Known limits
 - **Not run against the client's tenant.** The agent-management records' agent fields (`AgentId`, `AgentName`), Teams
-  AI notes' and the DLP records' fields are read as Microsoft documents them. Each record is kept whole: correct the
-  shred and read them again.
+  AI notes' and the DLP records' fields are read as Microsoft documents them; an endpoint match's `PolicyMatchInfo` is
+  not yet seen in real records. Each record is kept whole: correct the shred and read them again.
 - **The DLP record types are not loaded by default**: their volume is the tenant's every match. The record type for
   DLP of Microsoft 365 Copilot prompts is not documented yet.
 - **Copilot by product groups by the app named**, not by each record's app identity, which bi does not keep: a product
