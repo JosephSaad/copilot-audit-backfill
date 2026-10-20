@@ -4477,6 +4477,59 @@ finally {
 }
 
 # ---------------------------------------------------------------------------
+# 25. Copilot reservations (2.6.8, 2.7.0): who counts where, and the month-end snapshot's rules.
+Write-Host "`n25. Copilot reservations (dash.fnReservationMember, dash.usp_TakeReservationSnapshot)" -ForegroundColor Cyan
+$resDb = "$($script:ITDatabase)_Res"
+$resConn = @{ SqlServer = $script:ITServer; TrustServerCertificate = $true }
+if (-not $script:ITIntegrated) { $resConn.SqlCredential = [pscredential]::new($script:ITUser, [Net.NetworkCredential]::new('', $script:ITPassword).SecurePassword) }
+try {
+    $null = & (Join-Path $root 'Install-CopilotAudit.ps1') @resConn -Database $resDb -SkipLicenseDatabase -Dashboard -ReportingTimeZone 'Eastern Standard Time' 6>&1 | Out-String
+    # A leader of a line of business, a leader under them with their own reservation, their people, one person under nobody,
+    # and a Technology-funded account. Licensed on the last month end and the two days after it.
+    Invoke-SqlText -Catalog $resDb -Sql @"
+DECLARE @m DATE = EOMONTH(SYSUTCDATETIME(), -1);
+INSERT INTO bi.DimUser (UserPrincipalName) VALUES (N'lead1@c.com'), (N'u1@c.com'), (N'u2@c.com'), (N'lead2@c.com'), (N'u3@c.com'), (N'lone@c.com'), (N'svc@c.com');
+INSERT INTO dash.OrgClosure (AncestorUpn, DescendantUpn, Depth) VALUES
+ (N'lead1@c.com', N'lead1@c.com', 0), (N'lead1@c.com', N'u1@c.com', 1), (N'lead1@c.com', N'u2@c.com', 1), (N'lead1@c.com', N'lead2@c.com', 1), (N'lead1@c.com', N'u3@c.com', 2),
+ (N'lead1@c.com', N'svc@c.com', 1), (N'lead2@c.com', N'lead2@c.com', 0), (N'lead2@c.com', N'u3@c.com', 1);
+INSERT INTO dash.TechnologyAllocation (Upn, Category, Owner, EffectiveFrom, UpdatedBy) VALUES (N'svc@c.com', N'Service', N'it@c.com', '2020-01-01', N'test');
+INSERT INTO bi.FactLicensedDay (DateKey, UserKey)
+SELECT CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, d.n, @m), 112)), u.UserKey
+FROM bi.DimUser AS u CROSS JOIN (VALUES (0), (1)) AS d (n)
+WHERE u.UserPrincipalName LIKE N'%@c.com' AND u.UserPrincipalName <> N'lead1@c.com';
+"@
+    $m = [datetime]::UtcNow.Date.AddDays(1 - [datetime]::UtcNow.Day).AddDays(-1)
+    $snaps = { [int] (Invoke-SqlText -Catalog $resDb -As Scalar -Sql 'SELECT COUNT(*) FROM dash.ReservationSnapshot;') }
+
+    # A register entered ahead of its start: no snapshot of nobody but the pools.
+    Invoke-SqlText -Catalog $resDb -Sql "INSERT INTO dash.Reservation (OrgId, Name, LeaderUpn, Reserved, EffectiveFrom, UpdatedBy) VALUES (N'LOB-1', N'One', N'lead1@c.com', 5, DATEADD(YEAR, 1, SYSUTCDATETIME()), N'test');"
+    Invoke-SqlText -Catalog $resDb -Sql "INSERT INTO bi.FactLicensedDay (DateKey, UserKey) SELECT CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 2, EOMONTH(SYSUTCDATETIME(), -1)), 112)), UserKey FROM bi.DimUser WHERE UserPrincipalName = N'u1@c.com';"
+    Invoke-SqlText -Catalog $resDb -Sql 'EXEC dash.usp_TakeReservationSnapshot;'
+    Assert-That ((& $snaps) -eq 0) 'no snapshot is kept for a month end no reservation is in effect on (a register entered ahead of its start)'
+
+    # In effect: the licenses reach only one day past the month end, so it waits; two days, and it is kept.
+    Invoke-SqlText -Catalog $resDb -Sql @"
+DELETE FROM dash.Reservation;
+INSERT INTO dash.Reservation (OrgId, Name, LeaderUpn, Reserved, EffectiveFrom, UpdatedBy) VALUES (N'LOB-1', N'One', N'lead1@c.com', 5, '2020-01-01', N'test'), (N'LOB-2', N'Two', N'lead2@c.com', 1, '2020-01-01', N'test');
+INSERT INTO dash.ReservationRate (EffectiveFrom, MonthlyRate, UpdatedBy) VALUES ('2020-01-01', 18, N'test');
+DELETE FROM bi.FactLicensedDay WHERE DateKey = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 2, EOMONTH(SYSUTCDATETIME(), -1)), 112));
+"@
+    Invoke-SqlText -Catalog $resDb -Sql 'EXEC dash.usp_TakeReservationSnapshot;'
+    Assert-That ((& $snaps) -eq 0) 'the month end waits until the licenses reach two days past it: a license event can arrive a day late'
+    Invoke-SqlText -Catalog $resDb -Sql "INSERT INTO bi.FactLicensedDay (DateKey, UserKey) SELECT CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 2, EOMONTH(SYSUTCDATETIME(), -1)), 112)), UserKey FROM bi.DimUser WHERE UserPrincipalName = N'u1@c.com';"
+    Invoke-SqlText -Catalog $resDb -Sql 'EXEC dash.usp_TakeReservationSnapshot;'
+    $s = Invoke-SqlText -Catalog $resDb -As Table -Sql "SELECT OrgId, Reserved, Allocated, MonthlyRate, CONVERT(CHAR(10), SnapshotDate, 120) AS D FROM dash.ReservationSnapshot ORDER BY CASE WHEN OrgId LIKE N'~%' THEN 1 ELSE 0 END, OrgId;"
+    $seen = (@($s.Rows | ForEach-Object { "$($_.OrgId)=$($_.Reserved)/$($_.Allocated)" }) -join ' ')
+    Assert-That ($seen -eq 'LOB-1=5/2 LOB-2=1/2 ~technology=0/1 ~unmapped=0/1' -and $s.Rows[0].D -eq $m.ToString('yyyy-MM-dd') -and [decimal] $s.Rows[0].MonthlyRate -eq 18) `
+        "then kept: a person under two listed leaders counts with the nearer one, the Technology account in its pool, the one under nobody unmapped, at the rate in force ($seen)"
+    Invoke-SqlText -Catalog $resDb -Sql "UPDATE dash.Reservation SET Reserved = 50 WHERE OrgId = N'LOB-1'; EXEC dash.usp_TakeReservationSnapshot;"
+    Assert-That ((& $snaps) -eq 4 -and [int] (Invoke-SqlText -Catalog $resDb -As Scalar -Sql "SELECT Reserved FROM dash.ReservationSnapshot WHERE OrgId = N'LOB-1';") -eq 5) 'a month end is kept once, as it was: a later change to the register does not rewrite it'
+}
+finally {
+    try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$resDb') IS NOT NULL BEGIN ALTER DATABASE [$resDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$resDb]; END;" } catch { Write-Host "  (could not drop $resDb)" }
+}
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

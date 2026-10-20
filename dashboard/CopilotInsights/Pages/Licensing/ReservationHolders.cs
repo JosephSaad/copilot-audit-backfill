@@ -48,7 +48,8 @@ public sealed class ReservationHoldersModel(PageServices s, ReservationData data
             return;
         }
         var k = int.Parse(day.ToString("yyyyMMdd"));
-        /* Who the organization's figure counts: its members holding the add-on, Technology-funded accounts aside; or the
+        /* 2.7.0: within the viewer's part of the organization, as every list of people is (it was the whole bank's for any holder of the Licensing role).
+           Who the organization's figure counts: its members holding the add-on, Technology-funded accounts aside; or the
            holders no organization covers; or the Technology pool. As ReservationData counts them. */
         var which = res switch
         {
@@ -59,7 +60,7 @@ public sealed class ReservationHoldersModel(PageServices s, ReservationData data
         var pg = new Paging(Request, Sorts, "name");
         var rows = await Db.QueryAsync<Row>($@"
 SELECT u.DisplayName, u.UserPrincipalName, u.Department, u.ManagerName, u.LicensedSinceUtc, dl.[Date] AS LastUsed, t.Category, COUNT(*) OVER () AS TotalRows
-FROM bi.FactLicensedDay AS ld
+FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS u ON u.UserKey = ld.UserKey
 LEFT JOIN dash.TechnologyAllocation AS t ON t.Upn = u.UserPrincipalName AND t.EffectiveFrom <= @day
 OUTER APPLY (SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE ud.UserKey = u.UserKey AND ud.Interactions > 0) AS x

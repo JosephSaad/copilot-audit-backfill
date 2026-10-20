@@ -91,13 +91,15 @@ WITH {Held(c)},
 m AS (SELECT ReservationId, UserKey FROM dash.fnReservationMember(@day)),
 r AS (SELECT * FROM dash.Reservation WHERE EffectiveFrom <= @day AND (EffectiveTo IS NULL OR EffectiveTo >= @day)),
 lr AS (SELECT LeaderUpn, COUNT(DISTINCT OrgId) AS N FROM r WHERE LeaderUpn IS NOT NULL GROUP BY LeaderUpn)
+/* 2.7.0: a leader is missing who is not in today's directory, or whose account is disabled (bi.DimUser keeps everyone ever
+   seen, so a leader who had left was never flagged, and their organization read as all reserved, nothing held). The
+   People count no page showed is gone: it worked out every member a second time. */
 SELECT r.OrgId, MAX(r.Name) AS Name, MAX(r.LeaderUpn) AS LeaderUpn, MAX(l.DisplayName) AS LeaderName, MAX(r.CostCenter) AS CostCenter,
        SUM(r.Reserved) AS Reserved,
        (SELECT COUNT(*) FROM m JOIN held AS h ON h.UserKey = m.UserKey AND h.Tech = 0 JOIN r AS r2 ON r2.ReservationId = m.ReservationId WHERE r2.OrgId = r.OrgId) AS Allocated,
-       (SELECT COUNT(*) FROM m JOIN r AS r2 ON r2.ReservationId = m.ReservationId WHERE r2.OrgId = r.OrgId) AS People,
-       CAST(MAX(CASE WHEN r.LeaderUpn IS NOT NULL AND l.UserKey IS NULL THEN 1 ELSE 0 END) AS BIT) AS LeaderMissing,
+       CAST(MAX(CASE WHEN r.LeaderUpn IS NOT NULL AND (l.Upn IS NULL OR l.AccountEnabled = 0) THEN 1 ELSE 0 END) AS BIT) AS LeaderMissing,
        ISNULL(MAX(lr.N), 0) AS LeaderRows
-FROM r LEFT JOIN bi.DimUser AS l ON l.UserPrincipalName = r.LeaderUpn
+FROM r LEFT JOIN dash.Person AS l ON l.Upn = r.LeaderUpn
 LEFT JOIN lr ON lr.LeaderUpn = r.LeaderUpn
 WHERE 1 = 1 {Scoped(c, "r.LeaderUpn")}
 GROUP BY r.OrgId
@@ -133,11 +135,15 @@ ORDER BY s.Reserved DESC, s.OrgId;", c.Args(new { date }));
         return new(date, rows.Max(r => r.Taken), orgs, rows.Where(r => r.OrgId == Unmapped).Sum(r => r.Allocated),
             rows.Where(r => r.OrgId == Technology).Sum(r => r.Allocated), rows.Select(r => r.Rate).FirstOrDefault(x => x is not null), cur);
     }
-    /// <summary>Every snapshot kept, with each one's organizations, newest first.</summary>
-    public async Task<List<(DateTime Date, DateTime Taken, List<ReservationOrg> Orgs, decimal? Rate)>> SnapshotsAsync()
+    /// <summary>
+    /// Every snapshot kept, with each one's organizations, newest first: for a viewer who sees part of the organization,
+    /// only those led from inside it, as <see cref="SnapshotAsync"/> shows one (2.7.0: every viewer saw the whole bank's).
+    /// </summary>
+    public async Task<List<(DateTime Date, DateTime Taken, List<ReservationOrg> Orgs, decimal? Rate)>> SnapshotsAsync(ReportContext c)
     {
-        var rows = await db.QueryAsync<(DateTime Date, DateTime Taken, string OrgId, int Reserved, int Allocated, decimal? Rate)>(
-            "SELECT SnapshotDate, TakenUtc, OrgId, Reserved, Allocated, MonthlyRate FROM dash.ReservationSnapshot WHERE OrgId NOT LIKE N'~%';");
+        var rows = await db.QueryAsync<(DateTime Date, DateTime Taken, string OrgId, int Reserved, int Allocated, decimal? Rate)>($@"
+SELECT s.SnapshotDate, s.TakenUtc, s.OrgId, s.Reserved, s.Allocated, s.MonthlyRate FROM dash.ReservationSnapshot AS s
+WHERE s.OrgId NOT LIKE N'~%' {Scoped(c, "s.LeaderUpn")};", c.Args());
         return rows.GroupBy(r => r.Date).OrderByDescending(g => g.Key)
             .Select(g => (g.Key, g.Max(r => r.Taken), g.Select(r => new ReservationOrg(r.OrgId, "", null, null, null, r.Reserved, r.Allocated, 0, false, false)).ToList(),
                 g.Select(r => r.Rate).FirstOrDefault(x => x is not null))).ToList();

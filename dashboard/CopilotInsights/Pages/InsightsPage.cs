@@ -450,6 +450,8 @@ EXEC sys.sp_executesql @sql;");
         string done;
         try { done = await change(); }
         catch (ArgumentException ex) { done = "Not changed: " + ex.Message; }
+        /* 2.7.0: a database error is audited and said too: it escaped both, after a change that may have been made in part. */
+        catch (Microsoft.Data.SqlClient.SqlException ex) { done = "Failed: " + ex.Message; }
         await S.Audit.WriteAsync(Viewer, "Admin", Request.Path, null, done);
         TempData["done"] = done;
         var q = Request.Query.Where(kv => kv.Key != "handler").Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}").ToList();

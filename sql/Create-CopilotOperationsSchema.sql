@@ -442,20 +442,26 @@ WHERE m.n = 1;');
 
 /* The month-end snapshot: by default the last day of the month before the latest licensed day loaded, once. Allocated
    is the Microsoft 365 Copilot add-on held that day (bi.FactLicensedDay, less Copilot held only inside a suite), Technology
-   accounts counted in their own pool. The org chart is today's. A snapshot already taken is left as it is. */
+   accounts counted in their own pool. The org chart is today's. A snapshot already taken is left as it is.
+   2.7.0: taken only once the licenses reach two days past the month end (a license event can reach Purview a day
+   late, and the month end could not be taken again), only when a reservation is in effect that day (a register entered
+   ahead kept snapshots of nobody but the pools, for good), and in one transaction (a timeout between its two inserts kept
+   the organizations without the pools, and the snapshot could never be finished). */
 EXEC (N'
 CREATE OR ALTER PROCEDURE dash.usp_TakeReservationSnapshot
     @AsOf DATE = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
-    IF NOT EXISTS (SELECT 1 FROM dash.Reservation) RETURN;
+    SET XACT_ABORT ON;
     DECLARE @last INT = (SELECT MAX(DateKey) FROM bi.FactLicensedDay);
     IF @last IS NULL RETURN;
     DECLARE @lastDay DATE = CONVERT(DATE, CAST(@last AS CHAR(8)), 112);
     IF @AsOf IS NULL SET @AsOf = EOMONTH(@lastDay, -1);
     DECLARE @k INT = YEAR(@AsOf) * 10000 + MONTH(@AsOf) * 100 + DAY(@AsOf);
     IF @AsOf > @lastDay OR NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay WHERE DateKey = @k) RETURN;
+    IF @lastDay < DATEADD(DAY, 2, @AsOf) RETURN;
+    IF NOT EXISTS (SELECT 1 FROM dash.Reservation WHERE EffectiveFrom <= @AsOf AND (EffectiveTo IS NULL OR EffectiveTo >= @AsOf)) RETURN;
     IF EXISTS (SELECT 1 FROM dash.ReservationSnapshot WHERE SnapshotDate = @AsOf) RETURN;
     DECLARE @rate DECIMAL(12, 2) = (SELECT TOP (1) MonthlyRate FROM dash.ReservationRate WHERE EffectiveFrom <= @AsOf ORDER BY EffectiveFrom DESC);
 
@@ -468,6 +474,7 @@ BEGIN
     WHERE ld.DateKey = @k
       AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS so WHERE so.Upn = u.UserPrincipalName);
 
+    BEGIN TRANSACTION;
     INSERT INTO dash.ReservationSnapshot (SnapshotDate, OrgId, Name, LeaderUpn, CostCenter, Reserved, Allocated, MonthlyRate)
     SELECT @AsOf, r.OrgId, MAX(r.Name), NULLIF(MAX(ISNULL(r.LeaderUpn, N'''')), N''''), NULLIF(MAX(ISNULL(r.CostCenter, N'''')), N''''), SUM(r.Reserved),
            ISNULL((SELECT COUNT(*) FROM dash.fnReservationMember(@AsOf) AS m JOIN #held AS h ON h.UserKey = m.UserKey AND h.Tech = 0
@@ -482,6 +489,7 @@ BEGIN
            (SELECT COUNT(*) FROM #held AS h WHERE h.Tech = 0 AND NOT EXISTS (SELECT 1 FROM dash.fnReservationMember(@AsOf) AS m WHERE m.UserKey = h.UserKey)), @rate
     UNION ALL
     SELECT @AsOf, N''~technology'', N''Technology-funded pool'', 0, (SELECT COUNT(*) FROM #held WHERE Tech = 1), @rate;
+    COMMIT TRANSACTION;
 END;');
 
 /* Each person's saved views; one may be their start page. Unused since 2.4.4, which removed My Copilot; kept, with its rows. */
