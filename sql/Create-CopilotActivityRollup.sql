@@ -52,6 +52,37 @@ IF OBJECT_ID(N'audit.AIAppUserDay', N'U') IS NULL
     );
 GO
 
+/* 2.7.0: who used Power BI, Power Apps and Teams meeting AI notes each day (reporting-zone days), for the trends and
+   the team views; and the data loss prevention matches each day, by policy, rule and person, where the activity database
+   is asked for the DLP record types. */
+IF OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NULL
+    CREATE TABLE audit.ActivityUserDay
+    (
+        [Day]     DATE          NOT NULL,
+        Product   VARCHAR(32)   NOT NULL,   -- Power BI | Power Apps | Teams AI notes
+        Upn       NVARCHAR(256) NOT NULL,
+        Events    INT           NOT NULL,
+        LoadedUtc DATETIME2(0)  NOT NULL CONSTRAINT DF_ActivityUserDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_ActivityUserDay PRIMARY KEY ([Day], Product, Upn)
+    );
+GO
+
+IF OBJECT_ID(N'audit.DlpDay', N'U') IS NULL
+    CREATE TABLE audit.DlpDay
+    (
+        [Day]      DATE          NOT NULL,
+        Workload   NVARCHAR(64)  NOT NULL,   -- SharePoint, OneDrive, Exchange, Endpoint; '' where none
+        PolicyName NVARCHAR(400) NOT NULL,
+        RuleName   NVARCHAR(400) NOT NULL,
+        Severity   NVARCHAR(32)  NOT NULL,
+        Upn        NVARCHAR(256) NOT NULL,   -- '' where the record names no one
+        Matches    INT           NOT NULL,
+        Undone     INT           NOT NULL,   -- DlpRuleUndo: an override, or a false positive reported
+        LoadedUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DlpDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        INDEX IX_DlpDay_Day ([Day])
+    );
+GO
+
 IF OBJECT_ID(N'audit.AIAppResource', N'U') IS NULL
     CREATE TABLE audit.AIAppResource
     (
@@ -115,13 +146,14 @@ BEGIN
     SET XACT_ABORT ON;
 
     DECLARE @db NVARCHAR(300) = QUOTENAME(@ActivityDatabase), @sql NVARCHAR(MAX), @from DATE = CAST(@SinceUtc AS DATE),
-            @run INT, @days INT = 0, @users INT = 0, @hasCalls BIT, @hasPlatform BIT, @msg NVARCHAR(2000);
+            @run INT, @days INT = 0, @users INT = 0, @hasCalls BIT, @hasPlatform BIT, @hasDlp BIT = 0, @msg NVARCHAR(2000), @dlp INT = 0, @actDays INT = 0;
 
     IF DB_ID(@ActivityDatabase) IS NULL
         THROW 50031, N'The activity database named does not exist on this server.', 1;
     SET @sql = N'SELECT @c = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.AIAppCall'', N''U'') IS NULL THEN 0 ELSE 1 END,
-                        @p = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.PlatformActivity'', N''U'') IS NULL THEN 0 ELSE 1 END;';
-    EXEC sys.sp_executesql @sql, N'@c BIT OUTPUT, @p BIT OUTPUT', @c = @hasCalls OUTPUT, @p = @hasPlatform OUTPUT;
+                        @p = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.PlatformActivity'', N''U'') IS NULL THEN 0 ELSE 1 END,
+                        @d = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.DlpMatch'', N''U'') IS NULL THEN 0 ELSE 1 END;';
+    EXEC sys.sp_executesql @sql, N'@c BIT OUTPUT, @p BIT OUTPUT, @d BIT OUTPUT', @c = @hasCalls OUTPUT, @p = @hasPlatform OUTPUT, @d = @hasDlp OUTPUT;
     IF @hasCalls = 0 OR @hasPlatform = 0
         THROW 50032, N'The activity database has no audit.AIAppCall or audit.PlatformActivity: install it with Install-CopilotAudit.ps1 -ActivityDatabase.', 1;
 
@@ -140,7 +172,10 @@ BEGIN
            Copilot day. AT TIME ZONE once for each quarter hour of the range (a zone can be offset by 30 or 45 minutes), not
            once for each of tens of millions of records. */
         DECLARE @zone SYSNAME = audit.ReportingTimeZone(), @lo DATETIME2(0), @hi DATETIME2(0);
-        SET @sql = N'SELECT @lo = MIN(CreatedDateTime), @hi = MAX(CreatedDateTime) FROM ' + @db + N'.audit.AIAppCall;';
+        /* 2.7.0: the range of every table the days are cut for. */
+        SET @sql = N'SELECT @lo = MIN(x.Lo), @hi = MAX(x.Hi) FROM (SELECT MIN(CreatedDateTime) AS Lo, MAX(CreatedDateTime) AS Hi FROM ' + @db + N'.audit.AIAppCall
+            UNION ALL SELECT MIN(CreatedDateTime), MAX(CreatedDateTime) FROM ' + @db + N'.audit.PlatformActivity' +
+            CASE WHEN @hasDlp = 1 THEN N' UNION ALL SELECT MIN(CreatedDateTime), MAX(CreatedDateTime) FROM ' + @db + N'.audit.DlpMatch' ELSE N'' END + N') AS x;';
         EXEC sys.sp_executesql @sql, N'@lo DATETIME2(0) OUTPUT, @hi DATETIME2(0) OUTPUT', @lo = @lo OUTPUT, @hi = @hi OUTPUT;
         DECLARE @fromUtc DATETIME2(0) = CASE WHEN @from IS NULL THEN NULL
                                             ELSE CAST((CAST(@from AS DATETIME2(0)) AT TIME ZONE @zone) AT TIME ZONE 'UTC' AS DATETIME2(0)) END;
@@ -177,6 +212,36 @@ GROUP BY q.LocalDay, c.[Resource], ISNULL(c.ApplicationName, N''''), ISNULL(c.Su
         WHERE NOT EXISTS (SELECT 1 FROM audit.AIAppResource AS r WHERE r.[Resource] = d.[Resource]);
         COMMIT TRANSACTION;
 
+        /* ---- 2.7.0: Power BI, Power Apps and Teams AI notes by person and day; DLP matches by policy, rule and person ---- */
+        BEGIN TRANSACTION;
+        DELETE FROM audit.ActivityUserDay WHERE @from IS NULL OR [Day] >= @from;
+        SET @sql = N'
+INSERT INTO audit.ActivityUserDay ([Day], Product, Upn, Events)
+SELECT q.LocalDay, a.Product, LEFT(a.UserId, 256), COUNT(*)
+FROM ' + @db + N'.audit.PlatformActivity AS a
+JOIN #q AS q ON q.UtcQuarter = DATEADD(MINUTE, DATEDIFF(MINUTE, ''2000-01-01'', a.CreatedDateTime) / 15 * 15, CAST(''2000-01-01'' AS DATETIME2(0)))
+WHERE a.UserId LIKE N''%@%'' AND (@fromUtc IS NULL OR a.CreatedDateTime >= @fromUtc) AND (@from IS NULL OR q.LocalDay >= @from)
+GROUP BY q.LocalDay, a.Product, LEFT(a.UserId, 256);';
+        EXEC sys.sp_executesql @sql, N'@from DATE, @fromUtc DATETIME2(0)', @from = @from, @fromUtc = @fromUtc;
+        SET @actDays = @@ROWCOUNT;
+        IF @hasDlp = 1
+        BEGIN
+            DELETE FROM audit.DlpDay WHERE @from IS NULL OR [Day] >= @from;
+            SET @sql = N'
+INSERT INTO audit.DlpDay ([Day], Workload, PolicyName, RuleName, Severity, Upn, Matches, Undone)
+SELECT q.LocalDay, ISNULL(m.Workload, N''''), ISNULL(m.PolicyName, N''(no policy named)''), ISNULL(m.RuleName, N''''), ISNULL(m.Severity, N''''),
+       CASE WHEN m.UserId LIKE N''%@%'' THEN LEFT(m.UserId, 256) ELSE N'''' END,
+       COUNT(CASE WHEN m.Operation <> N''DlpRuleUndo'' THEN 1 END), COUNT(CASE WHEN m.Operation = N''DlpRuleUndo'' THEN 1 END)
+FROM ' + @db + N'.audit.DlpMatch AS m
+JOIN #q AS q ON q.UtcQuarter = DATEADD(MINUTE, DATEDIFF(MINUTE, ''2000-01-01'', m.CreatedDateTime) / 15 * 15, CAST(''2000-01-01'' AS DATETIME2(0)))
+WHERE (@fromUtc IS NULL OR m.CreatedDateTime >= @fromUtc) AND (@from IS NULL OR q.LocalDay >= @from)
+GROUP BY q.LocalDay, ISNULL(m.Workload, N''''), ISNULL(m.PolicyName, N''(no policy named)''), ISNULL(m.RuleName, N''''), ISNULL(m.Severity, N''''),
+         CASE WHEN m.UserId LIKE N''%@%'' THEN LEFT(m.UserId, 256) ELSE N'''' END;';
+            EXEC sys.sp_executesql @sql, N'@from DATE, @fromUtc DATETIME2(0)', @from = @from, @fromUtc = @fromUtc;
+            SET @dlp = @@ROWCOUNT;
+        END;
+        COMMIT TRANSACTION;
+
         /* ---- Power BI and Power Apps: who used them, and lately ---- */
         DROP TABLE IF EXISTS #pp;
         CREATE TABLE #pp (UserPrincipalName NVARCHAR(256) COLLATE DATABASE_DEFAULT NOT NULL, Product VARCHAR(32) COLLATE DATABASE_DEFAULT NOT NULL,
@@ -186,7 +251,7 @@ INSERT INTO #pp (UserPrincipalName, Product, LastActiveUtc, ActiveDays30)
 SELECT LEFT(a.UserId, 256), a.Product, MAX(a.CreatedDateTime),
        COUNT(DISTINCT CASE WHEN a.CreatedDateTime >= DATEADD(DAY, -30, SYSUTCDATETIME()) THEN CAST(a.CreatedDateTime AS DATE) END)
 FROM ' + @db + N'.audit.PlatformActivity AS a
-WHERE a.UserId LIKE N''%@%''
+WHERE a.UserId LIKE N''%@%'' AND a.Product IN (''Power BI'', ''Power Apps'')   -- 2.7.0: not Teams AI notes, no Power Platform product
 GROUP BY LEFT(a.UserId, 256), a.Product;';
         EXEC sys.sp_executesql @sql;
 
@@ -199,7 +264,8 @@ GROUP BY LEFT(a.UserId, 256), a.Product;';
         COMMIT TRANSACTION;
 
         SET @msg = CONCAT(N'AI apps: ', FORMAT(@days, 'N0'), N' day-resource-caller row(s)', CASE WHEN @from IS NULL THEN N' (every day)' ELSE CONCAT(N' from ', CONVERT(NCHAR(10), @from, 120)) END,
-                          N'; Power BI and Power Apps: ', FORMAT(@users, 'N0'), N' person-product row(s).');
+                          N'; Power BI and Power Apps: ', FORMAT(@users, 'N0'), N' person-product row(s); person-days: ', FORMAT(@actDays, 'N0'),
+                          N'; DLP day rows: ', FORMAT(@dlp, 'N0'), N'.');
         UPDATE audit.ExternalUsageRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', RowsWritten = @days + @users, Detail = @msg,
                ToDay = CAST(SYSUTCDATETIME() AS DATE)
         WHERE RunId = @run;
@@ -219,5 +285,7 @@ IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL
 BEGIN
     GRANT SELECT ON audit.AIAppUserDay TO CopilotInsightsApp;
     GRANT SELECT, INSERT, UPDATE ON audit.AIAppResource TO CopilotInsightsApp;
+    GRANT SELECT ON audit.ActivityUserDay TO CopilotInsightsApp;   -- 2.7.0
+    GRANT SELECT ON audit.DlpDay TO CopilotInsightsApp;
 END;
 GO

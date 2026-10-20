@@ -58,9 +58,9 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             "Certification, adjustments and the December close follow in a later release; until then no figure here is a certified financial result.", "full"));
 
         Kpis.Add(new("Reserved licenses", Num(v.Reserved), $"{Count(v.Orgs.Count, "organization")} in the register"));
-        Kpis.Add(new("Entra allocated licenses", Num(v.Allocated), "Microsoft 365 Copilot add-on, held by the organizations' people"));
-        Kpis.Add(new("Unused reserved capacity", Num(v.Unused), "the sum of MAX(reserved - allocated, 0) for each organization", v.Unused > 0 ? "warn" : null));
-        Kpis.Add(new("Allocation over reservation", Num(v.Over), "the sum of MAX(allocated - reserved, 0) for each organization", v.Over > 0 ? "warn" : null));
+        Kpis.Add(new("Licenses held (allocated)", Num(v.Allocated), "Microsoft 365 Copilot add-on licenses the organizations' people hold in Entra"));
+        Kpis.Add(new("Unused reserved capacity", Num(v.Unused), "reserved seats nobody holds, for each organization, added up", v.Unused > 0 ? "warn" : null));
+        Kpis.Add(new("Allocation over reservation", Num(v.Over), "licenses held beyond each organization's reservation, added up", v.Over > 0 ? "warn" : null));
         Kpis.Add(new("Billable licenses", Num(v.Billable), "reserved plus allocation over reservation; pending Finance confirmation"));
         Kpis.Add(new($"Monthly obligation ({cur})", M(v.Monthly), v.Rate is { } rt ? $"at {CostRules.Money(rt, cur)} a license a month" : "no rate in force",
             Why: await WhyAsync($"Billable licenses ({v.Billable:#,0}: for each organization, its reserved licenses plus its allocation over them) × the rate in force" + (v.Rate is { } r1 ? $" ({CostRules.Money(r1, cur)})." : ", none yet."), "ReservationRate")));
@@ -143,8 +143,10 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             $"<div><span class=\"fl\">Held, as counted here</span><b>{counted:#,0}</b><p>{v.Allocated:#,0} by organizations, {v.Unmapped:#,0} under no leader, {v.Technology:#,0} Technology-funded</p></div>" +
             $"<div><span class=\"fl\">Difference to reconcile</span><b>{assigned - counted:+#,0;-#,0;0}</b><p>{(assigned == counted ? "the license pool and the license holders agree" : "the license pool's assigned count against the holders read for each person: a refresh or an assignment in flight")}</p></div>" +
             $"<div><span class=\"fl\">Unused reserved capacity</span><b>{v.Unused:#,0}</b><p>reserved and not allocated: not the same as unassigned inventory</p></div>" +
+            /* 2.7.0: what the organizations are charged against what is bought. */
+            $"<div><span class=\"fl\">Billable against bought</span><b>{v.Billable - bought:+#,0;-#,0;0}</b><p>{v.Billable:#,0} billable to the organizations, {bought:#,0} bought: reserved seats nobody holds are charged, and seats held over a reservation are billed beyond it</p></div>" +
             "</div>" + $"<p class=\"sub\"><b>Purchase gate.</b> {H(gate)}</p>"),
-            "From the license pool (Graph's subscribed SKUs) and the licenses read for each person. The policy and the proposal name different pools for the 95% gate; until Finance decides, the gate counts unassigned inventory and the unused reserved capacity is shown beside it.", "half"));
+            "From the license pool (Graph's subscribed SKUs) and the licenses read for each person. The policy and the proposal name different pools for the 95% gate; until Finance decides, the gate counts unassigned inventory and the unused reserved capacity is shown beside it. The gate decides whether more licenses are bought; it is not the spare seats Costs and savings keeps for joiners, which decide what is a saving.", "half"));
     }
 
     /* What needs someone's attention before the figures can be relied on. */

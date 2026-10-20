@@ -96,11 +96,15 @@ $ErrorActionPreference = 'Stop'
 $script:AgentOperations = 'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpdateOperation-BotPublish', 'BotUpdateOperation-BotShare',
                           'BotUpdateOperation-BotNameUpdate', 'BotUpdateOperation-BotAuthUpdate', 'BotUpdateOperation-BotIconUpdate',
                           'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
-                          'BotComponentCollectionCreate', 'BotComponentCollectionDelete'
+                          'BotComponentCollectionCreate', 'BotComponentCollectionDelete',
+                          # 2.7.0: administrators' actions on agents (record type CopilotAgentManagement), from the night they are added.
+                          'BlockedAgent', 'UnblockedAgent', 'DeployedAgent', 'RemovedAgent', 'DeletedAgent', 'UpdatedAgent', 'UpdatedTenantSettings'
 $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
 # The activity database's record types (2.6.9): AI apps outside Copilot, Power BI and Power Apps. ActivityRecordTypes in
 # the settings replaces the list.
-$script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp'
+# 2.7.0: Teams meeting AI notes too. The data loss prevention types (ComplianceDLPSharePoint, ComplianceDLPExchange,
+# DLPEndpoint) are added by naming them in ActivityRecordTypes: their volume is the tenant's every DLP match.
+$script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp', 'TeamCopilotInteraction'
 # The delete guard's exit code (2.6.5): a loader that kept its table's last good load, which the night goes on from.
 . (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }

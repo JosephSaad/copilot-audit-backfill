@@ -348,11 +348,11 @@ if (-not $SkipLicenseDatabase) {
         # what it was shredding shredded again, and no more.
         $unshredded = [long] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
 SELECT COUNT_BIG(*) FROM audit.CopilotAudit AS a
-WHERE a.Operation NOT LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
+WHERE a.Operation NOT LIKE N'Bot%' AND a.Operation NOT IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings') AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
 "@)
         $unshreddedAgents = [long] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
 SELECT COUNT_BIG(*) FROM audit.CopilotAudit AS a
-WHERE a.Operation LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.AgentEvent AS e WHERE e.RecordId = a.RecordId);
+WHERE (a.Operation LIKE N'Bot%' OR a.Operation IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings')) AND NOT EXISTS (SELECT 1 FROM audit.AgentEvent AS e WHERE e.RecordId = a.RecordId);
 "@)
         $marks = [string] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql "SELECT ISNULL(STRING_AGG(CONVERT(NVARCHAR(MAX), Name), N','), N'') FROM audit.PipelineSetting WHERE Name IN (N'LicenseShredInProgress', N'LicenseShredCompleteUtc');")
         $stopped = $marks -like '*LicenseShredInProgress*'
@@ -393,7 +393,7 @@ WHERE NOT EXISTS (SELECT 1 FROM audit.LicenseEventProperty AS p WHERE p.RecordId
                 # back, the procedure does.
                 $from = [string] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
 SELECT CONVERT(NVARCHAR(19), DATEADD(SECOND, -1, MIN(a.CreatedDateTime)), 126) FROM audit.CopilotAudit AS a
-WHERE a.Operation NOT LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
+WHERE a.Operation NOT LIKE N'Bot%' AND a.Operation NOT IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings') AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
 "@)
                 Write-Done ("license events: shredding the records from {0}Z on ({1:N0} not shredded yet)..." -f $from.Replace('T', ' '), $unshredded)
                 Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents @SinceUtc = @s;' -Parameters @{ '@s' = $from }

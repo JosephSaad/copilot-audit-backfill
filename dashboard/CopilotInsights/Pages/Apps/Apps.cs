@@ -66,6 +66,29 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
                         Math.Round(r.Prompts / (double)Math.Max(1, r.People), 1), Math.Round(r.Resources / (double)Math.Max(1, r.N), 2),
                         Chart.Sparkline(axis, buckets.Select(b => (double?)trend.Where(x => x.AppKey == r.AppKey && x.Bucket == b.Key).Sum(x => x.People)).ToList(), r.App)]);
         Panels.Add(new("Every app", WithTrendNote(t.Render()), "Came back: people who used Copilot in the app on more than one day."));
+
+        /* 2.7.0: beside Copilot, from the activity database where it is set up: Teams meeting AI notes (Facilitator), Power BI
+           and Power Apps, by the people who used each, in the same period and part of the organization. */
+        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.ActivityUserDay) THEN 1 ELSE 0 END;") == 1)
+        {
+            var other = await Db.QueryAsync<(DateTime Bucket, string Product, int People, long Events)>($@"
+SELECT {Ctx.BucketSql("d")}, a.Product, COUNT(DISTINCT a.Upn), SUM(CAST(a.Events AS BIGINT))
+FROM audit.ActivityUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Upn {Ctx.Scope("u.UserKey")}
+JOIN bi.DimDate AS d ON d.[Date] = a.[Day]
+WHERE a.[Day] BETWEEN @d0 AND @d1
+GROUP BY {Ctx.BucketSql("d")}, a.Product;", Ctx.Args());
+            var totals = await Db.QueryAsync<(string Product, int People, long Events)>($@"
+SELECT a.Product, COUNT(DISTINCT a.Upn), SUM(CAST(a.Events AS BIGINT))
+FROM audit.ActivityUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Upn {Ctx.Scope("u.UserKey")}
+WHERE a.[Day] BETWEEN @d0 AND @d1 GROUP BY a.Product;", Ctx.Args());
+            var products = totals.OrderByDescending(x => x.People).Select(x => x.Product).ToList();
+            if (totals.FirstOrDefault(x => x.Product == "Teams AI notes") is { People: > 0 } notes)
+                Kpis.Add(new("Teams meeting AI notes", Num(notes.People), $"people, {Pct(Ratio(notes.People, people))} of those using Copilot; {notes.Events:#,0} meeting AI events"));
+            Panels.Add(new("Teams meeting AI notes, Power BI and Power Apps",
+                Chart.Line(axis, products.Select((p, i) => new Series(p, buckets.Select(b => (double?)other.Where(x => x.Bucket == b.Key && x.Product == p).Sum(x => x.People)).ToList(), i + 1)).ToList(), Fmt.Count, "People using each, beside Copilot"),
+                $"People who used each in every {(Ctx.Daily ? "day" : "week")}, from the audit log's own records of them (the activity database): Teams meeting AI notes " +
+                "(Facilitator's notes and live notes in meetings), Power BI and Power Apps. " + TrendNote, "full"));
+        }
     }
 }
 

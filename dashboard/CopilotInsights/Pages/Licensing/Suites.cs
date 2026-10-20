@@ -75,7 +75,8 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         string MoveUrl(SuiteMove mv, string from) => Ctx.Url(Request.Path, extra: (mv == SuiteMove.DropDuplicate ? "copy=suite" : $"move={mv.ToString().ToLowerInvariant()}") + $"&suite={Uri.EscapeDataString(from)}");
         foreach (var ml in summary.Moves)
             mt.Rows.Add([ml.Move == SuiteMove.CutSeats ? SuiteRules.Label(ml.Move) : new Link(ml.Move == SuiteMove.DropDuplicate ? "Remove the second suite" : SuiteRules.Label(ml.Move), MoveUrl(ml.Move, ml.From)),
-                ml.From, ml.To, ml.People, Math.Round(ml.Move == SuiteMove.Train ? ml.AtStake : ml.Saving), ml.Confidence]);
+                /* 2.7.0: a move to train saves nothing: what rides on it is said, not added to the month's column. */
+                ml.From, ml.To, ml.People, ml.Move == SuiteMove.Train ? $"— ({Math.Round(ml.AtStake):#,0} at stake)" : Math.Round(ml.Saving), ml.Confidence]);
         if (copies.Count > 0)
             mt.Rows.Add([new Link("Remove the add-on the suite covers", Ctx.Url(Request.Path, extra: "copy=addon")), "E5 or E7", "(an AI saving)", copies.Count, Math.Round(copies.Sum(CopyWorth)), "High"]);
         Panels.Add(new("What could change", mt.Rows.Count == 0 ? new HtmlString("<p class=\"muted\">Every holder's suite fits what the data shows of them.</p>") : mt.Render(),

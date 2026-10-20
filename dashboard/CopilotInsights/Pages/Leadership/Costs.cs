@@ -20,7 +20,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     public override string Persona => "Leadership";
     public override string Intro => "Every figure is a month: the licenses held now at their price, and what the other sources billed or used over their last 30 days. "
         + "Savings are what would stop being spent if the action beside each were taken. Value is the time the tools save, valued at Admin's hourly cost: "
-        + "Copilot's interactions, the flows' runs and Copilot in Power BI's requests. Prices and assumptions are in Admin > Targets and assumptions.";
+        + "Copilot's interactions, the flows' runs and Copilot in Power BI's requests. Every price and assumption, and where it is set, is on Leadership > How figures are calculated.";
     public override bool UsesTeam => false;
 
     /// <summary>The dashboard below the heading, built here and written by Costs.cshtml after the heading and filters.</summary>
@@ -137,7 +137,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         var hours = v.HourlyCost > 0 ? value / v.HourlyCost : 0;
         sb.Append(Tile($"Value a month ({cur}, estimate)", $"The time Copilot, the flows and Copilot in Power BI save, at Admin's hourly cost of {CostRules.Money(v.HourlyCost, cur)}. People: the hours over {HoursAMonth:0} working hours a month.",
             N(value), "value", $"{hours:#,0} hours saved at {CostRules.Money(v.HourlyCost, cur)} an hour",
-            hours >= HoursAMonth ? $"<span class=\"cb-people\"><b>{hours / HoursAMonth:#,0}</b> people's working time</span>" : "", (Whole("/leadership/value") is { } vu ? ("Value and time saved", vu) : null), WhyHtml(_why.GetValueOrDefault("value"))));
+            hours >= HoursAMonth ? $"<span class=\"cb-people\">the working time of <b>{hours / HoursAMonth:#,0}</b> full-time people</span>" : "", (Whole("/leadership/value") is { } vu ? ("Value and time saved", vu) : null), WhyHtml(_why.GetValueOrDefault("value"))));
         sb.Append(Tile("Return on the spend", spend > 0 && value > 0 ? $"Value a month over spend a month: every {CostRules.Money(1, cur)} spent returns {CostRules.Money(Math.Round(value / spend, 2), cur)}. The marker on the dial is the return once the savings are taken: the same value for less spend." : "Value a month over spend a month.",
             spend > 0 ? Times(value / spend) : "—", "roi", after > 0 && saving > 0 ? $"{Times(value / after)} once the savings are taken" : "value over spend",
             spend > 0 ? Gauge((double)(value / spend), after > 0 && saving > 0 ? (double)(value / after) : null) : "", why: WhyHtml(_why.GetValueOrDefault("roi"))));
@@ -387,8 +387,9 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
                 };
                 var link = m.Move == SuiteMove.CutSeats ? open("/licensing/pool", null)
                     : open("/licensing/suites", (m.Move == SuiteMove.DropDuplicate ? "copy=suite" : $"move={m.Move.ToString().ToLowerInvariant()}") + $"&suite={Uri.EscapeDataString(m.From)}");
-                sb.Append($"<li><span class=\"mw\">{(link is null ? E(what) : $"<a href=\"{E(link)}\">{E(what)}</a>")}</span><b title=\"{(m.Move == SuiteMove.Train ? "riding on it" : "saved")} a month\">{E(N(worth))}</b><span class=\"conf {m.Confidence.ToLowerInvariant()}\">{E(m.Confidence)}</span></li>");
-            }            sb.Append("</ul>");
+                sb.Append($"<li><span class=\"mw\">{(link is null ? E(what) : $"<a href=\"{E(link)}\">{E(what)}</a>")}</span>{(m.Move == SuiteMove.Train ? $"<b class=\"muted\" title=\"at stake a month, not saved\">({E(N(worth))} at stake)</b>" : $"<b title=\"saved a month\">{E(N(worth))}</b>")}<span class=\"conf {m.Confidence.ToLowerInvariant()}\">{E(m.Confidence)}</span></li>");
+            }
+            sb.Append("</ul>");
         }
         else sb.Append("<p class=\"cb-foot\">Every holder's suite fits what the data shows of them.</p>");
         sb.Append($"<p class=\"cb-foot\">{(s.PowerBiKnown ? "" : "Power BI activity is not loaded, so no E5 holder is offered E3. ")}Outside the savings above: each move names what to check first in {(open("/licensing/suites", null) is { } sf ? $"<a href=\"{E(sf)}\">Licensing › Suite fit</a>" : "Licensing › Suite fit, for the Licensing role")}.</p>");

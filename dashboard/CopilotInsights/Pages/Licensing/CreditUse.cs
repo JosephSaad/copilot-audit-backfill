@@ -58,7 +58,8 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
             if (billedNow.Days > 0)
             {
                 var billedMonth = CostRules.Monthly(billedNow.Credits, billedNow.Days);
-                Kpis.Add(new("Billed by the admin center", N(billedMonth), billedMonth > 0 ? $"credits a month: the estimate is {total.Credits / billedMonth:P0} of it" : "credits a month",
+                /* 2.7.0: what was billed first, and the estimate as the share of it traced to people. */
+                Kpis.Insert(0, new("Billed by the admin center", N(billedMonth), billedMonth > 0 ? $"credits a month; {total.Credits / billedMonth:P0} of it traced to people below" : "credits a month",
                     Href: Open("/leadership/costs", extra: $"area={CostAreas.Slot(CostAreas.Studio)}")));
             }
         }

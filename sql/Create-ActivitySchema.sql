@@ -83,3 +83,25 @@ IF OBJECT_ID(N'audit.PlatformActivity', N'U') IS NULL
     );
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.PlatformActivity') AND name = N'UX_PlatformActivity_Record')
     CREATE UNIQUE NONCLUSTERED INDEX UX_PlatformActivity_Record ON audit.PlatformActivity (RecordId);
+
+/* 2.7.0: one row per data loss prevention (DLP) record, where the activity database is asked for the DLP record types
+   (ComplianceDLPSharePoint, ComplianceDLPExchange, DLPEndpoint): which policy and rule matched, for whom, in which
+   workload. The first policy and rule of the record; no file or message is named. Teams meeting AI notes
+   (TeamCopilotInteraction) go to audit.PlatformActivity, as the product Teams AI notes. */
+IF OBJECT_ID(N'audit.DlpMatch', N'U') IS NULL
+    CREATE TABLE audit.DlpMatch
+    (
+        RecordId        VARCHAR(64)    NOT NULL,
+        CreatedDateTime DATETIME2(0)   NOT NULL,   -- UTC
+        Workload        NVARCHAR(64)   NULL,       -- SharePoint, OneDrive, Exchange, Endpoint
+        Operation       NVARCHAR(128)  NULL,       -- DlpRuleMatch, DlpRuleUndo, DlpInfo
+        UserId          NVARCHAR(256)  NULL,
+        PolicyName      NVARCHAR(400)  NULL,
+        RuleName        NVARCHAR(400)  NULL,
+        Severity        NVARCHAR(32)   NULL,
+        Policies        INT            NOT NULL,   -- the policies the record names
+        ShreddedUtc     DATETIME2(0)   NOT NULL CONSTRAINT DF_DlpMatch_Shredded DEFAULT (SYSUTCDATETIME()),
+        INDEX CCI_DlpMatch CLUSTERED COLUMNSTORE
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.DlpMatch') AND name = N'UX_DlpMatch_Record')
+    CREATE UNIQUE NONCLUSTERED INDEX UX_DlpMatch_Record ON audit.DlpMatch (RecordId);

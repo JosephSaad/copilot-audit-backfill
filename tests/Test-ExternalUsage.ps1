@@ -233,7 +233,7 @@ $an = Get-PipelineStep -Setting $act -Today $today -Root 'R:'
 $load = $an | Where-Object Name -eq 'AI apps, Power BI and Power Apps'
 $roll = $an | Where-Object Name -eq 'AI apps, Power BI and Power Apps rollup'
 Assert-That ($load.Optional -and $roll.Optional -and $load.Arguments.Database -eq 'CopilotActivity' -and $load.Arguments.Incremental -and
-             (@($load.Arguments.RecordTypes) -join ',') -eq 'ConnectedAIAppInteraction,PowerBIAudit,PowerAppsApp' -and -not $load.Arguments.ContainsKey('Operations')) `
+             (@($load.Arguments.RecordTypes) -join ',') -eq 'ConnectedAIAppInteraction,PowerBIAudit,PowerAppsApp,TeamCopilotInteraction' -and -not $load.Arguments.ContainsKey('Operations')) `
     'ActivityDatabase adds an optional incremental load of the three record types into it, naming no operation'
 Assert-That ([array]::IndexOf(@($an.Name), 'Copilot interactions') -lt [array]::IndexOf(@($an.Name), 'AI apps, Power BI and Power Apps') -and
              $roll.Script -eq [System.IO.Path]::Combine('R:', 'tools/Update-ActivityRollup.ps1') -and $roll.Arguments.Database -eq 'CopilotAudit' -and $roll.Arguments.ActivityDatabase -eq 'CopilotActivity') `

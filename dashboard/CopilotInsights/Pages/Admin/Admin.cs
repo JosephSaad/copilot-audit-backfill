@@ -128,7 +128,7 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
         Card("People placed in the org chart", $"{d.Levelled:#,0} of {d.People:#,0} directory people sit under the top. The rest see only themselves and the people under them.",
             d.People > 0 && d.Levelled >= d.People * 0.95 ? "status-ok" : "status-warn");
         var seen = d.Found + d.NotFound + d.NotLooked;
-        Card("Users matched to the directory", $"{d.Found:#,0} of {seen:#,0} people in the audit data are in AD. {d.NotFound:#,0} have left; {d.NotLooked:#,0} were never looked up. Unmatched people count only in whole-organization views.",
+        Card("Users matched to the directory", $"{d.Found:#,0} of {seen:#,0} people in the audit data are in AD. {d.NotFound:#,0} {(d.NotFound == 1 ? "has" : "have")} left; {d.NotLooked:#,0} {(d.NotLooked == 1 ? "was" : "were")} never looked up. Unmatched people count only in whole-organization views.",
             seen > 0 && d.Found >= seen * 0.95 ? "status-ok" : "status-warn");
         Card("Latest day with data", d.LastKey is null ? "No data yet." : $"{d.LastKey / 10000}-{d.LastKey / 100 % 100:00}-{d.LastKey % 100:00}", d.LastKey is null ? "status-bad" : "status-ok");
         Panels.Add(new("Directory and security model", new HtmlString(sb.Append("</div>").ToString())));
@@ -144,6 +144,13 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
             var warn = await S.Settings.IntAsync("CertificateWarnDays", 30);
             if (certs.Count == 0)
                 OpsCard("App certificates", "Not recorded yet: the pipeline records each certificate it signs in with at the start of every run.", "status-warn");
+            /* 2.7.0: the next certificate to expire is a figure at the top, beside the steps behind: it sat mid-page. */
+            if (certs.Where(c => c.ExpiresUtc is not null).OrderBy(c => c.ExpiresUtc).FirstOrDefault() is { } soonest)
+            {
+                var left = (int)Math.Floor(Certificates.DaysLeft(soonest, DateTime.UtcNow) ?? 0);
+                Kpis.Add(new("Next certificate to expire", left < 0 ? "Expired" : Count(left, "day"), $"{Certificates.Name(soonest.Purpose)}, on {When(soonest.ExpiresUtc)}",
+                    left < 0 ? "crit" : left <= warn ? "warn" : null));
+            }
             foreach (var c in certs)
             {
                 var (text, cls) = Certificates.Status(c, warn, DateTime.UtcNow);
@@ -188,7 +195,7 @@ FROM w;")).Single();
                 "As the job server held each certificate at the start of its last run. A certificate the settings name that the job server does not hold is shown as not found."));
         }
 
-        /* AI usage outside Microsoft 365 Copilot (2.6.2): the last run of each optional loader. Plumbing so far: no report reads the tables. */
+        /* AI usage outside Microsoft 365 Copilot (2.6.2): the last run of each optional loader. */
         try
         {
             var loaded = await ExternalUsage.ReadAsync(Db);
@@ -199,7 +206,7 @@ FROM w;")).Single();
                 ext.Append($"<div class=\"card\"><h3 class=\"{cls}\">{E(ExternalUsage.Name(source))}</h3><p>{E(text)}</p></div>");
             }
             Panels.Add(new("Other AI usage: GitHub Copilot and Foundry", new HtmlString(ext.Append("</div>").ToString()),
-                "Optional loads of usage and cost from GitHub Copilot and from Foundry and Azure OpenAI, into tables of their own (audit.GitHubCopilot... and audit.Foundry...). Each run is a row of audit.ExternalUsageRun. No report reads these tables yet; a reporting tool can."));
+                "Optional loads of usage and cost from GitHub Copilot and from Foundry and Azure OpenAI, each run recorded with what it loaded. Leadership > Costs and savings and Governance > AI apps beyond Copilot read them."));
         }
         catch (Microsoft.Data.SqlClient.SqlException) { /* A site account not yet granted the table (the installer grants it): the panel is left out. */ }
 
@@ -344,9 +351,9 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             Input("MinGroupSize", "Minimum group size", set.GetValueOrDefault("MinGroupSize"), 4, "number") +
             Select("DefaultDays", "Default period (days)", ReportContext.DayChoices.Select(d => d.ToString()), set.GetValueOrDefault("DefaultDays")) +
             Input("InactiveDays", "Unused after (days)", set.GetValueOrDefault("InactiveDays"), 4, "number") +
-            Input("LicenseMonthlyCost", "License cost a month", set.GetValueOrDefault("LicenseMonthlyCost"), 6) +
+            Input("LicenseMonthlyCost", "Copilot license cost a month, after discount", set.GetValueOrDefault("LicenseMonthlyCost"), 6) +
             Input("LicenseCurrency", "Currency", set.GetValueOrDefault("LicenseCurrency"), 4) +
-            Input("PaygInteractionCost", "Pay-as-you-go cost an interaction", set.GetValueOrDefault("PaygInteractionCost") ?? "0.12", 6) +
+            Input("PaygInteractionCost", $"Pay-as-you-go cost an interaction ({set.GetValueOrDefault("LicenseCurrency") ?? "USD"})", set.GetValueOrDefault("PaygInteractionCost") ?? "0.12", 6) +
             ZonePicker(set.GetValueOrDefault(Zones.Setting), reportingZone) +
             Button("Save settings")) +
             /* What each setting does, one line a setting (2.4.10: it was one paragraph for all of them). */

@@ -80,6 +80,30 @@ GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
         Panels.Add(new("What Copilot read, by type",
             Chart.Bars(types.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Type, t.N, Note: $"{t.Labeled:#,0} labeled, {t.Blocked:#,0} blocked")).ToList(), Fmt.Count, "Accessed resources by type"),
             "Every resource an interaction read: files, mail, Teams messages, web results. Hover for how many were labeled or blocked."));
+
+        /* 2.7.0: the organization's data loss prevention matches, where the activity database loads the DLP record types:
+           by policy and over time, for the part of the organization shown (matches that name no one count for the whole
+           organization only). Counts, no file or message named. */
+        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.DlpDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.DlpDay) THEN 1 ELSE 0 END;") == 1)
+        {
+            var dlpFrom = Ctx.Root is null ? "audit.DlpDay AS m" : $"audit.DlpDay AS m JOIN bi.DimUser AS u ON u.UserPrincipalName = m.Upn {Ctx.Scope("u.UserKey")}";
+            var dlp = await Db.QueryAsync<(DateTime Bucket, string Workload, long Matches, long Undone)>($@"
+SELECT {Ctx.BucketSql("d")}, m.Workload, SUM(CAST(m.Matches AS BIGINT)), SUM(CAST(m.Undone AS BIGINT))
+FROM {dlpFrom} JOIN bi.DimDate AS d ON d.[Date] = m.[Day]
+WHERE m.[Day] BETWEEN @d0 AND @d1 GROUP BY {Ctx.BucketSql("d")}, m.Workload;", Ctx.Args());
+            var policies = await Db.QueryAsync<(string Policy, long Matches, int People, long Undone)>($@"
+SELECT m.PolicyName, SUM(CAST(m.Matches AS BIGINT)), COUNT(DISTINCT NULLIF(m.Upn, N'')), SUM(CAST(m.Undone AS BIGINT))
+FROM {dlpFrom} WHERE m.[Day] BETWEEN @d0 AND @d1 GROUP BY m.PolicyName ORDER BY SUM(m.Matches) DESC;", Ctx.Args());
+            long matches = dlp.Sum(x => x.Matches), undone = dlp.Sum(x => x.Undone);
+            Kpis.Add(new("DLP rule matches", Num(matches), $"{Count(policies.Count, "policy", "policies")}; {Pct(Ratio(undone, matches))} overridden or reported as a false positive", Href: null));
+            var workloads = dlp.Select(x => x.Workload).Distinct().OrderBy(x => x).ToList();
+            Panels.Add(new("Data loss prevention matches", Chart.Columns(Labels(), workloads.Select((w, i) => new Series(w.Length == 0 ? "(not named)" : w,
+                    buckets.Select(b => (double?)dlp.Where(x => x.Bucket == b.Key && x.Workload == w).Sum(x => x.Matches)).ToList(), i + 1)).ToList(), Fmt.Count, "DLP rule matches"),
+                $"Each time a data loss prevention rule matched content or an action, by workload, from the audit log's own DLP records (the activity database). {TrendNote}", "half"));
+            Panels.Add(new("Matches by policy", Chart.Bars(policies.Take(12).Select(p => new Bar(p.Policy, p.Matches,
+                    Note: $"{(p.People >= Ctx.MinGroupSize ? p.People.ToString("#,0") : $"fewer than {Ctx.MinGroupSize}")} people; {p.Undone:#,0} overridden or false positive")).ToList(), Fmt.Count, "DLP matches by policy"),
+                "The policies that matched most. An override or a reported false positive is the person's own word that the match was wrong; a policy with many is worth tuning.", "half"));
+        }
     }
 }
 

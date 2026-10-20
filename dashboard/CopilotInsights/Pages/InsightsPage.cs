@@ -363,6 +363,9 @@ EXEC sys.sp_executesql @sql;");
             Denied = $"This page lists named people, so it needs the {RequiredRole} role. {Roles.Describe[RequiredRole]} An administrator can grant it.";
         Stale = await S.Freshness.BannerAsync();
         if (UsesFilters) await LoadMarkersAsync();
+        /* 2.7.0: an information icon on every field of the forms this page writes (see FieldTips). */
+        try { _fieldTips = FieldTips.For(Request.Path, await Db.QueryAsync<(string Name, string? Description)>("SELECT Name, Description FROM dash.Setting;")); }
+        catch (Microsoft.Data.SqlClient.SqlException) { _fieldTips = FieldTips.For(Request.Path, []); }
         if (Denied is not null)
         {
             Administrators = await AdministratorsAsync();
@@ -554,17 +557,24 @@ EXEC sys.sp_executesql @sql;");
     /// <summary>"&amp;tenant=Name" with several tenants (2.4.12): a form posts to the tenant its page showed (see <see cref="TenantAccessor.SelectAsync"/>).</summary>
     protected string TenantQuery => HttpContext.RequestServices.GetService<TenantAccessor>()?.FormQuery is { } t ? "&" + t : "";
 
-    protected static string Input(string name, string label, string? value, int size = 24, string type = "text") =>
-        $"<label>{E(label)}<input type=\"{type}\" name=\"{name}\" value=\"{E(value)}\" size=\"{size}\"/></label>";
+    /* The tips for this page's forms (2.7.0), read as the page is prepared. */
+    IReadOnlyDictionary<string, string>? _fieldTips;
 
-    protected static string Select(string name, string label, IEnumerable<string> options, string? selected) =>
+    /// <summary>A field's information icon, where the page has a tip for it (2.7.0).</summary>
+    string Tip(string name, string label) =>
+        _fieldTips is { } tips && tips.TryGetValue(name, out var tip) ? ((HtmlString)InfoTip.Icon(tip, label)).Value ?? "" : "";
+
+    protected string Input(string name, string label, string? value, int size = 24, string type = "text") =>
+        $"<label>{E(label)}<input type=\"{type}\" name=\"{name}\" value=\"{E(value)}\" size=\"{size}\"/>{Tip(name, label)}</label>";   // after the field: a label's clicks go to its first control
+
+    protected string Select(string name, string label, IEnumerable<string> options, string? selected) =>
         $"<label>{E(label)}<select name=\"{name}\">" +
-        string.Concat(options.Select(o => $"<option{(o == selected ? " selected" : "")}>{E(o)}</option>")) + "</select></label>";
+        string.Concat(options.Select(o => $"<option{(o == selected ? " selected" : "")}>{E(o)}</option>")) + "</select>" + Tip(name, label) + "</label>";
 
     /// <summary>A choice whose stored value is not what the reader should see: "ActiveShare" is offered as "Share of people active".</summary>
-    protected static string Select(string name, string label, IEnumerable<(string Value, string Label)> options, string? selected) =>
+    protected string Select(string name, string label, IEnumerable<(string Value, string Label)> options, string? selected) =>
         $"<label>{E(label)}<select name=\"{name}\">" +
-        string.Concat(options.Select(o => $"<option value=\"{E(o.Value)}\"{(o.Value == selected ? " selected" : "")}>{E(o.Label)}</option>")) + "</select></label>";
+        string.Concat(options.Select(o => $"<option value=\"{E(o.Value)}\"{(o.Value == selected ? " selected" : "")}>{E(o.Label)}</option>")) + "</select>" + Tip(name, label) + "</label>";
 
     protected static string Button(string text, string? confirm = null, bool quiet = false) =>
         $"<button class=\"btn{(quiet ? " quiet" : "")}\" type=\"submit\"{(confirm is null ? "" : $" data-confirm=\"{E(confirm)}\"")}>{E(text)}</button>";

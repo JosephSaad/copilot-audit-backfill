@@ -713,7 +713,7 @@ DECLARE t CURSOR LOCAL FAST_FORWARD FOR
                              (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun'),
                              /* 2.6.6's cost tables and 2.6.9's AI apps: a new install makes the role after their scripts ran. */
                              (N'FabricCapacityDay'), (N'FabricWorkloadDay'), (N'PowerAutomateFlow'), (N'PowerPlatformUserActivity'),
-                             (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource')) AS v (name)
+                             (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource'), (N'ActivityUserDay'), (N'DlpDay')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;

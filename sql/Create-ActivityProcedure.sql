@@ -16,7 +16,10 @@
     stopped part way leaves it, and the next run reads every record again.
 
     Which table a record goes to is its Workload: ConnectedAIApp, PowerBI or
-    PowerApps. Any other record is left alone.
+    PowerApps; from 2.7.0 its record type for Teams meeting AI notes
+    (TeamCopilotInteraction, to audit.PlatformActivity as Teams AI notes) and
+    data loss prevention (ComplianceDLP*, DLPEndpoint, to audit.DlpMatch). Any
+    other record is left alone.
 
     The fields read are those Microsoft documents for the records, and those
     the first records seen carried. Where a field is named differently, it is
@@ -42,7 +45,7 @@ BEGIN
     IF @BatchSize IS NULL OR @BatchSize < 1000 SET @BatchSize = 1000;
 
     DECLARE @lock INT, @msg NVARCHAR(400), @cursor VARCHAR(64) = '', @maxId VARCHAR(64),
-            @calls BIGINT = 0, @platform BIGINT = 0, @batch INT = 1;
+            @calls BIGINT = 0, @platform BIGINT = 0, @dlp BIGINT = 0, @batch INT = 1;
 
     EXEC @lock = sys.sp_getapplock @Resource = N'audit.usp_ShredActivity', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = -1;
     IF @lock < 0
@@ -79,9 +82,14 @@ BEGIN
 
         DROP TABLE IF EXISTS #rec;
         SELECT a.RecordId, a.CreatedDateTime,
-               COALESCE(t.Workload, CASE WHEN a.RecordType LIKE N'connectedAIApp%' THEN N'ConnectedAIApp'
+               /* 2.7.0: by record type first where the workload is shared with other records (Teams, DLP). */
+               CASE WHEN a.RecordType LIKE N'teamCopilot%' THEN N'TeamsAI'
+                    WHEN a.RecordType LIKE N'complianceDLP%' OR a.RecordType LIKE N'dlpEndpoint%' OR t.Operation IN (N'DlpRuleMatch', N'DlpRuleUndo', N'DlpInfo') THEN N'DLP'
+                    ELSE COALESCE(t.Workload, CASE WHEN a.RecordType LIKE N'connectedAIApp%' THEN N'ConnectedAIApp'
                                          WHEN a.RecordType LIKE N'powerBI%' THEN N'PowerBI'
-                                         WHEN a.RecordType LIKE N'powerApps%' THEN N'PowerApps' END) AS Workload,
+                                         WHEN a.RecordType LIKE N'powerApps%' THEN N'PowerApps' END) END AS Workload,
+               LEFT(t.Workload, 64) AS SourceWorkload,
+               LEFT(t.PolicyName, 400) AS PolicyName, LEFT(t.RuleName, 400) AS RuleName, LEFT(t.Severity, 32) AS Severity, pc.Policies,
                LEFT(COALESCE(t.Operation, a.Operation), 128) AS Operation,
                LEFT(COALESCE(t.UserId, a.UserPrincipalName, a.UserId), 256) AS UserId,
                TRY_CAST(t.UserType AS INT) AS UserType,
@@ -127,8 +135,13 @@ BEGIN
                 ObjectId             NVARCHAR(400)  '$.ObjectId',
                 WorkSpaceName        NVARCHAR(400)  '$.WorkSpaceName',
                 EnvironmentName      NVARCHAR(400)  '$.EnvironmentName',
-                AdditionalInfo       NVARCHAR(MAX)  '$.AdditionalInfo'
+                AdditionalInfo       NVARCHAR(MAX)  '$.AdditionalInfo',
+                PolicyName           NVARCHAR(400)  '$.PolicyDetails[0].PolicyName',
+                RuleName             NVARCHAR(400)  '$.PolicyDetails[0].Rules[0].RuleName',
+                Severity             NVARCHAR(32)   '$.PolicyDetails[0].Rules[0].Severity',
+                PolicyDetails        NVARCHAR(MAX)  '$.PolicyDetails' AS JSON
             ) AS t
+        OUTER APPLY (SELECT COUNT(*) AS Policies FROM OPENJSON(ISNULL(t.PolicyDetails, N'[]'))) AS pc
         WHERE a.RecordId > @cursor AND a.RecordId <= @maxId
           AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc);
 
@@ -159,11 +172,19 @@ BEGIN
 
         DELETE p FROM audit.PlatformActivity AS p JOIN #rec AS r ON r.RecordId = p.RecordId;
         INSERT INTO audit.PlatformActivity (RecordId, CreatedDateTime, Product, Operation, UserId, UserType, ItemName, Container)
-        SELECT r.RecordId, r.CreatedDateTime, CASE r.Workload WHEN N'PowerBI' THEN 'Power BI' ELSE 'Power Apps' END,
+        SELECT r.RecordId, r.CreatedDateTime, CASE r.Workload WHEN N'PowerBI' THEN 'Power BI' WHEN N'TeamsAI' THEN 'Teams AI notes' ELSE 'Power Apps' END,
                r.Operation, LOWER(r.UserId), r.UserType, r.ItemName, r.Container
         FROM #rec AS r
-        WHERE r.Workload IN (N'PowerBI', N'PowerApps');
+        WHERE r.Workload IN (N'PowerBI', N'PowerApps', N'TeamsAI');
         SET @platform += @@ROWCOUNT;
+
+        /* 2.7.0: data loss prevention matches. */
+        DELETE m FROM audit.DlpMatch AS m JOIN #rec AS r ON r.RecordId = m.RecordId;
+        INSERT INTO audit.DlpMatch (RecordId, CreatedDateTime, Workload, Operation, UserId, PolicyName, RuleName, Severity, Policies)
+        SELECT r.RecordId, r.CreatedDateTime, r.SourceWorkload, r.Operation, LOWER(r.UserId), r.PolicyName, r.RuleName, r.Severity, ISNULL(r.Policies, 0)
+        FROM #rec AS r
+        WHERE r.Workload = N'DLP';
+        SET @dlp += @@ROWCOUNT;
         COMMIT TRANSACTION;
 
         SET @cursor = @maxId;
@@ -182,7 +203,7 @@ BEGIN
         IF @@ROWCOUNT = 0
             INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'ActivityShredCompleteUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));
     END;
-    SET @msg = CONCAT(N'Activity shred complete: ', FORMAT(@calls, 'N0'), N' AI app record(s), ', FORMAT(@platform, 'N0'), N' Power BI and Power Apps record(s).');
+    SET @msg = CONCAT(N'Activity shred complete: ', FORMAT(@calls, 'N0'), N' AI app record(s), ', FORMAT(@platform, 'N0'), N' Power BI, Power Apps and Teams AI notes record(s), ', FORMAT(@dlp, 'N0'), N' DLP record(s).');
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
     EXEC sys.sp_releaseapplock @Resource = N'audit.usp_ShredActivity', @LockOwner = 'Session';
     END TRY
