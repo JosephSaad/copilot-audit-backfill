@@ -1224,12 +1224,16 @@ namespace CopilotAudit
                 ["displayName"] = string.Format(CultureInfo.InvariantCulture, "CopilotBackfill {0:yyyyMMdd-HHmm}-{1:yyyyMMdd-HHmm}", w.StartUtc, w.EndUtc),
                 ["filterStartDateTime"] = w.StartUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
                 ["filterEndDateTime"] = w.EndUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-                ["operationFilters"] = _o.Operations,
             };
+            // A record-type load (2.6.9) asks for whole record types and names no operation.
+            if (_o.Operations != null && _o.Operations.Length > 0) body["operationFilters"] = _o.Operations;
             if (_o.RecordTypes != null && _o.RecordTypes.Length > 0) body["recordTypeFilters"] = _o.RecordTypes;
             var json = JsonSerializer.Serialize(body);
 
-            var resp = await SendControlAsync(HttpMethod.Post, _o.GraphBaseUrl + "/v1.0/security/auditLog/queries", json, ct).ConfigureAwait(false);
+            /* 2.6.9: a search by record type goes to beta: v1.0's list of record types lacks the newer ones
+               (ConnectedAIAppInteraction, CopilotInteraction among them) and may refuse them. Its records are read as any other's. */
+            var submitVersion = _o.RecordTypes != null && _o.RecordTypes.Length > 0 ? "/beta" : "/v1.0";
+            var resp = await SendControlAsync(HttpMethod.Post, _o.GraphBaseUrl + submitVersion + "/security/auditLog/queries", json, ct).ConfigureAwait(false);
             if (resp.Status == 429)
             {
                 Interlocked.Increment(ref _submitThrottles);

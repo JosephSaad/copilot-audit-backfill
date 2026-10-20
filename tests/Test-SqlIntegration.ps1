@@ -4394,6 +4394,80 @@ fab-it,2026-09-01,fab-it,F64,64,PayAsYouGo,24,2000000,70,12,276.48,USD,again
 finally { Remove-Item -LiteralPath $ccDir -Recurse -Force -ErrorAction SilentlyContinue }
 
 # ---------------------------------------------------------------------------
+# 24. The activity database (2.6.9): installed beside a Copilot database, its records shredded, and rolled up into the
+#     Copilot database for the dashboard.
+Write-Host "`n24. The activity database (Create-ActivitySchema.sql, Create-ActivityProcedure.sql, Create-CopilotActivityRollup.sql)" -ForegroundColor Cyan
+$actCop = "$($script:ITDatabase)_ActCop"; $actDb = "$($script:ITDatabase)_Act"
+$actConn = @{ SqlServer = $script:ITServer; TrustServerCertificate = $true }
+if (-not $script:ITIntegrated) { $actConn.SqlCredential = [pscredential]::new($script:ITUser, [Net.NetworkCredential]::new('', $script:ITPassword).SecurePassword) }
+try {
+    $first = & (Join-Path $root 'Install-CopilotAudit.ps1') @actConn -Database $actCop -SkipLicenseDatabase -ActivityDatabase $actDb -ReportingTimeZone 'Eastern Standard Time' 6>&1 | Out-String
+    Assert-That ([int] (Invoke-SqlText -Catalog $actDb -As Scalar -Sql "SELECT COUNT(*) FROM sys.objects WHERE object_id IN (OBJECT_ID(N'audit.AIAppCall'), OBJECT_ID(N'audit.PlatformActivity'), OBJECT_ID(N'audit.usp_ShredActivity'), OBJECT_ID(N'audit.usp_MergeCopilotLoad'));") -eq 4 -and
+                 [int] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql "SELECT COUNT(*) FROM sys.objects WHERE object_id IN (OBJECT_ID(N'audit.AIAppUserDay'), OBJECT_ID(N'audit.AIAppResource'), OBJECT_ID(N'audit.usp_RollupActivity'));") -eq 3 -and
+                 $first -like '*Load the activity history into*') 'the installer creates the activity database with its tables and procedures, and the rollup in the Copilot one; with no records, it says to load the history'
+
+    # Synthetic records as the backfill leaves them: compressed JSON, the record type as Graph names it.
+    Invoke-SqlText -Catalog $actDb -Sql @"
+CREATE TABLE audit.CopilotAudit (RecordId VARCHAR(64) NOT NULL, CreatedDateTime DATETIME2(7) NOT NULL, RecordType VARCHAR(128) NULL, Operation VARCHAR(128) NULL,
+ OrganizationId VARCHAR(64) NULL, UserType VARCHAR(64) NULL, UserId NVARCHAR(512) NULL, UserPrincipalName NVARCHAR(512) NULL, Service VARCHAR(128) NULL,
+ ObjectId NVARCHAR(4000) NULL, ClientIp VARCHAR(128) NULL, AdministrativeUnits NVARCHAR(4000) NULL, AuditDataGz VARBINARY(MAX) NULL, WindowId BIGINT NOT NULL, LoadId INT NULL, CsvImportId INT NULL);
+DECLARE @d0 DATETIME2(7) = CAST(CAST(DATEADD(DAY, -1, SYSUTCDATETIME()) AS DATE) AS DATETIME2(7));   -- yesterday, 00:00 UTC
+INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation, UserId, AuditDataGz, WindowId) VALUES
+('a1', DATEADD(MINUTE, 90, @d0), 'connectedAIAppInteraction', 'AIAppInteraction', 'Guest', COMPRESS(CAST(N'{"Workload":"ConnectedAIApp","UserType":10,"UserId":"Guest","UserKey":"335399cc","AppIdentity":"ConnectedAIApp.AzureAI.retail-prod-aif-0147","Subscription":{"Id":"b1b8637c"},"CopilotEventData":{"AppHost":"AzureAI","Contexts":[{"Id":"retail-prod-aif-0147.openai.azure.com"}],"ThreadId":"t1","Messages":[{"Id":"m1","isPrompt":false}]}}' AS NVARCHAR(MAX))), 1),
+('a2', DATEADD(HOUR, 15, @d0), 'connectedAIAppInteraction', 'AIAppInteraction', 'Robert@contoso.com', COMPRESS(CAST(N'{"Workload":"ConnectedAIApp","UserType":0,"UserId":"Robert@contoso.com","AppIdentity":"ConnectedAIApp.AzureAI.aza-dev-aif-0046","ApplicationName":"My app","CopilotEventData":{"ThreadId":"t2","Messages":[{"isPrompt":true}],"AccessedResources":[{"Status":"Failure"}]}}' AS NVARCHAR(MAX))), 1),
+('a3', DATEADD(HOUR, 16, @d0), 'connectedAIAppInteraction', 'AIAppInteraction', 'Robert@contoso.com', COMPRESS(CAST(N'{"Workload":"ConnectedAIApp","UserType":0,"UserId":"robert@contoso.com","AppIdentity":"ConnectedAIApp.AzureAI.aza-dev-aif-0046","ApplicationName":"My app","CopilotEventData":{"ThreadId":"t2","Messages":[{"isPrompt":false}]}}' AS NVARCHAR(MAX))), 1),
+('p1', DATEADD(HOUR, 12, @d0), 'powerBIAudit', 'ViewReport', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"PowerBI","Operation":"ViewReport","UserType":0,"UserId":"Ann@contoso.com","ItemName":"Sales","WorkSpaceName":"Finance"}' AS NVARCHAR(MAX))), 1),
+('p2', DATEADD(DAY, -60, @d0), 'powerAppsApp', 'LaunchPowerApp', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"PowerApps","Operation":"LaunchPowerApp","UserType":0,"UserId":"bob@contoso.com","AdditionalInfo":"{\"appName\":\"Expenses\",\"environmentName\":\"Default\"}"}' AS NVARCHAR(MAX))), 1),
+('x1', DATEADD(HOUR, 12, @d0), 'exchangeItem', 'Send', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"Exchange","Operation":"Send"}' AS NVARCHAR(MAX))), 1);
+"@
+    Invoke-SqlText -Catalog $actCop -Sql "INSERT INTO audit.PowerPlatformUserActivity (UserPrincipalName, Product, ActiveDays30) VALUES (N'old@contoso.com', 'Power BI', 3), (N'keep@contoso.com', 'Power Automate', 2);"
+    $second = & (Join-Path $root 'Install-CopilotAudit.ps1') @actConn -Database $actCop -SkipLicenseDatabase -ActivityDatabase $actDb 6>&1 | Out-String
+
+    $calls = Invoke-SqlText -Catalog $actDb -As Table -Sql 'SELECT RecordId, CallerKind, Caller, [Resource], ApplicationName, SubscriptionId, ThreadId, Prompts, Responses, CAST(Failed AS INT) AS Failed FROM audit.AIAppCall ORDER BY RecordId;'
+    $a1 = $calls.Rows | Where-Object RecordId -eq 'a1'; $a2 = $calls.Rows | Where-Object RecordId -eq 'a2'
+    Assert-That ($calls.Rows.Count -eq 3 -and $a1.CallerKind -eq 'Unattributed' -and $a1.Caller -eq 'unattributed' -and $a1.Resource -eq 'retail-prod-aif-0147' -and $a1.SubscriptionId -eq 'b1b8637c' -and [int] $a1.Responses -eq 1 -and
+                 $a2.CallerKind -eq 'Person' -and $a2.Caller -eq 'robert@contoso.com' -and $a2.Resource -eq 'aza-dev-aif-0046' -and $a2.ApplicationName -eq 'My app' -and [int] $a2.Prompts -eq 1 -and [int] $a2.Failed -eq 1) `
+        'AI app records are shredded: a Guest call is unattributed, a person''s keeps their sign-in (lowercased); the resource from the app identity, the subscription, prompts, responses and failures'
+    $pa = Invoke-SqlText -Catalog $actDb -As Table -Sql 'SELECT RecordId, Product, UserId, ItemName, Container FROM audit.PlatformActivity ORDER BY RecordId;'
+    Assert-That ($pa.Rows.Count -eq 2 -and $pa.Rows[0].Product -eq 'Power BI' -and $pa.Rows[0].UserId -eq 'ann@contoso.com' -and $pa.Rows[0].ItemName -eq 'Sales' -and $pa.Rows[0].Container -eq 'Finance' -and
+                 $pa.Rows[1].Product -eq 'Power Apps' -and $pa.Rows[1].ItemName -eq 'Expenses' -and $pa.Rows[1].Container -eq 'Default') 'Power BI and Power Apps records are shredded with their item and workspace or environment; another workload is left alone'
+
+    $yday = [datetime]::UtcNow.Date.AddDays(-1).ToString('yyyy-MM-dd'); $before = [datetime]::UtcNow.Date.AddDays(-2).ToString('yyyy-MM-dd')
+    $days = Invoke-SqlText -Catalog $actCop -As Table -Sql 'SELECT CONVERT(CHAR(10), [Day], 120) AS D, [Resource], CallerKind, Calls, Threads, Failures FROM audit.AIAppUserDay ORDER BY [Resource];'
+    Assert-That ($days.Rows.Count -eq 2 -and $days.Rows[1].Resource -eq 'retail-prod-aif-0147' -and $days.Rows[1].D -eq $before -and
+                 $days.Rows[0].D -eq $yday -and [int] $days.Rows[0].Calls -eq 2 -and [int] $days.Rows[0].Threads -eq 1 -and [int] $days.Rows[0].Failures -eq 1) `
+        'the rollup counts calls, conversations and failures by day in the reporting time zone (01:30 UTC yesterday is the day before in Eastern)'
+    $res = Invoke-SqlText -Catalog $actCop -As Table -Sql "SELECT [Resource], LineOfBusiness, Environment, SetBy FROM audit.AIAppResource ORDER BY [Resource];"
+    Assert-That ($res.Rows.Count -eq 2 -and $res.Rows[0].Environment -eq 'Development' -and $res.Rows[1].LineOfBusiness -eq 'Retail' -and $res.Rows[1].Environment -eq 'Production' -and $res.Rows[1].SetBy -eq 'Name') `
+        'each new resource is guessed from its name: retail-prod-aif-0147 is Retail, Production'
+    $pp = Invoke-SqlText -Catalog $actCop -As Table -Sql "SELECT UserPrincipalName, Product, ActiveDays30 FROM audit.PowerPlatformUserActivity ORDER BY Product, UserPrincipalName;"
+    Assert-That ((@($pp.Rows | ForEach-Object { "$($_.UserPrincipalName)/$($_.Product)/$($_.ActiveDays30)" }) -join ' ') -eq 'bob@contoso.com/Power Apps/0 keep@contoso.com/Power Automate/2 ann@contoso.com/Power BI/1') `
+        "Power BI and Power Apps' rows are the records', the CSV's Power Automate row stays ($((@($pp.Rows | ForEach-Object { "$($_.UserPrincipalName)/$($_.Product)/$($_.ActiveDays30)" }) -join ' ')))"
+
+    # An administrator's map is kept; the rollup again, from a day, leaves the days before it.
+    Invoke-SqlText -Catalog $actCop -Sql "UPDATE audit.AIAppResource SET LineOfBusiness = N'Retail Banking', SetBy = 'Admin' WHERE [Resource] = N'retail-prod-aif-0147';"
+    Invoke-SqlText -Catalog $actCop -Sql "EXEC audit.usp_RollupActivity @ActivityDatabase = @a, @SinceUtc = @s;" -Parameters @{ '@a' = $actDb; '@s' = $yday }
+    Assert-That ([int] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql 'SELECT COUNT(*) FROM audit.AIAppUserDay') -eq 2 -and
+                 [string] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql "SELECT LineOfBusiness FROM audit.AIAppResource WHERE [Resource] = N'retail-prod-aif-0147';") -eq 'Retail Banking') `
+        'a rollup from a day rewrites that day on, and keeps what an administrator set'
+    $bad = try { Invoke-SqlText -Catalog $actCop -Sql "EXEC audit.usp_RollupActivity @ActivityDatabase = N'NoSuchDb]; DROP TABLE audit.AIAppUserDay; --';"; '' } catch { $_.Exception.GetBaseException().Message }
+    Assert-That ($bad -like '*does not exist*' -and [int] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql "SELECT COUNT(*) FROM sys.tables WHERE name = N'AIAppUserDay'") -eq 1) "a database that does not exist is refused, whatever its name holds ($bad)"
+    $runs = Invoke-SqlText -Catalog $actCop -As Table -Sql "SELECT Status FROM audit.ExternalUsageRun WHERE Source = 'Activity' ORDER BY RunId;"
+    Assert-That ($runs.Rows.Count -ge 2 -and $runs.Rows[0].Status -eq 'Succeeded') 'each rollup is recorded for Admin > Health'
+
+    # A shred stopped part way leaves its mark: the installer reads every record again.
+    Invoke-SqlText -Catalog $actDb -Sql "DELETE FROM audit.AIAppCall; INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'ActivityShredInProgress', N'');"
+    $null = & (Join-Path $root 'Install-CopilotAudit.ps1') @actConn -Database $actCop -SkipLicenseDatabase -ActivityDatabase $actDb 6>&1 | Out-String
+    Assert-That ([int] (Invoke-SqlText -Catalog $actDb -As Scalar -Sql 'SELECT COUNT(*) FROM audit.AIAppCall') -eq 3 -and
+                 [int] (Invoke-SqlText -Catalog $actDb -As Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'ActivityShredInProgress'") -eq 0) 'a shred that did not finish is finished by the next install'
+}
+finally {
+    foreach ($d in $actCop, $actDb) {
+        try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$d') IS NOT NULL BEGIN ALTER DATABASE [$d] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$d]; END;" } catch { Write-Host "  (could not drop $d)" }
+    }
+}
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

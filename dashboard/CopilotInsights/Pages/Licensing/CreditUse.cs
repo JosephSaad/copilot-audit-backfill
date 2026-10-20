@@ -40,10 +40,12 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
         string N(decimal x) => x.ToString("#,0", CultureInfo.InvariantCulture);
         string M(decimal x) => CostRules.Money(Math.Round(x, x >= 100 ? 0 : 2), cur);
 
-        Kpis.Add(new("Credits a month (estimate)", N(total.Credits), $"{M(total.Cost)} at {r.CreditPrice.ToString("0.###", CultureInfo.InvariantCulture)} {cur} a credit"));
+        Kpis.Add(new("Credits a month (estimate)", N(total.Credits), $"{M(total.Cost)} at {r.CreditPrice.ToString("0.###", CultureInfo.InvariantCulture)} {cur} a credit",
+            Why: await WhyAsync(CreditRules.Formula(r, cur), "CreditsPerAnswer", "CreditsPerGrounding", "CreditsPerAction", "Price:COPILOT_STUDIO_PAYG_CREDIT")));
         Kpis.Add(new("People using credits", Num(billed.Count), $"of {v.People.Count:#,0} who used Copilot"));
         Kpis.Add(new("Credits a person a month", billed.Count == 0 ? "—" : N(Pct(0.5)), billed.Count == 0 ? "nobody billed" : $"the median; the top tenth use {N(Pct(0.9))} or more"));
-        Kpis.Add(new("Tokens a month (rough)", CreditRules.Tokens(total.Tokens), "every interaction, at the token sizes set"));
+        Kpis.Add(new("Tokens a month (rough)", CreditRules.Tokens(total.Tokens), "every interaction, at the token sizes set",
+            Why: await WhyAsync(CreditRules.TokenFormula(r), "TokensPerTurn", "TokensPerResource", "TokensPerAnswer")));
         if (total.Credits > 0) Kpis.Add(new("Top tenth's share", $"{top / total.Credits:P0}", "of the credits, by the people who use most"));
         /* The estimate beside what was billed (the admin center's consumption export), where it is loaded: the rates in
            Admin are right when the two come near each other. */

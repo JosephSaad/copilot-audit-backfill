@@ -414,4 +414,23 @@
   document.querySelectorAll('button[data-confirm]').forEach(function (b) {
     b.addEventListener('click', function (e) { if (!window.confirm(b.getAttribute('data-confirm'))) e.preventDefault(); });
   });
+
+  /* 2.6.9: "Change it" beside an assumption opens its page at the field: ?focus=Name, or ?focus=name|key for a field of a
+     row (a price), whose form holds the key in a hidden field. The field is scrolled to, focused and marked a moment. */
+  (function () {
+    var want = new URLSearchParams(window.location.search).get('focus');
+    if (!want) return;
+    var parts = want.split('|'), name = parts[0], key = parts.length > 1 ? parts.slice(1).join('|') : null, field = null;
+    var esc = window.CSS && CSS.escape ? CSS.escape : function (s) { return s.replace(/["\\]/g, '\\$&'); };
+    if (key !== null) {
+      var hidden = Array.prototype.find.call(document.querySelectorAll('form input[type="hidden"]'), function (h) { return h.value === key; });
+      if (hidden) field = hidden.form.querySelector('[name="' + esc(name) + '"]');
+    } else field = document.querySelector('form [name="' + esc(name) + '"]:not([type="hidden"])');
+    if (!field) return;
+    var mark = field.closest('label') || field;
+    mark.classList.add('focus-mark');
+    field.scrollIntoView({ block: 'center' });
+    field.focus({ preventScroll: true });
+    setTimeout(function () { mark.classList.remove('focus-mark'); }, 4000);
+  })();
 })();

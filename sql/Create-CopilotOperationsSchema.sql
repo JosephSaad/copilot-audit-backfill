@@ -702,7 +702,10 @@ DECLARE t CURSOR LOCAL FAST_FORWARD FOR
                              (N'PipelineRunStep'), (N'PipelineSetting'), (N'LicenseSku'), (N'LicenseSkuDay'), (N'CopilotLicense'), (N'UserLicenseSku'),
                              (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember'), (N'PipelineCertificate'),
                              (N'GitHubCopilotSeat'), (N'GitHubCopilotDay'), (N'GitHubCopilotUserDay'), (N'GitHubCopilotCost'),
-                             (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun')) AS v (name)
+                             (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun'),
+                             /* 2.6.6's cost tables and 2.6.9's AI apps: a new install makes the role after their scripts ran. */
+                             (N'FabricCapacityDay'), (N'FabricWorkloadDay'), (N'PowerAutomateFlow'), (N'PowerPlatformUserActivity'),
+                             (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;
@@ -716,6 +719,9 @@ CLOSE t;
 DEALLOCATE t;
 IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
     GRANT EXECUTE ON audit.ReportingTimeZone TO CopilotInsightsApp;
+/* 2.6.9: administrators keep the AI resources' line of business, environment and owner. */
+IF OBJECT_ID(N'audit.AIAppResource', N'U') IS NOT NULL
+    GRANT INSERT, UPDATE ON audit.AIAppResource TO CopilotInsightsApp;
 
 /* ---- For Power BI ----------------------------------------------------------- */
 

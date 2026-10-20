@@ -90,7 +90,8 @@ SELECT (SELECT COUNT(*) FROM g) AS Idle, (SELECT COUNT(*) FROM t) AS Wanting,
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m;
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         Kpis.Add(new("Swaps possible", Num(counts.Swaps), $"{Within[within].Label.ToLowerInvariant()}"));
-        Kpis.Add(new($"Not bought a month ({cur})", Num((long)(counts.Swaps * price)), $"{counts.Swaps:#,0} seats at {price:#,0.##}"));
+        Kpis.Add(new($"Not bought a month ({cur})", Num((long)(counts.Swaps * price)), $"{counts.Swaps:#,0} seats at {price:#,0.##}",
+            Why: await WhyAsync($"Idle licenses handed to someone near who wants one ({counts.Swaps:#,0}) × the Copilot license price ({price:#,0.##} {cur}): seats that need not be bought.", "LicenseMonthlyCost", "InactiveDays")));
         Kpis.Add(new("Idle licenses left over", Num(counts.Idle - counts.Swaps), "nobody near wants one: revoke them (Upgrade, train or revoke)"));
         Kpis.Add(new("Still wanting a license", Num(counts.Wanting - counts.Swaps), "no idle license near them: a seat to buy, or a wider match"));
 

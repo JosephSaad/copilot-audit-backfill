@@ -291,7 +291,8 @@ class Handler(BaseHTTPRequestHandler):
                 tok = current_token()
             return self.send_json(200, {"token": tok})
 
-        if path == "/v1.0/security/auditLog/queries":
+        # 2.6.9: a record-type search is submitted to beta, whose list of record types has the newer ones.
+        if path in ("/v1.0/security/auditLog/queries", "/beta/security/auditLog/queries"):
             if not self.authorized():
                 return
             body = json.loads(raw)

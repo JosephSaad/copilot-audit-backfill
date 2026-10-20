@@ -62,8 +62,10 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         Kpis.Add(new("Unused reserved capacity", Num(v.Unused), "the sum of MAX(reserved - allocated, 0) for each organization", v.Unused > 0 ? "warn" : null));
         Kpis.Add(new("Allocation over reservation", Num(v.Over), "the sum of MAX(allocated - reserved, 0) for each organization", v.Over > 0 ? "warn" : null));
         Kpis.Add(new("Billable licenses", Num(v.Billable), "reserved plus allocation over reservation; pending Finance confirmation"));
-        Kpis.Add(new($"Monthly obligation ({cur})", M(v.Monthly), v.Rate is { } rt ? $"at {CostRules.Money(rt, cur)} a license a month" : "no rate in force"));
-        Kpis.Add(new($"Remaining obligation ({cur})", M(v.Remaining), $"{Count(ReservationRules.MonthsLeft(v.AsOf), "month")} after this one, to December"));
+        Kpis.Add(new($"Monthly obligation ({cur})", M(v.Monthly), v.Rate is { } rt ? $"at {CostRules.Money(rt, cur)} a license a month" : "no rate in force",
+            Why: await WhyAsync($"Billable licenses ({v.Billable:#,0}: for each organization, its reserved licenses plus its allocation over them) × the rate in force" + (v.Rate is { } r1 ? $" ({CostRules.Money(r1, cur)})." : ", none yet."), "ReservationRate")));
+        Kpis.Add(new($"Remaining obligation ({cur})", M(v.Remaining), $"{Count(ReservationRules.MonthsLeft(v.AsOf), "month")} after this one, to December",
+            Why: await WhyAsync($"The monthly obligation × the months left in the year after this one ({ReservationRules.MonthsLeft(v.AsOf)}).", "ReservationRate")));
         if (whole)
         {
             Kpis.Add(new("Under no listed leader", Num(v.Unmapped), "add-on holders no organization covers: to map", v.Unmapped > 0 ? "crit" : null,

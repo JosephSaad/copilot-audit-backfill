@@ -63,8 +63,17 @@
     Leave it out when unsure: a shred that was stopped part way left events
     without their properties, and only shredding them all repairs that.
 
+.PARAMETER ActivityDatabase
+    2.6.9: the database that holds AI app calls outside Copilot, Power BI and
+    Power Apps activity (the backfill's -RecordTypes). Created and installed
+    like the license database; its records are shredded the first time and
+    rolled up into the Copilot database (audit.usp_RollupActivity). Leave it
+    out where there is none.
+
 .EXAMPLE
     .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01
+.EXAMPLE
+    .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard -ActivityDatabase CopilotActivity
 .EXAMPLE
     .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard -LicenseEventDatabases CopilotLicenseEvents,CopilotLicenseLive
 #>
@@ -85,6 +94,8 @@ param(
     [switch] $LicenseEventsShredded,
     [string] $ReportingTimeZone,
     [switch] $SkipLicenseDatabase,
+    # 2.6.9: the activity database (AI apps outside Copilot, Power BI and Power Apps), where there is one. None by default.
+    [string] $ActivityDatabase,
     # The account the nightly job runs as (DOMAIN\gmsa$ or DOMAIN\user): given a login and db_owner in both databases.
     [string] $ServiceAccount,
     # Accounts that read the bi views and nothing else, such as the Power BI gateway's (DOMAIN\name).
@@ -172,7 +183,7 @@ function Enter-RunLock([string] $Catalog) {
 Write-Step "Databases on $SqlServer"
 $targetLevel = [int] (Invoke-Sql -Catalog master -Scalar -Sql "SELECT CASE WHEN CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) >= 16 THEN 160 ELSE CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) * 10 END")
 if ($targetLevel -lt 140) { throw 'SQL Server 2017 or later is needed.' }
-$dbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) })
+$dbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) }) + $(if ($ActivityDatabase) { @($ActivityDatabase) } else { @() })
 foreach ($db in $dbs) {
     $exists = [bool] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT CASE WHEN DB_ID(@d) IS NULL THEN 0 ELSE 1 END' -Parameters @{ '@d' = $db })
     if (-not $exists) {
@@ -215,16 +226,21 @@ Write-Step "Tables, views and procedures in $Database"
 $copilotScripts = 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql',
                   'Create-CopilotFlattenedSchema.sql', 'Create-CopilotFlattenProcedure.sql', 'Create-CopilotPurgeProcedure.sql',
                   'Create-CopilotEnrichmentSchema.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql',
-                  'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql', 'Create-CopilotExternalUsageSchema.sql'
+                  'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql', 'Create-CopilotExternalUsageSchema.sql',
+                  'Create-CopilotActivityRollup.sql'
 if ($Dashboard) { $copilotScripts += 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql' }
 foreach ($s in $copilotScripts) { Invoke-SqlFile $Database $s }
 if (-not $SkipLicenseDatabase) {
     Write-Step "Tables, views and procedures in $LicenseDatabase"
     foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql', 'Create-AgentEventProcedure.sql') { Invoke-SqlFile $LicenseDatabase $s }
 }
+if ($ActivityDatabase) {
+    Write-Step "Tables, views and procedures in $ActivityDatabase"
+    foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-ActivitySchema.sql', 'Create-ActivityProcedure.sql') { Invoke-SqlFile $ActivityDatabase $s }
+}
 
 # The reporting time zone, stored where every procedure reads it (audit.ReportingTimeZone()).
-$zoneDbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) })
+$zoneDbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) }) + $(if ($ActivityDatabase) { @($ActivityDatabase) } else { @() })
 if ($ReportingTimeZone) {
     $known = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT COUNT(*) FROM sys.time_zone_info WHERE name = @z' -Parameters @{ '@z' = $ReportingTimeZone })
     if (-not $known) { throw "'$ReportingTimeZone' is not a time zone SQL Server knows. SELECT name FROM sys.time_zone_info lists them." }
@@ -512,6 +528,22 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     Write-Done $(if ($since) { 'dashboard: org chart, and today''s rollups...' } else { 'dashboard: org chart and every day''s rollups...' })
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }
+}
+
+# 2.6.9: the activity database's records shredded where they have not been (the first time, after a shred stopped part
+# way, or with -Rebuild), then rolled up into this database for the dashboard.
+if ($ActivityDatabase) {
+    $actRecords = Get-Count $ActivityDatabase 'audit.CopilotAudit'
+    if ($actRecords -gt 0) {
+        $actMarks = [string] (Invoke-Sql -Catalog $ActivityDatabase -Scalar -Sql "SELECT ISNULL(STRING_AGG(CONVERT(NVARCHAR(MAX), Name), N','), N'') FROM audit.PipelineSetting WHERE Name IN (N'ActivityShredInProgress', N'ActivityShredCompleteUtc');")
+        if ($Rebuild -or $actMarks -notlike '*ActivityShredCompleteUtc*' -or $actMarks -like '*ActivityShredInProgress*') {
+            Write-Done ("activity: shredding {0:N0} record(s)..." -f $actRecords)
+            Invoke-Sql -Catalog $ActivityDatabase -Sql 'EXEC audit.usp_ShredActivity;'
+        }
+        Write-Done 'activity: AI apps, Power BI and Power Apps rolled up into this database...'
+        Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_RollupActivity @ActivityDatabase = @a;' -Parameters @{ '@a' = $ActivityDatabase }
+    }
+    else { $todo += "Load the activity history into $ActivityDatabase (Invoke-CopilotPipeline.ps1 -ActivityHistory), then run this again." }
 }
 if ((Get-Count $Database 'audit.CopilotLicense') -eq 0 -and $records -gt 0) { $todo += 'Load current licenses (deployment step 10, tools\Update-CopilotAuditEnrichment.ps1).' }
 

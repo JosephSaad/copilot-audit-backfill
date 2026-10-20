@@ -163,6 +163,23 @@
                 {
                     <div class="knote">@k.Note</div>
                 }
+                @if (k.Why is { } why)
+                {
+                    @* 2.6.9: how the figure is worked out, and the assumptions it rests on; "Change it" for whoever may. *@
+                    <details class="kwhy">
+                        <summary>How it is worked out</summary>
+                        <p>@why.Formula</p>
+                        @if (why.Inputs.Count > 0)
+                        {
+                            <ul>
+                                @foreach (var i in why.Inputs)
+                                {
+                                    <li>@i.Label: <b>@i.Value</b>@if (i.Href is not null) {<text> · </text><a href="@i.Href">Change it</a>}</li>
+                                }
+                            </ul>
+                        }
+                    </details>
+                }
             </div>
         }
     </div>

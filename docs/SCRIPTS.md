@@ -32,7 +32,7 @@ A new install is three commands: `tools\Install-CopilotJobServer.ps1` on the job
 | Script | What it does | Run by |
 |---|---|---|
 | `tools\Install-CopilotJobServer.ps1` | Sets up the job server in one command: the certificate, the service account, both databases, the app registration, the settings file and the nightly task. Running it again keeps every setting. With `-RegisterApp` it renews the certificate. | An administrator, once, and to renew the certificate |
-| `Install-CopilotAudit.ps1` | Creates, upgrades and builds the Copilot database and the license-event database: runs every script in `sql\` in order, then whatever one-off work a release needs (a rebuild, a backfill of a new column). Safe to run again; a second run changes nothing. | An administrator, at install and at every upgrade |
+| `Install-CopilotAudit.ps1` | Creates, upgrades and builds the Copilot database and the license-event database (and, with `-ActivityDatabase`, 2.6.9, the activity database): runs every script in `sql\` in order, then whatever one-off work a release needs (a rebuild, a backfill of a new column). Safe to run again; a second run changes nothing. | An administrator, at install and at every upgrade |
 | `tools\New-CopilotAuditApp.ps1` | Registers the Entra app the pipeline signs in as: three Microsoft Graph permissions, their admin consent, and the job server's certificate. | `Install-CopilotJobServer.ps1`, or an administrator by hand |
 | `tools\Add-CopilotTenant.ps1` | Adds another Microsoft 365 tenant to the job server: its app registration, its two databases and its entry in the settings. | An administrator, for a group with several tenants |
 | `tools\Save-CopilotAuditModules.ps1` | Downloads the PowerShell modules the pipeline needs into a `Modules` folder, checking Microsoft's signatures, for a server with no access to the PowerShell Gallery. From 2.6.5 no release bundles the modules, so this, or your own feed, is where they come from. | An administrator preparing the job server |
@@ -42,8 +42,8 @@ A new install is three commands: `tools\Install-CopilotJobServer.ps1` on the job
 
 | Script | What it does | Run by |
 |---|---|---|
-| `Invoke-CopilotPipeline.ps1` | Runs the whole pipeline from the settings file (`copilot-audit.settings.psd1`): the nightly run, or with `-History` the first load of everything. It calls the scripts below in order, records each step in `audit.PipelineRun`, and writes a log. A step marked optional that fails is recorded and the run goes on. | The scheduled task *Copilot audit - nightly* |
-| `Invoke-CopilotAuditBackfill.ps1` | Reads Copilot audit records from Microsoft Purview through the Microsoft Graph audit search API straight into SQL Server: the first backfill of months of history, resumable and within Microsoft's limits, and with `-Incremental` each night's new records. Also loads the license records into the license-event database. | `Invoke-CopilotPipeline.ps1` |
+| `Invoke-CopilotPipeline.ps1` | Runs the whole pipeline from the settings file (`copilot-audit.settings.psd1`): the nightly run, or with `-History` the first load of everything, or with `-ActivityHistory` (2.6.9) only the activity database's. It calls the scripts below in order, records each step in `audit.PipelineRun`, and writes a log. A step marked optional that fails is recorded and the run goes on. | The scheduled task *Copilot audit - nightly* |
+| `Invoke-CopilotAuditBackfill.ps1` | Reads Copilot audit records from Microsoft Purview through the Microsoft Graph audit search API straight into SQL Server: the first backfill of months of history, resumable and within Microsoft's limits, and with `-Incremental` each night's new records. Also loads the license records into the license-event database, and (2.6.9, `-RecordTypes`) whole Purview record types into the activity database. | `Invoke-CopilotPipeline.ps1` |
 | `Import-CopilotAuditEngine.ps1` | Compiles the engine the backfill runs on (`CopilotAuditEngine.cs`) into the PowerShell session. | `Invoke-CopilotAuditBackfill.ps1` and the tests |
 
 ## Loaders the nightly run calls
@@ -59,6 +59,7 @@ Each loads one source into the Copilot database. All can be run by hand with the
 | `tools\Import-FoundryUsage.ps1` | Microsoft Foundry and Azure OpenAI deployments, their daily requests and tokens, and their daily cost. Optional, as the GitHub load is. See [FOUNDRY-USAGE.md](FOUNDRY-USAGE.md). | Azure Resource Manager, Azure Monitor and Cost Management |
 | `tools\ExternalUsage.Common.ps1` | Not run by itself: what the two loaders above share (the database connection, writing rows to a table, the run's own log). | The two loaders |
 | `tools\Import-CostCsv.ps1` | Loads a CSV export into one of the tables Leadership › Costs and savings reads (2.6.6): Fabric capacity and workload days, the cloud flow inventory, Power Platform activity, Dataverse capacity, Copilot Credits. Adds and replaces by each row's key; `-Replace` makes the file the whole table, held by the delete guard. See [OPERATIONS.md](OPERATIONS.md#costs-and-savings). | An administrator, after each export (by hand or on a schedule) |
+| `tools\Update-ActivityRollup.ps1` | (2.6.9) Rolls the activity database up into the Copilot database: AI app calls by day, resource and caller, the resources seen, and who used Power BI and Power Apps lately. Optional, after the activity load; by hand `-Full` after a history load. See [OPERATIONS.md](OPERATIONS.md#ai-apps-power-bi-and-power-apps). | `Invoke-CopilotPipeline.ps1`, or an administrator |
 | `tools\DropGuard.ps1` | Not run by itself: the delete guard (2.6.5). The agent workbook, the user directory, the licenses held, GitHub's seats and Foundry's deployments each empty a table and fill it again; each refuses a load more than its own percentage smaller than the last (15% by default, a setting each in `copilot-audit.settings.psd1`), and takes `-MaxDropPercent` and `-AllowDrop`. | Those five loaders |
 
 ## Day-to-day tools
@@ -91,11 +92,14 @@ Each loads one source into the Copilot database. All can be run by hand with the
 | `Create-CopilotBiSchema.sql` | Copilot | The `bi` schema: the star schema reports read. Dimension and fact tables, and the views over them. |
 | `Create-CopilotBiProcedure.sql` | Copilot | `bi.usp_RefreshBi`, which fills it each night; `bi.usp_NameAgents`, which names the agents; and from 2.6.3 `bi.usp_MergeAgents`, which makes one agent of the identities the audit log gives the same agent. |
 | `Create-CopilotExternalUsageSchema.sql` | Copilot | The eight tables for AI usage outside Microsoft 365 Copilot (2.6.2): GitHub Copilot and Microsoft Foundry. |
+| `Create-CopilotActivityRollup.sql` | Copilot | (2.6.9) `audit.AIAppUserDay`, `audit.AIAppResource` and `audit.usp_RollupActivity`, which reads the activity database into them and into `audit.PowerPlatformUserActivity`. |
 | `Create-CopilotDashboardSchema.sql` | Copilot | The `dash` schema, with `-Dashboard`: who may see what, settings and reference data, the audit log, the agent inventory, and the rollups the dashboard reads. |
 | `Create-CopilotDashboardProcedure.sql` | Copilot | `dash.usp_RefreshDashboard`, which rebuilds the org chart and the rollups after each `bi` refresh. |
 | `Create-CopilotOperationsSchema.sql` | Copilot | What the dashboard's operations features keep, with `-Dashboard`: email and alerts, digests, targets, license actions, saved views, classifications, extracts, and the `bi` views built on them. |
 | `Create-LicenseEventSchema.sql` | License | License history from the audit log: each license assigned or removed, and the changes worked out from them. |
 | `Create-LicenseEventProcedure.sql` | License | `audit.usp_ShredLicenseEvents`, which turns the directory's audit records into those rows. |
+| `Create-ActivitySchema.sql` | Activity | (2.6.9, with `-ActivityDatabase`) `audit.AIAppCall` and `audit.PlatformActivity`: AI app calls, Power BI and Power Apps activity, a row per record. The activity database also gets `Create-CopilotAuditSchema.sql` and `Create-CopilotLoadProcedure.sql`. |
+| `Create-ActivityProcedure.sql` | Activity | `audit.usp_ShredActivity`, which reads the records into those tables. |
 | `Create-AgentEventProcedure.sql` | License | `audit.AgentEvent` and `audit.usp_ShredAgentEvents`: who created, changed, published, shared or deleted which Copilot Studio agent. |
 
 ## The dashboard

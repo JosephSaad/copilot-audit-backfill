@@ -50,7 +50,15 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
 {
     static decimal Dec(string? v, decimal fallback) => decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) ? d : fallback;
 
-    sealed class Price { public string Item { get; set; } = ""; public string Area { get; set; } = ""; public string Name { get; set; } = ""; public string Unit { get; set; } = ""; public decimal MonthlyPrice { get; set; } }
+    sealed class Price
+    {
+        public string Item { get; set; } = ""; public string Area { get; set; } = ""; public string Name { get; set; } = ""; public string Unit { get; set; } = ""; public decimal MonthlyPrice { get; set; }
+        /* 2.6.9: a volume price, and the Dataverse capacity a seat brings (NULL before the columns are installed). */
+        public int? TierFromSeats { get; set; } public decimal? TierPrice { get; set; } public decimal? DatabaseGbPerSeat { get; set; } public decimal? FileGbPerSeat { get; set; }
+        /* 2.6.9: the share kept unassigned on purpose (NULL: the SpareSeatPercent setting), and a license bought for its capacity or volume price. */
+        public decimal? SparePercent { get; set; } public bool? ForCapacity { get; set; }
+        public CostRules.SeatPrice Seat => new(MonthlyPrice, TierFromSeats, TierPrice, DatabaseGbPerSeat ?? 0, FileGbPerSeat ?? 0);
+    }
     sealed class Held { public string SkuPartNumber { get; set; } = ""; public int Holders { get; set; } public int Idle { get; set; } public int Known { get; set; } public int Consumed { get; set; } public int Bought { get; set; } public int Twice { get; set; } public string? TwiceIn { get; set; } }
 
     public async Task<CostView> BuildAsync(ReportContext c)
@@ -62,6 +70,8 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
         var flowMinutes = Dec(await settings.StringAsync("FlowMinutesPerRun"), 3m);
         var biMinutes = Dec(await settings.StringAsync("PowerBiCopilotMinutes"), 3m);
         var idleDays = (int)Math.Clamp(Dec(await settings.StringAsync("CostIdleDays"), 30m), 7, 180);
+        /* 2.6.9: seats kept unassigned on purpose, for joiners and moves: not a saving. */
+        var sparePercent = Math.Clamp(Dec(await settings.StringAsync("SpareSeatPercent"), 10m), 0, 100);
 
         var areas = new List<CostArea>();
         var opps = new List<Opportunity>();
@@ -70,7 +80,11 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
         var sources = new List<string>();
         var missing = new List<string>();
         var prices = await ops.HasAsync("dash.CostPrice")
-            ? (await db.QueryAsync<Price>("SELECT Item, Area, Name, Unit, MonthlyPrice FROM dash.CostPrice;")).ToDictionary(p => p.Item, StringComparer.OrdinalIgnoreCase)
+            ? (await db.QueryAsync<Price>(await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.CostPrice', N'DatabaseGbPerSeat') IS NULL THEN 0 ELSE 1 END;") == 1
+                ? (await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.CostPrice', N'SparePercent') IS NULL THEN 0 ELSE 1 END;") == 1
+                    ? "SELECT Item, Area, Name, Unit, MonthlyPrice, TierFromSeats, TierPrice, DatabaseGbPerSeat, FileGbPerSeat, SparePercent, ForCapacity FROM dash.CostPrice;"
+                    : "SELECT Item, Area, Name, Unit, MonthlyPrice, TierFromSeats, TierPrice, DatabaseGbPerSeat, FileGbPerSeat FROM dash.CostPrice;")
+                : "SELECT Item, Area, Name, Unit, MonthlyPrice FROM dash.CostPrice;")).ToDictionary(p => p.Item, StringComparer.OrdinalIgnoreCase)
             : new Dictionary<string, Price>(StringComparer.OrdinalIgnoreCase);
         decimal PriceOf(string item, decimal fallback = 0) => prices.TryGetValue(item, out var p) ? p.MonthlyPrice : fallback;
 
@@ -171,7 +185,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args())).Single();
                     $"{counts.Upgrade:#,0} people without a license used free Copilot Chat on 6 or more days in the last 30: the work content they cannot reach is the value the license adds.",
                     "Hand them the licenses reclaimed above before buying more.", 0, counts.Upgrade * copilotPrice, "Low", "/forecasting/actions?kind=upgrade"));
             if (CostRules.HeldTwice(CostAreas.Copilot, "Microsoft 365 Copilot", SuitesWith(s => s.HasCopilot), twiceCopilot, copilotPrice, cur, "/licensing/suites?copy=addon") is { } tw) opps.Add(tw);
-            if (CostRules.Unassigned(CostAreas.Copilot, "Microsoft 365 Copilot", addOnBought, addOnAssigned, copilotPrice, cur) is { } un) opps.Add(un);
+            if (CostRules.Unassigned(CostAreas.Copilot, "Microsoft 365 Copilot", addOnBought, addOnAssigned, copilotPrice, cur, spare: CostRules.Spare(addOnBought, sparePercent)) is { } un) opps.Add(un);
             copilotSaving = opps.Where(o => o.Area == CostAreas.Copilot && o.Kind == OpportunityKind.Save).Sum(o => o.Saving);
             var share = (double)(1 - suiteUse);
             if (copilotSeats > 0)
@@ -183,7 +197,8 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args())).Single();
             /* The detail: each count behind the figures, linked to the list that names the people. */
             details.Add(new(CostAreas.Copilot, "What the figures are made of", ["", "People or seats", $"A month ({cur})", "The list"], [
                 ["Add-on licenses bought", addOnBought > 0 ? addOnBought : copilotSeats, copilotSeats * copilotPrice, new Pages.Link("License pool", "/licensing/pool")],
-                ["Of them, assigned to nobody", Math.Max(0, addOnBought - addOnAssigned), Math.Max(0, addOnBought - addOnAssigned) * copilotPrice, new Pages.Link("License pool", "/licensing/pool")],
+                ["Of them, assigned to nobody and kept spare on purpose", Math.Min(Math.Max(0, addOnBought - addOnAssigned), CostRules.Spare(addOnBought, sparePercent)), 0m, new Pages.Link("License pool", "/licensing/pool")],
+                ["Of them, assigned to nobody beyond the spare", Math.Max(0, addOnBought - addOnAssigned - CostRules.Spare(addOnBought, sparePercent)), Math.Max(0, addOnBought - addOnAssigned - CostRules.Spare(addOnBought, sparePercent)) * copilotPrice, new Pages.Link("License pool", "/licensing/pool")],
                 ["Licensed through a suite only (E7), in its price", counts.Suite, 0m, new Pages.Link("Suite fit", "/licensing/suites")],
                 ["Unused in 30 days: to revoke", counts.Revoke, counts.Revoke * copilotPrice, new Pages.Link("Upgrade, train or revoke", "/forecasting/actions?kind=revoke")],
                 ["On disabled accounts", leavers, leavers * copilotPrice, new Pages.Link("Licenses on disabled accounts", "/licensing/leavers")],
@@ -232,13 +247,25 @@ FROM x GROUP BY SkuPartNumber;", new { items, idleDays });
             if (held.Count > 0 && !hasActivity) missing.Add("Power Platform activity (who used Power BI, Power Apps and Power Automate): load it to find idle licenses");
         }
         /* 2.6.6: the seats bought, which are paid whether assigned or not (the assigned, where the pool says fewer were bought). */
-        decimal Spend(string area) => held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area).Sum(h => Math.Max(h.Bought, h.Consumed) * prices[h.SkuPartNumber].MonthlyPrice);
+        decimal Spend(string area) => held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area).Sum(h => prices[h.SkuPartNumber].Seat.Monthly(Math.Max(h.Bought, h.Consumed)));
+        /* 2.6.9: the Dataverse capacity left before the tenant is over its entitlement, from the capacity report's last
+           day: what cutting seats that bring capacity (Power Apps and Power Automate Premium) may give up. */
+        CostRules.DataverseRoom? room = null;
+        if (await ops.HasAsync("audit.PowerPlatformCapacityDay"))
+        {
+            var left = await db.QueryAsync<(string CapacityType, decimal Left)>(@"
+SELECT CapacityType, ISNULL(EntitledGb, 0) - ISNULL(UsedGb, 0) FROM audit.PowerPlatformCapacityDay
+WHERE [Day] = (SELECT MAX([Day]) FROM audit.PowerPlatformCapacityDay) AND CapacityType IN ('Database', 'File');");
+            if (left.Count > 0)
+                room = new(left.Where(x => x.CapacityType == "Database").Select(x => (decimal?)x.Left).FirstOrDefault(), left.Where(x => x.CapacityType == "File").Select(x => (decimal?)x.Left).FirstOrDefault(),
+                           PriceOf("DATAVERSE_DATABASE_GB", 40), PriceOf("DATAVERSE_FILE_GB", 2));
+        }
         /* The detail for a licensed area: each license, bought, assigned, idle and held twice, and what it costs. */
         void LicenseDetail(string area, string displayArea)
         {
-            var rows = held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area).OrderByDescending(h => Math.Max(h.Bought, h.Consumed) * prices[h.SkuPartNumber].MonthlyPrice)
+            var rows = held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area).OrderByDescending(h => prices[h.SkuPartNumber].Seat.Monthly(Math.Max(h.Bought, h.Consumed)))
                 .Select(h => new object?[] { prices[h.SkuPartNumber].Name, h.SkuPartNumber, h.Bought, h.Consumed, Math.Max(0, h.Bought - h.Consumed), h.Known > 0 ? h.Idle : null, h.Twice,
-                    prices[h.SkuPartNumber].MonthlyPrice, Math.Max(h.Bought, h.Consumed) * prices[h.SkuPartNumber].MonthlyPrice }).ToList();
+                    prices[h.SkuPartNumber].Seat.Each(Math.Max(h.Bought, h.Consumed)), prices[h.SkuPartNumber].Seat.Monthly(Math.Max(h.Bought, h.Consumed)) }).ToList();
             if (rows.Count > 0)
                 details.Add(new(displayArea, "Each license", ["License", "SKU part number", "Bought", "Assigned", "Assigned to nobody", "Idle 30 days", "Held beside a suite with it", $"Price ({cur})", $"A month ({cur})"],
                     rows, Nums(2, 3, 4, 5, 6, 7, 8), "From Graph's license pool, priced from Admin's list. Idle: no use of the product in the window (a dash where its activity is not loaded)."));
@@ -249,11 +276,20 @@ FROM x GROUP BY SkuPartNumber;", new { items, idleDays });
             foreach (var h in held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area))
             {
                 var pr = prices[h.SkuPartNumber];
-                if (pr.Unit != "flow" && h.Known > 0 && CostRules.IdleLicenses(displayArea, pr.Name, h.Holders, h.Idle, pr.MonthlyPrice, cur) is { } o) opps.Add(o);
+                /* 2.6.9: each cut priced as it would really save: the seats left at the volume price or not, and the Dataverse
+                   capacity given up with them. The unassigned seats first (no one loses anything), then the idle ones. */
+                var seats = Math.Max(h.Bought, h.Consumed);
+                var price = pr.Seat.Each(seats);
+                var spare = CostRules.Spare(h.Bought, pr.SparePercent ?? sparePercent);
+                var forCapacity = pr.ForCapacity == true;
+                var unCut = pr.Unit == "user" && !forCapacity ? CostRules.CutSeats(pr.Seat, seats, Math.Max(0, h.Bought - h.Consumed - spare), room, cur) : null;
+                /* A license bought for its capacity or volume price: an idle seat is one to give someone else, not money back. */
+                var idleCut = pr.Unit != "flow" && h.Known > 0 && !forCapacity ? CostRules.CutSeats(pr.Seat, seats - (unCut?.Seats ?? 0), h.Idle, room, cur) : null;
+                if (pr.Unit != "flow" && h.Known > 0 && !forCapacity && CostRules.IdleLicenses(displayArea, pr.Name, h.Holders, h.Idle, price, cur, cut: idleCut) is { } o) opps.Add(o);
                 var twice = h.SkuPartNumber.Equals("POWER_BI_PRO", StringComparison.OrdinalIgnoreCase) ? twicePowerBi : h.Twice;
-                if (CostRules.HeldTwice(displayArea, pr.Name, h.TwiceIn ?? "the suite", twice, pr.MonthlyPrice, cur, "/licensing/suites?copy=addon") is { } tw) opps.Add(tw);
+                if (CostRules.HeldTwice(displayArea, pr.Name, h.TwiceIn ?? "the suite", twice, price, cur, "/licensing/suites?copy=addon") is { } tw) opps.Add(tw);
                 /* Per-user licenses only: a Process license is assigned to a flow, a pack to the tenant. */
-                if (pr.Unit == "user" && CostRules.Unassigned(displayArea, pr.Name, h.Bought, h.Consumed, pr.MonthlyPrice, cur) is { } un) opps.Add(un);
+                if (pr.Unit == "user" && CostRules.Unassigned(displayArea, pr.Name, h.Bought, h.Consumed, price, cur, cut: unCut, spare: spare, forCapacity: forCapacity) is { } un) opps.Add(un);
             }
         }
 
@@ -492,7 +528,7 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
         if (fit.Rows.Count > 0)
         {
             sources.Add($"Suites: {fit.Rows.Count:#,0} holders of {string.Join(", ", fit.Rows.Select(r => r.Holder.Suite.Name).Distinct().OrderBy(n => n, StringComparer.Ordinal))}, priced from Admin's suite list");
-            suiteSummary = SuiteData.Summarize(fit, suiteCopilotValue);
+            suiteSummary = SuiteData.Summarize(fit, suiteCopilotValue, sparePercent);
         }
         var ordered = areas.OrderBy(a => CostAreas.Slot(a.Name)).ToList();
         return new(cur, ordered, CostRules.Ranked(opps), await MonthsAsync(copilotPrice, prices.Values.ToList(), c), cif, realized * copilotPrice, realized, sources, missing, hourly, suiteSummary, details);
@@ -500,7 +536,8 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
 
     static string Basis(List<Held> held, Dictionary<string, Price> prices, string area, string cur) =>
         string.Join("; ", held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area && Math.Max(h.Bought, h.Consumed) > 0)
-            .Select(h => $"{Math.Max(h.Bought, h.Consumed):#,0} {prices[h.SkuPartNumber].Name} at {CostRules.Money(prices[h.SkuPartNumber].MonthlyPrice, cur)}"
+            .Select(h => $"{Math.Max(h.Bought, h.Consumed):#,0} {prices[h.SkuPartNumber].Name} at {CostRules.Money(prices[h.SkuPartNumber].Seat.Each(Math.Max(h.Bought, h.Consumed)), cur)}"
+                         + (prices[h.SkuPartNumber].Seat.HasTier && Math.Max(h.Bought, h.Consumed) >= prices[h.SkuPartNumber].TierFromSeats ? $" (the volume price from {prices[h.SkuPartNumber].TierFromSeats:#,0} seats)" : "")
                          + (h.Bought > h.Consumed ? $" ({h.Bought:#,0} bought, {h.Consumed:#,0} assigned)" : "")
                          + (h.Twice > 0 ? $", {h.Twice:#,0} of them on people whose suite includes it" : "")));
 
@@ -529,14 +566,15 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
             rows.AddRange((await db.QueryAsync<(DateTime Month, string Area, decimal Spend)>(sql, args)).Select(x => (x.Month, x.Area, x.Spend)));
         }
         var priced = prices.Where(p => p.Area is "Power Automate" or "Power Apps" or "Power BI" or "Copilot Studio")
-            .Select(p => new { p.Item, Area = p.Area switch { "Power Automate" => CostAreas.Automate, "Power Apps" => CostAreas.Apps, "Power BI" => CostAreas.PowerBi, _ => CostAreas.Studio }, p.MonthlyPrice }).ToList();
+            .Select(p => new { p.Item, Area = p.Area switch { "Power Automate" => CostAreas.Automate, "Power Apps" => CostAreas.Apps, "Power BI" => CostAreas.PowerBi, _ => CostAreas.Studio }, p.MonthlyPrice, p.TierFromSeats, p.TierPrice }).ToList();
         if (priced.Count > 0)
             await Add("audit.LicenseSkuDay", @"
-SELECT DATEFROMPARTS(YEAR(d.SnapshotDate), MONTH(d.SnapshotDate), 1), p.Area, AVG(CAST(d.Consumed AS DECIMAL(19, 4))) * MAX(p.Price)
-FROM audit.LicenseSkuDay AS d JOIN OPENJSON(@json) WITH (Item NVARCHAR(100), Area NVARCHAR(60), Price DECIMAL(19, 4)) AS p ON p.Item = d.SkuPartNumber
+SELECT DATEFROMPARTS(YEAR(d.SnapshotDate), MONTH(d.SnapshotDate), 1), p.Area,
+       AVG(CAST(d.Consumed AS DECIMAL(19, 4))) * CASE WHEN AVG(CAST(d.Consumed AS DECIMAL(19, 4))) >= MAX(p.TierFrom) THEN MAX(p.TierPrice) ELSE MAX(p.Price) END
+FROM audit.LicenseSkuDay AS d JOIN OPENJSON(@json) WITH (Item NVARCHAR(100), Area NVARCHAR(60), Price DECIMAL(19, 4), TierFrom INT, TierPrice DECIMAL(19, 4)) AS p ON p.Item = d.SkuPartNumber
 WHERE d.SnapshotDate >= @first AND d.SnapshotDate < @end
 GROUP BY DATEFROMPARTS(YEAR(d.SnapshotDate), MONTH(d.SnapshotDate), 1), p.Area, d.SkuPartNumber;",
-                new { first, end, json = System.Text.Json.JsonSerializer.Serialize(priced.Select(p => new { p.Item, p.Area, Price = p.MonthlyPrice })) });
+                new { first, end, json = System.Text.Json.JsonSerializer.Serialize(priced.Select(p => new { p.Item, p.Area, Price = p.MonthlyPrice, TierFrom = p.TierFromSeats, TierPrice = p.TierPrice ?? p.MonthlyPrice })) });
         await Add("audit.FabricCapacityDay", $"SELECT DATEFROMPARTS(YEAR([Day]), MONTH([Day]), 1), N'{CostAreas.Fabric}', SUM(Cost) FROM audit.FabricCapacityDay WHERE [Day] >= @first AND [Day] < @end GROUP BY DATEFROMPARTS(YEAR([Day]), MONTH([Day]), 1);", new { first, end });
         await Add("audit.FoundryCostDay", $"SELECT DATEFROMPARTS(YEAR([Day]), MONTH([Day]), 1), N'{CostAreas.Foundry}', SUM(Cost) FROM audit.FoundryCostDay WHERE [Day] >= @first AND [Day] < @end GROUP BY DATEFROMPARTS(YEAR([Day]), MONTH([Day]), 1);", new { first, end });
         await Add("audit.GitHubCopilotCost", $"SELECT DATEFROMPARTS(YEAR(UsageDate), MONTH(UsageDate), 1), N'{CostAreas.GitHub}', SUM(NetAmount) FROM audit.GitHubCopilotCost WHERE UsageDate >= @first AND UsageDate < @end GROUP BY DATEFROMPARTS(YEAR(UsageDate), MONTH(UsageDate), 1);", new { first, end });

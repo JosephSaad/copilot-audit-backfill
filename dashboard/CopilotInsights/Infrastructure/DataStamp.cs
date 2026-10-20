@@ -25,6 +25,8 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
         /* 2.6.6: what Leadership > Costs and savings reads that tools\Import-CostCsv.ps1 or an administrator can change outside a nightly run. */
         "dash.CostPrice", "dash.CostSuite", "audit.FabricCapacityDay", "audit.FabricWorkloadDay", "audit.PowerAutomateFlow", "audit.PowerPlatformUserActivity",
         "audit.PowerPlatformCapacityDay", "audit.PowerPlatformCreditDay",
+        /* 2.6.9: the resource map administrators keep (the AI apps' days are stamped by their rollup's runs, below: too many rows to checksum). */
+        "audit.AIAppResource",
         /* 2.6.8: the reservation register, its rate, the Technology pool and the month-end snapshots (Leadership > Copilot reservations). */
         "dash.Reservation", "dash.ReservationRate", "dash.TechnologyAllocation", "dash.ReservationSnapshot",
     ];
@@ -122,6 +124,7 @@ INSERT INTO @t VALUES
     (N'audit.UserLicenseSku', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(CapturedUtc), 126)) FROM audit.UserLicenseSku'),
     (N'audit.GroupMember', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(LoadedUtc), 126)) FROM audit.GroupMember'),
     (N'audit.UserDirectory', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(LoadedUtc), 126)) FROM audit.UserDirectory'),
+    (N'audit.AIAppUserDay', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CONVERT(NVARCHAR(30), MAX(EndedUtc), 126)) FROM audit.ExternalUsageRun WHERE Source = ''Activity'''),
 {string.Join(",\n", Reference.Select(t => $"    (N'{t}', N'SELECT @r = CONCAT(COUNT_BIG(*), N'':'', CHECKSUM_AGG(BINARY_CHECKSUM(*))) FROM {t}')"))};
 DECLARE @name SYSNAME, @q NVARCHAR(400), @r NVARCHAR(200);
 DECLARE c CURSOR LOCAL FAST_FORWARD FOR SELECT Name, Sql FROM @t;

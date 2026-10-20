@@ -126,11 +126,11 @@ public static class CostRules
     /// Licenses held by people who have not used the product in the idle window: take them back. Only where the
     /// product's activity was loaded, so a missing export never reads as nobody using it.
     /// </summary>
-    public static Opportunity? IdleLicenses(string area, string product, int holders, int idle, decimal price, string cur, string? href = null) =>
-        idle <= 0 || price <= 0 ? null
-        : new(area, OpportunityKind.Save, $"Reclaim {idle:#,0} idle {product} license{(idle == 1 ? "" : "s")}",
-            $"{idle:#,0} of {holders:#,0} holders ({(decimal)idle / Math.Max(1, holders):P0}) have not used {ProductOf(product)} in the last 30 days, at {Money(price, cur)} each a month.",
-            "Ask their managers, then remove the license; reassign it before buying more.", Math.Round(idle * price, 2), 0, "High", href);
+    public static Opportunity? IdleLicenses(string area, string product, int holders, int idle, decimal price, string cur, string? href = null, Cut? cut = null) =>
+        idle <= 0 || price <= 0 || cut is { Seats: <= 0 } ? null
+        : new(area, OpportunityKind.Save, $"Reclaim {cut?.Seats ?? idle:#,0} idle {product} license{((cut?.Seats ?? idle) == 1 ? "" : "s")}",
+            $"{idle:#,0} of {holders:#,0} holders ({(decimal)idle / Math.Max(1, holders):P0}) have not used {ProductOf(product)} in the last 30 days, at {Money(price, cur)} each a month." + (cut?.Note is { } n ? " " + n : ""),
+            "Ask their managers, then remove the license; reassign it before buying more.", cut?.Saving ?? Math.Round(idle * price, 2), 0, cut?.Confidence ?? "High", href);
 
     /// <summary>
     /// A standalone license on people whose suite already includes it (2.6.6): Power BI Pro on E5 or E7, the Copilot
@@ -146,11 +146,100 @@ public static class CostRules
     /// Licenses bought and assigned to nobody (2.6.6): paid for every month all the same. Medium, as most agreements
     /// let them go only at the renewal; assign them first where people are waiting.
     /// </summary>
-    public static Opportunity? Unassigned(string area, string product, int bought, int assigned, decimal price, string cur, string? href = "/licensing/pool") =>
-        bought - assigned <= 0 || price <= 0 ? null
-        : new(area, OpportunityKind.Save, $"Cut {bought - assigned:#,0} unassigned {product} license{(bought - assigned == 1 ? "" : "s")}",
-            $"{bought:#,0} bought and {assigned:#,0} assigned: {bought - assigned:#,0} paid for at {Money(price, cur)} a month with nobody on {(bought - assigned == 1 ? "it" : "them")}.",
-            "Assign them to the people waiting for one; reduce the count at the next renewal for the rest.", Math.Round((bought - assigned) * price, 2), 0, "Medium", href);
+    /// <summary>
+    /// Seats bought and assigned to nobody beyond the spare kept on purpose (2.6.9: <paramref name="spare"/> seats, for
+    /// joiners and moves), paid for every month all the same. None for a license bought for its capacity or volume
+    /// price (<paramref name="forCapacity"/>). Medium, as most agreements let them go only at the renewal.
+    /// </summary>
+    public static Opportunity? Unassigned(string area, string product, int bought, int assigned, decimal price, string cur, string? href = "/licensing/pool", Cut? cut = null,
+        int spare = 0, bool forCapacity = false)
+    {
+        var over = bought - assigned - Math.Max(0, spare);
+        if (forCapacity || over <= 0 || price <= 0 || cut is { Seats: <= 0 }) return null;
+        var seats = cut?.Seats ?? over;
+        return new(area, OpportunityKind.Save, $"Cut {seats:#,0} unassigned {product} license{(seats == 1 ? "" : "s")}",
+            $"{bought:#,0} bought and {assigned:#,0} assigned: {bought - assigned:#,0} paid for at {Money(price, cur)} a month with nobody on {(bought - assigned == 1 ? "it" : "them")}" +
+            (spare > 0 ? $", {spare:#,0} of them kept spare on purpose, {over:#,0} beyond that." : ".") + (cut?.Note is { } n ? " " + n : ""),
+            "Assign them to the people waiting for one; reduce the count at the next renewal for the rest.", cut?.Saving ?? Math.Round(over * price, 2), 0, cut?.Confidence ?? "Medium", href);
+    }
+
+    /// <summary>The seats kept spare on purpose (2.6.9): a share of those bought, rounded up.</summary>
+    public static int Spare(int bought, decimal percent) => bought <= 0 || percent <= 0 ? 0 : (int)Math.Ceiling(bought * Math.Min(percent, 100) / 100m);
+
+    /// <summary>
+    /// What a cut of seats really saves (2.6.9): at the volume price where the count stays at or over the tier, and less
+    /// where it takes the count under it, when every seat goes back to the list price; then less the add-on Dataverse
+    /// capacity the tenant would have to buy once the seats' capacity is given up. Seats is how many to cut: all asked,
+    /// or only down to the tier where crossing it would save less. Note says why, for the evidence; Confidence is
+    /// lowered where the Dataverse capacity could not be checked.
+    /// </summary>
+    public sealed record Cut(int Seats, decimal Saving, string? Note, string? Confidence);
+
+    /// <summary>A license's price (2.6.9): the list price, a volume price from a number of seats, and the Dataverse capacity a seat brings.</summary>
+    public sealed record SeatPrice(decimal Price, int? TierFrom = null, decimal? TierPrice = null, decimal DatabaseGbPerSeat = 0, decimal FileGbPerSeat = 0)
+    {
+        /// <summary>What each seat costs a month at this count.</summary>
+        public decimal Each(int seats) => TierFrom is { } t && TierPrice is { } tp && seats >= t ? tp : Price;
+        public decimal Monthly(int seats) => Math.Max(0, seats) * Each(seats);
+        public bool HasTier => TierFrom is > 0 && TierPrice is not null;
+        public bool BringsCapacity => DatabaseGbPerSeat > 0 || FileGbPerSeat > 0;
+    }
+
+    /// <summary>
+    /// The tenant's Dataverse capacity left before it is over its entitlement (2.6.9), from the latest day read: what a cut
+    /// of seats that bring capacity may give up before the tenant pays for add-on capacity. Each cut takes from it in
+    /// turn. Unknown (no capacity loaded): nothing is taken off, and the cut says the capacity was not checked.
+    /// </summary>
+    public sealed class DataverseRoom(decimal? databaseGb, decimal? fileGb, decimal databasePrice, decimal filePrice)
+    {
+        decimal? _db = databaseGb, _file = fileGb;
+        /* Both sides, or the check is not made: an unknown side would count as room to spare. */
+        public bool Known => _db is not null && _file is not null;
+
+        /// <summary>The add-on capacity a month that giving up these seats' capacity would cost, and takes it from what is left.</summary>
+        public decimal Take(SeatPrice p, int seats)
+        {
+            if (!p.BringsCapacity || seats <= 0 || !Known) return 0;
+            decimal Over(ref decimal? left, decimal need) { if (left is not { } l) return 0; var over = Math.Max(0, need - Math.Max(0, l)); left = l - need; return over; }
+            return Math.Round(Over(ref _db, seats * p.DatabaseGbPerSeat) * databasePrice + Over(ref _file, seats * p.FileGbPerSeat) * filePrice, 2);
+        }
+    }
+
+    /// <summary>A cut of <paramref name="cut"/> of <paramref name="seats"/>, priced as <see cref="Cut"/> says.</summary>
+    public static Cut CutSeats(SeatPrice p, int seats, int cut, DataverseRoom? room, string cur)
+    {
+        cut = Math.Clamp(cut, 0, Math.Max(0, seats));
+        if (cut == 0) return new(0, 0, null, null);
+        decimal Save(int n) => p.Monthly(seats) - p.Monthly(seats - n);
+        var notes = new List<string>();
+        if (p.HasTier && seats >= p.TierFrom!.Value && seats - cut < p.TierFrom.Value)
+        {
+            var toTier = seats - p.TierFrom.Value;
+            if (Save(toTier) >= Save(cut))
+            {
+                notes.Add($"Cutting all {cut:#,0} would take the count under {p.TierFrom:#,0} seats, where every seat goes back from {Money(p.TierPrice!.Value, cur)} to {Money(p.Price, cur)}: " +
+                          (toTier > 0 ? $"cut {toTier:#,0}, down to the volume price's {p.TierFrom:#,0}, and reassign the rest." : "keep them, and reassign them."));
+                cut = toTier;
+            }
+            else notes.Add($"The count falls under {p.TierFrom:#,0} seats, so every seat left goes back to {Money(p.Price, cur)}: counted in the saving.");
+        }
+        var saving = Save(cut);
+        string? confidence = null;
+        if (p.BringsCapacity && cut > 0)
+        {
+            if (room is null || !room.Known)
+            {
+                notes.Add($"Each seat also brings Dataverse capacity ({p.DatabaseGbPerSeat * 1000:#,0} MB database, {p.FileGbPerSeat:0.##} GB file), and the capacity in use is not loaded, so whether the tenant would go over it is not checked.");
+                confidence = "Low";
+            }
+            else if (room.Take(p, cut) is var extra and > 0)
+            {
+                notes.Add($"Giving up the seats' Dataverse capacity takes the tenant over its entitlement: about {Money(extra, cur)} a month of add-on capacity, taken off the saving.");
+                saving -= extra;
+            }
+        }
+        return new(cut, Math.Round(Math.Max(0, saving), 2), notes.Count == 0 ? null : string.Join(" ", notes), confidence);
+    }
 
     static string ProductOf(string license) => license.StartsWith("Power BI", StringComparison.Ordinal) ? "Power BI"
         : license.StartsWith("Power Automate", StringComparison.Ordinal) ? "Power Automate" : license.StartsWith("Power Apps", StringComparison.Ordinal) ? "Power Apps" : license;

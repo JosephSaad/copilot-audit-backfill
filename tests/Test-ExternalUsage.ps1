@@ -194,9 +194,9 @@ $plain = Get-PipelineStep -Setting $s -Today $today -Root 'R:'
 Assert-That (@($plain | Where-Object { $_.Name -match 'GitHub|Foundry' }).Count -eq 0 -and @($plain | Where-Object Optional).Count -eq 0) 'with neither source in the settings, the nightly run has neither step, and no optional one'
 
 $notes = Get-PipelineSkipNote $s
-Assert-That ($notes.Count -eq 2 -and $notes[0] -like 'GitHub Copilot usage: skipped, not configured*GitHubEnterprise*' -and $notes[1] -like 'Foundry usage and cost: skipped, not configured*FoundrySubscriptions*') `
+Assert-That ($notes.Count -eq 3 -and $notes[2] -like 'AI apps, Power BI and Power Apps activity: skipped, not configured*ActivityDatabase*' -and $notes[0] -like 'GitHub Copilot usage: skipped, not configured*GitHubEnterprise*' -and $notes[1] -like 'Foundry usage and cost: skipped, not configured*FoundrySubscriptions*') `
     'and the log gets a note for each that it was skipped, naming the setting that turns it on'
-Assert-That ((Get-PipelineSkipNote ($s + @{ GitHubOrganization = 'octo'; FoundrySubscriptions = 'x' })).Count -eq 0) 'no note for a loader that is configured'
+Assert-That ((Get-PipelineSkipNote ($s + @{ GitHubOrganization = 'octo'; FoundrySubscriptions = 'x'; ActivityDatabase = 'CopilotActivity' })).Count -eq 0) 'no note for a loader that is configured'
 $noCert = @{ TenantId = 't'; ClientId = 'c'; CertificateThumbprint = ''; SqlServer = 'SQL1'; Database = 'CopilotAudit'; FoundrySubscriptions = 'x'; GitHubEnterprise = 'contoso' }
 Assert-That (@(Get-PipelineStep -Setting $noCert -Today $today | Where-Object { $_.Name -match 'Foundry' }).Count -eq 0 -and (Get-PipelineSkipNote $noCert)[0] -like '*no certificate to sign in with*') `
     'subscriptions with no certificate to sign in with: skipped with a note as well, not a failing step'
@@ -226,6 +226,31 @@ $uses = Get-PipelineCertificateUse ($s + $own)
 Assert-That (($uses.Purpose -join '|') -eq 'Purview|Foundry' -and $uses[1].Thumbprint -eq 'CDEF' -and $uses[1].ClientId -eq 'f' -and $uses[1].TenantId -eq 'ai.onmicrosoft.com') `
     'a certificate of Foundry''s own is tracked with the others, for Admin > Health and the expiry alert'
 Assert-That ((Get-PipelineCertificateUse ($s + @{ FoundrySubscriptions = $subs })).Count -eq 1) 'signed in with the audit app''s certificate, there is no other to track'
+
+# 2.6.9: the activity database, loaded by record type, after the Copilot load and optional; its history on its own.
+$act = $s + @{ ActivityDatabase = 'CopilotActivity' }
+$an = Get-PipelineStep -Setting $act -Today $today -Root 'R:'
+$load = $an | Where-Object Name -eq 'AI apps, Power BI and Power Apps'
+$roll = $an | Where-Object Name -eq 'AI apps, Power BI and Power Apps rollup'
+Assert-That ($load.Optional -and $roll.Optional -and $load.Arguments.Database -eq 'CopilotActivity' -and $load.Arguments.Incremental -and
+             (@($load.Arguments.RecordTypes) -join ',') -eq 'ConnectedAIAppInteraction,PowerBIAudit,PowerAppsApp' -and -not $load.Arguments.ContainsKey('Operations')) `
+    'ActivityDatabase adds an optional incremental load of the three record types into it, naming no operation'
+Assert-That ([array]::IndexOf(@($an.Name), 'Copilot interactions') -lt [array]::IndexOf(@($an.Name), 'AI apps, Power BI and Power Apps') -and
+             $roll.Script -eq [System.IO.Path]::Combine('R:', 'tools/Update-ActivityRollup.ps1') -and $roll.Arguments.Database -eq 'CopilotAudit' -and $roll.Arguments.ActivityDatabase -eq 'CopilotActivity') `
+    'after the Copilot load, then its rollup into the Copilot database'
+$ah = Get-PipelineStep -Setting $act -ActivityHistory -Today $today -Root 'R:'
+Assert-That ($ah.Count -eq 2 -and $ah[0].Arguments.StartDate -eq $today.AddDays(-180) -and $ah[0].Arguments.Finalize -and $ah[1].Arguments.Full -and -not ($ah | Where-Object Name -match 'Copilot interactions')) `
+    '-ActivityHistory loads only the activity history, 180 days, finalized, and rolls up every day: Copilot interactions are not loaded again'
+Assert-That (Test-Throw { Get-PipelineStep -Setting $s -ActivityHistory -Today $today }) '-ActivityHistory without an activity database is refused'
+$typed = Get-PipelineStep -Setting ($act + @{ ActivityRecordTypes = @('PowerBIAudit') }) -Today $today
+$types = ($typed | Where-Object Name -eq 'AI apps, Power BI and Power Apps').Arguments.RecordTypes
+Assert-That ((@($types) -join ',') -eq 'PowerBIAudit') 'ActivityRecordTypes in the settings replaces the list'
+$hist = Get-PipelineStep -Setting $act -History -Today $today
+Assert-That (($hist | Where-Object Name -eq 'AI apps, Power BI and Power Apps (history)').Optional -and $hist[-1].Name -eq 'AI apps, Power BI and Power Apps rollup') 'the first load of history loads it too, optional, last'
+
+. (Join-Path $root 'tools' 'Update-ActivityRollup.ps1')
+Assert-That ($null -eq (Get-ActivityRollupSince -Full) -and (Get-ActivityRollupSince -Today $today) -eq $today.AddDays(-3) -and (Get-ActivityRollupSince -SinceUtc ([datetime] '2026-09-01T05:00') -Today $today) -eq [datetime] '2026-09-01') `
+    'the rollup: every day with -Full, else three days back, or the day given'
 
 Write-Host ''
 if ($script:Failures.Count) { Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red; exit 1 }

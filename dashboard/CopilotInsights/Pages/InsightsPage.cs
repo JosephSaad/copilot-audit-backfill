@@ -9,7 +9,16 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 namespace CopilotInsights.Pages;
 
 /// <summary>A headline figure; Href (2.6.6) is the report with the detail behind it, which the figure links to.</summary>
-public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null, string? Href = null);
+public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null, string? Href = null, KpiWhy? Why = null);
+
+/// <summary>
+/// How a figure is worked out (2.6.9): its formula with the values in it, and the assumptions it rests on, each with its
+/// value now and, for an administrator who may change it, a link to the field it is set in. Shown under the figure.
+/// </summary>
+public sealed record KpiWhy(string Formula, IReadOnlyList<WhyInput> Inputs);
+
+/// <summary>One assumption behind a figure: its name, its value now, and where to change it (null for anyone who may not).</summary>
+public sealed record WhyInput(string Label, string Value, string? Href);
 
 /// <summary>A report panel: a chart or a table, with a title and an optional explanation.</summary>
 public sealed record Panel(string Title, IHtmlContent Body, string? Sub = null, string Size = "full", string? Csv = null);
@@ -474,6 +483,27 @@ EXEC sys.sp_executesql @sql;");
         var note = await CopilotInsights.Data.ProtectedLevels.NoteAsync(S.Settings);
         return note.Length == 0 ? "" : $"<p class=\"sub protected\">{E(note.Trim())}</p>";
     }
+
+    IReadOnlyList<CopilotInsights.Data.AssumptionValue>? _assumptions;
+
+    /// <summary>
+    /// How a figure is worked out (2.6.9): the formula, with the values put in, and the assumptions it rests on by their
+    /// keys in the register (<see cref="CopilotInsights.Data.Assumptions"/>), each with its value now; for an administrator
+    /// who may open the page it is set on, a link that opens that page at the field.
+    /// </summary>
+    protected async Task<KpiWhy> WhyAsync(string formula, params string[] keys)
+    {
+        _assumptions ??= await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.AssumptionData>().AllAsync();
+        var inputs = keys.Select(k => _assumptions.FirstOrDefault(a => a.Def.Key == k)).OfType<CopilotInsights.Data.AssumptionValue>()
+            .Select(a => new WhyInput(a.Def.Label, a.Shown, !Warming && Viewer.CanAdmin(a.Def.Page) ? CopilotInsights.Data.Assumptions.EditHref(a.Def) : null)).ToList();
+        return new(formula, inputs);
+    }
+
+    /// <summary>A figure's "how it is worked out" as HTML (2.6.9), for a page that draws its own tiles; _Report draws a Kpi's.</summary>
+    protected static string WhyHtml(KpiWhy? w) => w is null ? "" :
+        $"<details class=\"kwhy\"><summary>How it is worked out</summary><p>{E(w.Formula)}</p>" +
+        (w.Inputs.Count == 0 ? "" : "<ul>" + string.Concat(w.Inputs.Select(i => $"<li>{E(i.Label)}: <b>{E(i.Value)}</b>" +
+            (i.Href is null ? "" : $" · <a href=\"{E(i.Href)}\">Change it</a>") + "</li>")) + "</ul>") + "</details>";
 
     /// <summary>The message a change left for the page it redirected back to.</summary>
     protected void ShowDone()

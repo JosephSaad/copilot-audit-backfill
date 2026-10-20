@@ -14,7 +14,7 @@ public static class Nav
         new("Leadership", "Executives and department heads", [
             new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
             new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"), new("Copilot reservations", "/leadership/reservations"),
-            new("Board pack", "/leadership/boardpack")]),
+            new("Board pack", "/leadership/boardpack"), new("How figures are calculated", "/leadership/assumptions")]),
         new("Adoption", "Copilot program leads", [
             new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"),
             new("Retention and habit", "/adoption/retention"), new("Retention by license month", "/adoption/cohorts"), new("New joiners", "/adoption/onboarding"), new("Not started", "/adoption/not-started", Roles.Adoption),
@@ -53,7 +53,7 @@ public static class Nav
         new("App owners", "Microsoft 365 workload owners", [
             new("Apps", "/apps"), new("App detail", "/apps/detail")]),
         new("Governance", "AI governance and architecture", [
-            new("Models and controls", "/governance")]),
+            new("Models and controls", "/governance"), new("AI apps beyond Copilot", "/governance/ai-apps")]),
         new("Admin", "Dashboard administrators", [
             new("Health", "/admin/health", Admin: true), new("Access", "/admin/access", Admin: true), new("Directory quality", "/admin/directory", Admin: true),
             new("Email", "/admin/email", Admin: true), new("Alerts and digests", "/admin/notifications", Admin: true),

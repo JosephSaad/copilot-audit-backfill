@@ -49,7 +49,8 @@ GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.Agen
         var charging = v.Agents.Where(a => a.Month.Credits > 0).ToList();
         Kpis.Add(new("Agents charging credits", Num(charging.Count), $"of {Num(v.Agents.Count)} used: billed use by people without a license, or in a Copilot Studio channel"));
         Kpis.Add(new("Credits a month (estimate)", Num((long)Math.Round(charging.Sum(a => a.Month.Credits))),
-            $"{CopilotInsights.Data.CostRules.Money(Math.Round(charging.Sum(a => a.Month.Cost)), cur)} at {v.Rates.CreditPrice:#,0.00##} {cur} a credit", Href: Open("/licensing/credit-use")));
+            $"{CopilotInsights.Data.CostRules.Money(Math.Round(charging.Sum(a => a.Month.Cost)), cur)} at {v.Rates.CreditPrice:#,0.00##} {cur} a credit", Href: Open("/licensing/credit-use"),
+            Why: await WhyAsync(CopilotInsights.Data.CreditRules.Formula(v.Rates, cur), "CreditsPerAnswer", "CreditsPerGrounding", "CreditsPerAction", "Price:COPILOT_STUDIO_PAYG_CREDIT")));
         Kpis.Add(new("People billed", Num(v.People.Count(p => p.Use.Billed > 0 && p.Use.WithAgent > 0)), "used an agent that bills"));
 
         var ownerName = await NamesAsync(v.Agents.Select(a => more.TryGetValue(a.AgentKey, out var m) ? m.Owner : null));
