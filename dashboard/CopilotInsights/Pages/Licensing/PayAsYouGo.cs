@@ -1,3 +1,4 @@
+using CopilotInsights.Data;
 using System.Globalization;
 using System.Net;
 using CopilotInsights.Infrastructure;
@@ -97,9 +98,10 @@ SELECT COUNT(*), ISNULL(SUM(x.Metered), 0) FROM #x AS x;", Ctx.Args(new { q = pg
             Why: await WhyAsync($"Candidates × the Copilot license price ({candidates:#,0} × {price:#,0.##} {cur}), less their metered interactions × the pay-as-you-go cost of an interaction.", "LicenseMonthlyCost", "PaygInteractionCost")));
         Kpis.Add(new("Credits assumed", $"{rate:#,0.00##} {cur}", "for each metered interaction (set in Admin > Access)"));
 
+        var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, not part numbers
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "SKU", "Licensed since", "Interactions", "Premium", "Premium share", "Agent",
+            Headers = ["Name", "Sign-in", "Department", "Manager", "License", "Licensed since", "Interactions", "Premium", "Premium share", "Agent",
                        "Days used", "Days with Premium use", "Last used", $"Credits a month ({cur})", $"Saving a month ({cur})"],
             Numeric = new HashSet<int> { 6, 7, 8, 9, 10, 11, 13, 14 },
             EmptyText = "No license holder here uses Copilot this little outside the free tier.",
@@ -110,7 +112,7 @@ SELECT COUNT(*), ISNULL(SUM(x.Metered), 0) FROM #x AS x;", Ctx.Args(new { q = pg
         foreach (var r in rows)
         {
             var credits = Monthly(r.Metered);
-            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.CopilotSku, r.LicensedSinceUtc?.Date,
+            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, names.Name(r.CopilotSku), r.LicensedSinceUtc?.Date,
                         r.I, r.P, Pct(Ratio(r.P, r.I)), r.A, r.Days, r.PremiumDays, r.LastUsed?.Date,
                         Math.Round(credits, 2), Math.Round(price - credits, 2)]);
         }

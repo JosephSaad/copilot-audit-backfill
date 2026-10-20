@@ -227,7 +227,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         Panels.Add(new("Copilot use by app",
             Chart.Bars(byApp.Select(a => new Bar(a.App, Ratio(a.N, interactions), Note: $"{a.N:#,0} interactions", Shown: Num(a.N))).ToList(), Fmt.Percent, "Share of interactions by app"),
             $"Each app's share of the {interactions:#,0} interactions of {licName.ToLowerInvariant()} people in the period, with the count beside it. " +
-            "Office, BizChat and Edge are Copilot Chat.", "half"));
+            "Copilot Chat counts the Microsoft 365 app, Copilot Chat itself, its search answers and Edge.", "half"));
 
         /* What Copilot read for them, by file type: the twelve most read, the rest together. */
         var read = sources.Sum(x => x.N);
@@ -276,7 +276,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
         sb.Append(Sized(appBars, 440));
         Panels.Add(new("Total average minutes used (by app)", new HtmlString(sb.ToString()),
             "For each app, the minutes of the conversations that started in it, divided by the people who had one there, in the period. " +
-            $"Copilot Chat includes Office, BizChat and Edge. {minutesNote}", "half"));
+            $"Copilot Chat counts the Microsoft 365 app, Copilot Chat itself, its search answers and Edge. {minutesNote}", "half"));
 
         pg.Total = (int)Math.Min(int.MaxValue, countTask.Result ?? minutes.Where(m => m.Kind == "a").Sum(m => m.Sessions));
         var t = new Table

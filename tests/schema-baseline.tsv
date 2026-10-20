@@ -1,4 +1,4 @@
-# release 2.7.0
+# release 2.7.1
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1336,6 +1336,10 @@ C	copilot	dash.Setting	U	2	Value	nvarchar(400)	1
 C	copilot	dash.Setting	U	3	Description	nvarchar(400)	1	
 C	copilot	dash.Setting	U	4	UpdatedBy	nvarchar(256)	1	
 C	copilot	dash.Setting	U	5	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.SkuName	U	1	SkuPartNumber	nvarchar(100)	0	
+C	copilot	dash.SkuName	U	2	ProductName	nvarchar(200)	0	
+C	copilot	dash.SkuName	U	3	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.SkuName	U	4	UpdatedUtc	datetime2(0)	0	D
 C	copilot	dash.Subscription	U	1	SubscriptionId	int	0	I
 C	copilot	dash.Subscription	U	10	Days	int	0	D
 C	copilot	dash.Subscription	U	11	Enabled	bit	0	D
@@ -1639,6 +1643,7 @@ G	copilot	CopilotInsightsApp	DELETE	dash.RoleGrant
 G	copilot	CopilotInsightsApp	DELETE	dash.SavedView
 G	copilot	CopilotInsightsApp	DELETE	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	DELETE	dash.Setting
+G	copilot	CopilotInsightsApp	DELETE	dash.SkuName
 G	copilot	CopilotInsightsApp	DELETE	dash.Subscription
 G	copilot	CopilotInsightsApp	DELETE	dash.Target
 G	copilot	CopilotInsightsApp	DELETE	dash.TechnologyAllocation
@@ -1674,6 +1679,7 @@ G	copilot	CopilotInsightsApp	INSERT	dash.RoleGrant
 G	copilot	CopilotInsightsApp	INSERT	dash.SavedView
 G	copilot	CopilotInsightsApp	INSERT	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	INSERT	dash.Setting
+G	copilot	CopilotInsightsApp	INSERT	dash.SkuName
 G	copilot	CopilotInsightsApp	INSERT	dash.Subscription
 G	copilot	CopilotInsightsApp	INSERT	dash.Target
 G	copilot	CopilotInsightsApp	INSERT	dash.TechnologyAllocation
@@ -1740,6 +1746,7 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.RoleGrant
 G	copilot	CopilotInsightsApp	UPDATE	dash.SavedView
 G	copilot	CopilotInsightsApp	UPDATE	dash.SensitivityLabel
 G	copilot	CopilotInsightsApp	UPDATE	dash.Setting
+G	copilot	CopilotInsightsApp	UPDATE	dash.SkuName
 G	copilot	CopilotInsightsApp	UPDATE	dash.Subscription
 G	copilot	CopilotInsightsApp	UPDATE	dash.Target
 G	copilot	CopilotInsightsApp	UPDATE	dash.TechnologyAllocation
@@ -1928,6 +1935,7 @@ O	copilot	dash.SavedView	U
 O	copilot	dash.Secret	U
 O	copilot	dash.SensitivityLabel	U
 O	copilot	dash.Setting	U
+O	copilot	dash.SkuName	U
 O	copilot	dash.Subscription	U
 O	copilot	dash.Target	U
 O	copilot	dash.TechnologyAllocation	U

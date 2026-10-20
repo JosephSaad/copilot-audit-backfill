@@ -237,10 +237,11 @@ FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @up
                 ["record"] = "f.RecordId",
             }, "new");
             var recs = await Db.QueryAsync<Rec>($@"
-SELECT f.CreatedUtc, a.App, CASE WHEN ag.AgentSource = N'(no agent)' THEN NULL ELSE ag.AgentName END AS Agent, f.UsedWebSearch, f.JailbreakDetected, f.PromptInjectionDetected,
+SELECT f.CreatedUtc, COALESCE(vn.Name, a.App) AS App, CASE WHEN ag.AgentSource = N'(no agent)' THEN NULL ELSE ag.AgentName END AS Agent, f.UsedWebSearch, f.JailbreakDetected, f.PromptInjectionDetected,
        f.HasBlockedResource, f.HasSensitivityLabel, f.AccessedResourceCount, f.RecordId, COUNT(*) OVER () AS TotalRows
 FROM bi.FactInteraction AS f
 JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name
 JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
 WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
 {pg.OrderAndPage()};", Ctx.Args(new { key = who.UserKey }), timeout: 300);

@@ -84,11 +84,12 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             $"Interactions before 08:00, from 18:00, or at weekends. {TrendNote}", "half"));
 
         var apps = await Db.QueryAsync<(string App, int Hour, long N)>($@"
-SELECT a.App, f.HourOfDay, COUNT_BIG(*)
+SELECT COALESCE(vn.Name, a.App), f.HourOfDay, COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name
 WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY a.App, f.HourOfDay;", Ctx.Args());
+GROUP BY COALESCE(vn.Name, a.App), f.HourOfDay;", Ctx.Args());
         var topApps = apps.GroupBy(a => a.App).OrderByDescending(g => g.Sum(x => x.N)).Take(4).Select(g => g.Key).ToList();
         var hours = Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToList();
         Panels.Add(new("The day's shape, by app",

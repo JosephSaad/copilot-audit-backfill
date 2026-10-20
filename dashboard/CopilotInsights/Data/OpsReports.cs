@@ -322,8 +322,9 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
                 if (c.Root is null)
                 {
                     var pool = (await ops.PoolAsync()).Where(r => r.IsCopilot).ToList();
+                    var names = await SkuNames.LoadAsync(db);   // 2.7.1: product names, not part numbers
                     e.Table("Copilot license pool", ["License", "Bought", "Assigned", "Available"],
-                        pool.Select(r => new object?[] { r.SkuPartNumber, r.Bought, r.Consumed, r.Available }));
+                        pool.Select(r => new object?[] { names.Name(r.SkuPartNumber), r.Bought, r.Consumed, r.Available }));
                 }
                 var counts = await ActionCountsAsync(c);
                 var price = decimal.TryParse(await settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var pr) ? pr : 30m;

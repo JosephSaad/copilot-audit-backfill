@@ -1,3 +1,4 @@
+using CopilotInsights.Data;
 using System.Net;
 using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
@@ -94,11 +95,12 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         Kpis.Add(new("People with an overlap", Num(people), "a Copilot license and another Copilot-family one", people > 0 ? "warn" : null));
         Kpis.Add(new("Overlapping SKUs", Num(bySku.Count)));
 
-        var st = new Table { Headers = ["SKU held as well", "People", "Seats bought", "Seats assigned"], Numeric = new HashSet<int> { 1, 2, 3 }, EmptyText = "No overlap." };
+        var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, not part numbers
+        var st = new Table { Headers = ["License held as well", "People", "Seats bought", "Seats assigned"], Numeric = new HashSet<int> { 1, 2, 3 }, EmptyText = "No overlap." };
         foreach (var b in bySku)
-            st.Rows.Add([new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"sku={b.SkuId}"))}\"{(b.SkuId == sku ? " class=\"on\"" : "")}>{WebUtility.HtmlEncode(b.Part)}</a>"),
+            st.Rows.Add([new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"sku={b.SkuId}"))}\"{(b.SkuId == sku ? " class=\"on\"" : "")}>{WebUtility.HtmlEncode(names.Name(b.Part))}</a>"),
                          b.People, b.Bought, b.Assigned]);
-        Panels.Add(new("By SKU", st.Render(), "Each SKU held alongside the Copilot license, with how many of the tenant's seats of it are bought and assigned. Open one to list its holders.", "half"));
+        Panels.Add(new("By license", st.Render(), "Each license held alongside the Copilot license, with how many of the tenant's seats of it are bought and assigned. Open one to list its holders.", "half"));
 
         var t = new Table
         {
@@ -108,10 +110,10 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
             Server = new(pg, Request, ["name", "upn", "dept", "copilot", "others", "idle"]),
         };
         foreach (var r in rows)
-            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.CopilotSkus, r.Others ?? "a second Copilot SKU", r.LastUsed is null ? "Never" : r.LastUsed.Value.Date]);
+            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, names.Name(r.CopilotSkus), r.Others is null ? "a second Copilot license" : names.Name(r.Others), r.LastUsed is null ? "Never" : r.LastUsed.Value.Date]);
         CsvTable = t;
-        var all = sku is null ? "" : $"<p class=\"sub\"><a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path))}\">All SKUs</a></p>";
-        Panels.Add(new(sku is null ? "People" : $"People holding {bySku.FirstOrDefault(b => b.SkuId == sku).Part}",
+        var all = sku is null ? "" : $"<p class=\"sub\"><a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path))}\">All licenses</a></p>";
+        Panels.Add(new(sku is null ? "People" : $"People holding {names.Name(bySku.FirstOrDefault(b => b.SkuId == sku).Part)}",
             new HtmlString(all + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "From every SKU the license tool read for each person at its last run. Copilot-family: a part number containing COPILOT, or Copilot Studio's (VIRTUAL_AGENT, CCIBOTS). " +
             "Licenses that cost nothing a user are left out: the Copilot Studio user license (VIRTUAL_AGENT_USL), viral sign-ups and trials. " +

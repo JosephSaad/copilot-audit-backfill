@@ -103,12 +103,13 @@ public sealed class MixModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         var rows = await Db.QueryAsync<(DateTime Bucket, string App, long N)>($@"
-SELECT {Ctx.BucketSql("d")}, a.App, COUNT_BIG(*)
+SELECT {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App), COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name, as Apps shows it
 WHERE f.DateKey BETWEEN @k0 AND @k1
-GROUP BY {Ctx.BucketSql("d")}, a.App;", Ctx.Args());
+GROUP BY {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App);", Ctx.Args());
         var buckets = Buckets();
         var x = Labels();
         var top = rows.GroupBy(r => r.App).OrderByDescending(g => g.Sum(r => r.N)).Select(g => g.Key).Take(6).ToList();
@@ -116,7 +117,7 @@ GROUP BY {Ctx.BucketSql("d")}, a.App;", Ctx.Args());
         if (rows.Any(r => !top.Contains(r.App)))
             series.Add(new Series("Other apps", buckets.Select(b => (double?)rows.Where(r => !top.Contains(r.App) && r.Bucket == b.Key).Sum(r => r.N)).ToList(), 8));
         Panels.Add(new("Interactions by app", Chart.Columns(x, series, Fmt.Count, "Interactions by app"),
-            $"The six busiest apps; the rest are combined. Office and BizChat are Copilot Chat. {TrendNote}"));
+            $"The six busiest apps; the rest are combined. Name an app shown by its code in Admin › Value names. {TrendNote}"));
 
         var tr = await m.TrendAsync(Ctx);
         Panels.Add(new("Copilot Chat and agents, share of interactions",

@@ -97,7 +97,7 @@ public static class Guidance
         // Forecasting
         ["/forecasting"] = new("See where use and licenses are heading.", "Plan purchases and renewals on the projection, with its range."),
         ["/forecasting/optimize"] = new("Weigh every license action and what it is worth.", "Start with the action worth the most."),
-        ["/forecasting/budget"] = new("Prepare the renewal with the seats the use supports.", "Renew at the supported seat count, not the current one."),
+        ["/forecasting/budget"] = new("Prepare the renewal with the seats to renew.", "Renew at the seats to renew, License optimization's right size, not the current count."),
         ["/forecasting/actions"] = new("Act on named upgrade, train and revoke recommendations.", "Export each list and hand it to the license team."),
         ["/forecasting/waves"] = new("Roll out new licenses in the order most likely to pay off.", "Apply the next wave's file when seats come free."),
         ["/forecasting/outcomes"] = new("Check that license actions happened, and that they paid off.", "Chase the changes not made, and the new licenses not used."),

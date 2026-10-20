@@ -278,6 +278,18 @@ BEGIN
     RETURN COALESCE((SELECT Name FROM dash.ValueName WHERE ColumnId = @ColumnId AND Value = @Value), @Value);
 END;');
 
+/* 2.7.1: names for the app codes Copilot Chat records (column 2, the app), which pages showed as they come:
+   BizChat, Office, OfficeCopilotSearchAnswer. Only where an administrator has not named them. */
+MERGE dash.ValueName AS t
+USING (VALUES
+    (CAST(2 AS SMALLINT), N'BizChat',                   N'Copilot Chat'),
+    (CAST(2 AS SMALLINT), N'Office',                    N'Microsoft 365 app'),
+    (CAST(2 AS SMALLINT), N'OfficeCopilotSearchAnswer', N'Copilot search answers'),
+    (CAST(2 AS SMALLINT), N'Edge',                      N'Edge')
+) AS s (ColumnId, Value, Name)
+ON t.ColumnId = s.ColumnId AND t.Value = s.Value
+WHEN NOT MATCHED THEN INSERT (ColumnId, Value, Name, Note, UpdatedBy) VALUES (s.ColumnId, s.Value, s.Name, N'Named by the install (2.7.1).', N'install');
+
 /* ---- 2.3.0, second part: triage, preferences, actions, contracts, views, classifications ---- */
 
 /* Security's triage of each flagged interaction. */
@@ -674,6 +686,7 @@ GRANT INSERT, UPDATE, DELETE ON dash.Target TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TimeSaving TO CopilotInsightsApp;
 IF OBJECT_ID(N'dash.CostPrice', N'U') IS NOT NULL GRANT UPDATE ON dash.CostPrice TO CopilotInsightsApp;   -- 2.6.6: Admin > Targets and assumptions sets the prices
 IF OBJECT_ID(N'dash.CostSuite', N'U') IS NOT NULL GRANT UPDATE ON dash.CostSuite TO CopilotInsightsApp;   -- 2.6.6: and turns a suite's inclusions on or off
+IF OBJECT_ID(N'dash.SkuName', N'U') IS NOT NULL GRANT INSERT, UPDATE, DELETE ON dash.SkuName TO CopilotInsightsApp;   -- 2.7.1: Admin > Value names names the licenses
 GRANT INSERT, UPDATE, DELETE ON dash.TrainingAttendance TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;

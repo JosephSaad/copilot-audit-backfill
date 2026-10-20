@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.1] - 2026-10-20
+
+The last three items of 2.7.0's usability pass: one renewal figure, product names in place of part numbers, and the
+bridge from licenses bought to licenses held.
+
+**Install over 2.7.0:** run `Install-CopilotAudit.ps1` from this release. It adds one table (`dash.SkuName`) and names
+four app codes; nothing else in the schema changes.
+
+### Fixed
+- **Licenses on disabled accounts counted people whose Copilot comes only with a suite.** The check for
+  `dash.CopilotSuiteOnly` looked for a table, and it is a view, so the leavers never left those people out. Their
+  Copilot cannot be taken off alone. The check now finds views as well as tables.
+- **Budget and renewal and License optimization disagreed on the seats to renew** by hundreds of seats. Budget took
+  today's seats less revocations and leavers; Optimize took a forecast with a fixed 10% margin. Both now use one figure:
+  - the licensed people forecast to use Copilot each week in 13 weeks, or the last 30 days' users if there are more;
+  - plus the spare share kept on purpose (*Spare seats kept unassigned*, as Costs and savings and License pool use it);
+  - plus the heavy Copilot Chat users with no license.
+
+  Budget's *Seats to renew* is that figure less the people who use Copilot only through a suite. It opens License
+  optimization.
+
+### Added
+- **License inventory › From licenses bought to licenses held**:
+  - the add-on licenses bought, less those not assigned;
+  - plus the people who hold Copilot only through a suite;
+  - plus the rest of the difference;
+  - to the people licensed today.
+
+  It says which count Chargeback and Copilot reservations use.
+- **Product names for licenses.** Pages say *Microsoft 365 E5*, not `SPE_E5`. This covers License inventory, Unused
+  licenses, Pay-as-you-go, Overlap, License pool (with the part number beside it) and the Licensing digest.
+  - The install brings Microsoft's names for 35 common licenses.
+  - **Admin › Value names › License product names** names the rest, or renames one, and is kept on every install.
+- **Names for the app codes Copilot Chat records** (BizChat, Office, OfficeCopilotSearchAnswer, Edge), on the pages that
+  showed the codes: Leadership › Apps and agents, Working patterns, Compare two teams and the Person record.
+
+### Changed
+- Chargeback groups by *Employee type*, not `EmployeeType`. Suite prices are labeled by the suite's name alone, without
+  its part-number pattern.
+
 ## [2.7.0] - 2026-10-20
 
 An adversarial review of 2.6.7 and 2.6.8, and its fixes; usability from three people's walk through the dashboard; and

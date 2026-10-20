@@ -230,6 +230,62 @@ WHERE ss.CopilotInSuite = 1;');
     END;
 END;
 
+/*
+    2.7.1: the product name for each license's part number, so pages say "Microsoft 365 E5", not SPE_E5. Microsoft
+    Graph gives a tenant's licenses by part number only. Seeded with Microsoft's names for the common ones (Product
+    names and service plan identifiers for licensing); an administrator names the rest, or renames one, in
+    Admin > Value names, and a row they set is kept on every install. A part number with no row is shown as it is,
+    or by its price list name (dash.CostPrice) where it has one.
+*/
+IF OBJECT_ID(N'dash.SkuName', N'U') IS NULL
+    CREATE TABLE dash.SkuName
+    (
+        SkuPartNumber NVARCHAR(100)  NOT NULL CONSTRAINT PK_DashSkuName PRIMARY KEY,
+        ProductName   NVARCHAR(200)  NOT NULL,
+        UpdatedBy     NVARCHAR(256)  NULL,
+        UpdatedUtc    DATETIME2(0)   NOT NULL CONSTRAINT DF_DashSkuName_Updated DEFAULT (SYSUTCDATETIME())
+    );
+MERGE dash.SkuName AS t
+USING (VALUES
+    (N'Microsoft_365_Copilot',          N'Microsoft 365 Copilot'),
+    (N'SPE_E3',                         N'Microsoft 365 E3'),
+    (N'SPE_E5',                         N'Microsoft 365 E5'),
+    (N'SPE_F1',                         N'Microsoft 365 F3'),
+    (N'M365_F1',                        N'Microsoft 365 F1'),
+    (N'ENTERPRISEPACK',                 N'Office 365 E3'),
+    (N'ENTERPRISEPREMIUM',              N'Office 365 E5'),
+    (N'STANDARDPACK',                   N'Office 365 E1'),
+    (N'DESKLESSPACK',                   N'Office 365 F3'),
+    (N'SPB',                            N'Microsoft 365 Business Premium'),
+    (N'O365_BUSINESS_PREMIUM',          N'Microsoft 365 Business Standard'),
+    (N'O365_BUSINESS_ESSENTIALS',       N'Microsoft 365 Business Basic'),
+    (N'DEVELOPERPACK_E5',               N'Microsoft 365 E5 Developer'),
+    (N'EMS',                            N'Enterprise Mobility + Security E3'),
+    (N'EMSPREMIUM',                     N'Enterprise Mobility + Security E5'),
+    (N'AAD_PREMIUM',                    N'Microsoft Entra ID P1'),
+    (N'AAD_PREMIUM_P2',                 N'Microsoft Entra ID P2'),
+    (N'EXCHANGESTANDARD',               N'Exchange Online (Plan 1)'),
+    (N'EXCHANGEENTERPRISE',             N'Exchange Online (Plan 2)'),
+    (N'VISIOCLIENT',                    N'Visio Plan 2'),
+    (N'PROJECTPROFESSIONAL',            N'Project Plan 3'),
+    (N'Microsoft_Teams_Premium',        N'Microsoft Teams Premium'),
+    (N'TEAMS_EXPLORATORY',              N'Microsoft Teams Exploratory'),
+    (N'MCOEV',                          N'Microsoft Teams Phone Standard'),
+    (N'MCOMEETADV',                     N'Microsoft 365 Audio Conferencing'),
+    (N'POWER_BI_PRO',                   N'Power BI Pro'),
+    (N'PBI_PREMIUM_PER_USER',           N'Power BI Premium Per User'),
+    (N'POWER_BI_STANDARD',              N'Microsoft Fabric (Free)'),
+    (N'POWERAPPS_PER_USER',             N'Power Apps Premium'),
+    (N'POWERAPPS_DEV',                  N'Power Apps for Developer'),
+    (N'POWERAPPS_VIRAL',                N'Power Apps Plan 2 Trial'),
+    (N'POWERAUTOMATE_ATTENDED_RPA',     N'Power Automate Premium'),
+    (N'POWERAUTOMATE_UNATTENDED_RPA',   N'Power Automate Process'),
+    (N'FLOW_PER_USER',                  N'Power Automate per user plan'),
+    (N'FLOW_FREE',                      N'Power Automate Free')
+) AS s (SkuPartNumber, ProductName)
+ON t.SkuPartNumber = s.SkuPartNumber
+WHEN NOT MATCHED THEN INSERT (SkuPartNumber, ProductName, UpdatedBy) VALUES (s.SkuPartNumber, s.ProductName, N'install');
+
 /* Roles granted to people (by UPN) or AD groups (DOMAIN\Group). */
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
     CREATE TABLE dash.RoleGrant
