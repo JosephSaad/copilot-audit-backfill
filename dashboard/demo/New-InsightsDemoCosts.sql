@@ -411,6 +411,35 @@ CROSS APPLY audit.fnAIAppResourceGuess(f.[Resource]) AS g;
 UPDATE audit.AIAppResource SET LineOfBusiness = N'Claims', Environment = 'Production', Owner = N'Claims platform team', SetBy = 'Admin', UpdatedBy = N'demo'
 WHERE [Resource] = N'contoso-openai-eus';
 
+/* 2.7.0: who used Teams meeting AI notes, Power BI and Power Apps each day, as the activity rollup writes it; and the
+   data loss prevention matches: five policies over SharePoint, OneDrive and Exchange, a few overridden. Weekdays only,
+   the last four months. */
+IF OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NOT NULL
+BEGIN
+    DELETE FROM audit.ActivityUserDay;
+    INSERT INTO audit.ActivityUserDay ([Day], Product, Upn, Events)
+    SELECT d.[Day], x.Product, LOWER(p.Upn), 1 + ABS(CHECKSUM(CONCAT(p.Upn, x.Product, d.[Day]))) % x.MaxEvents
+    FROM #people AS p
+    CROSS JOIN (VALUES ('Teams AI notes', 0.22, 0.30, 4), ('Power BI', 0.35, 0.45, 9), ('Power Apps', 0.10, 0.35, 5)) AS x (Product, Share, DayRate, MaxEvents)
+    JOIN #day AS d ON d.Ago < 120 AND d.Dow < 6
+    WHERE p.R1 < x.Share
+      AND ABS(CHECKSUM(CONCAT(p.Upn, d.[Day], x.Product))) % 1000 / 1000.0 < x.DayRate * (CASE WHEN x.Product = 'Teams AI notes' THEN 0.5 + d.Progress ELSE 1 END);
+END;
+IF OBJECT_ID(N'audit.DlpDay', N'U') IS NOT NULL
+BEGIN
+    DELETE FROM audit.DlpDay;
+    INSERT INTO audit.DlpDay ([Day], Workload, PolicyName, RuleName, Severity, Upn, Matches, Undone)
+    SELECT d.[Day], x.Workload, x.Policy, x.RuleName, x.Severity, LOWER(p.Upn), 1, CASE WHEN ABS(CHECKSUM(CONCAT(p.Upn, d.[Day], 'u'))) % 100 < x.UndoPct THEN 1 ELSE 0 END
+    FROM #people AS p
+    CROSS JOIN (VALUES (N'SharePoint', N'Customer data (PII)', N'Card numbers shared outside', N'High', 0.012, 4),
+                       (N'OneDrive', N'Customer data (PII)', N'Account numbers in files', N'Medium', 0.010, 12),
+                       (N'Exchange', N'Customer data (PII)', N'Card numbers in mail', N'High', 0.008, 6),
+                       (N'Exchange', N'Board and M&A material', N'Confidential label sent externally', N'High', 0.002, 2),
+                       (N'SharePoint', N'Credentials and keys', N'Secrets in documents', N'Medium', 0.004, 30)) AS x (Workload, Policy, RuleName, Severity, Rate, UndoPct)
+    JOIN #day AS d ON d.Ago < 120 AND d.Dow < 6
+    WHERE ABS(CHECKSUM(CONCAT(p.Upn, d.[Day], x.RuleName))) % 100000 / 100000.0 < x.Rate;
+END;
+
 /* The leaders, levels 1 to 3 of the demo's five, are kept off the revoke and train lists (the default, 5, would keep
    the whole demo company off them, and every page's recommendations empty). */
 UPDATE dash.Setting SET Value = N'3', UpdatedBy = N'demo' WHERE Name = N'ProtectedLevels';

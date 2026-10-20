@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Read-only health check of the Copilot audit databases (release 2.5.0): what has been
     loaded, from where, what is missing or behind, and what to run.
@@ -332,7 +332,7 @@ SELECT k.Kind, COUNT_BIG(*) AS Records, MIN(a.CreatedDateTime) AS F, MAX(a.Creat
 FROM audit.CopilotAudit AS a
 -- Entra records an operation with a trailing period ('Update user.'): audit.usp_ShredLicenseEvents strips it the same way.
 CROSS APPLY (SELECT RTRIM(REPLACE(a.Operation, N'.', N'')) AS Op) AS n
-CROSS APPLY (SELECT CASE WHEN a.Operation LIKE N'Bot%' THEN 'Copilot Studio'
+CROSS APPLY (SELECT CASE WHEN a.Operation LIKE N'Bot%' OR a.Operation IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings') THEN 'Copilot Studio'
                          WHEN n.Op IN (N'Change user license', N'Update user', N'Add user', N'Delete user') THEN 'License'
                          ELSE 'Other' END AS Kind) AS k
 GROUP BY k.Kind;

@@ -35,6 +35,8 @@ public sealed class AssumptionRegisterModel(PageServices s, AssumptionData regis
         ("Reservation obligation", "Billable licenses (each organization's reserved, plus its allocation over them) × the rate in force; remaining: × the months left in the year.", "Copilot reservations"),
     ];
 
+    object Link(string text, string path) => Open(path) is { } u ? new Pages.Link(text, u) : text;
+
     protected override async Task BuildAsync()
     {
         var all = await register.AllAsync();
@@ -68,6 +70,16 @@ public sealed class AssumptionRegisterModel(PageServices s, AssumptionData regis
                 _ => null,
             }));
         }
+
+        /* 2.7.0: the Copilot license's cost appears on five pages, each counting something else: which to quote for what. */
+        var ct = new Table { Headers = ["Figure", "Page", "What it counts", "Quote it as"], Sortable = false };
+        ct.Rows.Add(["Microsoft 365 Copilot, spend a month", Link("Costs and savings", "/leadership/costs"), "The add-on seats bought (or held, where more are held) × the Copilot license price", "What Microsoft bills for the add-on"]);
+        ct.Rows.Add(["Licenses held, a month", Link("Chargeback", "/licensing/chargeback"), "The license holders in each group today × the Copilot license price", "What each group holds, for allocating the cost"]);
+        ct.Rows.Add(["License cost in the period", Link("Value and time saved", "/leadership/value"), "Each day a person was licensed in the period × the price, over the days of its month", "The cost of the period chosen, against its value"]);
+        ct.Rows.Add(["Monthly obligation", Link("Copilot reservations", "/leadership/reservations"), "Billable licenses (each organization's reserved seats, plus any held over them) × the reservation rate", "What the lines of business are charged"]);
+        ct.Rows.Add(["License cost", Link("Budget and renewal", "/forecasting/budget"), "The contracts' seats × each contract's price", "What is contracted"]);
+        Panels.Add(new("Copilot's cost a month, five ways", ct.Render(),
+            "They differ on purpose: seats bought, seats held, the days of a period, what is charged back and what is contracted. A reservation can bill more than is bought (an organization over its reservation) or less (reserved seats nobody holds are still charged)."));
 
         var ft = new Table { Headers = ["Figure", "How it is worked out", "Where"], Sortable = false };
         foreach (var f in Formulas) ft.Rows.Add([f.Figure, f.How, f.Where]);

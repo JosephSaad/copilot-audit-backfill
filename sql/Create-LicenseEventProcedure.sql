@@ -472,8 +472,10 @@ BEGIN
             ) AS t
         WHERE a.RecordId > @cursor AND a.RecordId <= @maxId
           AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc)
-          /* Copilot Studio's authoring records share the load (2.3.0): audit.usp_ShredAgentEvents takes them. */
-          AND a.Operation NOT LIKE N'Bot%';
+          /* Copilot Studio's authoring records share the load (2.3.0), and from 2.7.0 administrators' actions on agents:
+             audit.usp_ShredAgentEvents takes them. */
+          AND a.Operation NOT LIKE N'Bot%'
+          AND a.Operation NOT IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings');
 
         CREATE CLUSTERED INDEX CIX_evt ON #evt (RecordId);
 

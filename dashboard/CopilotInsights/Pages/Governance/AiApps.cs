@@ -101,9 +101,18 @@ WHERE a.[Day] BETWEEN @d0 AND @d1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             Headers = ["Resource", "Line of business", "Environment", "Owner", "Calls", "Prompts", "Conversations", "People", "Without a user identity", "Failed", "Apps named", "First seen", .. (hasCost ? new[] { $"Azure cost ({cur})" } : [])],
             Numeric = new HashSet<int> { 4, 5, 6, 8, 9, 10, 12 },
         };
+        /* 2.7.0: the accounts Azure billed in the period that recorded no call here: idle, or not collected by Purview. */
+        var silent = hasCost ? await Db.QueryAsync<(string Account, decimal Cost)>(@"
+SELECT c.Account, SUM(c.Cost) FROM audit.FoundryCostDay AS c
+WHERE c.[Day] BETWEEN @d0 AND @d1 AND NOT EXISTS (SELECT 1 FROM audit.AIAppUserDay AS a WHERE a.[Resource] = c.Account AND a.[Day] BETWEEN @d0 AND @d1)
+GROUP BY c.Account HAVING SUM(c.Cost) > 0 ORDER BY SUM(c.Cost) DESC;", Ctx.Args()) : [];
+        if (silent.Count > 0)
+            Kpis.Add(new("Billed, no calls recorded", Num(silent.Count), $"{CostRules.Money(Math.Round(silent.Sum(s => s.Cost)), cur)} charged in the period: idle, or Purview does not collect them", "warn"));
         foreach (var r in rows)
             t.Rows.Add([r.Resource, r.LineOfBusiness ?? "(not set)", r.Environment ?? "Unknown", r.Owner, r.Calls, r.Prompts, r.Threads, PeopleText(r.People),
                 Pct(Ratio(r.Unattributed, r.Calls)), Pct(Ratio(r.Failures, r.Calls)), r.Apps, r.FirstSeen, .. (hasCost ? new object?[] { r.Cost is { } c ? Math.Round(c) : null } : [])]);
+        foreach (var s in silent)
+            t.Rows.Add([s.Account + " (no calls recorded)", "(not set)", "Unknown", null, 0, 0, 0, "none", "", "", 0, null, Math.Round(s.Cost)]);
         CsvTable = t;
         Panels.Add(new("Each resource", t.Render(),
             "A resource is the Azure AI Foundry or Azure OpenAI account the call went to. People: those whose own identity reached it, never named, and only from " + min + " up. " +
@@ -135,7 +144,7 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", Ctx.Args());
             "SELECT [Resource], LineOfBusiness, Environment, Owner, Notes, SetBy, FirstSeen FROM audit.AIAppResource ORDER BY [Resource];");
         var t = new Table { Headers = ["Resource", "Line of business, environment, owner and notes"], Sortable = false, EmptyText = "No resources seen yet: the nightly rollup adds each one the first time it is called." };
         foreach (var m in map)
-            t.Rows.Add([m.Resource + (m.SetBy == "Name" ? " (guessed from its name)" : ""), new HtmlString(Form("resource", Hidden("resource", m.Resource) +
+            t.Rows.Add([m.Resource + (m.SetBy != "Name" ? "" : m.Lob is null && m.Env == "Unknown" ? " (nothing to guess from its name: set it)" : m.Lob is null ? " (environment guessed from its name; set its line of business)" : " (guessed from its name)"), new HtmlString(Form("resource", Hidden("resource", m.Resource) +
                 Input("lob", "Line of business", m.Lob, 14) + Select("env", "Environment", Environments, m.Env) + Input("owner", "Owner", m.Owner, 22) + Input("notes", "Notes", m.Notes, 22) +
                 Button("Save", quiet: true)))]);
         Panels.Add(new("Resource map", t.Render(),

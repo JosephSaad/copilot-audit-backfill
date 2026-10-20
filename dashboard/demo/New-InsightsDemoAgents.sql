@@ -230,6 +230,24 @@ FROM (VALUES
 ) AS x (g, BotId, Schema_, Ago, Minutes, Op, Action, Actor, Comp, CompType)
 WHERE x.Actor IS NOT NULL;
 
+/* 2.7.0: what the Microsoft 365 admin center's administrators did to agents (CopilotAgentManagement): eight published
+   agents deployed to people, one blocked and unblocked a week later, one removed, and the tenant's agent settings changed. */
+DECLARE @itAdmin NVARCHAR(256) = (SELECT TOP (1) UserPrincipalName FROM audit.UserDirectory WHERE Department = N'Engineering' AND OrgDepth = 3 AND AccountEnabled = 1 ORDER BY HASHBYTES('MD5', CONCAT(N'itadmin', UserPrincipalName)));
+INSERT INTO #ev
+SELECT 2000 + p.n, p.Id, NULL, DATEADD(HOUR, 30 + p.n, p.FirstPublished), x.Op, x.Action, @itAdmin, p.SchemaName, NULL
+FROM (SELECT TOP (10) ROW_NUMBER() OVER (ORDER BY a.FirstPublished DESC) AS n, a.Id, a.SchemaName, a.FirstPublished FROM #a AS a
+      WHERE a.FirstPublished >= @first AND DATEADD(DAY, 10, a.FirstPublished) < SYSUTCDATETIME() ORDER BY a.FirstPublished DESC) AS p
+CROSS APPLY (SELECT CASE WHEN p.n <= 8 THEN N'DeployedAgent' WHEN p.n = 9 THEN N'BlockedAgent' ELSE N'RemovedAgent' END AS Op,
+                    CASE WHEN p.n <= 8 THEN 'Deployed' WHEN p.n = 9 THEN 'Blocked' ELSE 'Removed' END AS Action) AS x
+WHERE @itAdmin IS NOT NULL
+UNION ALL
+SELECT 2100, p.Id, NULL, DATEADD(DAY, 7, DATEADD(HOUR, 39, p.FirstPublished)), N'UnblockedAgent', 'Unblocked', @itAdmin, p.SchemaName, NULL
+FROM (SELECT TOP (10) ROW_NUMBER() OVER (ORDER BY a.FirstPublished DESC) AS n, a.Id, a.SchemaName, a.FirstPublished FROM #a AS a
+      WHERE a.FirstPublished >= @first AND DATEADD(DAY, 10, a.FirstPublished) < SYSUTCDATETIME() ORDER BY a.FirstPublished DESC) AS p
+WHERE p.n = 9 AND @itAdmin IS NOT NULL
+UNION ALL
+SELECT 2200, N'', NULL, DATEADD(DAY, -20, SYSUTCDATETIME()), N'UpdatedTenantSettings', 'Settings', @itAdmin, NULL, NULL WHERE @itAdmin IS NOT NULL;
+
 DELETE FROM audit.AgentEvent;
 INSERT INTO audit.AgentEvent (RecordId, CreatedUtc, Operation, Action, ActorUpn, BotId, BotSchemaName, ComponentName, ComponentType, ResultStatus)
 SELECT CONCAT('demo-agent-', e.n, '-', ROW_NUMBER() OVER (PARTITION BY e.n ORDER BY e.Ts, e.Operation, e.ComponentName)),

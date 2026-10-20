@@ -95,7 +95,7 @@ public class ReservationSourceTests
         /* Only the Copilot add-on: Copilot held only inside a suite (E7) is not an allocation. */
         Assert.Contains("NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS so WHERE so.Upn = u.UserPrincipalName)", sql);
         var pipeline = File.ReadAllText(Path.Combine(Root(), "Invoke-CopilotPipeline.ps1"));
-        Assert.Contains("if (-not $once) { Invoke-ReservationSnapshot -Setting $T -Log $Log }", pipeline);   // 2.6.9: not after a history load either
+        Assert.Contains("if (-not $once -and $refused.Count -eq 0) { Invoke-ReservationSnapshot -Setting $T -Log $Log }", pipeline);   // 2.6.9: not after a history load; 2.7.0: nor after a refused load
         /* The app may edit the register, the rate and the Technology pool, never the snapshots. */
         Assert.Contains("GRANT INSERT, UPDATE, DELETE ON dash.Reservation TO CopilotInsightsApp;", sql);
         Assert.DoesNotContain("ON dash.ReservationSnapshot TO CopilotInsightsApp", sql);

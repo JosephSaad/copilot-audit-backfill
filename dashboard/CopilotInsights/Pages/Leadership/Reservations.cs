@@ -34,7 +34,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             return;
         }
         var whole = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));
-        var snaps = await data.SnapshotsAsync();
+        var snaps = await data.SnapshotsAsync(Ctx);   // 2.7.0: the viewer's organizations only, as a snapshot shows them
         var snapParam = Request.Query["snap"].FirstOrDefault();
         ReservationView? v = null;
         if (DateTime.TryParseExact(snapParam, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var snapDate))
@@ -46,7 +46,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             return;
         }
         var cur = v.Currency;
-        string M(decimal? x) => x is { } d ? CostRules.Money(Math.Round(d), cur) : "Pending Finance Decision";
+        string M(decimal? x) => x is { } d ? CostRules.Money(Math.Round(d, MidpointRounding.AwayFromZero), cur) : "Pending Finance Decision";
         var holders = Open("/licensing/reservation-holders");
 
         /* The state shown, before anything else: current and not certified, or a snapshot as it was kept. */
@@ -58,9 +58,9 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             "Certification, adjustments and the December close follow in a later release; until then no figure here is a certified financial result.", "full"));
 
         Kpis.Add(new("Reserved licenses", Num(v.Reserved), $"{Count(v.Orgs.Count, "organization")} in the register"));
-        Kpis.Add(new("Entra allocated licenses", Num(v.Allocated), "Microsoft 365 Copilot add-on, held by the organizations' people"));
-        Kpis.Add(new("Unused reserved capacity", Num(v.Unused), "the sum of MAX(reserved - allocated, 0) for each organization", v.Unused > 0 ? "warn" : null));
-        Kpis.Add(new("Allocation over reservation", Num(v.Over), "the sum of MAX(allocated - reserved, 0) for each organization", v.Over > 0 ? "warn" : null));
+        Kpis.Add(new("Licenses held (allocated)", Num(v.Allocated), "Microsoft 365 Copilot add-on licenses the organizations' people hold in Entra"));
+        Kpis.Add(new("Unused reserved capacity", Num(v.Unused), "reserved seats nobody holds, for each organization, added up", v.Unused > 0 ? "warn" : null));
+        Kpis.Add(new("Allocation over reservation", Num(v.Over), "licenses held beyond each organization's reservation, added up", v.Over > 0 ? "warn" : null));
         Kpis.Add(new("Billable licenses", Num(v.Billable), "reserved plus allocation over reservation; pending Finance confirmation"));
         Kpis.Add(new($"Monthly obligation ({cur})", M(v.Monthly), v.Rate is { } rt ? $"at {CostRules.Money(rt, cur)} a license a month" : "no rate in force",
             Why: await WhyAsync($"Billable licenses ({v.Billable:#,0}: for each organization, its reserved licenses plus its allocation over them) × the rate in force" + (v.Rate is { } r1 ? $" ({CostRules.Money(r1, cur)})." : ", none yet."), "ReservationRate")));
@@ -85,7 +85,9 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         {
             object name = holders is not null && !v.IsSnapshot ? new Link(o.Name, Open("/licensing/reservation-holders", "res=" + Uri.EscapeDataString(o.OrgId))!) : o.Name;
             var why = o.LeaderMissing ? " (leader not in the directory)" : o.SharedLeader ? " (leader on another organization too)" : "";
-            t.Rows.Add([name, o.OrgId, o.LeaderName ?? o.LeaderUpn ?? "(no one: a pool)", o.CostCenter, o.Reserved, o.Allocated, o.Unused, o.Over, o.Billable,
+            /* 2.7.0: privacy mode names nobody, a leader included. */
+            var leader = o.LeaderUpn is null ? "(no one: a pool)" : PrivacyMode ? "(named in the register)" : o.LeaderName ?? o.LeaderUpn;
+            t.Rows.Add([name, o.OrgId, leader, o.CostCenter, o.Reserved, o.Allocated, o.Unused, o.Over, o.Billable,
                 o.Utilization is { } u ? Pct(u) : "N/A", new HtmlString(StatusCell(o.Status) + H(why)), M(ReservationRules.Monthly(o.Billable, v.Rate))]);
         }
         if (whole)
@@ -116,7 +118,12 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
     /* The tenant's add-on seats against what the organizations hold, and the purchase gate. */
     async Task ReconcileAsync(ReservationView v)
     {
-        var pool = (await ops.PoolAsync()).Where(p => p.IsCopilot).ToList();
+        /* 2.7.0: the Microsoft 365 Copilot add-on only, as Costs and savings counts it: not Copilot Studio's licenses, nor a
+           suite with Copilot inside (E7), which the organizations' figures leave out too. */
+        var suiteSkus = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL THEN 0 ELSE 1 END;") == 1
+            ? (await Db.QueryAsync<string>("SELECT SkuPartNumber FROM audit.LicenseSku WHERE CopilotInSuite = 1;")).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pool = (await ops.PoolAsync()).Where(p => p.IsCopilot && !suiteSkus.Contains(p.SkuPartNumber) && !p.SkuPartNumber.Contains("STUDIO", StringComparison.OrdinalIgnoreCase)).ToList();
         int bought = pool.Sum(p => p.Bought), assigned = pool.Sum(p => p.Consumed), unassigned = Math.Max(0, bought - assigned);
         var counted = v.Allocated + v.Unmapped + v.Technology;
         var pct = await S.Settings.IntAsync("ReservationGatePercent", 95);
@@ -136,8 +143,10 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             $"<div><span class=\"fl\">Held, as counted here</span><b>{counted:#,0}</b><p>{v.Allocated:#,0} by organizations, {v.Unmapped:#,0} under no leader, {v.Technology:#,0} Technology-funded</p></div>" +
             $"<div><span class=\"fl\">Difference to reconcile</span><b>{assigned - counted:+#,0;-#,0;0}</b><p>{(assigned == counted ? "the license pool and the license holders agree" : "the license pool's assigned count against the holders read for each person: a refresh or an assignment in flight")}</p></div>" +
             $"<div><span class=\"fl\">Unused reserved capacity</span><b>{v.Unused:#,0}</b><p>reserved and not allocated: not the same as unassigned inventory</p></div>" +
+            /* 2.7.0: what the organizations are charged against what is bought. */
+            $"<div><span class=\"fl\">Billable against bought</span><b>{v.Billable - bought:+#,0;-#,0;0}</b><p>{v.Billable:#,0} billable to the organizations, {bought:#,0} bought: reserved seats nobody holds are charged, and seats held over a reservation are billed beyond it</p></div>" +
             "</div>" + $"<p class=\"sub\"><b>Purchase gate.</b> {H(gate)}</p>"),
-            "From the license pool (Graph's subscribed SKUs) and the licenses read for each person. The policy and the proposal name different pools for the 95% gate; until Finance decides, the gate counts unassigned inventory and the unused reserved capacity is shown beside it.", "half"));
+            "From the license pool (Graph's subscribed SKUs) and the licenses read for each person. The policy and the proposal name different pools for the 95% gate; until Finance decides, the gate counts unassigned inventory and the unused reserved capacity is shown beside it. The gate decides whether more licenses are bought; it is not the spare seats Costs and savings keeps for joiners, which decide what is a saving.", "half"));
     }
 
     /* What needs someone's attention before the figures can be relied on. */
@@ -161,7 +170,9 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             var expired = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.TechnologyAllocation WHERE ReviewDate < CAST(GETDATE() AS DATE);");
             Add("Technology-funded allocations past their review date", expired, "Review and renew, or end the allocation.", null);
         }
-        var leavers = (await ops.LeaversAsync(Ctx.Root)).Count;
+        /* 2.7.0: only the add-on licenses an organization counts: Copilot inside a suite, and Technology-funded accounts, are not. */
+        var notCounted = (await Db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly UNION SELECT Upn FROM dash.TechnologyAllocation;")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var leavers = (await ops.LeaversAsync(Ctx.Root)).Count(l => !notCounted.Contains(l.UserPrincipalName));
         Add("Add-on licenses on disabled or departed accounts", leavers, "Reclaim them: they count against their organization.", To("/licensing/leavers"));
         if (v.Rate is null) Add("No rate in force", 1, "Finance enters the rate: until then obligations are Pending Finance Decision.", null);
         Panels.Add(new("Exceptions", t.Render(), "Raised from today's data. The register's leaders, the org chart and the licenses held are what each check reads.", "half"));
@@ -203,7 +214,9 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         var rt = new Table { Headers = ["Org ID", "Organization", "Leader", "Cost center", "Reserved", "From", "To", "Note", ""], Numeric = new HashSet<int> { 4 }, EmptyText = "The register is empty." };
         foreach (var r in reg)
             rt.Rows.Add([r.OrgId, r.Name, r.LeaderUpn, r.CostCenter, r.Reserved, r.EffectiveFrom, r.EffectiveTo, r.Note,
-                new HtmlString(Form("delreserve", Hidden("id", r.ReservationId) + RemoveBox($"Remove {r.Name} from {r.EffectiveFrom:yyyy-MM-dd}")))]);
+                /* 2.7.0: ended on a day, so past months keep it, or removed as entered by mistake. */
+                new HtmlString((r.EffectiveTo is null ? InlineForm("endreserve", Hidden("id", r.ReservationId) + Input("end", "End on", null, 10, "date") + Button("End", quiet: true)) : "") +
+                    Form("delreserve", Hidden("id", r.ReservationId) + RemoveBox($"Remove {r.Name} from {r.EffectiveFrom:yyyy-MM-dd}")))]);
         var add = "<h3>Add an organization's reservation</h3>" + Form("reserve",
             Input("orgId", "Org ID", null, 12) + Input("name", "Organization", null, 20) + Input("leader", "Leader's sign-in", null, 26) + Input("costCenter", "Cost center", null, 10) +
             Input("reserved", "Reserved", null, 6, "number") + Input("from", "From", new DateTime(DateTime.Today.Year, 1, 1).ToString("yyyy-MM-dd"), 10, "date") + Input("to", "To (optional)", null, 10, "date") +
@@ -211,12 +224,12 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         var paste = "<h3>Add several at once</h3><p class=\"sub\">One organization a line: Org ID, organization, leader's sign-in, reserved, from (yyyy-mm-dd), and optionally cost center and to. A header line is skipped.</p>" +
             Form("paste", "<label>Rows<textarea name=\"rows\" rows=\"5\" cols=\"90\" placeholder=\"LOB-01,Retail Banking,leader@contoso.com,7403,2027-01-01,CC-100\"></textarea></label>" + Button("Add these"));
         Panels.Add(new("Reservation register", new HtmlString(rt.Render().Value + add + paste),
-            $"{reg.Sum(r => r.Reserved):#,0} reserved over {reg.Select(r => r.OrgId).Distinct().Count():#,0} organizations, every row whatever its dates. A change to a reservation is a new row from its date, with the old one given an end date: past months keep what they were. Every change is in the audit log.", "full"));
+            $"{reg.Sum(r => r.Reserved):#,0} reserved over {reg.Select(r => r.OrgId).Distinct().Count():#,0} organizations, every row whatever its dates. A change to a reservation is a new row from its date: the organization's open row is ended the day before, so past months keep what they were. *End* ends a row on a day; the cross removes one entered by mistake. Every change is in the audit log.", "full"));
 
         var rates = await Db.QueryAsync<(DateTime From, decimal Rate, string? Currency, string? Note)>("SELECT EffectiveFrom, MonthlyRate, Currency, Note FROM dash.ReservationRate ORDER BY EffectiveFrom DESC;");
         var ratesT = new Table { Headers = ["From", "Rate a license a month", "Currency", "Note", ""], Numeric = new HashSet<int> { 1 }, EmptyText = "No rate: obligations are Pending Finance Decision." };
         foreach (var r in rates)
-            ratesT.Rows.Add([r.From, r.Rate, r.Currency ?? cur, r.Note, new HtmlString(Form("delrate", Hidden("from", r.From.ToString("yyyy-MM-dd")) + RemoveBox($"Remove the rate from {r.From:yyyy-MM-dd}")))]);
+            ratesT.Rows.Add([r.From, r.Rate.ToString("0.####", CultureInfo.InvariantCulture), r.Currency ?? cur, r.Note, new HtmlString(Form("delrate", Hidden("from", r.From.ToString("yyyy-MM-dd")) + RemoveBox($"Remove the rate from {r.From:yyyy-MM-dd}")))]);
         var pct = await S.Settings.IntAsync("ReservationGatePercent", 95);
         var baseline = await S.Settings.IntAsync("ReservationGateBaseline", 0);
         Panels.Add(new("Rate and purchase gate", new HtmlString(ratesT.Render().Value +
@@ -243,62 +256,162 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
     static string Clip(string? s, int n) => (s ?? "").Trim() is var t && t.Length > n ? t[..n] : (s ?? "").Trim();
     static string? Opt(string? s, int n) => string.IsNullOrWhiteSpace(s) ? null : Clip(s, n);
 
-    async Task<string> AddOneAsync(string? orgId, string? name, string? leader, string? costCenter, int? reserved, DateTime? from, DateTime? to, string? note)
+    /// <summary>One register row, checked (2.7.0: every row of a paste is checked before any is added).</summary>
+    public sealed record RegisterRow(string OrgId, string Name, string? LeaderUpn, string? CostCenter, int Reserved, DateTime From, DateTime? To, string? Note);
+
+    /// <summary>A row's fields made into a register row, or why not. Pure, for the tests.</summary>
+    public static RegisterRow Check(string? orgId, string? name, string? leader, string? costCenter, int? reserved, DateTime? from, DateTime? to, string? note)
     {
         orgId = Clip(orgId, 64); name = Clip(name, 200);
         if (orgId.Length == 0) throw new ArgumentException("give the organization its persistent Org ID.");
+        if (orgId.StartsWith('~')) throw new ArgumentException("an Org ID cannot start with ~ (kept for the pools).");
         if (name.Length == 0) throw new ArgumentException("give the organization a name.");
         if (reserved is null or < 0 or > 10_000_000) throw new ArgumentException("reserved is a whole number of licenses.");
         if (from is null) throw new ArgumentException("give the date the reservation is effective from.");
         if (to is not null && to < from) throw new ArgumentException("the end date comes after the start.");
-        var upn = Opt(leader, 256)?.ToLowerInvariant();
-        await Db.ExecuteAsync("INSERT INTO dash.Reservation (OrgId, Name, LeaderUpn, CostCenter, Reserved, EffectiveFrom, EffectiveTo, Note, UpdatedBy) VALUES (@orgId, @name, @upn, @cc, @reserved, @from, @to, @note, @by);",
-            new { orgId, name, upn, cc = Opt(costCenter, 100), reserved, from, to, note = Opt(note, 400), by = Viewer.Upn ?? Viewer.WindowsName });
-        return $"{name} ({orgId}): {reserved:#,0} reserved from {from:yyyy-MM-dd}{(upn is null ? ", with no leader" : $", led by {upn}")}";
+        return new(orgId, name, Opt(leader, 256)?.ToLowerInvariant(), Opt(costCenter, 100), reserved.Value, from.Value.Date, to?.Date, Opt(note, 400));
     }
 
+    /// <summary>
+    /// Adds the rows in one transaction, all or none (2.7.0). An organization's row open on a new row's start is ended the
+    /// day before, so a change is a new row and never a second reservation summed with the first; a new row that would
+    /// overlap a row starting on or after it is refused. Returns what each row ended.
+    /// </summary>
+    async Task<int> AddAsync(IReadOnlyList<RegisterRow> rows)
+    {
+        if (rows.GroupBy(r => r.OrgId, StringComparer.OrdinalIgnoreCase).Any(g => g.Count() > 1))
+            throw new ArgumentException("each organization once a paste: add its later reservation in a second paste.");
+        var json = System.Text.Json.JsonSerializer.Serialize(rows.Select(r => new { r.OrgId, r.Name, r.LeaderUpn, r.CostCenter, r.Reserved, From = r.From.ToString("yyyy-MM-dd"), To = r.To?.ToString("yyyy-MM-dd"), r.Note }));
+        var clash = await Db.ScalarAsync<string?>(@"
+SELECT TOP (1) CONCAT(n.OrgId, N' from ', CONVERT(CHAR(10), n.[From], 120))
+FROM OPENJSON(@json) WITH (OrgId NVARCHAR(64), [From] DATE, [To] DATE) AS n
+JOIN dash.Reservation AS r ON r.OrgId = n.OrgId AND r.EffectiveFrom >= n.[From] AND (n.[To] IS NULL OR r.EffectiveFrom <= n.[To])
+ORDER BY n.OrgId;", new { json });
+        if (clash is not null) throw new ArgumentException($"{clash} overlaps a row that starts on or after it: end or remove that row first.");
+        /* A new row with an end, inside a row that runs past that end: ending the old row the day before would leave the
+           organization with no reservation after the new one ends. */
+        var inside = await Db.ScalarAsync<string?>(@"
+SELECT TOP (1) CONCAT(n.OrgId, N' from ', CONVERT(CHAR(10), n.[From], 120), N' to ', CONVERT(CHAR(10), n.[To], 120))
+FROM OPENJSON(@json) WITH (OrgId NVARCHAR(64), [From] DATE, [To] DATE) AS n
+JOIN dash.Reservation AS r ON r.OrgId = n.OrgId AND r.EffectiveFrom < n.[From] AND (r.EffectiveTo IS NULL OR r.EffectiveTo > n.[To])
+WHERE n.[To] IS NOT NULL
+ORDER BY n.OrgId;", new { json });
+        if (inside is not null) throw new ArgumentException($"{inside} falls inside a row that runs past its end: end that row on the day before, add this one, then add the row that follows it.");
+        return await Db.ScalarAsync<int>(@"
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+DECLARE @n TABLE (OrgId NVARCHAR(64), Name NVARCHAR(200), LeaderUpn NVARCHAR(256), CostCenter NVARCHAR(100), Reserved INT, [From] DATE, [To] DATE, Note NVARCHAR(400));
+INSERT INTO @n SELECT * FROM OPENJSON(@json) WITH (OrgId NVARCHAR(64), Name NVARCHAR(200), LeaderUpn NVARCHAR(256), CostCenter NVARCHAR(100), Reserved INT, [From] DATE, [To] DATE, Note NVARCHAR(400));
+UPDATE r SET EffectiveTo = DATEADD(DAY, -1, n.[From]), UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME()
+FROM dash.Reservation AS r JOIN @n AS n ON n.OrgId = r.OrgId
+WHERE r.EffectiveFrom < n.[From] AND (r.EffectiveTo IS NULL OR r.EffectiveTo >= n.[From]);
+DECLARE @ended INT = @@ROWCOUNT;
+INSERT INTO dash.Reservation (OrgId, Name, LeaderUpn, CostCenter, Reserved, EffectiveFrom, EffectiveTo, Note, UpdatedBy)
+SELECT OrgId, Name, LeaderUpn, CostCenter, Reserved, [From], [To], Note, @by FROM @n;
+COMMIT TRANSACTION;
+SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
+    }
+
+    static string Said(RegisterRow r) => $"{r.Name} ({r.OrgId}): {r.Reserved:#,0} reserved from {r.From:yyyy-MM-dd}{(r.LeaderUpn is null ? ", with no leader" : $", led by {r.LeaderUpn}")}";
+
     public Task<IActionResult> OnPostReserveAsync(string? orgId, string? name, string? leader, string? costCenter, int? reserved, DateTime? from, DateTime? to, string? note) =>
-        AdminChangeAsync(async () => "Reservation added: " + await AddOneAsync(orgId, name, leader, costCenter, reserved, from, to, note) + ".");
+        AdminChangeAsync(async () =>
+        {
+            var row = Check(orgId, name, leader, costCenter, reserved, from, to, note);
+            var ended = await AddAsync([row]);
+            return "Reservation added: " + Said(row) + (ended > 0 ? $"; its row before was ended on {row.From.AddDays(-1):yyyy-MM-dd}." : ".");
+        });
+
+    public Task<IActionResult> OnPostEndreserveAsync(int id, DateTime? end) => AdminChangeAsync(async () =>
+    {
+        if (end is null) throw new ArgumentException("give the last day the reservation is in effect.");
+        var row = (await Db.QueryAsync<(string OrgId, string Name, int Reserved, DateTime From)>("SELECT OrgId, Name, Reserved, EffectiveFrom FROM dash.Reservation WHERE ReservationId = @id;", new { id })).FirstOrDefault();
+        if (row.OrgId is null) throw new ArgumentException("that reservation is gone.");
+        if (end < row.From) throw new ArgumentException("the end comes on or after its start.");
+        await Db.ExecuteAsync("UPDATE dash.Reservation SET EffectiveTo = @to, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE ReservationId = @id;", new { id, to = end, by = Viewer.Upn ?? Viewer.WindowsName });
+        return $"Reservation ended: {row.Name} ({row.OrgId}), {row.Reserved:#,0} from {row.From:yyyy-MM-dd}, now to {end:yyyy-MM-dd}.";
+    });
 
     public Task<IActionResult> OnPostPasteAsync(string? rows) => AdminChangeAsync(async () =>
     {
-        var lines = (rows ?? "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
-        if (lines.Count == 0) throw new ArgumentException("paste one organization a line.");
-        if (lines.Count > 500) throw new ArgumentException("at most 500 lines at once.");
-        /* All or nothing: each line is checked before any is added. */
-        var parsed = new List<(string Org, string Name, string? Leader, int Reserved, DateTime From, string? Cc, DateTime? To)>();
-        foreach (var (line, i) in lines.Select((l, i) => (l, i + 1)))
-        {
-            var f = line.Split(',').Select(x => x.Trim().Trim('"')).ToArray();
-            if (i == 1 && f.Length > 3 && !int.TryParse(f[3], out _)) continue;   // a header line
-            if (f.Length < 5) throw new ArgumentException($"line {i} has {f.Length} fields; it needs Org ID, organization, leader, reserved and from.");
-            if (!int.TryParse(f[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) || n < 0) throw new ArgumentException($"line {i}: reserved is a whole number.");
-            if (!DateTime.TryParseExact(f[4], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)) throw new ArgumentException($"line {i}: from is a date, yyyy-mm-dd.");
-            DateTime? to = f.Length > 6 && f[6].Length > 0 ? DateTime.TryParseExact(f[6], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var e) ? e : throw new ArgumentException($"line {i}: to is a date, yyyy-mm-dd.") : null;
-            if (f[0].Length == 0 || f[1].Length == 0) throw new ArgumentException($"line {i}: the Org ID and organization are needed.");
-            parsed.Add((f[0], f[1], f[2].Length == 0 ? null : f[2], n, d, f.Length > 5 && f[5].Length > 0 ? f[5] : null, to));
-        }
-        foreach (var p in parsed) await AddOneAsync(p.Org, p.Name, p.Leader, p.Cc, p.Reserved, p.From, p.To, null);
-        return $"{parsed.Count:#,0} reservations added, {parsed.Sum(p => p.Reserved):#,0} licenses.";
+        var parsed = ParsePaste(rows);
+        var ended = await AddAsync(parsed);
+        return $"{parsed.Count:#,0} reservations added, {parsed.Sum(p => p.Reserved):#,0} licenses" + (ended > 0 ? $"; {ended:#,0} open row{(ended == 1 ? "" : "s")} ended the day before." : ".");
     });
 
+    /// <summary>
+    /// The pasted lines as register rows (2.7.0): a field may be quoted, holding commas; a first line that is not a row
+    /// (its reserved is not a number and its from is not a date) is the header; every line is checked before any is
+    /// added. Pure, for the tests.
+    /// </summary>
+    public static List<RegisterRow> ParsePaste(string? text)
+    {
+        var lines = (text ?? "").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        if (lines.Count == 0) throw new ArgumentException("paste one organization a line.");
+        if (lines.Count > 500) throw new ArgumentException("at most 500 lines at once.");
+        var parsed = new List<RegisterRow>();
+        foreach (var (line, i) in lines.Select((l, i) => (l, i + 1)))
+        {
+            var f = Fields(line);
+            static bool IsDate(string s) => DateTime.TryParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+            if (i == 1 && f.Count > 4 && !int.TryParse(f[3], out _) && !IsDate(f[4])) continue;   // the header
+            if (f.Count < 5) throw new ArgumentException($"line {i} has {f.Count} fields; it needs Org ID, organization, leader, reserved and from.");
+            if (!int.TryParse(f[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)) throw new ArgumentException($"line {i}: reserved is a whole number.");
+            if (!DateTime.TryParseExact(f[4], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d)) throw new ArgumentException($"line {i}: from is a date, yyyy-mm-dd.");
+            DateTime? to = f.Count > 6 && f[6].Length > 0 ? DateTime.TryParseExact(f[6], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var e) ? e : throw new ArgumentException($"line {i}: to is a date, yyyy-mm-dd.") : null;
+            try { parsed.Add(Check(f[0], f[1], f[2], f.Count > 5 ? f[5] : null, n, d, to, null)); }
+            catch (ArgumentException ex) { throw new ArgumentException($"line {i}: {ex.Message}"); }
+        }
+        if (parsed.Count == 0) throw new ArgumentException("no rows below the header.");
+        return parsed;
+    }
+
+    /// <summary>A line's comma-separated fields, a quoted field kept whole ("Retail Banking, East"; "" is a quote).</summary>
+    static List<string> Fields(string line)
+    {
+        var fields = new List<string>(); var cur = new System.Text.StringBuilder(); var quoted = false;
+        for (var i = 0; i < line.Length; i++)
+        {
+            var ch = line[i];
+            if (quoted) { if (ch == '"' && i + 1 < line.Length && line[i + 1] == '"') { cur.Append('"'); i++; } else if (ch == '"') quoted = false; else cur.Append(ch); }
+            else if (ch == '"') quoted = true;
+            else if (ch == ',') { fields.Add(cur.ToString().Trim()); cur.Clear(); }
+            else cur.Append(ch);
+        }
+        fields.Add(cur.ToString().Trim());
+        return fields;
+    }
+
     public Task<IActionResult> OnPostDelreserveAsync(int id) => AdminChangeAsync(async () =>
-        await Db.ExecuteAsync("DELETE FROM dash.Reservation WHERE ReservationId = @id;", new { id }) > 0 ? "Reservation removed; month-end snapshots keep what they were." : "That reservation was already gone.");
+    {
+        /* 2.7.0: the audit log says which reservation went. */
+        var row = (await Db.QueryAsync<(string OrgId, string Name, int Reserved, DateTime From, DateTime? To)>("SELECT OrgId, Name, Reserved, EffectiveFrom, EffectiveTo FROM dash.Reservation WHERE ReservationId = @id;", new { id })).FirstOrDefault();
+        if (row.OrgId is null) return "That reservation was already gone.";
+        await Db.ExecuteAsync("DELETE FROM dash.Reservation WHERE ReservationId = @id;", new { id });
+        return $"Reservation removed: {row.Name} ({row.OrgId}), {row.Reserved:#,0} from {row.From:yyyy-MM-dd}{(row.To is { } e ? $" to {e:yyyy-MM-dd}" : "")}; month-end snapshots keep what they were.";
+    });
 
     public Task<IActionResult> OnPostRateAsync(DateTime? from, string? rate, string? note) => AdminChangeAsync(async () =>
     {
         if (from is null) throw new ArgumentException("give the date the rate applies from.");
         if (!decimal.TryParse(rate, NumberStyles.Number, CultureInfo.InvariantCulture, out var r) || r < 0 || r > 100000) throw new ArgumentException("the rate is a number.");
+        if (decimal.Round(r, 2) != r) throw new ArgumentException("the rate has at most two decimals, as it is kept.");
+        /* 2.7.0: a rate replaced on the same day says what it was. */
+        var was = await Db.ScalarAsync<decimal?>("SELECT MonthlyRate FROM dash.ReservationRate WHERE EffectiveFrom = @from;", new { from });
         await Db.ExecuteAsync(@"
 MERGE dash.ReservationRate AS t USING (SELECT @from AS EffectiveFrom) AS s ON t.EffectiveFrom = s.EffectiveFrom
 WHEN MATCHED THEN UPDATE SET MonthlyRate = @r, Note = @note, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME()
 WHEN NOT MATCHED THEN INSERT (EffectiveFrom, MonthlyRate, Note, UpdatedBy) VALUES (@from, @r, @note, @by);",
             new { from, r, note = Opt(note, 400), by = Viewer.Upn ?? Viewer.WindowsName });
-        return $"Rate {r:0.##} a license a month from {from:yyyy-MM-dd}.";
+        return $"Rate {r:0.####} a license a month from {from:yyyy-MM-dd}" + (was is { } w && w != r ? $" (was {w:0.####})." : ".");
     });
 
     public Task<IActionResult> OnPostDelrateAsync(DateTime? from) => AdminChangeAsync(async () =>
-        await Db.ExecuteAsync("DELETE FROM dash.ReservationRate WHERE EffectiveFrom = @from;", new { from }) > 0 ? $"The rate from {from:yyyy-MM-dd} removed." : "That rate was already gone.");
+    {
+        var was = await Db.ScalarAsync<decimal?>("SELECT MonthlyRate FROM dash.ReservationRate WHERE EffectiveFrom = @from;", new { from });
+        return was is { } w && await Db.ExecuteAsync("DELETE FROM dash.ReservationRate WHERE EffectiveFrom = @from;", new { from }) > 0
+            ? $"The rate from {from:yyyy-MM-dd} ({w:0.####}) removed." : "That rate was already gone.";
+    });
 
     public Task<IActionResult> OnPostGateAsync(int? baseline, int? percent) => AdminChangeAsync(async () =>
     {

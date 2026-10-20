@@ -1,4 +1,4 @@
-# release 2.6.9
+# release 2.7.0
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -22,6 +22,11 @@ C	copilot	audit.AIAppUserDay	U	6	Caller	nvarchar(256)	0
 C	copilot	audit.AIAppUserDay	U	7	Calls	int	0	
 C	copilot	audit.AIAppUserDay	U	8	Prompts	int	0	
 C	copilot	audit.AIAppUserDay	U	9	Threads	int	0	
+C	copilot	audit.ActivityUserDay	U	1	Day	date	0	
+C	copilot	audit.ActivityUserDay	U	2	Product	varchar(32)	0	
+C	copilot	audit.ActivityUserDay	U	3	Upn	nvarchar(256)	0	
+C	copilot	audit.ActivityUserDay	U	4	Events	int	0	
+C	copilot	audit.ActivityUserDay	U	5	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.AgentCatalog	U	1	AgentCatalogId	int	0	I
 C	copilot	audit.AgentCatalog	U	2	AppIdentity	nvarchar(200)	0	
 C	copilot	audit.AgentCatalog	U	3	AgentId	nvarchar(400)	0	
@@ -266,6 +271,15 @@ C	copilot	audit.CopilotWeeklyRollup	U	6	PrimaryApp	nvarchar(200)	1
 C	copilot	audit.CopilotWeeklyRollup	U	7	AppCategory	nvarchar(50)	0	
 C	copilot	audit.CopilotWeeklyRollup	U	8	IsM365CopilotLicensed	bit	1	
 C	copilot	audit.CopilotWeeklyRollup	U	9	WeeklySessionCount	int	0	
+C	copilot	audit.DlpDay	U	1	Day	date	0	
+C	copilot	audit.DlpDay	U	2	Workload	nvarchar(64)	0	
+C	copilot	audit.DlpDay	U	3	PolicyName	nvarchar(400)	0	
+C	copilot	audit.DlpDay	U	4	RuleName	nvarchar(400)	0	
+C	copilot	audit.DlpDay	U	5	Severity	nvarchar(32)	0	
+C	copilot	audit.DlpDay	U	6	Upn	nvarchar(256)	0	
+C	copilot	audit.DlpDay	U	7	Matches	int	0	
+C	copilot	audit.DlpDay	U	8	Undone	int	0	
+C	copilot	audit.DlpDay	U	9	LoadedUtc	datetime2(0)	0	D
 C	copilot	audit.ExternalUsageRun	U	1	RunId	int	0	I
 C	copilot	audit.ExternalUsageRun	U	10	Detail	nvarchar(2000)	1	
 C	copilot	audit.ExternalUsageRun	U	11	CredentialExpiresUtc	datetime2(0)	1	
@@ -1671,12 +1685,14 @@ G	copilot	CopilotInsightsApp	SELECT	SCHEMA::bi
 G	copilot	CopilotInsightsApp	SELECT	SCHEMA::dash
 G	copilot	CopilotInsightsApp	SELECT	audit.AIAppResource
 G	copilot	CopilotInsightsApp	SELECT	audit.AIAppUserDay
+G	copilot	CopilotInsightsApp	SELECT	audit.ActivityUserDay
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotBackfillWindow
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotCsvImport
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLicense
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLoad
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLoadWindow
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotSessionRun
+G	copilot	CopilotInsightsApp	SELECT	audit.DlpDay
 G	copilot	CopilotInsightsApp	SELECT	audit.ExternalUsageRun
 G	copilot	CopilotInsightsApp	SELECT	audit.FabricCapacityDay
 G	copilot	CopilotInsightsApp	SELECT	audit.FabricWorkloadDay
@@ -1759,6 +1775,7 @@ G	copilot	CopilotReporting	SELECT	bi.Users
 G	copilot	CopilotReporting	SELECT	bi.ValueNames
 O	copilot	audit.AIAppResource	U
 O	copilot	audit.AIAppUserDay	U
+O	copilot	audit.ActivityUserDay	U
 O	copilot	audit.AgentCatalog	U
 O	copilot	audit.CopilotAudit	U
 O	copilot	audit.CopilotAuditStage	U
@@ -1776,6 +1793,7 @@ O	copilot	audit.CopilotLoadWindow	U
 O	copilot	audit.CopilotSession	U
 O	copilot	audit.CopilotSessionRun	U
 O	copilot	audit.CopilotWeeklyRollup	U
+O	copilot	audit.DlpDay	U
 O	copilot	audit.ExternalUsageRun	U
 O	copilot	audit.FabricCapacityDay	U
 O	copilot	audit.FabricWorkloadDay	U

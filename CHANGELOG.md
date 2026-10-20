@@ -4,6 +4,93 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-10-20
+
+An adversarial review of 2.6.7 and 2.6.8, and its fixes; usability from three people's walk through the dashboard; and
+four more of Purview's records with the same app registration: administrators' actions on agents, Teams meeting AI
+notes, data loss prevention matches where asked for, and Copilot by product.
+
+To upgrade from 2.6.9: with the nightly task disabled, replace the job server's scripts, run
+`Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` (with `-ActivityDatabase <name>` where there is one) once,
+then install the dashboard package over the one in place and enable the task again. The installer adds two tables to
+the Copilot database (`audit.ActivityUserDay`, `audit.DlpDay`) and one to the activity database (`audit.DlpMatch`);
+nothing existing changes. From the next night, the license-event load also asks for the seven agent-management
+operations, and the activity load for `TeamCopilotInteraction`: both from that night on. To load data loss prevention
+matches, add `ComplianceDLPSharePoint` and `ComplianceDLPExchange` (and `DLPEndpoint` for devices) to
+`ActivityRecordTypes` in the settings, beside the four defaults.
+
+### Fixed (the review of 2.6.7 and 2.6.8)
+- **Month-end snapshots showed the whole bank to every leader** on Leadership › Copilot reservations; they are now the
+  viewer's organizations only, as a snapshot opened shows them. **Licensing › Reservation holders** is the viewer's part
+  of the organization too: a Licensing holder of part of it listed every organization's people.
+- **A changed reservation was counted twice**: a new row for an organization left its old one open, and the two were
+  summed. A new row now ends the organization's open row the day before it starts; *End* ends a row on a day; a row that
+  would overlap one starting on or after it is refused.
+- **A pasted register was not all or nothing**: a bad line after good ones left the good ones added and the screen and
+  audit log saying *Not changed*. Every line is now checked first (a quoted field may hold commas; a first line that is
+  a row is not taken for the header), and the lines are added in one transaction. A database error in any admin
+  change is now audited and said.
+- **The month-end snapshot** waited for nothing: it is now taken once the licenses reach two days past the month end (a
+  license change can reach Purview a day late), only when a reservation is in effect that day (a register entered ahead
+  kept snapshots of the pools alone, for good), in one transaction, and not after a load the delete guard refused.
+- **The reconciliation and purchase gate counted Copilot Studio's licenses and suites with Copilot** as add-on seats;
+  they count the add-on only, as Costs and savings does.
+- A leader who has left or whose account is disabled is now an exception (*Leader not in the directory*): the history
+  of every user kept them as present. Removing a reservation or a rate is audited with what it was; a rate replaced says
+  what it was before. Privacy mode names no leader. Obligations round half away from zero, so rows add up to the total;
+  a rate shows as entered. Licenses on disabled accounts counts only those an organization counts.
+- **The review of 2.7.0's own additions, before release:**
+  - A new reservation row with an end date, inside a row that runs past it, is refused. Adding it ended the longer row
+    the day before and left the organization with no reservation once the short one ended.
+  - A rate takes at most two decimals, as it is kept.
+  - *End on* has a field of its own and its own tip.
+  - *Makers* on Build and publish no longer counts administrators who blocked or deployed an agent.
+  - Who did an administrator's action is named only with the whole organization in view, since the panel is the organization's.
+  - A field's tip is its page's where the same field name is used on several pages: App categories, digests' scope
+    and the contracts' start had another page's text.
+  - Copilot in Edge counts AppHost *Bing*, which is how Microsoft records Copilot in the Edge browser.
+
+### Added
+- **An information icon on every field of every form**: a setting's own description (without its release number), or
+  a tip written for the field: the price list's volume price, Dataverse capacity, spare share and *bought for capacity*,
+  the reservation register's fields, the resource map, targets, contracts, mail and alerts.
+- **Agents › Build and publish › What administrators did to agents**: agents blocked, unblocked, deployed to people,
+  removed, deleted or changed in the Microsoft 365 admin center, and the tenant's agent settings changed
+  (`CopilotAgentManagement`), loaded with the license events in the same searches. Who did it: for the Agents role.
+- **Teams meeting AI notes** (`TeamCopilotInteraction`), loaded by the activity database: the people using it beside
+  Power BI and Power Apps on **Apps**, for any part of the organization (`audit.ActivityUserDay`).
+- **Data loss prevention matches**, where the activity database is asked for the DLP record types: on **Compliance ›
+  Sensitive content**, matches by workload over time and by policy, with those undone: overridden, no longer matching,
+  or reported as a false positive (`audit.DlpMatch`, `audit.DlpDay`). Counts only: no file or message is named. Only a
+  record that matched a policy is kept: a device's `DLPEndpoint` records also carry its ordinary file activity, audited
+  with no rule matched, and those are left out; an endpoint's match is read from its `PolicyMatchInfo`.
+- **Governance › Models and controls › Copilot by product**: Microsoft 365 Copilot, Copilot Studio's and other agents,
+  Security Copilot, Copilot in Fabric and Power BI, and Copilot in Edge and Bing, from the app each interaction names.
+- **How figures are calculated › Copilot's cost a month, five ways**: what each of the five pages' Copilot cost counts,
+  and which to quote for what.
+- **Admin › Health › Next certificate to expire**, at the top.
+- **Governance › AI apps beyond Copilot**: the Foundry accounts billed in the period with no call recorded.
+
+### Changed
+- Wording that ties figures counted different ways: *Unused for 30 days* (no use at all) against *Revoke* (no licensed
+  use); the two train lists; *Revoke and reassign* (no new cost) against the Upgrade list (new licenses); billable
+  against bought on Copilot reservations; the purchase gate against the spare seats. Plain words for the reservation
+  figures. **Credit use** leads with what the admin center billed. A suite move to train shows what is at stake, apart
+  from the savings. Admin labels: the Copilot price *after discount*, the pay-as-you-go cost with its currency, the
+  Fabric discount *as a fraction*, *Idle after* for the Power Platform and AI accounts. Health no longer says no report
+  reads the GitHub and Foundry tables.
+
+### Known limits
+- **Not run against the client's tenant.** The agent-management records' agent fields (`AgentId`, `AgentName`), Teams
+  AI notes' and the DLP records' fields are read as Microsoft documents them; an endpoint match's `PolicyMatchInfo` is
+  not yet seen in real records. Each record is kept whole: correct the shred and read them again.
+- **The DLP record types are not loaded by default**: their volume is the tenant's every match. The record type for
+  DLP of Microsoft 365 Copilot prompts is not documented yet.
+- **Copilot by product groups by the app named**, not by each record's app identity, which bi does not keep: a product
+  whose records name an app this does not know is counted as Microsoft 365 Copilot.
+- The usability pass's remaining items are not in this release: product names in place of SKU part numbers, one
+  renewal figure for Budget and renewal and License optimization, and the License inventory's bridge from bought to held.
+
 ## [2.6.9] - 2026-10-19
 
 AI apps beyond Copilot, Power BI and Power Apps from the audit log, one place for every assumption, and savings that are

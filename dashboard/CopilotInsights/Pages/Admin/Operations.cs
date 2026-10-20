@@ -604,14 +604,14 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                         : "") +
                     Button("Save", quiet: true)))]);
             Panels.Add(new("Costs and savings", new HtmlString(Form("costs",
-                Input("FabricReservedDiscount", "Fabric reservation discount (0.41 is 41%)", V("FabricReservedDiscount"), 6) +
+                Input("FabricReservedDiscount", "Fabric reservation discount, as a fraction (0.41 is 41%)", V("FabricReservedDiscount"), 6) +
                 Input("FlowMinutesPerRun", "Minutes one flow run saves (default)", V("FlowMinutesPerRun"), 5) +
                 Input("PowerBiCopilotMinutes", "Minutes one Copilot in Power BI request saves", V("PowerBiCopilotMinutes"), 5) +
-                Input("CostIdleDays", "Unused after (days), for seats, licenses and AI accounts", V("CostIdleDays"), 4, "number") +
+                Input("CostIdleDays", "Idle after (days): GitHub seats, Power Platform licenses, AI accounts", V("CostIdleDays"), 4, "number") +
                 Input("SpareSeatPercent", "Spare seats kept unassigned (% of those bought)", V("SpareSeatPercent"), 4) + Button("Save")) + pt.Render().Value),
                 "What Leadership > Costs and savings counts with. The prices are list prices in USD when installed: put in what your agreement pays, a month for a license or a GB, " +
                 "and per credit for a credit. A license is matched to Graph's license pool by its SKU part number. Hourly cost is under Time saved, above. " +
-                "Volume price (2.6.9): from that many seats every seat costs the volume price (Power Apps Premium: 12 from 2,000), so a cut under it is counted at what it really saves. " +
+                "Volume price: from that many seats every seat costs the volume price (Power Apps Premium: 12 from 2,000), so a cut under it is counted at what it really saves. " +
                 "Dataverse capacity a seat brings: what each seat adds to the tenant's Dataverse pool (Power Apps and Power Automate Premium: 0.25 GB of database, 2 GB of file); a cut that would take the pool under what is used costs add-on capacity, taken off its saving. " +
                 "Spare seats: unassigned seats kept on purpose for joiners and moves are not a saving; the default share is above, and a license can set its own. Bought for capacity or the volume price: its unassigned and idle seats are never counted as money back."));
         }

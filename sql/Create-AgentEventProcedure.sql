@@ -6,7 +6,10 @@
     authoring operations (BotCreate, BotUpdateOperation-BotPublish,
     BotUpdateOperation-BotShare, BotDelete, BotComponent*...), in the same
     audit searches, so they cost no extra search. This turns each into one row:
-    who did what to which agent, and when.
+    who did what to which agent, and when. From 2.7.0 also administrators'
+    actions on agents in the Microsoft 365 admin center (record type
+    CopilotAgentManagement: BlockedAgent, UnblockedAgent, DeployedAgent,
+    RemovedAgent, DeletedAgent, UpdatedAgent, UpdatedTenantSettings).
 
       audit.AgentEvent   one row per authoring record: the action, the agent
                          (BotId, BotSchemaName), the maker, the component,
@@ -28,7 +31,7 @@ IF OBJECT_ID(N'audit.AgentEvent', N'U') IS NULL
         RecordId         VARCHAR(64)     NOT NULL CONSTRAINT PK_AgentEvent PRIMARY KEY,
         CreatedUtc       DATETIME2(0)    NOT NULL,
         Operation        NVARCHAR(100)   NOT NULL,
-        Action           VARCHAR(16)     NOT NULL,   -- Created | Published | Shared | Updated | Deleted | Component
+        Action           VARCHAR(16)     NOT NULL,   -- Created | Published | Shared | Updated | Deleted | Component; 2.7.0, an administrator's: Blocked | Unblocked | Deployed | Removed | AdminDeleted | AdminUpdated | Settings
         ActorUpn         NVARCHAR(512)   NULL,
         BotId            NVARCHAR(100)   NULL,
         BotSchemaName    NVARCHAR(200)   NULL,
@@ -64,9 +67,10 @@ BEGIN
            CAST(a.CreatedDateTime AS DATETIME2(0))                                       AS CreatedUtc,
            LEFT(COALESCE(t.Operation, a.Operation), 100)                                 AS Operation,
            LEFT(COALESCE(t.UserId, a.UserPrincipalName, a.UserId), 512)                  AS ActorUpn,
-           LEFT(t.BotId, 100)                                                            AS BotId,
+           LEFT(COALESCE(t.BotId, t.AgentId), 100)                                       AS BotId,
            LEFT(t.BotSchemaName, 200)                                                    AS BotSchemaName,
-           LEFT(t.BotComponentSchemaName, 200)                                           AS ComponentName,
+           /* An administrator's action names the agent, not a component (2.7.0). */
+           LEFT(COALESCE(t.BotComponentSchemaName, t.AgentName), 200)                    AS ComponentName,
            LEFT(t.BotComponentType, 100)                                                 AS ComponentType,
            LEFT(t.ResultStatus, 50)                                                      AS ResultStatus,
            LEFT(COALESCE(t.BotUpdateDetails, t.BotComponentUpdateDetails), 4000)          AS UpdateDetails
@@ -83,15 +87,25 @@ BEGIN
             BotComponentSchemaName    NVARCHAR(200)  '$.BotComponentSchemaName',
             BotComponentType          NVARCHAR(100)  '$.BotComponentType',
             BotUpdateDetails          NVARCHAR(MAX)  '$.BotUpdateDetails'          AS JSON,
-            BotComponentUpdateDetails NVARCHAR(MAX)  '$.BotComponentUpdateDetails' AS JSON
+            BotComponentUpdateDetails NVARCHAR(MAX)  '$.BotComponentUpdateDetails' AS JSON,
+            AgentId                   NVARCHAR(100)  '$.AgentId',
+            AgentName                 NVARCHAR(200)  '$.AgentName'
         ) AS t
-    WHERE a.Operation LIKE N'Bot%'
+    WHERE (a.Operation LIKE N'Bot%'
+           OR a.Operation IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings'))
       AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc);
 
     MERGE audit.AgentEvent WITH (HOLDLOCK) AS t
     USING (
         SELECT e.*,
-               CASE WHEN e.Operation = N'BotCreate' THEN 'Created'
+               CASE WHEN e.Operation = N'BlockedAgent' THEN 'Blocked'
+                    WHEN e.Operation = N'UnblockedAgent' THEN 'Unblocked'
+                    WHEN e.Operation = N'DeployedAgent' THEN 'Deployed'
+                    WHEN e.Operation = N'RemovedAgent' THEN 'Removed'
+                    WHEN e.Operation = N'DeletedAgent' THEN 'AdminDeleted'
+                    WHEN e.Operation = N'UpdatedAgent' THEN 'AdminUpdated'
+                    WHEN e.Operation = N'UpdatedTenantSettings' THEN 'Settings'
+                    WHEN e.Operation = N'BotCreate' THEN 'Created'
                     WHEN e.Operation LIKE N'%BotPublish%' THEN 'Published'
                     WHEN e.Operation LIKE N'%BotShare%' THEN 'Shared'
                     WHEN e.Operation IN (N'BotDelete', N'BotDeleteCleanup') THEN 'Deleted'

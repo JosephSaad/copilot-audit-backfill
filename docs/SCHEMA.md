@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-118 tables (plus 2 left over from 1.x), 39 views, 1489 columns, from 22 scripts.
+121 tables (plus 2 left over from 1.x), 39 views, 1513 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -18,7 +18,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
 - [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
-- [AI apps, Power BI and Power Apps (2.6.9)](#ai-apps-power-bi-and-power-apps-269): [`audit.AIAppUserDay`](#auditaiappuserday), [`audit.AIAppResource`](#auditaiappresource), [`audit.AIAppCall`](#auditaiappcall), [`audit.PlatformActivity`](#auditplatformactivity)
+- [AI apps, Power BI and Power Apps (2.6.9)](#ai-apps-power-bi-and-power-apps-269): [`audit.AIAppUserDay`](#auditaiappuserday), [`audit.AIAppResource`](#auditaiappresource), [`audit.AIAppCall`](#auditaiappcall), [`audit.PlatformActivity`](#auditplatformactivity), [`audit.ActivityUserDay`](#auditactivityuserday), [`audit.DlpDay`](#auditdlpday), [`audit.DlpMatch`](#auditdlpmatch)
 - [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.LicenseSkuChange`](#auditlicenseskuchange), [`audit.LicenseSkuChangeRun`](#auditlicenseskuchangerun), [`audit.vLicenseSkuChangeFromRecords`](#auditvlicenseskuchangefromrecords), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
@@ -1650,6 +1650,70 @@ Indexes and constraints:
 - `CCI_PlatformActivity`: clustered columnstore
 - `UX_PlatformActivity_Record`: unique (RecordId)
 
+### audit.ActivityUserDay
+
+*Table.* Who used Power BI, Power Apps and Teams meeting AI notes each day (2.7.0), from the activity database's records, by `audit.usp_RollupActivity`: for Apps' trend and any part of the organization. Days are the reporting time zone's.
+
+**Script** `Create-CopilotActivityRollup.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Day` | date | **no** | **PK** | a day in the reporting time zone |
+| 2 | `Product` | varchar(32) | **no** | **PK** | Power BI \| Power Apps \| Teams AI notes |
+| 3 | `Upn` | nvarchar(256) | **no** | **PK** |  |
+| 4 | `Events` | int | **no** |  |  |
+| 5 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_ActivityUserDay`: primary key, clustered (Day, Product, Upn)
+
+### audit.DlpDay
+
+*Table.* Data loss prevention matches each day (2.7.0), by workload, policy, rule, severity and person, where the activity database loads the DLP record types; for Compliance > Sensitive content. No file or message is named.
+
+**Script** `Create-CopilotActivityRollup.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Day` | date | **no** |  | a day in the reporting time zone |
+| 2 | `Workload` | nvarchar(64) | **no** |  | SharePoint, OneDrive, Exchange, Endpoint; '' where none |
+| 3 | `PolicyName` | nvarchar(400) | **no** |  |  |
+| 4 | `RuleName` | nvarchar(400) | **no** |  |  |
+| 5 | `Severity` | nvarchar(32) | **no** |  |  |
+| 6 | `Upn` | nvarchar(256) | **no** |  | '' where the record names no one |
+| 7 | `Matches` | int | **no** |  |  |
+| 8 | `Undone` | int | **no** |  | DlpRuleUndo or DlpInfo: overridden, no longer matching, or reported as a false positive |
+| 9 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `IX_DlpDay_Day`: nonclustered (Day)
+
+### audit.DlpMatch
+
+*Table.* One row per data loss prevention record (2.7.0), shredded by `audit.usp_ShredActivity`: the first policy and rule it names, its severity, the workload and the person.
+
+**Script** `Create-ActivitySchema.sql` · **In** activity database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | varchar(64) | **no** |  |  |
+| 2 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
+| 3 | `Workload` | nvarchar(64) | yes |  |  |
+| 4 | `Operation` | nvarchar(128) | yes |  | DlpRuleMatch, DlpRuleUndo, DlpInfo, or an endpoint activity that matched a policy |
+| 5 | `UserId` | nvarchar(256) | yes |  |  |
+| 6 | `PolicyName` | nvarchar(400) | yes |  |  |
+| 7 | `RuleName` | nvarchar(400) | yes |  |  |
+| 8 | `Severity` | nvarchar(32) | yes |  |  |
+| 9 | `Policies` | int | **no** |  | the policies the record names |
+| 10 | `ShreddedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `CCI_DlpMatch`: clustered columnstore
+- `UX_DlpMatch_Record`: unique (RecordId)
+
 ## License events (license-event database)
 
 In the separate database the license-operations backfill fills. It also holds the loading, state and final-record tables above; these are added on top.
@@ -1825,7 +1889,7 @@ Indexes and constraints:
 | 1 | `RecordId` | varchar(64) | **no** | **PK** |  |
 | 2 | `CreatedUtc` | datetime2(0) | **no** |  |  |
 | 3 | `Operation` | nvarchar(100) | **no** |  |  |
-| 4 | `Action` | varchar(16) | **no** |  | Created \| Published \| Shared \| Updated \| Deleted \| Component |
+| 4 | `Action` | varchar(16) | **no** |  | Created \| Published \| Shared \| Updated \| Deleted \| Component; 2.7.0, an administrator's: Blocked \| Unblocked \| Deployed \| Removed \| AdminDeleted \| AdminUpdated \| Settings |
 | 5 | `ActorUpn` | nvarchar(512) | yes |  |  |
 | 6 | `BotId` | nvarchar(100) | yes |  |  |
 | 7 | `BotSchemaName` | nvarchar(200) | yes |  |  |

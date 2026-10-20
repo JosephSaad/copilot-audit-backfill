@@ -180,7 +180,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
 
         Kpis.Add(new("Licenses held", Num(held), $"{Pct(Ratio(active, held))} used in the last 30 days", Href: Open("/licensing")));
         Kpis.Add(new($"Unused for {Ctx.InactiveDays} days or more", Num(idle), $"{Money(idle * price)} a month", idle > 0 ? "crit" : null, Href: Open("/licensing/unused"),
-            Why: await WhyAsync($"Holders with no use in {Ctx.InactiveDays} days ({idle:#,0}) × the Copilot license price = {Money(idle * price)} a month.", "InactiveDays", "LicenseMonthlyCost")));
+            Why: await WhyAsync($"Holders with no use at all in {Ctx.InactiveDays} days ({idle:#,0}) × the Copilot license price = {Money(idle * price)} a month. Not the Revoke list on Upgrade, train or revoke, which counts holders with no licensed (Premium) use in 30 days: some of them used Copilot Chat.", "InactiveDays", "LicenseMonthlyCost")));
         Kpis.Add(new("Heavy Copilot Chat users", Num(demand), "no license, used it on 6+ of the last 30 days", Href: Open("/forecasting/actions", extra: "kind=upgrade")));
         Kpis.Add(new("Right size in 13 weeks", Num(target), change == 0 ? "as held" : change > 0 ? $"{change:#,0} more than held" : $"{-change:#,0} fewer than held"));
 
@@ -192,7 +192,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
             => recs.Append($"<div class=\"rec {cls}\"><h3>{WebUtility.HtmlEncode(title)}</h3><div class=\"big\">{WebUtility.HtmlEncode(big)}</div><p>{WebUtility.HtmlEncode(text)}{(link == "" ? "" : " " + link)}</p></div>");
         if (reassign > 0)
             Rec("save", "Revoke and reassign", $"{reassign:#,0} licenses",
-                $"Move licenses unused for {Ctx.InactiveDays}+ days to the heavy Copilot Chat users who would use them. Costs nothing; turns {Money(reassign * price)} a month of idle spend into use.",
+                $"Move licenses unused for {Ctx.InactiveDays}+ days to the heavy Copilot Chat users who would use them. No new cost: the licenses are paid already, and {Money(reassign * price)} a month of idle spend turns into use. (Upgrade, train or revoke prices its Upgrade list as new licenses.)",
                 A("Unused licenses", "/licensing/unused", Roles.Licensing) + " " + A("Upgrade list", "/forecasting/actions", Roles.Licensing, "kind=upgrade"));
         if (idle - reassign > 0)
             Rec("save", "Reclaim what is left", Money((idle - reassign) * price) + " a month",
@@ -204,7 +204,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
                 A("Who they are", "/forecasting/actions", Roles.Licensing, "kind=upgrade"));
         if (light > 0)
             Rec("info", "Train before revoking", $"{light:#,0} people",
-                "Licensed, but used Copilot on only one or two days in the last 30. Training or a champion usually does more than taking the license back.",
+                "Licensed, but used Copilot on only one or two days in the last 30. Training or a champion usually does more than taking the license back. Upgrade, train or revoke's Train list counts days of licensed (Premium) use instead, so its count differs.",
                 A("Who to train", "/forecasting/actions", Roles.Licensing, "kind=train"));
         Rec(change > 0 ? "spend" : "save", "Right-size for the next quarter", change == 0 ? "Hold" : change > 0 ? $"+{change:#,0}" : $"{change:#,0}",
             $"On the forecast, about {projectedActive:#,0} licensed people will use Copilot each week in 13 weeks. With a 10% margin and today's heavy demand, "

@@ -4422,7 +4422,13 @@ INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation
 ('a3', DATEADD(HOUR, 16, @d0), 'connectedAIAppInteraction', 'AIAppInteraction', 'Robert@contoso.com', COMPRESS(CAST(N'{"Workload":"ConnectedAIApp","UserType":0,"UserId":"robert@contoso.com","AppIdentity":"ConnectedAIApp.AzureAI.aza-dev-aif-0046","ApplicationName":"My app","CopilotEventData":{"ThreadId":"t2","Messages":[{"isPrompt":false}]}}' AS NVARCHAR(MAX))), 1),
 ('p1', DATEADD(HOUR, 12, @d0), 'powerBIAudit', 'ViewReport', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"PowerBI","Operation":"ViewReport","UserType":0,"UserId":"Ann@contoso.com","ItemName":"Sales","WorkSpaceName":"Finance"}' AS NVARCHAR(MAX))), 1),
 ('p2', DATEADD(DAY, -60, @d0), 'powerAppsApp', 'LaunchPowerApp', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"PowerApps","Operation":"LaunchPowerApp","UserType":0,"UserId":"bob@contoso.com","AdditionalInfo":"{\"appName\":\"Expenses\",\"environmentName\":\"Default\"}"}' AS NVARCHAR(MAX))), 1),
-('x1', DATEADD(HOUR, 12, @d0), 'exchangeItem', 'Send', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"Exchange","Operation":"Send"}' AS NVARCHAR(MAX))), 1);
+('x1', DATEADD(HOUR, 12, @d0), 'exchangeItem', 'Send', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"Exchange","Operation":"Send"}' AS NVARCHAR(MAX))), 1),
+('t1', DATEADD(HOUR, 14, @d0), 'teamCopilotInteraction', 'AINotesUpdate', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"MicrosoftTeams","Operation":"AINotesUpdate","UserType":0,"UserId":"ann@contoso.com"}' AS NVARCHAR(MAX))), 1),
+('d1', DATEADD(HOUR, 14, @d0), 'complianceDLPSharePoint', 'DlpRuleMatch', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"SharePoint","Operation":"DlpRuleMatch","UserId":"Bob@contoso.com","PolicyDetails":[{"PolicyName":"Customer data","Rules":[{"RuleName":"Card numbers","Severity":"High"}]}]}' AS NVARCHAR(MAX))), 1),
+('d2', DATEADD(HOUR, 15, @d0), 'complianceDLPSharePoint', 'DlpRuleUndo', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"SharePoint","Operation":"DlpRuleUndo","UserId":"bob@contoso.com","PolicyDetails":[{"PolicyName":"Customer data","Rules":[{"RuleName":"Card numbers","Severity":"High"}]}]}' AS NVARCHAR(MAX))), 1),
+('d3', DATEADD(HOUR, 15, @d0), 'dlpEndpoint', 'FileModified', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"Endpoint","Operation":"FileModified","UserId":"bob@contoso.com"}' AS NVARCHAR(MAX))), 1),
+('d4', DATEADD(HOUR, 16, @d0), 'dlpEndpoint', 'FileCopiedToRemovableMedia', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"Endpoint","Operation":"FileCopiedToRemovableMedia","UserId":"bob@contoso.com","PolicyMatchInfo":{"PolicyName":"Card data","RuleName":"USB copy","Severity":"Medium"}}' AS NVARCHAR(MAX))), 1),
+('d5', DATEADD(HOUR, 17, @d0), 'complianceDLPSharePoint', 'DlpInfo', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"SharePoint","Operation":"DlpInfo","UserId":"bob@contoso.com","PolicyDetails":[{"PolicyName":"Customer data","Rules":[{"RuleName":"Card numbers","Severity":"High"}]}]}' AS NVARCHAR(MAX))), 1);
 "@
     Invoke-SqlText -Catalog $actCop -Sql "INSERT INTO audit.PowerPlatformUserActivity (UserPrincipalName, Product, ActiveDays30) VALUES (N'old@contoso.com', 'Power BI', 3), (N'keep@contoso.com', 'Power Automate', 2);"
     $second = & (Join-Path $root 'Install-CopilotAudit.ps1') @actConn -Database $actCop -SkipLicenseDatabase -ActivityDatabase $actDb 6>&1 | Out-String
@@ -4433,9 +4439,24 @@ INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation
                  $a2.CallerKind -eq 'Person' -and $a2.Caller -eq 'robert@contoso.com' -and $a2.Resource -eq 'aza-dev-aif-0046' -and $a2.ApplicationName -eq 'My app' -and [int] $a2.Prompts -eq 1 -and [int] $a2.Failed -eq 1) `
         'AI app records are shredded: a Guest call is unattributed, a person''s keeps their sign-in (lowercased); the resource from the app identity, the subscription, prompts, responses and failures'
     $pa = Invoke-SqlText -Catalog $actDb -As Table -Sql 'SELECT RecordId, Product, UserId, ItemName, Container FROM audit.PlatformActivity ORDER BY RecordId;'
+    $pa = Invoke-SqlText -Catalog $actDb -As Table -Sql "SELECT RecordId, Product, UserId, ItemName, Container FROM audit.PlatformActivity WHERE Product <> 'Teams AI notes' ORDER BY RecordId;"
     Assert-That ($pa.Rows.Count -eq 2 -and $pa.Rows[0].Product -eq 'Power BI' -and $pa.Rows[0].UserId -eq 'ann@contoso.com' -and $pa.Rows[0].ItemName -eq 'Sales' -and $pa.Rows[0].Container -eq 'Finance' -and
                  $pa.Rows[1].Product -eq 'Power Apps' -and $pa.Rows[1].ItemName -eq 'Expenses' -and $pa.Rows[1].Container -eq 'Default') 'Power BI and Power Apps records are shredded with their item and workspace or environment; another workload is left alone'
 
+    # 2.7.0: Teams meeting AI notes go with Power BI and Power Apps; DLP matches to their own table, then a day each.
+    $teams = [int] (Invoke-SqlText -Catalog $actDb -As Scalar -Sql "SELECT COUNT(*) FROM audit.PlatformActivity WHERE Product = 'Teams AI notes' AND UserId = N'ann@contoso.com';")
+    $dlpRows = Invoke-SqlText -Catalog $actDb -As Table -Sql 'SELECT RecordId, Workload, Operation, UserId, PolicyName, RuleName, Severity, Policies FROM audit.DlpMatch ORDER BY RecordId;'
+    $d4 = $dlpRows.Rows | Where-Object RecordId -eq 'd4'
+    Assert-That ($teams -eq 1 -and (@($dlpRows.Rows | ForEach-Object RecordId) -join ',') -eq 'd1,d2,d4,d5' -and $dlpRows.Rows[0].PolicyName -eq 'Customer data' -and $dlpRows.Rows[0].RuleName -eq 'Card numbers' -and
+                 $dlpRows.Rows[0].Severity -eq 'High' -and $dlpRows.Rows[0].UserId -eq 'bob@contoso.com' -and [int] $dlpRows.Rows[0].Policies -eq 1 -and
+                 $d4.PolicyName -eq 'Card data' -and $d4.RuleName -eq 'USB copy' -and $d4.Severity -eq 'Medium' -and [int] $d4.Policies -eq 1) `
+        'Teams meeting AI notes are shredded as a product beside Power BI and Power Apps, and DLP records with their policy, rule and severity; an endpoint''s match from its PolicyMatchInfo, and its file activity with no rule matched left out (2.7.0)'
+    $ud = Invoke-SqlText -Catalog $actCop -As Table -Sql "SELECT Product, Upn, Events FROM audit.ActivityUserDay ORDER BY Product;"
+    $dd = (Invoke-SqlText -Catalog $actCop -As Table -Sql "SELECT SUM(Matches) AS M, SUM(Undone) AS U, MAX(PolicyName) AS P FROM audit.DlpDay;").Rows[0]
+    $ppTeams = [int] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql "SELECT COUNT(*) FROM audit.PowerPlatformUserActivity WHERE Product = 'Teams AI notes';")
+    Assert-That ((@($ud.Rows | ForEach-Object { "$($_.Product)/$($_.Upn)" }) -join ' ') -eq 'Power Apps/bob@contoso.com Power BI/ann@contoso.com Teams AI notes/ann@contoso.com' -and
+                 [int] $dd.M -eq 2 -and [int] $dd.U -eq 2 -and $dd.P -eq 'Customer data' -and $ppTeams -eq 0) `
+        "the rollup keeps each person's day by product, and DLP matches by policy, an undo and a reported false positive both undone (matches $($dd.M), undone $($dd.U)); Teams AI notes is not a Power Platform product ($((@($ud.Rows | ForEach-Object { "$($_.Product)/$($_.Upn)" }) -join ' ')))"
     $days = Invoke-SqlText -Catalog $actCop -As Table -Sql 'SELECT CONVERT(CHAR(10), [Day], 120) AS D, [Resource], CallerKind, Calls, Threads, Failures FROM audit.AIAppUserDay ORDER BY [Resource];'
     # The days the records fall on in the reporting time zone, worked out by SQL Server itself, so the check holds whatever
     # the hour the test runs at; and the zone, which must be Eastern for 01:30 UTC to be the day before.
@@ -4474,6 +4495,59 @@ finally {
     foreach ($d in $actCop, $actDb) {
         try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$d') IS NOT NULL BEGIN ALTER DATABASE [$d] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$d]; END;" } catch { Write-Host "  (could not drop $d)" }
     }
+}
+
+# ---------------------------------------------------------------------------
+# 25. Copilot reservations (2.6.8, 2.7.0): who counts where, and the month-end snapshot's rules.
+Write-Host "`n25. Copilot reservations (dash.fnReservationMember, dash.usp_TakeReservationSnapshot)" -ForegroundColor Cyan
+$resDb = "$($script:ITDatabase)_Res"
+$resConn = @{ SqlServer = $script:ITServer; TrustServerCertificate = $true }
+if (-not $script:ITIntegrated) { $resConn.SqlCredential = [pscredential]::new($script:ITUser, [Net.NetworkCredential]::new('', $script:ITPassword).SecurePassword) }
+try {
+    $null = & (Join-Path $root 'Install-CopilotAudit.ps1') @resConn -Database $resDb -SkipLicenseDatabase -Dashboard -ReportingTimeZone 'Eastern Standard Time' 6>&1 | Out-String
+    # A leader of a line of business, a leader under them with their own reservation, their people, one person under nobody,
+    # and a Technology-funded account. Licensed on the last month end and the two days after it.
+    Invoke-SqlText -Catalog $resDb -Sql @"
+DECLARE @m DATE = EOMONTH(SYSUTCDATETIME(), -1);
+INSERT INTO bi.DimUser (UserPrincipalName) VALUES (N'lead1@c.com'), (N'u1@c.com'), (N'u2@c.com'), (N'lead2@c.com'), (N'u3@c.com'), (N'lone@c.com'), (N'svc@c.com');
+INSERT INTO dash.OrgClosure (AncestorUpn, DescendantUpn, Depth) VALUES
+ (N'lead1@c.com', N'lead1@c.com', 0), (N'lead1@c.com', N'u1@c.com', 1), (N'lead1@c.com', N'u2@c.com', 1), (N'lead1@c.com', N'lead2@c.com', 1), (N'lead1@c.com', N'u3@c.com', 2),
+ (N'lead1@c.com', N'svc@c.com', 1), (N'lead2@c.com', N'lead2@c.com', 0), (N'lead2@c.com', N'u3@c.com', 1);
+INSERT INTO dash.TechnologyAllocation (Upn, Category, Owner, EffectiveFrom, UpdatedBy) VALUES (N'svc@c.com', N'Service', N'it@c.com', '2020-01-01', N'test');
+INSERT INTO bi.FactLicensedDay (DateKey, UserKey)
+SELECT CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, d.n, @m), 112)), u.UserKey
+FROM bi.DimUser AS u CROSS JOIN (VALUES (0), (1)) AS d (n)
+WHERE u.UserPrincipalName LIKE N'%@c.com' AND u.UserPrincipalName <> N'lead1@c.com';
+"@
+    $m = [datetime]::UtcNow.Date.AddDays(1 - [datetime]::UtcNow.Day).AddDays(-1)
+    $snaps = { [int] (Invoke-SqlText -Catalog $resDb -As Scalar -Sql 'SELECT COUNT(*) FROM dash.ReservationSnapshot;') }
+
+    # A register entered ahead of its start: no snapshot of nobody but the pools.
+    Invoke-SqlText -Catalog $resDb -Sql "INSERT INTO dash.Reservation (OrgId, Name, LeaderUpn, Reserved, EffectiveFrom, UpdatedBy) VALUES (N'LOB-1', N'One', N'lead1@c.com', 5, DATEADD(YEAR, 1, SYSUTCDATETIME()), N'test');"
+    Invoke-SqlText -Catalog $resDb -Sql "INSERT INTO bi.FactLicensedDay (DateKey, UserKey) SELECT CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 2, EOMONTH(SYSUTCDATETIME(), -1)), 112)), UserKey FROM bi.DimUser WHERE UserPrincipalName = N'u1@c.com';"
+    Invoke-SqlText -Catalog $resDb -Sql 'EXEC dash.usp_TakeReservationSnapshot;'
+    Assert-That ((& $snaps) -eq 0) 'no snapshot is kept for a month end no reservation is in effect on (a register entered ahead of its start)'
+
+    # In effect: the licenses reach only one day past the month end, so it waits; two days, and it is kept.
+    Invoke-SqlText -Catalog $resDb -Sql @"
+DELETE FROM dash.Reservation;
+INSERT INTO dash.Reservation (OrgId, Name, LeaderUpn, Reserved, EffectiveFrom, UpdatedBy) VALUES (N'LOB-1', N'One', N'lead1@c.com', 5, '2020-01-01', N'test'), (N'LOB-2', N'Two', N'lead2@c.com', 1, '2020-01-01', N'test');
+INSERT INTO dash.ReservationRate (EffectiveFrom, MonthlyRate, UpdatedBy) VALUES ('2020-01-01', 18, N'test');
+DELETE FROM bi.FactLicensedDay WHERE DateKey = CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 2, EOMONTH(SYSUTCDATETIME(), -1)), 112));
+"@
+    Invoke-SqlText -Catalog $resDb -Sql 'EXEC dash.usp_TakeReservationSnapshot;'
+    Assert-That ((& $snaps) -eq 0) 'the month end waits until the licenses reach two days past it: a license event can arrive a day late'
+    Invoke-SqlText -Catalog $resDb -Sql "INSERT INTO bi.FactLicensedDay (DateKey, UserKey) SELECT CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 2, EOMONTH(SYSUTCDATETIME(), -1)), 112)), UserKey FROM bi.DimUser WHERE UserPrincipalName = N'u1@c.com';"
+    Invoke-SqlText -Catalog $resDb -Sql 'EXEC dash.usp_TakeReservationSnapshot;'
+    $s = Invoke-SqlText -Catalog $resDb -As Table -Sql "SELECT OrgId, Reserved, Allocated, MonthlyRate, CONVERT(CHAR(10), SnapshotDate, 120) AS D FROM dash.ReservationSnapshot ORDER BY CASE WHEN OrgId LIKE N'~%' THEN 1 ELSE 0 END, OrgId;"
+    $seen = (@($s.Rows | ForEach-Object { "$($_.OrgId)=$($_.Reserved)/$($_.Allocated)" }) -join ' ')
+    Assert-That ($seen -eq 'LOB-1=5/2 LOB-2=1/2 ~technology=0/1 ~unmapped=0/1' -and $s.Rows[0].D -eq $m.ToString('yyyy-MM-dd') -and [decimal] $s.Rows[0].MonthlyRate -eq 18) `
+        "then kept: a person under two listed leaders counts with the nearer one, the Technology account in its pool, the one under nobody unmapped, at the rate in force ($seen)"
+    Invoke-SqlText -Catalog $resDb -Sql "UPDATE dash.Reservation SET Reserved = 50 WHERE OrgId = N'LOB-1'; EXEC dash.usp_TakeReservationSnapshot;"
+    Assert-That ((& $snaps) -eq 4 -and [int] (Invoke-SqlText -Catalog $resDb -As Scalar -Sql "SELECT Reserved FROM dash.ReservationSnapshot WHERE OrgId = N'LOB-1';") -eq 5) 'a month end is kept once, as it was: a later change to the register does not rewrite it'
+}
+finally {
+    try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$resDb') IS NOT NULL BEGIN ALTER DATABASE [$resDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$resDb]; END;" } catch { Write-Host "  (could not drop $resDb)" }
 }
 
 # ---------------------------------------------------------------------------

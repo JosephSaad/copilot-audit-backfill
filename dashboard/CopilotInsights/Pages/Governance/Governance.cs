@@ -84,6 +84,27 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
         Panels.Add(new("Agents in use",
             Chart.Columns(Labels(), sources.Select((src, i) => new Series(src, buckets.Select(b => (double?)agents.Where(a => a.Source == src && a.Bucket == b.Key).Sum(a => a.N)).ToList(), i + 1)).ToList(),
                 Fmt.Count, "Distinct agents used"), "How many different agents were used in each day or week, by where they were built.", "half"));
+        /* 2.7.0: Copilot by product, from the app each interaction names (its AppHost) and the agent behind it: Security
+           Copilot, Copilot in Fabric and Power BI, Edge, Copilot Studio's agents, and Microsoft 365 Copilot for the rest. */
+        var products = await Db.QueryAsync<(string Product, long N, int People)>($@"
+WITH f AS (
+    SELECT f.UserKey,
+           CASE WHEN a.App LIKE N'%Security%' THEN N'Security Copilot'
+                WHEN a.App LIKE N'%Fabric%' OR a.App LIKE N'%PowerBI%' OR a.App LIKE N'%Power BI%' THEN N'Copilot in Fabric and Power BI'
+                /* Microsoft records Copilot in the Edge browser as AppHost Bing. */
+                WHEN a.App LIKE N'%Edge%' OR a.App = N'Bing' THEN N'Copilot in Edge and Bing'
+                WHEN ag.AgentSource = N'Copilot Studio' THEN N'Copilot Studio agents'
+                WHEN ag.AgentSource IS NOT NULL AND ag.AgentSource <> N'(no agent)' THEN N'Other agents'
+                ELSE N'Microsoft 365 Copilot' END AS Product
+    FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+    JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+    LEFT JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey
+    WHERE f.DateKey BETWEEN @k0 AND @k1)
+SELECT Product, COUNT_BIG(*), COUNT(DISTINCT UserKey) FROM f GROUP BY Product ORDER BY COUNT_BIG(*) DESC;", Ctx.Args());
+        Panels.Add(new("Copilot by product", Chart.Bars(products.Select(p => new Bar(p.Product, p.N,
+                Note: $"{(p.People >= Ctx.MinGroupSize ? p.People.ToString("#,0") : $"fewer than {Ctx.MinGroupSize}")} people")).ToList(), Fmt.Count, "Interactions by Copilot product"),
+            "Which Copilot answered, from the app each interaction names and the agent behind it: Security Copilot (where its owner turned on Purview audit), Copilot in Fabric and Power BI, Copilot in Edge and Bing, Copilot Studio's agents, other agents, and Microsoft 365 Copilot in Word, Excel, Teams, Outlook and Copilot Chat.", "half"));
+
         var born = await Db.QueryAsync<(string Source, int N, int New)>(@"
 SELECT a.AgentSource, COUNT(*), COUNT(CASE WHEN a.FirstSeenUtc >= @d0 THEN 1 END)
 FROM dash.Agent AS a WHERE a.AgentSource <> N'(no agent)' AND a.FirstSeenUtc < DATEADD(DAY, 1, @d1)

@@ -184,8 +184,8 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
 
         var effect = kind switch
         {
-            "upgrade" => $"a cost of {pg.Total * price:#,0} {currency} a month",
-            "revoke" => $"a saving of {pg.Total * price:#,0} {currency} a month",
+            "upgrade" => $"a cost of {pg.Total * price:#,0} {currency} a month as new licenses; none for those given licenses reclaimed from others",
+            "revoke" => $"a saving of {pg.Total * price:#,0} {currency} a month: no licensed (Premium) use in 30 days",
             _ => "no change in cost; review again in 30 days",
         };
         Kpis.Add(new(Kinds[kind].Label, Num(pg.Total), $"people: {effect}", kind == "revoke" && pg.Total > 0 ? "crit" : null));
