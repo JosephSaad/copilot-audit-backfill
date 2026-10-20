@@ -70,6 +70,11 @@ price, and check the spare share. For the activity database, see *Added*.
 - Chargeback's *Bought, not assigned* says what is beyond the seats kept spare.
 - The installed settings include the pay-as-you-go cost of an interaction (0.12), which the pages assumed when unset.
 
+### Fixed
+- `Install-CopilotAudit.ps1 -ReportingTimeZone 'Eastern Standard Time'` on new, empty databases recorded nothing, as Eastern is the
+  zone a database with none reads; the next install with no zone named then gave them the server's own zone (UTC on a
+  server set to UTC). The zone named is now always recorded.
+
 ### Known limits
 - **Not run against the client's tenant.** The three record types' fields are read as Microsoft documents them and as
   the client's two sample records showed (`AppIdentity`, `CopilotEventData.Contexts`, `Messages`, `ThreadId`,

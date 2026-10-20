@@ -246,8 +246,11 @@ if ($ReportingTimeZone) {
     if (-not $known) { throw "'$ReportingTimeZone' is not a time zone SQL Server knows. SELECT name FROM sys.time_zone_info lists them." }
     foreach ($db in $zoneDbs) {
         $current = [string] (Invoke-Sql -Catalog $db -Scalar -Sql 'SELECT audit.ReportingTimeZone();')
-        if ($current -eq $ReportingTimeZone) { continue }
-        if ((Get-Count $db 'audit.CopilotAudit') -gt 0 -or (Get-Count $db 'audit.CopilotInteraction') -gt 0) {
+        # 2.6.9: the zone named is recorded even where it is the default a database with no row reads (Eastern), or a
+        # later run with no zone named gave an empty database the server's own zone in its place.
+        $recorded = [int] (Invoke-Sql -Catalog $db -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'ReportingTimeZone';") -gt 0
+        if ($current -eq $ReportingTimeZone -and $recorded) { continue }
+        if ($current -ne $ReportingTimeZone -and ((Get-Count $db 'audit.CopilotAudit') -gt 0 -or (Get-Count $db 'audit.CopilotInteraction') -gt 0)) {
             throw "$db already holds records cut in $current. The reporting time zone is set before the first load; to change it, load into new databases."
         }
         Invoke-Sql -Catalog $db -Parameters @{ '@z' = $ReportingTimeZone } -Sql @"

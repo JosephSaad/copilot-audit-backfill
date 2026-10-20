@@ -4405,6 +4405,10 @@ try {
     Assert-That ([int] (Invoke-SqlText -Catalog $actDb -As Scalar -Sql "SELECT COUNT(*) FROM sys.objects WHERE object_id IN (OBJECT_ID(N'audit.AIAppCall'), OBJECT_ID(N'audit.PlatformActivity'), OBJECT_ID(N'audit.usp_ShredActivity'), OBJECT_ID(N'audit.usp_MergeCopilotLoad'));") -eq 4 -and
                  [int] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql "SELECT COUNT(*) FROM sys.objects WHERE object_id IN (OBJECT_ID(N'audit.AIAppUserDay'), OBJECT_ID(N'audit.AIAppResource'), OBJECT_ID(N'audit.usp_RollupActivity'));") -eq 3 -and
                  $first -like '*Load the activity history into*') 'the installer creates the activity database with its tables and procedures, and the rollup in the Copilot one; with no records, it says to load the history'
+    # 2.6.9: a zone named is recorded even when it is Eastern, the default an empty database reads; before, the next install
+    # with no zone named gave the empty databases the server's own zone (UTC on a Linux server) instead.
+    $named = @($actCop, $actDb | ForEach-Object { [string] (Invoke-SqlText -Catalog $_ -As Scalar -Sql "SELECT Value FROM audit.PipelineSetting WHERE Name = N'ReportingTimeZone';") })
+    Assert-That (($named -join ',') -eq 'Eastern Standard Time,Eastern Standard Time') "the zone named is recorded in both databases, Eastern though it is the default ($($named -join ', '))"
 
     # Synthetic records as the backfill leaves them: compressed JSON, the record type as Graph names it.
     Invoke-SqlText -Catalog $actDb -Sql @"
