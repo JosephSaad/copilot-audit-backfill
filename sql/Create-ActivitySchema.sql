@@ -94,7 +94,7 @@ IF OBJECT_ID(N'audit.DlpMatch', N'U') IS NULL
         RecordId        VARCHAR(64)    NOT NULL,
         CreatedDateTime DATETIME2(0)   NOT NULL,   -- UTC
         Workload        NVARCHAR(64)   NULL,       -- SharePoint, OneDrive, Exchange, Endpoint
-        Operation       NVARCHAR(128)  NULL,       -- DlpRuleMatch, DlpRuleUndo, DlpInfo
+        Operation       NVARCHAR(128)  NULL,       -- DlpRuleMatch, DlpRuleUndo, DlpInfo, or an endpoint activity that matched a policy
         UserId          NVARCHAR(256)  NULL,
         PolicyName      NVARCHAR(400)  NULL,
         RuleName        NVARCHAR(400)  NULL,

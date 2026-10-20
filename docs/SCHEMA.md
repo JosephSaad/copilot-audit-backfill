@@ -1683,7 +1683,7 @@ Indexes and constraints:
 | 5 | `Severity` | nvarchar(32) | **no** |  |  |
 | 6 | `Upn` | nvarchar(256) | **no** |  | '' where the record names no one |
 | 7 | `Matches` | int | **no** |  |  |
-| 8 | `Undone` | int | **no** |  | DlpRuleUndo: an override, or a false positive reported |
+| 8 | `Undone` | int | **no** |  | DlpRuleUndo or DlpInfo: overridden, no longer matching, or reported as a false positive |
 | 9 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 
 Indexes and constraints:
@@ -1701,7 +1701,7 @@ Indexes and constraints:
 | 1 | `RecordId` | varchar(64) | **no** |  |  |
 | 2 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
 | 3 | `Workload` | nvarchar(64) | yes |  |  |
-| 4 | `Operation` | nvarchar(128) | yes |  | DlpRuleMatch, DlpRuleUndo, DlpInfo |
+| 4 | `Operation` | nvarchar(128) | yes |  | DlpRuleMatch, DlpRuleUndo, DlpInfo, or an endpoint activity that matched a policy |
 | 5 | `UserId` | nvarchar(256) | yes |  |  |
 | 6 | `PolicyName` | nvarchar(400) | yes |  |  |
 | 7 | `RuleName` | nvarchar(400) | yes |  |  |

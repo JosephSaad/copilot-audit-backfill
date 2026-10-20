@@ -2943,7 +2943,7 @@ Indexes and constraints:
 | 5 | `Severity` | nvarchar(32) | **no** |  |  |
 | 6 | `Upn` | nvarchar(256) | **no** |  | '' where the record names no one |
 | 7 | `Matches` | int | **no** |  |  |
-| 8 | `Undone` | int | **no** |  | DlpRuleUndo: an override, or a false positive reported |
+| 8 | `Undone` | int | **no** |  | DlpRuleUndo or DlpInfo: overridden, no longer matching, or reported as a false positive |
 | 9 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 
 Indexes and constraints:
@@ -2961,7 +2961,7 @@ Indexes and constraints:
 | 1 | `RecordId` | varchar(64) | **no** |  |  |
 | 2 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
 | 3 | `Workload` | nvarchar(64) | yes |  |  |
-| 4 | `Operation` | nvarchar(128) | yes |  | DlpRuleMatch, DlpRuleUndo, DlpInfo |
+| 4 | `Operation` | nvarchar(128) | yes |  | DlpRuleMatch, DlpRuleUndo, DlpInfo, or an endpoint activity that matched a policy |
 | 5 | `UserId` | nvarchar(256) | yes |  |  |
 | 6 | `PolicyName` | nvarchar(400) | yes |  |  |
 | 7 | `RuleName` | nvarchar(400) | yes |  |  |
@@ -14065,7 +14065,7 @@ IF OBJECT_ID(N'audit.DlpDay', N'U') IS NULL
         Severity   NVARCHAR(32)  NOT NULL,
         Upn        NVARCHAR(256) NOT NULL,   -- '' where the record names no one
         Matches    INT           NOT NULL,
-        Undone     INT           NOT NULL,   -- DlpRuleUndo: an override, or a false positive reported
+        Undone     INT           NOT NULL,   -- DlpRuleUndo or DlpInfo: overridden, no longer matching, or reported as a false positive
         LoadedUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DlpDay_Loaded DEFAULT (SYSUTCDATETIME()),
         INDEX IX_DlpDay_Day ([Day])
     );
@@ -14219,7 +14219,7 @@ GROUP BY q.LocalDay, a.Product, LEFT(a.UserId, 256);';
 INSERT INTO audit.DlpDay ([Day], Workload, PolicyName, RuleName, Severity, Upn, Matches, Undone)
 SELECT q.LocalDay, ISNULL(m.Workload, N''''), ISNULL(m.PolicyName, N''(no policy named)''), ISNULL(m.RuleName, N''''), ISNULL(m.Severity, N''''),
        CASE WHEN m.UserId LIKE N''%@%'' THEN LEFT(m.UserId, 256) ELSE N'''' END,
-       COUNT(CASE WHEN m.Operation <> N''DlpRuleUndo'' THEN 1 END), COUNT(CASE WHEN m.Operation = N''DlpRuleUndo'' THEN 1 END)
+       COUNT(CASE WHEN m.Operation NOT IN (N''DlpRuleUndo'', N''DlpInfo'') THEN 1 END), COUNT(CASE WHEN m.Operation IN (N''DlpRuleUndo'', N''DlpInfo'') THEN 1 END)
 FROM ' + @db + N'.audit.DlpMatch AS m
 JOIN #q AS q ON q.UtcQuarter = DATEADD(MINUTE, DATEDIFF(MINUTE, ''2000-01-01'', m.CreatedDateTime) / 15 * 15, CAST(''2000-01-01'' AS DATETIME2(0)))
 WHERE (@fromUtc IS NULL OR m.CreatedDateTime >= @fromUtc) AND (@from IS NULL OR q.LocalDay >= @from)
@@ -14380,7 +14380,7 @@ IF OBJECT_ID(N'audit.DlpMatch', N'U') IS NULL
         RecordId        VARCHAR(64)    NOT NULL,
         CreatedDateTime DATETIME2(0)   NOT NULL,   -- UTC
         Workload        NVARCHAR(64)   NULL,       -- SharePoint, OneDrive, Exchange, Endpoint
-        Operation       NVARCHAR(128)  NULL,       -- DlpRuleMatch, DlpRuleUndo, DlpInfo
+        Operation       NVARCHAR(128)  NULL,       -- DlpRuleMatch, DlpRuleUndo, DlpInfo, or an endpoint activity that matched a policy
         UserId          NVARCHAR(256)  NULL,
         PolicyName      NVARCHAR(400)  NULL,
         RuleName        NVARCHAR(400)  NULL,
@@ -14395,7 +14395,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.Dlp
 
 ### C.21 `sql/Create-ActivityProcedure.sql`
 
-Activity database (2.6.9). `audit.usp_ShredActivity`. 217 lines.
+Activity database (2.6.9). `audit.usp_ShredActivity`. 227 lines.
 
 ```sql
 /*
@@ -14484,12 +14484,18 @@ BEGIN
         SELECT a.RecordId, a.CreatedDateTime,
                /* 2.7.0: by record type first where the workload is shared with other records (Teams, DLP). */
                CASE WHEN a.RecordType LIKE N'teamCopilot%' THEN N'TeamsAI'
-                    WHEN a.RecordType LIKE N'complianceDLP%' OR a.RecordType LIKE N'dlpEndpoint%' OR t.Operation IN (N'DlpRuleMatch', N'DlpRuleUndo', N'DlpInfo') THEN N'DLP'
+                    /* Only a policy match, undo or false-positive report: an endpoint's DLPEndpoint records also carry
+                       its ordinary file activity (created, modified, renamed), audited with no rule matched. */
+                    WHEN t.Operation IN (N'DlpRuleMatch', N'DlpRuleUndo', N'DlpInfo') THEN N'DLP'
+                    WHEN a.RecordType LIKE N'complianceDLP%' OR a.RecordType LIKE N'dlpEndpoint%'
+                    THEN CASE WHEN pc.Policies > 0 OR t.MatchPolicyName IS NOT NULL THEN N'DLP' ELSE N'DLPOther' END
                     ELSE COALESCE(t.Workload, CASE WHEN a.RecordType LIKE N'connectedAIApp%' THEN N'ConnectedAIApp'
                                          WHEN a.RecordType LIKE N'powerBI%' THEN N'PowerBI'
                                          WHEN a.RecordType LIKE N'powerApps%' THEN N'PowerApps' END) END AS Workload,
                LEFT(t.Workload, 64) AS SourceWorkload,
-               LEFT(t.PolicyName, 400) AS PolicyName, LEFT(t.RuleName, 400) AS RuleName, LEFT(t.Severity, 32) AS Severity, pc.Policies,
+               LEFT(COALESCE(t.PolicyName, t.MatchPolicyName), 400) AS PolicyName, LEFT(COALESCE(t.RuleName, t.MatchRuleName), 400) AS RuleName,
+               LEFT(COALESCE(t.Severity, t.MatchSeverity), 32) AS Severity,
+               CASE WHEN pc.Policies = 0 AND t.MatchPolicyName IS NOT NULL THEN 1 ELSE pc.Policies END AS Policies,
                LEFT(COALESCE(t.Operation, a.Operation), 128) AS Operation,
                LEFT(COALESCE(t.UserId, a.UserPrincipalName, a.UserId), 256) AS UserId,
                TRY_CAST(t.UserType AS INT) AS UserType,
@@ -14539,7 +14545,11 @@ BEGIN
                 PolicyName           NVARCHAR(400)  '$.PolicyDetails[0].PolicyName',
                 RuleName             NVARCHAR(400)  '$.PolicyDetails[0].Rules[0].RuleName',
                 Severity             NVARCHAR(32)   '$.PolicyDetails[0].Rules[0].Severity',
-                PolicyDetails        NVARCHAR(MAX)  '$.PolicyDetails' AS JSON
+                PolicyDetails        NVARCHAR(MAX)  '$.PolicyDetails' AS JSON,
+                /* An endpoint's rule match names its policy in PolicyMatchInfo. */
+                MatchPolicyName      NVARCHAR(400)  '$.PolicyMatchInfo.PolicyName',
+                MatchRuleName        NVARCHAR(400)  '$.PolicyMatchInfo.RuleName',
+                MatchSeverity        NVARCHAR(32)   '$.PolicyMatchInfo.Severity'
             ) AS t
         OUTER APPLY (SELECT COUNT(*) AS Policies FROM OPENJSON(ISNULL(t.PolicyDetails, N'[]'))) AS pc
         WHERE a.RecordId > @cursor AND a.RecordId <= @maxId

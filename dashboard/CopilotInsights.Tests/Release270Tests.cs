@@ -144,4 +144,49 @@ public class UsabilityAndPurviewTests
         /* No file or message is named: the DLP tables keep no object. */
         Assert.DoesNotContain("ObjectId", Read("sql", "Create-ActivitySchema.sql")[Read("sql", "Create-ActivitySchema.sql").IndexOf("audit.DlpMatch", StringComparison.Ordinal)..]);
     }
+
+    /* The adversarial review of 2.7.0's own additions. */
+
+    [Fact]
+    public void Only_a_policy_match_is_a_DLP_record_and_a_false_positive_is_undone()
+    {
+        /* An endpoint's DLPEndpoint records also carry its ordinary file activity, audited with no rule matched. */
+        var shred = Read("sql", "Create-ActivityProcedure.sql");
+        Assert.Contains("THEN CASE WHEN pc.Policies > 0 OR t.MatchPolicyName IS NOT NULL THEN N'DLP' ELSE N'DLPOther' END", shred);
+        Assert.Contains("'$.PolicyMatchInfo.PolicyName'", shred);
+        var rollup = Read("sql", "Create-CopilotActivityRollup.sql");
+        Assert.Contains("COUNT(CASE WHEN m.Operation IN (N''DlpRuleUndo'', N''DlpInfo'') THEN 1 END)", rollup);
+        Assert.Contains("ORDER BY SUM(CAST(m.Matches AS BIGINT)) DESC", Source.Read("Pages", "Compliance", "Compliance.cs"));
+    }
+
+    [Fact]
+    public void A_short_reservation_inside_a_longer_one_is_refused_and_a_rate_keeps_two_decimals()
+    {
+        var page = Source.Read("Pages", "Leadership", "Reservations.cs");
+        Assert.Contains("falls inside a row that runs past its end", page);
+        Assert.Contains("(r.EffectiveTo IS NULL OR r.EffectiveTo > n.[To])", page);
+        Assert.Contains("decimal.Round(r, 2) != r", page);
+        Assert.Contains("Input(\"end\", \"End on\"", page);
+    }
+
+    [Fact]
+    public void Administrators_are_not_makers_and_are_named_only_with_the_whole_organization_in_view()
+    {
+        var build = Source.Read("Pages", "Agents", "Build.cs");
+        Assert.Contains("COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action NOT IN ('Blocked'", build);
+        Assert.Contains("var byShown = named && Ctx.Root is null;", build);
+    }
+
+    [Fact]
+    public void A_fields_tip_is_its_pages_where_the_name_is_shared()
+    {
+        var reference = CopilotInsights.Infrastructure.FieldTips.For("/admin/reference", []);
+        Assert.False(reference.ContainsKey("category"));
+        Assert.False(CopilotInsights.Infrastructure.FieldTips.For("/forecasting/budget", []).TryGetValue("start", out var s) && s.Contains("progress"));
+        Assert.StartsWith("A manager's sign-in (UPN): the digest", CopilotInsights.Infrastructure.FieldTips.For("/admin/notifications", [])["root"]);
+        var res = CopilotInsights.Infrastructure.FieldTips.For("/leadership/reservations", []);
+        Assert.StartsWith("Why the Technology pool funds it", res["category"]);
+        Assert.StartsWith("The last day this reservation is in effect", res["end"]);
+        Assert.Contains("progress", CopilotInsights.Infrastructure.FieldTips.For("/admin/assumptions", [])["start"]);
+    }
 }

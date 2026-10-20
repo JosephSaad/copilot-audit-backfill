@@ -77,7 +77,7 @@ IF OBJECT_ID(N'audit.DlpDay', N'U') IS NULL
         Severity   NVARCHAR(32)  NOT NULL,
         Upn        NVARCHAR(256) NOT NULL,   -- '' where the record names no one
         Matches    INT           NOT NULL,
-        Undone     INT           NOT NULL,   -- DlpRuleUndo: an override, or a false positive reported
+        Undone     INT           NOT NULL,   -- DlpRuleUndo or DlpInfo: overridden, no longer matching, or reported as a false positive
         LoadedUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DlpDay_Loaded DEFAULT (SYSUTCDATETIME()),
         INDEX IX_DlpDay_Day ([Day])
     );
@@ -231,7 +231,7 @@ GROUP BY q.LocalDay, a.Product, LEFT(a.UserId, 256);';
 INSERT INTO audit.DlpDay ([Day], Workload, PolicyName, RuleName, Severity, Upn, Matches, Undone)
 SELECT q.LocalDay, ISNULL(m.Workload, N''''), ISNULL(m.PolicyName, N''(no policy named)''), ISNULL(m.RuleName, N''''), ISNULL(m.Severity, N''''),
        CASE WHEN m.UserId LIKE N''%@%'' THEN LEFT(m.UserId, 256) ELSE N'''' END,
-       COUNT(CASE WHEN m.Operation <> N''DlpRuleUndo'' THEN 1 END), COUNT(CASE WHEN m.Operation = N''DlpRuleUndo'' THEN 1 END)
+       COUNT(CASE WHEN m.Operation NOT IN (N''DlpRuleUndo'', N''DlpInfo'') THEN 1 END), COUNT(CASE WHEN m.Operation IN (N''DlpRuleUndo'', N''DlpInfo'') THEN 1 END)
 FROM ' + @db + N'.audit.DlpMatch AS m
 JOIN #q AS q ON q.UtcQuarter = DATEADD(MINUTE, DATEDIFF(MINUTE, ''2000-01-01'', m.CreatedDateTime) / 15 * 15, CAST(''2000-01-01'' AS DATETIME2(0)))
 WHERE (@fromUtc IS NULL OR m.CreatedDateTime >= @fromUtc) AND (@from IS NULL OR q.LocalDay >= @from)

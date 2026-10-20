@@ -317,7 +317,7 @@ A header line is skipped; a field may be quoted to hold a comma (`"Retail Bankin
 | `PowerBIAudit` | Power BI activity: reports viewed, exported, refreshed, shared | Who used Power BI lately (`audit.PowerPlatformUserActivity`): Costs and savings, Suite fit |
 | `PowerAppsApp` | Power Apps launched and managed | Who used Power Apps lately: Costs and savings |
 | `TeamCopilotInteraction` (2.7.0) | Teams meeting AI notes: Facilitator's notes and live notes in meetings | Apps, beside Power BI and Power Apps |
-| `ComplianceDLPSharePoint`, `ComplianceDLPExchange`, `DLPEndpoint` (2.7.0, not by default) | Data loss prevention rule matches, overrides and reported false positives | Compliance › Sensitive content |
+| `ComplianceDLPSharePoint`, `ComplianceDLPExchange`, `DLPEndpoint` (2.7.0, not by default) | Data loss prevention rule matches, and those undone: overridden, no longer matching or reported as a false positive. A device's file activity with no rule matched is left out | Compliance › Sensitive content |
 
 It needs nothing new from Microsoft: the app registration's `AuditLogsQuery.Read.All` reads every record type. Record-type searches are submitted to Graph's beta endpoint, whose list of record types has the newer ones; the records are read as every other load's. The Copilot and license databases are not touched, and Copilot interactions are not loaded again.
 

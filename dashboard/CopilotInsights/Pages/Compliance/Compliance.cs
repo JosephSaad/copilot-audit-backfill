@@ -93,16 +93,16 @@ FROM {dlpFrom} JOIN bi.DimDate AS d ON d.[Date] = m.[Day]
 WHERE m.[Day] BETWEEN @d0 AND @d1 GROUP BY {Ctx.BucketSql("d")}, m.Workload;", Ctx.Args());
             var policies = await Db.QueryAsync<(string Policy, long Matches, int People, long Undone)>($@"
 SELECT m.PolicyName, SUM(CAST(m.Matches AS BIGINT)), COUNT(DISTINCT NULLIF(m.Upn, N'')), SUM(CAST(m.Undone AS BIGINT))
-FROM {dlpFrom} WHERE m.[Day] BETWEEN @d0 AND @d1 GROUP BY m.PolicyName ORDER BY SUM(m.Matches) DESC;", Ctx.Args());
+FROM {dlpFrom} WHERE m.[Day] BETWEEN @d0 AND @d1 GROUP BY m.PolicyName ORDER BY SUM(CAST(m.Matches AS BIGINT)) DESC;", Ctx.Args());
             long matches = dlp.Sum(x => x.Matches), undone = dlp.Sum(x => x.Undone);
-            Kpis.Add(new("DLP rule matches", Num(matches), $"{Count(policies.Count, "policy", "policies")}; {Pct(Ratio(undone, matches))} overridden or reported as a false positive", Href: null));
+            Kpis.Add(new("DLP rule matches", Num(matches), $"{Count(policies.Count, "policy", "policies")}; {Pct(Ratio(undone, matches))} undone: overridden, no longer matching or reported as a false positive", Href: null));
             var workloads = dlp.Select(x => x.Workload).Distinct().OrderBy(x => x).ToList();
             Panels.Add(new("Data loss prevention matches", Chart.Columns(Labels(), workloads.Select((w, i) => new Series(w.Length == 0 ? "(not named)" : w,
                     buckets.Select(b => (double?)dlp.Where(x => x.Bucket == b.Key && x.Workload == w).Sum(x => x.Matches)).ToList(), i + 1)).ToList(), Fmt.Count, "DLP rule matches"),
                 $"Each time a data loss prevention rule matched content or an action, by workload, from the audit log's own DLP records (the activity database). {TrendNote}", "half"));
             Panels.Add(new("Matches by policy", Chart.Bars(policies.Take(12).Select(p => new Bar(p.Policy, p.Matches,
-                    Note: $"{(p.People >= Ctx.MinGroupSize ? p.People.ToString("#,0") : $"fewer than {Ctx.MinGroupSize}")} people; {p.Undone:#,0} overridden or false positive")).ToList(), Fmt.Count, "DLP matches by policy"),
-                "The policies that matched most. An override or a reported false positive is the person's own word that the match was wrong; a policy with many is worth tuning.", "half"));
+                    Note: $"{(p.People >= Ctx.MinGroupSize ? p.People.ToString("#,0") : $"fewer than {Ctx.MinGroupSize}")} people; {p.Undone:#,0} undone")).ToList(), Fmt.Count, "DLP matches by policy"),
+                "The policies that matched most. Undone: the match was overridden, the item stopped matching, or someone reported it as a false positive; a policy with many is worth tuning.", "half"));
         }
     }
 }

@@ -46,7 +46,7 @@ FROM bi.FactAgentEvent AS e {scope} JOIN bi.DimDate AS d ON d.DateKey = e.DateKe
 WHERE e.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
         int Count(string a) => byAction.Where(x => x.Action == a).Sum(x => x.N);
-        var makers = await Db.ScalarAsync<int>($@"SELECT COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1;", Ctx.Args());
+        var makers = await Db.ScalarAsync<int>($@"SELECT COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action NOT IN ('Blocked', 'Unblocked', 'Deployed', 'Removed', 'AdminDeleted', 'AdminUpdated', 'Settings');", Ctx.Args());
         Kpis.Add(new("Agents created", Num(Count("Created"))));
         Kpis.Add(new("Times published", Num(Count("Published"))));
         Kpis.Add(new("Times shared", Num(Count("Shared"))));
@@ -91,19 +91,22 @@ WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action IN ('Blocked', 'Unblocked', 'De
 ORDER BY e.EventUtc DESC;", Ctx.Args());
         if (admin.Count > 0)
         {
+            /* The organization's whatever team is chosen, so who did it is named only with the whole organization in view:
+               a manager's scope would otherwise name administrators outside it. */
+            var byShown = named && Ctx.Root is null;
             static string Said(string a) => a switch { "AdminDeleted" => "Deleted", "AdminUpdated" => "Changed", "Settings" => "Tenant agent settings changed", _ => a };
             var n = (await Db.QueryAsync<(int All, int Blocked, int Deployed)>(@"
 SELECT COUNT(*), COUNT(CASE WHEN e.Action = 'Blocked' THEN 1 END), COUNT(CASE WHEN e.Action = 'Deployed' THEN 1 END)
 FROM bi.FactAgentEvent AS e
 WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action IN ('Blocked', 'Unblocked', 'Deployed', 'Removed', 'AdminDeleted', 'AdminUpdated', 'Settings');", Ctx.Args())).Single();
             Kpis.Add(new("Admin actions on agents", Num(n.All), $"{n.Blocked:#,0} blocked, {n.Deployed:#,0} deployed in the period", n.Blocked > 0 ? "warn" : null));
-            var at = new Table { Headers = named ? ["When", "Action", "Agent", "By"] : ["When", "Action", "Agent"], EmptyText = "None in the period." };
-            var byName = named ? await NamesAsync(admin.Select(a => a.ActorUpn)) : null;
+            var at = new Table { Headers = byShown ? ["When", "Action", "Agent", "By"] : ["When", "Action", "Agent"], EmptyText = "None in the period." };
+            var byName = byShown ? await NamesAsync(admin.Select(a => a.ActorUpn)) : null;
             foreach (var a in admin)
-                at.Rows.Add(named ? [When(a.At), Said(a.Action), a.Agent ?? "(the tenant)", byName!(a.ActorUpn)] : [When(a.At), Said(a.Action), a.Agent ?? "(the tenant)"]);
+                at.Rows.Add(byShown ? [When(a.At), Said(a.Action), a.Agent ?? "(the tenant)", byName!(a.ActorUpn)] : [When(a.At), Said(a.Action), a.Agent ?? "(the tenant)"]);
             Panels.Add(new("What administrators did to agents", at.Render(),
                 "From the Microsoft 365 admin center's own audit records (CopilotAgentManagement): agents blocked, unblocked, deployed to people, removed, deleted or changed, and the tenant's agent settings changed. The organization's, whatever team is chosen; the last 200 in the period." +
-                (named ? "" : " Who did it is shown to the Agents role."), "full"));
+                (byShown ? "" : " Who did it is shown to the Agents role, with the whole organization in view."), "full"));
         }
 
         var neverPublished = life.Count(l => l.Created is not null && l.FirstPublished is null && l.Deleted is null);

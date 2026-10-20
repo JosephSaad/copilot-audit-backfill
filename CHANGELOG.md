@@ -39,6 +39,16 @@ matches, add `ComplianceDLPSharePoint` and `ComplianceDLPExchange` (and `DLPEndp
   of every user kept them as present. Removing a reservation or a rate is audited with what it was; a rate replaced says
   what it was before. Privacy mode names no leader. Obligations round half away from zero, so rows add up to the total;
   a rate shows as entered. Licenses on disabled accounts counts only those an organization counts.
+- **The review of 2.7.0's own additions, before release:**
+  - A new reservation row with an end date, inside a row that runs past it, is refused. Adding it ended the longer row
+    the day before and left the organization with no reservation once the short one ended.
+  - A rate takes at most two decimals, as it is kept.
+  - *End on* has a field of its own and its own tip.
+  - *Makers* on Build and publish no longer counts administrators who blocked or deployed an agent.
+  - Who did an administrator's action is named only with the whole organization in view, since the panel is the organization's.
+  - A field's tip is its page's where the same field name is used on several pages: App categories, digests' scope
+    and the contracts' start had another page's text.
+  - Copilot in Edge counts AppHost *Bing*, which is how Microsoft records Copilot in the Edge browser.
 
 ### Added
 - **An information icon on every field of every form**: a setting's own description (without its release number), or
@@ -50,10 +60,12 @@ matches, add `ComplianceDLPSharePoint` and `ComplianceDLPExchange` (and `DLPEndp
 - **Teams meeting AI notes** (`TeamCopilotInteraction`), loaded by the activity database: the people using it beside
   Power BI and Power Apps on **Apps**, for any part of the organization (`audit.ActivityUserDay`).
 - **Data loss prevention matches**, where the activity database is asked for the DLP record types: on **Compliance ›
-  Sensitive content**, matches by workload over time and by policy, with overrides and reported false positives
-  (`audit.DlpMatch`, `audit.DlpDay`). Counts only: no file or message is named.
+  Sensitive content**, matches by workload over time and by policy, with those undone: overridden, no longer matching,
+  or reported as a false positive (`audit.DlpMatch`, `audit.DlpDay`). Counts only: no file or message is named. Only a
+  record that matched a policy is kept: a device's `DLPEndpoint` records also carry its ordinary file activity, audited
+  with no rule matched, and those are left out; an endpoint's match is read from its `PolicyMatchInfo`.
 - **Governance › Models and controls › Copilot by product**: Microsoft 365 Copilot, Copilot Studio's and other agents,
-  Security Copilot, Copilot in Fabric and Power BI, and Copilot in Edge, from the app each interaction names.
+  Security Copilot, Copilot in Fabric and Power BI, and Copilot in Edge and Bing, from the app each interaction names.
 - **How figures are calculated › Copilot's cost a month, five ways**: what each of the five pages' Copilot cost counts,
   and which to quote for what.
 - **Admin › Health › Next certificate to expire**, at the top.

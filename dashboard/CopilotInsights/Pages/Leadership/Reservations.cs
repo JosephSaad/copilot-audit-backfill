@@ -215,7 +215,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         foreach (var r in reg)
             rt.Rows.Add([r.OrgId, r.Name, r.LeaderUpn, r.CostCenter, r.Reserved, r.EffectiveFrom, r.EffectiveTo, r.Note,
                 /* 2.7.0: ended on a day, so past months keep it, or removed as entered by mistake. */
-                new HtmlString((r.EffectiveTo is null ? InlineForm("endreserve", Hidden("id", r.ReservationId) + Input("to", "End on", null, 10, "date") + Button("End", quiet: true)) : "") +
+                new HtmlString((r.EffectiveTo is null ? InlineForm("endreserve", Hidden("id", r.ReservationId) + Input("end", "End on", null, 10, "date") + Button("End", quiet: true)) : "") +
                     Form("delreserve", Hidden("id", r.ReservationId) + RemoveBox($"Remove {r.Name} from {r.EffectiveFrom:yyyy-MM-dd}")))]);
         var add = "<h3>Add an organization's reservation</h3>" + Form("reserve",
             Input("orgId", "Org ID", null, 12) + Input("name", "Organization", null, 20) + Input("leader", "Leader's sign-in", null, 26) + Input("costCenter", "Cost center", null, 10) +
@@ -288,6 +288,15 @@ FROM OPENJSON(@json) WITH (OrgId NVARCHAR(64), [From] DATE, [To] DATE) AS n
 JOIN dash.Reservation AS r ON r.OrgId = n.OrgId AND r.EffectiveFrom >= n.[From] AND (n.[To] IS NULL OR r.EffectiveFrom <= n.[To])
 ORDER BY n.OrgId;", new { json });
         if (clash is not null) throw new ArgumentException($"{clash} overlaps a row that starts on or after it: end or remove that row first.");
+        /* A new row with an end, inside a row that runs past that end: ending the old row the day before would leave the
+           organization with no reservation after the new one ends. */
+        var inside = await Db.ScalarAsync<string?>(@"
+SELECT TOP (1) CONCAT(n.OrgId, N' from ', CONVERT(CHAR(10), n.[From], 120), N' to ', CONVERT(CHAR(10), n.[To], 120))
+FROM OPENJSON(@json) WITH (OrgId NVARCHAR(64), [From] DATE, [To] DATE) AS n
+JOIN dash.Reservation AS r ON r.OrgId = n.OrgId AND r.EffectiveFrom < n.[From] AND (r.EffectiveTo IS NULL OR r.EffectiveTo > n.[To])
+WHERE n.[To] IS NOT NULL
+ORDER BY n.OrgId;", new { json });
+        if (inside is not null) throw new ArgumentException($"{inside} falls inside a row that runs past its end: end that row on the day before, add this one, then add the row that follows it.");
         return await Db.ScalarAsync<int>(@"
 SET XACT_ABORT ON;
 BEGIN TRANSACTION;
@@ -313,14 +322,14 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
             return "Reservation added: " + Said(row) + (ended > 0 ? $"; its row before was ended on {row.From.AddDays(-1):yyyy-MM-dd}." : ".");
         });
 
-    public Task<IActionResult> OnPostEndreserveAsync(int id, DateTime? to) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostEndreserveAsync(int id, DateTime? end) => AdminChangeAsync(async () =>
     {
-        if (to is null) throw new ArgumentException("give the last day the reservation is in effect.");
+        if (end is null) throw new ArgumentException("give the last day the reservation is in effect.");
         var row = (await Db.QueryAsync<(string OrgId, string Name, int Reserved, DateTime From)>("SELECT OrgId, Name, Reserved, EffectiveFrom FROM dash.Reservation WHERE ReservationId = @id;", new { id })).FirstOrDefault();
         if (row.OrgId is null) throw new ArgumentException("that reservation is gone.");
-        if (to < row.From) throw new ArgumentException("the end comes on or after its start.");
-        await Db.ExecuteAsync("UPDATE dash.Reservation SET EffectiveTo = @to, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE ReservationId = @id;", new { id, to, by = Viewer.Upn ?? Viewer.WindowsName });
-        return $"Reservation ended: {row.Name} ({row.OrgId}), {row.Reserved:#,0} from {row.From:yyyy-MM-dd}, now to {to:yyyy-MM-dd}.";
+        if (end < row.From) throw new ArgumentException("the end comes on or after its start.");
+        await Db.ExecuteAsync("UPDATE dash.Reservation SET EffectiveTo = @to, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE ReservationId = @id;", new { id, to = end, by = Viewer.Upn ?? Viewer.WindowsName });
+        return $"Reservation ended: {row.Name} ({row.OrgId}), {row.Reserved:#,0} from {row.From:yyyy-MM-dd}, now to {end:yyyy-MM-dd}.";
     });
 
     public Task<IActionResult> OnPostPasteAsync(string? rows) => AdminChangeAsync(async () =>
@@ -386,6 +395,7 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
     {
         if (from is null) throw new ArgumentException("give the date the rate applies from.");
         if (!decimal.TryParse(rate, NumberStyles.Number, CultureInfo.InvariantCulture, out var r) || r < 0 || r > 100000) throw new ArgumentException("the rate is a number.");
+        if (decimal.Round(r, 2) != r) throw new ArgumentException("the rate has at most two decimals, as it is kept.");
         /* 2.7.0: a rate replaced on the same day says what it was. */
         var was = await Db.ScalarAsync<decimal?>("SELECT MonthlyRate FROM dash.ReservationRate WHERE EffectiveFrom = @from;", new { from });
         await Db.ExecuteAsync(@"

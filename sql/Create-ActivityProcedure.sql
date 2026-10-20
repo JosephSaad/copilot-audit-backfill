@@ -84,12 +84,18 @@ BEGIN
         SELECT a.RecordId, a.CreatedDateTime,
                /* 2.7.0: by record type first where the workload is shared with other records (Teams, DLP). */
                CASE WHEN a.RecordType LIKE N'teamCopilot%' THEN N'TeamsAI'
-                    WHEN a.RecordType LIKE N'complianceDLP%' OR a.RecordType LIKE N'dlpEndpoint%' OR t.Operation IN (N'DlpRuleMatch', N'DlpRuleUndo', N'DlpInfo') THEN N'DLP'
+                    /* Only a policy match, undo or false-positive report: an endpoint's DLPEndpoint records also carry
+                       its ordinary file activity (created, modified, renamed), audited with no rule matched. */
+                    WHEN t.Operation IN (N'DlpRuleMatch', N'DlpRuleUndo', N'DlpInfo') THEN N'DLP'
+                    WHEN a.RecordType LIKE N'complianceDLP%' OR a.RecordType LIKE N'dlpEndpoint%'
+                    THEN CASE WHEN pc.Policies > 0 OR t.MatchPolicyName IS NOT NULL THEN N'DLP' ELSE N'DLPOther' END
                     ELSE COALESCE(t.Workload, CASE WHEN a.RecordType LIKE N'connectedAIApp%' THEN N'ConnectedAIApp'
                                          WHEN a.RecordType LIKE N'powerBI%' THEN N'PowerBI'
                                          WHEN a.RecordType LIKE N'powerApps%' THEN N'PowerApps' END) END AS Workload,
                LEFT(t.Workload, 64) AS SourceWorkload,
-               LEFT(t.PolicyName, 400) AS PolicyName, LEFT(t.RuleName, 400) AS RuleName, LEFT(t.Severity, 32) AS Severity, pc.Policies,
+               LEFT(COALESCE(t.PolicyName, t.MatchPolicyName), 400) AS PolicyName, LEFT(COALESCE(t.RuleName, t.MatchRuleName), 400) AS RuleName,
+               LEFT(COALESCE(t.Severity, t.MatchSeverity), 32) AS Severity,
+               CASE WHEN pc.Policies = 0 AND t.MatchPolicyName IS NOT NULL THEN 1 ELSE pc.Policies END AS Policies,
                LEFT(COALESCE(t.Operation, a.Operation), 128) AS Operation,
                LEFT(COALESCE(t.UserId, a.UserPrincipalName, a.UserId), 256) AS UserId,
                TRY_CAST(t.UserType AS INT) AS UserType,
@@ -139,7 +145,11 @@ BEGIN
                 PolicyName           NVARCHAR(400)  '$.PolicyDetails[0].PolicyName',
                 RuleName             NVARCHAR(400)  '$.PolicyDetails[0].Rules[0].RuleName',
                 Severity             NVARCHAR(32)   '$.PolicyDetails[0].Rules[0].Severity',
-                PolicyDetails        NVARCHAR(MAX)  '$.PolicyDetails' AS JSON
+                PolicyDetails        NVARCHAR(MAX)  '$.PolicyDetails' AS JSON,
+                /* An endpoint's rule match names its policy in PolicyMatchInfo. */
+                MatchPolicyName      NVARCHAR(400)  '$.PolicyMatchInfo.PolicyName',
+                MatchRuleName        NVARCHAR(400)  '$.PolicyMatchInfo.RuleName',
+                MatchSeverity        NVARCHAR(32)   '$.PolicyMatchInfo.Severity'
             ) AS t
         OUTER APPLY (SELECT COUNT(*) AS Policies FROM OPENJSON(ISNULL(t.PolicyDetails, N'[]'))) AS pc
         WHERE a.RecordId > @cursor AND a.RecordId <= @maxId
