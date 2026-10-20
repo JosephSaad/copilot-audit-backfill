@@ -70,6 +70,8 @@ param(
     [string] $SqlServer,
     [string] $Database,
     [string] $LicenseDatabase,
+    # 2.6.9: the activity database (AI apps outside Copilot, Power BI and Power Apps); none unless given.
+    [string] $ActivityDatabase,
     [switch] $TrustServerCertificate,
     [string] $ServiceAccount,
     [pscredential] $ServiceAccountCredential,
@@ -107,7 +109,7 @@ function Write-Done([string] $Text) { Write-Information "    $Text" -Information
 # Settings: what the pipeline reads, kept between runs
 # ===========================================================================
 
-$script:SettingOrder = 'SqlServer', 'Database', 'LicenseDatabase', 'TrustServerCertificate', 'TenantId', 'ClientId',
+$script:SettingOrder = 'SqlServer', 'Database', 'LicenseDatabase', 'ActivityDatabase', 'TrustServerCertificate', 'TenantId', 'ClientId',
                        'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'DepartmentAttribute', 'IncludeLeaveDates', 'Dashboard', 'HistoryDays',
                        'LogPath', 'LogRetentionDays', 'At', 'TenantName', 'Tenants'
 
@@ -156,6 +158,7 @@ function Get-InstallArgument {
     if ($readLic.Count) { $a.LicenseEventDatabases = [string[]] $readLic }
     if (Has 'TrustServerCertificate') { $a.TrustServerCertificate = $true }
     if (Has 'Dashboard') { $a.Dashboard = $true }
+    if (Has 'ActivityDatabase') { $a.ActivityDatabase = [string] $Setting.ActivityDatabase }   # 2.6.9
     $a
 }
 
@@ -356,7 +359,7 @@ function Invoke-Main {
 
     $saved = if (Test-Path -LiteralPath $SettingsPath) { Import-PowerShellDataFile -LiteralPath $SettingsPath } else { @{} }
     $given = @{}
-    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'DepartmentAttribute', 'At') {
+    foreach ($k in 'SqlServer', 'Database', 'LicenseDatabase', 'ActivityDatabase', 'TenantId', 'ClientId', 'CertificateThumbprint', 'TargetDomain', 'EmployeeTypes', 'DepartmentAttribute', 'At') {
         if ($script:Bound.ContainsKey($k)) { $given[$k] = Get-Variable -Name $k -ValueOnly }
     }
     if ($TrustServerCertificate) { $given.TrustServerCertificate = $true }

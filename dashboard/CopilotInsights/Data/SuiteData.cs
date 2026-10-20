@@ -131,8 +131,10 @@ GROUP BY cs.SkuPattern;")).Where(x => byPattern.ContainsKey(x.SkuPattern))
     /// and the moves. A copy of the Copilot add-on or of Power BI Pro is an AI saving, counted with its area on Costs and
     /// savings, so it is not a move here; a second suite is. Seats bought and assigned to nobody are a move too.
     /// </summary>
-    public static SuiteSummary Summarize(SuiteFitView fit, decimal suiteCopilotValue)
+    public static SuiteSummary Summarize(SuiteFitView fit, decimal suiteCopilotValue, decimal sparePercent = 0)
     {
+        /* 2.6.9: seats kept unassigned on purpose (SpareSeatPercent) are not cut. */
+        int Beyond(int bought, int assigned) => Math.Max(0, bought - assigned - CostRules.Spare(bought, sparePercent));
         var held = fit.Rows.GroupBy(r => r.Holder.Suite.Name).Select(g =>
         {
             var s = g.First().Holder.Suite;
@@ -145,8 +147,8 @@ GROUP BY cs.SkuPattern;")).Where(x => byPattern.ContainsKey(x.SkuPattern))
             .Concat(fit.Rows.Where(r => r.Fit.Move == SuiteMove.DropDuplicate && r.Holder.Others.Any(o => o.Tier <= r.Holder.Suite.Tier))
                 .GroupBy(r => r.Holder.Suite.Name)
                 .Select(g => new SuiteMoveLine(SuiteMove.DropDuplicate, g.Key, null, g.Count(), Math.Round(g.Sum(r => r.Holder.Others.Where(o => o.Tier <= r.Holder.Suite.Tier).Sum(o => o.Price)), 2), 0, "High")))
-            .Concat((fit.Seats ?? []).Where(x => x.Bought > x.Assigned && x.Suite.Price > 0)
-                .Select(x => new SuiteMoveLine(SuiteMove.CutSeats, x.Suite.Name, null, x.Bought - x.Assigned, (x.Bought - x.Assigned) * x.Suite.Price, 0, "Medium")))
+            .Concat((fit.Seats ?? []).Where(x => Beyond(x.Bought, x.Assigned) > 0 && x.Suite.Price > 0)
+                .Select(x => new SuiteMoveLine(SuiteMove.CutSeats, x.Suite.Name, null, Beyond(x.Bought, x.Assigned), Beyond(x.Bought, x.Assigned) * x.Suite.Price, 0, "Medium")))
             .OrderBy(m => m.Confidence switch { "High" => 0, "Medium" => 1, _ => 2 }).ThenByDescending(m => m.Saving + m.AtStake).ToList();
         return new(held, moves, held.Sum(l => l.IncludedValue), suiteCopilotValue, fit.PowerBiKnown);
     }

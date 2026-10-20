@@ -41,6 +41,7 @@ public static class NavText
         ["/leadership/costs"] = ("What AI and automation cost, what can be saved, and what they return, all areas on one page.", "What it is used for"),
         ["/leadership/reservations"] = ("Each organization's reserved Copilot seats against its licenses, and what it bills.", "Cost savings"),
         ["/leadership/boardpack"] = ("The program on one page for the board: use, targets, value, licenses and risk.", "Reporting"),
+        ["/leadership/assumptions"] = ("Every price and assumption a cost, saving or value rests on, and where it is set.", "Reporting"),
 
         ["/adoption"] = ("From license to habit: how many licensed people started, are active, and keep going.", "Overview"),
         ["/adoption/by-license"] = ("How the people of one license type use Copilot: who, which apps, how long.", "Overview"),
@@ -120,6 +121,7 @@ public static class NavText
         ["/apps/detail"] = ("One app: who uses Copilot in it, what they read, and which agents run there.", null),
 
         ["/governance"] = ("Which models answer, web search, memory updates and deferred data-loss checks.", null),
+        ["/governance/ai-apps"] = ("Calls to Azure AI Foundry and Azure OpenAI from the organization's own apps.", null),
 
         ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),
         ["/admin/access"] = ("Who sees what: the top of the organization, levels, and roles.", null),

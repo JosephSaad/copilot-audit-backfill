@@ -371,6 +371,46 @@ SELECT '6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-ptu', N'contoso-ptu-eus',
 INSERT INTO audit.FoundryCostDay (SubscriptionId, ResourceGroup, Account, Meter, [Day], Cost, Currency)
 SELECT '6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-lab', N'contoso-ai-sandbox', N'Storage and networking', d.[Day], 3.85, N'USD' FROM #day AS d WHERE d.Ago < 90;
 
+/* ---- AI apps beyond Copilot (2.6.9): what the activity database's rollup leaves in audit.AIAppUserDay ----
+   Six Azure AI resources. Most calls come from production apps with their own key (no user identity); a few hundred
+   people call two apps with their own sign-in, and the Technology division's developers a dev resource. The busiest is
+   the Foundry loader's contoso-openai-eus, so its cost shows beside its calls. Four months, weekdays heavier. */
+DELETE FROM audit.AIAppUserDay;
+INSERT INTO audit.AIAppUserDay ([Day], [Resource], ApplicationName, SubscriptionId, CallerKind, Caller, Calls, Prompts, Threads, Failures)
+SELECT d.[Day], x.Res, x.App, x.Sub, 'Unattributed', N'unattributed', c.Calls, c.Calls / 2, c.Calls / 7 + 1, CAST(c.Calls * x.Fail AS INT)
+FROM #day AS d
+CROSS APPLY (VALUES
+    (N'contoso-openai-eus',     N'',                     '6b2c9d1e-0000-4000-8000-00000000c0de', 9000, 0.004),
+    (N'retail-prod-aif-0147',   N'',                     'b1b8637c-0000-4000-8000-0000000000a1', 5200, 0.006),
+    (N'mortgage-prod-aif-0021', N'Underwriting copilot', 'b1b8637c-0000-4000-8000-0000000000a1', 2100, 0.002),
+    (N'hr-uat-oai-03',          N'',                     '79906e47-0000-4000-8000-0000000000b2',  260, 0.03),
+    (N'aza-dev-aif-0046',       N'',                     '79906e47-0000-4000-8000-0000000000b2',  140, 0.08)
+) AS x (Res, App, Sub, Base, Fail)
+CROSS APPLY (SELECT CAST(x.Base * @scale * CASE WHEN d.Dow >= 6 THEN 0.18 ELSE 1 END * (0.55 + 0.6 * d.Progress)
+                        * (0.9 + (ABS(CHECKSUM(CONCAT(x.Res, d.[Day]))) % 200) / 1000.0) AS INT) AS Calls) AS c
+WHERE d.Ago < 120 AND c.Calls > 0
+UNION ALL
+SELECT d.[Day], a.Res, a.App, a.Sub, 'Person', LOWER(p.Upn), u.Calls, u.Calls / 2, u.Calls / 10 + 1, CASE WHEN a.Res = N'aza-dev-aif-0046' AND u.Calls > 30 THEN 2 ELSE 0 END
+FROM #people AS p
+CROSS APPLY (SELECT CASE WHEN p.Division = N'Technology' AND p.R2 < 0.12 THEN N'aza-dev-aif-0046'
+                         WHEN p.R2 < 0.04 THEN N'contoso-openai-eus' WHEN p.R2 < 0.07 THEN N'retail-prod-aif-0147' END AS Res) AS r
+CROSS APPLY (SELECT r.Res, CASE r.Res WHEN N'aza-dev-aif-0046' THEN N'My app' WHEN N'contoso-openai-eus' THEN N'Claims assistant' ELSE N'Branch helper' END AS App,
+                    CASE WHEN r.Res = N'contoso-openai-eus' THEN '6b2c9d1e-0000-4000-8000-00000000c0de' WHEN r.Res = N'aza-dev-aif-0046' THEN '79906e47-0000-4000-8000-0000000000b2'
+                         ELSE 'b1b8637c-0000-4000-8000-0000000000a1' END AS Sub) AS a
+JOIN #day AS d ON d.Ago < 120 AND d.Dow < 6
+CROSS APPLY (SELECT ABS(CHECKSUM(CONCAT(p.Upn, d.[Day]))) % 1000 / 1000.0 AS H) AS h
+CROSS APPLY (SELECT 2 + CAST(h.H * 60 AS INT) AS Calls) AS u
+WHERE r.Res IS NOT NULL AND h.H < 0.25 + 0.2 * d.Progress;
+
+/* The resources, as the rollup's first sight of them leaves them; one an administrator has already set. */
+DELETE FROM audit.AIAppResource;
+INSERT INTO audit.AIAppResource ([Resource], LineOfBusiness, Environment, SetBy, FirstSeen)
+SELECT f.[Resource], g.LineOfBusiness, g.Environment, 'Name', f.FirstSeen
+FROM (SELECT [Resource], MIN([Day]) AS FirstSeen FROM audit.AIAppUserDay GROUP BY [Resource]) AS f
+CROSS APPLY audit.fnAIAppResourceGuess(f.[Resource]) AS g;
+UPDATE audit.AIAppResource SET LineOfBusiness = N'Claims', Environment = 'Production', Owner = N'Claims platform team', SetBy = 'Admin', UpdatedBy = N'demo'
+WHERE [Resource] = N'contoso-openai-eus';
+
 /* The leaders, levels 1 to 3 of the demo's five, are kept off the revoke and train lists (the default, 5, would keep
    the whole demo company off them, and every page's recommendations empty). */
 UPDATE dash.Setting SET Value = N'3', UpdatedBy = N'demo' WHERE Name = N'ProtectedLevels';

@@ -98,6 +98,13 @@
     as @LicenseEventDatabase (one database, or several comma-separated), so
     each session and interaction carries the license held at the time.
 
+.PARAMETER RecordTypes
+    Purview record types to load whole (2.6.9), for example
+    ConnectedAIAppInteraction, PowerBIAudit and PowerAppsApp: the activity
+    database. Without -Operations, no operation filter is sent. The database
+    records them as rt:<type> beside its operations, so it keeps one set: use
+    a database of its own, never the Copilot or license database.
+
 .PARAMETER CertificateThumbprint
     App-only sign-in, for a scheduled run with nobody to sign in: the
     thumbprint of a certificate in the CurrentUser or LocalMachine store whose
@@ -143,6 +150,7 @@ param(
     [string]   $CertificateThumbprint,
 
     [string[]] $Operations = @('CopilotInteraction'),
+    [string[]] $RecordTypes,
 
     [switch]   $Finalize,
     [switch]   $FinalizeOnly,
@@ -169,6 +177,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# A record-type load (2.6.9) asks for whole record types, and for no operation unless -Operations is given too.
+if ($RecordTypes -and -not $PSBoundParameters.ContainsKey('Operations')) { $Operations = @() }
 
 # A 'Modules' folder next to this script takes precedence over the machine's
 # module paths. That is how a server with no PSGallery access gets
@@ -337,13 +348,27 @@ function ConvertTo-UtcDate {
     }
 }
 
+function Get-AuditFilterSet {
+    <#
+        What a database records it loads (2.6.9): its operations, and each
+        whole record type as rt:<type>, so a record-type database can never be
+        resumed or loaded with operations, nor the other way round. Pure, for
+        the tests.
+    #>
+    param([string[]] $Operations, [string[]] $RecordTypes)
+    $set = @($Operations | Where-Object { $_ } | ForEach-Object { $_.Trim() }) +
+           @($RecordTypes | Where-Object { $_ } | ForEach-Object { 'rt:' + $_.Trim() })
+    if ($set.Count -eq 0) { throw 'Nothing to load: give -Operations or -RecordTypes.' }
+    , [string[]] @($set | Sort-Object -Unique)
+}
+
 function Resolve-BackfillRange {
     <#
         First run: records the requested range. Later runs: the stored range
         wins (so a resume never needs the original dates re-typed), except that
         an earlier -StartDate extends it.
     #>
-    $ops = ($Operations | Sort-Object) -join ','
+    $ops = (Get-AuditFilterSet -Operations $Operations -RecordTypes $RecordTypes) -join ','
     $existing = Invoke-Sql -As Table -Sql 'SELECT RangeStartUtc, RangeEndUtc, Operations, CompletedUtc FROM audit.CopilotBackfillRange WHERE Id = 1'
 
     if ($existing.Rows.Count -eq 0) {
@@ -431,6 +456,11 @@ function Invoke-CopilotAuditFinalize {
         Write-Log ('Final: {0:N0} records | {1:N0} duplicates removed | {2:yyyy-MM-dd} -> {3:yyyy-MM-dd} | {4:N0} users' -f `
                    $s.FinalRows, $s.DuplicatesRemoved, $s.OldestRecordUtc, $s.NewestRecordUtc, $s.DistinctUsers)
     }
+    # 2.6.9: an activity database's history is shredded once it is final, so the rollup that follows has it.
+    if ([bool] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL THEN 0 ELSE 1 END")) {
+        Write-Log 'Shredding every AI app, Power BI and Power Apps record...'
+        Invoke-Sql -Sql 'EXEC audit.usp_ShredActivity;' -TimeoutSeconds 0
+    }
 }
 
 # ===========================================================================
@@ -483,12 +513,13 @@ function Get-IncrementalLoad {
         a new one continuing from the last merged load - or, the first time,
         from the end of the finalized backfill.
     #>
-    $ops = ($Operations | Sort-Object) -join ','
+    $filters = Get-AuditFilterSet -Operations $Operations -RecordTypes $RecordTypes
+    $ops = $filters -join ','
 
     $pending = Invoke-Sql -As Table -Sql 'SELECT TOP (1) LoadId, RangeStartUtc, RangeEndUtc, Operations, DownloadedUtc FROM audit.CopilotLoad WHERE MergedUtc IS NULL ORDER BY LoadId'
     if ($pending.Rows.Count -gt 0) {
         $p = $pending.Rows[0]
-        $widen = Get-OperationsChange -Recorded $p.Operations -Requested $Operations
+        $widen = Get-OperationsChange -Recorded $p.Operations -Requested $filters
         if ($null -eq $widen) { throw "Load $($p.LoadId) in this database is of '$($p.Operations)', not '$ops'." }
         if ($widen.Count -gt 0) {
             Invoke-Sql -Sql 'UPDATE audit.CopilotLoad SET Operations = @o WHERE LoadId = @id' -Parameters @{ '@o' = $ops; '@id' = [int] $p.LoadId }
@@ -510,7 +541,7 @@ function Get-IncrementalLoad {
     if ($backfill.Rows.Count -eq 0 -or $backfill.Rows[0].CompletedUtc -is [DBNull]) {
         throw 'Run a backfill to completion in this database first: incremental loads continue from where it ends.'
     }
-    $added = Get-OperationsChange -Recorded $backfill.Rows[0].Operations -Requested $Operations
+    $added = Get-OperationsChange -Recorded $backfill.Rows[0].Operations -Requested $filters
     if ($null -eq $added) {
         throw "This database holds a backfill of '$($backfill.Rows[0].Operations)', not '$ops'. Pass the same -Operations, or more of them."
     }
@@ -565,6 +596,10 @@ function Invoke-DerivedTableRefresh {
     if (Test-Proc 'audit.usp_ShredAgentEvents') {
         Write-Log ('Shredding agent build and publish events from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
         Invoke-Sql -Sql 'EXEC audit.usp_ShredAgentEvents @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
+    }
+    if (Test-Proc 'audit.usp_ShredActivity') {
+        Write-Log ('Shredding AI app, Power BI and Power Apps activity from {0:yyyy-MM-dd HH:mm}Z...' -f $SinceUtc)
+        Invoke-Sql -Sql 'EXEC audit.usp_ShredActivity @SinceUtc = @s;' -Parameters @{ '@s' = $SinceUtc } -TimeoutSeconds 0
     }
     if (Test-Proc 'audit.usp_BuildCopilotSessions') {
         $licDb = $(if ($SessionLicenseDatabase) { $SessionLicenseDatabase } else { $null })
@@ -888,7 +923,8 @@ function Invoke-AuditDownload {
     $o = [CopilotAudit.EngineOptions]::new()
     $o.RangeStartUtc          = $Start
     $o.RangeEndUtc            = $End
-    $o.Operations             = [string[]] $Operations
+    $o.Operations             = [string[]] @($Operations | Where-Object { $_ })
+    if ($RecordTypes) { $o.RecordTypes = [string[]] @($RecordTypes | Where-Object { $_ }) }
     $o.InitialWindowHours     = $InitialWindowHours
     $o.TargetRecordsPerWindow = $TargetRecordsPerWindow
     $o.MaxQueriesInFlight     = $MaxQueriesInFlight

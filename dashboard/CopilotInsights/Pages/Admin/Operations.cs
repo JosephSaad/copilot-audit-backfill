@@ -586,19 +586,34 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
         /* 2.6.6: what Leadership > Costs and savings prices and values with. */
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.CostPrice', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
         {
-            var prices = await Db.QueryAsync<(string Item, string Area, string Name, string Unit, decimal MonthlyPrice)>(
-                "SELECT Item, Area, Name, Unit, MonthlyPrice FROM dash.CostPrice ORDER BY Area, Name;");
-            var pt = new Table { Headers = ["Area", "What", "Item (SKU part number)", "Per", $"Price ({V("LicenseCurrency")})"] };
+            /* 2.6.9: with each price, its volume price and the Dataverse capacity a seat brings, where the columns are installed. */
+            var tiers = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.CostPrice', N'SparePercent') IS NULL THEN 0 ELSE 1 END;") == 1;
+            var prices = await Db.QueryAsync<(string Item, string Area, string Name, string Unit, decimal MonthlyPrice, int? TierFrom, decimal? TierPrice, decimal? DbGb, decimal? FileGb, decimal? Spare, bool? ForCapacity)>(tiers
+                ? "SELECT Item, Area, Name, Unit, MonthlyPrice, TierFromSeats, TierPrice, DatabaseGbPerSeat, FileGbPerSeat, SparePercent, ForCapacity FROM dash.CostPrice ORDER BY Area, Name;"
+                : "SELECT Item, Area, Name, Unit, MonthlyPrice, CAST(NULL AS INT), CAST(NULL AS DECIMAL(19, 4)), CAST(NULL AS DECIMAL(9, 3)), CAST(NULL AS DECIMAL(9, 3)), CAST(NULL AS DECIMAL(5, 2)), CAST(NULL AS BIT) FROM dash.CostPrice ORDER BY Area, Name;");
+            static string D(decimal? v, string f = "0.####") => v?.ToString(f, CultureInfo.InvariantCulture) ?? "";
+            var pt = new Table { Headers = ["Area", "What", "Item (SKU part number)", "Per", $"Price ({V("LicenseCurrency")})" + (tiers ? ", volume price, and Dataverse capacity a seat brings" : "")] };
             foreach (var p in prices)
                 pt.Rows.Add([p.Area, p.Name, p.Item, p.Unit, new HtmlString(Form("price", Hidden("item", p.Item) +
-                    Input("price", $"Price a {p.Unit}", p.MonthlyPrice.ToString("0.####", CultureInfo.InvariantCulture), 7) + Button("Save", quiet: true)))]);
+                    Input("price", $"Price a {p.Unit}", p.MonthlyPrice.ToString("0.####", CultureInfo.InvariantCulture), 7) +
+                    (tiers && p.Unit == "user"
+                        ? Input("tierFrom", "From seats (volume)", p.TierFrom?.ToString(CultureInfo.InvariantCulture), 6, "number") + Input("tierPrice", "Volume price", D(p.TierPrice), 6) +
+                          Input("dbGb", "Database GB a seat", D(p.DbGb, "0.###"), 5) + Input("fileGb", "File GB a seat", D(p.FileGb, "0.###"), 5) +
+                          Input("spare", "Spare kept (%; empty: the default)", D(p.Spare, "0.##"), 5) +
+                          Select("capacity", "Bought for capacity or the volume price", [("0", "No"), ("1", "Yes")], p.ForCapacity == true ? "1" : "0")
+                        : "") +
+                    Button("Save", quiet: true)))]);
             Panels.Add(new("Costs and savings", new HtmlString(Form("costs",
                 Input("FabricReservedDiscount", "Fabric reservation discount (0.41 is 41%)", V("FabricReservedDiscount"), 6) +
                 Input("FlowMinutesPerRun", "Minutes one flow run saves (default)", V("FlowMinutesPerRun"), 5) +
                 Input("PowerBiCopilotMinutes", "Minutes one Copilot in Power BI request saves", V("PowerBiCopilotMinutes"), 5) +
-                Input("CostIdleDays", "Unused after (days), for seats, licenses and AI accounts", V("CostIdleDays"), 4, "number") + Button("Save")) + pt.Render().Value),
+                Input("CostIdleDays", "Unused after (days), for seats, licenses and AI accounts", V("CostIdleDays"), 4, "number") +
+                Input("SpareSeatPercent", "Spare seats kept unassigned (% of those bought)", V("SpareSeatPercent"), 4) + Button("Save")) + pt.Render().Value),
                 "What Leadership > Costs and savings counts with. The prices are list prices in USD when installed: put in what your agreement pays, a month for a license or a GB, " +
-                "and per credit for a credit. A license is matched to Graph's license pool by its SKU part number. Hourly cost is under Time saved, above."));
+                "and per credit for a credit. A license is matched to Graph's license pool by its SKU part number. Hourly cost is under Time saved, above. " +
+                "Volume price (2.6.9): from that many seats every seat costs the volume price (Power Apps Premium: 12 from 2,000), so a cut under it is counted at what it really saves. " +
+                "Dataverse capacity a seat brings: what each seat adds to the tenant's Dataverse pool (Power Apps and Power Automate Premium: 0.25 GB of database, 2 GB of file); a cut that would take the pool under what is used costs add-on capacity, taken off its saving. " +
+                "Spare seats: unassigned seats kept on purpose for joiners and moves are not a saving; the default share is above, and a license can set its own. Bought for capacity or the volume price: its unassigned and idle seats are never counted as money back."));
         }
 
         /* 2.6.6: what Licensing > Credit use estimates credits and tokens with. */
@@ -657,7 +672,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
         return $"{name} ({pattern}): {p.ToString("0.##", CultureInfo.InvariantCulture)}, {(on ? "on" : "off")}.";
     });
 
-    public Task<IActionResult> OnPostCostsAsync(string? FabricReservedDiscount, string? FlowMinutesPerRun, string? PowerBiCopilotMinutes, string? CostIdleDays) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostCostsAsync(string? FabricReservedDiscount, string? FlowMinutesPerRun, string? PowerBiCopilotMinutes, string? CostIdleDays, string? SpareSeatPercent) => AdminChangeAsync(async () =>
     {
         static decimal Num(string? v, string what, decimal min, decimal max) =>
             decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) && d >= min && d <= max ? d : throw new ArgumentException($"{what} is a number from {min} to {max}.");
@@ -667,16 +682,42 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
             ["FlowMinutesPerRun"] = Num(FlowMinutesPerRun, "the minutes a flow run saves", 0, 240).ToString(CultureInfo.InvariantCulture),
             ["PowerBiCopilotMinutes"] = Num(PowerBiCopilotMinutes, "the minutes a Copilot in Power BI request saves", 0, 240).ToString(CultureInfo.InvariantCulture),
             ["CostIdleDays"] = SettingWriter.Int(CostIdleDays, "Unused after", 7, 180).ToString(CultureInfo.InvariantCulture),
+            ["SpareSeatPercent"] = Num(string.IsNullOrWhiteSpace(SpareSeatPercent) ? "10" : SpareSeatPercent, "the spare seats' share", 0, 100).ToString(CultureInfo.InvariantCulture),
         }));
     });
 
-    public Task<IActionResult> OnPostPriceAsync(string? item, string? price) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostPriceAsync(string? item, string? price, string? tierFrom, string? tierPrice, string? dbGb, string? fileGb, string? spare, string? capacity) => AdminChangeAsync(async () =>
     {
         if (!decimal.TryParse(price, NumberStyles.Number, CultureInfo.InvariantCulture, out var p) || p < 0 || p > 1000000) throw new ArgumentException("the price is a number, such as 15 or 0.01.");
         var name = await Db.ScalarAsync<string?>("SELECT Name FROM dash.CostPrice WHERE Item = @item;", new { item }) ?? throw new ArgumentException("no such price.");
         await Db.ExecuteAsync("UPDATE dash.CostPrice SET MonthlyPrice = @p, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Item = @item;", new { p, item, by = Viewer.Upn ?? Viewer.WindowsName });
-        return $"{name}: {p.ToString("0.####", CultureInfo.InvariantCulture)}.";
+        var also = "";
+        /* 2.6.9: the volume price and the capacity a seat brings, where the form has them (a per-user license's row). */
+        if (tierFrom is not null || tierPrice is not null || dbGb is not null || fileGb is not null || spare is not null || capacity is not null)
+        {
+            var (tf, tp, db, fl) = PriceExtras(tierFrom, tierPrice, dbGb, fileGb);
+            var sp = string.IsNullOrWhiteSpace(spare) ? (decimal?)null
+                : decimal.TryParse(spare, NumberStyles.Number, CultureInfo.InvariantCulture, out var s) && s >= 0 && s <= 100 ? s : throw new ArgumentException("the spare share is a percentage, 0 to 100.");
+            var fc = capacity == "1";
+            await Db.ExecuteAsync("UPDATE dash.CostPrice SET TierFromSeats = @tf, TierPrice = @tp, DatabaseGbPerSeat = @db, FileGbPerSeat = @fl, SparePercent = @sp, ForCapacity = @fc WHERE Item = @item;", new { tf, tp, db, fl, sp, fc, item });
+            also = (tf is null ? ", no volume price" : $", {tp!.Value.ToString("0.####", CultureInfo.InvariantCulture)} from {tf:#,0} seats") +
+                   (db is null && fl is null ? "" : $", {db ?? 0:0.###} GB database and {fl ?? 0:0.###} GB file a seat") +
+                   (sp is null ? "" : $", {sp:0.##}% kept spare") + (fc ? ", bought for capacity or the volume price" : "");
+        }
+        return $"{name}: {p.ToString("0.####", CultureInfo.InvariantCulture)}{also}.";
     });
+
+    /// <summary>The volume price and the Dataverse capacity a seat brings, from the price form (2.6.9): both of a tier or neither. Pure, for the tests.</summary>
+    public static (int? TierFrom, decimal? TierPrice, decimal? DatabaseGb, decimal? FileGb) PriceExtras(string? tierFrom, string? tierPrice, string? dbGb, string? fileGb)
+    {
+        static decimal? Dec(string? v, string what, decimal max) => string.IsNullOrWhiteSpace(v) ? null
+            : decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var d) && d >= 0 && d <= max ? d : throw new ArgumentException($"{what} is a number from 0 to {max}.");
+        int? tf = string.IsNullOrWhiteSpace(tierFrom) ? null
+            : int.TryParse(tierFrom, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= 1 && n <= 10_000_000 ? n : throw new ArgumentException("the volume price's seats are a whole number.");
+        var tp = Dec(tierPrice, "the volume price", 1_000_000);
+        if ((tf is null) != (tp is null)) throw new ArgumentException("give both the seats the volume price starts from and the price, or neither.");
+        return (tf, tp, Dec(dbGb, "the database GB a seat", 100), Dec(fileGb, "the file GB a seat", 1000));
+    }
 
     public Task<IActionResult> OnPostTargetAsync(string? root, string? metric, string? value, DateTime? start, DateTime? due, string? note) => AdminChangeAsync(async () =>
     {

@@ -45,6 +45,20 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
             return;
         }
         var cur = v.Currency;
+        /* 2.6.9: how each headline figure is worked out, with the assumptions behind it and, for an administrator, where to change them;
+           and the assumptions that disagree, said before anything else. */
+        _why["spend"] = await WhyAsync("Each license: the seats bought (or assigned, where more are) × its price a month, the volume price where the count reaches it; Microsoft 365 Copilot's add-on at the license price. " +
+            "Fabric, Foundry, GitHub Copilot and pay-as-you-go credits: what they billed over their last 30 days, brought to a month. Dataverse: the capacity used over the entitlement × its price a GB.",
+            "LicenseMonthlyCost", "Price:POWERAPPS_PER_USER", "Price:POWER_BI_PRO", "Price:POWERAUTOMATE_ATTENDED_RPA", "Price:DATAVERSE_DATABASE_GB", "LicenseCurrency");
+        _why["save"] = await WhyAsync("The sum of the savings below. Each is a count the data shows × the price that would stop being paid: an unused license, an idle seat, a license held twice. " +
+            "A cut that takes a license under its volume price counts what it really saves, and a cut that gives up more Dataverse capacity than is spare is less the add-on capacity it would need.",
+            "LicenseMonthlyCost", "SpareSeatPercent", "InactiveDays", "CostIdleDays", "PaygInteractionCost", "FabricReservedDiscount");
+        _why["value"] = await WhyAsync($"Hours saved × what an hour is worth ({CostRules.Money(v.HourlyCost, cur)}): Copilot's interactions × the minutes one saves in each app, the flows' successful runs × the minutes a run saves, and Copilot in Power BI's requests × its minutes, ÷ 60.",
+            "HourlyCost", "MinutesSavedDefault", "AppMinutes", "FlowMinutesPerRun", "PowerBiCopilotMinutes");
+        _why["roi"] = await WhyAsync("Value a month ÷ spend a month: both rest on the assumptions above.", "HourlyCost", "LicenseMonthlyCost");
+        _why["done"] = await WhyAsync("Copilot licenses taken back after this dashboard's exports named them × the Copilot license price.", "LicenseMonthlyCost");
+        var register = HttpContext.RequestServices.GetRequiredService<AssumptionData>();
+        _conflicts = await register.ConflictsAsync(await register.AllAsync());
         var csv = new Table { Headers = ["Kind", "Area", "Opportunity", "Evidence", "What to do", $"Saving a month ({cur})", $"Saving a year ({cur})", $"At stake a month ({cur})", "Confidence"],
                               Numeric = new HashSet<int> { 5, 6, 7 } };
         foreach (var o in v.Opportunities) csv.Rows.Add([o.Kind.ToString(), o.Area, o.Title, o.Evidence, o.Action, Math.Round(o.Saving), Math.Round(o.Saving * 12), Math.Round(o.AtStake), o.Confidence]);
@@ -75,6 +89,10 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     /// <summary>A report this viewer may open, for the whole organization: the page counts it whole, whatever the team chosen.</summary>
     string? Whole(string path, string? extra = null) => Open(path, extra, keepOrg: false);
 
+    /// <summary>How each headline tile's figure is worked out (2.6.9), by the tile's kind.</summary>
+    readonly Dictionary<string, KpiWhy> _why = [];
+    IReadOnlyList<string> _conflicts = [];
+
     /// <summary>The area whose own view is shown, if any: nothing in it links to itself.</summary>
     string? OpenArea;
 
@@ -87,6 +105,9 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         var spend = v.Spend; var saving = v.Saving; var value = v.Value;
         var after = spend - saving;
         var sb = new StringBuilder("<div class=\"cboard\">");
+        /* 2.6.9: assumptions that disagree come first: every figure below rests on them. */
+        foreach (var c in _conflicts) sb.Append($"<p class=\"conflict\" role=\"status\"><b>Prices disagree.</b> {E(c)}" +
+            (Whole("/leadership/assumptions") is { } hu ? $" <a href=\"{E(hu)}\">How figures are calculated</a>" : "") + "</p>");
 
         /* The headline in a sentence: what is spent, what comes back, and what taking the savings would do. */
         sb.Append("<p class=\"cb-say\">").Append($"AI and automation cost <b>{M(spend, cur)}</b> a month");
@@ -109,19 +130,19 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         sb.Append("<div class=\"cb-kpis\">");
         sb.Append(Tile($"Spend a month ({cur})", "Every area's spend a month: the licenses held now at their price, and what the other sources billed over their last 30 days. The line is the last six whole months.",
             N(spend), "spend", $"{M(spend * 12, cur)} a year across {Count(v.Areas.Count, "area")}",
-            (totals.Count >= 2 ? Spark(totals, "var(--accent)", "Spend over the last six whole months") : "") + trend, ("Every area", "#areas")));
+            (totals.Count >= 2 ? Spark(totals, "var(--accent)", "Spend over the last six whole months") : "") + trend, ("Every area", "#areas"), WhyHtml(_why.GetValueOrDefault("spend"))));
         sb.Append(Tile($"Savings found a month ({cur})", "What would stop being spent if every saving below were taken, a month. The bar is its share of the spend.",
             N(saving), "save", $"{(spend > 0 ? saving / spend : 0):P0} of the spend; {M(saving * 12, cur)} a year",
-            Meter(spend > 0 ? (double)(saving / spend) : 0, "var(--good)", "Savings as a share of the spend"), ("The savings", "#savings")));
+            Meter(spend > 0 ? (double)(saving / spend) : 0, "var(--good)", "Savings as a share of the spend"), ("The savings", "#savings"), WhyHtml(_why.GetValueOrDefault("save"))));
         var hours = v.HourlyCost > 0 ? value / v.HourlyCost : 0;
         sb.Append(Tile($"Value a month ({cur}, estimate)", $"The time Copilot, the flows and Copilot in Power BI save, at Admin's hourly cost of {CostRules.Money(v.HourlyCost, cur)}. People: the hours over {HoursAMonth:0} working hours a month.",
             N(value), "value", $"{hours:#,0} hours saved at {CostRules.Money(v.HourlyCost, cur)} an hour",
-            hours >= HoursAMonth ? $"<span class=\"cb-people\"><b>{hours / HoursAMonth:#,0}</b> people's working time</span>" : "", (Whole("/leadership/value") is { } vu ? ("Value and time saved", vu) : null)));
+            hours >= HoursAMonth ? $"<span class=\"cb-people\"><b>{hours / HoursAMonth:#,0}</b> people's working time</span>" : "", (Whole("/leadership/value") is { } vu ? ("Value and time saved", vu) : null), WhyHtml(_why.GetValueOrDefault("value"))));
         sb.Append(Tile("Return on the spend", spend > 0 && value > 0 ? $"Value a month over spend a month: every {CostRules.Money(1, cur)} spent returns {CostRules.Money(Math.Round(value / spend, 2), cur)}. The marker on the dial is the return once the savings are taken: the same value for less spend." : "Value a month over spend a month.",
             spend > 0 ? Times(value / spend) : "—", "roi", after > 0 && saving > 0 ? $"{Times(value / after)} once the savings are taken" : "value over spend",
-            spend > 0 ? Gauge((double)(value / spend), after > 0 && saving > 0 ? (double)(value / after) : null) : ""));
+            spend > 0 ? Gauge((double)(value / spend), after > 0 && saving > 0 ? (double)(value / after) : null) : "", why: WhyHtml(_why.GetValueOrDefault("roi"))));
         sb.Append(Tile($"Already saved a month ({cur})", "Copilot licenses taken back after this dashboard's exports named them, at their price a month.",
-            N(v.RealizedSaving), "done", v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet", "", (Whole("/forecasting/outcomes") is { } ou ? ("License action outcomes", ou) : null)));
+            N(v.RealizedSaving), "done", v.RealizedLicenses > 0 ? $"{Count(v.RealizedLicenses, "Copilot license")} reclaimed through this dashboard" : "nothing reclaimed through this dashboard yet", "", (Whole("/forecasting/outcomes") is { } ou ? ("License action outcomes", ou) : null), WhyHtml(_why.GetValueOrDefault("done"))));
         sb.Append("</div>");
 
         /* The cards, most important first, two to a row so the page reads in a few screens: what to take (with how sure it
@@ -394,10 +415,10 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         $"<h3>{Go(o.Title, o.Href, o.Area)}{((HtmlString)InfoTip.Icon(o.Evidence, o.Title)).Value}</h3><p class=\"tc-do\"><b>Do</b> {E(o.Action)}</p></article>";
 
     /// <summary>A headline figure: its label, value, a line on it, a small picture, and where to see what it is made of.</summary>
-    static string Tile(string label, string tip, string value, string kind, string note, string visual, (string Text, string Href)? more = null) =>
+    static string Tile(string label, string tip, string value, string kind, string note, string visual, (string Text, string Href)? more = null, string why = "") =>
         $"<div class=\"cb-tile t-{kind}\"><div class=\"cb-label\">{T(label, tip)}</div><div class=\"cb-value\">{E(value)}</div><div class=\"cb-note\">{E(note)}</div>" +
         (visual.Length > 0 ? $"<div class=\"cb-vis\">{visual}</div>" : "") +
-        (more is { } m ? $"<a class=\"cb-more\" href=\"{E(m.Href)}\">{E(m.Text)} ›</a>" : "") + "</div>";
+        (more is { } m ? $"<a class=\"cb-more\" href=\"{E(m.Href)}\">{E(m.Text)} ›</a>" : "") + why + "</div>";
 
     static string Card(string title, string tip, string cls, string body, string? csv = null, string? id = null) =>
         $"<section class=\"panel {cls}\"{(id is null ? "" : $" id=\"{id}\"")}><div class=\"phead\"><h2>{T(title, tip)}</h2>{(csv is null ? "" : $"<a class=\"csv\" href=\"{E(csv)}\">Download CSV</a>")}</div>{body}</section>";

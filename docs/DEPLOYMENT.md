@@ -284,6 +284,20 @@ $licenseOps = 'Change user license', 'Update user', 'Add user', 'Delete user',
 
 Its last step, `Install-CopilotAudit.ps1`, shreds them into the license-event tables and the agents' authoring events. This database is always loaded with these same 18 operations, the ones the pipeline passes. A backfill refuses a different list, so a history load started by hand with fewer stops `-History` later (and the other way round); and agent records the history load left out are not fetched afterwards. Before 2.4.12 this step gave only the four license operations.
 
+### Optional: AI apps, Power BI and Power Apps (2.6.9)
+
+*Job server and SQL Server. Several hours at a large tenant.*
+
+A third database, loaded by Purview record type: `ConnectedAIAppInteraction` (the organization's own Azure AI Foundry and Azure OpenAI apps), `PowerBIAudit` and `PowerAppsApp`. It needs no new permission, and must be on the same SQL Server instance as the Copilot database. Once the nightly run is set up (Phase 4), add it and load its history:
+
+```powershell
+.\tools\Install-CopilotJobServer.ps1 -ActivityDatabase CopilotActivity
+.\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard -ActivityDatabase CopilotActivity
+.\Invoke-CopilotPipeline.ps1 -ActivityHistory
+```
+
+The Copilot interactions are not loaded again. `docs/OPERATIONS.md`, *AI apps, Power BI and Power Apps*, has the rest: sizing, other record types, the rollup by hand and the resource map.
+
 ### Alternative to steps 6 and 7: start from Purview CSV exports
 
 When the history already exists as audit log exports from the Purview portal, or goes back further than the API's 180 days, load it from the files instead of, or as well as, the Graph backfill. Put every export in one folder, overlapping ranges and all, and leave them unopened in Excel:

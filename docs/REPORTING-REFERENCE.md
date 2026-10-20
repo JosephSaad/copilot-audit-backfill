@@ -2750,7 +2750,7 @@ Indexes and constraints:
 
 #### audit.PowerPlatformUserActivity
 
-*Table.* Who used Power BI, Power Apps, Power Automate and Copilot Studio lately (2.6.6), from the admin center's usage exports. With audit.UserLicenseSku, a premium license held by someone who does not use the product.
+*Table.* Who used Power BI, Power Apps, Power Automate and Copilot Studio lately (2.6.6), from the admin center's usage exports; from 2.6.9 the Power BI and Power Apps rows from the activity database's records, by `audit.usp_RollupActivity`. With audit.UserLicenseSku, a premium license held by someone who does not use the product.
 
 **Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
 
@@ -2804,6 +2804,111 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_PowerPlatformCreditDay`: primary key, clustered (Day, EnvironmentName, Product, Billing)
+
+### AI apps, Power BI and Power Apps (2.6.9)
+
+The activity database's records, and what the Copilot database keeps of them for the dashboard. `audit.usp_RollupActivity` copies the second into the first each night; the dashboard reads only the Copilot database.
+
+#### audit.AIAppUserDay
+
+*Table.* AI app calls (ConnectedAIAppInteraction: Azure AI Foundry and Azure OpenAI from the organization's own apps) by day, resource, app, subscription and caller (2.6.9), for Governance &gt; AI apps beyond Copilot. Days are the reporting time zone's. Rewritten from the rollup's day by `audit.usp_RollupActivity`.
+
+**Script** `Create-CopilotActivityRollup.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Day` | date | **no** | **PK** | a day in the reporting time zone |
+| 2 | `Resource` | nvarchar(200) | **no** | **PK** | the Azure resource, or the Entra app id |
+| 3 | `ApplicationName` | nvarchar(200) | **no** | **PK** | '' where the record names none |
+| 4 | `SubscriptionId` | varchar(64) | **no** | **PK** | '' where the record names none |
+| 5 | `CallerKind` | varchar(16) | **no** |  | Person \| Unattributed |
+| 6 | `Caller` | nvarchar(256) | **no** | **PK** | the sign-in, or 'unattributed' |
+| 7 | `Calls` | int | **no** |  | records: a prompt or a response each |
+| 8 | `Prompts` | int | **no** |  |  |
+| 9 | `Threads` | int | **no** |  | distinct conversations that day |
+| 10 | `Failures` | int | **no** |  |  |
+| 11 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_AIAppUserDay`: primary key, clustered (Day, Resource, ApplicationName, SubscriptionId, Caller)
+
+#### audit.AIAppResource
+
+*Table.* Each AI resource seen (2.6.9): its line of business, environment and owner, guessed from its name the first time it is seen (SetBy Name) and kept once an administrator sets them on the page (SetBy Admin).
+
+**Script** `Create-CopilotActivityRollup.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Resource` | nvarchar(200) | **no** | **PK** |  |
+| 2 | `LineOfBusiness` | nvarchar(100) | yes |  |  |
+| 3 | `Environment` | varchar(16) | **no** | `'Unknown'` | Production \| Development \| Test \| Unknown |
+| 4 | `Owner` | nvarchar(256) | yes |  |  |
+| 5 | `Notes` | nvarchar(400) | yes |  |  |
+| 6 | `SetBy` | varchar(8) | **no** | `'Name'` | Name (guessed) \| Admin |
+| 7 | `FirstSeen` | date | yes |  |  |
+| 8 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 9 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_AIAppResource`: primary key, clustered (Resource)
+
+#### audit.AIAppCall
+
+*Table.* One row per ConnectedAIAppInteraction record (2.6.9), shredded by `audit.usp_ShredActivity`. A record is one message, a prompt or a response; no prompt or response text exists in it, and client IP addresses are not copied.
+
+**Script** `Create-ActivitySchema.sql` · **In** activity database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | varchar(64) | **no** |  |  |
+| 2 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
+| 3 | `UserId` | nvarchar(256) | yes |  | a sign-in, or Guest |
+| 4 | `UserType` | int | yes |  | 0 a person; 10 Guest |
+| 5 | `UserKey` | nvarchar(128) | yes |  |  |
+| 6 | `CallerKind` | varchar(16) | **no** |  | Person \| Unattributed |
+| 7 | `Caller` | nvarchar(256) | **no** |  |  |
+| 8 | `AppIdentity` | nvarchar(400) | yes |  | ConnectedAIApp.AzureAI.&lt;resource&gt; or ConnectedAIApp.Entra.&lt;app id&gt; |
+| 9 | `AppHost` | nvarchar(200) | yes |  |  |
+| 10 | `ApplicationName` | nvarchar(200) | yes |  |  |
+| 11 | `Resource` | nvarchar(200) | **no** |  |  |
+| 12 | `ContextId` | nvarchar(400) | yes |  | the endpoint |
+| 13 | `SubscriptionId` | varchar(64) | yes |  |  |
+| 14 | `ThreadId` | nvarchar(400) | yes |  |  |
+| 15 | `Prompts` | int | **no** |  |  |
+| 16 | `Responses` | int | **no** |  |  |
+| 17 | `Failed` | bit | **no** |  | a resource reached reported Failure |
+| 18 | `ShreddedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `CCI_AIAppCall`: clustered columnstore
+- `UX_AIAppCall_Record`: unique (RecordId)
+
+#### audit.PlatformActivity
+
+*Table.* One row per PowerBIAudit or PowerAppsApp record (2.6.9), shredded by `audit.usp_ShredActivity`: who, what, and on which item.
+
+**Script** `Create-ActivitySchema.sql` · **In** activity database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | varchar(64) | **no** |  |  |
+| 2 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
+| 3 | `Product` | varchar(32) | **no** |  | Power BI \| Power Apps |
+| 4 | `Operation` | nvarchar(128) | yes |  | ViewReport, ExportReport, LaunchPowerApp ... |
+| 5 | `UserId` | nvarchar(256) | yes |  |  |
+| 6 | `UserType` | int | yes |  |  |
+| 7 | `ItemName` | nvarchar(400) | yes |  | the report, dashboard, dataset or app |
+| 8 | `Container` | nvarchar(400) | yes |  | the workspace, or the environment |
+| 9 | `ShreddedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `CCI_PlatformActivity`: clustered columnstore
+- `UX_PlatformActivity_Record`: unique (RecordId)
 
 ### License events (license-event database)
 
@@ -3928,6 +4033,12 @@ Indexes and constraints:
 | 7 | `Note` | nvarchar(400) | yes |  |  |
 | 8 | `UpdatedBy` | nvarchar(256) | yes |  |  |
 | 9 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 10 | `TierFromSeats` | int | yes |  | 2.6.9: from this many seats every seat costs TierPrice |
+| 11 | `TierPrice` | decimal(19,4) | yes |  | 2.6.9: the volume price (Power Apps Premium: 12 from 2,000) |
+| 12 | `DatabaseGbPerSeat` | decimal(9,3) | yes |  | 2.6.9: Dataverse database capacity a seat brings |
+| 13 | `FileGbPerSeat` | decimal(9,3) | yes |  | 2.6.9: Dataverse file capacity a seat brings |
+| 14 | `SparePercent` | decimal(5,2) | yes |  | 2.6.9: share of seats bought kept unassigned on purpose; NULL: SpareSeatPercent |
+| 15 | `ForCapacity` | bit | yes |  | 2.6.9: bought for its capacity or volume price: unassigned and idle seats are no saving |
 
 Indexes and constraints:
 
@@ -4867,7 +4978,7 @@ Not here, because they load data and create nothing of their own: `Invoke-Copilo
 
 ### C.1 `Install-CopilotAudit.ps1`
 
-The installer. Creates both databases, runs the SQL scripts below in order, sets the reporting time zone, grants the reporting accounts their role, and builds everything from the records already loaded. 524 lines.
+The installer. Creates both databases, runs the SQL scripts below in order, sets the reporting time zone, grants the reporting accounts their role, and builds everything from the records already loaded. 559 lines.
 
 ```powershell
 <#
@@ -4935,8 +5046,17 @@ The installer. Creates both databases, runs the SQL scripts below in order, sets
     Leave it out when unsure: a shred that was stopped part way left events
     without their properties, and only shredding them all repairs that.
 
+.PARAMETER ActivityDatabase
+    2.6.9: the database that holds AI app calls outside Copilot, Power BI and
+    Power Apps activity (the backfill's -RecordTypes). Created and installed
+    like the license database; its records are shredded the first time and
+    rolled up into the Copilot database (audit.usp_RollupActivity). Leave it
+    out where there is none.
+
 .EXAMPLE
     .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01
+.EXAMPLE
+    .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard -ActivityDatabase CopilotActivity
 .EXAMPLE
     .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -Dashboard -LicenseEventDatabases CopilotLicenseEvents,CopilotLicenseLive
 #>
@@ -4957,6 +5077,8 @@ param(
     [switch] $LicenseEventsShredded,
     [string] $ReportingTimeZone,
     [switch] $SkipLicenseDatabase,
+    # 2.6.9: the activity database (AI apps outside Copilot, Power BI and Power Apps), where there is one. None by default.
+    [string] $ActivityDatabase,
     # The account the nightly job runs as (DOMAIN\gmsa$ or DOMAIN\user): given a login and db_owner in both databases.
     [string] $ServiceAccount,
     # Accounts that read the bi views and nothing else, such as the Power BI gateway's (DOMAIN\name).
@@ -5044,7 +5166,7 @@ function Enter-RunLock([string] $Catalog) {
 Write-Step "Databases on $SqlServer"
 $targetLevel = [int] (Invoke-Sql -Catalog master -Scalar -Sql "SELECT CASE WHEN CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) >= 16 THEN 160 ELSE CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) * 10 END")
 if ($targetLevel -lt 140) { throw 'SQL Server 2017 or later is needed.' }
-$dbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) })
+$dbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) }) + $(if ($ActivityDatabase) { @($ActivityDatabase) } else { @() })
 foreach ($db in $dbs) {
     $exists = [bool] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT CASE WHEN DB_ID(@d) IS NULL THEN 0 ELSE 1 END' -Parameters @{ '@d' = $db })
     if (-not $exists) {
@@ -5087,23 +5209,31 @@ Write-Step "Tables, views and procedures in $Database"
 $copilotScripts = 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql',
                   'Create-CopilotFlattenedSchema.sql', 'Create-CopilotFlattenProcedure.sql', 'Create-CopilotPurgeProcedure.sql',
                   'Create-CopilotEnrichmentSchema.sql', 'Create-CopilotSessionSchema.sql', 'Create-CopilotSessionProcedure.sql',
-                  'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql', 'Create-CopilotExternalUsageSchema.sql'
+                  'Create-CopilotBiSchema.sql', 'Create-CopilotBiProcedure.sql', 'Create-CopilotExternalUsageSchema.sql',
+                  'Create-CopilotActivityRollup.sql'
 if ($Dashboard) { $copilotScripts += 'Create-CopilotDashboardSchema.sql', 'Create-CopilotDashboardProcedure.sql', 'Create-CopilotOperationsSchema.sql' }
 foreach ($s in $copilotScripts) { Invoke-SqlFile $Database $s }
 if (-not $SkipLicenseDatabase) {
     Write-Step "Tables, views and procedures in $LicenseDatabase"
     foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-LicenseEventSchema.sql', 'Create-LicenseEventProcedure.sql', 'Create-AgentEventProcedure.sql') { Invoke-SqlFile $LicenseDatabase $s }
 }
+if ($ActivityDatabase) {
+    Write-Step "Tables, views and procedures in $ActivityDatabase"
+    foreach ($s in 'Create-CopilotAuditSchema.sql', 'Create-CopilotLoadProcedure.sql', 'Create-ActivitySchema.sql', 'Create-ActivityProcedure.sql') { Invoke-SqlFile $ActivityDatabase $s }
+}
 
 # The reporting time zone, stored where every procedure reads it (audit.ReportingTimeZone()).
-$zoneDbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) })
+$zoneDbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) }) + $(if ($ActivityDatabase) { @($ActivityDatabase) } else { @() })
 if ($ReportingTimeZone) {
     $known = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT COUNT(*) FROM sys.time_zone_info WHERE name = @z' -Parameters @{ '@z' = $ReportingTimeZone })
     if (-not $known) { throw "'$ReportingTimeZone' is not a time zone SQL Server knows. SELECT name FROM sys.time_zone_info lists them." }
     foreach ($db in $zoneDbs) {
         $current = [string] (Invoke-Sql -Catalog $db -Scalar -Sql 'SELECT audit.ReportingTimeZone();')
-        if ($current -eq $ReportingTimeZone) { continue }
-        if ((Get-Count $db 'audit.CopilotAudit') -gt 0 -or (Get-Count $db 'audit.CopilotInteraction') -gt 0) {
+        # 2.6.9: the zone named is recorded even where it is the default a database with no row reads (Eastern), or a
+        # later run with no zone named gave an empty database the server's own zone in its place.
+        $recorded = [int] (Invoke-Sql -Catalog $db -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'ReportingTimeZone';") -gt 0
+        if ($current -eq $ReportingTimeZone -and $recorded) { continue }
+        if ($current -ne $ReportingTimeZone -and ((Get-Count $db 'audit.CopilotAudit') -gt 0 -or (Get-Count $db 'audit.CopilotInteraction') -gt 0)) {
             throw "$db already holds records cut in $current. The reporting time zone is set before the first load; to change it, load into new databases."
         }
         Invoke-Sql -Catalog $db -Parameters @{ '@z' = $ReportingTimeZone } -Sql @"
@@ -5384,6 +5514,22 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     Write-Done $(if ($since) { 'dashboard: org chart, and today''s rollups...' } else { 'dashboard: org chart and every day''s rollups...' })
     Invoke-Sql -Catalog $Database -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since }
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }
+}
+
+# 2.6.9: the activity database's records shredded where they have not been (the first time, after a shred stopped part
+# way, or with -Rebuild), then rolled up into this database for the dashboard.
+if ($ActivityDatabase) {
+    $actRecords = Get-Count $ActivityDatabase 'audit.CopilotAudit'
+    if ($actRecords -gt 0) {
+        $actMarks = [string] (Invoke-Sql -Catalog $ActivityDatabase -Scalar -Sql "SELECT ISNULL(STRING_AGG(CONVERT(NVARCHAR(MAX), Name), N','), N'') FROM audit.PipelineSetting WHERE Name IN (N'ActivityShredInProgress', N'ActivityShredCompleteUtc');")
+        if ($Rebuild -or $actMarks -notlike '*ActivityShredCompleteUtc*' -or $actMarks -like '*ActivityShredInProgress*') {
+            Write-Done ("activity: shredding {0:N0} record(s)..." -f $actRecords)
+            Invoke-Sql -Catalog $ActivityDatabase -Sql 'EXEC audit.usp_ShredActivity;'
+        }
+        Write-Done 'activity: AI apps, Power BI and Power Apps rolled up into this database...'
+        Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_RollupActivity @ActivityDatabase = @a;' -Parameters @{ '@a' = $ActivityDatabase }
+    }
+    else { $todo += "Load the activity history into $ActivityDatabase (Invoke-CopilotPipeline.ps1 -ActivityHistory), then run this again." }
 }
 if ((Get-Count $Database 'audit.CopilotLicense') -eq 0 -and $records -gt 0) { $todo += 'Load current licenses (deployment step 10, tools\Update-CopilotAuditEnrichment.ps1).' }
 
@@ -10778,7 +10924,7 @@ END;
 
 ### C.13 `sql/Create-CopilotDashboardSchema.sql`
 
-Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 516 lines.
+Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 549 lines.
 
 ```sql
 /*
@@ -10894,6 +11040,39 @@ USING (VALUES
 ) AS s (Item, Area, Name, Unit, MonthlyPrice, Note)
 ON t.Item = s.Item
 WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, UpdatedBy) VALUES (s.Item, s.Area, s.Name, s.Unit, s.MonthlyPrice, s.Note, N'install');
+
+/*
+    2.6.9: a volume price, and the Dataverse capacity a license brings to the tenant.
+      TierFromSeats, TierPrice  from this many seats, every seat costs TierPrice (Power Apps Premium: 12 from 2,000).
+                                A cut that takes the count under it puts every seat back on MonthlyPrice, so Costs and
+                                savings counts what a cut really saves.
+      DatabaseGbPerSeat, FileGbPerSeat  the Dataverse capacity each seat adds to the tenant's pool (Power Apps
+                                Premium and Power Automate Premium: 250 MB of database and 2 GB of file). A cut gives it
+                                up, so a cut that would take the pool under what is used costs add-on capacity.
+    Seeded where an administrator has not set them.
+*/
+IF COL_LENGTH(N'dash.CostPrice', N'TierFromSeats') IS NULL
+    ALTER TABLE dash.CostPrice ADD TierFromSeats INT NULL, TierPrice DECIMAL(19, 4) NULL;
+/* 2.6.9: seats kept unassigned on purpose. SparePercent: the share of the seats bought kept spare for joiners and
+   moves (NULL: the SpareSeatPercent setting, 10 when installed); ForCapacity: the license is bought for the capacity
+   or volume price it brings, so its unassigned seats are never a saving. */
+IF COL_LENGTH(N'dash.CostPrice', N'SparePercent') IS NULL
+    ALTER TABLE dash.CostPrice ADD SparePercent DECIMAL(5, 2) NULL, ForCapacity BIT NULL;
+/* 2.6.9: the pay-as-you-go cost of an interaction, which the pages took as 0.12 when it was never set, now a row the register can show. */
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'PaygInteractionCost')
+    INSERT INTO dash.Setting (Name, Value, Description) VALUES ('PaygInteractionCost', N'0.12', N'2.6.9: what one metered agent or work-grounded chat interaction costs without a license (12 Copilot Credits at 0.01), for Better on pay-as-you-go.');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'SpareSeatPercent')
+    INSERT INTO dash.Setting (Name, Value, Description) VALUES ('SpareSeatPercent', N'10', N'2.6.9: the share of the seats bought that is kept unassigned on purpose, for joiners and moves: unassigned seats within it are not a saving. A license''s own row in the price list can set its own.');
+IF COL_LENGTH(N'dash.CostPrice', N'DatabaseGbPerSeat') IS NULL
+    ALTER TABLE dash.CostPrice ADD DatabaseGbPerSeat DECIMAL(9, 3) NULL, FileGbPerSeat DECIMAL(9, 3) NULL;
+EXEC (N'
+UPDATE dash.CostPrice SET TierFromSeats = 2000, TierPrice = 12
+WHERE Item = ''POWERAPPS_PER_USER'' AND TierFromSeats IS NULL AND TierPrice IS NULL;
+UPDATE p SET DatabaseGbPerSeat = s.Db, FileGbPerSeat = s.Fl
+FROM dash.CostPrice AS p
+JOIN (VALUES (''POWERAPPS_PER_USER'', 0.25, 2.0), (''POWERAUTOMATE_ATTENDED_RPA'', 0.25, 2.0), (''FLOW_PER_USER'', 0.25, 2.0),
+             (''POWERAPPS_PER_APP_NEW'', 0.05, 0.4)) AS s (Item, Db, Fl) ON s.Item = p.Item
+WHERE p.DatabaseGbPerSeat IS NULL AND p.FileGbPerSeat IS NULL;');
 
 /*
     2.6.6: the suites (Microsoft 365 and Office 365 E3, E5, E7): their price, their place in the family, and what of
@@ -11630,7 +11809,7 @@ GO
 
 ### C.15 `sql/Create-CopilotOperationsSchema.sql`
 
-Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 877 lines.
+Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 883 lines.
 
 ```sql
 /*
@@ -12337,7 +12516,10 @@ DECLARE t CURSOR LOCAL FAST_FORWARD FOR
                              (N'PipelineRunStep'), (N'PipelineSetting'), (N'LicenseSku'), (N'LicenseSkuDay'), (N'CopilotLicense'), (N'UserLicenseSku'),
                              (N'ValueCatalog'), (N'ValueCatalogColumn'), (N'CopilotLoadWindow'), (N'CopilotBackfillWindow'), (N'GroupMember'), (N'PipelineCertificate'),
                              (N'GitHubCopilotSeat'), (N'GitHubCopilotDay'), (N'GitHubCopilotUserDay'), (N'GitHubCopilotCost'),
-                             (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun')) AS v (name)
+                             (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun'),
+                             /* 2.6.6's cost tables and 2.6.9's AI apps: a new install makes the role after their scripts ran. */
+                             (N'FabricCapacityDay'), (N'FabricWorkloadDay'), (N'PowerAutomateFlow'), (N'PowerPlatformUserActivity'),
+                             (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;
@@ -12351,6 +12533,9 @@ CLOSE t;
 DEALLOCATE t;
 IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
     GRANT EXECUTE ON audit.ReportingTimeZone TO CopilotInsightsApp;
+/* 2.6.9: administrators keep the AI resources' line of business, environment and owner. */
+IF OBJECT_ID(N'audit.AIAppResource', N'U') IS NOT NULL
+    GRANT INSERT, UPDATE ON audit.AIAppResource TO CopilotInsightsApp;
 
 /* ---- For Power BI ----------------------------------------------------------- */
 
@@ -13708,7 +13893,532 @@ END;
 GO
 ```
 
-### C.19 `sql/Finalize-CopilotAudit.sql`
+### C.19 `sql/Create-CopilotActivityRollup.sql`
+
+Copilot database (2.6.9). `audit.AIAppUserDay`, `audit.AIAppResource` and `audit.usp_RollupActivity`, which copies the activity database into them and into `audit.PowerPlatformUserActivity`. 223 lines.
+
+```sql
+/*
+    AI apps outside Copilot, Power BI and Power Apps, in the Copilot database (2.6.9)
+    ------------------------------------------------------------------------
+    The activity database (Create-ActivitySchema.sql), where the settings name
+    one (ActivityDatabase), holds every record. audit.usp_RollupActivity copies
+    what the dashboard shows from it into the Copilot database, so the
+    dashboard never reads another database:
+
+      audit.AIAppUserDay   one row per day (the reporting time zone's, as Copilot's), resource, app, subscription and
+                           caller: calls (messages), prompts, conversations
+                           (threads), failures. A caller is a person's sign-in,
+                           or 'unattributed' where the app called with its own
+                           key or identity
+      audit.AIAppResource  one row per resource seen: its line of business,
+                           environment and owner. Guessed from the name the
+                           first time it is seen (retail-prod-aif-0147: Retail,
+                           Production); what an administrator sets on the page
+                           is kept
+      audit.PowerPlatformUserActivity  (Create-CopilotExternalUsageSchema.sql)
+                           the Power BI and Power Apps rows: last active and
+                           active days in the last 30, from the records. Each
+                           product's rows are replaced only when the activity
+                           database holds records of it, so a CSV loaded for a
+                           product it does not hold is kept
+
+    Each run is recorded in audit.ExternalUsageRun (Source 'Activity') for
+    Admin > Health.
+
+      @ActivityDatabase  the activity database's name
+      @SinceUtc          the days from then on; NULL: every day
+
+    Idempotent. Requires SQL Server 2017+.
+*/
+SET NOCOUNT ON;
+GO
+
+IF OBJECT_ID(N'audit.AIAppUserDay', N'U') IS NULL
+    CREATE TABLE audit.AIAppUserDay
+    (
+        [Day]           DATE           NOT NULL,   -- a day in the reporting time zone (audit.ReportingTimeZone())
+        [Resource]      NVARCHAR(200)  NOT NULL,
+        ApplicationName NVARCHAR(200)  NOT NULL,   -- '' where the record names none
+        SubscriptionId  VARCHAR(64)    NOT NULL,   -- '' where the record names none
+        CallerKind      VARCHAR(16)    NOT NULL,   -- Person | Unattributed
+        Caller          NVARCHAR(256)  NOT NULL,   -- the sign-in, or 'unattributed'
+        Calls           INT            NOT NULL,   -- records: a prompt or a response each
+        Prompts         INT            NOT NULL,
+        Threads         INT            NOT NULL,   -- distinct conversations that day
+        Failures        INT            NOT NULL,
+        LoadedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_AIAppUserDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_AIAppUserDay PRIMARY KEY ([Day], [Resource], ApplicationName, SubscriptionId, Caller)
+    );
+GO
+
+IF OBJECT_ID(N'audit.AIAppResource', N'U') IS NULL
+    CREATE TABLE audit.AIAppResource
+    (
+        [Resource]     NVARCHAR(200)  NOT NULL CONSTRAINT PK_AIAppResource PRIMARY KEY,
+        LineOfBusiness NVARCHAR(100)  NULL,
+        Environment    VARCHAR(16)    NOT NULL CONSTRAINT DF_AIAppResource_Env DEFAULT ('Unknown'),   -- Production | Development | Test | Unknown
+        Owner          NVARCHAR(256)  NULL,
+        Notes          NVARCHAR(400)  NULL,
+        SetBy          VARCHAR(8)     NOT NULL CONSTRAINT DF_AIAppResource_SetBy DEFAULT ('Name'),    -- Name (guessed) | Admin
+        FirstSeen      DATE           NULL,
+        UpdatedBy      NVARCHAR(256)  NULL,
+        UpdatedUtc     DATETIME2(0)   NOT NULL CONSTRAINT DF_AIAppResource_Updated DEFAULT (SYSUTCDATETIME())
+    );
+GO
+
+/*
+    audit.fnAIAppResourceGuess: a resource's line of business and environment from its name, as names like
+    retail-prod-aif-0147 and aza-dev-aif-0046 carry them. The environment is the first label that names one; the line of
+    business the first label before it, unless that label is a short prefix (three letters or fewer, such as aza).
+    Pure, for the tests.
+*/
+CREATE OR ALTER FUNCTION audit.fnAIAppResourceGuess (@Resource NVARCHAR(200))
+RETURNS TABLE
+AS
+RETURN
+WITH parts AS
+(
+    SELECT CAST(p.[key] AS INT) AS n, LOWER(p.[value]) AS v
+    FROM OPENJSON(N'["' + REPLACE(REPLACE(REPLACE(STRING_ESCAPE(ISNULL(@Resource, N''), 'json'), N'_', N'-'), N'.', N'-'), N'-', N'","') + N'"]') AS p
+),
+env AS
+(
+    SELECT TOP (1) n,
+           CASE WHEN v IN (N'prod', N'prd', N'production', N'p') THEN 'Production'
+                WHEN v IN (N'dev', N'development', N'd', N'sbx', N'sandbox') THEN 'Development'
+                WHEN v IN (N'test', N'tst', N'qa', N'uat', N'stg', N'staging', N'preprod', N'nonprod') THEN 'Test' END AS Environment
+    FROM parts
+    /* A one-letter label names an environment only after the first (aza-p-aif-01), never as a prefix. */
+    WHERE v IN (N'prod', N'prd', N'production', N'dev', N'development', N'sbx', N'sandbox',
+                N'test', N'tst', N'qa', N'uat', N'stg', N'staging', N'preprod', N'nonprod')
+       OR (n > 0 AND v IN (N'p', N'd'))
+    ORDER BY n
+)
+SELECT ISNULL((SELECT Environment FROM env), 'Unknown') AS Environment,
+       (SELECT TOP (1) UPPER(LEFT(p.v, 1)) + SUBSTRING(p.v, 2, 99)
+        FROM parts AS p
+        WHERE p.n < ISNULL((SELECT n FROM env), 0) AND LEN(p.v) > 3 AND p.v NOT LIKE N'%[0-9]%'
+        ORDER BY p.n) AS LineOfBusiness;
+GO
+
+IF OBJECT_ID(N'audit.usp_RollupActivity', N'P') IS NULL
+    EXEC (N'CREATE PROCEDURE audit.usp_RollupActivity AS BEGIN SET NOCOUNT ON; END;');
+GO
+
+ALTER PROCEDURE audit.usp_RollupActivity
+    @ActivityDatabase SYSNAME,
+    @SinceUtc         DATETIME2(0) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+
+    DECLARE @db NVARCHAR(300) = QUOTENAME(@ActivityDatabase), @sql NVARCHAR(MAX), @from DATE = CAST(@SinceUtc AS DATE),
+            @run INT, @days INT = 0, @users INT = 0, @hasCalls BIT, @hasPlatform BIT, @msg NVARCHAR(2000);
+
+    IF DB_ID(@ActivityDatabase) IS NULL
+        THROW 50031, N'The activity database named does not exist on this server.', 1;
+    SET @sql = N'SELECT @c = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.AIAppCall'', N''U'') IS NULL THEN 0 ELSE 1 END,
+                        @p = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.PlatformActivity'', N''U'') IS NULL THEN 0 ELSE 1 END;';
+    EXEC sys.sp_executesql @sql, N'@c BIT OUTPUT, @p BIT OUTPUT', @c = @hasCalls OUTPUT, @p = @hasPlatform OUTPUT;
+    IF @hasCalls = 0 OR @hasPlatform = 0
+        THROW 50032, N'The activity database has no audit.AIAppCall or audit.PlatformActivity: install it with Install-CopilotAudit.ps1 -ActivityDatabase.', 1;
+
+    /* Owed days are made up: from three days before the last rollup that succeeded, where that is earlier than asked
+       (nights the optional activity steps failed), and every day where none has. */
+    DECLARE @last DATE = (SELECT MAX(ToDay) FROM audit.ExternalUsageRun WHERE Source = 'Activity' AND Status = 'Succeeded');
+    IF @from IS NOT NULL AND (@last IS NULL OR DATEADD(DAY, -3, @last) < @from)
+        SET @from = CASE WHEN @last IS NULL THEN NULL ELSE DATEADD(DAY, -3, @last) END;
+
+    INSERT INTO audit.ExternalUsageRun (Source, Scope, FromDay) VALUES ('Activity', @ActivityDatabase, @from);
+    SET @run = SCOPE_IDENTITY();
+
+    BEGIN TRY
+        /* ---- AI apps: a row per day, resource, app, subscription and caller ---- */
+        /* Days in the reporting time zone, as every Copilot day is cut, so an AI app's day lines up with the same person's
+           Copilot day. AT TIME ZONE once for each quarter hour of the range (a zone can be offset by 30 or 45 minutes), not
+           once for each of tens of millions of records. */
+        DECLARE @zone SYSNAME = audit.ReportingTimeZone(), @lo DATETIME2(0), @hi DATETIME2(0);
+        SET @sql = N'SELECT @lo = MIN(CreatedDateTime), @hi = MAX(CreatedDateTime) FROM ' + @db + N'.audit.AIAppCall;';
+        EXEC sys.sp_executesql @sql, N'@lo DATETIME2(0) OUTPUT, @hi DATETIME2(0) OUTPUT', @lo = @lo OUTPUT, @hi = @hi OUTPUT;
+        DECLARE @fromUtc DATETIME2(0) = CASE WHEN @from IS NULL THEN NULL
+                                            ELSE CAST((CAST(@from AS DATETIME2(0)) AT TIME ZONE @zone) AT TIME ZONE 'UTC' AS DATETIME2(0)) END;
+        DROP TABLE IF EXISTS #q;
+        CREATE TABLE #q (UtcQuarter DATETIME2(0) NOT NULL PRIMARY KEY, LocalDay DATE NOT NULL);
+        IF @lo IS NOT NULL
+        BEGIN
+            DECLARE @q0 DATETIME2(0) = DATEADD(MINUTE, DATEDIFF(MINUTE, '2000-01-01', ISNULL(CASE WHEN @fromUtc > @lo THEN @fromUtc END, @lo)) / 15 * 15, CAST('2000-01-01' AS DATETIME2(0)));
+            DECLARE @n INT = DATEDIFF(MINUTE, @q0, @hi) / 15 + 1;
+            IF @n > 0
+            WITH t AS (SELECT TOP (@n) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS i FROM sys.all_columns AS a CROSS JOIN sys.all_columns AS b)
+            INSERT INTO #q (UtcQuarter, LocalDay)
+            SELECT DATEADD(MINUTE, 15 * t.i, @q0), CAST((DATEADD(MINUTE, 15 * t.i, @q0) AT TIME ZONE 'UTC') AT TIME ZONE @zone AS DATE) FROM t;
+        END;
+
+        BEGIN TRANSACTION;
+        DELETE FROM audit.AIAppUserDay WHERE @from IS NULL OR [Day] >= @from;
+        SET @sql = N'
+INSERT INTO audit.AIAppUserDay ([Day], [Resource], ApplicationName, SubscriptionId, CallerKind, Caller, Calls, Prompts, Threads, Failures)
+SELECT q.LocalDay, c.[Resource], ISNULL(c.ApplicationName, N''''), ISNULL(c.SubscriptionId, ''''),
+       MAX(c.CallerKind), c.Caller, COUNT(*), SUM(c.Prompts), COUNT(DISTINCT c.ThreadId), SUM(CAST(c.Failed AS INT))
+FROM ' + @db + N'.audit.AIAppCall AS c
+JOIN #q AS q ON q.UtcQuarter = DATEADD(MINUTE, DATEDIFF(MINUTE, ''2000-01-01'', c.CreatedDateTime) / 15 * 15, CAST(''2000-01-01'' AS DATETIME2(0)))
+WHERE (@fromUtc IS NULL OR c.CreatedDateTime >= @fromUtc) AND (@from IS NULL OR q.LocalDay >= @from)
+GROUP BY q.LocalDay, c.[Resource], ISNULL(c.ApplicationName, N''''), ISNULL(c.SubscriptionId, ''''), c.Caller;';
+        EXEC sys.sp_executesql @sql, N'@from DATE, @fromUtc DATETIME2(0)', @from = @from, @fromUtc = @fromUtc;
+        SET @days = @@ROWCOUNT;
+
+        /* Resources seen for the first time, with what their names suggest. Never one an administrator set. */
+        INSERT INTO audit.AIAppResource ([Resource], LineOfBusiness, Environment, SetBy, FirstSeen)
+        SELECT d.[Resource], g.LineOfBusiness, g.Environment, 'Name', d.FirstSeen
+        FROM (SELECT [Resource], MIN([Day]) AS FirstSeen FROM audit.AIAppUserDay GROUP BY [Resource]) AS d
+        CROSS APPLY audit.fnAIAppResourceGuess(d.[Resource]) AS g
+        WHERE NOT EXISTS (SELECT 1 FROM audit.AIAppResource AS r WHERE r.[Resource] = d.[Resource]);
+        COMMIT TRANSACTION;
+
+        /* ---- Power BI and Power Apps: who used them, and lately ---- */
+        DROP TABLE IF EXISTS #pp;
+        CREATE TABLE #pp (UserPrincipalName NVARCHAR(256) COLLATE DATABASE_DEFAULT NOT NULL, Product VARCHAR(32) COLLATE DATABASE_DEFAULT NOT NULL,
+                          LastActiveUtc DATETIME2(0) NULL, ActiveDays30 INT NOT NULL, PRIMARY KEY (UserPrincipalName, Product));
+        SET @sql = N'
+INSERT INTO #pp (UserPrincipalName, Product, LastActiveUtc, ActiveDays30)
+SELECT LEFT(a.UserId, 256), a.Product, MAX(a.CreatedDateTime),
+       COUNT(DISTINCT CASE WHEN a.CreatedDateTime >= DATEADD(DAY, -30, SYSUTCDATETIME()) THEN CAST(a.CreatedDateTime AS DATE) END)
+FROM ' + @db + N'.audit.PlatformActivity AS a
+WHERE a.UserId LIKE N''%@%''
+GROUP BY LEFT(a.UserId, 256), a.Product;';
+        EXEC sys.sp_executesql @sql;
+
+        BEGIN TRANSACTION;
+        DELETE u FROM audit.PowerPlatformUserActivity AS u
+        WHERE u.Product IN (SELECT DISTINCT Product FROM #pp);
+        INSERT INTO audit.PowerPlatformUserActivity (UserPrincipalName, Product, LastActiveUtc, ActiveDays30)
+        SELECT UserPrincipalName, Product, LastActiveUtc, ActiveDays30 FROM #pp;
+        SET @users = @@ROWCOUNT;
+        COMMIT TRANSACTION;
+
+        SET @msg = CONCAT(N'AI apps: ', FORMAT(@days, 'N0'), N' day-resource-caller row(s)', CASE WHEN @from IS NULL THEN N' (every day)' ELSE CONCAT(N' from ', CONVERT(NCHAR(10), @from, 120)) END,
+                          N'; Power BI and Power Apps: ', FORMAT(@users, 'N0'), N' person-product row(s).');
+        UPDATE audit.ExternalUsageRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', RowsWritten = @days + @users, Detail = @msg,
+               ToDay = CAST(SYSUTCDATETIME() AS DATE)
+        WHERE RunId = @run;
+        RAISERROR(@msg, 0, 1) WITH NOWAIT;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        SET @msg = LEFT(ERROR_MESSAGE(), 2000);
+        UPDATE audit.ExternalUsageRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Failed', Detail = @msg WHERE RunId = @run;
+        THROW;
+    END CATCH;
+END;
+GO
+
+/* The dashboard reads them, and its administrators keep the resources' line of business, environment and owner. */
+IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL
+BEGIN
+    GRANT SELECT ON audit.AIAppUserDay TO CopilotInsightsApp;
+    GRANT SELECT, INSERT, UPDATE ON audit.AIAppResource TO CopilotInsightsApp;
+END;
+GO
+```
+
+### C.20 `sql/Create-ActivitySchema.sql`
+
+Activity database (2.6.9). `audit.AIAppCall` and `audit.PlatformActivity`: AI app calls, Power BI and Power Apps activity, a row per record. 85 lines.
+
+```sql
+/*
+    The activity database (2.6.9): AI apps outside Copilot, Power BI and Power Apps
+    ------------------------------------------------------------------------
+    A database of its own, loaded by the same backfill with Purview record
+    types rather than operations (Invoke-CopilotAuditBackfill.ps1 -RecordTypes):
+
+      ConnectedAIAppInteraction  calls to Azure AI Foundry and Azure OpenAI from
+                                 the organization's own apps, where Purview
+                                 collects them (Foundry's "Powered by Microsoft
+                                 Purview", or Defender for Cloud's data security
+                                 for AI interactions); and Entra-registered apps
+                                 through the Purview SDK
+      PowerBIAudit               Power BI activity: reports viewed, exported,
+                                 refreshed, shared
+      PowerAppsApp               Power Apps launched and managed
+
+    The records land in audit.CopilotAudit as every load's do (installed by
+    Create-CopilotAuditSchema.sql and Create-CopilotLoadProcedure.sql here too);
+    audit.usp_ShredActivity (Create-ActivityProcedure.sql) reads them into:
+
+      audit.AIAppCall          one row per AI app record: the resource, the app,
+                               the subscription, who called (a person, or no one
+                               the record can name), the thread, failures
+      audit.PlatformActivity   one row per Power BI or Power Apps record: who,
+                               what, and on which item
+
+    The Copilot database never reads these tables from the dashboard: its own
+    audit.usp_RollupActivity (Create-CopilotActivityRollup.sql) copies what the
+    dashboard shows into tables of the Copilot database each night.
+
+    Nothing here holds prompt or response text: Purview's records carry none.
+    Client IP addresses are not copied.
+
+    Idempotent. Single batch (no GO). Requires SQL Server 2017+.
+*/
+SET NOCOUNT ON;
+
+IF SCHEMA_ID(N'audit') IS NULL
+    EXEC (N'CREATE SCHEMA audit AUTHORIZATION dbo;');
+
+/* One row per ConnectedAIAppInteraction record. A record is one message: a prompt or a response, so calls are about
+   half the rows, and distinct ThreadIds are the conversations. */
+IF OBJECT_ID(N'audit.AIAppCall', N'U') IS NULL
+    CREATE TABLE audit.AIAppCall
+    (
+        RecordId        VARCHAR(64)    NOT NULL,
+        CreatedDateTime DATETIME2(0)   NOT NULL,   -- UTC
+        UserId          NVARCHAR(256)  NULL,       -- a sign-in, or Guest where the app called with its own key or identity
+        UserType        INT            NULL,       -- 0 a person; 10 Guest (no one the record can name)
+        UserKey         NVARCHAR(128)  NULL,
+        CallerKind      VARCHAR(16)    NOT NULL,   -- Person | Unattributed
+        Caller          NVARCHAR(256)  NOT NULL,   -- the sign-in for a person; else 'unattributed'
+        AppIdentity     NVARCHAR(400)  NULL,       -- ConnectedAIApp.AzureAI.<resource> or ConnectedAIApp.Entra.<app id>
+        AppHost         NVARCHAR(200)  NULL,
+        ApplicationName NVARCHAR(200)  NULL,
+        [Resource]      NVARCHAR(200)  NOT NULL,   -- the Azure resource (retail-prod-aif-0147), or the app id; '' where neither
+        ContextId       NVARCHAR(400)  NULL,       -- the endpoint, such as retail-prod-aif-0147.openai.azure.com
+        SubscriptionId  VARCHAR(64)    NULL,
+        ThreadId        NVARCHAR(400)  NULL,
+        Prompts         INT            NOT NULL,
+        Responses       INT            NOT NULL,
+        Failed          BIT            NOT NULL,   -- a resource it reached reported Failure
+        ShreddedUtc     DATETIME2(0)   NOT NULL CONSTRAINT DF_AIAppCall_Shredded DEFAULT (SYSUTCDATETIME()),
+        INDEX CCI_AIAppCall CLUSTERED COLUMNSTORE
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.AIAppCall') AND name = N'UX_AIAppCall_Record')
+    CREATE UNIQUE NONCLUSTERED INDEX UX_AIAppCall_Record ON audit.AIAppCall (RecordId);
+
+/* One row per PowerBIAudit or PowerAppsApp record. */
+IF OBJECT_ID(N'audit.PlatformActivity', N'U') IS NULL
+    CREATE TABLE audit.PlatformActivity
+    (
+        RecordId        VARCHAR(64)    NOT NULL,
+        CreatedDateTime DATETIME2(0)   NOT NULL,   -- UTC
+        Product         VARCHAR(32)    NOT NULL,   -- Power BI | Power Apps
+        Operation       NVARCHAR(128)  NULL,       -- ViewReport, ExportReport, LaunchPowerApp ...
+        UserId          NVARCHAR(256)  NULL,
+        UserType        INT            NULL,
+        ItemName        NVARCHAR(400)  NULL,       -- the report, dashboard, dataset or app
+        Container       NVARCHAR(400)  NULL,       -- the Power BI workspace, or the Power Apps environment
+        ShreddedUtc     DATETIME2(0)   NOT NULL CONSTRAINT DF_PlatformActivity_Shredded DEFAULT (SYSUTCDATETIME()),
+        INDEX CCI_PlatformActivity CLUSTERED COLUMNSTORE
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.PlatformActivity') AND name = N'UX_PlatformActivity_Record')
+    CREATE UNIQUE NONCLUSTERED INDEX UX_PlatformActivity_Record ON audit.PlatformActivity (RecordId);
+```
+
+### C.21 `sql/Create-ActivityProcedure.sql`
+
+Activity database (2.6.9). `audit.usp_ShredActivity`. 196 lines.
+
+```sql
+/*
+    audit.usp_ShredActivity (2.6.9)
+    ------------------------------------------------------------------------
+    Reads the records of the activity database (Create-ActivitySchema.sql)
+    into audit.AIAppCall and audit.PlatformActivity.
+
+      @SinceUtc  the records from then on (the nightly load passes its own
+                 start, so the lookback's records are read again); NULL: every
+                 record, the first time and after a history load.
+
+    Each document is parsed once (OPENJSON ... WITH), in batches of @BatchSize
+    records by RecordId, and each batch's rows replace the ones already there,
+    so a run can be repeated. One run at a time (an application lock). A run
+    marks that it is under way (ActivityShredInProgress in
+    audit.PipelineSetting) and takes the mark away when it finishes; one
+    stopped part way leaves it, and the next run reads every record again.
+
+    Which table a record goes to is its Workload: ConnectedAIApp, PowerBI or
+    PowerApps. Any other record is left alone.
+
+    The fields read are those Microsoft documents for the records, and those
+    the first records seen carried. Where a field is named differently, it is
+    read again from the stored JSON with @SinceUtc = NULL once this procedure
+    is corrected: audit.CopilotAudit keeps every record whole.
+
+    Requires SQL Server 2017+. Run sql/Create-ActivitySchema.sql first.
+*/
+SET NOCOUNT ON;
+GO
+
+IF OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL
+    EXEC (N'CREATE PROCEDURE audit.usp_ShredActivity AS BEGIN SET NOCOUNT ON; END;');
+GO
+
+ALTER PROCEDURE audit.usp_ShredActivity
+    @SinceUtc  DATETIME2(0) = NULL,
+    @BatchSize INT          = 200000
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    IF @BatchSize IS NULL OR @BatchSize < 1000 SET @BatchSize = 1000;
+
+    DECLARE @lock INT, @msg NVARCHAR(400), @cursor VARCHAR(64) = '', @maxId VARCHAR(64),
+            @calls BIGINT = 0, @platform BIGINT = 0, @batch INT = 1;
+
+    EXEC @lock = sys.sp_getapplock @Resource = N'audit.usp_ShredActivity', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = -1;
+    IF @lock < 0
+        THROW 50030, N'Another shred of the activity records is running, and this one could not wait for it to finish.', 1;
+
+    BEGIN TRY
+    /* A shred that was stopped part way, or none that read every record yet (a history loaded and never shredded):
+       every record is read. */
+    IF EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N'ActivityShredInProgress')
+       OR NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N'ActivityShredCompleteUtc')
+    BEGIN
+        IF @SinceUtc IS NOT NULL
+            RAISERROR('No shred of the activity records has read every record yet, or the last one did not finish: reading every record.', 0, 1) WITH NOWAIT;
+        SET @SinceUtc = NULL;
+        IF NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N'ActivityShredInProgress')
+            INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'ActivityShredInProgress', N'');
+    END
+    ELSE
+        INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'ActivityShredInProgress', ISNULL(CONVERT(NVARCHAR(30), @SinceUtc, 126), N''));
+
+    WHILE 1 = 1
+    BEGIN
+        SET @maxId = NULL;
+        ;WITH nextBatch AS
+        (
+            SELECT TOP (@BatchSize) a.RecordId
+            FROM audit.CopilotAudit AS a
+            WHERE a.RecordId > @cursor
+              AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc)
+            ORDER BY a.RecordId
+        )
+        SELECT @maxId = MAX(RecordId) FROM nextBatch;
+        IF @maxId IS NULL BREAK;
+
+        DROP TABLE IF EXISTS #rec;
+        SELECT a.RecordId, a.CreatedDateTime,
+               COALESCE(t.Workload, CASE WHEN a.RecordType LIKE N'connectedAIApp%' THEN N'ConnectedAIApp'
+                                         WHEN a.RecordType LIKE N'powerBI%' THEN N'PowerBI'
+                                         WHEN a.RecordType LIKE N'powerApps%' THEN N'PowerApps' END) AS Workload,
+               LEFT(COALESCE(t.Operation, a.Operation), 128) AS Operation,
+               LEFT(COALESCE(t.UserId, a.UserPrincipalName, a.UserId), 256) AS UserId,
+               TRY_CAST(t.UserType AS INT) AS UserType,
+               LEFT(t.UserKey, 128) AS UserKey,
+               LEFT(t.AppIdentity, 400) AS AppIdentity,
+               LEFT(t.AppHost, 200) AS AppHost,
+               LEFT(COALESCE(t.ApplicationName, t.EventApplicationName, t.AppName), 200) AS ApplicationName,
+               LEFT(t.ContextId, 400) AS ContextId,
+               LEFT(COALESCE(t.SubscriptionId, t.EventSubscriptionId, t.SubscriptionFlat), 64) AS SubscriptionId,
+               LEFT(t.ThreadId, 400) AS ThreadId,
+               t.Messages, t.AccessedResources,
+               LEFT(COALESCE(t.ItemName, t.ReportName, t.DashboardName, t.DatasetName, t.AppName,
+                             CASE WHEN ISJSON(t.AdditionalInfo) = 1 THEN COALESCE(JSON_VALUE(t.AdditionalInfo, '$.appDisplayName'), JSON_VALUE(t.AdditionalInfo, '$.appName')) END,
+                             t.ObjectId), 400) AS ItemName,
+               LEFT(COALESCE(t.WorkSpaceName, t.EnvironmentName,
+                             CASE WHEN ISJSON(t.AdditionalInfo) = 1 THEN JSON_VALUE(t.AdditionalInfo, '$.environmentName') END), 400) AS Container
+        INTO #rec
+        FROM audit.CopilotAudit AS a
+        OUTER APPLY OPENJSON(CASE WHEN ISJSON(CAST(DECOMPRESS(a.AuditDataGz) AS NVARCHAR(MAX))) = 1
+                                  THEN CAST(DECOMPRESS(a.AuditDataGz) AS NVARCHAR(MAX)) ELSE N'{}' END)
+            WITH (
+                Workload             NVARCHAR(64)   '$.Workload',
+                Operation            NVARCHAR(200)  '$.Operation',
+                UserId               NVARCHAR(512)  '$.UserId',
+                UserType             NVARCHAR(16)   '$.UserType',
+                UserKey              NVARCHAR(200)  '$.UserKey',
+                AppIdentity          NVARCHAR(400)  '$.AppIdentity',
+                AppHost              NVARCHAR(200)  '$.CopilotEventData.AppHost',
+                ApplicationName      NVARCHAR(200)  '$.ApplicationName',
+                EventApplicationName NVARCHAR(200)  '$.CopilotEventData.ApplicationName',
+                ContextId            NVARCHAR(400)  '$.CopilotEventData.Contexts[0].Id',
+                SubscriptionId       NVARCHAR(64)   '$.Subscription.Id',
+                EventSubscriptionId  NVARCHAR(64)   '$.CopilotEventData.Subscription.Id',
+                SubscriptionFlat     NVARCHAR(64)   '$.SubscriptionId',
+                ThreadId             NVARCHAR(400)  '$.CopilotEventData.ThreadId',
+                Messages             NVARCHAR(MAX)  '$.CopilotEventData.Messages' AS JSON,
+                AccessedResources    NVARCHAR(MAX)  '$.CopilotEventData.AccessedResources' AS JSON,
+                ItemName             NVARCHAR(400)  '$.ItemName',
+                ReportName           NVARCHAR(400)  '$.ReportName',
+                DashboardName        NVARCHAR(400)  '$.DashboardName',
+                DatasetName          NVARCHAR(400)  '$.DatasetName',
+                AppName              NVARCHAR(400)  '$.AppName',
+                ObjectId             NVARCHAR(400)  '$.ObjectId',
+                WorkSpaceName        NVARCHAR(400)  '$.WorkSpaceName',
+                EnvironmentName      NVARCHAR(400)  '$.EnvironmentName',
+                AdditionalInfo       NVARCHAR(MAX)  '$.AdditionalInfo'
+            ) AS t
+        WHERE a.RecordId > @cursor AND a.RecordId <= @maxId
+          AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc);
+
+        BEGIN TRANSACTION;
+        DELETE c FROM audit.AIAppCall AS c JOIN #rec AS r ON r.RecordId = c.RecordId;
+        INSERT INTO audit.AIAppCall
+            (RecordId, CreatedDateTime, UserId, UserType, UserKey, CallerKind, Caller, AppIdentity, AppHost, ApplicationName,
+             [Resource], ContextId, SubscriptionId, ThreadId, Prompts, Responses, Failed)
+        SELECT r.RecordId, r.CreatedDateTime, r.UserId, r.UserType, r.UserKey,
+               k.CallerKind, CASE WHEN k.CallerKind = 'Person' THEN LOWER(r.UserId) ELSE N'unattributed' END,
+               r.AppIdentity, r.AppHost, r.ApplicationName,
+               /* ConnectedAIApp.AzureAI.<resource> or ConnectedAIApp.Entra.<app id>; else the endpoint's first label. */
+               LEFT(CASE WHEN r.AppIdentity LIKE N'ConnectedAIApp.%.%'
+                         THEN SUBSTRING(r.AppIdentity, CHARINDEX(N'.', r.AppIdentity, 16) + 1, 400)
+                         WHEN r.ContextId IS NOT NULL
+                         THEN LEFT(r.ContextId, CHARINDEX(N'.', r.ContextId + N'.') - 1)
+                         ELSE ISNULL(r.AppIdentity, N'') END, 200),
+               r.ContextId, r.SubscriptionId, r.ThreadId,
+               ISNULL(m.Prompts, 0), ISNULL(m.Responses, 0),
+               CAST(CASE WHEN EXISTS (SELECT 1 FROM OPENJSON(ISNULL(r.AccessedResources, N'[]')) WITH (Status NVARCHAR(32) '$.Status') AS x
+                                      WHERE x.Status = N'Failure') THEN 1 ELSE 0 END AS BIT)
+        FROM #rec AS r
+        CROSS APPLY (SELECT CASE WHEN r.UserType = 0 AND r.UserId LIKE N'%@%' THEN 'Person' ELSE 'Unattributed' END AS CallerKind) AS k
+        OUTER APPLY (SELECT SUM(CASE WHEN x.isPrompt = 1 THEN 1 ELSE 0 END) AS Prompts, SUM(CASE WHEN x.isPrompt = 1 THEN 0 ELSE 1 END) AS Responses
+                     FROM OPENJSON(ISNULL(r.Messages, N'[]')) WITH (isPrompt BIT '$.isPrompt') AS x) AS m
+        WHERE r.Workload = N'ConnectedAIApp';
+        SET @calls += @@ROWCOUNT;
+
+        DELETE p FROM audit.PlatformActivity AS p JOIN #rec AS r ON r.RecordId = p.RecordId;
+        INSERT INTO audit.PlatformActivity (RecordId, CreatedDateTime, Product, Operation, UserId, UserType, ItemName, Container)
+        SELECT r.RecordId, r.CreatedDateTime, CASE r.Workload WHEN N'PowerBI' THEN 'Power BI' ELSE 'Power Apps' END,
+               r.Operation, LOWER(r.UserId), r.UserType, r.ItemName, r.Container
+        FROM #rec AS r
+        WHERE r.Workload IN (N'PowerBI', N'PowerApps');
+        SET @platform += @@ROWCOUNT;
+        COMMIT TRANSACTION;
+
+        SET @cursor = @maxId;
+        SET @msg = CONCAT(N'  batch ', @batch, N': ', FORMAT(@calls, 'N0'), N' AI app record(s) and ', FORMAT(@platform, 'N0'),
+                          N' Power BI and Power Apps record(s) so far.');
+        RAISERROR(@msg, 0, 1) WITH NOWAIT;
+        SET @batch += 1;
+    END;
+    DROP TABLE IF EXISTS #rec;
+
+    DELETE FROM audit.PipelineSetting WHERE Name = N'ActivityShredInProgress';
+    IF @SinceUtc IS NULL
+    BEGIN
+        UPDATE audit.PipelineSetting SET Value = CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126), UpdatedUtc = SYSUTCDATETIME()
+        WHERE Name = N'ActivityShredCompleteUtc';
+        IF @@ROWCOUNT = 0
+            INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'ActivityShredCompleteUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));
+    END;
+    SET @msg = CONCAT(N'Activity shred complete: ', FORMAT(@calls, 'N0'), N' AI app record(s), ', FORMAT(@platform, 'N0'), N' Power BI and Power Apps record(s).');
+    RAISERROR(@msg, 0, 1) WITH NOWAIT;
+    EXEC sys.sp_releaseapplock @Resource = N'audit.usp_ShredActivity', @LockOwner = 'Session';
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        IF APPLOCK_MODE(N'public', N'audit.usp_ShredActivity', N'Session') <> N'NoLock'
+            EXEC sys.sp_releaseapplock @Resource = N'audit.usp_ShredActivity', @LockOwner = 'Session';
+        THROW;
+    END CATCH;
+END;
+GO
+```
+
+### C.22 `sql/Finalize-CopilotAudit.sql`
 
 Both databases. Run by the backfill's `-Finalize`, not by the installer: builds `audit.CopilotAudit` and `audit.CopilotInteraction` from staging. 290 lines.
 
@@ -14005,7 +14715,7 @@ WHEN NOT MATCHED THEN INSERT (Name, Value) VALUES (s.Name, s.Value);
 RAISERROR('Finalize complete. Once verified, reclaim space with: DROP TABLE audit.CopilotAuditStage;', 0, 1) WITH NOWAIT;
 ```
 
-### C.20 `sql/Create-CopilotCsvImport.sql`
+### C.23 `sql/Create-CopilotCsvImport.sql`
 
 Run by `tools/Import-CopilotAuditCsv.ps1`, not by the installer: the CSV import tables and `audit.usp_MergeCopilotCsv`. 400 lines.
 
@@ -14412,9 +15122,9 @@ END;
 GO
 ```
 
-### C.21 `Invoke-CopilotPipeline.ps1`
+### C.24 `Invoke-CopilotPipeline.ps1`
 
-The nightly run and the first load of history: the order in which every table is filled. 564 lines.
+The nightly run and the first load of history: the order in which every table is filled. 609 lines.
 
 ```powershell
 <#
@@ -14455,8 +15165,20 @@ The nightly run and the first load of history: the order in which every table is
     Every step resumes where it stopped, so after Ctrl+C or a reboot the same
     command carries on.
 
+    With ActivityDatabase in the settings (2.6.9), the nightly run also loads
+    AI app calls outside Copilot, Power BI and Power Apps activity into it and
+    rolls them up into the Copilot database; -History loads their history
+    too. Both steps are optional: a failure is recorded and the run goes on.
+
+    -ActivityHistory (once, for a database already running): only the
+    activity history for the last HistoryDays days, finalized, and its rollup.
+    Copilot interactions are not loaded or built again.
+
 .PARAMETER History
     Load the history instead of the nightly run.
+
+.PARAMETER ActivityHistory
+    Load only the activity database's history (2.6.9), and roll it up.
 
 .PARAMETER Days
     How many days of history (-History). Default: HistoryDays in the settings, 180.
@@ -14489,6 +15211,7 @@ The nightly run and the first load of history: the order in which every table is
 [CmdletBinding()]
 param(
     [switch] $History,
+    [switch] $ActivityHistory,
     [ValidateRange(1, 3650)][int] $Days,
     [string] $Tenant,
     [string] $SettingsPath
@@ -14504,6 +15227,9 @@ $script:AgentOperations = 'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpda
                           'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
                           'BotComponentCollectionCreate', 'BotComponentCollectionDelete'
 $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
+# The activity database's record types (2.6.9): AI apps outside Copilot, Power BI and Power Apps. ActivityRecordTypes in
+# the settings replaces the list.
+$script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp'
 # The delete guard's exit code (2.6.5): a loader that kept its table's last good load, which the night goes on from.
 . (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
@@ -14559,7 +15285,7 @@ function Get-PipelineStep {
         the plan out, so the plan can be tested without running anything.
     #>
     param([System.Collections.IDictionary] $Setting, [switch] $History, [int] $Days, [datetime] $Today = [datetime]::UtcNow.Date,
-          [string] $Root = $PSScriptRoot)
+          [string] $Root = $PSScriptRoot, [switch] $ActivityHistory)
     function Has($k) { $Setting.Contains($k) -and $Setting[$k] }
     $app = @{ TenantId = $Setting.TenantId; ClientId = $Setting.ClientId; CertificateThumbprint = $Setting.CertificateThumbprint }
     $sql = @{ SqlServer = $Setting.SqlServer }
@@ -14580,6 +15306,17 @@ function Get-PipelineStep {
     function Add($name, $script, $argsTable, [switch] $Optional) {
         $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
     }
+    # The activity database (2.6.9), where the settings name one: its load, then its rollup into the Copilot database.
+    $act = if (Has 'ActivityDatabase') { [string] $Setting.ActivityDatabase } else { $null }
+    $actTypes = if (Has 'ActivityRecordTypes') { @($Setting.ActivityRecordTypes) } else { $script:ActivityRecordTypes }
+    $rollup = $sql + @{ Database = $Setting.Database; ActivityDatabase = $act }
+    $n = if ($Days) { $Days } elseif (Has 'HistoryDays') { [int] $Setting.HistoryDays } else { 180 }
+    if ($ActivityHistory) {
+        if (-not $act) { throw 'ActivityDatabase is not set in the settings file: there is no activity database to load.' }
+        Add 'AI apps, Power BI and Power Apps (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $act; StartDate = $Today.AddDays(-$n); Finalize = $true; RecordTypes = $actTypes })
+        Add 'AI apps, Power BI and Power Apps rollup' 'tools/Update-ActivityRollup.ps1' ($rollup + @{ Full = $true })
+        return , $steps.ToArray()
+    }
 
     $directory = {
         if (Has 'TargetDomain') {
@@ -14597,7 +15334,6 @@ function Get-PipelineStep {
     }
 
     if ($History) {
-        $n = if ($Days) { $Days } elseif (Has 'HistoryDays') { [int] $Setting.HistoryDays } else { 180 }
         $start = $Today.AddDays(-$n)
         Add 'Copilot interactions (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $Setting.Database; StartDate = $start; Finalize = $true })
         if ($lic) { Add 'License events (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; StartDate = $start; Finalize = $true; Operations = $script:LicenseOperations }) }
@@ -14608,6 +15344,10 @@ function Get-PipelineStep {
         if ($readLic.Count) { $build.LicenseEventDatabases = $readLic }
         if (Has 'Dashboard') { $build.Dashboard = $true }
         Add 'Build everything' 'Install-CopilotAudit.ps1' $build
+        if ($act) {
+            Add 'AI apps, Power BI and Power Apps (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $act; StartDate = $start; Finalize = $true; RecordTypes = $actTypes }) -Optional
+            Add 'AI apps, Power BI and Power Apps rollup' 'tools/Update-ActivityRollup.ps1' ($rollup + @{ Full = $true }) -Optional
+        }
     }
     else {
         & $directory
@@ -14628,6 +15368,10 @@ function Get-PipelineStep {
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
         if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }
         Add 'Copilot interactions' 'Invoke-CopilotAuditBackfill.ps1' $inter
+        if ($act) {
+            Add 'AI apps, Power BI and Power Apps' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $act; Incremental = $true; RecordTypes = $actTypes }) -Optional
+            Add 'AI apps, Power BI and Power Apps rollup' 'tools/Update-ActivityRollup.ps1' $rollup -Optional
+        }
         # Usage and cost of AI outside Microsoft 365 Copilot (2.6.2), where the settings name the source. Last, and
         # optional: a failure of one is recorded with its step and in audit.ExternalUsageRun, and fails nothing else.
         if ((Has 'GitHubEnterprise') -or (Has 'GitHubOrganization')) {
@@ -14665,6 +15409,9 @@ function Get-PipelineSkipNote {
     }
     elseif (-not ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
         $notes.Add('Foundry usage and cost: skipped, FoundrySubscriptions is set but there is no certificate to sign in with (FoundryCertificateThumbprint, or CertificateThumbprint).')
+    }
+    if (-not (Has 'ActivityDatabase')) {
+        $notes.Add('AI apps, Power BI and Power Apps activity: skipped, not configured (set ActivityDatabase in the settings file, install it with Install-CopilotAudit.ps1 -ActivityDatabase, then load its history with Invoke-CopilotPipeline.ps1 -ActivityHistory).')
     }
     , $notes.ToArray()
 }
@@ -14885,7 +15632,14 @@ function Invoke-TenantRun {
             Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
         return $false
     }
-    $runId = Write-PipelineRecord $T -Log $Log -Parameters @{ '@k' = $(if ($History) { 'History' } else { 'Nightly' }); '@h' = [Environment]::MachineName; '@u' = "$env:USERDOMAIN\$env:USERNAME" } -Sql `
+    if ($ActivityHistory -and -not ($T.Contains('ActivityDatabase') -and $T.ActivityDatabase)) {
+        # Said before a run is recorded: a run row left Running would read as one that died.
+        "$(Get-Date -Format s) $Label No ActivityDatabase in the settings for $($T.Name): there is no activity history to load." |
+            Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+        return $false
+    }
+    $once = $History -or $ActivityHistory
+    $runId = Write-PipelineRecord $T -Log $Log -Parameters @{ '@k' = $(if ($once) { 'History' } else { 'Nightly' }); '@h' = [Environment]::MachineName; '@u' = "$env:USERDOMAIN\$env:USERNAME" } -Sql `
         "INSERT INTO audit.PipelineRun (Kind, Host, RunAs) VALUES (@k, @h, @u); SELECT CAST(SCOPE_IDENTITY() AS INT);"
     # The app's certificate and when it expires, for the dashboard's expiry alert.
     $cert = Get-PipelineCertificate $T
@@ -14897,7 +15651,7 @@ function Invoke-TenantRun {
     Write-PipelineCertificate $T -Log $Log
     $n = 0
     $refused = [System.Collections.Generic.List[string]]::new()
-    foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
+    foreach ($step in (Get-PipelineStep -Setting $T -History:$History -ActivityHistory:$ActivityHistory -Days $Days)) {
         $n++
         if ($Label) { $step.Name = "$Label $($step.Name)" }
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }
@@ -14927,11 +15681,11 @@ function Invoke-TenantRun {
         }
     }
     # The optional loaders the settings do not configure: a note each, and no more.
-    if (-not $History) {
+    if (-not $once) {
         foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
-    if (-not $History) { Invoke-Retention -Setting $T -Log $Log }
-    if (-not $History) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
+    if (-not $once) { Invoke-Retention -Setting $T -Log $Log }
+    if (-not $once) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
     # A load the delete guard refused is named in the run's detail, which Admin > Health shows, with its reason.
     $detail = if ($refused.Count) { Get-DropGuardDetail -Step $refused -Log $Log } else { $null }
     if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@d' = $detail } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', Detail = @d WHERE RunId = @r;") }
@@ -14943,7 +15697,7 @@ function Invoke-Main {
     $logDir = if ($s.Contains('LogPath') -and $s.LogPath) { $s.LogPath } else { Join-Path $PSScriptRoot 'logs' }
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     # A log of its own for each run (2.5.6): a second run on one day appended to the first's.
-    $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($History) { 'history' } else { 'nightly' }), (Get-Date))
+    $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($ActivityHistory) { 'activity-history' } elseif ($History) { 'history' } else { 'nightly' }), (Get-Date))
     $keep = if ($s.Contains('LogRetentionDays') -and $s.LogRetentionDays) { [int] $s.LogRetentionDays } else { 90 }
     Get-ChildItem -LiteralPath $logDir -Filter '*.log' | Where-Object LastWriteTime -lt (Get-Date).AddDays(-$keep) | Remove-Item -ErrorAction SilentlyContinue
 
@@ -14977,13 +15731,14 @@ function Invoke-Main {
     }
     "$(Get-Date -Format s) Done." | Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
     if ($History) { Write-Information 'History loaded and built. The nightly task keeps it current from tonight.' -InformationAction Continue }
+    if ($ActivityHistory) { Write-Information 'Activity history loaded and rolled up. The nightly task keeps it current from tonight.' -InformationAction Continue }
 }
 
 # Dot-sourcing (tests) loads the functions without running anything.
 if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
 ```
 
-### C.22 `tools/Import-AgentWorkbook.ps1`
+### C.25 `tools/Import-AgentWorkbook.ps1`
 
 Creates and fills the three `dbo` tables of the agent workbook, then `dash.AgentInventory` and `dash.AgentChildLink`. 395 lines.
 
@@ -15385,7 +16140,7 @@ finally { $conn.Dispose(); Remove-Item -LiteralPath $file -ErrorAction SilentlyC
 if ($refused) { exit $script:DropRefusedExitCode }
 ```
 
-### C.23 `tools/ExternalUsage.Common.ps1`
+### C.26 `tools/ExternalUsage.Common.ps1`
 
 What the two loaders below share: how a set of rows replaces the ones it supersedes in one transaction, and the run log (`audit.ExternalUsageRun`). 142 lines.
 
@@ -15534,7 +16289,7 @@ function Get-UsageDay {
 }
 ```
 
-### C.24 `tools/Import-GitHubCopilotUsage.ps1`
+### C.27 `tools/Import-GitHubCopilotUsage.ps1`
 
 Fills the four `audit.GitHubCopilot...` tables from GitHub's REST API, for an enterprise or an organization. Optional; the nightly run calls it when the settings name one. 410 lines.
 
@@ -15951,7 +16706,7 @@ function Invoke-Main {
 if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
 ```
 
-### C.25 `tools/Import-FoundryUsage.ps1`
+### C.28 `tools/Import-FoundryUsage.ps1`
 
 Fills the three `audit.Foundry...` tables from Azure Resource Manager, Azure Monitor and Cost Management, for the subscriptions named. Optional; the nightly run calls it when the settings name them. 427 lines.
 
@@ -16385,7 +17140,7 @@ function Invoke-Main {
 if ($MyInvocation.InvocationName -ne '.') { Invoke-Main }
 ```
 
-### C.26 `dashboard/Install-CopilotInsights.ps1`
+### C.29 `dashboard/Install-CopilotInsights.ps1`
 
 The dashboard's installer on the web server. With `-GrantDatabaseAccess` it runs the three dashboard scripts and adds the site's account to its database role. 532 lines.
 

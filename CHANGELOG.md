@@ -4,6 +4,89 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.9] - 2026-10-19
+
+AI apps beyond Copilot, Power BI and Power Apps from the audit log, one place for every assumption, and savings that are
+real. An optional **activity database** loads three more Purview record types with the same app registration and no new
+permission: calls to Azure AI Foundry and Azure OpenAI from the organization's own apps (`ConnectedAIAppInteraction`),
+Power BI and Power Apps activity. **Governance › AI apps beyond Copilot** shows the first; the other two fill who used
+Power BI and Power Apps for Costs and savings and Suite fit, which needed a CSV before. **Leadership › How figures are
+calculated** lists every price and assumption a figure rests on and where it is set, and every money figure says how
+it is worked out, with *Change it* for administrators. Seat-cut savings now count the volume price, the Dataverse
+capacity the seats bring, and the seats kept spare on purpose.
+
+To upgrade from 2.6.8: with the nightly task disabled, replace the job server's scripts, run
+`Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard` once, then install the dashboard package over the one in
+place and enable the task again. The installer adds two tables, a function and a procedure to the Copilot database
+(`audit.AIAppUserDay`, `audit.AIAppResource`, `audit.fnAIAppResourceGuess`, `audit.usp_RollupActivity`), six columns to
+`dash.CostPrice` (volume price, Dataverse capacity a seat, spare share, bought for capacity; Power Apps Premium seeded at
+12 from 2,000 seats) and two settings (`SpareSeatPercent`, 10; `PaygInteractionCost`, 0.12, which was a default in code);
+nothing existing changes. Then, on Admin › Targets and assumptions, mark the licenses bought for capacity or the volume
+price, and check the spare share. For the activity database, see *Added*.
+
+### Added
+- **The activity database** (optional; `docs/OPERATIONS.md`, *AI apps, Power BI and Power Apps*):
+  - `Invoke-CopilotAuditBackfill.ps1 -RecordTypes` loads whole Purview record types; a database records them as
+    `rt:<type>`, so it is never mixed with operations. Record-type searches are submitted to Graph's beta endpoint, whose
+    list of record types has the newer ones.
+  - `Install-CopilotAudit.ps1 -ActivityDatabase CopilotActivity` creates and installs it (`audit.AIAppCall`,
+    `audit.PlatformActivity`, `audit.usp_ShredActivity`); it must be on the Copilot database's instance.
+    `tools\Install-CopilotJobServer.ps1 -ActivityDatabase` saves it in the settings.
+  - `Invoke-CopilotPipeline.ps1 -ActivityHistory` loads its history alone (180 days), finalized, shredded and rolled up;
+    Copilot interactions are not loaded again. The nightly run then loads it after the Copilot load and rolls it up;
+    both steps are optional and fail nothing else. `ActivityRecordTypes` in the settings replaces the three types.
+  - `tools\Update-ActivityRollup.ps1` (`audit.usp_RollupActivity`) copies what the dashboard shows into the Copilot
+    database, cutting days in the reporting time zone: AI app calls by day, resource, app, subscription and caller; the
+    resources seen; and Power BI and Power Apps last active and active days in 30 (`audit.PowerPlatformUserActivity`,
+    each product's rows replaced only when the activity database holds records of it).
+- **Governance › AI apps beyond Copilot**: calls, conversations, resources, the share of calls without a user identity
+  (an app calling with its own key), people (counted from the minimum group size, never named) and failures; calls over
+  time with and without a person's identity; by line of business and environment; each resource with its Azure cost
+  where the Foundry loader runs; departments calling with their own identity; and, for administrators, the resource
+  map (line of business, environment and owner, guessed from names like `retail-prod-aif-0147` until set).
+- **Leadership › How figures are calculated**: every price and assumption (49 on the demo) with its value, the
+  figures that use it, who last changed it or *As installed*, and *Change it* for an administrator who may set it,
+  which opens the page at the field; prices that disagree (the Copilot price in Access against the reservation rate
+  in force and the contracts' price); and how each kind of figure is worked out.
+- **How it is worked out**, under every money figure: on Costs and savings' tiles, Chargeback, License optimization,
+  Budget and renewal, Rollout waves, License action outcomes, Fading use, Better with a license, Better on
+  pay-as-you-go, Swap list, Credit use (the credit formula with its rates, and the token formula), Agents costing
+  credits, Suite fit, Value and time saved and Copilot reservations: the formula with its values, then each assumption
+  with its value and, for an administrator, *Change it*.
+- **Prices that disagree** are said at the top of Costs and savings.
+
+### Changed
+- **Seat cuts are counted at what they really save** (Costs and savings):
+  - **Spare seats kept on purpose** are not a saving: *Spare seats kept unassigned* (10% of those bought) for the
+    Copilot add-on and every license, and a license's own share on its price row. 754 unassigned Copilot seats of
+    18,640 are within the spare; nothing to cut.
+  - **Bought for capacity or the volume price**: a price row's switch; its unassigned and idle seats are never money
+    back (Power Apps Premium bought to 2,000 seats for its Dataverse capacity).
+  - **The volume price**: the spend counts it, and a cut under it counts every seat going back to the list price, or
+    stops at it where crossing it would save less.
+  - **The Dataverse capacity a seat brings**: a cut that gives up more than the tenant has spare is less the add-on
+    capacity it would need; without the capacity loaded, the saving is Low confidence and says it was not checked.
+  - The monthly spend trend counts the volume price too.
+- Chargeback's *Bought, not assigned* says what is beyond the seats kept spare.
+- The installed settings include the pay-as-you-go cost of an interaction (0.12), which the pages assumed when unset.
+
+### Fixed
+- `Install-CopilotAudit.ps1 -ReportingTimeZone 'Eastern Standard Time'` on new, empty databases recorded nothing, as Eastern is the
+  zone a database with none reads; the next install with no zone named then gave them the server's own zone (UTC on a
+  server set to UTC). The zone named is now always recorded.
+
+### Known limits
+- **Not run against the client's tenant.** The three record types' fields are read as Microsoft documents them and as
+  the client's two sample records showed (`AppIdentity`, `CopilotEventData.Contexts`, `Messages`, `ThreadId`,
+  `AccessedResources`; Power BI's `ItemName` and `WorkSpaceName`; Power Apps' `AdditionalInfo`); the application name
+  and subscription are read from three likely places each. Where one is named differently, correct the shred and read
+  every record again (`EXEC audit.usp_ShredActivity;`): the records are kept whole. Submitting record-type searches to
+  beta is untested against the live service; the stand-in accepts both endpoints.
+- **Calls without a user identity cannot be tied to a person**, only to a resource and subscription.
+- **The Dataverse check needs the capacity loaded** (`PowerPlatformCapacityDay`, by CSV until the Power Platform
+  permission arrives). Fabric capacity, Copilot Credits and flow runs still come from CSV exports.
+- Line of business and environment are guessed from resource names until an administrator sets them.
+
 ## [2.6.8] - 2026-10-19
 
 Microsoft 365 Copilot reservations and chargeback: **Leadership › Copilot reservations** sets each line of business's

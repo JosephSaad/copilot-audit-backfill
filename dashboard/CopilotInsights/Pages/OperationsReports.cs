@@ -165,10 +165,13 @@ namespace CopilotInsights.Pages.Leadership
             var hours = v.ByApp.Sum(x => x.Hours);
             var value = v.ByApp.Sum(x => x.Value);
             var licenseCost = Licensing.Price.ForLicenseDays(await reports.LicenseDaysAsync(Ctx), price);
-            Kpis.Add(new("Hours saved (estimate)", Num(hours), $"{v.DefaultMinutes:0.#} minutes an interaction unless set per app"));
-            Kpis.Add(new($"Estimated value ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour"));
+            Kpis.Add(new("Hours saved (estimate)", Num(hours), $"{v.DefaultMinutes:0.#} minutes an interaction unless set per app",
+                Why: await WhyAsync($"Each app's interactions × the minutes one saves there ({v.DefaultMinutes:0.#} unless set for the app) ÷ 60.", "MinutesSavedDefault", "AppMinutes")));
+            Kpis.Add(new($"Estimated value ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour",
+                Why: await WhyAsync($"Hours saved ({hours:#,0}) × what an hour is worth ({v.HourlyCost:#,0.##} {cur}).", "MinutesSavedDefault", "AppMinutes", "HourlyCost")));
             Kpis.Add(new("Per person using Copilot", t.Active > 0 ? $"{hours / t.Active:0.#} h" : "—", "in the period"));
-            Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", $"license cost in the period: {licenseCost:#,0} {cur}"));
+            Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", $"license cost in the period: {licenseCost:#,0} {cur}",
+                Why: await WhyAsync($"Estimated value ({value:#,0} {cur}) ÷ the license cost of the period: each licensed person-day at the Copilot license price over the days of its month ({licenseCost:#,0} {cur}).", "HourlyCost", "MinutesSavedDefault", "LicenseMonthlyCost")));
             Panels.Add(new("Hours saved by app", Chart.Bars(v.ByApp.Take(12).Select(a => new Bar(a.Name, a.Hours, Note: $"{a.Interactions:#,0} interactions")).ToList(), Fmt.Count, "Hours saved by app"),
                 "Set the minutes each app saves in Admin > Targets and assumptions.", "half"));
             var shown = FoldSmall(v.ByDepartment, d => d.People, OpsReports.CombineValue, out var folded);

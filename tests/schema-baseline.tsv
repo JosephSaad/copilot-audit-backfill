@@ -1,7 +1,27 @@
-# release 2.6.8
+# release 2.6.9
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
+C	copilot	audit.AIAppResource	U	1	Resource	nvarchar(200)	0	
+C	copilot	audit.AIAppResource	U	2	LineOfBusiness	nvarchar(100)	1	
+C	copilot	audit.AIAppResource	U	3	Environment	varchar(16)	0	D
+C	copilot	audit.AIAppResource	U	4	Owner	nvarchar(256)	1	
+C	copilot	audit.AIAppResource	U	5	Notes	nvarchar(400)	1	
+C	copilot	audit.AIAppResource	U	6	SetBy	varchar(8)	0	D
+C	copilot	audit.AIAppResource	U	7	FirstSeen	date	1	
+C	copilot	audit.AIAppResource	U	8	UpdatedBy	nvarchar(256)	1	
+C	copilot	audit.AIAppResource	U	9	UpdatedUtc	datetime2(0)	0	D
+C	copilot	audit.AIAppUserDay	U	1	Day	date	0	
+C	copilot	audit.AIAppUserDay	U	10	Failures	int	0	
+C	copilot	audit.AIAppUserDay	U	11	LoadedUtc	datetime2(0)	0	D
+C	copilot	audit.AIAppUserDay	U	2	Resource	nvarchar(200)	0	
+C	copilot	audit.AIAppUserDay	U	3	ApplicationName	nvarchar(200)	0	
+C	copilot	audit.AIAppUserDay	U	4	SubscriptionId	varchar(64)	0	
+C	copilot	audit.AIAppUserDay	U	5	CallerKind	varchar(16)	0	
+C	copilot	audit.AIAppUserDay	U	6	Caller	nvarchar(256)	0	
+C	copilot	audit.AIAppUserDay	U	7	Calls	int	0	
+C	copilot	audit.AIAppUserDay	U	8	Prompts	int	0	
+C	copilot	audit.AIAppUserDay	U	9	Threads	int	0	
 C	copilot	audit.AgentCatalog	U	1	AgentCatalogId	int	0	I
 C	copilot	audit.AgentCatalog	U	2	AppIdentity	nvarchar(200)	0	
 C	copilot	audit.AgentCatalog	U	3	AgentId	nvarchar(400)	0	
@@ -597,6 +617,8 @@ C	copilot	audit.ValueCatalogColumn	U	4	Label	nvarchar(200)	0
 C	copilot	audit.ValueCatalogColumn	U	5	DistinctValues	int	0	D
 C	copilot	audit.ValueCatalogColumn	U	6	Capped	bit	0	D
 C	copilot	audit.ValueCatalogColumn	U	7	UpdatedUtc	datetime2(0)	1	
+C	copilot	audit.fnAIAppResourceGuess	IF	1	Environment	varchar(11)	0	
+C	copilot	audit.fnAIAppResourceGuess	IF	2	LineOfBusiness	nvarchar(max)	1	
 C	copilot	audit.fnShredCopilotInteraction	IF	1	JsonUserId	nvarchar(512)	1	
 C	copilot	audit.fnShredCopilotInteraction	IF	10	UsedWebSearch	bit	1	
 C	copilot	audit.fnShredCopilotInteraction	IF	2	AppHost	nvarchar(100)	1	
@@ -1118,6 +1140,12 @@ C	copilot	dash.AuditLog	U	8	ClientIp	varchar(64)	1
 C	copilot	dash.CopilotSuiteHolder	V	1	Upn	nvarchar(512)	0	
 C	copilot	dash.CopilotSuiteOnly	V	1	Upn	nvarchar(512)	0	
 C	copilot	dash.CostPrice	U	1	Item	varchar(64)	0	
+C	copilot	dash.CostPrice	U	10	TierFromSeats	int	1	
+C	copilot	dash.CostPrice	U	11	TierPrice	decimal(19,4)	1	
+C	copilot	dash.CostPrice	U	12	SparePercent	decimal(5,2)	1	
+C	copilot	dash.CostPrice	U	13	ForCapacity	bit	1	
+C	copilot	dash.CostPrice	U	14	DatabaseGbPerSeat	decimal(9,3)	1	
+C	copilot	dash.CostPrice	U	15	FileGbPerSeat	decimal(9,3)	1	
 C	copilot	dash.CostPrice	U	2	Area	nvarchar(40)	0	
 C	copilot	dash.CostPrice	U	3	Name	nvarchar(200)	0	
 C	copilot	dash.CostPrice	U	4	Unit	nvarchar(40)	0	
@@ -1611,6 +1639,7 @@ G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_GetSecret
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_RefreshDashboard
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetPrivacyMode
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetSecret
+G	copilot	CopilotInsightsApp	INSERT	audit.AIAppResource
 G	copilot	CopilotInsightsApp	INSERT	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	INSERT	dash.AgentAlias
 G	copilot	CopilotInsightsApp	INSERT	dash.AlertState
@@ -1640,6 +1669,8 @@ G	copilot	CopilotInsightsApp	INSERT	dash.UseCaseRule
 G	copilot	CopilotInsightsApp	INSERT	dash.ValueName
 G	copilot	CopilotInsightsApp	SELECT	SCHEMA::bi
 G	copilot	CopilotInsightsApp	SELECT	SCHEMA::dash
+G	copilot	CopilotInsightsApp	SELECT	audit.AIAppResource
+G	copilot	CopilotInsightsApp	SELECT	audit.AIAppUserDay
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotBackfillWindow
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotCsvImport
 G	copilot	CopilotInsightsApp	SELECT	audit.CopilotLicense
@@ -1672,6 +1703,7 @@ G	copilot	CopilotInsightsApp	SELECT	audit.UserDirectory
 G	copilot	CopilotInsightsApp	SELECT	audit.UserLicenseSku
 G	copilot	CopilotInsightsApp	SELECT	audit.ValueCatalog
 G	copilot	CopilotInsightsApp	SELECT	audit.ValueCatalogColumn
+G	copilot	CopilotInsightsApp	UPDATE	audit.AIAppResource
 G	copilot	CopilotInsightsApp	UPDATE	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAlias
 G	copilot	CopilotInsightsApp	UPDATE	dash.AlertState
@@ -1725,6 +1757,8 @@ G	copilot	CopilotReporting	SELECT	bi.Skus
 G	copilot	CopilotReporting	SELECT	bi.UseCases
 G	copilot	CopilotReporting	SELECT	bi.Users
 G	copilot	CopilotReporting	SELECT	bi.ValueNames
+O	copilot	audit.AIAppResource	U
+O	copilot	audit.AIAppUserDay	U
 O	copilot	audit.AgentCatalog	U
 O	copilot	audit.CopilotAudit	U
 O	copilot	audit.CopilotAuditStage	U
@@ -1773,6 +1807,7 @@ O	copilot	audit.UserDirectory	U
 O	copilot	audit.UserLicenseSku	U
 O	copilot	audit.ValueCatalog	U
 O	copilot	audit.ValueCatalogColumn	U
+O	copilot	audit.fnAIAppResourceGuess	IF
 O	copilot	audit.fnShredCopilotInteraction	IF
 O	copilot	audit.usp_BackfillAgentNames	P
 O	copilot	audit.usp_BuildCopilotSessions	P
@@ -1782,6 +1817,7 @@ O	copilot	audit.usp_FlattenCopilotAudit	P
 O	copilot	audit.usp_MergeCopilotCsv	P
 O	copilot	audit.usp_MergeCopilotLoad	P
 O	copilot	audit.usp_PurgeCopilotAuditJson	P
+O	copilot	audit.usp_RollupActivity	P
 O	copilot	audit.vCopilotAdoption	V
 O	copilot	audit.vCopilotAuditRecord	V
 O	copilot	audit.vCopilotDailyUsage	V
@@ -1917,6 +1953,7 @@ O	license	audit.vLicenseChange	V
 O	license	audit.vLicenseLifecycle	V
 O	license	audit.vLicenseSkuChange	V
 O	license	audit.vLicenseSkuChangeFromRecords	V
+P	copilot	audit.fnAIAppResourceGuess	IF	1	@Resource	nvarchar(200)	0	0
 P	copilot	audit.fnShredCopilotInteraction	IF	1	@AuditDataGz	varbinary(max)	0	0
 P	copilot	audit.usp_BackfillAgentNames	P	1	@BatchSize	int	0	1
 P	copilot	audit.usp_BackfillAgentNames	P	2	@Others	bit	0	1
@@ -1941,6 +1978,8 @@ P	copilot	audit.usp_PurgeCopilotAuditJson	P	3	@PurgeStaging	bit	0	1
 P	copilot	audit.usp_PurgeCopilotAuditJson	P	4	@PurgeFlattened	bit	0	1
 P	copilot	audit.usp_PurgeCopilotAuditJson	P	5	@BatchSize	int	0	1
 P	copilot	audit.usp_PurgeCopilotAuditJson	P	6	@WhatIf	bit	0	1
+P	copilot	audit.usp_RollupActivity	P	1	@ActivityDatabase	sysname	0	0
+P	copilot	audit.usp_RollupActivity	P	2	@SinceUtc	datetime2(0)	0	1
 P	copilot	bi.fnAgentIdentity	IF	1	@AppIdentity	nvarchar(400)	0	0
 P	copilot	bi.fnAgentIdentity	IF	2	@AgentId	nvarchar(400)	0	0
 P	copilot	bi.usp_MergeAgents	P	1	@BatchSize	int	0	1

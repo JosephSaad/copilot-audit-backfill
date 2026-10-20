@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-114 tables (plus 2 left over from 1.x), 39 views, 1436 columns, from 19 scripts.
+118 tables (plus 2 left over from 1.x), 39 views, 1489 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -18,6 +18,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [Sessions and the weekly rollup](#sessions-and-the-weekly-rollup): [`audit.SessionAppCategory`](#auditsessionappcategory), [`audit.CopilotSession`](#auditcopilotsession), [`audit.CopilotWeeklyRollup`](#auditcopilotweeklyrollup), [`audit.CopilotSessionRun`](#auditcopilotsessionrun), [`audit.vCopilotSessionSummary`](#auditvcopilotsessionsummary), [`audit.vCopilotWeeklyRollup`](#auditvcopilotweeklyrollup)
 - [CSV import](#csv-import): [`audit.CopilotCsvImport`](#auditcopilotcsvimport), [`audit.CopilotCsvFile`](#auditcopilotcsvfile), [`audit.CopilotCsvReject`](#auditcopilotcsvreject), [`audit.CopilotCsvStage`](#auditcopilotcsvstage)
 - [AI usage outside Microsoft 365 Copilot (2.6.2), and Fabric and the Power Platform (2.6.6)](#ai-usage-outside-microsoft-365-copilot-262-and-fabric-and-the-power-platform-266): [`audit.GitHubCopilotSeat`](#auditgithubcopilotseat), [`audit.GitHubCopilotDay`](#auditgithubcopilotday), [`audit.GitHubCopilotUserDay`](#auditgithubcopilotuserday), [`audit.GitHubCopilotCost`](#auditgithubcopilotcost), [`audit.FoundryDeployment`](#auditfoundrydeployment), [`audit.FoundryUsageDay`](#auditfoundryusageday), [`audit.FoundryCostDay`](#auditfoundrycostday), [`audit.ExternalUsageRun`](#auditexternalusagerun), [`audit.FabricCapacityDay`](#auditfabriccapacityday), [`audit.FabricWorkloadDay`](#auditfabricworkloadday), [`audit.PowerAutomateFlow`](#auditpowerautomateflow), [`audit.PowerPlatformUserActivity`](#auditpowerplatformuseractivity), [`audit.PowerPlatformCapacityDay`](#auditpowerplatformcapacityday), [`audit.PowerPlatformCreditDay`](#auditpowerplatformcreditday)
+- [AI apps, Power BI and Power Apps (2.6.9)](#ai-apps-power-bi-and-power-apps-269): [`audit.AIAppUserDay`](#auditaiappuserday), [`audit.AIAppResource`](#auditaiappresource), [`audit.AIAppCall`](#auditaiappcall), [`audit.PlatformActivity`](#auditplatformactivity)
 - [License events (license-event database)](#license-events-license-event-database): [`audit.LicenseEvent`](#auditlicenseevent), [`audit.LicenseEventChunk`](#auditlicenseeventchunk), [`audit.LicenseEventProperty`](#auditlicenseeventproperty), [`audit.vLicenseChange`](#auditvlicensechange), [`audit.LicenseSkuChange`](#auditlicenseskuchange), [`audit.LicenseSkuChangeRun`](#auditlicenseskuchangerun), [`audit.vLicenseSkuChangeFromRecords`](#auditvlicenseskuchangefromrecords), [`audit.vLicenseSkuChange`](#auditvlicenseskuchange), [`audit.AgentEvent`](#auditagentevent), [`audit.vLicenseLifecycle`](#auditvlicenselifecycle)
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
@@ -49,12 +50,15 @@ Every table, view, procedure and function comes from a script in `sql/`. Each is
 | `sql/Create-CopilotExternalUsageSchema.sql` | Copilot | By Install-CopilotAudit.ps1 | AI usage outside Microsoft 365 Copilot (2.6.2): GitHubCopilotSeat, GitHubCopilotDay, GitHubCopilotUserDay and GitHubCopilotCost, filled by tools/Import-GitHubCopilotUsage.ps1; FoundryDeployment, FoundryUsageDay and FoundryCostDay, filled by tools/Import-FoundryUsage.ps1; and ExternalUsageRun, each run of either. From 2.6.6, FabricCapacityDay, FabricWorkloadDay, PowerAutomateFlow, PowerPlatformUserActivity, PowerPlatformCapacityDay and PowerPlatformCreditDay, filled by tools/Import-CostCsv.ps1, for Leadership > Costs and savings. |
 | `sql/Create-CopilotDashboardSchema.sql` | Copilot | By hand, once, for the dashboard (step 22) | The dash schema: Setting (seeded), RoleGrant, AgentAlias, SensitivityLabel, AuditLog, Person, OrgClosure, UserDay, ResourceDay, AgentUse, RefreshRun, CostPrice and CostSuite (2.6.6, seeded); the views dash.Agent, dash.CopilotSuiteOnly and dash.CopilotSuiteHolder (2.6.6) and the function dash.fnScopeUsers. |
 | `sql/Create-CopilotOperationsSchema.sql` | Copilot | By Install-CopilotAudit.ps1 -Dashboard, or the dashboard installer with -GrantDatabaseAccess | The dashboard's operations (2.3.0): encrypted secrets, digests, alerts, targets, time saved, training, value names, flag triage, digest preferences and sends, license actions and contracts, Copilot reservations, their rate, the Technology-funded pool and month-end snapshots (2.6.8), saved views, job-family and use-case rules, events and extracts; the role CopilotInsightsApp and its grants; privacy mode and retention procedures; the bi views OrgSecurity, ValueNames, LicensePool, DepartmentWeek, UseCases, JobFamilies and EventMarkers. |
+| `sql/Create-CopilotActivityRollup.sql` | Copilot | By Install-CopilotAudit.ps1 | AIAppUserDay, AIAppResource, the function fnAIAppResourceGuess and usp_RollupActivity (2.6.9), which reads the activity database into them and into PowerPlatformUserActivity. |
+| `sql/Create-ActivitySchema.sql` | Activity | By Install-CopilotAudit.ps1 -ActivityDatabase | AIAppCall and PlatformActivity (2.6.9): the activity database's records, a row each. |
+| `sql/Create-ActivityProcedure.sql` | Activity | By Install-CopilotAudit.ps1 -ActivityDatabase | usp_ShredActivity (2.6.9), which the incremental load runs after each merge. |
 | `sql/Create-AgentEventProcedure.sql` | License events | By Install-CopilotAudit.ps1, and after each license-event load | audit.AgentEvent and audit.usp_ShredAgentEvents (2.3.0): Copilot Studio authoring records, one row each. |
 | `sql/Create-CopilotDashboardProcedure.sql` | Copilot | By hand, once, for the dashboard (step 22) | dash.usp_RefreshDashboard, which the backfill's -Incremental run and the CSV importer call after bi.usp_RefreshBi. |
 
-**Two databases.** The Copilot database (`CopilotAudit`) holds everything below except the license-event section. The license-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the license-event tables and views.
+**Two databases, or three.** The Copilot database (`CopilotAudit`) holds everything below except the license-event section and the activity database's two tables. The license-event database (`CopilotLicenseEvents`) holds the same loading, state and final-record tables, filled with directory events instead, plus the license-event tables and views. The activity database (2.6.9, optional, `ActivityDatabase` in the settings) holds them too, filled by Purview record type (AI app calls, Power BI and Power Apps), plus `audit.AIAppCall` and `audit.PlatformActivity`.
 
-**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organization to it. `dash.fnReservationMember(@AsOf)` (inline, 2.6.8) returns each reservation's people on a day: everyone under its leader, a person under two listed leaders counted with the nearer one; `dash.usp_TakeReservationSnapshot` (2.6.8), which the nightly run calls, keeps the last month-end's reservation position once.
+**Procedures and function.** `audit.fnShredCopilotInteraction` (inline; JSON to interaction columns), `audit.usp_MergeCopilotLoad`, `audit.usp_MergeCopilotCsv`, `audit.usp_FlattenCopilotAudit`, `audit.usp_PurgeCopilotAuditJson`, `audit.usp_BuildCopilotSessions`, `audit.usp_ShredLicenseEvents`, `audit.usp_RefreshLicenseSkuChange`, `bi.usp_RefreshBi` and `dash.usp_RefreshDashboard`, from the scripts above. `dash.fnScopeUsers(@RootUpn)` (inline) returns the `bi.DimUser` keys of a person and everyone under them: the dashboard joins every query for a part of the organization to it. `dash.fnReservationMember(@AsOf)` (inline, 2.6.8) returns each reservation's people on a day: everyone under its leader, a person under two listed leaders counted with the nearer one; `dash.usp_TakeReservationSnapshot` (2.6.8), which the nightly run calls, keeps the last month-end's reservation position once. `audit.usp_ShredActivity` (activity database) and `audit.usp_RollupActivity` (Copilot database, reading the activity database by name), 2.6.9.
 
 ## Naming conventions
 
@@ -1486,7 +1490,7 @@ Indexes and constraints:
 
 ### audit.PowerPlatformUserActivity
 
-*Table.* Who used Power BI, Power Apps, Power Automate and Copilot Studio lately (2.6.6), from the admin center's usage exports. With audit.UserLicenseSku, a premium license held by someone who does not use the product.
+*Table.* Who used Power BI, Power Apps, Power Automate and Copilot Studio lately (2.6.6), from the admin center's usage exports; from 2.6.9 the Power BI and Power Apps rows from the activity database's records, by `audit.usp_RollupActivity`. With audit.UserLicenseSku, a premium license held by someone who does not use the product.
 
 **Script** `Create-CopilotExternalUsageSchema.sql` · **In** Copilot database
 
@@ -1540,6 +1544,111 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_PowerPlatformCreditDay`: primary key, clustered (Day, EnvironmentName, Product, Billing)
+
+## AI apps, Power BI and Power Apps (2.6.9)
+
+The activity database's records, and what the Copilot database keeps of them for the dashboard. `audit.usp_RollupActivity` copies the second into the first each night; the dashboard reads only the Copilot database.
+
+### audit.AIAppUserDay
+
+*Table.* AI app calls (ConnectedAIAppInteraction: Azure AI Foundry and Azure OpenAI from the organization's own apps) by day, resource, app, subscription and caller (2.6.9), for Governance &gt; AI apps beyond Copilot. Days are the reporting time zone's. Rewritten from the rollup's day by `audit.usp_RollupActivity`.
+
+**Script** `Create-CopilotActivityRollup.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Day` | date | **no** | **PK** | a day in the reporting time zone |
+| 2 | `Resource` | nvarchar(200) | **no** | **PK** | the Azure resource, or the Entra app id |
+| 3 | `ApplicationName` | nvarchar(200) | **no** | **PK** | '' where the record names none |
+| 4 | `SubscriptionId` | varchar(64) | **no** | **PK** | '' where the record names none |
+| 5 | `CallerKind` | varchar(16) | **no** |  | Person \| Unattributed |
+| 6 | `Caller` | nvarchar(256) | **no** | **PK** | the sign-in, or 'unattributed' |
+| 7 | `Calls` | int | **no** |  | records: a prompt or a response each |
+| 8 | `Prompts` | int | **no** |  |  |
+| 9 | `Threads` | int | **no** |  | distinct conversations that day |
+| 10 | `Failures` | int | **no** |  |  |
+| 11 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_AIAppUserDay`: primary key, clustered (Day, Resource, ApplicationName, SubscriptionId, Caller)
+
+### audit.AIAppResource
+
+*Table.* Each AI resource seen (2.6.9): its line of business, environment and owner, guessed from its name the first time it is seen (SetBy Name) and kept once an administrator sets them on the page (SetBy Admin).
+
+**Script** `Create-CopilotActivityRollup.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Resource` | nvarchar(200) | **no** | **PK** |  |
+| 2 | `LineOfBusiness` | nvarchar(100) | yes |  |  |
+| 3 | `Environment` | varchar(16) | **no** | `'Unknown'` | Production \| Development \| Test \| Unknown |
+| 4 | `Owner` | nvarchar(256) | yes |  |  |
+| 5 | `Notes` | nvarchar(400) | yes |  |  |
+| 6 | `SetBy` | varchar(8) | **no** | `'Name'` | Name (guessed) \| Admin |
+| 7 | `FirstSeen` | date | yes |  |  |
+| 8 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 9 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_AIAppResource`: primary key, clustered (Resource)
+
+### audit.AIAppCall
+
+*Table.* One row per ConnectedAIAppInteraction record (2.6.9), shredded by `audit.usp_ShredActivity`. A record is one message, a prompt or a response; no prompt or response text exists in it, and client IP addresses are not copied.
+
+**Script** `Create-ActivitySchema.sql` · **In** activity database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | varchar(64) | **no** |  |  |
+| 2 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
+| 3 | `UserId` | nvarchar(256) | yes |  | a sign-in, or Guest |
+| 4 | `UserType` | int | yes |  | 0 a person; 10 Guest |
+| 5 | `UserKey` | nvarchar(128) | yes |  |  |
+| 6 | `CallerKind` | varchar(16) | **no** |  | Person \| Unattributed |
+| 7 | `Caller` | nvarchar(256) | **no** |  |  |
+| 8 | `AppIdentity` | nvarchar(400) | yes |  | ConnectedAIApp.AzureAI.&lt;resource&gt; or ConnectedAIApp.Entra.&lt;app id&gt; |
+| 9 | `AppHost` | nvarchar(200) | yes |  |  |
+| 10 | `ApplicationName` | nvarchar(200) | yes |  |  |
+| 11 | `Resource` | nvarchar(200) | **no** |  |  |
+| 12 | `ContextId` | nvarchar(400) | yes |  | the endpoint |
+| 13 | `SubscriptionId` | varchar(64) | yes |  |  |
+| 14 | `ThreadId` | nvarchar(400) | yes |  |  |
+| 15 | `Prompts` | int | **no** |  |  |
+| 16 | `Responses` | int | **no** |  |  |
+| 17 | `Failed` | bit | **no** |  | a resource reached reported Failure |
+| 18 | `ShreddedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `CCI_AIAppCall`: clustered columnstore
+- `UX_AIAppCall_Record`: unique (RecordId)
+
+### audit.PlatformActivity
+
+*Table.* One row per PowerBIAudit or PowerAppsApp record (2.6.9), shredded by `audit.usp_ShredActivity`: who, what, and on which item.
+
+**Script** `Create-ActivitySchema.sql` · **In** activity database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | varchar(64) | **no** |  |  |
+| 2 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
+| 3 | `Product` | varchar(32) | **no** |  | Power BI \| Power Apps |
+| 4 | `Operation` | nvarchar(128) | yes |  | ViewReport, ExportReport, LaunchPowerApp ... |
+| 5 | `UserId` | nvarchar(256) | yes |  |  |
+| 6 | `UserType` | int | yes |  |  |
+| 7 | `ItemName` | nvarchar(400) | yes |  | the report, dashboard, dataset or app |
+| 8 | `Container` | nvarchar(400) | yes |  | the workspace, or the environment |
+| 9 | `ShreddedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `CCI_PlatformActivity`: clustered columnstore
+- `UX_PlatformActivity_Record`: unique (RecordId)
 
 ## License events (license-event database)
 
@@ -2664,6 +2773,12 @@ Indexes and constraints:
 | 7 | `Note` | nvarchar(400) | yes |  |  |
 | 8 | `UpdatedBy` | nvarchar(256) | yes |  |  |
 | 9 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 10 | `TierFromSeats` | int | yes |  | 2.6.9: from this many seats every seat costs TierPrice |
+| 11 | `TierPrice` | decimal(19,4) | yes |  | 2.6.9: the volume price (Power Apps Premium: 12 from 2,000) |
+| 12 | `DatabaseGbPerSeat` | decimal(9,3) | yes |  | 2.6.9: Dataverse database capacity a seat brings |
+| 13 | `FileGbPerSeat` | decimal(9,3) | yes |  | 2.6.9: Dataverse file capacity a seat brings |
+| 14 | `SparePercent` | decimal(5,2) | yes |  | 2.6.9: share of seats bought kept unassigned on purpose; NULL: SpareSeatPercent |
+| 15 | `ForCapacity` | bit | yes |  | 2.6.9: bought for its capacity or volume price: unassigned and idle seats are no saving |
 
 Indexes and constraints:
 

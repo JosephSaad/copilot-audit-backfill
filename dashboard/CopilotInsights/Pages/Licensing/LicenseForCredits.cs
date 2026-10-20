@@ -67,9 +67,12 @@ WHERE du.UserKey IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@keys, ','))
         Kpis.Add(new(AllShown ? "Paying in credits" : "Cheaper with a license", Num(rows.Count),
             AllShown ? "without a license, with billed agent use" : $"credits a month at or over the license's {price:#,0.##} {cur}"));
         Kpis.Add(new($"Credits a month ({cur})", Num((long)cost), $"{Num((long)Math.Round(rows.Sum(r => r.P.Month.Credits)))} credits, estimated as Credit use estimates them",
-            Href: Open("/licensing/credit-use")));
+            Href: Open("/licensing/credit-use"),
+            Why: await WhyAsync("Each person's billed agent interactions over the last 30 days × the credits each costs (an answer, plus grounding in work data, plus actions), × the pay-as-you-go credit's price.",
+                "CreditsPerAnswer", "CreditsPerGrounding", "CreditsPerAction", "Price:COPILOT_STUDIO_PAYG_CREDIT")));
         if (!AllShown)
-            Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, cost - rows.Count * price)), $"licensing them instead, at {price:#,0.##} each"));
+            Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, cost - rows.Count * price)), $"licensing them instead, at {price:#,0.##} each",
+                Why: await WhyAsync($"Their credits a month ({cost:#,0} {cur}) less a license each ({rows.Count:#,0} × {price:#,0.##} {cur}).", "LicenseMonthlyCost", "CreditsPerAnswer", "CreditsPerGrounding", "Price:COPILOT_STUDIO_PAYG_CREDIT")));
 
         IEnumerable<Row> shown = rows;
         if (pg.Search is { } q)

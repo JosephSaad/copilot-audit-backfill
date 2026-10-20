@@ -46,16 +46,20 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         var moves = v.Rows.Where(r => r.Fit.Move is not SuiteMove.Keep).ToList();
         /* Summed as the Suites card on Costs and savings sums them (SuiteData.Summarize), so the two pages agree: a copy of
            the Copilot add-on or of Power BI Pro is an AI saving, counted with its area there, and shown apart here. */
-        var summary = SuiteData.Summarize(v, 0);
+        var summary = SuiteData.Summarize(v, 0, decimal.TryParse(await S.Settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var sparePct) ? sparePct : 10m);   // 2.6.9: seats kept spare on purpose
         /* The add-on a suite covers, as Costs and savings counts it (SuiteData.AddOnCopy), so the two pages agree. */
         var today = Ctx.End.Date;
         decimal CopyWorth(SuiteRow r) { var (cp, pb) = SuiteData.AddOnCopy(r, today); return (cp ? v.CopilotPrice : 0) + (pb ? v.PowerBiPrice : 0); }
         var copies = v.Rows.Where(r => SuiteData.AddOnCopy(r, today) is (true, _) or (_, true)).ToList();
 
         Kpis.Add(new("Suite holders", Num(v.Rows.Count), $"{Count(v.Rows.Select(r => r.Holder.Suite.Name).Distinct().Count(), "suite")} held"));
-        Kpis.Add(new($"Suite moves to review a month ({cur})", Num((long)Math.Round(summary.Saving)), $"{M(summary.Saving * 12)} a year; outside Costs and savings' AI savings", summary.Saving > 0 ? "good" : null));
+        Kpis.Add(new($"Suite moves to review a month ({cur})", Num((long)Math.Round(summary.Saving)), $"{M(summary.Saving * 12)} a year; outside Costs and savings' AI savings", summary.Saving > 0 ? "good" : null,
+            Why: await WhyAsync("For each holder a lower suite would serve: the suite's price less the lower one's, a month, as set in Suites: E3, E5 and E7. Moves to train save nothing until decided.",
+                [.. v.Suites.Select(su => "Suite:" + su.Pattern).Distinct()])));
         Kpis.Add(new($"Licenses held twice ({cur})", Num((long)Math.Round(copies.Sum(CopyWorth))), $"{Count(copies.Count, "person", "people")} with an add-on the suite covers: AI savings on Costs and savings",
-            Href: Open(Request.Path, extra: "copy=addon")));
+            Href: Open(Request.Path, extra: "copy=addon"),
+            Why: await WhyAsync($"For each holder whose suite already includes an add-on they hold: the Copilot license price ({v.CopilotPrice:#,0.##} {cur}) where it is Copilot, plus Power BI Pro's ({v.PowerBiPrice:#,0.##} {cur}) where it is Power BI.",
+                "LicenseMonthlyCost", "Price:POWER_BI_PRO")));
         Kpis.Add(new("To train before deciding", Num(moves.Count(r => r.Fit.Move == SuiteMove.Train)), "E7 holders who barely use Copilot", Href: Open(Request.Path, extra: "move=train")));
         /* The suites held, what each costs and includes. */
         var st = new Table { Headers = ["Suite", "Holders", $"Price a month ({cur})", "Includes, so not counted as AI spend", "Also brings"], Numeric = new HashSet<int> { 1, 2 } };

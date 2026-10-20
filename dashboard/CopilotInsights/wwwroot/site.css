@@ -195,6 +195,15 @@ details.notice.access[open] .more { display: none; }
 .klabel { font-size: 12px; color: var(--muted); }
 .kvalue { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .knote { font-size: 12px; color: var(--faint); }
+/* 2.6.9: how a figure is worked out, under it: the formula and the assumptions, each with where to change it. */
+.kwhy { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.kwhy summary { cursor: pointer; color: var(--accent, var(--muted)); width: fit-content; }
+.kwhy p { margin: 6px 0 4px; overflow-wrap: anywhere; }
+.kwhy ul { margin: 0; padding-left: 16px; }
+.kwhy li { margin: 2px 0; overflow-wrap: anywhere; }
+.kwhy a { white-space: nowrap; }
+.focus-mark { outline: 3px solid var(--warn); outline-offset: 3px; border-radius: 4px; transition: outline-color 1s; }
+.conflict { border-left: 3px solid var(--warn); padding: 6px 10px; margin: 6px 0; }
 /* A figure that leads to its detail (2.6.6): the figure is the link, and a chevron says so. */
 a.kvalue.klink { display: block; color: inherit; text-decoration: none; }
 a.kvalue.klink:hover, a.kvalue.klink:focus-visible { color: var(--accent); }

@@ -31,7 +31,7 @@ public class FigureLinkTests
         var optimize = Page("Forecasting", "Forecasting.cs");
         Assert.Contains(rule, licensing);
         Assert.Contains(rule, optimize);
-        Assert.Contains("idle > 0 ? \"crit\" : null, Href: Open(\"/licensing/unused\")));", optimize);
+        Assert.Contains("idle > 0 ? \"crit\" : null, Href: Open(\"/licensing/unused\"),", optimize);   // 2.6.9: then how it is worked out
         Assert.Contains("A(\"Unused licenses\", \"/licensing/unused\", Roles.Licensing)", optimize);
         /* The share in use counts every idle license, new or protected, and links nowhere: it is a percentage. */
         Assert.Contains("Pct(Ratio(t.LicensedNow - idle, t.LicensedNow)), $\"used in the last {Ctx.InactiveDays} days\"));", licensing);
@@ -61,8 +61,9 @@ public class FigureLinkTests
     {
         /* Chargeback's unused spend is the period's, by another rule than Unused licenses; its licenses held are Usage by license's. */
         var chargeback = Page("Licensing", "Operations.cs");
-        Assert.Contains("\"a month, on licenses not used in the period\", licensed - used > 0 ? \"warn\" : null));", chargeback);
-        Assert.Contains("Href: Open(\"/adoption/by-license\")));", chargeback);
+        Assert.Contains("\"a month, on licenses not used in the period\", licensed - used > 0 ? \"warn\" : null,", chargeback);
+        Assert.DoesNotContain("\"a month, on licenses not used in the period\", licensed - used > 0 ? \"warn\" : null, Href", chargeback);   // 2.6.9: no link, only how it is worked out
+        Assert.Contains("Href: Open(\"/adoption/by-license\"),", chargeback);
         /* The agent lists count within the page's own list and filters, so Shared and In production do not open the full lists. */
         var workbook = Page("Agents", "Workbook.cs");
         Assert.DoesNotContain("Open(\"/agents/shared\")", workbook);

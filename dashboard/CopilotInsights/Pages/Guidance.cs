@@ -25,6 +25,7 @@ public static class Guidance
         ["/leadership/reservations"] = new("See each organization's reserved seats against its licenses, and what it is billed.", "Clear the exceptions first; use unused reservations before any purchase."),
         ["/leadership/usecases"] = new("Know what people use Copilot for, not just how much.", "Share the common use cases as examples; fund training for the missing ones."),
         ["/leadership/boardpack"] = new("Report the program to the board on one page.", "Print it or save it as a PDF for the steering group."),
+        ["/leadership/assumptions"] = new("Know what every cost and saving rests on, and where to change it.", "Settle any prices that disagree before you quote a figure."),
         ["/group"] = new("See every tenant in the group together.", "Compare the tenants, and share what works in the strongest."),
 
         // Adoption
@@ -116,5 +117,6 @@ public static class Guidance
 
         // Governance
         ["/governance"] = new("See which models answer and how much Copilot relies on the web.", "Check the share of web search against your policy."),
+        ["/governance/ai-apps"] = new("See which of the organization's own AI apps are used, by whom, and in which environment.", "Ask the owners of production resources with no user identity how their callers are governed."),
     };
 }

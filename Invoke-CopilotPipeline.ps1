@@ -36,8 +36,20 @@
     Every step resumes where it stopped, so after Ctrl+C or a reboot the same
     command carries on.
 
+    With ActivityDatabase in the settings (2.6.9), the nightly run also loads
+    AI app calls outside Copilot, Power BI and Power Apps activity into it and
+    rolls them up into the Copilot database; -History loads their history
+    too. Both steps are optional: a failure is recorded and the run goes on.
+
+    -ActivityHistory (once, for a database already running): only the
+    activity history for the last HistoryDays days, finalized, and its rollup.
+    Copilot interactions are not loaded or built again.
+
 .PARAMETER History
     Load the history instead of the nightly run.
+
+.PARAMETER ActivityHistory
+    Load only the activity database's history (2.6.9), and roll it up.
 
 .PARAMETER Days
     How many days of history (-History). Default: HistoryDays in the settings, 180.
@@ -70,6 +82,7 @@
 [CmdletBinding()]
 param(
     [switch] $History,
+    [switch] $ActivityHistory,
     [ValidateRange(1, 3650)][int] $Days,
     [string] $Tenant,
     [string] $SettingsPath
@@ -85,6 +98,9 @@ $script:AgentOperations = 'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpda
                           'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
                           'BotComponentCollectionCreate', 'BotComponentCollectionDelete'
 $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
+# The activity database's record types (2.6.9): AI apps outside Copilot, Power BI and Power Apps. ActivityRecordTypes in
+# the settings replaces the list.
+$script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp'
 # The delete guard's exit code (2.6.5): a loader that kept its table's last good load, which the night goes on from.
 . (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
@@ -140,7 +156,7 @@ function Get-PipelineStep {
         the plan out, so the plan can be tested without running anything.
     #>
     param([System.Collections.IDictionary] $Setting, [switch] $History, [int] $Days, [datetime] $Today = [datetime]::UtcNow.Date,
-          [string] $Root = $PSScriptRoot)
+          [string] $Root = $PSScriptRoot, [switch] $ActivityHistory)
     function Has($k) { $Setting.Contains($k) -and $Setting[$k] }
     $app = @{ TenantId = $Setting.TenantId; ClientId = $Setting.ClientId; CertificateThumbprint = $Setting.CertificateThumbprint }
     $sql = @{ SqlServer = $Setting.SqlServer }
@@ -161,6 +177,17 @@ function Get-PipelineStep {
     function Add($name, $script, $argsTable, [switch] $Optional) {
         $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
     }
+    # The activity database (2.6.9), where the settings name one: its load, then its rollup into the Copilot database.
+    $act = if (Has 'ActivityDatabase') { [string] $Setting.ActivityDatabase } else { $null }
+    $actTypes = if (Has 'ActivityRecordTypes') { @($Setting.ActivityRecordTypes) } else { $script:ActivityRecordTypes }
+    $rollup = $sql + @{ Database = $Setting.Database; ActivityDatabase = $act }
+    $n = if ($Days) { $Days } elseif (Has 'HistoryDays') { [int] $Setting.HistoryDays } else { 180 }
+    if ($ActivityHistory) {
+        if (-not $act) { throw 'ActivityDatabase is not set in the settings file: there is no activity database to load.' }
+        Add 'AI apps, Power BI and Power Apps (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $act; StartDate = $Today.AddDays(-$n); Finalize = $true; RecordTypes = $actTypes })
+        Add 'AI apps, Power BI and Power Apps rollup' 'tools/Update-ActivityRollup.ps1' ($rollup + @{ Full = $true })
+        return , $steps.ToArray()
+    }
 
     $directory = {
         if (Has 'TargetDomain') {
@@ -178,7 +205,6 @@ function Get-PipelineStep {
     }
 
     if ($History) {
-        $n = if ($Days) { $Days } elseif (Has 'HistoryDays') { [int] $Setting.HistoryDays } else { 180 }
         $start = $Today.AddDays(-$n)
         Add 'Copilot interactions (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $Setting.Database; StartDate = $start; Finalize = $true })
         if ($lic) { Add 'License events (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $lic; StartDate = $start; Finalize = $true; Operations = $script:LicenseOperations }) }
@@ -189,6 +215,10 @@ function Get-PipelineStep {
         if ($readLic.Count) { $build.LicenseEventDatabases = $readLic }
         if (Has 'Dashboard') { $build.Dashboard = $true }
         Add 'Build everything' 'Install-CopilotAudit.ps1' $build
+        if ($act) {
+            Add 'AI apps, Power BI and Power Apps (history)' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $act; StartDate = $start; Finalize = $true; RecordTypes = $actTypes }) -Optional
+            Add 'AI apps, Power BI and Power Apps rollup' 'tools/Update-ActivityRollup.ps1' ($rollup + @{ Full = $true }) -Optional
+        }
     }
     else {
         & $directory
@@ -209,6 +239,10 @@ function Get-PipelineStep {
         $inter = $sql + $app + @{ Database = $Setting.Database; Incremental = $true }
         if ($readLic.Count) { $inter.SessionLicenseDatabase = $readLic -join ',' }
         Add 'Copilot interactions' 'Invoke-CopilotAuditBackfill.ps1' $inter
+        if ($act) {
+            Add 'AI apps, Power BI and Power Apps' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $act; Incremental = $true; RecordTypes = $actTypes }) -Optional
+            Add 'AI apps, Power BI and Power Apps rollup' 'tools/Update-ActivityRollup.ps1' $rollup -Optional
+        }
         # Usage and cost of AI outside Microsoft 365 Copilot (2.6.2), where the settings name the source. Last, and
         # optional: a failure of one is recorded with its step and in audit.ExternalUsageRun, and fails nothing else.
         if ((Has 'GitHubEnterprise') -or (Has 'GitHubOrganization')) {
@@ -246,6 +280,9 @@ function Get-PipelineSkipNote {
     }
     elseif (-not ((Has 'FoundryCertificateThumbprint') -or (Has 'CertificateThumbprint'))) {
         $notes.Add('Foundry usage and cost: skipped, FoundrySubscriptions is set but there is no certificate to sign in with (FoundryCertificateThumbprint, or CertificateThumbprint).')
+    }
+    if (-not (Has 'ActivityDatabase')) {
+        $notes.Add('AI apps, Power BI and Power Apps activity: skipped, not configured (set ActivityDatabase in the settings file, install it with Install-CopilotAudit.ps1 -ActivityDatabase, then load its history with Invoke-CopilotPipeline.ps1 -ActivityHistory).')
     }
     , $notes.ToArray()
 }
@@ -466,7 +503,14 @@ function Invoke-TenantRun {
             Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
         return $false
     }
-    $runId = Write-PipelineRecord $T -Log $Log -Parameters @{ '@k' = $(if ($History) { 'History' } else { 'Nightly' }); '@h' = [Environment]::MachineName; '@u' = "$env:USERDOMAIN\$env:USERNAME" } -Sql `
+    if ($ActivityHistory -and -not ($T.Contains('ActivityDatabase') -and $T.ActivityDatabase)) {
+        # Said before a run is recorded: a run row left Running would read as one that died.
+        "$(Get-Date -Format s) $Label No ActivityDatabase in the settings for $($T.Name): there is no activity history to load." |
+            Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
+        return $false
+    }
+    $once = $History -or $ActivityHistory
+    $runId = Write-PipelineRecord $T -Log $Log -Parameters @{ '@k' = $(if ($once) { 'History' } else { 'Nightly' }); '@h' = [Environment]::MachineName; '@u' = "$env:USERDOMAIN\$env:USERNAME" } -Sql `
         "INSERT INTO audit.PipelineRun (Kind, Host, RunAs) VALUES (@k, @h, @u); SELECT CAST(SCOPE_IDENTITY() AS INT);"
     # The app's certificate and when it expires, for the dashboard's expiry alert.
     $cert = Get-PipelineCertificate $T
@@ -478,7 +522,7 @@ function Invoke-TenantRun {
     Write-PipelineCertificate $T -Log $Log
     $n = 0
     $refused = [System.Collections.Generic.List[string]]::new()
-    foreach ($step in (Get-PipelineStep -Setting $T -History:$History -Days $Days)) {
+    foreach ($step in (Get-PipelineStep -Setting $T -History:$History -ActivityHistory:$ActivityHistory -Days $Days)) {
         $n++
         if ($Label) { $step.Name = "$Label $($step.Name)" }
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@s' = $step.Name } -Sql 'INSERT INTO audit.PipelineRunStep (RunId, StepNo, Name) VALUES (@r, @n, @s);') }
@@ -508,11 +552,11 @@ function Invoke-TenantRun {
         }
     }
     # The optional loaders the settings do not configure: a note each, and no more.
-    if (-not $History) {
+    if (-not $once) {
         foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
-    if (-not $History) { Invoke-Retention -Setting $T -Log $Log }
-    if (-not $History) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
+    if (-not $once) { Invoke-Retention -Setting $T -Log $Log }
+    if (-not $once) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
     # A load the delete guard refused is named in the run's detail, which Admin > Health shows, with its reason.
     $detail = if ($refused.Count) { Get-DropGuardDetail -Step $refused -Log $Log } else { $null }
     if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@d' = $detail } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', Detail = @d WHERE RunId = @r;") }
@@ -524,7 +568,7 @@ function Invoke-Main {
     $logDir = if ($s.Contains('LogPath') -and $s.LogPath) { $s.LogPath } else { Join-Path $PSScriptRoot 'logs' }
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
     # A log of its own for each run (2.5.6): a second run on one day appended to the first's.
-    $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($History) { 'history' } else { 'nightly' }), (Get-Date))
+    $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($ActivityHistory) { 'activity-history' } elseif ($History) { 'history' } else { 'nightly' }), (Get-Date))
     $keep = if ($s.Contains('LogRetentionDays') -and $s.LogRetentionDays) { [int] $s.LogRetentionDays } else { 90 }
     Get-ChildItem -LiteralPath $logDir -Filter '*.log' | Where-Object LastWriteTime -lt (Get-Date).AddDays(-$keep) | Remove-Item -ErrorAction SilentlyContinue
 
@@ -558,6 +602,7 @@ function Invoke-Main {
     }
     "$(Get-Date -Format s) Done." | Tee-Object -FilePath $log -Append | Write-Information -InformationAction Continue
     if ($History) { Write-Information 'History loaded and built. The nightly task keeps it current from tonight.' -InformationAction Continue }
+    if ($ActivityHistory) { Write-Information 'Activity history loaded and rolled up. The nightly task keeps it current from tonight.' -InformationAction Continue }
 }
 
 # Dot-sourcing (tests) loads the functions without running anything.

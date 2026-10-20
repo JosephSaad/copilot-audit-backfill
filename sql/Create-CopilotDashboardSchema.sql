@@ -113,6 +113,39 @@ ON t.Item = s.Item
 WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, UpdatedBy) VALUES (s.Item, s.Area, s.Name, s.Unit, s.MonthlyPrice, s.Note, N'install');
 
 /*
+    2.6.9: a volume price, and the Dataverse capacity a license brings to the tenant.
+      TierFromSeats, TierPrice  from this many seats, every seat costs TierPrice (Power Apps Premium: 12 from 2,000).
+                                A cut that takes the count under it puts every seat back on MonthlyPrice, so Costs and
+                                savings counts what a cut really saves.
+      DatabaseGbPerSeat, FileGbPerSeat  the Dataverse capacity each seat adds to the tenant's pool (Power Apps
+                                Premium and Power Automate Premium: 250 MB of database and 2 GB of file). A cut gives it
+                                up, so a cut that would take the pool under what is used costs add-on capacity.
+    Seeded where an administrator has not set them.
+*/
+IF COL_LENGTH(N'dash.CostPrice', N'TierFromSeats') IS NULL
+    ALTER TABLE dash.CostPrice ADD TierFromSeats INT NULL, TierPrice DECIMAL(19, 4) NULL;
+/* 2.6.9: seats kept unassigned on purpose. SparePercent: the share of the seats bought kept spare for joiners and
+   moves (NULL: the SpareSeatPercent setting, 10 when installed); ForCapacity: the license is bought for the capacity
+   or volume price it brings, so its unassigned seats are never a saving. */
+IF COL_LENGTH(N'dash.CostPrice', N'SparePercent') IS NULL
+    ALTER TABLE dash.CostPrice ADD SparePercent DECIMAL(5, 2) NULL, ForCapacity BIT NULL;
+/* 2.6.9: the pay-as-you-go cost of an interaction, which the pages took as 0.12 when it was never set, now a row the register can show. */
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'PaygInteractionCost')
+    INSERT INTO dash.Setting (Name, Value, Description) VALUES ('PaygInteractionCost', N'0.12', N'2.6.9: what one metered agent or work-grounded chat interaction costs without a license (12 Copilot Credits at 0.01), for Better on pay-as-you-go.');
+IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'SpareSeatPercent')
+    INSERT INTO dash.Setting (Name, Value, Description) VALUES ('SpareSeatPercent', N'10', N'2.6.9: the share of the seats bought that is kept unassigned on purpose, for joiners and moves: unassigned seats within it are not a saving. A license''s own row in the price list can set its own.');
+IF COL_LENGTH(N'dash.CostPrice', N'DatabaseGbPerSeat') IS NULL
+    ALTER TABLE dash.CostPrice ADD DatabaseGbPerSeat DECIMAL(9, 3) NULL, FileGbPerSeat DECIMAL(9, 3) NULL;
+EXEC (N'
+UPDATE dash.CostPrice SET TierFromSeats = 2000, TierPrice = 12
+WHERE Item = ''POWERAPPS_PER_USER'' AND TierFromSeats IS NULL AND TierPrice IS NULL;
+UPDATE p SET DatabaseGbPerSeat = s.Db, FileGbPerSeat = s.Fl
+FROM dash.CostPrice AS p
+JOIN (VALUES (''POWERAPPS_PER_USER'', 0.25, 2.0), (''POWERAUTOMATE_ATTENDED_RPA'', 0.25, 2.0), (''FLOW_PER_USER'', 0.25, 2.0),
+             (''POWERAPPS_PER_APP_NEW'', 0.05, 0.4)) AS s (Item, Db, Fl) ON s.Item = p.Item
+WHERE p.DatabaseGbPerSeat IS NULL AND p.FileGbPerSeat IS NULL;');
+
+/*
     2.6.6: the suites (Microsoft 365 and Office 365 E3, E5, E7): their price, their place in the family, and what of
     the priced items above they include. Costs and savings counts as AI spend only what is bought on top of a suite:
     an item a suite includes costs nothing more, and a standalone license of it on a suite's holder is paid twice. A

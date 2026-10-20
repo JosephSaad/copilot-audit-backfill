@@ -17,7 +17,9 @@ Nothing here needs SQL typed by hand, but for looking inside a slow night ([A sl
 - [Email, alerts and digests](#email-alerts-and-digests)
 - [Targets, value and training](#targets-value-and-training)
 - [Costs and savings](#costs-and-savings)
+- [How figures are calculated](#how-figures-are-calculated)
 - [Copilot reservations](#copilot-reservations)
+- [AI apps, Power BI and Power Apps](#ai-apps-power-bi-and-power-apps)
 - [Classifications, events and extracts](#classifications-events-and-extracts)
 - [Acting on the license recommendations](#acting-on-the-license-recommendations)
 - [Triage and investigations](#triage-and-investigations)
@@ -217,7 +219,7 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 | `FabricCapacityDay` | The Fabric Capacity Metrics app (its capacity utilization by day) with the capacity's cost from Azure Cost Management | `CapacityId`, `Day` | `CapacityName`, `Sku`, `CapacityUnits`, `Region`, `Billing` (PayAsYouGo or Reserved), `ActiveHours`, `CuSecondsUsed`, `PeakPercent`, `ThrottledMinutes`, `Cost`, `Currency` |
 | `FabricWorkloadDay` | The Capacity Metrics app's items by workload; Copilot's operations as a workload whose name starts with *Copilot* | `CapacityId`, `Day`, `Workload` | `CuSeconds`, `Operations`, `Users` |
 | `PowerAutomateFlow` | A flow inventory: the CoE Starter Kit's, or the admin center's export | `EnvironmentName`, `FlowId` | `FlowName`, `OwnerUpn`, `IsPremium`, `LicenseModel` (PerUser, Process or Standard), `State`, `CreatedUtc`, `LastRunUtc`, `Runs30`, `FailedRuns30`, `MinutesSavedPerRun` |
-| `PowerPlatformUserActivity` | The admin center's usage reports (Power Apps, Power Automate, Copilot Studio) and Power BI's activity | `UserPrincipalName`, `Product` (Power BI, Power Apps, Power Automate or Copilot Studio) | `LastActiveUtc`, `ActiveDays30` |
+| `PowerPlatformUserActivity` | The admin center's usage reports (Power Apps, Power Automate, Copilot Studio) and Power BI's activity. From 2.6.9 the activity database fills Power BI and Power Apps each night from the audit log (below); a CSV is then needed for Power Automate and Copilot Studio only | `UserPrincipalName`, `Product` (Power BI, Power Apps, Power Automate or Copilot Studio) | `LastActiveUtc`, `ActiveDays30` |
 | `PowerPlatformCapacityDay` | The admin center's capacity report | `Day`, `CapacityType` (Database, File or Log) | `EntitledGb`, `UsedGb` |
 | `PowerPlatformCreditDay` | The admin center's Copilot Credits and AI Builder consumption | `Day`, `EnvironmentName`, `Product` (Copilot Studio or AI Builder), `Billing` (Prepaid or PayAsYouGo) | `Credits`, `Cost`, `Currency` |
 
@@ -226,6 +228,13 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 - **Load them on a schedule** that matches the export: the capacity and credit days daily or weekly, the inventories when they are refreshed. The page reads each source's last 30 days, whatever day it ends.
 
 **Prices and assumptions.** Admin › Targets and assumptions › *Costs and savings*: the price of each license and unit (`dash.CostPrice`, seeded with list prices in USD: put in what your agreement pays), the Fabric reservation discount (41% by default), the minutes a flow run and a Copilot in Power BI request save (3 each), and the days after which a seat, a license or an AI account counts as idle (30). A license is priced by its SKU part number, as Graph's license pool names it; one with no price is left out of the spend. The hourly cost the value is counted at is *Time saved*'s, and the Copilot license's price is Admin › Access's.
+
+**What a cut of seats really saves (2.6.9).** Each per-user license's row in the price list also takes:
+
+- **A volume price**: from that many seats every seat costs the volume price (Power Apps Premium is seeded at 12 from 2,000). The spend is counted at it, and a cut that takes the count under it counts every seat going back to the list price; where that would save less than stopping at the volume price, the saving cuts only down to it and says so.
+- **The Dataverse capacity a seat brings** (Power Apps Premium and Power Automate Premium: 0.25 GB of database and 2 GB of file; Power Apps per app: 0.05 and 0.4). A cut gives that capacity up: where `PowerPlatformCapacityDay` shows less spare than the cut gives up, the add-on capacity the tenant would then buy (at the Dataverse price a GB) is taken off the saving. Without the capacity loaded, the saving is Low confidence and says the capacity was not checked.
+- **Spare kept (%)**: unassigned seats kept on purpose for joiners and moves are not a saving. *Spare seats kept unassigned* (`SpareSeatPercent`, 10% when installed) applies to the Copilot add-on and every license without its own share.
+- **Bought for capacity or the volume price**: a license bought for the Dataverse capacity or the volume price it brings (Power Apps Premium bought to 2,000 seats, for example). Its unassigned and idle seats are never counted as money back.
 
 **Suites: E3, E5 and E7 (2.6.6).** A suite is not one product to keep or revoke: Microsoft 365 E5 includes Power BI Pro, E7 includes Microsoft 365 Copilot, and both also buy security, compliance, Teams and more that cannot be split from their price. So:
 
@@ -256,6 +265,22 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 - **Value** is time saved at the hourly cost: Copilot's interactions (as Leadership › Value counts them), the flows' successful runs, and Copilot in Power BI's requests. Areas whose value is not measured show a dash, so the return understates rather than flatters.
 - **Already saved** is the Copilot licenses exported from this dashboard to revoke, or from disabled accounts, that have since gone.
 
+## How figures are calculated
+
+**Leadership › How figures are calculated (2.6.9)** lists, in one place, every price and assumption a cost, saving, value or estimate on the dashboard rests on: its value now, the figures that use it, who last changed it and when, or *As installed* where nobody has. The inputs stay where they are edited; the page is where they are found. Open to every viewer.
+
+- **Change it.** An administrator who may open the page an input is set on sees *Change it* beside it, which opens that page at the field (`?focus=`), marked for a moment. Others see the value only.
+- **How it is worked out.** Every money figure on the pages (Costs and savings' tiles, Chargeback, License optimization, Budget and renewal, Rollout waves, License action outcomes, Fading use, Better with a license, Better on pay-as-you-go, Swap list, Credit use, Agents costing credits, Suite fit, Value and time saved, Copilot reservations) has *How it is worked out* under it: the formula with the values in it, then each assumption it uses with its value and, for an administrator, *Change it*.
+- **Prices that disagree** are said first, on this page and at the top of Costs and savings: the Copilot price in Admin › Access against the reservation rate in force (Leadership › Copilot reservations) and against the seat-weighted price of the contracts on Forecasting › Budget and renewal. Settle them before quoting a figure: each page uses the price where it is set.
+- **Still as installed** counts the settings and prices nobody has set for this organization: Microsoft's list prices and published estimates until someone does.
+
+| Where an input is set | What |
+|---|---|
+| Admin › Access | The Copilot license price and currency, the pay-as-you-go cost of an interaction, unused after (days), the minimum group size |
+| Admin › Targets and assumptions | Minutes saved (default and by app), an hour's worth, the price list with volume prices, Dataverse capacity a seat brings, spare seats and bought for capacity, the suites, the Fabric discount, flow and Copilot in Power BI minutes, idle after, spare seats kept unassigned, the credit and token estimate |
+| Leadership › Copilot reservations | The reservation rate, the purchase gate |
+| Forecasting › Budget and renewal | The contracts' seats and price |
+
 ## Copilot reservations
 
 **Leadership › Copilot reservations** (2.6.8) sets each line of business's reserved Microsoft 365 Copilot seats against the add-on licenses its people hold, and shows what that bills. Leaders see the organizations led from inside their part of the organization; the whole-organization view and the Licensing role see every organization, the reconciliation with the license pool and the purchase gate. The people behind each figure are on **Licensing › Reservation holders**, for the Licensing role. Administrators keep everything below on the page itself.
@@ -281,6 +306,37 @@ A header line is skipped; the leader may be empty for a pool with no one under i
 **The Technology-funded register.** Approved executive, service, test, shared, migration and exception accounts: sign-in, category, accountable owner, approval reference, from and review dates. Their licenses are counted once in the Technology pool, never in a line of business. Accounts the dashboard reads as non-human that are not in the register are listed as an exception; one past its review date too.
 
 **Snapshots.** Each night after the licenses are read, the pipeline keeps the last month-end's position once (`dash.usp_TakeReservationSnapshot`), and never rewrites it: the reserved seats, the allocated licenses on that day and the rate in force, for every organization, those under no leader and the Technology pool. The org chart used is the one on the night it was kept. *Month-end snapshots* lists them; *View* shows one as it was. Every snapshot is **Operational, not certified**: certification, adjustments and the December close come in a later release.
+
+## AI apps, Power BI and Power Apps
+
+**What it is (2.6.9).** A third database, the **activity database**, loaded each night by the same backfill as the Copilot and license databases, with Purview **record types** rather than operations:
+
+| Record type | What it is | Where it shows |
+|---|---|---|
+| `ConnectedAIAppInteraction` | Calls to Azure AI Foundry and Azure OpenAI from the organization's own apps, where Purview collects them (Foundry's *Powered by Microsoft Purview*, or Defender for Cloud's *Data security for AI interactions*), and Entra-registered apps through the Purview SDK. One record per message: a prompt or a response | Governance › AI apps beyond Copilot |
+| `PowerBIAudit` | Power BI activity: reports viewed, exported, refreshed, shared | Who used Power BI lately (`audit.PowerPlatformUserActivity`): Costs and savings, Suite fit |
+| `PowerAppsApp` | Power Apps launched and managed | Who used Power Apps lately: Costs and savings |
+
+It needs nothing new from Microsoft: the app registration's `AuditLogsQuery.Read.All` reads every record type. Record-type searches are submitted to Graph's beta endpoint, whose list of record types has the newer ones; the records are read as every other load's. The Copilot and license databases are not touched, and Copilot interactions are not loaded again.
+
+**Set it up.** On the job server, in order:
+
+1. Add the database to the settings, so the nightly run loads it: `.\tools\Install-CopilotJobServer.ps1 -ActivityDatabase CopilotActivity` (or add `ActivityDatabase = 'CopilotActivity'` to `copilot-audit.settings.psd1`). It must be on the **same SQL Server instance** as the Copilot database: the rollup reads it by its three-part name.
+2. Create and install it: `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard -ActivityDatabase CopilotActivity`. It is created like the license database (SIMPLE recovery, the service account as db_owner) and gets the audit tables, the load procedure, `audit.AIAppCall`, `audit.PlatformActivity` and `audit.usp_ShredActivity`. The Copilot database gets `audit.AIAppUserDay`, `audit.AIAppResource` and `audit.usp_RollupActivity`.
+3. Load its history, once: `.\Invoke-CopilotPipeline.ps1 -ActivityHistory`. It loads the last `HistoryDays` days (180) of the three record types, finalizes them, shreds them and rolls them up. It resumes where it stopped. At the client's volume (about 245,000 AI app records a day, 44 million over 180 days) it is about 75 searches and several hours: run it on a day with no other backfill, as the tenant's 200 searches a day are shared.
+4. From then on the nightly run loads the new records after the Copilot load, then rolls them up. Both steps are optional: a failure is recorded on its step and fails nothing else. Until step 3 is done the nightly's activity step fails each night with "Run a backfill to completion in this database first".
+
+**Space.** Plan by measuring: after the first day of history, `EXEC sp_spaceused 'audit.CopilotAudit'` in the activity database, times 180. The records are kept compressed; the shredded tables are columnstore and much smaller; the Copilot database gets one row per day, resource, app and caller.
+
+**Other record types.** `ActivityRecordTypes = @('PowerBIAudit')` in the settings replaces the list. A type added later loads from then on; its history needs a database of its own.
+
+**The rollup by hand.** `.\tools\Update-ActivityRollup.ps1` (three days back, or from three days before the last rollup that succeeded where that is earlier, so nights the optional steps failed are made up), `-Full` (every day) or `-SinceUtc <date>`. After correcting the shred (a field Purview names differently), read every record again in the activity database with `EXEC audit.usp_ShredActivity;`, then `-Full`.
+
+**The resource map.** Governance › AI apps beyond Copilot › *Resource map*, for administrators: each resource's line of business, environment and owner. A new resource is guessed from its name (`retail-prod-aif-0147`: Retail, Production; `aza-dev-aif-0046`: Development); what an administrator saves is kept.
+
+**Privacy.** No prompt or response text exists in these records, and client IP addresses are not copied. The dashboard counts people, never names them, from the minimum group size up. Calls *without a user identity* (`Guest`) are an app calling with its own key or managed identity: Purview cannot say who asked.
+
+**Retention.** Purview keeps these record types 180 days. A custom audit retention policy of one year for `ConnectedAIAppInteraction`, `CopilotInteraction` and the others you load keeps a reload possible; it applies from the day it is made.
 
 ## Classifications, events and extracts
 
@@ -509,11 +565,11 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 | Admin page | What it is for |
 |---|---|
 | Admin › Health | Report speed (when the report pages were last built ahead on this web server, the last morning pre-cache and its slowest page from memory, and how the cache works), pipeline runs and each step's freshness, directory coverage, the latest day with data, each certificate the pipeline signs in with (the Purview audit app's, the SharePoint agent workbook app's and the Foundry usage app's where it has its own) and its details, the audit searches waiting and what the last load took, the last run of the optional GitHub Copilot and Foundry usage loads (2.6.2), and a manual refresh |
-| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles, limiting an administrator to some Admin pages (2.6.4), checking someone's access |
+| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles, limiting an administrator to some Admin pages (2.6.4), checking someone's access. Every price and assumption, wherever it is set, is listed on Leadership › How figures are calculated (2.6.9) |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, where the logs are with the last test's conversation with the mail server (2.6.2), and everything sent or not, with the conversation of each test and each message not sent |
 | Admin › Alerts and digests | Alert recipients and thresholds, digests, manager digests and the managers who do not get them, the webhook, running the checks now |
-| Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size, and the prices and assumptions of Leadership › Costs and savings (2.6.6) |
+| Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size, and the prices and assumptions of Leadership › Costs and savings (2.6.6): with each per-user price its volume price, the Dataverse capacity a seat brings, its spare share and whether it is bought for capacity, and the spare seats kept unassigned (2.6.9) |
 | Admin › Privacy and retention | Privacy mode, retention of logs and JSON, the data API |
 | Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories, which accounts are not a person (non-human accounts) |
 | Admin › Value names | Names for every cataloged code, one by one or by CSV, with the mapping file to download |

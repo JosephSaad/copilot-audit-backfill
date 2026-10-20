@@ -65,7 +65,12 @@ WHERE ld.DateKey = @k1 AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.U
         Kpis.Add(new("Copilot seats bought", Num(bought), $"{copilot.Sum(p => p.Warning):#,0} in the grace period after expiry"));
         Kpis.Add(new("Seats assigned", Num(assigned), bought > 0 ? $"{Pct(Ratio(assigned, bought))} of those bought" : null,
             bought > 0 && assigned >= bought * (await S.Settings.IntAsync("PoolWarnPercent", 95)) / 100.0 ? "warn" : null));
-        Kpis.Add(new("Bought, not assigned", Num(bought - assigned), $"{(bought - assigned) * price:#,0} {cur} a month idle"));
+        /* 2.6.9: the seats kept unassigned on purpose, for joiners and moves, are not idle money. */
+        var sparePct = decimal.TryParse(await S.Settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 10m;
+        var spare = CopilotInsights.Data.CostRules.Spare(bought, sparePct);
+        var beyond = Math.Max(0, bought - assigned - spare);
+        Kpis.Add(new("Bought, not assigned", Num(bought - assigned), beyond > 0 ? $"{beyond * price:#,0} {cur} a month beyond the {spare:#,0} kept spare" : $"within the {spare:#,0} kept spare ({sparePct:0.##}%)",
+            Why: await WhyAsync($"Seats bought less seats assigned ({bought:#,0} − {assigned:#,0}); of them, {spare:#,0} ({sparePct:0.##}% of those bought) are kept spare on purpose. Beyond that, each at the Copilot license price ({price:#,0.##} {cur} a month).", "LicenseMonthlyCost", "SpareSeatPercent")));
         Kpis.Add(new("Used in the last 30 days", Num(t.ActiveLicensed), assigned > 0 ? $"{Pct(Ratio(t.ActiveLicensed, assigned))} of those assigned" : null));
 
         Panels.Add(new("Where the seats are", Chart.Bars(
@@ -108,10 +113,13 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         var rows = Groups.Fold(this, await metrics.ByAttributeAsync(Ctx, by), Ctx.MinGroupSize, out var folded);
         var licensed = rows.Sum(r => r.Licensed);
         var used = rows.Sum(r => r.ActiveLicensed);
-        Kpis.Add(new("Licenses held", Num(licensed), $"{licensed * price:#,0} {cur} a month", Href: Open("/adoption/by-license")));
+        Kpis.Add(new("Licenses held", Num(licensed), $"{licensed * price:#,0} {cur} a month", Href: Open("/adoption/by-license"),
+            Why: await WhyAsync($"Licenses held ({licensed:#,0}) × the Copilot license price ({price:#,0.##} {cur}) = {licensed * price:#,0} {cur} a month.", "LicenseMonthlyCost", "LicenseCurrency")));
         Kpis.Add(new("Used in the period", Num(used), licensed > 0 ? Pct(Ratio(used, licensed)) : null));
-        Kpis.Add(new("Unused spend", $"{(licensed - used) * price:#,0} {cur}", "a month, on licenses not used in the period", licensed - used > 0 ? "warn" : null));
-        Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month"));
+        Kpis.Add(new("Unused spend", $"{(licensed - used) * price:#,0} {cur}", "a month, on licenses not used in the period", licensed - used > 0 ? "warn" : null,
+            Why: await WhyAsync($"(Licenses held − holders who used Copilot in the period) × price: ({licensed:#,0} − {used:#,0}) × {price:#,0.##} {cur}.", "LicenseMonthlyCost")));
+        Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month",
+            Why: await WhyAsync($"The licenses' monthly cost over the holders who used Copilot in the period: {licensed * price:#,0} {cur} ÷ {used:#,0}.", "LicenseMonthlyCost")));
 
         var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
         var t = new Table
@@ -155,7 +163,8 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
         var pg = new Paging(Request, Sorts, "name");
         var rows = await ops.LeaversAsync(Ctx.Root, pg.Like, pg.OrderAndPage());
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-        Kpis.Add(new("Licenses on disabled or departed accounts", Num(pg.Total), $"{pg.Total * price:#,0} {cur} a month", pg.Total > 0 ? "crit" : null));
+        Kpis.Add(new("Licenses on disabled or departed accounts", Num(pg.Total), $"{pg.Total * price:#,0} {cur} a month", pg.Total > 0 ? "crit" : null,
+            Why: await WhyAsync($"Licenses on disabled or departed accounts ({pg.Total:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
         var t = new Table
         {
             Headers = ["Name", "Sign-in", "Department", "Manager", "Why", "Licensed since", "Last used"], EmptyText = "No licenses on disabled accounts.",

@@ -40,6 +40,15 @@ public static class CreditRules
         return new(credits, Math.Round(credits * r.CreditPrice, 2), tokens);
     }
 
+    /// <summary>The credit estimate in words, with the rates in it (2.6.9), for a figure's "how it is worked out".</summary>
+    public static string Formula(CreditRates r, string cur) =>
+        $"Credits = billed interactions × {r.Generative:0.##} (a generative answer) + those grounded in work data × {r.Graph:0.##} + those calling another agent × {r.Action:0.##}; " +
+        $"cost = credits × {r.CreditPrice:0.####} {cur}; the period brought to 30 days. Billed: an agent used without a Microsoft 365 Copilot license, or in a Copilot Studio channel.";
+
+    /// <summary>The token estimate in words, with the sizes in it (2.6.9).</summary>
+    public static string TokenFormula(CreditRates r) =>
+        $"Tokens = every interaction × {r.TokensPerTurn:#,0} + each resource read × {r.TokensPerResource:#,0} + each answer × {r.TokensPerAnswer:#,0}; the period brought to 30 days. A rough figure for sizing: Microsoft reports no tokens for Microsoft 365 Copilot.";
+
     /// <summary>A window's estimate brought to 30 days.</summary>
     public static CreditEstimate Monthly(CreditEstimate e, int days) =>
         days <= 0 ? new(0, 0, 0) : new(Math.Round(e.Credits * 30m / days, 1), Math.Round(e.Cost * 30m / days, 2), (long)Math.Round(e.Tokens * 30.0 / days));
