@@ -17,7 +17,7 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
     public override string Title => "Budget and renewal";
     public override string Persona => "Forecasting";
     public override bool UsesFilters => false;
-    public override string Intro => "The Copilot contracts (entered by an administrator below), what they cost a month and a year, when each renews, and how many seats the use supports at renewal: seats assigned, less those to revoke and on disabled accounts, plus the people ready to upgrade.";
+    public override string Intro => "The Copilot contracts (entered by an administrator below), what they cost a month and a year, when each renews, and how many seats to renew: License optimization's right size, less the people a suite covers.";
 
     sealed class Contract
     {
@@ -49,30 +49,45 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         var totals = await metrics.TotalsAsync(whole);
         var counts = await reports.ActionCountsAsync(whole);
         var leavers = (await ops.LeaversAsync(whole.Root)).Count;
+        /* 2.7.1: the renewal figure is License optimization's right size, worked out the same way (Renewal), less the people
+           who used Copilot in the last 30 days holding it only through a suite: the suite covers them, so the add-on
+           contracts need no seat for them. It was today's seats less revocations and leavers, which disagreed with it. */
+        var size = await Renewal.SizeAsync(Db, S.Settings, whole);
+        var suiteActive = await ops.HasAsync("dash.CopilotSuiteOnly") ? await Db.ScalarAsync<int>(@"
+SELECT COUNT(DISTINCT du.UserKey)
+FROM dash.CopilotSuiteOnly AS cso
+JOIN bi.DimUser AS du ON du.UserPrincipalName = cso.Upn
+JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
+WHERE EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.DateKey BETWEEN @k30 AND @k1 AND ud.Interactions > 0);",
+            whole.Args(new { k30 = ReportContext.Key(whole.End.AddDays(-29)) })) : 0;
 
         int seats = contracts.Sum(c => c.Seats), assigned = pool.Sum(x => x.Consumed), bought = pool.Sum(x => x.Bought);
         var monthly = contracts.Sum(c => c.Seats * c.MonthlyPrice);
         var next = contracts.Where(c => c.RenewalDate >= DateTime.Today).OrderBy(c => c.RenewalDate).FirstOrDefault();
-        var keep = Math.Max(0, (pool.Count > 0 ? assigned : totals.LicensedNow) - counts.GetValueOrDefault("revoke") - leavers + counts.GetValueOrDefault("upgrade"));
+        var keep = Math.Max(0, size.Target - suiteActive);
         var avgPrice = seats > 0 ? monthly / seats : price;
+        var basis = Math.Max(size.Projected, size.Active);
+        var spareSeats = (int)Math.Ceiling(basis * (1 + size.SparePercent / 100m)) - basis;
 
         Kpis.Add(new("Seats under contract", Num(seats), contracts.Count == 0 ? "no contracts entered yet" : $"{Count(contracts.Count, "contract")}; the tenant shows {bought:#,0} bought"));
         Kpis.Add(new("License cost", $"{monthly:#,0} {cur}", $"a month; {monthly * 12:#,0} a year",
             Why: await WhyAsync($"The sum, for each contract below, of its seats × its price a month: {seats:#,0} seats, {monthly:#,0} {cur}. The contracts' own prices, not Admin's license price; How figures are calculated says where they differ.", "LicenseCurrency")));
         Kpis.Add(new("Next renewal", next is null ? "—" : next.RenewalDate.ToString("d MMM yyyy"),
             next is null ? null : $"{next.Name}, in {(next.RenewalDate - DateTime.Today).Days} days", next is not null && (next.RenewalDate - DateTime.Today).Days <= 90 ? "warn" : null));
-        Kpis.Add(new("Seats the use supports", Num(keep), seats > 0 ? $"{keep - seats:+#,0;-#,0;0} against the contracts: {(keep - seats) * avgPrice * 12:+#,0;-#,0;0} {cur} a year" : null,
-            seats > 0 && keep < seats ? "warn" : null));
+        Kpis.Add(new("Seats to renew", Num(keep), seats > 0 ? $"{keep - seats:+#,0;-#,0;0} against the contracts: {(keep - seats) * avgPrice * 12:+#,0;-#,0;0} {cur} a year" : null,
+            seats > 0 && keep < seats ? "warn" : null, Href: Open("/forecasting/optimize"),
+            Why: await WhyAsync($"License optimization's right size in 13 weeks ({size.Target:#,0}): the licensed people forecast to use Copilot each week ({size.Projected:#,0}; {size.Active:#,0} in the last 30 days, the larger counts), plus {size.SparePercent:0.##}% kept spare, plus {size.Demand:#,0} heavy Copilot Chat users with no license. Less {suiteActive:#,0} who use Copilot through a suite, which covers them.", "SpareSeatPercent")));
 
         Panels.Add(new("How the renewal figure is made", Chart.Bars(
         [
-            new("Assigned today", pool.Count > 0 ? assigned : totals.LicensedNow, Slot: 1),
-            new("Less: unused, to revoke", -counts.GetValueOrDefault("revoke"), Href: Viewer.Has(Roles.Licensing) ? "/forecasting/actions?kind=revoke" : null, Slot: 8),
-            new("Less: on disabled accounts", -leavers, Href: Viewer.Has(Roles.Licensing) ? "/licensing/leavers" : null, Slot: 8),
-            new("Plus: ready to upgrade", counts.GetValueOrDefault("upgrade"), Href: Viewer.Has(Roles.Licensing) ? "/forecasting/actions?kind=upgrade" : null, Slot: 3),
-            new("Seats the use supports", keep, Slot: 7),
+            new(size.Projected >= size.Active ? "Forecast weekly users in 13 weeks" : "Used Copilot in the last 30 days", basis, Slot: 1),
+            new($"Plus: {size.SparePercent:0.##}% kept spare", spareSeats, Slot: 3),
+            new("Plus: heavy Copilot Chat users", size.Demand, Href: Viewer.Has(Roles.Licensing) ? "/forecasting/actions?kind=upgrade" : null, Slot: 3),
+            new("Less: covered by a suite", -suiteActive, Slot: 8),
+            new("Seats to renew", keep, Slot: 7),
         ], Fmt.Count, "Seats at renewal"),
-            $"From the last 30 days: {totals.ActiveLicensed:#,0} licensed people used Copilot. Growth beyond today's use is on Forecasting > Forecast; rollout waves on Forecasting > Rollout waves.", "half"));
+            $"The same figure as License optimization's right size, for the whole tenant, less the suite holders. Today: {(pool.Count > 0 ? assigned : totals.LicensedNow):#,0} add-on seats assigned; " +
+            $"{counts.GetValueOrDefault("revoke"):#,0} to revoke and {leavers:#,0} on disabled accounts free seats for the {counts.GetValueOrDefault("upgrade"):#,0} ready to upgrade (Upgrade, train or revoke).", "half"));
 
         var t = new Table { Headers = ["Contract", "Seats", $"Price a seat a month ({cur})", $"Cost a month ({cur})", $"Cost a year ({cur})", "Started", "Renews", "Days to renewal", "Note", ""], Numeric = new HashSet<int> { 1, 2, 3, 4, 7 }, EmptyText = "No contracts yet." };
         foreach (var c in contracts)

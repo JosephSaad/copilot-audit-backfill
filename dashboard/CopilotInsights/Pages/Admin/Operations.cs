@@ -880,6 +880,46 @@ public sealed class ValuesModel(PageServices s) : AdminPage(s)
     /* Agent ids (column 6) are no longer tied to Admin > Reference data's agents (2.4.12): since 2.4.11 a Copilot Studio
        or Microsoft agent is known by the app identity that names it, which a record's agent id never equals, so a name
        given here reached none of them, and an id that did match could be another agent's. Agents are named in Reference data. */
+    /// <summary>
+    /// 2.7.1: the product name for each of the tenant's licenses, which every page shows in place of its part number
+    /// (dash.SkuName, seeded with Microsoft's names for the common ones). A license with none is shown by its part number.
+    /// </summary>
+    async Task LicenseNamesAsync()
+    {
+        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.SkuName', N'U') IS NULL THEN 0 ELSE 1 END") == 0) return;
+        var hasSkus = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.LicenseSku', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
+        var rows = await Db.QueryAsync<(string Part, string? Name, string? By, int InTenant)>($@"
+WITH p AS ({(hasSkus ? "SELECT SkuPartNumber FROM audit.LicenseSku UNION " : "")}SELECT SkuPartNumber FROM dash.SkuName)
+SELECT p.SkuPartNumber, n.ProductName, n.UpdatedBy, {(hasSkus ? "CASE WHEN EXISTS (SELECT 1 FROM audit.LicenseSku AS s WHERE s.SkuPartNumber = p.SkuPartNumber) THEN 1 ELSE 0 END" : "0")}
+FROM p LEFT JOIN dash.SkuName AS n ON n.SkuPartNumber = p.SkuPartNumber
+ORDER BY 4 DESC, CASE WHEN n.ProductName IS NULL THEN 0 ELSE 1 END, p.SkuPartNumber;");
+        var shown = rows.Where(r => r.InTenant == 1).ToList();
+        var t = new Table { Headers = ["Part number", "Product name", "Named by"], EmptyText = "The license tool has not read the tenant's licenses yet." };
+        foreach (var r in shown)
+            t.Rows.Add([r.Part, r.Name ?? "(none: shown by its part number)", r.Name is null ? "" : r.By == "install" ? "Microsoft's name" : r.By]);
+        var form = Form("skuname", Input("part", "Part number", null, 30) + Input("productName", "Product name", null, 30) + Button("Save"));
+        Panels.Add(new("License product names", new HtmlString(t.Render().Value + "<h3>Name a license</h3>" + form),
+            $"The tenant's {shown.Count:#,0} licenses, by part number, and the product name the pages show for each; {shown.Count(r => r.Name is null):#,0} have none yet. " +
+            "Microsoft's names for the common licenses come with the install; give one here, or change it, and it is kept on every install. An empty name removes it.", "full"));
+    }
+
+    public Task<IActionResult> OnPostSkunameAsync(string? part, string? productName) => AdminChangeAsync(async () =>
+    {
+        part = part?.Trim();
+        if (string.IsNullOrEmpty(part) || part.Length > 100) throw new ArgumentException("give the license's part number, as License pool shows it.");
+        var name = productName?.Trim();
+        var was = await Db.ScalarAsync<string?>("SELECT ProductName FROM dash.SkuName WHERE SkuPartNumber = @part;", new { part });
+        if (string.IsNullOrEmpty(name))
+            return await Db.ExecuteAsync("DELETE FROM dash.SkuName WHERE SkuPartNumber = @part;", new { part }) > 0
+                ? $"License name removed: {part} (was {was}); it is shown by its part number." : $"{part} had no name.";
+        if (name.Length > 200) throw new ArgumentException("a product name is at most 200 characters.");
+        await Db.ExecuteAsync(@"
+MERGE dash.SkuName AS t USING (SELECT @part AS SkuPartNumber) AS s ON t.SkuPartNumber = s.SkuPartNumber
+WHEN MATCHED THEN UPDATE SET ProductName = @name, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (SkuPartNumber, ProductName, UpdatedBy) VALUES (@part, @name, @by);", new { part, name, by = Viewer.Upn ?? Viewer.WindowsName });
+        return $"License named: {part} is \"{name}\"" + (was is not null && was != name ? $" (was \"{was}\")." : ".");
+    });
+
     const string NameExpr = "COALESCE(n.Name, CASE WHEN v.ColumnId IN (11, 30) THEN sl.Name END)";
     const string Joins = @"LEFT JOIN dash.ValueName AS n ON n.ColumnId = v.ColumnId AND n.Value = v.Value
 LEFT JOIN dash.SensitivityLabel AS sl ON v.ColumnId IN (11, 30) AND sl.LabelId = v.Value";
@@ -887,6 +927,7 @@ LEFT JOIN dash.SensitivityLabel AS sl ON v.ColumnId IN (11, 30) AND sl.LabelId =
     protected override async Task BuildAsync()
     {
         ShowDone();
+        await LicenseNamesAsync();
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.ValueCatalogColumn', N'U') IS NULL THEN 0 ELSE 1 END") == 0)
         {
             Notice = "The value catalog is not installed yet: run Install-CopilotAudit.ps1 from this release.";

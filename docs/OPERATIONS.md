@@ -137,6 +137,8 @@ The audit log records many things as codes. Give them names once and the dashboa
 
 **Any cataloged code** (tenant, app, agent and platform ids, license types, models, Fabric capacities, resource types and statuses, labels): **Admin › Value names**. Pick a column, then name its values one at a time (the list starts with the most seen; *Unnamed first* puts the work at the top). Or work in a spreadsheet: **Download the mapping file** (every value of every column, with its name and note, in one CSV; or one column's from that column's view), fill in or change the *Name* column, and **Upload** it. An empty name removes one. A column with 10,000 or more distinct values is marked *too many to name*.
 
+**License product names (2.7.1).** Every page shows a license by its product name (Microsoft 365 E5), not its part number (SPE_E5). The install brings Microsoft's names for the common licenses. **Admin › Value names › License product names** lists the tenant's licenses with the name each shows under. To name one that has none, or rename one, type its part number and the product name under *Name a license* and **Save**; an empty name removes it, and the license is shown by its part number again. A name set here is kept on every install. License pool shows the part number beside the name. The install also names the app codes Copilot Chat records (BizChat, Office, OfficeCopilotSearchAnswer, Edge) where they have no name yet.
+
 ```powershell
 M -Task ListValues                                  # the columns, and how many values each has
 M -Task ListValues -ColumnId 16 -Path models.csv   # one column's values and names, to fill in
@@ -576,7 +578,7 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 | Admin › Targets and assumptions | Adoption targets, minutes saved and an hour's worth, the licensing group, champions per department, the rollout wave size, and the prices and assumptions of Leadership › Costs and savings (2.6.6): with each per-user price its volume price, the Dataverse capacity a seat brings, its spare share and whether it is bought for capacity, and the spare seats kept unassigned (2.6.9) |
 | Admin › Privacy and retention | Privacy mode, retention of logs and JSON, the data API |
 | Admin › Reference data | Agent names and owners, sensitivity label names and order, app categories, which accounts are not a person (non-human accounts) |
-| Admin › Value names | Names for every cataloged code, one by one or by CSV, with the mapping file to download |
+| Admin › Value names | The product name for each license part number (2.7.1), and names for every cataloged code, one by one or by CSV, with the mapping file to download |
 | Admin › Classifications and events | Job-family rules, use-case rules, and the events marked on trend charts |
 | Admin › Reports shown | Which reports the dashboard has: a box to tick for each, by section. A report turned off is gone for everyone, administrators too |
 | Admin › Scheduled extracts | Aggregate CSV files written to a folder or share on a schedule |

@@ -70,6 +70,9 @@ public static partial class FieldTips
         ["/forecasting/budget|price"] = "What one seat costs a month under this agreement, after its discount: the price that settles disagreements with Admin > Access.",
         ["/forecasting/budget|start"] = "The day the agreement started.",
         ["renewal"] = "The day the agreement renews.",
+        /* Admin > Value names: the licenses' product names (2.7.1). */
+        ["/admin/values|part"] = "The license's part number, as License pool shows it beside its name (SPE_E5, Microsoft_365_Copilot).",
+        ["/admin/values|productName"] = "The name every page shows for that license (Microsoft 365 E5). Empty: remove the name, and show the part number.",
         /* Leadership > Copilot reservations. */
         ["/leadership/reservations|name"] = "The organization's name, as the business knows it.",
     };

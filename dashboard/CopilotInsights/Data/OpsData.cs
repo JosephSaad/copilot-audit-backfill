@@ -45,8 +45,10 @@ public sealed class LeaverRow
 /// <summary>The queries behind the operations pages, the alerts and the digests.</summary>
 public sealed class OpsData(Db db, Settings settings)
 {
+    /* A table or a view (2.7.1): dash.CopilotSuiteOnly is a view, which a check for a table never found, so the leavers
+       counted people whose Copilot comes only with a suite, which cannot be taken off alone. */
     public async Task<bool> HasAsync(string table) =>
-        await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(@t, N'U') IS NULL THEN 0 ELSE 1 END", new { t = table }) == 1;
+        await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(@t) IS NULL THEN 0 ELSE 1 END", new { t = table }) == 1;
 
     public async Task<List<PipelineRunRow>> PipelineRunsAsync(int top = 10) =>
         await HasAsync("audit.PipelineRun")

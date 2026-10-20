@@ -57,6 +57,76 @@ ORDER BY wk.WeekEnding;", c.Args(new { w0 = w0.AddDays(-6), w1, wk0 = ReportCont
     public static string Label(DateTime weekEnding) => "w/e " + weekEnding.ToString("d MMM");
 }
 
+/// <summary>A department's licenses against its use over the last 30 days, for License optimization and the renewal figure.</summary>
+public sealed class DeptRow
+{
+    public string Department { get; set; } = "";
+    public int People { get; set; }
+    public int Held { get; set; }
+    public int Active { get; set; }
+    public int Idle { get; set; }
+    public int Light { get; set; }
+    public int Demand { get; set; }
+}
+
+/// <summary>The renewal figure's parts: licenses held, used in 30 days, forecast in 13 weeks, heavy demand, the spare share.</summary>
+public sealed record RenewalSize(int Held, int Active, int Projected, int Demand, decimal SparePercent, int Target);
+
+/// <summary>
+/// 2.7.1: one renewal figure. License optimization's right size and Budget and renewal's seats to renew were worked out two
+/// ways (a forecast with a fixed 10% margin, and today's seats less revocations and leavers), so the two pages disagreed by
+/// hundreds of seats. Both are this now: the licensed people forecast to use Copilot each week in 13 weeks (or today's, if
+/// more), plus the spare share kept on purpose (SpareSeatPercent, as Costs and savings and License pool keep it), plus the
+/// heavy Copilot Chat users with no license who would use one now.
+/// </summary>
+public static class Renewal
+{
+    /// <summary>Days of use in the last 30 that make someone without a license heavy demand.</summary>
+    public const int Heavy = 6;
+
+    /// <summary>The licenses that cover the use. Pure, for the tests.</summary>
+    public static int Target(int active, int projected, int demand, decimal sparePercent) =>
+        (int)Math.Ceiling(Math.Max(projected, active) * (1 + Math.Clamp(sparePercent, 0, 100) / 100m)) + Math.Max(0, demand);
+
+    public static async Task<decimal> SparePercentAsync(Settings settings) =>
+        decimal.TryParse(await settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var v)
+            ? Math.Clamp(v, 0, 100) : 10m;
+
+    public static async Task<List<DeptRow>> ByDepartmentAsync(Db db, ReportContext c) =>
+        (await db.QueryAsync<DeptRow>($@"
+WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
+           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
+ever AS (SELECT DISTINCT ud.UserKey FROM dash.UserDay AS ud WHERE ud.DateKey >= @inactiveKey AND ud.Interactions > 0)
+SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
+       COUNT(*) AS People,
+       COUNT(ld.UserKey) AS Held,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 THEN 1 END) AS Active,
+       /* 2.6.7: unused as Licensing › Unused licenses lists them: a license newer than the inactive days is not yet idle. */
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND pl.Upn IS NULL
+                   AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1)) THEN 1 END) AS Idle,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND pl.Upn IS NULL THEN 1 END) AS Light,
+       COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy THEN 1 END) AS Demand
+FROM bi.DimUser AS du {c.Scope("du.UserKey")}
+LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
+LEFT JOIN a ON a.UserKey = du.UserKey
+LEFT JOIN ever AS ev ON ev.UserKey = du.UserKey
+{CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}
+WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR ld.UserKey IS NOT NULL OR a.D > 0
+GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", c.Args(new { k30 = ReportContext.Key(c.End.AddDays(-29)), heavy = Heavy, idle = c.InactiveDays }))).ToList();
+
+    /// <summary>The renewal figure for a context: from its departments' rows when the page already has them.</summary>
+    public static async Task<RenewalSize> SizeAsync(Db db, Settings settings, ReportContext c, IReadOnlyCollection<DeptRow>? rows = null)
+    {
+        rows ??= await ByDepartmentAsync(db, c);
+        int held = rows.Sum(r => r.Held), active = rows.Sum(r => r.Active), demand = rows.Sum(r => r.Demand);
+        var hist = await Weekly.HistoryAsync(db, c);
+        var proj = hist.Count >= 8 ? Forecast.Holt(hist.Select(h => (double)h.ActiveLicensed).ToList(), 13) : null;
+        var projected = proj is null ? active : (int)Math.Ceiling(proj.At(13));
+        var spare = await SparePercentAsync(settings);
+        return new(held, active, projected, demand, spare, Target(active, projected, demand, spare));
+    }
+}
+
 public sealed class IndexModel(PageServices s) : InsightsPage(s)
 {
     public override string? OwnWindow => "the last 52 weeks, projected 13, 26 or 52 weeks ahead";
@@ -129,52 +199,16 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
     public override string Intro => "What to do with Copilot licenses: reclaim, reassign, coach or buy, with what each is worth. Based on the last 30 days and the 13-week forecast.";
     public override bool UsesFilters => true;
 
-    sealed class DeptRow
-    {
-        public string Department { get; set; } = "";
-        public int People { get; set; }
-        public int Held { get; set; }
-        public int Active { get; set; }
-        public int Idle { get; set; }
-        public int Light { get; set; }
-        public int Demand { get; set; }
-    }
-
     protected override async Task BuildAsync()
     {
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
         var currency = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         string Money(decimal v) => $"{v:#,0} {currency}";
-        var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
-
-        var rows = await Db.QueryAsync<DeptRow>($@"
-WITH a AS (SELECT ud.UserKey, COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END) AS D, MAX(CASE WHEN ud.Interactions > 0 THEN ud.DateKey END) AS LastKey
-           FROM dash.UserDay AS ud WHERE ud.DateKey BETWEEN @k30 AND @k1 GROUP BY ud.UserKey),
-ever AS (SELECT DISTINCT ud.UserKey FROM dash.UserDay AS ud WHERE ud.DateKey >= @inactiveKey AND ud.Interactions > 0)
-SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department,
-       COUNT(*) AS People,
-       COUNT(ld.UserKey) AS Held,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D > 0 THEN 1 END) AS Active,
-       /* 2.6.7: unused as Licensing › Unused licenses lists them: a license newer than the inactive days is not yet idle. */
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND ev.UserKey IS NULL AND pl.Upn IS NULL
-                   AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1)) THEN 1 END) AS Idle,
-       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND a.D BETWEEN 1 AND 2 AND pl.Upn IS NULL THEN 1 END) AS Light,
-       COUNT(CASE WHEN ld.UserKey IS NULL AND a.D >= @heavy THEN 1 END) AS Demand
-FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1
-LEFT JOIN a ON a.UserKey = du.UserKey
-LEFT JOIN ever AS ev ON ev.UserKey = du.UserKey
-{CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}
-WHERE (du.DirectoryStatus = N'Found' AND du.AccountEnabled = 1) OR ld.UserKey IS NOT NULL OR a.D > 0
-GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new { k30, heavy = 6, idle = Ctx.InactiveDays }));
-
-        int held = rows.Sum(r => r.Held), idle = rows.Sum(r => r.Idle), light = rows.Sum(r => r.Light), demand = rows.Sum(r => r.Demand), active = rows.Sum(r => r.Active);
-        var hist = await Weekly.HistoryAsync(Db, Ctx);
-        var proj = hist.Count >= 8 ? Forecast.Holt(hist.Select(h => (double)h.ActiveLicensed).ToList(), 13) : null;
-        var projectedActive = proj is null ? active : (int)Math.Ceiling(proj.At(13));
-        /* Enough for the people forecast to use a license each week in 13 weeks, a 10% margin for monthly-only users,
-           and the heavy Copilot Chat users who would use one now. */
-        var target = (int)Math.Ceiling(Math.Max(projectedActive, active) * 1.10) + demand;
+        /* 2.7.1: the departments and the renewal figure as Budget and renewal works them out (see Renewal). */
+        var rows = await Renewal.ByDepartmentAsync(Db, Ctx);
+        var size = await Renewal.SizeAsync(Db, S.Settings, Ctx, rows);
+        int held = size.Held, idle = rows.Sum(r => r.Idle), light = rows.Sum(r => r.Light), demand = size.Demand, active = size.Active;
+        var (projectedActive, target) = (size.Projected, size.Target);
         var change = target - held;
         var reassign = Math.Min(idle, demand);
 
@@ -207,8 +241,8 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(new 
                 "Licensed, but used Copilot on only one or two days in the last 30. Training or a champion usually does more than taking the license back. Upgrade, train or revoke's Train list counts days of licensed (Premium) use instead, so its count differs.",
                 A("Who to train", "/forecasting/actions", Roles.Licensing, "kind=train"));
         Rec(change > 0 ? "spend" : "save", "Right-size for the next quarter", change == 0 ? "Hold" : change > 0 ? $"+{change:#,0}" : $"{change:#,0}",
-            $"On the forecast, about {projectedActive:#,0} licensed people will use Copilot each week in 13 weeks. With a 10% margin and today's heavy demand, "
-            + $"{target:#,0} licenses cover it: {(change >= 0 ? "a cost of " + Money(change * price) : "a saving of " + Money(-change * price))} a month against today.");
+            $"On the forecast, about {projectedActive:#,0} licensed people will use Copilot each week in 13 weeks. With the {size.SparePercent:0.##}% kept spare and today's heavy demand, "
+            + $"{target:#,0} licenses cover it: {(change >= 0 ? "a cost of " + Money(change * price) : "a saving of " + Money(-change * price))} a month against today. Budget and renewal sets the same figure against the contracts.");
         recs.Append("</div>");
         Panels.Add(new("Recommendations", new HtmlString(recs.ToString() + await ProtectedNoteAsync()),
             $"At {Money(price)} a license a month (set in Admin › Access). Links to named lists appear for people with the role."));

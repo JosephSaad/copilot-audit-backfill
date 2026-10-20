@@ -70,7 +70,7 @@ public static class Assumptions
 
     /// <summary>A suite's price as an assumption.</summary>
     public static AssumptionDef Suite(string pattern, string suite) =>
-        new("Suite:" + pattern, $"{suite} ({pattern.Replace("[_]", "_")}), a user a month", "Suites", Targets, "price|" + pattern, "Suite fit, Costs and savings (suites)", null, AssumptionKind.Suite);
+        new("Suite:" + pattern, $"{suite}, a user a month", "Suites", Targets, "price|" + pattern, "Suite fit, Costs and savings (suites)", null, AssumptionKind.Suite);
 
     /// <summary>
     /// What disagrees (2.6.9): the Copilot license's price as Access sets it against the reservation rate in force and

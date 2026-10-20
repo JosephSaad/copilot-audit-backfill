@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-121 tables (plus 2 left over from 1.x), 39 views, 1513 columns, from 22 scripts.
+122 tables (plus 2 left over from 1.x), 39 views, 1517 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -23,7 +23,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
-- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
 - [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
@@ -2871,6 +2871,23 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_DashCostSuite`: primary key, clustered (SkuPattern)
+
+### dash.SkuName
+
+*Table.* The product name for each license part number (2.7.1): every page shows a license as *Microsoft 365 E5*, not `SPE_E5`. Seeded with Microsoft's names for 35 common licenses; Admin &gt; Value names &gt; License product names names the rest or renames one, and a name set there is kept on every install. A part number with no row is shown by its price list name, or as it is.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SkuPartNumber` | nvarchar(100) | **no** | **PK** |  |
+| 2 | `ProductName` | nvarchar(200) | **no** |  |  |
+| 3 | `UpdatedBy` | nvarchar(256) | yes |  | install: Microsoft's name, as the install seeded it |
+| 4 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashSkuName`: primary key, clustered (SkuPartNumber)
 
 ### dash.CopilotSuiteOnly
 

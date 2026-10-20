@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Pages.Licensing;
 
-public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
+public sealed class IndexModel(PageServices s, Metrics m, OpsData ops) : InsightsPage(s)
 {
     public override string Title => "License inventory";
     public override string Persona => "Licensing";
@@ -44,6 +44,8 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new("Licenses in use", Pct(Ratio(t.LicensedNow - idle, t.LicensedNow)), $"used in the last {Ctx.InactiveDays} days"));
         Kpis.Add(new($"Unused for {Ctx.InactiveDays} days", Num(unused), "candidates to reclaim", unused > 0 ? "crit" : null, Href: Open("/licensing/unused")));
 
+        await BridgeAsync(t.LicensedNow);
+
         var buckets = Buckets();
         Panels.Add(new("Licenses held", Chart.Line(Labels(), [new Series("Licensed", tr.Select(w => (double?)w.Licensed).ToList(), 1)], Fmt.Count, "Licenses held"),
             $"People holding a Copilot license at the end of each day or week. {TrendNote}", "half"));
@@ -59,7 +61,9 @@ SELECT ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)'), COUNT(*)
 FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)') ORDER BY 2 DESC;", Ctx.Args());
-        Panels.Add(new("Licenses by product (SKU)", Chart.Bars(skus.Select(k => new Bar(k.Sku, k.N)).ToList(), Fmt.Count, "Licenses by product"), "A SKU is the product name Microsoft sells the license under.", "half"));
+        var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, not part numbers
+        Panels.Add(new("Licenses by product", Chart.Bars(skus.Select(k => new Bar(names.Name(k.Sku), k.N, Note: names.Knows(k.Sku) ? k.Sku : null)).ToList(), Fmt.Count, "Licenses by product"),
+            "The Copilot license each holder has, by product; its part number on hover. Name a product shown by its part number in Admin › Value names.", "half"));
 
         var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
             .Where(u => u.Licensed > 0).OrderByDescending(u => u.Licensed - u.ActiveLicensed).ToList();
@@ -68,6 +72,42 @@ WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SK
                 $"{u.Licensed - u.ActiveLicensed:#,0} of {u.Licensed:#,0} licensed", 2)).ToList(), Fmt.Count, "Idle licenses by unit"),
             "Licenses held today by people who did not use Copilot in the period, for each part of the organization one level below." +
             (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
+    }
+
+    /// <summary>
+    /// 2.7.1: from the add-on licenses bought to the licenses held, step by step. Three pages counted licenses three ways
+    /// (License pool: assigned add-on seats; this page and Chargeback: everyone holding Copilot, a suite's included;
+    /// Copilot reservations: held less those a suite covers), with nothing to show how one becomes the other.
+    /// </summary>
+    async Task BridgeAsync(int held)
+    {
+        if (Ctx.Root is not null)
+        {
+            Panels.Add(new("From licenses bought to licenses held", new HtmlString("<p class=\"sub\">The licenses bought are the tenant's, so this is shown with the whole organization in view.</p>"), null, "half"));
+            return;
+        }
+        /* The add-on as Costs and savings and Copilot reservations count it: not a suite's Copilot, not Copilot Studio's. */
+        var pool = (await ops.PoolAsync()).Where(p => p.IsCopilot && !p.SkuPartNumber.Contains("STUDIO", StringComparison.OrdinalIgnoreCase)).ToList();
+        int bought = pool.Sum(p => p.Bought), assigned = pool.Sum(p => p.Consumed);
+        var suiteOnly = await ops.HasAsync("dash.CopilotSuiteOnly") ? await Db.ScalarAsync<int>(@"
+SELECT COUNT(DISTINCT ld.UserKey) FROM dash.CopilotSuiteOnly AS cso
+JOIN bi.DimUser AS du ON du.UserPrincipalName = cso.Upn
+JOIN bi.FactLicensedDay AS ld ON ld.UserKey = du.UserKey AND ld.DateKey = @k1;", Ctx.Args()) : 0;
+        var rest = held - assigned - suiteOnly;
+        var bars = new List<Bar>
+        {
+            new("Copilot add-on licenses bought", bought, Href: Viewer.Has(Roles.Licensing) ? "/licensing/pool" : null, Slot: 1),
+            new("Less: not assigned", -(bought - assigned), Slot: 8),
+            new("Assigned", assigned, Slot: 1),
+            new("Plus: Copilot through a suite", suiteOnly, Href: "/licensing/suites", Slot: 3),
+        };
+        if (rest != 0) bars.Add(new(rest > 0 ? "Plus: the rest of the difference" : "Less: the rest of the difference", rest, Slot: 8));
+        bars.Add(new("Licensed today", held, Slot: 7));
+        Panels.Add(new("From licenses bought to licenses held", Chart.Bars(bars, Fmt.Count, "From bought to held"),
+            "The tenant's Copilot add-on licenses bought and assigned today, as License pool counts them, then the people who hold Copilot only " +
+            "through a suite (E7, or another the price list marks), to the people licensed on the license history's last day, as this page counts them. " +
+            "The rest of the difference: licenses assigned or removed since that day, and accounts the history does not hold. " +
+            "Chargeback charges the licenses held on enabled accounts; Copilot reservations counts them less those a suite covers.", "half"));
     }
 }
 
@@ -123,13 +163,14 @@ WHERE ld.DateKey = @k1 AND (x.LastKey IS NULL OR x.LastKey < @idleKey)
 
         var t = new Table
         {
-            Headers = ["Name", "Sign-in", "Department", "Manager", "SKU", "Licensed since", "Last used", "Days since last use"],
+            Headers = ["Name", "Sign-in", "Department", "Manager", "License", "Licensed since", "Last used", "Days since last use"],
             Numeric = new HashSet<int> { 7 }, EmptyText = "Every license is in use.",
             /* Idle longest puts the most days since last use first: never used, then the oldest. */
             Server = new(pg, Request, ["name", "upn", "dept", "manager", "sku", "since", "recent", "idle"], new HashSet<int> { 6, 7 }),
         };
+        var names = await SkuNames.LoadAsync(Db);
         foreach (var r in rows)
-            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.CopilotSku, r.LicensedSinceUtc?.Date,
+            t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, names.Name(r.CopilotSku), r.LicensedSinceUtc?.Date,
                         r.LastUsed is null ? "Never" : r.LastUsed.Value.Date, r.LastUsed is null ? null : (Ctx.End - r.LastUsed.Value.Date).Days]);
         CsvTable = t;
         Kpis.Add(new($"Unused for {idleDays} days or more", Num(pg.Total), $"licensed at least {idleDays} days ago", pg.Total > 0 ? "crit" : null));

@@ -4132,6 +4132,23 @@ Indexes and constraints:
 
 - `PK_DashCostSuite`: primary key, clustered (SkuPattern)
 
+#### dash.SkuName
+
+*Table.* The product name for each license part number (2.7.1): every page shows a license as *Microsoft 365 E5*, not `SPE_E5`. Seeded with Microsoft's names for 35 common licenses; Admin &gt; Value names &gt; License product names names the rest or renames one, and a name set there is kept on every install. A part number with no row is shown by its price list name, or as it is.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SkuPartNumber` | nvarchar(100) | **no** | **PK** |  |
+| 2 | `ProductName` | nvarchar(200) | **no** |  |  |
+| 3 | `UpdatedBy` | nvarchar(256) | yes |  | install: Microsoft's name, as the install seeded it |
+| 4 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashSkuName`: primary key, clustered (SkuPartNumber)
+
 #### dash.CopilotSuiteOnly
 
 *View.* A view (2.6.6): the people who hold Microsoft 365 Copilot only through a suite (E7), and not the add-on as well. Never on a list to revoke: their Copilot cannot be taken off alone. Empty until the license pool and its suite mark exist.
@@ -10988,7 +11005,7 @@ END;
 
 ### C.13 `sql/Create-CopilotDashboardSchema.sql`
 
-Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 549 lines.
+Copilot database, with `-Dashboard`. The `dash` schema: settings, roles, the org chart, the daily rollups and the agent inventory. 605 lines.
 
 ```sql
 /*
@@ -11222,6 +11239,62 @@ WHERE ss.CopilotInSuite = 1;');
             EXEC (N'CREATE VIEW dash.CopilotSuiteHolder AS SELECT CAST(NULL AS NVARCHAR(512)) AS Upn WHERE 1 = 0;');
     END;
 END;
+
+/*
+    2.7.1: the product name for each license's part number, so pages say "Microsoft 365 E5", not SPE_E5. Microsoft
+    Graph gives a tenant's licenses by part number only. Seeded with Microsoft's names for the common ones (Product
+    names and service plan identifiers for licensing); an administrator names the rest, or renames one, in
+    Admin > Value names, and a row they set is kept on every install. A part number with no row is shown as it is,
+    or by its price list name (dash.CostPrice) where it has one.
+*/
+IF OBJECT_ID(N'dash.SkuName', N'U') IS NULL
+    CREATE TABLE dash.SkuName
+    (
+        SkuPartNumber NVARCHAR(100)  NOT NULL CONSTRAINT PK_DashSkuName PRIMARY KEY,
+        ProductName   NVARCHAR(200)  NOT NULL,
+        UpdatedBy     NVARCHAR(256)  NULL,
+        UpdatedUtc    DATETIME2(0)   NOT NULL CONSTRAINT DF_DashSkuName_Updated DEFAULT (SYSUTCDATETIME())
+    );
+MERGE dash.SkuName AS t
+USING (VALUES
+    (N'Microsoft_365_Copilot',          N'Microsoft 365 Copilot'),
+    (N'SPE_E3',                         N'Microsoft 365 E3'),
+    (N'SPE_E5',                         N'Microsoft 365 E5'),
+    (N'SPE_F1',                         N'Microsoft 365 F3'),
+    (N'M365_F1',                        N'Microsoft 365 F1'),
+    (N'ENTERPRISEPACK',                 N'Office 365 E3'),
+    (N'ENTERPRISEPREMIUM',              N'Office 365 E5'),
+    (N'STANDARDPACK',                   N'Office 365 E1'),
+    (N'DESKLESSPACK',                   N'Office 365 F3'),
+    (N'SPB',                            N'Microsoft 365 Business Premium'),
+    (N'O365_BUSINESS_PREMIUM',          N'Microsoft 365 Business Standard'),
+    (N'O365_BUSINESS_ESSENTIALS',       N'Microsoft 365 Business Basic'),
+    (N'DEVELOPERPACK_E5',               N'Microsoft 365 E5 Developer'),
+    (N'EMS',                            N'Enterprise Mobility + Security E3'),
+    (N'EMSPREMIUM',                     N'Enterprise Mobility + Security E5'),
+    (N'AAD_PREMIUM',                    N'Microsoft Entra ID P1'),
+    (N'AAD_PREMIUM_P2',                 N'Microsoft Entra ID P2'),
+    (N'EXCHANGESTANDARD',               N'Exchange Online (Plan 1)'),
+    (N'EXCHANGEENTERPRISE',             N'Exchange Online (Plan 2)'),
+    (N'VISIOCLIENT',                    N'Visio Plan 2'),
+    (N'PROJECTPROFESSIONAL',            N'Project Plan 3'),
+    (N'Microsoft_Teams_Premium',        N'Microsoft Teams Premium'),
+    (N'TEAMS_EXPLORATORY',              N'Microsoft Teams Exploratory'),
+    (N'MCOEV',                          N'Microsoft Teams Phone Standard'),
+    (N'MCOMEETADV',                     N'Microsoft 365 Audio Conferencing'),
+    (N'POWER_BI_PRO',                   N'Power BI Pro'),
+    (N'PBI_PREMIUM_PER_USER',           N'Power BI Premium Per User'),
+    (N'POWER_BI_STANDARD',              N'Microsoft Fabric (Free)'),
+    (N'POWERAPPS_PER_USER',             N'Power Apps Premium'),
+    (N'POWERAPPS_DEV',                  N'Power Apps for Developer'),
+    (N'POWERAPPS_VIRAL',                N'Power Apps Plan 2 Trial'),
+    (N'POWERAUTOMATE_ATTENDED_RPA',     N'Power Automate Premium'),
+    (N'POWERAUTOMATE_UNATTENDED_RPA',   N'Power Automate Process'),
+    (N'FLOW_PER_USER',                  N'Power Automate per user plan'),
+    (N'FLOW_FREE',                      N'Power Automate Free')
+) AS s (SkuPartNumber, ProductName)
+ON t.SkuPartNumber = s.SkuPartNumber
+WHEN NOT MATCHED THEN INSERT (SkuPartNumber, ProductName, UpdatedBy) VALUES (s.SkuPartNumber, s.ProductName, N'install');
 
 /* Roles granted to people (by UPN) or AD groups (DOMAIN\Group). */
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
@@ -11873,7 +11946,7 @@ GO
 
 ### C.15 `sql/Create-CopilotOperationsSchema.sql`
 
-Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 891 lines.
+Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 904 lines.
 
 ```sql
 /*
@@ -12155,6 +12228,18 @@ AS
 BEGIN
     RETURN COALESCE((SELECT Name FROM dash.ValueName WHERE ColumnId = @ColumnId AND Value = @Value), @Value);
 END;');
+
+/* 2.7.1: names for the app codes Copilot Chat records (column 2, the app), which pages showed as they come:
+   BizChat, Office, OfficeCopilotSearchAnswer. Only where an administrator has not named them. */
+MERGE dash.ValueName AS t
+USING (VALUES
+    (CAST(2 AS SMALLINT), N'BizChat',                   N'Copilot Chat'),
+    (CAST(2 AS SMALLINT), N'Office',                    N'Microsoft 365 app'),
+    (CAST(2 AS SMALLINT), N'OfficeCopilotSearchAnswer', N'Copilot search answers'),
+    (CAST(2 AS SMALLINT), N'Edge',                      N'Edge')
+) AS s (ColumnId, Value, Name)
+ON t.ColumnId = s.ColumnId AND t.Value = s.Value
+WHEN NOT MATCHED THEN INSERT (ColumnId, Value, Name, Note, UpdatedBy) VALUES (s.ColumnId, s.Value, s.Name, N'Named by the install (2.7.1).', N'install');
 
 /* ---- 2.3.0, second part: triage, preferences, actions, contracts, views, classifications ---- */
 
@@ -12552,6 +12637,7 @@ GRANT INSERT, UPDATE, DELETE ON dash.Target TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TimeSaving TO CopilotInsightsApp;
 IF OBJECT_ID(N'dash.CostPrice', N'U') IS NOT NULL GRANT UPDATE ON dash.CostPrice TO CopilotInsightsApp;   -- 2.6.6: Admin > Targets and assumptions sets the prices
 IF OBJECT_ID(N'dash.CostSuite', N'U') IS NOT NULL GRANT UPDATE ON dash.CostSuite TO CopilotInsightsApp;   -- 2.6.6: and turns a suite's inclusions on or off
+IF OBJECT_ID(N'dash.SkuName', N'U') IS NOT NULL GRANT INSERT, UPDATE, DELETE ON dash.SkuName TO CopilotInsightsApp;   -- 2.7.1: Admin > Value names names the licenses
 GRANT INSERT, UPDATE, DELETE ON dash.TrainingAttendance TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;

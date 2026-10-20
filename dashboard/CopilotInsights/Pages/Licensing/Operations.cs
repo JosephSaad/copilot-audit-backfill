@@ -90,8 +90,9 @@ GROUP BY SnapshotDate ORDER BY SnapshotDate;".Replace("@suites", pool.Any(p => p
                 [new Series("Bought", days.Select(d => (double?)d.Bought).ToList(), 1), new Series("Assigned", days.Select(d => (double?)d.Assigned).ToList(), 3)],
                 Fmt.Count, "Copilot seats bought and assigned"), "One point per night the license tool ran.", "half"));
 
-        var tb = new Table { Zone = Zone, Headers = ["License (SKU)", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Last read (UTC)"], Numeric = new HashSet<int> { 2, 3, 4, 5, 6 } };
-        foreach (var p in pool) tb.Rows.Add([p.SkuPartNumber, p.IsCopilot ? "Yes" : p.IsSuite ? "Inside the suite" : "", p.Bought, p.Consumed, p.Available, p.Warning, p.Suspended, p.CapturedUtc]);
+        var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, the part number beside them
+        var tb = new Table { Zone = Zone, Headers = ["License", "Part number", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Last read (UTC)"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
+        foreach (var p in pool) tb.Rows.Add([names.Name(p.SkuPartNumber), p.SkuPartNumber, p.IsCopilot ? "Yes" : p.IsSuite ? "Inside the suite" : "", p.Bought, p.Consumed, p.Available, p.Warning, p.Suspended, p.CapturedUtc]);
         CsvTable = tb;
         Panels.Add(new("Every subscription in the tenant", tb.Render(), $"Copilot SKU ids, for the license export script: {string.Join(", ", copilot.Select(p => $"{p.SkuPartNumber} {p.SkuId}"))}.", "full", CsvUrl()));
     }
@@ -105,6 +106,8 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
     public override string Intro => "The monthly cost of the Copilot licenses each group holds, what share of it is used, and the cost per person using Copilot: for allocating the license cost to budgets.";
 
     static readonly string[] By = ["Department", "Division", "Company", "Country", "Office", "EmployeeType"];
+    /* 2.7.1: the attribute's name in words, not the directory's column name. */
+    static string Said(string by) => by == "EmployeeType" ? "Employee type" : by;
 
     protected override async Task BuildAsync()
     {
@@ -121,10 +124,10 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month",
             Why: await WhyAsync($"The licenses' monthly cost over the holders who used Copilot in the period: {licensed * price:#,0} {cur} ÷ {used:#,0}.", "LicenseMonthlyCost")));
 
-        var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
+        var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{Said(x)}</a>"));
         var t = new Table
         {
-            Headers = [by, "People", "Licenses", $"Monthly cost ({cur})", "Used", "Unused", $"Unused cost ({cur})", $"Cost per person using it ({cur})"],
+            Headers = [Said(by), "People", "Licenses", $"Monthly cost ({cur})", "Used", "Unused", $"Unused cost ({cur})", $"Cost per person using it ({cur})"],
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7 },
         };
         foreach (var r in rows.OrderByDescending(r => r.Licensed))
@@ -134,7 +137,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         Panels.Add(new("Unused spend by group", Chart.Bars(rows.Where(r => r.Licensed > r.ActiveLicensed).OrderByDescending(r => r.Licensed - r.ActiveLicensed).Take(15)
             .Select(r => new Bar(r.Name, (double)((r.Licensed - r.ActiveLicensed) * price), Note: $"{r.Licensed - r.ActiveLicensed:#,0} of {r.Licensed:#,0} licenses unused")).ToList(), Fmt.Count, "Unused spend by group"),
             $"A month, in {cur}, at {price:#,0.##} a license (Admin > Access).", "half"));
-        Panels.Add(new("By " + by.ToLowerInvariant(), new HtmlString($"<p class=\"sub\">Group by: {choices}</p>" + t.Render().Value),
+        Panels.Add(new("By " + Said(by).ToLowerInvariant(), new HtmlString($"<p class=\"sub\">Group by: {choices}</p>" + t.Render().Value),
             (folded > 0 ? FoldNote(folded, "group") + " " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
             "full", CsvUrl()));
     }
