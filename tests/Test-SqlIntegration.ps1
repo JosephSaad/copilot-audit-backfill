@@ -4432,11 +4432,16 @@ INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation
     Assert-That ($pa.Rows.Count -eq 2 -and $pa.Rows[0].Product -eq 'Power BI' -and $pa.Rows[0].UserId -eq 'ann@contoso.com' -and $pa.Rows[0].ItemName -eq 'Sales' -and $pa.Rows[0].Container -eq 'Finance' -and
                  $pa.Rows[1].Product -eq 'Power Apps' -and $pa.Rows[1].ItemName -eq 'Expenses' -and $pa.Rows[1].Container -eq 'Default') 'Power BI and Power Apps records are shredded with their item and workspace or environment; another workload is left alone'
 
-    $yday = [datetime]::UtcNow.Date.AddDays(-1).ToString('yyyy-MM-dd'); $before = [datetime]::UtcNow.Date.AddDays(-2).ToString('yyyy-MM-dd')
     $days = Invoke-SqlText -Catalog $actCop -As Table -Sql 'SELECT CONVERT(CHAR(10), [Day], 120) AS D, [Resource], CallerKind, Calls, Threads, Failures FROM audit.AIAppUserDay ORDER BY [Resource];'
-    Assert-That ($days.Rows.Count -eq 2 -and $days.Rows[1].Resource -eq 'retail-prod-aif-0147' -and $days.Rows[1].D -eq $before -and
-                 $days.Rows[0].D -eq $yday -and [int] $days.Rows[0].Calls -eq 2 -and [int] $days.Rows[0].Threads -eq 1 -and [int] $days.Rows[0].Failures -eq 1) `
-        'the rollup counts calls, conversations and failures by day in the reporting time zone (01:30 UTC yesterday is the day before in Eastern)'
+    # The days the records fall on in the reporting time zone, worked out by SQL Server itself, so the check holds whatever
+    # the hour the test runs at; and the zone, which must be Eastern for 01:30 UTC to be the day before.
+    $zoneNow = [string] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql 'SELECT audit.ReportingTimeZone();')
+    $want = Invoke-SqlText -Catalog $actDb -As Table -Sql "SELECT CONVERT(CHAR(10), CAST((MIN(CreatedDateTime) AT TIME ZONE 'UTC') AT TIME ZONE N'Eastern Standard Time' AS DATE), 120) AS First, CONVERT(CHAR(10), CAST((MAX(CreatedDateTime) AT TIME ZONE 'UTC') AT TIME ZONE N'Eastern Standard Time' AS DATE), 120) AS Last FROM audit.AIAppCall;"
+    $actFirst = [string] $want.Rows[0].First; $actLast = [string] $want.Rows[0].Last
+    $seen = (@($days.Rows | ForEach-Object { "$($_.D) $($_.Resource) $($_.CallerKind) $($_.Calls)/$($_.Threads)/$($_.Failures)" }) -join '; ')
+    Assert-That ($days.Rows.Count -eq 2 -and $days.Rows[1].Resource -eq 'retail-prod-aif-0147' -and $days.Rows[1].D -eq $actFirst -and
+                 $days.Rows[0].D -eq $actLast -and [int] $days.Rows[0].Calls -eq 2 -and [int] $days.Rows[0].Threads -eq 1 -and [int] $days.Rows[0].Failures -eq 1) `
+        "the rollup counts calls, conversations and failures by day in the reporting time zone (01:30 UTC yesterday is the day before in Eastern; zone $zoneNow, expected $actFirst and $actLast, got $seen)"
     $res = Invoke-SqlText -Catalog $actCop -As Table -Sql "SELECT [Resource], LineOfBusiness, Environment, SetBy FROM audit.AIAppResource ORDER BY [Resource];"
     Assert-That ($res.Rows.Count -eq 2 -and $res.Rows[0].Environment -eq 'Development' -and $res.Rows[1].LineOfBusiness -eq 'Retail' -and $res.Rows[1].Environment -eq 'Production' -and $res.Rows[1].SetBy -eq 'Name') `
         'each new resource is guessed from its name: retail-prod-aif-0147 is Retail, Production'
@@ -4446,7 +4451,7 @@ INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation
 
     # An administrator's map is kept; the rollup again, from a day, leaves the days before it.
     Invoke-SqlText -Catalog $actCop -Sql "UPDATE audit.AIAppResource SET LineOfBusiness = N'Retail Banking', SetBy = 'Admin' WHERE [Resource] = N'retail-prod-aif-0147';"
-    Invoke-SqlText -Catalog $actCop -Sql "EXEC audit.usp_RollupActivity @ActivityDatabase = @a, @SinceUtc = @s;" -Parameters @{ '@a' = $actDb; '@s' = $yday }
+    Invoke-SqlText -Catalog $actCop -Sql "EXEC audit.usp_RollupActivity @ActivityDatabase = @a, @SinceUtc = @s;" -Parameters @{ '@a' = $actDb; '@s' = [datetime]::UtcNow.Date.AddDays(-1) }
     Assert-That ([int] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql 'SELECT COUNT(*) FROM audit.AIAppUserDay') -eq 2 -and
                  [string] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql "SELECT LineOfBusiness FROM audit.AIAppResource WHERE [Resource] = N'retail-prod-aif-0147';") -eq 'Retail Banking') `
         'a rollup from a day rewrites that day on, and keeps what an administrator set'
