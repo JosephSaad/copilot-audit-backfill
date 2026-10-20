@@ -40,6 +40,7 @@ public static class NavText
         ["/leadership/value"] = ("An estimate of the hours Copilot saved and what they are worth.", "What it is used for"),
         ["/leadership/costs"] = ("What AI and automation cost, what can be saved, and what they return, all areas on one page.", "What it is used for"),
         ["/leadership/reservations"] = ("Each organization's reserved Copilot seats against its licenses, and what it bills.", "Cost savings"),
+        ["/leadership/credit-chargeback"] = ("Each line of business's Copilot Credits by path, and what they charge it.", "Cost savings"),
         ["/leadership/boardpack"] = ("The program on one page for the board: use, targets, value, licenses and risk.", "Reporting"),
         ["/leadership/assumptions"] = ("Every price and assumption a cost, saving or value rests on, and where it is set.", "Reporting"),
 
@@ -105,7 +106,8 @@ public static class NavText
 
         ["/forecasting"] = ("Where use and licenses are heading, from the last year of weekly history.", "Forecast and budget"),
         ["/forecasting/optimize"] = ("What to do with licenses: reclaim, reassign, coach or buy, and what each is worth.", "Forecast and budget"),
-        ["/forecasting/budget"] = ("The Copilot contracts, their cost, renewal dates, and the seats use supports.", "Forecast and budget"),
+        ["/forecasting/budget"] = ("The Copilot contracts, their cost, renewal dates, and the seats to renew.", "Forecast and budget"),
+        ["/forecasting/credit-commitment"] = ("A prepaid Copilot Credit commitment: drawn, left, and when it runs out.", "Forecast and budget"),
         ["/forecasting/actions"] = ("Named people to upgrade to a license, to train, or to take a license back from.", "Actions"),
         ["/forecasting/waves"] = ("Everyone without a license, in the order to license them, split into waves.", "Actions"),
         ["/forecasting/outcomes"] = ("Each license export from the dashboard, and whether the change happened.", "Actions"),

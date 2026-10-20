@@ -195,7 +195,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             if (!OperatingSystem.IsWindows()) return;
             try
             {
-                var id = kind switch { "Pipeline" => 1001, "Freshness" => 1002, "Certificate" => 1003, "Security" => 2001, "Anomaly" => 3001, "Pool" => 4001, "Leavers" => 4002, "NonHuman" => 2002, "NewAgent" => 5001, _ => 1000 };
+                var id = kind switch { "Pipeline" => 1001, "Freshness" => 1002, "Certificate" => 1003, "Security" => 2001, "Anomaly" => 3001, "Pool" => 4001, "Leavers" => 4002, "Commitment" => 4003, "NonHuman" => 2002, "NewAgent" => 5001, _ => 1000 };
                 System.Diagnostics.EventLog.WriteEntry("Copilot Insights", message.Length > 30000 ? message[..30000] : message,
                     kind is "Security" or "NonHuman" ? System.Diagnostics.EventLogEntryType.Warning : System.Diagnostics.EventLogEntryType.Information, id);
             }
@@ -250,7 +250,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var last = await StateAsync("refresh");
             /* Done for this refresh, unless one of its alerts waits to be emailed again (2.4.12): each check below keeps its own state, so running them again repeats nothing. */
             if (last == runId.Value.ToString(CultureInfo.InvariantCulture)
-                && await _db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey IN (N'retry:security', N'retry:anomaly', N'retry:agents', N'retry:pool', N'retry:leavers', N'retry:nonhuman') AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());") == 0)
+                && await _db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey IN (N'retry:security', N'retry:anomaly', N'retry:agents', N'retry:pool', N'retry:leavers', N'retry:nonhuman', N'retry:commitment') AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());") == 0)
                 return;
             var first = last is null;
 
@@ -258,6 +258,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             await AnomaliesAsync();
             await AgentsAsync(first);
             await PoolAsync();
+            await CommitmentAsync();
             await LeaversAsync(first);
             await NonHumanAsync();
             await SetStateAsync("refresh", runId.Value.ToString(CultureInfo.InvariantCulture));
@@ -326,11 +327,27 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var seen = await StateAsync("pool");
             var last = DateTime.TryParse(seen, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
             if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
+            var names = await SkuNames.LoadAsync(_db);   // 2.7.2: product names, not part numbers
             await RaiseAsync("pool", seen, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), "Pool", "AlertLicensingTo", "Copilot licenses are running out",
-                full.Select(p => $"{p.SkuPartNumber}: {p.Consumed:#,0} of {p.Bought:#,0} assigned ({100.0 * p.Consumed / p.Bought:0}%), {p.Available:#,0} left.")
+                full.Select(p => $"{names.Name(p.SkuPartNumber)}: {p.Consumed:#,0} of {p.Bought:#,0} assigned ({100.0 * p.Consumed / p.Bought:0}%), {p.Available:#,0} left.")
                     .Append("License optimization lists unused licenses to reclaim before buying more.").ToList(), "/licensing/pool");
         }
 
+        /* 2.7.2: the Copilot Credit commitment projected to run out early, or to leave part of it unused: once a week while it lasts. */
+        async Task CommitmentAsync()
+        {
+            var days = await _settings.IntAsync("CreditCommitmentAlertDays", 30);
+            var credit = new CreditChargeData(_db, _settings);
+            string? warning = null;
+            if (days > 0 && await credit.CommitmentsReadyAsync() && await credit.ReadyAsync() && await credit.InForceAsync() is { } c)
+                warning = CreditChargeRules.Warning(await credit.StatusAsync(c), days);
+            if (warning is null) { await SetStateAsync("commitment", null); return; }
+            var seen = await StateAsync("commitment");
+            var last = DateTime.TryParse(seen, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
+            if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
+            await RaiseAsync("commitment", seen, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), "Commitment", "AlertLicensingTo", "The Copilot Credit commitment needs attention",
+                [warning, "Forecasting > Credit commitment shows what is drawn, what is left and who draws most; it is an estimate from the consumption report."], "/forecasting/credit-commitment");
+        }
         async Task LeaversAsync(bool first)
         {
             var n = (await _ops.LeaversAsync()).Count;

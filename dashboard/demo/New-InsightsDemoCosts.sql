@@ -448,6 +448,52 @@ UPDATE dash.Setting SET Value = N'3', UpdatedBy = N'demo' WHERE Name = N'Protect
 UPDATE dash.Setting SET Value = N'65', UpdatedBy = N'demo' WHERE Name = N'HourlyCost';
 IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy) VALUES (N'HourlyCost', N'65', N'Demo: the loaded cost of an hour of work.', N'demo');
 
+/* ---- 2.7.2: Copilot Credit chargeback and a credit commitment (P3) ----
+   Four lines of business run agents in their own environments from the first day of the month two months back, metered
+   pay-as-you-go and drawn from a one-year Copilot Credit Pre-Purchase Plan bought that day. Every environment is routed
+   but two, on purpose: Contoso (default) is not routed at all, and Maker Sandbox names an Org ID the reservation register
+   does not have, so the page's exceptions have something to show. IT Operations was Innovation until the P3 began, then
+   moved to Technology's Productivity path: the route history. */
+IF OBJECT_ID(N'dash.CreditRoute', N'U') IS NOT NULL AND OBJECT_ID(N'dash.CreditCommitment', N'U') IS NOT NULL
+BEGIN
+    DECLARE @p3 DATE = DATEFROMPARTS(YEAR(DATEADD(MONTH, -2, @today)), MONTH(DATEADD(MONTH, -2, @today)), 1);
+    INSERT INTO audit.PowerPlatformCreditDay ([Day], EnvironmentName, Product, Billing, Credits, Cost, Currency)
+    SELECT d.[Day], e.Env, 'Copilot Studio', 'PayAsYouGo', c.Credits, c.Credits * 0.01, N'USD'
+    FROM #day AS d
+    CROSS JOIN (VALUES (N'Retail Banking Apps', 2600.0), (N'Finance Agents', 1500.0), (N'Risk Analytics', 900.0), (N'Contoso Dev', 450.0)) AS e (Env, Base)
+    CROSS APPLY (SELECT ROUND(e.Base * @scale * (1 + 0.012 * DATEDIFF(DAY, @p3, d.[Day])) * CASE WHEN d.Dow >= 6 THEN 0.2 ELSE 1 END
+                              * (0.85 + (ABS(CHECKSUM(CONCAT(e.Env, d.[Day]))) % 300) / 1000.0), 0) AS Credits) AS c
+    WHERE d.[Day] >= @p3 AND c.Credits > 0;
+
+    DELETE FROM dash.CreditChargeSnapshot;
+    DELETE FROM dash.CreditRoute;
+    INSERT INTO dash.CreditRoute (EnvironmentName, Path, OrgId, CostCenter, FinancialOwner, BillingPolicy, EffectiveFrom, EffectiveTo, Note, UpdatedBy) VALUES
+        (N'HR Services',          'EnterpriseShared',    NULL,          N'CC-900', N'casey.ivanova@contoso.com', N'BP-Enterprise', DATEADD(DAY, -200, @today), NULL, N'HR help and policy agents: protected.', N'demo'),
+        (N'IT Operations',        'Innovation',          N'LOB-TECH',   N'CC-410', N'riley.rossi@contoso.com',   N'BP-Technology', DATEADD(DAY, -200, @today), DATEADD(DAY, -1, @p3), N'Pilot agents before the P3.', N'demo'),
+        (N'IT Operations',        'Productivity',        N'LOB-TECH',   N'CC-410', N'riley.rossi@contoso.com',   N'BP-Technology', @p3, NULL, NULL, N'demo'),
+        (N'Customer Care',        'BusinessApplication', N'LOB-SALES',  N'CC-220', N'morgan.petrov@contoso.com', N'BP-Sales',      DATEADD(DAY, -200, @today), NULL, NULL, N'demo'),
+        (N'Retail Banking Apps',  'BusinessApplication', N'LOB-SALES',  N'CC-221', N'morgan.petrov@contoso.com', N'BP-Sales',      @p3, NULL, NULL, N'demo'),
+        (N'Finance Agents',       'Productivity',        N'LOB-FIN',    N'CC-310', N'jordan.mensah@contoso.com', N'BP-Finance',    @p3, NULL, NULL, N'demo'),
+        (N'Risk Analytics',       'Productivity',        N'LOB-RISK',   N'CC-510', N'marco.novak@contoso.com',   N'BP-Risk',       @p3, NULL, NULL, N'demo'),
+        (N'Contoso Dev',          'Innovation',          N'LOB-TECH',   N'CC-499', N'riley.rossi@contoso.com',   N'BP-Technology', @p3, NULL, N'Development and testing.', N'demo'),
+        (N'Legal and Compliance', 'Productivity',        N'LOB-LEGAL',  N'CC-610', N'jamie.mahmoud@contoso.com', N'BP-Legal',      DATEADD(DAY, -200, @today), NULL, NULL, N'demo'),
+        (N'Sales Ops',            'BusinessApplication', N'LOB-SALES-OPS', N'CC-230', N'grace.pereira@contoso.com', N'BP-Sales',   DATEADD(DAY, -200, @today), NULL, NULL, N'demo'),
+        (N'Maker Sandbox',        'Innovation',          N'LOB-MAKERS', NULL,      NULL,                        NULL,            DATEADD(DAY, -200, @today), NULL, N'Org ID not yet in the reservation register.', N'demo');
+
+    /* The commitment: sized at about four fifths of a year at the last 30 days' draw, so it is projected to run out early. */
+    DELETE FROM dash.CreditCommitment;
+    DECLARE @draw DECIMAL(19, 2) = (SELECT SUM(Credits) * 0.01 / 30 FROM audit.PowerPlatformCreditDay WHERE Product = 'Copilot Studio' AND Billing = 'PayAsYouGo' AND [Day] > DATEADD(DAY, -30, @today));
+    INSERT INTO dash.CreditCommitment (Name, Amount, Currency, DrawRate, StartDate, EndDate, Scope, Note, UpdatedBy)
+    VALUES (N'Copilot Credit P3 FY27', ROUND(ISNULL(@draw, 100) * 365 * 0.8, -3), N'USD', 0.01, @p3, DATEADD(DAY, -1, DATEADD(YEAR, 1, @p3)),
+            N'Billing account Contoso Enterprise', N'Demo: one-year pre-purchase, commit units at list price.', N'demo');
+    UPDATE dash.Setting SET Value = N'0.012', UpdatedBy = N'demo' WHERE Name = N'CreditChargeRate';
+
+    /* The two months since the P3 began, kept as the nightly run would have kept them. */
+    EXEC dash.usp_TakeCreditChargeSnapshot @Month = @p3;
+    DECLARE @next DATE = DATEADD(MONTH, 1, @p3);
+    EXEC dash.usp_TakeCreditChargeSnapshot @Month = @next;
+END;
+
 /* The session goes on to the dashboard's refresh, whose procedure has temporary tables of the same names. */
 DROP TABLE IF EXISTS #n, #day, #people, #sku, #held, #flowname, #cap, #suite, #pool;
 

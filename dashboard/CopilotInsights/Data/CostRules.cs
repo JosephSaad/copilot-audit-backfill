@@ -261,10 +261,11 @@ public static class CostRules
     /// Copilot Credits: pay-as-you-go beyond the packs, where enough to fill packs costs less as packs; and packs the
     /// agents did not use. A pack is 25,000 credits a month.
     /// </summary>
-    public static Opportunity? Credits(decimal prepaidUsed, int packs, decimal paygCredits, decimal paygCost, decimal packPrice, string cur, int packCredits = 25000)
+    public static Opportunity? Credits(decimal prepaidUsed, int packs, decimal paygCredits, decimal paygCost, decimal packPrice, string cur, int packCredits = 25000, bool committed = false)
     {
         if (packPrice <= 0) return null;
-        if (paygCredits >= packCredits)
+        /* 2.7.2: under a credit commitment (P3) the metered credits draw on what is already paid for: buying packs for them is no saving. */
+        if (paygCredits >= packCredits && !committed)
         {
             var more = (int)Math.Floor(paygCredits / packCredits);
             var save = paygCost - more * packPrice;

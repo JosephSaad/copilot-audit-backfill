@@ -13,7 +13,7 @@ public static class Nav
     [
         new("Leadership", "Executives and department heads", [
             new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
-            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"), new("Copilot reservations", "/leadership/reservations"),
+            new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"), new("Copilot reservations", "/leadership/reservations"), new("Credit chargeback", "/leadership/credit-chargeback"),
             new("Board pack", "/leadership/boardpack"), new("How figures are calculated", "/leadership/assumptions")]),
         new("Adoption", "Copilot program leads", [
             new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"),
@@ -43,7 +43,7 @@ public static class Nav
             new("Engagement", "/enablement"), new("Conversation depth", "/enablement/depth"), new("Training effect", "/enablement/training"),
             new("Champions", "/enablement/champions", Roles.Enablement), new("People by engagement", "/enablement/people", Roles.Enablement)], Roles.Enablement),
         new("Forecasting", "Finance, licensing and program leads", [
-            new("Forecast", "/forecasting"), new("License optimization", "/forecasting/optimize"), new("Budget and renewal", "/forecasting/budget"),
+            new("Forecast", "/forecasting"), new("License optimization", "/forecasting/optimize"), new("Budget and renewal", "/forecasting/budget"), new("Credit commitment", "/forecasting/credit-commitment"),
             new("Upgrade, train or revoke", "/forecasting/actions", Roles.Licensing), new("Rollout waves", "/forecasting/waves", Roles.Licensing),
             new("License action outcomes", "/forecasting/outcomes", Roles.Licensing)], Roles.Licensing),
         new("Regions", "Country, office and site leads", [

@@ -21,6 +21,10 @@
       dash.usp_TakeReservationSnapshot
                         2.6.8: Copilot reservations, their rate, the Technology
                         pool, and each month's position kept as it was
+      dash.CreditRoute, dash.CreditChargeSnapshot, dash.CreditCommitment,
+      dash.usp_TakeCreditChargeSnapshot
+                        2.7.2: Copilot Credit chargeback by line of business,
+                        its month-end snapshots, and the credit commitment (P3)
       dash.usp_ApplyRetention, dash.usp_SetPrivacyMode, dash.usp_SetSecret,
       dash.usp_GetSecret
       CopilotInsightsApp
@@ -504,6 +508,130 @@ BEGIN
     COMMIT TRANSACTION;
 END;');
 
+/*
+    2.7.2: Copilot Credit chargeback by line of business, and the Copilot Credit commitment (P3).
+      dash.CreditRoute          each Power Platform environment's path: LoB Productivity, LoB Business Application
+                                (both charged to a line of business, OrgId as in dash.Reservation), Enterprise Shared
+                                (enterprise-funded, never charged to a line of business) or Innovation (a sponsor's,
+                                where it names one), with its cost center, financial owner and billing policy, from a
+                                date. A change is a new row from its date, as in the reservation register.
+      dash.CreditChargeSnapshot each month's credits by environment and route, kept once and never rewritten, at the
+                                charge rate in force: Finance can reproduce any month.
+      dash.CreditCommitment     a prepaid commitment (the Copilot Credit Pre-Purchase Plan): its amount, what one
+                                credit draws from it, its term and its Azure scope.
+    The credits are audit.PowerPlatformCreditDay's (the Power Platform admin center's consumption report, Copilot
+    Studio's credits only); an environment is matched to its route by name, as the report names it.
+*/
+IF OBJECT_ID(N'dash.CreditRoute', N'U') IS NULL
+    CREATE TABLE dash.CreditRoute
+    (
+        RouteId          INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashCreditRoute PRIMARY KEY,
+        EnvironmentName  NVARCHAR(200)  NOT NULL,
+        Path             VARCHAR(24)    NOT NULL CONSTRAINT CK_DashCreditRoute_Path CHECK (Path IN ('Productivity', 'BusinessApplication', 'EnterpriseShared', 'Innovation')),
+        OrgId            NVARCHAR(64)   NULL,   -- the line of business charged (dash.Reservation.OrgId); NULL for Enterprise Shared
+        CostCenter       NVARCHAR(100)  NULL,
+        FinancialOwner   NVARCHAR(256)  NULL,
+        BillingPolicy    NVARCHAR(200)  NULL,   -- the Power Platform billing policy the environment is linked to, as a label
+        EffectiveFrom    DATE           NOT NULL,
+        EffectiveTo      DATE           NULL,
+        Note             NVARCHAR(400)  NULL,
+        UpdatedBy        NVARCHAR(256)  NULL,
+        UpdatedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_DashCreditRoute_Updated DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT CK_DashCreditRoute_Dates CHECK (EffectiveTo IS NULL OR EffectiveTo >= EffectiveFrom),
+        CONSTRAINT CK_DashCreditRoute_Org CHECK (Path NOT IN ('Productivity', 'BusinessApplication') OR OrgId IS NOT NULL),
+        INDEX IX_DashCreditRoute_Env (EnvironmentName, EffectiveFrom)
+    );
+
+IF OBJECT_ID(N'dash.CreditChargeSnapshot', N'U') IS NULL
+    CREATE TABLE dash.CreditChargeSnapshot
+    (
+        SnapshotId       INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashCreditChargeSnapshot PRIMARY KEY,
+        SnapshotMonth    DATE           NOT NULL,   -- the month's first day
+        EnvironmentName  NVARCHAR(200)  NOT NULL,
+        Path             VARCHAR(24)    NOT NULL,   -- as dash.CreditRoute, or Unmapped: no route in effect
+        OrgId            NVARCHAR(64)   NULL,
+        OrgName          NVARCHAR(200)  NULL,
+        CostCenter       NVARCHAR(100)  NULL,
+        Credits          DECIMAL(19, 2) NOT NULL,
+        PaygCredits      DECIMAL(19, 2) NOT NULL,
+        PaygCost         DECIMAL(19, 4) NULL,       -- what pay-as-you-go billed, as the report gives it
+        Currency         NVARCHAR(8)    NULL,
+        ChargeRate       DECIMAL(12, 6) NULL,       -- what one credit was charged back at; NULL: no rate in force
+        TakenUtc         DATETIME2(0)   NOT NULL CONSTRAINT DF_DashCreditChargeSnapshot_Taken DEFAULT (SYSUTCDATETIME()),
+        INDEX IX_DashCreditChargeSnapshot_Month (SnapshotMonth)
+    );
+
+IF OBJECT_ID(N'dash.CreditCommitment', N'U') IS NULL
+    CREATE TABLE dash.CreditCommitment
+    (
+        CommitmentId     INT IDENTITY(1, 1) NOT NULL CONSTRAINT PK_DashCreditCommitment PRIMARY KEY,
+        Name             NVARCHAR(200)  NOT NULL,
+        Amount           DECIMAL(19, 2) NOT NULL,   -- the commitment, in its currency
+        Currency         NVARCHAR(8)    NULL,       -- NULL: LicenseCurrency
+        DrawRate         DECIMAL(12, 6) NOT NULL CONSTRAINT DF_DashCreditCommitment_Draw DEFAULT (0.01),   -- what one credit draws from it
+        StartDate        DATE           NOT NULL,
+        EndDate          DATE           NOT NULL,
+        Scope            NVARCHAR(200)  NULL,       -- the Azure scope it applies to, as a label
+        Note             NVARCHAR(400)  NULL,
+        UpdatedBy        NVARCHAR(256)  NULL,
+        UpdatedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_DashCreditCommitment_Updated DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT CK_DashCreditCommitment_Term CHECK (EndDate > StartDate),
+        CONSTRAINT CK_DashCreditCommitment_Amount CHECK (Amount > 0 AND DrawRate > 0)
+    );
+
+MERGE dash.Setting AS t
+USING (VALUES
+    ('CreditChargeRate',          CAST(NULL AS NVARCHAR(400)), N'2.7.2: what one Copilot Credit is charged back to a line of business at, in LicenseCurrency. Empty: the pay-as-you-go credit price in the price list.'),
+    ('CreditCommitmentAlertDays', N'30', N'2.7.2: alert when the Copilot Credit commitment is projected to run out more than this many days before its term ends, or to leave this many days'' worth unused; 0 turns it off.')
+) AS s (Name, Value, Description)
+ON t.Name = s.Name
+WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy) VALUES (s.Name, s.Value, s.Description, N'install');
+
+/* The month's credits by environment and the route in effect each day, kept once: by default the month before the
+   latest credit day loaded, and only once the credits reach the month's last day (the consumption report is loaded by
+   hand, so a month is complete only when its last day is in), a route is in effect at the month end, and none was kept
+   for it. In one transaction, as the reservation snapshot. */
+EXEC (N'
+CREATE OR ALTER PROCEDURE dash.usp_TakeCreditChargeSnapshot
+    @Month DATE = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;
+    IF OBJECT_ID(N''audit.PowerPlatformCreditDay'', N''U'') IS NULL RETURN;
+    DECLARE @lastDay DATE = (SELECT MAX([Day]) FROM audit.PowerPlatformCreditDay WHERE Product = ''Copilot Studio'');
+    IF @lastDay IS NULL RETURN;
+    IF @Month IS NULL SET @Month = DATEFROMPARTS(YEAR(EOMONTH(@lastDay, -1)), MONTH(EOMONTH(@lastDay, -1)), 1);
+    SET @Month = DATEFROMPARTS(YEAR(@Month), MONTH(@Month), 1);
+    DECLARE @end DATE = EOMONTH(@Month);
+    IF @lastDay < @end RETURN;
+    IF NOT EXISTS (SELECT 1 FROM dash.CreditRoute WHERE EffectiveFrom <= @end AND (EffectiveTo IS NULL OR EffectiveTo >= @end)) RETURN;
+    IF EXISTS (SELECT 1 FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @Month) RETURN;
+    DECLARE @rate DECIMAL(12, 6) = TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = N''CreditChargeRate'') AS DECIMAL(12, 6));
+    IF @rate IS NULL AND OBJECT_ID(N''dash.CostPrice'', N''U'') IS NOT NULL
+        SET @rate = (SELECT MonthlyPrice FROM dash.CostPrice WHERE Item = ''COPILOT_STUDIO_PAYG_CREDIT'');
+
+    SELECT d.EnvironmentName, ISNULL(r.Path, ''Unmapped'') AS Path, r.OrgId, r.CostCenter,
+           SUM(ISNULL(d.Credits, 0)) AS Credits,
+           SUM(CASE WHEN d.Billing = ''PayAsYouGo'' THEN ISNULL(d.Credits, 0) ELSE 0 END) AS PaygCredits,
+           SUM(CASE WHEN d.Billing = ''PayAsYouGo'' THEN d.Cost END) AS PaygCost, MAX(d.Currency) AS Currency
+    INTO #c
+    FROM audit.PowerPlatformCreditDay AS d
+    OUTER APPLY (SELECT TOP (1) x.Path, x.OrgId, x.CostCenter FROM dash.CreditRoute AS x
+                 WHERE x.EnvironmentName = d.EnvironmentName AND x.EffectiveFrom <= d.[Day] AND (x.EffectiveTo IS NULL OR x.EffectiveTo >= d.[Day])
+                 ORDER BY x.EffectiveFrom DESC, x.RouteId DESC) AS r
+    WHERE d.Product = ''Copilot Studio'' AND d.[Day] BETWEEN @Month AND @end
+    GROUP BY d.EnvironmentName, ISNULL(r.Path, ''Unmapped''), r.OrgId, r.CostCenter;
+
+    BEGIN TRANSACTION;
+    INSERT INTO dash.CreditChargeSnapshot (SnapshotMonth, EnvironmentName, Path, OrgId, OrgName, CostCenter, Credits, PaygCredits, PaygCost, Currency, ChargeRate)
+    SELECT @Month, c.EnvironmentName, c.Path, c.OrgId,
+           (SELECT TOP (1) o.Name FROM dash.Reservation AS o WHERE o.OrgId = c.OrgId ORDER BY o.EffectiveFrom DESC),
+           c.CostCenter, c.Credits, c.PaygCredits, c.PaygCost, c.Currency, @rate
+    FROM #c AS c;
+    COMMIT TRANSACTION;
+END;');
+
 /* Each person's saved views; one may be their start page. Unused since 2.4.4, which removed My Copilot; kept, with its rows. */
 IF OBJECT_ID(N'dash.SavedView', N'U') IS NULL
     CREATE TABLE dash.SavedView
@@ -697,6 +825,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.LicenseContract TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Reservation TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ReservationRate TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TechnologyAllocation TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.CreditRoute TO CopilotInsightsApp;        -- 2.7.2: Leadership > Credit chargeback's register
+GRANT INSERT, UPDATE, DELETE ON dash.CreditCommitment TO CopilotInsightsApp;   -- 2.7.2: Forecasting > Credit commitment
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.NonHumanException TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;

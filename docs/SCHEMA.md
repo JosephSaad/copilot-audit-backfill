@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-122 tables (plus 2 left over from 1.x), 39 views, 1517 columns, from 22 scripts.
+125 tables (plus 2 left over from 1.x), 39 views, 1553 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -24,7 +24,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
 - [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
-- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
+- [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
 ## The scripts
@@ -3624,6 +3624,85 @@ Indexes and constraints:
 Indexes and constraints:
 
 - `PK_DashReservationSnapshot`: primary key, clustered (SnapshotDate, OrgId)
+
+### dash.CreditRoute
+
+*Table.* Each Power Platform environment's Copilot Credit route (2.7.2): LoB Productivity or LoB Business Application (charged to the line of business named), Enterprise Shared (funded centrally, never charged to one) or Innovation (its sponsor's, where it names one), with its cost center, financial owner and billing policy, from a date. A change is a new row from its date; the open row is ended the day before. Kept on Leadership › Credit chargeback.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RouteId` | int | **no** | **PK**, identity |  |
+| 2 | `EnvironmentName` | nvarchar(200) | **no** |  | as the consumption report names it |
+| 3 | `Path` | varchar(24) | **no** |  | Productivity \| BusinessApplication \| EnterpriseShared \| Innovation |
+| 4 | `OrgId` | nvarchar(64) | yes |  | the line of business charged (dash.Reservation); NULL for Enterprise Shared |
+| 5 | `CostCenter` | nvarchar(100) | yes |  |  |
+| 6 | `FinancialOwner` | nvarchar(256) | yes |  |  |
+| 7 | `BillingPolicy` | nvarchar(200) | yes |  | the Power Platform billing policy, as a label |
+| 8 | `EffectiveFrom` | date | **no** |  |  |
+| 9 | `EffectiveTo` | date | yes |  |  |
+| 10 | `Note` | nvarchar(400) | yes |  |  |
+| 11 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 12 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashCreditRoute`: primary key, clustered (RouteId)
+- `IX_DashCreditRoute_Env`: index (EnvironmentName, EffectiveFrom)
+- `CK_DashCreditRoute_Path`, `CK_DashCreditRoute_Dates`, `CK_DashCreditRoute_Org`: a known path; the end on or after the start; the two LoB paths name an Org ID
+
+### dash.CreditChargeSnapshot
+
+*Table.* Each month's Copilot Credit chargeback, kept as it was (2.7.2): one row per environment and the route it ran under, `Unmapped` where none was in effect, written once by `dash.usp_TakeCreditChargeSnapshot` once the consumption report reaches the month's last day, and never rewritten.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `SnapshotId` | int | **no** | **PK**, identity |  |
+| 2 | `SnapshotMonth` | date | **no** |  | the month's first day |
+| 3 | `EnvironmentName` | nvarchar(200) | **no** |  |  |
+| 4 | `Path` | varchar(24) | **no** |  | as dash.CreditRoute, or Unmapped |
+| 5 | `OrgId` | nvarchar(64) | yes |  |  |
+| 6 | `OrgName` | nvarchar(200) | yes |  |  |
+| 7 | `CostCenter` | nvarchar(100) | yes |  |  |
+| 8 | `Credits` | decimal(19,2) | **no** |  | Copilot Studio's credits; AI Builder's are not Copilot Credits |
+| 9 | `PaygCredits` | decimal(19,2) | **no** |  |  |
+| 10 | `PaygCost` | decimal(19,4) | yes |  | what pay-as-you-go billed |
+| 11 | `Currency` | nvarchar(8) | yes |  |  |
+| 12 | `ChargeRate` | decimal(12,6) | yes |  | what one credit was charged back at; NULL: none in force |
+| 13 | `TakenUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashCreditChargeSnapshot`: primary key, clustered (SnapshotId)
+- `IX_DashCreditChargeSnapshot_Month`: index (SnapshotMonth)
+
+### dash.CreditCommitment
+
+*Table.* A prepaid Copilot Credit commitment (2.7.2), such as the Pre-Purchase Plan (P3): its amount, what one credit draws from it, its term and Azure scope. Forecasting › Credit commitment sets the metered credits against it.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `CommitmentId` | int | **no** | **PK**, identity |  |
+| 2 | `Name` | nvarchar(200) | **no** |  |  |
+| 3 | `Amount` | decimal(19,2) | **no** |  | in its currency |
+| 4 | `Currency` | nvarchar(8) | yes |  | NULL: LicenseCurrency |
+| 5 | `DrawRate` | decimal(12,6) | **no** | `0.01` | what one credit draws from it |
+| 6 | `StartDate` | date | **no** |  |  |
+| 7 | `EndDate` | date | **no** |  |  |
+| 8 | `Scope` | nvarchar(200) | yes |  | the Azure scope, as a label |
+| 9 | `Note` | nvarchar(400) | yes |  |  |
+| 10 | `UpdatedBy` | nvarchar(256) | yes |  |  |
+| 11 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashCreditCommitment`: primary key, clustered (CommitmentId)
+- `CK_DashCreditCommitment_Term`, `CK_DashCreditCommitment_Amount`: the term ends after it starts; the amount and the draw are above 0
 
 ### dash.SavedView
 
