@@ -2910,6 +2910,70 @@ Indexes and constraints:
 - `CCI_PlatformActivity`: clustered columnstore
 - `UX_PlatformActivity_Record`: unique (RecordId)
 
+#### audit.ActivityUserDay
+
+*Table.* Who used Power BI, Power Apps and Teams meeting AI notes each day (2.7.0), from the activity database's records, by `audit.usp_RollupActivity`: for Apps' trend and any part of the organization. Days are the reporting time zone's.
+
+**Script** `Create-CopilotActivityRollup.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Day` | date | **no** | **PK** | a day in the reporting time zone |
+| 2 | `Product` | varchar(32) | **no** | **PK** | Power BI \| Power Apps \| Teams AI notes |
+| 3 | `Upn` | nvarchar(256) | **no** | **PK** |  |
+| 4 | `Events` | int | **no** |  |  |
+| 5 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_ActivityUserDay`: primary key, clustered (Day, Product, Upn)
+
+#### audit.DlpDay
+
+*Table.* Data loss prevention matches each day (2.7.0), by workload, policy, rule, severity and person, where the activity database loads the DLP record types; for Compliance > Sensitive content. No file or message is named.
+
+**Script** `Create-CopilotActivityRollup.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Day` | date | **no** |  | a day in the reporting time zone |
+| 2 | `Workload` | nvarchar(64) | **no** |  | SharePoint, OneDrive, Exchange, Endpoint; '' where none |
+| 3 | `PolicyName` | nvarchar(400) | **no** |  |  |
+| 4 | `RuleName` | nvarchar(400) | **no** |  |  |
+| 5 | `Severity` | nvarchar(32) | **no** |  |  |
+| 6 | `Upn` | nvarchar(256) | **no** |  | '' where the record names no one |
+| 7 | `Matches` | int | **no** |  |  |
+| 8 | `Undone` | int | **no** |  | DlpRuleUndo: an override, or a false positive reported |
+| 9 | `LoadedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `IX_DlpDay_Day`: nonclustered (Day)
+
+#### audit.DlpMatch
+
+*Table.* One row per data loss prevention record (2.7.0), shredded by `audit.usp_ShredActivity`: the first policy and rule it names, its severity, the workload and the person.
+
+**Script** `Create-ActivitySchema.sql` · **In** activity database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `RecordId` | varchar(64) | **no** |  |  |
+| 2 | `CreatedDateTime` | datetime2(0) | **no** |  | UTC |
+| 3 | `Workload` | nvarchar(64) | yes |  |  |
+| 4 | `Operation` | nvarchar(128) | yes |  | DlpRuleMatch, DlpRuleUndo, DlpInfo |
+| 5 | `UserId` | nvarchar(256) | yes |  |  |
+| 6 | `PolicyName` | nvarchar(400) | yes |  |  |
+| 7 | `RuleName` | nvarchar(400) | yes |  |  |
+| 8 | `Severity` | nvarchar(32) | yes |  |  |
+| 9 | `Policies` | int | **no** |  | the policies the record names |
+| 10 | `ShreddedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `CCI_DlpMatch`: clustered columnstore
+- `UX_DlpMatch_Record`: unique (RecordId)
+
 ### License events (license-event database)
 
 In the separate database the license-operations backfill fills. It also holds the loading, state and final-record tables above; these are added on top.
@@ -3085,7 +3149,7 @@ Indexes and constraints:
 | 1 | `RecordId` | varchar(64) | **no** | **PK** |  |
 | 2 | `CreatedUtc` | datetime2(0) | **no** |  |  |
 | 3 | `Operation` | nvarchar(100) | **no** |  |  |
-| 4 | `Action` | varchar(16) | **no** |  | Created \| Published \| Shared \| Updated \| Deleted \| Component |
+| 4 | `Action` | varchar(16) | **no** |  | Created \| Published \| Shared \| Updated \| Deleted \| Component; 2.7.0, an administrator's: Blocked \| Unblocked \| Deployed \| Removed \| AdminDeleted \| AdminUpdated \| Settings |
 | 5 | `ActorUpn` | nvarchar(512) | yes |  |  |
 | 6 | `BotId` | nvarchar(100) | yes |  |  |
 | 7 | `BotSchemaName` | nvarchar(200) | yes |  |  |
@@ -5331,11 +5395,11 @@ if (-not $SkipLicenseDatabase) {
         # what it was shredding shredded again, and no more.
         $unshredded = [long] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
 SELECT COUNT_BIG(*) FROM audit.CopilotAudit AS a
-WHERE a.Operation NOT LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
+WHERE a.Operation NOT LIKE N'Bot%' AND a.Operation NOT IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings') AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
 "@)
         $unshreddedAgents = [long] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
 SELECT COUNT_BIG(*) FROM audit.CopilotAudit AS a
-WHERE a.Operation LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.AgentEvent AS e WHERE e.RecordId = a.RecordId);
+WHERE (a.Operation LIKE N'Bot%' OR a.Operation IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings')) AND NOT EXISTS (SELECT 1 FROM audit.AgentEvent AS e WHERE e.RecordId = a.RecordId);
 "@)
         $marks = [string] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql "SELECT ISNULL(STRING_AGG(CONVERT(NVARCHAR(MAX), Name), N','), N'') FROM audit.PipelineSetting WHERE Name IN (N'LicenseShredInProgress', N'LicenseShredCompleteUtc');")
         $stopped = $marks -like '*LicenseShredInProgress*'
@@ -5376,7 +5440,7 @@ WHERE NOT EXISTS (SELECT 1 FROM audit.LicenseEventProperty AS p WHERE p.RecordId
                 # back, the procedure does.
                 $from = [string] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql @"
 SELECT CONVERT(NVARCHAR(19), DATEADD(SECOND, -1, MIN(a.CreatedDateTime)), 126) FROM audit.CopilotAudit AS a
-WHERE a.Operation NOT LIKE N'Bot%' AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
+WHERE a.Operation NOT LIKE N'Bot%' AND a.Operation NOT IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings') AND NOT EXISTS (SELECT 1 FROM audit.LicenseEvent AS e WHERE e.RecordId = a.RecordId);
 "@)
                 Write-Done ("license events: shredding the records from {0}Z on ({1:N0} not shredded yet)..." -f $from.Replace('T', ' '), $unshredded)
                 Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredLicenseEvents @SinceUtc = @s;' -Parameters @{ '@s' = $from }
@@ -11809,7 +11873,7 @@ GO
 
 ### C.15 `sql/Create-CopilotOperationsSchema.sql`
 
-Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 883 lines.
+Copilot database, with `-Dashboard`. The dashboard's operations tables, its database role and grants, privacy mode and retention, and seven more `bi` views. 891 lines.
 
 ```sql
 /*
@@ -12256,20 +12320,26 @@ WHERE m.n = 1;');
 
 /* The month-end snapshot: by default the last day of the month before the latest licensed day loaded, once. Allocated
    is the Microsoft 365 Copilot add-on held that day (bi.FactLicensedDay, less Copilot held only inside a suite), Technology
-   accounts counted in their own pool. The org chart is today's. A snapshot already taken is left as it is. */
+   accounts counted in their own pool. The org chart is today's. A snapshot already taken is left as it is.
+   2.7.0: taken only once the licenses reach two days past the month end (a license event can reach Purview a day
+   late, and the month end could not be taken again), only when a reservation is in effect that day (a register entered
+   ahead kept snapshots of nobody but the pools, for good), and in one transaction (a timeout between its two inserts kept
+   the organizations without the pools, and the snapshot could never be finished). */
 EXEC (N'
 CREATE OR ALTER PROCEDURE dash.usp_TakeReservationSnapshot
     @AsOf DATE = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
-    IF NOT EXISTS (SELECT 1 FROM dash.Reservation) RETURN;
+    SET XACT_ABORT ON;
     DECLARE @last INT = (SELECT MAX(DateKey) FROM bi.FactLicensedDay);
     IF @last IS NULL RETURN;
     DECLARE @lastDay DATE = CONVERT(DATE, CAST(@last AS CHAR(8)), 112);
     IF @AsOf IS NULL SET @AsOf = EOMONTH(@lastDay, -1);
     DECLARE @k INT = YEAR(@AsOf) * 10000 + MONTH(@AsOf) * 100 + DAY(@AsOf);
     IF @AsOf > @lastDay OR NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay WHERE DateKey = @k) RETURN;
+    IF @lastDay < DATEADD(DAY, 2, @AsOf) RETURN;
+    IF NOT EXISTS (SELECT 1 FROM dash.Reservation WHERE EffectiveFrom <= @AsOf AND (EffectiveTo IS NULL OR EffectiveTo >= @AsOf)) RETURN;
     IF EXISTS (SELECT 1 FROM dash.ReservationSnapshot WHERE SnapshotDate = @AsOf) RETURN;
     DECLARE @rate DECIMAL(12, 2) = (SELECT TOP (1) MonthlyRate FROM dash.ReservationRate WHERE EffectiveFrom <= @AsOf ORDER BY EffectiveFrom DESC);
 
@@ -12282,6 +12352,7 @@ BEGIN
     WHERE ld.DateKey = @k
       AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS so WHERE so.Upn = u.UserPrincipalName);
 
+    BEGIN TRANSACTION;
     INSERT INTO dash.ReservationSnapshot (SnapshotDate, OrgId, Name, LeaderUpn, CostCenter, Reserved, Allocated, MonthlyRate)
     SELECT @AsOf, r.OrgId, MAX(r.Name), NULLIF(MAX(ISNULL(r.LeaderUpn, N'''')), N''''), NULLIF(MAX(ISNULL(r.CostCenter, N'''')), N''''), SUM(r.Reserved),
            ISNULL((SELECT COUNT(*) FROM dash.fnReservationMember(@AsOf) AS m JOIN #held AS h ON h.UserKey = m.UserKey AND h.Tech = 0
@@ -12296,6 +12367,7 @@ BEGIN
            (SELECT COUNT(*) FROM #held AS h WHERE h.Tech = 0 AND NOT EXISTS (SELECT 1 FROM dash.fnReservationMember(@AsOf) AS m WHERE m.UserKey = h.UserKey)), @rate
     UNION ALL
     SELECT @AsOf, N''~technology'', N''Technology-funded pool'', 0, (SELECT COUNT(*) FROM #held WHERE Tech = 1), @rate;
+    COMMIT TRANSACTION;
 END;');
 
 /* Each person's saved views; one may be their start page. Unused since 2.4.4, which removed My Copilot; kept, with its rows. */
@@ -12519,7 +12591,7 @@ DECLARE t CURSOR LOCAL FAST_FORWARD FOR
                              (N'FoundryDeployment'), (N'FoundryUsageDay'), (N'FoundryCostDay'), (N'ExternalUsageRun'),
                              /* 2.6.6's cost tables and 2.6.9's AI apps: a new install makes the role after their scripts ran. */
                              (N'FabricCapacityDay'), (N'FabricWorkloadDay'), (N'PowerAutomateFlow'), (N'PowerPlatformUserActivity'),
-                             (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource')) AS v (name)
+                             (N'PowerPlatformCapacityDay'), (N'PowerPlatformCreditDay'), (N'AIAppUserDay'), (N'AIAppResource'), (N'ActivityUserDay'), (N'DlpDay')) AS v (name)
     WHERE OBJECT_ID(N'audit.' + name, N'U') IS NOT NULL;
 OPEN t;
 FETCH NEXT FROM t INTO @t;
@@ -13060,7 +13132,7 @@ GROUP BY TargetUpn;');
 
 ### C.17 `sql/Create-LicenseEventProcedure.sql`
 
-License-event database. `audit.usp_ShredLicenseEvents` and `audit.usp_RefreshLicenseSkuChange`. 709 lines.
+License-event database. `audit.usp_ShredLicenseEvents` and `audit.usp_RefreshLicenseSkuChange`. 711 lines.
 
 ```sql
 /*
@@ -13537,8 +13609,10 @@ BEGIN
             ) AS t
         WHERE a.RecordId > @cursor AND a.RecordId <= @maxId
           AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc)
-          /* Copilot Studio's authoring records share the load (2.3.0): audit.usp_ShredAgentEvents takes them. */
-          AND a.Operation NOT LIKE N'Bot%';
+          /* Copilot Studio's authoring records share the load (2.3.0), and from 2.7.0 administrators' actions on agents:
+             audit.usp_ShredAgentEvents takes them. */
+          AND a.Operation NOT LIKE N'Bot%'
+          AND a.Operation NOT IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings');
 
         CREATE CLUSTERED INDEX CIX_evt ON #evt (RecordId);
 
@@ -13776,7 +13850,7 @@ GO
 
 ### C.18 `sql/Create-AgentEventProcedure.sql`
 
-License-event database. `audit.AgentEvent` and `audit.usp_ShredAgentEvents`: Copilot Studio authoring records. 112 lines.
+License-event database. `audit.AgentEvent` and `audit.usp_ShredAgentEvents`: Copilot Studio authoring records. 126 lines.
 
 ```sql
 /*
@@ -13787,7 +13861,10 @@ License-event database. `audit.AgentEvent` and `audit.usp_ShredAgentEvents`: Cop
     authoring operations (BotCreate, BotUpdateOperation-BotPublish,
     BotUpdateOperation-BotShare, BotDelete, BotComponent*...), in the same
     audit searches, so they cost no extra search. This turns each into one row:
-    who did what to which agent, and when.
+    who did what to which agent, and when. From 2.7.0 also administrators'
+    actions on agents in the Microsoft 365 admin center (record type
+    CopilotAgentManagement: BlockedAgent, UnblockedAgent, DeployedAgent,
+    RemovedAgent, DeletedAgent, UpdatedAgent, UpdatedTenantSettings).
 
       audit.AgentEvent   one row per authoring record: the action, the agent
                          (BotId, BotSchemaName), the maker, the component,
@@ -13809,7 +13886,7 @@ IF OBJECT_ID(N'audit.AgentEvent', N'U') IS NULL
         RecordId         VARCHAR(64)     NOT NULL CONSTRAINT PK_AgentEvent PRIMARY KEY,
         CreatedUtc       DATETIME2(0)    NOT NULL,
         Operation        NVARCHAR(100)   NOT NULL,
-        Action           VARCHAR(16)     NOT NULL,   -- Created | Published | Shared | Updated | Deleted | Component
+        Action           VARCHAR(16)     NOT NULL,   -- Created | Published | Shared | Updated | Deleted | Component; 2.7.0, an administrator's: Blocked | Unblocked | Deployed | Removed | AdminDeleted | AdminUpdated | Settings
         ActorUpn         NVARCHAR(512)   NULL,
         BotId            NVARCHAR(100)   NULL,
         BotSchemaName    NVARCHAR(200)   NULL,
@@ -13845,9 +13922,10 @@ BEGIN
            CAST(a.CreatedDateTime AS DATETIME2(0))                                       AS CreatedUtc,
            LEFT(COALESCE(t.Operation, a.Operation), 100)                                 AS Operation,
            LEFT(COALESCE(t.UserId, a.UserPrincipalName, a.UserId), 512)                  AS ActorUpn,
-           LEFT(t.BotId, 100)                                                            AS BotId,
+           LEFT(COALESCE(t.BotId, t.AgentId), 100)                                       AS BotId,
            LEFT(t.BotSchemaName, 200)                                                    AS BotSchemaName,
-           LEFT(t.BotComponentSchemaName, 200)                                           AS ComponentName,
+           /* An administrator's action names the agent, not a component (2.7.0). */
+           LEFT(COALESCE(t.BotComponentSchemaName, t.AgentName), 200)                    AS ComponentName,
            LEFT(t.BotComponentType, 100)                                                 AS ComponentType,
            LEFT(t.ResultStatus, 50)                                                      AS ResultStatus,
            LEFT(COALESCE(t.BotUpdateDetails, t.BotComponentUpdateDetails), 4000)          AS UpdateDetails
@@ -13864,15 +13942,25 @@ BEGIN
             BotComponentSchemaName    NVARCHAR(200)  '$.BotComponentSchemaName',
             BotComponentType          NVARCHAR(100)  '$.BotComponentType',
             BotUpdateDetails          NVARCHAR(MAX)  '$.BotUpdateDetails'          AS JSON,
-            BotComponentUpdateDetails NVARCHAR(MAX)  '$.BotComponentUpdateDetails' AS JSON
+            BotComponentUpdateDetails NVARCHAR(MAX)  '$.BotComponentUpdateDetails' AS JSON,
+            AgentId                   NVARCHAR(100)  '$.AgentId',
+            AgentName                 NVARCHAR(200)  '$.AgentName'
         ) AS t
-    WHERE a.Operation LIKE N'Bot%'
+    WHERE (a.Operation LIKE N'Bot%'
+           OR a.Operation IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings'))
       AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc);
 
     MERGE audit.AgentEvent WITH (HOLDLOCK) AS t
     USING (
         SELECT e.*,
-               CASE WHEN e.Operation = N'BotCreate' THEN 'Created'
+               CASE WHEN e.Operation = N'BlockedAgent' THEN 'Blocked'
+                    WHEN e.Operation = N'UnblockedAgent' THEN 'Unblocked'
+                    WHEN e.Operation = N'DeployedAgent' THEN 'Deployed'
+                    WHEN e.Operation = N'RemovedAgent' THEN 'Removed'
+                    WHEN e.Operation = N'DeletedAgent' THEN 'AdminDeleted'
+                    WHEN e.Operation = N'UpdatedAgent' THEN 'AdminUpdated'
+                    WHEN e.Operation = N'UpdatedTenantSettings' THEN 'Settings'
+                    WHEN e.Operation = N'BotCreate' THEN 'Created'
                     WHEN e.Operation LIKE N'%BotPublish%' THEN 'Published'
                     WHEN e.Operation LIKE N'%BotShare%' THEN 'Shared'
                     WHEN e.Operation IN (N'BotDelete', N'BotDeleteCleanup') THEN 'Deleted'
@@ -13895,7 +13983,7 @@ GO
 
 ### C.19 `sql/Create-CopilotActivityRollup.sql`
 
-Copilot database (2.6.9). `audit.AIAppUserDay`, `audit.AIAppResource` and `audit.usp_RollupActivity`, which copies the activity database into them and into `audit.PowerPlatformUserActivity`. 223 lines.
+Copilot database (2.6.9). `audit.AIAppUserDay`, `audit.AIAppResource` and `audit.usp_RollupActivity`, which copies the activity database into them and into `audit.PowerPlatformUserActivity`. 291 lines.
 
 ```sql
 /*
@@ -13949,6 +14037,37 @@ IF OBJECT_ID(N'audit.AIAppUserDay', N'U') IS NULL
         Failures        INT            NOT NULL,
         LoadedUtc       DATETIME2(0)   NOT NULL CONSTRAINT DF_AIAppUserDay_Loaded DEFAULT (SYSUTCDATETIME()),
         CONSTRAINT PK_AIAppUserDay PRIMARY KEY ([Day], [Resource], ApplicationName, SubscriptionId, Caller)
+    );
+GO
+
+/* 2.7.0: who used Power BI, Power Apps and Teams meeting AI notes each day (reporting-zone days), for the trends and
+   the team views; and the data loss prevention matches each day, by policy, rule and person, where the activity database
+   is asked for the DLP record types. */
+IF OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NULL
+    CREATE TABLE audit.ActivityUserDay
+    (
+        [Day]     DATE          NOT NULL,
+        Product   VARCHAR(32)   NOT NULL,   -- Power BI | Power Apps | Teams AI notes
+        Upn       NVARCHAR(256) NOT NULL,
+        Events    INT           NOT NULL,
+        LoadedUtc DATETIME2(0)  NOT NULL CONSTRAINT DF_ActivityUserDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT PK_ActivityUserDay PRIMARY KEY ([Day], Product, Upn)
+    );
+GO
+
+IF OBJECT_ID(N'audit.DlpDay', N'U') IS NULL
+    CREATE TABLE audit.DlpDay
+    (
+        [Day]      DATE          NOT NULL,
+        Workload   NVARCHAR(64)  NOT NULL,   -- SharePoint, OneDrive, Exchange, Endpoint; '' where none
+        PolicyName NVARCHAR(400) NOT NULL,
+        RuleName   NVARCHAR(400) NOT NULL,
+        Severity   NVARCHAR(32)  NOT NULL,
+        Upn        NVARCHAR(256) NOT NULL,   -- '' where the record names no one
+        Matches    INT           NOT NULL,
+        Undone     INT           NOT NULL,   -- DlpRuleUndo: an override, or a false positive reported
+        LoadedUtc  DATETIME2(0)  NOT NULL CONSTRAINT DF_DlpDay_Loaded DEFAULT (SYSUTCDATETIME()),
+        INDEX IX_DlpDay_Day ([Day])
     );
 GO
 
@@ -14015,13 +14134,14 @@ BEGIN
     SET XACT_ABORT ON;
 
     DECLARE @db NVARCHAR(300) = QUOTENAME(@ActivityDatabase), @sql NVARCHAR(MAX), @from DATE = CAST(@SinceUtc AS DATE),
-            @run INT, @days INT = 0, @users INT = 0, @hasCalls BIT, @hasPlatform BIT, @msg NVARCHAR(2000);
+            @run INT, @days INT = 0, @users INT = 0, @hasCalls BIT, @hasPlatform BIT, @hasDlp BIT = 0, @msg NVARCHAR(2000), @dlp INT = 0, @actDays INT = 0;
 
     IF DB_ID(@ActivityDatabase) IS NULL
         THROW 50031, N'The activity database named does not exist on this server.', 1;
     SET @sql = N'SELECT @c = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.AIAppCall'', N''U'') IS NULL THEN 0 ELSE 1 END,
-                        @p = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.PlatformActivity'', N''U'') IS NULL THEN 0 ELSE 1 END;';
-    EXEC sys.sp_executesql @sql, N'@c BIT OUTPUT, @p BIT OUTPUT', @c = @hasCalls OUTPUT, @p = @hasPlatform OUTPUT;
+                        @p = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.PlatformActivity'', N''U'') IS NULL THEN 0 ELSE 1 END,
+                        @d = CASE WHEN OBJECT_ID(N''' + REPLACE(@db, N'''', N'''''') + N'.audit.DlpMatch'', N''U'') IS NULL THEN 0 ELSE 1 END;';
+    EXEC sys.sp_executesql @sql, N'@c BIT OUTPUT, @p BIT OUTPUT, @d BIT OUTPUT', @c = @hasCalls OUTPUT, @p = @hasPlatform OUTPUT, @d = @hasDlp OUTPUT;
     IF @hasCalls = 0 OR @hasPlatform = 0
         THROW 50032, N'The activity database has no audit.AIAppCall or audit.PlatformActivity: install it with Install-CopilotAudit.ps1 -ActivityDatabase.', 1;
 
@@ -14040,7 +14160,10 @@ BEGIN
            Copilot day. AT TIME ZONE once for each quarter hour of the range (a zone can be offset by 30 or 45 minutes), not
            once for each of tens of millions of records. */
         DECLARE @zone SYSNAME = audit.ReportingTimeZone(), @lo DATETIME2(0), @hi DATETIME2(0);
-        SET @sql = N'SELECT @lo = MIN(CreatedDateTime), @hi = MAX(CreatedDateTime) FROM ' + @db + N'.audit.AIAppCall;';
+        /* 2.7.0: the range of every table the days are cut for. */
+        SET @sql = N'SELECT @lo = MIN(x.Lo), @hi = MAX(x.Hi) FROM (SELECT MIN(CreatedDateTime) AS Lo, MAX(CreatedDateTime) AS Hi FROM ' + @db + N'.audit.AIAppCall
+            UNION ALL SELECT MIN(CreatedDateTime), MAX(CreatedDateTime) FROM ' + @db + N'.audit.PlatformActivity' +
+            CASE WHEN @hasDlp = 1 THEN N' UNION ALL SELECT MIN(CreatedDateTime), MAX(CreatedDateTime) FROM ' + @db + N'.audit.DlpMatch' ELSE N'' END + N') AS x;';
         EXEC sys.sp_executesql @sql, N'@lo DATETIME2(0) OUTPUT, @hi DATETIME2(0) OUTPUT', @lo = @lo OUTPUT, @hi = @hi OUTPUT;
         DECLARE @fromUtc DATETIME2(0) = CASE WHEN @from IS NULL THEN NULL
                                             ELSE CAST((CAST(@from AS DATETIME2(0)) AT TIME ZONE @zone) AT TIME ZONE 'UTC' AS DATETIME2(0)) END;
@@ -14077,6 +14200,36 @@ GROUP BY q.LocalDay, c.[Resource], ISNULL(c.ApplicationName, N''''), ISNULL(c.Su
         WHERE NOT EXISTS (SELECT 1 FROM audit.AIAppResource AS r WHERE r.[Resource] = d.[Resource]);
         COMMIT TRANSACTION;
 
+        /* ---- 2.7.0: Power BI, Power Apps and Teams AI notes by person and day; DLP matches by policy, rule and person ---- */
+        BEGIN TRANSACTION;
+        DELETE FROM audit.ActivityUserDay WHERE @from IS NULL OR [Day] >= @from;
+        SET @sql = N'
+INSERT INTO audit.ActivityUserDay ([Day], Product, Upn, Events)
+SELECT q.LocalDay, a.Product, LEFT(a.UserId, 256), COUNT(*)
+FROM ' + @db + N'.audit.PlatformActivity AS a
+JOIN #q AS q ON q.UtcQuarter = DATEADD(MINUTE, DATEDIFF(MINUTE, ''2000-01-01'', a.CreatedDateTime) / 15 * 15, CAST(''2000-01-01'' AS DATETIME2(0)))
+WHERE a.UserId LIKE N''%@%'' AND (@fromUtc IS NULL OR a.CreatedDateTime >= @fromUtc) AND (@from IS NULL OR q.LocalDay >= @from)
+GROUP BY q.LocalDay, a.Product, LEFT(a.UserId, 256);';
+        EXEC sys.sp_executesql @sql, N'@from DATE, @fromUtc DATETIME2(0)', @from = @from, @fromUtc = @fromUtc;
+        SET @actDays = @@ROWCOUNT;
+        IF @hasDlp = 1
+        BEGIN
+            DELETE FROM audit.DlpDay WHERE @from IS NULL OR [Day] >= @from;
+            SET @sql = N'
+INSERT INTO audit.DlpDay ([Day], Workload, PolicyName, RuleName, Severity, Upn, Matches, Undone)
+SELECT q.LocalDay, ISNULL(m.Workload, N''''), ISNULL(m.PolicyName, N''(no policy named)''), ISNULL(m.RuleName, N''''), ISNULL(m.Severity, N''''),
+       CASE WHEN m.UserId LIKE N''%@%'' THEN LEFT(m.UserId, 256) ELSE N'''' END,
+       COUNT(CASE WHEN m.Operation <> N''DlpRuleUndo'' THEN 1 END), COUNT(CASE WHEN m.Operation = N''DlpRuleUndo'' THEN 1 END)
+FROM ' + @db + N'.audit.DlpMatch AS m
+JOIN #q AS q ON q.UtcQuarter = DATEADD(MINUTE, DATEDIFF(MINUTE, ''2000-01-01'', m.CreatedDateTime) / 15 * 15, CAST(''2000-01-01'' AS DATETIME2(0)))
+WHERE (@fromUtc IS NULL OR m.CreatedDateTime >= @fromUtc) AND (@from IS NULL OR q.LocalDay >= @from)
+GROUP BY q.LocalDay, ISNULL(m.Workload, N''''), ISNULL(m.PolicyName, N''(no policy named)''), ISNULL(m.RuleName, N''''), ISNULL(m.Severity, N''''),
+         CASE WHEN m.UserId LIKE N''%@%'' THEN LEFT(m.UserId, 256) ELSE N'''' END;';
+            EXEC sys.sp_executesql @sql, N'@from DATE, @fromUtc DATETIME2(0)', @from = @from, @fromUtc = @fromUtc;
+            SET @dlp = @@ROWCOUNT;
+        END;
+        COMMIT TRANSACTION;
+
         /* ---- Power BI and Power Apps: who used them, and lately ---- */
         DROP TABLE IF EXISTS #pp;
         CREATE TABLE #pp (UserPrincipalName NVARCHAR(256) COLLATE DATABASE_DEFAULT NOT NULL, Product VARCHAR(32) COLLATE DATABASE_DEFAULT NOT NULL,
@@ -14086,7 +14239,7 @@ INSERT INTO #pp (UserPrincipalName, Product, LastActiveUtc, ActiveDays30)
 SELECT LEFT(a.UserId, 256), a.Product, MAX(a.CreatedDateTime),
        COUNT(DISTINCT CASE WHEN a.CreatedDateTime >= DATEADD(DAY, -30, SYSUTCDATETIME()) THEN CAST(a.CreatedDateTime AS DATE) END)
 FROM ' + @db + N'.audit.PlatformActivity AS a
-WHERE a.UserId LIKE N''%@%''
+WHERE a.UserId LIKE N''%@%'' AND a.Product IN (''Power BI'', ''Power Apps'')   -- 2.7.0: not Teams AI notes, no Power Platform product
 GROUP BY LEFT(a.UserId, 256), a.Product;';
         EXEC sys.sp_executesql @sql;
 
@@ -14099,7 +14252,8 @@ GROUP BY LEFT(a.UserId, 256), a.Product;';
         COMMIT TRANSACTION;
 
         SET @msg = CONCAT(N'AI apps: ', FORMAT(@days, 'N0'), N' day-resource-caller row(s)', CASE WHEN @from IS NULL THEN N' (every day)' ELSE CONCAT(N' from ', CONVERT(NCHAR(10), @from, 120)) END,
-                          N'; Power BI and Power Apps: ', FORMAT(@users, 'N0'), N' person-product row(s).');
+                          N'; Power BI and Power Apps: ', FORMAT(@users, 'N0'), N' person-product row(s); person-days: ', FORMAT(@actDays, 'N0'),
+                          N'; DLP day rows: ', FORMAT(@dlp, 'N0'), N'.');
         UPDATE audit.ExternalUsageRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', RowsWritten = @days + @users, Detail = @msg,
                ToDay = CAST(SYSUTCDATETIME() AS DATE)
         WHERE RunId = @run;
@@ -14119,13 +14273,15 @@ IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NOT NULL
 BEGIN
     GRANT SELECT ON audit.AIAppUserDay TO CopilotInsightsApp;
     GRANT SELECT, INSERT, UPDATE ON audit.AIAppResource TO CopilotInsightsApp;
+    GRANT SELECT ON audit.ActivityUserDay TO CopilotInsightsApp;   -- 2.7.0
+    GRANT SELECT ON audit.DlpDay TO CopilotInsightsApp;
 END;
 GO
 ```
 
 ### C.20 `sql/Create-ActivitySchema.sql`
 
-Activity database (2.6.9). `audit.AIAppCall` and `audit.PlatformActivity`: AI app calls, Power BI and Power Apps activity, a row per record. 85 lines.
+Activity database (2.6.9). `audit.AIAppCall` and `audit.PlatformActivity`: AI app calls, Power BI and Power Apps activity, a row per record. 107 lines.
 
 ```sql
 /*
@@ -14213,11 +14369,33 @@ IF OBJECT_ID(N'audit.PlatformActivity', N'U') IS NULL
     );
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.PlatformActivity') AND name = N'UX_PlatformActivity_Record')
     CREATE UNIQUE NONCLUSTERED INDEX UX_PlatformActivity_Record ON audit.PlatformActivity (RecordId);
+
+/* 2.7.0: one row per data loss prevention (DLP) record, where the activity database is asked for the DLP record types
+   (ComplianceDLPSharePoint, ComplianceDLPExchange, DLPEndpoint): which policy and rule matched, for whom, in which
+   workload. The first policy and rule of the record; no file or message is named. Teams meeting AI notes
+   (TeamCopilotInteraction) go to audit.PlatformActivity, as the product Teams AI notes. */
+IF OBJECT_ID(N'audit.DlpMatch', N'U') IS NULL
+    CREATE TABLE audit.DlpMatch
+    (
+        RecordId        VARCHAR(64)    NOT NULL,
+        CreatedDateTime DATETIME2(0)   NOT NULL,   -- UTC
+        Workload        NVARCHAR(64)   NULL,       -- SharePoint, OneDrive, Exchange, Endpoint
+        Operation       NVARCHAR(128)  NULL,       -- DlpRuleMatch, DlpRuleUndo, DlpInfo
+        UserId          NVARCHAR(256)  NULL,
+        PolicyName      NVARCHAR(400)  NULL,
+        RuleName        NVARCHAR(400)  NULL,
+        Severity        NVARCHAR(32)   NULL,
+        Policies        INT            NOT NULL,   -- the policies the record names
+        ShreddedUtc     DATETIME2(0)   NOT NULL CONSTRAINT DF_DlpMatch_Shredded DEFAULT (SYSUTCDATETIME()),
+        INDEX CCI_DlpMatch CLUSTERED COLUMNSTORE
+    );
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.DlpMatch') AND name = N'UX_DlpMatch_Record')
+    CREATE UNIQUE NONCLUSTERED INDEX UX_DlpMatch_Record ON audit.DlpMatch (RecordId);
 ```
 
 ### C.21 `sql/Create-ActivityProcedure.sql`
 
-Activity database (2.6.9). `audit.usp_ShredActivity`. 196 lines.
+Activity database (2.6.9). `audit.usp_ShredActivity`. 217 lines.
 
 ```sql
 /*
@@ -14238,7 +14416,10 @@ Activity database (2.6.9). `audit.usp_ShredActivity`. 196 lines.
     stopped part way leaves it, and the next run reads every record again.
 
     Which table a record goes to is its Workload: ConnectedAIApp, PowerBI or
-    PowerApps. Any other record is left alone.
+    PowerApps; from 2.7.0 its record type for Teams meeting AI notes
+    (TeamCopilotInteraction, to audit.PlatformActivity as Teams AI notes) and
+    data loss prevention (ComplianceDLP*, DLPEndpoint, to audit.DlpMatch). Any
+    other record is left alone.
 
     The fields read are those Microsoft documents for the records, and those
     the first records seen carried. Where a field is named differently, it is
@@ -14264,7 +14445,7 @@ BEGIN
     IF @BatchSize IS NULL OR @BatchSize < 1000 SET @BatchSize = 1000;
 
     DECLARE @lock INT, @msg NVARCHAR(400), @cursor VARCHAR(64) = '', @maxId VARCHAR(64),
-            @calls BIGINT = 0, @platform BIGINT = 0, @batch INT = 1;
+            @calls BIGINT = 0, @platform BIGINT = 0, @dlp BIGINT = 0, @batch INT = 1;
 
     EXEC @lock = sys.sp_getapplock @Resource = N'audit.usp_ShredActivity', @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = -1;
     IF @lock < 0
@@ -14301,9 +14482,14 @@ BEGIN
 
         DROP TABLE IF EXISTS #rec;
         SELECT a.RecordId, a.CreatedDateTime,
-               COALESCE(t.Workload, CASE WHEN a.RecordType LIKE N'connectedAIApp%' THEN N'ConnectedAIApp'
+               /* 2.7.0: by record type first where the workload is shared with other records (Teams, DLP). */
+               CASE WHEN a.RecordType LIKE N'teamCopilot%' THEN N'TeamsAI'
+                    WHEN a.RecordType LIKE N'complianceDLP%' OR a.RecordType LIKE N'dlpEndpoint%' OR t.Operation IN (N'DlpRuleMatch', N'DlpRuleUndo', N'DlpInfo') THEN N'DLP'
+                    ELSE COALESCE(t.Workload, CASE WHEN a.RecordType LIKE N'connectedAIApp%' THEN N'ConnectedAIApp'
                                          WHEN a.RecordType LIKE N'powerBI%' THEN N'PowerBI'
-                                         WHEN a.RecordType LIKE N'powerApps%' THEN N'PowerApps' END) AS Workload,
+                                         WHEN a.RecordType LIKE N'powerApps%' THEN N'PowerApps' END) END AS Workload,
+               LEFT(t.Workload, 64) AS SourceWorkload,
+               LEFT(t.PolicyName, 400) AS PolicyName, LEFT(t.RuleName, 400) AS RuleName, LEFT(t.Severity, 32) AS Severity, pc.Policies,
                LEFT(COALESCE(t.Operation, a.Operation), 128) AS Operation,
                LEFT(COALESCE(t.UserId, a.UserPrincipalName, a.UserId), 256) AS UserId,
                TRY_CAST(t.UserType AS INT) AS UserType,
@@ -14349,8 +14535,13 @@ BEGIN
                 ObjectId             NVARCHAR(400)  '$.ObjectId',
                 WorkSpaceName        NVARCHAR(400)  '$.WorkSpaceName',
                 EnvironmentName      NVARCHAR(400)  '$.EnvironmentName',
-                AdditionalInfo       NVARCHAR(MAX)  '$.AdditionalInfo'
+                AdditionalInfo       NVARCHAR(MAX)  '$.AdditionalInfo',
+                PolicyName           NVARCHAR(400)  '$.PolicyDetails[0].PolicyName',
+                RuleName             NVARCHAR(400)  '$.PolicyDetails[0].Rules[0].RuleName',
+                Severity             NVARCHAR(32)   '$.PolicyDetails[0].Rules[0].Severity',
+                PolicyDetails        NVARCHAR(MAX)  '$.PolicyDetails' AS JSON
             ) AS t
+        OUTER APPLY (SELECT COUNT(*) AS Policies FROM OPENJSON(ISNULL(t.PolicyDetails, N'[]'))) AS pc
         WHERE a.RecordId > @cursor AND a.RecordId <= @maxId
           AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc);
 
@@ -14381,11 +14572,19 @@ BEGIN
 
         DELETE p FROM audit.PlatformActivity AS p JOIN #rec AS r ON r.RecordId = p.RecordId;
         INSERT INTO audit.PlatformActivity (RecordId, CreatedDateTime, Product, Operation, UserId, UserType, ItemName, Container)
-        SELECT r.RecordId, r.CreatedDateTime, CASE r.Workload WHEN N'PowerBI' THEN 'Power BI' ELSE 'Power Apps' END,
+        SELECT r.RecordId, r.CreatedDateTime, CASE r.Workload WHEN N'PowerBI' THEN 'Power BI' WHEN N'TeamsAI' THEN 'Teams AI notes' ELSE 'Power Apps' END,
                r.Operation, LOWER(r.UserId), r.UserType, r.ItemName, r.Container
         FROM #rec AS r
-        WHERE r.Workload IN (N'PowerBI', N'PowerApps');
+        WHERE r.Workload IN (N'PowerBI', N'PowerApps', N'TeamsAI');
         SET @platform += @@ROWCOUNT;
+
+        /* 2.7.0: data loss prevention matches. */
+        DELETE m FROM audit.DlpMatch AS m JOIN #rec AS r ON r.RecordId = m.RecordId;
+        INSERT INTO audit.DlpMatch (RecordId, CreatedDateTime, Workload, Operation, UserId, PolicyName, RuleName, Severity, Policies)
+        SELECT r.RecordId, r.CreatedDateTime, r.SourceWorkload, r.Operation, LOWER(r.UserId), r.PolicyName, r.RuleName, r.Severity, ISNULL(r.Policies, 0)
+        FROM #rec AS r
+        WHERE r.Workload = N'DLP';
+        SET @dlp += @@ROWCOUNT;
         COMMIT TRANSACTION;
 
         SET @cursor = @maxId;
@@ -14404,7 +14603,7 @@ BEGIN
         IF @@ROWCOUNT = 0
             INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'ActivityShredCompleteUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));
     END;
-    SET @msg = CONCAT(N'Activity shred complete: ', FORMAT(@calls, 'N0'), N' AI app record(s), ', FORMAT(@platform, 'N0'), N' Power BI and Power Apps record(s).');
+    SET @msg = CONCAT(N'Activity shred complete: ', FORMAT(@calls, 'N0'), N' AI app record(s), ', FORMAT(@platform, 'N0'), N' Power BI, Power Apps and Teams AI notes record(s), ', FORMAT(@dlp, 'N0'), N' DLP record(s).');
     RAISERROR(@msg, 0, 1) WITH NOWAIT;
     EXEC sys.sp_releaseapplock @Resource = N'audit.usp_ShredActivity', @LockOwner = 'Session';
     END TRY
@@ -15124,7 +15323,7 @@ GO
 
 ### C.24 `Invoke-CopilotPipeline.ps1`
 
-The nightly run and the first load of history: the order in which every table is filled. 609 lines.
+The nightly run and the first load of history: the order in which every table is filled. 614 lines.
 
 ```powershell
 <#
@@ -15225,11 +15424,15 @@ $ErrorActionPreference = 'Stop'
 $script:AgentOperations = 'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpdateOperation-BotPublish', 'BotUpdateOperation-BotShare',
                           'BotUpdateOperation-BotNameUpdate', 'BotUpdateOperation-BotAuthUpdate', 'BotUpdateOperation-BotIconUpdate',
                           'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
-                          'BotComponentCollectionCreate', 'BotComponentCollectionDelete'
+                          'BotComponentCollectionCreate', 'BotComponentCollectionDelete',
+                          # 2.7.0: administrators' actions on agents (record type CopilotAgentManagement), from the night they are added.
+                          'BlockedAgent', 'UnblockedAgent', 'DeployedAgent', 'RemovedAgent', 'DeletedAgent', 'UpdatedAgent', 'UpdatedTenantSettings'
 $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
 # The activity database's record types (2.6.9): AI apps outside Copilot, Power BI and Power Apps. ActivityRecordTypes in
 # the settings replaces the list.
-$script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp'
+# 2.7.0: Teams meeting AI notes too. The data loss prevention types (ComplianceDLPSharePoint, ComplianceDLPExchange,
+# DLPEndpoint) are added by naming them in ActivityRecordTypes: their volume is the tenant's every DLP match.
+$script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp', 'TeamCopilotInteraction'
 # The delete guard's exit code (2.6.5): a loader that kept its table's last good load, which the night goes on from.
 . (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
@@ -15685,7 +15888,8 @@ function Invoke-TenantRun {
         foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
     if (-not $once) { Invoke-Retention -Setting $T -Log $Log }
-    if (-not $once) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
+    # 2.7.0: not after a load the delete guard refused: a month end is kept once, and its licenses may be the night before's.
+    if (-not $once -and $refused.Count -eq 0) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
     # A load the delete guard refused is named in the run's detail, which Admin > Health shows, with its reason.
     $detail = if ($refused.Count) { Get-DropGuardDetail -Step $refused -Log $Log } else { $null }
     if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@d' = $detail } -Sql "UPDATE audit.PipelineRun SET EndedUtc = SYSUTCDATETIME(), Status = 'Succeeded', Detail = @d WHERE RunId = @r;") }

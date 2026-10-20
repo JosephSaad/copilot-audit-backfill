@@ -16,7 +16,8 @@
          come in, a range inside another, and rows with no dates.
       4. A license record is one whatever its trailing period ('Update user.', as Entra records it), as
          audit.usp_ShredLicenseEvents counts it. The script's license operations are the pipeline's, and
-         every Copilot Studio operation the pipeline asks for starts with Bot, as the script counts them.
+         every Copilot Studio operation the pipeline asks for starts with Bot or (2.7.0, the administrators'
+         actions on agents) is named, as the script counts them.
       5. It only reads: a read-only connection, uncommitted reads, and nothing that writes.
 
 .EXAMPLE
@@ -107,15 +108,19 @@ $pipelineLicense = [regex]::Match($pipeline, '\$script:LicenseOperations\s*=\s*@
 $pipelineAgent = [regex]::Match($pipeline, '\$script:AgentOperations\s*=\s*(?<l>[^$]*?)\r?\n\$script:LicenseOperations')
 Assert-That ($pipelineLicense.Success -and $pipelineAgent.Success) "the pipeline's operation lists are found"
 $licenseOperations = Get-QuotedItem $pipelineLicense.Groups['l'].Value
-$agentOperations = Get-QuotedItem $pipelineAgent.Groups['l'].Value
+# Comment lines dropped first: an apostrophe in one (2.7.0) would pair the quotes wrongly.
+$agentOperations = Get-QuotedItem ($pipelineAgent.Groups['l'].Value -replace '(?m)^\s*#.*$', '')
 
 $healthList = [regex]::Match($health, "WHEN n\.Op IN \((?<l>[^)]*)\) THEN 'License'")
 Assert-That $healthList.Success "the health check's license operations are found"
 $healthOperations = Get-QuotedItem $healthList.Groups['l'].Value
 Assert-That (@(Compare-Object ($healthOperations | Sort-Object) ($licenseOperations | Sort-Object)).Count -eq 0) `
     "the health check's license operations are the pipeline's: $($licenseOperations -join ', ')"
-Assert-That ($agentOperations.Count -ge 14 -and @($agentOperations | Where-Object { -not $_.StartsWith('Bot') }).Count -eq 0 -and $health.Contains("a.Operation LIKE N'Bot%'")) `
-    "every Copilot Studio operation the pipeline loads ($($agentOperations.Count)) starts with Bot, as the health check counts them"
+# 2.7.0: the administrators' actions on agents (CopilotAgentManagement) do not start with Bot; the health check names them.
+$adminOps = @($agentOperations | Where-Object { -not $_.StartsWith('Bot') })
+Assert-That ($agentOperations.Count -ge 14 -and $health.Contains("a.Operation LIKE N'Bot%'") -and
+             @($adminOps | Where-Object { -not $health.Contains("N'$_'") }).Count -eq 0) `
+    "every Copilot Studio operation the pipeline loads ($($agentOperations.Count)) starts with Bot or is named in the health check ($($adminOps.Count) named), as it counts them"
 
 # What the check does to an operation before looking it up, and what the shred does: the same.
 $normalize = [regex]::Match($health, 'RTRIM\(REPLACE\(a\.Operation, N''\.'', N''''\)\)')

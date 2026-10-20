@@ -87,3 +87,61 @@ public class ReservationReviewTests
             Assert.DoesNotMatch(new Regex(@"(COUNT|SUM|MAX|MIN)\((CASE WHEN[^)]*(EXISTS|SELECT)|\(SELECT)", RegexOptions.IgnoreCase), file);
     }
 }
+
+/// <summary>2.7.0: help on every field, and the Purview additions: agent management, Teams AI notes, DLP, Copilot by product.</summary>
+public class UsabilityAndPurviewTests
+{
+    static string Root()
+    {
+        var d = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!File.Exists(Path.Combine(d.FullName, "CHANGELOG.md"))) d = d.Parent!;
+        return d.FullName;
+    }
+    static string Read(params string[] p) => File.ReadAllText(Path.Combine([Root(), .. p]));
+
+    [Fact]
+    public void Every_field_takes_its_tip_from_its_setting_or_the_fixed_list()
+    {
+        var tips = CopilotInsights.Infrastructure.FieldTips.For("/admin/assumptions", [("HourlyCost", "2.6.6: What an hour is worth."), ("NoText", null)]);
+        Assert.Equal("What an hour is worth.", tips["HourlyCost"]);   // the release it was added in is not shown
+        Assert.False(tips.ContainsKey("NoText"));
+        Assert.StartsWith("What one unit costs a month", tips["price"]);   // this page's own meaning of price
+        Assert.StartsWith("What one seat costs a month under this agreement", CopilotInsights.Infrastructure.FieldTips.For("/forecasting/budget", [])["price"]);
+        /* After the field: a label's clicks go to its first control, which an icon before it would take. */
+        Assert.Contains("value=\\\"{E(value)}\\\" size=\\\"{size}\\\"/>{Tip(name, label)}</label>", Source.Read("Pages", "InsightsPage.cs"));
+        /* Every setting the installer seeds says what it is, so its field has a tip. */
+        foreach (var m in Regex.Matches(Read("sql", "Create-CopilotDashboardSchema.sql"), @"\('(\w+)',\s*(?:N'[^']*'|CAST\(NULL[^)]*\)),\s*N'([^']*)'\)").Cast<Match>())
+            Assert.False(string.IsNullOrWhiteSpace(m.Groups[2].Value), m.Groups[1].Value);
+    }
+
+    [Fact]
+    public void Administrators_actions_on_agents_ride_the_license_load_and_stay_out_of_license_events()
+    {
+        foreach (var op in new[] { "BlockedAgent", "UnblockedAgent", "DeployedAgent", "RemovedAgent", "DeletedAgent", "UpdatedAgent", "UpdatedTenantSettings" })
+        {
+            Assert.Contains($"'{op}'", Read("Invoke-CopilotPipeline.ps1"));
+            Assert.Contains($"N'{op}'", Read("sql", "Create-AgentEventProcedure.sql"));
+            Assert.Contains($"N'{op}'", Read("sql", "Create-LicenseEventProcedure.sql"));
+        }
+        Assert.Contains("a.Operation NOT IN (N'BlockedAgent'", Read("Install-CopilotAudit.ps1"));
+        Assert.Contains("What administrators did to agents", Source.Read("Pages", "Agents", "Build.cs"));
+    }
+
+    [Fact]
+    public void Teams_AI_notes_and_DLP_are_shredded_rolled_up_and_shown()
+    {
+        var shred = Read("sql", "Create-ActivityProcedure.sql");
+        Assert.Contains("WHEN a.RecordType LIKE N'teamCopilot%' THEN N'TeamsAI'", shred);
+        Assert.Contains("INSERT INTO audit.DlpMatch", shred);
+        var rollup = Read("sql", "Create-CopilotActivityRollup.sql");
+        Assert.Contains("INSERT INTO audit.ActivityUserDay", rollup);
+        Assert.Contains("INSERT INTO audit.DlpDay", rollup);
+        Assert.Contains("AND a.Product IN (''Power BI'', ''Power Apps'')", rollup);
+        Assert.Contains("'TeamCopilotInteraction'", Read("Invoke-CopilotPipeline.ps1"));
+        Assert.Contains("Teams meeting AI notes, Power BI and Power Apps", Source.Read("Pages", "Apps", "Apps.cs"));
+        Assert.Contains("Data loss prevention matches", Source.Read("Pages", "Compliance", "Compliance.cs"));
+        Assert.Contains("Copilot by product", Source.Read("Pages", "Governance", "Governance.cs"));
+        /* No file or message is named: the DLP tables keep no object. */
+        Assert.DoesNotContain("ObjectId", Read("sql", "Create-ActivitySchema.sql")[Read("sql", "Create-ActivitySchema.sql").IndexOf("audit.DlpMatch", StringComparison.Ordinal)..]);
+    }
+}

@@ -293,7 +293,7 @@ LOB-01,Retail Banking,leader.one@contoso.com,7403,2027-01-01,CC-100
 LOB-EXEC,Executive Leadership,,17,2027-01-01,CC-001
 ```
 
-A header line is skipped; the leader may be empty for a pool with no one under it; cost center and the end date are optional. To change a reservation (a true-up or an April true-down), give the old row an end date by adding it again with one, or remove it, and add a new row from the date the change applies: past month-end snapshots keep what they were. Every change is in the audit log.
+A header line is skipped; a field may be quoted to hold a comma (`"Retail Banking, East"`); the leader may be empty for a pool with no one under it; cost center and the end date are optional. Every line is checked before any is added, and they are added together or not at all. To change a reservation (a true-up or an April true-down), add a new row from the date the change applies: the organization's open row is ended the day before (2.7.0), so past months and month-end snapshots keep what they were. *End* ends a row on a day; the cross removes a row entered by mistake. A row that would overlap one starting on or after it is refused. Every change is in the audit log, with what was removed.
 
 **Who counts where.** An organization's people are everyone under its leader in the org chart, the leader included. A person under two listed leaders (one reporting to the other) counts with the nearer one, so nobody is in two organizations. Allocated licenses are the **Microsoft 365 Copilot add-on** held today; Copilot held only inside a suite (E7) and Technology-funded accounts are not counted. Add-on holders under no listed leader are shown as an exception, to map.
 
@@ -305,7 +305,7 @@ A header line is skipped; the leader may be empty for a pool with no one under i
 
 **The Technology-funded register.** Approved executive, service, test, shared, migration and exception accounts: sign-in, category, accountable owner, approval reference, from and review dates. Their licenses are counted once in the Technology pool, never in a line of business. Accounts the dashboard reads as non-human that are not in the register are listed as an exception; one past its review date too.
 
-**Snapshots.** Each night after the licenses are read, the pipeline keeps the last month-end's position once (`dash.usp_TakeReservationSnapshot`), and never rewrites it: the reserved seats, the allocated licenses on that day and the rate in force, for every organization, those under no leader and the Technology pool. The org chart used is the one on the night it was kept. *Month-end snapshots* lists them; *View* shows one as it was. Every snapshot is **Operational, not certified**: certification, adjustments and the December close come in a later release.
+**Snapshots.** Each night after the licenses are read, the pipeline keeps the last month-end's position once (`dash.usp_TakeReservationSnapshot`), and never rewrites it; from 2.7.0 only once the licenses reach two days past the month end (a license change can reach Purview a day late), only when a reservation is in effect that day, and not after a load the delete guard refused: the reserved seats, the allocated licenses on that day and the rate in force, for every organization, those under no leader and the Technology pool. The org chart used is the one on the night it was kept. *Month-end snapshots* lists them; *View* shows one as it was. Every snapshot is **Operational, not certified**: certification, adjustments and the December close come in a later release.
 
 ## AI apps, Power BI and Power Apps
 
@@ -316,6 +316,8 @@ A header line is skipped; the leader may be empty for a pool with no one under i
 | `ConnectedAIAppInteraction` | Calls to Azure AI Foundry and Azure OpenAI from the organization's own apps, where Purview collects them (Foundry's *Powered by Microsoft Purview*, or Defender for Cloud's *Data security for AI interactions*), and Entra-registered apps through the Purview SDK. One record per message: a prompt or a response | Governance › AI apps beyond Copilot |
 | `PowerBIAudit` | Power BI activity: reports viewed, exported, refreshed, shared | Who used Power BI lately (`audit.PowerPlatformUserActivity`): Costs and savings, Suite fit |
 | `PowerAppsApp` | Power Apps launched and managed | Who used Power Apps lately: Costs and savings |
+| `TeamCopilotInteraction` (2.7.0) | Teams meeting AI notes: Facilitator's notes and live notes in meetings | Apps, beside Power BI and Power Apps |
+| `ComplianceDLPSharePoint`, `ComplianceDLPExchange`, `DLPEndpoint` (2.7.0, not by default) | Data loss prevention rule matches, overrides and reported false positives | Compliance › Sensitive content |
 
 It needs nothing new from Microsoft: the app registration's `AuditLogsQuery.Read.All` reads every record type. Record-type searches are submitted to Graph's beta endpoint, whose list of record types has the newer ones; the records are read as every other load's. The Copilot and license databases are not touched, and Copilot interactions are not loaded again.
 
@@ -328,7 +330,9 @@ It needs nothing new from Microsoft: the app registration's `AuditLogsQuery.Read
 
 **Space.** Plan by measuring: after the first day of history, `EXEC sp_spaceused 'audit.CopilotAudit'` in the activity database, times 180. The records are kept compressed; the shredded tables are columnstore and much smaller; the Copilot database gets one row per day, resource, app and caller.
 
-**Other record types.** `ActivityRecordTypes = @('PowerBIAudit')` in the settings replaces the list. A type added later loads from then on; its history needs a database of its own.
+**Other record types.** `ActivityRecordTypes` in the settings replaces the list of four (`ConnectedAIAppInteraction`, `PowerBIAudit`, `PowerAppsApp`, `TeamCopilotInteraction`). The DLP types are not in it by default, as their volume is the tenant's every match: add them to load data loss prevention, for example `ActivityRecordTypes = @('ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp', 'TeamCopilotInteraction', 'ComplianceDLPSharePoint', 'ComplianceDLPExchange')`. A type added later loads from then on; its history needs a database of its own. A DLP match is kept by its policy, rule, severity, workload and person; no file or message is named.
+
+**Administrators' actions on agents (2.7.0).** Not in the activity database: the license-event load asks for the seven operations of `CopilotAgentManagement` (BlockedAgent, UnblockedAgent, DeployedAgent, RemovedAgent, DeletedAgent, UpdatedAgent, UpdatedTenantSettings) in the same searches as Copilot Studio's authoring records, from the night 2.7.0 is installed, and Agents › Build and publish shows them.
 
 **The rollup by hand.** `.\tools\Update-ActivityRollup.ps1` (three days back, or from three days before the last rollup that succeeded where that is earlier, so nights the optional steps failed are made up), `-Full` (every day) or `-SinceUtc <date>`. After correcting the shred (a field Purview names differently), read every record again in the activity database with `EXEC audit.usp_ShredActivity;`, then `-Full`.
 

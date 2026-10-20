@@ -277,7 +277,8 @@ $licenseOps = 'Change user license', 'Update user', 'Add user', 'Delete user',
     'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpdateOperation-BotPublish', 'BotUpdateOperation-BotShare',
     'BotUpdateOperation-BotNameUpdate', 'BotUpdateOperation-BotAuthUpdate', 'BotUpdateOperation-BotIconUpdate',
     'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
-    'BotComponentCollectionCreate', 'BotComponentCollectionDelete'
+    'BotComponentCollectionCreate', 'BotComponentCollectionDelete',
+    'BlockedAgent', 'UnblockedAgent', 'DeployedAgent', 'RemovedAgent', 'DeletedAgent', 'UpdatedAgent', 'UpdatedTenantSettings'
 .\Invoke-CopilotAuditBackfill.ps1 -SqlServer SQLPROD01 -Database CopilotLicenseEvents @app `
     -Operations $licenseOps -StartDate (Get-Date).ToUniversalTime().Date.AddDays(-180) -Finalize
 ```

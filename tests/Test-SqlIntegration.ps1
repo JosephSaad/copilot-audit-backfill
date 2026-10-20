@@ -4422,7 +4422,10 @@ INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation
 ('a3', DATEADD(HOUR, 16, @d0), 'connectedAIAppInteraction', 'AIAppInteraction', 'Robert@contoso.com', COMPRESS(CAST(N'{"Workload":"ConnectedAIApp","UserType":0,"UserId":"robert@contoso.com","AppIdentity":"ConnectedAIApp.AzureAI.aza-dev-aif-0046","ApplicationName":"My app","CopilotEventData":{"ThreadId":"t2","Messages":[{"isPrompt":false}]}}' AS NVARCHAR(MAX))), 1),
 ('p1', DATEADD(HOUR, 12, @d0), 'powerBIAudit', 'ViewReport', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"PowerBI","Operation":"ViewReport","UserType":0,"UserId":"Ann@contoso.com","ItemName":"Sales","WorkSpaceName":"Finance"}' AS NVARCHAR(MAX))), 1),
 ('p2', DATEADD(DAY, -60, @d0), 'powerAppsApp', 'LaunchPowerApp', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"PowerApps","Operation":"LaunchPowerApp","UserType":0,"UserId":"bob@contoso.com","AdditionalInfo":"{\"appName\":\"Expenses\",\"environmentName\":\"Default\"}"}' AS NVARCHAR(MAX))), 1),
-('x1', DATEADD(HOUR, 12, @d0), 'exchangeItem', 'Send', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"Exchange","Operation":"Send"}' AS NVARCHAR(MAX))), 1);
+('x1', DATEADD(HOUR, 12, @d0), 'exchangeItem', 'Send', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"Exchange","Operation":"Send"}' AS NVARCHAR(MAX))), 1),
+('t1', DATEADD(HOUR, 14, @d0), 'teamCopilotInteraction', 'AINotesUpdate', 'ann@contoso.com', COMPRESS(CAST(N'{"Workload":"MicrosoftTeams","Operation":"AINotesUpdate","UserType":0,"UserId":"ann@contoso.com"}' AS NVARCHAR(MAX))), 1),
+('d1', DATEADD(HOUR, 14, @d0), 'complianceDLPSharePoint', 'DlpRuleMatch', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"SharePoint","Operation":"DlpRuleMatch","UserId":"Bob@contoso.com","PolicyDetails":[{"PolicyName":"Customer data","Rules":[{"RuleName":"Card numbers","Severity":"High"}]}]}' AS NVARCHAR(MAX))), 1),
+('d2', DATEADD(HOUR, 15, @d0), 'complianceDLPSharePoint', 'DlpRuleUndo', 'bob@contoso.com', COMPRESS(CAST(N'{"Workload":"SharePoint","Operation":"DlpRuleUndo","UserId":"bob@contoso.com","PolicyDetails":[{"PolicyName":"Customer data","Rules":[{"RuleName":"Card numbers","Severity":"High"}]}]}' AS NVARCHAR(MAX))), 1);
 "@
     Invoke-SqlText -Catalog $actCop -Sql "INSERT INTO audit.PowerPlatformUserActivity (UserPrincipalName, Product, ActiveDays30) VALUES (N'old@contoso.com', 'Power BI', 3), (N'keep@contoso.com', 'Power Automate', 2);"
     $second = & (Join-Path $root 'Install-CopilotAudit.ps1') @actConn -Database $actCop -SkipLicenseDatabase -ActivityDatabase $actDb 6>&1 | Out-String
@@ -4433,9 +4436,22 @@ INSERT INTO audit.CopilotAudit (RecordId, CreatedDateTime, RecordType, Operation
                  $a2.CallerKind -eq 'Person' -and $a2.Caller -eq 'robert@contoso.com' -and $a2.Resource -eq 'aza-dev-aif-0046' -and $a2.ApplicationName -eq 'My app' -and [int] $a2.Prompts -eq 1 -and [int] $a2.Failed -eq 1) `
         'AI app records are shredded: a Guest call is unattributed, a person''s keeps their sign-in (lowercased); the resource from the app identity, the subscription, prompts, responses and failures'
     $pa = Invoke-SqlText -Catalog $actDb -As Table -Sql 'SELECT RecordId, Product, UserId, ItemName, Container FROM audit.PlatformActivity ORDER BY RecordId;'
+    $pa = Invoke-SqlText -Catalog $actDb -As Table -Sql "SELECT RecordId, Product, UserId, ItemName, Container FROM audit.PlatformActivity WHERE Product <> 'Teams AI notes' ORDER BY RecordId;"
     Assert-That ($pa.Rows.Count -eq 2 -and $pa.Rows[0].Product -eq 'Power BI' -and $pa.Rows[0].UserId -eq 'ann@contoso.com' -and $pa.Rows[0].ItemName -eq 'Sales' -and $pa.Rows[0].Container -eq 'Finance' -and
                  $pa.Rows[1].Product -eq 'Power Apps' -and $pa.Rows[1].ItemName -eq 'Expenses' -and $pa.Rows[1].Container -eq 'Default') 'Power BI and Power Apps records are shredded with their item and workspace or environment; another workload is left alone'
 
+    # 2.7.0: Teams meeting AI notes go with Power BI and Power Apps; DLP matches to their own table, then a day each.
+    $teams = [int] (Invoke-SqlText -Catalog $actDb -As Scalar -Sql "SELECT COUNT(*) FROM audit.PlatformActivity WHERE Product = 'Teams AI notes' AND UserId = N'ann@contoso.com';")
+    $dlpRows = Invoke-SqlText -Catalog $actDb -As Table -Sql 'SELECT RecordId, Workload, Operation, UserId, PolicyName, RuleName, Severity, Policies FROM audit.DlpMatch ORDER BY RecordId;'
+    Assert-That ($teams -eq 1 -and $dlpRows.Rows.Count -eq 2 -and $dlpRows.Rows[0].PolicyName -eq 'Customer data' -and $dlpRows.Rows[0].RuleName -eq 'Card numbers' -and
+                 $dlpRows.Rows[0].Severity -eq 'High' -and $dlpRows.Rows[0].UserId -eq 'bob@contoso.com' -and [int] $dlpRows.Rows[0].Policies -eq 1) `
+        'Teams meeting AI notes are shredded as a product beside Power BI and Power Apps, and DLP records with their policy, rule and severity'
+    $ud = Invoke-SqlText -Catalog $actCop -As Table -Sql "SELECT Product, Upn, Events FROM audit.ActivityUserDay ORDER BY Product;"
+    $dd = (Invoke-SqlText -Catalog $actCop -As Table -Sql "SELECT SUM(Matches) AS M, SUM(Undone) AS U, MAX(PolicyName) AS P FROM audit.DlpDay;").Rows[0]
+    $ppTeams = [int] (Invoke-SqlText -Catalog $actCop -As Scalar -Sql "SELECT COUNT(*) FROM audit.PowerPlatformUserActivity WHERE Product = 'Teams AI notes';")
+    Assert-That ((@($ud.Rows | ForEach-Object { "$($_.Product)/$($_.Upn)" }) -join ' ') -eq 'Power Apps/bob@contoso.com Power BI/ann@contoso.com Teams AI notes/ann@contoso.com' -and
+                 [int] $dd.M -eq 1 -and [int] $dd.U -eq 1 -and $dd.P -eq 'Customer data' -and $ppTeams -eq 0) `
+        "the rollup keeps each person's day by product, and DLP matches and overrides by policy; Teams AI notes is not a Power Platform product ($((@($ud.Rows | ForEach-Object { "$($_.Product)/$($_.Upn)" }) -join ' ')))"
     $days = Invoke-SqlText -Catalog $actCop -As Table -Sql 'SELECT CONVERT(CHAR(10), [Day], 120) AS D, [Resource], CallerKind, Calls, Threads, Failures FROM audit.AIAppUserDay ORDER BY [Resource];'
     # The days the records fall on in the reporting time zone, worked out by SQL Server itself, so the check holds whatever
     # the hour the test runs at; and the zone, which must be Eastern for 01:30 UTC to be the day before.
