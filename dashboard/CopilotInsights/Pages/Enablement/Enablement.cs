@@ -73,7 +73,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var t = await m.TotalsAsync(Ctx);
         var tr = await m.TrendAsync(Ctx);
 
-        Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days"));
+        Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days", Href: Open("/enablement/people", extra: "seg=Power")));
         /* What is counted, not what it may mean (2.4.12): it said "the person replied to Copilot", but a session is a
            person's prompts less than an hour apart on one day, in any app, so two separate questions count too. */
         Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), FollowUp.Kpi));
