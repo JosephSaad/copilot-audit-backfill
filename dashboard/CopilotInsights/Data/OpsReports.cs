@@ -214,6 +214,20 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", c.Args())).ToD
     public async Task<long> LicenseDaysAsync(ReportContext c) =>
         await db.ScalarAsync<long>($"SELECT COUNT_BIG(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} WHERE ld.DateKey BETWEEN @k0 AND @k1;", c.Args());
 
+    /// <summary>
+    /// 2.7.2: the licenses held in the period, a person a calendar month: for each month the period charges
+    /// (Licensing.Price.MonthsCharged: those whose last day falls inside it), everyone who held a license on at least one
+    /// day of that month, once. What the period's license cost is priced on, so a month costs exactly the monthly price,
+    /// and a license held one day of a month costs that month in full.
+    /// </summary>
+    public async Task<long> LicenseMonthsAsync(ReportContext c)
+    {
+        var months = Pages.Licensing.Price.MonthsCharged(c.Start, c.End);
+        if (months.Count == 0) return 0;   // under a month: no whole month to charge
+        return await db.ScalarAsync<long>($@"SELECT COUNT_BIG(*) FROM (SELECT ld.UserKey, ld.DateKey / 100 AS M FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")}
+WHERE ld.DateKey / 100 IN @months GROUP BY ld.UserKey, ld.DateKey / 100) AS x;", c.Args(new { months }));
+    }
+
     /* ---- License recommendations, counted ----------------------------------------------------- */
 
     public async Task<Dictionary<string, int>> ActionCountsAsync(ReportContext c)

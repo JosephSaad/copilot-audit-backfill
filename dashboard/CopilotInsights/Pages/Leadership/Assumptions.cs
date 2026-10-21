@@ -75,7 +75,7 @@ public sealed class AssumptionRegisterModel(PageServices s, AssumptionData regis
         var ct = new Table { Headers = ["Figure", "Page", "What it counts", "Quote it as"], Sortable = false };
         ct.Rows.Add(["Microsoft 365 Copilot, spend a month", Link("Costs and savings", "/leadership/costs"), "The add-on seats bought (or held, where more are held) × the Copilot license price", "What Microsoft bills for the add-on"]);
         ct.Rows.Add(["Licenses held, a month", Link("Chargeback", "/licensing/chargeback"), "The license holders in each group today × the Copilot license price", "What each group holds, for allocating the cost"]);
-        ct.Rows.Add(["License cost in the period", Link("Value and time saved", "/leadership/value"), "Each day a person was licensed in the period × the price, over the days of its month", "The cost of the period chosen, against its value"]);
+        ct.Rows.Add(["License cost in the period", Link("Value and time saved", "/leadership/value"), "Each calendar month the period charges (those whose last day falls inside it) × the people who held a license on at least one day of it × the price: a month costs the price whole", "The cost of the period chosen, against its value"]);
         ct.Rows.Add(["Monthly obligation", Link("Copilot reservations", "/leadership/reservations"), "Billable licenses (each organization's reserved seats, plus any held over them) × the reservation rate", "What the lines of business are charged"]);
         ct.Rows.Add(["License cost", Link("Budget and renewal", "/forecasting/budget"), "The contracts' seats × each contract's price", "What is contracted"]);
         Panels.Add(new("Copilot's cost a month, five ways", ct.Render(),

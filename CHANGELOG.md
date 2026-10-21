@@ -41,6 +41,11 @@ and commitment).
   and savings link to them. The charge rate and the warning days are in the assumptions register.
 
 ### Changed
+- **The license cost of a period is whole calendar months** (Value and time saved, Board pack, the return on license
+  cost). A period charges the calendar months whose last day falls inside it, each at the license price for everyone who
+  held a license on at least one day of that month. So every figure is a multiple of the price (18, never 17.75 or 18.35),
+  and the last 30 days charge one month. A period under a month charges none and shows no return. It was each day held
+  at a 365th of a year. On the demo the 30-, 90- and 180-day costs move by +3.5%, +0.6% and −4.9%.
 - Costs and savings no longer suggests buying Copilot Credit packs for metered credits while a commitment is in force:
   they draw on what is already paid for.
 - The license pool alert names products, not part numbers.

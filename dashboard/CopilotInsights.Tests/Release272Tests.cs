@@ -168,6 +168,24 @@ public class Release272Tests
             Assert.Contains(text, Source.Read(file));
     }
 
+    [Theory]
+    [InlineData("2026-09-21", "2026-10-20", "202609")]                 // the last 30 days: one month, not the two they touch
+    [InlineData("2026-07-23", "2026-10-20", "202607,202608,202609")]   // the last 90 days: three
+    [InlineData("2026-10-01", "2026-10-31", "202610")]                 // a calendar month: itself
+    [InlineData("2026-10-14", "2026-10-20", "")]                       // under a month: none, so no return is shown
+    [InlineData("2026-01-01", "2026-12-31", "202601,202602,202603,202604,202605,202606,202607,202608,202609,202610,202611,202612")]
+    public void A_period_charges_the_calendar_months_whose_last_day_falls_inside_it(string start, string end, string expected) =>
+        Assert.Equal(expected, string.Join(",", CopilotInsights.Pages.Licensing.Price.MonthsCharged(DateTime.Parse(start), DateTime.Parse(end))));
+
+    [Fact]
+    public void A_license_month_costs_the_price_whole()
+    {
+        Assert.Equal(18m * 2_718, CopilotInsights.Pages.Licensing.Price.ForLicenseMonths(2_718, 18m));
+        Assert.Contains("ForLicenseMonths(await reports.LicenseMonthsAsync(Ctx), price)", Source.Read("Pages", "Leadership", "BoardPack.cs"));
+        Assert.Contains("Licensing.Price.ForLicenseMonths(months, price)", Source.Read("Pages", "OperationsReports.cs"));
+        Assert.Contains("if (months.Count == 0) return 0;", Source.Read("Data", "OpsReports.cs"));
+    }
+
     [Fact]
     public void A_rate_is_shown_as_it_is_kept_not_rounded_to_cents()
     {
