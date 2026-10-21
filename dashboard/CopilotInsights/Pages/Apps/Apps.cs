@@ -50,7 +50,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
         var people = await peopleTask;
         var buckets = Buckets();
         var axis = Labels();
-        Kpis.Add(new("Apps in use", Num(rows.Count)));
+        Kpis.Add(new("Apps in use", Num(rows.Count), "Microsoft 365 apps people used Copilot in"));
         var widest = rows.OrderByDescending(r => r.People).FirstOrDefault();
         if (widest is not null) Kpis.Add(new("Widest reach", widest.App, $"{Pct(Ratio(widest.People, people))} of active people"));
         var stickiest = rows.Where(r => r.People >= Ctx.MinGroupSize).OrderByDescending(r => r.Returning / (double)r.People).FirstOrDefault();
@@ -128,9 +128,9 @@ WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql(
         var buckets = Buckets();
         long n = tr.Sum(x => x.N);
         var people = await Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} WHERE f.AppKey = @app AND f.DateKey BETWEEN @k0 AND @k1;", args);
-        Kpis.Add(new("People who used it", Num(people)));
+        Kpis.Add(new("People who used it", Num(people), "used Copilot in this app in the period"));
         Kpis.Add(new("Interactions", Num(n), people > 0 ? $"{n / (double)people:0.0} per person" : null));
-        Kpis.Add(new("Searched the web", Pct(Ratio(tr.Sum(x => x.Web), n))));
+        Kpis.Add(new("Searched the web", Pct(Ratio(tr.Sum(x => x.Web), n)), "of this app's interactions"));
         Panels.Add(new("People using Copilot in it", Chart.Line(Labels(), [new Series("People", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.People)).ToList(), 1)], Fmt.Count, "People by period"), TrendNote, "half"));
 
         var types = await Db.QueryAsync<(string Type, long N)>($@"

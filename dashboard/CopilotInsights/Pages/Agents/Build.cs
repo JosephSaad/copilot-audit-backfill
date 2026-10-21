@@ -47,11 +47,11 @@ WHERE e.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
         int Count(string a) => byAction.Where(x => x.Action == a).Sum(x => x.N);
         var makers = await Db.ScalarAsync<int>($@"SELECT COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action NOT IN ('Blocked', 'Unblocked', 'Deployed', 'Removed', 'AdminDeleted', 'AdminUpdated', 'Settings');", Ctx.Args());
-        Kpis.Add(new("Agents created", Num(Count("Created"))));
-        Kpis.Add(new("Times published", Num(Count("Published"))));
-        Kpis.Add(new("Times shared", Num(Count("Shared"))));
+        Kpis.Add(new("Agents created", Num(Count("Created")), "in Copilot Studio, from its own audit records"));
+        Kpis.Add(new("Times published", Num(Count("Published")), "an agent published again counts each time"));
+        Kpis.Add(new("Times shared", Num(Count("Shared")), "an agent shared again counts each time"));
         Kpis.Add(new("Makers", Num(makers), "people who built or changed an agent"));
-        Kpis.Add(new("Agents deleted", Num(Count("Deleted"))));
+        Kpis.Add(new("Agents deleted", Num(Count("Deleted")), "in Copilot Studio, from its own audit records"));
 
         var buckets = Buckets();
         Series S(string action, int slot) => new(action, buckets.Select(b => (double?)byAction.Where(x => x.Bucket == b.Key && x.Action == action).Sum(x => x.N)).ToList(), slot);

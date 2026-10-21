@@ -47,9 +47,9 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
 
         var shown = rows.Where(r => r.T is not null).Select(r => (r.Tenant, T: r.T!)).ToList();
         int people = shown.Sum(r => r.T.People), licensed = shown.Sum(r => r.T.LicensedNow), active = shown.Sum(r => r.T.Active), activeLic = shown.Sum(r => r.T.ActiveLicensed);
-        Kpis.Add(new("Tenants included", $"{shown.Count} of {rows.Count}"));
+        Kpis.Add(new("Tenants included", $"{shown.Count} of {rows.Count}", "tenants whose whole organization you see"));
         Kpis.Add(new("People using Copilot", Num(active), $"of {people:#,0} people"));
-        Kpis.Add(new("Premium licenses today", Num(licensed)));
+        Kpis.Add(new("Premium licenses today", Num(licensed), "across the tenants included"));
         Kpis.Add(new("Adoption", Pct(Ratio(activeLic, licensed)), "licensed people who used it"));
         if (shown.Count > 0)
             Panels.Add(new("Adoption by tenant", Chart.Bars(shown.Select(r => new Bar(r.Tenant, Ratio(r.T.ActiveLicensed, r.T.LicensedNow),

@@ -132,8 +132,8 @@ SELECT m.Weeks, COUNT(*) AS People FROM m GROUP BY m.Weeks;", Ctx.Args(new { a =
                 curve[lag - 1] = active > 0 ? back / (double)active : null;
             }
             Kpis.Add(new("Back the next week", Pct(curve[0]), "of people active in a week"));
-            Kpis.Add(new("Still there 4 weeks on", Pct(curve[3])));
-            Kpis.Add(new("Still there 8 weeks on", Pct(curve[7])));
+            Kpis.Add(new("Still there 4 weeks on", Pct(curve[3]), "of people active in a week, active again four weeks later"));
+            Kpis.Add(new("Still there 8 weeks on", Pct(curve[7]), "of people active in a week, active again eight weeks later"));
             Panels.Add(new("Share of a week's users active again, weeks later",
                 Chart.Line(Enumerable.Range(1, 8).Select(i => $"+{i} wk").ToList(), [new Series("Came back", curve, 3)], Fmt.Percent, "Weekly retention", 1),
                 "Each line follows the people who used Copilot in one week, over the weeks after it: twelve starting weeks, ending with the last complete week. A flattening line is a habit forming; one that keeps falling is novelty wearing off.", "half"));
@@ -213,7 +213,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.CalledAnotherAgent = 1
 GROUP BY f.TargetAgentName, vn.Name;", Ctx.Args());
             long calls = tr.Sum(x => x.Calls), all = tr.Sum(x => x.All);
             Kpis.Add(new("Hand-offs", Num(calls), $"{Pct(Ratio(calls, all))} of interactions"));
-            Kpis.Add(new("Agents called", Num(targets.Count)));
+            Kpis.Add(new("Agents called", Num(targets.Count), "different agents another agent handed work to"));
             var buckets = Buckets();
             Panels.Add(new("Hand-offs over time", Chart.Columns(Labels(), [new Series("Hand-offs", buckets.Select(b => (double?)tr.Where(x => x.Bucket == b.Key).Sum(x => x.Calls)).ToList(), 5)], Fmt.Count, "Hand-offs"),
                 TrendNote, "half"));

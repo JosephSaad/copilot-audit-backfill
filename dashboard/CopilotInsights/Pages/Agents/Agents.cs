@@ -53,7 +53,7 @@ GROUP BY f.AgentKey, {Ctx.BucketSql("d")};", Ctx.Args());
         Kpis.Add(new("People using agents", Num(await Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args()))));
-        Kpis.Add(new("Interactions through an agent", Num(rows.Sum(r => r.N))));
+        Kpis.Add(new("Interactions through an agent", Num(rows.Sum(r => r.N)), "prompts answered by an agent, not Copilot itself"));
         if (book)
         {
             /* The same counts as Agent inventory's (2.5.7): workbook agents, used when the audit agent they match was used

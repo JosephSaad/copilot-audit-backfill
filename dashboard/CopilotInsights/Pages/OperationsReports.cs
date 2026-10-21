@@ -25,8 +25,8 @@ namespace CopilotInsights.Pages.Adoption
                     ? "No targets yet. An administrator sets them in Admin › Targets and assumptions." : "No target covers the part of the organization you see.";
                 return;
             }
-            Kpis.Add(new("Targets set", Num(mine.Count)));
-            Kpis.Add(new("Met or on track", Num(mine.Count(t => t.Status is "Met" or "On track"))));
+            Kpis.Add(new("Targets set", Num(mine.Count), "for the part of the organization you see"));
+            Kpis.Add(new("Met or on track", Num(mine.Count(t => t.Status is "Met" or "On track")), "at or ahead of where a straight line to the target says they should be"));
             Kpis.Add(new("Targets behind", Num(mine.Count(t => t.Status == "Behind")), null, mine.Any(t => t.Status == "Behind") ? "warn" : null));
             Kpis.Add(new("Targets missed", Num(mine.Count(t => t.Status == "Missed")), null, mine.Any(t => t.Status == "Missed") ? "crit" : null));
             string Unit(TargetRow t) => t.Metric == "ActivePeople" ? "" : "%";
@@ -88,7 +88,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
 
             if (licensed.Count == 0 && hired.Count == 0) { Notice = "Nobody was licensed or hired in the period."; return; }
             var started = licensed.Where(r => r.Days is not null).Select(r => r.Days!.Value).OrderBy(d => d).ToList();
-            Kpis.Add(new("Licensed in the period", Num(licensed.Count)));
+            Kpis.Add(new("Licensed in the period", Num(licensed.Count), "people whose Copilot license began in the period"));
             Kpis.Add(new("Have used it", Num(started.Count), licensed.Count > 0 ? Pct(Ratio(started.Count, licensed.Count)) : null));
             Kpis.Add(new("Median days to first use", started.Count >= Ctx.MinGroupSize ? $"{started[started.Count / 2]}" : "—", "from the license"));
             Kpis.Add(new("Not started yet", Num(licensed.Count - started.Count), null, licensed.Count - started.Count > 0 ? "warn" : null));
@@ -235,11 +235,11 @@ FROM #s AS s JOIN bi.DimSite AS st ON st.SiteKey = s.SiteKey
 ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
             if (rows.Count == 0) { Notice = "No site was read by Copilot in the period."; return; }
             var wide = rows.Where(r => r.People >= Ctx.MinGroupSize).ToList();
-            Kpis.Add(new("Sites Copilot read from", Num(rows.Count)));
+            Kpis.Add(new("Sites Copilot read from", Num(rows.Count), "SharePoint and OneDrive sites, the 200 reached by most people"));
             Kpis.Add(new("Reached by many people", Num(wide.Count), $"{Ctx.MinGroupSize} or more"));
             Kpis.Add(new("Of those, mostly unlabeled", Num(wide.Count(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1)), "under 10% of what was read carried a label",
                 wide.Any(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1) ? "warn" : null));
-            Kpis.Add(new("With blocked content", Num(rows.Count(r => r.Blocked > 0))));
+            Kpis.Add(new("With blocked content", Num(rows.Count(r => r.Blocked > 0)), "sites where Copilot was blocked from some of what it tried to read"));
             /* A personal OneDrive's address names its owner: in privacy mode it is not shown (2.4.12). */
             string Site(Row r) => r.IsPersonal && PrivacyMode ? "OneDrive (personal site)" : r.Site;
             Panels.Add(new("The widest-reaching sites", Chart.Bars(wide.Take(15).Select(r => new Bar(Short(Site(r)), r.People,
@@ -307,9 +307,9 @@ LEFT JOIN dash.AgentUse AS au ON au.AgentKey = a.AgentKey
 LEFT JOIN #u AS u ON u.AgentKey = a.AgentKey
 WHERE a.AgentSource <> N'(no agent)'
 ORDER BY a.FirstSeenUtc DESC;", Ctx.Args());
-            Kpis.Add(new("Agents seen", Num(rows.Count)));
-            Kpis.Add(new("New in the period", Num(rows.Count(r => r.FirstSeenUtc >= Ctx.Start))));
-            Kpis.Add(new("Used in the period", Num(rows.Count(r => r.Interactions > 0))));
+            Kpis.Add(new("Agents seen", Num(rows.Count), "every agent the audit log has shown in your part of the organization"));
+            Kpis.Add(new("New in the period", Num(rows.Count(r => r.FirstSeenUtc >= Ctx.Start)), "first seen in the audit log in the period"));
+            Kpis.Add(new("Used in the period", Num(rows.Count(r => r.Interactions > 0)), "with at least one interaction in the period"));
             Kpis.Add(new("Without an owner", Num(rows.Count(r => r.Owner is null)), "set one in Admin › Reference data", rows.Any(r => r.Owner is null) ? "warn" : null));
             var bySource = rows.GroupBy(r => r.AgentSource).Select(g => new Bar(g.Key, g.Count(), Note: $"{g.Count(r => r.Interactions > 0)} used in the period")).OrderByDescending(b => b.Value).ToList();
             Panels.Add(new("By where they were built", Chart.Bars(bySource, Fmt.Count, "Agents by source"), null, "half"));
@@ -389,8 +389,8 @@ ORDER BY AttendedOn DESC;", Ctx.Args(), timeout: 300);
                 return;
             }
             var effect = shown.Select(r => (r.DaysAfter - r.DaysBefore) - (r.OthersAfter - r.OthersBefore)).ToList();
-            Kpis.Add(new("Sessions measured", Num(shown.Count)));
-            Kpis.Add(new("People trained", Num(shown.Sum(r => r.Attendees))));
+            Kpis.Add(new("Sessions measured", Num(shown.Count), "with 28 days after them and enough attendees you may see"));
+            Kpis.Add(new("People trained", Num(shown.Sum(r => r.Attendees)), "attendees of the sessions measured"));
             Kpis.Add(new("Average effect", $"{effect.Average():+0.0;-0.0} days", "active days in 28, against colleagues who did not attend", effect.Average() < 0 ? "warn" : null));
             Panels.Add(new("Effect by session", Chart.Bars(shown.Zip(effect).Select(x => new Bar($"{x.First.Session} ({x.First.AttendedOn:d MMM})", x.Second, Slot: x.Second >= 0 ? 3 : 5)).ToList(),
                 Fmt.Decimal1, "Change in active days against colleagues"), "Active days in the 28 days after, less the 28 before, less the same change for colleagues in the same departments.", "half"));
@@ -451,7 +451,7 @@ SELECT * FROM scored WHERE Rank <= @per ORDER BY Dept, Rank;", Ctx.Args(new { pe
             var (dept, picker) = DepartmentFilter(rows.Select(r => r.Dept));
             Panels.Add(new("Choose a department", picker));
             if (dept is not null) rows = rows.Where(r => r.Dept == dept).ToList();
-            Kpis.Add(new("Departments with candidates", Num(rows.Select(r => r.Dept).Distinct().Count())));
+            Kpis.Add(new("Departments with candidates", Num(rows.Select(r => r.Dept).Distinct().Count()), "with at least one person who used Copilot in the period"));
             Kpis.Add(new("Champion candidates", Num(rows.Count), $"up to {per} per department (Admin › Targets and assumptions)"));
             var tb = new Table { Headers = ["Department", "Rank", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Sessions with a follow-up", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
             foreach (var r in rows) tb.Rows.Add([r.Dept, r.Rank, r.DisplayName, r.UserPrincipalName, r.JobTitle, r.Days, r.Apps, Pct(r.MultiTurnShare), r.Interactions]);

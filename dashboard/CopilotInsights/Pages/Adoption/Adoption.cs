@@ -21,7 +21,7 @@ WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.Use
         var notStarted = await Db.ScalarAsync<int>($"SELECT COUNT(*) {NotStartedModel.Who(Ctx)};", Ctx.Args());
 
         /* The same names as Leadership › Overview: the license is the Premium one, and its use in the period is Adoption. */
-        Kpis.Add(new("Premium licenses today", Num(t.LicensedNow)));
+        Kpis.Add(new("Premium licenses today", Num(t.LicensedNow), "people holding a Microsoft 365 Copilot license"));
         Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} license holders have used Copilot at least once, at any time"));
         /* 2.7.3: the list's own count leads to it; the share above is its complement, so it did not appear there. */
         Kpis.Add(new("Licensed, not started", Num(notStarted), "licensed at least 14 days ago, never used Copilot", notStarted > 0 ? "warn" : null, Href: Open("/adoption/not-started")));

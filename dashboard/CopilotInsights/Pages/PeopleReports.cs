@@ -109,7 +109,7 @@ SELECT g.Domain, COUNT(*) AS People, COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Acti
 FROM g LEFT JOIN a ON a.UserKey = g.UserKey
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = g.UserKey AND ld.DateKey = @k1
 GROUP BY g.Domain;", Ctx.Args());
-            Kpis.Add(new("Guests in Copilot's records", Num(rows.Sum(r => r.People))));
+            Kpis.Add(new("Guests in Copilot's records", Num(rows.Sum(r => r.People)), "guest and external accounts that used Copilot"));
             Kpis.Add(new("Used Copilot in the period", Num(rows.Sum(r => r.Active)), $"{rows.Sum(r => r.Interactions):#,0} interactions"));
             Kpis.Add(new("Holding a Copilot license", Num(rows.Sum(r => r.Licensed)), "licenses in this tenant assigned to guests", rows.Sum(r => r.Licensed) > 0 ? "warn" : null));
             Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
@@ -246,7 +246,7 @@ JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
 WHERE f.UserKey = @key AND f.DateKey BETWEEN @k0 AND @k1
 {pg.OrderAndPage()};", Ctx.Args(new { key = who.UserKey }), timeout: 300);
             pg.Total = recs.FirstOrDefault()?.TotalRows ?? 0;
-            Kpis.Add(new("Interactions in the period", Num(pg.Total)));
+            Kpis.Add(new("Interactions in the period", Num(pg.Total), "this person's prompts to Copilot and its answers"));
             Kpis.Add(new("With a security signal", Num(recs.Count(r => r.JailbreakDetected || r.PromptInjectionDetected || r.HasBlockedResource)), pg.ForExport || pg.Total <= Paging.PageSize ? null : "on this page"));
             var t = new Table
             {

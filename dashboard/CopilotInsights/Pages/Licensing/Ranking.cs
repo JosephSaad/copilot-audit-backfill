@@ -82,7 +82,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         var totals = (await Db.QueryAsync<(long I, long P, int People)>($@"
 SELECT ISNULL(SUM(CAST(ud.Interactions AS BIGINT)), 0), ISNULL(SUM(CAST(ud.PremiumUse AS BIGINT)), 0), COUNT(DISTINCT CASE WHEN ud.Interactions > 0 THEN ud.UserKey END)
 FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1;", Ctx.Args())).Single();
-        Kpis.Add(new("People using Copilot", Num(totals.People)));
+        Kpis.Add(new("People using Copilot", Num(totals.People), "everyone you can see who used it in the period"));
         Kpis.Add(new("Premium use", Pct(Ratio(totals.P, totals.I)), $"{totals.P:#,0} of {totals.I:#,0} interactions needed the license"));
         Kpis.Add(new("Free use", Pct(Ratio(totals.I - totals.P, totals.I)), "web Copilot Chat, agents, and use without a license"));
 

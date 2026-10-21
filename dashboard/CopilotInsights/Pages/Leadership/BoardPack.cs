@@ -162,7 +162,7 @@ WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NU
         var all = totals.Sum(x => x.N);
         var ranked = totals.OrderByDescending(x => x.N).ToList();
         Kpis.Add(new("Most common", ranked[0].UseCase, $"{Pct(Ratio(ranked[0].N, all))} of interactions"));
-        Kpis.Add(new("Use cases seen", Num(ranked.Count)));
+        Kpis.Add(new("Use cases seen", Num(ranked.Count), "by the rules in Admin › Classifications and events"));
         var agents = totals.Where(x => x.UseCase == "Working with an agent").Sum(x => x.N);
         Kpis.Add(new("Interactions through an agent", Pct(Ratio(agents, all)), "of all interactions in the period"));
 

@@ -77,6 +77,37 @@ public class Release273Tests
     }
 
     [Fact]
+    public void Every_headline_figure_says_what_it_counts()
+    {
+        /* 41 figures carried a label and a value and nothing else: no note on the card or behind its information icon. */
+        var dir = Path.Combine(Root(), "dashboard", "CopilotInsights", "Pages");
+        var bare = new List<string>();
+        foreach (var f in Directory.EnumerateFiles(dir, "*.cs", SearchOption.AllDirectories))
+        {
+            var lines = File.ReadAllLines(f);
+            for (var i = 0; i < lines.Length; i++)
+            {
+                var at = lines[i].IndexOf("Kpis.Add(new(\"", StringComparison.Ordinal);
+                if (at < 0 || !lines[i].TrimEnd().EndsWith("));", StringComparison.Ordinal)) continue;
+                /* Count the arguments at the top level of new(...): a label and a value alone is two. */
+                var s = lines[i][(at + "Kpis.Add(new(".Length)..];
+                int depth = 0, args = 1; var inString = false;
+                for (var k = 0; k < s.Length; k++)
+                {
+                    var c = s[k];
+                    if (c == '"' && (k == 0 || s[k - 1] != '\\')) { inString = !inString; continue; }
+                    if (inString) continue;
+                    if (c is '(' or '[' or '{') depth++;
+                    else if (c is ')' or ']' or '}') { if (depth == 0) break; depth--; }
+                    else if (c == ',' && depth == 0) args++;
+                }
+                if (args < 3) bare.Add($"{Path.GetFileName(f)}:{i + 1}");
+            }
+        }
+        Assert.Empty(bare);
+    }
+
+    [Fact]
     public void A_page_is_named_by_its_section_with_one_separator()
     {
         /* "Admin > Targets" and "Admin › Value names" both appeared on screen; the guides use ›, and so does the dashboard. */

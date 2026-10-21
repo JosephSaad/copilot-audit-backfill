@@ -98,7 +98,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         var people = peopleTask is null ? pg.Total : await peopleTask;
 
         Kpis.Add(new("People with an overlap", Num(people), "a Copilot license and another Copilot-family one", people > 0 ? "warn" : null));
-        Kpis.Add(new("Overlapping SKUs", Num(bySku.Count)));
+        Kpis.Add(new("Overlapping SKUs", Num(bySku.Count), "licenses held beside Copilot that may repeat it"));
 
         var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, not part numbers
         var st = new Table { Headers = ["License held as well", "People", "Seats bought", "Seats assigned"], Numeric = new HashSet<int> { 1, 2, 3 }, EmptyText = "No overlap." };

@@ -98,7 +98,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", Ctx.Args());
         /* What is counted, not what it may mean (2.4.12): it said "the person replied to Copilot", but a session is a
            person's prompts less than an hour apart on one day, in any app, so two separate questions count too. */
         Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), FollowUp.Kpi));
-        Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—"));
+        Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—", "a session: prompts less than an hour apart, on one day"));
         var nudge = units.Where(x => x.Segment is "One-off" or "Not started").Sum(x => x.Open);
         Kpis.Add(new(Segments.Nudge, Num(nudge), "licensed or active, but one day or none", Href: Open("/enablement/people", extra: "seg=" + Uri.EscapeDataString(Segments.Nudge))));
 

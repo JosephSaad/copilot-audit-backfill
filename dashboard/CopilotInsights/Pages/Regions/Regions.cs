@@ -63,7 +63,7 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
         var peak = grid.OrderByDescending(g => g.N).FirstOrDefault();
         string[] days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
         Kpis.Add(new("Outside 08:00-18:00 or at weekends", Pct(Ratio(after, all)), "of interactions"));
-        Kpis.Add(new("At weekends", Pct(Ratio(weekend, all))));
+        Kpis.Add(new("At weekends", Pct(Ratio(weekend, all)), "of interactions, Saturday and Sunday"));
         if (all > 0) Kpis.Add(new("Busiest hour", $"{days[peak.Dow - 1]} {peak.Hour:00}:00", $"{Num(peak.N)} interactions"));
 
         var cells = new double?[7, 24];

@@ -52,7 +52,7 @@ GROUP BY a.AgentSource;", Ctx.Args());
         Kpis.Add(new("Searched the web", Pct(Ratio(tr.Sum(w => w.Web), all)), "of interactions used web search"));
         Kpis.Add(new("In Copilot Chat", Pct(Ratio(tr.Sum(w => w.Chat), all)), "the rest is Copilot inside the apps"));
         Kpis.Add(new("Through an agent", Pct(Ratio(tr.Sum(w => w.Agent), all)), "of interactions were answered by an agent"));
-        Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count())));
+        Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count()), "models named in the audit records"));
         /* Memory updates, calls to another agent and deferred data-loss checks at each point; their totals are the period's. */
         var controls = await controlsTask;
         var flags = (N: controls.Sum(x => x.N), Memory: controls.Sum(x => x.Memory), AgentCalls: controls.Sum(x => x.AgentCalls), Dlp: controls.Sum(x => x.Dlp));
