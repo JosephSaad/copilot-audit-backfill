@@ -23,30 +23,55 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var tr = await m.TrendAsync(Ctx);
-        long labeled = tr.Sum(w => w.Labeled), all = tr.Sum(w => w.Interactions), blocked = tr.Sum(w => w.Blocked);
+        /* The reads are independent: started together, awaited where used (2.7.4). */
+        var trTask = m.TrendAsync(Ctx);
         /* 2.7.3: counted as Access to labeled content lists them (labeled content, or blocked from content), so the figure
            and the list it opens agree; the daily totals' count of labeled content alone left out those only blocked. */
-        var people = await Db.ScalarAsync<int>($@"
+        var peopleTask = Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM (
     SELECT rd.UserKey FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
     WHERE rd.Kind IN ('Label', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1
     GROUP BY rd.UserKey
     HAVING SUM(CASE WHEN rd.Kind = 'Label' THEN rd.Interactions ELSE 0 END) > 0 OR SUM(CASE WHEN rd.Kind = 'Blocked' THEN rd.Interactions ELSE 0 END) > 0) AS x
 JOIN bi.DimUser AS du ON du.UserKey = x.UserKey;", Ctx.Args());
+        /* Counted per label id first, then named (2.7.4): grouping the daily rows on the name worked it out for each. */
+        var labelsTask = Db.QueryAsync<(DateTime Bucket, string Label, int Rank, int N)>($@"
+WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, rd.Item, SUM(rd.Interactions) AS N
+           FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
+           JOIN bi.DimDate AS d ON d.DateKey = rd.DateKey
+           WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1
+           GROUP BY {Ctx.BucketSql("d")}, rd.Item)
+SELECT rd.Bucket, {Sites.LabelName}, ISNULL(MAX(sl.Rank), 255), SUM(rd.N)
+FROM g AS rd
+LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
+GROUP BY rd.Bucket, {Sites.LabelName};", Ctx.Args());
+        var sitesTask = Db.QueryAsync<(string Kind, string Item, int N, int People)>($@"
+SELECT rd.Kind, rd.Item, SUM(rd.Interactions), COUNT(DISTINCT rd.UserKey)
+FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
+WHERE rd.Kind IN ('Site', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1
+GROUP BY rd.Kind, rd.Item;", Ctx.Args());
+        /* Counted per type key, then named (2.4.2). */
+        var typesTask = Db.QueryAsync<(string Type, long N, long Labeled, long Blocked)>($@"
+WITH g AS (SELECT f.ResourceTypeKey, COUNT_BIG(*) AS N, SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END) AS L, SUM(CAST(f.IsBlocked AS INT)) AS B
+           FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
+           WHERE f.DateKey BETWEEN @k0 AND @k1
+           GROUP BY f.ResourceTypeKey)
+SELECT COALESCE(vn.Name, t.ResourceType), SUM(g.N), SUM(g.L), SUM(g.B)
+FROM g JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = g.ResourceTypeKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
+GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
+        var dlpTask = Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.DlpDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.DlpDay) THEN 1 ELSE 0 END;");
+        await Task.WhenAll(trTask, peopleTask, labelsTask, sitesTask, typesTask, dlpTask);
+        var tr = await trTask;
+        long labeled = tr.Sum(w => w.Labeled), all = tr.Sum(w => w.Interactions), blocked = tr.Sum(w => w.Blocked);
+        var people = await peopleTask;
         Kpis.Add(new("Interactions with labeled content", Num(labeled), $"{Pct(Ratio(labeled, all))} of all interactions"));
         /* 2.7.3: each figure opens a page with the same number. Access to labeled content lists these people; the blocked
            count is Security's Blocked resources (the list of people counted people, not blocked interactions). */
         Kpis.Add(new("People", Num(people), "whose Copilot use touched labeled content, or was blocked from content", Href: Open("/compliance/access")));
         Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted", Href: Open("/security")));
 
-        var labels = await Db.QueryAsync<(DateTime Bucket, string Label, int Rank, int N)>($@"
-SELECT {Ctx.BucketSql("d")}, {Sites.LabelName}, ISNULL(MAX(sl.Rank), 255), SUM(rd.Interactions)
-FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
-JOIN bi.DimDate AS d ON d.DateKey = rd.DateKey
-LEFT JOIN dash.SensitivityLabel AS sl ON sl.LabelId = rd.Item
-WHERE rd.Kind = 'Label' AND rd.DateKey BETWEEN @k0 AND @k1
-GROUP BY {Ctx.BucketSql("d")}, {Sites.LabelName};", Ctx.Args());
+        var labels = await labelsTask;
         var order = labels.GroupBy(l => l.Label).OrderBy(g => g.Max(l => l.Rank)).ThenByDescending(g => g.Sum(l => l.N)).Select(g => g.Key).ToList();
         var buckets = Buckets();
         var shown = order.Take(7).ToList();
@@ -62,11 +87,7 @@ GROUP BY {Ctx.BucketSql("d")}, {Sites.LabelName};", Ctx.Args());
             Chart.Bars(order.Select(l => new Bar(l, labels.Where(x => x.Label == l).Sum(x => x.N))).ToList(), Fmt.Count, "Interactions by label"), null, "half"));
 
         var named = Viewer.Has(Roles.Compliance) && !PrivacyMode;
-        var sites = await Db.QueryAsync<(string Kind, string Item, int N, int People)>($@"
-SELECT rd.Kind, rd.Item, SUM(rd.Interactions), COUNT(DISTINCT rd.UserKey)
-FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
-WHERE rd.Kind IN ('Site', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1
-GROUP BY rd.Kind, rd.Item;", Ctx.Args());
+        var sites = await sitesTask;
         HtmlString SiteBars(string kind, int slot) => Chart.Bars(sites.Where(x => x.Kind == kind)
             .GroupBy(x => Sites.Show(x.Item, named)).Select(g => (Site: g.Key, N: g.Sum(x => x.N), People: g.Sum(x => x.People)))
             .OrderByDescending(x => x.N).Take(12).Select(x => new Bar(x.Site, x.N, Note: $"{x.People:#,0} people", Slot: slot)).ToList(), Fmt.Count, kind + " sites");
@@ -75,16 +96,7 @@ GROUP BY rd.Kind, rd.Item;", Ctx.Args());
         Panels.Add(new("Sites Copilot was blocked from", SiteBars("Blocked", 7),
             "Content whose policy or permissions stopped Copilot. Usually a sign the controls are working; a spike is worth a look.", "half"));
 
-        /* Counted per type key, then named (2.4.2). */
-        var types = await Db.QueryAsync<(string Type, long N, long Labeled, long Blocked)>($@"
-WITH g AS (SELECT f.ResourceTypeKey, COUNT_BIG(*) AS N, SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END) AS L, SUM(CAST(f.IsBlocked AS INT)) AS B
-           FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1
-           GROUP BY f.ResourceTypeKey)
-SELECT COALESCE(vn.Name, t.ResourceType), SUM(g.N), SUM(g.L), SUM(g.B)
-FROM g JOIN bi.DimResourceType AS t ON t.ResourceTypeKey = g.ResourceTypeKey
-LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 31 AND vn.Value = t.ResourceType
-GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
+        var types = await typesTask;
         Panels.Add(new("What Copilot read, by type",
             Chart.Bars(types.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Type, t.N, Note: $"{t.Labeled:#,0} labeled, {t.Blocked:#,0} blocked")).ToList(), Fmt.Count, "Accessed resources by type"),
             "Every resource an interaction read: files, mail, Teams messages, web results. Hover for how many were labeled or blocked."));
@@ -92,7 +104,7 @@ GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
         /* 2.7.0: the organization's data loss prevention matches, where the activity database loads the DLP record types:
            by policy and over time, for the part of the organization shown (matches that name no one count for the whole
            organization only). Counts, no file or message named. */
-        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.DlpDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.DlpDay) THEN 1 ELSE 0 END;") == 1)
+        if (await dlpTask == 1)
         {
             var dlpFrom = Ctx.Root is null ? "audit.DlpDay AS m" : $"audit.DlpDay AS m JOIN bi.DimUser AS u ON u.UserPrincipalName = m.Upn {Ctx.Scope("u.UserKey")}";
             var dlp = await Db.QueryAsync<(DateTime Bucket, string Workload, long Matches, long Undone)>($@"
