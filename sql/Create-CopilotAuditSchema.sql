@@ -27,10 +27,16 @@ IF OBJECT_ID(N'audit.CopilotBackfillRange', N'U') IS NULL
                                                  CONSTRAINT CK_CopilotBackfillRange_Single CHECK (Id = 1),
         RangeStartUtc   DATETIME2(0)    NOT NULL,
         RangeEndUtc     DATETIME2(0)    NOT NULL,
-        Operations      NVARCHAR(400)   NOT NULL,
+        Operations      NVARCHAR(2000)  NOT NULL,
         StartedUtc      DATETIME2(0)    NOT NULL CONSTRAINT DF_CopilotBackfillRange_Started DEFAULT (SYSUTCDATETIME()),
         CompletedUtc    DATETIME2(0)    NULL
     );
+
+/* 2.7.6: the operation set, joined with commas, outgrew 400 characters when 2.7.0 added the administrators' actions on
+   agents to the license-event load (485), and the night stopped at License events ("String or binary data would be
+   truncated ... column 'Operations'"). Widened where it was made narrower; nothing else reads its length. */
+IF COL_LENGTH(N'audit.CopilotBackfillRange', N'Operations') < 4000
+    ALTER TABLE audit.CopilotBackfillRange ALTER COLUMN Operations NVARCHAR(2000) NOT NULL;
 
 /* One row per time window: the backfill's durable state. Resume reads this. */
 IF OBJECT_ID(N'audit.CopilotBackfillWindow', N'U') IS NULL
@@ -103,7 +109,7 @@ IF OBJECT_ID(N'audit.CopilotLoad', N'U') IS NULL
         LoadId            INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_CopilotLoad PRIMARY KEY,
         RangeStartUtc     DATETIME2(0)    NOT NULL,
         RangeEndUtc       DATETIME2(0)    NOT NULL,
-        Operations        NVARCHAR(400)   NOT NULL,
+        Operations        NVARCHAR(2000)  NOT NULL,
         StartedUtc        DATETIME2(0)    NOT NULL CONSTRAINT DF_CopilotLoad_Started DEFAULT (SYSUTCDATETIME()),
         DownloadedUtc     DATETIME2(0)    NULL,     -- every window Loaded; ready to merge
         MergedUtc         DATETIME2(0)    NULL,     -- appended to audit.CopilotAudit
@@ -112,6 +118,10 @@ IF OBJECT_ID(N'audit.CopilotLoad', N'U') IS NULL
         RowsAlreadyLoaded BIGINT          NULL,     -- in the lookback, already present
         CONSTRAINT CK_CopilotLoad_Range CHECK (RangeEndUtc > RangeStartUtc)
     );
+
+/* 2.7.6: as audit.CopilotBackfillRange's, above. */
+IF COL_LENGTH(N'audit.CopilotLoad', N'Operations') < 4000
+    ALTER TABLE audit.CopilotLoad ALTER COLUMN Operations NVARCHAR(2000) NOT NULL;
 
 /* Same shape as audit.CopilotBackfillWindow: the engine's state for the load in progress. */
 IF OBJECT_ID(N'audit.CopilotLoadWindow', N'U') IS NULL

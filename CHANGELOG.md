@@ -10,6 +10,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 database changes, and no script on the job server.
 
 ### Fixed
+- **The nightly stopped at License events** with "String or binary data would be truncated in table
+  'audit.CopilotBackfillRange', column 'Operations'". 2.7.0 added the administrators' actions on agents to the
+  license-event load, and its operation set, as recorded, grew from 382 to 485 characters, past the column's 400.
+  `Operations` in audit.CopilotBackfillRange, audit.CopilotLoad and audit.CopilotCsvImport is now 2,000 characters,
+  widened by the schema script every load runs first: deploying the scripts is enough, and the night resumes where it
+  stopped. Until then, the same three `ALTER TABLE ... ALTER COLUMN Operations NVARCHAR(2000) NOT NULL` in the
+  license-event database fix it by hand.
 - **Copilot reservations with an empty register** showed every Microsoft 365 Copilot holder (17,886 at a client) under no
   listed leader, in red, with nothing to say why. It now says first that no organization is in the register yet, and
   where an administrator adds them and the rate.

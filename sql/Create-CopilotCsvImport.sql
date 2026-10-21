@@ -37,7 +37,7 @@ IF OBJECT_ID(N'audit.CopilotCsvImport', N'U') IS NULL
     (
         ImportId            INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_CopilotCsvImport PRIMARY KEY,
         FolderPath          NVARCHAR(1024)  NOT NULL,
-        Operations          NVARCHAR(400)   NOT NULL,   -- the database's operation set, as the backfill records it
+        Operations          NVARCHAR(2000)  NOT NULL,   -- the database's operation set, as the backfill records it
         StartedUtc          DATETIME2(0)    NOT NULL CONSTRAINT DF_CopilotCsvImport_Started DEFAULT (SYSUTCDATETIME()),
         MergedUtc           DATETIME2(0)    NULL,
         FilesLoaded         INT             NULL,
@@ -54,6 +54,10 @@ IF OBJECT_ID(N'audit.CopilotCsvImport', N'U') IS NULL
         CoveredToUtc        DATETIME2(0)    NULL,
         DerivedRefreshedUtc DATETIME2(0)    NULL        -- the derived tables brought up to date with it; see below
     );
+
+/* 2.7.6: the operation set outgrew 400 characters in 2.7.0 (see Create-CopilotAuditSchema.sql). */
+IF COL_LENGTH(N'audit.CopilotCsvImport', N'Operations') < 4000
+    ALTER TABLE audit.CopilotCsvImport ALTER COLUMN Operations NVARCHAR(2000) NOT NULL;
 
 /* When the derived tables were brought up to date with an import (2.4.12).
    The import is marked merged before the importer refreshes the flattened
