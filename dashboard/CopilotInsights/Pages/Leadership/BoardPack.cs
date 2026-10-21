@@ -57,13 +57,14 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
         var hours = v.ByApp.Sum(x => x.Hours);
         var worth = v.ByApp.Sum(x => x.Value);
-        var cost = Licensing.Price.ForLicenseDays(await reports.LicenseDaysAsync(Ctx), price);
+        var cost = Licensing.Price.ForLicenseMonths(await reports.LicenseMonthsAsync(Ctx), price);   // 2.7.2: whole calendar months held
         Panels.Add(new("Estimated value", new HtmlString(
             $"<div class=\"kpis\"><div class=\"kpi\"><div class=\"klabel\">Hours saved (estimate)</div><div class=\"kvalue\">{hours:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Estimated value ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
-            $"<div class=\"kpi\"><div class=\"klabel\">License cost in the period ({E(cur)})</div><div class=\"kvalue\">{cost:#,0}</div></div>" +
+            $"<div class=\"kpi\"><div class=\"klabel\">License cost in the period ({E(cur)})</div><div class=\"kvalue\">{(Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Count > 0 ? cost.ToString("#,0") : "—")}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Return on license cost</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
-            $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin > Targets and assumptions).", "half"));
+            $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin > Targets and assumptions). " +
+            "License cost: each calendar month whose last day falls in the period, at the license price for everyone who held one that month; a period under a month charges none.", "half"));
 
         /* The pool is the whole tenant's: for the viewers License pool shows it to, the whole-organization view or the
            Licensing role (2.4.12). Every viewer of the board pack had it, whatever their part of the organization. */

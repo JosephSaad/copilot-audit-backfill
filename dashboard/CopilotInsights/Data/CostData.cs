@@ -395,14 +395,21 @@ FROM audit.PowerPlatformCreditDay WHERE [Day] > DATEADD(DAY, -30, (SELECT D FROM
             {
                 sources.Add("Copilot Credits: the Power Platform admin center's consumption report");
                 var paygCost = CostRules.Monthly(cr.PaygCost, cr.Days);
-                if (CostRules.Credits(CostRules.Monthly(cr.Prepaid, cr.Days), packs, CostRules.Monthly(cr.Payg, cr.Days), paygCost, packPrice, cur) is { } o) opps.Add(o);
+                /* 2.7.2: a credit commitment in force on the last day: the metered credits draw on it (Forecasting > Credit commitment). */
+                var committed = await ops.HasAsync("dash.CreditCommitment") && await db.ScalarAsync<int>(@"
+SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.CreditCommitment AS c CROSS JOIN (SELECT MAX([Day]) AS D FROM audit.PowerPlatformCreditDay) AS l
+                         WHERE c.StartDate <= l.D AND c.EndDate >= l.D) THEN 1 ELSE 0 END;") == 1;
+                if (CostRules.Credits(CostRules.Monthly(cr.Prepaid, cr.Days), packs, CostRules.Monthly(cr.Payg, cr.Days), paygCost, packPrice, cur, committed: committed) is { } o) opps.Add(o);
                 areas.Add(new(CostAreas.Studio, packs * packPrice + paygCost, opps.Where(x => x.Area == CostAreas.Studio && x.Kind == OpportunityKind.Save).Sum(x => x.Saving), null,
                     $"{packs:#,0} prepaid pack{(packs == 1 ? "" : "s")} at {CostRules.Money(packPrice, cur)}, and {CostRules.Money(paygCost, cur)} of pay-as-you-go credits a month; the agents' value is in Microsoft 365 Copilot's", true, "/agents/credits"));
                 details.Add(new(CostAreas.Studio, "Credits, billed", ["", "Credits a month", $"A month ({cur})", "Where to look"], [
                     ["Prepaid packs", packs * 25000m, packs * packPrice, new Pages.Link("Agents costing credits", "/agents/credits")],
                     ["Of them, used", Math.Round(CostRules.Monthly(cr.Prepaid, cr.Days)), null, new Pages.Link("Credit use", "/licensing/credit-use")],
-                    ["Pay-as-you-go, beyond the packs", Math.Round(CostRules.Monthly(cr.Payg, cr.Days)), paygCost, new Pages.Link("Credit use", "/licensing/credit-use")],
-                ], Nums(1, 2), "What the Power Platform admin center billed. Licensing > Credit use estimates who used them, person by person, from the audit log."));
+                    ["Pay-as-you-go, beyond the packs", Math.Round(CostRules.Monthly(cr.Payg, cr.Days)), paygCost, new Pages.Link(committed ? "Credit commitment" : "Credit use", committed ? "/forecasting/credit-commitment" : "/licensing/credit-use")],
+                    /* 2.7.2: where the credits are charged, by line of business. */
+                    ["Charged to the lines of business", null, null, new Pages.Link("Credit chargeback", "/leadership/credit-chargeback")],
+                ], Nums(1, 2), "What the Power Platform admin center billed. Licensing > Credit use estimates who used them, person by person, from the audit log." +
+                    (committed ? " A credit commitment is in force: the pay-as-you-go credits draw on it (Forecasting > Credit commitment), so buying packs for them is no saving." : "")));
             }
         }
 

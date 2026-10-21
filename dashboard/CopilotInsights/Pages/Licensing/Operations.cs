@@ -24,6 +24,29 @@ public static class Price
     /// on the same value.
     /// </summary>
     public static decimal ForLicenseDays(long licenseDays, decimal monthly) => licenseDays * monthly * 12m / 365m;
+
+    /// <summary>
+    /// 2.7.2: what licenses cost for the calendar months they were held (OpsReports.LicenseMonthsAsync, a person a month):
+    /// each month at the monthly price, whole. It was the days held, each a 365th of a year, so a 30-day period cost 17.75
+    /// a license at 18 and a 31-day one 18.35. A license held one day of a month now costs that month.
+    /// </summary>
+    public static decimal ForLicenseMonths(long licenseMonths, decimal monthly) => licenseMonths * monthly;
+
+    /// <summary>
+    /// The calendar months a period charges, as yyyymm: those whose last day falls inside it, so the last 30 days charge
+    /// one month, not the two they touch, and the last 90 days three. A period with no month end in it (the last 7 days)
+    /// charges none: a whole month against a week's value would cut the return fourfold. Pure, for the tests.
+    /// </summary>
+    public static List<int> MonthsCharged(DateTime start, DateTime end)
+    {
+        var months = new List<int>();
+        for (var m = new DateTime(start.Year, start.Month, 1); m <= end; m = m.AddMonths(1))
+        {
+            var last = m.AddMonths(1).AddDays(-1);
+            if (last >= start.Date && last <= end.Date) months.Add(m.Year * 100 + m.Month);
+        }
+        return months;
+    }
 }
 
 /// <summary>Seats bought against seats assigned against seats used: the renewal question.</summary>

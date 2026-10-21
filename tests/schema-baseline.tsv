@@ -1,4 +1,4 @@
-# release 2.7.1
+# release 2.7.2
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -1179,6 +1179,42 @@ C	copilot	dash.CostSuite	U	6	Currency	nvarchar(8)	1
 C	copilot	dash.CostSuite	U	7	Includes	nvarchar(400)	0	D
 C	copilot	dash.CostSuite	U	8	Covers	nvarchar(400)	1	
 C	copilot	dash.CostSuite	U	9	Enabled	bit	0	D
+C	copilot	dash.CreditChargeSnapshot	U	1	SnapshotId	int	0	I
+C	copilot	dash.CreditChargeSnapshot	U	10	PaygCost	decimal(19,4)	1	
+C	copilot	dash.CreditChargeSnapshot	U	11	Currency	nvarchar(8)	1	
+C	copilot	dash.CreditChargeSnapshot	U	12	ChargeRate	decimal(12,6)	1	
+C	copilot	dash.CreditChargeSnapshot	U	13	TakenUtc	datetime2(0)	0	D
+C	copilot	dash.CreditChargeSnapshot	U	2	SnapshotMonth	date	0	
+C	copilot	dash.CreditChargeSnapshot	U	3	EnvironmentName	nvarchar(200)	0	
+C	copilot	dash.CreditChargeSnapshot	U	4	Path	varchar(24)	0	
+C	copilot	dash.CreditChargeSnapshot	U	5	OrgId	nvarchar(64)	1	
+C	copilot	dash.CreditChargeSnapshot	U	6	OrgName	nvarchar(200)	1	
+C	copilot	dash.CreditChargeSnapshot	U	7	CostCenter	nvarchar(100)	1	
+C	copilot	dash.CreditChargeSnapshot	U	8	Credits	decimal(19,2)	0	
+C	copilot	dash.CreditChargeSnapshot	U	9	PaygCredits	decimal(19,2)	0	
+C	copilot	dash.CreditCommitment	U	1	CommitmentId	int	0	I
+C	copilot	dash.CreditCommitment	U	10	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.CreditCommitment	U	11	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.CreditCommitment	U	2	Name	nvarchar(200)	0	
+C	copilot	dash.CreditCommitment	U	3	Amount	decimal(19,2)	0	
+C	copilot	dash.CreditCommitment	U	4	Currency	nvarchar(8)	1	
+C	copilot	dash.CreditCommitment	U	5	DrawRate	decimal(12,6)	0	D
+C	copilot	dash.CreditCommitment	U	6	StartDate	date	0	
+C	copilot	dash.CreditCommitment	U	7	EndDate	date	0	
+C	copilot	dash.CreditCommitment	U	8	Scope	nvarchar(200)	1	
+C	copilot	dash.CreditCommitment	U	9	Note	nvarchar(400)	1	
+C	copilot	dash.CreditRoute	U	1	RouteId	int	0	I
+C	copilot	dash.CreditRoute	U	10	Note	nvarchar(400)	1	
+C	copilot	dash.CreditRoute	U	11	UpdatedBy	nvarchar(256)	1	
+C	copilot	dash.CreditRoute	U	12	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.CreditRoute	U	2	EnvironmentName	nvarchar(200)	0	
+C	copilot	dash.CreditRoute	U	3	Path	varchar(24)	0	
+C	copilot	dash.CreditRoute	U	4	OrgId	nvarchar(64)	1	
+C	copilot	dash.CreditRoute	U	5	CostCenter	nvarchar(100)	1	
+C	copilot	dash.CreditRoute	U	6	FinancialOwner	nvarchar(256)	1	
+C	copilot	dash.CreditRoute	U	7	BillingPolicy	nvarchar(200)	1	
+C	copilot	dash.CreditRoute	U	8	EffectiveFrom	date	0	
+C	copilot	dash.CreditRoute	U	9	EffectiveTo	date	1	
 C	copilot	dash.DigestPreference	U	1	Upn	nvarchar(256)	0	
 C	copilot	dash.DigestPreference	U	2	ManagerDigestOptOut	bit	0	D
 C	copilot	dash.DigestPreference	U	3	PersonalDigest	bit	0	D
@@ -1628,6 +1664,9 @@ C	license	audit.vLicenseSkuChangeFromRecords	V	7	Sku	nvarchar(max)	1
 C	license	audit.vLicenseSkuChangeFromRecords	V	8	Change	nvarchar(7)	0	
 G	copilot	CopilotInsightsApp	DELETE	dash.AgentAlias
 G	copilot	CopilotInsightsApp	DELETE	dash.AlertState
+G	copilot	CopilotInsightsApp	DELETE	dash.CreditChargeSnapshot
+G	copilot	CopilotInsightsApp	DELETE	dash.CreditCommitment
+G	copilot	CopilotInsightsApp	DELETE	dash.CreditRoute
 G	copilot	CopilotInsightsApp	DELETE	dash.DigestPreference
 G	copilot	CopilotInsightsApp	DELETE	dash.DigestSend
 G	copilot	CopilotInsightsApp	DELETE	dash.EventMarker
@@ -1658,11 +1697,14 @@ G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_GetSecret
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_RefreshDashboard
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetPrivacyMode
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetSecret
+G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_TakeCreditChargeSnapshot
 G	copilot	CopilotInsightsApp	INSERT	audit.AIAppResource
 G	copilot	CopilotInsightsApp	INSERT	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	INSERT	dash.AgentAlias
 G	copilot	CopilotInsightsApp	INSERT	dash.AlertState
 G	copilot	CopilotInsightsApp	INSERT	dash.AuditLog
+G	copilot	CopilotInsightsApp	INSERT	dash.CreditCommitment
+G	copilot	CopilotInsightsApp	INSERT	dash.CreditRoute
 G	copilot	CopilotInsightsApp	INSERT	dash.DigestPreference
 G	copilot	CopilotInsightsApp	INSERT	dash.DigestSend
 G	copilot	CopilotInsightsApp	INSERT	dash.EventMarker
@@ -1731,6 +1773,8 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAlias
 G	copilot	CopilotInsightsApp	UPDATE	dash.AlertState
 G	copilot	CopilotInsightsApp	UPDATE	dash.CostPrice
 G	copilot	CopilotInsightsApp	UPDATE	dash.CostSuite
+G	copilot	CopilotInsightsApp	UPDATE	dash.CreditCommitment
+G	copilot	CopilotInsightsApp	UPDATE	dash.CreditRoute
 G	copilot	CopilotInsightsApp	UPDATE	dash.DigestPreference
 G	copilot	CopilotInsightsApp	UPDATE	dash.DigestSend
 G	copilot	CopilotInsightsApp	UPDATE	dash.EventMarker
@@ -1912,6 +1956,9 @@ O	copilot	dash.CopilotSuiteHolder	V
 O	copilot	dash.CopilotSuiteOnly	V
 O	copilot	dash.CostPrice	U
 O	copilot	dash.CostSuite	U
+O	copilot	dash.CreditChargeSnapshot	U
+O	copilot	dash.CreditCommitment	U
+O	copilot	dash.CreditRoute	U
 O	copilot	dash.DigestPreference	U
 O	copilot	dash.DigestSend	U
 O	copilot	dash.EventMarker	U
@@ -1952,6 +1999,7 @@ O	copilot	dash.usp_GetSecret	P
 O	copilot	dash.usp_RefreshDashboard	P
 O	copilot	dash.usp_SetPrivacyMode	P
 O	copilot	dash.usp_SetSecret	P
+O	copilot	dash.usp_TakeCreditChargeSnapshot	P
 O	copilot	dash.usp_TakeReservationSnapshot	P
 O	license	audit.AgentEvent	U
 O	license	audit.CopilotAuditStage	U
@@ -2024,6 +2072,7 @@ P	copilot	dash.usp_SetPrivacyMode	P	2	@By	nvarchar(256)	0	0
 P	copilot	dash.usp_SetSecret	P	1	@Name	varchar(64)	0	0
 P	copilot	dash.usp_SetSecret	P	2	@Value	nvarchar(2000)	0	0
 P	copilot	dash.usp_SetSecret	P	3	@By	nvarchar(256)	0	0
+P	copilot	dash.usp_TakeCreditChargeSnapshot	P	1	@Month	date	0	1
 P	copilot	dash.usp_TakeReservationSnapshot	P	1	@AsOf	date	0	1
 P	license	audit.fnShredCopilotInteraction	IF	1	@AuditDataGz	varbinary(max)	0	0
 P	license	audit.usp_MergeCopilotLoad	P	1	@ReportingTimeZone	sysname	0	1

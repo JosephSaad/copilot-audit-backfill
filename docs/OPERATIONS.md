@@ -19,6 +19,7 @@ Nothing here needs SQL typed by hand, but for looking inside a slow night ([A sl
 - [Costs and savings](#costs-and-savings)
 - [How figures are calculated](#how-figures-are-calculated)
 - [Copilot reservations](#copilot-reservations)
+- [Copilot Credit chargeback and commitment](#copilot-credit-chargeback-and-commitment)
 - [AI apps, Power BI and Power Apps](#ai-apps-power-bi-and-power-apps)
 - [Classifications, events and extracts](#classifications-events-and-extracts)
 - [Acting on the license recommendations](#acting-on-the-license-recommendations)
@@ -281,6 +282,8 @@ M -Task NameAgent -AgentId 'Copilot.Studio.Default-<tenant id>-cr123_hrHelper' -
 | Admin › Access | The Copilot license price and currency, the pay-as-you-go cost of an interaction, unused after (days), the minimum group size |
 | Admin › Targets and assumptions | Minutes saved (default and by app), an hour's worth, the price list with volume prices, Dataverse capacity a seat brings, spare seats and bought for capacity, the suites, the Fabric discount, flow and Copilot in Power BI minutes, idle after, spare seats kept unassigned, the credit and token estimate |
 | Leadership › Copilot reservations | The reservation rate, the purchase gate |
+| Leadership › Credit chargeback | The credit routing register, the charge rate a credit (2.7.2) |
+| Forecasting › Credit commitment | The credit commitment: amount, term, what one credit draws (2.7.2) |
 | Forecasting › Budget and renewal | The contracts' seats and price |
 
 ## Copilot reservations
@@ -309,6 +312,69 @@ A header line is skipped; a field may be quoted to hold a comma (`"Retail Bankin
 
 **Snapshots.** Each night after the licenses are read, the pipeline keeps the last month-end's position once (`dash.usp_TakeReservationSnapshot`), and never rewrites it; from 2.7.0 only once the licenses reach two days past the month end (a license change can reach Purview a day late), only when a reservation is in effect that day, and not after a load the delete guard refused: the reserved seats, the allocated licenses on that day and the rate in force, for every organization, those under no leader and the Technology pool. The org chart used is the one on the night it was kept. *Month-end snapshots* lists them; *View* shows one as it was. Every snapshot is **Operational, not certified**: certification, adjustments and the December close come in a later release.
 
+## Copilot Credit chargeback and commitment
+
+**Leadership › Credit chargeback** (2.7.2) charges each line of business for the Copilot Credits its Power Platform environments use. It follows a two-path operating model:
+
+| Path | What it is for | Charged to |
+|---|---|---|
+| LoB Productivity | Team productivity, knowledge and managed productivity agents | The line of business named |
+| LoB Business Application | Operational workflows and business applications | The line of business named |
+| Enterprise Shared | HR, enterprise help, compliance and critical employee agents | Nobody: funded centrally and shown apart |
+| Innovation or development | Pilots, experiments, development and testing | Its sponsor, if the route names one; otherwise funded centrally |
+
+**Set it up.**
+
+1. Install 2.7.2 or later: `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard`.
+2. **Load the credits.** In the Power Platform admin center, export the Copilot Credit consumption report: per environment and day, prepaid and pay-as-you-go. Shape its headings as **Costs and savings** lists them for `PowerPlatformCreditDay` (`Day`, `EnvironmentName`, `Product`, `Billing`, `Credits`, `Cost`, `Currency`). Then run `.\tools\Import-CostCsv.ps1 -Table PowerPlatformCreditDay -Path .\credits.csv`. Load each month again once its last day is in; a load replaces the days it holds.
+3. **Make sure every line of business is in Copilot reservations.** The chargeback names a line of business by its Org ID there. A line of business that reserves no seats is added with 0 reserved.
+4. **Route every environment.** In *Credit routing register*, enter the environment exactly as the consumption report names it, its path, the Org ID charged, the cost center, the financial owner, the billing policy and the date the route applies from. *Route several at once* takes lines pasted from a spreadsheet, all checked before any is added:
+
+```text
+Environment,Path,OrgId,CostCenter,From,FinancialOwner,BillingPolicy,To
+Retail-Prod,Productivity,LOB-01,CC-100,2026-11-01,finance.retail@contoso.com,BP-Retail
+HR-Agents,EnterpriseShared,,CC-900,2026-11-01,hr.finance@contoso.com,BP-Enterprise
+```
+
+5. **Set the charge rate.** Under *Charge rate*, enter Finance's rate for one credit, after any discount. If it is empty, the price list's pay-as-you-go credit (0.01) is used.
+
+**How the register behaves.**
+
+- A path is entered as its value (`Productivity`, `BusinessApplication`, `EnterpriseShared`, `Innovation`) or its label.
+- The two LoB paths must name an Org ID. Enterprise Shared must name none.
+- A change is a new row from its date: the environment's open route is ended the day before, so past months keep theirs.
+- *End* ends a route on a day; the cross removes one entered by mistake.
+- A route that overlaps one starting on or after it, or falls inside one running past its end, is refused.
+- Every change is in the audit log.
+
+**The figures.**
+
+- Each environment's Copilot Studio credits are charged at one rate, however Microsoft was paid: prepaid packs, a commitment, or pay-as-you-go. AI Builder credits are not Copilot Credits and are left out.
+- A route that changed during the month charges each day to the route in effect that day.
+- *Billed pay-as-you-go* is what Microsoft billed for the metered credits, shown beside what is charged back.
+- Leaders see the lines of business led from inside their part of the organization. The whole-organization view and the Licensing role also see Enterprise Shared, what is not routed, and the exceptions.
+
+**Exceptions.**
+
+- Environments with credits and no route.
+- Routes naming an Org ID that isn't in Copilot reservations.
+- Agents built by one line of business in another's environment. The agent inventory says where each agent lives, and the reservation register's leaders say where its owner works.
+
+**Snapshots.** Each night the pipeline keeps every complete month not yet kept (`dash.usp_TakeCreditChargeSnapshot`). A month is complete once the consumption report reaches its last day, and it is kept only when a route is in effect at its end. So loading two months at once skips neither. A snapshot keeps each environment's route, credits and the charge rate in force; *View* shows one as it was, and *Not routed* shows the credits it kept without a route. To correct a month after routing its environments, an administrator selects *Take it again*: the month is kept afresh from today's register and rate, and the audit log records it. Every snapshot is **Operational, not certified**.
+
+**Forecasting › Credit commitment** (2.7.2) tracks a prepaid commitment, such as the Copilot Credit Pre-Purchase Plan (P3).
+
+- **Record it.** Under *Record a commitment*, enter its name, amount and currency, what one credit draws from it (0.01 at list price), its term and its Azure scope. Terms may not overlap, or each would claim the same credits: record a top-up by removing the commitment and adding it with the new amount. Until its term starts the page shows only its start date.
+- **What the page shows:**
+  - what is drawn and what remains;
+  - the burn rate over the last 30 days;
+  - the date it runs out at that rate, or what it leaves unused at the end;
+  - the plan to date, which spreads the commitment evenly over its term;
+  - the environments and lines of business drawing most.
+- **It is an estimate.** It uses the pay-as-you-go credits in the consumption report × what a credit draws. Prepaid packs draw nothing. Microsoft's applied figure is in Azure Cost Management.
+- **Alert.** The page warns, and an alert goes to `AlertLicensingTo` once a week while it lasts, when the commitment runs out (or is projected to) more than *Warn when this many days off* (`CreditCommitmentAlertDays`, 30) before its term ends; or, once a month of its term has passed, when it is projected to leave more than that many days' worth unused at the even plan. That includes a commitment nothing draws on. 0 turns it off.
+- **Costs and savings.** While a commitment is in force, Costs and savings no longer suggests buying capacity packs for the metered credits: they draw on what is already paid for.
+
 ## AI apps, Power BI and Power Apps
 
 **What it is (2.6.9).** A third database, the **activity database**, loaded each night by the same backfill as the Copilot and license databases, with Purview **record types** rather than operations:
@@ -327,7 +393,7 @@ It needs nothing new from Microsoft: the app registration's `AuditLogsQuery.Read
 
 1. Add the database to the settings, so the nightly run loads it: `.\tools\Install-CopilotJobServer.ps1 -ActivityDatabase CopilotActivity` (or add `ActivityDatabase = 'CopilotActivity'` to `copilot-audit.settings.psd1`). It must be on the **same SQL Server instance** as the Copilot database: the rollup reads it by its three-part name.
 2. Create and install it: `.\Install-CopilotAudit.ps1 -SqlServer <server> -Dashboard -ActivityDatabase CopilotActivity`. It is created like the license database (SIMPLE recovery, the service account as db_owner) and gets the audit tables, the load procedure, `audit.AIAppCall`, `audit.PlatformActivity` and `audit.usp_ShredActivity`. The Copilot database gets `audit.AIAppUserDay`, `audit.AIAppResource` and `audit.usp_RollupActivity`.
-3. Load its history, once: `.\Invoke-CopilotPipeline.ps1 -ActivityHistory`. It loads the last `HistoryDays` days (180) of the three record types, finalizes them, shreds them and rolls them up. It resumes where it stopped. At the client's volume (about 245,000 AI app records a day, 44 million over 180 days) it is about 75 searches and several hours: run it on a day with no other backfill, as the tenant's 200 searches a day are shared.
+3. Load its history, once: `.\Invoke-CopilotPipeline.ps1 -ActivityHistory`. It loads the last `HistoryDays` days (180) of the record types in `ActivityRecordTypes` (four by default), finalizes them, shreds them and rolls them up. It resumes where it stopped. At the client's volume (about 245,000 AI app records a day, 44 million over 180 days) it is about 75 searches and several hours: run it on a day with no other backfill, as the tenant's 200 searches a day are shared.
 4. From then on the nightly run loads the new records after the Copilot load, then rolls them up. Both steps are optional: a failure is recorded on its step and fails nothing else. Until step 3 is done the nightly's activity step fails each night with "Run a backfill to completion in this database first".
 
 **Space.** Plan by measuring: after the first day of history, `EXEC sp_spaceused 'audit.CopilotAudit'` in the activity database, times 180. The records are kept compressed; the shredded tables are columnstore and much smaller; the Copilot database gets one row per day, resource, app and caller.

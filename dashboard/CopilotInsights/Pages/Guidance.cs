@@ -22,6 +22,7 @@ public static class Guidance
         ["/leadership/mix"] = new("See where Copilot earns its place: which apps, and how much through agents.", "Back the apps and agents that carry use; question the ones that do not."),
         ["/leadership/value"] = new("Put an estimated value on Copilot, with your own assumptions.", "Check the minutes and the hourly cost in Admin before you quote the figure."),
         ["/leadership/costs"] = new("See what AI and automation cost, what can be saved, and what they return, in one view.", "Take the top three savings this month; send the growth items to their owners."),
+        ["/leadership/credit-chargeback"] = new("See each line of business's Copilot Credits by path, and what they charge it.", "Route every environment first; then send each line of business its month."),
         ["/leadership/reservations"] = new("See each organization's reserved seats against its licenses, and what it is billed.", "Clear the exceptions first; use unused reservations before any purchase."),
         ["/leadership/usecases"] = new("Know what people use Copilot for, not just how much.", "Share the common use cases as examples; fund training for the missing ones."),
         ["/leadership/boardpack"] = new("Report the program to the board on one page.", "Print it or save it as a PDF for the steering group."),
@@ -97,6 +98,7 @@ public static class Guidance
         // Forecasting
         ["/forecasting"] = new("See where use and licenses are heading.", "Plan purchases and renewals on the projection, with its range."),
         ["/forecasting/optimize"] = new("Weigh every license action and what it is worth.", "Start with the action worth the most."),
+        ["/forecasting/credit-commitment"] = new("Know how much of the credit commitment is left, and when it runs out.", "Act before it runs out early or is left unused: move work onto it, or plan the renewal smaller."),
         ["/forecasting/budget"] = new("Prepare the renewal with the seats to renew.", "Renew at the seats to renew, License optimization's right size, not the current count."),
         ["/forecasting/actions"] = new("Act on named upgrade, train and revoke recommendations.", "Export each list and hand it to the license team."),
         ["/forecasting/waves"] = new("Roll out new licenses in the order most likely to pay off.", "Apply the next wave's file when seats come free."),

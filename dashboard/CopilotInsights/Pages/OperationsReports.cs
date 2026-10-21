@@ -164,14 +164,16 @@ namespace CopilotInsights.Pages.Leadership
             var t = await HttpContext.RequestServices.GetRequiredService<Metrics>().TotalsAsync(Ctx);
             var hours = v.ByApp.Sum(x => x.Hours);
             var value = v.ByApp.Sum(x => x.Value);
-            var licenseCost = Licensing.Price.ForLicenseDays(await reports.LicenseDaysAsync(Ctx), price);
+            var months = await reports.LicenseMonthsAsync(Ctx);
+            var whole = Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Count > 0;
+            var licenseCost = Licensing.Price.ForLicenseMonths(months, price);
             Kpis.Add(new("Hours saved (estimate)", Num(hours), $"{v.DefaultMinutes:0.#} minutes an interaction unless set per app",
                 Why: await WhyAsync($"Each app's interactions × the minutes one saves there ({v.DefaultMinutes:0.#} unless set for the app) ÷ 60.", "MinutesSavedDefault", "AppMinutes")));
             Kpis.Add(new($"Estimated value ({cur})", Num((double)value), $"at {v.HourlyCost:#,0.##} {cur} an hour",
                 Why: await WhyAsync($"Hours saved ({hours:#,0}) × what an hour is worth ({v.HourlyCost:#,0.##} {cur}).", "MinutesSavedDefault", "AppMinutes", "HourlyCost")));
             Kpis.Add(new("Per person using Copilot", t.Active > 0 ? $"{hours / t.Active:0.#} h" : "—", "in the period"));
-            Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", $"license cost in the period: {licenseCost:#,0} {cur}",
-                Why: await WhyAsync($"Estimated value ({value:#,0} {cur}) ÷ the license cost of the period: each licensed person-day at the Copilot license price over the days of its month ({licenseCost:#,0} {cur}).", "HourlyCost", "MinutesSavedDefault", "LicenseMonthlyCost")));
+            Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", whole ? $"license cost in the period: {licenseCost:#,0} {cur}" : "choose 30 days or more",
+                Why: await WhyAsync($"Estimated value ({value:#,0} {cur}) ÷ the license cost of the period: each calendar month the period charges, for everyone who held a license on at least one day of it, at the Copilot license price ({months:#,0} license-months × {price:#,0.##} {cur} = {licenseCost:#,0} {cur}). {(whole ? $"The period charges the calendar months whose last day falls inside it ({string.Join(", ", Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Select(m => new DateTime(m / 100, m % 100, 1).ToString("MMM yyyy")))}), each whole." : "No month ends inside a period this short, so none is charged and no return is shown: choose 30 days or more.")}", "HourlyCost", "MinutesSavedDefault", "LicenseMonthlyCost")));
             Panels.Add(new("Hours saved by app", Chart.Bars(v.ByApp.Take(12).Select(a => new Bar(a.Name, a.Hours, Note: $"{a.Interactions:#,0} interactions")).ToList(), Fmt.Count, "Hours saved by app"),
                 "Set the minutes each app saves in Admin > Targets and assumptions.", "half"));
             var shown = FoldSmall(v.ByDepartment, d => d.People, OpsReports.CombineValue, out var folded);

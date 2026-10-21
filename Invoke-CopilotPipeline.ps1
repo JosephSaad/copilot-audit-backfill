@@ -421,6 +421,11 @@ function Invoke-ReservationSnapshot {
         $null = Invoke-PipelineSql $Setting -Timeout 600 -Sql "IF OBJECT_ID(N'dash.usp_TakeReservationSnapshot', N'P') IS NOT NULL EXEC dash.usp_TakeReservationSnapshot;"
     }
     catch { "$(Get-Date -Format s) The reservation snapshot was not taken: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
+    # 2.7.2: and last month's Copilot Credit chargeback, once its credits are loaded to the month's last day.
+    try {
+        $null = Invoke-PipelineSql $Setting -Timeout 600 -Sql "IF OBJECT_ID(N'dash.usp_TakeCreditChargeSnapshot', N'P') IS NOT NULL EXEC dash.usp_TakeCreditChargeSnapshot;"
+    }
+    catch { "$(Get-Date -Format s) The credit chargeback snapshot was not taken: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
 }
 function Get-PipelineCertificate {
     <# The app certificate in LocalMachine\My (or CurrentUser\My), or nothing. #>

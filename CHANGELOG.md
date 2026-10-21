@@ -4,6 +4,64 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.2] - 2026-10-20
+
+Copilot Credits charged to each line of business, and a prepaid credit commitment tracked against its use: the
+measurement a two-path Copilot Credit operating model (LoB Consumption and Enterprise Shared) and a Copilot Credit
+Pre-Purchase Plan (P3) need.
+
+**Install over 2.7.1:** run `Install-CopilotAudit.ps1 -Dashboard` from this release. It adds three tables
+(`dash.CreditRoute`, `dash.CreditChargeSnapshot`, `dash.CreditCommitment`), one procedure and two settings; nothing else in
+the schema changes. Then route the environments and record the commitment (docs\OPERATIONS.md, Copilot Credit chargeback
+and commitment).
+
+### Added
+- **Leadership › Credit chargeback.**
+  - Each line of business's Copilot Credits a month, by the path its environments are routed to: LoB Productivity, LoB
+    Business Application, or Innovation. Enterprise Shared, and credits from environments not yet routed, are shown apart.
+  - Each environment's credits, prepaid and pay-as-you-go, with what is charged at the charge rate and what Microsoft
+    billed.
+  - Exceptions: environments with no route, routes naming an Org ID not in Copilot reservations, and agents built by one
+    line of business in another's environment.
+  - Month-end snapshots: every complete month not yet kept, once the consumption report reaches its last day; never
+    rewritten, except when an administrator takes a month again after routing its environments (audited).
+  - For administrators: the routing register (one row at a time, or pasted from a spreadsheet, all checked first) and the
+    charge rate.
+- **Forecasting › Credit commitment.** A prepaid commitment such as the P3:
+  - drawn, remaining and the burn rate;
+  - when it runs out at that rate, or what it leaves unused;
+  - drawn against an even plan;
+  - the environments and lines of business drawing most.
+
+  It is an estimate from the consumption report until Microsoft's applied figure is loaded.
+- **An alert** when the commitment runs out, or is projected to, more than 30 days before its term ends, or to leave more
+  than 30 days' worth unused, a commitment nothing draws on included (`CreditCommitmentAlertDays`, set on the page). It goes
+  to `AlertLicensingTo`, once a week while it lasts. Terms may not overlap.
+- Every figure on both pages says how it is worked out. Credit use, Agents costing credits, Copilot reservations and Costs
+  and savings link to them. The charge rate and the warning days are in the assumptions register.
+
+### Changed
+- **The license cost of a period is whole calendar months** (Value and time saved, Board pack, the return on license
+  cost). A period charges the calendar months whose last day falls inside it, each at the license price for everyone who
+  held a license on at least one day of that month. So every figure is a multiple of the price (18, never 17.75 or 18.35),
+  and the last 30 days charge one month. A period under a month charges none and shows no return. It was each day held
+  at a 365th of a year. On the demo the 30-, 90- and 180-day costs move by +3.5%, +0.6% and −4.9%.
+- Costs and savings no longer suggests buying Copilot Credit packs for metered credits while a commitment is in force:
+  they draw on what is already paid for.
+- The license pool alert names products, not part numbers.
+
+### Fixed
+- The operations guide said the activity database's history covered three record types; it covers those in
+  `ActivityRecordTypes`, four by default.
+
+### Known limits
+- **Not run against the client's tenant.** An environment is matched to its route by the name the consumption report
+  gives it. A billing policy that spans environments is entered on each of them.
+- **The commitment's draw is an estimate**: the metered credits × what one credit draws. Microsoft's applied figure is
+  in Azure Cost Management, which this release does not load.
+- The wrong-environment check needs the agent inventory (its environment and owner) and a reservation register whose
+  leaders cover the owners.
+
 ## [2.7.1] - 2026-10-20
 
 The last three items of 2.7.0's usability pass: one renewal figure, product names in place of part numbers, and the

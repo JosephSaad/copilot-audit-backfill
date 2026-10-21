@@ -103,6 +103,7 @@ GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.Agen
             $"Billed: interactions with the agent by people who held no Copilot license at the time, or in a Copilot Studio channel; an unknown license is not taken for none. " +
             $"Credits a month: each billed answer at {v.Rates.Generative:#,0.##} credits, {v.Rates.Graph:#,0.##} more where it read work data and {v.Rates.Action:#,0.##} where it called another agent, " +
             $"scaled to 30 days, at {v.Rates.CreditPrice:#,0.00##} {cur} a credit (Admin › Targets and assumptions): the same estimate as Licensing › Credit use. It errs high. " +
-            $"A person billed a month: the cost over the people billed, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent.", "full", CsvUrl()));
+            $"A person billed a month: the cost over the people billed, against the license's {price:#,0.##} {cur}. People are shown only where {Ctx.MinGroupSize} or more used an agent. " +
+            "Which line of business each agent's environment is charged to is on Leadership › Credit chargeback.", "full", CsvUrl()));
     }
 }

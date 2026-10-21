@@ -104,6 +104,8 @@ public class AssumptionRegisterTests
             [Assumptions.Access] = Source.Read("Pages", "Admin", "Admin.cs"),
             [Assumptions.Targets] = Source.Read("Pages", "Admin", "Operations.cs"),
             [Assumptions.Reservations] = Source.Read("Pages", "Leadership", "Reservations.cs"),
+            [Assumptions.CreditChargeback] = Source.Read("Pages", "Leadership", "CreditChargeback.cs"),   // 2.7.2
+            [Assumptions.CreditCommitment] = Source.Read("Pages", "Forecasting", "CreditCommitment.cs"),
         };
         foreach (var d in Assumptions.Settings)
         {

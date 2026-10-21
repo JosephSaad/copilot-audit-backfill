@@ -4551,6 +4551,60 @@ finally {
 }
 
 # ---------------------------------------------------------------------------
+# 26. Copilot Credit chargeback (2.7.2): the month-end snapshot of each environment's credits under its route.
+Write-Host "`n26. Copilot Credit chargeback (dash.CreditRoute, dash.usp_TakeCreditChargeSnapshot)" -ForegroundColor Cyan
+$credDb = "$($script:ITDatabase)_Cred"
+try {
+    $null = & (Join-Path $root 'Install-CopilotAudit.ps1') @resConn -Database $credDb -SkipLicenseDatabase -Dashboard -ReportingTimeZone 'Eastern Standard Time' 6>&1 | Out-String
+    $grants = [int] (Invoke-SqlText -Catalog $credDb -As Scalar -Sql @"
+SELECT COUNT(*) FROM sys.database_permissions AS p JOIN sys.objects AS o ON o.object_id = p.major_id
+WHERE o.name IN (N'CreditRoute', N'CreditCommitment') AND p.permission_name = N'INSERT' AND USER_NAME(p.grantee_principal_id) = N'CopilotInsightsApp';
+"@)
+    Assert-That ($grants -eq 2) "the dashboard's role may write the register and the commitments ($grants of 2 grants)"
+    # Last month: environment A Innovation for its first 15 days, then Productivity, prepaid then pay-as-you-go; B routed
+    # nowhere; C Enterprise Shared; A's AI Builder credits, which are not Copilot Credits. The month's last day held back.
+    Invoke-SqlText -Catalog $credDb -Sql @"
+DECLARE @m DATE = DATEADD(DAY, 1, EOMONTH(SYSUTCDATETIME(), -2));
+INSERT INTO dash.Reservation (OrgId, Name, LeaderUpn, Reserved, EffectiveFrom, UpdatedBy) VALUES (N'LOB-1', N'One', NULL, 0, '2020-01-01', N'test');
+WITH d AS (SELECT DATEADD(DAY, n, @m) AS [Day], n FROM (SELECT TOP (31) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS n FROM sys.objects) AS x WHERE DATEADD(DAY, n, @m) < EOMONTH(@m))
+INSERT INTO audit.PowerPlatformCreditDay ([Day], EnvironmentName, Product, Billing, Credits, Cost, Currency)
+SELECT [Day], N'Env A', 'Copilot Studio', CASE WHEN n < 15 THEN 'Prepaid' ELSE 'PayAsYouGo' END, CASE WHEN n < 15 THEN 10 ELSE 20 END, CASE WHEN n < 15 THEN NULL ELSE 0.2 END, N'USD' FROM d
+UNION ALL SELECT [Day], N'Env B', 'Copilot Studio', 'Prepaid', 5, NULL, N'USD' FROM d
+UNION ALL SELECT [Day], N'Env C', 'Copilot Studio', 'Prepaid', 7, NULL, N'USD' FROM d
+UNION ALL SELECT [Day], N'Env A', 'AI Builder', 'Prepaid', 1000, NULL, N'USD' FROM d;
+"@
+    $kept = { [int] (Invoke-SqlText -Catalog $credDb -As Scalar -Sql 'SELECT COUNT(*) FROM dash.CreditChargeSnapshot;') }
+    $last = "INSERT INTO audit.PowerPlatformCreditDay ([Day], EnvironmentName, Product, Billing, Credits, Cost, Currency) VALUES (EOMONTH(SYSUTCDATETIME(), -1), N'Env A', 'Copilot Studio', 'PayAsYouGo', 20, 0.2, N'USD'), (EOMONTH(SYSUTCDATETIME(), -1), N'Env B', 'Copilot Studio', 'Prepaid', 5, NULL, N'USD'), (EOMONTH(SYSUTCDATETIME(), -1), N'Env C', 'Copilot Studio', 'Prepaid', 7, NULL, N'USD');"
+    Invoke-SqlText -Catalog $credDb -Sql @"
+INSERT INTO dash.CreditRoute (EnvironmentName, Path, OrgId, EffectiveFrom, EffectiveTo, UpdatedBy) VALUES
+ (N'Env A', 'Innovation', N'LOB-1', '2020-01-01', DATEADD(DAY, 14, DATEADD(DAY, 1, EOMONTH(SYSUTCDATETIME(), -2))), N'test'),
+ (N'Env A', 'Productivity', N'LOB-1', DATEADD(DAY, 15, DATEADD(DAY, 1, EOMONTH(SYSUTCDATETIME(), -2))), NULL, N'test'),
+ (N'Env C', 'EnterpriseShared', NULL, '2020-01-01', NULL, N'test');
+EXEC dash.usp_TakeCreditChargeSnapshot;
+"@
+    Assert-That ((& $kept) -eq 0) 'the month waits until the consumption report reaches its last day: it is loaded by hand, and may be loaded part way'
+    Invoke-SqlText -Catalog $credDb -Sql ($last + " UPDATE dash.CreditRoute SET EffectiveTo = CASE WHEN Path = 'Productivity' THEN DATEADD(DAY, 20, DATEADD(DAY, 1, EOMONTH(SYSUTCDATETIME(), -2))) ELSE '2020-12-31' END WHERE EffectiveTo IS NULL; EXEC dash.usp_TakeCreditChargeSnapshot;")
+    Assert-That ((& $kept) -eq 0) 'no snapshot is kept when no route is in effect at the month end'
+    Invoke-SqlText -Catalog $credDb -Sql "UPDATE dash.CreditRoute SET EffectiveTo = NULL WHERE Path IN ('Productivity', 'EnterpriseShared'); EXEC dash.usp_TakeCreditChargeSnapshot;"
+    $days = [datetime]::DaysInMonth([datetime]::UtcNow.AddMonths(-1).Year, [datetime]::UtcNow.AddMonths(-1).Month)
+    $s = Invoke-SqlText -Catalog $credDb -As Table -Sql "SELECT EnvironmentName AS E, Path, ISNULL(OrgName, N'') AS OrgName, CAST(Credits AS INT) AS Credits, CAST(PaygCredits AS INT) AS Payg, CAST(ChargeRate AS DECIMAL(9, 4)) AS Rate FROM dash.CreditChargeSnapshot ORDER BY E, Path;"
+    $seen = (@($s.Rows | ForEach-Object { "$($_.E)/$($_.Path)=$($_.Credits)/$($_.Payg)" }) -join ' ')
+    $want = "Env A/Innovation=150/0 Env A/Productivity=$(20 * ($days - 15))/$(20 * ($days - 15)) Env B/Unmapped=$(5 * $days)/0 Env C/EnterpriseShared=$(7 * $days)/0"
+    Assert-That ($seen -eq $want -and @($s.Rows | Where-Object { [decimal] $_.Rate -ne 0.01 }).Count -eq 0 -and ($s.Rows | Where-Object E -eq 'Env A' | Select-Object -First 1).OrgName -eq 'One') `
+        "kept: each day under the route in effect that day, the unrouted and Enterprise Shared apart, AI Builder left out, at the price list's credit when no rate is set ($seen)"
+    Invoke-SqlText -Catalog $credDb -Sql "UPDATE dash.Setting SET Value = N'0.02' WHERE Name = N'CreditChargeRate'; UPDATE dash.CreditRoute SET OrgId = N'LOB-9' WHERE Path <> 'EnterpriseShared'; EXEC dash.usp_TakeCreditChargeSnapshot;"
+    Assert-That ((& $kept) -eq 4 -and [int] (Invoke-SqlText -Catalog $credDb -As Scalar -Sql "SELECT COUNT(*) FROM dash.CreditChargeSnapshot WHERE OrgId = N'LOB-9' OR ChargeRate <> 0.01;") -eq 0) `
+        'a month is kept once, as it was: a later rate or route does not rewrite it'
+    # An administrator clears the month and takes it again (Credit chargeback's "Take it again"): today's routes and rate.
+    Invoke-SqlText -Catalog $credDb -Sql "DECLARE @m DATE = DATEADD(DAY, 1, EOMONTH(SYSUTCDATETIME(), -2)); DELETE FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m; EXEC dash.usp_TakeCreditChargeSnapshot @Month = @m;"
+    Assert-That ((& $kept) -eq 4 -and [int] (Invoke-SqlText -Catalog $credDb -As Scalar -Sql "SELECT COUNT(*) FROM dash.CreditChargeSnapshot WHERE ChargeRate = 0.02 AND (OrgId = N'LOB-9' OR Path IN ('EnterpriseShared', 'Unmapped'));") -eq 4) `
+        'a month cleared and taken again is kept from today''s register and rate'
+}
+finally {
+    try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$credDb') IS NOT NULL BEGIN ALTER DATABASE [$credDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$credDb]; END;" } catch { Write-Host "  (could not drop $credDb)" }
+}
+
+# ---------------------------------------------------------------------------
 Write-Host ''
 if ($script:Failures.Count) {
     Write-Host "$($script:Failures.Count) assertion(s) failed." -ForegroundColor Red

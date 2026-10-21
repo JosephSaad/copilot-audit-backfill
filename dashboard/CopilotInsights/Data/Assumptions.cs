@@ -28,7 +28,8 @@ public sealed record AssumptionValue(AssumptionDef Def, string? Value, string? C
 /// </summary>
 public static class Assumptions
 {
-    public const string Access = "/admin/access", Targets = "/admin/assumptions", Reservations = "/leadership/reservations";
+    public const string Access = "/admin/access", Targets = "/admin/assumptions", Reservations = "/leadership/reservations",
+        CreditChargeback = "/leadership/credit-chargeback", CreditCommitment = "/forecasting/credit-commitment";
 
     public static readonly IReadOnlyList<AssumptionDef> Settings =
     [
@@ -57,6 +58,11 @@ public static class Assumptions
         new("TokensPerAnswer", "Tokens an answer gives back", "Credits and tokens", Targets, "TokensPerAnswer", "Credit use (tokens)", "400", Unit: "tokens"),
         new("ReservationGatePercent", "Purchase gate: share to assign first", "Reservations", Reservations, "percent", "Copilot reservations (purchase gate)", "95", Unit: "%"),
         new("ReservationGateBaseline", "Purchase gate: unassigned licenses at the baseline", "Reservations", Reservations, "baseline", "Copilot reservations (purchase gate)", null),
+        /* 2.7.2 */
+        new("CreditChargeRate", "Copilot Credit charge rate, a credit", "Prices", CreditChargeback, "rate",
+            "Credit chargeback (each line of business's charge), its month-end snapshots. Empty: the price list's pay-as-you-go credit", null),
+        new("CreditCommitmentAlertDays", "Credit commitment warning", "Use and thresholds", CreditCommitment, "alertDays",
+            "Credit commitment (runs out early, or left unused), the weekly alert", "30", Unit: "days"),
     ];
 
     /// <summary>Where to change it: the page, opened at the field (site.js finds it from ?focus=).</summary>

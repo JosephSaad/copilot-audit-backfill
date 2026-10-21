@@ -103,7 +103,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         Panels.Add(new(v.IsSnapshot ? $"Organizations on {v.AsOf:d MMM yyyy}" : "Organizations", t.Render(),
             "Allocated: Microsoft 365 Copilot add-on licenses held by the organization's people, everyone under its leader in the org chart; under two listed leaders, a person counts with the nearer one. " +
             "Copilot held only inside a suite (E7) and Technology-funded accounts are not counted. Utilization is allocated over reserved; with nothing reserved it is N/A. " +
-            "The organizations total is the sum of the rows: an organization under its reservation never offsets one over it." +
+            "The organizations total is the sum of the rows: an organization under its reservation never offsets one over it. Copilot Credits are charged to the same organizations on Leadership › Credit chargeback." +
             (holders is null ? "" : " Select an organization for its people."), "full", CsvUrl()));
 
         if (whole && !v.IsSnapshot) await ReconcileAsync(v);
