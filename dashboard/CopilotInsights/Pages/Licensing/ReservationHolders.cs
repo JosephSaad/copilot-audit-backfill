@@ -37,7 +37,7 @@ public sealed class ReservationHoldersModel(PageServices s, ReservationData data
 
     protected override async Task BuildAsync()
     {
-        if (!await data.ReadyAsync()) { Notice = "Reservations cannot be recorded here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from 2.6.8 or later."; return; }
+        if (!await data.ReadyAsync()) { Notice = await NotSetUpAsync("Reservations cannot be recorded here yet", "2.6.8", "dash.Reservation", "dash.fnReservationMember"); return; }
         if (await data.LicensedDayAsync() is not { } day) { Notice = "No licenses have been read yet. The license lookup fills them each night."; return; }
         var res = Request.Query["res"].FirstOrDefault() ?? "";
         var name = res == ReservationData.Unmapped ? "Under no listed leader" : res == ReservationData.Technology ? "Technology-funded pool"

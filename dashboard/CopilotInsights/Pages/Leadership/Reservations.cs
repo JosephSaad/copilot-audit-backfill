@@ -30,7 +30,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         ShowDone();
         if (!await data.ReadyAsync())
         {
-            Notice = "Reservations cannot be recorded here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from 2.6.8 or later.";
+            Notice = await NotSetUpAsync("Reservations cannot be recorded here yet", "2.6.8", "dash.Reservation", "dash.fnReservationMember");
             return;
         }
         var whole = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));

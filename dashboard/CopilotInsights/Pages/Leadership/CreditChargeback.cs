@@ -32,7 +32,7 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
         ShowDone();
         if (!await data.ReadyAsync())
         {
-            Notice = "Credit chargeback cannot be kept here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from 2.7.2 or later.";
+            Notice = await NotSetUpAsync("Credit chargeback cannot be kept here yet", "2.7.2", "dash.CreditRoute", "audit.PowerPlatformCreditDay");
             return;
         }
         var whole = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));

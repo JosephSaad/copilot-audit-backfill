@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.5] - 2026-10-21
+
+A pass over the 250 headline figures that open nothing: the ones that name a group now open it, and two figures that
+disagreed between pages say why. A page not set up now tells an administrator what is missing and where.
+
+**Install over 2.7.4:** build and deploy the dashboard from this release (docs\BUILD-FROM-SOURCE.md). Nothing in the
+database changes, and no script on the job server.
+
+### Changed
+- **Organization's Unit with the highest (lowest) adoption** opens that unit, as its name in the table does.
+- **Departments' Department with the highest (lowest) adoption** opens the page on that department, and so does each
+  department's bar and name in the table (the combined smaller departments aside), as Organization's units do.
+- **Rollout waves' People without a license** opens Demand for licenses, which counts the same people, for every
+  department. Its note says the Copilot Chat users it counts are the last 30 days' (Demand counts the period's).
+- **Agent inventory without a workbook:** each agent's name opens Agent detail, as on every other list of agents.
+- **Agents › Credits' suggestion** "see Licensing › Better with a license" is a link, for a viewer who may open it.
+- **Chargeback's Used in the period** is now *Licenses used in the period*: the agent pages' figure of that name counts agents.
+
+### Fixed
+- **Credit chargeback, Credit commitment, Copilot reservations and Reservation holders, not set up,** said only to run
+  Install-CopilotAudit.ps1 -Dashboard; a client that had run it on 2.7.4 saw the same line. An administrator is now told
+  which tables are missing, in which database, and as which account: the install may have gone to another database, or
+  the dashboard's account cannot see the tables (it then needs the CopilotInsightsApp role).
+- **How figures are calculated › Suites** listed Microsoft 365 E5 three times, E7 three times and so on, each as
+  "Microsoft 365 E5, a user a month": each row is one SKU the suite is sold under (SPE_E5, SPE_E5_NOPSTNCONF, the no-Teams
+  edition), priced on its own. Each row now names its SKU.
+- **Guests' Holding a Copilot license** counted 2 guests where Copilot on non-human accounts counted 1: an administrator
+  had confirmed the other as a person. The figure now says how many were confirmed, and opens the guest breaches.
+- **Countries and offices' Country with the highest adoption** could be a country of one license holder, or the
+  combined smaller countries; both ends are now ranked among the countries large enough, as Departments and
+  Organization rank theirs.
+
+### Known limits
+- The Leaderboard's Highest adoption and Most improved stay plain text. Linked to Departments, a team's ranked department
+  was missing there: Departments combines it with a department of one, so no row describes one or two people.
+- Five figures still open a related page that shows the detail in another month or unit, by design: Credit chargeback's
+  Copilot Credits, Better with a license's Credits a month, Credit use's Billed by the admin center, Credit commitment's
+  Drawn so far and Budget's Seats to renew.
+- Agent inventory's list without a workbook, and Agents › Credits' suggestion link, were not seen on a page: the demo data
+  has a workbook, and no agent whose users each cost more than a license. Tests check them.
+- Synthetic lab data, not the client's. Power BI Desktop: no `bi` view changed.
+
 ## [2.7.4] - 2026-10-21
 
 What a full review of every page and a stress test at 120 million interactions found, fixed: pages that rebuilt a view of

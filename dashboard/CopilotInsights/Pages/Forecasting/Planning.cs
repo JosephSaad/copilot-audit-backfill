@@ -199,7 +199,9 @@ SELECT {select} FROM c {tail}";
         var waves = await Db.QueryAsync<(int Wave, int People, int UsingChat)>(Sql("(c.[Rank] - 1) / @size + 1, COUNT(*), COUNT(CASE WHEN c.D > 0 THEN 1 END)",
             "GROUP BY (c.[Rank] - 1) / @size + 1 ORDER BY 1;"), Ctx.Args(new { k30, size, dept }));
         var all = waves.Sum(w => w.People);
-        Kpis.Add(new("People without a license", Num(all), $"{waves.Sum(w => w.UsingChat):#,0} of them use the free Copilot Chat"));
+        /* 2.7.5: for every department, the same people Demand for licenses counts, with who uses Copilot Chat and where. */
+        Kpis.Add(new("People without a license", Num(all), $"{waves.Sum(w => w.UsingChat):#,0} of them used the free Copilot Chat in the last 30 days",
+            Href: dept is null ? Open("/licensing/demand") : null));
         Kpis.Add(new("Rollout waves", Num(waves.Count), $"of {size:#,0} people"));
         Kpis.Add(new("A wave costs", $"{size * price:#,0} {cur}", "a month", Why: await WhyAsync($"People in a wave ({size:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));
         Kpis.Add(new("Everyone licensed", $"{all * price:#,0} {cur}", "a month more", Why: await WhyAsync($"People without a license ({all:#,0}) × the Copilot license price ({price:#,0.##} {cur}).", "LicenseMonthlyCost")));

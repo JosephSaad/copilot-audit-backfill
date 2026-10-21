@@ -282,6 +282,7 @@ namespace CopilotInsights.Pages.Agents
 
         sealed class Row
         {
+            public int AgentKey { get; set; }
             public string AgentName { get; set; } = "";
             public string AgentSource { get; set; } = "";
             public string? Owner { get; set; }
@@ -301,7 +302,7 @@ INTO #u
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY f.AgentKey;
-SELECT a.AgentName, a.AgentSource, a.Owner, CAST(CASE WHEN al.AgentKey IS NULL THEN 0 ELSE 1 END AS BIT) AS Named, a.FirstSeenUtc,
+SELECT a.AgentKey, a.AgentName, a.AgentSource, a.Owner, CAST(CASE WHEN al.AgentKey IS NULL THEN 0 ELSE 1 END AS BIT) AS Named, a.FirstSeenUtc,
        (SELECT d.[Date] FROM bi.DimDate AS d WHERE d.DateKey = au.LastDateKey) AS LastUsed,
        ISNULL(u.Interactions, 0) AS Interactions, ISNULL(u.People, 0) AS People
 FROM dash.Agent AS a
@@ -319,7 +320,8 @@ ORDER BY a.FirstSeenUtc DESC;", Ctx.Args());
             var tb = new Table { Headers = ["Agent", "Built in", "Owner", "First used", "Last used", "People in the period", "Interactions in the period"], Numeric = new HashSet<int> { 5, 6 } };
             var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: owners by name
             foreach (var r in rows)
-                tb.Rows.Add([r.AgentName + (r.Named ? "" : " (unnamed)"), r.AgentSource, ownerName(r.Owner), r.FirstSeenUtc.Date, r.LastUsed,
+                /* 2.7.5: the name opens Agent detail, as on every other list of agents. */
+                tb.Rows.Add([new Link(r.AgentName + (r.Named ? "" : " (unnamed)"), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, ownerName(r.Owner), r.FirstSeenUtc.Date, r.LastUsed,
                              r.People == 0 ? 0 : AtLeastMin(r.People), r.Interactions]);
             CsvTable = tb;
             Panels.Add(new("Every agent", tb.Render(), $"People are left out where fewer than {Ctx.MinGroupSize} used an agent; named users are on Agents › Agent detail for the Agents role.", "full", CsvUrl()));

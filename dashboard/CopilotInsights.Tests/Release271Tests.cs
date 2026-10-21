@@ -73,7 +73,7 @@ public class Release271Tests
             Assert.Contains("LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App", Source.Read(page));
         Assert.DoesNotContain("BizChat are Copilot Chat", Source.Read("Pages", "Leadership", "Leadership.cs"));
         Assert.Contains("\"Employee type\"", Source.Read("Pages", "Licensing", "Operations.cs"));
-        Assert.Contains("$\"{suite}, a user a month\"", Source.Read("Data", "Assumptions.cs"));
+        Assert.Contains("$\"{suite} ({SkuShown(pattern)}), a user a month\"", Source.Read("Data", "Assumptions.cs"));   // 2.7.5: with its SKU
     }
 
     [Fact]

@@ -74,8 +74,10 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         Kpis.Add(new("Units", Num(shown.Count(u => u.Unit != "~small")), $"one level below {Here}"));
         if (ranked.Count > 1)
         {
-            Kpis.Add(new("Unit with the highest adoption", ranked[0].Name, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot"));
-            Kpis.Add(new("Unit with the lowest adoption", ranked[^1].Name, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot"));
+            /* 2.7.5: each opens that unit, as its name in the table does. */
+            string? Inside(UnitRow u) => u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null;
+            Kpis.Add(new("Unit with the highest adoption", ranked[0].Name, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot", Href: Inside(ranked[0])));
+            Kpis.Add(new("Unit with the lowest adoption", ranked[^1].Name, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot", Href: Inside(ranked[^1])));
         }
 
         var t = new Table
