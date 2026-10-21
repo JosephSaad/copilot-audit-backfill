@@ -33,7 +33,18 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
             EmptyText = "Nothing to act on in this part of the organization: no idle licenses, nobody waiting for one, no target behind." };
         void Add(string finding, int count, string why, string path) { if (count > 0) t.Rows.Add([finding, count, why, Where(path)]); }
 
-        var counts = await reports.ActionCountsAsync(Ctx);
+        /* 2.7.3: the sources read at once, as Usage by license does: each is a report's own figures, on its own connection,
+           and one after another the page took 8 seconds uncached at the demo's size, the Costs and savings build alone half. */
+        var wholeCosts = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));
+        var countsTask = reports.ActionCountsAsync(Ctx);
+        var nonHumanTask = NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args());
+        var unitsTask = metrics.UnitsAsync(Ctx);
+        var targetsTask = reports.TargetsAsync(Ctx);
+        var costsTask = wholeCosts ? costs.BuildAsync(Ctx) : null;
+        var trendTask = Viewer.Has(Roles.Security) ? metrics.TrendAsync(Ctx) : null;
+        await Task.WhenAll(new Task?[] { countsTask, nonHumanTask, unitsTask, targetsTask, costsTask, trendTask }.OfType<Task>());
+
+        var counts = await countsTask;
         int revoke = counts.GetValueOrDefault("revoke"), train = counts.GetValueOrDefault("train"), upgrade = counts.GetValueOrDefault("upgrade");
         Kpis.Add(new("Licenses to take back", Num(revoke), "license holders with no licensed use in the last 30 days", Href: Open("/forecasting/actions", extra: "kind=revoke")));
         Kpis.Add(new("License holders to train", Num(train), "license holders who use Copilot only a little", Href: Open("/forecasting/actions", extra: "kind=train")));
@@ -46,12 +57,12 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
         Add("Regular users of the free Copilot Chat without a license", upgrade,
             "They have shown they will use it: the first people to give a freed license to.", "/forecasting/actions");
 
-        var nonHuman = (await NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args())).Count;
+        var nonHuman = (await nonHumanTask).Count;
         Add("Copilot licenses on accounts that are not a person", nonHuman,
             "A policy breach, and a license nobody can use: service, shared, test and guest accounts.", "/licensing/non-person");
 
         /* The units one level below with the lowest adoption, among those large enough to show. */
-        var units = SmallGroups.Shown(await metrics.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();
+        var units = SmallGroups.Shown(await unitsTask, u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();
         if (units.Count > 1)
         {
             var overall = units.Sum(u => u.Licensed) is var l and > 0 ? units.Sum(u => u.ActiveLicensed) / (double)l : 0;
@@ -62,15 +73,15 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
                     Where("/leadership/org")]);
         }
 
-        var targets = await reports.TargetsAsync(Ctx);
+        var targets = await targetsTask;
         Add("Adoption targets behind their line or missed", targets.Count(x => x.Status is "Behind" or "Missed"),
             "A target behind its line needs its push now, not at the deadline.", "/adoption/targets");
 
         /* What could be saved (2.6.6): Costs and savings is the organization's, so its findings show to those who see the
            whole of it, or hold the Licensing role, and only when the page shows the whole organization. */
-        if (Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing)))
+        if (costsTask is not null)
         {
-            var v = await costs.BuildAsync(Ctx);
+            var v = await costsTask;
             var save = v.Opportunities.Where(o => o.Kind == OpportunityKind.Save).ToList();
             if (save.Count > 0)
                 t.Rows.Add([$"Savings found in AI and automation: {CostRules.Money(Math.Round(v.Saving), v.Currency)} a month", save.Count,
@@ -81,9 +92,9 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
         }
 
         /* The security signals are the Security section's: counted here for its holders only, as on the board pack. */
-        if (Viewer.Has(Roles.Security))
+        if (trendTask is not null)
         {
-            var tr = await metrics.TrendAsync(Ctx);
+            var tr = await trendTask;
             Add("Jailbreak attempts and prompt injections in the period", (int)Math.Min(int.MaxValue, tr.Sum(x => x.Jailbreak) + tr.Sum(x => x.Injection)),
                 "Each is flagged by Microsoft in the audit record, and waits for triage.", "/security/flags");
         }

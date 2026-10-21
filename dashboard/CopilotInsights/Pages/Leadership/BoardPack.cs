@@ -38,7 +38,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         Panels.Add(new("People using Copilot", Chart.Line(Labels(), [
             new Series("With a Premium license", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 1),
             new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People using Copilot"),
-            TrendNote + " Dashed rules mark events (Admin > Classifications and events)."));
+            TrendNote + " Dashed rules mark events (Admin › Classifications and events)."));
 
         /* The targets for the part of the organization printed, not every target (2.4.12, see OpsReports.Visible). */
         var targets = await reports.TargetsAsync(Ctx);
@@ -63,7 +63,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             $"<div class=\"kpi\"><div class=\"klabel\">Estimated value ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">License cost in the period ({E(cur)})</div><div class=\"kvalue\">{(Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Count > 0 ? cost.ToString("#,0") : "—")}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Return on license cost</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
-            $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin > Targets and assumptions). " +
+            $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin › Targets and assumptions). " +
             "License cost: each calendar month whose last day falls in the period, at the license price for everyone who held one that month; a period under a month charges none.", "half"));
 
         /* The pool is the whole tenant's: for the viewers License pool shows it to, the whole-organization view or the
@@ -110,7 +110,7 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
 {
     public override string Title => "Use cases";
     public override string Persona => "Leadership";
-    public override string Intro => "What Copilot is used for, worked out from where each interaction happened (Outlook, Teams, Word, Excel...), whether it searched the web, and whether an agent answered. The rules are in Admin > Classifications and events. The audit log holds no prompt text, so this is where and how, not the words.";
+    public override string Intro => "What Copilot is used for, worked out from where each interaction happened (Outlook, Teams, Word, Excel...), whether it searched the web, and whether an agent answered. The rules are in Admin › Classifications and events. The audit log holds no prompt text, so this is where and how, not the words.";
 
     sealed class G
     {
@@ -130,7 +130,8 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
         /* In steps (2.4.2): the rules read once into #uc, one row a person and use case in #k, then a plain count.
            As one statement the optimizer ran the rules per group and counted distinct people: 22 seconds for a year. */
-        var byDept = await Db.QueryAsync<G>($@"
+        /* The three reads are independent: started together (2.7.3). */
+        var byDeptTask = Db.QueryAsync<G>($@"
 SELECT UseCaseKey, UseCase INTO #uc FROM bi.UseCases;
 WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
@@ -140,22 +141,28 @@ SELECT g.UserKey, uc.UseCase, SUM(g.N) AS N INTO #k FROM g JOIN #uc AS uc ON uc.
 SELECT k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department, SUM(k.N) AS N, COUNT(*) AS People
 FROM #k AS k JOIN bi.DimUser AS du ON du.UserKey = k.UserKey
 GROUP BY k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(), timeout: 300);
-        /* The totals add up the departments: each person has one department, so their people add up too.
-           A second pass over the fact for the same numbers doubled the page's time (2.4.2). */
-        var totals = byDept.GroupBy(x => x.UseCase).Select(g => new G { UseCase = g.Key, N = g.Sum(x => x.N), People = g.Sum(x => x.People) }).ToList();
-        if (totals.Count == 0) { Notice = $"No Copilot use from {Ctx.PeriodLabel}."; return; }
-        var trend = await Db.QueryAsync<G>($@"
+        var trendTask = Db.QueryAsync<G>($@"
 WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
            WHERE f.DateKey BETWEEN @k0 AND @k1
            GROUP BY {Ctx.BucketSql("d")}, f.UseCaseKey)
 SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase, g.Bucket;", Ctx.Args(), timeout: 300);
+        var deptsTask = Db.QueryAsync<(string Dept, int People)>($@"
+SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*) FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
+WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
+        await Task.WhenAll(byDeptTask, trendTask, deptsTask);
+        var byDept = await byDeptTask;
+        /* The totals add up the departments: each person has one department, so their people add up too.
+           A second pass over the fact for the same numbers doubled the page's time (2.4.2). */
+        var totals = byDept.GroupBy(x => x.UseCase).Select(g => new G { UseCase = g.Key, N = g.Sum(x => x.N), People = g.Sum(x => x.People) }).ToList();
+        if (totals.Count == 0) { Notice = $"No Copilot use from {Ctx.PeriodLabel}."; return; }
+        var trend = await trendTask;
 
         var all = totals.Sum(x => x.N);
         var ranked = totals.OrderByDescending(x => x.N).ToList();
         Kpis.Add(new("Most common", ranked[0].UseCase, $"{Pct(Ratio(ranked[0].N, all))} of interactions"));
-        Kpis.Add(new("Use cases seen", Num(ranked.Count)));
+        Kpis.Add(new("Use cases seen", Num(ranked.Count), "by the rules in Admin › Classifications and events"));
         var agents = totals.Where(x => x.UseCase == "Working with an agent").Sum(x => x.N);
         Kpis.Add(new("Interactions through an agent", Pct(Ratio(agents, all)), "of all interactions in the period"));
 
@@ -174,9 +181,7 @@ SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase,
 
         /* Each department's mix, for departments big enough to show. */
         var deptPeople = byDept.GroupBy(x => x.Department!).ToDictionary(g => g.Key, g => g.Sum(x => x.N));
-        var big = SmallGroups.Shown(await Db.QueryAsync<(string Dept, int People)>($@"
-SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*) FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args()), d => d.People, Ctx.MinGroupSize)
+        var big = SmallGroups.Shown(await deptsTask, d => d.People, Ctx.MinGroupSize)
             .Select(d => d.Dept).ToHashSet();
         var mix = new Table { Headers = ["Department", .. names, "Interactions"], Numeric = new HashSet<int>(Enumerable.Range(1, names.Count + 1)) };
         foreach (var d in deptPeople.Where(d => big.Contains(d.Key)).OrderByDescending(d => d.Value).Take(25))

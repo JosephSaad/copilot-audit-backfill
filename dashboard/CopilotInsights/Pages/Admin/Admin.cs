@@ -85,7 +85,7 @@ WHERE s.Status = N'Succeeded' ORDER BY s.RunId DESC;", "agents loaded", optional
                 pr.Rows.Add([r.Kind, r.StartedUtc, r.EndedUtc is null ? null : $"{(r.EndedUtc.Value - r.StartedUtc).TotalMinutes:0} min",
                     new HtmlString($"<span class=\"{(r.Status == "Succeeded" ? "status-ok" : r.Status == "Running" ? "status-warn" : "status-bad")}\">{E(r.Status)}</span>"),
                     r.FailedStep, r.Host, r.Detail is null ? null : new HtmlString($"<details><summary>show</summary><pre class=\"log\">{E(r.Detail)}</pre></details>")]);
-            Panels.Add(new("Pipeline runs", pr.Render(), "Recorded by Invoke-CopilotPipeline.ps1 on the job server. A failed or stuck run also raises an alert (Admin > Alerts and digests)."));
+            Panels.Add(new("Pipeline runs", pr.Render(), "Recorded by Invoke-CopilotPipeline.ps1 on the job server. A failed or stuck run also raises an alert (Admin › Alerts and digests)."));
         }
 
         var d = (await Db.QueryAsync<(int Found, int NotFound, int NotLooked, int People, int Levelled, int Enabled, int? LastKey)>(@"
@@ -182,7 +182,7 @@ FROM w;")).Single();
         }
         catch (Microsoft.Data.SqlClient.SqlException) { OpsCard("Audit searches", "No search windows in this database (records were not fetched from the audit log here, or this is not installed).", "status-warn"); }
         Panels.Add(new("Certificates and audit searches", new HtmlString(ops.Append("</div>").ToString()),
-            "The pipeline signs in with one certificate to read the audit log from Microsoft Purview, and with a second to fetch the agent workbook from SharePoint Online, where one is set up; the Foundry usage load can have one of its own. Each expires on its own date, and an alert goes out before any does (Admin > Alerts and digests)."));
+            "The pipeline signs in with one certificate to read the audit log from Microsoft Purview, and with a second to fetch the agent workbook from SharePoint Online, where one is set up; the Foundry usage load can have one of its own. Each expires on its own date, and an alert goes out before any does (Admin › Alerts and digests)."));
         if (certs.Count > 0)
         {
             /* Every detail the job server recorded, a certificate to a column, so two read side by side. */
@@ -206,7 +206,7 @@ FROM w;")).Single();
                 ext.Append($"<div class=\"card\"><h3 class=\"{cls}\">{E(ExternalUsage.Name(source))}</h3><p>{E(text)}</p></div>");
             }
             Panels.Add(new("Other AI usage: GitHub Copilot and Foundry", new HtmlString(ext.Append("</div>").ToString()),
-                "Optional loads of usage and cost from GitHub Copilot and from Foundry and Azure OpenAI, each run recorded with what it loaded. Leadership > Costs and savings and Governance > AI apps beyond Copilot read them."));
+                "Optional loads of usage and cost from GitHub Copilot and from Foundry and Azure OpenAI, each run recorded with what it loaded. Leadership › Costs and savings and Governance › AI apps beyond Copilot read them."));
         }
         catch (Microsoft.Data.SqlClient.SqlException) { /* A site account not yet granted the table (the installer grants it): the panel is left out. */ }
 
@@ -301,7 +301,7 @@ public sealed class ReportsModel(PageServices s) : AdminPage(s)
             if (hide)
                 await Db.ExecuteAsync(@"
 UPDATE dash.Setting SET Value = N'1', UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Name = @name;
-IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy) VALUES (@name, N'1', N'This report is turned off (Admin > Reports shown).', @by);", new { name, by });
+IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, Description, UpdatedBy) VALUES (@name, N'1', N'This report is turned off (Admin › Reports shown).', @by);", new { name, by });
             else
                 await Db.ExecuteAsync("DELETE FROM dash.Setting WHERE Name = @name;", new { name });
         }
@@ -746,9 +746,9 @@ FROM bi.DimApp AS a LEFT JOIN audit.SessionAppCategory AS c ON c.App = a.App ORD
             Input("groups", "AD groups of service accounts (DOMAIN\\Group, comma-separated)", string.Join(", ", r.Groups), 50) +
             Select("alert", "Alert Security and Licensing when one is found", ["Yes", "No"], set.GetValueOrDefault("NonHumanAlert") == "0" ? "No" : "Yes") +
             Button("Save", "Change which accounts count as not a person? It changes every breach count, the removal files and the alerts."))),
-            "A Copilot license on an account these rules match is a policy breach, on Security, Compliance and Licensing > Copilot on non-human accounts, " +
+            "A Copilot license on an account these rules match is a policy breach, on Security, Compliance and Licensing › Copilot on non-human accounts, " +
             "unless an administrator confirms the account is a person there. The groups' members are read by the next nightly directory load. " +
-            "The alert goes to the Security and Licensing alert recipients (Admin > Alerts and digests), once for each account."));
+            "The alert goes to the Security and Licensing alert recipients (Admin › Alerts and digests), once for each account."));
     }
 
     /// <summary>The longest list of patterns, types or groups: dash.Setting.Value is NVARCHAR(400).</summary>

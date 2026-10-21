@@ -5138,7 +5138,7 @@ Not here, because they load data and create nothing of their own: `Invoke-Copilo
 
 ### C.1 `Install-CopilotAudit.ps1`
 
-The installer. Creates both databases, runs the SQL scripts below in order, sets the reporting time zone, grants the reporting accounts their role, and builds everything from the records already loaded. 559 lines.
+The installer. Creates both databases, runs the SQL scripts below in order, sets the reporting time zone, grants the reporting accounts their role, and builds everything from the records already loaded. 590 lines.
 
 ```powershell
 <#
@@ -5213,6 +5213,12 @@ The installer. Creates both databases, runs the SQL scripts below in order, sets
     rolled up into the Copilot database (audit.usp_RollupActivity). Leave it
     out where there is none.
 
+.PARAMETER MaxDop
+    2.7.3: the parallelism each database it creates runs its queries at (ALTER DATABASE SCOPED CONFIGURATION SET
+    MAXDOP): by default the SQL Server's logical processors less two, at least 1, so a large history's shred and the
+    nightly refresh use the server and leave room for the rest. Given, it is set on every database it installs,
+    existing ones included; left out, a database that exists keeps its own. 0 leaves every database as it is.
+
 .EXAMPLE
     .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01
 .EXAMPLE
@@ -5242,7 +5248,9 @@ param(
     # The account the nightly job runs as (DOMAIN\gmsa$ or DOMAIN\user): given a login and db_owner in both databases.
     [string] $ServiceAccount,
     # Accounts that read the bi views and nothing else, such as the Power BI gateway's (DOMAIN\name).
-    [string[]] $ReportingAccount = @()
+    [string[]] $ReportingAccount = @(),
+    # 2.7.3: MAXDOP for the databases (see .PARAMETER MaxDop): left out, the server's processors less two on the ones it creates.
+    [ValidateRange(0, 64)][int] $MaxDop = -1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -5327,11 +5335,13 @@ Write-Step "Databases on $SqlServer"
 $targetLevel = [int] (Invoke-Sql -Catalog master -Scalar -Sql "SELECT CASE WHEN CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) >= 16 THEN 160 ELSE CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) * 10 END")
 if ($targetLevel -lt 140) { throw 'SQL Server 2017 or later is needed.' }
 $dbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) }) + $(if ($ActivityDatabase) { @($ActivityDatabase) } else { @() })
+$created = @()
 foreach ($db in $dbs) {
     $exists = [bool] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT CASE WHEN DB_ID(@d) IS NULL THEN 0 ELSE 1 END' -Parameters @{ '@d' = $db })
     if (-not $exists) {
         Invoke-Sql -Catalog master -Sql "CREATE DATABASE [$($db.Replace(']', ']]'))]; ALTER DATABASE [$($db.Replace(']', ']]'))] SET RECOVERY SIMPLE;"
         Write-Done "created $db (SIMPLE recovery)"
+        $created += $db
     }
     $level = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT compatibility_level FROM sys.databases WHERE name = @d' -Parameters @{ '@d' = $db })
     if ($level -lt 130) {
@@ -5339,6 +5349,27 @@ foreach ($db in $dbs) {
         Write-Done "$db compatibility level $level -> $targetLevel"
     }
     elseif ($exists) { Write-Done "$db exists (level $level)" }
+}
+
+# 2.7.3: each database it creates runs its queries at the server's logical processors less two (at least 1); -MaxDop
+# sets it on every database it installs instead, and 0 leaves them all as they are.
+if ($MaxDop -ne 0) {
+    $targets = @(if ($MaxDop -gt 0) { $dbs } else { $created })
+    if ($targets.Count -gt 0) {
+        $dop = $MaxDop
+        if ($dop -lt 0) {
+            $cpus = 0
+            try { $cpus = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT cpu_count FROM sys.dm_os_sys_info;') } catch { $cpus = 0 }
+            $dop = if ($cpus -gt 0) { [Math]::Max(1, $cpus - 2) } else { 0 }
+            if ($dop -eq 0) { Write-Done "MAXDOP not set: the server's processor count could not be read (it needs VIEW SERVER STATE); give -MaxDop to set it." }
+        }
+        if ($dop -gt 0) {
+            foreach ($db in $targets) {
+                Invoke-Sql -Catalog $db -Sql "ALTER DATABASE SCOPED CONFIGURATION SET MAXDOP = $dop;"
+                Write-Done "$db MAXDOP $dop"
+            }
+        }
+    }
 }
 
 if ($ServiceAccount) {
@@ -5975,7 +6006,7 @@ IF OBJECT_ID(N'audit.PipelineCertificate', N'U') IS NULL
 
 ### C.3 `sql/Create-CopilotLoadProcedure.sql`
 
-Both databases. `audit.usp_MergeCopilotLoad`, which appends each nightly load to the final records. 242 lines.
+Both databases. `audit.usp_MergeCopilotLoad`, which appends each nightly load to the final records. 245 lines.
 
 ```sql
 /*
@@ -6178,6 +6209,9 @@ BEGIN
            c.UserPrincipalName, c.Service, c.ObjectId, c.ClientIp, c.AdministrativeUnits, c.AuditDataGz, c.WindowId, @loadId
     FROM #cand AS c;
 
+    /* 2.7.3: not in an activity database (it has audit.usp_ShredActivity): its records are shredded into its own
+       tables, and nothing there reads audit.CopilotInteraction, so the JSON was parsed a second time for nothing. */
+    IF OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL
     INSERT INTO audit.CopilotInteraction
         (RecordId, CreatedDateTime, ActivityDate, UserPrincipalName, AppHost, AppIdentity, ClientRegion,
          ModelName, ModelProvider, ThreadId, PromptCount, AccessedResourceCount, UsedWebSearch)
@@ -14941,7 +14975,7 @@ GO
 
 ### C.22 `sql/Finalize-CopilotAudit.sql`
 
-Both databases. Run by the backfill's `-Finalize`, not by the installer: builds `audit.CopilotAudit` and `audit.CopilotInteraction` from staging. 290 lines.
+Both databases. Run by the backfill's `-Finalize`, not by the installer: builds `audit.CopilotAudit` and `audit.CopilotInteraction` from staging. 299 lines.
 
 ```sql
 /*
@@ -15170,11 +15204,19 @@ CREATE TABLE audit.CopilotInteraction
     INDEX CCI_CopilotInteraction CLUSTERED COLUMNSTORE
 );
 
-RAISERROR('Shredding AuditData into audit.CopilotInteraction...', 0, 1) WITH NOWAIT;
+/* 2.7.3: an activity database (it has audit.usp_ShredActivity) shreds its records into its own tables, and nothing
+   there reads audit.CopilotInteraction: the table is left empty, and the hours a large history spent parsing every
+   record's JSON for it are saved. */
+DECLARE @activity BIT = CASE WHEN OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL THEN 0 ELSE 1 END;
+IF @activity = 1
+    RAISERROR('Activity database: audit.CopilotInteraction is not built here; the activity shred follows.', 0, 1) WITH NOWAIT;
+ELSE
+    RAISERROR('Shredding AuditData into audit.CopilotInteraction...', 0, 1) WITH NOWAIT;
 
 /* audit.fnShredCopilotInteraction (Create-CopilotAuditSchema.sql) holds the
    JSON paths; incremental loads and CSV imports shred through it too. */
 
+IF @activity = 0
 INSERT INTO audit.CopilotInteraction WITH (TABLOCK)
 (
     RecordId, CreatedDateTime, ActivityDate, UserPrincipalName, AppHost, AppIdentity, ClientRegion,
@@ -15224,7 +15266,8 @@ SELECT
     @dupes                                                               AS DuplicatesRemoved,
     (SELECT MIN(CreatedDateTime) FROM audit.CopilotAudit)                AS OldestRecordUtc,
     (SELECT MAX(CreatedDateTime) FROM audit.CopilotAudit)                AS NewestRecordUtc,
-    (SELECT COUNT(DISTINCT UserPrincipalName) FROM audit.CopilotInteraction) AS DistinctUsers,
+    CASE WHEN @activity = 1 THEN (SELECT COUNT(DISTINCT UserPrincipalName) FROM audit.CopilotAudit)
+         ELSE (SELECT COUNT(DISTINCT UserPrincipalName) FROM audit.CopilotInteraction) END AS DistinctUsers,
     (SELECT COUNT_BIG(*) FROM audit.CopilotAuditStage)                   AS StagingRows;
 
 /* The mark the backfill reads before finalizing again (2.4.12): finalized, so a re-run leaves the tables alone. */

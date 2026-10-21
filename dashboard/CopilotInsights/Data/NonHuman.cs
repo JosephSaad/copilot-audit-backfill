@@ -3,7 +3,7 @@ using CopilotInsights.Infrastructure;
 
 namespace CopilotInsights.Data;
 
-/// <summary>Which signals count an account as not a person (Admin > Reference data), from dash.Setting.</summary>
+/// <summary>Which signals count an account as not a person (Admin › Reference data), from dash.Setting.</summary>
 public sealed record NonHumanRules(bool Guests, bool Names, bool NoChart, IReadOnlyList<string> Patterns, IReadOnlyList<string> EmployeeTypes, IReadOnlyList<string> Groups)
 {
     public bool Any => Guests || Names || NoChart || Patterns.Count > 0 || EmployeeTypes.Count > 0 || Groups.Count > 0;

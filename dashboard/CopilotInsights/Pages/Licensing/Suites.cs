@@ -20,7 +20,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
     public override string? OwnWindow => "the last 30 days, and today's licenses";
     public override string Intro => "Who holds Microsoft 365 or Office 365 E3, E5 or E7, and which suite fits them better, from their Copilot and Power BI use in the last 30 days. "
         + "A move down saves the difference in price, but each suite brings more than the data can see (security, compliance, telephony, Agent 365), so every move says what to check first. "
-        + "Suites, their prices and what they include are set in Admin > Targets and assumptions.";
+        + "Suites, their prices and what they include are set in Admin › Targets and assumptions.";
 
     static readonly Dictionary<string, string> Sorts = new()
     {
@@ -33,7 +33,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         var v = await suites.FitAsync(Ctx, scoped: true);
         if (v.Suites.Count == 0)
         {
-            Notice = "No suites are set: run the 2.6.6 dashboard schema (sql\\Create-CopilotDashboardSchema.sql), which adds E3, E5 and E7, or turn them on in Admin > Targets and assumptions.";
+            Notice = "No suites are set. An administrator adds E3, E5 and E7 by running Install-CopilotAudit.ps1 -Dashboard from 2.6.6 or later, or turns them on in Admin › Targets and assumptions.";
             return;
         }
         if (v.Rows.Count == 0)
@@ -139,7 +139,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         Panels.Add(new(copy == "addon" ? "People with an add-on their suite covers" : copy == "suite" ? $"People with a second suite{(suite is null ? "" : $" beside {suite}")}" : move is { } m ? $"People to {SuiteRules.Label(m).ToLowerInvariant()}{(suite is null ? "" : $" on {suite}")}" : suite is not null ? $"Every holder of {suite}" : "People whose suite could change",
             new HtmlString(all + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "Copilot days: days in the last 30 with use that needs the Copilot license, as Upgrade, train or revoke counts them. Power BI: any use in the window, from the Power Platform activity export. " +
-            "Protected levels (Admin > Access) are never offered a move, nor a copy to drop; a disabled account's licenses are reclaimed whatever its level. Agree each move with the person's manager, and with security and compliance for any move off E5.", "full", CsvUrl()));
+            "Protected levels (Admin › Access) are never offered a move, nor a copy to drop; a disabled account's licenses are reclaimed whatever its level. Agree each move with the person's manager, and with security and compliance for any move off E5.", "full", CsvUrl()));
     }
 
     static string Includes(Suite s) => string.Join(", ", new[] { s.HasCopilot ? "Microsoft 365 Copilot" : null, s.HasPowerBi ? "Power BI Pro" : null }.OfType<string>()) is { Length: > 0 } x ? x : "Neither Copilot nor Power BI Pro";

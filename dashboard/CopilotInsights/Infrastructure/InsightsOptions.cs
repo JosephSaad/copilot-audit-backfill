@@ -75,7 +75,7 @@ public sealed class InsightsOptions
     public string? PrecacheFolder { get; set; }
 
     /// <summary>
-    /// The background sender: alerts and scheduled digests (Admin > Alerts and digests). On by
+    /// The background sender: alerts and scheduled digests (Admin › Alerts and digests). On by
     /// default; with several web servers it runs on one at a time. Off for a test copy of the site.
     /// </summary>
     public bool Notifications { get; set; } = true;

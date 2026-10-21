@@ -25,12 +25,20 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     {
         var tr = await m.TrendAsync(Ctx);
         long labeled = tr.Sum(w => w.Labeled), all = tr.Sum(w => w.Interactions), blocked = tr.Sum(w => w.Blocked);
+        /* 2.7.3: counted as Access to labeled content lists them (labeled content, or blocked from content), so the figure
+           and the list it opens agree; the daily totals' count of labeled content alone left out those only blocked. */
         var people = await Db.ScalarAsync<int>($@"
-SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
-WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.LabeledContent > 0;", Ctx.Args());
+SELECT COUNT(*) FROM (
+    SELECT rd.UserKey FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
+    WHERE rd.Kind IN ('Label', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1
+    GROUP BY rd.UserKey
+    HAVING SUM(CASE WHEN rd.Kind = 'Label' THEN rd.Interactions ELSE 0 END) > 0 OR SUM(CASE WHEN rd.Kind = 'Blocked' THEN rd.Interactions ELSE 0 END) > 0) AS x
+JOIN bi.DimUser AS du ON du.UserKey = x.UserKey;", Ctx.Args());
         Kpis.Add(new("Interactions with labeled content", Num(labeled), $"{Pct(Ratio(labeled, all))} of all interactions"));
-        Kpis.Add(new("People", Num(people), "whose Copilot use touched labeled content"));
-        Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted", Href: Open("/compliance/access")));
+        /* 2.7.3: each figure opens a page with the same number. Access to labeled content lists these people; the blocked
+           count is Security's Blocked resources (the list of people counted people, not blocked interactions). */
+        Kpis.Add(new("People", Num(people), "whose Copilot use touched labeled content, or was blocked from content", Href: Open("/compliance/access")));
+        Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted", Href: Open("/security")));
 
         var labels = await Db.QueryAsync<(DateTime Bucket, string Label, int Rank, int N)>($@"
 SELECT {Ctx.BucketSql("d")}, {Sites.LabelName}, ISNULL(MAX(sl.Rank), 255), SUM(rd.Interactions)

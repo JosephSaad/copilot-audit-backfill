@@ -51,7 +51,8 @@ public sealed class AiAppsModel(PageServices s) : InsightsPage(s)
         }
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         var hasCost = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.FoundryCostDay) THEN 1 ELSE 0 END;") == 1;
-        var rows = await Db.QueryAsync<ResRow>($@"
+        /* The five reads below are independent: started together, awaited where used (2.7.3). */
+        var rowsTask = Db.QueryAsync<ResRow>($@"
 SELECT a.[Resource], r.LineOfBusiness, r.Environment, r.Owner, r.SetBy, SUM(CAST(a.Calls AS BIGINT)) AS Calls, SUM(CAST(a.Prompts AS BIGINT)) AS Prompts,
        SUM(CAST(a.Threads AS BIGINT)) AS Threads, SUM(CAST(a.Failures AS BIGINT)) AS Failures,
        SUM(CASE WHEN a.CallerKind = 'Unattributed' THEN CAST(a.Calls AS BIGINT) ELSE 0 END) AS Unattributed,
@@ -63,7 +64,24 @@ LEFT JOIN audit.AIAppResource AS r ON r.[Resource] = a.[Resource]
 WHERE a.[Day] BETWEEN @d0 AND @d1
 GROUP BY a.[Resource], r.LineOfBusiness, r.Environment, r.Owner, r.SetBy
 ORDER BY Calls DESC;", Ctx.Args());
-        var people = await Db.ScalarAsync<int>("SELECT COUNT(DISTINCT Caller) FROM audit.AIAppUserDay WHERE CallerKind = 'Person' AND [Day] BETWEEN @d0 AND @d1;", Ctx.Args());
+        var peopleTask = Db.ScalarAsync<int>("SELECT COUNT(DISTINCT Caller) FROM audit.AIAppUserDay WHERE CallerKind = 'Person' AND [Day] BETWEEN @d0 AND @d1;", Ctx.Args());
+        var trendTask = Db.QueryAsync<(DateTime Bucket, long Person, long None)>($@"
+SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN a.CallerKind = 'Person' THEN CAST(a.Calls AS BIGINT) ELSE 0 END), SUM(CASE WHEN a.CallerKind = 'Unattributed' THEN CAST(a.Calls AS BIGINT) ELSE 0 END)
+FROM audit.AIAppUserDay AS a JOIN bi.DimDate AS d ON d.[Date] = a.[Day]
+WHERE a.[Day] BETWEEN @d0 AND @d1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+        /* 2.7.0: the accounts Azure billed in the period that recorded no call here: idle, or not collected by Purview. */
+        var silentTask = hasCost ? Db.QueryAsync<(string Account, decimal Cost)>(@"
+SELECT c.Account, SUM(c.Cost) FROM audit.FoundryCostDay AS c
+WHERE c.[Day] BETWEEN @d0 AND @d1 AND NOT EXISTS (SELECT 1 FROM audit.AIAppUserDay AS a WHERE a.[Resource] = c.Account AND a.[Day] BETWEEN @d0 AND @d1)
+GROUP BY c.Account HAVING SUM(c.Cost) > 0 ORDER BY SUM(c.Cost) DESC;", Ctx.Args()) : Task.FromResult(new List<(string Account, decimal Cost)>());
+        var deptsTask = Db.QueryAsync<(string Department, int People, long Calls)>(@"
+SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT a.Caller), SUM(CAST(a.Calls AS BIGINT))
+FROM audit.AIAppUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Caller
+WHERE a.CallerKind = 'Person' AND a.[Day] BETWEEN @d0 AND @d1
+GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", Ctx.Args());
+        await Task.WhenAll(rowsTask, peopleTask, trendTask, silentTask, deptsTask);
+        var rows = await rowsTask;
+        var people = await peopleTask;
         long calls = rows.Sum(r => r.Calls), unattributed = rows.Sum(r => r.Unattributed), failures = rows.Sum(r => r.Failures);
         int min = Ctx.MinGroupSize;
         string PeopleText(int n) => n == 0 ? "none" : n >= min ? n.ToString("#,0") : $"fewer than {min}";
@@ -76,10 +94,7 @@ ORDER BY Calls DESC;", Ctx.Args());
         Kpis.Add(new("Failed", Pct(Ratio(failures, calls)), "calls where a resource reached reported a failure", Ratio(failures, calls) > 0.05 ? "warn" : null));
 
         /* Over time: calls with a person's identity, and without. */
-        var trend = await Db.QueryAsync<(DateTime Bucket, long Person, long None)>($@"
-SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN a.CallerKind = 'Person' THEN CAST(a.Calls AS BIGINT) ELSE 0 END), SUM(CASE WHEN a.CallerKind = 'Unattributed' THEN CAST(a.Calls AS BIGINT) ELSE 0 END)
-FROM audit.AIAppUserDay AS a JOIN bi.DimDate AS d ON d.[Date] = a.[Day]
-WHERE a.[Day] BETWEEN @d0 AND @d1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+        var trend = await trendTask;
         var buckets = Buckets();
         double? At(DateTime key, bool person) { var r = trend.FirstOrDefault(x => x.Bucket == key); return person ? r.Person : r.None; }
         Panels.Add(new("Calls over time", Chart.Columns(Labels(), [
@@ -101,11 +116,7 @@ WHERE a.[Day] BETWEEN @d0 AND @d1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             Headers = ["Resource", "Line of business", "Environment", "Owner", "Calls", "Prompts", "Conversations", "People", "Without a user identity", "Failed", "Apps named", "First seen", .. (hasCost ? new[] { $"Azure cost ({cur})" } : [])],
             Numeric = new HashSet<int> { 4, 5, 6, 8, 9, 10, 12 },
         };
-        /* 2.7.0: the accounts Azure billed in the period that recorded no call here: idle, or not collected by Purview. */
-        var silent = hasCost ? await Db.QueryAsync<(string Account, decimal Cost)>(@"
-SELECT c.Account, SUM(c.Cost) FROM audit.FoundryCostDay AS c
-WHERE c.[Day] BETWEEN @d0 AND @d1 AND NOT EXISTS (SELECT 1 FROM audit.AIAppUserDay AS a WHERE a.[Resource] = c.Account AND a.[Day] BETWEEN @d0 AND @d1)
-GROUP BY c.Account HAVING SUM(c.Cost) > 0 ORDER BY SUM(c.Cost) DESC;", Ctx.Args()) : [];
+        var silent = await silentTask;
         if (silent.Count > 0)
             Kpis.Add(new("Billed, no calls recorded", Num(silent.Count), $"{CostRules.Money(Math.Round(silent.Sum(s => s.Cost)), cur)} charged in the period: idle, or Purview does not collect them", "warn"));
         foreach (var r in rows)
@@ -121,11 +132,7 @@ GROUP BY c.Account HAVING SUM(c.Cost) > 0 ORDER BY SUM(c.Cost) DESC;", Ctx.Args(
             "full", CsvUrl()));
 
         /* The departments whose people call these apps with their own identity: counts, small ones folded. */
-        var depts = await Db.QueryAsync<(string Department, int People, long Calls)>(@"
-SELECT ISNULL(NULLIF(u.Department, N''), N'(no department)'), COUNT(DISTINCT a.Caller), SUM(CAST(a.Calls AS BIGINT))
-FROM audit.AIAppUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Caller
-WHERE a.CallerKind = 'Person' AND a.[Day] BETWEEN @d0 AND @d1
-GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", Ctx.Args());
+        var depts = await deptsTask;
         var shown = depts.Where(d => d.People >= min).OrderByDescending(d => d.Calls).Take(15).ToList();
         var folded = depts.Count(d => d.People < min);
         Panels.Add(new("Departments calling with their own identity", Chart.Bars(shown.Select(d => new Bar(d.Department, d.Calls, Note: $"{d.People:#,0} people")).ToList(), Fmt.Count, "Calls by department"),

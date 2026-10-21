@@ -11,10 +11,11 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var tr = await m.TrendAsync(Ctx);
-        long all = tr.Sum(w => w.Interactions);
+        /* Seven independent reads, four of them over the fact: started together, awaited where used (2.7.3). */
+        var trTask = m.TrendAsync(Ctx);
+        var unitsTask = m.UnitsAsync(Ctx);
         /* Counted per model key first, then named (2.4.2): dash.fnValueName in the GROUP BY over the fact ran once a row. */
-        var models = await Db.QueryAsync<(DateTime Bucket, string Model, long N)>($@"
+        var modelsTask = Db.QueryAsync<(DateTime Bucket, string Model, long N)>($@"
 WITH g AS (
     SELECT {Ctx.BucketSql("d")} AS Bucket, f.ModelKey, COUNT_BIG(*) AS N
     FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
@@ -25,24 +26,35 @@ SELECT g.Bucket, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.Mod
 FROM g JOIN bi.DimModel AS mo ON mo.ModelKey = g.ModelKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 16 AND vn.Value = mo.ModelName
 GROUP BY g.Bucket, CASE WHEN mo.ModelName = N'' THEN N'(not recorded)' ELSE mo.ModelProvider + N' ' + COALESCE(vn.Name, mo.ModelName) END;", Ctx.Args());
-        var agents = await Db.QueryAsync<(DateTime Bucket, string Source, int N)>($@"
+        var agentsTask = Db.QueryAsync<(DateTime Bucket, string Source, int N)>($@"
 SELECT {Ctx.BucketSql("d")}, a.AgentSource, COUNT(DISTINCT f.AgentKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 JOIN bi.DimAgent AS a ON a.AgentKey = f.AgentKey AND a.AgentSource <> N'(no agent)'
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, a.AgentSource;", Ctx.Args());
+        var controlsTask = Db.QueryAsync<(DateTime Bucket, long N, long Memory, long AgentCalls, long Dlp)>($@"
+SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.CalledAnotherAgent AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT))
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+        var productsTask = ProductsAsync();
+        var bornTask = Db.QueryAsync<(string Source, int N, int New)>(@"
+SELECT a.AgentSource, COUNT(*), COUNT(CASE WHEN a.FirstSeenUtc >= @d0 THEN 1 END)
+FROM dash.Agent AS a WHERE a.AgentSource <> N'(no agent)' AND a.FirstSeenUtc < DATEADD(DAY, 1, @d1)
+GROUP BY a.AgentSource;", Ctx.Args());
+        await Task.WhenAll(trTask, unitsTask, modelsTask, agentsTask, controlsTask, productsTask, bornTask);
+        var tr = await trTask;
+        long all = tr.Sum(w => w.Interactions);
+        var models = await modelsTask;
+        var agents = await agentsTask;
         var buckets = Buckets();
 
         Kpis.Add(new("Searched the web", Pct(Ratio(tr.Sum(w => w.Web), all)), "of interactions used web search"));
         Kpis.Add(new("In Copilot Chat", Pct(Ratio(tr.Sum(w => w.Chat), all)), "the rest is Copilot inside the apps"));
         Kpis.Add(new("Through an agent", Pct(Ratio(tr.Sum(w => w.Agent), all)), "of interactions were answered by an agent"));
-        Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count())));
+        Kpis.Add(new("Models seen", Num(models.Select(x => x.Model).Distinct().Count()), "models named in the audit records"));
         /* Memory updates, calls to another agent and deferred data-loss checks at each point; their totals are the period's. */
-        var controls = await Db.QueryAsync<(DateTime Bucket, long N, long Memory, long AgentCalls, long Dlp)>($@"
-SELECT {Ctx.BucketSql("d")}, COUNT_BIG(*), SUM(CAST(f.MemoryUpdated AS INT)), SUM(CAST(f.CalledAnotherAgent AS INT)), SUM(CAST(f.DlpEvaluationDeferred AS INT))
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+        var controls = await controlsTask;
         var flags = (N: controls.Sum(x => x.N), Memory: controls.Sum(x => x.Memory), AgentCalls: controls.Sum(x => x.AgentCalls), Dlp: controls.Sum(x => x.Dlp));
         Kpis.Add(new("Updated Copilot memory", Pct(Ratio(flags.Memory, flags.N)), "of interactions saved something to memory"));
         Kpis.Add(new("Called another agent", Pct(Ratio(flags.AgentCalls, flags.N)), "handed work to a second agent"));
@@ -66,7 +78,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
                 new Series("In the apps", tr.Select(w => Ratio(w.Interactions - w.Chat, w.Interactions)).ToList(), 2),
             ], Fmt.Percent, "Chat and in-app share", 1), "App categories come from Admin › Reference data.", "half"));
 
-        /* The controls over time and web search by unit: Governance > Copilot controls was a page of its own for these,
+        /* The controls over time and web search by unit: Governance › Copilot controls was a page of its own for these,
            beside this page's figures for the same three things. */
         Panels.Add(new("Interactions that updated Copilot memory",
             Chart.Line(Labels(), [new Series("Updated memory", buckets.Select(b => { var r = controls.FirstOrDefault(x => x.Bucket == b.Key); return Ratio(r.Memory, r.N); }).ToList(), 5)], Fmt.Percent, "Share of interactions that updated Copilot memory"),
@@ -74,7 +86,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
         Panels.Add(new("Deferred data-loss checks",
             Chart.Columns(Labels(), [new Series("Deferred", buckets.Select(b => (double?)controls.FirstOrDefault(x => x.Bucket == b.Key).Dlp).ToList(), 4)], Fmt.Count, "Data-loss checks deferred"),
             "Interactions that Copilot's own record marks as having their data-loss prevention (DLP) check deferred. Microsoft sets the mark; a rising count is worth raising with them.", "half"));
-        var web = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0)
+        var web = SmallGroups.Shown(await unitsTask, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0)
             .OrderByDescending(u => u.Web / (double)u.Interactions).ToList();
         Panels.Add(new("Web search by unit",
             Chart.Bars(web.Take(15).Select(u => new Bar(u.Name, u.Web / (double)u.Interactions, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null, $"{u.Web:#,0} of {u.Interactions:#,0}")).ToList(), Fmt.Percent, "Share of interactions that searched the web, by unit", 1),
@@ -84,11 +96,28 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
         Panels.Add(new("Agents in use",
             Chart.Columns(Labels(), sources.Select((src, i) => new Series(src, buckets.Select(b => (double?)agents.Where(a => a.Source == src && a.Bucket == b.Key).Sum(a => a.N)).ToList(), i + 1)).ToList(),
                 Fmt.Count, "Distinct agents used"), "How many different agents were used in each day or week, by where they were built.", "half"));
-        /* 2.7.0: Copilot by product, from the app each interaction names (its AppHost) and the agent behind it: Security
-           Copilot, Copilot in Fabric and Power BI, Edge, Copilot Studio's agents, and Microsoft 365 Copilot for the rest. */
-        var products = await Db.QueryAsync<(string Product, long N, int People)>($@"
-WITH f AS (
-    SELECT f.UserKey,
+        var products = await productsTask;
+        Panels.Add(new("Copilot by product", Chart.Bars(products.Select(p => new Bar(p.Product, p.N,
+                Note: $"{(p.People >= Ctx.MinGroupSize ? p.People.ToString("#,0") : $"fewer than {Ctx.MinGroupSize}")} people")).ToList(), Fmt.Count, "Interactions by Copilot product"),
+            "Which Copilot answered, from the app each interaction names and the agent behind it: Security Copilot (where its owner turned on Purview audit), Copilot in Fabric and Power BI, Copilot in Edge and Bing, Copilot Studio's agents, other agents, and Microsoft 365 Copilot in Word, Excel, Teams, Outlook and Copilot Chat.", "half"));
+
+        var born = await bornTask;
+        Panels.Add(new("Every agent seen, by where it was built",
+            Chart.Bars(born.OrderByDescending(b => b.N).Select(b => new Bar(b.Source, b.N, Note: $"{b.New:#,0} first used in the period")).ToList(), Fmt.Count, "Agents known"),
+            "Every agent the audit log has seen, whoever used it. A growing count with few users each is agent sprawl. This panel covers the whole organization whatever you are looking at: an agent does not belong to a part of the org chart.", "half"));
+    }
+
+    /* 2.7.0: Copilot by product, from the app each interaction names (its AppHost) and the agent behind it: Security
+       Copilot, Copilot in Fabric and Power BI, Edge, Copilot Studio's agents, and Microsoft 365 Copilot for the rest. */
+    /* Counted per person, app and agent first, then classified (2.7.3): the LIKEs ran once an interaction. */
+    Task<List<(string Product, long N, int People)>> ProductsAsync() => Db.QueryAsync<(string Product, long N, int People)>($@"
+WITH g AS (
+    SELECT f.UserKey, f.AppKey, f.AgentKey, COUNT_BIG(*) AS N
+    FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+    WHERE f.DateKey BETWEEN @k0 AND @k1
+    GROUP BY f.UserKey, f.AppKey, f.AgentKey),
+f AS (
+    SELECT g.UserKey, g.N,
            CASE WHEN a.App LIKE N'%Security%' THEN N'Security Copilot'
                 WHEN a.App LIKE N'%Fabric%' OR a.App LIKE N'%PowerBI%' OR a.App LIKE N'%Power BI%' THEN N'Copilot in Fabric and Power BI'
                 /* Microsoft records Copilot in the Edge browser as AppHost Bing. */
@@ -96,21 +125,8 @@ WITH f AS (
                 WHEN ag.AgentSource = N'Copilot Studio' THEN N'Copilot Studio agents'
                 WHEN ag.AgentSource IS NOT NULL AND ag.AgentSource <> N'(no agent)' THEN N'Other agents'
                 ELSE N'Microsoft 365 Copilot' END AS Product
-    FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-    JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-    LEFT JOIN bi.DimAgent AS ag ON ag.AgentKey = f.AgentKey
-    WHERE f.DateKey BETWEEN @k0 AND @k1)
-SELECT Product, COUNT_BIG(*), COUNT(DISTINCT UserKey) FROM f GROUP BY Product ORDER BY COUNT_BIG(*) DESC;", Ctx.Args());
-        Panels.Add(new("Copilot by product", Chart.Bars(products.Select(p => new Bar(p.Product, p.N,
-                Note: $"{(p.People >= Ctx.MinGroupSize ? p.People.ToString("#,0") : $"fewer than {Ctx.MinGroupSize}")} people")).ToList(), Fmt.Count, "Interactions by Copilot product"),
-            "Which Copilot answered, from the app each interaction names and the agent behind it: Security Copilot (where its owner turned on Purview audit), Copilot in Fabric and Power BI, Copilot in Edge and Bing, Copilot Studio's agents, other agents, and Microsoft 365 Copilot in Word, Excel, Teams, Outlook and Copilot Chat.", "half"));
-
-        var born = await Db.QueryAsync<(string Source, int N, int New)>(@"
-SELECT a.AgentSource, COUNT(*), COUNT(CASE WHEN a.FirstSeenUtc >= @d0 THEN 1 END)
-FROM dash.Agent AS a WHERE a.AgentSource <> N'(no agent)' AND a.FirstSeenUtc < DATEADD(DAY, 1, @d1)
-GROUP BY a.AgentSource;", Ctx.Args());
-        Panels.Add(new("Every agent seen, by where it was built",
-            Chart.Bars(born.OrderByDescending(b => b.N).Select(b => new Bar(b.Source, b.N, Note: $"{b.New:#,0} first used in the period")).ToList(), Fmt.Count, "Agents known"),
-            "Every agent the audit log has seen, whoever used it. A growing count with few users each is agent sprawl. This panel covers the whole organization whatever you are looking at: an agent does not belong to a part of the org chart.", "half"));
-    }
+    FROM g
+    JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
+    LEFT JOIN bi.DimAgent AS ag ON ag.AgentKey = g.AgentKey)
+SELECT Product, SUM(N), COUNT(DISTINCT UserKey) FROM f GROUP BY Product ORDER BY SUM(N) DESC;", Ctx.Args());
 }

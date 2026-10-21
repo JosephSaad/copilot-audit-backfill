@@ -53,7 +53,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
         var back = removals.Count(r => r.GivenBack);
 
         Kpis.Add(new("Licenses assigned", Num(counts.Added), $"{Num(counts.People)} people changed"));
-        Kpis.Add(new("Licenses removed", Num(counts.Removed)));
+        Kpis.Add(new("Licenses removed", Num(counts.Removed), "Copilot licenses taken away in the period"));
         Kpis.Add(new("Removed while in use", Num(active), removals.Count > 0 ? $"{Pct(Ratio(active, removals.Count))} of removals: used in the 30 days before" : null, active > 0 ? "warn" : null));
         Kpis.Add(new("Given back later", Num(back), "removed, then assigned again"));
         if (median is not null) Kpis.Add(new("Median time held", $"{median:0} days", "before removal, where the assignment is on record"));

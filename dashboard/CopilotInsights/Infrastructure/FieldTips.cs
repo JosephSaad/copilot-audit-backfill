@@ -12,8 +12,8 @@ public static partial class FieldTips
     /// <summary>By "page|field" first, then by field: what a field takes, its unit, and what it changes.</summary>
     public static readonly IReadOnlyDictionary<string, string> Fixed = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
-        /* Admin > Targets and assumptions: the price list and the suites. */
-        ["/admin/assumptions|price"] = "What one unit costs a month (a credit: each), in the currency set in Admin > Access, after any discount your agreement gives.",
+        /* Admin › Targets and assumptions: the price list and the suites. */
+        ["/admin/assumptions|price"] = "What one unit costs a month (a credit: each), in the currency set in Admin › Access, after any discount your agreement gives.",
         ["tierFrom"] = "From this many seats every seat costs the volume price. Empty: no volume price.",
         ["tierPrice"] = "What each seat costs a month once the seats reach the number beside it.",
         ["dbGb"] = "Dataverse database capacity each seat adds to the tenant, in GB (Power Apps Premium: 0.25).",
@@ -28,7 +28,7 @@ public static partial class FieldTips
         ["/admin/assumptions|value"] = "The target: a percentage up to 100, or a number of people for People active.",
         ["/admin/assumptions|start"] = "The day progress is measured from.",
         ["/admin/assumptions|due"] = "The day the target is due.",
-        /* Leadership > Copilot reservations. */
+        /* Leadership › Copilot reservations. */
         ["/leadership/reservations|orgId"] = "The organization's persistent chargeback ID: kept for good, so a reorganization does not move its billing.",
         ["/leadership/reservations|leader"] = "The leader's sign-in (UPN): everyone under them in the org chart counts with the organization. Empty: a pool with no one under it.",
         ["/leadership/reservations|costCenter"] = "The cost center the organization is billed to (optional).",
@@ -44,33 +44,33 @@ public static partial class FieldTips
         ["/leadership/reservations|owner"] = "The person accountable for it.",
         ["/leadership/reservations|approval"] = "The approval's reference (a ticket or a change number).",
         ["/leadership/reservations|review"] = "The day the allocation is reviewed: it is an exception after it.",
-        /* Governance > AI apps beyond Copilot: the resource map. */
+        /* Governance › AI apps beyond Copilot: the resource map. */
         ["lob"] = "The line of business the resource belongs to.",
         ["env"] = "Production, development or test: guessed from the name (prod, dev, uat) until set here.",
         ["notes"] = "Anything worth knowing about the resource.",
         ["note"] = "A note, kept with the row.",
-        /* Admin > Access. */
+        /* Admin › Access. */
         ["PaygInteractionCost"] = "What one metered agent or work-grounded chat interaction costs without a license, in the currency above: 0.12 is 12 Copilot Credits at 0.01 each.",
         ["TimeZone"] = "The zone every time on the dashboard is shown in, and digests, alerts and extracts go out by. Default: the zone the data's days are cut in.",
         ["principal"] = "A person's name or sign-in (UPN), or a group as DOMAIN\\Group: the role reaches the group's members.",
         ["who"] = "A person's name or sign-in (UPN): what they may see, and why.",
-        /* Admin > Alerts and digests. */
+        /* Admin › Alerts and digests. */
         ["/admin/notifications|name"] = "A name for the digest, shown in its subject line.",
         ["recipients"] = "Email addresses, separated by commas or semicolons.",
         ["url"] = "The webhook's address, https:// only: a Teams or Slack incoming webhook, or your own endpoint.",
         ["/admin/notifications|root"] = "A manager's sign-in (UPN): the digest covers their part of the organization. Empty: everyone.",
         ["/admin/notifications|upn"] = "A manager's name or sign-in (UPN).",
-        /* Admin > Email. */
+        /* Admin › Email. */
         ["ExoClientSecret"] = "The app registration's client secret, for OAuth sign-in to Exchange Online. Kept encrypted; leave it empty to keep the one saved.",
         ["SmtpPassword"] = "The SMTP account's password. Kept encrypted; leave it empty to keep the one saved.",
         ["/admin/email|to"] = "Where the test message goes.",
-        /* Forecasting > Budget and renewal: the contracts. */
+        /* Forecasting › Budget and renewal: the contracts. */
         ["/forecasting/budget|name"] = "The agreement's name, as Finance knows it.",
         ["seats"] = "The Microsoft 365 Copilot seats the agreement buys.",
-        ["/forecasting/budget|price"] = "What one seat costs a month under this agreement, after its discount: the price that settles disagreements with Admin > Access.",
+        ["/forecasting/budget|price"] = "What one seat costs a month under this agreement, after its discount: the price that settles disagreements with Admin › Access.",
         ["/forecasting/budget|start"] = "The day the agreement started.",
         ["renewal"] = "The day the agreement renews.",
-        /* Leadership > Credit chargeback: the routing register and the charge rate (2.7.2). */
+        /* Leadership › Credit chargeback: the routing register and the charge rate (2.7.2). */
         ["/leadership/credit-chargeback|environment"] = "The Power Platform environment, named exactly as the admin center's consumption report names it: that name matches its credits.",
         ["/leadership/credit-chargeback|path"] = "LoB Productivity or LoB Business Application: charged to a line of business. Enterprise Shared: funded centrally, never charged to one. Innovation: pilots and development, charged to its sponsor if it names one.",
         ["/leadership/credit-chargeback|orgId"] = "The line of business charged: its persistent Org ID, as Copilot reservations lists it. Required for the two LoB paths; empty for Enterprise Shared.",
@@ -81,7 +81,7 @@ public static partial class FieldTips
         ["/leadership/credit-chargeback|to"] = "The last day this route applies. Empty: until changed.",
         ["/leadership/credit-chargeback|end"] = "The last day this route is in effect: past months keep it, and the environment is not routed after it until a new route starts.",
         ["/leadership/credit-chargeback|rate"] = "What one Copilot Credit is charged back at, after any discount, in the license currency (0.01 at list price). Empty: the price list's pay-as-you-go credit.",
-        /* Forecasting > Credit commitment (2.7.2). */
+        /* Forecasting › Credit commitment (2.7.2). */
         ["/forecasting/credit-commitment|name"] = "A name for the commitment, as Finance knows it (Copilot Credit P3 FY27).",
         ["/forecasting/credit-commitment|amount"] = "What was committed, in its currency: the commit units bought.",
         ["/forecasting/credit-commitment|currency"] = "The commitment's currency code (USD). Empty: the license currency.",
@@ -90,10 +90,10 @@ public static partial class FieldTips
         ["/forecasting/credit-commitment|end"] = "The last day of the term: what is left after it is lost.",
         ["/forecasting/credit-commitment|alertDays"] = "Warn, on this page and by email to the license alert recipients, when the commitment is projected to run out this many days before its term ends, or to leave this many days' worth unused. 0 turns it off.",
         ["/forecasting/credit-commitment|scope"] = "The Azure scope it applies to (a billing account, subscription or resource group), as a label (optional).",
-        /* Admin > Value names: the licenses' product names (2.7.1). */
+        /* Admin › Value names: the licenses' product names (2.7.1). */
         ["/admin/values|part"] = "The license's part number, as License pool shows it beside its name (SPE_E5, Microsoft_365_Copilot).",
         ["/admin/values|productName"] = "The name every page shows for that license (Microsoft 365 E5). Empty: remove the name, and show the part number.",
-        /* Leadership > Copilot reservations. */
+        /* Leadership › Copilot reservations. */
         ["/leadership/reservations|name"] = "The organization's name, as the business knows it.",
     };
 

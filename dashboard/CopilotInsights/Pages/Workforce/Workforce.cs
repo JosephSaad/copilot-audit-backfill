@@ -86,7 +86,7 @@ GROUP BY m.Upn, m.DisplayName;", Ctx.Args());
         var on = withLic.Where(t => t.ManagerActive).ToList(); var off = withLic.Where(t => !t.ManagerActive).ToList();
         Kpis.Add(new("Teams with a manager using Copilot", Pct(Rate(on)), $"adoption across {on.Count:#,0} teams"));
         Kpis.Add(new("Teams whose manager does not", Pct(Rate(off)), $"across {off.Count:#,0} teams"));
-        Kpis.Add(new("Managers using Copilot", Pct(Ratio(teams.Count(t => t.ManagerActive), teams.Count)), $"of {Count(teams.Count, "manager")} in {Here}"));
+        Kpis.Add(new("Managers using Copilot", Pct(Ratio(teams.Count(t => t.ManagerActive), teams.Count)), $"of {Count(teams.Count, "manager")} in {Here}", Href: Open("/workforce/managers")));
 
         Panels.Add(new("Team adoption, by whether the manager uses Copilot",
             Chart.Bars([new Bar("Manager uses Copilot", Rate(on), Note: $"{on.Sum(t => t.ActiveLicensed):#,0} of {on.Sum(t => t.Licensed):#,0} licensed direct reports", Slot: 3),

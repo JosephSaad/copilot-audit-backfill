@@ -380,7 +380,7 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
             default:
                 throw new ArgumentException($"no digest called {report}.");
         }
-        e.Footer(url is null ? "Set the dashboard's address in Admin > Email to include links." : null);
+        e.Footer(url is null ? "Set the dashboard's address in Admin › Email to include links." : null);
         return (e.Subject, e.Html(), e.Text());
     }
 

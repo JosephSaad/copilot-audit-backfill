@@ -67,7 +67,7 @@ public sealed class CreditCommitmentModel(PageServices s, CreditChargeData data)
         }
         Kpis.Add(new($"Drawn so far ({c.Currency})", M(st.Drawn), $"{Pct((double)(st.Drawn / c.Amount))} drawn; plan to date {M(st.PlanToDate)}",
             st.Variance is > 0.10 ? "warn" : null, Href: Open("/leadership/credit-chargeback"),
-            Why: await WhyAsync($"The pay-as-you-go credits in the consumption report from {c.StartDate:d MMM yyyy} × what one credit draws ({c.DrawRate.ToString("0.######", CultureInfo.InvariantCulture)} {c.Currency}). Plan to date: the commitment spread evenly over its term.")));
+            Why: await WhyAsync($"The pay-as-you-go credits in the consumption report from {c.StartDate:d MMM yyyy} × what one credit draws ({c.DrawRate.ToString("0.######", CultureInfo.InvariantCulture)} {c.Currency}). Plan to date: the commitment spread evenly over its term. Leadership › Credit chargeback shows each month's credits.")));
         var daysLeft = Math.Max(0, (c.EndDate - DateTime.Today).Days);   // from today, not the last day loaded
         Kpis.Add(new($"Remaining ({c.Currency})", M(st.Remaining), $"{Count(daysLeft, "day")} of the term left", st.Remaining <= 0 ? "crit" : null,
             Why: await WhyAsync($"The commitment less what is drawn: {M(c.Amount)} − {M(st.Drawn)}. Drawn beyond the commitment is pay-as-you-go.")));

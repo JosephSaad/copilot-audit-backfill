@@ -118,7 +118,7 @@ public sealed record MailConfig
         if (Mode == MailMode.Off) { p.Add("Email is off."); return p; }
         if (From is null || !MailboxAddress.TryParse(From, out _)) p.Add("Set the From address.");
         if (PasswordMoved && (Mode == MailMode.Smtp ? User is not null : ExoAuth != "OAuth"))
-            p.Add("The server, port, security or user name changed after the password was stored: type the password again in Admin > Email.");
+            p.Add("The server, port, security or user name changed after the password was stored: type the password again in Admin › Email.");
         if (ReplyTo is not null && !MailboxAddress.TryParse(ReplyTo, out _)) p.Add("The Reply-To address is not an email address.");
         if (Mode == MailMode.Smtp)
         {
@@ -186,7 +186,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
             else
             {
                 /* What is said to the mail server and what it answers (2.6.2), kept with a test message and with any
-                   message that is not sent: the place to look when email does not arrive (Admin > Email). */
+                   message that is not sent: the place to look when email does not arrive (Admin › Email). */
                 using var said = new MemoryStream();
                 try
                 {

@@ -38,7 +38,7 @@ public sealed class Viewer
     public int PeopleBelow { get; init; }
     public required IReadOnlySet<string> Roles { get; init; }
     /// <summary>
-    /// Whether the dashboard's limit (Admin > Access, MaxViewerLevel, 2.4.4) lets them in. An administrator
+    /// Whether the dashboard's limit (Admin › Access, MaxViewerLevel, 2.4.4) lets them in. An administrator
     /// who is not still reaches the Admin pages, so a wrong limit can always be put right.
     /// </summary>
     public bool Admitted { get; init; } = true;
@@ -72,7 +72,7 @@ public static class AccessRules
     /// <summary>
     /// The dashboard's limit (2.4.4): with <paramref name="maxLevel"/> 0 everyone may use it, as before;
     /// otherwise only levels 1 to <paramref name="maxLevel"/> below the configured top, and anyone granted
-    /// a role other than Admin (Admin > Access is the list of exceptions). Administrators alone are not
+    /// a role other than Admin (Admin › Access is the list of exceptions). Administrators alone are not
     /// admitted: they keep the Admin pages, which show no usage data. The level comes from the directory
     /// record of the SID-checked sign-in, never from the request.
     /// </summary>

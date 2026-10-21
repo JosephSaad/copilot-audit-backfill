@@ -8,7 +8,7 @@ namespace CopilotInsights.Infrastructure;
 /// <summary>
 /// The dashboard's background sender. Every few minutes, on one web server at a time (a SQL
 /// application lock), it checks the pipeline and the data, raises alerts, and sends the digests
-/// that are due. Alerts go by email to the recipients set in Admin > Alerts and digests, and to
+/// that are due. Alerts go by email to the recipients set in Admin › Alerts and digests, and to
 /// the Windows Application log; each fires once per occurrence (dash.AlertState).
 /// </summary>
 public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<InsightsOptions> options, ILogger<Notifier> log) : BackgroundService
@@ -49,7 +49,7 @@ public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<Insig
         return done;
     }
 
-    /// <summary>One round of checks in the current tenant's database. Returns what it did, for Admin > Alerts and digests' "Run the checks now".</summary>
+    /// <summary>One round of checks in the current tenant's database. Returns what it did, for Admin › Alerts and digests' "Run the checks now".</summary>
     public async Task<List<string>> RunOnceAsync(CancellationToken ct = default)
     {
         var done = new List<string>();
@@ -238,7 +238,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var seen = await StateAsync("freshness");
             if (seen == today) return;
             await RaiseAsync("freshness", seen, today, "Freshness", "AlertAdminTo", $"Copilot Insights data is {age:0} hours old",
-                [$"The dashboard's data was last refreshed {Zones.Stamp(last, await _ops.ZoneAsync())}, more than {limit} hours ago. The nightly task on the job server may not be running: check Task Scheduler and Admin > Health."], "/admin/health");
+                [$"The dashboard's data was last refreshed {Zones.Stamp(last, await _ops.ZoneAsync())}, more than {limit} hours ago. The nightly task on the job server may not be running: check Task Scheduler and Admin › Health."], "/admin/health");
         }
 
         /* ---- After each refresh: security, drops and spikes, agents, the pool, leavers ------------ */
@@ -275,7 +275,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var findings = SecuritySignals.Findings(signals, spike);
             if (findings.Count > 0)
                 await RaiseAsync("security", seen, key, "Security", "AlertSecurityTo", $"Copilot security signals on {day:ddd d MMM}",
-                    [.. findings, "Who and what is on Security > Flagged interactions, for people with the Security role."], "/security/flags?d=7");
+                    [.. findings, "Who and what is on Security › Flagged interactions, for people with the Security role."], "/security/flags?d=7");
             else await SetStateAsync("security", key);
         }
 
@@ -311,7 +311,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
                 if (fresh.Count > 0)
                 {
                     await RaiseAsync("agents", seen, value, "NewAgent", "AlertAgentsTo", $"{fresh.Count} agent(s) used for the first time",
-                        fresh.Select(a => $"{a.Name} ({a.Source}), first used {a.FirstSeenUtc:yyyy-MM-dd}.").Append("Give them a friendly name and an owner in Admin > Reference data.").ToList(), "/agents/inventory");
+                        fresh.Select(a => $"{a.Name} ({a.Source}), first used {a.FirstSeenUtc:yyyy-MM-dd}.").Append("Give them a friendly name and an owner in Admin › Reference data.").ToList(), "/agents/inventory");
                     return;
                 }
             }
@@ -346,7 +346,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var last = DateTime.TryParse(seen, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
             if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
             await RaiseAsync("commitment", seen, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), "Commitment", "AlertLicensingTo", "The Copilot Credit commitment needs attention",
-                [warning, "Forecasting > Credit commitment shows what is drawn, what is left and who draws most; it is an estimate from the consumption report."], "/forecasting/credit-commitment");
+                [warning, "Forecasting › Credit commitment shows what is drawn, what is left and who draws most; it is an estimate from the consumption report."], "/forecasting/credit-commitment");
         }
         async Task LeaversAsync(bool first)
         {
@@ -359,7 +359,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
                 var price = decimal.TryParse(await _settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m;
                 var cur = await _settings.StringAsync("LicenseCurrency") ?? "USD";
                 await RaiseAsync("leavers", seen, value, "Leavers", "AlertLicensingTo", $"{n} Copilot license(s) on disabled or departed accounts",
-                    [$"{n - before} more since the last check: {n:#,0} in all, {n * price:#,0} {cur} a month. The list is on Licensing > Licenses on disabled accounts, for people with the Licensing role."],
+                    [$"{n - before} more since the last check: {n:#,0} in all, {n * price:#,0} {cur} a month. The list is on Licensing › Licenses on disabled accounts, for people with the Licensing role."],
                     "/licensing/leavers");
             }
             else await SetStateAsync("leavers", value);
@@ -391,7 +391,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
                     var lines = new List<string> { $"{claimed.Count:#,0} account(s) that are not a person now hold a Copilot license; {now.Count:#,0} in all. The license is for people: remove it, or have an administrator confirm the account is a person." };
                     if (named) lines.AddRange(claimed.Take(25).Select(b => $"{b.UserPrincipalName}{(b.DisplayName is null ? "" : $" ({b.DisplayName})")}: {NonHuman.Why(b.Guest, b.NameLike, b.NoChart, b.TypeMatch, b.GroupMatch)}."));
                     if (named && claimed.Count > 25) lines.Add($"And {claimed.Count - 25:#,0} more.");
-                    lines.Add("The list, the removal files and the confirmations are on Security, Compliance and Licensing > Copilot on non-human accounts.");
+                    lines.Add("The list, the removal files and the confirmations are on Security, Compliance and Licensing › Copilot on non-human accounts.");
                     await SendOnceAsync("nonhuman", tries, async () => { foreach (var b in claimed) await ForgetAsync(Key(b.UserPrincipalName)); },
                         "NonHuman", "AlertSecurityTo,AlertLicensingTo", $"Policy breach: {claimed.Count:#,0} Copilot license(s) on non-human accounts", lines, "/security/non-human");
                 }

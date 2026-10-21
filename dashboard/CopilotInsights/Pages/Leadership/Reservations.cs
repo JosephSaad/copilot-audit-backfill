@@ -13,7 +13,7 @@ namespace CopilotInsights.Pages.Leadership;
 /// The current operational state, from the licenses read last night, is never certified; month-end snapshots are kept
 /// as they were. Leaders see the organizations led from inside their part; the whole organization and the Licensing role
 /// see all, with the tenant's reconciliation and purchase gate. Administrators keep the register, the rate and the
-/// Technology-funded pool here. Counts only: the people are on Licensing > Reservation holders, for the Licensing role.
+/// Technology-funded pool here. Counts only: the people are on Licensing › Reservation holders, for the Licensing role.
 /// </summary>
 public sealed class ReservationsModel(PageServices s, ReservationData data, OpsData ops) : InsightsPage(s)
 {

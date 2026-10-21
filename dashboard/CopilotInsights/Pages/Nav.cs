@@ -118,7 +118,7 @@ public static class Nav
 }
 
 /// <summary>
-/// The reports an administrator has turned off (2.4.9, Admin > Reports shown): gone from the navigation and the start
+/// The reports an administrator has turned off (2.4.9, Admin › Reports shown): gone from the navigation and the start
 /// page, and not found at their address, for everyone, administrators too. Kept in dash.Setting, one row a report,
 /// named Hide: and its path. Admin pages cannot be turned off.
 /// </summary>

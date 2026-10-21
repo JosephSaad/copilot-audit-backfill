@@ -68,18 +68,38 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         var w = await Segments.WorkdaysAsync(Db, Ctx);
-        var seg = await Db.QueryAsync<(string Segment, int N)>($"WITH {Segments.People(Ctx)} SELECT Segment, COUNT(*) FROM pop GROUP BY Segment;", Ctx.Args(new { w }));
-        int Seg(string name) => seg.Where(x => x.Segment == name).Sum(x => x.N);
-        var t = await m.TotalsAsync(Ctx);
-        var tr = await m.TrendAsync(Ctx);
+        /* Everything after the working days is independent: started together, awaited where used (2.7.3). */
+        var tTask = m.TotalsAsync(Ctx);
+        var trTask = m.TrendAsync(Ctx);
+        /* The segments, each department's and the people to nudge, from one pass over the population: it was built three
+           times (2.7.3). People to nudge leave out the protected levels, as the list they open does. */
+        var unitsTask = Db.QueryAsync<(string Unit, string Segment, int N, int Open)>($@"
+WITH {Segments.People(Ctx)}
+SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment, COUNT(*),
+       COUNT(CASE WHEN pl.Upn IS NULL THEN 1 END)
+FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
+{CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}   -- a join: a subquery cannot sit inside COUNT
+GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ctx.Args(new { w }));
+        var breadthTask = Db.QueryAsync<(int Apps, int N)>($@"
+WITH u AS (SELECT f.UserKey, COUNT(DISTINCT f.AppKey) AS Apps FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.UserKey)
+SELECT CASE WHEN Apps >= 5 THEN 5 ELSE Apps END, COUNT(*) FROM u GROUP BY CASE WHEN Apps >= 5 THEN 5 ELSE Apps END ORDER BY 1;", Ctx.Args());
+        var appsTask = Db.QueryAsync<(string App, int People)>($@"
+SELECT COALESCE(vn.Name, a.App), COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
+WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", Ctx.Args());
+        await Task.WhenAll(tTask, trTask, unitsTask, breadthTask, appsTask);
+        var units = await unitsTask;
+        int Seg(string name) => units.Where(x => x.Segment == name).Sum(x => x.N);
+        var t = await tTask;
+        var tr = await trTask;
 
-        Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days"));
+        Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days", Href: Open("/enablement/people", extra: "seg=Power")));
         /* What is counted, not what it may mean (2.4.12): it said "the person replied to Copilot", but a session is a
            person's prompts less than an hour apart on one day, in any app, so two separate questions count too. */
         Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), FollowUp.Kpi));
-        Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—"));
-        var nudge = await Db.ScalarAsync<int>($@"WITH {Segments.People(Ctx)}
-SELECT COUNT(*) FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey WHERE p.Segment IN (N'One-off', N'Not started') AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")};", Ctx.Args(new { w }));
+        Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—", "a session: prompts less than an hour apart, on one day"));
+        var nudge = units.Where(x => x.Segment is "One-off" or "Not started").Sum(x => x.Open);
         Kpis.Add(new(Segments.Nudge, Num(nudge), "licensed or active, but one day or none", Href: Open("/enablement/people", extra: "seg=" + Uri.EscapeDataString(Segments.Nudge))));
 
         Panels.Add(new("Engagement segments",
@@ -87,11 +107,6 @@ SELECT COUNT(*) FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey WH
             $"Everyone licensed today or active in the period, by the days they used Copilot out of {w} working days. " +
             "Power: half or more. Regular: a fifth or more. Occasional: two days or more. One-off: one day.", "half"));
 
-        var units = await Db.QueryAsync<(string Unit, string Segment, int N)>($@"
-WITH {Segments.People(Ctx)}
-SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment, COUNT(*)
-FROM pop AS p JOIN bi.DimUser AS du ON du.UserKey = p.UserKey
-GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ctx.Args(new { w }));
         var depts = units.GroupBy(u => u.Unit).Select(g => (Dept: g.Key, People: g.Sum(x => x.N))).ToList();
         var big = SmallGroups.Shown(depts, d => d.People, Ctx.MinGroupSize).OrderByDescending(d => d.People).Take(12).Select(d => d.Dept).ToList();
         var tbl = new Table { Headers = ["Department", "People", .. Segments.Order], Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6 } };
@@ -109,18 +124,12 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment;", Ct
             Chart.Line(Labels(), [new Series("Prompts per session", tr.Select(x => x.Sessions > 0 ? x.Prompts / (double?)x.Sessions : null).ToList(), 2)], Fmt.Decimal1, "Prompts per session"),
             TrendNote, "half"));
 
-        var breadth = await Db.QueryAsync<(int Apps, int N)>($@"
-WITH u AS (SELECT f.UserKey, COUNT(DISTINCT f.AppKey) AS Apps FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.UserKey)
-SELECT CASE WHEN Apps >= 5 THEN 5 ELSE Apps END, COUNT(*) FROM u GROUP BY CASE WHEN Apps >= 5 THEN 5 ELSE Apps END ORDER BY 1;", Ctx.Args());
+        var breadth = await breadthTask;
         Panels.Add(new("Breadth: apps used per person",
             Chart.Bars(breadth.Select(b => new Bar(b.Apps == 5 ? "5 or more apps" : b.Apps == 1 ? "1 app" : $"{b.Apps} apps", b.N)).ToList(), Fmt.Count, "Apps per active person"),
             "Active people by how many Microsoft 365 apps they used Copilot in. One app often means Copilot Chat only.", "half"));
 
-        var apps = await Db.QueryAsync<(string App, int People)>($@"
-SELECT COALESCE(vn.Name, a.App), COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", Ctx.Args());
+        var apps = await appsTask;
         Panels.Add(new("People per app", Chart.Bars(apps.OrderByDescending(a => a.People).Select(a => new Bar(a.App, Ratio(a.People, t.Active), Note: $"{a.People:#,0} people")).ToList(), Fmt.Percent, "Share of active people per app", 1),
             "The share of active people who used Copilot in each app. Low shares for Excel or PowerPoint suggest where training would help.", "half"));
     }

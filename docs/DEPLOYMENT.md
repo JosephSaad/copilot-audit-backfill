@@ -202,7 +202,7 @@ SQL Server 2017 or later. Step 3 runs `Install-CopilotAudit.ps1` for you. When s
 .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01 -ServiceAccount 'CORP\gmsa-copilot$' [-ReportingTimeZone 'GMT Standard Time']
 ```
 
-It creates both databases (SIMPLE recovery, so the parallel bulk loads are minimally logged) and gives the service account a login and `db_owner` in both. It installs every table, view and procedure in the order they depend on each other, and stores the reporting time zone. It is safe to run any number of times: each run builds whatever the data then calls for. The service account needs its rights in `CopilotLicenseEvents` too, because the session and `bi` builds read the license history across databases.
+It creates both databases (SIMPLE recovery, so the parallel bulk loads are minimally logged) and gives the service account a login and `db_owner` in both. From 2.7.3, each database it creates is set to MAXDOP = the server's logical processors less two (a database-scoped configuration; reading the processor count needs VIEW SERVER STATE). `-MaxDop <n>` sets that number on every database it installs, existing ones included; `-MaxDop 0` leaves them all as they are. It installs every table, view and procedure in the order they depend on each other, and stores the reporting time zone. It is safe to run any number of times: each run builds whatever the data then calls for. The service account needs its rights in `CopilotLicenseEvents` too, because the session and `bi` builds read the license history across databases.
 
 **How much space.** Measured in a scale test with 70,000 users, 18,000 of them licensed, and 40 million interactions:
 

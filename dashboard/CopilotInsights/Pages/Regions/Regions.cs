@@ -16,8 +16,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var top = countries.Where(c => c.Licensed > 0).OrderByDescending(c => c.ActiveLicensed / (double)c.Licensed).FirstOrDefault();
         var low = countries.Where(c => c.Licensed >= Ctx.MinGroupSize).OrderBy(c => c.ActiveLicensed / (double)c.Licensed).FirstOrDefault();
         Kpis.Add(new("Countries", Num(countries.Count(c => c.Name != "Smaller groups")), $"{offices.Count(o => o.Name != "Smaller groups"):#,0} offices"));
-        if (top is not null) Kpis.Add(new("Highest adoption", top.Name, Pct(Ratio(top.ActiveLicensed, top.Licensed))));
-        if (low is not null) Kpis.Add(new("Lowest adoption", low.Name, Pct(Ratio(low.ActiveLicensed, low.Licensed))));
+        if (top is not null) Kpis.Add(new("Country with the highest adoption", top.Name, Pct(Ratio(top.ActiveLicensed, top.Licensed))));
+        if (low is not null) Kpis.Add(new("Country with the lowest adoption", low.Name, Pct(Ratio(low.ActiveLicensed, low.Licensed))));
 
         Panels.Add(new("Adoption by country", Groups.AdoptionBars(countries, "Adoption by country", Ctx.MinGroupSize),
             "Licensed people who used Copilot in the period." + (fc > 0 ? " " + FoldNote(fc, "country", "countries") : ""), "half"));
@@ -63,7 +63,7 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
         var peak = grid.OrderByDescending(g => g.N).FirstOrDefault();
         string[] days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
         Kpis.Add(new("Outside 08:00-18:00 or at weekends", Pct(Ratio(after, all)), "of interactions"));
-        Kpis.Add(new("At weekends", Pct(Ratio(weekend, all))));
+        Kpis.Add(new("At weekends", Pct(Ratio(weekend, all)), "of interactions, Saturday and Sunday"));
         if (all > 0) Kpis.Add(new("Busiest hour", $"{days[peak.Dow - 1]} {peak.Hour:00}:00", $"{Num(peak.N)} interactions"));
 
         var cells = new double?[7, 24];

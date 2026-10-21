@@ -20,7 +20,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     public override string Persona => "Leadership";
     public override string Intro => "Every figure is a month: the licenses held now at their price, and what the other sources billed or used over their last 30 days. "
         + "Savings are what would stop being spent if the action beside each were taken. Value is the time the tools save, valued at Admin's hourly cost: "
-        + "Copilot's interactions, the flows' runs and Copilot in Power BI's requests. Every price and assumption, and where it is set, is on Leadership > How figures are calculated.";
+        + "Copilot's interactions, the flows' runs and Copilot in Power BI's requests. Every price and assumption, and where it is set, is on Leadership › How figures are calculated.";
     public override bool UsesTeam => false;
 
     /// <summary>The dashboard below the heading, built here and written by Costs.cshtml after the heading and filters.</summary>
@@ -35,13 +35,13 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         /* The company's spend is not any one team's: whole-organization viewers, and the Licensing role, see it. */
         if (!Viewer.OrgWide && !Viewer.Has(Roles.Licensing))
         {
-            Notice = "This page shows the whole organization's spend on AI and automation, so it is for people who see the whole organization, or who hold the Licensing role. An administrator can grant either in Admin > Access.";
+            Notice = "This page shows the whole organization's spend on AI and automation, so it is for people who see the whole organization, or who hold the Licensing role. An administrator can grant either in Admin › Access.";
             return;
         }
         var v = await costs.BuildAsync(Ctx);
         if (v.Areas.Count == 0)
         {
-            Notice = "No spend to show yet: none of the sources is loaded. Docs\\OPERATIONS.md, Costs and savings, says what each needs.";
+            Notice = "No spend to show yet: none of the sources is loaded. docs\\OPERATIONS.md, Costs and savings, says what each needs.";
             return;
         }
         var cur = v.Currency;

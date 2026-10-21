@@ -224,11 +224,19 @@ CREATE TABLE audit.CopilotInteraction
     INDEX CCI_CopilotInteraction CLUSTERED COLUMNSTORE
 );
 
-RAISERROR('Shredding AuditData into audit.CopilotInteraction...', 0, 1) WITH NOWAIT;
+/* 2.7.3: an activity database (it has audit.usp_ShredActivity) shreds its records into its own tables, and nothing
+   there reads audit.CopilotInteraction: the table is left empty, and the hours a large history spent parsing every
+   record's JSON for it are saved. */
+DECLARE @activity BIT = CASE WHEN OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL THEN 0 ELSE 1 END;
+IF @activity = 1
+    RAISERROR('Activity database: audit.CopilotInteraction is not built here; the activity shred follows.', 0, 1) WITH NOWAIT;
+ELSE
+    RAISERROR('Shredding AuditData into audit.CopilotInteraction...', 0, 1) WITH NOWAIT;
 
 /* audit.fnShredCopilotInteraction (Create-CopilotAuditSchema.sql) holds the
    JSON paths; incremental loads and CSV imports shred through it too. */
 
+IF @activity = 0
 INSERT INTO audit.CopilotInteraction WITH (TABLOCK)
 (
     RecordId, CreatedDateTime, ActivityDate, UserPrincipalName, AppHost, AppIdentity, ClientRegion,
@@ -278,7 +286,8 @@ SELECT
     @dupes                                                               AS DuplicatesRemoved,
     (SELECT MIN(CreatedDateTime) FROM audit.CopilotAudit)                AS OldestRecordUtc,
     (SELECT MAX(CreatedDateTime) FROM audit.CopilotAudit)                AS NewestRecordUtc,
-    (SELECT COUNT(DISTINCT UserPrincipalName) FROM audit.CopilotInteraction) AS DistinctUsers,
+    CASE WHEN @activity = 1 THEN (SELECT COUNT(DISTINCT UserPrincipalName) FROM audit.CopilotAudit)
+         ELSE (SELECT COUNT(DISTINCT UserPrincipalName) FROM audit.CopilotInteraction) END AS DistinctUsers,
     (SELECT COUNT_BIG(*) FROM audit.CopilotAuditStage)                   AS StagingRows;
 
 /* The mark the backfill reads before finalizing again (2.4.12): finalized, so a re-run leaves the tables alone. */

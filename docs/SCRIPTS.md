@@ -128,6 +128,7 @@ In `tools\dev\`; [tools/dev/README.md](../tools/dev/README.md) has the steps and
 | `schema\build_docx.py` | Writes the Word versions of the two reporting guides, `docs/REPORTING.docx` and `docs/REPORTING-REFERENCE.docx`. |
 | `schema\Update-SchemaBaseline.ps1` | Takes `tests/schema-baseline.tsv` again at a release: the shape of the schema, which the next release must stay compatible with. Refuses when the release breaks the one in place. |
 | `ui\ui_audit.py` | Opens every dashboard page in a headless browser and reports layout faults: clipped or overlapping text, labels cut short, page scroll. |
+| `ui\Test-FigureLinks.ps1` | Opens the page behind each headline figure that is a link and checks it shows the same number. |
 
 ## Tests
 

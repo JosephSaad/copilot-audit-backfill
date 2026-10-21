@@ -335,9 +335,9 @@ FROM #x GROUP BY ISNULL(NULLIF(OwnerDepartment, N''), N'(owner not in the direct
         var used = rows.Count(r => r.N > 0);
         Kpis.Add(new("Without an active owner", Num(rows.Count), "the owner left the directory, is disabled, or is not set", rows.Count > 0 ? "warn" : null));
         Kpis.Add(new("Of them used in the period", Num(used), "these need a new owner first", used > 0 ? "warn" : null));
-        Kpis.Add(new("Left the directory", Num(rows.Count(r => r.OwnerState.StartsWith("Not in", StringComparison.Ordinal)))));
-        Kpis.Add(new("Account disabled", Num(rows.Count(r => r.OwnerState == "Account disabled"))));
-        Kpis.Add(new("No owner set", Num(rows.Count(r => r.OwnerState == "No owner set"))));
+        Kpis.Add(new("Left the directory", Num(rows.Count(r => r.OwnerState.StartsWith("Not in", StringComparison.Ordinal))), "the owner's account is no longer in the directory"));
+        Kpis.Add(new("Account disabled", Num(rows.Count(r => r.OwnerState == "Account disabled")), "the owner's account is disabled"));
+        Kpis.Add(new("No owner set", Num(rows.Count(r => r.OwnerState == "No owner set")), "the workbook names no owner"));
 
         var ownerName = await NamesAsync(rows.Select(r => r.Owner));
         var t = new Table
@@ -403,7 +403,7 @@ public sealed class ChecksModel(PageServices s) : InsightsPage(s)
         if (!await Workbook.HasAsync(Db)) { Notice = Workbook.Missing; return; }
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END;") != 1)
         {
-            Notice = "The agent checks need the agent workbook's settings, which arrive with 2.5.8: run Install-CopilotAudit.ps1 -Dashboard, then load the workbook again.";
+            Notice = "The agent checks need the agent workbook's settings. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from 2.5.8 or later, then loading the workbook again.";
             return;
         }
         var dir = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.UserDirectory', N'U') IS NULL THEN 0 ELSE 1 END;") == 1;
@@ -533,8 +533,8 @@ GROUP BY c.ChildKey;", Ctx.Args());
         string Pick(string key) => Ctx.Url(Request.Path, extra: $"child={Uri.EscapeDataString(key)}");
 
         Kpis.Add(new("Child and connected agents", Num(children.Count), $"{children.Count(c => c.Kind == "Connected"):#,0} connected, {children.Count(c => c.Kind != "Connected"):#,0} inside their parent"));
-        Kpis.Add(new("Parent agents", Num(rows.Select(r => r.ParentInventoryAgentId ?? r.ParentName).Distinct(StringComparer.OrdinalIgnoreCase).Count())));
-        Kpis.Add(new("Parents used in the period", Num(rows.Where(r => r.N > 0).Select(r => r.ParentInventoryAgentId ?? r.ParentName).Distinct(StringComparer.OrdinalIgnoreCase).Count())));
+        Kpis.Add(new("Parent agents", Num(rows.Select(r => r.ParentInventoryAgentId ?? r.ParentName).Distinct(StringComparer.OrdinalIgnoreCase).Count()), "agents that call a child or connected agent"));
+        Kpis.Add(new("Parents used in the period", Num(rows.Where(r => r.N > 0).Select(r => r.ParentInventoryAgentId ?? r.ParentName).Distinct(StringComparer.OrdinalIgnoreCase).Count()), "with at least one interaction in the period"));
         Kpis.Add(new("Interactions through parents", Num(rows.Sum(r => r.N)), "each parent counted once for each child it calls"));
 
         var options = string.Concat(children.OrderBy(c => c.Name).Select(c =>

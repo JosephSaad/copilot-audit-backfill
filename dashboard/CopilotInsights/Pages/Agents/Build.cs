@@ -47,11 +47,11 @@ WHERE e.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, e.Action;", Ctx.Args());
         int Count(string a) => byAction.Where(x => x.Action == a).Sum(x => x.N);
         var makers = await Db.ScalarAsync<int>($@"SELECT COUNT(DISTINCT e.ActorUpn) FROM bi.FactAgentEvent AS e {scope} WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action NOT IN ('Blocked', 'Unblocked', 'Deployed', 'Removed', 'AdminDeleted', 'AdminUpdated', 'Settings');", Ctx.Args());
-        Kpis.Add(new("Agents created", Num(Count("Created"))));
-        Kpis.Add(new("Times published", Num(Count("Published"))));
-        Kpis.Add(new("Times shared", Num(Count("Shared"))));
+        Kpis.Add(new("Agents created", Num(Count("Created")), "in Copilot Studio, from its own audit records"));
+        Kpis.Add(new("Times published", Num(Count("Published")), "an agent published again counts each time"));
+        Kpis.Add(new("Times shared", Num(Count("Shared")), "an agent shared again counts each time"));
         Kpis.Add(new("Makers", Num(makers), "people who built or changed an agent"));
-        Kpis.Add(new("Agents deleted", Num(Count("Deleted"))));
+        Kpis.Add(new("Agents deleted", Num(Count("Deleted")), "in Copilot Studio, from its own audit records"));
 
         var buckets = Buckets();
         Series S(string action, int slot) => new(action, buckets.Select(b => (double?)byAction.Where(x => x.Bucket == b.Key && x.Action == action).Sum(x => x.N)).ToList(), slot);
@@ -74,7 +74,7 @@ SELECT e.BotSchemaName,
 FROM e
 /* A Copilot Studio agent's id ends in its schema name (Copilot.Studio.<environment>-<schema name>). It was found by
    its name, which was the schema name until 2.4.11 named agents as the audit log does; then the alias and owner
-   set in Admin > Reference data went missing here (2.4.12). Compared as text, not LIKE: _ is in schema names. */
+   set in Admin › Reference data went missing here (2.4.12). Compared as text, not LIKE: _ is in schema names. */
 LEFT JOIN bi.DimAgent AS ag ON ag.AgentId = e.BotSchemaName
     OR (ag.AgentSource = N'Copilot Studio' AND RIGHT(ag.AgentId, LEN(e.BotSchemaName) + 1) = N'-' + e.BotSchemaName)
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = ag.AgentKey
@@ -128,7 +128,7 @@ WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action IN ('Blocked', 'Unblocked', 'De
         }
         CsvTable = t;
         Panels.Add(new("Every agent's lifecycle", t.Render(),
-            $"{neverPublished} created and never published. All time, not only the period. Name agents and give them owners in Admin > Reference data." +
+            $"{neverPublished} created and never published. All time, not only the period. Name agents and give them owners in Admin › Reference data." +
             (named ? "" : " The makers' names are shown to the Agents role."), "full", CsvUrl()));
     }
 }

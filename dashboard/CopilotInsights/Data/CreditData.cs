@@ -44,14 +44,18 @@ public sealed class CreditData(Db db, Settings settings)
         var rates = await RatesAsync();
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
         var days = OpsReports.DaysCovered(c, await OpsReports.FirstDayAsync(db));
-        /* One pass over the fact, grouped twice (by person, by agent), with nothing copied out: at 120M interactions a
-           temporary copy of the period was the cost of the page. Billed: an agent used by someone not licensed at the time
-           (status 2; an unknown status is not taken for unlicensed), or in a Copilot Studio channel. */
+        /* One pass over the fact, to one row a person and agent, then grouped twice (by person, by agent): nothing of the
+           period copied out, as at 120M interactions that copy was the cost of the page. 2.7.3: this replaced GROUPING SETS
+           with a distinct count of people, which aggregated the fact twice and spooled it (2.6 s against 0.2 s for the
+           demo's half million rows, the same rows); a person and agent being one row, its billed rows count the people.
+           Billed: an agent used by someone not licensed at the time (status 2; an unknown status is not taken for
+           unlicensed), or in a Copilot Studio channel. */
         var all = await db.QueryAsync<Row>($@"
-SELECT CASE WHEN GROUPING(fi.UserKey) = 0 THEN 0 ELSE 1 END AS G, COALESCE(fi.UserKey, fi.AgentKey) AS [Key],
+SELECT fi.UserKey, fi.AgentKey,
        COUNT_BIG(*) AS I, SUM(x.IsAgent) AS A, SUM(x.Billed) AS B, SUM(x.Billed * x.Work) AS BW, SUM(x.Billed * x.Calls) AS BA,
        SUM(CAST(ISNULL(fi.AccessedResourceCount, 0) AS BIGINT)) AS R, SUM(CAST(ISNULL(fi.MessageCount, 1) AS BIGINT)) AS M,
-       MAX(x.Lic) AS Lic, COUNT(DISTINCT CASE WHEN x.Billed = 1 THEN fi.UserKey END) AS People
+       MAX(x.Lic) AS Lic, MAX(x.Billed) AS AnyBilled
+INTO #ua
 FROM bi.FactInteraction AS fi {c.Scope("fi.UserKey")}
 JOIN bi.DimAgent AS ag ON ag.AgentKey = fi.AgentKey
 JOIN bi.DimApp AS ap ON ap.AppKey = fi.AppKey
@@ -61,7 +65,13 @@ CROSS APPLY (SELECT CASE WHEN ag.AgentSource = N'(no agent)' THEN 0 ELSE 1 END A
                     CASE WHEN fi.AccessedResourceCount > 0 OR fi.UseKind IN (1, 3) THEN 1 ELSE 0 END AS Work,
                     CAST(ISNULL(fi.CalledAnotherAgent, 0) AS INT) AS Calls) AS x
 WHERE fi.DateKey BETWEEN @k0 AND @k1
-GROUP BY GROUPING SETS ((fi.UserKey), (fi.AgentKey));", c.Args(), timeout: 300);
+GROUP BY fi.UserKey, fi.AgentKey;
+SELECT 0 AS G, UserKey AS [Key], SUM(I) AS I, SUM(A) AS A, SUM(B) AS B, SUM(BW) AS BW, SUM(BA) AS BA, SUM(R) AS R, SUM(M) AS M,
+       MAX(Lic) AS Lic, MAX(AnyBilled) AS People
+FROM #ua GROUP BY UserKey
+UNION ALL
+SELECT 1, AgentKey, SUM(I), SUM(A), SUM(B), SUM(BW), SUM(BA), SUM(R), SUM(M), MAX(Lic), COUNT(CASE WHEN AnyBilled = 1 THEN 1 END)
+FROM #ua GROUP BY AgentKey;", c.Args(), timeout: 300);
         var byUser = all.Where(r => r.G == 0).ToList();
         var byAgent = all.Where(r => r.G == 1 && r.A > 0).ToList();
         static CreditUse Use(Row r) => new(r.I, r.A, r.B, r.BW, r.BA, r.R, r.M / 2);   // MessageCount counts the prompt and the answer

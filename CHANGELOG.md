@@ -4,6 +4,97 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.3] - 2026-10-21
+
+The activity database's history no longer spends hours on a table nothing reads, and a database the installer
+creates gets MAXDOP set for it. Then twenty passes over the dashboard: the slowest pages the first time they open,
+figures that opened a page without their number, figures that said nothing of what they count, and the wording.
+
+**Install over 2.7.2:** run `Install-CopilotAudit.ps1 -ActivityDatabase <name>` from this release; it replaces the merge
+procedure. A history load already running finishes as it began. Then build and deploy the dashboard from this release
+(docs\BUILD-FROM-SOURCE.md); nothing in its schema changes.
+
+### Changed
+- **Leadership › What to act on loads faster.** It read its six sources (the action counts, non-human accounts, units,
+  targets, the cost figures and the security trend) one after another; it now reads them at the same time. On the demo
+  data, a period not yet kept loads in 0.6–0.8 s instead of 0.9–1.2 s. Leadership › Overview, Organization and Apps
+  and agents read their sources together in the same way.
+- **Licensing › Swap list loads in a tenth of the time.** It read both sides (idle licenses and people wanting one)
+  twice: once for the pairs and again for the four figures. One read now gives both; the figures are unchanged.
+- **More pages read their sources together:** Security, Licensing, License overlap, Use cases and Scorecard. Their
+  figures are unchanged; the gain shows on a large organization's data, where the reads overlap.
+- **One separator between a section and its page.** Screens, mail and tips wrote both "Admin > Targets" and
+  "Admin › Value names"; all now use ›, as the guides do.
+- **Leadership › Apps and agents opens with figures:** interactions, the share in Copilot Chat and the share through
+  an agent. Overview's Interactions opens it, and now finds the same number there.
+- **Pages that were slowest the first time they open** (the demo data, a period not yet kept; the figures are unchanged,
+  each compared with the previous build):
+  - Governance › Copilot governance: 0.6–2.2 s to 0.25–0.45 s. Its seven reads start together, and Copilot by product
+    classifies each person, app and agent once instead of every interaction.
+  - Licensing › Credit use: 2.1–2.5 s to 0.25–0.3 s. The credit estimate grouped the interactions two ways at once
+    with a distinct count, which read them twice and spooled them; one pass to a row per person and agent now gives
+    the same rows. Agents costing credits, License for credits and Pay-as-you-go read the same estimate.
+  - Enablement › Training effect: 1.1–1.8 s to 0.2–0.4 s, counting each person's active days in one range join on the
+    day instead of two lookups a person.
+  - Governance › AI apps, Apps and Enablement read their sources together; Enablement builds its population of
+    licensed or active people once instead of three times.
+- **Every headline figure says what it counts.** 41 figures on 17 pages had a label and a value and nothing else; each
+  now has a note on the card or behind its information icon, and a test fails a new figure added without one.
+- **Power users** (Enablement) and **Managers using Copilot** (Workforce) open the page that lists them.
+- **Countries and offices' Highest and Lowest adoption** now say *Country with the highest (lowest) adoption*, beside
+  the leaderboard's group of the same name.
+- **Setup messages say who does what, the same way:** "An administrator sets this up by running
+  Install-CopilotAudit.ps1 -Dashboard from <release> or later." Four told the reader to install a schema, one named an
+  internal SQL file.
+
+### Added
+- **The installer sets MAXDOP on each database it creates**: the SQL Server's logical processors less two (at least 1),
+  as a database-scoped configuration, so a large history's shred and the nightly refresh run in parallel and leave the
+  server room. `-MaxDop <n>` sets it on every database it installs, existing ones included; `-MaxDop 0` leaves them
+  all as they are. A database that exists keeps its own setting unless `-MaxDop` is given. Reading the processor count
+  needs VIEW SERVER STATE; without it the installer says so and sets nothing.
+- **`tools/dev/ui/Test-FigureLinks.ps1`**: opens the page behind each headline figure that is a link and checks it
+  shows the same number, at as many periods as given. Part of the release checklist in `tools/dev/README.md`. On the
+  demo data: 264 linked figures at six periods, none missing from its page; 26 lead on purpose to a related page in
+  another month or unit (a month's credits to the people who used them) and are listed in the script.
+
+### Fixed
+- **An activity database's history spent hours building a table nothing reads.** Its `-Finalize` shredded every record's
+  JSON into `audit.CopilotInteraction`, the Copilot reporting table, as a Copilot database's does. Nothing in the activity
+  database reads that table: its records are shredded into their own tables by `audit.usp_ShredActivity`, which follows.
+  At the client, 32 million records parsed at about 2 million an hour, which added roughly 16 hours to the history load.
+  An activity database (one with `audit.usp_ShredActivity`) now leaves the table empty, at `-Finalize` and in each
+  night's merge. The Copilot and license-event databases are unchanged.
+- **Headline figures that opened a page without their number** (the rule since 2.6.7 is that a figure opens a page
+  showing it):
+  - Adoption's *Have started*, a share, opened the list of those who have not. That list's own count is now a figure
+    of its own, from the same query, and carries the link.
+  - Sensitive content's *People* counted those whose use touched labeled content; the list it opens also holds people
+    only blocked from content (1,902 against 1,903 on the demo data). Both now count the same people, and the figure
+    says so. *Blocked from content* now opens Security, whose *Blocked resources* is the same number.
+  - Security's *Jailbreak attempts* and *Prompt injection detected* opened the flags of all three signals; each now
+    opens the flags of its own kind.
+  - Agents › Agents costing credits summed its estimate by agent, a few credits from Credit use's total that it opens;
+    it now totals from people, as Credit use does.
+- **Two chart labels left the chart on a phone:** a heatmap's row names (Drops and spikes) and a forecast line's end
+  label (Forecast).
+- **Licensing › Chargeback lost the licenses on disabled or missing accounts.** Its groups are enabled accounts found in
+  the directory, so a license held by anyone else was paid for and charged to no group, and the page's total fell short
+  of the licenses held (2,657 against 2,718 on the demo data). A figure, *Charged to no group*, now shows them with
+  their monthly cost and opens Licensing › Leavers, which lists the same accounts. The total beside it is now named
+  *Licenses charged to groups*.
+
+### Known limits
+- **Page times are the demo data's** (456,000 interactions on one SQL Server with 8 processors), cold, with no
+  pre-cache. Each query rewritten for speed returns the same rows as before on the demo (compared in SQL and on the
+  page at 7 to 365 days); the times at the client's 120 million interactions are not measured.
+- **Not run at the client.** The activity shred's skip is proven by the SQL integration test and the source checks,
+  not on the 32-million-record history; MAXDOP is set only on databases the installer creates, and only where its
+  login holds VIEW SERVER STATE.
+- **Power BI Desktop was not opened.** `powerbi/generate_model.py` writes the same model as 2.7.2; no `bi` view changed.
+- Five figures lead on purpose to a related page that shows another month or unit (a month's credits to the people
+  who used them, the seats to renew to the right size); `tools/dev/ui/Test-FigureLinks.ps1` lists them.
+
 ## [2.7.2] - 2026-10-20
 
 Copilot Credits charged to each line of business, and a prepaid credit commitment tracked against its use: the

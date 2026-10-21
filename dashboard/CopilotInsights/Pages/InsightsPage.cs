@@ -287,7 +287,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         using (QueryCache.Use()) await BuildAsync();
     }
 
-    /// <summary>The zone times are shown in (2.4.10): Admin > Access, else the data's own, else the server's.</summary>
+    /// <summary>The zone times are shown in (2.4.10): Admin › Access, else the data's own, else the server's.</summary>
     public TimeZoneInfo Zone { get; private set; } = TimeZoneInfo.Utc;
 
     /// <summary>
@@ -337,7 +337,7 @@ EXEC sys.sp_executesql @sql;");
     /// <summary>The reports this viewer opens most (2.4.9), by path, most opened first; see <see cref="MostUsed"/>.</summary>
     public IReadOnlyList<string> MostUsedPaths { get; private set; } = [];
 
-    /// <summary>The reports turned off in Admin > Reports shown (2.4.9), by path.</summary>
+    /// <summary>The reports turned off in Admin › Reports shown (2.4.9), by path.</summary>
     public IReadOnlySet<string> HiddenReports { get; private set; } = new HashSet<string>();
 
     protected async Task<bool> PrepareAsync()
@@ -351,14 +351,14 @@ EXEC sys.sp_executesql @sql;");
         if (HttpContext.RequestServices.GetService<MostUsed>() is { } most) MostUsedPaths = await most.PathsAsync(Viewer);
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */
         var turnedOff = !AdminOnly && Pages.HiddenReports.Is(HiddenReports, Request.Path);
-        if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin > Reports shown.";
+        if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin › Reports shown.";
         else if (!Viewer.Admitted && !(AdminOnly ? Viewer.CanAdmin(Request.Path) : OpenToAdmins && Viewer.AnyAdmin)) Denied = LimitRefusal(Viewer);
         else if (AdminOnly && !Viewer.CanAdmin(Request.Path))
-            Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin > Access." : "This page is for dashboard administrators.";
+            Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin › Access." : "This page is for dashboard administrators.";
         else if (Nav.SectionOf(Request.Path) is { Role: { } section } g && !Viewer.Has(section))
-            Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin > Access.";
+            Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin › Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
-            Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin > Privacy and retention.";
+            Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin › Privacy and retention.";
         else if (RequiredRole is not null && !Viewer.Has(RequiredRole))
             Denied = $"This page lists named people, so it needs the {RequiredRole} role. {Roles.Describe[RequiredRole]} An administrator can grant it.";
         Stale = await S.Freshness.BannerAsync();
@@ -380,7 +380,7 @@ EXEC sys.sp_executesql @sql;");
     public static string LimitRefusal(Viewer viewer) =>
         $"This dashboard is for leaders at levels 1 to {viewer.MaxLevel} of the organization" +
         (viewer.Level is { } l ? $"; you are at level {l}." : ", and your account is not placed in the org chart.") +
-        (viewer.IsAdmin ? " As an administrator, you can open the Admin pages." : viewer.AnyAdmin ? " You can open the Admin pages your Admin role covers." : " An administrator can grant access in Admin > Access.");
+        (viewer.IsAdmin ? " As an administrator, you can open the Admin pages." : viewer.AnyAdmin ? " You can open the Admin pages your Admin role covers." : " An administrator can grant access in Admin › Access.");
 
     public virtual async Task<IActionResult> OnGetAsync()
     {
@@ -630,7 +630,7 @@ EXEC sys.sp_executesql @sql;");
 
     List<(DateTime Day, string Label, string Kind)> _markers = [];
 
-    /// <summary>The events in the period, for the trend charts (Admin > Classifications and events).</summary>
+    /// <summary>The events in the period, for the trend charts (Admin › Classifications and events).</summary>
     async Task LoadMarkersAsync()
     {
         try

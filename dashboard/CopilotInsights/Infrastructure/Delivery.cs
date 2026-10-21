@@ -341,7 +341,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup,
                 if (status == "Sent") sent++; else if (status == "Skipped") skipped++; else failed++;
             }
             if (sent + failed + skipped > 0)
-                done.Add($"Manager digests for {round.Period}: {sent} sent" + (failed > 0 ? $", {failed} not sent (see Admin > Email)" : "") +
+                done.Add($"Manager digests for {round.Period}: {sent} sent" + (failed > 0 ? $", {failed} not sent (see Admin › Email)" : "") +
                          (skipped > 0 ? $", {skipped} skipped (the part of the organization is under the minimum group size, or privacy mode is on)" : "") + ".");
         }
 
@@ -385,7 +385,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup,
             "SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey LIKE N'server:%' AND AlertKey <> @me AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());",
             new { me = "server:" + Environment.MachineName });
 
-        /// <summary>Writes one extract now and records the result. Also used by Admin > Scheduled extracts' Run now.</summary>
+        /// <summary>Writes one extract now and records the result. Also used by Admin › Scheduled extracts' Run now.</summary>
         public async Task<string> WriteExtractAsync(int id)
         {
             var x = (await _db.QueryAsync<ExtractRow>("SELECT ExtractId, Name, Dataset, Folder, Frequency, DayOfWeek, DayOfMonth, HourLocal, Days, LastRunUtc, FailedTries, RetryAfterUtc FROM dash.Extract WHERE ExtractId = @id;", new { id })).FirstOrDefault();
@@ -418,7 +418,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup,
         }
     }
 
-    /// <summary>One extract, now, in the current tenant (Admin > Scheduled extracts).</summary>
+    /// <summary>One extract, now, in the current tenant (Admin › Scheduled extracts).</summary>
     public async Task<string> WriteExtractNowAsync(int id, CancellationToken ct = default)
     {
         using var scope = scopes.CreateScope();

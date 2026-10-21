@@ -32,12 +32,12 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
 {
     readonly Dictionary<string, string> _warmed = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>What the last warm-up did, for Admin > Health.</summary>
+    /// <summary>What the last warm-up did, for Admin › Health.</summary>
     public sealed record Status(string Tenant, DateTime StartedUtc, DateTime? EndedUtc, int Pages, int Failed, double Seconds);
     public IReadOnlyDictionary<string, Status> Last => _last;
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, Status> _last = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The last pre-cache on this web server since the site started, for Admin > Health; null before the first.</summary>
+    /// <summary>The last pre-cache on this web server since the site started, for Admin › Health; null before the first.</summary>
     public PrecacheStatus? LastPrecache { get; private set; }
 
     /// <summary>The file the script leaves, and the one the site answers with, in <see cref="Folder"/>.</summary>
@@ -112,13 +112,13 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
     /// <summary>A build of every page: how many were built, how many failed, and whether it ran to the end.</summary>
     sealed record Build(int Pages, int Failed, double Seconds, bool Complete);
 
-    /// <summary>The automatic warm-up: every page, kept where it is already kept, recorded for Admin > Health.</summary>
+    /// <summary>The automatic warm-up: every page, kept where it is already kept, recorded for Admin › Health.</summary>
     Task<Build> WarmAsync(TenantOption tenant, CancellationToken stop) => BuildAllAsync(tenant, stop, refresh: false, times: null, record: true);
 
     /// <summary>
     /// Builds every report page at every period for the whole organization. Refresh: each query is read again and its
     /// result replaces the kept one (the pre-cache). Times: each page's time is added, for the pre-cache's check from
-    /// memory. Record: the build is what Admin > Health shows and what <see cref="Due"/> counts from.
+    /// memory. Record: the build is what Admin › Health shows and what <see cref="Due"/> counts from.
     /// </summary>
     async Task<Build> BuildAllAsync(TenantOption tenant, CancellationToken stop, bool refresh, List<PageTime>? times, bool record, Action<int, int>? progress = null)
     {
@@ -291,7 +291,7 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
     void Write(PrecacheStatus status)
     {
         var json = JsonSerializer.Serialize(status, Json);
-        /* A copy for Admin > Health, which may read it while the build goes on. */
+        /* A copy for Admin › Health, which may read it while the build goes on. */
         LastPrecache = JsonSerializer.Deserialize<PrecacheStatus>(json, Json);
         try
         {
