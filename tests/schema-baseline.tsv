@@ -1,4 +1,4 @@
-# release 2.7.4
+# release 2.7.5
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.

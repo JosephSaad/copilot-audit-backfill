@@ -4,10 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.7.5] - Unreleased
+## [2.7.5] - 2026-10-21
 
 A pass over the 250 headline figures that open nothing: the ones that name a group now open it, and two figures that
-disagreed between pages say why.
+disagreed between pages say why. A page not set up now tells an administrator what is missing and where.
 
 **Install over 2.7.4:** build and deploy the dashboard from this release (docs\BUILD-FROM-SOURCE.md). Nothing in the
 database changes, and no script on the job server.
@@ -36,9 +36,15 @@ database changes, and no script on the job server.
   combined smaller countries; both ends are now ranked among the countries large enough, as Departments and
   Organization rank theirs.
 
-### Not changed
+### Known limits
 - The Leaderboard's Highest adoption and Most improved stay plain text. Linked to Departments, a team's ranked department
   was missing there: Departments combines it with a department of one, so no row describes one or two people.
+- Five figures still open a related page that shows the detail in another month or unit, by design: Credit chargeback's
+  Copilot Credits, Better with a license's Credits a month, Credit use's Billed by the admin center, Credit commitment's
+  Drawn so far and Budget's Seats to renew.
+- Agent inventory's list without a workbook, and Agents › Credits' suggestion link, were not seen on a page: the demo data
+  has a workbook, and no agent whose users each cost more than a license. Tests check them.
+- Synthetic lab data, not the client's. Power BI Desktop: no `bi` view changed.
 
 ## [2.7.4] - 2026-10-21
 
