@@ -87,13 +87,15 @@ GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.Agen
             EmptyText = "No agent was used in the period.",
             Server = new(pg, Request, ["name", "source", "owner", "inter", "billed", "people", "users", "credits", "credits", "each", null], new HashSet<int> { 3, 4, 5, 6, 7, 8, 9 }),
         };
+        var betterLicensed = Open("/licensing/license-for-credits");
         foreach (var a in page)
         {
             var each = Each(a);
             /* An agent's people are a group: shown at the minimum group size or more (2.4.12), with what they would reveal. */
             var few = a.People > 0 && AtLeastMin(a.People) is null;
-            var suggestion = a.Month.Credits == 0 ? "No credits: its users hold licenses"
-                : each >= price ? "Its users each cost more than a license: see Licensing › Better with a license"
+            object suggestion = a.Month.Credits == 0 ? "No credits: its users hold licenses"
+                : each >= price ? (betterLicensed is null ? "Its users each cost more than a license: see Licensing › Better with a license"
+                                   : new Link("Its users each cost more than a license: see Licensing › Better with a license", betterLicensed))   // 2.7.5: a link, where the viewer may open it
                 : a.People < Ctx.MinGroupSize && a.Month.Cost >= price ? "Few users, a license's worth of credits or more: restrict or retire"
                 : "";
             var name = new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url("/agents/detail", extra: $"agent={a.AgentKey}"))}\">{WebUtility.HtmlEncode(a.Name)}</a>");

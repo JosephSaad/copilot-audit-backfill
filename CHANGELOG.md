@@ -19,6 +19,7 @@ database changes, and no script on the job server.
 - **Rollout waves' People without a license** opens Demand for licenses, which counts the same people, for every
   department. Its note says the Copilot Chat users it counts are the last 30 days' (Demand counts the period's).
 - **Agent inventory without a workbook:** each agent's name opens Agent detail, as on every other list of agents.
+- **Agents › Credits' suggestion** "see Licensing › Better with a license" is a link, for a viewer who may open it.
 - **Chargeback's Used in the period** is now *Licenses used in the period*: the agent pages' figure of that name counts agents.
 
 ### Fixed

@@ -43,6 +43,14 @@ public class Release275Tests
     }
 
     [Fact]
+    public void Agent_credits_suggestion_opens_better_with_a_license()
+    {
+        var page = Page("Agents", "Credits.cs");
+        Assert.Contains("var betterLicensed = Open(\"/licensing/license-for-credits\");", page);
+        Assert.Contains("new Link(\"Its users each cost more than a license: see Licensing › Better with a license\", betterLicensed)", page);
+    }
+
+    [Fact]
     public void The_leaderboard_names_do_not_open_departments()
     {
         /* Inside a team, Departments combined Sales East (163 people) with a department of one, so its name was not there. */
