@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.5] - Unreleased
+
+A pass over the 250 headline figures that open nothing: the ones that name a group now open it, and two figures that
+disagreed between pages say why.
+
+**Install over 2.7.4:** build and deploy the dashboard from this release (docs\BUILD-FROM-SOURCE.md). Nothing in the
+database changes, and no script on the job server.
+
+### Changed
+- **Organization's Unit with the highest (lowest) adoption** opens that unit, as its name in the table does.
+- **Departments' Department with the highest (lowest) adoption** opens the page on that department.
+- **Rollout waves' People without a license** opens Demand for licenses, which counts the same people, for every
+  department. Its note says the Copilot Chat users it counts are the last 30 days' (Demand counts the period's).
+- **Chargeback's Used in the period** is now *Licenses used in the period*: the agent pages' figure of that name counts agents.
+
+### Fixed
+- **Guests' Holding a Copilot license** counted 2 guests where Copilot on non-human accounts counted 1: an administrator
+  had confirmed the other as a person. The figure now says how many were confirmed, and opens the guest breaches.
+- **Countries and offices' Country with the highest adoption** could be a country of one license holder, or the
+  combined smaller countries; both ends are now ranked among the countries large enough, as Departments and
+  Organization rank theirs.
+
+### Not changed
+- The Leaderboard's Highest adoption and Most improved stay plain text. Linked to Departments, a team's ranked department
+  was missing there: Departments combines it with a department of one, so no row describes one or two people.
+
 ## [2.7.4] - 2026-10-21
 
 What a full review of every page and a stress test at 120 million interactions found, fixed: pages that rebuilt a view of

@@ -47,6 +47,8 @@ namespace CopilotInsights.Pages.Adoption
                             r.Active > 0 ? Math.Round(r.Interactions / (double)r.Active, 1) : null, r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null]);
             }
             CsvTable = t;
+            /* Not links to Departments (2.7.5 tried it): inside a team, Departments may combine a ranked department with a
+               smaller one, so no row describes a group of one or two people, and the name would not be there. */
             Kpis.Add(new("Highest adoption", ranked[0].Name, $"{Pct(Adopt(ranked[0]))} adoption"));
             if (changes.Count > 0)
             {
@@ -84,6 +86,7 @@ namespace CopilotInsights.Pages.Security
             public long Flags { get; set; }
             public long Labeled { get; set; }
             public int Licensed { get; set; }
+            public int Confirmed { get; set; }
         }
 
         /// <summary>A guest's home domain: user_fabrikam.com#EXT#@contoso.onmicrosoft.com is fabrikam.com.</summary>
@@ -100,18 +103,27 @@ namespace CopilotInsights.Pages.Security
             var guest = userType
                 ? "(du.UserPrincipalName LIKE N'%#EXT#%' OR EXISTS (SELECT 1 FROM audit.CopilotLicense AS cl WHERE cl.UserPrincipalName = du.UserPrincipalName AND cl.UserType = N'Guest'))"
                 : "du.UserPrincipalName LIKE N'%#EXT#%'";
+            /* 2.7.5: a licensed guest an administrator confirmed as a person is no breach on Copilot on non-human accounts;
+               the count says how many, so the two pages agree. */
+            var exceptions = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
+            var ok = exceptions ? "CASE WHEN EXISTS (SELECT 1 FROM dash.NonHumanException AS ex WHERE ex.Upn = du.UserPrincipalName) THEN 1 ELSE 0 END" : "0";
             var rows = await Db.QueryAsync<Row>($@"
-WITH g AS (SELECT du.UserKey, {Domain} AS Domain FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE {guest}),
+WITH g AS (SELECT du.UserKey, {Domain} AS Domain, {ok} AS Ok FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE {guest}),
 a AS (SELECT ud.UserKey, SUM(ud.Interactions) AS I, SUM(ud.Jailbreak + ud.PromptInjection + ud.BlockedResource) AS F, SUM(ud.LabeledContent) AS L
       FROM dash.UserDay AS ud JOIN g ON g.UserKey = ud.UserKey WHERE ud.DateKey BETWEEN @k0 AND @k1 GROUP BY ud.UserKey)
 SELECT g.Domain, COUNT(*) AS People, COUNT(CASE WHEN a.I > 0 THEN 1 END) AS Active, ISNULL(SUM(CAST(a.I AS BIGINT)), 0) AS Interactions,
-       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.L AS BIGINT)), 0) AS Labeled, COUNT(ld.UserKey) AS Licensed
+       ISNULL(SUM(CAST(a.F AS BIGINT)), 0) AS Flags, ISNULL(SUM(CAST(a.L AS BIGINT)), 0) AS Labeled, COUNT(ld.UserKey) AS Licensed,
+       COUNT(CASE WHEN ld.UserKey IS NOT NULL AND g.Ok = 1 THEN 1 END) AS Confirmed
 FROM g LEFT JOIN a ON a.UserKey = g.UserKey
 LEFT JOIN bi.FactLicensedDay AS ld ON ld.UserKey = g.UserKey AND ld.DateKey = @k1
 GROUP BY g.Domain;", Ctx.Args());
             Kpis.Add(new("Guests in Copilot's records", Num(rows.Sum(r => r.People)), "guest and external accounts that used Copilot"));
             Kpis.Add(new("Used Copilot in the period", Num(rows.Sum(r => r.Active)), $"{rows.Sum(r => r.Interactions):#,0} interactions"));
-            Kpis.Add(new("Holding a Copilot license", Num(rows.Sum(r => r.Licensed)), "licenses in this tenant assigned to guests", rows.Sum(r => r.Licensed) > 0 ? "warn" : null));
+            var licensed = rows.Sum(r => r.Licensed);
+            var confirmed = rows.Sum(r => r.Confirmed);
+            Kpis.Add(new("Holding a Copilot license", Num(licensed),
+                confirmed == 0 ? "licenses in this tenant assigned to guests" : $"licenses in this tenant assigned to guests; {confirmed:#,0} confirmed as a person by an administrator",
+                licensed > confirmed ? "warn" : null, Href: licensed > 0 ? Open("/security/non-human", "why=guest") : null));
             Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
             if (rows.Count == 0) { Notice = $"No guest or external accounts used Copilot in {Here} in the period."; return; }
 

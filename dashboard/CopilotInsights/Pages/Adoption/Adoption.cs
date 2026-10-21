@@ -164,8 +164,10 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
         Kpis.Add(new("Departments", Num(rows.Count), $"in {Here}, from Active Directory"));
         if (ranked.Count > 1)
         {
-            Kpis.Add(new("Department with the highest adoption", ranked[0].Department, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot"));
-            Kpis.Add(new("Department with the lowest adoption", ranked[^1].Department, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot"));
+            /* 2.7.5: each opens this page on that department, as choosing it below does. */
+            string Only(Row r) => Ctx.Url(Request.Path, extra: "dept=" + Uri.EscapeDataString(r.Department));
+            Kpis.Add(new("Department with the highest adoption", ranked[0].Department, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot", Href: Only(ranked[0])));
+            Kpis.Add(new("Department with the lowest adoption", ranked[^1].Department, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot", Href: Only(ranked[^1])));
         }
 
         /* 2.5.8: one department, or every one (the default). The departments offered are those shown, smaller ones combined. */
