@@ -31,7 +31,7 @@ public sealed class CreditCommitmentModel(PageServices s, CreditChargeData data)
         }
         if (!await data.CommitmentsReadyAsync() || !await data.ReadyAsync())
         {
-            Notice = "Commitments cannot be recorded here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from 2.7.2 or later.";
+            Notice = await NotSetUpAsync("Commitments cannot be recorded here yet", "2.7.2", "dash.CreditCommitment", "dash.CreditRoute", "audit.PowerPlatformCreditDay");
             return;
         }
         var all = await data.CommitmentsAsync();

@@ -489,6 +489,26 @@ EXEC sys.sp_executesql @sql;");
         return note.Length == 0 ? "" : $"<p class=\"sub protected\">{E(note.Trim())}</p>";
     }
 
+    /// <summary>
+    /// What a page says when the tables it needs are not there (2.7.5). It said only "run Install-CopilotAudit.ps1
+    /// -Dashboard", and a client that had run it saw the same line: the install had gone to another database, or this
+    /// dashboard's account could not see the tables (OBJECT_ID is NULL for a table the account has no permission on).
+    /// An administrator is told which are missing, in which database, as which account.
+    /// </summary>
+    protected async Task<string> NotSetUpAsync(string cannot, string version, params string[] objects)
+    {
+        var plain = $"{cannot}. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from {version} or later.";
+        if (!Viewer.AnyAdmin || Warming) return plain;
+        var names = string.Join(", ", objects.Select(o => "(N'" + o.Replace("'", "''") + "')"));
+        var (database, account, missing) = (await Db.QueryAsync<(string Database, string Account, string? Missing)>($@"
+SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n) WHERE OBJECT_ID(o.n) IS NULL;")).Single();
+        return missing is null ? plain
+            : $"{cannot}: {Joined(missing.Split('|'))} {(missing.Contains('|') ? "are" : "is")} not found in the {database} database, as this dashboard's account ({account}) sees it. " +
+              $"Run Install-CopilotAudit.ps1 -Dashboard from {version} or later with -Database {database}. If it was run there, the account cannot see the tables: add it to the CopilotInsightsApp role in {database}.";
+    }
+
+    static string Joined(string[] items) => items.Length < 2 ? string.Join("", items) : string.Join(", ", items[..^1]) + " and " + items[^1];
+
     IReadOnlyList<CopilotInsights.Data.AssumptionValue>? _assumptions;
 
     /// <summary>

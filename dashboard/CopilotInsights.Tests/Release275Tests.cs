@@ -57,6 +57,20 @@ public class Release275Tests
     public void A_suite_price_names_its_SKU(string pattern, string suite, string label) =>
         Assert.Equal(label, CopilotInsights.Data.Assumptions.Suite(pattern, suite).Label);
 
+    [Theory]
+    [InlineData("Leadership/CreditChargeback.cs", "NotSetUpAsync(\"Credit chargeback cannot be kept here yet\", \"2.7.2\", \"dash.CreditRoute\", \"audit.PowerPlatformCreditDay\")")]
+    [InlineData("Forecasting/CreditCommitment.cs", "NotSetUpAsync(\"Commitments cannot be recorded here yet\", \"2.7.2\", \"dash.CreditCommitment\", \"dash.CreditRoute\", \"audit.PowerPlatformCreditDay\")")]
+    [InlineData("Leadership/Reservations.cs", "NotSetUpAsync(\"Reservations cannot be recorded here yet\", \"2.6.8\", \"dash.Reservation\", \"dash.fnReservationMember\")")]
+    [InlineData("Licensing/ReservationHolders.cs", "NotSetUpAsync(\"Reservations cannot be recorded here yet\", \"2.6.8\", \"dash.Reservation\", \"dash.fnReservationMember\")")]
+    public void A_page_not_set_up_names_what_is_missing_and_where(string file, string call)
+    {
+        /* A client ran Install-CopilotAudit.ps1 -Dashboard on 2.7.4 and Credit chargeback still said to run it. */
+        Assert.Contains(call, Page(file.Split('/')));
+        var page = Page("InsightsPage.cs");
+        Assert.Contains("SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n) WHERE OBJECT_ID(o.n) IS NULL;", page);
+        Assert.Contains("add it to the CopilotInsightsApp role in {database}", page);
+    }
+
     [Fact]
     public void The_leaderboard_names_do_not_open_departments()
     {

@@ -23,6 +23,10 @@ database changes, and no script on the job server.
 - **Chargeback's Used in the period** is now *Licenses used in the period*: the agent pages' figure of that name counts agents.
 
 ### Fixed
+- **Credit chargeback, Credit commitment, Copilot reservations and Reservation holders, not set up,** said only to run
+  Install-CopilotAudit.ps1 -Dashboard; a client that had run it on 2.7.4 saw the same line. An administrator is now told
+  which tables are missing, in which database, and as which account: the install may have gone to another database, or
+  the dashboard's account cannot see the tables (it then needs the CopilotInsightsApp role).
 - **How figures are calculated › Suites** listed Microsoft 365 E5 three times, E7 three times and so on, each as
   "Microsoft 365 E5, a user a month": each row is one SKU the suite is sold under (SPE_E5, SPE_E5_NOPSTNCONF, the no-Teams
   edition), priced on its own. Each row now names its SKU.
