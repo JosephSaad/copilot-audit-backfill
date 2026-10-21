@@ -71,7 +71,8 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
             t.Rows.Add([new Link(r.App, Ctx.Url("/apps/detail", extra: $"app={r.AppKey}")), r.AppCategory, r.People, Pct(Ratio(r.Returning, r.People)), r.N,
                         Math.Round(r.Prompts / (double)Math.Max(1, r.People), 1), Math.Round(r.Resources / (double)Math.Max(1, r.N), 2),
                         Chart.Sparkline(axis, buckets.Select(b => (double?)trend.Where(x => x.AppKey == r.AppKey && x.Bucket == b.Key).Sum(x => x.People)).ToList(), r.App)]);
-        Panels.Add(new("Every app", WithTrendNote(t.Render()), "Came back: people who used Copilot in the app on more than one day."));
+        CsvTable = t;
+        Panels.Add(new("Every app", WithTrendNote(t.Render()), "Came back: people who used Copilot in the app on more than one day.", "full", CsvUrl()));
 
         /* 2.7.0: beside Copilot, from the activity database where it is set up: Teams meeting AI notes (Facilitator), Power BI
            and Power Apps, by the people who used each, in the same period and part of the organization. */

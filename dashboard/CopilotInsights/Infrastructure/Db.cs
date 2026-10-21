@@ -107,6 +107,16 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         }, await LiveAsync(sql));
     }
 
+    /// <summary>
+    /// A result worked out from kept reads, itself kept (2.7.4). The credit estimate, the cost model and suite fit build
+    /// an object for each of up to hundreds of thousands of people from rows already kept, and did it again on every
+    /// visit: 0.6 s a page at 120 million interactions, with no query run. Kept under the data stamp, the period and part
+    /// of the organization (the context's arguments), and the versions of the tables that change all day. What it returns
+    /// is shared between viewers: callers read it and never change it.
+    /// </summary>
+    public async Task<T> KeptAsync<T>(string name, ReportContext c, Func<Task<T>> build) =>
+        await cache.GetAsync(Tenant, "k", $"kept:{name}", c.Args(), build, await LiveAsync(string.Join(" ", DataStamp.VolatileTables)));
+
     public async Task<int> ExecuteAsync(string sql, object? args = null, int timeout = 120)
     {
         await using var c = new SqlConnection(_cs);

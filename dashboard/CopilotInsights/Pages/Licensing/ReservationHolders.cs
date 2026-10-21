@@ -44,7 +44,17 @@ public sealed class ReservationHoldersModel(PageServices s, ReservationData data
             : await Db.ScalarAsync<string?>("SELECT TOP (1) Name FROM dash.Reservation WHERE OrgId = @res ORDER BY EffectiveFrom DESC;", new { res });
         if (name is null)
         {
-            Notice = "Choose an organization on Leadership › Copilot reservations to see its people.";
+            /* 2.7.4: opened from the menu, the page said to go and choose on Copilot reservations; it offers the choice itself. */
+            var orgs = await Db.QueryAsync<(string OrgId, string Name)>(@"
+SELECT OrgId, Name FROM (SELECT OrgId, Name, ROW_NUMBER() OVER (PARTITION BY OrgId ORDER BY EffectiveFrom DESC) AS n FROM dash.Reservation) AS x
+WHERE n = 1 ORDER BY Name;");
+            string Pick(string key, string text) =>
+                $"<li><a href=\"{System.Net.WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "res=" + Uri.EscapeDataString(key)))}\">{System.Net.WebUtility.HtmlEncode(text)}</a></li>";
+            var list = string.Concat(orgs.Select(o => Pick(o.OrgId, o.Name))) + Pick(ReservationData.Unmapped, "Under no listed leader") + Pick(ReservationData.Technology, "Technology-funded pool");
+            var back = Open("/leadership/reservations");
+            var from = back is null ? "" : $"<p class=\"sub\">The organizations and their figures are on <a href=\"{System.Net.WebUtility.HtmlEncode(back)}\">Leadership › Copilot reservations</a>.</p>";
+            Panels.Add(new("Choose an organization", new Microsoft.AspNetCore.Html.HtmlString($"<ul>{list}</ul>{from}"),
+                "Each organization's people holding the Microsoft 365 Copilot add-on, as its allocated count counts them."));
             return;
         }
         var k = int.Parse(day.ToString("yyyyMMdd"));

@@ -39,7 +39,8 @@ namespace CopilotInsights.Pages.Adoption
             foreach (var t in mine)
                 tb.Rows.Add([Label(t.Metric), t.RootName ?? t.RootUpn ?? "Whole organization", Round(t.Baseline), Round(t.Current), Round(t.Expected), (double)t.TargetValue,
                              t.DueDate, new HtmlString($"<span class=\"status-{(t.Status is "Met" or "On track" ? "ok" : t.Status == "Behind" ? "warn" : t.Status == "Missed" ? "bad" : "warn")}\">{E(t.Status)}</span>"), t.Note]);
-            Panels.Add(new("Every target", tb.Render(), "Adoption: licensed people who used Copilot, over people licensed. Share active: people who used it, over everyone in the directory. People active: a count."));
+            CsvTable = tb;
+            Panels.Add(new("Every target", tb.Render(), "Adoption: licensed people who used Copilot, over people licensed. Share active: people who used it, over everyone in the directory. People active: a count.", "full", CsvUrl()));
         }
 
         static double? Round(double? v) => v is null ? null : Math.Round(v.Value, 1);
@@ -108,7 +109,8 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             var tb = new Table { Headers = ["Department", "Licensed in the period", "Have used it", "Median days to first use"], Numeric = new HashSet<int> { 1, 2, 3 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Started, d.Median.Count >= Ctx.MinGroupSize ? d.Median[d.Median.Count / 2] : null]);
             tb.KeepLast = folded > 0 ? 1 : 0;
-            Panels.Add(new("By department", tb.Render(), folded > 0 ? FoldNote(folded, "department") : null));
+            CsvTable = tb;
+            Panels.Add(new("By department", tb.Render(), folded > 0 ? FoldNote(folded, "department") : null, "full", CsvUrl()));
         }
     }
 
@@ -131,7 +133,8 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             Kpis.Add(new("Spikes in use", Num(found.Count(a => a.Kind == "Spike")), $"{spike}% or more above usual"));
             var tb = new Table { Headers = ["Day", "Department", "Drop or spike", "Interactions", "Usual for the weekday", "Change"], Numeric = new HashSet<int> { 3, 4 }, EmptyText = "Nothing stood out in the last two weeks." };
             foreach (var a in found) tb.Rows.Add([a.Day, a.Unit, a.Kind, a.Value, Math.Round(a.Baseline), $"{a.Change:+0%;-0%}"]);
-            Panels.Add(new("Days that stood out", tb.Render(), $"The thresholds are set in Admin › Alerts and digests, which can also email them. Up to {Ctx.End:d MMM yyyy}."));
+            CsvTable = tb;
+            Panels.Add(new("Days that stood out", tb.Render(), $"The thresholds are set in Admin › Alerts and digests, which can also email them. Up to {Ctx.End:d MMM yyyy}.", "full", CsvUrl()));
             var top = found.Select(a => a.Unit).Distinct().Take(8).ToList();
             if (top.Count > 0)
             {

@@ -84,11 +84,12 @@ namespace CopilotInsights.Pages.Leadership
                 else
                     t.Rows.Add([name, n.People, Pct(a1), Arrow(a1 - a0, true), .. rest]);
             }
+            CsvTable = t;   // 2.7.4: every page's main table downloads
             Panels.Add(new("By unit, against the period before", t.Render(),
                 $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out, with the smallest others where they would together be under it. "
                 + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
                 + "Change in adoption is in percentage points; the others are relative."
-                + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}.")));
+                + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}."), "full", CsvUrl()));
         }
     }
 }
@@ -186,7 +187,8 @@ GROUP BY COALESCE(vn.Name, t.ResourceType), COALESCE(sl.Name, LOWER(CAST(l.Label
             var t2 = new Table { Headers = ["Resource type", "All", .. labels], Numeric = new HashSet<int>(Enumerable.Range(1, labels.Count + 1)) };
             foreach (var ty in types)
                 t2.Rows.Add([ty, mix.Where(x => x.Type == ty).Sum(x => x.N), .. labels.Select(l => (object?)mix.Where(x => x.Type == ty && x.Label == l).Sum(x => x.N))]);
-            Panels.Add(new("Resources read, by type and label", t2.Render(), "The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data."));
+            CsvTable = t2;
+            Panels.Add(new("Resources read, by type and label", t2.Render(), "The eight busiest resource types against the six commonest labels. Type names are set in Admin › Value names, label names in Admin › Reference data.", "full", CsvUrl()));
         }
     }
 }

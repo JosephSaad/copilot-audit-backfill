@@ -61,7 +61,10 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
     }
     sealed class Held { public string SkuPartNumber { get; set; } = ""; public int Holders { get; set; } public int Idle { get; set; } public int Known { get; set; } public int Consumed { get; set; } public int Bought { get; set; } public int Twice { get; set; } public string? TwiceIn { get; set; } }
 
-    public async Task<CostView> BuildAsync(ReportContext c)
+    /// <summary>The cost model, kept once worked out (2.7.4, see <see cref="Db.KeptAsync"/>).</summary>
+    public Task<CostView> BuildAsync(ReportContext c) => db.KeptAsync("CostData.Build", c, () => BuildFreshAsync(c));
+
+    async Task<CostView> BuildFreshAsync(ReportContext c)
     {
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
         var copilotPrice = Dec(await settings.StringAsync("LicenseMonthlyCost"), 30m);

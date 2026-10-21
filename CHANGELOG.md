@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.4] - 2026-10-21
+
+What a full review of every page and a stress test at 120 million interactions found, fixed: pages that rebuilt a view of
+every person on each visit, queries that grouped every interaction by a name, tables with no download, summaries with no
+headline, and two links that lost the whole-organization view. Measured on 120 million interactions and 210,000 people
+(SQL Server Enterprise, MAXDOP 6, 8 processors), every report page served from the cache in 160 ms or less at 30, 90 and
+365 days, and 25 users at once were served 685 pages a second, none slower than 0.23 s and none failed.
+
+**Install over 2.7.3:** build and deploy the dashboard from this release (docs\BUILD-FROM-SOURCE.md). Nothing in the
+database changes, and no script on the job server.
+
+### Changed
+- **Pages built over everyone are kept once worked out.** A stress test on 120 million interactions (210,000 people) found
+  four pages at 0.55 to 0.75 s from cache with no query run: the cost model, the credit estimate and suite fit built an
+  object for every person from rows already kept, on every visit. They are now kept under the data's stamp, the period,
+  the part of the organization and the versions of the tables that change during the day. From cache at 120M: What to
+  act on 0.70 s to 0.01 s, Costs and savings 0.6 s to 0.006 s, Credit use 0.6 s to 0.01 s, Suite fit 0.63 s to 0.14 s.
+- **Counted per key, then named.** Apps and agents' most-used agents grouped every interaction by the agent's name with a
+  distinct count of people: 13.7 s on a first visit for 90 days at 120M, now 1.6 s for the same rows. Its apps by week,
+  Engagement's people per app, Compare two teams' apps, Working patterns' apps by hour and Sensitive content's labels over
+  time are counted the same way; Sensitive content also reads its six sources together.
+- **Ten more tables download as CSV**: Scorecard, Organization, Departments, New joiners, Targets, Drops and spikes,
+  Labeled content by unit, Agents in use, Engagement and Apps.
+- **Organization and Departments open with figures**: how many units or departments, and the highest and lowest adoption
+  among those large enough to rank.
+- Copilot on non-human accounts says *Name reads like an account* in its figure, as its filter and its list do.
+
+### Fixed
+- **Two whole-organization figures lost the whole organization when they linked.** Budget's *Seats to renew* and Credit
+  commitment's *Drawn so far* are the tenant's on any team, but opened License optimization and Credit chargeback for the
+  team shown. They now open them for the whole organization, as Costs and savings' links do.
+- **Reservation holders, opened from the menu, only said to go and choose an organization elsewhere.** It now lists the
+  organizations to choose from.
+
+### Known limits
+- **A first visit can still take seconds at 120M**, before the daily pre-cache or after the data changes: the median is
+  0.37 s, but at 365 days Agents in use, Access to labeled content and Apps take 15 to 18 s, and a dozen pages 6 to 12 s.
+  The 07:00 pre-cache builds every page at every period for the whole organization, so leaders meet them kept; a team's
+  pages are kept from their first visit.
+- **Measured on the lab's synthetic 120M data** on one 8-processor server, not the client's; Power BI Desktop was not
+  opened (no `bi` view changed).
+
 ## [2.7.3] - 2026-10-21
 
 The activity database's history no longer spends hours on a table nothing reads, and a database the installer

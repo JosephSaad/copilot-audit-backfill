@@ -28,9 +28,32 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
     };
     static readonly Dictionary<string, string> SortLabels = new() { ["saving"] = "Largest saving first", ["name"] = "Name", ["dept"] = "Department", ["suite"] = "Suite" };
 
-    protected override async Task BuildAsync()
+    /// <summary>
+    /// What the page works out over every holder before the viewer's choices (2.7.4), kept once worked out (see
+    /// <see cref="Db.KeptAsync"/>): the moves, most saved first, the summary the Suites card shares, the add-ons a suite
+    /// covers, and each suite's holders. At 120 million interactions this was 0.3 s a visit under load. Shared: read only.
+    /// </summary>
+    sealed record Prep(SuiteFitView V, List<SuiteRow> Moves, SuiteSummary Summary, List<SuiteRow> Copies, decimal CopiesWorth,
+                       List<(Suite Suite, int Holders)> Held);
+
+    async Task<Prep> PrepAsync() => await Db.KeptAsync("Suites.Prep", Ctx, async () =>
     {
         var v = await suites.FitAsync(Ctx, scoped: true);
+        var today = Ctx.End.Date;
+        var moving = v.Rows.Where(r => r.Fit.Move is not SuiteMove.Keep).OrderByDescending(r => r.Fit.Saving + r.Fit.AtStake).ThenBy(r => r.Name ?? r.Upn).ToList();
+        var spare = decimal.TryParse(await S.Settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 10m;   // 2.6.9: seats kept spare on purpose
+        var sum = SuiteData.Summarize(v, 0, spare);
+        var twice = v.Rows.Where(r => SuiteData.AddOnCopy(r, today) is (true, _) or (_, true)).ToList();
+        decimal Worth(SuiteRow r) { var (cp, pb) = SuiteData.AddOnCopy(r, today); return (cp ? v.CopilotPrice : 0) + (pb ? v.PowerBiPrice : 0); }
+        var held = v.Rows.GroupBy(r => r.Holder.Suite.Name).OrderByDescending(g => g.First().Holder.Suite.Tier).ThenBy(g => g.Key)
+            .Select(g => (g.First().Holder.Suite, g.Count())).ToList();
+        return new Prep(v, moving, sum, twice, twice.Sum(Worth), held);
+    });
+
+    protected override async Task BuildAsync()
+    {
+        var prep = await PrepAsync();
+        var v = prep.V;
         if (v.Suites.Count == 0)
         {
             Notice = "No suites are set. An administrator adds E3, E5 and E7 by running Install-CopilotAudit.ps1 -Dashboard from 2.6.6 or later, or turns them on in Admin › Targets and assumptions.";
@@ -43,31 +66,28 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         }
         var cur = v.Currency;
         string M(decimal x) => CostRules.Money(Math.Round(x, 0), cur);
-        var moves = v.Rows.Where(r => r.Fit.Move is not SuiteMove.Keep).ToList();
+        var moves = prep.Moves;
         /* Summed as the Suites card on Costs and savings sums them (SuiteData.Summarize), so the two pages agree: a copy of
            the Copilot add-on or of Power BI Pro is an AI saving, counted with its area there, and shown apart here. */
-        var summary = SuiteData.Summarize(v, 0, decimal.TryParse(await S.Settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var sparePct) ? sparePct : 10m);   // 2.6.9: seats kept spare on purpose
+        var summary = prep.Summary;
         /* The add-on a suite covers, as Costs and savings counts it (SuiteData.AddOnCopy), so the two pages agree. */
         var today = Ctx.End.Date;
         decimal CopyWorth(SuiteRow r) { var (cp, pb) = SuiteData.AddOnCopy(r, today); return (cp ? v.CopilotPrice : 0) + (pb ? v.PowerBiPrice : 0); }
-        var copies = v.Rows.Where(r => SuiteData.AddOnCopy(r, today) is (true, _) or (_, true)).ToList();
+        var copies = prep.Copies;
 
         Kpis.Add(new("Suite holders", Num(v.Rows.Count), $"{Count(v.Rows.Select(r => r.Holder.Suite.Name).Distinct().Count(), "suite")} held"));
         Kpis.Add(new($"Suite moves to review a month ({cur})", Num((long)Math.Round(summary.Saving)), $"{M(summary.Saving * 12)} a year; outside Costs and savings' AI savings", summary.Saving > 0 ? "good" : null,
             Why: await WhyAsync("For each holder a lower suite would serve: the suite's price less the lower one's, a month, as set in Suites: E3, E5 and E7. Moves to train save nothing until decided.",
                 [.. v.Suites.Select(su => "Suite:" + su.Pattern).Distinct()])));
-        Kpis.Add(new($"Licenses held twice ({cur})", Num((long)Math.Round(copies.Sum(CopyWorth))), $"{Count(copies.Count, "person", "people")} with an add-on the suite covers: AI savings on Costs and savings",
+        Kpis.Add(new($"Licenses held twice ({cur})", Num((long)Math.Round(prep.CopiesWorth)), $"{Count(copies.Count, "person", "people")} with an add-on the suite covers: AI savings on Costs and savings",
             Href: Open(Request.Path, extra: "copy=addon"),
             Why: await WhyAsync($"For each holder whose suite already includes an add-on they hold: the Copilot license price ({v.CopilotPrice:#,0.##} {cur}) where it is Copilot, plus Power BI Pro's ({v.PowerBiPrice:#,0.##} {cur}) where it is Power BI.",
                 "LicenseMonthlyCost", "Price:POWER_BI_PRO")));
         Kpis.Add(new("To train before deciding", Num(moves.Count(r => r.Fit.Move == SuiteMove.Train)), "E7 holders who barely use Copilot", Href: Open(Request.Path, extra: "move=train")));
         /* The suites held, what each costs and includes. */
         var st = new Table { Headers = ["Suite", "Holders", $"Price a month ({cur})", "Includes, so not counted as AI spend", "Also brings"], Numeric = new HashSet<int> { 1, 2 } };
-        foreach (var g in v.Rows.GroupBy(r => r.Holder.Suite.Name).OrderByDescending(g => g.First().Holder.Suite.Tier).ThenBy(g => g.Key))
-        {
-            var s = g.First().Holder.Suite;
-            st.Rows.Add([new Link(s.Name, Ctx.Url(Request.Path, extra: $"suite={Uri.EscapeDataString(s.Name)}")), g.Count(), s.Price, Includes(s), s.Covers]);
-        }
+        foreach (var (s, holders) in prep.Held)
+            st.Rows.Add([new Link(s.Name, Ctx.Url(Request.Path, extra: $"suite={Uri.EscapeDataString(s.Name)}")), holders, s.Price, Includes(s), s.Covers]);
         Panels.Add(new("Suites held", st.Render(), "Every suite turned on in Admin, with its holders here and its price. What it includes (Copilot, Power BI Pro) is not counted again as AI spend on Costs and savings; the rest of what it brings cannot be split from its price.", "half"));
 
         /* The moves, summed as the Suites card sums them, each leading to its people on that suite. */
@@ -78,7 +98,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
                 /* 2.7.0: a move to train saves nothing: what rides on it is said, not added to the month's column. */
                 ml.From, ml.To, ml.People, ml.Move == SuiteMove.Train ? $"— ({Math.Round(ml.AtStake):#,0} at stake)" : Math.Round(ml.Saving), ml.Confidence]);
         if (copies.Count > 0)
-            mt.Rows.Add([new Link("Remove the add-on the suite covers", Ctx.Url(Request.Path, extra: "copy=addon")), "E5 or E7", "(an AI saving)", copies.Count, Math.Round(copies.Sum(CopyWorth)), "High"]);
+            mt.Rows.Add([new Link("Remove the add-on the suite covers", Ctx.Url(Request.Path, extra: "copy=addon")), "E5 or E7", "(an AI saving)", copies.Count, Math.Round(prep.CopiesWorth), "High"]);
         Panels.Add(new("What could change", mt.Rows.Count == 0 ? new HtmlString("<p class=\"muted\">Every holder's suite fits what the data shows of them.</p>") : mt.Render(),
             "Each move with its people (or, to cut, its unassigned seats) and what it saves a month; to train, what rides on it. High: a license held twice. Medium: a whole part of the suite unused, or seats nobody holds. Low: rests on what the data cannot see. " +
             "The add-on a suite covers is an AI saving, counted on Costs and savings; the rest is the Suites card's review. Select one to list its people.", "half"));
@@ -105,7 +125,9 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         if (suite is not null) shown = shown.Where(r => r.Holder.Suite.Name == suite);
         if (pg.Search is { } q)
             shown = shown.Where(r => (r.Name ?? "").Contains(q, StringComparison.OrdinalIgnoreCase) || r.Upn.Contains(q, StringComparison.OrdinalIgnoreCase) || (r.Department ?? "").Contains(q, StringComparison.OrdinalIgnoreCase));
-        var ordered = (pg.SortKey switch
+        /* The default view (the moves, most saved first, nothing chosen) is the kept list itself, never changed in place. */
+        var plain = copy is null && move is null && suite is null && pg.Search is null && pg.SortKey == "saving";
+        var ordered = plain ? (pg.Reversed ? Enumerable.Reverse(moves).ToList() : moves) : (pg.SortKey switch
         {
             "name" => shown.OrderBy(r => r.Name ?? r.Upn, StringComparer.CurrentCulture),
             "dept" => shown.OrderBy(r => r.Department ?? "", StringComparer.CurrentCulture).ThenBy(r => r.Name ?? r.Upn),
@@ -115,7 +137,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
             "upn" => shown.OrderBy(r => r.Upn, StringComparer.OrdinalIgnoreCase),
             _ => copy == "addon" ? shown.OrderByDescending(CopyWorth).ThenBy(r => r.Name ?? r.Upn) : shown.OrderByDescending(r => r.Fit.Saving + r.Fit.AtStake).ThenBy(r => r.Name ?? r.Upn),
         }).ToList();
-        if (pg.Reversed) ordered.Reverse();
+        if (!plain && pg.Reversed) ordered.Reverse();
         pg.Total = ordered.Count;
         var page = pg.ForExport ? ordered : ordered.Skip((pg.Page - 1) * Paging.PageSize).Take(Paging.PageSize).ToList();
 

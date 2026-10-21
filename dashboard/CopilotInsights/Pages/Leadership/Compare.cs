@@ -145,11 +145,11 @@ SELECT TOP (2) p.Upn FROM dash.Person AS p {Ctx.PersonScope("p.Upn")} WHERE p.Di
 
     async Task<Dictionary<string, long>> AppsAsync(ReportContext c) =>
         (await Db.QueryAsync<(string App, long N)>($@"
-SELECT COALESCE(vn.Name, a.App), COUNT_BIG(*)
-FROM bi.FactInteraction AS f {c.Scope("f.UserKey")}
-JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+WITH g AS (SELECT f.AppKey, COUNT_BIG(*) AS N FROM bi.FactInteraction AS f {c.Scope("f.UserKey")}
+           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey)   -- 2.7.4: counted per key, then named
+SELECT COALESCE(vn.Name, a.App), SUM(g.N)
+FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name
-WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY COALESCE(vn.Name, a.App);", c.Args())).ToDictionary(r => r.App, r => r.N, StringComparer.OrdinalIgnoreCase);
 
     double? AdoptionRatio(Side s) => s.T.LicensedNow >= Ctx.MinGroupSize ? Ratio(s.T.ActiveLicensed, s.T.LicensedNow) : null;
