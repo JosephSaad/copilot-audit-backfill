@@ -21,6 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   all as they are. A database that exists keeps its own setting unless `-MaxDop` is given. Reading the processor count
   needs VIEW SERVER STATE; without it the installer says so and sets nothing.
 
+### Changed
+- **Leadership › What to act on loads faster.** It read its six sources (the action counts, non-human accounts, units,
+  targets, the cost figures and the security trend) one after another; it now reads them at the same time. On the demo
+  data, a period not yet kept loads in 0.6–0.8 s instead of 0.9–1.2 s.
+
 **Install over 2.7.2:** run `Install-CopilotAudit.ps1 -ActivityDatabase <name>` from this release; it replaces the merge
 procedure. A history load already running finishes as it began.
 
