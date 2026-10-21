@@ -130,7 +130,8 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
         /* In steps (2.4.2): the rules read once into #uc, one row a person and use case in #k, then a plain count.
            As one statement the optimizer ran the rules per group and counted distinct people: 22 seconds for a year. */
-        var byDept = await Db.QueryAsync<G>($@"
+        /* The three reads are independent: started together (2.7.3). */
+        var byDeptTask = Db.QueryAsync<G>($@"
 SELECT UseCaseKey, UseCase INTO #uc FROM bi.UseCases;
 WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
@@ -140,17 +141,23 @@ SELECT g.UserKey, uc.UseCase, SUM(g.N) AS N INTO #k FROM g JOIN #uc AS uc ON uc.
 SELECT k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)') AS Department, SUM(k.N) AS N, COUNT(*) AS People
 FROM #k AS k JOIN bi.DimUser AS du ON du.UserKey = k.UserKey
 GROUP BY k.UseCase, ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args(), timeout: 300);
-        /* The totals add up the departments: each person has one department, so their people add up too.
-           A second pass over the fact for the same numbers doubled the page's time (2.4.2). */
-        var totals = byDept.GroupBy(x => x.UseCase).Select(g => new G { UseCase = g.Key, N = g.Sum(x => x.N), People = g.Sum(x => x.People) }).ToList();
-        if (totals.Count == 0) { Notice = $"No Copilot use from {Ctx.PeriodLabel}."; return; }
-        var trend = await Db.QueryAsync<G>($@"
+        var trendTask = Db.QueryAsync<G>($@"
 WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, f.UseCaseKey, COUNT_BIG(*) AS N
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
            WHERE f.DateKey BETWEEN @k0 AND @k1
            GROUP BY {Ctx.BucketSql("d")}, f.UseCaseKey)
 SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase, g.Bucket;", Ctx.Args(), timeout: 300);
+        var deptsTask = Db.QueryAsync<(string Dept, int People)>($@"
+SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*) FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
+WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
+        await Task.WhenAll(byDeptTask, trendTask, deptsTask);
+        var byDept = await byDeptTask;
+        /* The totals add up the departments: each person has one department, so their people add up too.
+           A second pass over the fact for the same numbers doubled the page's time (2.4.2). */
+        var totals = byDept.GroupBy(x => x.UseCase).Select(g => new G { UseCase = g.Key, N = g.Sum(x => x.N), People = g.Sum(x => x.People) }).ToList();
+        if (totals.Count == 0) { Notice = $"No Copilot use from {Ctx.PeriodLabel}."; return; }
+        var trend = await trendTask;
 
         var all = totals.Sum(x => x.N);
         var ranked = totals.OrderByDescending(x => x.N).ToList();
@@ -174,9 +181,7 @@ SELECT uc.UseCase, g.Bucket, SUM(g.N) AS N FROM g {UseCase} GROUP BY uc.UseCase,
 
         /* Each department's mix, for departments big enough to show. */
         var deptPeople = byDept.GroupBy(x => x.Department!).ToDictionary(g => g.Key, g => g.Sum(x => x.N));
-        var big = SmallGroups.Shown(await Db.QueryAsync<(string Dept, int People)>($@"
-SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), COUNT(*) FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args()), d => d.People, Ctx.MinGroupSize)
+        var big = SmallGroups.Shown(await deptsTask, d => d.People, Ctx.MinGroupSize)
             .Select(d => d.Dept).ToHashSet();
         var mix = new Table { Headers = ["Department", .. names, "Interactions"], Numeric = new HashSet<int>(Enumerable.Range(1, names.Count + 1)) };
         foreach (var d in deptPeople.Where(d => big.Contains(d.Key)).OrderByDescending(d => d.Value).Take(25))

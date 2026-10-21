@@ -18,16 +18,25 @@ namespace CopilotInsights.Pages.Leadership
         protected override async Task BuildAsync()
         {
             /* Premium use is recorded once the rollups are rebuilt with 2.3.0; before that it is all zero, so the split is left out. */
-            var split = await Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
+            /* Independent reads started together (2.7.3); the period before is read once it is known to be covered. */
+            var splitTask = Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
+            var firstTask = OpsReports.FirstDayAsync(Db);
+            var nowTask = m.TotalsAsync(Ctx);
+            var u1Task = m.UnitsAsync(Ctx);
+            await Task.WhenAll(splitTask, firstTask, nowTask, u1Task);
+            var split = await splitTask;
             if (!split)
                 Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
             var prev = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
             /* Set against the period before only where the data covers all of it (2.4.12, see OpsReports.Covers): at 180 days
                on 182 days of data, "+3997% on the 180 days before" was 1,270 people against the 31 of two days. */
-            var first = await OpsReports.FirstDayAsync(Db);
+            var first = await firstTask;
             var full = OpsReports.Covers(prev, first);
-            var now = await m.TotalsAsync(Ctx);
-            var before = full ? await m.TotalsAsync(prev) : new Totals();
+            var now = await nowTask;
+            var beforeTask = full ? m.TotalsAsync(prev) : Task.FromResult(new Totals());
+            var u0Task = full ? m.UnitsAsync(prev) : null;
+            await Task.WhenAll(new Task?[] { beforeTask, u0Task }.OfType<Task>());
+            var before = await beforeTask;
             string Delta(double a, double b, bool pct = false) =>
                 !full ? OpsReports.NoFullPeriodBefore(first)
                 : b == 0 ? "no earlier figure" : pct ? $"{(a - b) * 100:+0.0;-0.0;0} points on the {Ctx.Days} days before" : $"{(a - b) / b:+0%;-0%;0%} on the {Ctx.Days} days before";
@@ -46,8 +55,8 @@ namespace CopilotInsights.Pages.Leadership
             Kpis.Add(new("Interactions", Num(now.Interactions), Delta(now.Interactions, before.Interactions)));
             Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
 
-            var u1 = (await m.UnitsAsync(Ctx)).ToDictionary(u => u.Unit);
-            var u0 = full ? (await m.UnitsAsync(prev)).ToDictionary(u => u.Unit) : new Dictionary<string, UnitRow>();
+            var u1 = (await u1Task).ToDictionary(u => u.Unit);
+            var u0 = u0Task is not null ? (await u0Task).ToDictionary(u => u.Unit) : new Dictionary<string, UnitRow>();
             var t = new Table
             {
                 Headers = split
