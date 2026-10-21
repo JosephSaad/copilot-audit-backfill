@@ -26,6 +26,15 @@ public class Release275Tests
     }
 
     [Fact]
+    public void Department_names_in_the_chart_and_table_open_the_department()
+    {
+        var page = Page("Adoption", "Adoption.cs");
+        Assert.Contains("new Chart.AdoptionGroup(r.Department, r.ActiveLicensed, r.Licensed, Pick(r))", page);
+        Assert.Contains("Pick(r) is { } href ? new Link(r.Department, href) : r.Department", page);
+        Assert.Contains("dept is null && r.Department != \"Smaller departments\"", page);
+    }
+
+    [Fact]
     public void The_leaderboard_names_do_not_open_departments()
     {
         /* Inside a team, Departments combined Sales East (163 people) with a department of one, so its name was not there. */

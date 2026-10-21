@@ -14,7 +14,8 @@ database changes, and no script on the job server.
 
 ### Changed
 - **Organization's Unit with the highest (lowest) adoption** opens that unit, as its name in the table does.
-- **Departments' Department with the highest (lowest) adoption** opens the page on that department.
+- **Departments' Department with the highest (lowest) adoption** opens the page on that department, and so does each
+  department's bar and name in the table (the combined smaller departments aside), as Organization's units do.
 - **Rollout waves' People without a license** opens Demand for licenses, which counts the same people, for every
   department. Its note says the Copilot Chat users it counts are the last 30 days' (Demand counts the period's).
 - **Chargeback's Used in the period** is now *Licenses used in the period*: the agent pages' figure of that name counts agents.

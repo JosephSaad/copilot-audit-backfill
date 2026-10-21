@@ -162,10 +162,10 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
         /* 2.7.4: the page had no headline: how many departments, and the two ends of adoption among those large enough to rank. */
         var ranked = shown.Where(r => r.Department != "Smaller departments" && r.Licensed >= Ctx.MinGroupSize).OrderByDescending(r => r.ActiveLicensed / (double)r.Licensed).ToList();
         Kpis.Add(new("Departments", Num(rows.Count), $"in {Here}, from Active Directory"));
+        /* 2.7.5: a department's name opens this page on it, as choosing it below does. */
+        string Only(Row r) => Ctx.Url(Request.Path, extra: "dept=" + Uri.EscapeDataString(r.Department));
         if (ranked.Count > 1)
         {
-            /* 2.7.5: each opens this page on that department, as choosing it below does. */
-            string Only(Row r) => Ctx.Url(Request.Path, extra: "dept=" + Uri.EscapeDataString(r.Department));
             Kpis.Add(new("Department with the highest adoption", ranked[0].Department, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot", Href: Only(ranked[0])));
             Kpis.Add(new("Department with the lowest adoption", ranked[^1].Department, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot", Href: Only(ranked[^1])));
         }
@@ -174,9 +174,11 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
         var (dept, picker) = DepartmentFilter(shown.Select(r => r.Department));
         Panels.Add(new("Choose a department", picker));
         if (dept is not null) shown = shown.Where(r => r.Department == dept).ToList();
+        /* In the chart and the table, every name but the combined smaller ones, until one is chosen. */
+        string? Pick(Row r) => dept is null && r.Department != "Smaller departments" ? Only(r) : null;
 
         Panels.Add(new("Adoption by department",
-            Chart.Adoption(shown.Select(r => new Chart.AdoptionGroup(r.Department, r.ActiveLicensed, r.Licensed)), Ctx.MinGroupSize, "Adoption by department", 25),
+            Chart.Adoption(shown.Select(r => new Chart.AdoptionGroup(r.Department, r.ActiveLicensed, r.Licensed, Pick(r))), Ctx.MinGroupSize, "Adoption by department", 25),
             $"Departments with at least {Ctx.MinGroupSize} license holders, highest first; the rest are combined in the last bar, so no bar rests on one or two people. The table has every department."));
         var t = new Table
         {
@@ -184,7 +186,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7 },
         };
         foreach (var r in shown)
-            t.Rows.Add([r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, AdoptionAtMin(r.ActiveLicensed, r.Licensed),
+            t.Rows.Add([Pick(r) is { } href ? new Link(r.Department, href) : r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, AdoptionAtMin(r.ActiveLicensed, r.Licensed),
                         r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null, Pct(Ratio(r.MultiTurn, r.Sessions))]);
         CsvTable = t;
         Panels.Add(new("All departments", t.Render(), folded > 0 ? FoldNote(folded, "department") : null, "full", CsvUrl()));
