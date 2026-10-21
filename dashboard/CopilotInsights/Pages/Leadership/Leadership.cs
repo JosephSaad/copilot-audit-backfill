@@ -112,6 +112,7 @@ public sealed class MixModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         var trTask = m.TrendAsync(Ctx);
+        var totalsTask = m.TotalsAsync(Ctx);
         var agentsTask = Db.QueryAsync<(string AgentName, long N, int People)>($@"
 SELECT ag.AgentName, COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
@@ -126,6 +127,13 @@ JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name, as Apps shows it
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App);", Ctx.Args());
+        /* 2.7.3: Overview's Interactions opens this page, which had no figure of its own; it now leads with the same one. */
+        var t = await totalsTask;
+        var trAll = await trTask;
+        long chat = trAll.Sum(w => w.Chat), viaAgent = trAll.Sum(w => w.Agent), counted = trAll.Sum(w => w.Interactions);
+        Kpis.Add(new("Interactions", Num(t.Interactions), t.Active > 0 ? $"{t.Interactions / (double)t.Active:#,0.0} per active person" : null));
+        Kpis.Add(new("In Copilot Chat", Pct(Ratio(chat, counted)), "of interactions; the rest inside the apps"));
+        Kpis.Add(new("Through an agent", Pct(Ratio(viaAgent, counted)), "of interactions"));
         var buckets = Buckets();
         var x = Labels();
         var top = rows.GroupBy(r => r.App).OrderByDescending(g => g.Sum(r => r.N)).Select(g => g.Key).Take(6).ToList();

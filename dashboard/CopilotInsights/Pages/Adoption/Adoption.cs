@@ -18,10 +18,13 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var started = await Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.Interactions > 0);", Ctx.Args());
+        var notStarted = await Db.ScalarAsync<int>($"SELECT COUNT(*) {NotStartedModel.Who(Ctx)};", Ctx.Args());
 
         /* The same names as Leadership › Overview: the license is the Premium one, and its use in the period is Adoption. */
         Kpis.Add(new("Premium licenses today", Num(t.LicensedNow)));
-        Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} license holders have used Copilot at least once, at any time", Href: Open("/adoption/not-started")));
+        Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} license holders have used Copilot at least once, at any time"));
+        /* 2.7.3: the list's own count leads to it; the share above is its complement, so it did not appear there. */
+        Kpis.Add(new("Licensed, not started", Num(notStarted), "licensed at least 14 days ago, never used Copilot", notStarted > 0 ? "warn" : null, Href: Open("/adoption/not-started")));
         Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), $"{t.ActiveLicensed:#,0} license holders used it in the period"));
         Kpis.Add(new("People who followed up", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of active people had a session of more than one prompt (prompts less than an hour apart on one day, in any app)"));
 
@@ -178,6 +181,13 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
 
 public sealed class NotStartedModel(PageServices s) : InsightsPage(s)
 {
+    /// <summary>Who the list holds, for its own count and Adoption's (2.7.3): the figure and the list it opens agree.</summary>
+    internal static string Who(ReportContext c) => $@"
+FROM bi.DimUser AS du {c.Scope("du.UserKey")}
+WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DAY, -14, @d1)
+  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0)
+  AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")}";
+
     public override string Title => "Not started";
     public override string Persona => "Adoption";
     public override string? OwnWindow => "today's licenses";
@@ -211,10 +221,7 @@ public sealed class NotStartedModel(PageServices s) : InsightsPage(s)
         var pg = new Paging(Request, Sorts, "since");
         var rows = await Db.QueryAsync<Row>($@"
 SELECT du.DisplayName, du.UserPrincipalName, du.Department, du.JobTitle, du.ManagerName, du.LicensedSinceUtc, COUNT(*) OVER () AS TotalRows
-FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")}
-WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DAY, -14, @d1)
-  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND ud.Interactions > 0)
-  AND {CopilotInsights.Data.ProtectedLevels.Not("du.UserPrincipalName")}
+{Who(Ctx)}
   AND (@q IS NULL OR du.DisplayName LIKE @q OR du.UserPrincipalName LIKE @q OR du.Department LIKE @q)
 {pg.OrderAndPage()};", Ctx.Args(new { q = pg.Like }));
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;

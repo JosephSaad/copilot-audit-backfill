@@ -53,6 +53,22 @@ public class Release273Tests
     }
 
     [Fact]
+    public void A_linked_figure_is_counted_as_the_page_it_opens_counts_it()
+    {
+        /* Adoption's link went from a share that started to the list of those who had not; it is now the list's own count. */
+        var adoption = Read("dashboard", "CopilotInsights", "Pages", "Adoption", "Adoption.cs");
+        Assert.Contains("var notStarted = await Db.ScalarAsync<int>($\"SELECT COUNT(*) {NotStartedModel.Who(Ctx)};\", Ctx.Args());", adoption);
+        Assert.Contains("{Who(Ctx)}", adoption);
+        /* Sensitive content's people are Access to labeled content's: labeled content, or blocked from it. */
+        var compliance = Read("dashboard", "CopilotInsights", "Pages", "Compliance", "Compliance.cs");
+        Assert.Contains("WHERE rd.Kind IN ('Label', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1", compliance);
+        Assert.Contains("Href: Open(\"/compliance/access\")", compliance);
+        /* Overview's Interactions opens Apps and agents, which now leads with the same figure. */
+        var lead = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "Leadership.cs");
+        Assert.Contains("Kpis.Add(new(\"Interactions\", Num(t.Interactions), t.Active > 0 ? $\"{t.Interactions / (double)t.Active:#,0.0} per active person\" : null));", lead);
+    }
+
+    [Fact]
     public void A_page_is_named_by_its_section_with_one_separator()
     {
         /* "Admin > Targets" and "Admin › Value names" both appeared on screen; the guides use ›, and so does the dashboard. */
