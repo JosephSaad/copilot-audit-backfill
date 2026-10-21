@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.6] - Unreleased
+
+**Install over 2.7.5:** build and deploy the dashboard from this release (docs\BUILD-FROM-SOURCE.md). Nothing in the
+database changes, and no script on the job server.
+
+### Fixed
+- **Copilot reservations with an empty register** showed every Microsoft 365 Copilot holder (17,886 at a client) under no
+  listed leader, in red, with nothing to say why. It now says first that no organization is in the register yet, and
+  where an administrator adds them and the rate.
+
 ## [2.7.5] - 2026-10-21
 
 A pass over the 250 headline figures that open nothing: the ones that name a group now open it, and two figures that

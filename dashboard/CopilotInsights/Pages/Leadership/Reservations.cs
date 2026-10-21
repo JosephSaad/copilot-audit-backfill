@@ -45,6 +45,12 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             Notice = "No licenses have been read yet. The license lookup fills them each night.";
             return;
         }
+        /* 2.7.6: with nothing in the register, every holder is under no listed leader. A client read 17,886 of them, in red, as
+           a fault; it is the register still to be filled. Said first, for the whole organization's view of today. */
+        if (whole && !v.IsSnapshot && v.Orgs.Count == 0)
+            Notice = "No organization is in the reservation register yet, so every Microsoft 365 Copilot holder shows under no listed leader. " +
+                     (Viewer.IsAdmin ? "Add each line of business, its leader and its reserved seats in Reservation register below; then Finance's rate in Rate and purchase gate."
+                                                    : "An administrator adds each line of business, its leader and its reserved seats here.");
         var cur = v.Currency;
         string M(decimal? x) => x is { } d ? CostRules.Money(Math.Round(d, MidpointRounding.AwayFromZero), cur) : "Pending Finance Decision";
         var holders = Open("/licensing/reservation-holders");
