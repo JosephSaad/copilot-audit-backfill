@@ -35,6 +35,14 @@ public class Release275Tests
     }
 
     [Fact]
+    public void Agent_inventory_without_a_workbook_opens_each_agent()
+    {
+        var page = Page("OperationsReports.cs");
+        Assert.Contains("SELECT a.AgentKey, a.AgentName, a.AgentSource", page);
+        Assert.Contains("new Link(r.AgentName + (r.Named ? \"\" : \" (unnamed)\"), Ctx.Url(\"/agents/detail\", extra: $\"agent={r.AgentKey}\"))", page);
+    }
+
+    [Fact]
     public void The_leaderboard_names_do_not_open_departments()
     {
         /* Inside a team, Departments combined Sales East (163 people) with a department of one, so its name was not there. */
