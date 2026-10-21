@@ -103,7 +103,8 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.AgentInteractions > 0;", Ctx.Args())
         }
         Panels.Add(new("All agents", WithTrendNote(t.Render()),
             $"Came back: the share of its people who used it on more than one day. People are shown only where {Ctx.MinGroupSize} or more used an agent. Names and owners come from the agent workbook; an agent it does not list (one since deleted) has the one set in Admin › Reference data, else the audit log's. Select an agent for its detail." +
-            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : "")));
+            (PrivacyMode ? " Privacy mode is on, so owners are not shown." : ""), "full", CsvUrl()));
+        CsvTable = t;
     }
 }
 

@@ -115,7 +115,8 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", Ctx.Args());
             var n = units.Where(u => u.Unit == d).Sum(u => u.N);
             tbl.Rows.Add([d, n, .. Segments.Order.Select(sg => (object?)Pct(Ratio(units.Where(u => u.Unit == d && u.Segment == sg).Sum(u => u.N), n)))]);
         }
-        Panels.Add(new("Segments by department", tbl.Render(), $"The twelve largest departments, as a share of each one's people. Departments under {Ctx.MinGroupSize} are left out.", "half"));
+        CsvTable = tbl;
+        Panels.Add(new("Segments by department", tbl.Render(), $"The twelve largest departments, as a share of each one's people. Departments under {Ctx.MinGroupSize} are left out.", "half", CsvUrl()));
 
         Panels.Add(new("Conversations, not one-off questions",
             Chart.Line(Labels(), [new Series("With a follow-up", tr.Select(x => Ratio(x.MultiTurn, x.Sessions)).ToList(), 1)], Fmt.Percent, "Share of sessions with a follow-up"),

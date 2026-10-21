@@ -159,6 +159,15 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             ActiveLicensed = small.Sum(r => r.ActiveLicensed), ActiveDays = small.Sum(r => r.ActiveDays), Sessions = small.Sum(r => r.Sessions), MultiTurn = small.Sum(r => r.MultiTurn),
         }, out var folded).OrderByDescending(r => r.Licensed >= Ctx.MinGroupSize).ThenByDescending(r => Ratio(r.ActiveLicensed, r.Licensed) ?? -1).ThenByDescending(r => r.Licensed).ToList();
 
+        /* 2.7.4: the page had no headline: how many departments, and the two ends of adoption among those large enough to rank. */
+        var ranked = shown.Where(r => r.Department != "Smaller departments" && r.Licensed >= Ctx.MinGroupSize).OrderByDescending(r => r.ActiveLicensed / (double)r.Licensed).ToList();
+        Kpis.Add(new("Departments", Num(rows.Count), $"in {Here}, from Active Directory"));
+        if (ranked.Count > 1)
+        {
+            Kpis.Add(new("Department with the highest adoption", ranked[0].Department, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot"));
+            Kpis.Add(new("Department with the lowest adoption", ranked[^1].Department, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot"));
+        }
+
         /* 2.5.8: one department, or every one (the default). The departments offered are those shown, smaller ones combined. */
         var (dept, picker) = DepartmentFilter(shown.Select(r => r.Department));
         Panels.Add(new("Choose a department", picker));
@@ -175,7 +184,8 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
         foreach (var r in shown)
             t.Rows.Add([r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, AdoptionAtMin(r.ActiveLicensed, r.Licensed),
                         r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null, Pct(Ratio(r.MultiTurn, r.Sessions))]);
-        Panels.Add(new("All departments", t.Render(), folded > 0 ? FoldNote(folded, "department") : null));
+        CsvTable = t;
+        Panels.Add(new("All departments", t.Render(), folded > 0 ? FoldNote(folded, "department") : null, "full", CsvUrl()));
     }
 }
 

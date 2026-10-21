@@ -69,6 +69,14 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         var buckets = Buckets();
         var axis = Labels();
         var shown = FoldSmall(units, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
+        /* 2.7.4: the page had no headline: how many parts, and the two ends of adoption among those large enough to rank. */
+        var ranked = shown.Where(u => u.Unit != "~small" && u.Licensed >= Ctx.MinGroupSize).OrderByDescending(u => u.ActiveLicensed / (double)u.Licensed).ToList();
+        Kpis.Add(new("Units", Num(shown.Count(u => u.Unit != "~small")), $"one level below {Here}"));
+        if (ranked.Count > 1)
+        {
+            Kpis.Add(new("Unit with the highest adoption", ranked[0].Name, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot"));
+            Kpis.Add(new("Unit with the lowest adoption", ranked[^1].Name, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot"));
+        }
 
         var t = new Table
         {
@@ -86,8 +94,9 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
             ]);
         }
         t.KeepLast = folded > 0 ? 1 : 0;
+        CsvTable = t;
         Panels.Add(new("Units", WithTrendNote(t.Render()),
-            folded > 0 ? FoldNote(folded, "unit") : null));
+            folded > 0 ? FoldNote(folded, "unit") : null, "full", CsvUrl()));
 
         var big = shown.Where(u => u.Unit != "~small").ToList();
         var grid = new double?[big.Count, buckets.Count];
