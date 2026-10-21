@@ -33,7 +33,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         var v = await suites.FitAsync(Ctx, scoped: true);
         if (v.Suites.Count == 0)
         {
-            Notice = "No suites are set: run the 2.6.6 dashboard schema (sql\\Create-CopilotDashboardSchema.sql), which adds E3, E5 and E7, or turn them on in Admin › Targets and assumptions.";
+            Notice = "No suites are set. An administrator adds E3, E5 and E7 by running Install-CopilotAudit.ps1 -Dashboard from 2.6.6 or later, or turns them on in Admin › Targets and assumptions.";
             return;
         }
         if (v.Rows.Count == 0)

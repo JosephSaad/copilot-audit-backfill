@@ -403,7 +403,7 @@ public sealed class ChecksModel(PageServices s) : InsightsPage(s)
         if (!await Workbook.HasAsync(Db)) { Notice = Workbook.Missing; return; }
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END;") != 1)
         {
-            Notice = "The agent checks need the agent workbook's settings, which arrive with 2.5.8: run Install-CopilotAudit.ps1 -Dashboard, then load the workbook again.";
+            Notice = "The agent checks need the agent workbook's settings. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from 2.5.8 or later, then loading the workbook again.";
             return;
         }
         var dir = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.UserDirectory', N'U') IS NULL THEN 0 ELSE 1 END;") == 1;

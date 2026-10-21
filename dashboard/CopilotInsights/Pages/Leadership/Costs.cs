@@ -41,7 +41,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         var v = await costs.BuildAsync(Ctx);
         if (v.Areas.Count == 0)
         {
-            Notice = "No spend to show yet: none of the sources is loaded. Docs\\OPERATIONS.md, Costs and savings, says what each needs.";
+            Notice = "No spend to show yet: none of the sources is loaded. docs\\OPERATIONS.md, Costs and savings, says what each needs.";
             return;
         }
         var cur = v.Currency;
