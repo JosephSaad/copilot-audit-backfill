@@ -23,6 +23,9 @@ database changes, and no script on the job server.
 - **Chargeback's Used in the period** is now *Licenses used in the period*: the agent pages' figure of that name counts agents.
 
 ### Fixed
+- **How figures are calculated › Suites** listed Microsoft 365 E5 three times, E7 three times and so on, each as
+  "Microsoft 365 E5, a user a month": each row is one SKU the suite is sold under (SPE_E5, SPE_E5_NOPSTNCONF, the no-Teams
+  edition), priced on its own. Each row now names its SKU.
 - **Guests' Holding a Copilot license** counted 2 guests where Copilot on non-human accounts counted 1: an administrator
   had confirmed the other as a person. The figure now says how many were confirmed, and opens the guest breaches.
 - **Countries and offices' Country with the highest adoption** could be a country of one license holder, or the

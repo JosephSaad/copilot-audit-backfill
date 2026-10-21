@@ -74,9 +74,15 @@ public static class Assumptions
     public static AssumptionDef Price(string item, string name, string area, string unit) =>
         new("Price:" + item, $"{name}, a {unit}", "Prices", Targets, "price|" + item, $"Costs and savings ({area})", null, AssumptionKind.Price);
 
-    /// <summary>A suite's price as an assumption.</summary>
+    /// <summary>
+    /// A suite's price as an assumption. A suite is sold under several SKUs, each priced on its own (E5 without audio
+    /// conferencing, the no-Teams editions), so the label names the SKU (2.7.5): by the suite alone, E5 read as one row three times.
+    /// </summary>
     public static AssumptionDef Suite(string pattern, string suite) =>
-        new("Suite:" + pattern, $"{suite}, a user a month", "Suites", Targets, "price|" + pattern, "Suite fit, Costs and savings (suites)", null, AssumptionKind.Suite);
+        new("Suite:" + pattern, $"{suite} ({SkuShown(pattern)}), a user a month", "Suites", Targets, "price|" + pattern, "Suite fit, Costs and savings (suites)", null, AssumptionKind.Suite);
+
+    /// <summary>A SKU pattern as people read it: SPE[_]E7% is SPE_E7*.</summary>
+    public static string SkuShown(string pattern) => pattern.Replace("[_]", "_").Replace("%", "*");
 
     /// <summary>
     /// What disagrees (2.6.9): the Copilot license's price as Access sets it against the reservation rate in force and

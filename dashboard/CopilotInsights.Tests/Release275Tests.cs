@@ -50,6 +50,13 @@ public class Release275Tests
         Assert.Contains("new Link(\"Its users each cost more than a license: see Licensing › Better with a license\", betterLicensed)", page);
     }
 
+    [Theory]
+    [InlineData("SPE[_]E5[_]NOPSTNCONF", "Microsoft 365 E5", "Microsoft 365 E5 (SPE_E5_NOPSTNCONF), a user a month")]
+    [InlineData("SPE[_]E7%", "Microsoft 365 E7", "Microsoft 365 E7 (SPE_E7*), a user a month")]
+    [InlineData("Office[_]365[_]E3[_](no[_]Teams)", "Office 365 E3", "Office 365 E3 (Office_365_E3_(no_Teams)), a user a month")]
+    public void A_suite_price_names_its_SKU(string pattern, string suite, string label) =>
+        Assert.Equal(label, CopilotInsights.Data.Assumptions.Suite(pattern, suite).Label);
+
     [Fact]
     public void The_leaderboard_names_do_not_open_departments()
     {
