@@ -11,9 +11,15 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var t = await m.TotalsAsync(Ctx);
-        var tr = await m.TrendAsync(Ctx);
-        var adopted = await m.AdoptedAsync(Ctx);
+        /* The four reads are independent and each opens its own connection: read together, not one after another. */
+        var totalsTask = m.TotalsAsync(Ctx);
+        var trendTask = m.TrendAsync(Ctx);
+        var adoptedTask = m.AdoptedAsync(Ctx);
+        var unitsTask = m.UnitsAsync(Ctx);
+        await Task.WhenAll(totalsTask, trendTask, adoptedTask, unitsTask);
+        var t = await totalsTask;
+        var tr = await trendTask;
+        var adopted = await adoptedTask;
         var x = Labels();
 
         Kpis.Add(new("People using Copilot", Num(t.Active), t.People > 0 ? $"of {t.People:#,0} people in {Here}" : "in the period", Href: Open("/licensing/ranking")));
@@ -38,7 +44,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
             Chart.Columns(x, [new Series("Interactions", tr.Select(w => (double?)w.Interactions).ToList(), 1)], Fmt.Count, "Interactions"),
             $"An interaction is one prompt to Copilot and its answer, by anyone, licensed or not. {TrendNote}", "half"));
 
-        var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
+        var units = FoldSmall(await unitsTask, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
         Panels.Add(new(Ctx.Root is null && Ctx.OrgTopUpn is null ? "Adoption by division" : "Adoption in each part of the organization",
             Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null)),
                 Ctx.MinGroupSize, "Adoption by unit", 40),
@@ -55,8 +61,11 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var units = await m.UnitsAsync(Ctx);
-        var trend = await m.UnitsTrendAsync(Ctx);
+        var unitsTask = m.UnitsAsync(Ctx);
+        var trendTask = m.UnitsTrendAsync(Ctx);
+        await Task.WhenAll(unitsTask, trendTask);
+        var units = await unitsTask;
+        var trend = await trendTask;
         var buckets = Buckets();
         var axis = Labels();
         var shown = FoldSmall(units, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
@@ -102,6 +111,13 @@ public sealed class MixModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
+        var trTask = m.TrendAsync(Ctx);
+        var agentsTask = Db.QueryAsync<(string AgentName, long N, int People)>($@"
+SELECT ag.AgentName, COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
+WHERE f.DateKey BETWEEN @k0 AND @k1 AND ag.AgentSource <> N'(no agent)'
+GROUP BY ag.AgentName ORDER BY 2 DESC;", Ctx.Args());
         var rows = await Db.QueryAsync<(DateTime Bucket, string App, long N)>($@"
 SELECT {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App), COUNT_BIG(*)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
@@ -119,7 +135,7 @@ GROUP BY {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App);", Ctx.Args());
         Panels.Add(new("Interactions by app", Chart.Columns(x, series, Fmt.Count, "Interactions by app"),
             $"The six busiest apps; the rest are combined. Name an app shown by its code in Admin › Value names. {TrendNote}"));
 
-        var tr = await m.TrendAsync(Ctx);
+        var tr = await trTask;
         Panels.Add(new("Copilot Chat and agents, share of interactions",
             Chart.Line(x, [
                 new Series("Copilot Chat", tr.Select(w => Ratio(w.Chat, w.Interactions)).ToList(), 1),
@@ -129,12 +145,7 @@ GROUP BY {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App);", Ctx.Args());
         var byApp = rows.GroupBy(r => r.App).Select(g => new Bar(g.Key, g.Sum(r => r.N))).OrderByDescending(b => b.Value).ToList();
         Panels.Add(new("Interactions by app, whole period", Chart.Bars(byApp, Fmt.Count, "Interactions by app"), null, "half"));
 
-        var agents = await Db.QueryAsync<(string AgentName, long N, int People)>($@"
-SELECT ag.AgentName, COUNT_BIG(*), COUNT(DISTINCT f.UserKey)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN dash.Agent AS ag ON ag.AgentKey = f.AgentKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND ag.AgentSource <> N'(no agent)'
-GROUP BY ag.AgentName ORDER BY 2 DESC;", Ctx.Args());
+        var agents = await agentsTask;
         Panels.Add(new("Most-used agents", Chart.Bars(agents.Take(10).Select(a => new Bar(a.AgentName, a.N, Note: AgentPeople(a.People))).ToList(), Fmt.Count, "Interactions by agent"),
             $"Agents' friendly names come from Admin › Reference data. How many people used an agent is shown only where it is {Ctx.MinGroupSize} or more."));
     }
