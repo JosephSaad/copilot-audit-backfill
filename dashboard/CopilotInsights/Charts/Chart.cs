@@ -365,7 +365,10 @@ public static class Chart
         if (x.Count == 0 || lines.Count == 0 || lines.All(l => l.History.Values.All(v => v is null))) return new(Empty("Not enough history to forecast yet."));
         var top0 = lines.SelectMany(l => l.History.Values.Where(v => v.HasValue).Select(v => v!.Value).Concat(l.High)).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
-        var compact = W <= 380 && lines.Count >= 2;
+        /* Narrow, the end carries its value alone; also when the name and value would not fit the widest margin allowed (2.7.3:
+           at 390px "Free Copilot Chat only 229" ran 4px past the edge). The chart's title names a single line. */
+        var fullLabel = lines.Select(l => TextW(l.History.Name + " " + Format(l.Forecast.Count > 0 ? l.Forecast[^1] : l.History.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
+        var compact = (W <= 380 && lines.Count >= 2) || fullLabel + 16 > Math.Max(110, W * 0.42);
         var endLabel = lines.Select(l => TextW((compact ? "" : l.History.Name + " ") + Format(l.Forecast.Count > 0 ? l.Forecast[^1] : l.History.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
         var r = (int)Math.Clamp(endLabel + 16, compact ? 48 : 110, Math.Max(110, W * 0.42));
         using var layout = new Layout(r, BottomFor(x, W - r - L));
@@ -554,7 +557,9 @@ public static class Chart
         var top = max ?? values.Cast<double?>().Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
         const int rowH = 24;
         var HW = W;
-        var labelW = (int)Math.Clamp(rows.Max(r => TextW(r)) + 14, 110, Math.Max(110, HW * 0.36));
+        /* Row names are drawn as bar names are (6.9 a character, not a tick's 6.3), and a phone gives them up to 45% of
+           the width: at 390px, "Employee Experience" started 4px left of the chart (2.7.3). */
+        var labelW = (int)Math.Clamp(rows.Max(r => r.Length * 6.9) + 14, 110, Math.Max(110, HW * (HW <= 420 ? 0.45 : 0.36)));
         var cw = (HW - labelW - 8) / (double)cols.Count;
         var h = rows.Count * rowH + 24;
         var sb = new StringBuilder($"<svg class=\"chart heat\" viewBox=\"0 0 {HW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
