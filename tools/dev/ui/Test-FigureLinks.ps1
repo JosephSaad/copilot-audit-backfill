@@ -21,6 +21,7 @@ param(
 )
 Add-Type -AssemblyName System.Web
 # pwsh -File passes -Days 30,90,365 as one string: split it.
+$Pages = @($Pages | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Days = @($Days | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { [int] $_ })
 
 # Page|label start -> target: a related page, by design (2.7.3 review).
@@ -62,7 +63,7 @@ $results = foreach ($d in $Days) {
             $text = if ($target) { [System.Web.HttpUtility]::HtmlDecode([regex]::Replace($target, '<[^>]+>', ' ')) } else { '' }
             $digits = $value -replace '[^\d\.%]', ''
             $found = $target -and ($text.Contains($value) -or ($digits.Length -gt 0 -and ($text -replace '[,\s]', '').Contains($digits)))
-            $isRelated = $RelatedLinks | Where-Object { $parts = $_ -split '\|'; $p -eq $parts[0] -and $label.StartsWith($parts[1]) }
+            $isRelated = $RelatedLinks | Where-Object { $parts = $_ -split '\|'; ($p -split '\?')[0] -eq $parts[0] -and $label.StartsWith($parts[1]) }
             [pscustomobject]@{ Days = $d; Page = $p; Label = $(if ($label.Length -gt 40) { $label.Substring(0, 40) } else { $label }); Value = $value; Target = $href
                                Result = $(if ($found) { 'ok' } elseif ($isRelated) { 'related' } else { 'FAIL' }) }
         }

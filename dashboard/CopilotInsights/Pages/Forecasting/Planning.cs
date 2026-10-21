@@ -75,7 +75,7 @@ WHERE EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND
         Kpis.Add(new("Next renewal", next is null ? "—" : next.RenewalDate.ToString("d MMM yyyy"),
             next is null ? null : $"{next.Name}, in {(next.RenewalDate - DateTime.Today).Days} days", next is not null && (next.RenewalDate - DateTime.Today).Days <= 90 ? "warn" : null));
         Kpis.Add(new("Seats to renew", Num(keep), seats > 0 ? $"{keep - seats:+#,0;-#,0;0} against the contracts: {(keep - seats) * avgPrice * 12:+#,0;-#,0;0} {cur} a year" : null,
-            seats > 0 && keep < seats ? "warn" : null, Href: Open("/forecasting/optimize"),
+            seats > 0 && keep < seats ? "warn" : null, Href: Open("/forecasting/optimize", null, keepOrg: false),   // the budget is the whole tenant's, whatever team is shown
             Why: await WhyAsync($"License optimization's right size in 13 weeks ({size.Target:#,0}): the licensed people forecast to use Copilot each week ({size.Projected:#,0}; {size.Active:#,0} in the last 30 days, the larger counts), plus {size.SparePercent:0.##}% kept spare, plus {size.Demand:#,0} heavy Copilot Chat users with no license. Less {suiteActive:#,0} who use Copilot through a suite, which covers them.", "SpareSeatPercent")));
 
         Panels.Add(new("How the renewal figure is made", Chart.Bars(
