@@ -16,8 +16,8 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         var top = countries.Where(c => c.Licensed > 0).OrderByDescending(c => c.ActiveLicensed / (double)c.Licensed).FirstOrDefault();
         var low = countries.Where(c => c.Licensed >= Ctx.MinGroupSize).OrderBy(c => c.ActiveLicensed / (double)c.Licensed).FirstOrDefault();
         Kpis.Add(new("Countries", Num(countries.Count(c => c.Name != "Smaller groups")), $"{offices.Count(o => o.Name != "Smaller groups"):#,0} offices"));
-        if (top is not null) Kpis.Add(new("Highest adoption", top.Name, Pct(Ratio(top.ActiveLicensed, top.Licensed))));
-        if (low is not null) Kpis.Add(new("Lowest adoption", low.Name, Pct(Ratio(low.ActiveLicensed, low.Licensed))));
+        if (top is not null) Kpis.Add(new("Country with the highest adoption", top.Name, Pct(Ratio(top.ActiveLicensed, top.Licensed))));
+        if (low is not null) Kpis.Add(new("Country with the lowest adoption", low.Name, Pct(Ratio(low.ActiveLicensed, low.Licensed))));
 
         Panels.Add(new("Adoption by country", Groups.AdoptionBars(countries, "Adoption by country", Ctx.MinGroupSize),
             "Licensed people who used Copilot in the period." + (fc > 0 ? " " + FoldNote(fc, "country", "countries") : ""), "half"));

@@ -143,11 +143,12 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         /* 2.7.3: the groups are enabled accounts found in the directory; a license on a disabled or missing account is paid
            for and charged to no group (61 of 2,718 on the demo data). It is shown, not lost. */
         var unallocated = Math.Max(0, await heldTask - licensed);
-        Kpis.Add(new("Licenses held", Num(licensed), $"{licensed * price:#,0} {cur} a month", Href: Open("/adoption/by-license"),
-            Why: await WhyAsync($"Licenses held ({licensed:#,0}) × the Copilot license price ({price:#,0.##} {cur}) = {licensed * price:#,0} {cur} a month.", "LicenseMonthlyCost", "LicenseCurrency")));
+        /* 2.7.3: named for what it counts; License optimization's Licenses held counts every license, these only the groups'. */
+        Kpis.Add(new("Licenses charged to groups", Num(licensed), $"{licensed * price:#,0} {cur} a month", Href: Open("/adoption/by-license"),
+            Why: await WhyAsync($"Licenses held by the enabled accounts found in the directory, which the groups below are made of ({licensed:#,0}) × the Copilot license price ({price:#,0.##} {cur}) = {licensed * price:#,0} {cur} a month.", "LicenseMonthlyCost", "LicenseCurrency")));
         Kpis.Add(new("Used in the period", Num(used), licensed > 0 ? Pct(Ratio(used, licensed)) : null));
         Kpis.Add(new("Unused spend", $"{(licensed - used) * price:#,0} {cur}", "a month, on licenses not used in the period", licensed - used > 0 ? "warn" : null,
-            Why: await WhyAsync($"(Licenses held − holders who used Copilot in the period) × price: ({licensed:#,0} − {used:#,0}) × {price:#,0.##} {cur}.", "LicenseMonthlyCost")));
+            Why: await WhyAsync($"(Licenses charged to groups − holders who used Copilot in the period) × price: ({licensed:#,0} − {used:#,0}) × {price:#,0.##} {cur}.", "LicenseMonthlyCost")));
         Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month",
             Why: await WhyAsync($"The licenses' monthly cost over the holders who used Copilot in the period: {licensed * price:#,0} {cur} ÷ {used:#,0}.", "LicenseMonthlyCost")));
         if (unallocated > 0)
