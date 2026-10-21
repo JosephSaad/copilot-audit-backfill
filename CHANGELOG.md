@@ -13,6 +13,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   At the client, 32 million records parsed at about 2 million an hour, which added roughly 16 hours to the history load.
   An activity database (one with `audit.usp_ShredActivity`) now leaves the table empty, at `-Finalize` and in each
   night's merge. The Copilot and license-event databases are unchanged.
+- **Headline figures that opened a page without their number** (the rule since 2.6.7 is that a figure opens a page
+  showing it):
+  - Adoption's *Have started*, a share, opened the list of those who have not. That list's own count is now a figure
+    of its own, from the same query, and carries the link.
+  - Sensitive content's *People* counted those whose use touched labeled content; the list it opens also holds people
+    only blocked from content (1,902 against 1,903 on the demo data). Both now count the same people, and the figure
+    says so. *Blocked from content* now opens Security, whose *Blocked resources* is the same number.
+  - Security's *Jailbreak attempts* and *Prompt injection detected* opened the flags of all three signals; each now
+    opens the flags of its own kind.
+  - Agents › Agents costing credits summed its estimate by agent, a few credits from Credit use's total that it opens;
+    it now totals from people, as Credit use does.
+- **Two chart labels left the chart on a phone:** a heatmap's row names (Drops and spikes) and a forecast line's end
+  label (Forecast).
 
 ### Added
 - **The installer sets MAXDOP on each database it creates**: the SQL Server's logical processors less two (at least 1),
@@ -28,6 +41,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and agents read their sources together in the same way.
 - **Licensing › Swap list loads in a tenth of the time.** It read both sides (idle licenses and people wanting one)
   twice: once for the pairs and again for the four figures. One read now gives both; the figures are unchanged.
+- **More pages read their sources together:** Security, Licensing, License overlap, Use cases and Scorecard. Their
+  figures are unchanged; the gain shows on a large organization's data, where the reads overlap.
+- **One separator between a section and its page.** Screens, mail and tips wrote both "Admin > Targets" and
+  "Admin › Value names"; all now use ›, as the guides do.
+- **Leadership › Apps and agents opens with figures:** interactions, the share in Copilot Chat and the share through
+  an agent. Overview's Interactions opens it, and now finds the same number there.
 
 **Install over 2.7.2:** run `Install-CopilotAudit.ps1 -ActivityDatabase <name>` from this release; it replaces the merge
 procedure. A history load already running finishes as it began.
