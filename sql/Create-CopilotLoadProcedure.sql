@@ -198,6 +198,9 @@ BEGIN
            c.UserPrincipalName, c.Service, c.ObjectId, c.ClientIp, c.AdministrativeUnits, c.AuditDataGz, c.WindowId, @loadId
     FROM #cand AS c;
 
+    /* 2.7.3: not in an activity database (it has audit.usp_ShredActivity): its records are shredded into its own
+       tables, and nothing there reads audit.CopilotInteraction, so the JSON was parsed a second time for nothing. */
+    IF OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL
     INSERT INTO audit.CopilotInteraction
         (RecordId, CreatedDateTime, ActivityDate, UserPrincipalName, AppHost, AppIdentity, ClientRegion,
          ModelName, ModelProvider, ThreadId, PromptCount, AccessedResourceCount, UsedWebSearch)

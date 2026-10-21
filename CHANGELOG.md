@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **An activity database's history spent hours building a table nothing reads.** Its `-Finalize` shredded every record's
+  JSON into `audit.CopilotInteraction`, the Copilot reporting table, as a Copilot database's does. Nothing in the activity
+  database reads that table: its records are shredded into their own tables by `audit.usp_ShredActivity`, which follows.
+  At the client, 32 million records parsed at about 2 million an hour, which added roughly 16 hours to the history load.
+  An activity database (one with `audit.usp_ShredActivity`) now leaves the table empty, at `-Finalize` and in each
+  night's merge. The Copilot and license-event databases are unchanged.
+
+### Added
+- **The installer sets MAXDOP on each database it creates**: the SQL Server's logical processors less two (at least 1),
+  as a database-scoped configuration, so a large history's shred and the nightly refresh run in parallel and leave the
+  server room. `-MaxDop <n>` sets it on every database it installs, existing ones included; `-MaxDop 0` leaves them
+  all as they are. A database that exists keeps its own setting unless `-MaxDop` is given. Reading the processor count
+  needs VIEW SERVER STATE; without it the installer says so and sets nothing.
+
+**Install over 2.7.2:** run `Install-CopilotAudit.ps1 -ActivityDatabase <name>` from this release; it replaces the merge
+procedure. A history load already running finishes as it began.
+
 ## [2.7.2] - 2026-10-20
 
 Copilot Credits charged to each line of business, and a prepaid credit commitment tracked against its use: the

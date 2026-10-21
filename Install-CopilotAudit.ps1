@@ -70,6 +70,12 @@
     rolled up into the Copilot database (audit.usp_RollupActivity). Leave it
     out where there is none.
 
+.PARAMETER MaxDop
+    2.7.3: the parallelism each database it creates runs its queries at (ALTER DATABASE SCOPED CONFIGURATION SET
+    MAXDOP): by default the SQL Server's logical processors less two, at least 1, so a large history's shred and the
+    nightly refresh use the server and leave room for the rest. Given, it is set on every database it installs,
+    existing ones included; left out, a database that exists keeps its own. 0 leaves every database as it is.
+
 .EXAMPLE
     .\Install-CopilotAudit.ps1 -SqlServer SQLPROD01
 .EXAMPLE
@@ -99,7 +105,9 @@ param(
     # The account the nightly job runs as (DOMAIN\gmsa$ or DOMAIN\user): given a login and db_owner in both databases.
     [string] $ServiceAccount,
     # Accounts that read the bi views and nothing else, such as the Power BI gateway's (DOMAIN\name).
-    [string[]] $ReportingAccount = @()
+    [string[]] $ReportingAccount = @(),
+    # 2.7.3: MAXDOP for the databases (see .PARAMETER MaxDop): left out, the server's processors less two on the ones it creates.
+    [ValidateRange(0, 64)][int] $MaxDop = -1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -184,11 +192,13 @@ Write-Step "Databases on $SqlServer"
 $targetLevel = [int] (Invoke-Sql -Catalog master -Scalar -Sql "SELECT CASE WHEN CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) >= 16 THEN 160 ELSE CAST(SERVERPROPERTY('ProductMajorVersion') AS INT) * 10 END")
 if ($targetLevel -lt 140) { throw 'SQL Server 2017 or later is needed.' }
 $dbs = @($Database) + $(if ($SkipLicenseDatabase) { @() } else { @($LicenseDatabase) }) + $(if ($ActivityDatabase) { @($ActivityDatabase) } else { @() })
+$created = @()
 foreach ($db in $dbs) {
     $exists = [bool] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT CASE WHEN DB_ID(@d) IS NULL THEN 0 ELSE 1 END' -Parameters @{ '@d' = $db })
     if (-not $exists) {
         Invoke-Sql -Catalog master -Sql "CREATE DATABASE [$($db.Replace(']', ']]'))]; ALTER DATABASE [$($db.Replace(']', ']]'))] SET RECOVERY SIMPLE;"
         Write-Done "created $db (SIMPLE recovery)"
+        $created += $db
     }
     $level = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT compatibility_level FROM sys.databases WHERE name = @d' -Parameters @{ '@d' = $db })
     if ($level -lt 130) {
@@ -196,6 +206,27 @@ foreach ($db in $dbs) {
         Write-Done "$db compatibility level $level -> $targetLevel"
     }
     elseif ($exists) { Write-Done "$db exists (level $level)" }
+}
+
+# 2.7.3: each database it creates runs its queries at the server's logical processors less two (at least 1); -MaxDop
+# sets it on every database it installs instead, and 0 leaves them all as they are.
+if ($MaxDop -ne 0) {
+    $targets = @(if ($MaxDop -gt 0) { $dbs } else { $created })
+    if ($targets.Count -gt 0) {
+        $dop = $MaxDop
+        if ($dop -lt 0) {
+            $cpus = 0
+            try { $cpus = [int] (Invoke-Sql -Catalog master -Scalar -Sql 'SELECT cpu_count FROM sys.dm_os_sys_info;') } catch { $cpus = 0 }
+            $dop = if ($cpus -gt 0) { [Math]::Max(1, $cpus - 2) } else { 0 }
+            if ($dop -eq 0) { Write-Done "MAXDOP not set: the server's processor count could not be read (it needs VIEW SERVER STATE); give -MaxDop to set it." }
+        }
+        if ($dop -gt 0) {
+            foreach ($db in $targets) {
+                Invoke-Sql -Catalog $db -Sql "ALTER DATABASE SCOPED CONFIGURATION SET MAXDOP = $dop;"
+                Write-Done "$db MAXDOP $dop"
+            }
+        }
+    }
 }
 
 if ($ServiceAccount) {

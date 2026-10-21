@@ -443,7 +443,9 @@ FROM audit.CopilotLoad ORDER BY LoadId DESC
 }
 
 function Invoke-CopilotAuditFinalize {
-    Write-Log 'Finalizing: verifying coverage, building audit.CopilotAudit and audit.CopilotInteraction...'
+    # 2.7.3: an activity database builds no audit.CopilotInteraction (Finalize-CopilotAudit.sql); its own shred follows.
+    $activity = [bool] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL THEN 0 ELSE 1 END")
+    Write-Log ('Finalizing: verifying coverage, building audit.CopilotAudit' + $(if ($activity) { ' (an activity database: its own shred follows)...' } else { ' and audit.CopilotInteraction...' }))
     $sql = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'sql' 'Finalize-CopilotAudit.sql') -Raw
     try {
         $summary = Invoke-Sql -As Table -Sql $sql -TimeoutSeconds 0
