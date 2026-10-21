@@ -91,6 +91,7 @@ procedure. A history load already running finishes as it began. Then build and d
 - **Not run at the client.** The activity shred's skip is proven by the SQL integration test and the source checks,
   not on the 32-million-record history; MAXDOP is set only on databases the installer creates, and only where its
   login holds VIEW SERVER STATE.
+- **Power BI Desktop was not opened.** `powerbi/generate_model.py` writes the same model as 2.7.2; no `bi` view changed.
 - Five figures lead on purpose to a related page that shows another month or unit (a month's credits to the people
   who used them, the seats to renew to the right size); `tools/dev/ui/Test-FigureLinks.ps1` lists them.
 
