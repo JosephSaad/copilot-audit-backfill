@@ -4,7 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.7.4] - 2026-10-21
+
+What a full review of every page and a stress test at 120 million interactions found, fixed: pages that rebuilt a view of
+every person on each visit, queries that grouped every interaction by a name, tables with no download, summaries with no
+headline, and two links that lost the whole-organization view. Measured on 120 million interactions and 210,000 people
+(SQL Server Enterprise, MAXDOP 6, 8 processors), every report page served from the cache in 160 ms or less at 30, 90 and
+365 days, and 25 users at once were served 685 pages a second, none slower than 0.23 s and none failed.
+
+**Install over 2.7.3:** build and deploy the dashboard from this release (docs\BUILD-FROM-SOURCE.md). Nothing in the
+database changes, and no script on the job server.
 
 ### Changed
 - **Pages built over everyone are kept once worked out.** A stress test on 120 million interactions (210,000 people) found
@@ -28,6 +37,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   team shown. They now open them for the whole organization, as Costs and savings' links do.
 - **Reservation holders, opened from the menu, only said to go and choose an organization elsewhere.** It now lists the
   organizations to choose from.
+
+### Known limits
+- **A first visit can still take seconds at 120M**, before the daily pre-cache or after the data changes: the median is
+  0.37 s, but at 365 days Agents in use, Access to labeled content and Apps take 15 to 18 s, and a dozen pages 6 to 12 s.
+  The 07:00 pre-cache builds every page at every period for the whole organization, so leaders meet them kept; a team's
+  pages are kept from their first visit.
+- **Measured on the lab's synthetic 120M data** on one 8-processor server, not the client's; Power BI Desktop was not
+  opened (no `bi` view changed).
 
 ## [2.7.3] - 2026-10-21
 
