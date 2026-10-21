@@ -85,9 +85,11 @@ WITH u AS (SELECT f.UserKey, COUNT(DISTINCT f.AppKey) AS Apps FROM bi.FactIntera
            WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.UserKey)
 SELECT CASE WHEN Apps >= 5 THEN 5 ELSE Apps END, COUNT(*) FROM u GROUP BY CASE WHEN Apps >= 5 THEN 5 ELSE Apps END ORDER BY 1;", Ctx.Args());
         var appsTask = Db.QueryAsync<(string App, int People)>($@"
-SELECT COALESCE(vn.Name, a.App), COUNT(DISTINCT f.UserKey) FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+WITH g AS (SELECT f.AppKey, f.UserKey FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+           WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.UserKey)   -- 2.7.4: counted per key, then named
+SELECT COALESCE(vn.Name, a.App), COUNT(DISTINCT g.UserKey) FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
-WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY a.App, vn.Name;", Ctx.Args());
+GROUP BY a.App, vn.Name;", Ctx.Args());
         await Task.WhenAll(tTask, trTask, unitsTask, breadthTask, appsTask);
         var units = await unitsTask;
         int Seg(string name) => units.Where(x => x.Segment == name).Sum(x => x.N);
