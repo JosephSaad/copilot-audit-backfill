@@ -136,9 +136,13 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
     {
         var by = Request.Query["by"].FirstOrDefault() is { } b && By.Contains(b) ? b : "Department";
         var (price, cur) = await Price.GetAsync(S.Settings);
+        var heldTask = Db.ScalarAsync<int>($"SELECT COUNT(*) FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")} WHERE ld.DateKey = @k1;", Ctx.Args());
         var rows = Groups.Fold(this, await metrics.ByAttributeAsync(Ctx, by), Ctx.MinGroupSize, out var folded);
         var licensed = rows.Sum(r => r.Licensed);
         var used = rows.Sum(r => r.ActiveLicensed);
+        /* 2.7.3: the groups are enabled accounts found in the directory; a license on a disabled or missing account is paid
+           for and charged to no group (61 of 2,718 on the demo data). It is shown, not lost. */
+        var unallocated = Math.Max(0, await heldTask - licensed);
         Kpis.Add(new("Licenses held", Num(licensed), $"{licensed * price:#,0} {cur} a month", Href: Open("/adoption/by-license"),
             Why: await WhyAsync($"Licenses held ({licensed:#,0}) × the Copilot license price ({price:#,0.##} {cur}) = {licensed * price:#,0} {cur} a month.", "LicenseMonthlyCost", "LicenseCurrency")));
         Kpis.Add(new("Used in the period", Num(used), licensed > 0 ? Pct(Ratio(used, licensed)) : null));
@@ -146,6 +150,9 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
             Why: await WhyAsync($"(Licenses held − holders who used Copilot in the period) × price: ({licensed:#,0} − {used:#,0}) × {price:#,0.##} {cur}.", "LicenseMonthlyCost")));
         Kpis.Add(new("Cost per person using it", used > 0 ? $"{licensed * price / used:#,0.##} {cur}" : "—", "a month",
             Why: await WhyAsync($"The licenses' monthly cost over the holders who used Copilot in the period: {licensed * price:#,0} {cur} ÷ {used:#,0}.", "LicenseMonthlyCost")));
+        if (unallocated > 0)
+            Kpis.Add(new("Charged to no group", Num(unallocated), $"{unallocated * price:#,0} {cur} a month, on disabled or missing accounts", "warn", Href: Open("/licensing/leavers"),
+                Why: await WhyAsync($"Copilot licenses held today ({unallocated + licensed:#,0}) less those held by enabled accounts found in the directory, which the groups below are made of ({licensed:#,0}). Reclaim them: Licensing › Leavers lists them.", "LicenseMonthlyCost")));
 
         var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{Said(x)}</a>"));
         var t = new Table

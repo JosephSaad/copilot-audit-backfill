@@ -77,6 +77,16 @@ public class Release273Tests
     }
 
     [Fact]
+    public void Chargeback_shows_the_licenses_it_charges_to_no_group()
+    {
+        /* Its groups are enabled accounts found in the directory: a license on a disabled or missing one was paid and lost. */
+        var page = Read("dashboard", "CopilotInsights", "Pages", "Licensing", "Operations.cs");
+        Assert.Contains("var unallocated = Math.Max(0, await heldTask - licensed);", page);
+        Assert.Contains("Kpis.Add(new(\"Charged to no group\", Num(unallocated),", page);
+        Assert.Contains("Href: Open(\"/licensing/leavers\")", page);
+    }
+
+    [Fact]
     public void Every_headline_figure_says_what_it_counts()
     {
         /* 41 figures carried a label and a value and nothing else: no note on the card or behind its information icon. */
