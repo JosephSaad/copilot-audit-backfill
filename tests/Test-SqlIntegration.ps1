@@ -4583,18 +4583,22 @@ INSERT INTO dash.CreditRoute (EnvironmentName, Path, OrgId, EffectiveFrom, Effec
 EXEC dash.usp_TakeCreditChargeSnapshot;
 "@
     Assert-That ((& $kept) -eq 0) 'the month waits until the consumption report reaches its last day: it is loaded by hand, and may be loaded part way'
-    Invoke-SqlText -Catalog $credDb -Sql ($last + " UPDATE dash.CreditRoute SET EffectiveTo = '2020-12-31' WHERE EffectiveTo IS NULL; EXEC dash.usp_TakeCreditChargeSnapshot;")
+    Invoke-SqlText -Catalog $credDb -Sql ($last + " UPDATE dash.CreditRoute SET EffectiveTo = CASE WHEN Path = 'Productivity' THEN DATEADD(DAY, 20, DATEADD(DAY, 1, EOMONTH(SYSUTCDATETIME(), -2))) ELSE '2020-12-31' END WHERE EffectiveTo IS NULL; EXEC dash.usp_TakeCreditChargeSnapshot;")
     Assert-That ((& $kept) -eq 0) 'no snapshot is kept when no route is in effect at the month end'
-    Invoke-SqlText -Catalog $credDb -Sql "UPDATE dash.CreditRoute SET EffectiveTo = NULL WHERE EffectiveTo = '2020-12-31'; EXEC dash.usp_TakeCreditChargeSnapshot;"
+    Invoke-SqlText -Catalog $credDb -Sql "UPDATE dash.CreditRoute SET EffectiveTo = NULL WHERE Path IN ('Productivity', 'EnterpriseShared'); EXEC dash.usp_TakeCreditChargeSnapshot;"
     $days = [datetime]::DaysInMonth([datetime]::UtcNow.AddMonths(-1).Year, [datetime]::UtcNow.AddMonths(-1).Month)
     $s = Invoke-SqlText -Catalog $credDb -As Table -Sql "SELECT EnvironmentName AS E, Path, ISNULL(OrgName, N'') AS OrgName, CAST(Credits AS INT) AS Credits, CAST(PaygCredits AS INT) AS Payg, CAST(ChargeRate AS DECIMAL(9, 4)) AS Rate FROM dash.CreditChargeSnapshot ORDER BY E, Path;"
     $seen = (@($s.Rows | ForEach-Object { "$($_.E)/$($_.Path)=$($_.Credits)/$($_.Payg)" }) -join ' ')
     $want = "Env A/Innovation=150/0 Env A/Productivity=$(20 * ($days - 15))/$(20 * ($days - 15)) Env B/Unmapped=$(5 * $days)/0 Env C/EnterpriseShared=$(7 * $days)/0"
     Assert-That ($seen -eq $want -and @($s.Rows | Where-Object { [decimal] $_.Rate -ne 0.01 }).Count -eq 0 -and ($s.Rows | Where-Object E -eq 'Env A' | Select-Object -First 1).OrgName -eq 'One') `
         "kept: each day under the route in effect that day, the unrouted and Enterprise Shared apart, AI Builder left out, at the price list's credit when no rate is set ($seen)"
-    Invoke-SqlText -Catalog $credDb -Sql "UPDATE dash.Setting SET Value = N'0.02' WHERE Name = N'CreditChargeRate'; UPDATE dash.CreditRoute SET OrgId = N'LOB-9'; EXEC dash.usp_TakeCreditChargeSnapshot;"
+    Invoke-SqlText -Catalog $credDb -Sql "UPDATE dash.Setting SET Value = N'0.02' WHERE Name = N'CreditChargeRate'; UPDATE dash.CreditRoute SET OrgId = N'LOB-9' WHERE Path <> 'EnterpriseShared'; EXEC dash.usp_TakeCreditChargeSnapshot;"
     Assert-That ((& $kept) -eq 4 -and [int] (Invoke-SqlText -Catalog $credDb -As Scalar -Sql "SELECT COUNT(*) FROM dash.CreditChargeSnapshot WHERE OrgId = N'LOB-9' OR ChargeRate <> 0.01;") -eq 0) `
         'a month is kept once, as it was: a later rate or route does not rewrite it'
+    # An administrator clears the month and takes it again (Credit chargeback's "Take it again"): today's routes and rate.
+    Invoke-SqlText -Catalog $credDb -Sql "DECLARE @m DATE = DATEADD(DAY, 1, EOMONTH(SYSUTCDATETIME(), -2)); DELETE FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m; EXEC dash.usp_TakeCreditChargeSnapshot @Month = @m;"
+    Assert-That ((& $kept) -eq 4 -and [int] (Invoke-SqlText -Catalog $credDb -As Scalar -Sql "SELECT COUNT(*) FROM dash.CreditChargeSnapshot WHERE ChargeRate = 0.02 AND (OrgId = N'LOB-9' OR Path IN ('EnterpriseShared', 'Unmapped'));") -eq 4) `
+        'a month cleared and taken again is kept from today''s register and rate'
 }
 finally {
     try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$credDb') IS NOT NULL BEGIN ALTER DATABASE [$credDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$credDb]; END;" } catch { Write-Host "  (could not drop $credDb)" }

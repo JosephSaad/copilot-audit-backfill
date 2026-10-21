@@ -81,7 +81,7 @@ public class Release272Tests
     [Fact]
     public void A_commitment_drawn_slowly_is_projected_to_leave_part_unused()
     {
-        var s = CreditChargeRules.Project(P3(10000), Start.AddDays(29), Daily(30, 1));
+        var s = CreditChargeRules.Project(P3(10000), Start.AddDays(30), Daily(31, 1));   // a month of the term shows the rate
         Assert.Null(s.RunsOut is { } r && r < s.Commitment.EndDate ? r : null);
         Assert.True(s.UnusedAtEnd > 9000);
         Assert.Contains("unused", CreditChargeRules.Warning(s, 30));
@@ -92,12 +92,22 @@ public class Release272Tests
     {
         var s = CreditChargeRules.Project(P3(100), Start.AddDays(29), Daily(30, 10));
         Assert.Equal((100m, 0m, 200m), (s.Drawn, s.Remaining, s.Beyond));
-        Assert.Equal(Start.AddDays(29), s.RunsOut);
+        Assert.Equal(Start.AddDays(9), s.RunsOut);   // the day the draw reached 100, not the last day loaded
+        Assert.Contains("ran out on", CreditChargeRules.Warning(s, 30));
         /* Days outside the term, or after the day asked about, draw nothing. */
         var late = CreditChargeRules.Project(P3(1000), Start.AddDays(5), [(Start.AddDays(-1), 500m), (Start.AddDays(3), 10m), (Start.AddDays(9), 10m)]);
         Assert.Equal(10m, late.Drawn);
         /* Before it starts there is nothing to warn about. */
         Assert.Null(CreditChargeRules.Warning(CreditChargeRules.Project(P3(1000), Start.AddDays(-3), []), 30));
+    }
+
+    [Fact]
+    public void An_idle_commitment_warns_once_a_month_of_its_term_shows_nothing_drawing_on_it()
+    {
+        Assert.Null(CreditChargeRules.Warning(CreditChargeRules.Project(P3(100000), Start.AddDays(10), []), 30));   // too soon to tell
+        var idle = CreditChargeRules.Project(P3(100000), Start.AddDays(45), []);
+        Assert.Equal(0m, idle.BurnPerDay);
+        Assert.Contains("nothing has drawn on it", CreditChargeRules.Warning(idle, 30));
     }
 
     [Fact]
@@ -114,8 +124,9 @@ public class Release272Tests
         var ops = Read("sql", "Create-CopilotOperationsSchema.sql");
         foreach (var t in new[] { "CREATE TABLE dash.CreditRoute", "CREATE TABLE dash.CreditChargeSnapshot", "CREATE TABLE dash.CreditCommitment", "CREATE OR ALTER PROCEDURE dash.usp_TakeCreditChargeSnapshot",
                                   "GRANT INSERT, UPDATE, DELETE ON dash.CreditRoute TO CopilotInsightsApp", "GRANT INSERT, UPDATE, DELETE ON dash.CreditCommitment TO CopilotInsightsApp",
-                                  "CK_DashCreditRoute_Org CHECK (Path NOT IN ('Productivity', 'BusinessApplication') OR OrgId IS NOT NULL)", "IF @lastDay < @end RETURN;",
-                                  "('CreditChargeRate'", "('CreditCommitmentAlertDays'" })
+                                  "CK_DashCreditRoute_Org CHECK (Path NOT IN ('Productivity', 'BusinessApplication') OR OrgId IS NOT NULL)", "IF @lastDay >= @end",
+                                  "('CreditChargeRate'", "('CreditCommitmentAlertDays'", "CK_DashCreditRoute_Shared CHECK (Path <> 'EnterpriseShared' OR OrgId IS NULL)",
+                                  "WITH (UPDLOCK, HOLDLOCK)", "WHILE @m <= @stop", "GRANT EXECUTE ON dash.usp_TakeCreditChargeSnapshot TO CopilotInsightsApp", "NULLIF(TRY_CAST(" })
             Assert.Contains(t, ops);
         Assert.Contains("EXEC dash.usp_TakeCreditChargeSnapshot;", Read("Invoke-CopilotPipeline.ps1"));
         var notifier = Source.Read("Infrastructure", "Notifier.cs");
@@ -138,6 +149,23 @@ public class Release272Tests
         Assert.Contains("Credit chargeback", Read("docs", "OPERATIONS.md"));
         Assert.Contains("| Credit chargeback |", Read("docs", "DASHBOARD.md"));
         Assert.Contains("| Credit commitment |", Read("docs", "DASHBOARD.md"));
+    }
+
+    [Fact]
+    public void Every_figure_is_explained_and_leads_to_its_detail()
+    {
+        var page = Source.Read("Pages", "Leadership", "CreditChargeback.cs");
+        Assert.Contains("Href: Open(\"/licensing/credit-use\")", page);
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(page, "Why: await WhyAsync").Count);
+        var commit = Source.Read("Pages", "Forecasting", "CreditCommitment.cs");
+        Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(commit, "Why: await WhyAsync").Count);
+        Assert.Contains("OnPostAlertdaysAsync", commit);
+        Assert.Contains("its term overlaps", commit);
+        Assert.NotNull(Assumptions.Find("CreditChargeRate"));
+        Assert.NotNull(Assumptions.Find("CreditCommitmentAlertDays"));
+        foreach (var (file, text) in new[] { (new[] { "Data", "CostData.cs" }, "\"/leadership/credit-chargeback\""), (new[] { "Pages", "Licensing", "CreditUse.cs" }, "Leadership › Credit chargeback"),
+                                              (new[] { "Pages", "Leadership", "Reservations.cs" }, "Leadership › Credit chargeback"), (new[] { "Pages", "Agents", "Credits.cs" }, "Leadership › Credit chargeback") })
+            Assert.Contains(text, Source.Read(file));
     }
 
     [Fact]

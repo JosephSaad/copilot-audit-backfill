@@ -77,7 +77,8 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
         kt.Rows.Add(["Of those, an agent calling another (an action)", Math.Round(calls * scale), r.Action, Math.Round(calls * r.Action * scale)]);
         Panels.Add(new("What bills credits", kt.Render(),
             "Billed: an agent used by someone without a Microsoft 365 Copilot license at the time, or in a Copilot Studio channel (Teams, a website), where a license does not cover it. Grounded: the answer read files, mail or pages, or Copilot marked it work mode. " +
-            "Credits each are Admin's; the list rates are 2 for a generative answer, 10 more for Graph grounding, 5 for an action. A classic, scripted answer costs less, so this errs high.", "half"));
+            "Credits each are Admin's; the list rates are 2 for a generative answer, 10 more for Graph grounding, 5 for an action. A classic, scripted answer costs less, so this errs high. " +
+            "What each line of business is charged for its environments' credits is on Leadership › Credit chargeback; a prepaid commitment's draw on Forecasting › Credit commitment.", "half"));
 
         /* How the credits spread: people by band. */
         var bands = new (decimal From, decimal To, string Label)[] { (0.0001m, 100, "Under 100"), (100, 500, "100 to 500"), (500, 1000, "500 to 1,000"), (1000, 2500, "1,000 to 2,500"), (2500, 5000, "2,500 to 5,000"), (5000, decimal.MaxValue, "5,000 or more") };

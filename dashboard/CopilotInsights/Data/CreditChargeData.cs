@@ -80,7 +80,14 @@ public static class CreditChargeRules
         var window = inTerm.Where(d => d.Day > last.AddDays(-30)).ToList();
         var span = Math.Max(1, Math.Min(30, (last - c.StartDate).Days + 1));
         var burn = window.Count == 0 ? 0 : window.Sum(d => d.Drawn) / span;
-        DateTime? runsOut = remaining <= 0 ? last : burn > 0 ? last.AddDays((double)Math.Ceiling(remaining / burn)) : null;
+        /* Used up: the day the cumulative draw reached the amount, not the last day loaded. */
+        DateTime? runsOut = null;
+        if (remaining <= 0)
+        {
+            decimal run = 0;
+            foreach (var d in inTerm) { run += d.Drawn; if (run >= c.Amount) { runsOut = d.Day; break; } }
+        }
+        else if (burn > 0) runsOut = last.AddDays((double)Math.Ceiling(remaining / burn));
         var daysToEnd = Math.Max(0, (c.EndDate - last).Days);
         var unused = Math.Max(0, remaining - burn * daysToEnd);
         var term = Math.Max(1, (c.EndDate - c.StartDate).Days + 1);
@@ -96,11 +103,18 @@ public static class CreditChargeRules
     /// </summary>
     public static string? Warning(CommitmentStatus s, int days)
     {
-        if (days <= 0 || !s.Started || s.Ended || s.Daily.Count == 0) return null;
-        if (s.RunsOut is { } r && r < s.Commitment.EndDate.AddDays(-days))
-            return $"{s.Commitment.Name} is projected to run out on {r:d MMM yyyy}, {(s.Commitment.EndDate - r).Days:#,0} days before its term ends: pay-as-you-go after that.";
-        if (s.BurnPerDay > 0 && s.UnusedAtEnd > s.BurnPerDay * days)
-            return $"{s.Commitment.Name} is projected to leave {s.UnusedAtEnd:#,0} {s.Commitment.Currency} unused when its term ends on {s.Commitment.EndDate:d MMM yyyy}.";
+        if (days <= 0 || !s.Started || s.Ended) return null;
+        var c = s.Commitment;
+        if (s.RunsOut is { } r && r < c.EndDate.AddDays(-days))
+            return r <= s.AsOf
+                ? $"{c.Name} ran out on {r:d MMM yyyy}, {(c.EndDate - r).Days:#,0} days before its term ends: what is drawn since is pay-as-you-go."
+                : $"{c.Name} is projected to run out on {r:d MMM yyyy}, {(c.EndDate - r).Days:#,0} days before its term ends: pay-as-you-go after that.";
+        /* Left unused: more than the warning days' worth at the even plan, once a month of the term shows the rate
+           (an idle commitment, drawing nothing, warns too). */
+        var term = Math.Max(1, (c.EndDate - c.StartDate).Days + 1);
+        if ((s.AsOf - c.StartDate).Days >= 30 && s.Remaining > 0 && s.UnusedAtEnd > c.Amount / term * days)
+            return $"{c.Name} is projected to leave {s.UnusedAtEnd:#,0} {c.Currency} unused when its term ends on {c.EndDate:d MMM yyyy}" +
+                   (s.BurnPerDay <= 0 ? ": nothing has drawn on it in the last 30 days." : ".");
         return null;
     }
 }
@@ -206,14 +220,15 @@ FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m;", new { m = month })).T
     }
 
     /// <summary>The snapshots kept, newest first: the month, when it was kept, the credits and the charge, as the viewer sees them.</summary>
-    public async Task<List<(DateTime Month, DateTime Taken, decimal Credits, decimal ToLoBs, decimal? Rate)>> SnapshotsAsync(ReportContext c)
+    public async Task<List<(DateTime Month, DateTime Taken, decimal Credits, decimal ToLoBs, decimal Unrouted, decimal? Rate)>> SnapshotsAsync(ReportContext c)
     {
         var visible = await VisibleOrgsAsync(c);
         var rows = await db.QueryAsync<(DateTime Month, DateTime Taken, string Path, string? OrgId, decimal Credits, decimal? Rate)>(
             "SELECT SnapshotMonth, TakenUtc, Path, OrgId, Credits, ChargeRate FROM dash.CreditChargeSnapshot;");
         return rows.Where(r => visible is null || (r.OrgId is not null && visible.Contains(r.OrgId)))
             .GroupBy(r => r.Month).OrderByDescending(g => g.Key)
-            .Select(g => (g.Key, g.Max(r => r.Taken), g.Sum(r => r.Credits), g.Where(r => CreditPaths.NeedsOrg(r.Path) || (r.Path == CreditPaths.Innovation && r.OrgId is not null)).Sum(r => r.Credits), g.First().Rate))
+            .Select(g => (g.Key, g.Max(r => r.Taken), g.Sum(r => r.Credits), g.Where(r => CreditPaths.NeedsOrg(r.Path) || (r.Path == CreditPaths.Innovation && r.OrgId is not null)).Sum(r => r.Credits),
+                g.Where(r => r.Path == CreditPaths.Unmapped).Sum(r => r.Credits), g.First().Rate))
             .ToList();
     }
 
@@ -229,9 +244,10 @@ FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m;", new { m = month })).T
     /// reservation register's leaders and the org chart). A credit routed to the wrong path is caught here before Finance
     /// finds it. Empty when the inventory or the register is not there.
     /// </summary>
-    public async Task<List<(string Agent, string Environment, string? Owner, string EnvOrg, string OwnerOrg)>> MisroutedAsync(ReportContext c)
+    /// <summary>Null when the check cannot run: no agent inventory loaded, or no reservation register to place the owners.</summary>
+    public async Task<List<(string Agent, string Environment, string? Owner, string EnvOrg, string OwnerOrg)>?> MisroutedAsync(ReportContext c)
     {
-        if (await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.AgentInventory', N'U') IS NULL OR OBJECT_ID(N'dash.fnReservationMember', N'IF') IS NULL THEN 0 ELSE 1 END;") == 0) return [];
+        if (await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.AgentInventory', N'U') IS NULL OR OBJECT_ID(N'dash.fnReservationMember', N'IF') IS NULL THEN 0 WHEN NOT EXISTS (SELECT 1 FROM dash.AgentInventory WHERE Environment IS NOT NULL) OR NOT EXISTS (SELECT 1 FROM dash.Reservation WHERE LeaderUpn IS NOT NULL) THEN 0 ELSE 1 END;") == 0) return null;
         var visible = await VisibleOrgsAsync(c);
         var rows = await db.QueryAsync<(string Agent, string Environment, string? Owner, string EnvOrg, string OwnerOrg)>(@"
 DECLARE @today DATE = CAST(GETDATE() AS DATE);

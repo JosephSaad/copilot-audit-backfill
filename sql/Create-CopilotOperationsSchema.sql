@@ -587,10 +587,18 @@ USING (VALUES
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy) VALUES (s.Name, s.Value, s.Description, N'install');
 
-/* The month's credits by environment and the route in effect each day, kept once: by default the month before the
-   latest credit day loaded, and only once the credits reach the month's last day (the consumption report is loaded by
-   hand, so a month is complete only when its last day is in), a route is in effect at the month end, and none was kept
-   for it. In one transaction, as the reservation snapshot. */
+/* The credit routes' added rule (2.7.2): Enterprise Shared is funded centrally and names no line of business, as the
+   page refuses; a row written in SQL with one was left out of the charge yet shown in its credits. */
+IF OBJECT_ID(N'dash.CK_DashCreditRoute_Shared', N'C') IS NULL
+   AND NOT EXISTS (SELECT 1 FROM dash.CreditRoute WHERE Path = 'EnterpriseShared' AND OrgId IS NOT NULL)
+    ALTER TABLE dash.CreditRoute ADD CONSTRAINT CK_DashCreditRoute_Shared CHECK (Path <> 'EnterpriseShared' OR OrgId IS NULL);
+
+/* Each complete month's credits by environment and the route in effect each day, kept once. A month is complete once
+   the consumption report reaches its last day (the report is loaded by hand, a month at a time or part way), and is kept
+   when a route is in effect at its end. With no @Month, every complete month not yet kept, so a load two months at once
+   skips none; with @Month, that month alone (Credit chargeback's "Take it again" after its snapshot was cleared). Each
+   month in one transaction, its check under a range lock, so two runs at once cannot keep it twice. A rate of 0 is no
+   rate, as the page reads it. */
 EXEC (N'
 CREATE OR ALTER PROCEDURE dash.usp_TakeCreditChargeSnapshot
     @Month DATE = NULL
@@ -601,35 +609,42 @@ BEGIN
     IF OBJECT_ID(N''audit.PowerPlatformCreditDay'', N''U'') IS NULL RETURN;
     DECLARE @lastDay DATE = (SELECT MAX([Day]) FROM audit.PowerPlatformCreditDay WHERE Product = ''Copilot Studio'');
     IF @lastDay IS NULL RETURN;
-    IF @Month IS NULL SET @Month = DATEFROMPARTS(YEAR(EOMONTH(@lastDay, -1)), MONTH(EOMONTH(@lastDay, -1)), 1);
-    SET @Month = DATEFROMPARTS(YEAR(@Month), MONTH(@Month), 1);
-    DECLARE @end DATE = EOMONTH(@Month);
-    IF @lastDay < @end RETURN;
-    IF NOT EXISTS (SELECT 1 FROM dash.CreditRoute WHERE EffectiveFrom <= @end AND (EffectiveTo IS NULL OR EffectiveTo >= @end)) RETURN;
-    IF EXISTS (SELECT 1 FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @Month) RETURN;
-    DECLARE @rate DECIMAL(12, 6) = TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = N''CreditChargeRate'') AS DECIMAL(12, 6));
+    DECLARE @m DATE, @stop DATE, @end DATE;
+    IF @Month IS NOT NULL
+        SELECT @m = DATEFROMPARTS(YEAR(@Month), MONTH(@Month), 1), @stop = DATEFROMPARTS(YEAR(@Month), MONTH(@Month), 1);
+    ELSE
+        SELECT @m = DATEFROMPARTS(YEAR(MIN([Day])), MONTH(MIN([Day])), 1), @stop = DATEFROMPARTS(YEAR(@lastDay), MONTH(@lastDay), 1)
+        FROM audit.PowerPlatformCreditDay WHERE Product = ''Copilot Studio'';
+    DECLARE @rate DECIMAL(12, 6) = NULLIF(TRY_CAST((SELECT Value FROM dash.Setting WHERE Name = N''CreditChargeRate'') AS DECIMAL(12, 6)), 0);
     IF @rate IS NULL AND OBJECT_ID(N''dash.CostPrice'', N''U'') IS NOT NULL
-        SET @rate = (SELECT MonthlyPrice FROM dash.CostPrice WHERE Item = ''COPILOT_STUDIO_PAYG_CREDIT'');
+        SET @rate = NULLIF((SELECT MonthlyPrice FROM dash.CostPrice WHERE Item = ''COPILOT_STUDIO_PAYG_CREDIT''), 0);
 
-    SELECT d.EnvironmentName, ISNULL(r.Path, ''Unmapped'') AS Path, r.OrgId, r.CostCenter,
-           SUM(ISNULL(d.Credits, 0)) AS Credits,
-           SUM(CASE WHEN d.Billing = ''PayAsYouGo'' THEN ISNULL(d.Credits, 0) ELSE 0 END) AS PaygCredits,
-           SUM(CASE WHEN d.Billing = ''PayAsYouGo'' THEN d.Cost END) AS PaygCost, MAX(d.Currency) AS Currency
-    INTO #c
-    FROM audit.PowerPlatformCreditDay AS d
-    OUTER APPLY (SELECT TOP (1) x.Path, x.OrgId, x.CostCenter FROM dash.CreditRoute AS x
-                 WHERE x.EnvironmentName = d.EnvironmentName AND x.EffectiveFrom <= d.[Day] AND (x.EffectiveTo IS NULL OR x.EffectiveTo >= d.[Day])
-                 ORDER BY x.EffectiveFrom DESC, x.RouteId DESC) AS r
-    WHERE d.Product = ''Copilot Studio'' AND d.[Day] BETWEEN @Month AND @end
-    GROUP BY d.EnvironmentName, ISNULL(r.Path, ''Unmapped''), r.OrgId, r.CostCenter;
-
-    BEGIN TRANSACTION;
-    INSERT INTO dash.CreditChargeSnapshot (SnapshotMonth, EnvironmentName, Path, OrgId, OrgName, CostCenter, Credits, PaygCredits, PaygCost, Currency, ChargeRate)
-    SELECT @Month, c.EnvironmentName, c.Path, c.OrgId,
-           (SELECT TOP (1) o.Name FROM dash.Reservation AS o WHERE o.OrgId = c.OrgId ORDER BY o.EffectiveFrom DESC),
-           c.CostCenter, c.Credits, c.PaygCredits, c.PaygCost, c.Currency, @rate
-    FROM #c AS c;
-    COMMIT TRANSACTION;
+    WHILE @m <= @stop
+    BEGIN
+        SET @end = EOMONTH(@m);
+        IF @lastDay >= @end
+           AND EXISTS (SELECT 1 FROM dash.CreditRoute WHERE EffectiveFrom <= @end AND (EffectiveTo IS NULL OR EffectiveTo >= @end))
+        BEGIN
+            BEGIN TRANSACTION;
+            IF NOT EXISTS (SELECT 1 FROM dash.CreditChargeSnapshot WITH (UPDLOCK, HOLDLOCK) WHERE SnapshotMonth = @m)
+                INSERT INTO dash.CreditChargeSnapshot (SnapshotMonth, EnvironmentName, Path, OrgId, OrgName, CostCenter, Credits, PaygCredits, PaygCost, Currency, ChargeRate)
+                SELECT @m, c.EnvironmentName, c.Path, c.OrgId,
+                       (SELECT TOP (1) o.Name FROM dash.Reservation AS o WHERE o.OrgId = c.OrgId ORDER BY o.EffectiveFrom DESC),
+                       c.CostCenter, c.Credits, c.PaygCredits, c.PaygCost, c.Currency, @rate
+                FROM (SELECT d.EnvironmentName, ISNULL(r.Path, ''Unmapped'') AS Path, r.OrgId, r.CostCenter,
+                             SUM(ISNULL(d.Credits, 0)) AS Credits,
+                             SUM(CASE WHEN d.Billing = ''PayAsYouGo'' THEN ISNULL(d.Credits, 0) ELSE 0 END) AS PaygCredits,
+                             SUM(CASE WHEN d.Billing = ''PayAsYouGo'' THEN d.Cost END) AS PaygCost, MAX(d.Currency) AS Currency
+                      FROM audit.PowerPlatformCreditDay AS d
+                      OUTER APPLY (SELECT TOP (1) x.Path, x.OrgId, x.CostCenter FROM dash.CreditRoute AS x
+                                   WHERE x.EnvironmentName = d.EnvironmentName AND x.EffectiveFrom <= d.[Day] AND (x.EffectiveTo IS NULL OR x.EffectiveTo >= d.[Day])
+                                   ORDER BY x.EffectiveFrom DESC, x.RouteId DESC) AS r
+                      WHERE d.Product = ''Copilot Studio'' AND d.[Day] BETWEEN @m AND @end
+                      GROUP BY d.EnvironmentName, ISNULL(r.Path, ''Unmapped''), r.OrgId, r.CostCenter) AS c;
+            COMMIT TRANSACTION;
+        END;
+        SET @m = DATEADD(MONTH, 1, @m);
+    END;
 END;');
 
 /* Each person's saved views; one may be their start page. Unused since 2.4.4, which removed My Copilot; kept, with its rows. */
@@ -827,6 +842,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.ReservationRate TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TechnologyAllocation TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.CreditRoute TO CopilotInsightsApp;        -- 2.7.2: Leadership > Credit chargeback's register
 GRANT INSERT, UPDATE, DELETE ON dash.CreditCommitment TO CopilotInsightsApp;   -- 2.7.2: Forecasting > Credit commitment
+GRANT DELETE ON dash.CreditChargeSnapshot TO CopilotInsightsApp;                -- 2.7.2: an administrator clears a month to take it again
+GRANT EXECUTE ON dash.usp_TakeCreditChargeSnapshot TO CopilotInsightsApp;      -- and takes it again
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.NonHumanException TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;

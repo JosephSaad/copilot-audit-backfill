@@ -88,6 +88,7 @@ public static partial class FieldTips
         ["/forecasting/credit-commitment|draw"] = "What one Copilot Credit draws from the commitment: 0.01 at list price, unless the agreement sets another.",
         ["/forecasting/credit-commitment|start"] = "The first day of the commitment's term.",
         ["/forecasting/credit-commitment|end"] = "The last day of the term: what is left after it is lost.",
+        ["/forecasting/credit-commitment|alertDays"] = "Warn, on this page and by email to the license alert recipients, when the commitment is projected to run out this many days before its term ends, or to leave this many days' worth unused. 0 turns it off.",
         ["/forecasting/credit-commitment|scope"] = "The Azure scope it applies to (a billing account, subscription or resource group), as a label (optional).",
         /* Admin > Value names: the licenses' product names (2.7.1). */
         ["/admin/values|part"] = "The license's part number, as License pool shows it beside its name (SPE_E5, Microsoft_365_Copilot).",

@@ -360,11 +360,11 @@ HR-Agents,EnterpriseShared,,CC-900,2026-11-01,hr.finance@contoso.com,BP-Enterpri
 - Routes naming an Org ID that isn't in Copilot reservations.
 - Agents built by one line of business in another's environment. The agent inventory says where each agent lives, and the reservation register's leaders say where its owner works.
 
-**Snapshots.** Each night the pipeline keeps the month before the latest credit day once (`dash.usp_TakeCreditChargeSnapshot`) and never rewrites it. It does so only once the consumption report reaches that month's last day, and only when a route is in effect that day. A snapshot keeps each environment's route, credits and the charge rate in force. *View* shows one as it was. Every snapshot is **Operational, not certified**.
+**Snapshots.** Each night the pipeline keeps every complete month not yet kept (`dash.usp_TakeCreditChargeSnapshot`). A month is complete once the consumption report reaches its last day, and it is kept only when a route is in effect at its end. So loading two months at once skips neither. A snapshot keeps each environment's route, credits and the charge rate in force; *View* shows one as it was, and *Not routed* shows the credits it kept without a route. To correct a month after routing its environments, an administrator selects *Take it again*: the month is kept afresh from today's register and rate, and the audit log records it. Every snapshot is **Operational, not certified**.
 
 **Forecasting › Credit commitment** (2.7.2) tracks a prepaid commitment, such as the Copilot Credit Pre-Purchase Plan (P3).
 
-- **Record it.** Under *Record a commitment*, enter its name, amount and currency, what one credit draws from it (0.01 at list price), its term and its Azure scope.
+- **Record it.** Under *Record a commitment*, enter its name, amount and currency, what one credit draws from it (0.01 at list price), its term and its Azure scope. Terms may not overlap, or each would claim the same credits: record a top-up by removing the commitment and adding it with the new amount. Until its term starts the page shows only its start date.
 - **What the page shows:**
   - what is drawn and what remains;
   - the burn rate over the last 30 days;
@@ -372,7 +372,7 @@ HR-Agents,EnterpriseShared,,CC-900,2026-11-01,hr.finance@contoso.com,BP-Enterpri
   - the plan to date, which spreads the commitment evenly over its term;
   - the environments and lines of business drawing most.
 - **It is an estimate.** It uses the pay-as-you-go credits in the consumption report × what a credit draws. Prepaid packs draw nothing. Microsoft's applied figure is in Azure Cost Management.
-- **Alert.** When the commitment is projected to run out more than `CreditCommitmentAlertDays` (30) days before its term ends, or to leave more than that many days' draw unused, an alert goes to `AlertLicensingTo` once a week while it lasts. 0 turns it off.
+- **Alert.** The page warns, and an alert goes to `AlertLicensingTo` once a week while it lasts, when the commitment runs out (or is projected to) more than *Warn when this many days off* (`CreditCommitmentAlertDays`, 30) before its term ends; or, once a month of its term has passed, when it is projected to leave more than that many days' worth unused at the even plan. That includes a commitment nothing draws on. 0 turns it off.
 - **Costs and savings.** While a commitment is in force, Costs and savings no longer suggests buying capacity packs for the metered credits: they draw on what is already paid for.
 
 ## AI apps, Power BI and Power Apps

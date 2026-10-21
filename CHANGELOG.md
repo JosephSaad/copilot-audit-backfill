@@ -23,7 +23,8 @@ and commitment).
     billed.
   - Exceptions: environments with no route, routes naming an Org ID not in Copilot reservations, and agents built by one
     line of business in another's environment.
-  - Month-end snapshots, kept once each night the consumption report reaches the month's last day, and never rewritten.
+  - Month-end snapshots: every complete month not yet kept, once the consumption report reaches its last day; never
+    rewritten, except when an administrator takes a month again after routing its environments (audited).
   - For administrators: the routing register (one row at a time, or pasted from a spreadsheet, all checked first) and the
     charge rate.
 - **Forecasting › Credit commitment.** A prepaid commitment such as the P3:
@@ -33,8 +34,11 @@ and commitment).
   - the environments and lines of business drawing most.
 
   It is an estimate from the consumption report until Microsoft's applied figure is loaded.
-- **An alert** when the commitment is projected to run out more than 30 days before its term ends, or to leave more than
-  30 days' draw unused (`CreditCommitmentAlertDays`). It goes to `AlertLicensingTo`, once a week while it lasts.
+- **An alert** when the commitment runs out, or is projected to, more than 30 days before its term ends, or to leave more
+  than 30 days' worth unused, a commitment nothing draws on included (`CreditCommitmentAlertDays`, set on the page). It goes
+  to `AlertLicensingTo`, once a week while it lasts. Terms may not overlap.
+- Every figure on both pages says how it is worked out. Credit use, Agents costing credits, Copilot reservations and Costs
+  and savings link to them. The charge rate and the warning days are in the assumptions register.
 
 ### Changed
 - Costs and savings no longer suggests buying Copilot Credit packs for metered credits while a commitment is in force:

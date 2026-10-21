@@ -65,15 +65,19 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
         var shared = v.Lines.Where(l => l.Path == CreditPaths.EnterpriseShared).Sum(l => l.Credits);
         var unrouted = v.Lines.Where(l => l.Path == CreditPaths.Unmapped).ToList();
         var lobCredits = lob.Sum(l => l.Credits);
-        Kpis.Add(new("Copilot Credits", Num((long)Math.Round(v.Credits)), whole ? $"every environment, {v.Month:MMMM yyyy}" : "the lines of business led from inside your part"));
+        Kpis.Add(new("Copilot Credits", Num((long)Math.Round(v.Credits)), whole ? $"every environment, {v.Month:MMMM yyyy}" : "the lines of business led from inside your part",
+            Href: Open("/licensing/credit-use"),
+            Why: await WhyAsync($"Copilot Studio's credits in the Power Platform admin center's consumption report for {v.Month:MMMM yyyy}, loaded to {v.DataTo:d MMM yyyy}, prepaid and pay-as-you-go. AI Builder's credits are not Copilot Credits and are left out. Licensing › Credit use estimates who used them.")));
         Kpis.Add(new($"Charged to lines of business ({cur})", M(v.Charge(lobCredits)), $"{C(lobCredits)} credits" + (v.Rate is { } r ? $" at {Rate(r, cur)}" : ""),
             Why: await WhyAsync($"The credits of every environment routed to a line of business (its Productivity, Business Application or sponsored Innovation path: {C(lobCredits)}) × the charge rate" +
                 (v.Rate is { } r2 ? $" ({Rate(r2, cur)} a credit)." : ", none set yet."), "CreditChargeRate")));
         if (whole)
         {
-            Kpis.Add(new("Enterprise Shared", Num((long)Math.Round(shared)), "credits funded centrally, never charged to a line of business"));
+            Kpis.Add(new("Enterprise Shared", Num((long)Math.Round(shared)), "credits funded centrally, never charged to a line of business",
+                Why: await WhyAsync("The credits of every environment routed to Enterprise Shared in the register below: HR, enterprise help, compliance-required and critical employee agents, funded centrally.")));
             var un = unrouted.Sum(l => l.Credits);
-            Kpis.Add(new("Not routed", Num((long)Math.Round(un)), $"{Count(unrouted.Count, "environment")} with no route", un > 0 ? "crit" : null));
+            Kpis.Add(new("Not routed", Num((long)Math.Round(un)), $"{Count(unrouted.Count, "environment")} with no route", un > 0 ? "crit" : null,
+                Why: await WhyAsync("The credits of environments the register has no route for on the day they were used. Nobody is charged for them: route each environment below, from the day it began.")));
             var paid = v.Lines.Sum(l => l.PaygCost ?? 0);
             var paidCur = v.Lines.Select(l => l.Currency).FirstOrDefault(c => !string.IsNullOrEmpty(c)) ?? cur;
             Kpis.Add(new($"Billed pay-as-you-go ({paidCur})", CostRules.Money(Math.Round(paid), paidCur), $"{C(v.Lines.Sum(l => l.PaygCredits))} metered credits",
@@ -91,9 +95,11 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
         foreach (var g in lob.GroupBy(l => l.OrgId!, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.First().OrgName ?? g.Key))
         {
             var total = g.Sum(l => l.Credits);
-            t.Rows.Add([g.First().OrgName ?? "(not in the reservation register)", g.Key, string.Join(", ", g.Select(l => l.CostCenter).Where(c => !string.IsNullOrEmpty(c)).Distinct()),
+            var orgLink = Open("/leadership/reservations");
+            t.Rows.Add([g.First().OrgName is { } on && orgLink is not null ? new Link(on, orgLink) : (object)(g.First().OrgName ?? "(not in the reservation register)"), g.Key, string.Join(", ", g.Select(l => l.CostCenter).Where(c => !string.IsNullOrEmpty(c)).Distinct()),
                 C(P(g, CreditPaths.Productivity)), C(P(g, CreditPaths.BusinessApplication)), C(P(g, CreditPaths.Innovation)), C(total), M(v.Charge(total))]);
         }
+        t.Rows.Add([new HtmlString("<b>Lines of business</b>"), "", "", C(P(lob, CreditPaths.Productivity)), C(P(lob, CreditPaths.BusinessApplication)), C(P(lob, CreditPaths.Innovation)), C(lobCredits), M(v.Charge(lobCredits))]);
         if (whole)
         {
             t.Rows.Add(["Enterprise Shared", "", "", "", "", "", C(shared), "Funded centrally"]);
@@ -102,13 +108,14 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
             var un = unrouted.Sum(l => l.Credits);
             t.Rows.Add([new HtmlString(un > 0 ? "<span class=\"status-bad\">Not routed</span>" : "Not routed"), "", "", "", "", "", C(un), un > 0 ? "To register" : "None"]);
         }
-        t.Rows.Add([new HtmlString("<b>All</b>"), "", "", C(P(v.Lines, CreditPaths.Productivity)), C(P(v.Lines, CreditPaths.BusinessApplication)), C(P(v.Lines, CreditPaths.Innovation)),
-            C(v.Lines.Sum(l => l.Credits)), M(v.Charge(lobCredits))]);
+        if (whole)
+            t.Rows.Add([new HtmlString("<b>All credits</b>"), "", "", C(P(v.Lines, CreditPaths.Productivity)), C(P(v.Lines, CreditPaths.BusinessApplication)), C(P(v.Lines, CreditPaths.Innovation)),
+                C(v.Lines.Sum(l => l.Credits)), ""]);
         CsvTable = t;
         Panels.Add(new(v.IsSnapshot ? $"Lines of business, {v.Month:MMMM yyyy}, as kept" : "Lines of business", t.Render(),
             "Each environment's Copilot Credits (Copilot Studio's; AI Builder's are not Copilot Credits), charged to the line of business its route names. " +
             "A route that changed during the month charges each day to the route in effect that day. Enterprise Shared is never charged to a line of business. " +
-            "The charge is the credits × one rate, however Microsoft was paid: prepaid capacity, a commitment, or pay-as-you-go.", "full", CsvUrl()));
+            "The charge is the credits × one rate, however Microsoft was paid: prepaid capacity, a commitment, or pay-as-you-go. The lines of business and their Org IDs are Copilot reservations'; a commitment's draw is on Forecasting › Credit commitment.", "full", CsvUrl()));
 
         EnvironmentsPanel(v, M, C);
         if (whole && !v.IsSnapshot) await ExceptionsAsync(unrouted);
@@ -135,16 +142,18 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
     /* What needs someone's attention before the figures can be relied on. */
     async Task ExceptionsAsync(List<CreditLine> unrouted)
     {
+        var mis = await data.MisroutedAsync(Ctx);
         var t = new Table { Headers = ["Exception", "How many", "What to do"], Numeric = new HashSet<int> { 1 }, Sortable = false,
             EmptyText = "No exceptions: every environment with credits is routed, every route names a line of business in the register, and no agent is built in one line of business's environment by another's people." };
         void Add(string what, int n, string todo) { if (n > 0) t.Rows.Add([what, n, todo]); }
         Add("Environments with credits and no route", unrouted.Count, "Register each one's path and line of business: " + string.Join(", ", unrouted.Select(l => l.EnvironmentName).Take(12)) + (unrouted.Count > 12 ? ", ..." : ""));
         var unknown = await data.UnknownOrgsAsync();
         Add("Routes naming an Org ID not in the reservation register", unknown.Count, "Add the line of business to Copilot reservations (reserved 0 if it reserves no seats), or correct the Org ID: " + string.Join(", ", unknown));
-        var mis = await data.MisroutedAsync(Ctx);
-        Add("Agents built by one line of business in another's environment", mis.Count, "Move the agent to its own line of business's environment, or confirm the route is right: listed below.");
+        if (mis is null)
+            t.Rows.Add(["Agents in another line of business's environment: not checked", "", "The check needs the agent inventory (tools\\Import-AgentWorkbook.ps1) and reservation leaders who cover the agents' owners."]);
+        else Add("Agents built by one line of business in another's environment", mis.Count, "Move the agent to its own line of business's environment, or confirm the route is right: listed below.");
         Panels.Add(new("Exceptions", t.Render(), "Raised from this month's credits, the register, the agent inventory and the org chart.", "half"));
-        if (mis.Count > 0)
+        if (mis is { Count: > 0 })
         {
             var named = Viewer.Has(Roles.Agents) && !PrivacyMode;
             var mt = new Table { Headers = named ? ["Agent", "Environment", "Charged to", "Owner", "Owner's line of business"] : ["Agent", "Environment", "Charged to", "Owner's line of business"] };
@@ -156,15 +165,17 @@ public sealed class CreditChargebackModel(PageServices s, CreditChargeData data)
         }
     }
 
-    void SnapshotsPanel(List<(DateTime Month, DateTime Taken, decimal Credits, decimal ToLoBs, decimal? Rate)> snaps, string cur, DateTime? shown, List<DateTime> months, DateTime month)
+    void SnapshotsPanel(List<(DateTime Month, DateTime Taken, decimal Credits, decimal ToLoBs, decimal Unrouted, decimal? Rate)> snaps, string cur, DateTime? shown, List<DateTime> months, DateTime month)
     {
-        var t = new Table { Headers = ["Month", "Kept on", "Credits", "Charged to lines of business", $"Charge ({cur})", ""], Numeric = new HashSet<int> { 2, 3, 4 }, Sortable = false,
+        var t = new Table { Headers = ["Month", "Kept on", "Credits", "Credits charged to lines of business", "Not routed", $"Charge ({cur})", ""], Numeric = new HashSet<int> { 2, 3, 4, 5 }, Sortable = false,
             EmptyText = "No month-end snapshot yet: the nightly run keeps each month once its last day's credits are loaded and the register has a route in effect." };
         foreach (var s in snaps)
             t.Rows.Add([s.Month.ToString("MMMM yyyy", CultureInfo.InvariantCulture), s.Taken.Date, s.Credits.ToString("#,0", CultureInfo.InvariantCulture), s.ToLoBs.ToString("#,0", CultureInfo.InvariantCulture),
+                new HtmlString(s.Unrouted > 0 ? $"<span class=\"status-bad\">{s.Unrouted:#,0}</span>" : "0"),
                 CreditChargeRules.Charge(s.ToLoBs, s.Rate) is { } c ? Math.Round(c) : "Pending Finance Decision",
-                shown == s.Month ? "Shown" : new Link("View", Ctx.Url(Request.Path, extra: $"month={s.Month:yyyy-MM}&snap=1"))]);
-        Panels.Add(new("Month-end snapshots", t.Render(), "Each month's chargeback, kept once at the rate in force and never rewritten: Operational, not certified.", "half"));
+                new HtmlString((shown == s.Month ? "Shown" : $"<a href=\"{H(Ctx.Url(Request.Path, extra: $"month={s.Month:yyyy-MM}&snap=1"))}\">View</a>") +
+                    (Viewer.IsAdmin ? " " + InlineForm("retake", Hidden("month", s.Month.ToString("yyyy-MM")) + Button("Take it again", $"Take the {s.Month:MMMM yyyy} snapshot again from today's register and rate? The month as kept now is replaced.", quiet: true)) : ""))]);
+        Panels.Add(new("Month-end snapshots", t.Render(), "Each month's chargeback, kept once at the rate in force: Operational, not certified. Not routed: credits kept without a route; route those environments, then an administrator takes the month again, and the audit log records it.", "half"));
     }
 
     /* ---- The register and the charge rate: administrators --------------------------------------------------- */
@@ -295,6 +306,19 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
         var parsed = ParsePaste(rows);
         var ended = await AddAsync(parsed);
         return $"{parsed.Count:#,0} routes added" + (ended > 0 ? $"; {ended:#,0} open route{(ended == 1 ? "" : "s")} ended the day before." : ".");
+    });
+
+    /// <summary>A kept month cleared and taken again from today's register and rate: the routes put right after it was kept.</summary>
+    public Task<IActionResult> OnPostRetakeAsync(string? month) => AdminChangeAsync(async () =>
+    {
+        if (!DateTime.TryParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var m)) throw new ArgumentException("choose the month to take again.");
+        var before = await Db.QueryAsync<(decimal Credits, decimal Unrouted)>("SELECT ISNULL(SUM(Credits), 0), ISNULL(SUM(CASE WHEN Path = 'Unmapped' THEN Credits END), 0) FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m;", new { m });
+        await Db.ExecuteAsync("SET XACT_ABORT ON; BEGIN TRANSACTION; DELETE FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m; EXEC dash.usp_TakeCreditChargeSnapshot @Month = @m; COMMIT TRANSACTION;", new { m });
+        var after = await Db.QueryAsync<(int Rows, decimal Unrouted)>("SELECT COUNT(*), ISNULL(SUM(CASE WHEN Path = 'Unmapped' THEN Credits END), 0) FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m;", new { m });
+        var (b, a) = (before.Single(), after.Single());
+        return a.Rows == 0
+            ? $"The {m:MMMM yyyy} snapshot was cleared and could not be taken again: its credits do not reach the month's last day, or no route was in effect at its end."
+            : $"The {m:MMMM yyyy} snapshot was taken again: {a.Rows:#,0} environment rows; not routed {b.Unrouted:#,0} credits before, {a.Unrouted:#,0} now.";
     });
 
     public Task<IActionResult> OnPostChargerateAsync(string? rate) => AdminChangeAsync(async () =>
