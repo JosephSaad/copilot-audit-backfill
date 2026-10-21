@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Pages built over everyone are kept once worked out.** A stress test on 120 million interactions (210,000 people) found
+  four pages at 0.55 to 0.75 s from cache with no query run: the cost model, the credit estimate and suite fit built an
+  object for every person from rows already kept, on every visit. They are now kept under the data's stamp, the period,
+  the part of the organization and the versions of the tables that change during the day. From cache at 120M: What to
+  act on 0.70 s to 0.01 s, Costs and savings 0.6 s to 0.006 s, Credit use 0.6 s to 0.01 s, Suite fit 0.63 s to 0.14 s.
+- **Counted per key, then named.** Apps and agents' most-used agents grouped every interaction by the agent's name with a
+  distinct count of people: 13.7 s on a first visit for 90 days at 120M, now 1.6 s for the same rows. Its apps by week,
+  Engagement's people per app, Compare two teams' apps, Working patterns' apps by hour and Sensitive content's labels over
+  time are counted the same way; Sensitive content also reads its six sources together.
+- **Ten more tables download as CSV**: Scorecard, Organization, Departments, New joiners, Targets, Drops and spikes,
+  Labeled content by unit, Agents in use, Engagement and Apps.
+- **Organization and Departments open with figures**: how many units or departments, and the highest and lowest adoption
+  among those large enough to rank.
+- Copilot on non-human accounts says *Name reads like an account* in its figure, as its filter and its list do.
+
+### Fixed
+- **Two whole-organization figures lost the whole organization when they linked.** Budget's *Seats to renew* and Credit
+  commitment's *Drawn so far* are the tenant's on any team, but opened License optimization and Credit chargeback for the
+  team shown. They now open them for the whole organization, as Costs and savings' links do.
+- **Reservation holders, opened from the menu, only said to go and choose an organization elsewhere.** It now lists the
+  organizations to choose from.
+
 ## [2.7.3] - 2026-10-21
 
 The activity database's history no longer spends hours on a table nothing reads, and a database the installer
