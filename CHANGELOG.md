@@ -24,7 +24,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - **Leadership › What to act on loads faster.** It read its six sources (the action counts, non-human accounts, units,
   targets, the cost figures and the security trend) one after another; it now reads them at the same time. On the demo
-  data, a period not yet kept loads in 0.6–0.8 s instead of 0.9–1.2 s.
+  data, a period not yet kept loads in 0.6–0.8 s instead of 0.9–1.2 s. Leadership › Overview, Organization and Apps
+  and agents read their sources together in the same way.
+- **Licensing › Swap list loads in a tenth of the time.** It read both sides (idle licenses and people wanting one)
+  twice: once for the pairs and again for the four figures. One read now gives both; the figures are unchanged.
 
 **Install over 2.7.2:** run `Install-CopilotAudit.ps1 -ActivityDatabase <name>` from this release; it replaces the merge
 procedure. A history load already running finishes as it began.

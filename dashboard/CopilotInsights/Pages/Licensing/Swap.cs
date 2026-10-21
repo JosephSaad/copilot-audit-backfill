@@ -66,14 +66,23 @@ t AS (SELECT {Within[within].Sql} AS Unit, du.UserKey, du.DisplayName, du.UserPr
       JOIN a ON a.UserKey = du.UserKey
       WHERE {ActionsModel.Kinds["upgrade"].Where} AND ISNULL(du.AccountEnabled, 1) = 1)";
 
-    async Task<List<Pair>> PairsAsync(string within, int k30) => await Db.QueryAsync<Pair>($@"
+    /// <summary>
+    /// Both sides in one read (2.7.3): the pairs, and each person on either side left over (a row with one side only),
+    /// from which the figures are counted. Reading the sides a second time for the figures doubled the page's time.
+    /// </summary>
+    async Task<List<Pair>> SidesAsync(string within, int k30) => await Db.QueryAsync<Pair>($@"
 {await SidesSqlAsync(within, k30)}
-SELECT g.Unit, g.DisplayName AS GiveName, g.UserPrincipalName AS GiveUpn, g.D AS GiveDays, dl.[Date] AS GiveLast, g.LicensedSinceUtc AS GiveSince,
+SELECT COALESCE(g.Unit, t.Unit) AS Unit, g.DisplayName AS GiveName, g.UserPrincipalName AS GiveUpn, g.D AS GiveDays, dl.[Date] AS GiveLast, g.LicensedSinceUtc AS GiveSince,
        t.DisplayName AS TakeName, t.UserPrincipalName AS TakeUpn, t.D AS TakeDays, t.I AS TakeInteractions, t.ManagerName AS TakeManager
-FROM g JOIN t ON t.Unit = g.Unit AND t.N = g.N
-OUTER APPLY (SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE ud.UserKey = g.UserKey AND ud.Interactions > 0) AS x
+FROM g FULL JOIN t ON t.Unit = g.Unit AND t.N = g.N
+OUTER APPLY (SELECT MAX(ud.DateKey) AS LastKey FROM dash.UserDay AS ud WHERE g.UserKey IS NOT NULL AND t.UserKey IS NOT NULL AND ud.UserKey = g.UserKey AND ud.Interactions > 0) AS x
 LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
-ORDER BY g.Unit, g.N;", Ctx.Args(new { k30 }), timeout: 300);
+ORDER BY COALESCE(g.Unit, t.Unit), COALESCE(g.N, t.N);", Ctx.Args(new { k30 }), timeout: 300);
+
+    static bool Gives(Pair p) => !string.IsNullOrEmpty(p.GiveUpn);
+    static bool Takes(Pair p) => !string.IsNullOrEmpty(p.TakeUpn);
+
+    async Task<List<Pair>> PairsAsync(string within, int k30) => (await SidesAsync(within, k30)).Where(p => Gives(p) && Takes(p)).ToList();
 
     string WithinOf() => Request.Query["within"].FirstOrDefault() is { } w && Within.ContainsKey(w) ? w : "department";
 
@@ -81,11 +90,9 @@ ORDER BY g.Unit, g.N;", Ctx.Args(new { k30 }), timeout: 300);
     {
         var within = WithinOf();
         var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
-        var pairs = await PairsAsync(within, k30);
-        var counts = (await Db.QueryAsync<Counts>($@"
-{await SidesSqlAsync(within, k30)}
-SELECT (SELECT COUNT(*) FROM g) AS Idle, (SELECT COUNT(*) FROM t) AS Wanting,
-       (SELECT COUNT(*) FROM g JOIN t ON t.Unit = g.Unit AND t.N = g.N) AS Swaps;", Ctx.Args(new { k30 }), timeout: 300)).Single();
+        var sides = await SidesAsync(within, k30);
+        var pairs = sides.Where(p => Gives(p) && Takes(p)).ToList();
+        var counts = new Counts { Idle = sides.Count(Gives), Wanting = sides.Count(Takes), Swaps = pairs.Count };
 
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m;
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";

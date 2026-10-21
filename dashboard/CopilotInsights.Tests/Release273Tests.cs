@@ -39,6 +39,20 @@ public class Release273Tests
     }
 
     [Fact]
+    public void Slow_pages_read_their_independent_sources_together()
+    {
+        var act = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "ActOn.cs");
+        Assert.Contains("await Task.WhenAll(new Task?[] { countsTask, nonHumanTask, unitsTask, targetsTask, costsTask, trendTask }.OfType<Task>());", act);
+        var lead = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "Leadership.cs");
+        Assert.Contains("await Task.WhenAll(totalsTask, trendTask, adoptedTask, unitsTask);", lead);
+        Assert.Contains("await Task.WhenAll(unitsTask, trendTask);", lead);
+        /* The swap list's figures come from the same read as its pairs, not a second pass over both sides. */
+        var swap = Read("dashboard", "CopilotInsights", "Pages", "Licensing", "Swap.cs");
+        Assert.Contains("FROM g FULL JOIN t ON t.Unit = g.Unit AND t.N = g.N", swap);
+        Assert.DoesNotContain("SELECT (SELECT COUNT(*) FROM g) AS Idle", swap);
+    }
+
+    [Fact]
     public void Nothing_in_the_activity_database_reads_the_Copilot_interaction_table()
     {
         foreach (var f in new[] { "Create-ActivityProcedure.sql", "Create-CopilotActivityRollup.sql", "Create-ActivitySchema.sql" })
