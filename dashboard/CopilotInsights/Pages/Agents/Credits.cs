@@ -48,8 +48,11 @@ GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.Agen
         var pg = new Paging(Request, Sorts, "credits");
         var charging = v.Agents.Where(a => a.Month.Credits > 0).ToList();
         Kpis.Add(new("Agents charging credits", Num(charging.Count), $"of {Num(v.Agents.Count)} used: billed use by people without a license, or in a Copilot Studio channel"));
-        Kpis.Add(new("Credits a month (estimate)", Num((long)Math.Round(charging.Sum(a => a.Month.Credits))),
-            $"{CopilotInsights.Data.CostRules.Money(Math.Round(charging.Sum(a => a.Month.Cost)), cur)} at {v.Rates.CreditPrice:#,0.00##} {cur} a credit", Href: Open("/licensing/credit-use"),
+        /* Totalled from people, as Credit use totals it, which the figure opens (2.7.3): summed by agent it came out a few
+           credits apart, an agent's billed use being split by person, and each part estimated, the other way round. */
+        var month = v.People.Aggregate((Credits: 0m, Cost: 0m), (s, p) => (s.Credits + p.Month.Credits, s.Cost + p.Month.Cost));
+        Kpis.Add(new("Credits a month (estimate)", Num((long)Math.Round(month.Credits)),
+            $"{CopilotInsights.Data.CostRules.Money(Math.Round(month.Cost), cur)} at {v.Rates.CreditPrice:#,0.00##} {cur} a credit", Href: Open("/licensing/credit-use"),
             Why: await WhyAsync(CopilotInsights.Data.CreditRules.Formula(v.Rates, cur), "CreditsPerAnswer", "CreditsPerGrounding", "CreditsPerAction", "Price:COPILOT_STUDIO_PAYG_CREDIT")));
         Kpis.Add(new("People billed", Num(v.People.Count(p => p.Use.Billed > 0 && p.Use.WithAgent > 0)), "used an agent that bills"));
 

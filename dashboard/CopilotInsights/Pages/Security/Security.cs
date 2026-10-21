@@ -37,8 +37,8 @@ GROUP BY a.App;", Ctx.Args());
         var tr = await trTask;
         long jb = tr.Sum(w => w.Jailbreak), inj = tr.Sum(w => w.Injection), blk = tr.Sum(w => w.Blocked), all = tr.Sum(w => w.Interactions);
         var people = await peopleTask;
-        Kpis.Add(new("Jailbreak attempts", Num(jb), all > 0 ? $"{jb * 1000.0 / all:0.00} per 1,000 interactions" : null, jb > 0 ? "crit" : null, Href: Open("/security/flags", extra: "status=any")));
-        Kpis.Add(new("Prompt injection detected", Num(inj), all > 0 ? $"{inj * 1000.0 / all:0.00} per 1,000 interactions" : null, inj > 0 ? "crit" : null, Href: Open("/security/flags", extra: "status=any")));
+        Kpis.Add(new("Jailbreak attempts", Num(jb), all > 0 ? $"{jb * 1000.0 / all:0.00} per 1,000 interactions" : null, jb > 0 ? "crit" : null, Href: Open("/security/flags", extra: "kind=jailbreak&status=any")));
+        Kpis.Add(new("Prompt injection detected", Num(inj), all > 0 ? $"{inj * 1000.0 / all:0.00} per 1,000 interactions" : null, inj > 0 ? "crit" : null, Href: Open("/security/flags", extra: "kind=injection&status=any")));
         Kpis.Add(new("Blocked resources", Num(blk), "interactions where access to content was blocked or restricted"));
         Kpis.Add(new("People involved", Num(people), "with a jailbreak or injection flag"));
 

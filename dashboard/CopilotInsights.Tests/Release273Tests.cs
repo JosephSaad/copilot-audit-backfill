@@ -66,6 +66,14 @@ public class Release273Tests
         /* Overview's Interactions opens Apps and agents, which now leads with the same figure. */
         var lead = Read("dashboard", "CopilotInsights", "Pages", "Leadership", "Leadership.cs");
         Assert.Contains("Kpis.Add(new(\"Interactions\", Num(t.Interactions), t.Active > 0 ? $\"{t.Interactions / (double)t.Active:#,0.0} per active person\" : null));", lead);
+        /* Security's two counts open the flags of their own kind, whose figure is that count, not all three signals'. */
+        var security = Read("dashboard", "CopilotInsights", "Pages", "Security", "Security.cs");
+        Assert.Contains("Href: Open(\"/security/flags\", extra: \"kind=jailbreak&status=any\")", security);
+        Assert.Contains("Href: Open(\"/security/flags\", extra: \"kind=injection&status=any\")", security);
+        /* Agents costing credits totals from people, as Credit use does: by agent it was a few credits apart at 90 days. */
+        Assert.Contains("var month = v.People.Aggregate(", Read("dashboard", "CopilotInsights", "Pages", "Agents", "Credits.cs"));
+        /* The check that found these runs against a live dashboard. */
+        Assert.True(File.Exists(Path.Combine(Root(), "tools", "dev", "ui", "Test-FigureLinks.ps1")));
     }
 
     [Fact]

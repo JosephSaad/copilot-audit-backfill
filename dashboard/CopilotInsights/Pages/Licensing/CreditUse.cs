@@ -60,7 +60,8 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
                 var billedMonth = CostRules.Monthly(billedNow.Credits, billedNow.Days);
                 /* 2.7.0: what was billed first, and the estimate as the share of it traced to people. */
                 Kpis.Insert(0, new("Billed by the admin center", N(billedMonth), billedMonth > 0 ? $"credits a month; {total.Credits / billedMonth:P0} of it traced to people below" : "credits a month",
-                    Href: Open("/leadership/costs", extra: $"area={CostAreas.Slot(CostAreas.Studio)}")));
+                    Href: Open("/leadership/costs", extra: $"area={CostAreas.Slot(CostAreas.Studio)}"),
+                    Why: await WhyAsync("Copilot Studio's credits in the Power Platform admin center's consumption report over the last 30 days loaded, as a month. Leadership › Costs and savings shows what they cost.")));
             }
         }
 
