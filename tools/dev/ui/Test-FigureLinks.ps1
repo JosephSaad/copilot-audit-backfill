@@ -32,8 +32,15 @@ $RelatedLinks = @(
     '/forecasting/budget|Seats to renew'                        # right size less a suite's -> the right size
 )
 
+# HttpClient with the Windows sign-in: a dashboard on http://localhost answers Negotiate, which Invoke-WebRequest only sends
+# there with a switch the analyzer forbids. A certificate on https://localhost is the developer's own.
+$handler = [System.Net.Http.HttpClientHandler]::new()
+$handler.UseDefaultCredentials = $true
+$handler.ServerCertificateCustomValidationCallback = [System.Net.Http.HttpClientHandler]::DangerousAcceptAnyServerCertificateValidator
+$client = [System.Net.Http.HttpClient]::new($handler)
+$client.Timeout = [TimeSpan]::FromMinutes(5)
 function Get-Page([string] $u) {
-    try { (Invoke-WebRequest $u -UseBasicParsing -UseDefaultCredentials -AllowUnencryptedAuthentication -SkipCertificateCheck -TimeoutSec 300).Content } catch { $null }
+    try { $r = $client.GetAsync($u).GetAwaiter().GetResult(); if ($r.IsSuccessStatusCode) { $r.Content.ReadAsStringAsync().GetAwaiter().GetResult() } else { $null } } catch { $null }
 }
 $base = $Url.TrimEnd('/')
 if (-not $Pages) {

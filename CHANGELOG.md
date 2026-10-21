@@ -26,6 +26,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     it now totals from people, as Credit use does.
 - **Two chart labels left the chart on a phone:** a heatmap's row names (Drops and spikes) and a forecast line's end
   label (Forecast).
+- **Licensing › Chargeback lost the licenses on disabled or missing accounts.** Its groups are enabled accounts found in
+  the directory, so a license held by anyone else was paid for and charged to no group, and the page's total fell short
+  of the licenses held (2,657 against 2,718 on the demo data). A figure, *Charged to no group*, now shows them with
+  their monthly cost and opens Licensing › Leavers, which lists the same accounts. The total beside it is now named
+  *Licenses charged to groups*.
 
 ### Added
 - **The installer sets MAXDOP on each database it creates**: the SQL Server's logical processors less two (at least 1),
@@ -33,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   server room. `-MaxDop <n>` sets it on every database it installs, existing ones included; `-MaxDop 0` leaves them
   all as they are. A database that exists keeps its own setting unless `-MaxDop` is given. Reading the processor count
   needs VIEW SERVER STATE; without it the installer says so and sets nothing.
+- **`tools/dev/ui/Test-FigureLinks.ps1`**: opens the page behind each headline figure that is a link and checks it
+  shows the same number, at as many periods as given. Part of the release checklist in `tools/dev/README.md`. On the
+  demo data: 264 linked figures at six periods, none missing from its page; 26 lead on purpose to a related page in
+  another month or unit (a month's credits to the people who used them) and are listed in the script.
 
 ### Changed
 - **Leadership › What to act on loads faster.** It read its six sources (the action counts, non-human accounts, units,
@@ -47,6 +56,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "Admin › Value names"; all now use ›, as the guides do.
 - **Leadership › Apps and agents opens with figures:** interactions, the share in Copilot Chat and the share through
   an agent. Overview's Interactions opens it, and now finds the same number there.
+- **Pages that were slowest the first time they open** (the demo data, a period not yet kept; the figures are unchanged,
+  each compared with the previous build):
+  - Governance › Copilot governance: 0.6–2.2 s to 0.25–0.45 s. Its seven reads start together, and Copilot by product
+    classifies each person, app and agent once instead of every interaction.
+  - Licensing › Credit use: 2.1–2.5 s to 0.25–0.3 s. The credit estimate grouped the interactions two ways at once
+    with a distinct count, which read them twice and spooled them; one pass to a row per person and agent now gives
+    the same rows. Agents costing credits, License for credits and Pay-as-you-go read the same estimate.
+  - Enablement › Training effect: 1.1–1.8 s to 0.2–0.4 s, counting each person's active days in one range join on the
+    day instead of two lookups a person.
+  - Governance › AI apps, Apps and Enablement read their sources together; Enablement builds its population of
+    licensed or active people once instead of three times.
+- **Every headline figure says what it counts.** 41 figures on 17 pages had a label and a value and nothing else; each
+  now has a note on the card or behind its information icon, and a test fails a new figure added without one.
+- **Power users** (Enablement) and **Managers using Copilot** (Workforce) open the page that lists them.
+- **Countries and offices' Highest and Lowest adoption** now say *Country with the highest (lowest) adoption*, beside
+  the leaderboard's group of the same name.
+- **Setup messages say who does what, the same way:** "An administrator sets this up by running
+  Install-CopilotAudit.ps1 -Dashboard from <release> or later." Four told the reader to install a schema, one named an
+  internal SQL file.
 
 **Install over 2.7.2:** run `Install-CopilotAudit.ps1 -ActivityDatabase <name>` from this release; it replaces the merge
 procedure. A history load already running finishes as it began.
