@@ -73,7 +73,7 @@ GROUP BY a.App;", Ctx.Args());
                 $"{u.Flags:#,0} signals in {u.Interactions:#,0} interactions", 7)).ToList(), Fmt.Decimal1, "Signal rate by unit"),
             "All three signals together, as a rate so large and small units compare fairly." + (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
 
-        /* The same rate at each point, unit by unit: Security > Security signals by unit was a page of its own for this one chart. */
+        /* The same rate at each point, unit by unit: Security › Security signals by unit was a page of its own for this one chart. */
         var shown = SmallGroups.Shown(await unitsTask, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
         var series = (await seriesTask).ToDictionary(x => (x.Unit, x.Bucket));
         var buckets = Buckets();

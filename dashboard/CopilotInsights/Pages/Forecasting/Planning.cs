@@ -103,7 +103,7 @@ WHERE EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = du.UserKey AND
             Input("start", "Started", DateTime.Today.ToString("yyyy-MM-dd"), 10, "date") + Input("renewal", "Renews", DateTime.Today.AddYears(1).ToString("yyyy-MM-dd"), 10, "date") +
             Input("note", "Note", null, 24) + Button("Add"));
         Panels.Add(new("Contracts", new HtmlString(t.Render().Value + add),
-            "Entered by an administrator from the agreements; the tenant's own count of seats bought is on Licensing > License pool.", "full", CsvUrl()));
+            "Entered by an administrator from the agreements; the tenant's own count of seats bought is on Licensing › License pool.", "full", CsvUrl()));
     }
 
     public Task<IActionResult> OnPostContractAsync(string? name, int? seats, string? price, DateTime? start, DateTime? renewal, string? note) => AdminChangeAsync(async () =>
@@ -211,8 +211,8 @@ SELECT {select} FROM c {tail}";
                 $"{LicenseActions.Button(Ctx, Request.Path, Extra(size, dept, $"wave={w.Wave}&handler=script"), Token(), TenantQuery, "PowerShell script")}</span>")]);
         var sizes = string.Join(" · ", new[] { 25, 50, 100, 250, 500, 1000 }.Select(n =>
             $"<a href=\"{E(Ctx.Url(Request.Path, extra: Extra(n, dept, null)))}\"{(n == size ? " class=\"on\"" : "")}>{n}</a>"));
-        Panels.Add(new("Waves", new HtmlString($"<p class=\"sub\">People a wave: {sizes} (the default is set in Admin > Targets and assumptions).</p>" + wt.Render().Value),
-            (waves.Count > 12 ? $"The first 12 of {waves.Count} waves. " : "") + "Each file is for a license administrator to review and apply; the dashboard changes nothing. Exports are recorded for Forecasting > License action outcomes.", "half"));
+        Panels.Add(new("Waves", new HtmlString($"<p class=\"sub\">People a wave: {sizes} (the default is set in Admin › Targets and assumptions).</p>" + wt.Render().Value),
+            (waves.Count > 12 ? $"The first 12 of {waves.Count} waves. " : "") + "Each file is for a license administrator to review and apply; the dashboard changes nothing. Exports are recorded for Forecasting › License action outcomes.", "half"));
 
         var t = new Table
         {

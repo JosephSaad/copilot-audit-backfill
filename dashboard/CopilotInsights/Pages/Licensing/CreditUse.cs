@@ -19,7 +19,7 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
     public override string Persona => "Licensing";
     public override string? RequiredRole => Roles.Licensing;
     public override string Intro => "An estimate of the Copilot Credits each person's use costs, a month, and of the tokens behind it. Microsoft reports neither per person, so both are worked out from the audit log: "
-        + "each agent answer billed to the organization (an agent used without a Microsoft 365 Copilot license, or in a Copilot Studio channel) at the credits Admin > Targets and assumptions sets, more where it read work data or called another agent. "
+        + "each agent answer billed to the organization (an agent used without a Microsoft 365 Copilot license, or in a Copilot Studio channel) at the credits Admin › Targets and assumptions sets, more where it read work data or called another agent. "
         + "A licensed person's agents inside Microsoft 365 Copilot, and Copilot Chat without an agent, bill nothing. Tokens are a rough figure for sizing, never a measurement.";
 
     static readonly int[] Caps = [0, 250, 500, 1000, 2500, 5000];

@@ -101,7 +101,7 @@ SELECT p.Upn, p.DisplayName, p.Department, p.ManagerUpn, ud.JobTitle, p.DirectRe
 public sealed class ClassificationsModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Classifications and events";
-    public override string Intro => "Rules that group job titles into job families (People > Job families) and interactions into use cases (Leadership > Use cases), and the events drawn on every trend chart: a rollout wave, a training push, an outage, a policy change. Patterns use SQL LIKE: % matches anything, so %engineer% is any title containing engineer. The first matching rule by priority wins.";
+    public override string Intro => "Rules that group job titles into job families (People › Job families) and interactions into use cases (Leadership › Use cases), and the events drawn on every trend chart: a rollout wave, a training push, an outage, a policy change. Patterns use SQL LIKE: % matches anything, so %engineer% is any title containing engineer. The first matching rule by priority wins.";
 
     static readonly string[] Kinds = ["Rollout", "Training", "Outage", "Policy", "Other"];
     static readonly string[] Tri = ["Either", "Yes", "No"];

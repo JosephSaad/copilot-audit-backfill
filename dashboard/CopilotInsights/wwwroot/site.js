@@ -209,7 +209,7 @@
     table.showPage(1);
   });
 
-  // Admin > Reports shown: a section's own box ticks or clears every report in it, and follows them.
+  // Admin › Reports shown: a section's own box ticks or clears every report in it, and follows them.
   document.querySelectorAll('.card.pick').forEach(function (card) {
     var all = card.querySelector('input[data-all]');
     var boxes = card.querySelectorAll('input[name="show"]');
@@ -405,7 +405,7 @@
   })();
 
   // The admin forms put the question on the button.
-  /* 2.6.3: a box that ticks or clears every box of one form (Admin > Access: the people and groups on the page). */
+  /* 2.6.3: a box that ticks or clears every box of one form (Admin › Access: the people and groups on the page). */
   document.querySelectorAll('input[data-check-all]').forEach(function (all) {
     all.addEventListener('change', function () {
       document.querySelectorAll('input[type="checkbox"][form="' + all.getAttribute('data-check-all') + '"]').forEach(function (b) { b.checked = all.checked; });

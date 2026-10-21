@@ -38,7 +38,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         Panels.Add(new("People using Copilot", Chart.Line(Labels(), [
             new Series("With a Premium license", tr.Select(w => (double?)w.ActiveLicensed).ToList(), 1),
             new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People using Copilot"),
-            TrendNote + " Dashed rules mark events (Admin > Classifications and events)."));
+            TrendNote + " Dashed rules mark events (Admin › Classifications and events)."));
 
         /* The targets for the part of the organization printed, not every target (2.4.12, see OpsReports.Visible). */
         var targets = await reports.TargetsAsync(Ctx);
@@ -63,7 +63,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             $"<div class=\"kpi\"><div class=\"klabel\">Estimated value ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">License cost in the period ({E(cur)})</div><div class=\"kvalue\">{(Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Count > 0 ? cost.ToString("#,0") : "—")}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Return on license cost</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
-            $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin > Targets and assumptions). " +
+            $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin › Targets and assumptions). " +
             "License cost: each calendar month whose last day falls in the period, at the license price for everyone who held one that month; a period under a month charges none.", "half"));
 
         /* The pool is the whole tenant's: for the viewers License pool shows it to, the whole-organization view or the
@@ -110,7 +110,7 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
 {
     public override string Title => "Use cases";
     public override string Persona => "Leadership";
-    public override string Intro => "What Copilot is used for, worked out from where each interaction happened (Outlook, Teams, Word, Excel...), whether it searched the web, and whether an agent answered. The rules are in Admin > Classifications and events. The audit log holds no prompt text, so this is where and how, not the words.";
+    public override string Intro => "What Copilot is used for, worked out from where each interaction happened (Outlook, Teams, Word, Excel...), whether it searched the web, and whether an agent answered. The rules are in Admin › Classifications and events. The audit log holds no prompt text, so this is where and how, not the words.";
 
     sealed class G
     {

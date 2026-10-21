@@ -66,7 +66,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args())
                 new Series("In the apps", tr.Select(w => Ratio(w.Interactions - w.Chat, w.Interactions)).ToList(), 2),
             ], Fmt.Percent, "Chat and in-app share", 1), "App categories come from Admin › Reference data.", "half"));
 
-        /* The controls over time and web search by unit: Governance > Copilot controls was a page of its own for these,
+        /* The controls over time and web search by unit: Governance › Copilot controls was a page of its own for these,
            beside this page's figures for the same three things. */
         Panels.Add(new("Interactions that updated Copilot memory",
             Chart.Line(Labels(), [new Series("Updated memory", buckets.Select(b => { var r = controls.FirstOrDefault(x => x.Bucket == b.Key); return Ratio(r.Memory, r.N); }).ToList(), 5)], Fmt.Percent, "Share of interactions that updated Copilot memory"),

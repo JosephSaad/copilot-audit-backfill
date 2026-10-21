@@ -74,7 +74,7 @@ SELECT e.BotSchemaName,
 FROM e
 /* A Copilot Studio agent's id ends in its schema name (Copilot.Studio.<environment>-<schema name>). It was found by
    its name, which was the schema name until 2.4.11 named agents as the audit log does; then the alias and owner
-   set in Admin > Reference data went missing here (2.4.12). Compared as text, not LIKE: _ is in schema names. */
+   set in Admin › Reference data went missing here (2.4.12). Compared as text, not LIKE: _ is in schema names. */
 LEFT JOIN bi.DimAgent AS ag ON ag.AgentId = e.BotSchemaName
     OR (ag.AgentSource = N'Copilot Studio' AND RIGHT(ag.AgentId, LEN(e.BotSchemaName) + 1) = N'-' + e.BotSchemaName)
 LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = ag.AgentKey
@@ -128,7 +128,7 @@ WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action IN ('Blocked', 'Unblocked', 'De
         }
         CsvTable = t;
         Panels.Add(new("Every agent's lifecycle", t.Render(),
-            $"{neverPublished} created and never published. All time, not only the period. Name agents and give them owners in Admin > Reference data." +
+            $"{neverPublished} created and never published. All time, not only the period. Name agents and give them owners in Admin › Reference data." +
             (named ? "" : " The makers' names are shown to the Agents role."), "full", CsvUrl()));
     }
 }

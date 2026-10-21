@@ -111,7 +111,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         var where = "<ul class=\"sub\">" +
             "<li><b>This page, Recently sent</b>: every message the dashboard tried to send, with why not. For a test, and for any message that was not sent, <i>show</i> under Conversation opens what was said to the mail server and what it answered.</li>" +
             "<li><b>The last test</b>, below: send a test above, and its conversation is shown here whole. Read it from the top: the server and port, the security used, who signed in, then each command (C:) and the server's answer (S:). The line that fails is the last one.</li>" +
-            "<li><b>The database</b>: the same rows are in dash.NotificationLog (Status, Error, Detail), kept for the days set in Admin > Privacy and retention.</li>" +
+            "<li><b>The database</b>: the same rows are in dash.NotificationLog (Status, Error, Detail), kept for the days set in Admin › Privacy and retention.</li>" +
             "<li><b>The web server's Windows Application log</b>, source <i>Copilot Insights</i>: each alert, sent or not; and source <i>.NET Runtime</i> or <i>IIS AspNetCore Module V2</i> if the site itself failed.</li></ul>" +
             "<p class=\"sub\">Common answers: <i>535</i> or <i>Authentication unsuccessful</i> is the user name or password, or the server does not allow that sign-in; no <i>250-AUTH</i> line after EHLO means the server offers no sign-in on that port, or only after STARTTLS; " +
             "<i>530 Must issue a STARTTLS command first</i> needs Security StartTls; a certificate that is not trusted needs the relay's certificate trusted on this web server (or, in a lab, Accept any server certificate); " +
@@ -125,7 +125,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         foreach (var l in log)
             t.Rows.Add([l.AtUtc, l.Kind, l.Subject, l.Recipients, new HtmlString($"<span class=\"{(l.Status == "Sent" ? "status-ok" : "status-warn")}\">{E(l.Status)}</span>"), l.Error,
                 l.Detail is null ? null : new HtmlString($"<details><summary>show</summary><pre class=\"log\">{E(l.Detail)}</pre></details>")]);
-        Panels.Add(new("Recently sent", t.Render(), "Kept for the days set in Admin > Privacy and retention. The conversation with the mail server is kept for a test and for a message that was not sent."));
+        Panels.Add(new("Recently sent", t.Render(), "Kept for the days set in Admin › Privacy and retention. The conversation with the mail server is kept for a test and for a message that was not sent."));
     }
 
     public Task<IActionResult> OnPostMailAsync(string? MailMode, string? MailFrom, string? MailReplyTo, string? DashboardUrl, string? ExoAuth, string? ExoTenantId,
@@ -184,7 +184,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         var rcpt = MailConfig.Recipients(to);
         if (rcpt.Count == 0) throw new ArgumentException("give an address to send the test to.");
         var e = new Email("Copilot Insights test message");
-        e.Paragraph($"Sent by {Viewer.Name} from Admin > Email at {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC. If you can read this, alerts and digests will arrive.");
+        e.Paragraph($"Sent by {Viewer.Name} from Admin › Email at {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC. If you can read this, alerts and digests will arrive.");
         e.Footer(null);
         var error = await mailer.SendAsync("Test", rcpt, e.Subject, e.Html(), e.Text());
         return error is null ? $"Test email sent to {rcpt[0].Address}." : $"The test email was not sent: {error}";
@@ -239,7 +239,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
         string V(string k) => set.GetValueOrDefault(k) ?? "";
         Panels.Add(new("Who hears about what", new HtmlString(Form("recipients",
             string.Concat(Recipients.Select(r => Input(r.Key, r.Label, V(r.Key), 50))) + Button("Save"))),
-            "Addresses separated by semicolons; a distribution list keeps it short. Email is set up in Admin > Email.", "half"));
+            "Addresses separated by semicolons; a distribution list keeps it short. Email is set up in Admin › Email.", "half"));
 
         Panels.Add(new("When to alert", new HtmlString(Form("thresholds",
             string.Concat(Numbers.Select(n => Input(n.Key, n.Label, V(n.Key), 6, "number"))) +
@@ -247,7 +247,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             $"<label><input type=\"checkbox\" name=\"NewAgentAlert\" value=\"1\"{(V("NewAgentAlert") != "0" ? " checked" : "")}/> Alert on agents used for the first time</label>" +
             $"<label><input type=\"checkbox\" name=\"EventLogAlerts\" value=\"1\"{(V("EventLogAlerts") != "0" ? " checked" : "")}/> Also write alerts to the Windows Application log (source Copilot Insights)</label>" +
             Button("Save"))),
-            "A security signal alerts when a day reaches its threshold, or when it is the given number of times its 28-day average. Label order is set in Admin > Reference data.", "half"));
+            "A security signal alerts when a day reaches its threshold, or when it is the given number of times its 28-day average. Label order is set in Admin › Reference data.", "half"));
 
         var subs = await Db.QueryAsync<SubRow>("SELECT * FROM dash.Subscription ORDER BY Name;");
         var zone = await HttpContext.RequestServices.GetRequiredService<OpsData>().ZoneAsync();
@@ -283,7 +283,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             Select("ManagerDigestDay", "Weekly on", days, days[Math.Clamp(int.TryParse(V("ManagerDigestDay"), out var md) ? md : 1, 0, 6)]) +
             Input("DigestHour", $"At (hour, {zone.StandardName})", V("DigestHour") is "" ? "7" : V("DigestHour"), 4, "number") + Button("Save"))),
             "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD. " +
-            "When the dashboard is limited to levels (Admin > Access), only managers at those levels get it. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
+            "When the dashboard is limited to levels (Admin › Access), only managers at those levels get it. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
 
         /* Managers who asked not to get the digest (2.4.4): kept by administrators, now that the dashboard has no personal pages. */
         var optedOut = await Db.QueryAsync<(string Upn, string? DisplayName, DateTime UpdatedUtc)>(@"
@@ -355,7 +355,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
         var url = await HttpContext.RequestServices.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
         if (url is null) throw new ArgumentException("save a webhook address first.");
         var format = await S.Settings.StringAsync("AlertWebhookFormat") is "Json" ? "Json" : "Teams";
-        var payload = Webhook.Payload(format, "Test", "Copilot Insights test alert", [$"Posted by {Viewer.Name} from Admin > Alerts and digests. Alerts will arrive here."], null, DateTime.UtcNow);
+        var payload = Webhook.Payload(format, "Test", "Copilot Insights test alert", [$"Posted by {Viewer.Name} from Admin › Alerts and digests. Alerts will arrive here."], null, DateTime.UtcNow);
         using var http = HttpContext.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient();
         http.Timeout = TimeSpan.FromSeconds(20);
         try
@@ -430,7 +430,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
 
     /// <summary>Why this administrator may not preview or send this digest now, or null (2.4.12).</summary>
     string? DigestRefusal(string report) => DigestRole(report) is { } role && !Viewer.Has(role)
-        ? $"the {report} digest shows the {role} section, which needs the {role} role. An administrator can grant it in Admin > Access."
+        ? $"the {report} digest shows the {role} section, which needs the {role} role. An administrator can grant it in Admin › Access."
         : null;
 
     public Task<IActionResult> OnPostSendnowAsync(int id) => AdminChangeAsync(async () =>
@@ -559,13 +559,13 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 new HtmlString(Form("deltarget", $"<input type=\"hidden\" name=\"id\" value=\"{x.TargetId}\"/>" + Button("Remove", "Remove this target?", quiet: true)))]);
         Panels.Add(new("Adoption targets", new HtmlString(t.Render().Value + "<h3>Add a target</h3>" + Form("target",
             Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) +
-            /* The measures by the names the table above and Adoption > Targets give them (2.4.10: the box showed their codes). */
+            /* The measures by the names the table above and Adoption › Targets give them (2.4.10: the box showed their codes). */
             Select("metric", "Measure", new[] { "Adoption", "ActiveShare", "ActivePeople" }.Select(m => (m, Adoption.TargetsModel.Label(m))), "Adoption") +
             Input("value", "Target (% or people)", null, 6, "number") +
             Input("start", "From", DateTime.Today.ToString("yyyy-MM-dd"), 10, "date") + Input("due", "Due", DateTime.Today.AddMonths(3).ToString("yyyy-MM-dd"), 10, "date") +
             Input("note", "Note", null, 30) + Button("Add"))),
             "Adoption: license holders who used Copilot, as a share of all license holders. Share of people active: everyone who used Copilot, as a share of everyone. " +
-            "People active: a number of people, not a share. Progress is on Adoption > Targets."));
+            "People active: a number of people, not a share. Progress is on Adoption › Targets."));
 
         var apps = await Db.QueryAsync<(string App, decimal? Minutes)>("SELECT a.App, ts.Minutes FROM bi.DimApp AS a LEFT JOIN dash.TimeSaving AS ts ON ts.App = a.App ORDER BY a.App;");
         var at = new Table { Headers = ["App", "Minutes saved per interaction"] };
@@ -575,15 +575,15 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
         Panels.Add(new("Time saved", new HtmlString(Form("value",
             Input("MinutesSavedDefault", "Minutes one interaction saves (default)", V("MinutesSavedDefault"), 5) +
             Input("HourlyCost", $"What an hour is worth ({V("LicenseCurrency")})", V("HourlyCost"), 6) + Button("Save")) + at.Render().Value),
-            "Your organization's own estimates, from a survey or a pilot: every figure on Leadership > Value follows them. Microsoft's and analysts' published studies are a starting point, not a measurement of your tenant."));
+            "Your organization's own estimates, from a survey or a pilot: every figure on Leadership › Value follows them. Microsoft's and analysts' published studies are a starting point, not a measurement of your tenant."));
 
         Panels.Add(new("Licensing and champions", new HtmlString(Form("licensing",
             Input("LicenseGroupId", "Object id of the Entra group that assigns Copilot licenses (empty if licenses are assigned directly)", V("LicenseGroupId"), 38) +
             Input("ChampionsPerDepartment", "Champions to suggest per department", V("ChampionsPerDepartment"), 4, "number") +
             Input("RolloutWaveSize", "People in a rollout wave", V("RolloutWaveSize"), 6, "number") + Button("Save"))),
-            "With a group, the license exports add and remove its members; without one, they assign or remove the license itself. The license price is in Admin > Access.", "half"));
+            "With a group, the license exports add and remove its members; without one, they assign or remove the license itself. The license price is in Admin › Access.", "half"));
 
-        /* 2.6.6: what Leadership > Costs and savings prices and values with. */
+        /* 2.6.6: what Leadership › Costs and savings prices and values with. */
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.CostPrice', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
         {
             /* 2.6.9: with each price, its volume price and the Dataverse capacity a seat brings, where the columns are installed. */
@@ -609,14 +609,14 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 Input("PowerBiCopilotMinutes", "Minutes one Copilot in Power BI request saves", V("PowerBiCopilotMinutes"), 5) +
                 Input("CostIdleDays", "Idle after (days): GitHub seats, Power Platform licenses, AI accounts", V("CostIdleDays"), 4, "number") +
                 Input("SpareSeatPercent", "Spare seats kept unassigned (% of those bought)", V("SpareSeatPercent"), 4) + Button("Save")) + pt.Render().Value),
-                "What Leadership > Costs and savings counts with. The prices are list prices in USD when installed: put in what your agreement pays, a month for a license or a GB, " +
+                "What Leadership › Costs and savings counts with. The prices are list prices in USD when installed: put in what your agreement pays, a month for a license or a GB, " +
                 "and per credit for a credit. A license is matched to Graph's license pool by its SKU part number. Hourly cost is under Time saved, above. " +
                 "Volume price: from that many seats every seat costs the volume price (Power Apps Premium: 12 from 2,000), so a cut under it is counted at what it really saves. " +
                 "Dataverse capacity a seat brings: what each seat adds to the tenant's Dataverse pool (Power Apps and Power Automate Premium: 0.25 GB of database, 2 GB of file); a cut that would take the pool under what is used costs add-on capacity, taken off its saving. " +
                 "Spare seats: unassigned seats kept on purpose for joiners and moves are not a saving; the default share is above, and a license can set its own. Bought for capacity or the volume price: its unassigned and idle seats are never counted as money back."));
         }
 
-        /* 2.6.6: what Licensing > Credit use estimates credits and tokens with. */
+        /* 2.6.6: what Licensing › Credit use estimates credits and tokens with. */
         Panels.Add(new("Credit estimate", new HtmlString(Form("credits",
             Input("CreditsPerAnswer", "Credits a billed agent answer costs", V("CreditsPerAnswer"), 4) +
             Input("CreditsPerGrounding", "Credits grounding in work data adds", V("CreditsPerGrounding"), 4) +
@@ -624,7 +624,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
             Input("TokensPerTurn", "Tokens a turn takes", V("TokensPerTurn"), 7, "number") +
             Input("TokensPerResource", "Tokens each resource read adds", V("TokensPerResource"), 7, "number") +
             Input("TokensPerAnswer", "Tokens an answer gives back", V("TokensPerAnswer"), 7, "number") + Button("Save"))),
-            "What Licensing > Credit use estimates with. Credits: Microsoft's list rates are 2 for a generative answer, 10 more for grounding in the organization's data, 5 for an action; " +
+            "What Licensing › Credit use estimates with. Credits: Microsoft's list rates are 2 for a generative answer, 10 more for grounding in the organization's data, 5 for an action; " +
             "a credit's price is the Copilot Credit, pay-as-you-go, under Costs and savings. Tokens are a rough figure (Microsoft reports none for Microsoft 365 Copilot): what a turn takes before grounding, what each file or mail read adds, and an answer.", "half"));
 
         /* 2.6.6: the suites, their price, what they include, and on or off. */
@@ -640,7 +640,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                     Select("enabled", "Counted", [("1", "On"), ("0", "Off")], s.Enabled ? "1" : "0") + Button("Save", quiet: true)))]);
             Panels.Add(new("Suites: E3, E5 and E7", st.Render(),
                 "The suites people hold, matched to Graph's license pool by SKU part number (% matches anything). Includes: what of the priced items a suite already includes, so a standalone one on its holder is paid twice, " +
-                "and Copilot or Power BI Pro inside it is not counted again as AI spend: COPILOT for Microsoft 365 Copilot, POWER_BI_PRO for Power BI Pro. The price is what Licensing > Suite fit compares a move down with; " +
+                "and Copilot or Power BI Pro inside it is not counted again as AI spend: COPILOT for Microsoft 365 Copilot, POWER_BI_PRO for Power BI Pro. The price is what Licensing › Suite fit compares a move down with; " +
                 "set your agreement's. Off leaves a suite out of both pages. The E7 rows are Microsoft's announced part numbers' likely forms: check License pool for yours, and the license lookup's -CopilotSuiteSku with it."));
         }
     }
@@ -789,7 +789,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         Panels.Add(new("Privacy mode", new HtmlString(Form("privacy",
             Select("mode", "Privacy mode", ["Off", "Pseudonymize"], on ? "Pseudonymize" : "Off") + Button("Save", "Change privacy mode? It applies to every viewer and to Power BI at its next refresh."))),
             "On: every page, export, digest and API call that names people is refused, and Power BI's Users table shows a salted hash instead of names, sign-ins and managers, the same for the same person, so counts and org slicing still work. " +
-            "Units, named after their managers, go by their department, and no report is narrowed to a manager's part of the organization. Aggregates keep the minimum group size (Admin > Access). " +
+            "Units, named after their managers, go by their department, and no report is narrowed to a manager's part of the organization. Aggregates keep the minimum group size (Admin › Access). " +
             "If the setting cannot be read, privacy mode counts as on until it can."));
 
         Panels.Add(new("Retention", new HtmlString(Form("retention",
@@ -877,7 +877,7 @@ public sealed class ValuesModel(PageServices s) : AdminPage(s)
         public int TotalRows { get; set; }
     }
 
-    /* Agent ids (column 6) are no longer tied to Admin > Reference data's agents (2.4.12): since 2.4.11 a Copilot Studio
+    /* Agent ids (column 6) are no longer tied to Admin › Reference data's agents (2.4.12): since 2.4.11 a Copilot Studio
        or Microsoft agent is known by the app identity that names it, which a record's agent id never equals, so a name
        given here reached none of them, and an id that did match could be another agent's. Agents are named in Reference data. */
     /// <summary>
@@ -967,8 +967,8 @@ WHERE v.ColumnId = @id AND (@q IS NULL OR v.Value LIKE @q OR {NameExpr} LIKE @q)
                 Input("name", "Name", v.Name, 26) + Input("note", "Note", v.Note, 20) + Button("Save", quiet: true), $"col={col.ColumnId}"))]);
         var upload = $"<p class=\"sub\"><a href=\"{E(Request.Path + $"?handler=download&col={col.ColumnId}")}\">Download the mapping file for this column</a>: its values and names, to fill in and upload back above.</p>";
         Panels.Add(new(col.Label, new HtmlString(upload + pg.Controls(Request, new Dictionary<string, string> { ["most"] = "Most seen", ["unnamed"] = "Unnamed first", ["value"] = "Value", ["new"] = "Newest" }).Value + vt.Render().Value),
-            col.ColumnId is 11 or 30 ? "Label names are shared with Admin > Reference data, where their order is set."
-                : col.ColumnId == 6 ? "Agents are named in Admin > Reference data, and that is the name every page, digest and alert shows. A name here labels this agent id in Power BI only. Clear a name to remove it."
+            col.ColumnId is 11 or 30 ? "Label names are shared with Admin › Reference data, where their order is set."
+                : col.ColumnId == 6 ? "Agents are named in Admin › Reference data, and that is the name every page, digest and alert shows. A name here labels this agent id in Power BI only. Clear a name to remove it."
                 : "Clear a name to remove it."));
     }
 
@@ -1054,7 +1054,7 @@ public sealed class TrainingRecordsModel(PageServices s) : AdminPage(s)
                      "<label>Attendance CSV: UPN, session, date (yyyy-MM-dd)<input type=\"file\" name=\"file\" accept=\".csv,text/csv\"/></label>" + Button("Upload") + "</form>" +
                      $"<p class=\"sub\"><a href=\"{E(Request.Path + "?handler=mapping")}\">Download the mapping file</a>: every attendance record held, in the same columns, to add to and upload back. " +
                      $"Or <a href=\"{E(Request.Path + "?handler=template")}\">download an empty template</a>. A header row is fine; a record already there is skipped.</p>";
-        Panels.Add(new("Sessions", new HtmlString(upload + t.Render().Value), "The effect is measured 28 days after each session, so a session shows on Enablement > Training effect four weeks after it."));
+        Panels.Add(new("Sessions", new HtmlString(upload + t.Render().Value), "The effect is measured 28 days after each session, so a session shows on Enablement › Training effect four weeks after it."));
     }
 
     public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(async () =>

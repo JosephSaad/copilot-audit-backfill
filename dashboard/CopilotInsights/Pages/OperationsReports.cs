@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Html;
 
 namespace CopilotInsights.Pages.Adoption
 {
-    /// <summary>Progress against the adoption targets an administrator set (Admin > Targets and assumptions).</summary>
+    /// <summary>Progress against the adoption targets an administrator set (Admin › Targets and assumptions).</summary>
     public sealed class TargetsModel(PageServices s, OpsReports reports) : InsightsPage(s)
     {
         public override string Title => "Targets";
@@ -22,7 +22,7 @@ namespace CopilotInsights.Pages.Adoption
             if (mine.Count == 0)
             {
                 Notice = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.Target;") == 0
-                    ? "No targets yet. An administrator sets them in Admin > Targets and assumptions." : "No target covers the part of the organization you see.";
+                    ? "No targets yet. An administrator sets them in Admin › Targets and assumptions." : "No target covers the part of the organization you see.";
                 return;
             }
             Kpis.Add(new("Targets set", Num(mine.Count)));
@@ -96,7 +96,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             List<Bar> Dist(List<Row> rows) => Bands.Select(b => new Bar(b.Label, rows.Count(r => r.Days is int d && d >= b.Lo && d <= b.Hi), Slot: 3))
                 .Append(new Bar("Not yet", rows.Count(r => r.Days is null), Slot: 5)).ToList();
             Panels.Add(new("From license to first use", Chart.Bars(Dist(licensed), Fmt.Count, "Days from license to first use"),
-                "People licensed in the period, by how soon they first used Copilot. The Adoption role sees who has not started (Adoption > Not started).", "half"));
+                "People licensed in the period, by how soon they first used Copilot. The Adoption role sees who has not started (Adoption › Not started).", "half"));
             if (hired.Count > 0)
                 Panels.Add(new("From hire to first use", Chart.Bars(Dist(hired), Fmt.Count, "Days from hire to first use"),
                     "People whose hire date in Entra falls in the period. Entra's hire date is filled in by HR systems; where it is empty, nobody is counted here.", "half"));
@@ -131,7 +131,7 @@ GROUP BY h.UserKey, h.Dept, h.Since;", Ctx.Args());
             Kpis.Add(new("Spikes in use", Num(found.Count(a => a.Kind == "Spike")), $"{spike}% or more above usual"));
             var tb = new Table { Headers = ["Day", "Department", "Drop or spike", "Interactions", "Usual for the weekday", "Change"], Numeric = new HashSet<int> { 3, 4 }, EmptyText = "Nothing stood out in the last two weeks." };
             foreach (var a in found) tb.Rows.Add([a.Day, a.Unit, a.Kind, a.Value, Math.Round(a.Baseline), $"{a.Change:+0%;-0%}"]);
-            Panels.Add(new("Days that stood out", tb.Render(), $"The thresholds are set in Admin > Alerts and digests, which can also email them. Up to {Ctx.End:d MMM yyyy}."));
+            Panels.Add(new("Days that stood out", tb.Render(), $"The thresholds are set in Admin › Alerts and digests, which can also email them. Up to {Ctx.End:d MMM yyyy}."));
             var top = found.Select(a => a.Unit).Distinct().Take(8).ToList();
             if (top.Count > 0)
             {
@@ -154,7 +154,7 @@ namespace CopilotInsights.Pages.Leadership
     {
         public override string Title => "Value and time saved";
         public override string Persona => "Leadership";
-        public override string Intro => "An estimate: interactions in each app times the minutes one saves, valued at an hourly cost. The minutes and the hourly cost are your organization's assumptions (Admin > Targets and assumptions); change them and every figure here follows.";
+        public override string Intro => "An estimate: interactions in each app times the minutes one saves, valued at an hourly cost. The minutes and the hourly cost are your organization's assumptions (Admin › Targets and assumptions); change them and every figure here follows.";
 
         protected override async Task BuildAsync()
         {
@@ -175,7 +175,7 @@ namespace CopilotInsights.Pages.Leadership
             Kpis.Add(new("Return on license cost", licenseCost > 0 ? $"{value / licenseCost:0.0}×" : "—", whole ? $"license cost in the period: {licenseCost:#,0} {cur}" : "choose 30 days or more",
                 Why: await WhyAsync($"Estimated value ({value:#,0} {cur}) ÷ the license cost of the period: each calendar month the period charges, for everyone who held a license on at least one day of it, at the Copilot license price ({months:#,0} license-months × {price:#,0.##} {cur} = {licenseCost:#,0} {cur}). {(whole ? $"The period charges the calendar months whose last day falls inside it ({string.Join(", ", Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Select(m => new DateTime(m / 100, m % 100, 1).ToString("MMM yyyy")))}), each whole." : "No month ends inside a period this short, so none is charged and no return is shown: choose 30 days or more.")}", "HourlyCost", "MinutesSavedDefault", "LicenseMonthlyCost")));
             Panels.Add(new("Hours saved by app", Chart.Bars(v.ByApp.Take(12).Select(a => new Bar(a.Name, a.Hours, Note: $"{a.Interactions:#,0} interactions")).ToList(), Fmt.Count, "Hours saved by app"),
-                "Set the minutes each app saves in Admin > Targets and assumptions.", "half"));
+                "Set the minutes each app saves in Admin › Targets and assumptions.", "half"));
             var shown = FoldSmall(v.ByDepartment, d => d.People, OpsReports.CombineValue, out var folded);
             var tb = new Table { Headers = ["Department", "People using Copilot", "Interactions", "Hours saved", $"Estimated value ({cur})", "Hours per person"], Numeric = new HashSet<int> { 1, 2, 3, 4, 5 } };
             foreach (var d in shown) tb.Rows.Add([d.Name, d.People, d.Interactions, Math.Round(d.Hours), Math.Round(d.Value), d.People > 0 ? Math.Round(d.Hours / d.People, 1) : null]);
@@ -251,7 +251,7 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
                              r.TopLabel ?? (r.TopRank is not null ? "(unnamed label)" : null), r.Blocked]);
             CsvTable = tb;
             Panels.Add(new("Every site (the 200 most reached)", tb.Render(),
-                $"People are shown only where {Ctx.MinGroupSize} or more reached the site. Name labels and set their order in Admin > Reference data." +
+                $"People are shown only where {Ctx.MinGroupSize} or more reached the site. Name labels and set their order in Admin › Reference data." +
                 (PrivacyMode ? " Privacy mode is on, so a personal OneDrive is not shown by its address, which names its owner." : ""), "full", CsvUrl()));
         }
 
@@ -310,7 +310,7 @@ ORDER BY a.FirstSeenUtc DESC;", Ctx.Args());
             Kpis.Add(new("Agents seen", Num(rows.Count)));
             Kpis.Add(new("New in the period", Num(rows.Count(r => r.FirstSeenUtc >= Ctx.Start))));
             Kpis.Add(new("Used in the period", Num(rows.Count(r => r.Interactions > 0))));
-            Kpis.Add(new("Without an owner", Num(rows.Count(r => r.Owner is null)), "set one in Admin > Reference data", rows.Any(r => r.Owner is null) ? "warn" : null));
+            Kpis.Add(new("Without an owner", Num(rows.Count(r => r.Owner is null)), "set one in Admin › Reference data", rows.Any(r => r.Owner is null) ? "warn" : null));
             var bySource = rows.GroupBy(r => r.AgentSource).Select(g => new Bar(g.Key, g.Count(), Note: $"{g.Count(r => r.Interactions > 0)} used in the period")).OrderByDescending(b => b.Value).ToList();
             Panels.Add(new("By where they were built", Chart.Bars(bySource, Fmt.Count, "Agents by source"), null, "half"));
             var tb = new Table { Headers = ["Agent", "Built in", "Owner", "First used", "Last used", "People in the period", "Interactions in the period"], Numeric = new HashSet<int> { 5, 6 } };
@@ -319,7 +319,7 @@ ORDER BY a.FirstSeenUtc DESC;", Ctx.Args());
                 tb.Rows.Add([r.AgentName + (r.Named ? "" : " (unnamed)"), r.AgentSource, ownerName(r.Owner), r.FirstSeenUtc.Date, r.LastUsed,
                              r.People == 0 ? 0 : AtLeastMin(r.People), r.Interactions]);
             CsvTable = tb;
-            Panels.Add(new("Every agent", tb.Render(), $"People are left out where fewer than {Ctx.MinGroupSize} used an agent; named users are on Agents > Agent detail for the Agents role.", "full", CsvUrl()));
+            Panels.Add(new("Every agent", tb.Render(), $"People are left out where fewer than {Ctx.MinGroupSize} used an agent; named users are on Agents › Agent detail for the Agents role.", "full", CsvUrl()));
         }
     }
 }
@@ -332,7 +332,7 @@ namespace CopilotInsights.Pages.Enablement
         public override string Title => "Training effect";
         public override string Persona => "Enablement";
         public override bool UsesFilters => false;
-        public override string Intro => "For each training session (Admin > Training records): attendees' active days and interactions in the 28 days before and the 28 days after, against people in the same departments who did not attend, over the same weeks. The difference between the two changes is the likely effect of the training.";
+        public override string Intro => "For each training session (Admin › Training records): attendees' active days and interactions in the 28 days before and the 28 days after, against people in the same departments who did not attend, over the same weeks. The difference between the two changes is the likely effect of the training.";
 
         sealed class Row
         {
@@ -382,7 +382,7 @@ ORDER BY AttendedOn DESC;", Ctx.Args(), timeout: 300);
             if (shown.Count == 0)
             {
                 Notice = rows.Count == 0
-                    ? "No training records yet with 28 days after them. An administrator uploads attendance in Admin > Training records."
+                    ? "No training records yet with 28 days after them. An administrator uploads attendance in Admin › Training records."
                     : $"No session had {Ctx.MinGroupSize} or more attendees you may see, so none is shown.";
                 return;
             }
@@ -450,7 +450,7 @@ SELECT * FROM scored WHERE Rank <= @per ORDER BY Dept, Rank;", Ctx.Args(new { pe
             Panels.Add(new("Choose a department", picker));
             if (dept is not null) rows = rows.Where(r => r.Dept == dept).ToList();
             Kpis.Add(new("Departments with candidates", Num(rows.Select(r => r.Dept).Distinct().Count())));
-            Kpis.Add(new("Champion candidates", Num(rows.Count), $"up to {per} per department (Admin > Targets and assumptions)"));
+            Kpis.Add(new("Champion candidates", Num(rows.Count), $"up to {per} per department (Admin › Targets and assumptions)"));
             var tb = new Table { Headers = ["Department", "Rank", "Name", "Sign-in", "Job title", "Days active", "Apps used (most in a day)", "Sessions with a follow-up", "Interactions"], Numeric = new HashSet<int> { 5, 6, 8 } };
             foreach (var r in rows) tb.Rows.Add([r.Dept, r.Rank, r.DisplayName, r.UserPrincipalName, r.JobTitle, r.Days, r.Apps, Pct(r.MultiTurnShare), r.Interactions]);
             CsvTable = tb;

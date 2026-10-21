@@ -130,7 +130,7 @@ public static class SecuritySignals
 }
 
 /// <summary>
-/// What Admin > Health says about audit searches. A load's searches are rows only while it runs: they are emptied once
+/// What Admin › Health says about audit searches. A load's searches are rows only while it runs: they are emptied once
 /// the load is merged, so after a night that finished the card read "0 submitted in the last 24 hours". It now says what
 /// is waiting, then what the last load took, which the merge keeps with the load. Pure, for the tests.
 /// </summary>
@@ -268,7 +268,7 @@ public static partial class LicenseExport
         }
         else
         {
-            sb.AppendLine($"$skuId = '{Id(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE")}'   # the Copilot SKU (Licensing > License pool shows it)");
+            sb.AppendLine($"$skuId = '{Id(skuId ?? "PUT-THE-COPILOT-SKU-ID-HERE")}'   # the Copilot SKU (Licensing › License pool shows it)");
             sb.AppendLine("Connect-MgGraph -Scopes 'User.ReadWrite.All' -NoWelcome");
             sb.AppendLine("foreach ($upn in $people) {");
             sb.AppendLine($"    if ($PSCmdlet.ShouldProcess($upn, '{(add ? "Assign" : "Remove")} the Copilot license')) {{");

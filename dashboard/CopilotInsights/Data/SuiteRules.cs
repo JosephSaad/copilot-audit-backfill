@@ -37,7 +37,7 @@ public sealed record SuiteFit(SuiteMove Move, string? To, decimal Saving, decima
 /// <list type="number">
 /// <item>An account disabled or gone: its suites can be taken back (Medium: a mailbox kept on hold may still need one).
 ///   Everyone, as on Licenses on disabled accounts: nobody can use them, so this is not a recommendation about a person.</item>
-/// <item>A protected level: keep, copies included, as on every other list (Admin > Access).</item>
+/// <item>A protected level: keep, copies included, as on every other list (Admin › Access).</item>
 /// <item>A license held twice (the Copilot add-on on E7, Power BI Pro on E5 or E7, any other suite at or below the
 ///   highest, Office 365 under Microsoft 365 too): drop the copies (High).</item>
 /// <item>A Copilot license under 30 days old: keep.</item>

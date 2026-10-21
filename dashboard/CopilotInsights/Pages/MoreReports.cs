@@ -20,7 +20,7 @@ namespace CopilotInsights.Pages.Leadership
             /* Premium use is recorded once the rollups are rebuilt with 2.3.0; before that it is all zero, so the split is left out. */
             var split = await Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
             if (!split)
-                Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
+                Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
             var prev = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
             /* Set against the period before only where the data covers all of it (2.4.12, see OpsReports.Covers): at 180 days
                on 182 days of data, "+3997% on the 180 days before" was 1,270 people against the 31 of two days. */

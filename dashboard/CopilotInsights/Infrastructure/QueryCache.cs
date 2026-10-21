@@ -14,7 +14,7 @@ namespace CopilotInsights.Infrastructure;
 /// parameters gives the same rows, so it is answered from memory. A result is kept under the tenant, the data's
 /// stamp, the query's text and every parameter's name and value: everything that decides who sees what (the scope
 /// root, the role-gated SQL) is in those, so a result is only ever given to a request that would have run the very
-/// same query. Only report pages opt in (see <see cref="Use"/>); admin pages (but for the labels Admin > Reference data
+/// same query. Only report pages opt in (see <see cref="Use"/>); admin pages (but for the labels Admin › Reference data
 /// has seen), exports, the data API, forms and the background checks always read the database. A query that reads a
 /// table people change all day (triage, exported actions, confirmations) is kept under that table's version as well,
 /// read from the database for each page that asks (2.4.11): a change there ends only the results that read it, and is

@@ -201,9 +201,9 @@ LEFT JOIN bi.DimLicenseType AS t ON t.LicenseTypeKey = rec.LicenseTypeKey;", new
         var exports = kind == "train" || pg.Total == 0 ? "" :
             $"<div class=\"sub\">Apply it: {CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, $"kind={kind}&handler=bulk", Token(), TenantQuery, $"Entra bulk {(kind == "upgrade" ? "add" : "remove")} members file")} · " +
             $"{CopilotInsights.Data.LicenseActions.Button(Ctx, Request.Path, $"kind={kind}&handler=script", Token(), TenantQuery, "PowerShell script")} for a license administrator to review and run " +
-            $"({(await S.Settings.StringAsync("LicenseGroupId") is null ? "assigns the license directly; set a licensing group in Admin > Targets and assumptions to use group membership instead" : "through the licensing group")}).</div>";
+            $"({(await S.Settings.StringAsync("LicenseGroupId") is null ? "assigns the license directly; set a licensing group in Admin › Targets and assumptions to use group membership instead" : "through the licensing group")}).</div>";
         if (!premiumReady && kind != "upgrade")
-            Notice = "Use of Premium features is not yet told apart from free Copilot Chat here, so the train and revoke lists count any use. An administrator separates them by rebuilding the dashboard once (Admin > Health, Rebuild every day).";
+            Notice = "Use of Premium features is not yet told apart from free Copilot Chat here, so the train and revoke lists count any use. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
         Panels.Add(new("People", new HtmlString($"<p class=\"sub\">Recommendation: {tabs}</p><p class=\"sub\">{WebUtility.HtmlEncode(rule)}</p>" + (kind == "upgrade" ? "" : await ProtectedNoteAsync()) + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             "License type Copilot recorded: what Copilot itself wrote into the person's latest record (Premium, or Starter for the free Copilot Chat).", "full", CsvUrl()));
     }

@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace CopilotInsights.Pages.Licensing;
 
-/// <summary>The license price and currency, from Admin > Access.</summary>
+/// <summary>The license price and currency, from Admin › Access.</summary>
 public static class Price
 {
     public static async Task<(decimal Monthly, string Currency)> GetAsync(Settings s) =>
@@ -159,7 +159,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         CsvTable = t;
         Panels.Add(new("Unused spend by group", Chart.Bars(rows.Where(r => r.Licensed > r.ActiveLicensed).OrderByDescending(r => r.Licensed - r.ActiveLicensed).Take(15)
             .Select(r => new Bar(r.Name, (double)((r.Licensed - r.ActiveLicensed) * price), Note: $"{r.Licensed - r.ActiveLicensed:#,0} of {r.Licensed:#,0} licenses unused")).ToList(), Fmt.Count, "Unused spend by group"),
-            $"A month, in {cur}, at {price:#,0.##} a license (Admin > Access).", "half"));
+            $"A month, in {cur}, at {price:#,0.##} a license (Admin › Access).", "half"));
         Panels.Add(new("By " + Said(by).ToLowerInvariant(), new HtmlString($"<p class=\"sub\">Group by: {choices}</p>" + t.Render().Value),
             (folded > 0 ? FoldNote(folded, "group") + " " : "") + "Used: holds a license at the end of the period and used Copilot while licensed.",
             "full", CsvUrl()));

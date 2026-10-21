@@ -64,7 +64,7 @@ namespace CopilotInsights.Pages
         {
             ShowDone();
             var rules = await NonHuman.RulesAsync(S.Settings);
-            if (!rules.Any) { Notice = "Every rule for finding non-human accounts is off. An administrator sets them in Admin > Reference data."; return; }
+            if (!rules.Any) { Notice = "Every rule for finding non-human accounts is off. An administrator sets them in Admin › Reference data."; return; }
             var why = Request.Query["why"].FirstOrDefault() is { } w && Why.ContainsKey(w) ? w : "all";
             var type = Request.Query["etype"].FirstOrDefault() is { Length: > 0 and <= 100 } ty ? ty : null;
             var pg = new Paging(Request, Sorts, "name");
@@ -132,7 +132,7 @@ SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedU
                 $"{LicenseActions.Button(Ctx, Request.Path, "handler=script", Token(), TenantQuery, "PowerShell script")}, recorded for License action outcomes.</div>";
             Panels.Add(new(type is null ? "Accounts" : $"Employee type: {type}",
                 new HtmlString($"<p class=\"sub\">Show: {tabs}</p>" + exports + pg.Controls(Request, SortLabels).Value + t.Render().Value),
-                "Enabled accounts still in the directory that hold a Copilot license today and match a rule set in Admin > Reference data. Guest: an #EXT# sign-in, or Entra's user type. " +
+                "Enabled accounts still in the directory that hold a Copilot license today and match a rule set in Admin › Reference data. Guest: an #EXT# sign-in, or Entra's user type. " +
                 "Name reads like an account: a sign-in such as svc-, service, admin, test-, noreply, shared, room- or support, a display name such as \"shared mailbox\", or a pattern of your own. " +
                 "Outside the org chart: no manager and not under the top of the organization. Employee type and group: the types and AD groups your administrators listed. " +
                 "An account confirmed as a person is listed below instead.", "full", CsvUrl()));
@@ -159,7 +159,7 @@ SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedU
             foreach (var (ty2, n) in types)
                 tt.Rows.Add([ty2 == "(not set)" ? ty2 : new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"etype={Uri.EscapeDataString(ty2)}"))}\">{WebUtility.HtmlEncode(ty2)}</a>"), n]);
             Panels.Add(new("License holders by employee type", tt.Render(),
-                "Everyone holding a license today, by Entra's or AD's employee type. Open a type to list its holders; a type that marks service or resource accounts can be added to the rules in Admin > Reference data.", "half"));
+                "Everyone holding a license today, by Entra's or AD's employee type. Open a type to list its holders; a type that marks service or resource accounts can be added to the rules in Admin › Reference data.", "half"));
         }
 
         /// <summary>An administrator confirms a flagged account is a person, with the reason: it is no longer a breach and raises no alert.</summary>

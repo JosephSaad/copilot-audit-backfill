@@ -65,7 +65,7 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, 
     public async Task<TimeZoneInfo> ZoneAsync() => CopilotInsights.Data.Zones.Resolve(await StringAsync(CopilotInsights.Data.Zones.Setting), await ReportingTimeZoneAsync());
 
     /// <summary>
-    /// Privacy mode (Admin > Privacy and retention): no page, export, email or API call names
+    /// Privacy mode (Admin › Privacy and retention): no page, export, email or API call names
     /// anyone but the viewer themselves, and bi.Users is pseudonymized for Power BI.
     /// </summary>
     /// <remarks>

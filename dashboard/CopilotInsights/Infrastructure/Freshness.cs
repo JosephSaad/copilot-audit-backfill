@@ -35,7 +35,7 @@ SELECT (SELECT MAX(EndedUtc) FROM dash.RefreshRun),
     {
         string At(DateTime? utc) => CopilotInsights.Data.Zones.Stamp(utc, zone ?? TimeZoneInfo.Utc);
         if (lastRunStatus == "Failed")
-            return $"The last pipeline run ({At(lastRunStartedUtc)}) failed at \"{failedStep}\", so the latest days may be missing. Administrators: see Admin > Health.";
+            return $"The last pipeline run ({At(lastRunStartedUtc)}) failed at \"{failedStep}\", so the latest days may be missing. Administrators: see Admin › Health.";
         if (refreshedUtc is null) return null;
         var age = nowUtc - refreshedUtc.Value;
         return age.TotalHours > limitHours

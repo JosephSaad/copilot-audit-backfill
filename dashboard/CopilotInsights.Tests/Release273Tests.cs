@@ -53,6 +53,20 @@ public class Release273Tests
     }
 
     [Fact]
+    public void A_page_is_named_by_its_section_with_one_separator()
+    {
+        /* "Admin > Targets" and "Admin › Value names" both appeared on screen; the guides use ›, and so does the dashboard. */
+        var rx = new System.Text.RegularExpressions.Regex(@"\b(Admin|People|Leadership|Licensing|Security|Adoption|Agents|Apps|Forecasting|Compliance|Governance|Enablement|Regions|Workforce|Operations|Start) > [A-Z]");
+        var dir = Path.Combine(Root(), "dashboard", "CopilotInsights");
+        var found = Directory.EnumerateFiles(dir, "*.*", SearchOption.AllDirectories)
+            .Where(f => (f.EndsWith(".cs") || f.EndsWith(".cshtml") || f.EndsWith(".js")) && !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}") && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"))
+            .SelectMany(f => File.ReadLines(f).Select((l, i) => (f, i, l)))
+            .Where(x => rx.IsMatch(x.l))
+            .Select(x => $"{Path.GetFileName(x.f)}:{x.i + 1}").ToList();
+        Assert.Empty(found);
+    }
+
+    [Fact]
     public void Nothing_in_the_activity_database_reads_the_Copilot_interaction_table()
     {
         foreach (var f in new[] { "Create-ActivityProcedure.sql", "Create-CopilotActivityRollup.sql", "Create-ActivitySchema.sql" })

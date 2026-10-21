@@ -22,12 +22,12 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
         "dash.Setting", "dash.Target", "dash.TimeSaving", "dash.TrainingAttendance", "dash.ValueName", "dash.AgentAlias", "dash.SensitivityLabel",
         "dash.JobFamilyRule", "dash.UseCaseRule", "dash.EventMarker", "dash.LicenseContract", "audit.PipelineSetting", "audit.SessionAppCategory",
         "dash.AgentInventoryRun",   // 2.5.6: each load of the agent workbook adds a row, so the agent reports are read again
-        /* 2.6.6: what Leadership > Costs and savings reads that tools\Import-CostCsv.ps1 or an administrator can change outside a nightly run. */
+        /* 2.6.6: what Leadership › Costs and savings reads that tools\Import-CostCsv.ps1 or an administrator can change outside a nightly run. */
         "dash.CostPrice", "dash.CostSuite", "audit.FabricCapacityDay", "audit.FabricWorkloadDay", "audit.PowerAutomateFlow", "audit.PowerPlatformUserActivity",
         "audit.PowerPlatformCapacityDay", "audit.PowerPlatformCreditDay",
         /* 2.6.9: the resource map administrators keep (the AI apps' days are stamped by their rollup's runs, below: too many rows to checksum). */
         "audit.AIAppResource",
-        /* 2.6.8: the reservation register, its rate, the Technology pool and the month-end snapshots (Leadership > Copilot reservations). */
+        /* 2.6.8: the reservation register, its rate, the Technology pool and the month-end snapshots (Leadership › Copilot reservations). */
         "dash.Reservation", "dash.ReservationRate", "dash.TechnologyAllocation", "dash.ReservationSnapshot",
     ];
 

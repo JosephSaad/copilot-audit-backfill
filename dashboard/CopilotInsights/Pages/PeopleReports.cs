@@ -273,7 +273,7 @@ namespace CopilotInsights.Pages.Workforce
     {
         public override string Title => "Job families";
         public override string Persona => "People";
-        public override string Intro => "Copilot use by job family, for comparing like with like: job titles grouped by the rules in Admin > Classifications and events (engineers, analysts, relationship managers...). Families smaller than the minimum group size are combined.";
+        public override string Intro => "Copilot use by job family, for comparing like with like: job titles grouped by the rules in Admin › Classifications and events (engineers, analysts, relationship managers...). Families smaller than the minimum group size are combined.";
 
         protected override async Task BuildAsync()
         {
@@ -301,7 +301,7 @@ GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
                was the one, two or three people the fold kept from view. */
             if (unmatched == 0 || kept.Any(r => r.Name == "(no family)"))
                 Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));
-            if (rules == 0) Notice = "No job family rules yet: everyone is \"(no family)\". An administrator adds them in Admin > Classifications and events, with the titles that need one listed there.";
+            if (rules == 0) Notice = "No job family rules yet: everyone is \"(no family)\". An administrator adds them in Admin › Classifications and events, with the titles that need one listed there.";
             Panels.Add(new("Adoption by job family", Groups.AdoptionBars(kept, "Adoption by job family", Ctx.MinGroupSize), "Licensed people who used Copilot, over people licensed.", "half"));
             var t = Groups.Table(kept, "Job family", Ctx.MinGroupSize);
             CsvTable = t;

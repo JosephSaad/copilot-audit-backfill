@@ -6,7 +6,7 @@ namespace CopilotInsights.Data;
 
 /// <summary>
 /// The license changes the dashboard exported for an administrator to apply (upgrade, revoke,
-/// leaver, rollout wave), kept so Forecasting > License action outcomes can show whether they
+/// leaver, rollout wave), kept so Forecasting › License action outcomes can show whether they
 /// were applied and what followed.
 /// </summary>
 public static class LicenseActions

@@ -96,7 +96,7 @@ SELECT COUNT(*), ISNULL(SUM(x.Metered), 0) FROM #x AS x;", Ctx.Args(new { q = pg
         Kpis.Add(new($"Saving a month ({cur})", Num((long)Math.Max(0, saving)),
             $"{candidates:#,0} licenses at {price:#,0.##} less the credits their use would cost",
             Why: await WhyAsync($"Candidates × the Copilot license price ({candidates:#,0} × {price:#,0.##} {cur}), less their metered interactions × the pay-as-you-go cost of an interaction.", "LicenseMonthlyCost", "PaygInteractionCost")));
-        Kpis.Add(new("Credits assumed", $"{rate:#,0.00##} {cur}", "for each metered interaction (set in Admin > Access)"));
+        Kpis.Add(new("Credits assumed", $"{rate:#,0.00##} {cur}", "for each metered interaction (set in Admin › Access)"));
 
         var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, not part numbers
         var t = new Table

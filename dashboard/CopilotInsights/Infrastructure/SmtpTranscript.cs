@@ -5,7 +5,7 @@ namespace CopilotInsights.Infrastructure;
 
 /// <summary>
 /// What was said between the dashboard and the mail server while a message was sent, kept for troubleshooting
-/// (dash.NotificationLog.Detail, shown on Admin > Email): where it connected and how, each command and the server's
+/// (dash.NotificationLog.Detail, shown on Admin › Email): where it connected and how, each command and the server's
 /// answer to it, and how it ended. The password is never in it, nor the message itself.
 /// </summary>
 public static class SmtpTranscript

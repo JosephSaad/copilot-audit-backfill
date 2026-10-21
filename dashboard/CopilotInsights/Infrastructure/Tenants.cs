@@ -56,7 +56,7 @@ public sealed class TenantAccessor
     /// Per request: ?tenant= (remembered in a cookie) or the cookie, else the first tenant. A form names its tenant
     /// (2.4.12): a post goes to the tenant in its address, or nowhere, and never changes the cookie. Before, it went to
     /// whichever tenant the cookie named when it was sent, so with tenant B chosen in another tab, Remove on tenant A's
-    /// Admin > Access page removed B's grant with that number.
+    /// Admin › Access page removed B's grant with that number.
     /// </summary>
     public static async Task SelectAsync(HttpContext ctx, Func<Task> next)
     {

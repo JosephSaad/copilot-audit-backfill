@@ -3,7 +3,7 @@ namespace CopilotInsights.Pages;
 /// <summary>
 /// One sentence on what each page answers (2.4.9), and, in the larger sections, the heading it sits under.
 /// Written once and shown wherever a page is offered: the hover text of its link in the navigation, the section's
-/// panel, the start page, the search, and Admin > Reports shown. A page with no entry here fails a test.
+/// panel, the start page, the search, and Admin › Reports shown. A page with no entry here fails a test.
 /// </summary>
 public static class NavText
 {
