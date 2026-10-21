@@ -57,6 +57,9 @@ public class Release274Tests
         Assert.Contains("await Db.KeptAsync(\"CreditUse.Prep\", Ctx,", page);
         Assert.Contains("(pg.Reversed ? Enumerable.Reverse(billed).ToList() : billed)", page);
         Assert.Contains("if (!plain && pg.Reversed) ordered.Reverse();", page);
+        var suites = Page("Licensing", "Suites.cs");
+        Assert.Contains("await Db.KeptAsync(\"Suites.Prep\", Ctx,", suites);
+        Assert.Contains("(pg.Reversed ? Enumerable.Reverse(moves).ToList() : moves)", suites);
     }
 
     [Fact]
