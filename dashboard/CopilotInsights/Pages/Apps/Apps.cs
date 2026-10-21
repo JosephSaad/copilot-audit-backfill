@@ -27,7 +27,8 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
     {
         /* Days counted as rows of a per-day grouping, and names joined rather than looked up by dash.fnValueName,
            which kept the whole statement to one thread (2.4.2): 7 seconds to 3 for a year of a whole organization. */
-        var rows = await Db.QueryAsync<Row>($@"
+        /* The reads are independent: started together, awaited where used (2.7.3). */
+        var rowsTask = Db.QueryAsync<Row>($@"
 WITH d AS (SELECT f.AppKey, f.UserKey, f.DateKey, COUNT_BIG(*) AS N, SUM(CAST(f.PromptCount AS BIGINT)) AS P, SUM(CAST(f.AccessedResourceCount AS BIGINT)) AS R
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
            WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, f.UserKey, f.DateKey),
@@ -37,13 +38,18 @@ SELECT a.AppKey, COALESCE(vn.Name, a.App) AS App, a.AppCategory, COUNT(*) AS Peo
 FROM u JOIN bi.DimApp AS a ON a.AppKey = u.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 GROUP BY a.AppKey, a.App, vn.Name, a.AppCategory;", Ctx.Args());
-        var trend = await Db.QueryAsync<(int AppKey, DateTime Bucket, int People)>($@"
+        var trendTask = Db.QueryAsync<(int AppKey, DateTime Bucket, int People)>($@"
 SELECT f.AppKey, {Ctx.BucketSql("d")}, COUNT(DISTINCT f.UserKey)
 FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")} JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", Ctx.Args());
+        var peopleTask = Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0;", Ctx.Args());
+        var activityTask = Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.ActivityUserDay) THEN 1 ELSE 0 END;");
+        await Task.WhenAll(rowsTask, trendTask, peopleTask, activityTask);
+        var rows = await rowsTask;
+        var trend = await trendTask;
+        var people = await peopleTask;
         var buckets = Buckets();
         var axis = Labels();
-        var people = await Db.ScalarAsync<int>($"SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")} WHERE ud.DateKey BETWEEN @k0 AND @k1 AND ud.Interactions > 0;", Ctx.Args());
         Kpis.Add(new("Apps in use", Num(rows.Count)));
         var widest = rows.OrderByDescending(r => r.People).FirstOrDefault();
         if (widest is not null) Kpis.Add(new("Widest reach", widest.App, $"{Pct(Ratio(widest.People, people))} of active people"));
@@ -69,18 +75,21 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
 
         /* 2.7.0: beside Copilot, from the activity database where it is set up: Teams meeting AI notes (Facilitator), Power BI
            and Power Apps, by the people who used each, in the same period and part of the organization. */
-        if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.ActivityUserDay) THEN 1 ELSE 0 END;") == 1)
+        if (await activityTask == 1)
         {
-            var other = await Db.QueryAsync<(DateTime Bucket, string Product, int People, long Events)>($@"
+            var otherTask = Db.QueryAsync<(DateTime Bucket, string Product, int People, long Events)>($@"
 SELECT {Ctx.BucketSql("d")}, a.Product, COUNT(DISTINCT a.Upn), SUM(CAST(a.Events AS BIGINT))
 FROM audit.ActivityUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Upn {Ctx.Scope("u.UserKey")}
 JOIN bi.DimDate AS d ON d.[Date] = a.[Day]
 WHERE a.[Day] BETWEEN @d0 AND @d1
 GROUP BY {Ctx.BucketSql("d")}, a.Product;", Ctx.Args());
-            var totals = await Db.QueryAsync<(string Product, int People, long Events)>($@"
+            var totalsTask = Db.QueryAsync<(string Product, int People, long Events)>($@"
 SELECT a.Product, COUNT(DISTINCT a.Upn), SUM(CAST(a.Events AS BIGINT))
 FROM audit.ActivityUserDay AS a JOIN bi.DimUser AS u ON u.UserPrincipalName = a.Upn {Ctx.Scope("u.UserKey")}
 WHERE a.[Day] BETWEEN @d0 AND @d1 GROUP BY a.Product;", Ctx.Args());
+            await Task.WhenAll(otherTask, totalsTask);
+            var other = await otherTask;
+            var totals = await totalsTask;
             var products = totals.OrderByDescending(x => x.People).Select(x => x.Product).ToList();
             if (totals.FirstOrDefault(x => x.Product == "Teams AI notes") is { People: > 0 } notes)
                 Kpis.Add(new("Teams meeting AI notes", Num(notes.People), $"people, {Pct(Ratio(notes.People, people))} of those using Copilot; {notes.Events:#,0} meeting AI events"));

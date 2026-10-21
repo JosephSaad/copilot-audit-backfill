@@ -18,7 +18,9 @@ public class FigureLinkTests
         Assert.Contains("segParam == Segments.Nudge", page);
         /* The list takes one-off and not started together, with the protected levels kept out, as the figure counts them. */
         Assert.Contains("@seg = @nudge AND p.Segment IN (N'One-off', N'Not started')", page);
-        Assert.Contains("WHERE p.Segment IN (N'One-off', N'Not started') AND", page);
+        /* 2.7.3: counted in the one pass over the population, the protected levels still left out. */
+        Assert.Contains("{CopilotInsights.Data.ProtectedLevels.Join(\"pl\", \"du.UserPrincipalName\")}", page);
+        Assert.Contains("var nudge = units.Where(x => x.Segment is \"One-off\" or \"Not started\").Sum(x => x.Open);", page);
         Assert.Contains("@nudged = 0 OR", page);
     }
 
