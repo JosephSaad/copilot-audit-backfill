@@ -39,7 +39,10 @@ public sealed class CreditData(Db db, Settings settings)
         public long BA { get; set; } public long R { get; set; } public long M { get; set; } public int Lic { get; set; } public int People { get; set; }
     }
 
-    public async Task<CreditView> BuildAsync(ReportContext c)
+    /// <summary>The credit estimate, kept once worked out (2.7.4, see <see cref="Db.KeptAsync"/>).</summary>
+    public Task<CreditView> BuildAsync(ReportContext c) => db.KeptAsync("CreditData.Build", c, () => BuildFreshAsync(c));
+
+    async Task<CreditView> BuildFreshAsync(ReportContext c)
     {
         var rates = await RatesAsync();
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";

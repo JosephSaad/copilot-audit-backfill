@@ -26,17 +26,51 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
     static readonly Dictionary<string, string> Sorts = new() { ["credits"] = "credits", ["name"] = "name", ["dept"] = "dept", ["tokens"] = "tokens", ["inter"] = "inter", ["upn"] = "upn" };
     static readonly Dictionary<string, string> SortLabels = new() { ["credits"] = "Most credits", ["tokens"] = "Most tokens", ["name"] = "Name", ["dept"] = "Department" };
 
-    protected override async Task BuildAsync()
+    /// <summary>
+    /// What the page works out over everyone before the viewer's choices (2.7.4): the billed people, most credits first,
+    /// the totals and the spread. Kept once worked out (see <see cref="Db.KeptAsync"/>): over the 210,000 people of 120
+    /// million interactions, scanning and sorting them again took half a second each visit. Shared: read, never changed.
+    /// </summary>
+    sealed record Prep(CreditView V, List<CreditPerson> Billed, CreditEstimate Total, List<decimal> Sorted, decimal Top,
+                       long All, long Agent, long Bill, long Work, long Calls,
+                       List<int> Bands, Dictionary<int, (int Over, decimal Above)> Caps, decimal LicenseCredits, int OverLicense,
+                       List<(string Dept, int N, decimal Credits, decimal Cost, long Tokens)> Depts);
+
+    static readonly (decimal From, decimal To, string Label)[] BandsOf =
+        [(0.0001m, 100, "Under 100"), (100, 500, "100 to 500"), (500, 1000, "500 to 1,000"), (1000, 2500, "1,000 to 2,500"), (2500, 5000, "2,500 to 5,000"), (5000, decimal.MaxValue, "5,000 or more")];
+
+    async Task<Prep> PrepAsync() => await Db.KeptAsync("CreditUse.Prep", Ctx, async () =>
     {
         var v = await credits.BuildAsync(Ctx);
+        var billed = v.People.Where(p => p.Month.Credits > 0).OrderByDescending(p => p.Month.Credits).ThenBy(p => p.Name ?? p.Upn).ToList();
+        var total = v.People.Aggregate(new CreditEstimate(0, 0, 0), (a, p) => new(a.Credits + p.Month.Credits, a.Cost + p.Month.Cost, a.Tokens + p.Month.Tokens));
+        var sorted = billed.Select(p => p.Month.Credits).Reverse().ToList();
+        var top = billed.Take(Math.Max(1, billed.Count / 10)).Sum(p => p.Month.Credits);
+        long all = 0, agent = 0, bill = 0, work = 0, calls = 0;
+        foreach (var p in v.People) { all += p.Use.Interactions; agent += p.Use.WithAgent; bill += p.Use.Billed; work += p.Use.BilledWork; calls += p.Use.BilledActions; }
+        var bands = BandsOf.Select(b => billed.Count(p => p.Month.Credits >= b.From && p.Month.Credits < b.To)).ToList();
+        var caps = Caps.Where(x => x > 0).ToDictionary(x => x, x => CreditRules.Cap(billed.Select(p => p.Month.Credits), x));
+        var licensePrice = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var lp) ? lp : 30m;
+        var licenseCredits = v.Rates.CreditPrice > 0 ? licensePrice / v.Rates.CreditPrice : 0;
+        var overLicense = billed.Count(p => !p.Licensed && p.Month.Credits >= licenseCredits && licenseCredits > 0);
+        var depts = billed.GroupBy(p => p.Department ?? "(none)")
+            .Select(g => (Dept: g.Key, N: g.Count(), Credits: g.Sum(p => p.Month.Credits), Cost: g.Sum(p => p.Month.Cost), Tokens: g.Sum(p => p.Month.Tokens)))
+            .OrderByDescending(g => g.Credits).Take(15).ToList();
+        return new Prep(v, billed, total, sorted, top, all, agent, bill, work, calls, bands, caps, licenseCredits, overLicense, depts);
+    });
+
+    protected override async Task BuildAsync()
+    {
+        var prep = await PrepAsync();
+        var v = prep.V;
         var cur = v.Currency;
         var r = v.Rates;
         if (v.People.Count == 0) { Notice = "Nobody here used Copilot in the period."; return; }
-        var billed = v.People.Where(p => p.Month.Credits > 0).ToList();
-        var total = v.People.Aggregate(new CreditEstimate(0, 0, 0), (a, p) => new(a.Credits + p.Month.Credits, a.Cost + p.Month.Cost, a.Tokens + p.Month.Tokens));
-        var sorted = billed.Select(p => p.Month.Credits).OrderBy(x => x).ToList();
+        var billed = prep.Billed;
+        var total = prep.Total;
+        var sorted = prep.Sorted;
         decimal Pct(double q) => sorted.Count == 0 ? 0 : sorted[Math.Clamp((int)Math.Ceiling(q * sorted.Count) - 1, 0, sorted.Count - 1)];
-        var top = billed.OrderByDescending(p => p.Month.Credits).Take(Math.Max(1, billed.Count / 10)).Sum(p => p.Month.Credits);
+        var top = prep.Top;
         string N(decimal x) => x.ToString("#,0", CultureInfo.InvariantCulture);
         string M(decimal x) => CostRules.Money(Math.Round(x, x >= 100 ? 0 : 2), cur);
 
@@ -66,9 +100,7 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
         }
 
         /* The use by kind: what bills and what does not, and why. */
-        long Sum(Func<CreditPerson, long> f) => v.People.Sum(f);
-        var all = Sum(p => p.Use.Interactions); var agent = Sum(p => p.Use.WithAgent); var bill = Sum(p => p.Use.Billed);
-        var work = Sum(p => p.Use.BilledWork); var calls = Sum(p => p.Use.BilledActions);
+        var (all, agent, bill, work, calls) = (prep.All, prep.Agent, prep.Bill, prep.Work, prep.Calls);
         var scale = 30m / Math.Max(1, v.Days);
         var kt = new Table { Headers = ["Use", "Interactions a month", "Credits each", "Credits a month"], Numeric = new HashSet<int> { 1, 2, 3 }, Sortable = false };
         kt.Rows.Add(["Copilot without an agent (Copilot Chat, in the apps)", Math.Round((all - agent) * scale), 0, 0]);
@@ -82,8 +114,7 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
             "What each line of business is charged for its environments' credits is on Leadership › Credit chargeback; a prepaid commitment's draw on Forecasting › Credit commitment.", "half"));
 
         /* How the credits spread: people by band. */
-        var bands = new (decimal From, decimal To, string Label)[] { (0.0001m, 100, "Under 100"), (100, 500, "100 to 500"), (500, 1000, "500 to 1,000"), (1000, 2500, "1,000 to 2,500"), (2500, 5000, "2,500 to 5,000"), (5000, decimal.MaxValue, "5,000 or more") };
-        var bars = bands.Select(b => new Bar(b.Label, billed.Count(p => p.Month.Credits >= b.From && p.Month.Credits < b.To))).ToList();
+        var bars = BandsOf.Select((b, i) => new Bar(b.Label, prep.Bands[i])).ToList();
         Panels.Add(new("People by credits a month", Chart.Bars(bars, Fmt.Count, "People by estimated Copilot Credits a month"),
             "Each person billed credits in the period, by their estimate brought to a month. A credit policy usually caps the long tail on the right, or licenses it.", "half"));
 
@@ -91,10 +122,9 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
         /* Unless one is chosen, the smallest cap offered at or above the 90th percentile: only the long tail reaches it. */
         var p90 = Pct(0.9);
         var cap = int.TryParse(Request.Query["cap"], out var cp) && Caps.Contains(cp) ? cp : Caps.Where(x => x > 0 && x >= p90).DefaultIfEmpty(Caps[^1]).First();
-        var (over, above) = CreditRules.Cap(billed.Select(p => p.Month.Credits), cap);
-        var licensePrice = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var lp) ? lp : 30m;
-        var licenseCredits = r.CreditPrice > 0 ? licensePrice / r.CreditPrice : 0;
-        var overLicense = billed.Count(p => !p.Licensed && p.Month.Credits >= licenseCredits && licenseCredits > 0);
+        var (over, above) = prep.Caps.TryGetValue(cap, out var kc) ? kc : CreditRules.Cap(billed.Select(p => p.Month.Credits), cap);
+        var licenseCredits = prep.LicenseCredits;
+        var overLicense = prep.OverLicense;
         var capLinks = string.Join(" ", Caps.Where(x => x > 0).Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"cap={x}"))}\"{(x == cap ? " class=\"on\"" : "")}>{x:#,0}</a>"));
         Panels.Add(new($"A cap of {cap:#,0} credits a person a month", new HtmlString(
             $"<p class=\"sub\">Try a cap: {capLinks}</p>" +
@@ -105,12 +135,9 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
 
         /* By department. */
         var dt = new Table { Headers = ["Department", "People billed", "Credits a month", $"Cost a month ({cur})", "Credits a person", "Tokens a month (rough)"], Numeric = new HashSet<int> { 1, 2, 3, 4 } };
-        foreach (var g in billed.GroupBy(p => p.Department ?? "(none)").OrderByDescending(g => g.Sum(p => p.Month.Credits)).Take(15))
-        {
-            var n = g.Count();
-            dt.Rows.Add([new Link(g.Key, Ctx.Url(Request.Path, extra: $"dept={Uri.EscapeDataString(g.Key)}")), AtLeastMin(n), Math.Round(g.Sum(p => p.Month.Credits)), Math.Round(g.Sum(p => p.Month.Cost)), n >= Ctx.MinGroupSize ? Math.Round(g.Sum(p => p.Month.Credits) / n) : null,
-                CreditRules.Tokens(g.Sum(p => p.Month.Tokens))]);
-        }
+        foreach (var g in prep.Depts)
+            dt.Rows.Add([new Link(g.Dept, Ctx.Url(Request.Path, extra: $"dept={Uri.EscapeDataString(g.Dept)}")), AtLeastMin(g.N), Math.Round(g.Credits), Math.Round(g.Cost), g.N >= Ctx.MinGroupSize ? Math.Round(g.Credits / g.N) : null,
+                CreditRules.Tokens(g.Tokens)]);
         Panels.Add(new("By department", dt.Render(), "The fifteen departments billed most. A credit a person is shown only where the minimum group size or more were billed.", "half"));
 
         /* By agent. */
@@ -129,7 +156,9 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
         if (dept is not null) shown = shown.Where(p => (p.Department ?? "(none)") == dept);
         if (pg.Search is { } q)
             shown = shown.Where(p => (p.Name ?? "").Contains(q, StringComparison.OrdinalIgnoreCase) || p.Upn.Contains(q, StringComparison.OrdinalIgnoreCase) || (p.Department ?? "").Contains(q, StringComparison.OrdinalIgnoreCase));
-        var ordered = (pg.SortKey switch
+        /* The default view (most credits, no department, no search) is the kept list itself; anything else is ordered here. */
+        var plain = pg.SortKey == "credits" && dept is null && pg.Search is null;
+        var ordered = plain ? (pg.Reversed ? Enumerable.Reverse(billed).ToList() : billed) : (pg.SortKey switch
         {
             "name" => shown.OrderBy(p => p.Name ?? p.Upn, StringComparer.CurrentCulture),
             "dept" => shown.OrderBy(p => p.Department ?? "", StringComparer.CurrentCulture).ThenBy(p => p.Name ?? p.Upn),
@@ -138,7 +167,7 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
             "upn" => shown.OrderBy(p => p.Upn, StringComparer.OrdinalIgnoreCase),
             _ => shown.OrderByDescending(p => p.Month.Credits).ThenBy(p => p.Name ?? p.Upn),
         }).ToList();
-        if (pg.Reversed) ordered.Reverse();
+        if (!plain && pg.Reversed) ordered.Reverse();
         pg.Total = ordered.Count;
         var page = pg.ForExport ? ordered : ordered.Skip((pg.Page - 1) * Paging.PageSize).Take(Paging.PageSize).ToList();
         var t = new Table

@@ -44,7 +44,10 @@ public sealed class SuiteData(Db db, Settings settings, OpsData ops)
     }
 
     /// <summary>Every holder of a suite, in the team the context shows when <paramref name="scoped"/>, each with what fits them.</summary>
-    public async Task<SuiteFitView> FitAsync(ReportContext c, bool scoped)
+    /// <summary>Suite fit, kept once worked out (2.7.4, see <see cref="Db.KeptAsync"/>).</summary>
+    public Task<SuiteFitView> FitAsync(ReportContext c, bool scoped) => db.KeptAsync($"SuiteData.Fit:{scoped}", c, () => FitFreshAsync(c, scoped));
+
+    async Task<SuiteFitView> FitFreshAsync(ReportContext c, bool scoped)
     {
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
         var copilotPrice = Dec(await settings.StringAsync("LicenseMonthlyCost"), 30m);
