@@ -13,12 +13,20 @@ public sealed class IndexModel(PageServices s, Metrics m, OpsData ops) : Insight
 
     protected override async Task BuildAsync()
     {
-        var t = await m.TotalsAsync(Ctx);
-        var tr = await m.TrendAsync(Ctx);
+        /* The reads below are independent, each on its own connection: started together (2.7.3). */
+        var tTask = m.TotalsAsync(Ctx);
+        var trTask = m.TrendAsync(Ctx);
+        var unitsTask = m.UnitsAsync(Ctx);
+        var namesTask = SkuNames.LoadAsync(Db);
+        var skusTask = Db.QueryAsync<(string Sku, int N)>($@"
+SELECT ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)'), COUNT(*)
+FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
+JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
+WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)') ORDER BY 2 DESC;", Ctx.Args());
         /* Licenses held today without use in the inactive days: all of them, for the share in use; and (2.6.7) the
            candidates to reclaim, counted as Unused licenses lists them (licensed at least the inactive days ago, the
            protected levels left out), so that figure and the list it opens agree. */
-        var (idle, unused) = (await Db.QueryAsync<(int Idle, int Unused)>($@"
+        var idleTask = Db.QueryAsync<(int Idle, int Unused)>($@"
 SELECT COUNT(*),
        COUNT(CASE WHEN (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -@idle, @d1))
                    AND pl.Upn IS NULL THEN 1 END)
@@ -26,14 +34,19 @@ FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 {CopilotInsights.Data.ProtectedLevels.Join("pl", "du.UserPrincipalName")}   -- a join: a subquery cannot sit inside COUNT
 WHERE ld.DateKey = @k1
-  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0);", Ctx.Args(new { idle = Ctx.InactiveDays }))).Single();
-        var changes = await Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"
+  AND NOT EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.UserKey = ld.UserKey AND ud.DateKey >= @inactiveKey AND ud.Interactions > 0);", Ctx.Args(new { idle = Ctx.InactiveDays }));
+        var changesTask = Db.QueryAsync<(DateTime Bucket, int Added, int Removed)>($@"
 SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN f.Change > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN f.Change < 0 THEN 1 ELSE 0 END)
 FROM bi.FactLicenseChange AS f {Ctx.Scope("f.UserKey")}
 JOIN bi.DimSku AS k ON k.SkuKey = f.SkuKey AND k.IsCopilot = 1
 JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
 WHERE f.DateKey BETWEEN @k0 AND @k1
 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
+        await Task.WhenAll(tTask, trTask, unitsTask, namesTask, skusTask, idleTask, changesTask);
+        var t = await tTask;
+        var tr = await trTask;
+        var (idle, unused) = (await idleTask).Single();
+        var changes = await changesTask;
         var start = tr.FirstOrDefault()?.Licensed ?? 0;
         var added = changes.Sum(c => c.Added);
         var removed = changes.Sum(c => c.Removed);
@@ -56,16 +69,12 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             ], Fmt.Count, "Licenses assigned and removed", stacked: false),
             "From the license history. A person moved between two Copilot SKUs counts once each way.", "half"));
 
-        var skus = await Db.QueryAsync<(string Sku, int N)>($@"
-SELECT ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)'), COUNT(*)
-FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
-JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
-WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)') ORDER BY 2 DESC;", Ctx.Args());
-        var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, not part numbers
+        var skus = await skusTask;
+        var names = await namesTask;   // 2.7.1: product names, not part numbers
         Panels.Add(new("Licenses by product", Chart.Bars(skus.Select(k => new Bar(names.Name(k.Sku), k.N, Note: names.Knows(k.Sku) ? k.Sku : null)).ToList(), Fmt.Count, "Licenses by product"),
             "The Copilot license each holder has, by product; its part number on hover. Name a product shown by its part number in Admin › Value names.", "half"));
 
-        var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
+        var units = FoldSmall(await unitsTask, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
             .Where(u => u.Licensed > 0).OrderByDescending(u => u.Licensed - u.ActiveLicensed).ToList();
         Panels.Add(new("License holders who did not use Copilot, by unit",
             Chart.Bars(units.Take(20).Select(u => new Bar(u.Name, u.Licensed - u.ActiveLicensed, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,

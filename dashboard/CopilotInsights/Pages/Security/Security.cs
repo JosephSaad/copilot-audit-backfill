@@ -14,11 +14,29 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        var tr = await m.TrendAsync(Ctx);
-        long jb = tr.Sum(w => w.Jailbreak), inj = tr.Sum(w => w.Injection), blk = tr.Sum(w => w.Blocked), all = tr.Sum(w => w.Interactions);
-        var people = await Db.ScalarAsync<int>($@"
+        /* Six independent reads, each on its own connection: started together, awaited where they are used (2.7.3). */
+        var trTask = m.TrendAsync(Ctx);
+        var peopleTask = Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
 WHERE ud.DateKey BETWEEN @k0 AND @k1 AND (ud.Jailbreak > 0 OR ud.PromptInjection > 0);", Ctx.Args());
+        var hoursTask = Db.QueryAsync<(int Dow, int Hour, int N)>($@"
+SELECT d.DayOfWeekNumber, f.HourOfDay, COUNT(*)
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
+WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1)
+GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
+        var appsTask = Db.QueryAsync<(string App, int Jb, int Inj, int Blk)>($@"
+SELECT a.App, SUM(CAST(f.JailbreakDetected AS INT)), SUM(CAST(f.PromptInjectionDetected AS INT)), SUM(CAST(f.HasBlockedResource AS INT))
+FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
+JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
+WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1)
+GROUP BY a.App;", Ctx.Args());
+        var unitsTask = m.UnitsAsync(Ctx);
+        var seriesTask = m.UnitSeriesAsync(Ctx);
+        await Task.WhenAll(trTask, peopleTask, hoursTask, appsTask, unitsTask, seriesTask);
+        var tr = await trTask;
+        long jb = tr.Sum(w => w.Jailbreak), inj = tr.Sum(w => w.Injection), blk = tr.Sum(w => w.Blocked), all = tr.Sum(w => w.Interactions);
+        var people = await peopleTask;
         Kpis.Add(new("Jailbreak attempts", Num(jb), all > 0 ? $"{jb * 1000.0 / all:0.00} per 1,000 interactions" : null, jb > 0 ? "crit" : null, Href: Open("/security/flags", extra: "status=any")));
         Kpis.Add(new("Prompt injection detected", Num(inj), all > 0 ? $"{inj * 1000.0 / all:0.00} per 1,000 interactions" : null, inj > 0 ? "crit" : null, Href: Open("/security/flags", extra: "status=any")));
         Kpis.Add(new("Blocked resources", Num(blk), "interactions where access to content was blocked or restricted"));
@@ -33,12 +51,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1 AND (ud.Jailbreak > 0 OR ud.PromptInjection
             "Jailbreak: a prompt written to make Copilot ignore its rules. Prompt injection: instructions hidden in something Copilot read (a file, a mail, a web page) that try to steer it. " +
             $"Blocked resource: content a policy or permissions stopped Copilot from reading. Microsoft flags each in the audit record. {TrendNote}"));
 
-        var hours = await Db.QueryAsync<(int Dow, int Hour, int N)>($@"
-SELECT d.DayOfWeekNumber, f.HourOfDay, COUNT(*)
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimDate AS d ON d.DateKey = f.DateKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1)
-GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
+        var hours = await hoursTask;
         var days = new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
         var grid = new double?[7, 24];
         foreach (var h in hours) grid[h.Dow - 1, h.Hour] = h.N;
@@ -47,18 +60,13 @@ GROUP BY d.DayOfWeekNumber, f.HourOfDay;", Ctx.Args());
                 unit: "flagged interactions", unitOne: "flagged interaction", column: h => $"{h}:00 to {h}:59"),
             $"Flagged interactions by weekday and hour, in {DataZone}. Out-of-hours clusters are worth a look."));
 
-        var apps = await Db.QueryAsync<(string App, int Jb, int Inj, int Blk)>($@"
-SELECT a.App, SUM(CAST(f.JailbreakDetected AS INT)), SUM(CAST(f.PromptInjectionDetected AS INT)), SUM(CAST(f.HasBlockedResource AS INT))
-FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
-JOIN bi.DimApp AS a ON a.AppKey = f.AppKey
-WHERE f.DateKey BETWEEN @k0 AND @k1 AND (f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 OR f.HasBlockedResource = 1)
-GROUP BY a.App;", Ctx.Args());
+        var apps = await appsTask;
         Panels.Add(new("By app",
             Chart.Bars(apps.OrderByDescending(a => a.Jb + a.Inj + a.Blk).Take(12)
                 .Select(a => new Bar(a.App, a.Jb + a.Inj + a.Blk, Note: $"jailbreak {a.Jb:#,0}, injection {a.Inj:#,0}, blocked {a.Blk:#,0}", Slot: 7)).ToList(), Fmt.Count, "Signals by app"),
             null, "half"));
 
-        var units = FoldSmall(await m.UnitsAsync(Ctx), u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
+        var units = FoldSmall(await unitsTask, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded)
             .Where(u => u.Interactions > 0).OrderByDescending(u => u.Flags * 1000.0 / u.Interactions).Take(15).ToList();
         Panels.Add(new("By unit, per 1,000 interactions",
             Chart.Bars(units.Select(u => new Bar(u.Name, u.Flags * 1000.0 / u.Interactions, u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null,
@@ -66,8 +74,8 @@ GROUP BY a.App;", Ctx.Args());
             "All three signals together, as a rate so large and small units compare fairly." + (folded > 0 ? " " + FoldNote(folded, "unit") : ""), "half"));
 
         /* The same rate at each point, unit by unit: Security > Security signals by unit was a page of its own for this one chart. */
-        var shown = SmallGroups.Shown(await m.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
-        var series = (await m.UnitSeriesAsync(Ctx)).ToDictionary(x => (x.Unit, x.Bucket));
+        var shown = SmallGroups.Shown(await unitsTask, u => u.People, Ctx.MinGroupSize).Where(u => u.Interactions > 0).ToList();
+        var series = (await seriesTask).ToDictionary(x => (x.Unit, x.Bucket));
         var buckets = Buckets();
         var rates = new double?[shown.Count, buckets.Count];
         for (var r = 0; r < shown.Count; r++)

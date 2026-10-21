@@ -75,11 +75,12 @@ h AS (SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department
 o AS (SELECT h.UserKey, held.SkuId, held.SkuPartNumber FROM h JOIN held ON held.UserPrincipalName = h.UserPrincipalName
       WHERE held.Other = 1 OR (held.IsCopilot = 1 AND (SELECT COUNT(*) FROM held AS c WHERE c.UserPrincipalName = h.UserPrincipalName AND c.IsCopilot = 1) > 1))";
 
-        var bySku = await Db.QueryAsync<(Guid SkuId, string Part, int People, int Bought, int Assigned)>($@"{cte}
+        /* The three reads share nothing but their arguments: started together (2.7.3). */
+        var bySkuTask = Db.QueryAsync<(Guid SkuId, string Part, int People, int Bought, int Assigned)>($@"{cte}
 SELECT o.SkuId, o.SkuPartNumber, COUNT(*), MAX(ls.Enabled + ls.Warning), MAX(ls.Consumed)
 FROM o JOIN audit.LicenseSku AS ls ON ls.SkuId = o.SkuId
 GROUP BY o.SkuId, o.SkuPartNumber ORDER BY COUNT(*) DESC;", args);
-        var rows = await Db.QueryAsync<Row>($@"{cte},
+        var rowsTask = Db.QueryAsync<Row>($@"{cte},
 x AS (SELECT h.DisplayName, h.UserPrincipalName, h.Department,
              (SELECT STRING_AGG(held.SkuPartNumber, N', ') FROM held WHERE held.UserPrincipalName = h.UserPrincipalName AND held.IsCopilot = 1) AS CopilotSkus,
              (SELECT STRING_AGG(held.SkuPartNumber, N', ') FROM held WHERE held.UserPrincipalName = h.UserPrincipalName AND held.Other = 1) AS Others,
@@ -89,8 +90,12 @@ SELECT x.DisplayName, x.UserPrincipalName, x.Department, x.CopilotSkus, x.Others
 FROM x LEFT JOIN bi.DimDate AS dl ON dl.DateKey = x.LastKey
 WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.Department LIKE @q)
 {pg.OrderAndPage()};", args);
+        var peopleTask = sku is null ? null : Db.ScalarAsync<int>($"{cte} SELECT COUNT(*) FROM h;", args);
+        await Task.WhenAll(new Task?[] { bySkuTask, rowsTask, peopleTask }.OfType<Task>());
+        var bySku = await bySkuTask;
+        var rows = await rowsTask;
         pg.Total = rows.FirstOrDefault()?.TotalRows ?? 0;
-        var people = sku is null ? pg.Total : await Db.ScalarAsync<int>($"{cte} SELECT COUNT(*) FROM h;", args);
+        var people = peopleTask is null ? pg.Total : await peopleTask;
 
         Kpis.Add(new("People with an overlap", Num(people), "a Copilot license and another Copilot-family one", people > 0 ? "warn" : null));
         Kpis.Add(new("Overlapping SKUs", Num(bySku.Count)));
