@@ -361,15 +361,17 @@ INTO #o
 FROM (SELECT DISTINCT Session, AttendedOn, Dept FROM #a) AS s
 JOIN bi.DimUser AS u ON ISNULL(NULLIF(u.Department, N''), N'(no department)') = s.Dept AND u.AccountEnabled = 1 {Ctx.Scope("u.UserKey")}
 WHERE NOT EXISTS (SELECT 1 FROM #a AS x WHERE x.Session = s.Session AND x.AttendedOn = s.AttendedOn AND x.UserKey = u.UserKey);
-WITH win AS
-(
-    SELECT g.Session, g.AttendedOn, g.UserKey, g.Grp,
-           (SELECT COUNT(*) FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-            WHERE ud.UserKey = g.UserKey AND ud.Interactions > 0 AND d.[Date] >= DATEADD(DAY, -28, g.AttendedOn) AND d.[Date] < g.AttendedOn) AS B,
-           (SELECT COUNT(*) FROM dash.UserDay AS ud JOIN bi.DimDate AS d ON d.DateKey = ud.DateKey
-            WHERE ud.UserKey = g.UserKey AND ud.Interactions > 0 AND d.[Date] > g.AttendedOn AND d.[Date] <= DATEADD(DAY, 28, g.AttendedOn)) AS A
-    FROM (SELECT Session, AttendedOn, UserKey, 'a' AS Grp FROM #a UNION ALL SELECT Session, AttendedOn, UserKey, 'o' FROM #o) AS g
-)
+/* Each person's active days in the 28 before and the 28 after, in one range join on the day's key (2.7.3): two
+   subqueries a person, each turning every day's key into a date, took ten times as long for the same figures. */
+WITH g AS (SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS Id, Session, AttendedOn, UserKey, Grp,
+                  CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, -28, AttendedOn), 112)) AS K0,
+                  CONVERT(INT, CONVERT(CHAR(8), AttendedOn, 112)) AS K,
+                  CONVERT(INT, CONVERT(CHAR(8), DATEADD(DAY, 28, AttendedOn), 112)) AS K1
+           FROM (SELECT Session, AttendedOn, UserKey, 'a' AS Grp FROM #a UNION ALL SELECT Session, AttendedOn, UserKey, 'o' FROM #o) AS x),
+win AS (SELECT g.Id, g.Session, g.AttendedOn, g.Grp,
+               COUNT(CASE WHEN ud.DateKey < g.K THEN 1 END) AS B, COUNT(CASE WHEN ud.DateKey > g.K THEN 1 END) AS A
+        FROM g LEFT JOIN dash.UserDay AS ud ON ud.UserKey = g.UserKey AND ud.Interactions > 0 AND ud.DateKey BETWEEN g.K0 AND g.K1
+        GROUP BY g.Id, g.Session, g.AttendedOn, g.Grp)
 SELECT Session, AttendedOn,
        COUNT(CASE WHEN Grp = 'a' THEN 1 END) AS Attendees,
        ISNULL(AVG(CASE WHEN Grp = 'a' THEN CAST(B AS FLOAT) END), 0) AS DaysBefore, ISNULL(AVG(CASE WHEN Grp = 'a' THEN CAST(A AS FLOAT) END), 0) AS DaysAfter,
