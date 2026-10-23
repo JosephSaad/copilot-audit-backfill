@@ -17,10 +17,12 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<TenantAccessor>();
 /* The query cache in a store of its own, of a bounded size (2.4.12): the shared one has no limit. */
+builder.Services.AddSingleton<SharedCache>();
 builder.Services.AddSingleton(sp =>
 {
     var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<InsightsOptions>>();
-    return new QueryCache(QueryCache.Store(o.Value.QueryCacheEntries), o, sp.GetRequiredService<ILogger<QueryCache>>());
+    /* Each server's own cache, with the one the web servers share behind it (SharedCache). */
+    return new QueryCache(QueryCache.Store(o.Value.QueryCacheEntries), o, sp.GetRequiredService<ILogger<QueryCache>>()) { Shared = sp.GetRequiredService<SharedCache>() };
 });
 /* One set of form keys for every web server, where Insights:DataProtectionKeysPath names a share (2.4.12, KeyRing). */
 var keyRing = KeyRing.Configure(builder.Services, builder.Configuration.GetSection(InsightsOptions.Section).Get<InsightsOptions>() ?? new InsightsOptions());
@@ -56,6 +58,11 @@ builder.Services.AddRazorPages(o => o.Conventions.ConfigureFilter(new Microsoft.
 
 var app = builder.Build();
 if (keyRing is not null) app.Logger.LogInformation("Form keys shared by the web servers: {KeyRing}.", keyRing);
+
+/* Under a virtual directory: IIS gives the application's path itself; behind another proxy, Insights:PathBase does. */
+if (app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<InsightsOptions>>().Value.PathBase is { Length: > 1 } pathBase)
+    app.UsePathBase(pathBase);
+app.UsePathBaseLinks();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -117,7 +124,7 @@ app.Use((ctx, next) => TenantAccessor.SelectAsync(ctx, () => next()));
 app.Use(async (ctx, next) =>
 {
     if (ctx.GetEndpoint() is { } ep && ep.Metadata.GetMetadata<Microsoft.AspNetCore.Mvc.RazorPages.PageActionDescriptor>() is null
-        && !ctx.Request.Path.StartsWithSegments("/api"))
+        && !ctx.Request.Path.StartsWithSegments("/api") && !ctx.Request.Path.StartsWithSegments(HealthProbe.Path))
     {
         var viewer = await ctx.RequestServices.GetRequiredService<ViewerService>().GetAsync();
         if (!viewer.Admitted && !viewer.AnyAdmin)
@@ -147,6 +154,8 @@ app.MapGet("/adoption/leaderboard", (HttpRequest r) => Moved(r, "/adoption/depar
 app.MapGet("/agents/shared", (HttpRequest r) => Moved(r, "/agents/inventory", "show=shared"));
 app.MapGet("/agents/production", (HttpRequest r) => Moved(r, "/agents/inventory", "show=production"));
 app.MapDataApi();
+/* The load balancer's probe: no sign-in, nothing named, only whether this server answers and reaches its database. */
+app.MapGet(HealthProbe.Path, HealthProbe.AnswerAsync).AllowAnonymous();
 
 app.Run();
 

@@ -40,7 +40,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
                     var c = await S.Contexts.CreateAsync(v, Ctx.Days, null);
                     rows.Add(new(t.Name, await metrics.TotalsAsync(c), null));
                 }
-                catch (Microsoft.Data.SqlClient.SqlException ex) { rows.Add(new(t.Name, null, "its database did not answer: " + ex.Message)); }
+                catch (Microsoft.Data.SqlClient.SqlException ex) { rows.Add(new(t.Name, null, Failure(ex, "Its database did not answer"))); }
             }
         }
         finally { tenants.Use(here); }

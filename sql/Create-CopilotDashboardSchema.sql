@@ -357,6 +357,11 @@ IF OBJECT_ID(N'dash.AuditLog', N'U') IS NULL
         INDEX IX_DashAuditLog_Viewer (Viewer, AtUtc)
     );
 
+/* What a change submitted and altered, as JSON: the values posted (a secret's masked) and the settings and role grants
+   before and after, written in the same transaction as the change itself. */
+IF COL_LENGTH(N'dash.AuditLog', N'Change') IS NULL
+    ALTER TABLE dash.AuditLog ADD Change NVARCHAR(MAX) NULL;
+
 /* Built by dash.usp_RefreshDashboard. */
 IF OBJECT_ID(N'dash.Person', N'U') IS NULL
     CREATE TABLE dash.Person

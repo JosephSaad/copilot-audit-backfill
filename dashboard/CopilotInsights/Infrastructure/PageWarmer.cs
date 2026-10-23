@@ -27,7 +27,7 @@ namespace CopilotInsights.Infrastructure;
 /// went to precache.json beside the request, which the script waits for. Only an account that can write that folder,
 /// an administrator of the server, can ask; the request starts a build and carries nothing else.
 /// </remarks>
-public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenants, QueryCache cache, DataStamp stamp,
+public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenants, QueryCache cache, DataStamp stamp, SharedCache shared,
     IActionDescriptorCollectionProvider actions, IOptions<InsightsOptions> options, IWebHostEnvironment env, ILogger<PageWarmer> log) : BackgroundService
 {
     readonly Dictionary<string, string> _warmed = new(StringComparer.OrdinalIgnoreCase);
@@ -140,7 +140,14 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
         var defaultDays = await settings.IntAsync("DefaultDays", 30);
         /* The period a page opens with first, then the longest (the slowest to build), then the rest. */
         var periods = ReportContext.DayChoices.OrderBy(d => d == defaultDays ? 0 : d == 365 ? 1 : 2).ThenByDescending(d => d).ToList();
+        /* With several web servers sharing the cache, one builds at a time: the first reads the database, and the next finds
+           its results in the shared cache rather than reading it again. A pre-cache on a server that waited uses what the
+           other kept since it began. */
+        var (held, waited) = shared.Enabled ? await WarmLockAsync(stop) : (null, false);
+        await using var heldLock = held;
         using var fresh = refresh ? QueryCache.Refresh() : null;
+        using var since = refresh && waited ? QueryCache.RefreshFrom(started.AddMinutes(-60)) : null;
+        if (waited) log.LogInformation("Another web server built the pages for {Tenant}; this one reads what it kept.", tenant.Name);
         foreach (var days in periods)
         {
             foreach (var (page, path) in pages)
@@ -175,6 +182,8 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
                 progress?.Invoke(built, pages.Count * periods.Count);
             }
         }
+        /* What older data kept in the shared cache goes, once a build for this data is done. */
+        if (shared.Enabled && !waited) await shared.ClearOldAsync(SharedCache.StampHash(tenant.Name, cache.DataStampOf(tenant.Name)));
         if (record)
         {
             _warmed[tenant.Name] = at;
@@ -182,6 +191,34 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
             log.LogInformation("Report pages warmed for {Tenant}: {Built} page views in {Seconds:0} s, {Failed} not built.", tenant.Name, built, sw.Elapsed.TotalSeconds, failed);
         }
         return new(built, failed, sw.Elapsed.TotalSeconds, true);
+    }
+
+    /// <summary>
+    /// The build's turn, among the web servers: a lock in SQL Server held for the build on a connection of its own, and
+    /// whether this server had to wait for another's build. Waits at most three hours; then it builds without it.
+    /// </summary>
+    async Task<(Microsoft.Data.SqlClient.SqlConnection? Lock, bool Waited)> WarmLockAsync(CancellationToken stop)
+    {
+        var waited = false;
+        var until = DateTime.UtcNow.AddHours(3);
+        while (!stop.IsCancellationRequested && DateTime.UtcNow < until)
+        {
+            var c = new Microsoft.Data.SqlClient.SqlConnection(tenants.Current.ConnectionString);
+            try
+            {
+                await c.OpenAsync(stop);
+                var got = await Dapper.SqlMapper.ExecuteScalarAsync<int>(c, @"
+DECLARE @r INT;
+EXEC @r = sp_getapplock @Resource = N'CopilotInsights.WarmPages', @LockMode = N'Exclusive', @LockOwner = N'Session', @LockTimeout = 0;
+SELECT @r;");
+                if (got >= 0) return (c, waited);
+            }
+            catch (Microsoft.Data.SqlClient.SqlException ex) { log.LogWarning(ex, "The build's turn could not be taken; building without it."); await c.DisposeAsync(); return (null, waited); }
+            await c.DisposeAsync();
+            waited = true;
+            try { await Task.Delay(TimeSpan.FromSeconds(15), stop); } catch (OperationCanceledException) { break; }
+        }
+        return (null, waited);
     }
 
     /// <summary>Whether a request is waiting that has not been taken: one the site could not remove is taken once.</summary>
@@ -275,7 +312,7 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !stop.IsCancellationRequested)
             {
-                one.Error = ex.Message;
+                one.Error = Incident.Note(log, ex, "The pre-cache failed");
                 log.LogWarning(ex, "The pre-cache failed for {Tenant}", t.Name);
             }
             Write(status);

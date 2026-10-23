@@ -441,24 +441,68 @@ EXEC sys.sp_executesql @sql;");
     /// An admin change: only for administrators, always audited, then back to the page
     /// with a message. The action returns what it did, for the audit log and the message.
     /// </summary>
-    protected async Task<IActionResult> AdminChangeAsync(Func<Task<string>> change)
+    protected Task<IActionResult> AdminChangeAsync(Func<Task<string>> change) => AdminChangeAsync(true, change);
+
+    /// <summary>What a person is told of a failure: <paramref name="what"/> and a reference; the error goes to the web server's log under it.</summary>
+    protected string Failure(Exception ex, string what) => Incident.Note(HttpContext.RequestServices.GetRequiredService<ILogger<InsightsPage>>(), ex, what);
+
+    /// <param name="transactional">
+    /// The change and its audit row commit together, or neither does. False only for an action that runs long or reaches
+    /// outside the database (a rebuild, retention, a test email or webhook): it is audited when it ends, as before.
+    /// </param>
+    protected async Task<IActionResult> AdminChangeAsync(bool transactional, Func<Task<string>> change)
     {
         if (!await PrepareAsync()) return Page();
-        /* On an Admin page, whoever may open it (2.6.4: a limited administrator, their own pages); elsewhere, full administrators. */
+        /* On an Admin page, whoever may open it (a limited administrator, their own pages); elsewhere, full administrators. */
         if (!Viewer.CanAdmin(Request.Path))
         {
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, "admin change refused");
             return StatusCode(403);
         }
-        string done;
-        try { done = await change(); }
-        catch (ArgumentException ex) { done = "Not changed: " + ex.Message; }
-        /* 2.7.0: a database error is audited and said too: it escaped both, after a change that may have been made in part. */
-        catch (Microsoft.Data.SqlClient.SqlException ex) { done = "Failed: " + ex.Message; }
-        await S.Audit.WriteAsync(Viewer, "Admin", Request.Path, null, done);
+        var done = await AuditedAsync("Admin", transactional, change);
         TempData["done"] = done;
         var q = Request.Query.Where(kv => kv.Key != "handler").Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}").ToList();
         return Redirect(Request.Path + (q.Count > 0 ? "?" + string.Join("&", q) : ""));
+    }
+
+    /// <summary>
+    /// A change and its audit row, in one transaction where <paramref name="transactional"/>: the row says what was done,
+    /// what was submitted (secrets masked) and the settings and role grants before and after. A change refused (its own
+    /// message) or failed (a reference: the error is in the web server's log) is rolled back and audited as such.
+    /// </summary>
+    async Task<string> AuditedAsync(string kind, bool transactional, Func<Task<string>> change)
+    {
+        var submitted = AuditChange.Submitted(Request.HasFormContentType ? Request.Form.Select(kv => (kv.Key, kv.Value.ToString())) : []);
+        try
+        {
+            if (!transactional)
+            {
+                var result = await change();
+                await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, result, AuditChange.Json(submitted, null, null));
+                return result;
+            }
+            using var scope = new System.Transactions.TransactionScope(System.Transactions.TransactionScopeOption.Required,
+                new System.Transactions.TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted, Timeout = TimeSpan.FromMinutes(5) },
+                System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
+            var before = await AuditChange.SnapshotAsync(Db);
+            var done = await change();
+            var after = await AuditChange.SnapshotAsync(Db);
+            await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, done, AuditChange.Json(submitted, before, after));
+            scope.Complete();
+            return done;
+        }
+        catch (ArgumentException ex)
+        {
+            var refused = "Not changed: " + ex.Message;
+            await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, refused, AuditChange.Json(submitted, null, null));
+            return refused;
+        }
+        catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException or System.Transactions.TransactionException or InvalidOperationException)
+        {
+            var failed = Incident.Note(HttpContext.RequestServices.GetRequiredService<ILogger<InsightsPage>>(), ex, "Not changed: it failed");
+            await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, failed, AuditChange.Json(submitted, null, null));
+            return failed;
+        }
     }
 
     /// <summary>
@@ -473,10 +517,7 @@ EXEC sys.sp_executesql @sql;");
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, $"change refused: needs {role}");
             return StatusCode(403);
         }
-        string done;
-        try { done = await change(); }
-        catch (ArgumentException ex) { done = "Not changed: " + ex.Message; }
-        await S.Audit.WriteAsync(Viewer, "Change", Request.Path, null, done);
+        var done = await AuditedAsync("Change", true, change);
         TempData["done"] = done;
         var q = Request.Query.Where(kv => kv.Key != "handler").Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}").ToList();
         return Redirect(Request.Path + (q.Count > 0 ? "?" + string.Join("&", q) : ""));

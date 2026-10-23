@@ -29,6 +29,8 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
         "audit.AIAppResource",
         /* 2.6.8: the reservation register, its rate, the Technology pool and the month-end snapshots (Leadership › Copilot reservations). */
         "dash.Reservation", "dash.ReservationRate", "dash.TechnologyAllocation", "dash.ReservationSnapshot",
+        /* The dashboard's changes, counted for every web server: a change on one is seen by the others at their next read of the stamp. */
+        "dash.CacheGeneration",
     ];
 
     /// <summary>A table people change all day, and the query that gives its version: one short string that differs after any change.</summary>
@@ -80,6 +82,8 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
     {
         if (!cache.Enabled) return;
         var tenant = tenants.Current;
+        /* This server wrote: its next page reads the stamp, with the change counted in it, at once. */
+        if (cache.TakeStale(tenant.Name)) force = true;
         if (!force && _checked.TryGetValue(tenant.Name, out var at) && DateTime.UtcNow - at < TimeSpan.FromSeconds(30)) return;
         var gate = _locks.GetOrAdd(tenant.Name, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();

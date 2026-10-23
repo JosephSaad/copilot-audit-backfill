@@ -37,6 +37,19 @@ public sealed class InsightsOptions
     public int QueryCacheMinutes { get; set; } = 720;
 
     /// <summary>
+    /// Whether the web servers share their report cache through dash.QueryCacheShared (see SharedCache): with several
+    /// behind a load balancer, a page one built the others read rather than build again. On by default; harmless with one
+    /// server. Off keeps each server's cache to itself, as before.
+    /// </summary>
+    public bool SharedQueryCache { get; set; } = true;
+
+    /// <summary>
+    /// The virtual directory the site answers under, such as /CopilotDashboard, when a proxy other than IIS puts it there.
+    /// Under IIS, an application in a site gets it from IIS and this stays empty.
+    /// </summary>
+    public string? PathBase { get; set; }
+
+    /// <summary>
     /// The most query results kept in memory on this web server (2.4.12); past it the least recently used go first. A
     /// full build of every report for one tenant keeps about 5,000.
     /// </summary>

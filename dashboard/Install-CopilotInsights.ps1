@@ -67,6 +67,18 @@
     The Windows time zone of -PrecacheAt. Default 'Eastern Standard Time': Eastern Time, EST in winter
     and EDT in summer, whatever zone the server's clock is in.
 
+.PARAMETER ApplicationPath
+    Installs the dashboard as an application under an existing site rather than as a site of its own: its virtual
+    directory, such as /CopilotDashboard for https://apps.contoso.com/CopilotDashboard. -SiteName then names the site
+    that holds it (which must exist, with its own bindings and certificate, left as they are), and the app pool is
+    -AppPoolName, CopilotInsights unless given. Every address the dashboard writes starts with the path.
+
+.PARAMETER AppPoolName
+    The app pool, with -ApplicationPath: CopilotInsights unless given. Without -ApplicationPath, the pool is named after the site.
+
+.EXAMPLE
+    .\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer sql01 -SiteName 'Apps' -ApplicationPath /CopilotDashboard `
+        -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -AppPoolIdentity 'CONTOSO\gmsa-insights$' -GrantDatabaseAccess
 .EXAMPLE
     .\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer sql01 -Database CopilotAudit `
         -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -AppPoolIdentity 'CONTOSO\gmsa-insights$' `
@@ -96,7 +108,9 @@ param(
     [string[]] $Tenant = @(),
     [switch] $SkipFeatureInstall,
     [string] $PrecacheAt = '07:00',
-    [string] $PrecacheTimeZone = 'Eastern Standard Time'
+    [string] $PrecacheTimeZone = 'Eastern Standard Time',
+    [string] $ApplicationPath,
+    [string] $AppPoolName
 )
 
 $ErrorActionPreference = 'Stop'
@@ -184,8 +198,18 @@ Import-Module WebAdministration
 # A setting not given again keeps what the site has (Resolve-SiteSetting). Every input is checked here, before step 3
 # takes the site offline (2.4.12): a thumbprint the store does not hold, a -Tenant that is not Name=Database, a
 # settings file that does not read, threw after the files were copied, with the site left offline.
-$poolPath = "IIS:\AppPools\$SiteName"
-$siteBefore = Get-Website -Name $SiteName
+# As a site of its own, or as an application (a virtual directory) under an existing site.
+$appName = $null
+if ($ApplicationPath) {
+    $appName = $ApplicationPath.Trim().Trim('/')
+    if ($appName -notmatch '^[A-Za-z0-9][A-Za-z0-9._\-]*(/[A-Za-z0-9][A-Za-z0-9._\-]*)*$') { throw "-ApplicationPath '$ApplicationPath' is not a path such as /CopilotDashboard. Nothing was changed." }
+    if (-not (Get-Website -Name $SiteName)) { throw "-ApplicationPath needs an existing site to hold it: there is no site '$SiteName'. Give the site's name with -SiteName. Nothing was changed." }
+}
+$poolName = if ($AppPoolName) { $AppPoolName } elseif ($appName) { 'CopilotInsights' } else { $SiteName }
+$poolPath = "IIS:\AppPools\$poolName"
+$location = if ($appName) { "$SiteName/$appName" } else { $SiteName }
+$appItem = if ($appName) { "IIS:\Sites\$SiteName\$appName" } else { "IIS:\Sites\$SiteName" }
+$siteBefore = if ($appName) { Get-WebApplication -Site $SiteName -Name $appName } else { Get-Website -Name $SiteName }
 if ($siteBefore -and -not $PSBoundParameters.ContainsKey('PhysicalPath')) { $PhysicalPath = [Environment]::ExpandEnvironmentVariables($siteBefore.physicalPath) }
 $settingsPath = Join-Path $PhysicalPath 'appsettings.Production.json'
 $settings = if (Test-Path $settingsPath) { Get-Content $settingsPath -Raw | ConvertFrom-Json } else { [pscustomobject] @{} }
@@ -308,8 +332,8 @@ try {
     $settings | ConvertTo-Json -Depth 5 | Set-Content $settingsPath -Encoding utf8
 
     # ---- 5. App pool and site -----------------------------------------------------------------
-    Write-Step "App pool and site '$SiteName'"
-    if (-not (Test-Path $poolPath)) { New-WebAppPool -Name $SiteName | Out-Null }
+    Write-Step $(if ($appName) { "App pool '$poolName' and application /$appName in site '$SiteName'" } else { "App pool and site '$SiteName'" })
+    if (-not (Test-Path $poolPath)) { New-WebAppPool -Name $poolName | Out-Null }
     Set-ItemProperty $poolPath -Name managedRuntimeVersion -Value ''
     Set-ItemProperty $poolPath -Name managedPipelineMode -Value 'Integrated'
     Set-ItemProperty $poolPath -Name startMode -Value 'AlwaysRunning'
@@ -326,26 +350,45 @@ try {
     }
     else {
         Set-ItemProperty $poolPath -Name processModel.identityType -Value 4   # ApplicationPoolIdentity
-        $poolAccount = "IIS APPPOOL\$SiteName"
+        $poolAccount = "IIS APPPOOL\$poolName"
     }
 
     $https = [bool] $CertificateThumbprint
     if (-not $Port) { $Port = if ($https) { 443 } else { 80 } }
-    if (-not $siteBefore) {
-        New-Website -Name $SiteName -PhysicalPath $PhysicalPath -ApplicationPool $SiteName -Port $Port -HostHeader $HostName -Ssl:$https | Out-Null
+    if ($appName) {
+        # An application in a site that is not ours: its bindings and certificate are the site's, left as they are.
+        if (-not $siteBefore) { New-WebApplication -Site $SiteName -Name $appName -PhysicalPath $PhysicalPath -ApplicationPool $poolName | Out-Null }
+        else {
+            Set-ItemProperty $appItem -Name physicalPath -Value $PhysicalPath
+            Set-ItemProperty $appItem -Name applicationPool -Value $poolName
+        }
+        # Start the app with IIS, not at the first visit: its background sender runs the alerts and digests.
+        Set-ItemProperty $appItem -Name preloadEnabled -Value $true
+    }
+    elseif (-not $siteBefore) {
+        New-Website -Name $SiteName -PhysicalPath $PhysicalPath -ApplicationPool $poolName -Port $Port -HostHeader $HostName -Ssl:$https | Out-Null
     }
     else {
         Set-ItemProperty "IIS:\Sites\$SiteName" -Name physicalPath -Value $PhysicalPath
-        Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationPool -Value $SiteName
+        Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationPool -Value $poolName
     }
     # Start the app with IIS, not at the first visit: its background sender runs the alerts and digests.
-    Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationDefaults.preloadEnabled -Value $true
+    if (-not $appName) { Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationDefaults.preloadEnabled -Value $true }
 
     # Alerts also go to the Application log under this source; creating a source needs an administrator.
     if (-not [System.Diagnostics.EventLog]::SourceExists('Copilot Insights')) {
         New-EventLog -LogName Application -Source 'Copilot Insights'
     }
-    if ($https) {
+    if ($appName) {
+        # The holding site's own address: its HTTPS binding's, or its HTTP one's.
+        $kept = @(Get-WebBinding -Name $SiteName | Sort-Object { if ($_.protocol -eq 'https') { 0 } else { 1 } })
+        $proto = 'http'
+        if ($kept) {
+            $parts = ([string] $kept[0].bindingInformation).Split(':')
+            $proto = [string] $kept[0].protocol; $Port = [int] $parts[1]; if (-not $HostName) { $HostName = $parts[2] }
+        }
+    }
+    elseif ($https) {
         $proto = 'https'
         if (-not (Get-WebBinding -Name $SiteName -Protocol https -Port $Port -HostHeader $HostName)) {
             New-WebBinding -Name $SiteName -Protocol https -Port $Port -HostHeader $HostName -SslFlags $(if ($HostName) { 1 } else { 0 })
@@ -379,10 +422,12 @@ try {
 
     # ---- 6. Authentication --------------------------------------------------------------------
     Write-Step 'Windows authentication on, anonymous off'
-    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $SiteName -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $false
-    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $SiteName -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name enabled -Value $true
+    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $false
+    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name enabled -Value $true
     # Kerberos for a host name registered on the app-pool account (the SPN below) needs the pool's own credentials.
-    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $SiteName -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name useAppPoolCredentials -Value ([bool] $AppPoolIdentity)
+    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name useAppPoolCredentials -Value ([bool] $AppPoolIdentity)
+    # The load balancer's probe answers without sign-in: it says only whether the server reaches its database.
+    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location "$location/healthz" -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $true
 
     # The app pool writes its logs; everyone else only reads the site.
     $acl = Get-Acl (Join-Path $PhysicalPath 'logs')
@@ -405,8 +450,8 @@ finally {
     # after the files were copied left every user on "being updated" until a run succeeded.
     Remove-Item $offline -ErrorAction SilentlyContinue
 }
-Start-WebAppPool -Name $SiteName -ErrorAction SilentlyContinue
-Restart-WebAppPool -Name $SiteName -ErrorAction SilentlyContinue
+Start-WebAppPool -Name $poolName -ErrorAction SilentlyContinue
+Restart-WebAppPool -Name $poolName -ErrorAction SilentlyContinue
 
 # ---- 7. Database access -----------------------------------------------------------------------
 Write-Step 'Database access'
@@ -525,7 +570,7 @@ if (Test-Path $sitePrecache) {
     else { & $sitePrecache -Register -PhysicalPath $PhysicalPath -At $PrecacheAt -TimeZone $PrecacheTimeZone }
 }
 
-$url = "{0}://{1}{2}/" -f $proto, $(if ($HostName) { $HostName } else { $env:COMPUTERNAME }), $(if (($https -and $Port -eq 443) -or (-not $https -and $Port -eq 80)) { '' } else { ":$Port" })
+$url = "{0}://{1}{2}/{3}" -f $proto, $(if ($HostName) { $HostName } else { $env:COMPUTERNAME }), $(if (($https -and $Port -eq 443) -or (-not $https -and $Port -eq 80)) { '' } else { ":$Port" }), $(if ($appName) { "$appName/" } else { '' })
 Write-Host ''
 Write-Host "Copilot Insights is at $url" -ForegroundColor Green
 Write-Host 'Next: sign in as a bootstrap administrator, open Admin > Access, set the top of the organization, and grant roles.'

@@ -179,7 +179,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         return SettingWriter.Saved(changed);
     });
 
-    public Task<IActionResult> OnPostTestAsync(string? to) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostTestAsync(string? to) => AdminChangeAsync(false, async () =>
     {
         var rcpt = MailConfig.Recipients(to);
         if (rcpt.Count == 0) throw new ArgumentException("give an address to send the test to.");
@@ -336,7 +336,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, values));
     });
 
-    public Task<IActionResult> OnPostWebhookAsync(string? url, string? AlertWebhookFormat, string? clear) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostWebhookAsync(string? url, string? AlertWebhookFormat, string? clear) => AdminChangeAsync(false, async () =>
     {
         var by = Viewer.Upn ?? Viewer.WindowsName;
         if (Webhook.Problem(url) is { } bad) throw new ArgumentException(bad);
@@ -350,7 +350,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
         return SettingWriter.Saved(changed);
     });
 
-    public Task<IActionResult> OnPostWebhooktestAsync() => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostWebhooktestAsync() => AdminChangeAsync(false, async () =>
     {
         var url = await HttpContext.RequestServices.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
         if (url is null) throw new ArgumentException("save a webhook address first.");
@@ -363,7 +363,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
             using var r = await http.PostAsync(url, new StringContent(payload, Encoding.UTF8, "application/json"), HttpContext.RequestAborted);
             return r.IsSuccessStatusCode ? $"Test alert posted ({format}): HTTP {(int)r.StatusCode}." : $"The webhook answered HTTP {(int)r.StatusCode} {r.ReasonPhrase}.";
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return "The webhook could not be reached: " + ex.Message; }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return Failure(ex, "The webhook could not be reached"); }
     });
 
     public Task<IActionResult> OnPostDigestsAsync(string? ManagerDigest, string? ManagerDigestMinPeople, string? ManagerDigestDay, string? DigestHour) => AdminChangeAsync(async () =>
@@ -433,7 +433,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         ? $"the {report} digest shows the {role} section, which needs the {role} role. An administrator can grant it in Admin › Access."
         : null;
 
-    public Task<IActionResult> OnPostSendnowAsync(int id) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostSendnowAsync(int id) => AdminChangeAsync(false, async () =>
     {
         var sub = (await Db.QueryAsync<SubRow>("SELECT * FROM dash.Subscription WHERE SubscriptionId = @id", new { id })).FirstOrDefault() ?? throw new ArgumentException("no such digest.");
         if (DigestRefusal(sub.Report) is { } no) throw new ArgumentException(no);
@@ -473,7 +473,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();
         var from = tenants.Current.Name;
         var done = await EveryTenantAsync(tenants, () => S.Viewers.ResolveAsync(), () => notifier.RunOnceAsync(HttpContext.RequestAborted),
-            (v, lines) => S.Audit.WriteAsync(v, "Admin", Request.Path, null, $"The checks ran, from tenant {from}. " + string.Join(" · ", lines)), Request.Path);
+            (v, lines) => S.Audit.WriteAsync(v, "Admin", Request.Path, null, $"The checks ran, from tenant {from}. " + string.Join(" · ", lines)), Request.Path, HttpContext.RequestServices.GetRequiredService<ILogger<InsightsPage>>());
         return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
     });
 
@@ -483,7 +483,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
     /// An administrator there is a full one, or one whose Admin pages there include <paramref name="page"/> (2.6.4).
     /// </summary>
     public static async Task<List<string>> EveryTenantAsync(TenantAccessor tenants, Func<Task<Viewer>> viewer, Func<Task<List<string>>> run,
-        Func<Viewer, IReadOnlyList<string>, Task> record, string? page = null)
+        Func<Viewer, IReadOnlyList<string>, Task> record, string? page = null, ILogger? log = null)
     {
         var here = tenants.Current;
         var done = new List<string>();
@@ -501,7 +501,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
                     if (t.Name != here.Name) await record(v, lines);
                     done.AddRange(lines.Select(Line));
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) { done.Add(Line("The checks failed: " + ex.Message)); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { done.Add(Line(Incident.Note(log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, ex, "The checks failed"))); }
             }
         }
         finally { tenants.Use(here); }
@@ -533,8 +533,8 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         }
         catch (DigestRefused ex)
         {
-            await S.Audit.WriteAsync(Viewer, "View", Request.Path, root ?? "Whole organization", $"digest preview of {report}, not shown: {ex.Message}");
-            return Html($"<!DOCTYPE html><p>Not shown: {E(ex.Message)}.</p>");
+            await S.Audit.WriteAsync(Viewer, "View", Request.Path, root ?? "Whole organization", $"digest preview of {report}, not shown: {Failure(ex, "Not shown")}");
+            return Html($"<!DOCTYPE html><p>{E(Failure(ex, "Not shown"))}</p>");
         }
     }
 }
@@ -824,7 +824,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         : jsonDays is > 0 and < 200 ? "JSON retention is 0 (keep) or at least 200 days: past Purview's 180 days it cannot be fetched again."
         : null;
 
-    public Task<IActionResult> OnPostRetentionAsync(string? AuditLogRetentionDays, string? NotificationRetentionDays, string? JsonRetentionDays) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRetentionAsync(string? AuditLogRetentionDays, string? NotificationRetentionDays, string? JsonRetentionDays) => AdminChangeAsync(false, async () =>
     {
         var json = SettingWriter.Int(JsonRetentionDays, "JSON retention", 0, 36500);
         var audit = SettingWriter.Int(AuditLogRetentionDays, "Audit-log retention", 0, 36500);
@@ -838,10 +838,10 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         }, showValues: true));
     });
 
-    public Task<IActionResult> OnPostApplyAsync() => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostApplyAsync() => AdminChangeAsync(false, async () =>
     {
         try { return "Retention applied: " + await Db.ScalarAsync<string>("EXEC dash.usp_ApplyRetention;"); }
-        catch (Microsoft.Data.SqlClient.SqlException ex) { return "Retention stopped: " + ex.Message + " The nightly run applies it as the pipeline's account."; }
+        catch (Microsoft.Data.SqlClient.SqlException ex) { return Failure(ex, "Retention stopped") + " The nightly run applies it as the pipeline's account."; }
     });
 
     public Task<IActionResult> OnPostApiAsync(string? ApiEnabled) => AdminChangeAsync(async () =>

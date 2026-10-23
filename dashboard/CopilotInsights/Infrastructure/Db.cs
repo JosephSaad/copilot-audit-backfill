@@ -117,13 +117,20 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
     public async Task<T> KeptAsync<T>(string name, ReportContext c, Func<Task<T>> build) =>
         await cache.GetAsync(Tenant, "k", $"kept:{name}", c.Args(), build, await LiveAsync(string.Join(" ", DataStamp.VolatileTables)));
 
+    const string CountChange = "IF OBJECT_ID(N'dash.CacheGeneration', N'U') IS NOT NULL UPDATE dash.CacheGeneration SET N = N + 1, ChangedUtc = SYSUTCDATETIME() WHERE Id = 1;";
+
     public async Task<int> ExecuteAsync(string sql, object? args = null, int timeout = 120)
     {
         await using var c = new SqlConnection(_cs);
         try { return await c.ExecuteAsync(new CommandDefinition(sql, args, commandTimeout: timeout)); }
         finally
         {
-            if (DataStamp.Matters(sql)) cache.Wrote(Tenant);
+            if (DataStamp.Matters(sql))
+            {
+                /* Counted in the database too, for the other web servers (dash.CacheGeneration, in the stamp). */
+                try { await c.ExecuteAsync(new CommandDefinition(CountChange, commandTimeout: 15)); } catch (SqlException) { }
+                cache.Wrote(Tenant);
+            }
             foreach (var t in DataStamp.LiveIn(sql)) cache.WroteLive(Tenant, t.Table);
         }
     }

@@ -245,7 +245,7 @@ FROM w;")).Single();
             "read from the database for every page: a page that reads one is kept until that list changes, on this web server or another. Each web server keeps its own results and builds its own pages.", "half"));
     }
 
-    public Task<IActionResult> OnPostRefreshAsync(int days) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRefreshAsync(int days) => AdminChangeAsync(false, async () =>
     {
         DateTime? since = days > 0 ? DateTime.UtcNow.Date.AddDays(-days) : null;
         await Db.ExecuteAsync("EXEC dash.usp_RefreshDashboard @SinceUtc = @since;", new { since }, timeout: 3600);
@@ -858,7 +858,15 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
         public string? Scope { get; set; }
         public string? Detail { get; set; }
         public string? ClientIp { get; set; }
+        public string? Change { get; set; }
         public int TotalRows { get; set; }
+    }
+
+    /// <summary>A change's record, laid out to read: the JSON indented.</summary>
+    static string AuditChangeText(string json)
+    {
+        try { return System.Text.Json.JsonSerializer.Serialize(System.Text.Json.JsonDocument.Parse(json).RootElement, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }); }
+        catch (System.Text.Json.JsonException) { return json; }
     }
 
     protected override async Task BuildAsync()
@@ -871,8 +879,10 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
             ["kind"] = "a.Kind, a.AtUtc DESC, a.LogId DESC", ["page"] = "a.Page, a.AtUtc DESC, a.LogId DESC", ["scope"] = "a.Scope, a.AtUtc DESC, a.LogId DESC",
             ["from"] = "a.ClientIp, a.AtUtc DESC, a.LogId DESC",
         }, "new");
+        /* What a change submitted and altered (dash.AuditLog.Change), where the database has the column. */
+        var hasChange = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AuditLog', N'Change') IS NULL THEN 0 ELSE 1 END") == 1;
         var rows = await Db.QueryAsync<Row>($@"
-SELECT a.AtUtc, a.Viewer, a.Kind, a.Page, a.Scope, a.Detail, a.ClientIp, COUNT(*) OVER () AS TotalRows
+SELECT a.AtUtc, a.Viewer, a.Kind, a.Page, a.Scope, a.Detail, a.ClientIp, {(hasChange ? "a.Change" : "CAST(NULL AS NVARCHAR(MAX)) AS Change")}, COUNT(*) OVER () AS TotalRows
 FROM dash.AuditLog AS a
 WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.Kind = @kind)
   AND (@q IS NULL OR a.Viewer LIKE @q OR a.Page LIKE @q OR a.Detail LIKE @q OR a.Scope LIKE @q)
@@ -892,11 +902,12 @@ WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.
             Server = new(pg, Request, ["new", "who", "kind", "page", "scope", null, "from"], new HashSet<int> { 0 }),
         };
         /* The page says each kind in words; the download keeps the words the log stores, which a tool reading it may match on. */
-        var csv = new Table { Zone = Zone, Headers = t.Headers };
+        var csv = new Table { Zone = Zone, Headers = [.. t.Headers, "Change"] };
         foreach (var r in rows)
         {
-            t.Rows.Add([r.AtUtc, r.Viewer, KindName(r.Kind), r.Page, r.Scope, r.Detail, r.ClientIp]);
-            csv.Rows.Add([r.AtUtc, r.Viewer, r.Kind, r.Page, r.Scope, r.Detail, r.ClientIp]);
+            object? detail = r.Change is null ? r.Detail : new HtmlString(E(r.Detail ?? "") + $"<details class=\"kwhy\"><summary>What changed</summary><pre class=\"change\">{E(AuditChangeText(r.Change))}</pre></details>");
+            t.Rows.Add([r.AtUtc, r.Viewer, KindName(r.Kind), r.Page, r.Scope, detail, r.ClientIp]);
+            csv.Rows.Add([r.AtUtc, r.Viewer, r.Kind, r.Page, r.Scope, r.Detail, r.ClientIp, r.Change]);
         }
         CsvTable = csv;
         string Link(string label, int dd, string? kk, bool on) =>

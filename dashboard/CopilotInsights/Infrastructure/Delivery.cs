@@ -189,7 +189,7 @@ public sealed partial class Notifier
                     if ((int)r.StatusCode is >= 400 and < 500 and not 408 and not 429) break;   // the address or payload is wrong: trying again will not help
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { status = "Failed"; error = Stopped; break; }
-                catch (Exception ex) { status = "Failed"; error = ex.Message; }
+                catch (Exception ex) { status = "Failed"; error = Incident.Note(_log, ex, "Failed"); }
             }
             /* Logged as the email is (2.4.12): a log that cannot be written costs the log line, not the alert. Before, it threw
                after the email and the card had gone, and the alert was sent again every five minutes. */
@@ -408,7 +408,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup,
                 status = $"{data.Count:#,0} rows to {file}" + (ExtractData.IsShare(x.Folder) ? "" : $" on {Environment.MachineName}");
                 ok = true;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = "Failed: " + ex.Message; }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = Incident.Note(_log, ex, "Failed"); }
             var next = Retry.After(ok, x.FailedTries, DateTime.UtcNow);
             if (next.Retry) status += $" Trying again after {next.RetryAfterUtc:HH:mm} UTC (try {x.FailedTries + 2} of {Retry.Tries}).";
             await _db.ExecuteAsync(@"UPDATE dash.Extract SET LastRunUtc = CASE WHEN @retry = 1 THEN LastRunUtc ELSE SYSUTCDATETIME() END,

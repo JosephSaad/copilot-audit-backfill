@@ -812,6 +812,38 @@ BEGIN
     SELECT CONCAT(@a, N'' audit-log row(s) and '', @n, N'' notification row(s) past retention deleted; '', @j, N''.'');
 END;');
 
+/* ---- Several web servers: one report cache behind them all ------------------ */
+
+/* The query cache shared by the web servers. Each keeps its results in memory; behind that, the results are kept here,
+   so a page one server built is read, not built again, by the others. A result is kept under the data's stamp, the
+   change count below and the query with its parameters (KeyHash), compressed JSON (Payload). Rows of an older stamp are
+   cleared by the server that builds the pages; a row past its time is not read. */
+IF OBJECT_ID(N'dash.QueryCacheShared', N'U') IS NULL
+    CREATE TABLE dash.QueryCacheShared
+    (
+        KeyHash     BINARY(32)      NOT NULL CONSTRAINT PK_DashQueryCacheShared PRIMARY KEY,
+        StampHash   BINARY(32)      NOT NULL,
+        Payload     VARBINARY(MAX)  NOT NULL,
+        Bytes       INT             NOT NULL,
+        CreatedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashQueryCacheShared_Created DEFAULT (SYSUTCDATETIME()),
+        ExpiresUtc  DATETIME2(0)    NOT NULL,
+        Server      NVARCHAR(128)   NULL,
+        INDEX IX_DashQueryCacheShared_Stamp (StampHash, CreatedUtc)
+    );
+
+/* How many changes the dashboard has made, on any web server: each change that can alter a report adds one. It is part
+   of the data's stamp, so every server sees a change made on another at its next stamp read (30 seconds at most), and
+   the server that made it at once. One row. */
+IF OBJECT_ID(N'dash.CacheGeneration', N'U') IS NULL
+    CREATE TABLE dash.CacheGeneration
+    (
+        Id          TINYINT         NOT NULL CONSTRAINT PK_DashCacheGeneration PRIMARY KEY CONSTRAINT CK_DashCacheGeneration_One CHECK (Id = 1),
+        N           BIGINT          NOT NULL,
+        ChangedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCacheGeneration_Changed DEFAULT (SYSUTCDATETIME())
+    );
+IF NOT EXISTS (SELECT 1 FROM dash.CacheGeneration)
+    INSERT INTO dash.CacheGeneration (Id, N) VALUES (1, 0);
+
 /* ---- The dashboard's database role ---------------------------------------- */
 
 IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NULL
@@ -850,6 +882,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.UseCaseRule TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.EventMarker TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Extract TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.QueryCacheShared TO CopilotInsightsApp;   -- the web servers' shared report cache
+GRANT UPDATE ON dash.CacheGeneration TO CopilotInsightsApp;                      -- a change counted for every web server
 GRANT INSERT ON dash.AuditLog TO CopilotInsightsApp;
 GRANT INSERT ON dash.NotificationLog TO CopilotInsightsApp;
 GRANT EXECUTE ON dash.usp_RefreshDashboard TO CopilotInsightsApp;

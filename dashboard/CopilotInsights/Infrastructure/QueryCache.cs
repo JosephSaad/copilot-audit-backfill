@@ -50,6 +50,40 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         new MemoryCache(new MemoryCacheOptions { SizeLimit = Math.Max(100, entries), CompactionPercentage = 0.25 });
 
     public bool Enabled => _minutes > 0;
+
+    /// <summary>The cache the web servers share, behind this one; null keeps every result on this server alone.</summary>
+    public SharedCache? Shared { get; init; }
+
+    static readonly AsyncLocal<DateTime?> _refreshSince = new();
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _staleStamp = new();
+
+    /// <summary>
+    /// The pre-cache on a server that waited for another's build: a result that server kept in the shared cache after
+    /// <paramref name="since"/> is used rather than read again (see <see cref="PageWarmer"/>).
+    /// </summary>
+    public static IDisposable RefreshFrom(DateTime since)
+    {
+        var before = _refreshSince.Value;
+        _refreshSince.Value = since;
+        return new SinceScope(before);
+    }
+
+    sealed class SinceScope(DateTime? before) : IDisposable
+    {
+        public void Dispose() => _refreshSince.Value = before;
+    }
+
+    /// <summary>
+    /// Whether this server wrote since its stamp was last read, which the next page then reads again at once (see
+    /// <see cref="DataStamp.EnsureAsync"/>): the change counted in the database is in the stamp the shared cache keys on.
+    /// </summary>
+    public bool TakeStale(string tenant) => _staleStamp.TryRemove(tenant, out _);
+
+    /// <summary>The data's stamp alone, as the database gave it: what the shared cache keys on.</summary>
+    public string DataStampOf(string tenant) => _stamps.GetValueOrDefault(tenant, "0");
+
+    /* The live tables' versions as the database gives them, without this server's own count of its writes. */
+    static readonly System.Text.RegularExpressions.Regex LocalWrites = new(@"=\d+/", System.Text.RegularExpressions.RegexOptions.Compiled);
     public (long Hits, long Misses) Counts => (Interlocked.Read(ref _hits), Interlocked.Read(ref _misses));
 
     /// <summary>Whether the code running now asked for cached reads.</summary>
@@ -127,6 +161,7 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
     public void Wrote(string tenant)
     {
         _writes.AddOrUpdate(tenant, 1, (_, n) => n + 1);
+        _staleStamp[tenant] = true;
         End(tenant);
     }
 
@@ -143,6 +178,17 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         if (!Enabled || !On || (live is null && DataStamp.Volatile(sql)) || Key(sql, args) is not { } k) return await read();
         var end = _ends.GetOrAdd(tenant, _ => new CancellationTokenSource()).Token;
         var key = $"q:{tenant}:{Stamp(tenant)}:{kind}:{typeof(T).FullName}:{k}" + (live is null ? "" : ":" + live);
+        /* Behind this server's memory, the cache the web servers share: what another server read is read from there. A
+           derived view ("k") is worked out here from shared reads, and stays on this server. */
+        if (Shared is { Enabled: true } shared && kind is "q" or "q2" or "s" or "r")
+        {
+            var dbStamp = DataStampOf(tenant);
+            var sharedKey = SharedCache.Key(tenant, dbStamp, kind, typeof(T), k, live is null ? null : LocalWrites.Replace(live, "="));
+            var stampHash = SharedCache.StampHash(tenant, dbStamp);
+            var own = read;
+            var since = _refresh.Value ? _refreshSince.Value ?? DateTime.UtcNow.AddYears(1) : (DateTime?)null;
+            read = () => shared.ReadThroughAsync(sharedKey, stampHash, own, since, _minutes);
+        }
         if (_refresh.Value)
         {
             /* The pre-cache (2.5.1): read again, and keep the new result once it is read. A read that fails keeps nothing,

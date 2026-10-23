@@ -454,7 +454,7 @@ WHERE SubscriptionId = @id AND Enabled = 1 AND (LastSentUtc = @seen OR (LastSent
                         new { id = s.SubscriptionId, seen = s.LastSentUtc });
                     throw;
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { sent = false; status = "Failed: " + ex.Message; }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { sent = false; status = Incident.Note(_log, ex, "Failed"); }
                 var next = Retry.After(sent, s.FailedTries, DateTime.UtcNow);
                 if (next.Retry) status += $" Trying again after {next.RetryAfterUtc:HH:mm} UTC (try {s.FailedTries + 2} of {Retry.Tries}).";
                 /* A try to come puts back when it was last sent; anything else keeps the claim's time. */

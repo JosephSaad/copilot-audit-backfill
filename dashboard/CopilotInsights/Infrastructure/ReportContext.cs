@@ -276,6 +276,9 @@ public sealed class ReportContext
     /// </summary>
     public (string Path, string Query)? Kept { get; set; }
 
+    /// <summary>The virtual directory the site answers under ("/CopilotDashboard"), or empty at the root: every address it writes starts with it.</summary>
+    public string PathBase { get; set; } = "";
+
     public string Url(string path, int? days = null, string? org = null, bool keepOrg = true, string? extra = null)
     {
         var q = new List<string> { $"d={days ?? Days}" };
@@ -283,7 +286,7 @@ public sealed class ReportContext
         if (o is not null && !(o == Viewer.Upn && !Viewer.OrgWide)) q.Add("org=" + Uri.EscapeDataString(o));
         if (Kept is { } k && string.Equals(path, k.Path, StringComparison.OrdinalIgnoreCase)) q.Add(k.Query);
         if (!string.IsNullOrEmpty(extra)) q.Add(extra);
-        return path + "?" + string.Join("&", q);
+        return (path.StartsWith('/') ? PathBase : "") + path + "?" + string.Join("&", q);
     }
 }
 
@@ -304,8 +307,12 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
     /// organization, with a note (2.4.10). The data API and the digests keep to what was asked for, and so to nothing:
     /// a digest for a manager who has left must not start showing everyone.
     /// </param>
-    public Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request, bool forPage = false) =>
-        CreateAsync(viewer, int.TryParse(request.Query["d"], out var dq) ? dq : null, request.Query["org"].FirstOrDefault(), forPage);
+    public async Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request, bool forPage = false)
+    {
+        var c = await CreateAsync(viewer, int.TryParse(request.Query["d"], out var dq) ? dq : null, request.Query["org"].FirstOrDefault(), forPage);
+        c.PathBase = request.PathBase.Value?.TrimEnd('/') ?? "";
+        return c;
+    }
 
     /// <summary>The same without a request: for email digests and the data API.</summary>
     public async Task<ReportContext> CreateAsync(Viewer viewer, int? requestedDays, string? requested, bool forPage = false)
@@ -431,19 +438,28 @@ public sealed class AuditLog(Db db, IHttpContextAccessor http, ILogger<AuditLog>
     /// <summary>How long to wait before the second try.</summary>
     public static TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(500);
 
-    public async Task WriteAsync(Viewer viewer, string kind, string page, string? scope, string? detail)
+    public Task WriteAsync(Viewer viewer, string kind, string page, string? scope, string? detail) => WriteAsync(viewer, kind, page, scope, detail, null);
+
+    /// <param name="change">What a change submitted and altered, as JSON (see AuditChange), in dash.AuditLog.Change where the database has it.</param>
+    public async Task WriteAsync(Viewer viewer, string kind, string page, string? scope, string? detail, string? change)
     {
         var args = new
         {
             who = Fit(viewer.Upn ?? viewer.WindowsName, 256), kind = Fit(kind, 12), page = Fit(page, 200), scope = Fit(scope, 400),
-            detail = Fit(detail, 2000), ip = Fit(http.HttpContext?.Connection.RemoteIpAddress?.ToString(), 64),
+            detail = Fit(detail, 2000), ip = Fit(http.HttpContext?.Connection.RemoteIpAddress?.ToString(), 64), change,
         };
         for (var attempt = 1; ; attempt++)
         {
             try
             {
-                await db.ExecuteAsync(@"
-INSERT INTO dash.AuditLog (Viewer, Kind, Page, Scope, Detail, ClientIp) VALUES (@who, @kind, @page, @scope, @detail, @ip)", args);
+                await db.ExecuteAsync(change is null ? @"
+INSERT INTO dash.AuditLog (Viewer, Kind, Page, Scope, Detail, ClientIp) VALUES (@who, @kind, @page, @scope, @detail, @ip)" : @"
+IF COL_LENGTH(N'dash.AuditLog', N'Change') IS NULL
+    INSERT INTO dash.AuditLog (Viewer, Kind, Page, Scope, Detail, ClientIp) VALUES (@who, @kind, @page, @scope, @detail, @ip);
+ELSE
+    EXEC sp_executesql N'INSERT INTO dash.AuditLog (Viewer, Kind, Page, Scope, Detail, ClientIp, Change) VALUES (@who, @kind, @page, @scope, @detail, @ip, @change)',
+        N'@who NVARCHAR(256), @kind VARCHAR(12), @page NVARCHAR(200), @scope NVARCHAR(400), @detail NVARCHAR(2000), @ip VARCHAR(64), @change NVARCHAR(MAX)',
+        @who, @kind, @page, @scope, @detail, @ip, @change;", args);
                 return;
             }
             catch (Exception ex) when (attempt == 1)
