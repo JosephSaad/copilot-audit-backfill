@@ -1,10 +1,12 @@
 """Writes the Word versions of the two reporting guides: docs/REPORTING.docx and docs/REPORTING-REFERENCE.docx.
 
-Run it after either guide changed (and after Build-ReportingReference.ps1, which fills the reference's generated
-parts), and commit the two files:
+The release workflow runs it on a folder holding REPORTING.md and the full reference that
+Build-ReportingReference.ps1 -OutFile writes, and attaches the two Word files to the release:
 
     pip install python-docx
-    python tools/dev/schema/build_docx.py
+    python tools/dev/schema/build_docx.py <folder>
+
+Without a folder it reads and writes docs/, where the reference is the guide only.
 
 Handles what those documents use: headings, paragraphs, bold, italic, inline code, links (as their text),
 tables, fenced code blocks, bulleted and numbered lists (nested), rules, and HTML comments (dropped). US Letter;
@@ -13,6 +15,7 @@ headings are Word's own, so the Navigation pane lists them; a table's heading ro
 import html
 import os
 import re
+import sys
 
 from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
@@ -206,7 +209,8 @@ def convert(src, dst, title):
 
 
 if __name__ == '__main__':
-    docs = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'docs')
+    # A folder holding REPORTING.md and the full REPORTING-REFERENCE.md (the release workflow's); docs by default.
+    docs = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'docs')
     for name, title in (('REPORTING', 'Reporting on the Copilot data: the brief guide'),
                         ('REPORTING-REFERENCE', 'Reporting on the Copilot data: the reference')):
         src = os.path.join(docs, name + '.md')

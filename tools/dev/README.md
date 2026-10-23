@@ -8,8 +8,8 @@ These tools are for whoever builds a release. They are not deployed and nothing 
 | `ui/Test-FigureLinks.ps1` | Opens the page behind each headline figure that is a link and checks the same number appears on it, as written or as its digits. A few figures lead on purpose to a related page in another month or unit; they are listed in the script and reported as related, not failed. It exits with code 1 if a figure is missing from its page. Run it at more than one period: `pwsh tools/dev/ui/Test-FigureLinks.ps1 -Url http://localhost:5391 -Days 30,90,365`. |
 | `schema/extract.ps1`, `schema/scripts.py`, `schema/build.py`, `schema/build_md.py` | Regenerate [docs/SCHEMA.md](../../docs/SCHEMA.md). They combine an installed database's real columns, types, keys and indexes with the column comments in `sql/` and the descriptions in `build.py`. `build.py` also writes an HTML version to `schema/out/`. |
 
-| `schema/build_docx.py` | Writes the Word versions of the two reporting guides, `docs/REPORTING.docx` and `docs/REPORTING-REFERENCE.docx`, from their Markdown. Needs `python-docx`. |
-| `schema/Build-ReportingReference.ps1` | Fills the two generated parts of [docs/REPORTING-REFERENCE.md](../../docs/REPORTING-REFERENCE.md): the column reference, copied from `docs/SCHEMA.md`, and the full text of the scripts that create and fill the schema. `-Check` writes nothing and exits 1 when the document is behind. |
+| `schema/build_docx.py` | Writes the Word versions of the two reporting guides, `REPORTING.docx` and `REPORTING-REFERENCE.docx`, from their Markdown in a folder given (the release workflow's), or `docs/`. Needs `python-docx`. |
+| `schema/Build-ReportingReference.ps1` | Writes the full reporting reference to `-OutFile`: the guide in [docs/REPORTING-REFERENCE.md](../../docs/REPORTING-REFERENCE.md), the column reference copied from `docs/SCHEMA.md`, and the full text of the scripts that create and fill the schema. The release workflow runs it and attaches the result. `-Check` writes nothing and exits 1 when the committed guide carries generated text. |
 
 The first two are also run by hand: CI has no dashboard or Edge to audit, and no installed database to read. The third needs neither, and CI runs its check (`tests/Test-ReportingReference.ps1`).
 
@@ -86,16 +86,16 @@ It installs into two databases of its own and drops them. It writes nothing when
 What it does not see: the meaning of a column whose name and type stay the same; indexes and keys; `audit.CopilotAudit` as `sql/Finalize-CopilotAudit.sql` builds it after a backfill (the baseline has it as the first nightly load or CSV import makes it); and the two tables left over from 1.x.
 ## Reporting reference
 
-[docs/REPORTING.md](../../docs/REPORTING.md) and the guide at the top of [docs/REPORTING-REFERENCE.md](../../docs/REPORTING-REFERENCE.md) (its Part A) are written by hand, for a team building its own reports. The rest of the reference is generated:
+[docs/REPORTING.md](../../docs/REPORTING.md) and [docs/REPORTING-REFERENCE.md](../../docs/REPORTING-REFERENCE.md) (the reference's Part A, its guide) are written by hand, for a team building its own reports. The rest of the reference is generated when a release is made: the release workflow writes the full reference and both Word guides and attaches them to the release (2.7.6; before, the 18,000 generated lines were committed). To read it before a release:
 
 ```powershell
-pwsh tools/dev/schema/Build-ReportingReference.ps1
+pwsh tools/dev/schema/Build-ReportingReference.ps1 -OutFile tools/dev/schema/out/REPORTING-REFERENCE.md
 ```
 
-1. **Run it after `docs/SCHEMA.md` or any script in its list changed**, and commit the result. `tests/Test-ReportingReference.ps1` fails until you do.
+1. **Commit `docs/SCHEMA.md` when the schema changed:** the column reference is copied from it. The repository's reference keeps its generated parts' marks empty; `tests/Test-ReportingReference.ps1` fails when they are not, and when the full reference cannot be made.
 2. **When a script is new in `sql/`,** add it to the list at the top of the tool, with a line on what it is for. The tool stops and names a script that is missing.
 3. **When a view is new in `bi`,** describe it under its own heading in the reference's section 6 and name it in the brief guide. The test names a view that is in neither.
-4. **Write the Word versions again whenever either guide changed**, after the step above, and commit them: `pip install python-docx`, then `python tools/dev/schema/build_docx.py` writes `docs/REPORTING.docx` and `docs/REPORTING-REFERENCE.docx`. Open both in Word and look through them: nothing in CI reads a Word file.
+4. **The Word versions are made by the release workflow**, from the same folder as the full reference. To look at them first: copy `docs/REPORTING.md` beside the full reference, then `pip install python-docx` and `python tools/dev/schema/build_docx.py tools/dev/schema/out`. Nothing in CI reads a Word file, so open them after a release.
 5. **Run the guides' queries again when a `bi` view changed.** Every `sql` block of both guides ran against the demo database as a member of `CopilotReporting`, with `$__timeFrom()`, `$__timeTo()` and `'$tz'` replaced by fixed values. CI has no database to do this.
 
 ## Release checklist

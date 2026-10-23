@@ -1,4 +1,4 @@
-﻿<#
+<#
     Integration test: the real SqlWindowStore / SqlBatchSink and both SQL
     scripts against a real SQL Server.
 
@@ -4602,6 +4602,54 @@ EXEC dash.usp_TakeCreditChargeSnapshot;
 }
 finally {
     try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$credDb') IS NOT NULL BEGIN ALTER DATABASE [$credDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$credDb]; END;" } catch { Write-Host "  (could not drop $credDb)" }
+}
+
+# ---------------------------------------------------------------------------
+Write-Host "`n27. Every audit loader's own operation set, where the nightly run records it" -ForegroundColor Cyan
+# The client's nightly stopped at License events (2.7.6): 2.7.0 made that load's operation set 485 characters, and
+# audit.CopilotLoad held 400. The sets here are the nightly plan's own (Get-PipelineStep, every loader turned on),
+# made into the recorded text the loader writes (Get-AuditFilterSet), and written where it writes them, on a fresh
+# schema: the backfill's range, an incremental load, and the CSV import's record.
+$loaderDb = "$($script:ITDatabase)_Loaders"
+try {
+    Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$loaderDb') IS NOT NULL BEGIN ALTER DATABASE [$loaderDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$loaderDb]; END; CREATE DATABASE [$loaderDb];"
+    foreach ($f in 'Create-CopilotAuditSchema.sql', 'Create-CopilotCsvImport.sql') {
+        foreach ($b in [regex]::Split((Get-Content -LiteralPath (Join-Path $root 'sql' $f) -Raw), '(?im)^[ \t]*GO[ \t]*(?:--[^\r\n]*)?\r?$')) { if ($b.Trim()) { Invoke-SqlText -Catalog $loaderDb -Sql $b } }
+    }
+    # In a process of its own: the two scripts' functions stay out of this suite's scope.
+    $plan = pwsh -NoProfile -Command {
+        param($root)
+        . (Join-Path $root 'Invoke-CopilotPipeline.ps1')
+        $s = @{ TenantId = 't'; ClientId = 'c'; CertificateThumbprint = 'AB'; SqlServer = 'SQL1'; Database = 'CopilotAudit'
+                LicenseDatabase = 'CopilotLicense'; ActivityDatabase = 'CopilotActivity' }
+        $steps = @(Get-PipelineStep -Setting $s -Today ([datetime] '2026-10-23')) + @(Get-PipelineStep -Setting $s -History -Today ([datetime] '2026-10-23'))
+        $steps = @($steps | ForEach-Object { $_ } | Where-Object { $_.Script -like '*Invoke-CopilotAuditBackfill.ps1' })   # each plan is one list
+        # After the plan: the backfill script, dot-sourced for its functions, binds its own parameters here too.
+        . (Join-Path $root 'Invoke-CopilotAuditBackfill.ps1')
+        $steps | ForEach-Object {
+            $a = $_.Arguments
+            $types = if ($a.Contains('RecordTypes')) { @($a['RecordTypes']) } else { $null }
+            $ops = if ($a.Contains('Operations')) { @($a['Operations']) } elseif ($types) { @() } else { @('CopilotInteraction') }
+            [pscustomobject]@{ Name = $_.Name; Set = ((Get-AuditFilterSet -Operations $ops -RecordTypes $types) -join ',') }
+        } | Sort-Object Name -Unique | ConvertTo-Json -Compress
+    } -args $root | ConvertFrom-Json
+    Assert-That (@($plan).Count -ge 6 -and ($plan.Name -contains 'License events') -and ($plan.Name -contains 'Copilot interactions') -and ($plan.Name -contains 'AI apps, Power BI and Power Apps')) `
+        "the nightly plan names every audit loader ($(@($plan.Name) -join '; '))"
+    foreach ($p in $plan) {
+        $written = Invoke-SqlText -Catalog $loaderDb -As Table -Parameters @{ '@o' = $p.Set } -Sql @"
+DELETE FROM audit.CopilotBackfillRange; DELETE FROM audit.CopilotLoad;
+INSERT INTO audit.CopilotBackfillRange (Id, RangeStartUtc, RangeEndUtc, Operations) VALUES (1, '2026-01-01', '2026-01-02', @o);
+INSERT INTO audit.CopilotLoad (RangeStartUtc, RangeEndUtc, Operations) VALUES ('2026-01-01', '2026-01-02', @o);
+SELECT (SELECT Operations FROM audit.CopilotBackfillRange WHERE Id = 1) AS R, (SELECT TOP (1) Operations FROM audit.CopilotLoad) AS L,
+       COL_LENGTH(N'audit.CopilotCsvImport', N'Operations') / 2 AS CsvChars;
+"@
+        $w = $written.Rows[0]
+        Assert-That ($w.R -eq $p.Set -and $w.L -eq $p.Set -and $p.Set.Length -le [int] $w.CsvChars) `
+            "$($p.Name): its $($p.Set.Length)-character operation set is kept whole by the backfill range, an incremental load and the CSV import"
+    }
+}
+finally {
+    try { Invoke-SqlText -Catalog 'master' -Sql "IF DB_ID(N'$loaderDb') IS NOT NULL BEGIN ALTER DATABASE [$loaderDb] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [$loaderDb]; END;" } catch { Write-Host "  (could not drop $loaderDb)" }
 }
 
 # ---------------------------------------------------------------------------
