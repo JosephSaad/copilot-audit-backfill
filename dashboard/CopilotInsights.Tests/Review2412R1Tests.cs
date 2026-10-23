@@ -63,7 +63,7 @@ public class MinimumGroupSizeTests
     public void The_leaderboard_compares_only_with_a_group_that_met_the_minimum_before_and_a_folded_no_family_is_not_counted()
     {
         var people = Source.Read("Pages", "PeopleReports.cs");
-        Assert.Contains("pr.People >= Ctx.MinGroupSize && pr.Licensed >= Ctx.MinGroupSize", people);
+        Assert.Contains("pr.People >= Ctx.MinGroupSize && pr.Licensed >= Ctx.MinGroupSize", Source.Read("Pages", "Adoption", "Adoption.cs"));   // the ranking is on Departments (2.7.6)
         Assert.Contains("kept.Any(r => r.Name == \"(no family)\")", people);
     }
 }

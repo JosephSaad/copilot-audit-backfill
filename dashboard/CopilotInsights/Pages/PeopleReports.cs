@@ -5,69 +5,6 @@ using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
 using Microsoft.AspNetCore.Mvc;
 
-namespace CopilotInsights.Pages.Adoption
-{
-    /// <summary>Departments (or divisions, countries...) ranked by adoption, with the change on the period before.</summary>
-    public sealed class LeaderboardModel(PageServices s, Metrics metrics) : InsightsPage(s)
-    {
-        public override string Title => "Leaderboard";
-        public override string Persona => "Adoption";
-        public override string Intro => "Groups ranked by adoption (licensed people using Copilot), with the change on the period before and the most improved. Only groups of at least the minimum group size, with at least that many licenses, are ranked.";
-
-        static readonly string[] By = ["Department", "Division", "Country", "Office"];   // 2.5.8: no Company
-
-        protected override async Task BuildAsync()
-        {
-            var by = Request.Query["by"].FirstOrDefault() is { } b && By.Contains(b) ? b : "Department";
-            var prevCtx = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
-            var now = (await metrics.ByAttributeAsync(Ctx, by)).Where(r => r.People >= Ctx.MinGroupSize && r.Licensed >= Ctx.MinGroupSize).ToList();
-            /* Only where the data covers all of the period before (2.4.12, see OpsReports.Covers). */
-            var before = OpsReports.Covers(prevCtx, await OpsReports.FirstDayAsync(Db))
-                ? (await metrics.ByAttributeAsync(prevCtx, by)).ToDictionary(r => r.Name) : new Dictionary<string, GroupRow>();
-            double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
-            var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
-            var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
-            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} in {Here} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses."; return; }
-
-            var t = new Table
-            {
-                Headers = ["Rank", by, "People", "License holders", "Adoption", "Change (points)", "Share of everyone using Copilot", "Interactions per active person", "Days active per person"],
-                Numeric = new HashSet<int> { 0, 2, 3, 4, 5, 6, 7, 8 },
-            };
-            var changes = new List<(string Name, double Points)>();
-            for (var i = 0; i < ranked.Count; i++)
-            {
-                var r = ranked[i];
-                /* Against the period before only where the group met the same minimum then (2.4.12): a group of two
-                   license holders a period ago made "+50 points" and the most improved of one person's use. */
-                double? change = before.TryGetValue(r.Name, out var pr) && pr.People >= Ctx.MinGroupSize && pr.Licensed >= Ctx.MinGroupSize
-                                 && Adopt(pr) is double a0 && Adopt(r) is double a1 ? (a1 - a0) * 100 : null;
-                if (change is double c) changes.Add((r.Name, c));
-                t.Rows.Add([i + 1, r.Name, r.People, r.Licensed, Pct(Adopt(r)), change is null ? null : $"{change:+0.#;-0.#;0}", Pct(Ratio(r.Active, r.People)),
-                            r.Active > 0 ? Math.Round(r.Interactions / (double)r.Active, 1) : null, r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null]);
-            }
-            CsvTable = t;
-            /* Not links to Departments (2.7.5 tried it): inside a team, Departments may combine a ranked department with a
-               smaller one, so no row describes a group of one or two people, and the name would not be there. */
-            Kpis.Add(new("Highest adoption", ranked[0].Name, $"{Pct(Adopt(ranked[0]))} adoption"));
-            if (changes.Count > 0)
-            {
-                var best = changes.MaxBy(c => c.Points);
-                Kpis.Add(new("Most improved", best.Name, $"{best.Points:+0.#;-0.#;0} points on the period before"));
-            }
-            Kpis.Add(new("Groups ranked", Num(ranked.Count), $"of the {by switch { "Company" => "companies", "Country" => "countries", _ => by.ToLowerInvariant() + "s" }} here"));
-
-            Panels.Add(new("Adoption", Chart.Bars(ranked.Take(20).Select(r => new Bar(r.Name, Adopt(r), Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed people used it")).ToList(),
-                Fmt.Percent, "Adoption by group", 1), null, "half"));
-            if (changes.Count > 0)
-                Panels.Add(new("Most improved", Chart.Bars(changes.OrderByDescending(c => c.Points).Take(10).Select(c => new Bar(c.Name, c.Points, Note: $"{c.Points:+0.#;-0.#;0} points", Slot: c.Points >= 0 ? 3 : 8)).ToList(),
-                    Fmt.Decimal1, "Change in adoption, points"), "Adoption now, less adoption in the period before, in percentage points.", "half"));
-            Panels.Add(new("Ranking", new HtmlString($"<p class=\"sub\">Rank by: {choices}</p>" + t.Render().Value),
-                "Adoption: of the people holding a license at the end of the period, the share who used Copilot while licensed.", "full", CsvUrl()));
-        }
-    }
-}
-
 namespace CopilotInsights.Pages.Security
 {
     /// <summary>Guests and external users in Copilot's records: who from outside is using it, and on what.</summary>

@@ -33,11 +33,11 @@ public static class Nav
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
         new("Leadership", "Executives and department heads", [
-            new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Scorecard", "/leadership/scorecard"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
+            new("Overview", "/leadership"), new("What to act on", "/leadership/act"), new("Organization", "/leadership/org"), new("Compare two teams", "/leadership/compare"), new("Group overview", "/group", ManyTenants: true),
             new("Apps and agents", "/leadership/mix"), new("Use cases", "/leadership/usecases"), new("Value and time saved", "/leadership/value"), new("Costs and savings", "/leadership/costs"), new("Copilot reservations", "/leadership/reservations"), new("Credit chargeback", "/leadership/credit-chargeback"),
             new("Board pack", "/leadership/boardpack"), new("How figures are calculated", "/leadership/assumptions")]),
         new("Adoption", "Copilot program leads", [
-            new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"), new("Leaderboard", "/adoption/leaderboard"),
+            new("Funnel and trend", "/adoption"), new("Usage by license", "/adoption/by-license", Roles.Adoption), new("Departments", "/adoption/departments"),
             new("Retention and habit", "/adoption/retention"), new("Retention by license month", "/adoption/cohorts"), new("New joiners", "/adoption/onboarding"), new("Not started", "/adoption/not-started", Roles.Adoption),
             new("Targets", "/adoption/targets"), new("Drops and spikes", "/adoption/anomalies")], Roles.Adoption),
         new("Licensing", "Licensing, IT asset management and FinOps", [

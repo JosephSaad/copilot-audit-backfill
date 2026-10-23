@@ -142,6 +142,8 @@ static IResult Moved(HttpRequest r, string to, string? add = null)
 }
 app.MapGet("/security/non-human", (HttpRequest r) => Moved(r, Nav.NonHuman));
 app.MapGet("/compliance/non-human", (HttpRequest r) => Moved(r, Nav.NonHuman));
+app.MapGet("/leadership/scorecard", (HttpRequest r) => Moved(r, "/leadership/boardpack"));
+app.MapGet("/adoption/leaderboard", (HttpRequest r) => Moved(r, "/adoption/departments"));
 app.MapGet("/agents/shared", (HttpRequest r) => Moved(r, "/agents/inventory", "show=shared"));
 app.MapGet("/agents/production", (HttpRequest r) => Moved(r, "/agents/inventory", "show=production"));
 app.MapDataApi();

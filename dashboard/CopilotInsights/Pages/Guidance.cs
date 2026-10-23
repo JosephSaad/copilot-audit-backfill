@@ -16,7 +16,6 @@ public static class Guidance
         // Leadership
         ["/leadership"] = new("Answer \"is Copilot working here?\" in one screen.", "Look at the units with low use, and ask their leads what is in the way."),
         ["/leadership/act"] = new("See what needs doing without opening every report.", "Take the largest count first, and open the report beside it for the detail."),
-        ["/leadership/scorecard"] = new("See what moved since the last period, and where, with Premium and free-only adoption.", "Raise the largest drops; send units high on free-only use to Better on pay-as-you-go."),
         ["/leadership/org"] = new("Compare the parts of the organization side by side.", "Open the weakest unit to find the team behind it."),
         ["/leadership/compare"] = new("Set two managers' teams side by side, whatever their size.", "Ask the lead of the team ahead what they did, and share it with the other."),
         ["/leadership/mix"] = new("See where Copilot earns its place: which apps, and how much through agents.", "Back the apps and agents that carry use; question the ones that do not."),
@@ -35,7 +34,6 @@ public static class Guidance
         ["/adoption/retention"] = new("Tell a habit from a trial.", "Follow up with the groups whose use falls away after the first weeks."),
         ["/adoption/cohorts"] = new("See whether each month's new licenses turn into lasting use.", "Compare a weak month with a strong one, and repeat what the strong one had."),
         ["/adoption/departments"] = new("Find the departments ahead and behind.", "Pair a department behind with one ahead, through their champions."),
-        ["/adoption/leaderboard"] = new("Celebrate progress and create friendly competition.", "Recognize the most improved groups in your next update."),
         ["/adoption/targets"] = new("Know whether the program is on track for its goals.", "For a target behind its line, decide the push now, not at the deadline."),
         ["/adoption/onboarding"] = new("Make sure new license holders and new hires start quickly.", "Welcome each department's new joiners in their first week."),
         ["/adoption/anomalies"] = new("Catch outages, policy changes and launches from their effect on use.", "Check a sudden drop with IT; learn from a spike."),

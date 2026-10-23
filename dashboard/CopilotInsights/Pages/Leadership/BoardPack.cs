@@ -11,22 +11,49 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 {
     public override string Title => "Board pack";
     public override string Persona => "Leadership";
-    public override string Intro => "The program on one page, for the board or the steering group: use and adoption against the period before, the trend, targets, estimated value, licenses and risk signals. Print it, or save it as a PDF from the print dialog. Totals only: no one is named.";
+    public override string Intro => "The program on one page, for the board or the steering group: use and adoption against the period before, by unit, the trend, targets, estimated value, licenses and risk signals. "
+        + "Adoption splits in two: Premium, license holders who used what the license pays for (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or chat over work content); and free only, those who used only what is free without a license (web Copilot Chat, agents). "
+        + "Print it, or save it as a PDF from the print dialog. Totals only: no one is named.";
 
     protected override async Task BuildAsync()
     {
+        /* The Scorecard was this page's figures against the period before, by unit, on a page of its own: it is folded in
+           here, and /leadership/scorecard arrives here. */
         var prev = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
-        /* Set against the period before only where the data covers all of it (2.4.12, see OpsReports.Covers): the board read
+        var splitTask = Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
+        var firstTask = OpsReports.FirstDayAsync(Db);
+        var nowTask = metrics.TotalsAsync(Ctx);
+        var u1Task = metrics.UnitsAsync(Ctx);
+        await Task.WhenAll(splitTask, firstTask, nowTask, u1Task);
+        var split = await splitTask;
+        if (!split)
+            Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
+        /* Set against the period before only where the data covers all of it (see OpsReports.Covers): the board read
            "+3997% on the period before" at 180 days, against the two days of data before them. */
-        var first = await OpsReports.FirstDayAsync(Db);
+        var first = await firstTask;
         var full = OpsReports.Covers(prev, first);
-        var (t, p) = (await metrics.TotalsAsync(Ctx), full ? await metrics.TotalsAsync(prev) : null);
+        var t = await nowTask;
+        var beforeTask = full ? metrics.TotalsAsync(prev) : null;
+        var u0Task = full ? metrics.UnitsAsync(prev) : null;
+        await Task.WhenAll(new Task?[] { beforeTask, u0Task }.OfType<Task>());
+        var p = beforeTask is null ? null : await beforeTask;
         string Change(double now, double? before) => before is not double b ? OpsReports.NoFullPeriodBefore(first)
-            : b == 0 ? "none in the period before" : $"{now / b - 1:+0%;-0%;0%} on the period before";
+            : b == 0 ? "none in the period before" : $"{now / b - 1:+0%;-0%;0%} on the {Ctx.Days} days before";
+        string Points(double? now, double? before) => !full ? OpsReports.NoFullPeriodBefore(first)
+            : now is double a1 && before is double a0 ? $"{(a1 - a0) * 100:+0.0;-0.0;0} points on the {Ctx.Days} days before" : "no earlier figure";
         double? Adopt(Totals? x) => x is { LicensedNow: > 0 } ? (double)x.ActiveLicensed / x.LicensedNow : null;
+        /* Premium + free only = Adoption: every active license holder either used a Premium feature or did not. */
+        double? Premium(Totals? x) => x is { LicensedNow: > 0 } ? x.PremiumLicensed / (double)x.LicensedNow : null;
+        double? FreeOnly(Totals? x) => x is { LicensedNow: > 0 } ? (x.ActiveLicensed - x.PremiumLicensed) / (double)x.LicensedNow : null;
         Kpis.Add(new("People using Copilot", Num(t.Active), Change(t.Active, p?.Active), Href: Open("/licensing/ranking")));
-        Kpis.Add(new("Adoption", Pct(Adopt(t)), Adopt(p) is double a0 && Adopt(t) is double a1 ? $"{(a1 - a0) * 100:+0.#;-0.#;0} points" : "of licensed people", Href: Open("/adoption")));
+        Kpis.Add(new("Adoption", Pct(Adopt(t)), Points(Adopt(t), Adopt(p)), Href: Open("/adoption")));
+        if (split)
+        {
+            Kpis.Add(new("Premium adoption", Pct(Premium(t)), Points(Premium(t), Premium(p))));
+            Kpis.Add(new("Free-only adoption", Pct(FreeOnly(t)), Points(FreeOnly(t), FreeOnly(p))));
+        }
         Kpis.Add(new("Interactions", Num(t.Interactions), Change(t.Interactions, p?.Interactions)));
+        Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), Points(Ratio(t.MultiTurn, t.Sessions), p is null ? null : Ratio(p.MultiTurn, p.Sessions))));
         Kpis.Add(new("Licenses", Num(t.LicensedNow), $"{t.ActiveLicensed:#,0} used in the period", Href: Open("/licensing")));
 
         Panels.Add(new("Print", new HtmlString(
@@ -62,7 +89,8 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             $"<div class=\"kpis\"><div class=\"kpi\"><div class=\"klabel\">Hours saved (estimate)</div><div class=\"kvalue\">{hours:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Estimated value ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">License cost in the period ({E(cur)})</div><div class=\"kvalue\">{(Licensing.Price.MonthsCharged(Ctx.Start, Ctx.End).Count > 0 ? cost.ToString("#,0") : "—")}</div></div>" +
-            $"<div class=\"kpi\"><div class=\"klabel\">Return on license cost</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>"),
+            $"<div class=\"kpi\"><div class=\"klabel\">Return on license cost</div><div class=\"kvalue\">{(cost > 0 ? $"{worth / cost:0.0}×" : "—")}</div></div></div>" +
+            (Open("/leadership/value") is { } vu ? $"<p class=\"sub no-print\"><a href=\"{E(vu)}\">Value and time saved</a> has it by app and by unit.</p>" : "")),
             $"At {v.DefaultMinutes:0.#} minutes an interaction unless set per app, and {v.HourlyCost:#,0.##} {cur} an hour: your organization's own assumptions (Admin › Targets and assumptions). " +
             "License cost: each calendar month whose last day falls in the period, at the license price for everyone who held one that month; a period under a month charges none.", "half"));
 
@@ -98,10 +126,47 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             (Viewer.Has(Roles.Compliance) ? "" : " Labeled content is shown to people with the Compliance role.") +
             (full ? "" : $" The period before is left blank: {OpsReports.NotCovered(first)}."), "half"));
 
-        var units = SmallGroups.Shown(await metrics.UnitsAsync(Ctx), u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();
+        var u1All = await u1Task;
+        var units = SmallGroups.Shown(u1All, u => u.People, Ctx.MinGroupSize).Where(u => u.Licensed >= Ctx.MinGroupSize).ToList();
         if (units.Count > 1)
             Panels.Add(new("Adoption by unit", Chart.Adoption(units.Select(u => new Chart.AdoptionGroup(u.Name, u.ActiveLicensed, u.Licensed)), Ctx.MinGroupSize, "Adoption by unit", 12),
                 "Units with at least the minimum group size of people and licenses.", "half"));
+
+        /* Each unit against the period before (the Scorecard's table). */
+        var u1 = u1All.ToDictionary(u => u.Unit);
+        var u0 = u0Task is not null ? (await u0Task).ToDictionary(u => u.Unit) : new Dictionary<string, UnitRow>();
+        var ut = new Table
+        {
+            Headers = split
+                ? ["Unit", "People", "Adoption", "Premium", "Premium change", "Free only", "Free-only change", "Active people", "Active change", "Interactions per active person", "Interactions change"]
+                : ["Unit", "People", "Adoption", "Adoption change", "Active people", "Active change", "Interactions per active person", "Interactions change"],
+            Numeric = Enumerable.Range(1, split ? 10 : 7).ToHashSet(),
+        };
+        HtmlString Arrow(double? d, bool pct) => d is null ? new("<span class=\"muted\">—</span>")
+            : new($"<span class=\"{(d > 0 ? "status-ok" : d < 0 ? "status-bad" : "muted")}\">{(d > 0 ? "▲" : d < 0 ? "▼" : "")} {(pct ? $"{Math.Abs(d.Value) * 100:0.0} pts" : $"{Math.Abs(d.Value):0%}")}</span>");
+        foreach (var n in SmallGroups.Shown(u1.Values, u => u.People, Ctx.MinGroupSize).OrderByDescending(u => u.People))
+        {
+            var b = u0.GetValueOrDefault(n.Unit);
+            double? a1 = Ratio(n.ActiveLicensed, n.Licensed), a0 = b is null ? null : Ratio(b.ActiveLicensed, b.Licensed);
+            double? i1 = n.Active > 0 ? n.Interactions / (double)n.Active : null, i0 = b is { Active: > 0 } ? b.Interactions / (double)b.Active : null;
+            var name = n.Drillable ? (object)new Link(n.Name, Ctx.Url(Request.Path, org: n.Unit)) : n.Name;
+            var rest = new object?[] { n.Active, Arrow(b is { Active: > 0 } ? (n.Active - b.Active) / (double)b.Active : null, false),
+                                       i1 is null ? null : Math.Round(i1.Value, 1), Arrow(i0 is > 0 ? (i1 - i0) / i0 : null, false) };
+            if (split)
+            {
+                double? p1 = Ratio(n.PremiumLicensed, n.Licensed), p0 = b is null ? null : Ratio(b.PremiumLicensed, b.Licensed);
+                double? f1 = Ratio(n.ActiveLicensed - n.PremiumLicensed, n.Licensed), f0 = b is null ? null : Ratio(b.ActiveLicensed - b.PremiumLicensed, b.Licensed);
+                ut.Rows.Add([name, n.People, Pct(a1), Pct(p1), Arrow(p1 - p0, true), Pct(f1), Arrow(f1 - f0, true), .. rest]);
+            }
+            else
+                ut.Rows.Add([name, n.People, Pct(a1), Arrow(a1 - a0, true), .. rest]);
+        }
+        CsvTable = ut;
+        Panels.Add(new("By unit, against the period before", ut.Render(),
+            $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out, with the smallest others where they would together be under it. "
+            + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
+            + "Change in adoption is in percentage points; the others are relative."
+            + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}."), "full", CsvUrl()));
     }
 }
 

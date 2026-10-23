@@ -44,14 +44,12 @@ public class FigureLinkTests
     {
         /* Licenses held today are on Licensing (License pool counts the add-on's seats, which is fewer). */
         Assert.Contains("used in the period\", Href: Open(\"/licensing\")));", Page("Leadership", "BoardPack.cs"));
-        Assert.Contains("Delta(now.LicensedNow, before.LicensedNow), Href: Open(\"/licensing\")));", Page("MoreReports.cs"));
         Assert.Contains("used in the last 30 days\", Href: Open(\"/licensing\")));", Page("Forecasting", "Forecasting.cs"));
         /* Adoption is on Adoption; Usage by license counts enabled accounts only (80.6% against 80.4% in the demo). */
         Assert.DoesNotContain("Open(\"/adoption/by-license\")", Page("Leadership", "Leadership.cs"));
-        Assert.Contains("\"of licensed people\", Href: Open(\"/adoption\")));", Page("Leadership", "BoardPack.cs"));
-        Assert.Contains("pct: true), Href: Open(\"/adoption\")));", Page("MoreReports.cs"));
+        Assert.Contains("Points(Adopt(t), Adopt(p)), Href: Open(\"/adoption\")));", Page("Leadership", "BoardPack.cs"));   // the Scorecard folded in (2.7.6)
         /* People using Copilot is on Use ranking only: no fallback to a page without the number. */
-        foreach (var page in new[] { Page("Leadership", "Leadership.cs"), Page("Leadership", "BoardPack.cs"), Page("MoreReports.cs") })
+        foreach (var page in new[] { Page("Leadership", "Leadership.cs"), Page("Leadership", "BoardPack.cs") })
         {
             Assert.Contains("Href: Open(\"/licensing/ranking\")));", page);
             Assert.DoesNotContain("Open(\"/licensing/ranking\") ?? Open(\"/adoption\")", page);

@@ -15,7 +15,7 @@ public class Release274Tests
     static string Page(params string[] p) => File.ReadAllText(Path.Combine([Root(), "dashboard", "CopilotInsights", "Pages", .. p]));
 
     [Theory]
-    [InlineData("MoreReports.cs", "CsvTable = t;")]                 // Scorecard
+    [InlineData("Leadership/BoardPack.cs", "CsvTable = ut;")]       // Board pack (the Scorecard folded in, 2.7.6)
     [InlineData("MoreReports.cs", "CsvTable = t2;")]                // Labeled content by unit
     [InlineData("Leadership/Leadership.cs", "CsvTable = t;")]      // Organization
     [InlineData("Adoption/Adoption.cs", "CsvTable = t;")]          // Departments

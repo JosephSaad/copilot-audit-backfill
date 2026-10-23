@@ -34,7 +34,6 @@ public static class NavText
     {
         ["/leadership"] = ("Is Copilot being used, by how many of the people who have it, and where.", "At a glance"),
         ["/leadership/act"] = ("What the other reports say to do: each finding, how many, and where the detail is.", "At a glance"),
-        ["/leadership/scorecard"] = ("This period against the one before: what moved, and in which part of the organization.", "At a glance"),
         ["/leadership/org"] = ("Each part of the organization one level below, side by side.", "At a glance"),
         ["/leadership/compare"] = ("Two managers' teams side by side: adoption, use, depth and apps, over the same period.", "At a glance"),
         ["/group"] = ("Each tenant's headline figures for the period, and the group's totals.", "At a glance"),
@@ -44,13 +43,12 @@ public static class NavText
         ["/leadership/costs"] = ("What AI and automation cost, what can be saved, and what they return, all areas on one page.", "What it is used for"),
         ["/leadership/reservations"] = ("Each organization's reserved Copilot seats against its licenses, and what it bills.", "Cost savings"),
         ["/leadership/credit-chargeback"] = ("Each line of business's Copilot Credits by path, and what they charge it.", "Cost savings"),
-        ["/leadership/boardpack"] = ("The program on one page for the board: use, targets, value, licenses and risk.", "Reporting"),
+        ["/leadership/boardpack"] = ("The program on one page: change on the period before, by unit, targets, value and risk.", "Reporting"),
         ["/leadership/assumptions"] = ("Every price and assumption a cost, saving or value rests on, and where it is set.", "Reporting"),
 
         ["/adoption"] = ("From license to habit: how many licensed people started, are active, and keep going.", "Overview"),
         ["/adoption/by-license"] = ("How the people of one license type use Copilot: who, which apps, how long.", "Overview"),
         ["/adoption/departments"] = ("Adoption in each department, side by side.", "Overview"),
-        ["/adoption/leaderboard"] = ("Groups ranked by adoption, with the change on the period before.", "Overview"),
         ["/adoption/retention"] = ("Do people keep using Copilot once they start? Week by week.", "Who is and is not using it"),
         ["/adoption/cohorts"] = ("Do people keep using Copilot after they get a license? By the month licensed.", "Who is and is not using it"),
         ["/adoption/onboarding"] = ("People newly licensed or hired: how long until they first used Copilot.", "Who is and is not using it"),
