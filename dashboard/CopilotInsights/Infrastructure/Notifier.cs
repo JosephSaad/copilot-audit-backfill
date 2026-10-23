@@ -393,7 +393,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
                     if (named && claimed.Count > 25) lines.Add($"And {claimed.Count - 25:#,0} more.");
                     lines.Add("The list, the removal files and the confirmations are on Security, Compliance and Licensing › Copilot on non-human accounts.");
                     await SendOnceAsync("nonhuman", tries, async () => { foreach (var b in claimed) await ForgetAsync(Key(b.UserPrincipalName)); },
-                        "NonHuman", "AlertSecurityTo,AlertLicensingTo", $"Policy breach: {claimed.Count:#,0} Copilot license(s) on non-human accounts", lines, "/security/non-human");
+                        "NonHuman", "AlertSecurityTo,AlertLicensingTo", $"Policy breach: {claimed.Count:#,0} Copilot license(s) on non-human accounts", lines, CopilotInsights.Pages.Nav.NonHuman);
                 }
             }
             /* Cleared (license removed, confirmed a person, rule changed): forget it, so it alerts again if it comes back. */

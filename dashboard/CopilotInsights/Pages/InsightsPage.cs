@@ -355,7 +355,7 @@ EXEC sys.sp_executesql @sql;");
         else if (!Viewer.Admitted && !(AdminOnly ? Viewer.CanAdmin(Request.Path) : OpenToAdmins && Viewer.AnyAdmin)) Denied = LimitRefusal(Viewer);
         else if (AdminOnly && !Viewer.CanAdmin(Request.Path))
             Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin › Access." : "This page is for dashboard administrators.";
-        else if (Nav.SectionOf(Request.Path) is { Role: { } section } g && !Viewer.Has(section))
+        else if (!Nav.SectionOpen(Request.Path, Viewer) && Nav.SectionOf(Request.Path) is { Role: { } section } g)
             Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin › Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
             Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin › Privacy and retention.";
@@ -557,11 +557,16 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
         var parts = path.Split('?', 2);
         var bare = parts[0];
         if (parts.Length > 1 && parts[1].Length > 0) extra = extra is null ? parts[1] : parts[1] + "&" + extra;
+        var listed = false;
         foreach (var g in Nav.Groups)
             foreach (var page in g.Pages)
                 if (string.Equals(page.Path, bare, StringComparison.OrdinalIgnoreCase))
-                    return (g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode) ? Ctx.Url(bare, keepOrg: keepOrg, extra: extra) : null;
-        return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                {
+                    /* A page listed in several sections (Copilot on non-human accounts) opens through any the viewer may. */
+                    listed = true;
+                    if ((g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                }
+        return listed ? null : Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
     }
 
     protected string Form(string handler, string body, string? extraQuery = null) =>

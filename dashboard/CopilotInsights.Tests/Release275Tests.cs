@@ -93,7 +93,7 @@ public class Release275Tests
         var page = Page("PeopleReports.cs");
         Assert.Contains("COUNT(CASE WHEN ld.UserKey IS NOT NULL AND g.Ok = 1 THEN 1 END) AS Confirmed", page);
         Assert.Contains("confirmed as a person by an administrator", page);
-        Assert.Contains("Open(\"/security/non-human\", \"why=guest\")", page);
+        Assert.Contains("Open(Nav.NonHuman, \"why=guest\")", page);
     }
 
     [Fact]

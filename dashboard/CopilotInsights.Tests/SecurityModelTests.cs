@@ -269,14 +269,18 @@ public class NonHumanTests
     static List<string> Paths(Viewer v) => CopilotInsights.Pages.Nav.For(v).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
 
     [Theory]
-    [InlineData("Security", "/security/non-human")]
-    [InlineData("Compliance", "/compliance/non-human")]
-    [InlineData("Licensing", "/licensing/non-person")]
-    public void Security_compliance_and_licensing_each_see_the_breaches(string role, string path)
+    [InlineData("Security")]
+    [InlineData("Compliance")]
+    [InlineData("Licensing")]
+    public void Security_compliance_and_licensing_each_see_the_breaches(string role)
     {
+        /* One page, listed in each of the three sections (it was a copy in each). */
+        var path = CopilotInsights.Pages.Nav.NonHuman;
         Assert.Contains(path, Paths(V(role)));
         Assert.DoesNotContain(path, Paths(V()));
-        Assert.Equal(role, CopilotInsights.Pages.Nav.SectionOf(path)?.Role);
+        Assert.True(CopilotInsights.Pages.Nav.SectionOpen(path, V(role)));
+        Assert.False(CopilotInsights.Pages.Nav.SectionOpen(path, V(Roles.Adoption)));
+        Assert.Equal(role, CopilotInsights.Pages.Nav.SectionFor(path, V(role))?.Role);
     }
 
     [Fact]

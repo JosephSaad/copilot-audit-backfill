@@ -202,27 +202,14 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.NonHumanException (Upn, Reason, ConfirmedBy) 
 
 namespace CopilotInsights.Pages.Licensing
 {
+    /// <summary>
+    /// The one page, for Licensing, Security and Compliance alike (Nav.NonHuman): it was a copy in each section. It names
+    /// people, so it needs one of their roles; the role it asks for is the first the viewer holds.
+    /// </summary>
     public sealed class NonPersonModel(PageServices s) : NonHumanPage(s)
     {
-        public override string Persona => "Licensing";
-        public override string? RequiredRole => Roles.Licensing;
-    }
-}
-
-namespace CopilotInsights.Pages.Security
-{
-    public sealed class NonHumanModel(PageServices s) : NonHumanPage(s)
-    {
-        public override string Persona => "Security";
-        public override string? RequiredRole => Roles.Security;
-    }
-}
-
-namespace CopilotInsights.Pages.Compliance
-{
-    public sealed class NonHumanModel(PageServices s) : NonHumanPage(s)
-    {
-        public override string Persona => "Compliance";
-        public override string? RequiredRole => Roles.Compliance;
+        static readonly string[] Holders = [Roles.Licensing, Roles.Security, Roles.Compliance];
+        public override string Persona => RequiredRole ?? Roles.Licensing;
+        public override string? RequiredRole => Holders.FirstOrDefault(r => Viewer?.Has(r) == true) ?? Roles.Licensing;
     }
 }

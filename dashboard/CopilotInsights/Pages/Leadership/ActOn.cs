@@ -86,9 +86,7 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
             if (save.Count > 0)
                 t.Rows.Add([$"Savings found in AI and automation: {CostRules.Money(Math.Round(v.Saving), v.Currency)} a month", save.Count,
                     $"{v.Saving / Math.Max(1, v.Spend):P0} of the spend. The largest: {save[0].Title} ({CostRules.Money(Math.Round(save[0].Saving), v.Currency)} a month).", Where("/leadership/costs")]);
-            if (v.Suites is { Saving: > 0 } su)
-                t.Rows.Add([$"Suite moves to review: {CostRules.Money(Math.Round(su.Saving), v.Currency)} a month", su.Moves.Sum(m => m.People),
-                    "E7 to E5, E5 to E3, second suites, unassigned seats: each with what to check before moving.", Where("/licensing/suites")]);
+            /* 2.7.6: no suite moves (E7 to E5, E5 to E3) here: the client said they are not a fit for this project. */
         }
 
         /* The security signals are the Security section's: counted here for its holders only, as on the board pack. */

@@ -123,7 +123,7 @@ GROUP BY g.Domain;", Ctx.Args());
             var confirmed = rows.Sum(r => r.Confirmed);
             Kpis.Add(new("Holding a Copilot license", Num(licensed),
                 confirmed == 0 ? "licenses in this tenant assigned to guests" : $"licenses in this tenant assigned to guests; {confirmed:#,0} confirmed as a person by an administrator",
-                licensed > confirmed ? "warn" : null, Href: licensed > 0 ? Open("/security/non-human", "why=guest") : null));
+                licensed > confirmed ? "warn" : null, Href: licensed > 0 ? Open(Nav.NonHuman, "why=guest") : null));
             Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
             if (rows.Count == 0) { Notice = $"No guest or external accounts used Copilot in {Here} in the period."; return; }
 
@@ -238,6 +238,27 @@ FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @up
                 "SELECT SkuPartNumber, CapabilityStatus, UpdatedUtc FROM audit.CopilotLicense WHERE UserPrincipalName = @upn;", new { upn })).FirstOrDefault();
             if (lic.Updated is not null) { d.Rows.Add(["License (license tool)", $"{lic.Sku} {lic.Status}".Trim()]); d.Rows.Add(["License read", lic.Updated]); }
             Panels.Add(new("Directory and license", d.Render(), null, "half"));
+
+            /* The client asked to see one person's use over time, over 7, 14, 30, 90 days and more: by day up to 30 days,
+               by week beyond, as every trend. The links are the period above, kept with the person. */
+            var trend = await Db.QueryAsync<(DateTime Bucket, long Interactions, long Sessions, int Days)>($@"
+SELECT {Ctx.BucketSql("dd")}, SUM(CAST(ud.Interactions AS BIGINT)), SUM(CAST(ud.Sessions AS BIGINT)), COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END)
+FROM dash.UserDay AS ud JOIN bi.DimDate AS dd ON dd.DateKey = ud.DateKey
+WHERE ud.UserKey = @key AND ud.DateKey BETWEEN @k0 AND @k1
+GROUP BY {Ctx.BucketSql("dd")};", Ctx.Args(new { key = who.UserKey }));
+            var buckets = Buckets();
+            long At(DateTime b, Func<(DateTime Bucket, long Interactions, long Sessions, int Days), long> f) => trend.Where(x => x.Bucket == b).Sum(f);
+            var windows = string.Join(" · ", ReportContext.DayChoices.Select(n =>
+                $"<a href=\"{E(Ctx.Url(Request.Path, days: n, extra: "upn=" + Uri.EscapeDataString(who.UserPrincipalName)))}\"{(n == Ctx.Days ? " class=\"on\"" : "")}>{n} days</a>"));
+            var activeDays = trend.Sum(x => x.Days);
+            Kpis.Add(new("Days active", Num(activeDays), $"of {Ctx.Days} in the period"));
+            Kpis.Add(new("Interactions a day active", activeDays > 0 ? $"{trend.Sum(x => x.Interactions) / (double)activeDays:#,0.0}" : "—", "on the days they used Copilot"));
+            Panels.Add(new("Use over time",
+                new HtmlString($"<p class=\"sub\">Show: {windows}</p>" + Chart.Columns(Labels(), [
+                    new Series("Interactions", buckets.Select(b => (double?)At(b.Key, x => x.Interactions)).ToList(), 1),
+                    new Series("Sessions", buckets.Select(b => (double?)At(b.Key, x => x.Sessions)).ToList(), 3),
+                ], Fmt.Count, $"{who.DisplayName ?? who.UserPrincipalName}: interactions and sessions", stacked: false).Value),
+                $"Interactions (a prompt and its answer) and sessions (a conversation) for this person, in every app and agent. {TrendNote}", "full"));
 
             var pg = new Paging(Request, new Dictionary<string, string>
             {

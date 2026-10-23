@@ -101,8 +101,8 @@ public class Review2412BTests
             .Where(m => m.Name is "OnGetBulkAsync" or "OnGetScriptAsync").Select(m => m.DeclaringType!.Name + "." + m.Name).ToList();
         Assert.Empty(gets);
         Type[] exports = [typeof(Pages.Forecasting.ActionsModel), typeof(Pages.Forecasting.WavesModel), typeof(Pages.Licensing.DeparturesModel),
-                          typeof(Pages.Licensing.LicenseForCreditsModel), typeof(Pages.Licensing.NonPersonModel), typeof(Pages.Security.NonHumanModel),
-                          typeof(Pages.Compliance.NonHumanModel), typeof(Pages.Licensing.SwapModel), typeof(Pages.Licensing.LeaversModel)];
+                          typeof(Pages.Licensing.LicenseForCreditsModel), typeof(Pages.Licensing.NonPersonModel),   // one page for Licensing, Security and Compliance
+                          typeof(Pages.Licensing.SwapModel), typeof(Pages.Licensing.LeaversModel)];
         foreach (var t in exports)
         {
             Assert.NotNull(t.GetMethod("OnPostBulkAsync", BindingFlags.Public | BindingFlags.Instance));

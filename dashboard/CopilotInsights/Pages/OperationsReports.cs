@@ -272,8 +272,35 @@ namespace CopilotInsights.Pages.Agents
     {
         public override string Title => "Agent inventory";
         public override bool UsesFilters => true;
-        public override string Intro => "Every current agent, from the agent workbook, with its owner and whether it is shared or in production, and its use in the period from the audit log: an agent no one used is flagged. Without a workbook, every agent the audit log has shown. New agents raise an alert when that is switched on.";
-        protected override string Where => "1 = 1";
+        public override string Intro => "Every current agent, from the agent workbook, with its owner and whether it is shared or in production, and its use in the period from the audit log: an agent no one used is flagged. Show the shared agents or those in production alone. Without a workbook, every agent the audit log has shown. New agents raise an alert when that is switched on.";
+
+        /* Shared agents and Agents in production were pages of their own, the same list filtered: they are views of this
+           one, and their old addresses arrive here (Program.cs). */
+        string Show => Request.Query["show"].FirstOrDefault() switch { "shared" => "shared", "production" => "production", _ => "all" };
+        protected override string Where => Show switch { "shared" => "i.IsShared = 1", "production" => "i.InProduction = 1", _ => "1 = 1" };
+        protected override bool SharingColumns => Show == "shared";
+        protected override bool ChannelColumn => Show == "production";
+        protected override string DefaultSort => Show == "shared" ? "viewers" : "most";
+        protected override string? ShowParam => Show == "all" ? null : "show=" + Show;
+        protected override string ShowTabs
+        {
+            get
+            {
+                /* The page's kept values hold the view chosen: each tab sets its own, the filters chosen stay. */
+                var saved = Ctx.Kept;
+                if (saved is { } k)
+                {
+                    var rest = string.Join("&", k.Query.Split('&').Where(p => !p.StartsWith("show=", StringComparison.Ordinal)));
+                    Ctx.Kept = rest.Length > 0 ? (k.Path, rest) : null;
+                }
+                try
+                {
+                    return "<p class=\"sub\">Show: " + string.Join(" · ", new[] { ("all", "Every agent"), ("shared", "Shared agents"), ("production", "In production") }.Select(x =>
+                        $"<a href=\"{E(Ctx.Url(Request.Path, extra: x.Item1 == "all" ? null : "show=" + x.Item1))}\"{(x.Item1 == Show ? " class=\"on\"" : "")}>{x.Item2}</a>")) + "</p>";
+                }
+                finally { Ctx.Kept = saved; }
+            }
+        }
         /// <summary>The page's filters, each a column of the workbook's sheet. To add one, add a line: new("env", "Environment type", "EnvironmentSku").</summary>
         protected override IReadOnlyList<WorkbookFilter> Filters =>
         [
@@ -295,7 +322,13 @@ namespace CopilotInsights.Pages.Agents
 
         protected override async Task BuildAsync()
         {
-            if (await BuildListAsync("Every agent", "The agents the workbook lists: the current ones. An agent since deleted is on Agents in use, under the audit log's name.")) return;
+            var (title, note) = Show switch
+            {
+                "shared" => ("Shared agents", "Shared: the workbook's ViewerUsers or ViewerGroups is not 0."),
+                "production" => ("Agents in production", "In production: listed on the workbook's AgentsInProd sheet."),
+                _ => ("Every agent", "The agents the workbook lists: the current ones. An agent since deleted is on Agents in use, under the audit log's name."),
+            };
+            if (await BuildListAsync(title, note)) return;
             var rows = await Db.QueryAsync<Row>($@"
 SELECT f.AgentKey, COUNT_BIG(*) AS Interactions, COUNT(DISTINCT f.UserKey) AS People
 INTO #u

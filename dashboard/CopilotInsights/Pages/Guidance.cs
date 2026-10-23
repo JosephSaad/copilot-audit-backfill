@@ -55,8 +55,6 @@ public static class Guidance
         ["/licensing/chargeback"] = new("Allocate license cost to the budgets that hold the licenses.", "Send each group its cost and its share in use."),
         ["/licensing/leavers"] = new("Find licenses nobody can use: disabled or deleted accounts.", "Reclaim them all: export the removal file."),
         ["/licensing/non-person"] = new("Find Copilot licenses on accounts that are not a person: a policy breach, and money spent on no one.", "Remove them with the file here, or have an administrator confirm the account is a person."),
-        ["/security/non-human"] = new("Find Copilot on service, shared, test and guest accounts, which the license does not allow.", "Have each license removed, or confirmed as a person by an administrator, and watch for the alert."),
-        ["/compliance/non-human"] = new("Show that Copilot is licensed only to people, as policy requires.", "Follow up each breach until its license is removed or the account is confirmed as a person."),
         ["/licensing/overlap"] = new("Find people paying for two licenses that overlap.", "Drop the second license where the first covers the use."),
         ["/licensing/credit-use"] = new("Estimate each person's Copilot Credits and tokens, and what a cap would touch.", "Set the credit policy's cap from the spread; license the people above a license's worth."),
         ["/licensing/suites"] = new("See which of E3, E5 and E7 fits each holder, and what a move down saves.", "Drop the copies now; agree each move down with the manager, and with security for E5."),
@@ -78,8 +76,6 @@ public static class Guidance
         // Agents
         ["/agents"] = new("See which agents people use and come back to.", "Promote the agents with returning users; review the ones nobody returns to."),
         ["/agents/inventory"] = new("Keep a register of every current agent, and whether anyone uses it.", "Retire or promote the agents nobody used in the period."),
-        ["/agents/shared"] = new("See which agents are shared with other users or groups, and their use.", "Check that shared agents are owned, and that unused ones are retired."),
-        ["/agents/production"] = new("See whether the agents in production are used.", "Find out why production agents nobody used are not reaching people."),
         ["/agents/owners"] = new("Find the agents whose owner has left or is disabled.", "Give the used ones a new owner first; ask the old owner's manager."),
         ["/agents/checks"] = new("See where an agent's settings and its use disagree.", "Act on each breach; review the rest with the agent's owner."),
         ["/agents/children"] = new("See which parent agents call each child agent, and their use.", "Keep the child agents that busy parents rely on owned and supported."),

@@ -134,6 +134,16 @@ app.MapRazorPages();
 app.MapGet("/admin", () => Results.Redirect("/admin/health"));
 /* My Copilot's pages are gone (2.4.4): links to them in earlier emails land on the start page. */
 app.MapGet("/me/{**rest}", () => Results.Redirect("/"));
+/* Pages merged in 2.7.6: the old addresses (bookmarks, emails, alerts) land on the page that took them, their query kept. */
+static IResult Moved(HttpRequest r, string to, string? add = null)
+{
+    var q = string.Join("&", new[] { r.QueryString.HasValue ? r.QueryString.Value![1..] : null, add }.Where(x => !string.IsNullOrEmpty(x)));
+    return Results.Redirect(q.Length == 0 ? to : to + "?" + q);
+}
+app.MapGet("/security/non-human", (HttpRequest r) => Moved(r, Nav.NonHuman));
+app.MapGet("/compliance/non-human", (HttpRequest r) => Moved(r, Nav.NonHuman));
+app.MapGet("/agents/shared", (HttpRequest r) => Moved(r, "/agents/inventory", "show=shared"));
+app.MapGet("/agents/production", (HttpRequest r) => Moved(r, "/agents/inventory", "show=production"));
 app.MapDataApi();
 
 app.Run();

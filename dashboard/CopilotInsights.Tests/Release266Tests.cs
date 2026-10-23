@@ -356,7 +356,7 @@ public class CostDrillDownTests
         Assert.Contains("conf={c}", page);                       // a confidence lists its savings alone
         Assert.Contains("\"#areas\"", page);                     // spend leads to every area
         Assert.Contains("/forecasting/outcomes", page);          // what was saved leads to the outcomes
-        Assert.Contains("open(\"/licensing/suites\", (m.Move == SuiteMove.DropDuplicate", page);   // each suite move leads to its people
+        Assert.DoesNotContain("SuiteMove.DropDuplicate", page);   // no suite moves on the summary (2.7.6: not a fit for the client)
         Assert.Contains("to is null && area == OpenArea ? E(text)", page);   // an area's view does not link to itself
         /* A link goes only where the viewer may go: every headline figure's link, and the page's own, through Open. */
         Assert.Contains("var to = href is null ? null : Whole(href);", page);

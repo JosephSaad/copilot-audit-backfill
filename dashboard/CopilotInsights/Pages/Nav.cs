@@ -9,6 +9,27 @@ public sealed record NavGroup(string Persona, string Who, IReadOnlyList<NavPage>
 /// <summary>The personas and their pages. A page with a Role lists named people and needs that role.</summary>
 public static class Nav
 {
+    /// <summary>
+    /// Copilot on non-human accounts: one page, listed in Licensing, Security and Compliance, open to a holder of any of
+    /// their roles. It was three copies, one a section; /security/non-human and /compliance/non-human arrive here.
+    /// </summary>
+    public const string NonHuman = "/licensing/non-person";
+
+    /// <summary>The sections listing a page: one, or several for a page shared between them.</summary>
+    public static IReadOnlyList<NavGroup> SectionsOf(string? path) =>
+        path is null ? [] : [.. Groups.Where(g => g.Pages.Any(p => string.Equals(p.Path, path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)))];
+
+    /// <summary>Whether the viewer may open a page as far as its sections go: one of them needs no role, or one the viewer holds.</summary>
+    public static bool SectionOpen(string? path, Viewer viewer)
+    {
+        var sections = SectionsOf(path);
+        return sections.Count == 0 || sections.Any(g => g.Role is null || viewer.Has(g.Role));
+    }
+
+    /// <summary>The section a viewer reaches a page through: the first listing it that they may open.</summary>
+    public static NavGroup? SectionFor(string? path, Viewer? viewer) =>
+        SectionsOf(path).FirstOrDefault(g => g.Role is null || viewer?.Has(g.Role) == true) ?? SectionOf(path);
+
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
         new("Leadership", "Executives and department heads", [
@@ -26,17 +47,17 @@ public static class Nav
             new("Better on pay-as-you-go", "/licensing/payg", Roles.Licensing), new("Swap list", "/licensing/swap", Roles.Licensing),
             new("Better with a license", "/licensing/license-for-credits", Roles.Licensing), new("Fading use", "/licensing/fading", Roles.Licensing),
             new("Overlapping licenses", "/licensing/overlap", Roles.Licensing), new("Suite fit", "/licensing/suites", Roles.Licensing), new("Reservation holders", "/licensing/reservation-holders", Roles.Licensing), new("Credit use", "/licensing/credit-use", Roles.Licensing),
-            new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing), new("Copilot on non-human accounts", "/licensing/non-person", Roles.Licensing),
+            new("Licenses on disabled accounts", "/licensing/leavers", Roles.Licensing), new("Copilot on non-human accounts", NonHuman, Roles.Licensing),
             new("Departures ahead", "/licensing/departures", Roles.Licensing)], Roles.Licensing),
         new("Security", "Security operations", [
             new("Security signals", "/security"), new("Guests and external users", "/security/guests"),
-            new("Flagged interactions", "/security/flags", Roles.Security), new("Copilot on non-human accounts", "/security/non-human", Roles.Security)], Roles.Security),
+            new("Flagged interactions", "/security/flags", Roles.Security), new("Copilot on non-human accounts", NonHuman, Roles.Security)], Roles.Security),
         new("Compliance", "Data protection and compliance", [
             new("Sensitive content", "/compliance"), new("Labeled content by unit", "/compliance/units"), new("Oversharing hotspots", "/compliance/sites"),
             new("Access to labeled content", "/compliance/access", Roles.Compliance), new("Person record", "/compliance/person", Roles.Compliance, InPrivacy: true),
-            new("Copilot on non-human accounts", "/compliance/non-human", Roles.Compliance)], Roles.Compliance),
+            new("Copilot on non-human accounts", NonHuman, Roles.Compliance)], Roles.Compliance),
         new("Agents", "Copilot Studio makers and the center of excellence", [
-            new("Agents in use", "/agents"), new("Agent inventory", "/agents/inventory"), new("Shared agents", "/agents/shared"), new("Agents in production", "/agents/production"), new("Agents without an owner", "/agents/owners"), new("Agent checks", "/agents/checks"),
+            new("Agents in use", "/agents"), new("Agent inventory", "/agents/inventory"), new("Agents without an owner", "/agents/owners"), new("Agent checks", "/agents/checks"),
             new("Build and publish", "/agents/build"), new("Agent detail", "/agents/detail"), new("Agent hand-offs", "/agents/handoffs"), new("Child agent usage", "/agents/children"),
             new("Agents costing credits", "/agents/credits")], Roles.Agents),
         new("Enablement", "Training leads and champions", [
@@ -128,7 +149,7 @@ public static class HiddenReports
 
     /// <summary>Every report that can be turned off, by section: all but the Admin pages.</summary>
     public static IEnumerable<NavGroup> Choices =>
-        Nav.Groups.Select(g => g with { Pages = g.Pages.Where(p => !p.Admin).ToList() }).Where(g => g.Pages.Count > 0);
+        Nav.Groups.Select(g => g with { Pages = g.Pages.Where(p => !p.Admin && Nav.SectionOf(p.Path) == g).ToList() }).Where(g => g.Pages.Count > 0);   // a shared page once, in its first section
 
     public static async Task<IReadOnlySet<string>> GetAsync(Settings settings) =>
         (await settings.AllAsync()).Where(kv => kv.Key.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) && kv.Value == "1")

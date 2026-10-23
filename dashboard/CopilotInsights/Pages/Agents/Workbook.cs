@@ -42,6 +42,10 @@ public abstract class AgentListPage(PageServices s) : InsightsPage(s)
     protected virtual bool SharingColumns => false;
     protected virtual bool ChannelColumn => false;
     protected virtual string DefaultSort => "most";
+    /// <summary>The view chosen (Agent inventory's shared or in-production view), kept on the page's own links.</summary>
+    protected virtual string? ShowParam => null;
+    /// <summary>The views to choose from, above the list.</summary>
+    protected virtual string ShowTabs => "";
 
     /// <summary>
     /// The filters the page offers, none unless it says so. Each is a column of the sheet as the workbook load keeps it
@@ -74,6 +78,7 @@ ELSE EXEC (N'SELECT DISTINCT TOP (200) LTRIM(RTRIM(CAST([{f.Column}] AS NVARCHAR
         }
         /* The choices made stay on the page's own links: the period, the way down the organization, All and Not used. */
         var kept = states.Where(x => x.Value is not null).Select(x => $"{Uri.EscapeDataString(x.Filter.Key)}={Uri.EscapeDataString(x.Value!)}").ToList();
+        if (ShowParam is { } show) kept.Insert(0, show);
         if (kept.Count > 0) Ctx.Kept = (Request.Path, string.Join("&", kept));
         return states;
     }
@@ -193,8 +198,8 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
         Kpis.Add(new("Used in the period", Num(t0.Used), Pct(Ratio(t0.Used, t0.Agents)) + " of them"));
         Kpis.Add(new("Not used in the period", Num(notUsed), "no interaction in the audit log, and not autonomous", notUsed > 0 ? "warn" : null, Open(Request.Path, extra: "only=unused")));
         Kpis.Add(new("Autonomous", Num(t0.Autonomous), "triggers or flows, with no interaction: they can work with nobody chatting to them"));
-        Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups"));
-        Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet"));
+        Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups", Href: ShowParam is null && ShowTabs.Length > 0 ? Ctx.Url(Request.Path, extra: "show=shared") : null));
+        Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet", Href: ShowParam is null && ShowTabs.Length > 0 ? Ctx.Url(Request.Path, extra: "show=production") : null));
 
         var headers = new List<string> { "Agent", "Owner", "Environment" };
         var keys = new List<string?> { "name", "owner", "env" };
@@ -224,42 +229,13 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
             t.Rows.Add([.. cells]);
         }
         CsvTable = t;
-        var tabs = $"<p class=\"sub\"><a href=\"{E(Ctx.Url(Request.Path))}\"{(unused ? "" : " class=\"on\"")}>All</a> · " +
+        var tabs = ShowTabs + $"<p class=\"sub\"><a href=\"{E(Ctx.Url(Request.Path))}\"{(unused ? "" : " class=\"on\"")}>All</a> · " +
                    $"<a href=\"{E(Ctx.Url(Request.Path, extra: "only=unused"))}\"{(unused ? " class=\"on\"" : "")}>Not used in the period</a></p>";
         Panels.Add(new(listTitle, new HtmlString(tabs + FilterBoxes(filters) + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             listNote + " Names and owners come from the agent workbook; where it leaves one out, from Admin › Reference data, then the audit log. Owners are shown by their name in the directory, or by sign-in where it does not have them. " +
             $"An autonomous agent (one with triggers or flows) can work with nobody chatting to it, so with no interaction it is *Autonomous*, not *Not used*. People are left out where fewer than {Ctx.MinGroupSize} used an agent." +
             (PrivacyMode ? " Privacy mode is on, so owners are not shown." : "") + filterNote, "full", CsvUrl()));
         return true;
-    }
-}
-
-public sealed class SharedModel(PageServices s) : AgentListPage(s)
-{
-    public override string Title => "Shared agents";
-    public override string Intro => "Agents from the agent workbook that are shared: with at least one viewer, a user or a group. Their use in the period comes from the audit log, and an agent no one used is flagged.";
-    protected override string Where => "i.IsShared = 1";
-    protected override bool SharingColumns => true;
-    protected override string DefaultSort => "viewers";
-
-    protected override async Task BuildAsync()
-    {
-        if (!await BuildListAsync("Shared agents", "Shared: the workbook's ViewerUsers or ViewerGroups is not 0."))
-            Notice = Workbook.Missing;
-    }
-}
-
-public sealed class ProductionModel(PageServices s) : AgentListPage(s)
-{
-    public override string Title => "Agents in production";
-    public override string Intro => "The agents the workbook lists on its AgentsInProd sheet, with their use in the period from the audit log. An agent in production no one used is flagged.";
-    protected override string Where => "i.InProduction = 1";
-    protected override bool ChannelColumn => true;
-
-    protected override async Task BuildAsync()
-    {
-        if (!await BuildListAsync("Agents in production", "In production: listed on the workbook's AgentsInProd sheet."))
-            Notice = Workbook.Missing;
     }
 }
 
