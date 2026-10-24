@@ -16,7 +16,7 @@ builder.Services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolic
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<TenantAccessor>();
-/* The query cache in a store of its own, of a bounded size (2.4.12): the shared one has no limit. */
+/* The query cache in a store of its own, of a bounded size: the shared one has no limit. */
 builder.Services.AddSingleton<SharedCache>();
 builder.Services.AddSingleton(sp =>
 {
@@ -24,7 +24,7 @@ builder.Services.AddSingleton(sp =>
     /* Each server's own cache, with the one the web servers share behind it (SharedCache). */
     return new QueryCache(QueryCache.Store(o.Value.QueryCacheEntries), o, sp.GetRequiredService<ILogger<QueryCache>>()) { Shared = sp.GetRequiredService<SharedCache>() };
 });
-/* One set of form keys for every web server, where Insights:DataProtectionKeysPath names a share (2.4.12, KeyRing). */
+/* One set of form keys for every web server, where Insights:DataProtectionKeysPath names a share (KeyRing). */
 var keyRing = KeyRing.Configure(builder.Services, builder.Configuration.GetSection(InsightsOptions.Section).Get<InsightsOptions>() ?? new InsightsOptions());
 builder.Services.AddSingleton<DataStamp>();
 builder.Services.AddSingleton<Db>();
@@ -45,9 +45,9 @@ builder.Services.AddScoped<CopilotInsights.Data.CostData>();
 builder.Services.AddScoped<CopilotInsights.Data.SuiteData>();
 builder.Services.AddScoped<CopilotInsights.Data.CreditData>();
 builder.Services.AddScoped<CopilotInsights.Data.ReservationData>();
-builder.Services.AddScoped<CopilotInsights.Data.CreditChargeData>();   // 2.7.2: credit chargeback and the commitment
-builder.Services.AddScoped<CopilotInsights.Data.AssumptionData>();   // 2.6.9: the assumptions register
-/* A background service that fails is logged, and the site goes on (2.4.12): .NET's default stops the whole site,
+builder.Services.AddScoped<CopilotInsights.Data.CreditChargeData>();   // Credit chargeback and the commitment
+builder.Services.AddScoped<CopilotInsights.Data.AssumptionData>();   // The assumptions register
+/* A background service that fails is logged, and the site goes on: .NET's default stops the whole site,
    which a mail server that did not answer once did, again after every restart. */
 builder.Services.Configure<HostOptions>(o => o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 builder.Services.AddSingleton<Notifier>();
@@ -90,7 +90,7 @@ app.Use(async (context, next) =>
     await next();
 });
 
-/* 2.4.10: an address with no page behind it (mistyped, or a bookmark to a page since moved) got an empty response, which
+/* An address with no page behind it (mistyped, or a bookmark to a page since moved) got an empty response, which
    a browser shows as a blank page. It is asked again as /not-found, which says so and offers the nearest reports; the
    answer is still 404. Only a page someone asked for: not the data API, not a file, not a form, and not a 404 that
    already came with a page of its own (a report turned off). */
@@ -113,7 +113,7 @@ app.Use(async (ctx, next) =>
    count every server down. */
 app.UseWhen(ctx => !ctx.Request.Path.StartsWithSegments(HealthProbe.Path), b => b.UseHttpsRedirection());
 app.UseStaticFiles();
-/* A page, a file or an API answer whose audit row could not be written is not served (2.4.12, AuditLog): 503, and why. */
+/* A page, a file or an API answer whose audit row could not be written is not served (AuditLog): 503, and why. */
 app.Use(async (ctx, next) =>
 {
     try { await next(); }
@@ -129,7 +129,7 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use((ctx, next) => TenantAccessor.SelectAsync(ctx, () => next()));
-/* The dashboard's level limit (2.4.4), behind every endpoint that is not a page: pages refuse with
+/* The dashboard's level limit, behind every endpoint that is not a page: pages refuse with
    their own message (InsightsPage), the data API with its own; anything else added later is covered here. */
 app.Use(async (ctx, next) =>
 {
@@ -149,7 +149,7 @@ app.Use(async (ctx, next) =>
 app.MapRazorPages();
 /* Health moved from /admin, which servers often block, to /admin/health; old links still arrive. */
 app.MapGet("/admin", () => Results.Redirect("/admin/health"));
-/* My Copilot's pages are gone (2.4.4): links to them in earlier emails land on the start page. */
+/* My Copilot's pages are gone: links to them in earlier emails land on the start page. */
 app.MapGet("/me/{**rest}", () => Results.Redirect("/"));
 /* Pages merged in 2.7.6: the old addresses (bookmarks, emails, alerts) land on the page that took them, their query kept. */
 static IResult Moved(HttpRequest r, string to, string? add = null)

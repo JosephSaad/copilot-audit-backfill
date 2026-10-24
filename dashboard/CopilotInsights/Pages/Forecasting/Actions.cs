@@ -28,9 +28,9 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
     public static readonly Dictionary<string, (string Label, string Where, string Action)> Kinds = new()
     {
         ["upgrade"] = ("Upgrade to Premium", $"lic.UserKey IS NULL AND a.D >= {UpgradeDays}", "Upgrade to Premium"),
-        /* Train and revoke leave out the protected levels (2.4.6): everyone who reads Kinds, the page, its files, Swap, the counts, the digest and the API, does too. */
+        /* Train and revoke leave out the protected levels: everyone who reads Kinds, the page, its files, Swap, the counts, the digest and the API, does too. */
         ["train"] = ("Train", $"lic.UserKey IS NOT NULL AND a.P BETWEEN 1 AND {LightMax} AND {Data.ProtectedLevels.Not("du.UserPrincipalName")} AND {Data.CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}", "Train, then review"),
-        /* Nor a Copilot held only through a suite (2.6.6, E7): it cannot be taken off alone. */
+        /* Nor a Copilot held only through a suite (E7): it cannot be taken off alone. */
         ["revoke"] = ("Revoke", $"lic.UserKey IS NOT NULL AND ISNULL(a.P, 0) = 0 AND (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc <= DATEADD(DAY, -{RevokeAfterDays}, @d1)) AND {Data.ProtectedLevels.Not("du.UserPrincipalName")} AND {Data.CopilotSuites.NotOnlyInSuite("du.UserPrincipalName")}", "Revoke"),
     };
 
@@ -75,7 +75,7 @@ public sealed class ActionsModel(PageServices s) : InsightsPage(s)
         public int Strength { get; set; }
     }
 
-    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button): as links, any page a Licensing role holder
+    /* Posted, with the anti-forgery token (see LicenseActions.Button): as links, any page a Licensing role holder
        opened could make an export, record it in their name and write it to the audit log. */
     public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
     public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
@@ -112,7 +112,7 @@ ORDER BY du.UserPrincipalName;", Ctx.Args(new { k30 }));
         var pg = new Paging(Request, Sorts, "strength");
         var k30 = ReportContext.Key(Ctx.End.AddDays(-29));
         var premiumReady = await PremiumReadyAsync(Db, k30, Ctx.EndKey);
-        /* The count is read on its own (2.4.12): taken from the page's first row, a page past the end (a stale link, a list
+        /* The count is read on its own: taken from the page's first row, a page past the end (a stale link, a list
            that shrank) said 0 people at a cost of 0, with the empty-list text and no files to apply it. */
         var (count, rows) = await Db.QueryTwoAsync<int, Row>($@"
 WITH {await ActivitySqlAsync(Db, k30, Ctx.EndKey)},
@@ -138,7 +138,7 @@ SELECT b.* FROM #b AS b {pg.OrderAndPage()};", Ctx.Args(new { k30, kind, q = pg.
            (a columnstore) was scanned once per row: 100 seconds a page at 40M interactions. */
         if (rows.Count > 0)
         {
-            /* The people as one parameter, a JSON list (2.4.11). One parameter each was SQL Server's limit of 2,100 at
+            /* The people as one parameter, a JSON list. One parameter each was SQL Server's limit of 2,100 at
                about 1,050 people, twice named here: a page of 50 was fine, and the CSV of a longer list failed. */
             var keys = System.Text.Json.JsonSerializer.Serialize(rows.Select(r => r.UserKey));
             var detail = (await Db.QueryAsync<(int UserKey, DateTime? LastUsed, string? RecordedLicense)>(@"

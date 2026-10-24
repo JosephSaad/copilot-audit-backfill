@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// Which suite fits each holder (2.6.6). With E3, E5 and E7, saving on a license is seldom revoking it: the Copilot in
+/// Which suite fits each holder. With E3, E5 and E7, saving on a license is seldom revoking it: the Copilot in
 /// E7 cannot be taken off alone, and E5's Power BI Pro is paid for whether used or not. The choice is the suite: E7 to
 /// E5 for someone who does not use Copilot, E5 to E3 (with Power BI Pro, or without) for someone E5's extras do not
 /// serve, a copy held beside the suite to drop, or training before any of it. The rules are <see cref="SuiteRules"/>;
@@ -29,7 +29,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
     static readonly Dictionary<string, string> SortLabels = new() { ["saving"] = "Largest saving first", ["name"] = "Name", ["dept"] = "Department", ["suite"] = "Suite" };
 
     /// <summary>
-    /// What the page works out over every holder before the viewer's choices (2.7.4), kept once worked out (see
+    /// What the page works out over every holder before the viewer's choices, kept once worked out (see
     /// <see cref="Db.KeptAsync"/>): the moves, most saved first, the summary the Suites card shares, the add-ons a suite
     /// covers, and each suite's holders. At 120 million interactions this was 0.3 s a visit under load. Shared: read only.
     /// </summary>
@@ -41,7 +41,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         var v = await suites.FitAsync(Ctx, scoped: true);
         var today = Ctx.End.Date;
         var moving = v.Rows.Where(r => r.Fit.Move is not SuiteMove.Keep).OrderByDescending(r => r.Fit.Saving + r.Fit.AtStake).ThenBy(r => r.Name ?? r.Upn).ToList();
-        var spare = decimal.TryParse(await S.Settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 10m;   // 2.6.9: seats kept spare on purpose
+        var spare = decimal.TryParse(await S.Settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 10m;   // Seats kept spare on purpose
         var sum = SuiteData.Summarize(v, 0, spare);
         var twice = v.Rows.Where(r => SuiteData.AddOnCopy(r, today) is (true, _) or (_, true)).ToList();
         decimal Worth(SuiteRow r) { var (cp, pb) = SuiteData.AddOnCopy(r, today); return (cp ? v.CopilotPrice : 0) + (pb ? v.PowerBiPrice : 0); }
@@ -95,7 +95,7 @@ public sealed class SuitesModel(PageServices s, SuiteData suites) : InsightsPage
         string MoveUrl(SuiteMove mv, string from) => Ctx.Url(Request.Path, extra: (mv == SuiteMove.DropDuplicate ? "copy=suite" : $"move={mv.ToString().ToLowerInvariant()}") + $"&suite={Uri.EscapeDataString(from)}");
         foreach (var ml in summary.Moves)
             mt.Rows.Add([ml.Move == SuiteMove.CutSeats ? SuiteRules.Label(ml.Move) : new Link(ml.Move == SuiteMove.DropDuplicate ? "Remove the second suite" : SuiteRules.Label(ml.Move), MoveUrl(ml.Move, ml.From)),
-                /* 2.7.0: a move to train saves nothing: what rides on it is said, not added to the month's column. */
+                /* A move to train saves nothing: what rides on it is said, not added to the month's column. */
                 ml.From, ml.To, ml.People, ml.Move == SuiteMove.Train ? $"— ({Math.Round(ml.AtStake):#,0} at stake)" : Math.Round(ml.Saving), ml.Confidence]);
         if (copies.Count > 0)
             mt.Rows.Add([new Link("Remove the add-on the suite covers", Ctx.Url(Request.Path, extra: "copy=addon")), "E5 or E7", "(an AI saving)", copies.Count, Math.Round(prep.CopiesWorth), "High"]);

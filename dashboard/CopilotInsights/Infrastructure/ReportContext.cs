@@ -34,7 +34,7 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, 
         }
     }
 
-    /// <summary>Today's date key where the data's days are cut (2.4.12, see <see cref="ReportContext.TodayKey"/>).</summary>
+    /// <summary>Today's date key where the data's days are cut (see <see cref="ReportContext.TodayKey"/>).</summary>
     public async Task<int> TodayKeyAsync() =>
         ReportContext.TodayKey(DateTime.UtcNow, CopilotInsights.Data.Zones.Resolve(null, await ReportingTimeZoneAsync()));
 
@@ -61,7 +61,7 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, 
             catch (Microsoft.Data.SqlClient.SqlException) { return null; }
         });
 
-    /// <summary>The zone times are shown in and schedules run by (2.4.10): see <see cref="CopilotInsights.Data.Zones"/>.</summary>
+    /// <summary>The zone times are shown in and schedules run by: see <see cref="CopilotInsights.Data.Zones"/>.</summary>
     public async Task<TimeZoneInfo> ZoneAsync() => CopilotInsights.Data.Zones.Resolve(await StringAsync(CopilotInsights.Data.Zones.Setting), await ReportingTimeZoneAsync());
 
     /// <summary>
@@ -69,10 +69,10 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, 
     /// anyone but the viewer themselves, and bi.Users is pseudonymized for Power BI.
     /// </summary>
     /// <remarks>
-    /// A read that fails is not "off" (2.4.12): it was, for a minute and for every page and email on that server, so a
+    /// A read that fails is not "off": it was, for a minute and for every page and email on that server, so a
     /// failover or a missing grant turned privacy mode off without a word. Now only a database from before the setting
     /// (no table to read) is off; any other failure is on, logged, and kept for seconds so the next read tries again.
-    /// Read for each request (2.4.12, see the class); the background work keeps it for a minute.
+    /// Read for each request (see the class); the background work keeps it for a minute.
     /// </remarks>
     public Task<bool> PrivacyModeAsync() =>
         http.HttpContext is { } request
@@ -101,7 +101,7 @@ public sealed class Settings(Db db, IMemoryCache cache, TenantAccessor tenants, 
 }
 
 /// <summary>
-/// A value read once for a request (2.4.12), kept in the request's own items: the next request reads it again. Each
+/// A value read once for a request, kept in the request's own items: the next request reads it again. Each
 /// request is one viewer's, and a key is per tenant (see <see cref="TenantAccessor.Key"/>).
 /// </summary>
 public static class RequestMemo
@@ -131,16 +131,16 @@ public enum OrgRefusal
     NotFound,
     /// <summary>It is not in the viewer's part of the organization.</summary>
     Outside,
-    /// <summary>It is fewer people than the minimum group size (2.4.12).</summary>
+    /// <summary>It is fewer people than the minimum group size.</summary>
     TooSmall,
-    /// <summary>Privacy mode is on, and it is not the viewer's own (2.4.12).</summary>
+    /// <summary>Privacy mode is on, and it is not the viewer's own.</summary>
     Privacy,
 }
 
 /// <summary>
 /// One point on a trend: a day (periods up to 30 days) or a Saturday-to-Friday week. Partial: a week the period covers
-/// only in part, at its start or not yet over (2.5.2), or a day held back, one of the two newest days of records, which
-/// may not all be in yet (2.5.3, see <see cref="ReportContext.DrawnTo"/>). The trend's rows keep it, for the period's
+/// only in part, at its start or not yet over, or a day held back, one of the two newest days of records, which
+/// may not all be in yet (see <see cref="ReportContext.DrawnTo"/>). The trend's rows keep it, for the period's
 /// totals; its charts leave it out (see <see cref="CopilotInsights.Charts.Axis.Partial"/>).
 /// </summary>
 public sealed record Bucket(DateTime Key, string Label, bool Partial);
@@ -161,26 +161,26 @@ public sealed class ReportContext
     public required DateTime End { get; init; }     // the last complete day with data
 
     /// <summary>
-    /// The last day with any record (2.5.3): today, where the load has reached its first hours, else <see cref="End"/>.
+    /// The last day with any record: today, where the load has reached its first hours, else <see cref="End"/>.
     /// Not given (a report made without the database): taken to be <see cref="End"/>.
     /// </summary>
     public DateTime? LastRecord { get; init; }
 
     /// <summary>
-    /// How many days a daily trend holds back, counted from the last record's day and with it (2.5.3). Purview can deliver
+    /// How many days a daily trend holds back, counted from the last record's day and with it. Purview can deliver
     /// a record up to 48 hours after the event, which is why each nightly load reads the last 48 hours again: until then
     /// the two newest days may not all be in, and a daily line ended in a drop that was the load, not the use.
     /// </summary>
     public const int HeldBackDays = 2;
 
-    /// <summary>The last day a daily trend draws (2.5.3): with records to 4 October, 2 October. The period's totals still run to <see cref="End"/>.</summary>
+    /// <summary>The last day a daily trend draws: with records to 4 October, 2 October. The period's totals still run to <see cref="End"/>.</summary>
     public DateTime DrawnTo => (LastRecord ?? End).AddDays(-HeldBackDays);
 
     /// <summary>The subtree shown; null = the whole organization (allowed only for whole-organization viewers).</summary>
     public string? Root { get; init; }
     public string? RootName { get; init; }
     /// <summary>
-    /// The part of the organization the address asked for, when it is not the one shown (2.4.10): nobody in the directory
+    /// The part of the organization the address asked for, when it is not the one shown: nobody in the directory
     /// has that sign-in (an old link, someone who has left), or it is outside the viewer's own part. The page says so;
     /// it used to show "Whole organization" over a report of zeros, or the viewer's own part with no word of why.
     /// </summary>
@@ -190,7 +190,7 @@ public sealed class ReportContext
     public OrgRefusal OrgWhy { get; init; }
 
     /// <summary>
-    /// A part of the organization that was asked for and refused on a size or privacy rule (2.4.12). A page shows the
+    /// A part of the organization that was asked for and refused on a size or privacy rule. A page shows the
     /// viewer's own part instead, with <see cref="OrgNote"/>; the data API and the digests refuse, and their scope is
     /// nobody, so nothing that forgets to check can show it.
     /// </summary>
@@ -207,7 +207,7 @@ public sealed class ReportContext
 
     string Shown => Root is null ? "the whole organization" : "your part of the organization";
 
-    /// <summary>Privacy mode was on when the report was made (2.4.12): units are not named after their managers.</summary>
+    /// <summary>Privacy mode was on when the report was made: units are not named after their managers.</summary>
     public bool PrivacyMode { get; init; }
     public required int MinGroupSize { get; init; }
     public required int InactiveDays { get; init; }
@@ -223,7 +223,7 @@ public sealed class ReportContext
     public static DateTime Day(int key) => new(key / 10000, key / 100 % 100, key % 100);
 
     /// <summary>
-    /// Today's date key in the zone the data's days are cut in (2.4.12): the day still arriving, which no period ends on.
+    /// Today's date key in the zone the data's days are cut in: the day still arriving, which no period ends on.
     /// Pure, for the tests; <see cref="Settings.TodayKeyAsync"/> gives it for now and the data's zone.
     /// </summary>
     public static int TodayKey(DateTime utcNow, TimeZoneInfo zone) =>
@@ -293,7 +293,7 @@ public sealed class ReportContext
 public sealed class ReportContextFactory(Db db, Settings settings, DataStamp stamp)
 {
     /// <summary>
-    /// SQL for the size of a manager's part of the organization, against the minimum group size (2.4.12): the enabled
+    /// SQL for the size of a manager's part of the organization, against the minimum group size: the enabled
     /// people in it, the manager among them (dash.OrgClosure has a depth-0 row for each person). It was dash.Person's
     /// PeopleBelow + 1, which counts disabled accounts too, so a part of three people and five leavers was shown on its
     /// own where every other minimum counts only the people still here. A seek on the closure's key, which leads with
@@ -304,7 +304,7 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
 
     /// <param name="forPage">
     /// A page a person is looking at: a part of the organization that is not in the directory falls back to the whole
-    /// organization, with a note (2.4.10). The data API and the digests keep to what was asked for, and so to nothing:
+    /// organization, with a note. The data API and the digests keep to what was asked for, and so to nothing:
     /// a digest for a manager who has left must not start showing everyone.
     /// </param>
     public async Task<ReportContext> CreateAsync(Viewer viewer, HttpRequest request, bool forPage = false)
@@ -328,10 +328,10 @@ public sealed class ReportContextFactory(Db db, Settings settings, DataStamp sta
         var top = await settings.StringAsync("OrgTopUpn") ?? await settings.StringAsync("OrgTopUpnDetected");
 
         /* The last complete day with data (today is still arriving), today being the day in the zone the data's days are
-           cut in (2.4.12). It was SQL Server's own date: with the server on UTC and the days cut in Eastern Time, from
+           cut in. It was SQL Server's own date: with the server on UTC and the days cut in Eastern Time, from
            8 p.m. Eastern the day still loading counted as complete, and every period ended on it. */
         var today = await settings.TodayKeyAsync();
-        /* With it, the last day with any record, today's included (2.5.3): a daily trend stops two days before that one. */
+        /* With it, the last day with any record, today's included: a daily trend stops two days before that one. */
         var (completeKey, lastKey) = (await db.QueryAsync<(int? Complete, int? Last)>(@"
 SELECT (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today), (SELECT MAX(DateKey) FROM dash.UserDay);", new { today })).Single();
         var end = (completeKey ?? lastKey) is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : ReportContext.Day(today).AddDays(-1);
@@ -343,7 +343,7 @@ SELECT (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today), (SELECT M
         var why = OrgRefusal.None;
         if (viewer.OrgWide)
         {
-            /* A part of the organization is someone in the directory, for the API and the digests too (2.4.12). They took
+            /* A part of the organization is someone in the directory, for the API and the digests too. They took
                any text: one longer than a sign-in can be was cut to 256 characters by dash.fnScopeUsers but not by the
                name looked up for the audit log, which then could not be written. Nobody, now, and the API returns nothing. */
             root = requested;
@@ -362,13 +362,13 @@ SELECT (SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today), (SELECT M
             if (requested is not null && !string.Equals(root, requested, StringComparison.OrdinalIgnoreCase)) (asked, why) = (requested, OrgRefusal.Outside);
         }
 
-        /* A part of the organization other than the viewer's own (2.4.12) is shown only when it is at least the minimum
+        /* A part of the organization other than the viewer's own is shown only when it is at least the minimum
            group size, and never in privacy mode, where it is named after its manager. Any sign-in in org= was taken: a
            person with nobody under them made every page, and the API, a report of that one person. A page falls back to
            the viewer's own part with a note; the API and the digests get nobody, and refuse. */
         var privacy = await settings.PrivacyModeAsync();
         /* The size of a part and the parts below a manager are the org chart's, which only the dashboard's refresh
-           rewrites: they are kept with the report data under the data stamp (2.5.1). Counted on every request, the enabled
+           rewrites: they are kept with the report data under the data stamp. Counted on every request, the enabled
            people under each part below the top cost 0.4 seconds a page at 210,000 people, from memory or not. Who the
            viewer is and what they may open are still read from the database for every request. */
         await stamp.EnsureAsync();
@@ -427,7 +427,7 @@ ORDER BY c.Depth DESC", new { root, stop = stopAt });
 
 /// <summary>Writes dash.AuditLog: every page view, denial, export and admin change.</summary>
 /// <remarks>
-/// A write that fails is not swallowed (2.4.12). It was logged and the page, the file or the API answer went out all
+/// A write that fails is not swallowed. It was logged and the page, the file or the API answer went out all
 /// the same, so a full log or disk, a read-only database or a missing grant served everything with no trace, and a
 /// scope longer than its column (an org= of 400 characters on the API) did so on demand. Every value is now cut to its
 /// column, a failed write is tried once more, and then the request is refused (<see cref="AuditLogUnavailableException"/>,
@@ -479,7 +479,7 @@ ELSE
     public static string? Fit(string? value, int max) => value is { } v && v.Length > max ? v[..max] : value;
 }
 
-/// <summary>The audit log could not be written (2.4.12): the request is refused rather than served unrecorded.</summary>
+/// <summary>The audit log could not be written: the request is refused rather than served unrecorded.</summary>
 public sealed class AuditLogUnavailableException(Exception inner) : Exception("The audit log could not be written.", inner)
 {
     /// <summary>What the viewer is told, with the 503.</summary>

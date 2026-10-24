@@ -1,6 +1,6 @@
 namespace CopilotInsights.Data;
 
-/// <summary>An area of AI and automation spend on Leadership › Costs and savings (2.6.6), in the order the page shows them.</summary>
+/// <summary>An area of AI and automation spend on Leadership › Costs and savings, in the order the page shows them.</summary>
 public static class CostAreas
 {
     public const string Copilot = "Microsoft 365 Copilot", Studio = "Copilot Studio and AI Builder", Fabric = "Fabric and Copilot in Power BI",
@@ -38,7 +38,7 @@ public sealed record FabricDay(string CapacityId, DateTime Day, string? Name, st
     decimal? ActiveHours, decimal? CuSecondsUsed, decimal? PeakPercent, int? ThrottledMinutes, decimal? Cost);
 
 /// <summary>
-/// The rules that turn what the sources say into savings and opportunities (2.6.6). Pure, for the tests: the page
+/// The rules that turn what the sources say into savings and opportunities. Pure, for the tests: the page
 /// reads the facts with <see cref="CostData"/> and hands them here.
 /// </summary>
 public static class CostRules
@@ -133,7 +133,7 @@ public static class CostRules
             "Ask their managers, then remove the license; reassign it before buying more.", cut?.Saving ?? Math.Round(idle * price, 2), 0, cut?.Confidence ?? "High", href);
 
     /// <summary>
-    /// A standalone license on people whose suite already includes it (2.6.6): Power BI Pro on E5 or E7, the Copilot
+    /// A standalone license on people whose suite already includes it: Power BI Pro on E5 or E7, the Copilot
     /// add-on on E7. Paid twice, whatever they use: certain.
     /// </summary>
     public static Opportunity? HeldTwice(string area, string product, string suites, int people, decimal price, string cur, string? href = null) =>
@@ -143,11 +143,11 @@ public static class CostRules
             "Remove the standalone license; the suite keeps the same features.", Math.Round(people * price, 2), 0, "High", href);
 
     /// <summary>
-    /// Licenses bought and assigned to nobody (2.6.6): paid for every month all the same. Medium, as most agreements
+    /// Licenses bought and assigned to nobody: paid for every month all the same. Medium, as most agreements
     /// let them go only at the renewal; assign them first where people are waiting.
     /// </summary>
     /// <summary>
-    /// Seats bought and assigned to nobody beyond the spare kept on purpose (2.6.9: <paramref name="spare"/> seats, for
+    /// Seats bought and assigned to nobody beyond the spare kept on purpose (<paramref name="spare"/> seats, for
     /// joiners and moves), paid for every month all the same. None for a license bought for its capacity or volume
     /// price (<paramref name="forCapacity"/>). Medium, as most agreements let them go only at the renewal.
     /// </summary>
@@ -163,11 +163,11 @@ public static class CostRules
             "Assign them to the people waiting for one; reduce the count at the next renewal for the rest.", cut?.Saving ?? Math.Round(over * price, 2), 0, cut?.Confidence ?? "Medium", href);
     }
 
-    /// <summary>The seats kept spare on purpose (2.6.9): a share of those bought, rounded up.</summary>
+    /// <summary>The seats kept spare on purpose: a share of those bought, rounded up.</summary>
     public static int Spare(int bought, decimal percent) => bought <= 0 || percent <= 0 ? 0 : (int)Math.Ceiling(bought * Math.Min(percent, 100) / 100m);
 
     /// <summary>
-    /// What a cut of seats really saves (2.6.9): at the volume price where the count stays at or over the tier, and less
+    /// What a cut of seats really saves: at the volume price where the count stays at or over the tier, and less
     /// where it takes the count under it, when every seat goes back to the list price; then less the add-on Dataverse
     /// capacity the tenant would have to buy once the seats' capacity is given up. Seats is how many to cut: all asked,
     /// or only down to the tier where crossing it would save less. Note says why, for the evidence; Confidence is
@@ -175,7 +175,7 @@ public static class CostRules
     /// </summary>
     public sealed record Cut(int Seats, decimal Saving, string? Note, string? Confidence);
 
-    /// <summary>A license's price (2.6.9): the list price, a volume price from a number of seats, and the Dataverse capacity a seat brings.</summary>
+    /// <summary>A license's price: the list price, a volume price from a number of seats, and the Dataverse capacity a seat brings.</summary>
     public sealed record SeatPrice(decimal Price, int? TierFrom = null, decimal? TierPrice = null, decimal DatabaseGbPerSeat = 0, decimal FileGbPerSeat = 0)
     {
         /// <summary>What each seat costs a month at this count.</summary>
@@ -186,7 +186,7 @@ public static class CostRules
     }
 
     /// <summary>
-    /// The tenant's Dataverse capacity left before it is over its entitlement (2.6.9), from the latest day read: what a cut
+    /// The tenant's Dataverse capacity left before it is over its entitlement, from the latest day read: what a cut
     /// of seats that bring capacity may give up before the tenant pays for add-on capacity. Each cut takes from it in
     /// turn. Unknown (no capacity loaded): nothing is taken off, and the cut says the capacity was not checked.
     /// </summary>
@@ -264,7 +264,7 @@ public static class CostRules
     public static Opportunity? Credits(decimal prepaidUsed, int packs, decimal paygCredits, decimal paygCost, decimal packPrice, string cur, int packCredits = 25000, bool committed = false)
     {
         if (packPrice <= 0) return null;
-        /* 2.7.2: under a credit commitment (P3) the metered credits draw on what is already paid for: buying packs for them is no saving. */
+        /* Under a credit commitment (P3) the metered credits draw on what is already paid for: buying packs for them is no saving. */
         if (paygCredits >= packCredits && !committed)
         {
             var more = (int)Math.Floor(paygCredits / packCredits);

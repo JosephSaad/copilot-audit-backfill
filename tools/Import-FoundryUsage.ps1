@@ -353,7 +353,7 @@ function Invoke-Main {
                 }
                 catch {
                     $skipped.Add("deployments of $sub ($($_.Exception.Message))"); Write-Warning "Deployments of $sub were not loaded: $($_.Exception.Message)"
-                    # Refused by the delete guard (2.6.5), the accounts were read: their usage and cost still load.
+                    # Refused by the delete guard, the accounts were read: their usage and cost still load.
                     if (-not (Test-DropRefusal $_)) { continue }
                     $accountsRead += $accounts.Count
                 }

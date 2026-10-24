@@ -1,4 +1,4 @@
-# release 2.7.5
+# release 2.7.6
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -69,7 +69,7 @@ C	copilot	audit.CopilotAuditStage	U	9	UserId	nvarchar(512)	1
 C	copilot	audit.CopilotBackfillRange	U	1	Id	tinyint	0	
 C	copilot	audit.CopilotBackfillRange	U	2	RangeStartUtc	datetime2(0)	0	
 C	copilot	audit.CopilotBackfillRange	U	3	RangeEndUtc	datetime2(0)	0	
-C	copilot	audit.CopilotBackfillRange	U	4	Operations	nvarchar(400)	0	
+C	copilot	audit.CopilotBackfillRange	U	4	Operations	nvarchar(2000)	0	
 C	copilot	audit.CopilotBackfillRange	U	5	StartedUtc	datetime2(0)	0	D
 C	copilot	audit.CopilotBackfillRange	U	6	CompletedUtc	datetime2(0)	1	
 C	copilot	audit.CopilotBackfillRange	U	7	Source	varchar(8)	1	
@@ -113,7 +113,7 @@ C	copilot	audit.CopilotCsvImport	U	16	CoveredFromUtc	datetime2(0)	1
 C	copilot	audit.CopilotCsvImport	U	17	CoveredToUtc	datetime2(0)	1	
 C	copilot	audit.CopilotCsvImport	U	18	DerivedRefreshedUtc	datetime2(0)	1	
 C	copilot	audit.CopilotCsvImport	U	2	FolderPath	nvarchar(1024)	0	
-C	copilot	audit.CopilotCsvImport	U	3	Operations	nvarchar(400)	0	
+C	copilot	audit.CopilotCsvImport	U	3	Operations	nvarchar(2000)	0	
 C	copilot	audit.CopilotCsvImport	U	4	StartedUtc	datetime2(0)	0	D
 C	copilot	audit.CopilotCsvImport	U	5	MergedUtc	datetime2(0)	1	
 C	copilot	audit.CopilotCsvImport	U	6	FilesLoaded	int	1	
@@ -170,7 +170,7 @@ C	copilot	audit.CopilotLoad	U	12	Searches	int	1
 C	copilot	audit.CopilotLoad	U	13	SearchesResubmitted	int	1	
 C	copilot	audit.CopilotLoad	U	2	RangeStartUtc	datetime2(0)	0	
 C	copilot	audit.CopilotLoad	U	3	RangeEndUtc	datetime2(0)	0	
-C	copilot	audit.CopilotLoad	U	4	Operations	nvarchar(400)	0	
+C	copilot	audit.CopilotLoad	U	4	Operations	nvarchar(2000)	0	
 C	copilot	audit.CopilotLoad	U	5	StartedUtc	datetime2(0)	0	D
 C	copilot	audit.CopilotLoad	U	6	DownloadedUtc	datetime2(0)	1	
 C	copilot	audit.CopilotLoad	U	7	MergedUtc	datetime2(0)	1	
@@ -1151,6 +1151,10 @@ C	copilot	dash.AuditLog	U	5	Page	nvarchar(200)	1
 C	copilot	dash.AuditLog	U	6	Scope	nvarchar(400)	1	
 C	copilot	dash.AuditLog	U	7	Detail	nvarchar(2000)	1	
 C	copilot	dash.AuditLog	U	8	ClientIp	varchar(64)	1	
+C	copilot	dash.AuditLog	U	9	Change	nvarchar(max)	1	
+C	copilot	dash.CacheGeneration	U	1	Id	tinyint	0	
+C	copilot	dash.CacheGeneration	U	2	N	bigint	0	
+C	copilot	dash.CacheGeneration	U	3	ChangedUtc	datetime2(0)	0	D
 C	copilot	dash.CopilotSuiteHolder	V	1	Upn	nvarchar(512)	0	
 C	copilot	dash.CopilotSuiteOnly	V	1	Upn	nvarchar(512)	0	
 C	copilot	dash.CostPrice	U	1	Item	varchar(64)	0	
@@ -1303,6 +1307,13 @@ C	copilot	dash.Person	U	6	Level	tinyint	1
 C	copilot	dash.Person	U	7	DirectReports	int	0	
 C	copilot	dash.Person	U	8	PeopleBelow	int	0	
 C	copilot	dash.Person	U	9	Sid	varchar(184)	1	
+C	copilot	dash.QueryCacheShared	U	1	KeyHash	binary(32)	0	
+C	copilot	dash.QueryCacheShared	U	2	StampHash	binary(32)	0	
+C	copilot	dash.QueryCacheShared	U	3	Payload	varbinary(max)	0	
+C	copilot	dash.QueryCacheShared	U	4	Bytes	int	0	
+C	copilot	dash.QueryCacheShared	U	5	CreatedUtc	datetime2(0)	0	D
+C	copilot	dash.QueryCacheShared	U	6	ExpiresUtc	datetime2(0)	0	
+C	copilot	dash.QueryCacheShared	U	7	Server	nvarchar(128)	1	
 C	copilot	dash.RefreshRun	U	1	RunId	int	0	I
 C	copilot	dash.RefreshRun	U	2	StartedUtc	datetime2(0)	0	
 C	copilot	dash.RefreshRun	U	3	EndedUtc	datetime2(0)	0	
@@ -1485,7 +1496,7 @@ C	license	audit.CopilotAuditStage	U	9	UserId	nvarchar(512)	1
 C	license	audit.CopilotBackfillRange	U	1	Id	tinyint	0	
 C	license	audit.CopilotBackfillRange	U	2	RangeStartUtc	datetime2(0)	0	
 C	license	audit.CopilotBackfillRange	U	3	RangeEndUtc	datetime2(0)	0	
-C	license	audit.CopilotBackfillRange	U	4	Operations	nvarchar(400)	0	
+C	license	audit.CopilotBackfillRange	U	4	Operations	nvarchar(2000)	0	
 C	license	audit.CopilotBackfillRange	U	5	StartedUtc	datetime2(0)	0	D
 C	license	audit.CopilotBackfillRange	U	6	CompletedUtc	datetime2(0)	1	
 C	license	audit.CopilotBackfillWindow	U	1	WindowId	bigint	0	I
@@ -1510,7 +1521,7 @@ C	license	audit.CopilotLoad	U	12	Searches	int	1
 C	license	audit.CopilotLoad	U	13	SearchesResubmitted	int	1	
 C	license	audit.CopilotLoad	U	2	RangeStartUtc	datetime2(0)	0	
 C	license	audit.CopilotLoad	U	3	RangeEndUtc	datetime2(0)	0	
-C	license	audit.CopilotLoad	U	4	Operations	nvarchar(400)	0	
+C	license	audit.CopilotLoad	U	4	Operations	nvarchar(2000)	0	
 C	license	audit.CopilotLoad	U	5	StartedUtc	datetime2(0)	0	D
 C	license	audit.CopilotLoad	U	6	DownloadedUtc	datetime2(0)	1	
 C	license	audit.CopilotLoad	U	7	MergedUtc	datetime2(0)	1	
@@ -1676,6 +1687,7 @@ G	copilot	CopilotInsightsApp	DELETE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseContract
 G	copilot	CopilotInsightsApp	DELETE	dash.NonHumanException
+G	copilot	CopilotInsightsApp	DELETE	dash.QueryCacheShared
 G	copilot	CopilotInsightsApp	DELETE	dash.Reservation
 G	copilot	CopilotInsightsApp	DELETE	dash.ReservationRate
 G	copilot	CopilotInsightsApp	DELETE	dash.RoleGrant
@@ -1715,6 +1727,7 @@ G	copilot	CopilotInsightsApp	INSERT	dash.LicenseAction
 G	copilot	CopilotInsightsApp	INSERT	dash.LicenseContract
 G	copilot	CopilotInsightsApp	INSERT	dash.NonHumanException
 G	copilot	CopilotInsightsApp	INSERT	dash.NotificationLog
+G	copilot	CopilotInsightsApp	INSERT	dash.QueryCacheShared
 G	copilot	CopilotInsightsApp	INSERT	dash.Reservation
 G	copilot	CopilotInsightsApp	INSERT	dash.ReservationRate
 G	copilot	CopilotInsightsApp	INSERT	dash.RoleGrant
@@ -1771,6 +1784,7 @@ G	copilot	CopilotInsightsApp	UPDATE	audit.AIAppResource
 G	copilot	CopilotInsightsApp	UPDATE	audit.SessionAppCategory
 G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAlias
 G	copilot	CopilotInsightsApp	UPDATE	dash.AlertState
+G	copilot	CopilotInsightsApp	UPDATE	dash.CacheGeneration
 G	copilot	CopilotInsightsApp	UPDATE	dash.CostPrice
 G	copilot	CopilotInsightsApp	UPDATE	dash.CostSuite
 G	copilot	CopilotInsightsApp	UPDATE	dash.CreditCommitment
@@ -1784,6 +1798,7 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseContract
 G	copilot	CopilotInsightsApp	UPDATE	dash.NonHumanException
+G	copilot	CopilotInsightsApp	UPDATE	dash.QueryCacheShared
 G	copilot	CopilotInsightsApp	UPDATE	dash.Reservation
 G	copilot	CopilotInsightsApp	UPDATE	dash.ReservationRate
 G	copilot	CopilotInsightsApp	UPDATE	dash.RoleGrant
@@ -1952,6 +1967,7 @@ O	copilot	dash.AgentInventoryRun	U
 O	copilot	dash.AgentUse	U
 O	copilot	dash.AlertState	U
 O	copilot	dash.AuditLog	U
+O	copilot	dash.CacheGeneration	U
 O	copilot	dash.CopilotSuiteHolder	V
 O	copilot	dash.CopilotSuiteOnly	V
 O	copilot	dash.CostPrice	U
@@ -1972,6 +1988,7 @@ O	copilot	dash.NonHumanException	U
 O	copilot	dash.NotificationLog	U
 O	copilot	dash.OrgClosure	U
 O	copilot	dash.Person	U
+O	copilot	dash.QueryCacheShared	U
 O	copilot	dash.RefreshRun	U
 O	copilot	dash.Reservation	U
 O	copilot	dash.ReservationRate	U

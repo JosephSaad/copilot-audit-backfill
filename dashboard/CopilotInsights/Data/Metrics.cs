@@ -56,9 +56,9 @@ public sealed class UnitRow
     public long MultiTurn { get; set; }
     public long Flags { get; set; }
     public long Labeled { get; set; }
-    /// <summary>Interactions grounded on the web search, in the period (2.5.0).</summary>
+    /// <summary>Interactions grounded on the web search, in the period.</summary>
     public long Web { get; set; }
-    /// <summary>Named after its manager; false in privacy mode, where it is named by department and is not a link (2.4.12).</summary>
+    /// <summary>Named after its manager; false in privacy mode, where it is named by department and is not a link.</summary>
     public bool Named { get; set; } = true;
     public bool Drillable => Named && !Unit.StartsWith('~') && Unit.Contains('@');
 }
@@ -108,7 +108,7 @@ ORDER BY e.Bucket;", c.Args());
 
     /// <summary>
     /// Adoption at each trend point: of the people holding a license at its end, how many used Copilot with it in the
-    /// 28 days up to then. A rolling four weeks, so a weekend or a holiday does not dip it (2.4.9; the share active on
+    /// 28 days up to then. A rolling four weeks, so a weekend or a holiday does not dip it (the share active on
     /// the day itself is use, not adoption).
     /// </summary>
     public async Task<Dictionary<DateTime, int>> AdoptedAsync(ReportContext c)
@@ -213,7 +213,7 @@ ORDER BY {(parent is null ? "u.Unit" : "CASE WHEN u.Unit = N'~direct' THEN 1 ELS
     }
 
     /// <summary>
-    /// Privacy mode (2.4.12): a unit is named after its manager, so it goes by the manager's department instead, numbered
+    /// Privacy mode: a unit is named after its manager, so it goes by the manager's department instead, numbered
     /// where two share one, in the order of their sign-ins so the same unit has the same name on every page. Its sign-in
     /// stays in Unit, for joining a unit's rows within a page, and it is not a link.
     /// </summary>
@@ -301,7 +301,7 @@ GROUP BY {expr};", c.Args());
     };
 
     /// <summary>
-    /// Where a level group sits in a list of levels (2.5.0): Level 2, 3 ... 9, 10, 11, 12 as numbers. Sorted as text,
+    /// Where a level group sits in a list of levels: Level 2, 3 ... 9, 10, 11, 12 as numbers. Sorted as text,
     /// Level 10 and Level 11 came before Level 2. A name that is no level, (not in the chart), comes after the last level.
     /// </summary>
     public static int LevelOrder(string name) =>

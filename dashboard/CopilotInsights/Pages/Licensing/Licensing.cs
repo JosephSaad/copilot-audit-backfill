@@ -13,7 +13,7 @@ public sealed class IndexModel(PageServices s, Metrics m, OpsData ops) : Insight
 
     protected override async Task BuildAsync()
     {
-        /* The reads below are independent, each on its own connection: started together (2.7.3). */
+        /* The reads below are independent, each on its own connection: started together. */
         var tTask = m.TotalsAsync(Ctx);
         var trTask = m.TrendAsync(Ctx);
         var unitsTask = m.UnitsAsync(Ctx);
@@ -23,7 +23,7 @@ SELECT ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)'), COUNT(*)
 FROM bi.FactLicensedDay AS ld {Ctx.Scope("ld.UserKey")}
 JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 WHERE ld.DateKey = @k1 GROUP BY ISNULL(NULLIF(du.CopilotSku, N''), N'(unknown SKU)') ORDER BY 2 DESC;", Ctx.Args());
-        /* Licenses held today without use in the inactive days: all of them, for the share in use; and (2.6.7) the
+        /* Licenses held today without use in the inactive days: all of them, for the share in use; and the
            candidates to reclaim, counted as Unused licenses lists them (licensed at least the inactive days ago, the
            protected levels left out), so that figure and the list it opens agree. */
         var idleTask = Db.QueryAsync<(int Idle, int Unused)>($@"
@@ -70,7 +70,7 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
             "From the license history. A person moved between two Copilot SKUs counts once each way.", "half"));
 
         var skus = await skusTask;
-        var names = await namesTask;   // 2.7.1: product names, not part numbers
+        var names = await namesTask;   // Product names, not part numbers
         Panels.Add(new("Licenses by product", Chart.Bars(skus.Select(k => new Bar(names.Name(k.Sku), k.N, Note: names.Knows(k.Sku) ? k.Sku : null)).ToList(), Fmt.Count, "Licenses by product"),
             "The Copilot license each holder has, by product; its part number on hover. Name a product shown by its part number in Admin › Value names.", "half"));
 
@@ -84,7 +84,7 @@ GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
     }
 
     /// <summary>
-    /// 2.7.1: from the add-on licenses bought to the licenses held, step by step. Three pages counted licenses three ways
+    /// From the add-on licenses bought to the licenses held, step by step. Three pages counted licenses three ways
     /// (License pool: assigned add-on seats; this page and Chargeback: everyone holding Copilot, a suite's included;
     /// Copilot reservations: held less those a suite covers), with nothing to show how one becomes the other.
     /// </summary>

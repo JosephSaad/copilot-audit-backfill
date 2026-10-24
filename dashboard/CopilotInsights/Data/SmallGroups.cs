@@ -1,7 +1,7 @@
 namespace CopilotInsights.Data;
 
 /// <summary>
-/// Groups smaller than the minimum group size, kept off a breakdown on their own (2.4.12): one rule for every page,
+/// Groups smaller than the minimum group size, kept off a breakdown on their own: one rule for every page,
 /// digest and API call. The groups left over must together reach the minimum too, or they are one small group under
 /// another name: "Smaller groups, 1 person" was the head of the organization, and a list that left a small group out
 /// beside the total gave it back by subtraction. So when the small groups together are still under the minimum, the

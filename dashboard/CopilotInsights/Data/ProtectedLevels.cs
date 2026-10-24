@@ -2,7 +2,7 @@ namespace CopilotInsights.Data;
 
 /// <summary>
 /// Levels 1 to N of the organization (the top, those who report to the top, and so on: dash.Person.Level) are never
-/// on a list to revoke, reclaim, move to pay-as-you-go, train or coach (2.4.6). N is the ProtectedLevels setting
+/// on a list to revoke, reclaim, move to pay-as-you-go, train or coach. N is the ProtectedLevels setting
 /// (Admin › Access), 5 unless set; 0 protects nobody. Read in SQL, so every page, export, count, digest and API call
 /// that names or counts those lists applies it the same way. Lists of accounts nobody can use (disabled, departed,
 /// leaving, non-human) are not recommendations and keep everyone.
@@ -18,7 +18,7 @@ public static class ProtectedLevels
         $"ISNULL((SELECT TRY_CAST(ps.Value AS INT) FROM dash.Setting AS ps WHERE ps.Name = N'{Setting}'), {Default}))";
 
     /// <summary>
-    /// The same rule as a join, for a query that counts inside an aggregate, where SQL Server allows no subquery (2.4.7):
+    /// The same rule as a join, for a query that counts inside an aggregate, where SQL Server allows no subquery:
     /// LEFT JOIN this, and a person is not protected when <paramref name="alias"/>.Upn IS NULL.
     /// </summary>
     public static string Join(string alias, string upn) =>

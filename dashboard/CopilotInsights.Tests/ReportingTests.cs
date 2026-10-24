@@ -136,7 +136,7 @@ public class BrowserTitleTests
         Assert.Equal(expected, InsightsPage.BrowserTitle(title));
 }
 
-/// <summary>Column headers sort a table (2.4.5): on the server for a paged list, in the page for the rest.</summary>
+/// <summary>Column headers sort a table: on the server for a paged list, in the page for the rest.</summary>
 public class ColumnSortTests
 {
     static readonly Dictionary<string, string> Sorts = new() { ["name"] = "du.DisplayName", ["idle"] = "x.LastKey, x.DisplayName", ["most"] = "SUM(CASE WHEN a = 1 THEN 1 ELSE 0 END) DESC, du.DisplayName ASC" };
@@ -234,7 +234,7 @@ public class ColumnSortTests
     }
 }
 
-/// <summary>Workforce › By level in the organization lists the levels as numbers (2.5.0).</summary>
+/// <summary>Workforce › By level in the organization lists the levels as numbers.</summary>
 public class LevelOrderTests
 {
     [Fact]

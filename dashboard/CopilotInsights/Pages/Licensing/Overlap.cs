@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// People holding the Copilot license together with another Copilot-family SKU (2.4.3): a second Copilot
+/// People holding the Copilot license together with another Copilot-family SKU: a second Copilot
 /// SKU, Copilot Studio (or its trial), Copilot for Sales or Service and the like, from every SKU the
 /// license tool now keeps per person (audit.UserLicenseSku). Each pairing is one to review, and to drop
 /// where the Microsoft 365 Copilot license already covers the use.
@@ -23,7 +23,7 @@ public sealed class OverlapModel(PageServices s) : InsightsPage(s)
        VIRTUAL_AGENT and CCIBOTS are Copilot Studio's names (it was Power Virtual Agents), trial included. */
     internal static readonly string[] Family = ["%COPILOT%", "%VIRTUAL[_]AGENT%", "%CCIBOTS%"];
 
-    /* Licenses that cost nothing a user (2.4.5), left out as if not held: removing one saves nothing. The Copilot
+    /* Licenses that cost nothing a user, left out as if not held: removing one saves nothing. The Copilot
        Studio user license (VIRTUAL_AGENT_USL, and its GCC and GCC High forms) is free, its cost being the tenant's
        Copilot Credits; viral sign-ups and trials are free by definition. */
     internal static readonly string[] NoCost = ["VIRTUAL[_]AGENT[_]USL%", "%VIRAL%", "%TRIAL%"];
@@ -75,7 +75,7 @@ h AS (SELECT du.UserKey, du.DisplayName, du.UserPrincipalName, du.Department
 o AS (SELECT h.UserKey, held.SkuId, held.SkuPartNumber FROM h JOIN held ON held.UserPrincipalName = h.UserPrincipalName
       WHERE held.Other = 1 OR (held.IsCopilot = 1 AND (SELECT COUNT(*) FROM held AS c WHERE c.UserPrincipalName = h.UserPrincipalName AND c.IsCopilot = 1) > 1))";
 
-        /* The three reads share nothing but their arguments: started together (2.7.3). */
+        /* The three reads share nothing but their arguments: started together. */
         var bySkuTask = Db.QueryAsync<(Guid SkuId, string Part, int People, int Bought, int Assigned)>($@"{cte}
 SELECT o.SkuId, o.SkuPartNumber, COUNT(*), MAX(ls.Enabled + ls.Warning), MAX(ls.Consumed)
 FROM o JOIN audit.LicenseSku AS ls ON ls.SkuId = o.SkuId
@@ -100,7 +100,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
         Kpis.Add(new("People with an overlap", Num(people), "a Copilot license and another Copilot-family one", people > 0 ? "warn" : null));
         Kpis.Add(new("Overlapping SKUs", Num(bySku.Count), "licenses held beside Copilot that may repeat it"));
 
-        var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, not part numbers
+        var names = await SkuNames.LoadAsync(Db);   // Product names, not part numbers
         var st = new Table { Headers = ["License held as well", "People", "Seats bought", "Seats assigned"], Numeric = new HashSet<int> { 1, 2, 3 }, EmptyText = "No overlap." };
         foreach (var b in bySku)
             st.Rows.Add([new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: $"sku={b.SkuId}"))}\"{(b.SkuId == sku ? " class=\"on\"" : "")}>{WebUtility.HtmlEncode(names.Name(b.Part))}</a>"),

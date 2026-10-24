@@ -17,7 +17,7 @@ namespace CopilotInsights.Pages.Adoption
         protected override async Task BuildAsync()
         {
             /* A target for part of the organization is shown to people who may see that part: the rule is in TargetsAsync
-               (2.4.12), which the Board pack, the data API and the digests share; it used to be here alone. */
+               which the Board pack, the data API and the digests share; it used to be here alone. */
             var mine = await reports.TargetsAsync(Ctx);
             if (mine.Count == 0)
             {
@@ -212,7 +212,7 @@ namespace CopilotInsights.Pages.Compliance
 
         protected override async Task BuildAsync()
         {
-            /* People per site on their own, then the rest per site and label (2.4.2): a distinct count
+            /* People per site on their own, then the rest per site and label: a distinct count
                next to the other totals in one statement took 11 seconds for a year of 70 million reads. */
             var rows = await Db.QueryAsync<Row>($@"
 SELECT f.SiteKey, COUNT(DISTINCT f.UserKey) AS People
@@ -243,7 +243,7 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
             Kpis.Add(new("Of those, mostly unlabeled", Num(wide.Count(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1)), "under 10% of what was read carried a label",
                 wide.Any(r => r.Reads > 0 && r.Labeled < r.Reads * 0.1) ? "warn" : null));
             Kpis.Add(new("With blocked content", Num(rows.Count(r => r.Blocked > 0)), "sites where Copilot was blocked from some of what it tried to read"));
-            /* A personal OneDrive's address names its owner: in privacy mode it is not shown (2.4.12). */
+            /* A personal OneDrive's address names its owner: in privacy mode it is not shown. */
             string Site(Row r) => r.IsPersonal && PrivacyMode ? "OneDrive (personal site)" : r.Site;
             Panels.Add(new("The widest-reaching sites", Chart.Bars(wide.Take(15).Select(r => new Bar(Short(Site(r)), r.People,
                 Note: $"{r.Reads:#,0} reads, {Pct(Ratio(r.Labeled, r.Reads))} labeled{(r.TopLabel is null ? "" : $", up to {r.TopLabel}")}", Slot: r.Labeled < r.Reads * 0.1 ? 5 : 1)).ToList(),
@@ -265,7 +265,7 @@ ORDER BY s.People DESC, s.Reads DESC;", Ctx.Args());
 namespace CopilotInsights.Pages.Agents
 {
     /// <summary>
-    /// Every current agent, from the agent workbook (2.5.6), with its use in the period and a flag on those no one used.
+    /// Every current agent, from the agent workbook, with its use in the period and a flag on those no one used.
     /// Without a workbook, every agent seen in the audit log: when first and last used, by how many people, named and owned or not.
     /// </summary>
     public sealed class InventoryModel(PageServices s) : AgentListPage(s)
@@ -353,9 +353,9 @@ ORDER BY a.FirstSeenUtc DESC;", Ctx.Args());
             var bySource = rows.GroupBy(r => r.AgentSource).Select(g => new Bar(g.Key, g.Count(), Note: $"{g.Count(r => r.Interactions > 0)} used in the period")).OrderByDescending(b => b.Value).ToList();
             Panels.Add(new("By where they were built", Chart.Bars(bySource, Fmt.Count, "Agents by source"), null, "half"));
             var tb = new Table { Headers = ["Agent", "Built in", "Owner", "First used", "Last used", "People in the period", "Interactions in the period"], Numeric = new HashSet<int> { 5, 6 } };
-            var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: owners by name
+            var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // Owners by name
             foreach (var r in rows)
-                /* 2.7.5: the name opens Agent detail, as on every other list of agents. */
+                /* The name opens Agent detail, as on every other list of agents. */
                 tb.Rows.Add([new Link(r.AgentName + (r.Named ? "" : " (unnamed)"), Ctx.Url("/agents/detail", extra: $"agent={r.AgentKey}")), r.AgentSource, ownerName(r.Owner), r.FirstSeenUtc.Date, r.LastUsed,
                              r.People == 0 ? 0 : AtLeastMin(r.People), r.Interactions]);
             CsvTable = tb;
@@ -487,7 +487,7 @@ WITH scored AS
     WHERE p.Days > 0 AND u.AccountEnabled = 1
 )
 SELECT * FROM scored WHERE Rank <= @per ORDER BY Dept, Rank;", Ctx.Args(new { per }));
-            /* 2.5.8: one department's candidates, or every department's (the default). */
+            /* One department's candidates, or every department's (the default). */
             var (dept, picker) = DepartmentFilter(rows.Select(r => r.Dept));
             Panels.Add(new("Choose a department", picker));
             if (dept is not null) rows = rows.Where(r => r.Dept == dept).ToList();

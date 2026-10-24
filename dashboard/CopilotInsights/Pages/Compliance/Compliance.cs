@@ -23,9 +23,9 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        /* The reads are independent: started together, awaited where used (2.7.4). */
+        /* The reads are independent: started together, awaited where used. */
         var trTask = m.TrendAsync(Ctx);
-        /* 2.7.3: counted as Access to labeled content lists them (labeled content, or blocked from content), so the figure
+        /* Counted as Access to labeled content lists them (labeled content, or blocked from content), so the figure
            and the list it opens agree; the daily totals' count of labeled content alone left out those only blocked. */
         var peopleTask = Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM (
@@ -34,7 +34,7 @@ SELECT COUNT(*) FROM (
     GROUP BY rd.UserKey
     HAVING SUM(CASE WHEN rd.Kind = 'Label' THEN rd.Interactions ELSE 0 END) > 0 OR SUM(CASE WHEN rd.Kind = 'Blocked' THEN rd.Interactions ELSE 0 END) > 0) AS x
 JOIN bi.DimUser AS du ON du.UserKey = x.UserKey;", Ctx.Args());
-        /* Counted per label id first, then named (2.7.4): grouping the daily rows on the name worked it out for each. */
+        /* Counted per label id first, then named: grouping the daily rows on the name worked it out for each. */
         var labelsTask = Db.QueryAsync<(DateTime Bucket, string Label, int Rank, int N)>($@"
 WITH g AS (SELECT {Ctx.BucketSql("d")} AS Bucket, rd.Item, SUM(rd.Interactions) AS N
            FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
@@ -50,7 +50,7 @@ SELECT rd.Kind, rd.Item, SUM(rd.Interactions), COUNT(DISTINCT rd.UserKey)
 FROM dash.ResourceDay AS rd {Ctx.Scope("rd.UserKey")}
 WHERE rd.Kind IN ('Site', 'Blocked') AND rd.DateKey BETWEEN @k0 AND @k1
 GROUP BY rd.Kind, rd.Item;", Ctx.Args());
-        /* Counted per type key, then named (2.4.2). */
+        /* Counted per type key, then named. */
         var typesTask = Db.QueryAsync<(string Type, long N, long Labeled, long Blocked)>($@"
 WITH g AS (SELECT f.ResourceTypeKey, COUNT_BIG(*) AS N, SUM(CASE WHEN f.SensitivityLabelKey <> 1 THEN 1 ELSE 0 END) AS L, SUM(CAST(f.IsBlocked AS INT)) AS B
            FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}
@@ -66,7 +66,7 @@ GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
         long labeled = tr.Sum(w => w.Labeled), all = tr.Sum(w => w.Interactions), blocked = tr.Sum(w => w.Blocked);
         var people = await peopleTask;
         Kpis.Add(new("Interactions with labeled content", Num(labeled), $"{Pct(Ratio(labeled, all))} of all interactions"));
-        /* 2.7.3: each figure opens a page with the same number. Access to labeled content lists these people; the blocked
+        /* Each figure opens a page with the same number. Access to labeled content lists these people; the blocked
            count is Security's Blocked resources (the list of people counted people, not blocked interactions). */
         Kpis.Add(new("People", Num(people), "whose Copilot use touched labeled content, or was blocked from content", Href: Open("/compliance/access")));
         Kpis.Add(new("Blocked from content", Num(blocked), "interactions where access was blocked or restricted", Href: Open("/security")));
@@ -101,7 +101,7 @@ GROUP BY t.ResourceType, vn.Name;", Ctx.Args());
             Chart.Bars(types.OrderByDescending(t => t.N).Take(12).Select(t => new Bar(t.Type, t.N, Note: $"{t.Labeled:#,0} labeled, {t.Blocked:#,0} blocked")).ToList(), Fmt.Count, "Accessed resources by type"),
             "Every resource an interaction read: files, mail, Teams messages, web results. Hover for how many were labeled or blocked."));
 
-        /* 2.7.0: the organization's data loss prevention matches, where the activity database loads the DLP record types:
+        /* The organization's data loss prevention matches, where the activity database loads the DLP record types:
            by policy and over time, for the part of the organization shown (matches that name no one count for the whole
            organization only). Counts, no file or message named. */
         if (await dlpTask == 1)

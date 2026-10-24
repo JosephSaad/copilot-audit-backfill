@@ -4,7 +4,7 @@ using CopilotInsights.Infrastructure;
 namespace CopilotInsights.Data;
 
 /// <summary>
-/// 2.7.2: the paths a Power Platform environment's Copilot Credits take, as a two-path operating model defines them: a
+/// The paths a Power Platform environment's Copilot Credits take, as a two-path operating model defines them: a
 /// line of business's Productivity or Business Application path, charged to it; Enterprise Shared, funded centrally and
 /// never charged to a line of business; and Innovation, a sponsor's where it names one. Unmapped: no route in effect.
 /// </summary>

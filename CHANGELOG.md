@@ -40,6 +40,8 @@ the scripts. Old addresses of the merged pages open the page that took them.
 - **The full reporting reference is attached to each release,** with both guides as Word documents
   (`REPORTING-REFERENCE.md`, `REPORTING-REFERENCE.docx`, `REPORTING.docx`). The repository keeps the reference's guide
   only, 1,459 lines where it held 18,256: Parts B and C were copies of `docs/SCHEMA.md` and of the scripts.
+- **Code comments no longer carry release numbers** ("2.4.12: ", "(2.7.4)"): 974 comments in 172 files keep their
+  explanation and drop the tag; CHANGELOG.md and the guides say when each thing came.
 
 ### Added
 - **One report cache for every web server.** Each server keeps results in its own memory and, behind it, in the

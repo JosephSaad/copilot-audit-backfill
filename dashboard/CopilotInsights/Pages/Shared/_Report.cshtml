@@ -44,7 +44,7 @@
 
 @if (Model.Denied is not null)
 {
-    @* What was refused and why, who to ask, and a way on (2.4.10: it stopped at the reason). *@
+    @* What was refused and why, who to ask, and a way on (it stopped at the reason). *@
     <div class="denied"><b>Not available to you.</b> @Model.Denied
         @if (Model.Administrators.Count > 0)
         {
@@ -57,7 +57,7 @@
 
 @if (Model.UsesFilters && Model.UsesTeam && c.OrgNote is not null)
 {
-    @* The address asked for a part of the organization that is not the one shown (2.4.10): say so, above the figures. *@
+    @* The address asked for a part of the organization that is not the one shown: say so, above the figures. *@
     <div class="notice" role="status">@c.OrgNote</div>
 }
 
@@ -71,7 +71,7 @@
 {
     <form class="filters" method="get" action="@path">
         @* A page with a window of its own (today's licenses, the last 30 days whatever the period) has no period to choose
-           (2.4.10): the box is left out, and the page says what it covers instead. The period chosen elsewhere is kept. *@
+           the box is left out, and the page says what it covers instead. The period chosen elsewhere is kept. *@
         @if (showPeriodBox)
         {
             <label>Period
@@ -95,10 +95,10 @@
         {
             <input type="hidden" name="@k" value="@Context.Request.Query[k]" />
         }
-        @* A page the team does not change (2.5.0) shows no way down the organization: the links and the box would do nothing. *@
+        @* A page the team does not change shows no way down the organization: the links and the box would do nothing. *@
         @if (Model.UsesTeam)
         {
-            @* Whose figures the page shows (2.4.10: the names stood with no word saying what they were): the path down the
+            @* Whose figures the page shows (the names stood with no word saying what they were): the path down the
                organization, each step a link back up, the last one with how many people it covers, then the teams one step further in. *@
             <div class="crumbs" aria-label="Part of the organization shown">
                 <span class="lbl">Showing</span>
@@ -152,7 +152,7 @@
                 <div class="klabel">@InfoTip.After(k.Label, guide is not null && !figure ? k.Note : null)</div>
                 @if (k.Href is not null)
                 {
-                    @* The figure leads to the report with its detail (2.6.6). *@
+                    @* The figure leads to the report with its detail. *@
                     <a class="kvalue klink" href="@k.Href" title="The detail behind this figure">@k.Value<span class="kgo" aria-hidden="true"> ›</span></a>
                 }
                 else
@@ -165,7 +165,7 @@
                 }
                 @if (k.Why is { } why)
                 {
-                    @* 2.6.9: how the figure is worked out, and the assumptions it rests on; "Change it" for whoever may. *@
+                    @* How the figure is worked out, and the assumptions it rests on; "Change it" for whoever may. *@
                     <details class="kwhy">
                         <summary>How it is worked out</summary>
                         <p>@why.Formula</p>

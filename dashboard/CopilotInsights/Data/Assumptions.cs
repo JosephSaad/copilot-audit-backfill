@@ -7,7 +7,7 @@ namespace CopilotInsights.Data;
 public enum AssumptionKind { Setting, Price, Suite, Rate, Minutes }
 
 /// <summary>
-/// One input a figure is worked out from (2.6.9): what it is, where an administrator changes it (the page and the field,
+/// One input a figure is worked out from: what it is, where an administrator changes it (the page and the field,
 /// which <see cref="Assumptions.EditHref"/> opens at), what the installer set, and the figures that use it.
 /// </summary>
 public sealed record AssumptionDef(string Key, string Label, string Group, string Page, string Field, string UsedBy,
@@ -21,7 +21,7 @@ public sealed record AssumptionValue(AssumptionDef Def, string? Value, string? C
 }
 
 /// <summary>
-/// The assumptions register (2.6.9): every input a cost, saving, value or estimate is worked out from, in one list, with
+/// The assumptions register: every input a cost, saving, value or estimate is worked out from, in one list, with
 /// the page an administrator changes it on. The inputs stay where they were (Admin › Access, Admin › Targets and
 /// assumptions, Leadership › Copilot reservations); this is where they are found, and what a figure's "how it is worked
 /// out" names. The price list's and the suites' rows are added from the database, one assumption each.
@@ -76,7 +76,7 @@ public static class Assumptions
 
     /// <summary>
     /// A suite's price as an assumption. A suite is sold under several SKUs, each priced on its own (E5 without audio
-    /// conferencing, the no-Teams editions), so the label names the SKU (2.7.5): by the suite alone, E5 read as one row three times.
+    /// conferencing, the no-Teams editions), so the label names the SKU: by the suite alone, E5 read as one row three times.
     /// </summary>
     public static AssumptionDef Suite(string pattern, string suite) =>
         new("Suite:" + pattern, $"{suite} ({SkuShown(pattern)}), a user a month", "Suites", Targets, "price|" + pattern, "Suite fit, Costs and savings (suites)", null, AssumptionKind.Suite);
@@ -85,7 +85,7 @@ public static class Assumptions
     public static string SkuShown(string pattern) => pattern.Replace("[_]", "_").Replace("%", "*");
 
     /// <summary>
-    /// What disagrees (2.6.9): the Copilot license's price as Access sets it against the reservation rate in force and
+    /// What disagrees: the Copilot license's price as Access sets it against the reservation rate in force and
     /// the contracts' price on Budget and renewal. Each line says both values and where each is set. Pure, for the tests.
     /// </summary>
     public static IReadOnlyList<string> Conflicts(decimal? licensePrice, decimal? rate, DateTime? rateFrom, decimal? contractPrice, string cur)

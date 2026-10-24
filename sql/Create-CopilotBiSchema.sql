@@ -118,7 +118,7 @@ BEGIN
     INSERT INTO bi.DimUser (UserPrincipalName) VALUES (N'(unknown user)');
 END;
 
-/* 2.0.0: user attributes come from on-premises AD (audit.UserDirectory), which
+/* User attributes come from on-premises AD (audit.UserDirectory), which
    adds the employee type, manager name and org chain; Entra's Member/Guest
    UserType goes. Existing tables are altered in place. */
 IF OBJECT_ID(N'bi.DimUser', N'U') IS NOT NULL
@@ -164,7 +164,7 @@ END;
     MicrosoftAgent.<name>.<...> for one of Microsoft's. Some records carry an
     AgentId as well and some of the same agent's do not (seen on two live
     tenants), so the agent is the one AppIdentity names, and AgentId only where
-    AppIdentity names none (2.4.11; before, AgentId came first, which no real
+    AppIdentity names none (before, AgentId came first, which no real
     record had). AgentSource says which: bi.fnAgentIdentity, below, is the rule.
 
     AgentName is a label, not the identity: the friendly name the audit log
@@ -196,12 +196,12 @@ BEGIN
     EXEC (N'UPDATE bi.DimAgent SET AgentSource = N''(no agent)'' WHERE AgentId = N''(none)'';');
 END;
 
-/* 2.4.11: whether AgentName is the audit log's own name for the agent (1), or one read from its id (0). */
+/* Whether AgentName is the audit log's own name for the agent (1), or one read from its id (0). */
 IF COL_LENGTH(N'bi.DimAgent', N'NamedInAudit') IS NULL
     ALTER TABLE bi.DimAgent ADD NamedInAudit BIT NOT NULL CONSTRAINT DF_DimAgent_NamedInAudit DEFAULT (0);
 
 /*
-    2.6.3: one agent, two identities. The audit log names some agents two ways: a Copilot Studio agent made in
+    One agent, two identities. The audit log names some agents two ways: a Copilot Studio agent made in
     Microsoft 365 Copilot is Copilot.Studio.Default-<tenant>-<its id> on some records and
     Copilot.Studio.Declarative.T_<its title id> on others, and nothing in a record says they are one agent. The agent
     workbook does: one row holds both ids. tools/Import-AgentWorkbook.ps1 sets MergedIntoKey on the row of the second
@@ -315,7 +315,7 @@ BEGIN
     INSERT INTO bi.DimSensitivityLabel (LabelId) VALUES (NULL);
 END;
 
-/* What a resource Copilot read was, as a person would name it (2.4.6): a file's extension (docx, xlsx, pptx, csv ...)
+/* What a resource Copilot read was, as a person would name it: a file's extension (docx, xlsx, pptx, csv ...)
    from AccessedResources[].Name, and for anything else its Type (EmailMessage, TeamsMessage, StreamVideo, whiteboard ...). */
 IF OBJECT_ID(N'bi.DimFileType', N'U') IS NULL
 BEGIN
@@ -348,7 +348,7 @@ BEGIN
     );
     INSERT INTO bi.DimResourceAction (ResourceAction) VALUES (N'(not reported)');
 END;
-/* 2.4.1: 200 was narrower than the flattened [Action] (450), so a longer action failed the refresh. Widened in place. */
+/* 200 was narrower than the flattened [Action] (450), so a longer action failed the refresh. Widened in place. */
 IF COL_LENGTH(N'bi.DimResourceAction', N'ResourceAction') < 900
 BEGIN
     ALTER TABLE bi.DimResourceAction DROP CONSTRAINT UQ_DimResourceAction;
@@ -409,14 +409,14 @@ BEGIN
 END;
 
 /*
-    PremiumUse and UseCaseKey (2.4.0), set by bi.usp_RefreshBi and nowhere else: every other place
+    PremiumUse and UseCaseKey, set by bi.usp_RefreshBi and nowhere else: every other place
     (the dashboard's rollups and pages, the bi views, Power BI) reads these columns, so each rule
     has one definition.
       PremiumUse  a licensed interaction that needed the Premium license (see UseKind, below).
       UseCaseKey  AppKey x 4 + web search x 2 + agent: the key into bi.UseCases.
     An app's category changes PremiumUse, so set categories before a build, or rebuild bi after.
 
-    UseKind (2.4.8): what the record itself says about where Copilot ran, from its AppIdentity, and
+    UseKind: what the record itself says about where Copilot ran, from its AppIdentity, and
     whether it read work content. NULL on a row written before 2.4.8 (the installer rebuilds bi once).
       0  not licensed use: web Copilot Chat (Copilot.M365Copilot.WebChat) that read no work content,
          or a Copilot Studio agent (Copilot.Studio.*), which can be metered without a license
@@ -482,7 +482,7 @@ BEGIN
     );
     CREATE CLUSTERED COLUMNSTORE INDEX CCI_FactAccessedResource ON bi.FactAccessedResource;
 END;
-/* The file type (2.4.6): rows loaded before it are '(not reported)' until the installer refreshes bi in full once. */
+/* The file type: rows loaded before it are '(not reported)' until the installer refreshes bi in full once. */
 IF COL_LENGTH(N'bi.FactAccessedResource', N'FileTypeKey') IS NULL
     ALTER TABLE bi.FactAccessedResource ADD FileTypeKey INT NOT NULL CONSTRAINT DF_FactAccessedResource_FileType DEFAULT (1);
 
@@ -546,7 +546,7 @@ IF OBJECT_ID(N'bi.RefreshRun', N'U') IS NULL
     );
 
 /*
-    2.4.9: a full rebuild empties bi.FactInteraction and fills it month by month, outside a transaction (it is
+    A full rebuild empties bi.FactInteraction and fills it month by month, outside a transaction (it is
     too large for one). Stopped part way, it leaves the months it did not reach missing, and nothing said so.
     bi.usp_RefreshBi puts a row here before it empties the fact and takes it out when it has finished; while
     a row is here, every refresh is a full one.
@@ -563,17 +563,17 @@ IF COL_LENGTH(N'bi.RefreshRun', N'SessionRunId') IS NULL
 IF COL_LENGTH(N'bi.RefreshRun', N'AccessedResourceRows') IS NULL
     ALTER TABLE bi.RefreshRun ADD AccessedResourceRows BIGINT NULL;
 
-/* 2.4.0: the first day with an interaction in an app whose category this run changed (NULL: none).
+/* The first day with an interaction in an app whose category this run changed (NULL: none).
    Premium use and the dashboard's Copilot Chat counts depend on the category, so the dashboard's
    next refresh rolls up again from that day. */
 IF COL_LENGTH(N'bi.RefreshRun', N'RecategorizedFromDateKey') IS NULL
     ALTER TABLE bi.RefreshRun ADD RecategorizedFromDateKey INT NULL;
 
 /*
-    PremiumUse (2.3.0; the rule is bi.FactInteraction.UseKind's since 2.4.8): a licensed interaction that needed the Premium license - Copilot inside Word, Excel,
+    PremiumUse (the rule is bi.FactInteraction.UseKind's since 2.4.8): a licensed interaction that needed the Premium license - Copilot inside Word, Excel,
     PowerPoint, Outlook or Teams (Copilot Studio agents can be metered without one), or Copilot Chat reading
     work content (files, mail, sites) rather than the web. The same rule as dash.UserDay.PremiumUse, which the
-    dashboard's train and revoke recommendations use. UseCaseKey (2.3.0): the app, whether it searched the web,
+    dashboard's train and revoke recommendations use. UseCaseKey: the app, whether it searched the web,
     and whether an agent answered, as one key into bi.UseCases (the dashboard's use-case rules).
 */
 EXEC (N'CREATE OR ALTER VIEW bi.Interactions AS
@@ -615,7 +615,7 @@ SELECT SessionKey, SessionStart, SessionEnd, DateKey, UserKey, AppKey, LicenseSt
 FROM bi.FactSession;');
 
 /* Copilot Studio authoring: one row per create, publish, share, update, delete or component
-   change, copied whole from every license database's audit.AgentEvent at each refresh (2.3.0). */
+   change, copied whole from every license database's audit.AgentEvent at each refresh. */
 IF OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NULL
     CREATE TABLE bi.FactAgentEvent
     (
@@ -686,7 +686,7 @@ CROSS JOIN (SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM audit.PipelineSetting WH
 EXEC (N'CREATE OR ALTER VIEW bi.Apps AS
 SELECT AppKey, App, AppCategory FROM bi.DimApp;');
 
-/* 2.6.3: an agent the audit log names two ways is listed once, under the identity its interactions are kept with. */
+/* An agent the audit log names two ways is listed once, under the identity its interactions are kept with. */
 EXEC (N'CREATE OR ALTER VIEW bi.Agents AS
 SELECT AgentKey, AgentId, AgentName, AgentSource, NamedInAudit FROM bi.DimAgent WHERE MergedIntoKey IS NULL;');
 

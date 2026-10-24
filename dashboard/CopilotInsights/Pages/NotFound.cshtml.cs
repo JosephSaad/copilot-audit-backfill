@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages;
 
 /// <summary>
-/// What an address with no page behind it is answered with (2.4.10): a mistyped address, or a bookmark to a page since
+/// What an address with no page behind it is answered with: a mistyped address, or a bookmark to a page since
 /// moved, got an empty response, which a browser shows as a blank page. Program.cs sends such a request here with the
 /// address that was asked for; the page says so, and offers the reports nearest to it among those this person can open.
 /// </summary>

@@ -47,14 +47,14 @@ public sealed class TenantAccessor
     public const string Cookie = "insights-tenant";
 
     /// <summary>
-    /// What a form's address carries so it posts to the tenant its page showed (2.4.12): "tenant=Name" with several
+    /// What a form's address carries so it posts to the tenant its page showed: "tenant=Name" with several
     /// tenants, else null.
     /// </summary>
     public string? FormQuery => Many ? "tenant=" + Uri.EscapeDataString(Current.Name) : null;
 
     /// <summary>
     /// Per request: ?tenant= (remembered in a cookie) or the cookie, else the first tenant. A form names its tenant
-    /// (2.4.12): a post goes to the tenant in its address, or nowhere, and never changes the cookie. Before, it went to
+    /// a post goes to the tenant in its address, or nowhere, and never changes the cookie. Before, it went to
     /// whichever tenant the cookie named when it was sent, so with tenant B chosen in another tab, Remove on tenant A's
     /// Admin › Access page removed B's grant with that number.
     /// </summary>

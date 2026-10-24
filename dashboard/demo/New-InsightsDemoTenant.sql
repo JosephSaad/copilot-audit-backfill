@@ -1,5 +1,5 @@
 /*
-    Copilot Insights demo: the rest of a real tenant (2.6.6), on top of New-InsightsDemoData.sql and before the
+    Copilot Insights demo: the rest of a real tenant, on top of New-InsightsDemoData.sql and before the
     sessions and the bi schema are built from it. Deterministic, relative to today, like the rest of the demo.
 
       - Eight service, shared, test and room accounts holding Copilot licenses: five synced from AD with no manager,

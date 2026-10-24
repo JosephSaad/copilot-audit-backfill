@@ -96,11 +96,11 @@ param(
     [switch] $Dashboard,
     [string] $OrgTopUpn,
     [switch] $Rebuild,
-    # The license records were all shredded by an earlier release, in a run that finished: do not shred them once more (2.5.4).
+    # The license records were all shredded by an earlier release, in a run that finished: do not shred them once more.
     [switch] $LicenseEventsShredded,
     [string] $ReportingTimeZone,
     [switch] $SkipLicenseDatabase,
-    # 2.6.9: the activity database (AI apps outside Copilot, Power BI and Power Apps), where there is one. None by default.
+    # The activity database (AI apps outside Copilot, Power BI and Power Apps), where there is one. None by default.
     [string] $ActivityDatabase,
     # The account the nightly job runs as (DOMAIN\gmsa$ or DOMAIN\user): given a login and db_owner in both databases.
     [string] $ServiceAccount,
@@ -164,7 +164,7 @@ function Get-Count([string] $Catalog, [string] $Table) {
 
 function Enter-RunLock([string] $Catalog) {
     <#
-        Holds the database for this run alone (2.4.12), as the nightly pipeline and the maintenance rebuilds do: an
+        Holds the database for this run alone, as the nightly pipeline and the maintenance rebuilds do: an
         exclusive application lock, on a connection of its own kept open to the end of the build. Nothing kept them
         apart, and a nightly that started during an upgrade's full bi rebuild rebuilt the fact under it, counting
         interactions twice. As the pipeline's history build step, the pipeline holds it already (CopilotAuditRunLock).
@@ -208,7 +208,7 @@ foreach ($db in $dbs) {
     elseif ($exists) { Write-Done "$db exists (level $level)" }
 }
 
-# 2.7.3: each database it creates runs its queries at the server's logical processors less two (at least 1); -MaxDop
+# Each database it creates runs its queries at the server's logical processors less two (at least 1); -MaxDop
 # sets it on every database it installs instead, and 0 leaves them all as they are.
 if ($MaxDop -ne 0) {
     $targets = @(if ($MaxDop -gt 0) { $dbs } else { $created })
@@ -248,7 +248,7 @@ END;
     Write-Done "$ServiceAccount has a login and db_owner in $($dbs -join ' and ')"
 }
 
-# One run at a time (2.4.12): held from here to the end of step 3, and let go in the finally there.
+# One run at a time: held from here to the end of step 3, and let go in the finally there.
 $runLock = Enter-RunLock $Database
 try {
 
@@ -277,7 +277,7 @@ if ($ReportingTimeZone) {
     if (-not $known) { throw "'$ReportingTimeZone' is not a time zone SQL Server knows. SELECT name FROM sys.time_zone_info lists them." }
     foreach ($db in $zoneDbs) {
         $current = [string] (Invoke-Sql -Catalog $db -Scalar -Sql 'SELECT audit.ReportingTimeZone();')
-        # 2.6.9: the zone named is recorded even where it is the default a database with no row reads (Eastern), or a
+        # The zone named is recorded even where it is the default a database with no row reads (Eastern), or a
         # later run with no zone named gave an empty database the server's own zone in its place.
         $recorded = [int] (Invoke-Sql -Catalog $db -Scalar -Sql "SELECT COUNT(*) FROM audit.PipelineSetting WHERE Name = N'ReportingTimeZone';") -gt 0
         if ($current -eq $ReportingTimeZone -and $recorded) { continue }
@@ -292,11 +292,11 @@ WHEN NOT MATCHED THEN INSERT (Name, Value) VALUES (s.Name, s.Value);
     }
 }
 else {
-    # 2.4.10: with no zone named, a database that holds no records yet takes this server's own time zone (it was
+    # With no zone named, a database that holds no records yet takes this server's own time zone (it was
     # Eastern whatever the server). One that holds records, or that has a zone set, keeps it: its days are already cut.
     $serverZone = [TimeZoneInfo]::Local.Id
     # .NET 6 and later only (PowerShell 7): Windows PowerShell 5.1's zone ids are Windows ones already, and reading the
-    # property there stopped the script under strict mode, before any rebuild ran (2.4.12).
+    # property there stopped the script under strict mode, before any rebuild ran.
     if ($PSVersionTable.PSEdition -eq 'Core' -and [TimeZoneInfo]::Local.HasIanaId) {
         $windowsId = $null
         $serverZone = if ([TimeZoneInfo]::TryConvertIanaIdToWindowsId($serverZone, [ref] $windowsId)) { $windowsId } else { $null }
@@ -311,7 +311,7 @@ else {
 }
 Write-Done ("reporting time zone: {0}" -f (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT audit.ReportingTimeZone();'))
 
-# Reporting accounts read the bi views and nothing else (2.4.12). They were given SELECT on the whole bi schema, which
+# Reporting accounts read the bi views and nothing else. They were given SELECT on the whole bi schema, which
 # holds the tables under the views too: the Power BI account read bi.DimUser's real names beside privacy mode's
 # pseudonyms, and every column the views leave out. They are members of CopilotReporting now, which each run grants
 # every bi view to, so a view a release adds is readable too; the schema-wide grant is taken back.
@@ -369,7 +369,7 @@ $todo = @()
 if (-not $SkipLicenseDatabase) {
     $licRecords = Get-Count $LicenseDatabase 'audit.CopilotAudit'
     if ($licRecords -gt 0) {
-        # 2.5.4: only when something calls for it. Every record was read and parsed again on every run, an upgrade's
+        # Only when something calls for it. Every record was read and parsed again on every run, an upgrade's
         # longest step on a large license history, to write the rows already there. Every record is shredded now for
         # -Rebuild and, once, for a database with no mark that a shred of every record finished
         # (LicenseShredCompleteUtc), which is every database an earlier release shredded - unless
@@ -444,7 +444,7 @@ WHERE a.Operation NOT LIKE N'Bot%' AND a.Operation NOT IN (N'BlockedAgent', N'Un
         if ($Rebuild -or $unshreddedAgents -gt 0) { Invoke-Sql -Catalog $LicenseDatabase -Sql 'EXEC audit.usp_ShredAgentEvents;' }
     }
     else { $todo += "Backfill the license history into $LicenseDatabase (deployment step 7), then run this again." }
-    # 2.5.4: the SKU changes sessions and bi read are worked out at the end of each shred. Events written since some
+    # The SKU changes sessions and bi read are worked out at the end of each shred. Events written since some
     # other way (by hand, or by a shred of a build before the marks above) are worked out here.
     if ([int] (Invoke-Sql -Catalog $LicenseDatabase -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM audit.LicenseEvent WHERE ShreddedUtc > (SELECT MAX(StartedUtc) FROM audit.LicenseSkuChangeRun)) THEN 1 ELSE 0 END;') -eq 1) {
         Write-Done 'license SKU changes: working out those of the events shredded since they were last worked out...'
@@ -455,7 +455,7 @@ WHERE a.Operation NOT LIKE N'Bot%' AND a.Operation NOT IN (N'BlockedAgent', N'Un
 # Flattened by a version before 2.2.0: rows, but no record shapes - only the 2.2.0
 # flatten counts them. Upgraded scripts alone do not fill history; this does, once.
 $upgrade = $flattened -gt 0 -and (Get-Count $Database 'audit.RawLogRecordShape') -eq 0
-# 2.4.12: built is a flatten of every record that finished, which leaves a mark (FullFlattenUtc). Any flattened row
+# Built is a flatten of every record that finished, which leaves a mark (FullFlattenUtc). Any flattened row
 # counted as built, so a first flatten stopped part way, or a nightly that flattened only its own few days, left the
 # rest of history unflattened for good. A database flattened before 2.4.12 has no mark: it is given one here when every
 # record is in the flattened table (counted once, minutes at 40 million), and flattened again when some are not.
@@ -488,7 +488,7 @@ elseif ($fullBuild) {
 }
 else { Write-Done 'sessions and bi are built; the nightly -Incremental run keeps them current.' }
 
-# 2.4.11: the flatten reads an agent's id and friendly name where the audit log puts them, at the top of the record.
+# The flatten reads an agent's id and friendly name where the audit log puts them, at the top of the record.
 # Records flattened before have neither. They are read here once, from the records of agents only (minutes, where a
 # re-flatten takes hours), decided from the mark the read leaves, so an install stopped part way reads them the next time.
 if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp_BackfillAgentNames' 'P') -and
@@ -499,7 +499,7 @@ if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp
     $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): agents carry the friendly names the audit log gives them, and bi.Agents gained NamedInAudit.'
 }
 
-# 2.4.12: the records of other apps that carry an agent's id (Copilot Chat running a declarative agent), which bi keys
+# The records of other apps that carry an agent's id (Copilot Chat running a declarative agent), which bi keys
 # on that id. 2.4.11 read it from its upgrade night on, so the same agent's history started then. Read once here, from
 # the apps whose records since show one; a record that gains an id changes agent, so bi is rebuilt once (below).
 $agentIds = $false
@@ -513,7 +513,7 @@ if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.usp
     }
 }
 
-# 2.6.3: an agent the audit log names two ways is one agent (an id written with and without its prefix, the variants of
+# An agent the audit log names two ways is one agent (an id written with and without its prefix, the variants of
 # one of Microsoft's own, the two ids the agent workbook holds for one agent). The nightly refresh keeps it so; this
 # does it at the upgrade, so the reports do not wait a night. A moment once done: it then finds nothing to move.
 if (-not $fullBuild -and (Test-Object $Database 'bi.usp_MergeAgents' 'P') -and (Test-Object $Database 'bi.FactInteraction')) {
@@ -526,15 +526,15 @@ if (-not $fullBuild -and (Test-Object $Database 'bi.usp_MergeAgents' 'P') -and (
     }
 }
 
-# 2.4.6: each resource Copilot read carries its file type. Resources loaded before have none, so bi is refreshed in full
+# Each resource Copilot read carries its file type. Resources loaded before have none, so bi is refreshed in full
 # once - decided from the data, not from this run, so an install stopped part way finishes it the next time.
-# 2.4.8: each interaction carries what its record says about licensed use (UseKind), which Premium use is now decided
+# Each interaction carries what its record says about licensed use (UseKind), which Premium use is now decided
 # from. Interactions loaded before have none: the same one full refresh, and every day of the rollups after it.
 $noFileType = $flattened -gt 0 -and -not $fullBuild -and (Get-Count $Database 'bi.FactAccessedResource') -gt 0 -and
     [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM bi.FactAccessedResource WHERE FileTypeKey > 1) THEN 1 ELSE 0 END;') -eq 0
 $noUseKind = $flattened -gt 0 -and -not $fullBuild -and
     [long] (Invoke-Sql -Catalog $Database -Scalar -Sql 'SELECT CASE WHEN EXISTS (SELECT 1 FROM bi.FactInteraction WHERE UseKind IS NULL) THEN 1 ELSE 0 END;') -eq 1
-# 2.4.9: a full refresh that was stopped part way (bi.usp_RefreshBi leaves a mark while one runs), or, for one stopped
+# A full refresh that was stopped part way (bi.usp_RefreshBi leaves a mark while one runs), or, for one stopped
 # before 2.4.9, a fact with fewer than 99 in 100 of the flattened records: finished here, with every day of the rollups.
 $cutShort = $flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'bi.FactInteraction') -and
     ((Get-Count $Database 'bi.RebuildInProgress') -gt 0 -or (Get-Count $Database 'bi.FactInteraction') * 100 -lt $flattened * 99)
@@ -548,7 +548,7 @@ if ($noFileType -or $noUseKind -or $cutShort -or $agentIds) {
     if ($agentIds) { $todo += 'Refresh the Power BI model in full once (docs/DEPLOYMENT.md, step 16): interactions of every day moved to the agents the audit log names by id, and a scheduled refresh redoes only the last 4 days.' }
 }
 
-# 2.3.0: the value catalog fills as records are flattened; records flattened before it existed are cataloged once here.
+# The value catalog fills as records are flattened; records flattened before it existed are cataloged once here.
 if ($flattened -gt 0 -and -not $fullBuild -and (Test-Object $Database 'audit.ValueCatalog') -and (Get-Count $Database 'audit.ValueCatalog') -eq 0) {
     Write-Done ("value catalog: reading {0:N0} flattened record(s) once..." -f $flattened)
     Invoke-Sql -Catalog $Database -Sql 'EXEC audit.usp_CatalogValues @Rebuild = 1;'
@@ -564,7 +564,7 @@ if ($Dashboard -and (Test-Object $Database 'bi.FactInteraction')) {
     if ((Get-Count $Database 'audit.UserDirectory') -eq 0) { $todo += 'Load the user directory from AD (deployment step 9): the dashboard''s scopes come from it.' }
 }
 
-# 2.6.9: the activity database's records shredded where they have not been (the first time, after a shred stopped part
+# The activity database's records shredded where they have not been (the first time, after a shred stopped part
 # way, or with -Rebuild), then rolled up into this database for the dashboard.
 if ($ActivityDatabase) {
     $actRecords = Get-Count $ActivityDatabase 'audit.CopilotAudit'

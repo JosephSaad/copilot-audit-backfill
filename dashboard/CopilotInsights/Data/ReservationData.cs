@@ -2,7 +2,7 @@ using CopilotInsights.Infrastructure;
 
 namespace CopilotInsights.Data;
 
-/// <summary>One chargeback organization's position (2.6.8): its reservation, the add-on licenses its people hold, and what follows.</summary>
+/// <summary>One chargeback organization's position: its reservation, the add-on licenses its people hold, and what follows.</summary>
 public sealed record ReservationOrg(string OrgId, string Name, string? LeaderUpn, string? LeaderName, string? CostCenter, int Reserved, int Allocated,
     int People, bool LeaderMissing, bool SharedLeader)
 {
@@ -15,7 +15,7 @@ public sealed record ReservationOrg(string OrgId, string Name, string? LeaderUpn
 }
 
 /// <summary>
-/// The reservation position on one day (2.6.8): today's, from the licenses read last night (the current operational
+/// The reservation position on one day: today's, from the licenses read last night (the current operational
 /// state, never certified), or a month-end snapshot as it was kept. Unmapped: add-on holders under no listed leader;
 /// Technology: holders in the Technology-funded register. Neither is any organization's.
 /// </summary>
@@ -137,7 +137,7 @@ ORDER BY s.Reserved DESC, s.OrgId;", c.Args(new { date }));
     }
     /// <summary>
     /// Every snapshot kept, with each one's organizations, newest first: for a viewer who sees part of the organization,
-    /// only those led from inside it, as <see cref="SnapshotAsync"/> shows one (2.7.0: every viewer saw the whole bank's).
+    /// only those led from inside it, as <see cref="SnapshotAsync"/> shows one (every viewer saw the whole bank's).
     /// </summary>
     public async Task<List<(DateTime Date, DateTime Taken, List<ReservationOrg> Orgs, decimal? Rate)>> SnapshotsAsync(ReportContext c)
     {

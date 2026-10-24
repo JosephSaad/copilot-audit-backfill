@@ -1,7 +1,7 @@
 namespace CopilotInsights.Data;
 
 /// <summary>
-/// The Admin pages an Admin grant is limited to (2.6.4), kept on its dash.RoleGrant row as their paths, comma-separated.
+/// The Admin pages an Admin grant is limited to, kept on its dash.RoleGrant row as their paths, comma-separated.
 /// A grant with nothing there is a full administrator, as every grant was before. Only the pages of the Admin section
 /// can be named: anything else in the column is ignored. Pure, for the tests.
 /// </summary>

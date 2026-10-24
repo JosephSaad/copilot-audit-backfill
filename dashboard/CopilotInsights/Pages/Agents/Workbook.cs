@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Agents;
 
 /// <summary>
-/// The agent inventory workbook (2.5.6): tools\Import-AgentWorkbook.ps1 loads it each night into dash.AgentInventory
+/// The agent inventory workbook: tools\Import-AgentWorkbook.ps1 loads it each night into dash.AgentInventory
 /// (the current agents, matched to the audit log's), dash.AgentChildLink and, as they come, the dbo tables of its sheets.
 /// </summary>
 static class Workbook
@@ -29,7 +29,7 @@ static class Workbook
 public sealed record WorkbookFilter(string Key, string Label, string Column);
 
 /// <summary>
-/// A list of the workbook's agents with their use in the period from the audit log (2.5.6): the inventory, shared
+/// A list of the workbook's agents with their use in the period from the audit log: the inventory, shared
 /// agents and agents in production. The workbook is the list; an agent no one used in the period is flagged, unless it
 /// runs on its own (triggers or flows: an autonomous agent, 2.5.8), which no interaction does not make unused.
 /// </summary>
@@ -148,7 +148,7 @@ ELSE EXEC (N'SELECT DISTINCT TOP (200) LTRIM(RTRIM(CAST([{f.Column}] AS NVARCHAR
         public int TotalRows { get; set; }
     }
 
-    /// <summary>What the list says of an agent's use in the period (2.5.8: an autonomous agent with none is not "unused").</summary>
+    /// <summary>What the list says of an agent's use in the period (an autonomous agent with none is not "unused").</summary>
     public static string Use(long n, bool autonomous) => n > 0 ? "Used" : autonomous ? "Autonomous (no chat)" : "Not used";
 
     /// <summary>The page's KPIs, its "used or not" filter and its paged list. False when no workbook is loaded.</summary>
@@ -217,7 +217,7 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
             Server = new(pg, Request, keys, new HashSet<int> { headers.IndexOf("Created"), headers.IndexOf("Last published"), headers.IndexOf("Last used"),
                                                              headers.IndexOf("People in the period"), headers.IndexOf("Interactions in the period") }),
         };
-        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: owners by name
+        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // Owners by name
         foreach (var r in rows)
         {
             var cells = new List<object?> { new Link(r.AgentName, Workbook.DetailUrl(Ctx, r.AgentKey, r.InventoryAgentId)), PrivacyMode ? null : ownerName(r.Owner), r.Environment };
@@ -240,7 +240,7 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
 }
 
 /// <summary>
-/// Agents whose owner has gone (2.5.8): the workbook's owner looked up in the directory loaded from AD. An owner who
+/// Agents whose owner has gone: the workbook's owner looked up in the directory loaded from AD. An owner who
 /// is not in it has most likely left; one whose account is disabled has, or is about to. Their agents still run, and
 /// someone has to own them. Also each owner's department, for accountability by part of the business.
 /// </summary>
@@ -338,7 +338,7 @@ FROM #x GROUP BY ISNULL(NULLIF(OwnerDepartment, N''), N'(owner not in the direct
 }
 
 /// <summary>
-/// The agent workbook's settings against the agents' use (2.5.8): what the workbook says an agent is, set beside what the
+/// The agent workbook's settings against the agents' use: what the workbook says an agent is, set beside what the
 /// audit log shows it doing. Each finding is a breach to act on or a matter to review.
 /// </summary>
 public sealed class ChecksModel(PageServices s) : InsightsPage(s)
@@ -441,7 +441,7 @@ ORDER BY x.N DESC, x.Name;", Ctx.Args(new { dev = DevPeople }));
     }
 }
 /// <summary>
-/// Child and connected agents (2.5.6): each child, the parent agents that call it, and the parents' use. From 2.5.7 a
+/// Child and connected agents: each child, the parent agents that call it, and the parents' use. From 2.5.7 a
 /// child is what it is, not its name: a child agent lives inside its one parent, a connected agent is an agent of its
 /// own that several parents can call, and children that share a name are shown with their parent or environment.
 /// </summary>

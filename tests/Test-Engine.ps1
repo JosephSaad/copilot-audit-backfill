@@ -332,7 +332,7 @@ try {
 finally { Stop-MockGraph $mock }
 
 # ---------------------------------------------------------------------------
-# H. A page that goes silent after its headers (2.4.12)
+# H. A page that goes silent after its headers
 # ---------------------------------------------------------------------------
 
 Write-Host "`nH. A page body that stalls is given up on and fetched again" -ForegroundColor Cyan
@@ -358,7 +358,7 @@ try {
 finally { Stop-MockGraph $mock }
 
 # ---------------------------------------------------------------------------
-# I. A split that stopped part way before 2.4.12, resumed (2.4.12)
+# I. A split that stopped part way before 2.4.12, resumed
 # ---------------------------------------------------------------------------
 
 Write-Host "`nI. A split stopped between its writes is finished on resume" -ForegroundColor Cyan
@@ -390,7 +390,7 @@ try {
 finally { Stop-MockGraph $mock }
 
 # ---------------------------------------------------------------------------
-# J. Two runs on one window table (2.4.12)
+# J. Two runs on one window table
 # ---------------------------------------------------------------------------
 
 Write-Host "`nJ. A second run on the same window table stops at once" -ForegroundColor Cyan

@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Adoption;
 
 /// <summary>
-/// Copilot use by license type (2.4.6): the people of one type (licensed, unlicensed or all) in the part of the
+/// Copilot use by license type: the people of one type (licensed, unlicensed or all) in the part of the
 /// organization chosen, how many are active, in which apps, what Copilot read for them, how long their
 /// conversations ran, and on how many days. Named lists, so it needs the Adoption role.
 /// </summary>
@@ -134,7 +134,7 @@ FROM x JOIN bi.DimDate AS d ON d.DateKey = x.DateKey JOIN bi.DimApp AS a ON a.Ap
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App
 GROUP BY {Ctx.BucketSql("d")}, COALESCE(vn.Name, a.App);", Ctx.Args());
 
-        /* By file type (2.4.6: docx, xlsx, pptx ... and, for what is not a file, its kind), or by kind before that column exists. */
+        /* By file type (docx, xlsx, pptx ... and, for what is not a file, its kind), or by kind before that column exists. */
         var fileTypes = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'bi.FactAccessedResource', N'FileTypeKey') IS NULL THEN 0 ELSE 1 END") == 1;
         var sourcesTask = Db.QueryAsync<(string Type, long N)>(fileTypes ? $@"
 WITH {pop},

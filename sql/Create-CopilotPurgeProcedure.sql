@@ -115,7 +115,7 @@ BEGIN
             RAISERROR(@msg, 0, 1) WITH NOWAIT;
         END;
 
-        /* 2.4.12: the shredded copy of each record goes with it. It names the user, the app, the thread and the time,
+        /* The shredded copy of each record goes with it. It names the user, the app, the thread and the time,
            and was kept for every record deleted, so the records were not removed altogether as this promises. */
         IF OBJECT_ID(N'audit.CopilotInteraction', N'U') IS NOT NULL
         BEGIN
@@ -181,7 +181,7 @@ BEGIN
     BEGIN
         DECLARE @flat BIGINT = 0, @elements BIGINT = 0;
         RAISERROR('Deleting aged rows from audit.RawLogFlattened, with the resources and contexts each read...', 0, 1) WITH NOWAIT;
-        /* 2.4.12: each batch's element rows first, then the batch itself. The element tables keep each record's file
+        /* Each batch's element rows first, then the batch itself. The element tables keep each record's file
            names, sites and links, and nothing removes them later: a record that is gone is never flattened again,
            which is the only thing that replaces them. Before, they were all kept. */
         DROP TABLE IF EXISTS #gone;

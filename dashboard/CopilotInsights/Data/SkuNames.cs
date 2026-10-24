@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Data;
 
 /// <summary>
-/// 2.7.1: a license's product name for its part number (Microsoft 365 E5 for SPE_E5): dash.SkuName, which Admin › Value
+/// A license's product name for its part number (Microsoft 365 E5 for SPE_E5): dash.SkuName, which Admin › Value
 /// names edits, then the price list's name (dash.CostPrice), then the part number as it is. Pages showed part numbers
 /// (Microsoft_365_Copilot, POWERAUTOMATE_ATTENDED_RPA) where people look for product names.
 /// </summary>

@@ -71,7 +71,7 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL
 IF COL_LENGTH(N'audit.CopilotLicense', N'EmployeeHireDate') IS NULL
     ALTER TABLE audit.CopilotLicense ADD EmployeeHireDate DATE NULL;
 
-/* 2.4.3: Entra's employeeLeaveDateTime, when the license tool runs with -IncludeLeaveDates (it needs
+/* Entra's employeeLeaveDateTime, when the license tool runs with -IncludeLeaveDates (it needs
    User-LifeCycleInfo.Read.All), for Licensing > Departures ahead. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'EmployeeLeaveUtc') IS NULL
     ALTER TABLE audit.CopilotLicense ADD EmployeeLeaveUtc DATETIME2(0) NULL;
@@ -80,7 +80,7 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'UserType') IS NULL
     ALTER TABLE audit.CopilotLicense ADD UserType NVARCHAR(20) NULL;
 
 /*
-    2.4.0: members of the AD groups granted Organization in the dashboard (dash.RoleGrant), expanded
+    Members of the AD groups granted Organization in the dashboard (dash.RoleGrant), expanded
     by the directory load, nested groups included. bi.OrgSecurity gives them the whole organization,
     so Power BI honors a group grant the way the dashboard does at sign-in. Replaced whole each load.
 */
@@ -128,12 +128,12 @@ IF OBJECT_ID(N'audit.LicenseSkuDay', N'U') IS NULL
         CONSTRAINT PK_LicenseSkuDay PRIMARY KEY (SnapshotDate, SkuId)
     );
 
-/* 2.6.6: a suite that carries Copilot inside it (Microsoft 365 E7; the tool's -CopilotSuiteSku). Its holders are
+/* A suite that carries Copilot inside it (Microsoft 365 E7; the tool's -CopilotSuiteSku). Its holders are
    licensed for Copilot, but the Copilot cannot be taken off alone, and its price is the suite's. NULL before 2.6.6. */
 IF COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
     ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
 
-/* 2.4.3: every SKU each person looked up holds (assignedLicenses), not only Copilot, so the dashboard can find
+/* Every SKU each person looked up holds (assignedLicenses), not only Copilot, so the dashboard can find
    licenses that overlap. Replaced whole by each run; names come from audit.LicenseSku. */
 IF OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL
     CREATE TABLE audit.UserLicenseSku
@@ -178,11 +178,11 @@ IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NULL
         IsManager          BIT            NOT NULL,   -- someone reports to them
         AccountEnabled     BIT            NOT NULL,
         JobTitle           NVARCHAR(128)  NULL,       -- title
-        Department         NVARCHAR(200)  NULL,       -- department, or the first of -DepartmentAttribute that has a value (2.5.0)
+        Department         NVARCHAR(200)  NULL,       -- department, or the first of -DepartmentAttribute that has a value
         Division           NVARCHAR(256)  NULL,       -- division: the line of business
         Office             NVARCHAR(128)  NULL,       -- physicalDeliveryOfficeName
         City               NVARCHAR(128)  NULL,       -- l
-        Country            NVARCHAR(128)  NULL,       -- co, else the English name of c (2.5.0)
+        Country            NVARCHAR(128)  NULL,       -- co, else the English name of c
         Company            NVARCHAR(64)   NULL,       -- company
         ManagerUPN         NVARCHAR(256)  NULL,
         ManagerName        NVARCHAR(256)  NULL,
@@ -206,11 +206,11 @@ IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL
 IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'Sid') IS NULL
     ALTER TABLE audit.UserDirectory ADD Sid VARCHAR(184) NULL;
 
-/* 2.4.3: AD's accountExpires, when the account is set to expire (NULL for never), for Licensing > Departures ahead. */
+/* AD's accountExpires, when the account is set to expire (NULL for never), for Licensing > Departures ahead. */
 IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'AccountExpiresUtc') IS NULL
     ALTER TABLE audit.UserDirectory ADD AccountExpiresUtc DATETIME2(0) NULL;
 
-/* 2.5.0: Department holds 200 characters, as bi.DimUser and dash.Person do. It held 64, AD's limit for department,
+/* Department holds 200 characters, as bi.DimUser and dash.Person do. It held 64, AD's limit for department,
    and a custom attribute named by -DepartmentAttribute can be longer. COL_LENGTH is in bytes: 400 is nvarchar(200). */
 IF OBJECT_ID(N'audit.UserDirectory', N'U') IS NOT NULL AND COL_LENGTH(N'audit.UserDirectory', N'Department') < 400
     EXEC (N'ALTER TABLE audit.UserDirectory ALTER COLUMN Department NVARCHAR(200) NULL;');
@@ -273,7 +273,7 @@ LEFT JOIN audit.UserDirectory AS d
        ON d.UserPrincipalName = i.UserPrincipalName
 GROUP BY ISNULL(d.Department, N''(unknown)''), i.ActivityDate, i.AppHost;');
 
-/* 2.6.6: dash.CopilotSuiteHolder is everyone who holds a suite with Copilot inside (E7), with the add-on or not;
+/* Dash.CopilotSuiteHolder is everyone who holds a suite with Copilot inside (E7), with the add-on or not;
    dash.CopilotSuiteOnly, the people who hold Microsoft 365 Copilot only through a suite and not as the add-on as well: their
    Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
    full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and

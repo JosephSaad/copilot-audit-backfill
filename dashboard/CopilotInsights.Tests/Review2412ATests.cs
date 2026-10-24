@@ -11,7 +11,7 @@ using Xunit;
 /* A namespace of their own: the other review groups' test files sit beside this one. */
 namespace CopilotInsights.Tests.Review2412A;
 
-/// <summary>Schedules on the days the clock changes (2.4.12): the skipped hour no longer throws, the repeated hour sends once.</summary>
+/// <summary>Schedules on the days the clock changes: the skipped hour no longer throws, the repeated hour sends once.</summary>
 public class DaylightScheduleTests
 {
     static readonly TimeZoneInfo Eastern = Schedule.Zone("Eastern Standard Time");
@@ -60,7 +60,7 @@ public class DaylightScheduleTests
     }
 }
 
-/// <summary>A form posts to the tenant its page showed (2.4.12), not to whichever one the cookie names when it is sent.</summary>
+/// <summary>A form posts to the tenant its page showed, not to whichever one the cookie names when it is sent.</summary>
 public class TenantFormTests
 {
     static TenantAccessor Two() => new(Options.Create(new InsightsOptions
@@ -144,7 +144,7 @@ public class TenantFormTests
     }
 }
 
-/// <summary>The digest preview and Send now need the role of the section the digest shows (2.4.12), and the preview is audited.</summary>
+/// <summary>The digest preview and Send now need the role of the section the digest shows, and the preview is audited.</summary>
 public class DigestRoleTests
 {
     [Fact]
@@ -172,7 +172,7 @@ public class DigestRoleTests
     }
 }
 
-/// <summary>A stored password goes only where it was entered for (2.4.12).</summary>
+/// <summary>A stored password goes only where it was entered for.</summary>
 public class StoredPasswordTests
 {
     static IReadOnlyDictionary<string, string?> S(params (string, string?)[] kv) => kv.ToDictionary(x => x.Item1, x => x.Item2);
@@ -226,7 +226,7 @@ public class StoredPasswordTests
     }
 }
 
-/// <summary>Sends are claimed before they go (2.4.12), so a state that cannot be written sends nothing, and nothing twice.</summary>
+/// <summary>Sends are claimed before they go, so a state that cannot be written sends nothing, and nothing twice.</summary>
 public class SendStateTests
 {
     [Fact]
@@ -260,7 +260,7 @@ public class SendStateTests
     }
 }
 
-/// <summary>Alert cards, extracts, uploads and retention (2.4.12).</summary>
+/// <summary>Alert cards, extracts, uploads and retention.</summary>
 public class DeliveryReviewTests
 {
     [Fact]

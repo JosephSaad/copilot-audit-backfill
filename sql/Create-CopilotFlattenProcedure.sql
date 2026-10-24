@@ -3,7 +3,7 @@
     ------------------------------------------------------------------------
     Shreds the CopilotEventData JSON into audit.RawLogFlattened, one row per
     audit record, with every informative scalar field of the record in its own
-    column (2.2.0; the seventeen that carry no information are counted in
+    column (the seventeen that carry no information are counted in
     audit.RawLogRecordShape instead), and the AccessedResources and Contexts arrays into
     audit.RawLogAccessedResource and audit.RawLogContext, one row per element.
 
@@ -17,14 +17,14 @@
       @SinceUtc     only records at or after this UTC time. NULL = everything.
       @RebuildAll   1 truncates and rebuilds; 0 (default) MERGEs, so it is
                     safe to run incrementally on a schedule. 1 is refused
-                    once the purge has cleared any record's JSON (2.4.12):
+                    once the purge has cleared any record's JSON:
                     run with 0, which flattens every record again and keeps
                     what the purged ones were flattened to.
       @BatchSize    records per batch. Keeps the log, tempdb and lock
                     footprint flat on tens of millions of rows. Default
                     200,000.
 
-    The agent (2.4.11): a record carries its agent's id and friendly name at
+    The agent: a record carries its agent's id and friendly name at
     the top ($.AgentId, $.AgentName), not inside CopilotEventData, where this
     procedure looked before and found nothing on any record. Both places are
     read now, and each batch's agents go into audit.AgentCatalog with the
@@ -93,7 +93,7 @@ BEGIN
         UPDATE audit.ValueCatalogColumn SET DistinctValues = 0, Capped = 0, UpdatedUtc = NULL;
     END;
 
-    /* In the database's collation (2.4.12): in tempdb's, a database whose collation differs from the server's
+    /* In the database's collation: in tempdb's, a database whose collation differs from the server's
        failed every flatten at the first comparison with the catalog. So for #agents below. */
     CREATE TABLE #v (ColumnId SMALLINT NOT NULL, Value NVARCHAR(400) COLLATE DATABASE_DEFAULT NOT NULL, N BIGINT NOT NULL, PRIMARY KEY (ColumnId, Value));
 
@@ -224,9 +224,9 @@ GO
     audit.PipelineSetting (AgentNamesReadUtc), as does a flatten of every
     record. Safe to run again: it reads what is still empty, and changes
     nothing that is filled. Each batch's records and their agents commit
-    together, so a run stopped part way reads its last batch again (2.4.12).
+    together, so a run stopped part way reads its last batch again.
 
-    @Others = 1 (2.4.12): the records of any other app that carry an agent's id,
+    @Others = 1: the records of any other app that carry an agent's id,
     such as Copilot Chat running a declarative agent. bi keys those on the
     AgentId, which 2.4.11 read from its upgrade night on: before it they had
     no agent, so the same agent's history started that night. Read are the
@@ -238,7 +238,7 @@ GO
     Records flattened after AgentNamesReadUtc (by 2.4.11 or later, which read
     the id where it is) are not read again.
 
-    Resumable (2.4.12): each batch saves where it got to and what it gained
+    Resumable: each batch saves where it got to and what it gained
     (<mark>Cursor, <mark>Gained in audit.PipelineSetting), and a run carries on
     from there; the mark clears them.
 */
@@ -258,7 +258,7 @@ BEGIN
     DECLARE @msg NVARCHAR(400), @read BIGINT = 0, @named BIGINT = 0, @rows INT;
     DECLARE @cursor NVARCHAR(450) = N'', @maxId NVARCHAR(450);
     DECLARE @mark SYSNAME = CASE WHEN @Others = 1 THEN N'AgentIdsReadUtc' ELSE N'AgentNamesReadUtc' END;
-    /* 2.4.12: where a run stopped part way got to, saved with each batch, and what it had gained. The read started
+    /* Where a run stopped part way got to, saved with each batch, and what it had gained. The read started
        from the first record again, and with @Others that is most of Copilot Chat's history: an install stopped
        after hours began again from zero, and a resumed run that gained nothing left bi unbuilt. */
     DECLARE @cursorName SYSNAME = @mark + N'Cursor', @gainedName SYSNAME = @mark + N'Gained', @before BIGINT = 0;
@@ -351,7 +351,7 @@ BEGIN
         OPTION (MAXDOP 0);
         SET @rows = @@ROWCOUNT;
 
-        /* 2.4.12: the batch's records and its catalog step in one transaction. A run stopped between them kept the
+        /* The batch's records and its catalog step in one transaction. A run stopped between them kept the
            records' new ids and names but not their agents: the next run reads only what is still empty, so those
            names never reached the catalog, and bi kept the name read from the id. Now a stopped batch is read again. */
         BEGIN TRANSACTION;
@@ -364,7 +364,7 @@ BEGIN
 
         EXEC audit.usp_CatalogAgents;
 
-        /* Where this run got to, with the batch it ends (2.4.12): a run stopped after it carries on from the next. */
+        /* Where this run got to, with the batch it ends: a run stopped after it carries on from the next. */
         IF OBJECT_ID(N'audit.PipelineSetting', N'U') IS NOT NULL
         BEGIN
             UPDATE audit.PipelineSetting SET Value = @maxId, UpdatedUtc = SYSUTCDATETIME() WHERE Name = @cursorName;
@@ -419,7 +419,7 @@ BEGIN
     DECLARE @msg NVARCHAR(400), @rows BIGINT = 0, @done BIGINT = 0, @batch INT = 1;
     DECLARE @hasLicense BIT = CASE WHEN OBJECT_ID(N'audit.CopilotLicense', N'U') IS NULL THEN 0 ELSE 1 END;
 
-    /* 2.4.12: a record whose JSON the purge cleared is kept as it was flattened (below), found by its flattened row.
+    /* A record whose JSON the purge cleared is kept as it was flattened (below), found by its flattened row.
        Emptying the table first left nothing to find it by, so every such record came back blank: every column the
        JSON gave NULL, no resources and no contexts, and nothing left to flatten it from again. */
     IF @RebuildAll = 1 AND OBJECT_ID(N'audit.CopilotAudit', N'U') IS NOT NULL
@@ -437,7 +437,7 @@ BEGIN
         IF OBJECT_ID(N'audit.RawLogContext', N'U') IS NOT NULL TRUNCATE TABLE audit.RawLogContext;
         IF OBJECT_ID(N'audit.RawLogRecordShape', N'U') IS NOT NULL TRUNCATE TABLE audit.RawLogRecordShape;
         IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NOT NULL EXEC audit.usp_CatalogValues @Rebuild = 1;
-        /* Emptied: not flattened in full until this run finishes (2.4.12). */
+        /* Emptied: not flattened in full until this run finishes. */
         IF OBJECT_ID(N'audit.PipelineSetting', N'U') IS NOT NULL DELETE FROM audit.PipelineSetting WHERE Name = N'FullFlattenUtc';
         SET @SinceUtc = NULL;
     END;
@@ -523,7 +523,7 @@ BEGIN
             t.ClientRegion                                                                    AS Location,
             LEFT(t.AppIdentity, 200)                                                          AS AppIdentity,
             LEFT(e.ThreadId, 400)                                                             AS ThreadId,
-            /* The agent's id and friendly name sit at the top of the record (2.4.11);
+            /* The agent's id and friendly name sit at the top of the record;
                inside CopilotEventData, where the schema once put them, they win if present. */
             LEFT(COALESCE(NULLIF(e.AgentId, N''), NULLIF(t.AgentId, N'')), 400)                AS AgentId,
             LEFT(COALESCE(NULLIF(e.AgentName, N''), NULLIF(t.AgentName, N'')), 400)            AS AgentName,
@@ -533,7 +533,7 @@ BEGIN
             LEFT(JSON_VALUE(e.ModelTransparencyDetails, '$[0].ModelProviderName'), 200)        AS ModelProvider,
             LEFT(JSON_VALUE(e.ModelTransparencyDetails, '$[0].ModelVersion'), 32)              AS ModelVersion,
 
-            /* every other scalar (2.2.0): typed, NULL where a value does not parse */
+            /* every other scalar: typed, NULL where a value does not parse */
             TRY_CONVERT(SMALLINT, t.RecordType)                                               AS RecordType,
             LEFT(t.Operation, 64)                                                             AS Operation,
             TRY_CONVERT(UNIQUEIDENTIFIER, t.OrganizationId)                                   AS OrganizationId,
@@ -1001,7 +1001,7 @@ BEGIN
         /* This batch's values into the catalog, for Admin > Value names. */
         IF OBJECT_ID(N'audit.usp_CatalogValues', N'P') IS NOT NULL EXEC audit.usp_CatalogValues;
 
-        /* And its agents, with the latest friendly name the log gave each (2.4.11). */
+        /* And its agents, with the latest friendly name the log gave each. */
         EXEC audit.usp_CatalogAgents;
 
         SET @done += @rows;
@@ -1050,7 +1050,7 @@ BEGIN
     END;
 
     /* Every record was flattened by this version: none is left for audit.usp_BackfillAgentNames to read, either way.
-       And the mark that every record has been flattened (2.4.12): Install-CopilotAudit.ps1 reads it, where it read
+       And the mark that every record has been flattened: Install-CopilotAudit.ps1 reads it, where it read
        "the flattened table has rows", which a first flatten stopped part way, or a nightly's few days, also gave. */
     IF @SinceUtc IS NULL AND OBJECT_ID(N'audit.PipelineSetting', N'U') IS NOT NULL
     BEGIN
@@ -1058,7 +1058,7 @@ BEGIN
             INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'AgentNamesReadUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));
         IF NOT EXISTS (SELECT 1 FROM audit.PipelineSetting WHERE Name = N'AgentIdsReadUtc')
             INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'AgentIdsReadUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));
-        /* Nor is anything left of a read that stopped part way (2.4.12). */
+        /* Nor is anything left of a read that stopped part way. */
         DELETE FROM audit.PipelineSetting WHERE Name IN (N'AgentNamesReadUtcCursor', N'AgentNamesReadUtcGained', N'AgentIdsReadUtcCursor', N'AgentIdsReadUtcGained');
         UPDATE audit.PipelineSetting SET Value = CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126), UpdatedUtc = SYSUTCDATETIME() WHERE Name = N'FullFlattenUtc';
         IF @@ROWCOUNT = 0 INSERT INTO audit.PipelineSetting (Name, Value) VALUES (N'FullFlattenUtc', CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126));

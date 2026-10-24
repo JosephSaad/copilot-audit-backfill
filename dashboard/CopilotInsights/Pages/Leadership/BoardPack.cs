@@ -70,7 +70,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             new Series("Free Copilot Chat only", tr.Select(w => (double?)w.ActiveUnlicensed).ToList(), 2)], Fmt.Count, "People using Copilot"),
             TrendNote + " Dashed rules mark events (Admin › Classifications and events)."));
 
-        /* The targets for the part of the organization printed, not every target (2.4.12, see OpsReports.Visible). */
+        /* The targets for the part of the organization printed, not every target (see OpsReports.Visible). */
         var targets = await reports.TargetsAsync(Ctx);
         if (targets.Count > 0)
         {
@@ -87,7 +87,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var pr) ? pr : 30m;
         var hours = v.ByApp.Sum(x => x.Hours);
         var worth = v.ByApp.Sum(x => x.Value);
-        var cost = Licensing.Price.ForLicenseMonths(await reports.LicenseMonthsAsync(Ctx), price);   // 2.7.2: whole calendar months held
+        var cost = Licensing.Price.ForLicenseMonths(await reports.LicenseMonthsAsync(Ctx), price);   // Whole calendar months held
         Panels.Add(new("Estimated value", new HtmlString(
             $"<div class=\"kpis\"><div class=\"kpi\"><div class=\"klabel\">Hours saved (estimate)</div><div class=\"kvalue\">{hours:#,0}</div></div>" +
             $"<div class=\"kpi\"><div class=\"klabel\">Estimated value ({E(cur)})</div><div class=\"kvalue\">{worth:#,0}</div></div>" +
@@ -98,7 +98,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
             "License cost: each calendar month whose last day falls in the period, at the license price for everyone who held one that month; a period under a month charges none.", "half"));
 
         /* The pool is the whole tenant's: for the viewers License pool shows it to, the whole-organization view or the
-           Licensing role (2.4.12). Every viewer of the board pack had it, whatever their part of the organization. */
+           Licensing role. Every viewer of the board pack had it, whatever their part of the organization. */
         var pool = Viewer.OrgWide || Viewer.Has(Roles.Licensing) ? (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList() : [];
         var counts = await reports.ActionCountsAsync(Ctx);
         var lt = new Table { Headers = ["Licenses", ""], Numeric = new HashSet<int> { 1 }, Sortable = false };
@@ -112,7 +112,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
 
         var rp = full ? await metrics.TrendAsync(prev) : null;
         var rt = new Table { Headers = ["Risk signal", "This period", "Period before"], Numeric = new HashSet<int> { 1, 2 }, Sortable = false };
-        /* The security signals are the Security section's and labeled content the Compliance section's (2.4.12), as on the
+        /* The security signals are the Security section's and labeled content the Compliance section's, as on the
            data API: every viewer of the board pack had them, whatever their roles. */
         if (Viewer.Has(Roles.Security))
         {
@@ -122,7 +122,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         }
         if (Viewer.Has(Roles.Compliance))
             rt.Rows.Add(["Interactions with labeled content", tr.Sum(x => x.Labeled), rp?.Sum(x => x.Labeled)]);
-        /* A policy breach, counted today (2.4.5): there is no earlier figure to set beside it. */
+        /* A policy breach, counted today: there is no earlier figure to set beside it. */
         rt.Rows.Add(["Copilot licenses on non-human accounts (today)", (await CopilotInsights.Data.NonHuman.AllAsync(Db, S.Settings, Ctx.Scope("ld.UserKey"), Ctx.Args())).Count, null]);
         Panels.Add(new("Risk", rt.Render(), "From Copilot's own audit records; the detail is on Security and Compliance." +
             (Viewer.Has(Roles.Security) ? "" : " The security signals are shown to people with the Security role.") +
@@ -200,9 +200,9 @@ public sealed class UseCasesModel(PageServices s, OpsData ops) : InsightsPage(s)
     {
         if (!await ops.HasAsync("dash.UseCaseRule") || await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'bi.UseCases', N'V') IS NULL THEN 0 ELSE 1 END") == 0) { Notice = "The board pack needs use cases, which are not set up here yet. An administrator sets this up by running Install-CopilotAudit.ps1 -Dashboard from the current release."; return; }
         /* Group the interactions first, then classify the groups: the rules run over thousands of rows, not millions. */
-        /* In steps (2.4.2): the rules read once into #uc, one row a person and use case in #k, then a plain count.
+        /* In steps: the rules read once into #uc, one row a person and use case in #k, then a plain count.
            As one statement the optimizer ran the rules per group and counted distinct people: 22 seconds for a year. */
-        /* The three reads are independent: started together (2.7.3). */
+        /* The three reads are independent: started together. */
         var byDeptTask = Db.QueryAsync<G>($@"
 SELECT UseCaseKey, UseCase INTO #uc FROM bi.UseCases;
 WITH g AS (SELECT f.UserKey, f.UseCaseKey, COUNT_BIG(*) AS N
@@ -226,7 +226,7 @@ WHERE du.AccountEnabled = 1 AND du.DirectoryStatus = N'Found' GROUP BY ISNULL(NU
         await Task.WhenAll(byDeptTask, trendTask, deptsTask);
         var byDept = await byDeptTask;
         /* The totals add up the departments: each person has one department, so their people add up too.
-           A second pass over the fact for the same numbers doubled the page's time (2.4.2). */
+           A second pass over the fact for the same numbers doubled the page's time. */
         var totals = byDept.GroupBy(x => x.UseCase).Select(g => new G { UseCase = g.Key, N = g.Sum(x => x.N), People = g.Sum(x => x.People) }).ToList();
         if (totals.Count == 0) { Notice = $"No Copilot use from {Ctx.PeriodLabel}."; return; }
         var trend = await trendTask;

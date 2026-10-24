@@ -87,7 +87,7 @@ function Format-LicenseList([string] $List) {
 
 function Resolve-BuildSetting {
     <#
-        The settings -Build uses (2.4.12): those given, else the last build's.
+        The settings -Build uses: those given, else the last build's.
         It passed its own defaults - User, and no license database when none was
         given - and rebuilt the production sessions under them, so the nightly
         run's next build stopped with 'different settings' every night until a

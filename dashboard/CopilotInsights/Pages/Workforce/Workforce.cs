@@ -12,13 +12,13 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         var types = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "EmployeeType"), Ctx.MinGroupSize, out _);
-        /* Folded like the rest (2.4.12): a manager looking at their own part was "1 licensed managers", themselves. */
+        /* Folded like the rest: a manager looking at their own part was "1 licensed managers", themselves. */
         var roles = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Role"), Ctx.MinGroupSize, out _);
         var levels = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Level"), Ctx.MinGroupSize, out _);
         var titles = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "JobTitle"), Ctx.MinGroupSize, out var ft);
         GroupRow? Find(IEnumerable<GroupRow> r, string n) => r.FirstOrDefault(x => x.Name == n);
         var mgr = Find(roles, "Managers"); var ic = Find(roles, "Individual contributors");
-        /* Adoption only where the license holders reach the minimum group size (2.4.12), as the charts below rank it. */
+        /* Adoption only where the license holders reach the minimum group size, as the charts below rank it. */
         if (mgr is not null) Kpis.Add(new("Managers' adoption", AdoptionAtMin(mgr.ActiveLicensed, mgr.Licensed), $"{mgr.Licensed:#,0} licensed managers"));
         if (ic is not null) Kpis.Add(new("Individual contributors' adoption", AdoptionAtMin(ic.ActiveLicensed, ic.Licensed), $"{ic.Licensed:#,0} licensed"));
         foreach (var t in types.Where(t => t.Name != "Smaller groups").OrderByDescending(t => t.People).Take(2))
@@ -27,7 +27,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
         Panels.Add(new("By employee type", Groups.AdoptionBars(types, "Adoption by employee type", Ctx.MinGroupSize), "The employee type recorded for each person in Active Directory.", "half"));
         Panels.Add(new("Managers and individual contributors", Groups.AdoptionBars(roles, "Adoption by role", Ctx.MinGroupSize),
             "A manager is anyone with someone reporting to them.", "half"));
-        /* Levels in their order, each with at least the minimum group size of license holders (2.4.12); the rest one bar
+        /* Levels in their order, each with at least the minimum group size of license holders; the rest one bar
            at the end, as Chart.Adoption ranks them, and none when even that is under the minimum. Every level was drawn,
            so level 1, the top alone, was one person's use. */
         var (lv, fewLv) = SmallGroups.Split(levels.Where(l => l.Licensed > 0), l => l.Licensed, Ctx.MinGroupSize);

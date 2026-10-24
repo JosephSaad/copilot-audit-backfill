@@ -3,7 +3,7 @@ using CopilotInsights.Data;
 using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
 
-/* More reports for the original personas (2.2.0). */
+/* More reports for the original personas. */
 
 namespace CopilotInsights.Pages.Adoption
 {
@@ -20,7 +20,7 @@ namespace CopilotInsights.Pages.Adoption
             var w1 = Forecasting.Weekly.LastCompleteWeek(Ctx.End);
             var start = w1.AddDays(-7 * 19 - 6);
             /* Each person's twenty weeks as bits (week 0 the oldest), and how many people share each pattern: the curve
-               and the weeks-active count are worked out from the patterns (2.4.11). The page used to read every
+               and the weeks-active count are worked out from the patterns. The page used to read every
                person-week (2.5 million rows at 210,000 people) and loop over them, 3 seconds on every visit.
                Cohorts: the 12 weeks that have 8 weeks after them in the 20-week window. */
             var patterns = await Db.QueryAsync<(int Weeks, int People)>($@"
@@ -80,7 +80,7 @@ namespace CopilotInsights.Pages.Compliance
             Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions touched labeled content"),
                 $"Each part of the organization one level below. Darker is a larger share. {TrendNote}"));
 
-            /* Counted per key pair, then named (2.4.2): grouping on the names worked out a string for each of the rows. */
+            /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. */
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
 WITH g AS (SELECT f.ResourceTypeKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N
            FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}

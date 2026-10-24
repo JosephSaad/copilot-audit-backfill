@@ -156,7 +156,7 @@ public class NavigationTests
         Assert.DoesNotContain("/licensing/changes", Paths(V(5)));
     }
 
-    /* ---- The dashboard's level limit (2.4.4) ------------------------------------------------ */
+    /* ---- The dashboard's level limit ------------------------------------------------ */
 
     [Theory]
     [InlineData(0, 1, true)]       // no limit: everyone, as before
@@ -243,7 +243,7 @@ public class NavigationTests
     }
 }
 
-/// <summary>A Copilot license on a non-human account is a policy breach (2.4.5): the rules, and who sees the page.</summary>
+/// <summary>A Copilot license on a non-human account is a policy breach: the rules, and who sees the page.</summary>
 public class NonHumanTests
 {
     [Theory]
@@ -289,7 +289,7 @@ public class NonHumanTests
             p => p.Path.Contains("non-"));
 }
 
-/// <summary>Levels 1 to N are never on a revoke or train list (2.4.6).</summary>
+/// <summary>Levels 1 to N are never on a revoke or train list.</summary>
 public class ProtectedLevelsTests
 {
     [Fact]

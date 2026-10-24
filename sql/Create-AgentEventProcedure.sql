@@ -69,7 +69,7 @@ BEGIN
            LEFT(COALESCE(t.UserId, a.UserPrincipalName, a.UserId), 512)                  AS ActorUpn,
            LEFT(COALESCE(t.BotId, t.AgentId), 100)                                       AS BotId,
            LEFT(t.BotSchemaName, 200)                                                    AS BotSchemaName,
-           /* An administrator's action names the agent, not a component (2.7.0). */
+           /* An administrator's action names the agent, not a component. */
            LEFT(COALESCE(t.BotComponentSchemaName, t.AgentName), 200)                    AS ComponentName,
            LEFT(t.BotComponentType, 100)                                                 AS ComponentType,
            LEFT(t.ResultStatus, 50)                                                      AS ResultStatus,

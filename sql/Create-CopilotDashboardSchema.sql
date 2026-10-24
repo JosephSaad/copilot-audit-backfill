@@ -55,12 +55,12 @@ USING (VALUES
     ('LicenseCurrency', N'USD', N'The currency LicenseMonthlyCost is in.'),
     ('MaxViewerLevel', N'0', N'Who can open the dashboard (2.4.4): 0 everyone in the directory; N levels 1 to N below the top, and anyone granted a role other than Admin. Set in Admin > Access.'),
     ('ProtectedLevels', N'5', N'Levels 1 to N of the organization are never on a revoke, reclaim, pay-as-you-go or training list (2.4.6); 0 for none. Set in Admin > Access.'),
-    /* 2.6.6: the assumptions Leadership > Costs and savings values and prices with. */
+    /* The assumptions Leadership > Costs and savings values and prices with. */
     ('FabricReservedDiscount', N'0.41', N'2.6.6: what a one-year reservation takes off a Fabric capacity''s pay-as-you-go price, as a fraction (0.41 is 41%).'),
     ('FlowMinutesPerRun', N'3', N'2.6.6: the minutes one run of a cloud flow saves, where the flow inventory gives none for it.'),
     ('PowerBiCopilotMinutes', N'3', N'2.6.6: the minutes one Copilot in Power BI or Fabric request saves an analyst.'),
     ('CostIdleDays', N'30', N'2.6.6: a GitHub Copilot seat, a premium Power Platform license or a model deployment unused this many days counts as idle.'),
-    /* 2.6.6: what Licensing > Credit use estimates Copilot Credits and tokens with. */
+    /* What Licensing > Credit use estimates Copilot Credits and tokens with. */
     ('CreditsPerAnswer', N'2', N'2.6.6: Copilot Credits a billed agent answer costs (a generative answer).'),
     ('CreditsPerGrounding', N'10', N'2.6.6: Copilot Credits grounding a billed answer in the organization''s data (Microsoft Graph) adds.'),
     ('CreditsPerAction', N'5', N'2.6.6: Copilot Credits an agent action adds; counted where an agent calls another.'),
@@ -72,7 +72,7 @@ ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value, s.Description);
 
 /*
-    2.6.6: what a license or unit of capacity costs a month, for Leadership > Costs and savings. A license is
+    What a license or unit of capacity costs a month, for Leadership > Costs and savings. A license is
     matched to audit.LicenseSku by its SKU part number (Item); the other items are units the page prices: a GB of
     Dataverse capacity over the entitlement, a pay-as-you-go Copilot Credit, a capacity pack, a GitHub Copilot
     seat. Seeded with list prices in USD as of 2026; a row an administrator changed is kept on every install.
@@ -113,7 +113,7 @@ ON t.Item = s.Item
 WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, UpdatedBy) VALUES (s.Item, s.Area, s.Name, s.Unit, s.MonthlyPrice, s.Note, N'install');
 
 /*
-    2.6.9: a volume price, and the Dataverse capacity a license brings to the tenant.
+    A volume price, and the Dataverse capacity a license brings to the tenant.
       TierFromSeats, TierPrice  from this many seats, every seat costs TierPrice (Power Apps Premium: 12 from 2,000).
                                 A cut that takes the count under it puts every seat back on MonthlyPrice, so Costs and
                                 savings counts what a cut really saves.
@@ -124,12 +124,12 @@ WHEN NOT MATCHED THEN INSERT (Item, Area, Name, Unit, MonthlyPrice, Note, Update
 */
 IF COL_LENGTH(N'dash.CostPrice', N'TierFromSeats') IS NULL
     ALTER TABLE dash.CostPrice ADD TierFromSeats INT NULL, TierPrice DECIMAL(19, 4) NULL;
-/* 2.6.9: seats kept unassigned on purpose. SparePercent: the share of the seats bought kept spare for joiners and
+/* Seats kept unassigned on purpose. SparePercent: the share of the seats bought kept spare for joiners and
    moves (NULL: the SpareSeatPercent setting, 10 when installed); ForCapacity: the license is bought for the capacity
    or volume price it brings, so its unassigned seats are never a saving. */
 IF COL_LENGTH(N'dash.CostPrice', N'SparePercent') IS NULL
     ALTER TABLE dash.CostPrice ADD SparePercent DECIMAL(5, 2) NULL, ForCapacity BIT NULL;
-/* 2.6.9: the pay-as-you-go cost of an interaction, which the pages took as 0.12 when it was never set, now a row the register can show. */
+/* The pay-as-you-go cost of an interaction, which the pages took as 0.12 when it was never set, now a row the register can show. */
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'PaygInteractionCost')
     INSERT INTO dash.Setting (Name, Value, Description) VALUES ('PaygInteractionCost', N'0.12', N'2.6.9: what one metered agent or work-grounded chat interaction costs without a license (12 Copilot Credits at 0.01), for Better on pay-as-you-go.');
 IF NOT EXISTS (SELECT 1 FROM dash.Setting WHERE Name = 'SpareSeatPercent')
@@ -146,7 +146,7 @@ JOIN (VALUES (''POWERAPPS_PER_USER'', 0.25, 2.0), (''POWERAUTOMATE_ATTENDED_RPA'
 WHERE p.DatabaseGbPerSeat IS NULL AND p.FileGbPerSeat IS NULL;');
 
 /*
-    2.6.6: the suites (Microsoft 365 and Office 365 E3, E5, E7): their price, their place in the family, and what of
+    The suites (Microsoft 365 and Office 365 E3, E5, E7): their price, their place in the family, and what of
     the priced items above they include. Costs and savings counts as AI spend only what is bought on top of a suite:
     an item a suite includes costs nothing more, and a standalone license of it on a suite's holder is paid twice. A
     suite's own price also buys security, compliance, Teams and more that cannot be split out, so no share of it is
@@ -195,12 +195,12 @@ ON t.SkuPattern = s.SkuPattern
 WHEN NOT MATCHED THEN INSERT (SkuPattern, Suite, Family, Tier, MonthlyPrice, Includes, Covers, UpdatedBy)
     VALUES (s.SkuPattern, s.Suite, s.Family, s.Tier, s.MonthlyPrice, s.Includes, s.Covers, N'install');
 
-/* 2.6.6: the license pool's suite mark, also added here so the dashboard reads it before the next license lookup
+/* The license pool's suite mark, also added here so the dashboard reads it before the next license lookup
    runs the enrichment's own schema (Create-CopilotEnrichmentSchema.sql adds it too). */
 IF OBJECT_ID(N'audit.LicenseSku', N'U') IS NOT NULL AND COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL
     ALTER TABLE audit.LicenseSku ADD CopilotInSuite BIT NULL;
 
-/* 2.6.6: dash.CopilotSuiteHolder is everyone who holds a suite with Copilot inside (E7), with the add-on or not;
+/* Dash.CopilotSuiteHolder is everyone who holds a suite with Copilot inside (E7), with the add-on or not;
    dash.CopilotSuiteOnly, the people who hold Microsoft 365 Copilot only through a suite and not as the add-on as well: their
    Copilot cannot be taken off alone, so they are never on a list to revoke. A view the dashboard reads, defined in
    full once the license pool and its suite mark exist, and empty until then; Create-CopilotEnrichmentSchema.sql and
@@ -231,7 +231,7 @@ WHERE ss.CopilotInSuite = 1;');
 END;
 
 /*
-    2.7.1: the product name for each license's part number, so pages say "Microsoft 365 E5", not SPE_E5. Microsoft
+    The product name for each license's part number, so pages say "Microsoft 365 E5", not SPE_E5. Microsoft
     Graph gives a tenant's licenses by part number only. Seeded with Microsoft's names for the common ones (Product
     names and service plan identifiers for licensing); an administrator names the rest, or renames one, in
     Admin > Value names, and a row they set is kept on every install. A part number with no row is shown as it is,
@@ -301,7 +301,7 @@ IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NULL
         CONSTRAINT UQ_DashRoleGrant UNIQUE (Principal, Role)
     );
 
-/* 2.6.4: an Admin grant can be limited to some of the Admin pages: their paths, comma-separated
+/* An Admin grant can be limited to some of the Admin pages: their paths, comma-separated
    (/admin/health,/admin/audit). NULL, as on every grant before, is the whole role. Other roles leave it NULL. */
 IF COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL ALTER TABLE dash.RoleGrant ADD Pages NVARCHAR(1000) NULL;
 /* The 2.6.4 build that was withdrawn kept such pages under a role of its own, Persona. Where a database has any, they
@@ -412,12 +412,12 @@ IF OBJECT_ID(N'dash.UserDay', N'U') IS NULL
         LabeledContent   INT     NOT NULL,   -- interactions that touched sensitivity-labeled content
         Sessions          INT     NOT NULL,   -- sessions that started that day
         MultiTurnSessions INT     NOT NULL,
-        PremiumUse        INT     NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0),   -- licensed interactions that needed the license (2.3.0)
+        PremiumUse        INT     NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0),   -- licensed interactions that needed the license
         CONSTRAINT PK_DashUserDay PRIMARY KEY (DateKey, UserKey),
         INDEX IX_DashUserDay_User (UserKey, DateKey)
     );
 
-/* 2.3.0: use that needs the Premium license. Zero until the rollups are rebuilt once (dash.usp_RefreshDashboard with no date). */
+/* Use that needs the Premium license. Zero until the rollups are rebuilt once (dash.usp_RefreshDashboard with no date). */
 IF COL_LENGTH(N'dash.UserDay', N'PremiumUse') IS NULL
     ALTER TABLE dash.UserDay ADD PremiumUse INT NOT NULL CONSTRAINT DF_DashUserDay_Premium DEFAULT (0);
 
@@ -439,7 +439,7 @@ IF OBJECT_ID(N'dash.ResourceDay', N'U') IS NULL
     );
 
 /*
-    2.4.7: the interactions with a security signal, a few in every thousand, each with the record id the triage
+    The interactions with a security signal, a few in every thousand, each with the record id the triage
     is kept under. Security > Flagged interactions lists them from here: reading the record ids of the flagged
     rows out of bi.FactInteraction costs a pass over that column for the whole fact (4 seconds at 40 million).
 */
@@ -461,7 +461,7 @@ BEGIN
 END;
 
 /*
-    2.4.2: columnstore copies of the two rollups. The pages read a year of them
+    Columnstore copies of the two rollups. The pages read a year of them
     for a whole organization at a time (6 and 12 million rows at 70,000 people),
     which the row-store keys scan in seconds and a columnstore in a fraction of
     one. The refresh truncates and bulk-loads both, which a columnstore takes.
@@ -495,7 +495,7 @@ IF OBJECT_ID(N'dash.RefreshRun', N'U') IS NULL
         ClosureRows  INT           NOT NULL,
         UserDayRows  INT           NOT NULL
     );
-/* 2.4.0: the latest bi.RefreshRun the rollups reflect, so the next refresh sees what bi changed since. */
+/* The latest bi.RefreshRun the rollups reflect, so the next refresh sees what bi changed since. */
 IF COL_LENGTH(N'dash.RefreshRun', N'BiRunId') IS NULL
     ALTER TABLE dash.RefreshRun ADD BiRunId INT NULL;
 
@@ -516,7 +516,7 @@ JOIN bi.DimUser AS u ON u.UserPrincipalName = c.DescendantUpn
 WHERE c.AncestorUpn = @RootUpn;');
 
 /*
-    2.5.6: the agent inventory, from the Excel workbook tools/Import-AgentWorkbook.ps1 loads each night. One row per
+    The agent inventory, from the Excel workbook tools/Import-AgentWorkbook.ps1 loads each night. One row per
     agent the workbook lists (the current agents), matched to the agent the audit log knows (AgentKey) where it can
     be. The workbook's sheets themselves are in dbo, as they come; these are what the reports read.
 */
@@ -555,7 +555,7 @@ IF OBJECT_ID(N'dash.AgentChildLink', N'U') IS NULL
         IsValid                 BIT            NULL
     );
 
-/* 2.5.7: which child it is. A name alone is not: Copilot Studio calls a new child agent "Agent", in every parent. A
+/* Which child it is. A name alone is not: Copilot Studio calls a new child agent "Agent", in every parent. A
    child agent lives inside its parent (its own component id); a connected agent is an agent of its own, which several
    parents can call (its environment and schema name, and its row in the inventory where it has one). */
 IF COL_LENGTH(N'dash.AgentChildLink', N'ChildKey') IS NULL ALTER TABLE dash.AgentChildLink ADD ChildKey NVARCHAR(450) NULL;
@@ -563,7 +563,7 @@ IF COL_LENGTH(N'dash.AgentChildLink', N'ChildKind') IS NULL ALTER TABLE dash.Age
 IF COL_LENGTH(N'dash.AgentChildLink', N'ChildInventoryAgentId') IS NULL ALTER TABLE dash.AgentChildLink ADD ChildInventoryAgentId NVARCHAR(100) NULL;
 IF COL_LENGTH(N'dash.AgentChildLink', N'ParentEnvironment') IS NULL ALTER TABLE dash.AgentChildLink ADD ParentEnvironment NVARCHAR(400) NULL;
 
-/* 2.5.8: the settings the agent checks compare with the agents' use, and whether an agent runs on its own. An agent
+/* The settings the agent checks compare with the agents' use, and whether an agent runs on its own. An agent
    with triggers or flows (an autonomous agent) can work with nobody chatting to it, so no interaction is not "unused". */
 IF COL_LENGTH(N'dash.AgentInventory', N'EnvironmentSku') IS NULL ALTER TABLE dash.AgentInventory ADD EnvironmentSku NVARCHAR(100) NULL;
 IF COL_LENGTH(N'dash.AgentInventory', N'Authentication') IS NULL ALTER TABLE dash.AgentInventory ADD Authentication NVARCHAR(200) NULL;
@@ -589,7 +589,7 @@ IF OBJECT_ID(N'dash.AgentInventoryRun', N'U') IS NULL
         Message         NVARCHAR(2000)  NULL
     );
 
-/* Agents with their friendly names (2.5.6): the agent workbook's first, as the list of the current agents; then one set
+/* Agents with their friendly names: the agent workbook's first, as the list of the current agents; then one set
    by hand in Admin, for an agent the workbook does not name (one since deleted); then the audit log's. */
 EXEC (N'
 CREATE OR ALTER VIEW dash.Agent

@@ -15,7 +15,7 @@
     <script src="~/theme.js" asp-append-version="true"></script>
 </head>
 <body>
-@* 2.4.10: the first thing the Tab key reaches. With a keyboard or a screen reader the page was a hundred links away,
+@* The first thing the Tab key reaches. With a keyboard or a screen reader the page was a hundred links away,
    past the whole list of reports, on every page. *@
 <a class="skip" href="#main">Skip to the page</a>
 <header class="top">
@@ -39,7 +39,7 @@
     }
 </header>
 <div class="shell">
-    @* 2.4.9: sections fold, with the one you are in open to begin with: selecting a section opens it or folds it, and
+    @* Sections fold, with the one you are in open to begin with: selecting a section opens it or folds it, and
        moves nothing else. "About these reports", under an open section's links, opens a panel of them under their headings,
        each with what it answers; the box at the top finds a report. Without script every section is open. *@
     <nav class="side" aria-label="Reports">
@@ -51,7 +51,7 @@
             <p class="none" id="nav-none" hidden>No report matches. Try a word from what it shows, such as "unused" or "training".</p>
             <p class="none" id="nav-count" role="status" hidden></p>
             @* On a narrow window (a phone, a tablet upright) the list is above the page, and would fill the first screen:
-               there it folds behind one button that says where you are (2.4.10). Finding still shows its matches. *@
+               there it folds behind one button that says where you are. Finding still shows its matches. *@
             var at = groups.SelectMany(g => g.Pages.Select(p => (g, p))).FirstOrDefault(x => x.p.Path == path);
             <button type="button" class="navtog" aria-expanded="false" aria-controls="nav-sections"
                     aria-label="Show or hide the list of reports">@(at.p is null ? "All reports" : $"{at.g.Persona} › {at.p.Title}")</button>

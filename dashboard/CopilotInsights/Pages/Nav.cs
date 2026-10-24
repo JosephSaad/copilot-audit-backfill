@@ -103,7 +103,7 @@ public static class Nav
     /// Whether a page is open to the viewer: admin pages to administrators (to one limited to some pages, those: 2.6.4), role pages to holders
     /// of the role, and report pages to anyone with data to see (in the directory, or granted
     /// Organization). The navigation and the start page show only these; the rest are not listed.
-    /// Outside the dashboard's levels (2.4.4), only an administrator's Admin pages are.
+    /// Outside the dashboard's levels, only an administrator's Admin pages are.
     /// </summary>
     public static bool Allowed(NavPage page, Viewer viewer, bool privacyMode = false) =>
         !viewer.Admitted ? page.Admin && viewer.CanAdmin(page.Path)
@@ -118,9 +118,9 @@ public static class Nav
               .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode) && !HiddenReports.Is(hidden, Key(g, p))).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
 
-    /// <summary>The role a page's section needs, if any (2.4.2): the section is hidden, and its pages refused, without it.</summary>
+    /// <summary>The role a page's section needs, if any: the section is hidden, and its pages refused, without it.</summary>
     /// <summary>
-    /// The page before <paramref name="path"/> in its section and the one after (2.4.10), among the pages offered:
+    /// The page before <paramref name="path"/> in its section and the one after, among the pages offered:
     /// <paramref name="groups"/> is what <see cref="For"/> returned for this person, so neither is one they cannot open.
     /// </summary>
     public static (NavPage? Before, NavPage? After, NavGroup? Section) Beside(IReadOnlyList<NavGroup> groups, string? path)
@@ -133,7 +133,7 @@ public static class Nav
     }
 
     /// <summary>
-    /// The pages nearest to an address that has no page (2.4.10), among the pages offered: those in the section the
+    /// The pages nearest to an address that has no page, among the pages offered: those in the section the
     /// address begins with, and those whose name, address or section holds a word of it. Best first, the list's order
     /// among equals.
     /// </summary>
@@ -154,7 +154,7 @@ public static class Nav
 }
 
 /// <summary>
-/// The reports an administrator has turned off (2.4.9, Admin › Reports shown): gone from the navigation and the start
+/// The reports an administrator has turned off (Admin › Reports shown): gone from the navigation and the start
 /// page, and not found at their address, for everyone, administrators too. Kept in dash.Setting, one row a report,
 /// named Hide: and its path. Admin pages cannot be turned off.
 /// </summary>

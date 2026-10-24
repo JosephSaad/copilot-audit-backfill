@@ -40,7 +40,7 @@ namespace CopilotInsights.Pages.Security
             var guest = userType
                 ? "(du.UserPrincipalName LIKE N'%#EXT#%' OR EXISTS (SELECT 1 FROM audit.CopilotLicense AS cl WHERE cl.UserPrincipalName = du.UserPrincipalName AND cl.UserType = N'Guest'))"
                 : "du.UserPrincipalName LIKE N'%#EXT#%'";
-            /* 2.7.5: a licensed guest an administrator confirmed as a person is no breach on Copilot on non-human accounts;
+            /* A licensed guest an administrator confirmed as a person is no breach on Copilot on non-human accounts;
                the count says how many, so the two pages agree. */
             var exceptions = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
             var ok = exceptions ? "CASE WHEN EXISTS (SELECT 1 FROM dash.NonHumanException AS ex WHERE ex.Upn = du.UserPrincipalName) THEN 1 ELSE 0 END" : "0";
@@ -116,7 +116,7 @@ namespace CopilotInsights.Pages.Compliance
         public override bool AllowedInPrivacyMode => true;
         /* The box offers people with Copilot records, in the part of the organization the viewer may see. */
         public override CopilotInsights.Data.LookupKind Lookup => CopilotInsights.Data.LookupKind.People;
-        /// <summary>The scope here only decides who can be looked up (2.5.0); the team box would drop the person chosen.</summary>
+        /// <summary>The scope here only decides who can be looked up; the team box would drop the person chosen.</summary>
         public override bool UsesTeam => false;
         public override string Intro => "Everything recorded about one person's Copilot use, for a data-subject access request or an investigation. Each look and download is in the audit log, with whose record it was. Copilot's audit records hold no prompt or response text: for the content itself, use Purview eDiscovery with the record ids below.";
 
@@ -191,10 +191,10 @@ GROUP BY {Ctx.BucketSql("dd")};", Ctx.Args(new { key = who.UserKey }));
             Kpis.Add(new("Days active", Num(activeDays), $"of {Ctx.Days} in the period"));
             Kpis.Add(new("Interactions a day active", activeDays > 0 ? $"{trend.Sum(x => x.Interactions) / (double)activeDays:#,0.0}" : "—", "on the days they used Copilot"));
             Panels.Add(new("Use over time",
-                new HtmlString($"<p class=\"sub\">Show: {windows}</p>" + Chart.Columns(Labels(), [
+                new HtmlString($"<p class=\"sub\">Show: {windows}</p>" + Sized(Chart.Columns(Labels(), [
                     new Series("Interactions", buckets.Select(b => (double?)At(b.Key, x => x.Interactions)).ToList(), 1),
                     new Series("Sessions", buckets.Select(b => (double?)At(b.Key, x => x.Sessions)).ToList(), 3),
-                ], Fmt.Count, $"{who.DisplayName ?? who.UserPrincipalName}: interactions and sessions", stacked: false).Value),
+                ], Fmt.Count, $"{who.DisplayName ?? who.UserPrincipalName}: interactions and sessions", stacked: false))),
                 $"Interactions (a prompt and its answer) and sessions (a conversation) for this person, in every app and agent. {TrendNote}", "full"));
 
             var pg = new Paging(Request, new Dictionary<string, string>
@@ -267,7 +267,7 @@ GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             var kept = Groups.Fold(this, rows, Ctx.MinGroupSize, out var folded);
             var unmatched = rows.FirstOrDefault(r => r.Name == "(no family)")?.People ?? 0;
             Kpis.Add(new("Job families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {Count(rules, "rule")}"));
-            /* Counted only when "(no family)" is a row of its own (2.4.12): folded into "Smaller groups", its count here
+            /* Counted only when "(no family)" is a row of its own: folded into "Smaller groups", its count here
                was the one, two or three people the fold kept from view. */
             if (unmatched == 0 || kept.Any(r => r.Name == "(no family)"))
                 Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));

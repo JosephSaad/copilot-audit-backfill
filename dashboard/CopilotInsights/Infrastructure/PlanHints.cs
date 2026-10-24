@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>
-/// Keeps a report query from running with a plan built for other dates (2.4.11).
+/// Keeps a report query from running with a plan built for other dates.
 ///
 /// SQL Server builds a query's plan for the parameter values of whoever runs it first and reuses it for everyone
 /// after. A report's queries take a date range, and the same text is run for a week and for a year, for the period

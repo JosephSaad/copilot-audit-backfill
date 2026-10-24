@@ -28,7 +28,7 @@ public sealed class TargetRow
 public sealed record ValueRow(string Name, long Interactions, double Hours, decimal Value, int People = 0);
 
 /// <summary>
-/// A digest that may not be sent as set up (2.4.12): it is skipped until the next time it is due, with the reason as its
+/// A digest that may not be sent as set up: it is skipped until the next time it is due, with the reason as its
 /// status. An ArgumentException, so Send now in Admin says "Not changed:" and why.
 /// </summary>
 public sealed class DigestRefused(string reason) : ArgumentException(reason);
@@ -53,7 +53,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
     };
 
     /// <summary>
-    /// The whole organization over the last 30 days to <paramref name="c"/>'s end, for the tenant's own figures (2.4.12): the
+    /// The whole organization over the last 30 days to <paramref name="c"/>'s end, for the tenant's own figures: the
     /// license pool and the budget are the tenant's, and are shown only to a viewer allowed them (the whole-organization view,
     /// or the Licensing role). Those pages asked for "the whole organization" from the context factory, which gives a viewer
     /// without the whole-organization view their own part instead, so a director with the Licensing role saw their own 36
@@ -72,7 +72,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
         await db.ScalarAsync<int?>("SELECT MIN(DateKey) FROM dash.UserDay;") is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : null;
 
     /// <summary>
-    /// Whether the data covers every day of <paramref name="c"/>'s period (2.4.12). The period before is set against the one
+    /// Whether the data covers every day of <paramref name="c"/>'s period. The period before is set against the one
     /// shown only when it is: a 180-day period on 182 days of data compared 1,270 people with the 31 of the two days before
     /// it, "+3997%", on the Scorecard, the Board pack and the digests.
     /// </summary>
@@ -80,7 +80,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
 
     /// <summary>
     /// The days of <paramref name="c"/>'s period that the data covers: from its start, or from the first day with data when that
-    /// is later, to its end (2.4.12). What a figure "a month" is scaled by: a 365-day period over 182 days of data halved
+    /// is later, to its end. What a figure "a month" is scaled by: a 365-day period over 182 days of data halved
     /// everyone's credits a month.
     /// </summary>
     public static int DaysCovered(ReportContext c, DateTime? firstDay) =>
@@ -104,7 +104,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
     };
 
     /// <summary>
-    /// The targets a report on <paramref name="root"/> may show (2.4.12): with no root (the whole organization, which only a
+    /// The targets a report on <paramref name="root"/> may show: with no root (the whole organization, which only a
     /// viewer of the whole organization has) every target; with one, those for a part of the organization inside it, whose
     /// managers are in <paramref name="under"/>, and not the whole organization's. Only the Targets page filtered them: the
     /// Board pack, the data API and a manager's Adoption digest showed every target, the whole organization's and other
@@ -115,7 +115,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
                      : all.Where(t => t.RootUpn is not null && under.Contains(t.RootUpn)).ToList();
 
     /// <summary>
-    /// A target for a part of the organization smaller than the minimum group size (2.4.12) shows no figures, unless it is the
+    /// A target for a part of the organization smaller than the minimum group size shows no figures, unless it is the
     /// viewer's own part: a "People active" target on a team of three was that team's count of active people, on every page
     /// and in every email that listed it.
     /// </summary>
@@ -125,7 +125,7 @@ public sealed class OpsReports(Db db, Metrics metrics, OpsData ops, ReportContex
     /// <summary>
     /// The targets for the part of the organization <paramref name="now"/> reports on (see <see cref="Visible"/>), each with its
     /// baseline (the 30 days before it started), where it stands now, and where it should be by now.
-    /// In privacy mode a target for a manager's part of the organization is shown by their department, not their name (2.4.12).
+    /// In privacy mode a target for a manager's part of the organization is shown by their department, not their name.
     /// </summary>
     public async Task<List<TargetRow>> TargetsAsync(ReportContext now)
     {
@@ -208,14 +208,14 @@ GROUP BY ISNULL(NULLIF(u.Department, N''), N'(no department)');", c.Args())).ToD
 
     /// <summary>
     /// The licenses held in the period, a person a day (bi.FactLicensedDay), in scope: what the period's license cost is priced
-    /// on (2.4.12, see Licensing.Price). It was today's licenses times every day of the period, so a rollout during it, or a
+    /// on (see Licensing.Price). It was today's licenses times every day of the period, so a rollout during it, or a
     /// period reaching back before the licenses or the data, was charged in full against a value that was not.
     /// </summary>
     public async Task<long> LicenseDaysAsync(ReportContext c) =>
         await db.ScalarAsync<long>($"SELECT COUNT_BIG(*) FROM bi.FactLicensedDay AS ld {c.Scope("ld.UserKey")} WHERE ld.DateKey BETWEEN @k0 AND @k1;", c.Args());
 
     /// <summary>
-    /// 2.7.2: the licenses held in the period, a person a calendar month: for each month the period charges
+    /// The licenses held in the period, a person a calendar month: for each month the period charges
     /// (Licensing.Price.MonthsCharged: those whose last day falls inside it), everyone who held a license on at least one
     /// day of that month, once. What the period's license cost is priced on, so a month costs exactly the monthly price,
     /// and a license held one day of a month costs that month in full.
@@ -256,7 +256,7 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
     };
 
     /// <summary>
-    /// Units ranked by adoption, as the Leadership Overview's chart ranks them (2.4.12, see Chart.Adoption): only units with
+    /// Units ranked by adoption, as the Leadership Overview's chart ranks them (see Chart.Adoption): only units with
     /// at least the minimum group size of license holders, highest first; the rest one row at the end, which reaches the
     /// minimum too where it can. The digest applied the minimum to each unit's people, so a team of twelve with one license
     /// holder went out by email as "12 | 1 | 100%", whether that one person used Copilot.
@@ -273,17 +273,17 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
     public async Task<(string Subject, string Html, string Text)> DigestAsync(string report, int days, string? root)
     {
         var c = await ContextAsync(days, root);
-        /* A digest for a manager's part of the organization is named after them, and is that part alone (2.4.12). */
+        /* A digest for a manager's part of the organization is named after them, and is that part alone. */
         if (c.OrgWhy == OrgRefusal.Privacy)
             throw new DigestRefused("privacy mode is on, and this digest is for a manager's part of the organization, which is named after them");
         if (c.OrgWhy == OrgRefusal.TooSmall)
             throw new DigestRefused($"the part of the organization it is for has fewer than {c.MinGroupSize} people, the minimum group size");
-        /* Nor for someone no longer in the directory (2.4.12): their scope is nobody, and it went out as "(nobody)" with
+        /* Nor for someone no longer in the directory: their scope is nobody, and it went out as "(nobody)" with
            zeros, reported as sent. */
         if (c.OrgWhy == OrgRefusal.NotFound)
             throw new DigestRefused("the person whose part of the organization it is for is no longer in the organization directory");
         var prev = Window(c, c.Start.AddDays(-1), c.Days);
-        /* Set against the period before only where the data covers all of it (2.4.12, see Covers). */
+        /* Set against the period before only where the data covers all of it (see Covers). */
         var first = await FirstDayAsync(db);
         var full = Covers(prev, first);
         var url = await settings.StringAsync("DashboardUrl");
@@ -317,7 +317,7 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
                 e.Kpi("People using Copilot", t.Active, p?.Active);
                 e.Kpi("Active in the last 7 days", t.ActiveLast7, p?.ActiveLast7);
                 e.KpiPct("Adoption", Pct(t.ActiveLicensed, t.LicensedNow), p is null ? null : Pct(p.ActiveLicensed, p.LicensedNow));
-                /* The targets for the digest's own part of the organization (2.4.12, see Visible). */
+                /* The targets for the digest's own part of the organization (see Visible). */
                 var targets = await TargetsAsync(c);
                 e.Table("Targets", ["Target", "For", "Now", "Should be by now", "Due", "Status"],
                     targets.Select(r => new object?[] { $"{Metrics(r.Metric)} {r.TargetValue:0.#}{(r.Metric == "ActivePeople" ? "" : "%")}", r.RootName ?? r.RootUpn ?? "Whole organization",
@@ -331,12 +331,12 @@ WHERE {def.Where} AND ISNULL(du.AccountEnabled, 1) = 1;", new { k30, k1 = c.EndK
             }
             case "Licensing":
             {
-                /* The pool is the whole tenant's: in the whole organization's digest only (2.4.12). A manager's digest carried it
+                /* The pool is the whole tenant's: in the whole organization's digest only. A manager's digest carried it
                    to people never checked for the whole-organization view or the Licensing role, which the pool page asks for. */
                 if (c.Root is null)
                 {
                     var pool = (await ops.PoolAsync()).Where(r => r.IsCopilot).ToList();
-                    var names = await SkuNames.LoadAsync(db);   // 2.7.1: product names, not part numbers
+                    var names = await SkuNames.LoadAsync(db);   // Product names, not part numbers
                     e.Table("Copilot license pool", ["License", "Bought", "Assigned", "Available"],
                         pool.Select(r => new object?[] { names.Name(r.SkuPartNumber), r.Bought, r.Consumed, r.Available }));
                 }

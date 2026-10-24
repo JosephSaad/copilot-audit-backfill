@@ -14,7 +14,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        /* Six independent reads, each on its own connection: started together, awaited where they are used (2.7.3). */
+        /* Six independent reads, each on its own connection: started together, awaited where they are used. */
         var trTask = m.TrendAsync(Ctx);
         var peopleTask = Db.ScalarAsync<int>($@"
 SELECT COUNT(DISTINCT ud.UserKey) FROM dash.UserDay AS ud {Ctx.Scope("ud.UserKey")}
@@ -149,13 +149,13 @@ public sealed class FlagsModel(PageServices s) : InsightsPage(s)
         var cases = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().HasAsync("dash.FlagCase");
         var triage = cases && Request.Query["status"].FirstOrDefault() is { } st && Triage.ContainsKey(st) ? st : cases ? "open" : "any";
         var pg = new Paging(Request, Sorts, "new");
-        /* The flagged interactions once into #f, for the list and the open count both (2.4.2), from the refresh's own
-           list of them (2.4.7): reading RecordId out of the fact costs a pass over its whole column, 4 seconds for a
+        /* The flagged interactions once into #f, for the list and the open count both, from the refresh's own
+           list of them: reading RecordId out of the fact costs a pass over its whole column, 4 seconds for a
            year of 40 million. Before the first refresh with 2.4.7 that list does not exist, and the fact is read. */
         var flagged = await HttpContext.RequestServices.GetRequiredService<CopilotInsights.Data.OpsData>().HasAsync("dash.FlaggedInteraction")
             && await Db.ScalarAsync<int>("SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.FlaggedInteraction) THEN 1 ELSE 0 END") == 1;
         /* Sorted by something the flag itself holds, with nothing searched for (the page as it opens): the page's 50 rows
-           are picked first, and only they are joined to the people, apps and agents (2.4.11). Joining every flag of a
+           are picked first, and only they are joined to the people, apps and agents. Joining every flag of a
            year to them before picking 50 took 1.5 seconds at 120 million interactions. Sorted or searched by a name,
            every flag needs its names first, as before. */
         var late = pg.Like is null && pg.SortKey is "new" or "old" or "signals" or "record";
@@ -203,7 +203,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND {Kinds["all"].Sql};{list}
             /* Triage and Note are the inline form. */
             Server = new(pg, Request, ["new", "name", "upn", "dept", "app", "agent", "signals", "record", null, "owner", null], new HashSet<int> { 0 }),
         };
-        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: who triaged, by name
+        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // Who triaged, by name
         foreach (var r in rows)
         {
             var flags = string.Join(", ", new[] { r.JailbreakDetected ? "Jailbreak" : null, r.PromptInjectionDetected ? "Injection" : null, r.HasBlockedResource ? "Blocked" : null }.Where(x => x is not null));

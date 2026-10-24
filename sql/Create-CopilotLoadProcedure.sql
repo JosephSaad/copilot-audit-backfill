@@ -37,7 +37,7 @@
 */
 SET NOCOUNT ON;
 
-/* When the derived tables were brought up to date with a merged load (2.4.12).
+/* When the derived tables were brought up to date with a merged load.
    A load is marked merged before -Incremental refreshes the flattened table,
    sessions, bi and the dashboard from its start, and nothing recorded whether
    that refresh finished: the next load refreshed from its own start only, so
@@ -73,7 +73,7 @@ BEGIN
     DECLARE @msg NVARCHAR(600), @loadId INT, @start DATETIME2(0), @end DATETIME2(0), @downloaded DATETIME2(0), @lock INT;
 
     /* One merge into audit.CopilotAudit at a time, this one or a CSV import's
-       (2.4.12). Each looked for the records already there and then appended
+       Each looked for the records already there and then appended
        the rest, with no lock between: two at once, a console run beside the
        nightly or an import beside it, each missed what the other was
        appending and stored it a second time, and every flatten over those
@@ -198,7 +198,7 @@ BEGIN
            c.UserPrincipalName, c.Service, c.ObjectId, c.ClientIp, c.AdministrativeUnits, c.AuditDataGz, c.WindowId, @loadId
     FROM #cand AS c;
 
-    /* 2.7.3: not in an activity database (it has audit.usp_ShredActivity): its records are shredded into its own
+    /* Not in an activity database (it has audit.usp_ShredActivity): its records are shredded into its own
        tables, and nothing there reads audit.CopilotInteraction, so the JSON was parsed a second time for nothing. */
     IF OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL
     INSERT INTO audit.CopilotInteraction

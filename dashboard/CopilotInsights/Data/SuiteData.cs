@@ -18,7 +18,7 @@ public sealed record SuiteFitView(IReadOnlyList<Suite> Suites, IReadOnlyList<Sui
     IReadOnlyList<SuiteSeats>? Seats = null);
 
 /// <summary>
-/// Reads who holds which suite (2.6.6): every SKU each person holds (audit.UserLicenseSku, from the license lookup),
+/// Reads who holds which suite: every SKU each person holds (audit.UserLicenseSku, from the license lookup),
 /// matched to dash.CostSuite's patterns; their Copilot use in the last 30 days (the days that needed the license,
 /// as Upgrade, train or revoke reads them); their Power BI use, where loaded; their add-ons; their level and account.
 /// </summary>
@@ -44,7 +44,7 @@ public sealed class SuiteData(Db db, Settings settings, OpsData ops)
     }
 
     /// <summary>Every holder of a suite, in the team the context shows when <paramref name="scoped"/>, each with what fits them.</summary>
-    /// <summary>Suite fit, kept once worked out (2.7.4, see <see cref="Db.KeptAsync"/>).</summary>
+    /// <summary>Suite fit, kept once worked out (see <see cref="Db.KeptAsync"/>).</summary>
     public Task<SuiteFitView> FitAsync(ReportContext c, bool scoped) => db.KeptAsync($"SuiteData.Fit:{scoped}", c, () => FitFreshAsync(c, scoped));
 
     async Task<SuiteFitView> FitFreshAsync(ReportContext c, bool scoped)
@@ -117,7 +117,7 @@ GROUP BY cs.SkuPattern;")).Where(x => byPattern.ContainsKey(x.SkuPattern))
     }
 
     /// <summary>
-    /// The add-on a holder's suite already covers, as an AI saving (2.6.6), defined once for Costs and savings and Suite
+    /// The add-on a holder's suite already covers, as an AI saving, defined once for Costs and savings and Suite
     /// fit: the Copilot add-on beside E7, unless the revoke list takes it already (unused, licensed 30 days or more), and
     /// Power BI Pro beside E5 or E7; for enabled holders not at a protected level, as every list treats them.
     /// </summary>
@@ -130,13 +130,13 @@ GROUP BY cs.SkuPattern;")).Where(x => byPattern.ContainsKey(x.SkuPattern))
     }
 
     /// <summary>
-    /// The suites for Costs and savings and Suite fit's own figures, summed the same way for both (2.6.6): those held,
+    /// The suites for Costs and savings and Suite fit's own figures, summed the same way for both: those held,
     /// and the moves. A copy of the Copilot add-on or of Power BI Pro is an AI saving, counted with its area on Costs and
     /// savings, so it is not a move here; a second suite is. Seats bought and assigned to nobody are a move too.
     /// </summary>
     public static SuiteSummary Summarize(SuiteFitView fit, decimal suiteCopilotValue, decimal sparePercent = 0)
     {
-        /* 2.6.9: seats kept unassigned on purpose (SpareSeatPercent) are not cut. */
+        /* Seats kept unassigned on purpose (SpareSeatPercent) are not cut. */
         int Beyond(int bought, int assigned) => Math.Max(0, bought - assigned - CostRules.Spare(bought, sparePercent));
         var held = fit.Rows.GroupBy(r => r.Holder.Suite.Name).Select(g =>
         {

@@ -120,7 +120,7 @@ function Write-Step([string] $Text) { Write-Host "==> $Text" -ForegroundColor Cy
 
 function ConvertTo-Thumbprint {
     <#
-        A certificate thumbprint as the store names it (2.4.12): hex digits only, in capitals. The certificate dialog
+        A certificate thumbprint as the store names it: hex digits only, in capitals. The certificate dialog
         copies it with spaces and an invisible mark in front, which made the lookup fail. Pure, for the tests.
     #>
     param([string] $Value)
@@ -142,7 +142,7 @@ function ConvertTo-TenantList {
 
 function Resolve-SiteSetting {
     <#
-        What this run installs with (2.4.12): each setting given now, else what the site has already, else the
+        What this run installs with: each setting given now, else what the site has already, else the
         default. A re-run without every first-run parameter reset them, though the documents said the settings were
         kept: the app pool went back to its own identity (DOMAIN\HOST$ at a remote SQL Server, which had no grants, or
         was given the site's), the connection string to CopilotAudit without TrustServerCertificate, Kerberos off, and
@@ -196,7 +196,7 @@ Import-Module WebAdministration
 
 # ---- What the site has, and the inputs, before anything changes --------------------------------
 # A setting not given again keeps what the site has (Resolve-SiteSetting). Every input is checked here, before step 3
-# takes the site offline (2.4.12): a thumbprint the store does not hold, a -Tenant that is not Name=Database, a
+# takes the site offline: a thumbprint the store does not hold, a -Tenant that is not Name=Database, a
 # settings file that does not read, threw after the files were copied, with the site left offline.
 # As a site of its own, or as an application (a virtual directory) under an existing site.
 $appName = $null
@@ -219,7 +219,7 @@ $poolName = if ($AppPoolName) { $AppPoolName } elseif ($appName -and $siteBefore
 $poolPath = "IIS:\AppPools\$poolName"
 if ($siteBefore -and -not $PSBoundParameters.ContainsKey('PhysicalPath')) { $PhysicalPath = [Environment]::ExpandEnvironmentVariables($siteBefore.physicalPath) }
 elseif ($appName -and -not $PSBoundParameters.ContainsKey('PhysicalPath')) { $PhysicalPath = Join-Path (Split-Path $PhysicalPath -Parent) $leaf }
-# 2.7.6: the dashboard already an application in this site, run again without -ApplicationPath, would have copied it over
+# The dashboard already an application in this site, run again without -ApplicationPath, would have copied it over
 # the site's own folder.
 if (-not $appName -and $siteBefore) {
     $inside = @(Get-WebApplication -Site $SiteName | Where-Object { Test-Path (Join-Path ([Environment]::ExpandEnvironmentVariables($_.PhysicalPath)) 'CopilotInsights.dll') })
@@ -263,7 +263,7 @@ if ($CertificateThumbprint) {
     $CertificateThumbprint = ConvertTo-Thumbprint $CertificateThumbprint
     if (-not (Test-Path "Cert:\LocalMachine\My\$CertificateThumbprint")) { throw "No certificate $CertificateThumbprint in LocalMachine\My. Nothing was changed." }
 }
-# The daily pre-cache (2.5.1): its time and zone, and the script it runs, which this copies into the site.
+# The daily pre-cache: its time and zone, and the script it runs, which this copies into the site.
 $precacheScript = Join-Path $PSScriptRoot 'Invoke-InsightsPrecache.ps1'
 if ($PrecacheAt -and $PrecacheAt -notmatch '^([01]?\d|2[0-3]):[0-5]\d$') { throw "-PrecacheAt '$PrecacheAt' is not a time of day: give it as HH:mm, such as 07:00, or '' for no pre-cache. Nothing was changed." }
 try { [void] [TimeZoneInfo]::FindSystemTimeZoneById($PrecacheTimeZone) }
@@ -322,7 +322,7 @@ try {
         }
     }
     if (-not (Test-Path (Join-Path $staging 'CopilotInsights.dll'))) { throw "No CopilotInsights.dll in ${PackagePath}: is it the published app?" }
-    # The daily pre-cache's script goes into the site's folder with the app (2.5.1), where the app pool only reads it.
+    # The daily pre-cache's script goes into the site's folder with the app, where the app pool only reads it.
     if (Test-Path $precacheScript) { Copy-Item -LiteralPath $precacheScript -Destination $staging -Force }
 
     New-Item -ItemType Directory -Force $PhysicalPath, (Join-Path $PhysicalPath 'logs'), (Join-Path $PhysicalPath 'precache') | Out-Null
@@ -435,7 +435,7 @@ try {
         Write-Warning 'No -CertificateThumbprint: the site answers on HTTP only. Windows authentication still protects it, but use HTTPS in production.'
     }
     else {
-        # No binding asked for: the site keeps its own (2.4.12; a re-run without -CertificateThumbprint added HTTP on
+        # No binding asked for: the site keeps its own (a re-run without -CertificateThumbprint added HTTP on
         # port 80 beside the HTTPS one). The address below is its HTTPS binding's, or its HTTP one's.
         $kept = @(Get-WebBinding -Name $SiteName | Sort-Object { if ($_.protocol -eq 'https') { 0 } else { 1 } })
         $proto = 'http'
@@ -460,7 +460,7 @@ try {
     $acl = Get-Acl (Join-Path $PhysicalPath 'logs')
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule $poolAccount, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
     Set-Acl (Join-Path $PhysicalPath 'logs') $acl
-    # The pre-cache folder (2.5.1): the scheduled task, as LOCAL SERVICE, leaves a request and its log there; the app
+    # The pre-cache folder: the scheduled task, as LOCAL SERVICE, leaves a request and its log there; the app
     # pool takes the request and writes its answer. Neither can change the script the task runs, in the site's folder.
     $acl = Get-Acl (Join-Path $PhysicalPath 'precache')
     foreach ($who in $poolAccount, 'NT AUTHORITY\LOCAL SERVICE') {
@@ -473,7 +473,7 @@ try {
 }
 finally {
     Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
-    # Back online whether steps 3 to 6 finished or not (2.4.12): only the last step removed it, so a run that failed
+    # Back online whether steps 3 to 6 finished or not: only the last step removed it, so a run that failed
     # after the files were copied left every user on "being updated" until a run succeeded.
     Remove-Item $offline -ErrorAction SilentlyContinue
 }
@@ -536,7 +536,7 @@ if ($GrantDatabaseAccess) {
     # The dash schema first: the grants below name its tables.
     $repoSql = Join-Path (Split-Path $PSScriptRoot -Parent) 'sql'
     $dbConnString = "Server=$SqlServer;Database=$db;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
-    # One run at a time (2.4.12), as the nightly pipeline, Install-CopilotAudit.ps1 and the maintenance rebuilds hold it:
+    # One run at a time, as the nightly pipeline, Install-CopilotAudit.ps1 and the maintenance rebuilds hold it:
     # the schema scripts and a full dashboard refresh below ran beside a nightly's refresh of the same tables.
     $runLock = $null
     if ($env:CopilotAuditRunLock -ne "$SqlServer/$db") {
@@ -584,7 +584,7 @@ else {
 }
 
 # ---- 8. The daily pre-cache -------------------------------------------------------------------
-# Every report page built ahead each morning (2.5.1). A task already scheduled is kept unless -PrecacheAt or
+# Every report page built ahead each morning. A task already scheduled is kept unless -PrecacheAt or
 # -PrecacheTimeZone is given, as the site's other settings are; -PrecacheAt '' removes it.
 $sitePrecache = Join-Path $PhysicalPath 'Invoke-InsightsPrecache.ps1'
 if (Test-Path $sitePrecache) {

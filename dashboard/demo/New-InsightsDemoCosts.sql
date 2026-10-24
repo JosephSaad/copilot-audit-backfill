@@ -1,5 +1,5 @@
 /*
-    Copilot Insights demo: what the company spends on AI and automation beyond its Copilot licenses (2.6.6), for
+    Copilot Insights demo: what the company spends on AI and automation beyond its Copilot licenses, for
     Leadership > Costs and savings. Run after New-InsightsDemoOperations.sql (the license pool) and before the
     dashboard's refresh. Deterministic, relative to today, like the rest of the demo.
 
@@ -50,7 +50,7 @@ SELECT d.UserPrincipalName AS Upn, d.Department, d.Division, d.OrgDepth, d.IsMan
        ROW_NUMBER() OVER (ORDER BY HASHBYTES('MD5', CONCAT(N'order', d.UserPrincipalName))) AS Seq
 INTO #people FROM audit.UserDirectory AS d WHERE d.AccountEnabled = 1;
 
-/* ---- Suites (2.6.6): Microsoft 365 E3 for operations and the front line, E5 for the rest, and an E7 pilot ---- */
+/* ---- Suites: Microsoft 365 E3 for operations and the front line, E5 for the rest, and an E7 pilot ---- */
 /* E7: the executive team and the Technology division's Copilot holders, about one in nine of those licensed. Most
    dropped the Copilot add-on when they moved to E7; a few still hold it, and a few kept E5 beside it. The disabled
    accounts keep the E5 they had. */
@@ -371,7 +371,7 @@ SELECT '6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-ptu', N'contoso-ptu-eus',
 INSERT INTO audit.FoundryCostDay (SubscriptionId, ResourceGroup, Account, Meter, [Day], Cost, Currency)
 SELECT '6b2c9d1e-0000-4000-8000-00000000c0de', N'rg-ai-lab', N'contoso-ai-sandbox', N'Storage and networking', d.[Day], 3.85, N'USD' FROM #day AS d WHERE d.Ago < 90;
 
-/* ---- AI apps beyond Copilot (2.6.9): what the activity database's rollup leaves in audit.AIAppUserDay ----
+/* ---- AI apps beyond Copilot: what the activity database's rollup leaves in audit.AIAppUserDay ----
    Six Azure AI resources. Most calls come from production apps with their own key (no user identity); a few hundred
    people call two apps with their own sign-in, and the Technology division's developers a dev resource. The busiest is
    the Foundry loader's contoso-openai-eus, so its cost shows beside its calls. Four months, weekdays heavier. */
@@ -411,7 +411,7 @@ CROSS APPLY audit.fnAIAppResourceGuess(f.[Resource]) AS g;
 UPDATE audit.AIAppResource SET LineOfBusiness = N'Claims', Environment = 'Production', Owner = N'Claims platform team', SetBy = 'Admin', UpdatedBy = N'demo'
 WHERE [Resource] = N'contoso-openai-eus';
 
-/* 2.7.0: who used Teams meeting AI notes, Power BI and Power Apps each day, as the activity rollup writes it; and the
+/* Who used Teams meeting AI notes, Power BI and Power Apps each day, as the activity rollup writes it; and the
    data loss prevention matches: five policies over SharePoint, OneDrive and Exchange, a few overridden. Weekdays only,
    the last four months. */
 IF OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NOT NULL

@@ -7,9 +7,9 @@ namespace CopilotInsights.Infrastructure;
 
 /// <summary>
 /// A thin wrapper over Dapper: one connection per call, parameters always bound. A report page's reads are answered
-/// from the query cache when it has them (2.4.7, see <see cref="QueryCache"/>); every write tells the cache. A read
-/// between date keys is sent with a plan hint (2.4.11, see <see cref="PlanHints"/>); the cache keys on the text as written.
-/// A read of a table people change all day is kept under that table's version (2.4.11, see <see cref="LiveAsync"/>).
+/// from the query cache when it has them (see <see cref="QueryCache"/>); every write tells the cache. A read
+/// between date keys is sent with a plan hint (see <see cref="PlanHints"/>); the cache keys on the text as written.
+/// A read of a table people change all day is kept under that table's version (see <see cref="LiveAsync"/>).
 /// </summary>
 public sealed class Db(TenantAccessor tenants, QueryCache cache)
 {
@@ -82,7 +82,7 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
     }
 
     /// <summary>
-    /// Several result sets from one batch, read by the caller (2.4.11): for a page whose lists and counts all come from
+    /// Several result sets from one batch, read by the caller: for a page whose lists and counts all come from
     /// one temporary table, so the work behind them is done once. Kept like any other read of a report page; what
     /// <paramref name="read"/> returns is then shared between viewers, so the caller reads it and never changes it.
     /// </summary>
@@ -103,7 +103,7 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
     public async Task<T?> ScalarAsync<T>(string sql, object? args = null)
     {
         var cs = _cs;
-        /* A write that returns a value (a new row's id) is never kept, and counts as a write (2.7.6: one adding a credit
+        /* A write that returns a value (a new row's id) is never kept, and counts as a write (one adding a credit
            route was not, so the list stayed as it was until the night's load). */
         if (Writes.IsMatch(sql))
         {
@@ -119,7 +119,7 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
     }
 
     /// <summary>
-    /// A result worked out from kept reads, itself kept (2.7.4). The credit estimate, the cost model and suite fit build
+    /// A result worked out from kept reads, itself kept. The credit estimate, the cost model and suite fit build
     /// an object for each of up to hundreds of thousands of people from rows already kept, and did it again on every
     /// visit: 0.6 s a page at 120 million interactions, with no query run. Kept under the data stamp, the period and part
     /// of the organization (the context's arguments), and the versions of the tables that change all day. What it returns

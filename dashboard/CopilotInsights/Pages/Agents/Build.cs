@@ -82,7 +82,7 @@ LEFT JOIN dash.AgentAlias AS al ON al.AgentKey = ag.AgentKey
 LEFT JOIN dash.Agent AS da ON da.AgentKey = ag.AgentKey
 GROUP BY e.BotSchemaName
 ORDER BY MAX(e.EventUtc) DESC;", Ctx.Args());
-        /* 2.7.0: what administrators did to agents in the Microsoft 365 admin center (CopilotAgentManagement records):
+        /* What administrators did to agents in the Microsoft 365 admin center (CopilotAgentManagement records):
            blocked, unblocked, deployed, removed, deleted or changed an agent, or changed the tenant's agent settings. */
         var admin = await Db.QueryAsync<(DateTime At, string Action, string? Agent, string? ActorUpn)>(@"
 SELECT TOP (200) e.EventUtc, e.Action, COALESCE(e.ComponentName, e.BotSchemaName, NULLIF(e.BotId, N'')), e.ActorUpn
@@ -118,7 +118,7 @@ WHERE e.DateKey BETWEEN @k0 AND @k1 AND e.Action IN ('Blocked', 'Unblocked', 'De
             Numeric = new HashSet<int> { 4, 5, 6, 8 },
             EmptyText = "No authoring records yet.",
         };
-        var ownerName = await NamesAsync(life.Select(l => l.Owner));   // 2.5.8: owners by name
+        var ownerName = await NamesAsync(life.Select(l => l.Owner));   // Owners by name
         foreach (var l in life)
         {
             var name = (l.FriendlyName ?? l.LogName) is { } shown ? $"{shown} ({l.BotSchemaName})" : l.BotSchemaName;

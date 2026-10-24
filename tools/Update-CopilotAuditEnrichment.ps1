@@ -322,7 +322,7 @@ function Get-CopilotPlanId {
     <#
         The service plans that belong to the Copilot SKUs alone, by id. A user's assignedPlans names each plan by
         this id and by the service behind it ("MicrosoftOffice", "exchange" ...), never by the plan's name, so the
-        id is the only way to tell which of a user's plans came with Copilot (2.4.8; before, the service's name was
+        id is the only way to tell which of a user's plans came with Copilot (before, the service's name was
         searched for "COPILOT", which most Copilot plans' services do not contain, and the date was left empty).
         A plan another SKU in the tenant carries too is left out: its date says nothing about Copilot.
     #>
@@ -492,7 +492,7 @@ function Invoke-Main {
     # ---- Which Copilot SKUs exist in this tenant ---------------------------
     $skus = Get-GraphPaged -Uri '/v1.0/subscribedSkus'
     $copilotSkus = @{}
-    # The suites with Copilot inside (2.6.6, E7): licensed like the add-on, and marked so the dashboard prices and
+    # The suites with Copilot inside (E7): licensed like the add-on, and marked so the dashboard prices and
     # recommends them as part of the suite.
     $suiteSkus = @{}
     foreach ($s in $skus) {
@@ -534,7 +534,7 @@ WHERE UserPrincipalName IS NOT NULL;
     foreach ($r in $seen.Rows) { [void] $upns.Add([string] $r.UserPrincipalName) }
     Write-Log ("{0:N0} distinct user(s) appear in the audit data." -f $upns.Count)
 
-    # And everyone recorded as holding a license (2.4.12). A row is written only for someone looked up, so a license
+    # And everyone recorded as holding a license. A row is written only for someone looked up, so a license
     # taken back from a person who never used Copilot, or a person who left, was never looked up again: Licensed for
     # good, on the unused-license list and in the licensed counts, after every reclaim the page recommends.
     $recorded = Invoke-EnrichmentSql -As Table -Sql 'SELECT UserPrincipalName FROM audit.CopilotLicense WHERE IsCopilotLic = 1;'
@@ -562,7 +562,7 @@ WHERE UserPrincipalName IS NOT NULL;
     [void] $skuRows.Columns.Add('UserPrincipalName', [string]); [void] $skuRows.Columns.Add('SkuId', [guid])
     $notFound = 0
 
-    # Twenty users to a Graph $batch request (2.4.2): one request a user took hours
+    # Twenty users to a Graph $batch request: one request a user took hours
     # for a large tenant and showed nothing until the end.
     $list = @($upns)
     $done = 0
@@ -573,7 +573,7 @@ WHERE UserPrincipalName IS NOT NULL;
         for ($try = 1; $pending.Count -gt 0; $try++) {
             $requests = @($pending.GetEnumerator() | ForEach-Object {
                 @{ id = $_.Key; method = 'GET'; url = "/users/$([uri]::EscapeDataString($_.Value))?`$select=$select" } })
-            # A dropped connection or a failed batch is retried like a throttle (2.4.3): a
+            # A dropped connection or a failed batch is retried like a throttle: a
             # run of 60,000 users makes thousands of requests, and one reset lost the lot.
             $resp = $null; $wait = 0
             try {
@@ -617,7 +617,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 continue
             }
 
-            # License, and every SKU they hold (2.4.3), for the overlap report
+            # License, and every SKU they hold, for the overlap report
             $matchedSku = $null; $matchedIsSuite = $false
             $held = @{}
             foreach ($al in @(Get-Prop $user 'assignedLicenses')) {
@@ -627,7 +627,7 @@ WHERE UserPrincipalName IS NOT NULL;
                     $held[$g] = $true
                     [void] $skuRows.Rows.Add("$(Get-Prop $user 'userPrincipalName')", $g)
                 }
-                # The add-on before a suite (2.6.6): someone with both is recorded by the add-on, which can be taken back.
+                # The add-on before a suite: someone with both is recorded by the add-on, which can be taken back.
                 if ($id -and $copilotSkus.ContainsKey($id) -and (-not $matchedSku -or ($matchedIsSuite -and -not $suiteSkus.ContainsKey($id)))) {
                     $matchedSku = $copilotSkus[$id]; $matchedIsSuite = $suiteSkus.ContainsKey($id)
                 }
@@ -656,7 +656,7 @@ WHERE UserPrincipalName IS NOT NULL;
         }
     }
 
-    # The delete guard (2.6.5), before anything about the people is written: every SKU each one holds replaces the
+    # The delete guard, before anything about the people is written: every SKU each one holds replaces the
     # table whole, so a lookup that came back short must not take most of the licenses with it.
     if ((Invoke-EnrichmentSql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL THEN 0 ELSE 1 END") -eq 1) {
         Assert-DropGuard -What 'Licenses held (audit.UserLicenseSku)' -Before ([long] (Invoke-EnrichmentSql -As Scalar -Sql 'SELECT COUNT_BIG(*) FROM audit.UserLicenseSku;')) `
@@ -694,7 +694,7 @@ WHERE UserPrincipalName IS NOT NULL;
     Write-Log 'Re-run audit.usp_FlattenCopilotAudit to carry IsCopilotLic into audit.RawLogFlattened.'
 }
 
-# Dot-sourcing (tests) loads the functions without running anything. Refused by the delete guard (2.6.5), nothing
+# Dot-sourcing (tests) loads the functions without running anything. Refused by the delete guard, nothing
 # about the people was written: a code of its own, which the nightly run records and goes on from.
 if ($MyInvocation.InvocationName -ne '.') {
     try { Invoke-Main }

@@ -27,14 +27,14 @@
         } else { cross.style.visibility = 'hidden'; }
       }
     }
-    // An information icon's text sits under the icon, not under the pointer (2.4.5).
+    // An information icon's text sits under the icon, not under the pointer.
     if (t && t.classList.contains('infob')) { if (tip.hidden || tip.textContent !== t.getAttribute('data-tip')) showAt(t); }
     else if (t) show(e, t.getAttribute('data-tip'));
     else if (!(e.target.closest && e.target.closest('nav.side [data-what]'))) tip.hidden = true;   // the navigation shows its own
   });
   document.addEventListener('mouseleave', function () { tip.hidden = true; });
 
-  // Information icons (2.4.3): the same tip on keyboard focus or a tap, under the icon and inside the window.
+  // Information icons: the same tip on keyboard focus or a tap, under the icon and inside the window.
   function showAt(b) {
     tip.textContent = b.getAttribute('data-tip');
     tip.hidden = false;
@@ -106,7 +106,7 @@
   document.querySelectorAll('form[data-confirm]').forEach(function (f) {
     f.addEventListener('submit', function (e) { if (!window.confirm(f.getAttribute('data-confirm'))) e.preventDefault(); });
   });
-  // Column headers sort a table in the page (2.4.5): by each cell's data-v when it has one (numbers,
+  // Column headers sort a table in the page: by each cell's data-v when it has one (numbers,
   // dates), else by a number at the start of its text ("45%", "$1,200"), else by its text. Numbers and
   // dates open largest or latest first, text A to Z; a second click reverses. Rows marked data-keep stay last.
   function key(td) {
@@ -154,7 +154,7 @@
     });
   });
 
-  // The start page's areas (2.5.7): a card opens its reports in a window, closed by Escape, its × or a click outside.
+  // The start page's areas: a card opens its reports in a window, closed by Escape, its × or a click outside.
   // Without script, or a browser without <dialog>, the card is a link to the area's first report.
   document.querySelectorAll('a[data-dialog]').forEach(function (a) {
     var d = document.getElementById(a.getAttribute('data-dialog'));
@@ -169,11 +169,11 @@
     d.addEventListener('close', function () { a.focus(); });
   });
 
-  // A table of more than a page of rows shows one page at a time (2.5.7), 50 rows as the server's lists do. Rows marked
+  // A table of more than a page of rows shows one page at a time, 50 rows as the server's lists do. Rows marked
   // data-keep (a total) stay on every page. Hidden rows are only off the screen: printing shows every row.
   document.querySelectorAll('table[data-page-size]').forEach(function (table) {
     var size = parseInt(table.getAttribute('data-page-size'), 10) || 50;
-    var bar = document.createElement('nav');   // the same element, place and look as a list paged on the server (2.5.8)
+    var bar = document.createElement('nav');   // the same element, place and look as a list paged on the server
     bar.className = 'tpager';
     bar.setAttribute('aria-label', 'Pages');
     var wrap = table.closest('.table-wrap') || table;
@@ -220,7 +220,7 @@
     });
   });
 
-  // ---- The navigation (2.4.9) ----------------------------------------------------------------------
+  // ---- The navigation ----------------------------------------------------------------------
   var nav = document.querySelector('nav.side');
   if (nav) (function () {
     var grps = Array.prototype.slice.call(nav.querySelectorAll('.grp'));
@@ -273,7 +273,7 @@
     window.addEventListener('pageshow', function (e) {
       if (!e.persisted) return;
       close(false);
-      // 2.5.7: the start page shows the most used as shortcuts, so that section stays folded there too.
+      // The start page shows the most used as shortcuts, so that section stays folded there too.
       grps.forEach(function (g) { fold(g, g.classList.contains('here')); });
       var f = document.getElementById('nav-find');
       if (f && f.value) { f.value = ''; f.dispatchEvent(new Event('input')); }
@@ -405,7 +405,7 @@
   })();
 
   // The admin forms put the question on the button.
-  /* 2.6.3: a box that ticks or clears every box of one form (Admin › Access: the people and groups on the page). */
+  /* A box that ticks or clears every box of one form (Admin › Access: the people and groups on the page). */
   document.querySelectorAll('input[data-check-all]').forEach(function (all) {
     all.addEventListener('change', function () {
       document.querySelectorAll('input[type="checkbox"][form="' + all.getAttribute('data-check-all') + '"]').forEach(function (b) { b.checked = all.checked; });
@@ -415,7 +415,7 @@
     b.addEventListener('click', function (e) { if (!window.confirm(b.getAttribute('data-confirm'))) e.preventDefault(); });
   });
 
-  /* 2.6.9: "Change it" beside an assumption opens its page at the field: ?focus=Name, or ?focus=name|key for a field of a
+  /* "Change it" beside an assumption opens its page at the field: ?focus=Name, or ?focus=name|key for a field of a
      row (a price), whose form holds the key in a hidden field. The field is scrolled to, focused and marked a moment. */
   (function () {
     var want = new URLSearchParams(window.location.search).get('focus');

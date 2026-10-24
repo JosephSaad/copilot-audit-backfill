@@ -3,7 +3,7 @@ using Microsoft.Extensions.Caching.Memory;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>
-/// The reports a person opens most (2.4.9), for the "Your most used" section at the top of the navigation and the
+/// The reports a person opens most, for the "Your most used" section at the top of the navigation and the
 /// start page. Counted from the audit log the dashboard already keeps, the person's own page views over the last 90
 /// days: nothing is saved for it, and nobody sets it up. Worked out once a day for each person, so the order does
 /// not move about while they work.

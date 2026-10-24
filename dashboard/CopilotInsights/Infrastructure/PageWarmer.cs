@@ -11,16 +11,16 @@ using Microsoft.Extensions.Options;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>
-/// Builds every report page for the whole organization, at every period, whenever the data changes (2.4.7): after the
+/// Builds every report page for the whole organization, at every period, whenever the data changes: after the
 /// nightly refresh, after an administrator changes a setting or reference data, when the site starts, and when the last build's
-/// results expire (2.4.12). Each web server builds its own, for its own cache: nothing is shared. It runs the
+/// results expire. Each web server builds its own, for its own cache: nothing is shared. It runs the
 /// pages' own code with no response written, so their queries' results are in the query cache before anyone asks:
 /// the top of the organization, their direct reports and holders of Organization then get each page from memory.
 /// Nothing here changes who may see what: a result is only ever read by a request whose own checks produced the
 /// very same query (see <see cref="QueryCache"/>). Off with Insights:QueryCacheMinutes = 0.
 /// </summary>
 /// <remarks>
-/// The daily pre-cache (2.5.1): Invoke-InsightsPrecache.ps1, scheduled on each web server, leaves a request in the
+/// The daily pre-cache: Invoke-InsightsPrecache.ps1, scheduled on each web server, leaves a request in the
 /// precache folder (<see cref="InsightsOptions.PrecacheFolder"/>). The site takes it within 15 seconds, builds every
 /// page again reading each query afresh (<see cref="QueryCache.Refresh"/>), so nobody waits during the build and every
 /// result is kept for its full time from then, then builds each page once more from memory, timed, and writes how it
@@ -57,7 +57,7 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
         try { await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, options.Value.WarmStartDelaySeconds)), stop); } catch (OperationCanceledException) { return; }
         while (!stop.IsCancellationRequested)
         {
-            /* A pre-cache asked for comes first (2.5.1): it builds every page whatever the last build was. */
+            /* A pre-cache asked for comes first: it builds every page whatever the last build was. */
             if (TakeRequest() is { } request)
             {
                 try { await PrecacheAsync(request, stop); }
@@ -85,7 +85,7 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
 
     /// <summary>
     /// Whether to build the pages now: the data changed since the last build, or that build's results have expired
-    /// (2.4.12). Only a change started one, and every result is kept for at most Insights:QueryCacheMinutes, so 12 hours
+    /// Only a change started one, and every result is kept for at most Insights:QueryCacheMinutes, so 12 hours
     /// after the nightly build nothing was kept and nothing was built again until midnight UTC: for the afternoon, the
     /// top of the organization waited for every page. Pure, for the tests.
     /// </summary>
@@ -343,7 +343,7 @@ SELECT @r;");
     }
 }
 
-/// <summary>What Invoke-InsightsPrecache.ps1 leaves in the precache folder (2.5.1).</summary>
+/// <summary>What Invoke-InsightsPrecache.ps1 leaves in the precache folder.</summary>
 public sealed class PrecacheRequest
 {
     public string Id { get; set; } = "";
@@ -351,7 +351,7 @@ public sealed class PrecacheRequest
     public string? RequestedBy { get; set; }
 }
 
-/// <summary>How a pre-cache went, written to precache.json as it goes (2.5.1).</summary>
+/// <summary>How a pre-cache went, written to precache.json as it goes.</summary>
 public sealed class PrecacheStatus
 {
     public string Id { get; set; } = "";

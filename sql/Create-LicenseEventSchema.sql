@@ -107,7 +107,7 @@ IF OBJECT_ID(N'audit.LicenseEvent', N'U') IS NOT NULL
                    WHERE object_id = OBJECT_ID(N'audit.LicenseEvent') AND name = N'IX_LicenseEvent_Chunk')
     EXEC (N'CREATE INDEX IX_LicenseEvent_Chunk ON audit.LicenseEvent (ChunkGroupId, ChunkSeq);');
 
-/* What audit.usp_RefreshLicenseSkuChange asks after every shred: the events shredded since it last ran (2.5.4). */
+/* What audit.usp_RefreshLicenseSkuChange asks after every shred: the events shredded since it last ran. */
 IF OBJECT_ID(N'audit.LicenseEvent', N'U') IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM sys.indexes
                    WHERE object_id = OBJECT_ID(N'audit.LicenseEvent') AND name = N'IX_LicenseEvent_Shredded')

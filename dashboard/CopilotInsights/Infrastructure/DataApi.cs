@@ -15,7 +15,7 @@ public static class DataApi
     {
         var api = app.MapGroup("/api/v1");
 
-        /* The list of endpoints goes through Run as every call does (2.4.12): it answered with the API turned off, to anyone
+        /* The list of endpoints goes through Run as every call does: it answered with the API turned off, to anyone
            outside the dashboard's levels, and wrote nothing to the audit log. */
         api.MapGet("/", (HttpContext h, CancellationToken _) => Run(h, "", null, (_, _) => Task.FromResult<object>(new
         {
@@ -33,7 +33,7 @@ public static class DataApi
             },
         })));
 
-        /* The security signals are the Security section's and labeled content the Compliance section's (2.4.12): the
+        /* The security signals are the Security section's and labeled content the Compliance section's: the
            usage trend and the units carry them only for those roles, as /security and the section pages do. */
         api.MapGet("/usage", (HttpContext h, CancellationToken _) => Run(h, "usage", null, async (x, c) =>
         {
@@ -78,12 +78,12 @@ public static class DataApi
         api.MapGet("/value", (HttpContext h, CancellationToken _) => Run(h, "value", null, async (x, c) =>
         {
             var v = await x.GetRequiredService<OpsReports>().ValueAsync(c);
-            /* Departments folded as the page folds them (2.4.12): the API returned every one, down to one person. */
+            /* Departments folded as the page folds them: the API returned every one, down to one person. */
             var byDepartment = SmallGroups.Fold(v.ByDepartment, d => d.People, OpsReports.CombineValue, c.MinGroupSize, out var foldedDepartments);
             return new { scope = c.ScopeLabel, from = c.Start, to = c.End, minGroupSize = c.MinGroupSize, hourlyCost = v.HourlyCost, defaultMinutes = v.DefaultMinutes, byApp = v.ByApp, byDepartment };
         }));
 
-        /* The targets for the caller's part of the organization, as the Targets page shows them (2.4.12, see OpsReports.Visible):
+        /* The targets for the caller's part of the organization, as the Targets page shows them (see OpsReports.Visible):
            every target went to anyone with the Adoption role, the whole organization's and other executives' parts too. */
         api.MapGet("/targets", (HttpContext h, CancellationToken _) => Run(h, "targets", null, async (x, c) =>
             new { asOf = c.End, targets = await x.GetRequiredService<OpsReports>().TargetsAsync(c) }, section: Roles.Adoption));
@@ -92,7 +92,7 @@ public static class DataApi
         {
             var kind = h.Request.Query["kind"].FirstOrDefault() is { } k && Pages.Forecasting.ActionsModel.Kinds.ContainsKey(k) ? k : "upgrade";
             var db = x.GetRequiredService<Db>();
-            /* The page's own activity (with a.P, Premium days), which train and revoke read: without it they failed (2.4.6). */
+            /* The page's own activity (with a.P, Premium days), which train and revoke read: without it they failed. */
             var k30 = ReportContext.Key(c.End.AddDays(-29));
             var rows = await db.QueryAsync<(string Upn, string? Name, string? Department, int Days, int Interactions)>($@"
 WITH {await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey)},
@@ -128,7 +128,7 @@ ORDER BY du.UserPrincipalName;", c.Args(new { k30 }));
         var audit = sp.GetRequiredService<AuditLog>();
         var path = "/api/v1/" + name;
         string? refusal = null;
-        /* The only Admin call is health: for whoever may open Admin › Health, a limited administrator too (2.6.4). */
+        /* The only Admin call is health: for whoever may open Admin › Health, a limited administrator too. */
         if (role == Roles.Admin) { if (!viewer.CanAdmin("/admin/" + name)) refusal = "administrators only"; }
         else if (!viewer.Admitted) refusal = $"the dashboard is for levels 1 to {viewer.MaxLevel} of the organization";
         else if (!viewer.OrgWide && !viewer.InDirectory) refusal = "not in the directory, and not granted Organization";

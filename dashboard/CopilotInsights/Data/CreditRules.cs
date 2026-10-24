@@ -1,7 +1,7 @@
 namespace CopilotInsights.Data;
 
 /// <summary>
-/// The rates an estimate of Copilot Credits is made with (2.6.6), from Admin › Targets and assumptions: credits for a
+/// The rates an estimate of Copilot Credits is made with, from Admin › Targets and assumptions: credits for a
 /// generative answer, for grounding in the organization's data (Microsoft Graph), and for an agent action (here, one
 /// agent calling another); the price of a credit; and, for the rough token figure, the tokens a turn takes before any
 /// grounding, each resource read adds, and an answer gives back.
@@ -20,7 +20,7 @@ public sealed record CreditUse(long Interactions, long WithAgent, long Billed, l
 public sealed record CreditEstimate(decimal Credits, decimal Cost, long Tokens);
 
 /// <summary>
-/// Estimates Copilot Credits and tokens from the audit log (2.6.6). Microsoft reports neither per person: credits are
+/// Estimates Copilot Credits and tokens from the audit log. Microsoft reports neither per person: credits are
 /// billed per response by kind, and tokens are not shown for Microsoft 365 Copilot or its agents at all. So:
 /// <list type="bullet">
 /// <item>Credits: each billed interaction is a generative answer, plus Graph grounding where it read work data, plus an
@@ -40,12 +40,12 @@ public static class CreditRules
         return new(credits, Math.Round(credits * r.CreditPrice, 2), tokens);
     }
 
-    /// <summary>The credit estimate in words, with the rates in it (2.6.9), for a figure's "how it is worked out".</summary>
+    /// <summary>The credit estimate in words, with the rates in it, for a figure's "how it is worked out".</summary>
     public static string Formula(CreditRates r, string cur) =>
         $"Credits = billed interactions × {r.Generative:0.##} (a generative answer) + those grounded in work data × {r.Graph:0.##} + those calling another agent × {r.Action:0.##}; " +
         $"cost = credits × {r.CreditPrice:0.####} {cur}; the period brought to 30 days. Billed: an agent used without a Microsoft 365 Copilot license, or in a Copilot Studio channel.";
 
-    /// <summary>The token estimate in words, with the sizes in it (2.6.9).</summary>
+    /// <summary>The token estimate in words, with the sizes in it.</summary>
     public static string TokenFormula(CreditRates r) =>
         $"Tokens = every interaction × {r.TokensPerTurn:#,0} + each resource read × {r.TokensPerResource:#,0} + each answer × {r.TokensPerAnswer:#,0}; the period brought to 30 days. A rough figure for sizing: Microsoft reports no tokens for Microsoft 365 Copilot.";
 

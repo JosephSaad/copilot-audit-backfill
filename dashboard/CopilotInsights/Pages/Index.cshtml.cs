@@ -11,7 +11,7 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
     public override bool OpenToAdmins => true;
     public string? OrgTop { get; private set; }
 
-    /// <summary>How current the reports are (2.4.10): the last day with any Copilot use, and when the rollups last finished.</summary>
+    /// <summary>How current the reports are: the last day with any Copilot use, and when the rollups last finished.</summary>
     public string? Freshness { get; private set; }
 
     protected override async Task BuildAsync()

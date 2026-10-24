@@ -18,7 +18,7 @@ public class FigureLinkTests
         Assert.Contains("segParam == Segments.Nudge", page);
         /* The list takes one-off and not started together, with the protected levels kept out, as the figure counts them. */
         Assert.Contains("@seg = @nudge AND p.Segment IN (N'One-off', N'Not started')", page);
-        /* 2.7.3: counted in the one pass over the population, the protected levels still left out. */
+        /* Counted in the one pass over the population, the protected levels still left out. */
         Assert.Contains("{CopilotInsights.Data.ProtectedLevels.Join(\"pl\", \"du.UserPrincipalName\")}", page);
         Assert.Contains("var nudge = units.Where(x => x.Segment is \"One-off\" or \"Not started\").Sum(x => x.Open);", page);
         Assert.Contains("@nudged = 0 OR", page);
@@ -33,7 +33,7 @@ public class FigureLinkTests
         var optimize = Page("Forecasting", "Forecasting.cs");
         Assert.Contains(rule, licensing);
         Assert.Contains(rule, optimize);
-        Assert.Contains("idle > 0 ? \"crit\" : null, Href: Open(\"/licensing/unused\"),", optimize);   // 2.6.9: then how it is worked out
+        Assert.Contains("idle > 0 ? \"crit\" : null, Href: Open(\"/licensing/unused\"),", optimize);   // Then how it is worked out
         Assert.Contains("A(\"Unused licenses\", \"/licensing/unused\", Roles.Licensing)", optimize);
         /* The share in use counts every idle license, new or protected, and links nowhere: it is a percentage. */
         Assert.Contains("Pct(Ratio(t.LicensedNow - idle, t.LicensedNow)), $\"used in the last {Ctx.InactiveDays} days\"));", licensing);
@@ -47,7 +47,7 @@ public class FigureLinkTests
         Assert.Contains("used in the last 30 days\", Href: Open(\"/licensing\")));", Page("Forecasting", "Forecasting.cs"));
         /* Adoption is on Adoption; Usage by license counts enabled accounts only (80.6% against 80.4% in the demo). */
         Assert.DoesNotContain("Open(\"/adoption/by-license\")", Page("Leadership", "Leadership.cs"));
-        Assert.Contains("Points(Adopt(t), Adopt(p)), Href: Open(\"/adoption\")));", Page("Leadership", "BoardPack.cs"));   // the Scorecard folded in (2.7.6)
+        Assert.Contains("Points(Adopt(t), Adopt(p)), Href: Open(\"/adoption\")));", Page("Leadership", "BoardPack.cs"));   // the Scorecard folded in
         /* People using Copilot is on Use ranking only: no fallback to a page without the number. */
         foreach (var page in new[] { Page("Leadership", "Leadership.cs"), Page("Leadership", "BoardPack.cs") })
         {
@@ -62,7 +62,7 @@ public class FigureLinkTests
         /* Chargeback's unused spend is the period's, by another rule than Unused licenses; its licenses held are Usage by license's. */
         var chargeback = Page("Licensing", "Operations.cs");
         Assert.Contains("\"a month, on licenses not used in the period\", licensed - used > 0 ? \"warn\" : null,", chargeback);
-        Assert.DoesNotContain("\"a month, on licenses not used in the period\", licensed - used > 0 ? \"warn\" : null, Href", chargeback);   // 2.6.9: no link, only how it is worked out
+        Assert.DoesNotContain("\"a month, on licenses not used in the period\", licensed - used > 0 ? \"warn\" : null, Href", chargeback);   // No link, only how it is worked out
         Assert.Contains("Href: Open(\"/adoption/by-license\"),", chargeback);
         /* The agent lists count within the page's own list and filters, so Shared and In production do not open the full lists. */
         var workbook = Page("Agents", "Workbook.cs");

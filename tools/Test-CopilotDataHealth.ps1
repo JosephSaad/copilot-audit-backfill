@@ -348,7 +348,7 @@ GROUP BY k.Kind;
     Write-Info ("audit.LicenseEvent: {0:N0} events, {1} -> {2}." -f $le.Rows[0].N, (Fmt ($(if (($null -eq $le.Rows[0].F)) { $null } else { $le.Rows[0].F }))), (Fmt ($(if (($null -eq $le.Rows[0].T)) { $null } else { $le.Rows[0].T }))))
     if ($rawLic -gt 0 -and [long]$le.Rows[0].N -eq 0) { Write-Act 'License records are loaded but none shredded into audit.LicenseEvent.' $script:Install }
 
-    # 2.5.4: a shred marks that it is running, and takes the mark away when it has finished. One that is running
+    # A shred marks that it is running, and takes the mark away when it has finished. One that is running
     # holds a lock, so a mark with the lock free is a shred that was stopped; its time is when that one began.
     $shredMark = $false
     if (Test-Object $lic 'audit.PipelineSetting') {
@@ -363,7 +363,7 @@ GROUP BY k.Kind;
         }
     }
 
-    # 2.5.4: the SKU changes sessions and bi read are kept in a table, worked out at the end of every shred.
+    # The SKU changes sessions and bi read are kept in a table, worked out at the end of every shred.
     if (-not (Test-Object $lic 'audit.LicenseSkuChangeRun')) {
         Write-Act 'This license database is on a release before 2.5.4: sessions and bi work out every license SKU change from the records each night, which takes long on a large license history.' $script:Install
     }

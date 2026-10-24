@@ -88,7 +88,7 @@ function Get-LoadStage {
         [Parameter(Mandatory)][datetime] $StepStart,
         [Parameter(Mandatory)][datetime] $StepEnd,
         $Load, $Session, $Bi, $Dash,
-        # The license step: the run of audit.usp_RefreshLicenseSkuChange that ended its shred (2.5.4).
+        # The license step: the run of audit.usp_RefreshLicenseSkuChange that ended its shred.
         $Sku,
         [string] $AfterMerge = 'Flatten, and agent names',
         [string] $Closing = 'Closing: marking the load refreshed'

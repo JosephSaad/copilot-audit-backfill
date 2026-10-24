@@ -4,7 +4,7 @@ using Xunit;
 
 namespace CopilotInsights.Tests;
 
-/// <summary>The search behind every box that takes a person (2.6.2): three letters, then the start of a first or a last name.</summary>
+/// <summary>The search behind every box that takes a person: three letters, then the start of a first or a last name.</summary>
 public class PersonLookupTests
 {
     [Theory]
@@ -58,7 +58,7 @@ public class PersonLookupTests
     }
 }
 
-/// <summary>The conversation with the mail server kept for troubleshooting (2.6.2): everything but the secrets and the message.</summary>
+/// <summary>The conversation with the mail server kept for troubleshooting: everything but the secrets and the message.</summary>
 public class SmtpTranscriptTests
 {
     static readonly MailConfig Relay = new()
@@ -152,7 +152,7 @@ public class SmtpTranscriptTests
     }
 }
 
-/// <summary>The Health cards of the two optional loaders, GitHub Copilot and Foundry (2.6.2), and Foundry's own certificate.</summary>
+/// <summary>The Health cards of the two optional loaders, GitHub Copilot and Foundry, and Foundry's own certificate.</summary>
 public class ExternalUsageTests
 {
     static readonly DateTime Now = new(2026, 10, 8, 12, 0, 0, DateTimeKind.Utc);

@@ -14,7 +14,7 @@ public sealed class SecretStore(Db db)
 {
     public const string SmtpPassword = "SmtpPassword", ExoClientSecret = "ExoClientSecret", AlertWebhookUrl = "AlertWebhookUrl";
 
-    /// <summary>Where the stored password may be sent (2.4.12): <see cref="MailConfig.PasswordTarget"/> when it was entered.</summary>
+    /// <summary>Where the stored password may be sent: <see cref="MailConfig.PasswordTarget"/> when it was entered.</summary>
     public const string SmtpPasswordFor = "SmtpPasswordFor";
 
     public async Task<string?> GetAsync(string name)
@@ -28,7 +28,7 @@ public sealed class SecretStore(Db db)
     }
 
     /// <summary>
-    /// Stores the secret; null or empty removes it. A secret SQL Server cannot encrypt here is refused in words (2.4.12):
+    /// Stores the secret; null or empty removes it. A secret SQL Server cannot encrypt here is refused in words:
     /// on a database restored to another instance its keys cannot be opened, and the save ended on the error page,
     /// unaudited. The installer makes the keys again (Create-CopilotOperationsSchema.sql).
     /// </summary>
@@ -85,7 +85,7 @@ public sealed record MailConfig
     }
 
     /// <summary>
-    /// Where a stored password goes and as whom (2.4.12): the way of sending, the server, port and security, whether the
+    /// Where a stored password goes and as whom: the way of sending, the server, port and security, whether the
     /// server's certificate is checked, and the user name. The password is sent only while this is what it was entered for.
     /// Before, an administrator could point the site at a server of their own, leave the password field empty, and have
     /// the site sign in there with the stored mailbox or relay password, in clear text with security None.
@@ -164,12 +164,12 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
     public async Task<string?> SendAsync(string kind, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct = default) =>
         (await DeliverAsync(kind, to, subject, html, text, ct)).Error;
 
-    /// <summary>A status that sending again will not change (2.4.12): email is off, or the alert has no recipients.</summary>
+    /// <summary>A status that sending again will not change: email is off, or the alert has no recipients.</summary>
     public static bool Settled(string status) => status is "Sent" or "NoRecipients" or "MailOff";
 
     /// <summary>
     /// The same, with the status logged (Sent, Failed, NoRecipients or MailOff), so an alert can tell a failure worth
-    /// another try from one that is not (2.4.12). A stop that cancels the send leaves it unsent: once the message is on
+    /// another try from one that is not. A stop that cancels the send leaves it unsent: once the message is on
     /// its way it is no longer cancelled (SendCoreAsync).
     /// </summary>
     public async Task<(string Status, string? Error)> DeliverAsync(string kind, IReadOnlyList<MailboxAddress> to, string subject, string html, string text, CancellationToken ct = default)
@@ -185,7 +185,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
             if (problems.Count > 0) { status = cfg.Mode == MailMode.Off ? "MailOff" : "Failed"; error = string.Join(" ", problems); }
             else
             {
-                /* What is said to the mail server and what it answers (2.6.2), kept with a test message and with any
+                /* What is said to the mail server and what it answers, kept with a test message and with any
                    message that is not sent: the place to look when email does not arrive (Admin › Email). */
                 using var said = new MemoryStream();
                 try
@@ -193,7 +193,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
                     await SendCoreAsync(cfg, to, subject, html, text, ct, said); status = "Sent"; error = null;
                     if (kind == "Test") detail = SmtpTranscript.Compose(cfg, Said(said), null);
                 }
-                /* A timeout is an OperationCanceledException as well: it is a failed send, not the site stopping (2.4.12). */
+                /* A timeout is an OperationCanceledException as well: it is a failed send, not the site stopping. */
                 catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
                 {
                     status = "Failed"; error = ex is OperationCanceledException ? "The mail server or Entra did not answer in time." : Describe(ex);
@@ -239,7 +239,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
             await client.AuthenticateAsync(cfg.User ?? cfg.From!, cfg.Password!, ct);
         else if (cfg.User is not null)
             await client.AuthenticateAsync(cfg.User, cfg.Password!, ct);
-        /* Once the message is on its way it is not cancelled (2.4.12): a stop part-way could not tell whether the server
+        /* Once the message is on its way it is not cancelled: a stop part-way could not tell whether the server
            took it, and a manager digest cut off there was neither sent nor tried again. A stop before this point leaves the
            message unsent, for certain; the client's own timeout still bounds what follows. */
         await client.SendAsync(msg, CancellationToken.None);
@@ -249,7 +249,7 @@ public sealed class Mailer(Db db, Settings settings, SecretStore secrets, IHttpC
     sealed record TokenReply([property: JsonPropertyName("access_token")] string AccessToken, [property: JsonPropertyName("expires_in")] int ExpiresIn);
 
     /// <summary>
-    /// Where a token is kept (2.4.12): under the app and a hash of the secret that got it, so it answers only a
+    /// Where a token is kept: under the app and a hash of the secret that got it, so it answers only a
     /// configuration holding that same secret. Dashboard tenants that share one app and secret share the token. Before,
     /// the key was the tenant and app alone: an administrator of another dashboard tenant who typed in this one's tenant
     /// and app id, with any secret, was handed its token, and a mistyped new secret passed Send a test for an hour.

@@ -5,7 +5,7 @@ using Xunit;
 
 namespace CopilotInsights.Tests;
 
-/// <summary>The rules behind Leadership › Costs and savings (2.6.6): each finds what it should and nothing it should not.</summary>
+/// <summary>The rules behind Leadership › Costs and savings: each finds what it should and nothing it should not.</summary>
 public class CostRulesTests
 {
     static FabricCapacity Cap(string name = "cap", string sku = "F32", int cu = 32, string billing = "PayAsYouGo", decimal cost = 4147, double avg = 15,
@@ -167,7 +167,7 @@ public class CostRulesTests
     }
 }
 
-/// <summary>The suites (2.6.6): what fits each holder of E3, E5 and E7, and what is paid twice or bought for nobody.</summary>
+/// <summary>The suites: what fits each holder of E3, E5 and E7, and what is paid twice or bought for nobody.</summary>
 public class SuiteRulesTests
 {
     static readonly Suite E3 = new("SPE_E3%", "Microsoft 365 E3", "Microsoft 365", 3, 39, new HashSet<string>(), null);
@@ -285,7 +285,7 @@ public class SuiteRulesTests
     }
 }
 
-/// <summary>The credit estimate (2.6.6): credits for what bills, tokens for everything, a month at a time, and a cap.</summary>
+/// <summary>The credit estimate: credits for what bills, tokens for everything, a month at a time, and a cap.</summary>
 public class CreditRulesTests
 {
     [Fact]
@@ -337,7 +337,7 @@ public class CreditRulesTests
     }
 }
 
-/// <summary>The drill-downs (2.6.6): every headline figure on Costs and savings leads to the detail behind it.</summary>
+/// <summary>The drill-downs: every headline figure on Costs and savings leads to the detail behind it.</summary>
 public class CostDrillDownTests
 {
     [Fact]
@@ -356,7 +356,7 @@ public class CostDrillDownTests
         Assert.Contains("conf={c}", page);                       // a confidence lists its savings alone
         Assert.Contains("\"#areas\"", page);                     // spend leads to every area
         Assert.Contains("/forecasting/outcomes", page);          // what was saved leads to the outcomes
-        Assert.DoesNotContain("SuiteMove.DropDuplicate", page);   // no suite moves on the summary (2.7.6: not a fit for the client)
+        Assert.DoesNotContain("SuiteMove.DropDuplicate", page);   // no suite moves on the summary (not a fit for the client)
         Assert.Contains("to is null && area == OpenArea ? E(text)", page);   // an area's view does not link to itself
         /* A link goes only where the viewer may go: every headline figure's link, and the page's own, through Open. */
         Assert.Contains("var to = href is null ? null : Whole(href);", page);

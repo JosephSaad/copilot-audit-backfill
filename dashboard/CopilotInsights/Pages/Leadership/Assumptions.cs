@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Leadership;
 
 /// <summary>
-/// How figures are calculated (2.6.9): every price and assumption a cost, saving, value or estimate rests on, in one list,
+/// How figures are calculated: every price and assumption a cost, saving, value or estimate rests on, in one list,
 /// with its value now, the figures that use it, who last changed it, and where it is set. The inputs stay where they are
 /// edited (Admin › Access, Admin › Targets and assumptions, Leadership › Copilot reservations); an administrator who may
 /// change one gets a link that opens its page at the field. Prices that disagree are said first. Open to every viewer:
@@ -71,7 +71,7 @@ public sealed class AssumptionRegisterModel(PageServices s, AssumptionData regis
             }));
         }
 
-        /* 2.7.0: the Copilot license's cost appears on five pages, each counting something else: which to quote for what. */
+        /* The Copilot license's cost appears on five pages, each counting something else: which to quote for what. */
         var ct = new Table { Headers = ["Figure", "Page", "What it counts", "Quote it as"], Sortable = false };
         ct.Rows.Add(["Microsoft 365 Copilot, spend a month", Link("Costs and savings", "/leadership/costs"), "The add-on seats bought (or held, where more are held) × the Copilot license price", "What Microsoft bills for the add-on"]);
         ct.Rows.Add(["Licenses held, a month", Link("Chargeback", "/licensing/chargeback"), "The license holders in each group today × the Copilot license price", "What each group holds, for allocating the cost"]);

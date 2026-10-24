@@ -4,7 +4,7 @@ using Xunit;
 namespace CopilotInsights.Tests;
 
 /// <summary>
-/// The filter bar shows only the controls that change a page (2.5.0): the period box where the period matters, the way
+/// The filter bar shows only the controls that change a page: the period box where the period matters, the way
 /// down the organization where the team does. A page that says a control does not matter must not use it.
 /// </summary>
 public class FilterBarTests

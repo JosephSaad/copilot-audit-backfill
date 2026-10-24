@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>
-/// Keeps the results of a report page's queries until the data changes (2.4.7). The data behind the reports changes
+/// Keeps the results of a report page's queries until the data changes. The data behind the reports changes
 /// at the nightly refresh and when an administrator changes something; between those, the same query with the same
 /// parameters gives the same rows, so it is answered from memory. A result is kept under the tenant, the data's
 /// stamp, the query's text and every parameter's name and value: everything that decides who sees what (the scope
@@ -17,11 +17,11 @@ namespace CopilotInsights.Infrastructure;
 /// same query. Only report pages opt in (see <see cref="Use"/>); admin pages (but for the labels Admin › Reference data
 /// has seen), exports, the data API, forms and the background checks always read the database. A query that reads a
 /// table people change all day (triage, exported actions, confirmations) is kept under that table's version as well,
-/// read from the database for each page that asks (2.4.11): a change there ends only the results that read it, and is
+/// read from the database for each page that asks: a change there ends only the results that read it, and is
 /// seen by the very next page. Each web server keeps its own (see docs/DASHBOARD.md, Several web servers).
 /// </summary>
 /// <remarks>
-/// Bounded (2.4.12): at most Insights:QueryCacheEntries results (the least recently used go first), and a tenant's
+/// Bounded: at most Insights:QueryCacheEntries results (the least recently used go first), and a tenant's
 /// results are dropped the moment its stamp changes. Before, nothing bounded it but time: every new search or page
 /// number was kept for 12 hours, and every stamp change left the whole previous set in memory until its 12 hours ran out.
 /// </remarks>
@@ -101,7 +101,7 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
 
     /// <summary>
     /// Turns cached reads off for the code that runs until the result is disposed, inside a page that has them on
-    /// (2.4.12): who the viewer is and what they may see are read from the database, whatever page asks. Leadership >
+    /// who the viewer is and what they may see are read from the database, whatever page asks. Leadership >
     /// Group overview settled each tenant's viewer from a kept copy of the grants, so a revoked Organization grant went
     /// on showing that tenant's whole organization for up to 12 hours.
     /// </summary>
@@ -120,7 +120,7 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
 
     /// <summary>
     /// Reads every cached query again, for the code that runs until the result is disposed, and keeps the new result in
-    /// place of the old once it is read (2.5.1): the daily pre-cache (see <see cref="PageWarmer"/>). Whoever asks for the
+    /// place of the old once it is read: the daily pre-cache (see <see cref="PageWarmer"/>). Whoever asks for the
     /// same query meanwhile is answered from the result kept before, so nobody waits for the build, and each result's
     /// time to be kept starts again.
     /// </summary>
@@ -191,7 +191,7 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         }
         if (_refresh.Value)
         {
-            /* The pre-cache (2.5.1): read again, and keep the new result once it is read. A read that fails keeps nothing,
+            /* The pre-cache: read again, and keep the new result once it is read. A read that fails keeps nothing,
                and the result kept before stays. */
             var fresh = new Lazy<Task<T>>(read, LazyThreadSafetyMode.ExecutionAndPublication);
             var value = await fresh.Value;

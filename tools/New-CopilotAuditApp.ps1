@@ -125,7 +125,7 @@ function Get-CertificateCredential([string] $Path) {
 function Find-AuditApp {
     <#
         The app to use, or nothing when it is to be created: by -ClientId when given (the settings' own, on every run
-        after the first), else by -DisplayName. By name, only an app nobody else can sign in as is taken (2.4.12): the
+        after the first), else by -DisplayName. By name, only an app nobody else can sign in as is taken: the
         only one of that name, with no client secret and no owner but the signed-in administrator. Display names are
         not unique and any member can register an app by default, so an app someone else had named 'Copilot audit
         pipeline', with a secret of their own, was given admin consent to the whole tenant's audit log, and became

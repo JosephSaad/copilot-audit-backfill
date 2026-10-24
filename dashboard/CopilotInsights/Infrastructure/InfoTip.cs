@@ -5,7 +5,7 @@ namespace CopilotInsights.Infrastructure;
 
 /// <summary>
 /// An information icon whose text shows on hover, keyboard focus or a tap (site.js), is read by screen readers
-/// from the button's label, and prints inline, so a printed page keeps what the screen hides (2.4.3).
+/// from the button's label, and prints inline, so a printed page keeps what the screen hides.
 /// </summary>
 public static class InfoTip
 {
@@ -17,7 +17,7 @@ public static class InfoTip
     }
 
     /// <summary>
-    /// A label with its icon (2.4.10): the icon is tied to the label's last word, so where the label wraps the icon goes
+    /// A label with its icon: the icon is tied to the label's last word, so where the label wraps the icon goes
     /// with that word and is never left on a line by itself. With no text there is no icon, and the label is as it was.
     /// </summary>
     public static IHtmlContent After(string label, string? text, string? about = null)

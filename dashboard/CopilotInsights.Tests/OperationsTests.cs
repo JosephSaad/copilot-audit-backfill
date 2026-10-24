@@ -112,7 +112,7 @@ public class LicenseExportTests
     public void A_sign_in_that_could_end_the_quotes_stays_out_of_the_script()
     {
         /* PowerShell ends a quoted string at a curly quote too, and Windows PowerShell 5.1 reads a file without a byte
-           order mark as Windows-1252, where Ñ's bytes hold one (2.4.12). */
+           order mark as Windows-1252, where Ñ's bytes hold one. */
         string[] upns = ["a@contoso.com", "x’; Write-Output INJECTED; ‘@contoso.com", "peÑ; Write-Output INJECTED; Ña@contoso.com", "jane_fabrikam.com#EXT#@contoso.onmicrosoft.com"];
         var script = LicenseExport.Script("revoke", upns, "6c1e8b2a-3f4d-4e5f-9a0b-1c2d3e4f5a6b'; Write-Output G; '", null, "admin#> Write-Output B <#", DateTime.UtcNow);
         Assert.DoesNotContain("INJECTED", script);
@@ -134,7 +134,7 @@ public class LicenseExportTests
     }
 }
 
-/// <summary>Privacy mode on the named parts of pages that have no RequiredRole (2.4.12).</summary>
+/// <summary>Privacy mode on the named parts of pages that have no RequiredRole.</summary>
 public class PrivacyModeGateTests
 {
     static string PagesDirectory()
@@ -270,7 +270,7 @@ public class SignInTests
         Assert.True(AccessRules.MayBe(UpnSource.IdentityMap, null, Mine));
         Assert.True(AccessRules.MayBe(UpnSource.IdentityMap, Mine, Mine));
         Assert.False(AccessRules.MayBe(UpnSource.IdentityMap, Theirs, Mine));
-        /* Active Directory's answer or the sign-in name (2.4.12): only with the account's own SID on record. In another
+        /* Active Directory's answer or the sign-in name: only with the account's own SID on record. In another
            forest an account can carry anyone's UPN, and with no SID on record it was let in as them. */
         Assert.False(AccessRules.MayBe(UpnSource.Directory, null, Mine));
         Assert.False(AccessRules.MayBe(UpnSource.Directory, " ", Mine));
@@ -312,7 +312,7 @@ public class PrivacyNavigationTests
         /* Every report can be chosen, and no Admin page: an administrator can always get back to turn one on. */
         var choices = Pages.HiddenReports.Choices.SelectMany(g => g.Pages).ToList();
         Assert.DoesNotContain(choices, p => p.Admin);
-        /* Each listing of a page in a section (2.7.6: the non-human page in three, each with its own switch), and the parts
+        /* Each listing of a page in a section (the non-human page in three, each with its own switch), and the parts
            that were pages of their own. */
         Assert.Equal(Pages.Nav.Groups.SelectMany(g => g.Pages).Count(p => !p.Admin) + Pages.HiddenReports.Parts.Count, choices.Count);
         Assert.Contains(Pages.Nav.Groups.SelectMany(g => g.Pages), p => p.Path == "/admin/reports" && p.Admin);
@@ -408,7 +408,7 @@ public class PrivacyNavigationTests
         var paths = Pages.Nav.For(V()).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
         Assert.DoesNotContain("/licensing/leavers", paths);
         Assert.DoesNotContain("/enablement/champions", paths);
-        /* 2.4.2: their sections need the role too, aggregates included. */
+        /* Their sections need the role too, aggregates included. */
         Assert.DoesNotContain("/licensing/pool", paths);
         Assert.DoesNotContain("/compliance/sites", paths);
         var withRoles = Pages.Nav.For(V(Roles.Licensing, Roles.Compliance)).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
@@ -418,7 +418,7 @@ public class PrivacyNavigationTests
     }
 }
 
-/// <summary>A mapping file downloaded, edited and uploaded again lands on the values it came from (2.4.5).</summary>
+/// <summary>A mapping file downloaded, edited and uploaded again lands on the values it came from.</summary>
 public class MappingFileTests
 {
     [Fact]
@@ -499,7 +499,7 @@ public class MappingFileTests
         Assert.StartsWith("No one in the organization directory has the sign-in gone@contoso.com, so this shows the whole organization.", C(null, "gone@contoso.com").OrgNote);
         // Someone who sees their own part: the same words whether or not there is such a person.
         Assert.Equal("ceo@contoso.com is not in your part of the organization, so this shows yours.", C("ada@contoso.com", "ceo@contoso.com").OrgNote);
-        // A part smaller than the minimum group size, or any part in privacy mode, is not shown on its own (2.4.12).
+        // A part smaller than the minimum group size, or any part in privacy mode, is not shown on its own.
         Assert.Equal("riley@contoso.com and the people under them are fewer than 5, the minimum group size, so they are not shown on their own. This shows the whole organization.",
             C(null, "riley@contoso.com", OrgRefusal.TooSmall).OrgNote);
         Assert.Equal("Privacy mode is on, so a report is not narrowed to a manager's part of the organization. This shows your part of the organization.",
@@ -523,7 +523,7 @@ public class MappingFileTests
     public void Every_kind_in_the_audit_log_has_its_own_name()
     {
         string[] kinds = ["View", "Denied", "Export", "Api", "Admin"];
-        // 2.4.10: the data API's calls were counted under a second "Admin changes".
+        // The data API's calls were counted under a second "Admin changes".
         Assert.Equal(kinds.Length, kinds.Select(k => CopilotInsights.Pages.Admin.AuditModel.KindName(k, many: true)).Distinct().Count());
         Assert.Equal(kinds.Length, kinds.Select(k => CopilotInsights.Pages.Admin.AuditModel.KindName(k)).Distinct().Count());
         Assert.Equal("Data API calls", CopilotInsights.Pages.Admin.AuditModel.KindName("Api", many: true));

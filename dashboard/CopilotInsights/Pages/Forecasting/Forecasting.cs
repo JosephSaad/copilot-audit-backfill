@@ -73,7 +73,7 @@ public sealed class DeptRow
 public sealed record RenewalSize(int Held, int Active, int Projected, int Demand, decimal SparePercent, int Target);
 
 /// <summary>
-/// 2.7.1: one renewal figure. License optimization's right size and Budget and renewal's seats to renew were worked out two
+/// One renewal figure. License optimization's right size and Budget and renewal's seats to renew were worked out two
 /// ways (a forecast with a fixed 10% margin, and today's seats less revocations and leavers), so the two pages disagreed by
 /// hundreds of seats. Both are this now: the licensed people forecast to use Copilot each week in 13 weeks (or today's, if
 /// more), plus the spare share kept on purpose (SpareSeatPercent, as Costs and savings and License pool keep it), plus the
@@ -204,7 +204,7 @@ public sealed class OptimizeModel(PageServices s) : InsightsPage(s)
         var price = decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var p) ? p : 30m;
         var currency = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         string Money(decimal v) => $"{v:#,0} {currency}";
-        /* 2.7.1: the departments and the renewal figure as Budget and renewal works them out (see Renewal). */
+        /* The departments and the renewal figure as Budget and renewal works them out (see Renewal). */
         var rows = await Renewal.ByDepartmentAsync(Db, Ctx);
         var size = await Renewal.SizeAsync(Db, S.Settings, Ctx, rows);
         int held = size.Held, idle = rows.Sum(r => r.Idle), light = rows.Sum(r => r.Light), demand = size.Demand, active = size.Active;

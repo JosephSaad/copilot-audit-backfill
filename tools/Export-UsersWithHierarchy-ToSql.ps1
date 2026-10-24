@@ -289,7 +289,7 @@ function ConvertTo-DirectoryEntry {
         anything with Contains(name) and an indexer, keyed in lower case as a search result keys them, so the tests
         need no directory.
 
-        Department is the first of -DepartmentAttribute that has a value (2.5.0). Country is co, else the English
+        Department is the first of -DepartmentAttribute that has a value. Country is co, else the English
         name of c, AD's two-letter code, so a directory that sets only c reads like one that sets co; then one
         name for the country however it is spelled (ConvertTo-CountryName), counted in $script:CountryRenamed.
     #>
@@ -356,7 +356,7 @@ function Get-GroupMemberUpn {
         The UPNs of every user in an AD group, nested groups included (the in-chain matching
         rule). The group is DOMAIN\Name as the dashboard grants it; it is looked up by its
         account name in the target domain. Returns $null when there is no such group.
-        A person granted by DOMAIN\name is one too (2.4.12): their own UPN, which Power BI's
+        A person granted by DOMAIN\name is one too: their own UPN, which Power BI's
         row-level security knows them by (bi.OrgSecurity), as the dashboard knows them by
         their sign-in.
     #>
@@ -411,9 +411,9 @@ function ConvertTo-UserDirectoryTable {
         and pass the employee-type filter, enabled or not. Managers are looked
         up among ALL entries, so a chain runs through a manager of a type that
         is not loaded. Someone with no UPN cannot have used Copilot and is left
-        out of the chain too (2.4.1): a person whose manager has no UPN reports
+        out of the chain too: a person whose manager has no UPN reports
         to the nearest manager above who has one, so the org chart stays joined.
-        OrgDepth still counts that manager (2.4.12), so the person keeps their
+        OrgDepth still counts that manager, so the person keeps their
         real level.
     #>
     param(
@@ -477,7 +477,7 @@ function ConvertTo-UserDirectoryTable {
 
         # The chain, walked up from the direct manager and reversed so the top
         # comes first. $seen stops a loop in the manager attributes.
-        # OrgDepth counts every manager above, those without a UPN too (2.4.12): it counted only the chain's, so a
+        # OrgDepth counts every manager above, those without a UPN too: it counted only the chain's, so a
         # person under a manager without a UPN looked a level higher than they are, and the dashboard takes levels
         # from that depth, where level 2 sees the whole organization.
         $chain.Clear(); $seen.Clear(); $depth = 0
@@ -554,7 +554,7 @@ function Write-UserDirectory {
         Creates the enrichment tables if needed, then replaces
         audit.UserDirectory with the rows given - TRUNCATE and bulk load in
         one transaction, so a reader sees the old table or the new one, never
-        an empty or partial one. First the delete guard (2.6.5): with more than
+        an empty or partial one. First the delete guard: with more than
         -MaxDropPercent fewer rows than the table holds, nothing is written.
     #>
     param(
@@ -603,9 +603,8 @@ function Write-UserDirectory {
 function Get-OrganizationGroup {
     <#
         The AD groups whose members the dashboard needs, if it is installed: those granted Organization (for
-        Power BI's row-level security), and those an administrator listed as marking non-human accounts (2.4.5,
-        the NonHumanGroups setting, separated by commas, semicolons or lines). An Organization grant by
-        DOMAIN\name is read whatever type it was recorded with (2.4.12), as the dashboard matches it: a group
+        Power BI's row-level security), and those an administrator listed as marking non-human accounts (the NonHumanGroups setting, separated by commas, semicolons or lines). An Organization grant by
+        DOMAIN\name is read whatever type it was recorded with, as the dashboard matches it: a group
         recorded as a user, and a person, whom Get-GroupMemberUpn gives by their UPN.
     #>
     param([Parameter(Mandatory)][string] $ConnString)
@@ -727,7 +726,7 @@ function Invoke-Main {
     Write-Log ("Loaded {0:N0} row(s) into audit.UserDirectory." -f $n)
 
     # Organization granted to AD groups: their members, for Power BI's row-level security (bi.OrgSecurity);
-    # and the groups that mark non-human accounts (2.4.5), for the dashboard's policy-breach check.
+    # and the groups that mark non-human accounts, for the dashboard's policy-breach check.
     # Written every night, even with no groups, so a revoked grant's members do not linger.
     # Get-OrganizationGroup returns its array whole (unary comma), so @() here would wrap it in a second array.
     [string[]] $groups = Get-OrganizationGroup -ConnString $connStr
@@ -753,7 +752,7 @@ function Invoke-Main {
     Write-Log 'Sessions and the bi schema pick the attributes up on their next build (the next -Incremental run).'
 }
 
-# Dot-sourcing (tests) loads the functions without running anything. Refused by the delete guard (2.6.5), the table
+# Dot-sourcing (tests) loads the functions without running anything. Refused by the delete guard, the table
 # kept the last directory: a code of its own, which the nightly run records and goes on from.
 if ($MyInvocation.InvocationName -ne '.') {
     try { Invoke-Main }

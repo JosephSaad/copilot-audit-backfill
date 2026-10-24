@@ -22,7 +22,7 @@ public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<Insig
         while (!stop.IsCancellationRequested)
         {
             /* Only the site stopping ends the loop. A timeout is an OperationCanceledException too, and one that escaped
-               here stopped the whole site (2.4.12): a mail server or token endpoint that did not answer took it down. */
+               here stopped the whole site: a mail server or token endpoint that did not answer took it down. */
             try { await RunAllAsync(stop); }
             catch (Exception ex) when (ex is not OperationCanceledException || !stop.IsCancellationRequested) { log.LogError(ex, "The notification checks failed"); }
             try { await Task.Delay(Interval, stop); } catch (OperationCanceledException) { return; }
@@ -79,7 +79,7 @@ public sealed partial class Notifier(IServiceScopeFactory scopes, IOptions<Insig
         finally
         {
             /* A lock whose session has dropped is gone already, and releasing it again raised an error that threw away the
-               round's report (2.4.12). What the round sent is safe without the lock: each send claims its row first. */
+               round's report. What the round sent is safe without the lock: each send claims its row first. */
             try { await conn.ExecuteAsync("EXEC sp_releaseapplock @Resource = N'CopilotInsightsNotifier', @LockOwner = 'Session';"); }
             catch (Exception ex) { log.LogWarning(ex, "The notification lock could not be released; its session had ended, which releases it."); }
         }
@@ -101,7 +101,7 @@ UPDATE dash.AlertState SET LastValue = @value, LastFiredUtc = SYSUTCDATETIME() W
 IF @@ROWCOUNT = 0 INSERT INTO dash.AlertState (AlertKey, LastValue) VALUES (@key, @value);", new { key, value });
 
         /// <summary>
-        /// Moves a state from what the check saw to <paramref name="value"/>, and only if it is still what the check saw (2.4.12):
+        /// Moves a state from what the check saw to <paramref name="value"/>, and only if it is still what the check saw:
         /// the claim an alert makes before anything is sent. False when another web server moved it first. Before, the state
         /// was written after the email and the webhook had gone, so a database that could be read but not written (a full log)
         /// sent the same alert every five minutes, and two servers whose lock had slipped could both send it.
@@ -123,7 +123,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
         Task ForgetAsync(string key) => _db.ExecuteAsync("DELETE FROM dash.AlertState WHERE AlertKey = @key", new { key });
 
         /// <summary>
-        /// An alert whose email failed waits under retry:{name} (2.4.12): the failed tries so far, and whether its next is not
+        /// An alert whose email failed waits under retry:{name}: the failed tries so far, and whether its next is not
         /// due yet. A wait older than a day is forgotten.
         /// </summary>
         async Task<(byte Tries, bool Waiting)> RetryAsync(string name)
@@ -134,7 +134,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
         }
 
         /// <summary>
-        /// Raises an alert once per occurrence (2.4.12): its state moves to <paramref name="value"/> before anything is sent,
+        /// Raises an alert once per occurrence: its state moves to <paramref name="value"/> before anything is sent,
         /// and only from what the check saw (<paramref name="seen"/>). An email the server refused or did not answer, with no
         /// webhook to take the alert either, is tried again an hour later, three tries in all, as digests are; before, the
         /// state moved on whatever happened, so that day's security alert or that pipeline failure was never emailed. True
@@ -248,7 +248,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var runId = await _db.ScalarAsync<int?>("SELECT MAX(RunId) FROM dash.RefreshRun;");
             if (runId is null) return;
             var last = await StateAsync("refresh");
-            /* Done for this refresh, unless one of its alerts waits to be emailed again (2.4.12): each check below keeps its own state, so running them again repeats nothing. */
+            /* Done for this refresh, unless one of its alerts waits to be emailed again: each check below keeps its own state, so running them again repeats nothing. */
             if (last == runId.Value.ToString(CultureInfo.InvariantCulture)
                 && await _db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.AlertState WHERE AlertKey IN (N'retry:security', N'retry:anomaly', N'retry:agents', N'retry:pool', N'retry:leavers', N'retry:nonhuman', N'retry:commitment') AND LastFiredUtc > DATEADD(DAY, -1, SYSUTCDATETIME());") == 0)
                 return;
@@ -281,7 +281,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
 
         async Task AnomaliesAsync()
         {
-            /* Today where the data's days are cut, not SQL Server's own date (2.4.12): a day still loading was judged once, and never again. */
+            /* Today where the data's days are cut, not SQL Server's own date: a day still loading was judged once, and never again. */
             var end = await _db.ScalarAsync<int?>("SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today;", new { today = await _settings.TodayKeyAsync() });
             if (end is not int k) return;
             var day = new DateTime(k / 10000, k / 100 % 100, k % 100);
@@ -327,13 +327,13 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var seen = await StateAsync("pool");
             var last = DateTime.TryParse(seen, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d) ? d : DateTime.MinValue;
             if (DateTime.UtcNow - last < TimeSpan.FromDays(7)) return;
-            var names = await SkuNames.LoadAsync(_db);   // 2.7.2: product names, not part numbers
+            var names = await SkuNames.LoadAsync(_db);   // Product names, not part numbers
             await RaiseAsync("pool", seen, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), "Pool", "AlertLicensingTo", "Copilot licenses are running out",
                 full.Select(p => $"{names.Name(p.SkuPartNumber)}: {p.Consumed:#,0} of {p.Bought:#,0} assigned ({100.0 * p.Consumed / p.Bought:0}%), {p.Available:#,0} left.")
                     .Append("License optimization lists unused licenses to reclaim before buying more.").ToList(), "/licensing/pool");
         }
 
-        /* 2.7.2: the Copilot Credit commitment projected to run out early, or to leave part of it unused: once a week while it lasts. */
+        /* The Copilot Credit commitment projected to run out early, or to leave part of it unused: once a week while it lasts. */
         async Task CommitmentAsync()
         {
             var days = await _settings.IntAsync("CreditCommitmentAlertDays", 30);
@@ -366,7 +366,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
         }
 
         /// <summary>
-        /// A Copilot license on a non-human account is a policy breach (2.4.5): each account is alerted once, to the Security and
+        /// A Copilot license on a non-human account is a policy breach: each account is alerted once, to the Security and
         /// Licensing recipients, the first refresh it is found, and again if it is found after it was cleared. Its state is a row per
         /// account (nonhuman:{hash of the sign-in}), removed when the license goes or an administrator confirms a person.
         /// </summary>
@@ -380,7 +380,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             var (tries, waiting) = fresh.Count > 0 ? await RetryAsync("nonhuman") : ((byte)0, true);
             if (!waiting)
             {
-                /* Each account claimed before the alert is sent (2.4.12); one another web server claimed first is in its alert, not this one. */
+                /* Each account claimed before the alert is sent; one another web server claimed first is in its alert, not this one. */
                 var mine = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var b in fresh)
                     if (await ClaimStateAsync(Key(b.UserPrincipalName), null, b.UserPrincipalName.Length > 400 ? b.UserPrincipalName[..400] : b.UserPrincipalName)) mine.Add(b.UserPrincipalName);
@@ -429,7 +429,7 @@ IF @@ROWCOUNT = 0 AND @seen IS NULL
             foreach (var s in subs.Where(s => Schedule.IsDue(s.Frequency, s.DayOfWeek, s.DayOfMonth, s.HourLocal, s.LastSentUtc, DateTime.UtcNow, zone)
                                               && Retry.Ready(s.RetryAfterUtc, DateTime.UtcNow)))
             {
-                /* Claimed before it is sent (2.4.12): marked sent now, and only if nobody has sent it since this round read it.
+                /* Claimed before it is sent: marked sent now, and only if nobody has sent it since this round read it.
                    Before, it was marked after the email had gone, so a database that could be read but not written (a full
                    log) mailed the same digest every five minutes, and two servers whose lock had slipped both mailed it. */
                 if (await _db.ExecuteAsync(@"UPDATE dash.Subscription SET LastSentUtc = SYSUTCDATETIME(), LastStatus = N'Being sent. If this stays, the site stopped or could not record the result; it is not sent again.'
@@ -445,7 +445,7 @@ WHERE SubscriptionId = @id AND Enabled = 1 AND (LastSentUtc = @seen OR (LastSent
                     sent = error is null;
                     status = sent ? "Sent" : "Not sent: " + error;
                 }
-                /* Not to be sent as it is set up (2.4.12): skipped until it is next due, not retried. */
+                /* Not to be sent as it is set up: skipped until it is next due, not retried. */
                 catch (DigestRefused ex) { sent = true; status = "Not sent: " + ex.Message + "."; }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {

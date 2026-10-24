@@ -69,7 +69,7 @@ function Write-UsageTable {
         every row matching -ReplaceWhere (a whole scope, or a scope's month; its parameters in -ReplaceParameters),
         or, without it, each row with the same -Key as a new one. Returns how many rows were written.
 
-        With -MaxDropPercent above 0 and -ReplaceWhere (2.6.5), the delete guard first: when the new rows are more
+        With -MaxDropPercent above 0 and -ReplaceWhere, the delete guard first: when the new rows are more
         than that percentage fewer than the rows they replace, nothing is written and the guard's refusal is thrown
         (tools\DropGuard.ps1). -What names the rows for the message, -Setting the setting the percentage is in.
     #>

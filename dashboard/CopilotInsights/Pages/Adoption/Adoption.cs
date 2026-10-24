@@ -23,7 +23,7 @@ WHERE ld.DateKey = @k1 AND EXISTS (SELECT 1 FROM dash.UserDay AS ud WHERE ud.Use
         /* The same names as Leadership › Overview: the license is the Premium one, and its use in the period is Adoption. */
         Kpis.Add(new("Premium licenses today", Num(t.LicensedNow), "people holding a Microsoft 365 Copilot license"));
         Kpis.Add(new("Have started", Pct(Ratio(started, t.LicensedNow)), $"{started:#,0} license holders have used Copilot at least once, at any time"));
-        /* 2.7.3: the list's own count leads to it; the share above is its complement, so it did not appear there. */
+        /* The list's own count leads to it; the share above is its complement, so it did not appear there. */
         Kpis.Add(new("Licensed, not started", Num(notStarted), "licensed at least 14 days ago, never used Copilot", notStarted > 0 ? "warn" : null, Href: Open("/adoption/not-started")));
         Kpis.Add(new("Adoption", Pct(Ratio(t.ActiveLicensed, t.LicensedNow)), $"{t.ActiveLicensed:#,0} license holders used it in the period"));
         Kpis.Add(new("People who followed up", Pct(Ratio(t.MultiTurnUsers, t.Active)), "of active people had a session of more than one prompt (prompts less than an hour apart on one day, in any app)"));
@@ -218,10 +218,10 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             ActiveLicensed = small.Sum(r => r.ActiveLicensed), ActiveDays = small.Sum(r => r.ActiveDays), Sessions = small.Sum(r => r.Sessions), MultiTurn = small.Sum(r => r.MultiTurn),
         }, out var folded).OrderByDescending(r => r.Licensed >= Ctx.MinGroupSize).ThenByDescending(r => Ratio(r.ActiveLicensed, r.Licensed) ?? -1).ThenByDescending(r => r.Licensed).ToList();
 
-        /* 2.7.4: the page had no headline: how many departments, and the two ends of adoption among those large enough to rank. */
+        /* The page had no headline: how many departments, and the two ends of adoption among those large enough to rank. */
         var ranked = shown.Where(r => r.Department != "Smaller departments" && r.Licensed >= Ctx.MinGroupSize).OrderByDescending(r => r.ActiveLicensed / (double)r.Licensed).ToList();
         Kpis.Add(new("Departments", Num(rows.Count), $"in {Here}, from Active Directory"));
-        /* 2.7.5: a department's name opens this page on it, as choosing it below does. */
+        /* A department's name opens this page on it, as choosing it below does. */
         string Only(Row r) => Ctx.Url(Request.Path, extra: "dept=" + Uri.EscapeDataString(r.Department));
         if (ranked.Count > 1)
         {
@@ -229,7 +229,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
             Kpis.Add(new("Department with the lowest adoption", ranked[^1].Department, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot", Href: Only(ranked[^1])));
         }
 
-        /* 2.5.8: one department, or every one (the default). The departments offered are those shown, smaller ones combined. */
+        /* One department, or every one (the default). The departments offered are those shown, smaller ones combined. */
         var (dept, picker) = DepartmentFilter(shown.Select(r => r.Department));
         Panels.Add(new("Choose a department", picker));
         if (dept is not null) shown = shown.Where(r => r.Department == dept).ToList();
@@ -264,7 +264,7 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
 
 public sealed class NotStartedModel(PageServices s) : InsightsPage(s)
 {
-    /// <summary>Who the list holds, for its own count and Adoption's (2.7.3): the figure and the list it opens agree.</summary>
+    /// <summary>Who the list holds, for its own count and Adoption's: the figure and the list it opens agree.</summary>
     internal static string Who(ReportContext c) => $@"
 FROM bi.DimUser AS du {c.Scope("du.UserKey")}
 WHERE du.CopilotLicenseToday = N'Licensed' AND du.LicensedSinceUtc <= DATEADD(DAY, -14, @d1)

@@ -70,7 +70,7 @@ param(
     [string] $SqlServer,
     [string] $Database,
     [string] $LicenseDatabase,
-    # 2.6.9: the activity database (AI apps outside Copilot, Power BI and Power Apps); none unless given.
+    # The activity database (AI apps outside Copilot, Power BI and Power Apps); none unless given.
     [string] $ActivityDatabase,
     [switch] $TrustServerCertificate,
     [string] $ServiceAccount,
@@ -95,7 +95,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# The parameters given this time (2.4.12): an empty -EmployeeTypes @() is given, and means every type.
+# The parameters given this time: an empty -EmployeeTypes @() is given, and means every type.
 $script:Bound = $PSBoundParameters
 $script:Root = Split-Path $PSScriptRoot -Parent
 $script:TaskName = 'Copilot audit - nightly'
@@ -125,7 +125,7 @@ function Get-DefaultSetting {
 function Merge-Setting {
     <#
         The saved settings, overlaid with the parameters given this time. Pure.
-        Every saved key is kept (2.4.12), the ones this script does not set too
+        Every saved key is kept, the ones this script does not set too
         (IncludeLeaveDates, added by hand as the deployment guide says), and so
         is an empty value: EmployeeTypes = @() is every type. A re-run took only
         its own keys, and only values that were not empty, so it put EMP and NONW
@@ -142,7 +142,7 @@ function Merge-Setting {
 
 function Get-InstallArgument {
     <#
-        Install-CopilotAudit.ps1's arguments for step 4, from the merged settings. Pure, for the tests. 2.4.12: the
+        Install-CopilotAudit.ps1's arguments for step 4, from the merged settings. Pure, for the tests. The
         license databases as the pipeline passes them. A blank LicenseDatabase (kept by Merge-Setting) is
         -SkipLicenseDatabase; it was passed as it was, and the installer ran CREATE DATABASE [] and failed. And
         SessionLicenseDatabases is -LicenseEventDatabases: it was not passed, so the build recorded the one license
@@ -175,7 +175,7 @@ function ConvertTo-SettingText {
     $lines = @('# Written by tools\Install-CopilotJobServer.ps1 and read by Invoke-CopilotPipeline.ps1.',
                '# Run the installer again to change a value; editing by hand works too.', '@{')
     foreach ($k in $script:SettingOrder) { if ($Setting.Contains($k)) { $lines += "    $k = $(Q $Setting[$k])" } }
-    # Then any key it does not know, so a value added by hand is written back, not dropped (2.4.12).
+    # Then any key it does not know, so a value added by hand is written back, not dropped.
     foreach ($k in @($Setting.Keys)) { if ($k -notin $script:SettingOrder) { $lines += "    $k = $(Q $Setting[$k])" } }
     ($lines + '}') -join "`r`n"
 }
@@ -191,7 +191,7 @@ function Get-PipelineCertificate {
         $c = Get-Item -LiteralPath (Join-Path $store $Thumbprint) -ErrorAction SilentlyContinue
         if (-not $c) { throw "No certificate $Thumbprint in LocalMachine\My." }
         # One this script made, within 30 days of expiry: renewed below with -RegisterApp, which uploads the new one,
-        # and kept until then while it is still valid (2.4.12). Any run in those 30 days made a new certificate and
+        # and kept until then while it is still valid. Any run in those 30 days made a new certificate and
         # put it in the settings, uploaded nowhere without -RegisterApp, so the nightly sign-in failed while the old
         # one still worked. Your own PKI's: kept, and flagged.
         if ($c.Subject -ne $script:CertSubject -or $c.NotAfter -gt (Get-Date).AddDays(30)) { return $c }
@@ -204,7 +204,7 @@ function Get-PipelineCertificate {
 function Get-AppToRegister {
     <#
         The app registrations -RegisterApp puts the certificate on: the first tenant's, then each other tenant's that
-        signs in with the same certificate, by its client id (2.4.12). Only the first tenant's had it, so after a
+        signs in with the same certificate, by its client id. Only the first tenant's had it, so after a
         renewal every other tenant's nightly sign-in failed. Pure, for the tests.
     #>
     param([System.Collections.IDictionary] $Setting)
@@ -369,7 +369,7 @@ function Invoke-Main {
     $account = if ($ServiceAccount) { $ServiceAccount } elseif ($saved.Contains('ServiceAccount')) { $saved.ServiceAccount } else { $null }
     # The service account is written below, on its own line; it is not one of the pipeline's settings.
     if ($s.Contains('ServiceAccount')) { $s.Remove('ServiceAccount') }
-    # The task's time is saved too (2.4.12): a re-run moved a task set with -At back to 02:00.
+    # The task's time is saved too: a re-run moved a task set with -At back to 02:00.
     $taskAt = if ($s.Contains('At') -and $s.At) { [string] $s.At } else { '02:00' }
     $s.At = $taskAt
     $todo = @()
@@ -421,7 +421,7 @@ function Invoke-Main {
     Write-Step 'App registration'
     if ($RegisterApp) {
         if (-not $s.TenantId) { throw 'Pass -TenantId with -RegisterApp.' }
-        # Each app by the client id the settings hold, once there is one (2.4.12): found by name, another app given the
+        # Each app by the client id the settings hold, once there is one: found by name, another app given the
         # same name could be taken. Every tenant that signs in with this certificate gets it, not the first alone.
         foreach ($a in (Get-AppToRegister $s)) {
             if (-not $a.First) { Write-Done "tenant $($a.Name) ($($a.TenantId)):" }

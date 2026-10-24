@@ -84,8 +84,8 @@ IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL
         UtcTimeStamp                    DATETIME2(0)    NULL,   -- $.CreationTime, typed
         AppIdentity                     NVARCHAR(200)   NULL,   -- $.AppIdentity
         ThreadId                        NVARCHAR(400)   NULL,   -- $.CopilotEventData.ThreadId
-        AgentId                         NVARCHAR(400)   NULL,   -- $.AgentId (2.4.11), else $.CopilotEventData.AgentId
-        AgentName                       NVARCHAR(400)   NULL,   -- $.AgentName, the agent's friendly name (2.4.11), else $.CopilotEventData.AgentName
+        AgentId                         NVARCHAR(400)   NULL,   -- $.AgentId, else $.CopilotEventData.AgentId
+        AgentName                       NVARCHAR(400)   NULL,   -- $.AgentName, the agent's friendly name, else $.CopilotEventData.AgentName
         ModelName                       NVARCHAR(200)   NULL,   -- ModelTransparencyDetails[0].ModelName
         ModelProvider                   NVARCHAR(200)   NULL,   -- ModelTransparencyDetails[0].ModelProviderName
         AccessedResourceCount           INT             NULL,
@@ -95,7 +95,7 @@ IF OBJECT_ID(N'audit.RawLogFlattened', N'U') IS NULL
     );
 
 /*
-    ---- Every other field of the record (2.2.0) --------------------------------
+    ---- Every other field of the record --------------------------------
 
     Each scalar the Copilot audit record carries gets a typed column, named
     after its JSON path (CopilotEventData.X as CopilotEventData_X), except
@@ -301,7 +301,7 @@ IF OBJECT_ID(N'audit.ValueCatalog', N'U') IS NULL
         CONSTRAINT PK_ValueCatalog PRIMARY KEY (ColumnId, Value)
     );
 /*
-    The agent catalog (2.4.11): every agent the audit log names, with the
+    The agent catalog: every agent the audit log names, with the
     friendly name the log gave it last. A record names its agent in AppIdentity
     (Copilot.Studio.<...>, MicrosoftAgent.<...>), in AgentId, or in both, and
     carries the agent's readable name in AgentName - on some records, not all,

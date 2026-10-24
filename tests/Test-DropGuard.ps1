@@ -1,5 +1,5 @@
 <#
-    Tests the delete guard (2.6.5) without SQL Server: a load that empties a table and fills it again is refused
+    Tests the delete guard without SQL Server: a load that empties a table and fills it again is refused
     when it would leave the table more than its percentage smaller than the last load did.
 
       1  tools\DropGuard.ps1: the rule, the message, -AllowDrop, and where the percentage comes from

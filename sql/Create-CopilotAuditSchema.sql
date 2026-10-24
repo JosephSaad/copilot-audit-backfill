@@ -32,7 +32,7 @@ IF OBJECT_ID(N'audit.CopilotBackfillRange', N'U') IS NULL
         CompletedUtc    DATETIME2(0)    NULL
     );
 
-/* 2.7.6: the operation set, joined with commas, outgrew 400 characters when 2.7.0 added the administrators' actions on
+/* The operation set, joined with commas, outgrew 400 characters when 2.7.0 added the administrators' actions on
    agents to the license-event load (485), and the night stopped at License events ("String or binary data would be
    truncated ... column 'Operations'"). Widened where it was made narrower; nothing else reads its length. */
 IF COL_LENGTH(N'audit.CopilotBackfillRange', N'Operations') < 4000
@@ -119,7 +119,7 @@ IF OBJECT_ID(N'audit.CopilotLoad', N'U') IS NULL
         CONSTRAINT CK_CopilotLoad_Range CHECK (RangeEndUtc > RangeStartUtc)
     );
 
-/* 2.7.6: as audit.CopilotBackfillRange's, above. */
+/* As audit.CopilotBackfillRange's, above. */
 IF COL_LENGTH(N'audit.CopilotLoad', N'Operations') < 4000
     ALTER TABLE audit.CopilotLoad ALTER COLUMN Operations NVARCHAR(2000) NOT NULL;
 
@@ -245,7 +245,7 @@ IF OBJECT_ID(N'audit.PipelineRunStep', N'U') IS NULL
     );
 
 /* The app certificate each run signed in with, and when it expires: the dashboard warns 30, 14
-   and 3 days before (2.3.0). */
+   and 3 days before. */
 IF COL_LENGTH(N'audit.PipelineRun', N'CertificateThumbprint') IS NULL
     ALTER TABLE audit.PipelineRun ADD CertificateThumbprint VARCHAR(64) NULL, CertificateExpiresUtc DATETIME2(0) NULL, CertificateSubject NVARCHAR(400) NULL;
 

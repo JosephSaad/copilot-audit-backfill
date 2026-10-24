@@ -9,7 +9,7 @@
     champions, regular, light and dormant users, unlicensed people on the
     free Copilot Chat, Copilot Studio agents launched over time, a shifting
     model mix, SharePoint sites with sensitivity labels, rare security
-    flags, and (2.6.6) new joiners with their hire dates.
+    flags, and new joiners with their hire dates.
 
     Deterministic: every choice comes from a hash, so the same database comes
     out every time (relative to today). Run by New-InsightsDemo.ps1 into an
@@ -43,7 +43,7 @@ INSERT INTO #last VALUES (0,N'Morgan'),(1,N'Chen'),(2,N'Patel'),(3,N'Nguyen'),(4
  (38,N'Hughes'),(39,N'Wong'),(40,N'Pereira'),(41,N'Schmidt'),(42,N'Mahmoud'),(43,N'Olsen'),(44,N'Rivera'),(45,N'Bianchi'),(46,N'Kaur'),
  (47,N'Lindqvist'),(48,N'Osei'),(49,N'Marin'),(50,N'Fraser'),(51,N'Petrov'),(52,N'Abe'),(53,N'Grant'),(54,N'Vargas'),(55,N'Nowak'),(56,N'Ito'),
  (57,N'Barros'),(58,N'Quinn'),(59,N'Saleh'),
- /* 2.6.6: more surnames, for the people past the 2,400th. */
+ /* More surnames, for the people past the 2,400th. */
  (60,N'Achebe'),(61,N'Lund'),(62,N'Ferreira'),(63,N'Takahashi'),(64,N'Gallagher'),(65,N'Moreno'),(66,N'Varga'),(67,N'Nakamura'),
  (68,N'Owusu'),(69,N'Romano'),(70,N'Svensson'),(71,N'Delgado'),(72,N'Chaudhry'),(73,N'Petersen'),(74,N'Kowalczyk'),(75,N'Bennett'),
  (76,N'Mwangi'),(77,N'Leclerc'),(78,N'Yamamoto'),(79,N'Ortiz'),(80,N'Hakimi'),(81,N'Lindgren'),(82,N'Zhou'),(83,N'Doyle'),
@@ -90,7 +90,7 @@ FROM t
 JOIN #first AS f ON f.i = t.id % 40
 /* Unique names with varied surnames at every level: for a given first name
    (id % 40) the surname index steps with id / 40, which is below 60 for the
-   first 2,400 people; past them it steps through 70 more surnames (2.6.6), so
+   first 2,400 people; past them it steps through 70 more surnames, so
    every name is unique up to 5,200 people. */
 JOIN #last AS l ON l.i = CASE WHEN t.id < 2400 THEN (t.id / 40 + 17 * (t.id % 40)) % 60
                               ELSE 60 + ((t.id - 2400) / 40 + 17 * (t.id % 40)) % 70 END;
@@ -148,7 +148,7 @@ FROM #org AS o
 LEFT JOIN #div AS dv ON dv.d = o.d;
 UPDATE #u SET RemovedOn = NULL WHERE Licensed = 0 OR RemovedOn <= LicensedOn;
 
-/* 2.6.6: new joiners, hired 8 to 87 days ago, about 37 for every 2,300 people, for Adoption > New joiners. Each keeps
+/* New joiners, hired 8 to 87 days ago, about 37 for every 2,300 people, for Adoption > New joiners. Each keeps
    the license their division's share gave them (so the licensed set is as it was), but from a few days after they
    started, and uses Copilot only from their first day; the four-week ramp below then applies from the license. Taken
    from past the 2,317th person where the company is big enough, so the people of the demo before 2.6.6 stay as they
@@ -193,7 +193,7 @@ SELECT RecordId, 0, N'AssignedLicense',
             ELSE N'["[SkuName=SPE_E5, AccountId=t, SkuId=a, DisabledPlans=[]]"]' END,
        'record'
 FROM #ev;
-/* The events are written here, not shredded from records, so the SKU changes sessions and bi read are worked out here too (2.5.4). */
+/* The events are written here, not shredded from records, so the SKU changes sessions and bi read are worked out here too. */
 EXEC audit.usp_RefreshLicenseSkuChange @All = 1;
 
 /* ---- Activity: person-days, then sessions, then prompts ---------------------- */

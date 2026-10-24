@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// Idle licenses paired with the people who want one (2.4.3): each license the revoke rule would take back
+/// Idle licenses paired with the people who want one: each license the revoke rule would take back
 /// goes to someone the upgrade rule would license, in the same department (or division, or anywhere in
 /// scope), so the seat is reassigned rather than a new one bought. The rules are Upgrade, train or revoke's.
 /// </summary>
@@ -67,7 +67,7 @@ t AS (SELECT {Within[within].Sql} AS Unit, du.UserKey, du.DisplayName, du.UserPr
       WHERE {ActionsModel.Kinds["upgrade"].Where} AND ISNULL(du.AccountEnabled, 1) = 1)";
 
     /// <summary>
-    /// Both sides in one read (2.7.3): the pairs, and each person on either side left over (a row with one side only),
+    /// Both sides in one read: the pairs, and each person on either side left over (a row with one side only),
     /// from which the figures are counted. Reading the sides a second time for the figures doubled the page's time.
     /// </summary>
     async Task<List<Pair>> SidesAsync(string within, int k30) => await Db.QueryAsync<Pair>($@"
@@ -129,7 +129,7 @@ ORDER BY COALESCE(g.Unit, t.Unit), COALESCE(g.N, t.N);", Ctx.Args(new { k30 }), 
             "Within each unit the least-used license goes to the keenest user; people on either side left over are in the figures above.", "full", CsvUrl()));
     }
 
-    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    /* Posted, with the anti-forgery token (see LicenseActions.Button). */
     public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
     public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 

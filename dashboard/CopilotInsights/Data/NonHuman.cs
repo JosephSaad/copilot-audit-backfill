@@ -10,7 +10,7 @@ public sealed record NonHumanRules(bool Guests, bool Names, bool NoChart, IReadO
 }
 
 /// <summary>
-/// A Copilot license on an account that is not a person is a policy breach (2.4.5): the license is for people. The
+/// A Copilot license on an account that is not a person is a policy breach: the license is for people. The
 /// accounts are found by the rules an administrator sets: guests, sign-ins and names that read like a service,
 /// shared, test or room account, accounts outside the org chart with no manager, the employee types and the AD
 /// groups that mark service accounts, and sign-in patterns of the organization's own. An account an administrator
@@ -50,7 +50,7 @@ public static class NonHuman
     /// <summary>
     /// The CTE "x": every enabled account in the directory holding a Copilot license on @k1, in <paramref name="scopeJoin"/>,
     /// with a flag for each signal, Breach (any signal and not confirmed a person) and the confirmation if there is one.
-    /// The last day of use is not here (2.4.11): working it out for every license holder was half this query's time, and
+    /// The last day of use is not here: working it out for every license holder was half this query's time, and
     /// only the page's list shows it, for the rows it shows (<see cref="LastUsed"/>). Fills <paramref name="args"/> with
     /// the patterns it needs.
     /// </summary>
@@ -60,7 +60,7 @@ public static class NonHuman
         var exceptions = await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
         var groups = await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.GroupMember', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
         /* The sign-in's local part and the display name, lowercased once per account (v.L and v.N, below) and compared as
-           plain text (2.4.11): the patterns are lowercase too, and 38 of them against every license holder in the
+           plain text: the patterns are lowercase too, and 38 of them against every license holder in the
            database's own collation was most of this query's time. */
         const string local = "v.L", bin = "COLLATE Latin1_General_100_BIN2";
         for (var i = 0; i < UpnPatterns.Length; i++) args.Add($"nhp{i}", UpnPatterns[i]);

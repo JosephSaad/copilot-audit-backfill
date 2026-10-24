@@ -1,5 +1,5 @@
 /*
-    The activity database (2.6.9): AI apps outside Copilot, Power BI and Power Apps
+    The activity database: AI apps outside Copilot, Power BI and Power Apps
     ------------------------------------------------------------------------
     A database of its own, loaded by the same backfill with Purview record
     types rather than operations (Invoke-CopilotAuditBackfill.ps1 -RecordTypes):
@@ -84,7 +84,7 @@ IF OBJECT_ID(N'audit.PlatformActivity', N'U') IS NULL
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'audit.PlatformActivity') AND name = N'UX_PlatformActivity_Record')
     CREATE UNIQUE NONCLUSTERED INDEX UX_PlatformActivity_Record ON audit.PlatformActivity (RecordId);
 
-/* 2.7.0: one row per data loss prevention (DLP) record, where the activity database is asked for the DLP record types
+/* One row per data loss prevention (DLP) record, where the activity database is asked for the DLP record types
    (ComplianceDLPSharePoint, ComplianceDLPExchange, DLPEndpoint): which policy and rule matched, for whom, in which
    workload. The first policy and rule of the record; no file or message is named. Teams meeting AI notes
    (TeamCopilotInteraction) go to audit.PlatformActivity, as the product Teams AI notes. */

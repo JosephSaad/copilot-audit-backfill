@@ -24,7 +24,7 @@
     Re-runnable: both tables are rebuilt from staging every time, as long as
     staging still holds every row the windows loaded. Once it has been dropped
     (as the end of this script suggests) or purged, finalize refuses: it would
-    rebuild audit.CopilotAudit from what is left, which is nothing (2.4.12).
+    rebuild audit.CopilotAudit from what is left, which is nothing.
     Single batch (no GO), so an error stops everything in SSMS too.
     Requires SQL Server 2017+ (NVARCHAR(MAX) in a columnstore).
     Expect tens of minutes for tens of millions of rows; it is a one-off.
@@ -118,7 +118,7 @@ END;
 
 RAISERROR('Coverage verified: all windows loaded, no gaps.', 0, 1) WITH NOWAIT;
 
-/* Staging must still hold what the windows loaded (2.4.12). The guards above read the
+/* Staging must still hold what the windows loaded. The guards above read the
    window table only, and staging is dropped once finalize has run (the advice at the
    end of this script) or purged by -Task PurgeJson; the backfill creates it again,
    empty, on its next run. A finalize then dropped audit.CopilotAudit and rebuilt it
@@ -224,7 +224,7 @@ CREATE TABLE audit.CopilotInteraction
     INDEX CCI_CopilotInteraction CLUSTERED COLUMNSTORE
 );
 
-/* 2.7.3: an activity database (it has audit.usp_ShredActivity) shreds its records into its own tables, and nothing
+/* An activity database (it has audit.usp_ShredActivity) shreds its records into its own tables, and nothing
    there reads audit.CopilotInteraction: the table is left empty, and the hours a large history spent parsing every
    record's JSON for it are saved. */
 DECLARE @activity BIT = CASE WHEN OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL THEN 0 ELSE 1 END;
@@ -290,7 +290,7 @@ SELECT
          ELSE (SELECT COUNT(DISTINCT UserPrincipalName) FROM audit.CopilotInteraction) END AS DistinctUsers,
     (SELECT COUNT_BIG(*) FROM audit.CopilotAuditStage)                   AS StagingRows;
 
-/* The mark the backfill reads before finalizing again (2.4.12): finalized, so a re-run leaves the tables alone. */
+/* The mark the backfill reads before finalizing again: finalized, so a re-run leaves the tables alone. */
 MERGE audit.PipelineSetting AS t
 USING (SELECT N'FinalizedUtc' AS Name, CONVERT(NVARCHAR(30), SYSUTCDATETIME(), 126) AS Value) AS s ON t.Name = s.Name
 WHEN MATCHED THEN UPDATE SET Value = s.Value, UpdatedUtc = SYSUTCDATETIME(), UpdatedBy = SUSER_SNAME()

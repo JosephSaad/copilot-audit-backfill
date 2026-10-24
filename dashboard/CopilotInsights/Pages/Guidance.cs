@@ -1,7 +1,7 @@
 namespace CopilotInsights.Pages;
 
 /// <summary>
-/// What each report is for and what to do with it (2.4.3): two short lines under the title, written for the
+/// What each report is for and what to do with it: two short lines under the title, written for the
 /// section's audience (NavGroup.Who). The longer explanations sit behind information icons. A test checks
 /// every report in the navigation has both lines.
 /// </summary>

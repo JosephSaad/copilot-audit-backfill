@@ -1,5 +1,5 @@
 /*
-    Copilot Insights demo: the agent workbook's nightly load, and Copilot Studio's authoring records (2.6.6). Run
+    Copilot Insights demo: the agent workbook's nightly load, and Copilot Studio's authoring records. Run
     after the bi build and before the dashboard's refresh. New-InsightsDemoTenant.sql wrote the workbook's three
     sheets as tools/Import-AgentWorkbook.ps1 keeps them (dbo.AgentInventory, dbo.AgentsInProd, dbo.ParentChildAgent);
     this does what the import does next, in the import's own SQL where the demo needs it:
@@ -230,7 +230,7 @@ FROM (VALUES
 ) AS x (g, BotId, Schema_, Ago, Minutes, Op, Action, Actor, Comp, CompType)
 WHERE x.Actor IS NOT NULL;
 
-/* 2.7.0: what the Microsoft 365 admin center's administrators did to agents (CopilotAgentManagement): eight published
+/* What the Microsoft 365 admin center's administrators did to agents (CopilotAgentManagement): eight published
    agents deployed to people, one blocked and unblocked a week later, one removed, and the tenant's agent settings changed. */
 DECLARE @itAdmin NVARCHAR(256) = (SELECT TOP (1) UserPrincipalName FROM audit.UserDirectory WHERE Department = N'Engineering' AND OrgDepth = 3 AND AccountEnabled = 1 ORDER BY HASHBYTES('MD5', CONCAT(N'itadmin', UserPrincipalName)));
 INSERT INTO #ev

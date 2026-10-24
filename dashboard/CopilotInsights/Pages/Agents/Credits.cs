@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Agents;
 
 /// <summary>
-/// What each agent costs in Copilot Credits (2.4.3; 2.6.6 on the credit estimate): its billed use, an agent used by
+/// What each agent costs in Copilot Credits (2.6.6 on the credit estimate): its billed use, an agent used by
 /// someone without a Copilot license at the time or in a Copilot Studio channel, estimated answer by answer as Licensing
 /// › Credit use estimates it (<see cref="CreditData"/>), so the two pages give one figure. An agent with few users and a
 /// high bill is one to restrict or retire; one whose users each spend more than a license is cheaper licensed.
@@ -48,7 +48,7 @@ GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.Agen
         var pg = new Paging(Request, Sorts, "credits");
         var charging = v.Agents.Where(a => a.Month.Credits > 0).ToList();
         Kpis.Add(new("Agents charging credits", Num(charging.Count), $"of {Num(v.Agents.Count)} used: billed use by people without a license, or in a Copilot Studio channel"));
-        /* Totalled from people, as Credit use totals it, which the figure opens (2.7.3): summed by agent it came out a few
+        /* Totalled from people, as Credit use totals it, which the figure opens: summed by agent it came out a few
            credits apart, an agent's billed use being split by person, and each part estimated, the other way round. */
         var month = v.People.Aggregate((Credits: 0m, Cost: 0m), (s, p) => (s.Credits + p.Month.Credits, s.Cost + p.Month.Cost));
         Kpis.Add(new("Credits a month (estimate)", Num((long)Math.Round(month.Credits)),
@@ -91,11 +91,11 @@ GROUP BY ag.AgentKey, ag.Owner;", Ctx.Args(), timeout: 300)).GroupBy(r => r.Agen
         foreach (var a in page)
         {
             var each = Each(a);
-            /* An agent's people are a group: shown at the minimum group size or more (2.4.12), with what they would reveal. */
+            /* An agent's people are a group: shown at the minimum group size or more, with what they would reveal. */
             var few = a.People > 0 && AtLeastMin(a.People) is null;
             object suggestion = a.Month.Credits == 0 ? "No credits: its users hold licenses"
                 : each >= price ? (betterLicensed is null ? "Its users each cost more than a license: see Licensing › Better with a license"
-                                   : new Link("Its users each cost more than a license: see Licensing › Better with a license", betterLicensed))   // 2.7.5: a link, where the viewer may open it
+                                   : new Link("Its users each cost more than a license: see Licensing › Better with a license", betterLicensed))   // A link, where the viewer may open it
                 : a.People < Ctx.MinGroupSize && a.Month.Cost >= price ? "Few users, a license's worth of credits or more: restrict or retire"
                 : "";
             var name = new HtmlString($"<a href=\"{WebUtility.HtmlEncode(Ctx.Url("/agents/detail", extra: $"agent={a.AgentKey}"))}\">{WebUtility.HtmlEncode(a.Name)}</a>");
