@@ -1,0 +1,14 @@
+{
+  "totalRecords": 3,
+  "count": 1,
+  "resultTruncated": 0,
+  "skipToken": null,
+  "data": [
+    {
+      "id": "/providers/Microsoft.CopilotStudio/agents/agent-003",
+      "name": "agent-003",
+      "type": "microsoft.copilotstudio/agents",
+      "properties": { "displayName": "Ops runbook agent", "environmentId": "env-2", "harness": "Standard" }
+    }
+  ]
+}

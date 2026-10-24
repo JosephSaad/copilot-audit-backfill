@@ -1,19 +1,109 @@
+using System.Text.Json;
 using Governance.Application;
+using Governance.Application.Integrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Http.Resilience;
 
 namespace Governance.Infrastructure;
 
 public static class ServiceCollectionExtensions
 {
+    public const string GraphScope = "https://graph.microsoft.com/.default";
+    public const string PowerPlatformScope = "https://api.powerplatform.com/.default";
+
     /// <summary>
-    /// Registers the integration adapters (Graph, Power Platform, ITSM, mail, Teams, evidence scanning) and the
-    /// application core. The web and the worker both call this; each registers its own ICurrentPrincipal.
+    /// Registers the integration adapters (Graph, Power Platform, ITSM, mail, Teams, evidence scanning), the sync
+    /// services and the application core. The web and the worker both call this; each registers its own ICurrentPrincipal.
     /// </summary>
     public static IServiceCollection AddGovernanceInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddGovernanceCore();
-        // Adapters are registered here by the integration module.
+
+        services.AddSingleton(_ => LoadTenantSettings(configuration));
+        services.Configure<GraphOptions>(configuration.GetSection("Graph"));
+        services.Configure<PowerPlatformOptions>(configuration.GetSection("PowerPlatform"));
+        services.Configure<ItsmOptions>(configuration.GetSection("Itsm"));
+        services.Configure<NotificationOptions>(configuration.GetSection("Notifications"));
+        services.AddSingleton<IAppTokenProvider, CertificateTokenProvider>();
+        services.AddTransient<CorrelationHandler>();
+
+        // Graph: app-only token, correlation ID, standard resilience (retry with jitter, honors Retry-After on 429, timeout, circuit breaker).
+        services.AddHttpClient<GraphClient>(c => c.Timeout = TimeSpan.FromMinutes(2))
+            .AddHttpMessageHandler<CorrelationHandler>()
+            .AddHttpMessageHandler(sp => new AppTokenHandler(sp.GetRequiredService<IAppTokenProvider>(), GraphScope))
+            .AddStandardResilienceHandler();
+        services.AddTransient<IDirectoryApi>(sp => sp.GetRequiredService<GraphClient>());
+        services.AddTransient<IEntitlementApi>(sp => sp.GetRequiredService<GraphClient>());
+        services.AddTransient<IAccessReviewApi>(sp => sp.GetRequiredService<GraphClient>());
+
+        // Power Platform: app-only unless a delegated token is passed per call.
+        services.AddHttpClient<PowerPlatformClient>(c => c.Timeout = TimeSpan.FromMinutes(2))
+            .AddHttpMessageHandler<CorrelationHandler>()
+            .AddHttpMessageHandler(sp => new AppTokenHandler(sp.GetRequiredService<IAppTokenProvider>(), PowerPlatformScope))
+            .AddStandardResilienceHandler();
+        services.AddTransient<IPowerPlatformApi>(sp => sp.GetRequiredService<PowerPlatformClient>());
+
+        // ITSM: no automatic retry of POST (a timed-out create could duplicate); the outbox retries after a search by correlation ID.
+        services.AddHttpClient<IItsmClient, ServiceNowItsmClient>()
+            .AddHttpMessageHandler<CorrelationHandler>()
+            .AddStandardResilienceHandler(o => o.Retry.DisableForUnsafeHttpMethods());
+
+        services.AddHttpClient<FlowChannelPoster>()
+            .AddHttpMessageHandler<CorrelationHandler>()
+            .AddStandardResilienceHandler();
+        services.AddTransient<IChannelPoster>(sp => sp.GetRequiredService<FlowChannelPoster>());
+
+        var record = !string.Equals(configuration["Notifications:Mode"], "Send", StringComparison.OrdinalIgnoreCase);
+        if (record)
+        {
+            services.AddSingleton<RecordingSenders>();
+            services.AddTransient<IMailSender>(sp => sp.GetRequiredService<RecordingSenders>());
+            services.AddTransient<ITeamsActivitySender>(sp => sp.GetRequiredService<RecordingSenders>());
+            services.AddTransient<ITeamsActivityBulkSender>(sp => sp.GetRequiredService<RecordingSenders>());
+        }
+        else
+        {
+            services.AddTransient<IMailSender, FallbackMailSender>();
+            services.AddTransient<ITeamsActivitySender>(sp => sp.GetRequiredService<GraphClient>());
+            services.AddTransient<ITeamsActivityBulkSender>(sp => sp.GetRequiredService<GraphClient>());
+        }
+        services.AddSingleton<IEvidenceScanner, SniffingEvidenceScanner>();
+
+        // Sync services (Application) over these adapters.
+        services.AddSingleton<FindingWriter>();
+        services.AddSingleton<DriftEvaluator>();
+        services.AddSingleton<RecipientResolver>();
+        services.AddScoped<DirectorySyncService>();
+        services.AddScoped<EntitlementSyncService>();
+        services.AddScoped<AccessReviewImportService>();
+        services.AddScoped<IInventorySync, InventorySyncService>();
+        services.AddScoped<ILicensingRead, LicensingReadService>();
+        services.AddScoped<IRegistryImport, RegistryImportService>();
+        services.AddScoped<IIntegrationStatus, IntegrationStatusService>();
         return services;
+    }
+
+    /// <summary>
+    /// Tenant IDs from setup\Setup-TestTenant.ps1. Workbench:TenantSettingsPath wins; otherwise config\tenant.test.json is
+    /// looked for upward from the content root. Missing settings give an empty object: integrations then report themselves
+    /// as not configured instead of the host failing to start.
+    /// </summary>
+    public static TenantSettings LoadTenantSettings(IConfiguration configuration)
+    {
+        var path = configuration["Workbench:TenantSettingsPath"];
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            path = null;
+            for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+            {
+                var candidate = Path.Combine(dir.FullName, "config", "tenant.test.json");
+                if (File.Exists(candidate)) { path = candidate; break; }
+            }
+        }
+        if (path is null) return new TenantSettings();
+        var settings = JsonSerializer.Deserialize<TenantSettings>(File.ReadAllText(path), new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? new TenantSettings();
+        if (configuration["Notifications:Mailbox"] is { Length: > 0 } mailbox) settings.Mailbox = mailbox;
+        return settings;
     }
 }
