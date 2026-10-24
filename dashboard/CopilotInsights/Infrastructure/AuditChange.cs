@@ -51,7 +51,7 @@ public static class AuditChange
                 before.Settings.TryGetValue(name, out var was);
                 after.Settings.TryGetValue(name, out var now);
                 if (string.Equals(was, now, StringComparison.Ordinal)) continue;
-                changed[name] = Secret(name) ? new { before = "(hidden)", after = "(hidden)" } : new { before = was, after = now };
+                changed[name] = Secret(name) ? new { before = (string?)"(hidden)", after = (string?)"(hidden)" } : new { before = was, after = now };
             }
         var granted = before is null || after is null ? [] : after.Grants.Except(before.Grants, StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList();
         var revoked = before is null || after is null ? [] : before.Grants.Except(after.Grants, StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList();

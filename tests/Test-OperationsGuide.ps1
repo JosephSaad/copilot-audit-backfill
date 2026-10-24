@@ -57,7 +57,8 @@ foreach ($n in $named) {
 $dash = Get-Content -LiteralPath (Join-Path $root 'docs' 'DASHBOARD.md') -Raw
 $table = $dash.Substring($dash.IndexOf('## What each persona gets'))
 $table = $table.Substring(0, $table.IndexOf("`n## ", 5))
-$reportPages = [regex]::Matches($nav, 'new\("([^"]+)", "(/[^"]*)"(?![^)]*Admin: true)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+# A page listed in several sections (2.7.6: Copilot on non-human accounts) is named by its constant there.
+$reportPages = [regex]::Matches($nav, 'new\("([^"]+)", (?:"(/[^"]*)"|NonHuman)(?![^)]*Admin: true)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 Assert-That ($reportPages.Count -ge 40) "found the report pages in Nav.cs ($($reportPages.Count))"
 $rows = [regex]::Matches($table, '(?m)^\|[^|
 ]*\|\s*([^|

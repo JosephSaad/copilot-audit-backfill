@@ -238,11 +238,19 @@ FROM w;")).Single();
         var precache = pre is null ? "No pre-cache on this web server since the site started (Invoke-InsightsPrecache.ps1; the installer schedules it daily)."
             : pre.EndedUtc is null ? $"Pre-cache asked for {When(pre.RequestedUtc ?? pre.StartedUtc)}: building every page again now."
             : $"Last pre-cache {When(pre.EndedUtc)}: {pre.Outcome}, {pre.Tenants.Sum(x => x.Pages):#,0} page views built again; from memory the slowest took {slowest:0.00} s{(over > 0 ? $", {over:#,0} over a second" : "")}.";
-        Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p>{E(precache)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
+        /* 2.7.6: the results the web servers share, in the database. */
+        var shared = HttpContext.RequestServices.GetRequiredService<SharedCache>();
+        var (sHits, sStored, _) = shared.Counts;
+        var size = shared.Enabled ? await shared.SizeAsync() : null;
+        var sharing = !shared.Enabled ? "Shared with the other web servers: off on this one (Insights:SharedQueryCache)."
+            : size is not { } sz ? "Shared with the other web servers: not yet; Install-CopilotAudit.ps1 -Dashboard adds the table it needs (dash.QueryCacheShared)."
+            : $"Shared with the other web servers, in the database: {sz.Results:#,0} results, {sz.Bytes / 1048576.0:#,0.#} MB. Since the site started, this one read {sHits:#,0} from there and kept {sStored:#,0}.";
+        Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p>{E(precache)}</p><p>{E(sharing)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
             "A report page's queries are kept in memory until the data changes: a refresh, a finished pipeline run, a license or directory read, or a change to a setting or reference data. " +
             "After each change, and again when the results expire, every report is built once in the background for the whole organization, at every period, so the top two levels and Organization holders get each page at once. " +
             "A manager's own part of the organization is kept from the first time someone opens it. A list edited all day (flag triage, exported license actions, confirmed accounts) has a version of its own, " +
-            "read from the database for every page: a page that reads one is kept until that list changes, on this web server or another. Each web server keeps its own results and builds its own pages.", "half"));
+            "read from the database for every page: a page that reads one is kept until that list changes, on this web server or another. With several web servers, each keeps results in its own memory and shares them " +
+            "through the database, and the morning build runs on one at a time: the others read what it kept.", "half"));
     }
 
     public Task<IActionResult> OnPostRefreshAsync(int days) => AdminChangeAsync(false, async () =>
