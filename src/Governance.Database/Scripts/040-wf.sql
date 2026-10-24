@@ -336,3 +336,13 @@ CREATE TABLE wf.CampaignItem
     CompletedUtc   datetime2     NULL
 );
 GO
+
+-- Additive columns (schema only grows): a task carries its own decision type, RACI activity and
+-- discipline, so one stage (B9) can hold several separate decisions (SoD4).
+IF COL_LENGTH('wf.Task', 'DecisionType') IS NULL ALTER TABLE wf.Task ADD DecisionType varchar(40) NULL;
+IF COL_LENGTH('wf.Task', 'RaciActivityCode') IS NULL ALTER TABLE wf.Task ADD RaciActivityCode varchar(60) NULL;
+IF COL_LENGTH('wf.Task', 'Discipline') IS NULL ALTER TABLE wf.Task ADD Discipline varchar(30) NULL;
+IF COL_LENGTH('wf.Task', 'Reason') IS NULL ALTER TABLE wf.Task ADD Reason nvarchar(1000) NULL;
+IF COL_LENGTH('wf.Request', 'ConfigurerPersonId') IS NULL ALTER TABLE wf.Request ADD ConfigurerPersonId int NULL;
+IF COL_LENGTH('wf.Request', 'MetersDeclaredNone') IS NULL ALTER TABLE wf.Request ADD MetersDeclaredNone bit NOT NULL CONSTRAINT DF_Request_MetersNone DEFAULT 0;
+GO

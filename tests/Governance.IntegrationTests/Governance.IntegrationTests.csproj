@@ -18,4 +18,9 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Governance.Infrastructure\Governance.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Governance.Notifications\Governance.Notifications.csproj" />
+  </ItemGroup>
+
 </Project>
