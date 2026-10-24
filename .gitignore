@@ -1,0 +1,26 @@
+# .NET build output
+bin/
+obj/
+TestResults/
+*.user
+.vs/
+
+# Local tenant settings and packages made by setup\Setup-TestTenant.ps1 (IDs only, but tenant-specific)
+config/tenant.*.json
+config/*.zip
+config/appsettings.Local.json
+
+# Runtime folders for the local test environment
+.run/
+*.log
+
+# Release output
+artifacts/
+*.sha256
+
+# Tools output
+tools/ui/out/
+
+# OS noise
+Thumbs.db
+.DS_Store
