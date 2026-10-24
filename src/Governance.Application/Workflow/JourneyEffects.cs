@@ -211,10 +211,18 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
             // J3: an approved exception enters the register with its compensating controls, owner and expiry.
             if (r.JourneyCode == Journeys.Exception && toStage == Stages.End)
             {
-                var disposition = await uow.QueryFirstOrDefaultAsync<DecisionRow>(
-                    "SELECT TOP (1) * FROM wf.Decision WHERE RequestId = @RequestId AND Outcome IN ('APPROVED','APPROVED_WITH_CONDITIONS','CONSTRAINED_PILOT') ORDER BY CASE WHEN DecisionType = 'EXCEPTION_DISPOSITION' THEN 0 ELSE 1 END, DecisionId DESC",
-                    new { r.RequestId });
-                var expires = disposition?.ExpiresOn ?? p.RequestedExpiry ?? today.AddMonths(6);
+                // Every positive decision of the final B9 round contributes its conditions; the earliest expiry wins.
+                var roundStart = await uow.ScalarAsync<DateTime?>(
+                    "SELECT MAX(Utc) FROM wf.RequestEvent WHERE RequestId = @RequestId AND EventType = 'TRANSITION' AND StageCode = 'B9' AND ISNULL(Text, '') <> 'HOLD'",
+                    new { r.RequestId }) ?? DateTime.MinValue;
+                var round = (await uow.QueryAsync<DecisionRow>(
+                    "SELECT * FROM wf.Decision WHERE RequestId = @RequestId AND StageCode = 'B9' AND DecidedAtUtc >= @roundStart AND Outcome IN ('APPROVED','APPROVED_WITH_CONDITIONS','CONSTRAINED_PILOT') ORDER BY DecisionId",
+                    new { r.RequestId, roundStart })).GroupBy(d => d.DecisionType).Select(g => g.Last()).ToList();
+                var disposition = round.FirstOrDefault(d => d.DecisionType == DecisionTypes.ExceptionDisposition)
+                                  ?? round.FirstOrDefault(d => d.DecisionType == DecisionTypes.PlatformFeature) ?? round.LastOrDefault();
+                var conditions = string.Join(" ", round.Where(d => !string.IsNullOrWhiteSpace(d.ConditionsText))
+                                                       .Select(d => $"{DecisionTypes.Label(d.DecisionType)}: {d.ConditionsText!.Trim()}"));
+                var expires = round.Where(d => d.ExpiresOn is not null).Select(d => d.ExpiresOn!.Value).DefaultIfEmpty(p.RequestedExpiry ?? today.AddMonths(6)).Min();
                 await uow.ExecuteAsync(
                     """
                     INSERT wf.ExceptionItem (FundingOwnerId, WorkloadId, RequestId, DecisionId, Title, Description, CompensatingControls, OwnerPersonId, ExpiresOn, NextReviewOn, Status)
@@ -224,8 +232,9 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
                     {
                         r.FundingOwnerId, r.WorkloadId, r.RequestId, disposition?.DecisionId, r.Title,
                         Description = p.RequestedDeviation ?? r.Summary ?? r.Title,
-                        Controls = disposition?.ConditionsText ?? p.ProposedCompensatingControls ?? "None stated.",
-                        Owner = r.SponsorPersonId ?? r.RequesterPersonId, expires, disposition?.NextReviewOn,
+                        Controls = conditions.Length > 0 ? (conditions.Length > 2000 ? conditions[..2000] : conditions) : p.ProposedCompensatingControls ?? "None stated.",
+                        Owner = r.SponsorPersonId ?? r.RequesterPersonId, expires,
+                        NextReviewOn = round.Where(d => d.NextReviewOn is not null).Select(d => d.NextReviewOn).Min(),
                     });
             }
         }

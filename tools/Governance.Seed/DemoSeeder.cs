@@ -178,7 +178,7 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
                 INSERT core.ControlTemplate (ServiceId, VersionNo, Status, SettingsJson, PermittedExceptions, OperatorRoles, Notes, CreatedByPersonId,
                                              PlatformOwnerApprovalPersonId, SteeringApprovalPersonId, ActivatedUtc)
                 OUTPUT inserted.TemplateId
-                VALUES (@sid, 1, 'ACTIVE', @json, @exceptions, @roles, @notes, @architect, @po, @st, @now)
+                VALUES (@sid, 1, 'DRAFT', @json, @exceptions, @roles, @notes, @architect, @po, @st, NULL)
                 """, new
                 {
                     sid = result.Services[s.Code], json = JsonSerializer.Serialize(s.Settings), exceptions = s.PermittedExceptions,
@@ -190,6 +190,8 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
                 await conn.ExecuteAsync(
                     "INSERT core.ControlCheck (TemplateId, CheckCode, Description, Method, SettingKey, IsDenyCase, CaveatCode, SortOrder) VALUES (@templateId, @Code, @Description, @Method, @Key, @Deny, @Caveat, @order)",
                     new { templateId, c.Code, c.Description, c.Method, c.Key, c.Deny, c.Caveat, order = ++order }, tx);
+            // Activate after the checks are in: an active template is frozen (060-guards.sql).
+            await conn.ExecuteAsync("UPDATE core.ControlTemplate SET Status = 'ACTIVE', ActivatedUtc = @now WHERE TemplateId = @templateId", new { templateId, now }, tx);
         }
 
         foreach (var p in Patterns)

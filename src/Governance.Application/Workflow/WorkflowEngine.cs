@@ -252,7 +252,14 @@ public sealed class WorkflowEngine(
             var delegation = await uow.QuerySingleAsync<Delegation>("SELECT * FROM sec.Delegation WHERE DelegationId = @did", new { did });
             var envIds = (await uow.QueryAsync<int>("SELECT EnvelopeId FROM sec.DelegationEnvelope WHERE DelegationId = @did", new { did })).ToList();
             var envelope = await EnvelopeForAsync(uow, r);
-            var check = DelegationValid.Evaluate(delegation, envIds, envelope, r.EstimateCredits ?? 0, clock.UtcNow);
+            // A delegation's limit is in credits a month (how approvers think); the envelope must hold the whole commitment.
+            var p = RequestPayload.FromJson(r.PayloadJson);
+            var monthly = r.JourneyCode == Journeys.CapacityChange
+                ? Math.Max(0, (p.RequestedValue ?? 0) - (p.CurrentValue ?? 0))
+                : p.EstimateCreditsPerMonth ?? r.EstimateCredits ?? 0;
+            var check = DelegationValid.Evaluate(delegation, envIds, envelope, monthly, clock.UtcNow);
+            if (check.Passed && envelope is not null && envelope.Amount - envelope.Committed < (r.EstimateCredits ?? 0))
+                check = RuleResult.Fail($"The envelope has {envelope.Amount - envelope.Committed:N0} credits left and this request commits {r.EstimateCredits:N0}.");
             if (!check.Passed && Outcomes.Positive.Contains(input.Outcome))
                 throw new DomainException(string.Join(" ", check.Reasons) + " Escalate to the business owner.");
         }

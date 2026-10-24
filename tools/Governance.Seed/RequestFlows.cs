@@ -41,8 +41,31 @@ public sealed class RequestFlows(EngineHost host, SeedResult seed)
     public async Task CompleteAsync(string personaKey, long requestId, string stage, string outcome, string? notes = null, string? taskType = null, string? discipline = null)
     {
         var t = await TaskAsync(requestId, stage, taskType, discipline: discipline);
+        // D1 passes only with a passing verification on record by the verifier (exit rule VerificationComplete, P5),
+        // as the web's verification form records it.
+        if (stage == Stages.Verify && outcome == StageOutcomes.Pass) await VerifyAsync(personaKey, requestId, "PASS");
         await host.AsAsync(seed.As(personaKey), u => E.CompleteWorkAsync(u, seed.As(personaKey), t.TaskId, outcome, notes));
     }
+
+    /// <summary>Records a D1 verification (ledger row) by a persona: read-back and attestation checks including the deny case.</summary>
+    public Task VerifyAsync(string verifierKey, long requestId, string result)
+        => host.SystemAsync(async u =>
+        {
+            var r = await E.GetRequestAsync(u, requestId);
+            var templateId = await u.ScalarAsync<int?>(
+                "SELECT t.TemplateId FROM core.ControlTemplate t WHERE t.Status = 'ACTIVE' AND t.ServiceId = COALESCE(@ServiceId, (SELECT ServiceId FROM core.Workload WHERE WorkloadId = @WorkloadId))",
+                new { r.ServiceId, r.WorkloadId });
+            var checks = templateId is null
+                ? "[]"
+                : System.Text.Json.JsonSerializer.Serialize((await u.QueryAsync<(string CheckCode, string Method, bool IsDenyCase)>(
+                        "SELECT CheckCode, Method, IsDenyCase FROM core.ControlCheck WHERE TemplateId = @templateId ORDER BY SortOrder", new { templateId }))
+                    .Select(c => new { code = c.CheckCode, method = c.Method, denyCase = c.IsDenyCase, passed = result == "PASS", evidence = c.Method != "READBACK" }));
+            await u.ExecuteAsync(
+                """
+                INSERT evd.Verification (PublicId, RequestId, FundingOwnerId, TemplateId, ConfiguredByPersonId, VerifierPersonId, Method, Result, ChecksJson, VerifiedUtc)
+                VALUES (NEWID(), @RequestId, @FundingOwnerId, @templateId, @ConfigurerPersonId, @verifier, 'MIXED', @result, @checks, SYSUTCDATETIME())
+                """, new { r.RequestId, r.FundingOwnerId, templateId, r.ConfigurerPersonId, verifier = seed.Person(verifierKey), result, checks });
+        });
 
     public Task CompleteTaskAsync(string personaKey, long taskId, string outcome, string? notes = null)
         => host.AsAsync(seed.As(personaKey), u => E.CompleteWorkAsync(u, seed.As(personaKey), taskId, outcome, notes));

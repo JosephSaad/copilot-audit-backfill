@@ -65,7 +65,9 @@ public sealed class EngineTests(SeededFixture fx) : IClassFixture<SeededFixture>
         Assert.NotNull(done.ClosedUtc);
         using var c = fx.Admin();
         Assert.Equal(WorkloadStates.Development, c.ExecuteScalar<string>("SELECT State FROM core.Workload WHERE WorkloadId = @WorkloadId", new { done.WorkloadId }));
-        Assert.Equal(800m, c.ExecuteScalar<decimal>("SELECT Amount FROM core.EnvelopeCommitment WHERE RequestId = @RequestId AND Status = 'ACTIVE'", new { done.RequestId }));
+        var committed = c.ExecuteScalar<decimal>("SELECT Amount FROM core.EnvelopeCommitment WHERE RequestId = @RequestId AND Status = 'ACTIVE'", new { done.RequestId });
+        Assert.True(committed >= 800m && committed % 800m == 0, $"Commitment {committed} should be 800 a month times the months inside the envelope.");
+        Assert.Equal(done.EstimateCredits, committed);
         var decision = c.QuerySingle<(string DeciderRoleCode, int? DelegationId, string Source)>("SELECT DeciderRoleCode, DelegationId, Source FROM wf.Decision WHERE RequestId = @RequestId", new { done.RequestId });
         Assert.Equal(Roles.DelegatedApprover, decision.DeciderRoleCode);
         Assert.NotNull(decision.DelegationId);
@@ -195,7 +197,7 @@ public sealed class EngineTests(SeededFixture fx) : IClassFixture<SeededFixture>
         Assert.Equal(fx.Seed.Person("RETAIL.sponsor"), item.OwnerPersonId);
     }
 
-    [Fact(Skip = "core bug: JourneyEffects.ApplyAsync takes compensating controls from the latest positive B9 decision, so the conditions the Platform Owner set are lost when another decision (risk acceptance) is recorded after it.")]
+    [Fact]
     public async Task The_exception_register_keeps_the_conditions_of_the_disposition()
     {
         var p = SampleRequests.ExceptionPayload(false);
@@ -314,16 +316,16 @@ public sealed class EngineTests(SeededFixture fx) : IClassFixture<SeededFixture>
         Assert.Equal(Stages.Completeness, again.CurrentStage);
     }
 
-    [Fact(Skip = "core bug: 200-seed-reference.sql sends J7 B2 COMPLETE to I4 with ToState CLASSIFICATION, so a retirement waiting for its decision shows as \"Classification\".")]
+    [Fact]
     public async Task A_retirement_waiting_for_its_decision_is_not_shown_as_classification()
     {
         var p = new RequestPayload { Purpose = "x", RetirementReason = "x", RetirementPlan = "x" };
-        var r = await F.SubmitAsync("COMMERCIAL.product", Journeys.Retirement, "State label", "COMMERCIAL", null, "COMMERCIAL.sponsor", null, p);
+        var r = await F.SubmitAsync("RETAIL.product", Journeys.Retirement, "State label", "RETAIL", null, "RETAIL.sponsor", fx.Seed.Workloads["retailDev"], p);
         await F.CompleteAsync("intake", r.RequestId, Stages.Completeness, StageOutcomes.Complete);
         Assert.NotEqual(RequestStates.Classification, (await F.GetAsync(r.RequestId)).State);
     }
 
-    [Fact(Skip = "core bug: J8 stage F4 always records PURCHASE_APPROVAL under P3_PURCHASE; a renewal (CommercialKind RENEWAL) should be RENEWAL_APPROVAL under P3_RENEWAL (19-row matrix).")]
+    [Fact]
     public async Task A_renewal_is_recorded_as_a_renewal_approval()
     {
         var p = new RequestPayload { Purpose = "Renew.", CommercialKind = "RENEWAL", Quantity = 1000, Unit = Units.P3CommitUnit, Rationale = "x" };
