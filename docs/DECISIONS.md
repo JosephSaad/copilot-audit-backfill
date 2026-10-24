@@ -66,3 +66,14 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Frozen versions | Active or retired RACI versions and control templates cannot change in place (database triggers); a change is a new version with two approvers. |
 | Configurer | If the person who closes the fulfillment ticket approved the request, the change goes back to fulfillment with an SoD finding (SoD2). |
 | Exit rules | B2 completes only when the completeness check passes; D1 passes only with a passing verification recorded by the verifier since the ticket closed (P5). |
+
+## Production deployment (deploy/)
+
+| Area | Decision | Why |
+|---|---|---|
+| Ledger digests | `deploy/Save-LedgerDigest.ps1` writes one digest file per run to a WORM share every 4 hours; `-Verify` checks the database against all of them | On-premises SQL Server stores digests automatically only in Azure immutable storage; a file share on write-once storage keeps the evidence outside the database (R27) |
+| Snapshot isolation | The DBA sets `ALLOW_SNAPSHOT_ISOLATION ON` on the database | `sys.sp_verify_database_ledger` refuses to run without it; `Deploy-Database.ps1` sets only `READ_COMMITTED_SNAPSHOT` today (candidate for the deploy script) |
+| SQL certificate validation | Production runs `Deploy-Database.ps1 -TrustServerCertificate:$false` | The script's default trusts any server certificate, which suits only the local test server |
+| Mirror guard | The installers mirror files with robocopy only into an empty folder or one marked `.cgw-install` by an earlier install of the same kind | `/MIR` deletes what is not in the source; a wrong path must not wipe another application's folder |
+| Settings | Installers refuse a settings file with placeholders, a password, a client secret or any `Testing` switch turned on | No secrets in files; test switches never reach production |
+| ITSM credential | Certificate-based OAuth where the ITSM supports it, otherwise the institution's vault injects `Itsm__ClientSecret` into the service environment | Keeps the only possible secret out of files and source |
