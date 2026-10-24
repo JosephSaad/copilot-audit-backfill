@@ -69,12 +69,12 @@ public sealed class OrgModel(PageServices s, Metrics m) : InsightsPage(s)
         var buckets = Buckets();
         var axis = Labels();
         var shown = FoldSmall(units, u => u.People, r => Metrics.Combine(r, "Smaller groups"), out var folded);
-        /* 2.7.4: the page had no headline: how many parts, and the two ends of adoption among those large enough to rank. */
+        /* The page had no headline: how many parts, and the two ends of adoption among those large enough to rank. */
         var ranked = shown.Where(u => u.Unit != "~small" && u.Licensed >= Ctx.MinGroupSize).OrderByDescending(u => u.ActiveLicensed / (double)u.Licensed).ToList();
         Kpis.Add(new("Units", Num(shown.Count(u => u.Unit != "~small")), $"one level below {Here}"));
         if (ranked.Count > 1)
         {
-            /* 2.7.5: each opens that unit, as its name in the table does. */
+            /* Each opens that unit, as its name in the table does. */
             string? Inside(UnitRow u) => u.Drillable ? Ctx.Url(Request.Path, org: u.Unit) : null;
             Kpis.Add(new("Unit with the highest adoption", ranked[0].Name, $"{Pct(Ratio(ranked[0].ActiveLicensed, ranked[0].Licensed))} of its license holders used Copilot", Href: Inside(ranked[0])));
             Kpis.Add(new("Unit with the lowest adoption", ranked[^1].Name, $"{Pct(Ratio(ranked[^1].ActiveLicensed, ranked[^1].Licensed))} of its license holders used Copilot", Href: Inside(ranked[^1])));
@@ -124,7 +124,7 @@ public sealed class MixModel(PageServices s, Metrics m) : InsightsPage(s)
     {
         var trTask = m.TrendAsync(Ctx);
         var totalsTask = m.TotalsAsync(Ctx);
-        /* Counted per agent and person first, then named (2.7.4): grouped on the names over the fact, 120 million
+        /* Counted per agent and person first, then named: grouped on the names over the fact, 120 million
            interactions took 13.7 s for 90 days; this way 1.6 s, the same rows. */
         var agentsTask = Db.QueryAsync<(string AgentName, long N, int People)>($@"
 WITH g AS (SELECT f.AgentKey, f.UserKey, COUNT_BIG(*) AS N
@@ -144,7 +144,7 @@ SELECT g.Bucket, COALESCE(vn.Name, a.App), SUM(g.N)
 FROM g JOIN bi.DimApp AS a ON a.AppKey = g.AppKey
 LEFT JOIN dash.ValueName AS vn ON vn.ColumnId = 2 AND vn.Value = a.App   -- 2.7.1: the app's name, as Apps shows it
 GROUP BY g.Bucket, COALESCE(vn.Name, a.App);", Ctx.Args());
-        /* 2.7.3: Overview's Interactions opens this page, which had no figure of its own; it now leads with the same one. */
+        /* Overview's Interactions opens this page, which had no figure of its own; it now leads with the same one. */
         var t = await totalsTask;
         var trAll = await trTask;
         long chat = trAll.Sum(w => w.Chat), viaAgent = trAll.Sum(w => w.Agent), counted = trAll.Sum(w => w.Interactions);

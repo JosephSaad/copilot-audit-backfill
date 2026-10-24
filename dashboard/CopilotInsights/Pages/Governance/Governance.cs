@@ -11,10 +11,10 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
 
     protected override async Task BuildAsync()
     {
-        /* Seven independent reads, four of them over the fact: started together, awaited where used (2.7.3). */
+        /* Seven independent reads, four of them over the fact: started together, awaited where used. */
         var trTask = m.TrendAsync(Ctx);
         var unitsTask = m.UnitsAsync(Ctx);
-        /* Counted per model key first, then named (2.4.2): dash.fnValueName in the GROUP BY over the fact ran once a row. */
+        /* Counted per model key first, then named: dash.fnValueName in the GROUP BY over the fact ran once a row. */
         var modelsTask = Db.QueryAsync<(DateTime Bucket, string Model, long N)>($@"
 WITH g AS (
     SELECT {Ctx.BucketSql("d")} AS Bucket, f.ModelKey, COUNT_BIG(*) AS N
@@ -107,9 +107,9 @@ GROUP BY a.AgentSource;", Ctx.Args());
             "Every agent the audit log has seen, whoever used it. A growing count with few users each is agent sprawl. This panel covers the whole organization whatever you are looking at: an agent does not belong to a part of the org chart.", "half"));
     }
 
-    /* 2.7.0: Copilot by product, from the app each interaction names (its AppHost) and the agent behind it: Security
+    /* Copilot by product, from the app each interaction names (its AppHost) and the agent behind it: Security
        Copilot, Copilot in Fabric and Power BI, Edge, Copilot Studio's agents, and Microsoft 365 Copilot for the rest. */
-    /* Counted per person, app and agent first, then classified (2.7.3): the LIKEs ran once an interaction. */
+    /* Counted per person, app and agent first, then classified: the LIKEs ran once an interaction. */
     Task<List<(string Product, long N, int People)>> ProductsAsync() => Db.QueryAsync<(string Product, long N, int People)>($@"
 WITH g AS (
     SELECT f.UserKey, f.AppKey, f.AgentKey, COUNT_BIG(*) AS N

@@ -15,7 +15,7 @@ public static class Groups
 
     /// <summary>
     /// The table under a breakdown. Adoption is given only where a group's license holders reach the minimum group
-    /// size (2.4.12): a group folded by people can still hold one license holder, whose own use the rate would be.
+    /// size: a group folded by people can still hold one license holder, whose own use the rate would be.
     /// </summary>
     public static Table Table(IReadOnlyList<GroupRow> rows, string first, int min)
     {

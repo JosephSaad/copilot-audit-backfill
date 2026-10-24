@@ -16,7 +16,7 @@ static class Segments
     public static readonly int[] Slots = [3, 1, 4, 2, 8];
 
     /// <summary>
-    /// 2.6.7: the two segments Engagement's *Need a nudge* counts together, one-off and not started, listed as one on People
+    /// The two segments Engagement's *Need a nudge* counts together, one-off and not started, listed as one on People
     /// by engagement so the figure and its list agree. Not a segment of its own: nobody is in it and in another.
     /// </summary>
     public const string Nudge = "Need a nudge";
@@ -37,7 +37,7 @@ pop AS (SELECT du.UserKey, ISNULL(a.D, 0) AS D, ISNULL(a.I, 0) AS I, ISNULL(a.S,
         WHERE a.I > 0 OR du.CopilotLicenseToday = N'Licensed')";
 
     /// <summary>
-    /// The working days of the period that the data covers (2.4.12): from its start, or the first day with data when that is
+    /// The working days of the period that the data covers: from its start, or the first day with data when that is
     /// later. The period's own weekdays were counted in bi.DimDate, which begins on 1 January of the first year with data,
     /// so a 365-day period over 130 working days of data counted 192, and the Power and Regular bars rose with it.
     /// </summary>
@@ -47,7 +47,7 @@ pop AS (SELECT du.UserKey, ISNULL(a.D, 0) AS D, ISNULL(a.I, 0) AS I, ISNULL(a.S,
 }
 
 /// <summary>
-/// What "a session with a follow-up" counts, in the words the pages use (2.4.12): a session (a person's prompts with
+/// What "a session with a follow-up" counts, in the words the pages use: a session (a person's prompts with
 /// less than an hour between them, on one day, in any app) with more than one prompt. The audit records say nothing of
 /// which prompt answered which, so the pages no longer say the person replied to Copilot.
 /// </summary>
@@ -68,11 +68,11 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         var w = await Segments.WorkdaysAsync(Db, Ctx);
-        /* Everything after the working days is independent: started together, awaited where used (2.7.3). */
+        /* Everything after the working days is independent: started together, awaited where used. */
         var tTask = m.TotalsAsync(Ctx);
         var trTask = m.TrendAsync(Ctx);
         /* The segments, each department's and the people to nudge, from one pass over the population: it was built three
-           times (2.7.3). People to nudge leave out the protected levels, as the list they open does. */
+           times. People to nudge leave out the protected levels, as the list they open does. */
         var unitsTask = Db.QueryAsync<(string Unit, string Segment, int N, int Open)>($@"
 WITH {Segments.People(Ctx)}
 SELECT ISNULL(NULLIF(du.Department, N''), N'(no department)'), p.Segment, COUNT(*),
@@ -97,7 +97,7 @@ GROUP BY a.App, vn.Name;", Ctx.Args());
         var tr = await trTask;
 
         Kpis.Add(new("Power users", Num(Seg("Power")), $"used it on half or more of the {w} working days", Href: Open("/enablement/people", extra: "seg=Power")));
-        /* What is counted, not what it may mean (2.4.12): it said "the person replied to Copilot", but a session is a
+        /* What is counted, not what it may mean: it said "the person replied to Copilot", but a session is a
            person's prompts less than an hour apart on one day, in any app, so two separate questions count too. */
         Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(t.MultiTurn, t.Sessions)), FollowUp.Kpi));
         Kpis.Add(new("Prompts per session", t.Sessions > 0 ? (t.Prompts / (double)t.Sessions).ToString("0.0") : "—", "a session: prompts less than an hour apart, on one day"));

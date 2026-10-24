@@ -97,7 +97,7 @@ BEGIN
         WHERE LTRIM(RTRIM(value)) <> N'';
     IF EXISTS (SELECT 1 FROM @licDbs WHERE OBJECT_ID(QUOTENAME(Name) + N'.audit.vLicenseSkuChange', N'V') IS NULL)
         THROW 50004, N'A database in @LicenseEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
-    /* The list as the run log keeps it and the check below compares it (2.4.12):
+    /* The list as the run log keeps it and the check below compares it:
        each database once, trimmed, in order. The raw text was compared, so
        'A,B' after 'B,A' or 'A, B' - the same databases - counted as different
        settings and every incremental build after was refused. */
@@ -183,7 +183,7 @@ BEGIN
     /* ---- 2. Session boundaries ------------------------------------------- */
     /*
         Order and the gap are taken in UTC, the calendar day in the reporting
-        zone (2.4.12). Both were local times, which a daylight-saving change
+        zone. Both were local times, which a daylight-saving change
         moves: in the repeated autumn hour two prompts 110 minutes apart read
         as 50 and a later prompt sorted before an earlier one (taking the
         session's start and primary app), and in spring a 10-minute gap read
@@ -244,11 +244,11 @@ BEGIN
         second Copilot SKU held throughout, unchanged, while another changed,
         is not seen.
     */
-    /* COLLATE DATABASE_DEFAULT as #profile and #base have it (2.4.12): without
+    /* COLLATE DATABASE_DEFAULT as #profile and #base have it: without
        it the columns took tempdb's collation, and on a database whose own
        differs, the comparison with the sessions below failed every build
        (Msg 468), even with no license database. TsUtc is the change's UTC
-       time, compared with the session's UTC start (2.4.12; see section 2). */
+       time, compared with the session's UTC start (see section 2). */
     DROP TABLE IF EXISTS #lic;
     CREATE TABLE #lic (UserUPN NVARCHAR(512) COLLATE DATABASE_DEFAULT NOT NULL, Sku NVARCHAR(200) COLLATE DATABASE_DEFAULT NOT NULL,
                        TsUtc DATETIME2(0) NOT NULL, Added BIT NOT NULL);
@@ -273,7 +273,7 @@ BEGIN
     CLOSE licDbs;
     DEALLOCATE licDbs;
 
-    /* 2.5.4: sought by the lookups below, which ask it once per session. With no index each session read the whole
+    /* Sought by the lookups below, which ask it once per session. With no index each session read the whole
        history: over 154,530 Copilot changes, a night's 60,852 sessions took more than ten minutes in the lab, and
        now take seconds. Nonclustered: a UPN can be 1,024 bytes, over a clustered key's 900. */
     CREATE INDEX IX_lic ON #lic (UserUPN, Sku, TsUtc, Added);
@@ -281,8 +281,8 @@ BEGIN
     /* ---- 4. Sessions ----------------------------------------------------- */
 
     /* Start and end are the first and last prompt in UTC, shown in the
-       reporting zone; the span is measured in UTC (2.4.12). The end is never
-       shown before the start (2.4.12): in the hour clocks go back, a session
+       reporting zone; the span is measured in UTC. The end is never
+       shown before the start: in the hour clocks go back, a session
        begun before the change and ended after it ended, in local time,
        before it began. */
     DROP TABLE IF EXISTS #sess;
@@ -301,7 +301,7 @@ BEGIN
                         CAST(g.EndUtc   AT TIME ZONE 'UTC' AT TIME ZONE @ReportingTimeZone AS DATETIME2(0)) AS EndTs) AS z;
 
     /* A SKU added and removed in the same second: the addition is the later of the two, as bi.usp_RefreshBi reads
-       it (2.5.4; which one a session took was left to the plan). */
+       it (which one a session took was left to the plan). */
     DROP TABLE IF EXISTS #histlic;
     SELECT s.UserUPN, s.KeyCtx, s.Ordinal,
            CASE WHEN NOT EXISTS (SELECT 1 FROM #lic AS l WHERE l.UserUPN = s.UserUPN) THEN NULL
@@ -428,7 +428,7 @@ BEGIN
                c.Division, c.Department, c.JobTitle, c.ManagerUPN AS ManagerUpn,
                /* the exact span, not the rounded column: weeks sum it before rounding. A span
                   is whole seconds and the column keeps hundredths of a minute, within 0.3 s,
-                  so the seconds come back from it exactly (2.4.12: they were taken from the
+                  so the seconds come back from it exactly (they were taken from the
                   stored start and end, local times an hour out across a daylight-saving change). */
                CAST(CAST(ROUND(c.InferredSessionSpanMinutes * 60, 0) AS BIGINT) / 60.0 AS DECIMAL(14, 4)) AS SpanMinutes,
                w.WeekEnding, YEAR(w.WeekEnding) AS WeekYear,

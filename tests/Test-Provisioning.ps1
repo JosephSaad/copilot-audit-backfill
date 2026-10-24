@@ -142,7 +142,7 @@ $ids = @($app.keyCredentials | ForEach-Object { $_.customKeyIdentifier })
 Assert-That ($ids.Count -eq 2 -and $ids -contains [Convert]::ToBase64String($c1.GetCertHash()) -and $ids -contains [Convert]::ToBase64String($c2.GetCertHash())) `
     'a renewed certificate is added and the old one kept'
 
-# 2.4.12: an app of the same name is not taken on its name alone. Any member can register an app, and one someone else
+# An app of the same name is not taken on its name alone. Any member can register an app, and one someone else
 # had named 'Copilot audit pipeline', with a secret of their own, was given admin consent to the whole audit log and
 # became the pipeline's app. By name, only the one app of that name with no secret and no owner but you is taken.
 New-Tenant
@@ -207,7 +207,7 @@ $licOps = @($n[2].Arguments.Operations)
 Assert-That ((($licOps | Select-Object -First 4) -join ',') -eq 'Change user license,Update user,Add user,Delete user' -and
              'BotCreate' -in $licOps -and 'BotUpdateOperation-BotPublish' -in $licOps -and $n[2].Arguments.Database -eq 'CopilotLicenseEvents') `
     'nightly license events: the four license operations, and Copilot Studio''s authoring ones (2.3.0)'
-# 2.4.12: DEPLOYMENT.md step 7, the license history by hand, passes the same list. It gave the four license operations
+# DEPLOYMENT.md step 7, the license history by hand, passes the same list. It gave the four license operations
 # alone, and a backfill refuses a different list, so a hand run and -History stopped each other.
 $guide = [System.IO.File]::ReadAllText((Join-Path $root 'docs' 'DEPLOYMENT.md'))
 $listed = [regex]::Match($guide, '(?s)\$licenseOps = (.+?)\r?\n\.\\Invoke-CopilotAuditBackfill\.ps1')
@@ -217,7 +217,7 @@ Assert-That ($listed.Success -and (($docOps | Sort-Object) -join ',') -eq (($lic
     "DEPLOYMENT.md step 7 loads the license history with the pipeline's own $($licOps.Count) operations, as -History does ($($docOps.Count) listed)"
 Assert-That ((@($n[0].Arguments.EmployeeTypes) -join ',') -eq 'EMP' -and $n[0].Arguments.TargetDomain -eq 'users.contoso.com' -and -not $n[0].Arguments.ContainsKey('ClientId')) `
     'the directory step reads AD with no Graph sign-in'
-# 2.5.0: DepartmentAttribute, in the settings, is where the nightly directory load finds the department.
+# DepartmentAttribute, in the settings, is where the nightly directory load finds the department.
 Assert-That (-not $n[0].Arguments.ContainsKey('DepartmentAttribute')) 'the directory step passes no -DepartmentAttribute unless the settings name one (it reads department)'
 $dn = Get-PipelineStep -Setting ($s + @{ DepartmentAttribute = @('pncUCustom08', 'department') }) -Today $today -Root 'R:'
 Assert-That ((@($dn[0].Arguments.DepartmentAttribute) -join ',') -eq 'pncUCustom08,department') 'DepartmentAttribute in the settings reaches the directory step, in order'
@@ -233,7 +233,7 @@ Assert-That ((Get-PipelineStep -Setting $s -History -Days 30 -Today $today)[0].A
 $b = $h[4].Arguments
 Assert-That ($b.Dashboard -and (@($b.LicenseEventDatabases) -join ',') -eq 'CopilotLicenseEvents' -and $h[4].Script -eq [System.IO.Path]::Combine('R:', 'Install-CopilotAudit.ps1')) 'history ends with the one-command build'
 
-# 2.4.12: sessions and bi may read several license databases. The nightly could pass only LicenseDatabase, so a
+# Sessions and bi may read several license databases. The nightly could pass only LicenseDatabase, so a
 # database built with two failed every night on 'different settings'; SessionLicenseDatabases is the list it reads.
 $two = @{} + $s; $two.SessionLicenseDatabases = @('CopilotLicenseEvents', ' CopilotLicenseArchive ')
 $tn = Get-PipelineStep -Setting $two -Today $today
@@ -267,12 +267,12 @@ $code = Invoke-PipelineStep -Step ([pscustomobject]@{ Name = 'probe'; Script = $
 Assert-That ($code -eq 0 -and (Get-Content (Join-Path $tmp 'probe.out')) -eq 'Db|2026-09-26|A b;C|True') 'a step gets its arguments in its own process, switches and dates included'
 $code = Invoke-PipelineStep -Step ([pscustomobject]@{ Name = 'fails'; Script = $probe; Arguments = @{ StartDate = $today; ExitWith = 3 } }) -Log $log 6>$null
 Assert-That ($code -eq 3 -and (Get-Content $log -Raw) -like '*== probe*== fails*') 'its exit code comes back, and both steps are in the log'
-# 2.4.12: a backfill that gave up on a window throws now; the step must come back failed, or -History carries on.
+# A backfill that gave up on a window throws now; the step must come back failed, or -History carries on.
 $code = Invoke-PipelineStep -Step ([pscustomobject]@{ Name = 'throws'; Script = $probe; Arguments = @{ StartDate = $today; Throw = $true } }) -Log $log 6>$null
 Assert-That ($code -ne 0) "a step that throws comes back failed (exit code $code), so the pipeline stops there"
 
 & {
-    # 2.4.12: Export-CopilotSessionCsv -Build rebuilds the production sessions; it builds them as the last build did.
+    # Export-CopilotSessionCsv -Build rebuilds the production sessions; it builds them as the last build did.
     . (Join-Path $root 'tools' 'Export-CopilotSessionCsv.ps1')
     $last = [pscustomobject]@{ ContextFallback = 'User'; LicenseEventDatabase = 'CopilotLicenseEvents,CopilotLicenseArchive' }
     $same = Resolve-BuildSetting -Last $last -Given @{}
@@ -289,7 +289,7 @@ Assert-That ($code -ne 0) "a step that throws comes back failed (exit code $code
     Assert-That ($first.ContextFallback -eq 'User' -and $null -eq $first.LicenseEventDatabase) 'a first build takes User and no license history, as before'
 }
 
-# 2.4.12: a tenant that cannot run is that tenant's failure, and the next tenant still runs. One whose database was
+# A tenant that cannot run is that tenant's failure, and the next tenant still runs. One whose database was
 # offline or restoring threw out of the loop: the tenants after it did not run and no failure line was written. Here
 # every tenant's database is a port nothing listens on, as an unreachable one is.
 $downDir = Join-Path $tmp 'down'; New-Item -ItemType Directory -Path $downDir -Force | Out-Null
@@ -325,7 +325,7 @@ Assert-That ($back.TenantId -eq "o'brien" -and $back.Dashboard -is [bool] -and $
 $fromPipeline = Get-PipelineStep -Setting $back -Today $today
 Assert-That ($fromPipeline[0].Name -eq 'User directory from AD') 'and the pipeline plans from it'
 
-# 2.4.12: a re-run keeps what was saved, the keys this script does not set and the empty values too.
+# A re-run keeps what was saved, the keys this script does not set and the empty values too.
 $saved = @{ SqlServer = 'SQL1'; EmployeeTypes = @(); IncludeLeaveDates = $true; At = '03:30'; LicenseDatabase = '' }
 $again = Merge-Setting -Saved $saved -Given @{ TenantId = 'contoso.onmicrosoft.com' }
 Assert-That (@($again.EmployeeTypes).Count -eq 0 -and $again.IncludeLeaveDates -eq $true -and $again.At -eq '03:30' -and $again.LicenseDatabase -eq '' -and
@@ -337,7 +337,7 @@ Set-Content -LiteralPath $f2 -Value (ConvertTo-SettingText ($again + @{ Custom =
 $read2 = Import-PowerShellDataFile -LiteralPath $f2
 Assert-That (@($read2.EmployeeTypes).Count -eq 0 -and $read2.IncludeLeaveDates -eq $true -and $read2.At -eq '03:30' -and $read2.Custom -eq 'kept') 'and writes them all back, a key it does not know included'
 
-# 2.5.0: DepartmentAttribute is a setting of its own: given, saved, read back and kept by a re-run; there is no default.
+# DepartmentAttribute is a setting of its own: given, saved, read back and kept by a re-run; there is no default.
 $dm = Merge-Setting -Saved @{ SqlServer = 'SQL1' } -Given @{ DepartmentAttribute = [string[]] @('pncUCustom08', 'department') }
 Assert-That ((@($dm.DepartmentAttribute) -join ',') -eq 'pncUCustom08,department') '-DepartmentAttribute given is a setting'
 $f3 = Join-Path $tmp 'dept.psd1'
@@ -349,7 +349,7 @@ Assert-That (-not (Merge-Setting -Saved @{ SqlServer = 'SQL1' } -Given @{}).Cont
 $ip = (Get-Command (Join-Path (Join-Path $root 'tools') 'Install-CopilotJobServer.ps1')).Parameters['DepartmentAttribute']
 Assert-That ($null -ne $ip -and @($ip.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidatePatternAttribute] }).Count -eq 1) 'the installer takes -DepartmentAttribute, an attribute name and nothing else'
 
-# 2.4.12: step 4 passes the license databases as the pipeline's history build does. A blank LicenseDatabase went to the
+# Step 4 passes the license databases as the pipeline's history build does. A blank LicenseDatabase went to the
 # installer as it was (CREATE DATABASE [] failed), and SessionLicenseDatabases not at all (the nightly then refused the
 # build's different list every night).
 $noLic = Get-InstallArgument -Setting $again -ServiceAccount 'CORP\gmsa$'
@@ -370,7 +370,7 @@ Assert-That ((Add-SidToRightLine -Line 'SeBatchLogonRight = *S-1-5-32-544,*S-1-5
 Assert-That ($null -eq (Add-SidToRightLine -Line 'SeBatchLogonRight = *S-1-5-21-9' -Right 'SeBatchLogonRight' -Sid 'S-1-5-21-9')) 'and is left alone when the account has it'
 Assert-That ((Add-SidToRightLine -Line '' -Right 'SeBatchLogonRight' -Sid 'S-1-5-21-9') -eq 'SeBatchLogonRight = *S-1-5-21-9') 'or starts the line when nobody had it'
 
-# 2.4.12: the certificate is renewed only with -RegisterApp, which uploads the new one. Any run within 30 days of expiry
+# The certificate is renewed only with -RegisterApp, which uploads the new one. Any run within 30 days of expiry
 # (moving the task with -At, say) made a new certificate and put it in the settings, uploaded nowhere, so the nightly
 # sign-in failed while the old certificate still worked. The store is stood in for here, in a scope of its own.
 & {
@@ -406,7 +406,7 @@ $fab = Get-PipelineStep -Setting $ts[1] -Today $today -Root 'R:'
 Assert-That (@($fab | Where-Object { $_.Name -eq 'User directory from AD' }).Count -eq 0) 'an empty TargetDomain turns the directory step off for that tenant'
 Assert-That (@($fab | Where-Object { $_.Arguments.Database -eq 'CopilotAudit' }).Count -eq 0 -and $fab[0].Arguments.TenantId -eq 'fabrikam.onmicrosoft.com') 'and its steps load its own databases with its own app'
 Assert-That ((Get-PipelineTenant -Setting $multi -Only 'Fabrikam').Count -eq 1) '-Tenant runs one'
-# 2.5.0: a tenant reads the shared DepartmentAttribute, or its own.
+# A tenant reads the shared DepartmentAttribute, or its own.
 $deptMulti = @{} + $multi
 $deptMulti.DepartmentAttribute = @('pncUCustom08', 'department')
 $deptMulti.Tenants = @(@{ Name = 'Fabrikam'; TenantId = 'fabrikam.onmicrosoft.com'; ClientId = 'f1'; Database = 'CopilotAudit_Fabrikam'; TargetDomain = 'fabrikam.local'; DepartmentAttribute = @('extensionAttribute3') })
@@ -481,7 +481,7 @@ $checks = @($dashAst.FindAll({ param($n) ($n -is [System.Management.Automation.L
 Assert-That ($checks.Count -eq 3 -and @($checks | Where-Object { $_.Extent.StartOffset -gt $offlineAt[0].Extent.StartOffset }).Count -eq 0) `
     'and the certificate, -Tenant and the settings file are checked before it goes offline'
 
-# 2.4.12: the guides' upgrade ran the installer once, which upgrades only the databases it is given (the first
+# The guides' upgrade ran the installer once, which upgrades only the databases it is given (the first
 # tenant's), and nothing else upgrades the others. The command they now give, run against a settings file with two
 # further tenants, installs into each of their pairs. A tenant without its own LicenseDatabase or
 # SessionLicenseDatabases takes the top-level one, as Get-PipelineTenant gives the nightly run, and a blank

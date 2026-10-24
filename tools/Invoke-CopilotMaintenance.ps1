@@ -55,7 +55,7 @@
 param(
     [Parameter(Mandatory)][string] $SqlServer,
     [string] $Database = 'CopilotAudit',
-    # The license databases sessions and bi read. Left out: the ones this database's last build used (2.4.12).
+    # The license databases sessions and bi read. Left out: the ones this database's last build used.
     [string[]] $LicenseEventDatabases,
     [pscredential] $SqlCredential,
     [switch] $TrustServerCertificate,
@@ -118,7 +118,7 @@ function Need([string] $what, $value) { if (-not $value) { throw "-Task $Task ne
 function Update-Dashboard([object] $since) {
     if (Test-Proc 'dash.usp_RefreshDashboard') { Invoke-Sql -Sql 'EXEC dash.usp_RefreshDashboard @SinceUtc = @s;' -Parameters @{ '@s' = $since } }
 }
-# The license databases (2.4.12): those given, else the ones this database's last session build used, else its last
+# The license databases: those given, else the ones this database's last session build used, else its last
 # bi refresh's, else none. The default was CopilotLicenseEvents, which is the first tenant's: another tenant's
 # maintenance read that tenant's license history, and its nightly then failed every night on the change.
 if (-not $PSBoundParameters.ContainsKey('LicenseEventDatabases')) {
@@ -140,7 +140,7 @@ SELECT @l;
 $licList = if ($LicenseEventDatabases) { $LicenseEventDatabases -join ',' } else { $null }
 function Update-Bi([object] $since) { Invoke-Sql -Sql 'EXEC bi.usp_RefreshBi @SinceUtc = @s, @LicenseEventDatabase = @l;' -Parameters @{ '@s' = $since; '@l' = $licList } }
 
-# The tasks that rebuild hold the database while they work (2.4.12), as the nightly pipeline and Install-CopilotAudit.ps1
+# The tasks that rebuild hold the database while they work, as the nightly pipeline and Install-CopilotAudit.ps1
 # do: an exclusive application lock, on a connection of its own kept open until the task ends. A rebuild that ran beside
 # the nightly rebuilt bi under the nightly's own refresh, counting interactions twice.
 $runLock = $null
@@ -256,7 +256,7 @@ INSERT INTO dash.AuditLog (Viewer, Kind, Page, Detail) VALUES (@by, 'Admin', N'I
     }
     'NameAgent' {
         Need 'AgentId' $AgentId
-        # 2.6.3: either identity of an agent the audit log names two ways names the one agent.
+        # Either identity of an agent the audit log names two ways names the one agent.
         $key = Invoke-Sql -Scalar -Parameters @{ '@a' = $AgentId } -Sql @'
 DECLARE @k INT;
 IF COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL SELECT @k = AgentKey FROM bi.DimAgent WHERE AgentId = @a;
@@ -336,7 +336,7 @@ END;
         Write-Host "$n name(s) saved, $cleared cleared."
     }
     'PurgeJson' {
-        # 2.4.12: -DeleteRows removes the flattened rows too, with the resources and contexts they read. It kept them,
+        # -DeleteRows removes the flattened rows too, with the resources and contexts they read. It kept them,
         # each naming the user and the files and links they read, though the records were said to be gone.
         $t = Invoke-Sql -Table -Sql 'EXEC audit.usp_PurgeCopilotAuditJson @RetainDays = @d, @WhatIf = @w, @DeleteRows = @r, @PurgeFlattened = @r;' `
             -Parameters @{ '@d' = $RetainDays; '@w' = [int] (-not $Apply); '@r' = [int] [bool] $DeleteRows }

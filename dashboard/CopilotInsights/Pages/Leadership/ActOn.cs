@@ -33,7 +33,7 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
             EmptyText = "Nothing to act on in this part of the organization: no idle licenses, nobody waiting for one, no target behind." };
         void Add(string finding, int count, string why, string path) { if (count > 0) t.Rows.Add([finding, count, why, Where(path)]); }
 
-        /* 2.7.3: the sources read at once, as Usage by license does: each is a report's own figures, on its own connection,
+        /* The sources read at once, as Usage by license does: each is a report's own figures, on its own connection,
            and one after another the page took 8 seconds uncached at the demo's size, the Costs and savings build alone half. */
         var wholeCosts = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));
         var countsTask = reports.ActionCountsAsync(Ctx);
@@ -77,7 +77,7 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
         Add("Adoption targets behind their line or missed", targets.Count(x => x.Status is "Behind" or "Missed"),
             "A target behind its line needs its push now, not at the deadline.", "/adoption/targets");
 
-        /* What could be saved (2.6.6): Costs and savings is the organization's, so its findings show to those who see the
+        /* What could be saved: Costs and savings is the organization's, so its findings show to those who see the
            whole of it, or hold the Licensing role, and only when the page shows the whole organization. */
         if (costsTask is not null)
         {
@@ -86,9 +86,7 @@ public sealed class ActOnModel(PageServices s, Metrics metrics, OpsReports repor
             if (save.Count > 0)
                 t.Rows.Add([$"Savings found in AI and automation: {CostRules.Money(Math.Round(v.Saving), v.Currency)} a month", save.Count,
                     $"{v.Saving / Math.Max(1, v.Spend):P0} of the spend. The largest: {save[0].Title} ({CostRules.Money(Math.Round(save[0].Saving), v.Currency)} a month).", Where("/leadership/costs")]);
-            if (v.Suites is { Saving: > 0 } su)
-                t.Rows.Add([$"Suite moves to review: {CostRules.Money(Math.Round(su.Saving), v.Currency)} a month", su.Moves.Sum(m => m.People),
-                    "E7 to E5, E5 to E3, second suites, unassigned seats: each with what to check before moving.", Where("/licensing/suites")]);
+            /* No suite moves (E7 to E5, E5 to E3) here: the client said they are not a fit for this project. */
         }
 
         /* The security signals are the Security section's: counted here for its holders only, as on the board pack. */

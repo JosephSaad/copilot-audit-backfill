@@ -40,7 +40,7 @@ FROM audit.UserDirectory AS u JOIN l ON l.UserPrincipalName = u.UserPrincipalNam
 WITH l AS (SELECT UserPrincipalName, ROW_NUMBER() OVER (ORDER BY UserPrincipalName) AS n FROM audit.CopilotLicense WHERE IsCopilotLic = 1)
 UPDATE u SET AccountEnabled = 0
 FROM bi.DimUser AS u JOIN l ON l.UserPrincipalName = u.UserPrincipalName AND l.n = 13;
-/* Hire dates: the new joiners have theirs from New-InsightsDemoData.sql (2.6.6); everyone else in the org chart was
+/* Hire dates: the new joiners have theirs from New-InsightsDemoData.sql; everyone else in the org chart was
    hired one to seventeen years ago. Accounts outside it (service accounts, guests) have none, as in Entra. */
 UPDATE c SET EmployeeHireDate = DATEADD(DAY, -(400 + ABS(CHECKSUM(c.UserPrincipalName)) % 6000), @today)
 FROM audit.CopilotLicense AS c JOIN audit.UserDirectory AS u ON u.UserPrincipalName = c.UserPrincipalName
@@ -96,7 +96,7 @@ IF NOT EXISTS (SELECT 1 FROM dash.Subscription)
     VALUES (N'Monday leadership summary', 'Leadership', N'leadership@contoso.com', 'Weekly', 1, 7, 30, N'demo', SYSUTCDATETIME());
 
 /* Copilot Studio's authoring records are written with the agent workbook, for the same agents, by
-   New-InsightsDemoAgents.sql (2.6.6). */
+   New-InsightsDemoAgents.sql. */
 
 /* ---- 2.3.0, second part: job families, a contract, events on the trends, license exports, triage ---- */
 IF OBJECT_ID(N'dash.JobFamilyRule', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dash.JobFamilyRule)
@@ -139,7 +139,7 @@ IF OBJECT_ID(N'dash.FlagCase', N'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM d
            N'mei.osei@contoso.com', N'Demo triage', N'mei.osei@contoso.com'
     FROM bi.FactInteraction AS f WHERE f.JailbreakDetected = 1 OR f.PromptInjectionDetected = 1 ORDER BY f.RecordId;
 
-/* 2.6.8: the reservation register for Leadership > Copilot reservations: fifteen organizations, as a client's policy
+/* The reservation register for Leadership > Copilot reservations: fifteen organizations, as a client's policy
    has them, some inside others (the nearer leader takes their people), one over its reservation, some under, and
    Executive Leadership as a pool with no one under it. The rate is 18 a seat a month (30 less 40%), from January; the
    purchase gate counts from 120 unassigned add-on licenses. Two service accounts and a test account are approved

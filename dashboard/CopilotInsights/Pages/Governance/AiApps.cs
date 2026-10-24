@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages.Governance;
 
 /// <summary>
-/// AI apps beyond Copilot (2.6.9): calls to Azure AI Foundry and Azure OpenAI from the organization's own apps, as
+/// AI apps beyond Copilot: calls to Azure AI Foundry and Azure OpenAI from the organization's own apps, as
 /// Purview records them (ConnectedAIAppInteraction), rolled up each night from the activity database into
 /// audit.AIAppUserDay. By resource, line of business and environment, by whether the call carried a person's identity,
 /// and over time; with what Azure charged for each resource where the Foundry loader is set up. Counts only: a person's
@@ -51,7 +51,7 @@ public sealed class AiAppsModel(PageServices s) : InsightsPage(s)
         }
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
         var hasCost = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM audit.FoundryCostDay) THEN 1 ELSE 0 END;") == 1;
-        /* The five reads below are independent: started together, awaited where used (2.7.3). */
+        /* The five reads below are independent: started together, awaited where used. */
         var rowsTask = Db.QueryAsync<ResRow>($@"
 SELECT a.[Resource], r.LineOfBusiness, r.Environment, r.Owner, r.SetBy, SUM(CAST(a.Calls AS BIGINT)) AS Calls, SUM(CAST(a.Prompts AS BIGINT)) AS Prompts,
        SUM(CAST(a.Threads AS BIGINT)) AS Threads, SUM(CAST(a.Failures AS BIGINT)) AS Failures,
@@ -69,7 +69,7 @@ ORDER BY Calls DESC;", Ctx.Args());
 SELECT {Ctx.BucketSql("d")}, SUM(CASE WHEN a.CallerKind = 'Person' THEN CAST(a.Calls AS BIGINT) ELSE 0 END), SUM(CASE WHEN a.CallerKind = 'Unattributed' THEN CAST(a.Calls AS BIGINT) ELSE 0 END)
 FROM audit.AIAppUserDay AS a JOIN bi.DimDate AS d ON d.[Date] = a.[Day]
 WHERE a.[Day] BETWEEN @d0 AND @d1 GROUP BY {Ctx.BucketSql("d")};", Ctx.Args());
-        /* 2.7.0: the accounts Azure billed in the period that recorded no call here: idle, or not collected by Purview. */
+        /* The accounts Azure billed in the period that recorded no call here: idle, or not collected by Purview. */
         var silentTask = hasCost ? Db.QueryAsync<(string Account, decimal Cost)>(@"
 SELECT c.Account, SUM(c.Cost) FROM audit.FoundryCostDay AS c
 WHERE c.[Day] BETWEEN @d0 AND @d1 AND NOT EXISTS (SELECT 1 FROM audit.AIAppUserDay AS a WHERE a.[Resource] = c.Account AND a.[Day] BETWEEN @d0 AND @d1)

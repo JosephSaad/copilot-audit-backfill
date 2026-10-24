@@ -9,7 +9,7 @@ namespace CopilotInsights.Pages.Licensing;
 /// <summary>
 /// License holders whose use the free tier and pay-as-you-go credits would cover: Copilot Chat on the
 /// web and agents, with little or no Copilot in Word, Excel, PowerPoint, Outlook or Teams. Each with an
-/// estimate of what pay-as-you-go would cost them against the license (2.4.3).
+/// estimate of what pay-as-you-go would cost them against the license.
 /// </summary>
 public sealed class PayAsYouGoModel(PageServices s) : InsightsPage(s)
 {
@@ -57,7 +57,7 @@ public sealed class PayAsYouGoModel(PageServices s) : InsightsPage(s)
         var price = Dec(await S.Settings.StringAsync("LicenseMonthlyCost"), 30m);
         var rate = Dec(await S.Settings.StringAsync("PaygInteractionCost"), 0.12m);
         var cur = await S.Settings.StringAsync("LicenseCurrency") ?? "USD";
-        /* A month is scaled from the days the data covers, not the period's (2.4.12, see OpsReports.DaysCovered). */
+        /* A month is scaled from the days the data covers, not the period's (see OpsReports.DaysCovered). */
         var days = CopilotInsights.Data.OpsReports.DaysCovered(Ctx, await CopilotInsights.Data.OpsReports.FirstDayAsync(Db));
         decimal Monthly(long metered) => metered * rate * 30m / days;
 
@@ -66,7 +66,7 @@ public sealed class PayAsYouGoModel(PageServices s) : InsightsPage(s)
            pay-as-you-go form) and agent use. An agent that read work content is in both, and one grounded only in the
            web is charged for nothing: the estimate errs high on cost, so low on the saving. The candidates and their
            totals are read on their own, before the search, so the figures above the table do not change with it: taken
-           from the page's first row, they were 0 when a search matched nobody or the page was past the end (2.4.12). */
+           from the page's first row, they were 0 when a search matched nobody or the page was past the end. */
         var (rows, all) = await Db.QueryTwoAsync<Row, (int Candidates, long AllMetered)>($@"
 WITH u AS (SELECT ud.UserKey, SUM(CAST(ud.Interactions AS BIGINT)) AS I, SUM(CAST(ud.PremiumUse AS BIGINT)) AS P,
                   SUM(CAST(ud.AgentInteractions AS BIGINT)) AS A,
@@ -98,7 +98,7 @@ SELECT COUNT(*), ISNULL(SUM(x.Metered), 0) FROM #x AS x;", Ctx.Args(new { q = pg
             Why: await WhyAsync($"Candidates × the Copilot license price ({candidates:#,0} × {price:#,0.##} {cur}), less their metered interactions × the pay-as-you-go cost of an interaction.", "LicenseMonthlyCost", "PaygInteractionCost")));
         Kpis.Add(new("Credits assumed", $"{rate:#,0.00##} {cur}", "for each metered interaction (set in Admin › Access)"));
 
-        var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, not part numbers
+        var names = await SkuNames.LoadAsync(Db);   // Product names, not part numbers
         var t = new Table
         {
             Headers = ["Name", "Sign-in", "Department", "Manager", "License", "Licensed since", "Interactions", "Premium", "Premium share", "Agent",

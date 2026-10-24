@@ -8,7 +8,7 @@ namespace CopilotInsights.Infrastructure;
 
 /// <summary>
 /// Where the site keeps the keys that protect its forms' anti-forgery tokens and the message a form leaves for the page
-/// after it (2.4.12). Nothing set this: each web server kept its own keys in its app pool's profile, so with several web
+/// after it. Nothing set this: each web server kept its own keys in its app pool's profile, so with several web
 /// servers behind a load balancer, a form drawn by one and posted to another was refused (HTTP 400), and the message
 /// after a save was lost when the page after it came from the other. With Insights:DataProtectionKeysPath set, every
 /// server keeps one set of keys there, under one application name, protected with Insights:DataProtectionCertificate or,

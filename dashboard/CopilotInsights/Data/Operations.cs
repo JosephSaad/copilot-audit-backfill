@@ -40,7 +40,7 @@ public static class Schedule
     }
 
     /// <summary>
-    /// A time on the zone's clock as UTC, on the days the clock changes too (2.4.12). An hour the clock skips (02:00 on a
+    /// A time on the zone's clock as UTC, on the days the clock changes too. An hour the clock skips (02:00 on a
     /// spring morning) is due when the clock reaches the other side of the gap; an hour it repeats (01:00 on an autumn
     /// night) is due the first time round. Before, the skipped hour threw, which stopped the whole round of checks until
     /// the next day (a week for a weekly schedule), and the repeated hour was taken as the second one, so a digest sent
@@ -67,7 +67,7 @@ public static class Schedule
 }
 
 /// <summary>
-/// The time zone the dashboard shows times in and runs its schedules by (2.4.10). An administrator's choice (Admin >
+/// The time zone the dashboard shows times in and runs its schedules by. An administrator's choice (Admin >
 /// Access, the TimeZone setting); with none, the zone the data's days were cut in when it was installed, which is the
 /// job server's unless one was named; with neither, this web server's own. Before, times were shown in UTC.
 /// </summary>
@@ -197,7 +197,7 @@ public static class Anomalies
 public static partial class LicenseExport
 {
     /// <summary>
-    /// A sign-in the script may carry (2.4.12): plain ASCII, in the characters Entra allows in a user name. PowerShell
+    /// A sign-in the script may carry: plain ASCII, in the characters Entra allows in a user name. PowerShell
     /// also ends a quoted string at the curly quotes, and Windows PowerShell 5.1 reads a file without a byte order mark
     /// as Windows-1252, where some letters' bytes are curly quotes; so a sign-in from a directory that does not check them
     /// could have run commands on the administrator's machine. Any other sign-in is left out of the script, which says
@@ -215,7 +215,7 @@ public static partial class LicenseExport
     static string Comment(string s) => new(s.Where(c => !char.IsControl(c) && c is not ('#' or '<' or '>')).ToArray());
 
     /// <summary>
-    /// The file's bytes: a script with a UTF-8 byte order mark, so Windows PowerShell 5.1 reads it as UTF-8 (2.4.12);
+    /// The file's bytes: a script with a UTF-8 byte order mark, so Windows PowerShell 5.1 reads it as UTF-8;
     /// the bulk file without one, as Entra's template is.
     /// </summary>
     public static byte[] FileBytes(string text, bool script) =>
@@ -286,7 +286,7 @@ public static partial class LicenseExport
 public static class CsvUpload
 {
     /// <summary>
-    /// Splits one CSV line, honoring double quotes. The separator is the line's own (2.4.12): the first comma, semicolon or
+    /// Splits one CSV line, honoring double quotes. The separator is the line's own: the first comma, semicolon or
     /// tab outside quotes, which follows its first cell, a column id or a sign-in that holds none. Before, all three
     /// separated every cell, so a name typed in Excel as "Finance; Legal", which Excel saves without quotes, was cut to
     /// "Finance" and its tail stored as the note.
@@ -331,12 +331,12 @@ public static class CsvUpload
 
     /// <summary>
     /// A cell as it was before a download guarded it against spreadsheet formulas ("'=x" back to "=x"), so a
-    /// mapping file downloaded, edited and uploaded again matches the values it came from (2.4.5).
+    /// mapping file downloaded, edited and uploaded again matches the values it came from.
     /// </summary>
     public static string Unguard(string cell) => cell.Length > 1 && cell[0] == '\'' &&"=+-@".Contains(cell[1]) ? cell[1..] : cell;
 
     /// <summary>
-    /// Cells past the ones a line should have, with something in them (2.4.12): a line that splits into more is refused,
+    /// Cells past the ones a line should have, with something in them: a line that splits into more is refused,
     /// rather than its extra text dropped without a word. Empty ones are fine; Excel writes them for a column used further down.
     /// </summary>
     static bool Extra(List<string> cells, int expected) => cells.Skip(expected).Any(x => x.Length > 0);

@@ -1,10 +1,10 @@
 namespace CopilotInsights.Data;
 
-/// <summary>Where an organization stands against its reservation (2.6.8). Never a bare Over or Under.</summary>
+/// <summary>Where an organization stands against its reservation. Never a bare Over or Under.</summary>
 public enum ReservationStatus { WithinReservation, AtReservation, OverReservation, NoReservation, DataException }
 
 /// <summary>
-/// The reservation and chargeback arithmetic (2.6.8), one way for the page, its exports and the stored snapshots, as the
+/// The reservation and chargeback arithmetic, one way for the page, its exports and the stored snapshots, as the
 /// client's Copilot reservation policy defines it. Every figure is worked out per organization and then summed: an
 /// organization under its reservation never offsets another one over it.
 /// <list type="bullet">

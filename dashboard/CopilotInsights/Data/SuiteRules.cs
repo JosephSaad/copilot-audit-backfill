@@ -1,7 +1,7 @@
 namespace CopilotInsights.Data;
 
 /// <summary>
-/// A suite as dash.CostSuite describes it (2.6.6): its family (Microsoft 365, Office 365), its tier (3, 5, 7), its price
+/// A suite as dash.CostSuite describes it: its family (Microsoft 365, Office 365), its tier (3, 5, 7), its price
 /// a month, and the priced items it includes (COPILOT for Microsoft 365 Copilot, POWER_BI_PRO). The next suite down is
 /// the same family's next lower tier with a price.
 /// </summary>
@@ -30,7 +30,7 @@ public enum SuiteMove { Keep, Reclaim, DropDuplicate, Train, Downgrade, Downgrad
 public sealed record SuiteFit(SuiteMove Move, string? To, decimal Saving, decimal AtStake, string Confidence, string Why, string Check);
 
 /// <summary>
-/// Which suite fits each holder (2.6.6). Suites are not one product to keep or revoke: E7 is E5 with Microsoft 365
+/// Which suite fits each holder. Suites are not one product to keep or revoke: E7 is E5 with Microsoft 365
 /// Copilot, Agent 365 and the Entra Suite; E5 is E3 with Power BI Pro, the advanced security and compliance (Defender
 /// P2, Purview, Entra ID P2) and Teams Phone. The data shows Copilot and Power BI use, and nothing of the rest, so a
 /// move down rests on the parts it can see and always names the parts it cannot. In order:

@@ -103,7 +103,7 @@ Assert-That ($null -ne $same -and $same.Count -eq 0) 'the same operations in ano
 Assert-That ($null -eq (Get-OperationsChange -Recorded $licOps -Requested @('Add user', 'Update user'))) 'but never fewer: a load that would drop one is refused'
 Assert-That ($null -eq (Get-OperationsChange -Recorded 'CopilotInteraction' -Requested @('Add user'))) 'nor different ones'
 
-# 2.6.9: a database loaded by record type records each as rt:<type>, so it is never resumed or loaded with operations.
+# A database loaded by record type records each as rt:<type>, so it is never resumed or loaded with operations.
 $rt = Get-AuditFilterSet -Operations @() -RecordTypes @('PowerBIAudit', 'ConnectedAIAppInteraction', 'PowerAppsApp')
 Assert-That (($rt -join ',') -eq 'rt:ConnectedAIAppInteraction,rt:PowerAppsApp,rt:PowerBIAudit') "record types are recorded as rt:<type>, in order ($($rt -join ','))"
 Assert-That (((Get-AuditFilterSet -Operations @('CopilotInteraction') -RecordTypes $null) -join ',') -eq 'CopilotInteraction') 'a Copilot database records what it always did'

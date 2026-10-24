@@ -114,7 +114,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:ToolRoot = Split-Path $PSScriptRoot -Parent
-# The parameters given (2.4.12): -SessionLicenseDatabase '' given means none, left out means the last build's.
+# The parameters given: -SessionLicenseDatabase '' given means none, left out means the last build's.
 $script:Bound = $PSBoundParameters
 
 function Write-Log {
@@ -431,7 +431,7 @@ function New-CsvImportConnectionString {
 
 function Enter-RunLock {
     <#
-        Holds the database for this import alone (2.4.12), as the nightly pipeline, Install-CopilotAudit.ps1 and the
+        Holds the database for this import alone, as the nightly pipeline, Install-CopilotAudit.ps1 and the
         maintenance rebuilds do: an exclusive application lock, on a connection of its own kept open to the end of the
         import. An import took none, so it could merge and rebuild beside the nightly, and two imports at once each
         emptied the stage the other was filling. Under the pipeline's lock (CopilotAuditRunLock) it holds it already.
@@ -605,7 +605,7 @@ function Invoke-CsvDerivedRefresh {
 
 function Get-SessionLicenseDatabase {
     <#
-        The license databases the refresh reads (2.4.12): -SessionLicenseDatabase
+        The license databases the refresh reads: -SessionLicenseDatabase
         when given, else the ones this database's last session build read, else
         its last bi refresh's. Left out, it was none, so in a database built with
         license history the session build refused ('different settings') after
@@ -629,7 +629,7 @@ SELECT @l;
 function Invoke-OwedCsvRefresh {
     <#
         Brings the derived tables up to date with every merged import that owes
-        a refresh (2.4.12), this run's included: from the earliest record any of
+        a refresh, this run's included: from the earliest record any of
         them added, then marks them. A refresh that failed or was skipped was
         lost before - a second run skipped the merged files, and the nightly
         refreshes its own days only. Returns where it refreshed from, or $null.
@@ -662,7 +662,7 @@ function Invoke-Main {
 
     Import-CsvStageReader
     $connString = New-CsvImportConnectionString
-    # One run at a time (2.4.12): held to the end of the import, and let go in the finally below.
+    # One run at a time: held to the end of the import, and let go in the finally below.
     $runLock = Enter-RunLock $connString
     $conn = [System.Data.SqlClient.SqlConnection]::new($connString)
     $conn.add_InfoMessage({
@@ -737,7 +737,7 @@ JOIN audit.CopilotCsvImport AS i ON i.ImportId = f.ImportId WHERE i.MergedUtc IS
         }
         if ($todo.Count -eq 0) {
             Write-Log 'Nothing new to import.'
-            # An earlier import's refresh that never finished is made up even so (2.4.12).
+            # An earlier import's refresh that never finished is made up even so.
             if (-not $SkipPostProcessing) { [void] (Invoke-OwedCsvRefresh -Connection $conn) }
             return
         }

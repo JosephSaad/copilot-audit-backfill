@@ -9,7 +9,7 @@
 
 @if (Model.Denied is null)
 {
-    @* 2.5.7: one line on access and how current the data is; the roles behind "More". *@
+    @* One line on access and how current the data is; the roles behind "More". *@
     <details class="notice access">
         <summary><b>Your access.</b> @Model.AccessSummary @(Model.Freshness is null ? "" : " " + Model.Freshness) <span class="more">More</span></summary>
         @if (Model.Viewer.Roles.Count > 0)
@@ -28,7 +28,7 @@
     }
     var groups = Nav.For(Model.Viewer, Model.PrivacyMode, Tenants.Many, Model.HiddenReports);
     var mine = CopilotInsights.Infrastructure.MostUsed.Pick(Model.MostUsedPaths, groups);
-    @* 2.5.7: the reports this person opens most, as a row of shortcuts rather than a card of their own. *@
+    @* The reports this person opens most, as a row of shortcuts rather than a card of their own. *@
     @if (mine.Count > 0)
     {
         <section class="jump" aria-label="Your most used">
@@ -41,7 +41,7 @@
             </div>
         </section>
     }
-    @* 2.5.7: one large card for each area, its reports behind it: selecting a card opens them, under their headings,
+    @* One large card for each area, its reports behind it: selecting a card opens them, under their headings,
        each with what it answers, as "About these reports" does. Without script a card opens the area's first report. *@
     <div class="hgrid">
         @foreach (var g in groups)

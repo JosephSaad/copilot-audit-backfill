@@ -8,11 +8,11 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 
 namespace CopilotInsights.Pages;
 
-/// <summary>A headline figure; Href (2.6.6) is the report with the detail behind it, which the figure links to.</summary>
+/// <summary>A headline figure; Href is the report with the detail behind it, which the figure links to.</summary>
 public sealed record Kpi(string Label, string Value, string? Note = null, string? Tone = null, string? Href = null, KpiWhy? Why = null);
 
 /// <summary>
-/// How a figure is worked out (2.6.9): its formula with the values in it, and the assumptions it rests on, each with its
+/// How a figure is worked out: its formula with the values in it, and the assumptions it rests on, each with its
 /// value now and, for an administrator who may change it, a link to the field it is set in. Shown under the figure.
 /// </summary>
 public sealed record KpiWhy(string Formula, IReadOnlyList<WhyInput> Inputs);
@@ -27,7 +27,7 @@ public sealed record Link(string Text, string Href);
 
 /// <summary>
 /// A table: cells are strings, numbers (formatted), Link, or IHtmlContent. Its column headers sort it
-/// (2.4.5): a list paged on the server through its Paging keys (ServerSort), any other table in the
+/// a list paged on the server through its Paging keys (ServerSort), any other table in the
 /// browser (site.js), by the cells' values rather than their text. Columns of buttons don't sort, nor does
 /// a table whose order is its meaning (Sortable = false), and the last KeepLast rows (a total, "Smaller
 /// groups") stay at the bottom.
@@ -45,7 +45,7 @@ public sealed class Table
     /// <summary>For a list paged on the server: each column's Paging key (null: not sortable), and whether the key's own order descends.</summary>
     public ServerSort? Server { get; init; }
     /// <summary>
-    /// The zone to show times in (2.4.10): a column whose header ends "(UTC)" holds UTC times, and with a zone set they are
+    /// The zone to show times in: a column whose header ends "(UTC)" holds UTC times, and with a zone set they are
     /// shown in it, the header saying which ("When (Eastern Time)"). Without one they stay UTC, as the header says.
     /// </summary>
     public TimeZoneInfo? Zone { get; init; }
@@ -68,13 +68,13 @@ public sealed class Table
     {
         if (Rows.Count == 0) return new($"<p class=\"muted\">{WebUtility.HtmlEncode(EmptyText ?? "Nobody here.")}</p>");
         var client = Server is null && Sortable && Rows.Count - KeepLast > 1;
-        /* 2.5.7: a table sent whole (not paged on the server) with more than a page of rows shows a page at a time in the
+        /* A table sent whole (not paged on the server) with more than a page of rows shows a page at a time in the
            browser (site.js), as the server's lists do; a sort orders every row and starts again from the first page. */
         var paged = Server is null && Rows.Count - KeepLast > Paging.PageSize;
         var sb = new StringBuilder($"<div class=\"table-wrap\"><table{(client ? " class=\"sortable\"" : "")}{(paged ? $" data-page-size=\"{Paging.PageSize}\"" : "")}><thead><tr>");
         for (var i = 0; i < Headers.Count; i++)
         {
-            /* scope: a screen reader reads each cell with its column's heading (2.4.10). */
+            /* scope: a screen reader reads each cell with its column's heading. */
             var cls = " scope=\"col\"" + (Numeric.Contains(i) ? " class=\"num\"" : "");
             var text = WebUtility.HtmlEncode(Header(i));
             if (Server is { } sv && i < sv.Keys.Count && sv.Keys[i] is { } key && sv.Pager.Has(key))
@@ -102,7 +102,7 @@ public sealed class Table
             sb.Append("</tr>");
         }
         sb.Append("</tbody></table></div>");
-        /* 2.5.8: a list paged on the server has its page links under it, as a table paged in the browser does. */
+        /* A list paged on the server has its page links under it, as a table paged in the browser does. */
         if (Server is { } onServer && !onServer.Pager.ForExport) sb.Append(onServer.Pager.Nav(onServer.Request).Value);
         return new(sb.ToString());
     }
@@ -140,7 +140,7 @@ public sealed class Table
     }
 
     /// <summary>
-    /// One cell as a CSV field (2.4.12). A cell the page builds as HTML gives its text: the CSV left it empty, so the
+    /// One cell as a CSV field. A cell the page builds as HTML gives its text: the CSV left it empty, so the
     /// flagged interactions came without their signals, the agents costing credits without their names and the
     /// contracts without their days to renewal. A control or a chart in a cell still gives nothing. A number is
     /// written as a number: the formula guard is for text, and it made every negative figure the text '-28.68,
@@ -225,13 +225,13 @@ public abstract class InsightsPage(PageServices s) : PageModel
     /// </summary>
     public virtual string? OwnWindow => null;
     /// <summary>
-    /// Whether the period chosen changes this page's figures (2.5.0). False for a page whose figures do not follow it
+    /// Whether the period chosen changes this page's figures. False for a page whose figures do not follow it
     /// and that has no window worth naming (a list as it stands today): the period box and its dates are left out. A
     /// page with a window of its own says it in <see cref="OwnWindow"/> instead.
     /// </summary>
     public virtual bool UsesPeriod => true;
     /// <summary>
-    /// Whether the part of the organization chosen (Look inside a team) changes this page's figures (2.5.0). False for a
+    /// Whether the part of the organization chosen (Look inside a team) changes this page's figures. False for a
     /// page that is the whole tenant's whatever is picked, such as the license pool: the team box, and the links down
     /// the organization beside it, are left out.
     /// </summary>
@@ -256,9 +256,9 @@ public abstract class InsightsPage(PageServices s) : PageModel
 
     /// <summary>
     /// Builds a report page with its queries answered from memory where the data has not changed since they last ran
-    /// (2.4.7). Who the viewer is and what they may see were settled before this, from the database; admin pages, the
+    /// Who the viewer is and what they may see were settled before this, from the database; admin pages, the
     /// CSV and file exports and every form always read the database. A page that reads a list edited through the day
-    /// is kept under that list's version, read for every page (2.4.11, see <see cref="Db"/>).
+    /// is kept under that list's version, read for every page (see <see cref="Db"/>).
     /// </summary>
     /// <summary>
     /// Builds the page for the warm-up (PageWarmer): the same queries a viewer of the whole organization runs, with
@@ -272,7 +272,8 @@ public abstract class InsightsPage(PageServices s) : PageModel
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
         if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode) return;
-        if (Pages.HiddenReports.Is(await Pages.HiddenReports.GetAsync(S.Settings), Request.Path)) return;
+        HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
+        if (Pages.HiddenReports.IsOff(HiddenReports, Request.Path, viewer)) return;
         await S.Stamp.EnsureAsync();
         using (QueryCache.Use()) await BuildAsync();
     }
@@ -287,7 +288,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         using (QueryCache.Use()) await BuildAsync();
     }
 
-    /// <summary>The zone times are shown in (2.4.10): Admin › Access, else the data's own, else the server's.</summary>
+    /// <summary>The zone times are shown in: Admin › Access, else the data's own, else the server's.</summary>
     public TimeZoneInfo Zone { get; private set; } = TimeZoneInfo.Utc;
 
     /// <summary>
@@ -297,7 +298,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
     public string DataZone { get; private set; } = "the server's time zone";
 
     /// <summary>
-    /// A chart a page puts inside its own HTML, drawn for where it will sit (2.4.10): on a phone (the narrow cookie
+    /// A chart a page puts inside its own HTML, drawn for where it will sit: on a phone (the narrow cookie
     /// theme.js sets) at the phone's width, else at <paramref name="width"/>, or as drawn when that is null. A chart a
     /// panel holds on its own is sized by the page layout; this is for the ones it cannot see.
     /// </summary>
@@ -311,7 +312,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
     protected string When(DateTime? utc, string none = "not yet") => utc is null ? none : CopilotInsights.Data.Zones.Stamp(utc, Zone);
 
     /// <summary>
-    /// Who to ask, on a page that was refused (2.4.10): up to three people granted the Admin role by name, so "an
+    /// Who to ask, on a page that was refused: up to three people granted the Admin role by name, so "an
     /// administrator can grant it" names someone. Nobody is named in privacy mode, and a group grant names no one.
     /// </summary>
     public IReadOnlyList<string> Administrators { get; private set; } = [];
@@ -321,7 +322,7 @@ public abstract class InsightsPage(PageServices s) : PageModel
         if (PrivacyMode) return [];
         try
         {
-            /* Full administrators only (2.6.4): one limited to some Admin pages may not have Access among them. */
+            /* Full administrators only: one limited to some Admin pages may not have Access among them. */
             return await Db.QueryAsync<string>(@"
 DECLARE @full NVARCHAR(100) = CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN N'' ELSE N' AND NULLIF(LTRIM(RTRIM(g.Pages)), N'''') IS NULL' END;
 DECLARE @sql NVARCHAR(MAX) = N'
@@ -334,10 +335,10 @@ EXEC sys.sp_executesql @sql;");
         catch (Microsoft.Data.SqlClient.SqlException) { return []; }
     }
 
-    /// <summary>The reports this viewer opens most (2.4.9), by path, most opened first; see <see cref="MostUsed"/>.</summary>
+    /// <summary>The reports this viewer opens most, by path, most opened first; see <see cref="MostUsed"/>.</summary>
     public IReadOnlyList<string> MostUsedPaths { get; private set; } = [];
 
-    /// <summary>The reports turned off in Admin › Reports shown (2.4.9), by path.</summary>
+    /// <summary>The reports turned off in Admin › Reports shown, by path.</summary>
     public IReadOnlySet<string> HiddenReports { get; private set; } = new HashSet<string>();
 
     protected async Task<bool> PrepareAsync()
@@ -350,12 +351,12 @@ EXEC sys.sp_executesql @sql;");
         HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
         if (HttpContext.RequestServices.GetService<MostUsed>() is { } most) MostUsedPaths = await most.PathsAsync(Viewer);
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */
-        var turnedOff = !AdminOnly && Pages.HiddenReports.Is(HiddenReports, Request.Path);
+        var turnedOff = !AdminOnly && Pages.HiddenReports.IsOff(HiddenReports, Request.Path, Viewer);
         if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin › Reports shown.";
         else if (!Viewer.Admitted && !(AdminOnly ? Viewer.CanAdmin(Request.Path) : OpenToAdmins && Viewer.AnyAdmin)) Denied = LimitRefusal(Viewer);
         else if (AdminOnly && !Viewer.CanAdmin(Request.Path))
             Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin › Access." : "This page is for dashboard administrators.";
-        else if (Nav.SectionOf(Request.Path) is { Role: { } section } g && !Viewer.Has(section))
+        else if (!Nav.SectionOpen(Request.Path, Viewer, HiddenReports) && Nav.SectionOf(Request.Path) is { Role: { } section } g)
             Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin › Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
             Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin › Privacy and retention.";
@@ -363,7 +364,7 @@ EXEC sys.sp_executesql @sql;");
             Denied = $"This page lists named people, so it needs the {RequiredRole} role. {Roles.Describe[RequiredRole]} An administrator can grant it.";
         Stale = await S.Freshness.BannerAsync();
         if (UsesFilters) await LoadMarkersAsync();
-        /* 2.7.0: an information icon on every field of the forms this page writes (see FieldTips). */
+        /* An information icon on every field of the forms this page writes (see FieldTips). */
         try { _fieldTips = FieldTips.For(Request.Path, await Db.QueryAsync<(string Name, string? Description)>("SELECT Name, Description FROM dash.Setting;")); }
         catch (Microsoft.Data.SqlClient.SqlException) { _fieldTips = FieldTips.For(Request.Path, []); }
         if (Denied is not null)
@@ -376,7 +377,7 @@ EXEC sys.sp_executesql @sql;");
         return true;
     }
 
-    /// <summary>What a viewer outside the dashboard's levels is told (2.4.4), on every page, export and form.</summary>
+    /// <summary>What a viewer outside the dashboard's levels is told, on every page, export and form.</summary>
     public static string LimitRefusal(Viewer viewer) =>
         $"This dashboard is for leaders at levels 1 to {viewer.MaxLevel} of the organization" +
         (viewer.Level is { } l ? $"; you are at level {l}." : ", and your account is not placed in the org chart.") +
@@ -441,24 +442,72 @@ EXEC sys.sp_executesql @sql;");
     /// An admin change: only for administrators, always audited, then back to the page
     /// with a message. The action returns what it did, for the audit log and the message.
     /// </summary>
-    protected async Task<IActionResult> AdminChangeAsync(Func<Task<string>> change)
+    protected Task<IActionResult> AdminChangeAsync(Func<Task<string>> change) => AdminChangeAsync(true, change);
+
+    /// <summary>What a person is told of a failure: <paramref name="what"/> and a reference; the error goes to the web server's log under it.</summary>
+    protected string Failure(Exception ex, string what) => Incident.Note(HttpContext.RequestServices.GetRequiredService<ILogger<InsightsPage>>(), ex, what);
+
+    /// <param name="transactional">
+    /// The change and its audit row commit together, or neither does. False only for an action that runs long or reaches
+    /// outside the database (a rebuild, retention, a test email or webhook): it is audited when it ends, as before.
+    /// </param>
+    protected async Task<IActionResult> AdminChangeAsync(bool transactional, Func<Task<string>> change)
     {
         if (!await PrepareAsync()) return Page();
-        /* On an Admin page, whoever may open it (2.6.4: a limited administrator, their own pages); elsewhere, full administrators. */
+        /* On an Admin page, whoever may open it (a limited administrator, their own pages); elsewhere, full administrators. */
         if (!Viewer.CanAdmin(Request.Path))
         {
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, "admin change refused");
             return StatusCode(403);
         }
-        string done;
-        try { done = await change(); }
-        catch (ArgumentException ex) { done = "Not changed: " + ex.Message; }
-        /* 2.7.0: a database error is audited and said too: it escaped both, after a change that may have been made in part. */
-        catch (Microsoft.Data.SqlClient.SqlException ex) { done = "Failed: " + ex.Message; }
-        await S.Audit.WriteAsync(Viewer, "Admin", Request.Path, null, done);
+        var done = await AuditedAsync("Admin", transactional, change);
         TempData["done"] = done;
         var q = Request.Query.Where(kv => kv.Key != "handler").Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}").ToList();
         return Redirect(Request.Path + (q.Count > 0 ? "?" + string.Join("&", q) : ""));
+    }
+
+    /// <summary>
+    /// A change and its audit row, in one transaction where <paramref name="transactional"/>: the row says what was done,
+    /// what was submitted (secrets masked) and the settings and role grants before and after. A change refused (its own
+    /// message) or failed (a reference: the error is in the web server's log) is rolled back and audited as such.
+    /// </summary>
+    async Task<string> AuditedAsync(string kind, bool transactional, Func<Task<string>> change)
+    {
+        var submitted = AuditChange.Submitted(Request.HasFormContentType ? Request.Form.Select(kv => (kv.Key, kv.Value.ToString())) : []);
+        try
+        {
+            if (!transactional)
+            {
+                var result = await change();
+                await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, result, AuditChange.Json(submitted, null, null));
+                return result;
+            }
+            using var scope = new System.Transactions.TransactionScope(System.Transactions.TransactionScopeOption.Required,
+                new System.Transactions.TransactionOptions { IsolationLevel = System.Transactions.IsolationLevel.ReadCommitted, Timeout = TimeSpan.FromMinutes(5) },
+                System.Transactions.TransactionScopeAsyncFlowOption.Enabled);
+            var before = await AuditChange.SnapshotAsync(Db);
+            var done = await change();
+            var after = await AuditChange.SnapshotAsync(Db);
+            await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, done, AuditChange.Json(submitted, before, after));
+            scope.Complete();
+            return done;
+        }
+        catch (ArgumentException ex)
+        {
+            /* Outside a transaction, part of it may already be done: said so, not "Not changed". */
+            var refused = (transactional ? "Not changed: " : "Stopped: ") + ex.Message;
+            await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, refused, AuditChange.Json(submitted, null, null));
+            return refused;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            /* Any failure: a database error, a transaction that could not commit, or one that would have reached a second
+               server (NotSupportedException): audited, with a reference to the log. */
+            var failed = Incident.Note(HttpContext.RequestServices.GetRequiredService<ILogger<InsightsPage>>(), ex,
+                transactional ? "Not changed: it failed" : "It stopped with an error, and part of it may be done");
+            await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, failed, AuditChange.Json(submitted, null, null));
+            return failed;
+        }
     }
 
     /// <summary>
@@ -473,16 +522,13 @@ EXEC sys.sp_executesql @sql;");
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, null, $"change refused: needs {role}");
             return StatusCode(403);
         }
-        string done;
-        try { done = await change(); }
-        catch (ArgumentException ex) { done = "Not changed: " + ex.Message; }
-        await S.Audit.WriteAsync(Viewer, "Change", Request.Path, null, done);
+        var done = await AuditedAsync("Change", true, change);
         TempData["done"] = done;
         var q = Request.Query.Where(kv => kv.Key != "handler").Select(kv => $"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value.ToString())}").ToList();
         return Redirect(Request.Path + (q.Count > 0 ? "?" + string.Join("&", q) : ""));
     }
 
-    /// <summary>The line a revoke, reclaim or training list opens with, saying which levels it never lists (2.4.6); empty when none are.</summary>
+    /// <summary>The line a revoke, reclaim or training list opens with, saying which levels it never lists; empty when none are.</summary>
     protected async Task<string> ProtectedNoteAsync()
     {
         var note = await CopilotInsights.Data.ProtectedLevels.NoteAsync(S.Settings);
@@ -490,7 +536,7 @@ EXEC sys.sp_executesql @sql;");
     }
 
     /// <summary>
-    /// What a page says when the tables it needs are not there (2.7.5). It said only "run Install-CopilotAudit.ps1
+    /// What a page says when the tables it needs are not there. It said only "run Install-CopilotAudit.ps1
     /// -Dashboard", and a client that had run it saw the same line: the install had gone to another database, or this
     /// dashboard's account could not see the tables (OBJECT_ID is NULL for a table the account has no permission on).
     /// An administrator is told which are missing, in which database, as which account.
@@ -512,7 +558,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     IReadOnlyList<CopilotInsights.Data.AssumptionValue>? _assumptions;
 
     /// <summary>
-    /// How a figure is worked out (2.6.9): the formula, with the values put in, and the assumptions it rests on by their
+    /// How a figure is worked out: the formula, with the values put in, and the assumptions it rests on by their
     /// keys in the register (<see cref="CopilotInsights.Data.Assumptions"/>), each with its value now; for an administrator
     /// who may open the page it is set on, a link that opens that page at the field.
     /// </summary>
@@ -524,7 +570,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
         return new(formula, inputs);
     }
 
-    /// <summary>A figure's "how it is worked out" as HTML (2.6.9), for a page that draws its own tiles; _Report draws a Kpi's.</summary>
+    /// <summary>A figure's "how it is worked out" as HTML, for a page that draws its own tiles; _Report draws a Kpi's.</summary>
     protected static string WhyHtml(KpiWhy? w) => w is null ? "" :
         $"<details class=\"kwhy\"><summary>How it is worked out</summary><p>{E(w.Formula)}</p>" +
         (w.Inputs.Count == 0 ? "" : "<ul>" + string.Concat(w.Inputs.Select(i => $"<li>{E(i.Label)}: <b>{E(i.Value)}</b>" +
@@ -540,7 +586,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     /* ---- forms the pages write themselves (anti-forgery token included) ---------------------- */
 
     /// <summary>
-    /// The address of a report, the period and team kept, if this viewer may open it; null if not (2.6.6). A figure or
+    /// The address of a report, the period and team kept, if this viewer may open it; null if not. A figure or
     /// row that leads to its detail links only where the detail would open: a leader without the Licensing role sees
     /// the count of licenses to take back, but no link to the list that names the people. The test is the menu's
     /// (<see cref="Nav.Allowed"/>), section role included; a page the menu does not list is open.
@@ -557,11 +603,16 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
         var parts = path.Split('?', 2);
         var bare = parts[0];
         if (parts.Length > 1 && parts[1].Length > 0) extra = extra is null ? parts[1] : parts[1] + "&" + extra;
+        var listed = false;
         foreach (var g in Nav.Groups)
             foreach (var page in g.Pages)
                 if (string.Equals(page.Path, bare, StringComparison.OrdinalIgnoreCase))
-                    return (g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode) ? Ctx.Url(bare, keepOrg: keepOrg, extra: extra) : null;
-        return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                {
+                    /* A page listed in several sections (Copilot on non-human accounts) opens through any the viewer may. */
+                    listed = true;
+                    if ((g.Role is null || Viewer.Has(g.Role)) && Nav.Allowed(page, Viewer, PrivacyMode)) return Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
+                }
+        return listed ? null : Ctx.Url(bare, keepOrg: keepOrg, extra: extra);
     }
 
     protected string Form(string handler, string body, string? extraQuery = null) =>
@@ -574,13 +625,13 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
         return $"<form class=\"inline\" method=\"post\" action=\"{E(Request.Path + "?" + string.Join("&", q.Append("handler=" + handler)) + TenantQuery)}\">{Token()}{body}</form>";
     }
 
-    /// <summary>"&amp;tenant=Name" with several tenants (2.4.12): a form posts to the tenant its page showed (see <see cref="TenantAccessor.SelectAsync"/>).</summary>
+    /// <summary>"&amp;tenant=Name" with several tenants: a form posts to the tenant its page showed (see <see cref="TenantAccessor.SelectAsync"/>).</summary>
     protected string TenantQuery => HttpContext.RequestServices.GetService<TenantAccessor>()?.FormQuery is { } t ? "&" + t : "";
 
-    /* The tips for this page's forms (2.7.0), read as the page is prepared. */
+    /* The tips for this page's forms, read as the page is prepared. */
     IReadOnlyDictionary<string, string>? _fieldTips;
 
-    /// <summary>A field's information icon, where the page has a tip for it (2.7.0).</summary>
+    /// <summary>A field's information icon, where the page has a tip for it.</summary>
     string Tip(string name, string label) =>
         _fieldTips is { } tips && tips.TryGetValue(name, out var tip) ? ((HtmlString)InfoTip.Icon(tip, label)).Value ?? "" : "";
 
@@ -599,7 +650,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     protected static string Button(string text, string? confirm = null, bool quiet = false) =>
         $"<button class=\"btn{(quiet ? " quiet" : "")}\" type=\"submit\"{(confirm is null ? "" : $" data-confirm=\"{E(confirm)}\"")}>{E(text)}</button>";
 
-    /// <summary>A small x box that removes the item beside it (2.4.12), named for screen readers and asked to confirm.</summary>
+    /// <summary>A small x box that removes the item beside it, named for screen readers and asked to confirm.</summary>
     protected static string RemoveBox(string what) =>
         $"<button class=\"btn quiet x\" type=\"submit\" aria-label=\"{E(what)}\" title=\"{E(what)}\" data-confirm=\"{E(what)}?\">&#215;</button>";
 
@@ -617,7 +668,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
 
     /* ---- helpers for pages ---------------------------------------------------- */
 
-    /// <summary>"1 unit", "3 units": a count with its noun (2.4.10; the pages wrote "3 unit(s)").</summary>
+    /// <summary>"1 unit", "3 units": a count with its noun (the pages wrote "3 unit(s)").</summary>
     protected static string Count(int n, string noun, string? plural = null) => $"{n:#,0} {(n == 1 ? noun : plural ?? noun + "s")}";
 
     /// <summary>"is" for one, "are" for more: "1 unit is combined", "3 units are combined".</summary>
@@ -635,7 +686,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     {
         var buckets = Ctx.Buckets();
         var axis = new Axis(buckets.Select(b => b.Label)) { Note = HeldBack() };
-        /* A week the period covers only in part is not drawn (2.5.2, see Axis.Partial), nor a day held back (2.5.3). It
+        /* A week the period covers only in part is not drawn (see Axis.Partial), nor a day held back. It
            stays in the trend's rows, which several pages add up for the period's totals. */
         for (var i = 0; i < buckets.Count; i++)
             if (buckets[i].Partial) axis.Partial.Add(i);
@@ -664,7 +715,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
         : "Each point is a whole Saturday-to-Friday week, labeled by its Friday. A week the period covers only in part, at its start or not yet over, is not drawn; the page's other figures count its days.";
 
     /// <summary>
-    /// Said in a line under a daily trend (2.5.3): the day it is shown to, and why it stops short of the period. Each
+    /// Said in a line under a daily trend: the day it is shown to, and why it stops short of the period. Each
     /// nightly load reads the last 48 hours again, because Purview can deliver a record that late; until it has, the two
     /// newest days of records may not all be in, so a daily trend leaves them out (see <see cref="ReportContext.DrawnTo"/>).
     /// Null on a weekly trend.
@@ -688,13 +739,13 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
         CopilotInsights.Data.SmallGroups.Fold(rows, people, combine, Ctx.MinGroupSize, out folded);
 
     /// <summary>
-    /// A count of people that is shown only at the minimum group size or more (2.4.12): the people who used one agent,
+    /// A count of people that is shown only at the minimum group size or more: the people who used one agent,
     /// for one, are a group, and an agent used by one person is that person's use. Null (a dash) below it.
     /// </summary>
     protected int? AtLeastMin(int people) => people >= Ctx.MinGroupSize ? people : null;
 
     /// <summary>
-    /// The department chosen (?dept=), one of those offered, or null for every department (2.5.8), and a box to choose it
+    /// The department chosen (?dept=), one of those offered, or null for every department, and a box to choose it
     /// that keeps the period and the part of the organization.
     /// </summary>
     protected (string? Chosen, HtmlString Picker) DepartmentFilter(IEnumerable<string> departments)
@@ -710,7 +761,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     }
 
     /// <summary>
-    /// People's display names for their sign-ins (2.5.8): every Owner column shows a name. From the directory loaded from
+    /// People's display names for their sign-ins: every Owner column shows a name. From the directory loaded from
     /// AD (audit.UserDirectory, everyone, Copilot users or not), else the report tables' (bi.DimUser). A sign-in neither
     /// knows (someone outside the directory, or a DOMAIN\name) is shown as it is.
     /// </summary>
@@ -733,13 +784,13 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     }
 
     /// <summary>
-    /// The same for a point on a trend (2.4.12): nobody is shown as 0, a count under the minimum as a gap. A day when two
+    /// The same for a point on a trend: nobody is shown as 0, a count under the minimum as a gap. A day when two
     /// people used an agent is those two people's use, as much as the period's total is.
     /// </summary>
     protected double? PointAtMin(int people) => people == 0 ? 0 : AtLeastMin(people);
 
     /// <summary>
-    /// A group's adoption, shown only where its license holders reach the minimum group size (2.4.12), as the charts and
+    /// A group's adoption, shown only where its license holders reach the minimum group size, as the charts and
     /// the digests rank it: a team of twelve with one license holder is that one person's use. Blank below it.
     /// </summary>
     protected string AdoptionAtMin(int activeLicensed, int licensed) =>
@@ -748,7 +799,7 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     /// <summary>The same, in words: "12 people", or "fewer than 5 people".</summary>
     protected string AgentPeople(int people) => people >= Ctx.MinGroupSize ? $"{people:#,0} people" : $"fewer than {Ctx.MinGroupSize} people";
 
-    /// <summary>What a breakdown says under it when groups were folded: how many, and why (2.4.12).</summary>
+    /// <summary>What a breakdown says under it when groups were folded: how many, and why.</summary>
     protected string FoldNote(int folded, string noun, string? plural = null) =>
         folded == 0 ? "" : $"{Count(folded, "smaller " + noun, "smaller " + (plural ?? noun + "s"))} {Are(folded)} combined, so no row describes fewer than {Ctx.MinGroupSize} people.";
 }

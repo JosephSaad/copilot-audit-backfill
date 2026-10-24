@@ -43,13 +43,13 @@ public sealed class BudgetModel(PageServices s, OpsData ops, Metrics metrics, Op
         var (price, cur) = (decimal.TryParse(await S.Settings.StringAsync("LicenseMonthlyCost"), NumberStyles.Number, CultureInfo.InvariantCulture, out var p) ? p : 30m,
                             await S.Settings.StringAsync("LicenseCurrency") ?? "USD");
         var pool = (await ops.PoolAsync()).Where(x => x.IsCopilot).ToList();
-        /* Every term the tenant's (2.4.12, see OpsReports.Tenant): for a viewer with the Licensing role and their own part
+        /* Every term the tenant's (see OpsReports.Tenant): for a viewer with the Licensing role and their own part
            only, the tenant's seats less its disabled accounts were set against their own part's revocations and upgrades. */
         var whole = OpsReports.Tenant(Ctx);
         var totals = await metrics.TotalsAsync(whole);
         var counts = await reports.ActionCountsAsync(whole);
         var leavers = (await ops.LeaversAsync(whole.Root)).Count;
-        /* 2.7.1: the renewal figure is License optimization's right size, worked out the same way (Renewal), less the people
+        /* The renewal figure is License optimization's right size, worked out the same way (Renewal), less the people
            who used Copilot in the last 30 days holding it only through a suite: the suite covers them, so the add-on
            contracts need no seat for them. It was today's seats less revocations and leavers, which disagreed with it. */
         var size = await Renewal.SizeAsync(Db, S.Settings, whole);
@@ -199,7 +199,7 @@ SELECT {select} FROM c {tail}";
         var waves = await Db.QueryAsync<(int Wave, int People, int UsingChat)>(Sql("(c.[Rank] - 1) / @size + 1, COUNT(*), COUNT(CASE WHEN c.D > 0 THEN 1 END)",
             "GROUP BY (c.[Rank] - 1) / @size + 1 ORDER BY 1;"), Ctx.Args(new { k30, size, dept }));
         var all = waves.Sum(w => w.People);
-        /* 2.7.5: for every department, the same people Demand for licenses counts, with who uses Copilot Chat and where. */
+        /* For every department, the same people Demand for licenses counts, with who uses Copilot Chat and where. */
         Kpis.Add(new("People without a license", Num(all), $"{waves.Sum(w => w.UsingChat):#,0} of them used the free Copilot Chat in the last 30 days",
             Href: dept is null ? Open("/licensing/demand") : null));
         Kpis.Add(new("Rollout waves", Num(waves.Count), $"of {size:#,0} people"));
@@ -233,7 +233,7 @@ SELECT {select} FROM c {tail}";
     static string Extra(int size, string? dept, string? more) =>
         $"size={size}" + (dept is null ? "" : "&dept=" + Uri.EscapeDataString(dept)) + (more is null ? "" : "&" + more);
 
-    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    /* Posted, with the anti-forgery token (see LicenseActions.Button). */
     public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
     public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 
@@ -281,7 +281,7 @@ public sealed class OutcomesModel(PageServices s, OpsData ops) : InsightsPage(s)
         ["kind"] = "o.Kind, o.Day DESC, o.DisplayName, o.Upn", ["upn"] = "o.Upn, o.Day DESC, o.Kind", ["dept"] = "o.Department, o.DisplayName, o.Upn",
     };
 
-    /* The exports' people within the viewer's scope (2.4.12): it read every export, so a manager with the Licensing
+    /* The exports' people within the viewer's scope: it read every export, so a manager with the Licensing
        role saw who anyone else had exported, across the organization. */
     string Base => $@"
 WITH x AS (SELECT la.Kind, la.Upn, la.ExportedBy, la.ExportedUtc, CAST(la.ExportedUtc AS DATE) AS Day,

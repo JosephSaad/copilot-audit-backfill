@@ -2,7 +2,7 @@
 
 For a team building its own reports on the Copilot audit databases, in Grafana or any other tool that reads SQL Server. It says what is in the databases, which objects to read, how to join them, how the main figures are defined, and how to set Grafana up.
 
-This is the short version, about ten pages. **[REPORTING-REFERENCE.md](REPORTING-REFERENCE.md) is the detailed one**: every table and view column by column, how each is filled, more queries, and the full text of the SQL and PowerShell scripts that create the schema. Each section below names the part of the reference that continues it. Both are also Word documents, beside these files: `REPORTING.docx` and `REPORTING-REFERENCE.docx`.
+This is the short version, about ten pages. **[REPORTING-REFERENCE.md](REPORTING-REFERENCE.md) is the detailed one**: every table and view column by column, how each is filled, more queries, and the full text of the SQL and PowerShell scripts that create the schema. Each section below names the part of the reference that continues it. The full reference, with every table's columns and the scripts' text, is attached to each release, with both guides as Word documents: `REPORTING-REFERENCE.md`, `REPORTING-REFERENCE.docx` and `REPORTING.docx`.
 
 Written for release 2.6.2. The SQL here was run against a demo database of that release, with Grafana's macros replaced by fixed dates. It was not run inside Grafana.
 

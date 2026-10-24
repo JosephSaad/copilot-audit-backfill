@@ -20,19 +20,19 @@ public sealed record CostView(string Currency, IReadOnlyList<CostArea> Areas, IR
 }
 
 /// <summary>
-/// The detail behind one area's figures (2.6.6), for its drill-down on Costs and savings: one table of what it is made
+/// The detail behind one area's figures, for its drill-down on Costs and savings: one table of what it is made
 /// of (each capacity, license, account, flow or kind of license), so the figure at the top can be traced to its rows.
 /// </summary>
 public sealed record AreaDetail(string Area, string Title, IReadOnlyList<string> Headers, IReadOnlyList<object?[]> Rows, IReadOnlySet<int> Numeric, string? Note = null);
 
-/// <summary>A suite held (2.6.6): its holders, price, what it includes, and the list value of that, not counted as AI spend.</summary>
+/// <summary>A suite held: its holders, price, what it includes, and the list value of that, not counted as AI spend.</summary>
 public sealed record SuiteLine(string Suite, int Holders, decimal Price, string Includes, decimal IncludedValue);
 
 /// <summary>A move Licensing › Suite fit finds, summed: from which suite, to what, for how many, saving (or, to train, at stake) how much.</summary>
 public sealed record SuiteMoveLine(SuiteMove Move, string From, string? To, int People, decimal Saving, decimal AtStake, string Confidence);
 
 /// <summary>
-/// The suites for Costs and savings (2.6.6): those held; the moves Suite fit finds, other than the copies (which are AI
+/// The suites for Costs and savings: those held; the moves Suite fit finds, other than the copies (which are AI
 /// savings, counted with their area); the list value of what the suites include (Copilot, Power BI Pro); and the part
 /// of Copilot's value that comes from Copilot inside a suite, which is not set against the add-on's spend.
 /// </summary>
@@ -43,7 +43,7 @@ public sealed record SuiteSummary(IReadOnlyList<SuiteLine> Held, IReadOnlyList<S
 
 /// <summary>
 /// Reads what each source says about the last 30 days and the last six months, and hands it to <see cref="CostRules"/>
-/// (2.6.6). Every source is optional: a table that is not there, or holds nothing, leaves its area out and is named in
+/// Every source is optional: a table that is not there, or holds nothing, leaves its area out and is named in
 /// <see cref="CostView.Missing"/>, so the page never shows a zero that only means "not loaded".
 /// </summary>
 public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports reports, SuiteData suiteData)
@@ -53,15 +53,15 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
     sealed class Price
     {
         public string Item { get; set; } = ""; public string Area { get; set; } = ""; public string Name { get; set; } = ""; public string Unit { get; set; } = ""; public decimal MonthlyPrice { get; set; }
-        /* 2.6.9: a volume price, and the Dataverse capacity a seat brings (NULL before the columns are installed). */
+        /* A volume price, and the Dataverse capacity a seat brings (NULL before the columns are installed). */
         public int? TierFromSeats { get; set; } public decimal? TierPrice { get; set; } public decimal? DatabaseGbPerSeat { get; set; } public decimal? FileGbPerSeat { get; set; }
-        /* 2.6.9: the share kept unassigned on purpose (NULL: the SpareSeatPercent setting), and a license bought for its capacity or volume price. */
+        /* The share kept unassigned on purpose (NULL: the SpareSeatPercent setting), and a license bought for its capacity or volume price. */
         public decimal? SparePercent { get; set; } public bool? ForCapacity { get; set; }
         public CostRules.SeatPrice Seat => new(MonthlyPrice, TierFromSeats, TierPrice, DatabaseGbPerSeat ?? 0, FileGbPerSeat ?? 0);
     }
     sealed class Held { public string SkuPartNumber { get; set; } = ""; public int Holders { get; set; } public int Idle { get; set; } public int Known { get; set; } public int Consumed { get; set; } public int Bought { get; set; } public int Twice { get; set; } public string? TwiceIn { get; set; } }
 
-    /// <summary>The cost model, kept once worked out (2.7.4, see <see cref="Db.KeptAsync"/>).</summary>
+    /// <summary>The cost model, kept once worked out (see <see cref="Db.KeptAsync"/>).</summary>
     public Task<CostView> BuildAsync(ReportContext c) => db.KeptAsync("CostData.Build", c, () => BuildFreshAsync(c));
 
     async Task<CostView> BuildFreshAsync(ReportContext c)
@@ -73,7 +73,7 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
         var flowMinutes = Dec(await settings.StringAsync("FlowMinutesPerRun"), 3m);
         var biMinutes = Dec(await settings.StringAsync("PowerBiCopilotMinutes"), 3m);
         var idleDays = (int)Math.Clamp(Dec(await settings.StringAsync("CostIdleDays"), 30m), 7, 180);
-        /* 2.6.9: seats kept unassigned on purpose, for joiners and moves: not a saving. */
+        /* Seats kept unassigned on purpose, for joiners and moves: not a saving. */
         var sparePercent = Math.Clamp(Dec(await settings.StringAsync("SpareSeatPercent"), 10m), 0, 100);
 
         var areas = new List<CostArea>();
@@ -95,7 +95,7 @@ public sealed class CostData(Db db, Settings settings, OpsData ops, OpsReports r
         var k30 = ReportContext.Key(c.End.AddDays(-29));
         var activity = await Pages.Forecasting.ActionsModel.ActivitySqlAsync(db, k30, c.EndKey);
         var kinds = Pages.Forecasting.ActionsModel.Kinds;
-        /* S: licensed through a suite only (2.6.6, E7): paid for in the suite's price, not as the add-on. */
+        /* S: licensed through a suite only (E7): paid for in the suite's price, not as the add-on. */
         var counts = (await db.QueryAsync<(int Licensed, int Revoke, int Train, int Upgrade, int Suite)>($@"
 WITH {activity},
 lic AS (SELECT UserKey FROM bi.FactLicensedDay WHERE DateKey = @k1)
@@ -139,7 +139,7 @@ WHERE (du.LicensedSinceUtc IS NULL OR du.LicensedSinceUtc < DATEADD(DAY, -30, @d
         var covered = OpsReports.DaysCovered(c, await OpsReports.FirstDayAsync(db));
         var copilotValue = CostRules.Monthly(value.ByApp.Sum(x => x.Value), covered);
         var copilotSaving = 0m;
-        /* 2.6.6: the add-on is priced, Copilot inside a suite (E7) is not: it is in the suite's price, which cannot be
+        /* The add-on is priced, Copilot inside a suite (E7) is not: it is in the suite's price, which cannot be
            split. The add-on's spend is the seats bought where the license pool has them (paid, assigned or not), else
            its holders; the value of Copilot is shared by holder, the suite holders' part going with the suite. */
         var standalone = counts.Licensed - counts.Suite;
@@ -221,7 +221,7 @@ WHERE ud.DateKey BETWEEN @k0 AND @k1;", c.Args())).Single();
             var hasFlows = await ops.HasAsync("audit.PowerAutomateFlow");
             var hasSuites = await ops.HasAsync("dash.CostSuite");
             /* A Power Automate Premium holder who owns a premium flow that ran in the 30 days uses the license, whatever the activity export says.
-               2.6.6: a holder whose suite includes the license (Power BI Pro in E5 or E7) holds it twice: counted as that, not as idle. */
+               A holder whose suite includes the license (Power BI Pro in E5 or E7) holds it twice: counted as that, not as idle. */
             held = await db.QueryAsync<Held>($@"
 WITH flowowners AS ({(hasFlows ? "SELECT DISTINCT OwnerUpn FROM audit.PowerAutomateFlow WHERE IsPremium = 1 AND [State] = 'Started' AND Runs30 > 0" : "SELECT CAST(NULL AS NVARCHAR(256)) AS OwnerUpn WHERE 1 = 0")}),
 known AS ({(hasActivity ? "SELECT DISTINCT Product FROM audit.PowerPlatformUserActivity" : "SELECT CAST(NULL AS VARCHAR(32)) AS Product WHERE 1 = 0")}),
@@ -249,9 +249,9 @@ FROM x GROUP BY SkuPartNumber;", new { items, idleDays });
             if (held.Count > 0) sources.Add("Power Platform licenses: Graph's license pool, priced from Admin's price list");
             if (held.Count > 0 && !hasActivity) missing.Add("Power Platform activity (who used Power BI, Power Apps and Power Automate): load it to find idle licenses");
         }
-        /* 2.6.6: the seats bought, which are paid whether assigned or not (the assigned, where the pool says fewer were bought). */
+        /* The seats bought, which are paid whether assigned or not (the assigned, where the pool says fewer were bought). */
         decimal Spend(string area) => held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area).Sum(h => prices[h.SkuPartNumber].Seat.Monthly(Math.Max(h.Bought, h.Consumed)));
-        /* 2.6.9: the Dataverse capacity left before the tenant is over its entitlement, from the capacity report's last
+        /* The Dataverse capacity left before the tenant is over its entitlement, from the capacity report's last
            day: what cutting seats that bring capacity (Power Apps and Power Automate Premium) may give up. */
         CostRules.DataverseRoom? room = null;
         if (await ops.HasAsync("audit.PowerPlatformCapacityDay"))
@@ -279,7 +279,7 @@ WHERE [Day] = (SELECT MAX([Day]) FROM audit.PowerPlatformCapacityDay) AND Capaci
             foreach (var h in held.Where(h => prices.TryGetValue(h.SkuPartNumber, out var p) && p.Area == area))
             {
                 var pr = prices[h.SkuPartNumber];
-                /* 2.6.9: each cut priced as it would really save: the seats left at the volume price or not, and the Dataverse
+                /* Each cut priced as it would really save: the seats left at the volume price or not, and the Dataverse
                    capacity given up with them. The unassigned seats first (no one loses anything), then the idle ones. */
                 var seats = Math.Max(h.Bought, h.Consumed);
                 var price = pr.Seat.Each(seats);
@@ -398,7 +398,7 @@ FROM audit.PowerPlatformCreditDay WHERE [Day] > DATEADD(DAY, -30, (SELECT D FROM
             {
                 sources.Add("Copilot Credits: the Power Platform admin center's consumption report");
                 var paygCost = CostRules.Monthly(cr.PaygCost, cr.Days);
-                /* 2.7.2: a credit commitment in force on the last day: the metered credits draw on it (Forecasting › Credit commitment). */
+                /* A credit commitment in force on the last day: the metered credits draw on it (Forecasting › Credit commitment). */
                 var committed = await ops.HasAsync("dash.CreditCommitment") && await db.ScalarAsync<int>(@"
 SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.CreditCommitment AS c CROSS JOIN (SELECT MAX([Day]) AS D FROM audit.PowerPlatformCreditDay) AS l
                          WHERE c.StartDate <= l.D AND c.EndDate >= l.D) THEN 1 ELSE 0 END;") == 1;
@@ -409,7 +409,7 @@ SELECT CASE WHEN EXISTS (SELECT 1 FROM dash.CreditCommitment AS c CROSS JOIN (SE
                     ["Prepaid packs", packs * 25000m, packs * packPrice, new Pages.Link("Agents costing credits", "/agents/credits")],
                     ["Of them, used", Math.Round(CostRules.Monthly(cr.Prepaid, cr.Days)), null, new Pages.Link("Credit use", "/licensing/credit-use")],
                     ["Pay-as-you-go, beyond the packs", Math.Round(CostRules.Monthly(cr.Payg, cr.Days)), paygCost, new Pages.Link(committed ? "Credit commitment" : "Credit use", committed ? "/forecasting/credit-commitment" : "/licensing/credit-use")],
-                    /* 2.7.2: where the credits are charged, by line of business. */
+                    /* Where the credits are charged, by line of business. */
                     ["Charged to the lines of business", null, null, new Pages.Link("Credit chargeback", "/leadership/credit-chargeback")],
                 ], Nums(1, 2), "What the Power Platform admin center billed. Licensing › Credit use estimates who used them, person by person, from the audit log." +
                     (committed ? " A credit commitment is in force: the pay-as-you-go credits draw on it (Forecasting › Credit commitment), so buying packs for them is no saving." : "")));
@@ -533,7 +533,7 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
   AND NOT EXISTS (SELECT 1 FROM bi.FactLicensedDay AS ld WHERE ld.UserKey = du.UserKey AND ld.DateKey = (SELECT MAX(DateKey) FROM bi.FactLicensedDay));")
             : 0;
 
-        /* ---- The suites (2.6.6): held, what they include, and the moves Suite fit finds, summed as Suite fit sums them ---- */
+        /* ---- The suites: held, what they include, and the moves Suite fit finds, summed as Suite fit sums them ---- */
         SuiteSummary? suiteSummary = null;
         if (fit.Rows.Count > 0)
         {
@@ -562,7 +562,7 @@ WHERE la.Kind IN ('revoke', 'leaver', 'nonhuman')
         var rows = new List<(DateTime Month, string Area, decimal Spend)>();
         var k0 = ReportContext.Key(first); var k1 = ReportContext.Key(end.AddDays(-1));
         foreach (var r in await db.QueryAsync<(int Ym, int PersonDays)>(
-                     /* The add-on's days only (2.6.6): someone whose Copilot comes inside a suite today is left out of every month, an approximation where they moved to it in the window. */
+                     /* The add-on's days only: someone whose Copilot comes inside a suite today is left out of every month, an approximation where they moved to it in the window. */
                      @"SELECT ld.DateKey / 100, COUNT(*) FROM bi.FactLicensedDay AS ld JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
                        WHERE ld.DateKey BETWEEN @k0 AND @k1 AND NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS cso WHERE cso.Upn = du.UserPrincipalName)
                        GROUP BY ld.DateKey / 100;", new { k0, k1 }))

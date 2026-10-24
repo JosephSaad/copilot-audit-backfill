@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>
-/// Keeps the results of a report page's queries until the data changes (2.4.7). The data behind the reports changes
+/// Keeps the results of a report page's queries until the data changes. The data behind the reports changes
 /// at the nightly refresh and when an administrator changes something; between those, the same query with the same
 /// parameters gives the same rows, so it is answered from memory. A result is kept under the tenant, the data's
 /// stamp, the query's text and every parameter's name and value: everything that decides who sees what (the scope
@@ -17,11 +17,11 @@ namespace CopilotInsights.Infrastructure;
 /// same query. Only report pages opt in (see <see cref="Use"/>); admin pages (but for the labels Admin › Reference data
 /// has seen), exports, the data API, forms and the background checks always read the database. A query that reads a
 /// table people change all day (triage, exported actions, confirmations) is kept under that table's version as well,
-/// read from the database for each page that asks (2.4.11): a change there ends only the results that read it, and is
+/// read from the database for each page that asks: a change there ends only the results that read it, and is
 /// seen by the very next page. Each web server keeps its own (see docs/DASHBOARD.md, Several web servers).
 /// </summary>
 /// <remarks>
-/// Bounded (2.4.12): at most Insights:QueryCacheEntries results (the least recently used go first), and a tenant's
+/// Bounded: at most Insights:QueryCacheEntries results (the least recently used go first), and a tenant's
 /// results are dropped the moment its stamp changes. Before, nothing bounded it but time: every new search or page
 /// number was kept for 12 hours, and every stamp change left the whole previous set in memory until its 12 hours ran out.
 /// </remarks>
@@ -50,6 +50,40 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         new MemoryCache(new MemoryCacheOptions { SizeLimit = Math.Max(100, entries), CompactionPercentage = 0.25 });
 
     public bool Enabled => _minutes > 0;
+
+    /// <summary>The cache the web servers share, behind this one; null keeps every result on this server alone.</summary>
+    public SharedCache? Shared { get; init; }
+
+    static readonly AsyncLocal<DateTime?> _refreshSince = new();
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _staleStamp = new();
+
+    /// <summary>
+    /// The pre-cache on a server that waited for another's build: a result that server kept in the shared cache after
+    /// <paramref name="since"/> is used rather than read again (see <see cref="PageWarmer"/>).
+    /// </summary>
+    public static IDisposable RefreshFrom(DateTime since)
+    {
+        var before = _refreshSince.Value;
+        _refreshSince.Value = since;
+        return new SinceScope(before);
+    }
+
+    sealed class SinceScope(DateTime? before) : IDisposable
+    {
+        public void Dispose() => _refreshSince.Value = before;
+    }
+
+    /// <summary>
+    /// Whether this server wrote since its stamp was last read, which the next page then reads again at once (see
+    /// <see cref="DataStamp.EnsureAsync"/>): the change counted in the database is in the stamp the shared cache keys on.
+    /// </summary>
+    public bool TakeStale(string tenant) => _staleStamp.TryRemove(tenant, out _);
+
+    /// <summary>The data's stamp alone, as the database gave it: what the shared cache keys on.</summary>
+    public string DataStampOf(string tenant) => _stamps.GetValueOrDefault(tenant, "0");
+
+    /* The live tables' versions as the database gives them, without this server's own count of its writes. */
+    static readonly System.Text.RegularExpressions.Regex LocalWrites = new(@"=\d+/", System.Text.RegularExpressions.RegexOptions.Compiled);
     public (long Hits, long Misses) Counts => (Interlocked.Read(ref _hits), Interlocked.Read(ref _misses));
 
     /// <summary>Whether the code running now asked for cached reads.</summary>
@@ -67,7 +101,7 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
 
     /// <summary>
     /// Turns cached reads off for the code that runs until the result is disposed, inside a page that has them on
-    /// (2.4.12): who the viewer is and what they may see are read from the database, whatever page asks. Leadership >
+    /// who the viewer is and what they may see are read from the database, whatever page asks. Leadership >
     /// Group overview settled each tenant's viewer from a kept copy of the grants, so a revoked Organization grant went
     /// on showing that tenant's whole organization for up to 12 hours.
     /// </summary>
@@ -86,7 +120,7 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
 
     /// <summary>
     /// Reads every cached query again, for the code that runs until the result is disposed, and keeps the new result in
-    /// place of the old once it is read (2.5.1): the daily pre-cache (see <see cref="PageWarmer"/>). Whoever asks for the
+    /// place of the old once it is read: the daily pre-cache (see <see cref="PageWarmer"/>). Whoever asks for the
     /// same query meanwhile is answered from the result kept before, so nobody waits for the build, and each result's
     /// time to be kept starts again.
     /// </summary>
@@ -127,6 +161,7 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
     public void Wrote(string tenant)
     {
         _writes.AddOrUpdate(tenant, 1, (_, n) => n + 1);
+        _staleStamp[tenant] = true;
         End(tenant);
     }
 
@@ -143,9 +178,20 @@ public sealed class QueryCache(IMemoryCache cache, IOptions<InsightsOptions> opt
         if (!Enabled || !On || (live is null && DataStamp.Volatile(sql)) || Key(sql, args) is not { } k) return await read();
         var end = _ends.GetOrAdd(tenant, _ => new CancellationTokenSource()).Token;
         var key = $"q:{tenant}:{Stamp(tenant)}:{kind}:{typeof(T).FullName}:{k}" + (live is null ? "" : ":" + live);
+        /* Behind this server's memory, the cache the web servers share: what another server read is read from there. A
+           derived view ("k") is worked out here from shared reads, and stays on this server. */
+        if (Shared is { Enabled: true } shared && kind is "q" or "q2" or "s" or "r")
+        {
+            var dbStamp = DataStampOf(tenant);
+            var sharedKey = SharedCache.Key(tenant, dbStamp, kind, typeof(T), k, live is null ? null : LocalWrites.Replace(live, "="));
+            var stampHash = SharedCache.StampHash(tenant, dbStamp);
+            var own = read;
+            var since = _refresh.Value ? _refreshSince.Value ?? DateTime.UtcNow.AddYears(1) : (DateTime?)null;
+            read = () => shared.ReadThroughAsync(sharedKey, stampHash, own, since, _minutes);
+        }
         if (_refresh.Value)
         {
-            /* The pre-cache (2.5.1): read again, and keep the new result once it is read. A read that fails keeps nothing,
+            /* The pre-cache: read again, and keep the new result once it is read. A read that fails keeps nothing,
                and the result kept before stays. */
             var fresh = new Lazy<Task<T>>(read, LazyThreadSafetyMode.ExecutionAndPublication);
             var value = await fresh.Value;

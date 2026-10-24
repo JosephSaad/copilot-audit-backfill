@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// License holders with a leave date coming up, or already past on an account still enabled (2.4.3): AD's
+/// License holders with a leave date coming up, or already past on an account still enabled: AD's
 /// accountExpires, from the directory load, and Entra's employeeLeaveDateTime, when the license tool reads it.
 /// Reclaiming on the last day, rather than weeks later when the account is disabled, saves the weeks between.
 /// </summary>
@@ -118,7 +118,7 @@ WHERE (@q IS NULL OR x.DisplayName LIKE @q OR x.UserPrincipalName LIKE @q OR x.D
             "Only accounts still enabled: disabled and deleted ones are on Licenses on disabled accounts. The files carry the people past their date only.", "full", CsvUrl()));
     }
 
-    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    /* Posted, with the anti-forgery token (see LicenseActions.Button). */
     public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
     public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 

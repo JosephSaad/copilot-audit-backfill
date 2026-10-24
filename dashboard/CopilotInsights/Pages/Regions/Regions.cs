@@ -13,7 +13,7 @@ public sealed class IndexModel(PageServices s, Metrics m) : InsightsPage(s)
     {
         var countries = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Country"), Ctx.MinGroupSize, out var fc);
         var offices = Groups.Fold(this, await m.ByAttributeAsync(Ctx, "Office"), Ctx.MinGroupSize, out var fo);
-        /* 2.7.5: both ends among the countries large enough to rank, as Departments and Organization rank theirs (the highest
+        /* Both ends among the countries large enough to rank, as Departments and Organization rank theirs (the highest
            could be a country of one license holder, or the combined smaller ones). */
         var ranked = countries.Where(c => c.Name != "Smaller groups" && c.Licensed >= Ctx.MinGroupSize).OrderByDescending(c => c.ActiveLicensed / (double)c.Licensed).ToList();
         Kpis.Add(new("Countries", Num(countries.Count(c => c.Name != "Smaller groups")), $"{offices.Count(o => o.Name != "Smaller groups"):#,0} offices"));

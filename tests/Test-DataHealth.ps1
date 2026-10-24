@@ -108,7 +108,7 @@ $pipelineLicense = [regex]::Match($pipeline, '\$script:LicenseOperations\s*=\s*@
 $pipelineAgent = [regex]::Match($pipeline, '\$script:AgentOperations\s*=\s*(?<l>[^$]*?)\r?\n\$script:LicenseOperations')
 Assert-That ($pipelineLicense.Success -and $pipelineAgent.Success) "the pipeline's operation lists are found"
 $licenseOperations = Get-QuotedItem $pipelineLicense.Groups['l'].Value
-# Comment lines dropped first: an apostrophe in one (2.7.0) would pair the quotes wrongly.
+# Comment lines dropped first: an apostrophe in one would pair the quotes wrongly.
 $agentOperations = Get-QuotedItem ($pipelineAgent.Groups['l'].Value -replace '(?m)^\s*#.*$', '')
 
 $healthList = [regex]::Match($health, "WHEN n\.Op IN \((?<l>[^)]*)\) THEN 'License'")
@@ -116,7 +116,7 @@ Assert-That $healthList.Success "the health check's license operations are found
 $healthOperations = Get-QuotedItem $healthList.Groups['l'].Value
 Assert-That (@(Compare-Object ($healthOperations | Sort-Object) ($licenseOperations | Sort-Object)).Count -eq 0) `
     "the health check's license operations are the pipeline's: $($licenseOperations -join ', ')"
-# 2.7.0: the administrators' actions on agents (CopilotAgentManagement) do not start with Bot; the health check names them.
+# The administrators' actions on agents (CopilotAgentManagement) do not start with Bot; the health check names them.
 $adminOps = @($agentOperations | Where-Object { -not $_.StartsWith('Bot') })
 Assert-That ($agentOperations.Count -ge 14 -and $health.Contains("a.Operation LIKE N'Bot%'") -and
              @($adminOps | Where-Object { -not $health.Contains("N'$_'") }).Count -eq 0) `

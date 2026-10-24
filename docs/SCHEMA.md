@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-125 tables (plus 2 left over from 1.x), 39 views, 1553 columns, from 22 scripts.
+127 tables (plus 2 left over from 1.x), 39 views, 1566 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -190,7 +190,7 @@ What the backfill and the nightly loads write while they run. The engine resumes
 | 1 | `Id` | tinyint | **no** | **PK** |  |
 | 2 | `RangeStartUtc` | datetime2(0) | **no** |  |  |
 | 3 | `RangeEndUtc` | datetime2(0) | **no** |  |  |
-| 4 | `Operations` | nvarchar(400) | **no** |  |  |
+| 4 | `Operations` | nvarchar(2000) | **no** |  | the operation set, as recorded (400 before 2.7.6) |
 | 5 | `StartedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 6 | `CompletedUtc` | datetime2(0) | yes |  |  |
 | 7 | `Source` | varchar(8) | yes |  | 'CSV' when a CSV import wrote the row |
@@ -265,7 +265,7 @@ Indexes and constraints:
 | 1 | `LoadId` | int | **no** | **PK** identity |  |
 | 2 | `RangeStartUtc` | datetime2(0) | **no** |  |  |
 | 3 | `RangeEndUtc` | datetime2(0) | **no** |  |  |
-| 4 | `Operations` | nvarchar(400) | **no** |  |  |
+| 4 | `Operations` | nvarchar(2000) | **no** |  | the operation set, as recorded (400 before 2.7.6) |
 | 5 | `StartedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 6 | `DownloadedUtc` | datetime2(0) | yes |  | every window Loaded; ready to merge |
 | 7 | `MergedUtc` | datetime2(0) | yes |  | appended to audit.CopilotAudit |
@@ -1115,7 +1115,7 @@ Created by tools/Import-CopilotAuditCsv.ps1 (2.1.0).
 |--:|---|---|---|---|---|
 | 1 | `ImportId` | int | **no** | **PK** identity |  |
 | 2 | `FolderPath` | nvarchar(1024) | **no** |  |  |
-| 3 | `Operations` | nvarchar(400) | **no** |  | the database's operation set, as the backfill records it |
+| 3 | `Operations` | nvarchar(2000) | **no** |  | the database's operation set, as the backfill records it (400 before 2.7.6) |
 | 4 | `StartedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 5 | `MergedUtc` | datetime2(0) | yes |  |  |
 | 6 | `FilesLoaded` | int | yes |  |  |
@@ -2985,6 +2985,7 @@ Indexes and constraints:
 | 6 | `Scope` | nvarchar(400) | yes |  | Organization, or the subtree root shown |
 | 7 | `Detail` | nvarchar(2000) | yes |  | filters, or what an admin change did |
 | 8 | `ClientIp` | varchar(64) | yes |  |  |
+| 9 | `Change` | nvarchar(max) | yes |  | an admin change's record, as JSON: what was submitted (secrets and addresses' queries masked), and the settings and role grants it changed, before and after (2.7.6) |
 
 Indexes and constraints:
 
@@ -3703,6 +3704,44 @@ Indexes and constraints:
 
 - `PK_DashCreditCommitment`: primary key, clustered (CommitmentId)
 - `CK_DashCreditCommitment_Term`, `CK_DashCreditCommitment_Amount`: the term ends after it starts; the amount and the draw are above 0
+
+### dash.QueryCacheShared
+
+*Table.* The report cache the web servers share (2.7.6): a report query's result, kept by one server as compressed JSON and read by the others. Kept under the data's stamp and the site's build; cleared of other stamps' results by the morning build and of expired ones every half hour. Never read by a report.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `KeyHash` | binary(32) | **no** | **PK** | SHA-256 of the build, tenant, stamp, query and its arguments |
+| 2 | `StampHash` | binary(32) | **no** |  | SHA-256 of the build, tenant and stamp it was read under |
+| 3 | `Payload` | varbinary(max) | **no** |  | the result, gzipped JSON |
+| 4 | `Bytes` | int | **no** |  | the payload's size |
+| 5 | `CreatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+| 6 | `ExpiresUtc` | datetime2(0) | **no** |  | Insights:QueryCacheMinutes after it was kept |
+| 7 | `Server` | nvarchar(128) | yes |  | the web server that kept it |
+
+Indexes and constraints:
+
+- `PK_DashQueryCacheShared`: primary key, clustered (KeyHash)
+- `IX_DashQueryCacheShared_Stamp`: nonclustered (StampHash, CreatedUtc)
+
+### dash.CacheGeneration
+
+*Table.* One row: how many changes the dashboard has made, on any web server, that can alter a report (2.7.6). Part of the data's stamp, so a change on one server ends what every server kept.
+
+**Script** `Create-CopilotOperationsSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `Id` | tinyint | **no** | **PK** | always 1 |
+| 2 | `N` | bigint | **no** |  | the count |
+| 3 | `ChangedUtc` | datetime2(0) | **no** | `sysutcdatetime` | the last change |
+
+Indexes and constraints:
+
+- `PK_DashCacheGeneration`: primary key, clustered (Id)
+- `CK_DashCacheGeneration_One`: check (Id = 1)
 
 ### dash.SavedView
 

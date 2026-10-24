@@ -37,7 +37,7 @@ IF OBJECT_ID(N'audit.CopilotCsvImport', N'U') IS NULL
     (
         ImportId            INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_CopilotCsvImport PRIMARY KEY,
         FolderPath          NVARCHAR(1024)  NOT NULL,
-        Operations          NVARCHAR(400)   NOT NULL,   -- the database's operation set, as the backfill records it
+        Operations          NVARCHAR(2000)  NOT NULL,   -- the database's operation set, as the backfill records it
         StartedUtc          DATETIME2(0)    NOT NULL CONSTRAINT DF_CopilotCsvImport_Started DEFAULT (SYSUTCDATETIME()),
         MergedUtc           DATETIME2(0)    NULL,
         FilesLoaded         INT             NULL,
@@ -55,7 +55,11 @@ IF OBJECT_ID(N'audit.CopilotCsvImport', N'U') IS NULL
         DerivedRefreshedUtc DATETIME2(0)    NULL        -- the derived tables brought up to date with it; see below
     );
 
-/* When the derived tables were brought up to date with an import (2.4.12).
+/* The operation set outgrew 400 characters in 2.7.0 (see Create-CopilotAuditSchema.sql). */
+IF COL_LENGTH(N'audit.CopilotCsvImport', N'Operations') < 4000
+    ALTER TABLE audit.CopilotCsvImport ALTER COLUMN Operations NVARCHAR(2000) NOT NULL;
+
+/* When the derived tables were brought up to date with an import.
    The import is marked merged before the importer refreshes the flattened
    table, sessions, bi and the dashboard, and nothing recorded whether that
    refresh finished: one that failed or was skipped was never made up, as a
@@ -251,7 +255,7 @@ BEGIN
 
     DECLARE @msg NVARCHAR(800), @ops NVARCHAR(400), @merged DATETIME2(0), @lock INT;
 
-    /* 2.4.12: the lock audit.usp_MergeCopilotLoad takes, for the whole merge.
+    /* The lock audit.usp_MergeCopilotLoad takes, for the whole merge.
        The check for records already loaded ran outside any lock, so a load
        merged at the same moment could append the same records, stored twice. */
     BEGIN TRANSACTION;
@@ -325,7 +329,7 @@ BEGIN
     DECLARE @already BIGINT = @@ROWCOUNT;
     DECLARE @added BIGINT = (SELECT COUNT_BIG(*) FROM #cand);
     /* The refresh that follows an import reads from @first on. To the whole second at or before the earliest record
-       (2.5.4): rounded, a record half a second or more past the second fell before it, and was left out. */
+       rounded, a record half a second or more past the second fell before it, and was left out. */
     DECLARE @first DATETIME2(0), @last DATETIME2(0);
     SELECT @first = DATEADD(SECOND, DATEDIFF(SECOND, '2000-01-01', MIN(CreatedDateTime)), '2000-01-01'), @last = MAX(CreatedDateTime) FROM #cand;
 

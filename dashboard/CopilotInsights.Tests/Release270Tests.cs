@@ -55,8 +55,10 @@ public class ReservationReviewTests
         Assert.Contains("COMMIT TRANSACTION;", page);
         Assert.Contains("overlaps a row that starts on or after it", page);
         Assert.Contains("OnPostEndreserveAsync", page);
-        /* A database error during a change is audited and said. */
-        Assert.Contains("catch (Microsoft.Data.SqlClient.SqlException ex) { done = \"Failed: \" + ex.Message; }", Source.Read("Pages", "InsightsPage.cs"));
+        /* A database error during a change is audited and said, with a reference rather than the error's text. */
+        var shared = Source.Read("Pages", "InsightsPage.cs");
+        Assert.Contains("catch (Exception ex) when (ex is not OperationCanceledException)", shared);
+        Assert.Contains("Incident.Note(", shared);
     }
 
     [Fact]

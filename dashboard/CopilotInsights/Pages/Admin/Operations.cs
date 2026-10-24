@@ -12,7 +12,7 @@ namespace CopilotInsights.Pages.Admin;
 static class SettingWriter
 {
     /// <param name="showValues">
-    /// Each change with its old and new value ("AuditLogRetentionDays 730 -> 400"), for the audit log (2.4.12): where the
+    /// Each change with its old and new value ("AuditLogRetentionDays 730 -> 400"), for the audit log: where the
     /// value itself is what an administrator is held to account for, such as how long the audit log is kept or where
     /// mail is sent. Otherwise only the names.
     /// </param>
@@ -150,7 +150,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         };
         var now = MailConfig.Load(await S.Settings.AllAsync(), await secrets.GetAsync(SecretStore.SmtpPassword), null, await secrets.GetAsync(SecretStore.SmtpPasswordFor));
         var next = MailConfig.Load(values, null, null);
-        /* The secrets first (2.4.12): one SQL Server cannot store stops the save before any setting has changed. */
+        /* The secrets first: one SQL Server cannot store stops the save before any setting has changed. */
         var notes = new List<string>();
         if (clearPassword == "1")
         {
@@ -161,7 +161,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         }
         if (!string.IsNullOrEmpty(SmtpPassword))
         {
-            /* A password goes only where it was entered for (2.4.12): these settings' server, port, security and user. */
+            /* A password goes only where it was entered for: these settings' server, port, security and user. */
             await secrets.SetAsync(SecretStore.SmtpPassword, SmtpPassword, by);
             await secrets.SetAsync(SecretStore.SmtpPasswordFor, next.PasswordTarget(), by);
             notes.Add("password");
@@ -179,7 +179,7 @@ public sealed class EmailModel(PageServices s, Mailer mailer, SecretStore secret
         return SettingWriter.Saved(changed);
     });
 
-    public Task<IActionResult> OnPostTestAsync(string? to) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostTestAsync(string? to) => AdminChangeAsync(false, async () =>
     {
         var rcpt = MailConfig.Recipients(to);
         if (rcpt.Count == 0) throw new ArgumentException("give an address to send the test to.");
@@ -285,7 +285,7 @@ public sealed class NotificationsModel(PageServices s, Notifier notifier, OpsRep
             "The manager digest is the Leadership digest for the manager's own organization (7 days weekly, 30 monthly), aggregates only, to the manager's email address from AD. " +
             "When the dashboard is limited to levels (Admin › Access), only managers at those levels get it. Monthly digests go out on the 1st. Not sent in privacy mode.", "half"));
 
-        /* Managers who asked not to get the digest (2.4.4): kept by administrators, now that the dashboard has no personal pages. */
+        /* Managers who asked not to get the digest: kept by administrators, now that the dashboard has no personal pages. */
         var optedOut = await Db.QueryAsync<(string Upn, string? DisplayName, DateTime UpdatedUtc)>(@"
 SELECT pref.Upn, p.DisplayName, pref.UpdatedUtc FROM dash.DigestPreference AS pref LEFT JOIN dash.Person AS p ON p.Upn = pref.Upn
 WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
@@ -304,7 +304,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
                 : "Runs one round of the alert checks and any digests that are due, instead of waiting up to five minutes.", "half"));
         var state = await Db.QueryAsync<(string AlertKey, string? LastValue, DateTime LastFiredUtc)>("SELECT AlertKey, LastValue, LastFiredUtc FROM dash.AlertState ORDER BY AlertKey;");
         var st = new Table { Zone = Zone, Headers = ["Check", "Last seen", "When (UTC)"], EmptyText = "The checks have not run yet." };
-        /* An alert waiting to be emailed again, and the web servers that run the checks (2.4.12), in words. */
+        /* An alert waiting to be emailed again, and the web servers that run the checks, in words. */
         foreach (var x in state)
             st.Rows.Add(x.AlertKey.StartsWith("retry:", StringComparison.Ordinal) ? [$"{x.AlertKey["retry:".Length..]}: email to try again", $"{x.LastValue} of {Retry.Tries} tries failed", x.LastFiredUtc]
                 : x.AlertKey.StartsWith("server:", StringComparison.Ordinal) ? [$"Checks run on {x.AlertKey["server:".Length..]}", "last round", x.LastFiredUtc]
@@ -340,7 +340,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
     {
         var by = Viewer.Upn ?? Viewer.WindowsName;
         if (Webhook.Problem(url) is { } bad) throw new ArgumentException(bad);
-        /* The address first (2.4.12): one SQL Server cannot store stops the save before the format has changed. */
+        /* The address first: one SQL Server cannot store stops the save before the format has changed. */
         var secrets = HttpContext.RequestServices.GetRequiredService<SecretStore>();
         var notes = new List<string>();
         if (clear == "1") { await secrets.SetAsync(SecretStore.AlertWebhookUrl, null, by); notes.Add("webhook address removed"); }
@@ -350,7 +350,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
         return SettingWriter.Saved(changed);
     });
 
-    public Task<IActionResult> OnPostWebhooktestAsync() => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostWebhooktestAsync() => AdminChangeAsync(false, async () =>
     {
         var url = await HttpContext.RequestServices.GetRequiredService<SecretStore>().GetAsync(SecretStore.AlertWebhookUrl);
         if (url is null) throw new ArgumentException("save a webhook address first.");
@@ -363,7 +363,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
             using var r = await http.PostAsync(url, new StringContent(payload, Encoding.UTF8, "application/json"), HttpContext.RequestAborted);
             return r.IsSuccessStatusCode ? $"Test alert posted ({format}): HTTP {(int)r.StatusCode}." : $"The webhook answered HTTP {(int)r.StatusCode} {r.ReasonPhrase}.";
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return "The webhook could not be reached: " + ex.Message; }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return Failure(ex, "The webhook could not be reached"); }
     });
 
     public Task<IActionResult> OnPostDigestsAsync(string? ManagerDigest, string? ManagerDigestMinPeople, string? ManagerDigestDay, string? DigestHour) => AdminChangeAsync(async () =>
@@ -400,7 +400,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.DigestPreference (Upn, ManagerDigestOptOut) V
         name = name?.Trim();
         if (string.IsNullOrEmpty(name) || name.Length > 200) throw new ArgumentException("give the digest a name.");
         if (report is null || !OpsReports.DigestKinds.ContainsKey(report)) throw new ArgumentException("choose a report.");
-        /* Held to the same rule as Send now and Preview (2.4.12): an administrator without the section's role set up a
+        /* Held to the same rule as Send now and Preview: an administrator without the section's role set up a
            Security digest to their own address, and it went out on its schedule. */
         if (DigestRefusal(report) is { } no) throw new ArgumentException(no);
         var to = SettingWriter.Emails(recipients, "To") ?? throw new ArgumentException("give at least one address.");
@@ -420,7 +420,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
     });
 
     /// <summary>
-    /// The role a digest's figures need (2.4.12): that of the section it shows, as on the section's pages; none for
+    /// The role a digest's figures need: that of the section it shows, as on the section's pages; none for
     /// Leadership and Value, whose pages need none.
     /// </summary>
     public static string? DigestRole(string report) => report switch
@@ -428,12 +428,12 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         "Adoption" => Roles.Adoption, "Licensing" => Roles.Licensing, "Security" => Roles.Security, _ => null,
     };
 
-    /// <summary>Why this administrator may not preview or send this digest now, or null (2.4.12).</summary>
+    /// <summary>Why this administrator may not preview or send this digest now, or null.</summary>
     string? DigestRefusal(string report) => DigestRole(report) is { } role && !Viewer.Has(role)
         ? $"the {report} digest shows the {role} section, which needs the {role} role. An administrator can grant it in Admin › Access."
         : null;
 
-    public Task<IActionResult> OnPostSendnowAsync(int id) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostSendnowAsync(int id) => AdminChangeAsync(false, async () =>
     {
         var sub = (await Db.QueryAsync<SubRow>("SELECT * FROM dash.Subscription WHERE SubscriptionId = @id", new { id })).FirstOrDefault() ?? throw new ArgumentException("no such digest.");
         if (DigestRefusal(sub.Report) is { } no) throw new ArgumentException(no);
@@ -444,7 +444,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
 
     public Task<IActionResult> OnPostToggleAsync(int id) => AdminChangeAsync(async () =>
     {
-        /* Resuming one is held to the rule for adding one (2.4.12); pausing one never is. */
+        /* Resuming one is held to the rule for adding one; pausing one never is. */
         var sub = (await Db.QueryAsync<(string Report, bool Enabled)>("SELECT Report, Enabled FROM dash.Subscription WHERE SubscriptionId = @id", new { id })).FirstOrDefault();
         if (sub.Report is not null && !sub.Enabled && DigestRefusal(sub.Report) is { } no) throw new ArgumentException(no);
         var n = await Db.ScalarAsync<string?>("UPDATE dash.Subscription SET Enabled = 1 - Enabled OUTPUT inserted.Name WHERE SubscriptionId = @id", new { id });
@@ -457,33 +457,33 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         return n is null ? "That digest was already gone." : $"Digest \"{n}\" removed.";
     });
 
-    public Task<IActionResult> OnPostRunAsync() => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRunAsync() => AdminChangeAsync(false, async () =>
     {
         var done = await notifier.RunOnceAsync(HttpContext.RequestAborted);
         return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
     });
 
     /// <summary>
-    /// Every tenant where this person is an administrator (2.4.12), decided in each tenant's own database as everything else
+    /// Every tenant where this person is an administrator, decided in each tenant's own database as everything else
     /// is; each tenant's lines start with its name, and each tenant it ran in has the run in its own audit log. Before, an
     /// administrator of one tenant ran the round in every tenant and read back their results.
     /// </summary>
-    public Task<IActionResult> OnPostRunallAsync() => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRunallAsync() => AdminChangeAsync(false, async () =>
     {
         var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();
         var from = tenants.Current.Name;
         var done = await EveryTenantAsync(tenants, () => S.Viewers.ResolveAsync(), () => notifier.RunOnceAsync(HttpContext.RequestAborted),
-            (v, lines) => S.Audit.WriteAsync(v, "Admin", Request.Path, null, $"The checks ran, from tenant {from}. " + string.Join(" · ", lines)), Request.Path);
+            (v, lines) => S.Audit.WriteAsync(v, "Admin", Request.Path, null, $"The checks ran, from tenant {from}. " + string.Join(" · ", lines)), Request.Path, HttpContext.RequestServices.GetRequiredService<ILogger<InsightsPage>>());
         return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
     });
 
     /// <summary>
     /// Runs <paramref name="run"/> in each tenant where <paramref name="viewer"/> is an administrator, and says so for the
     /// others; <paramref name="record"/> writes the run into another tenant's audit log (this tenant's is the page's).
-    /// An administrator there is a full one, or one whose Admin pages there include <paramref name="page"/> (2.6.4).
+    /// An administrator there is a full one, or one whose Admin pages there include <paramref name="page"/>.
     /// </summary>
     public static async Task<List<string>> EveryTenantAsync(TenantAccessor tenants, Func<Task<Viewer>> viewer, Func<Task<List<string>>> run,
-        Func<Viewer, IReadOnlyList<string>, Task> record, string? page = null)
+        Func<Viewer, IReadOnlyList<string>, Task> record, string? page = null, ILogger? log = null)
     {
         var here = tenants.Current;
         var done = new List<string>();
@@ -501,7 +501,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
                     if (t.Name != here.Name) await record(v, lines);
                     done.AddRange(lines.Select(Line));
                 }
-                catch (Exception ex) when (ex is not OperationCanceledException) { done.Add(Line("The checks failed: " + ex.Message)); }
+                catch (Exception ex) when (ex is not OperationCanceledException) { done.Add(Line(Incident.Note(log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, ex, "The checks failed"))); }
             }
         }
         finally { tenants.Use(here); }
@@ -510,7 +510,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
 
     /// <summary>
     /// What a digest would look like now, as it would arrive: for an administrator who may see its figures, and in the
-    /// audit log (2.4.12). Before, any administrator saw any digest for any part of the organization, the Security
+    /// audit log. Before, any administrator saw any digest for any part of the organization, the Security
     /// digest without the Security role, and nothing recorded that they had.
     /// </summary>
     public async Task<IActionResult> OnGetPreviewAsync(string? report, int? days, string? root)
@@ -533,8 +533,8 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         }
         catch (DigestRefused ex)
         {
-            await S.Audit.WriteAsync(Viewer, "View", Request.Path, root ?? "Whole organization", $"digest preview of {report}, not shown: {ex.Message}");
-            return Html($"<!DOCTYPE html><p>Not shown: {E(ex.Message)}.</p>");
+            await S.Audit.WriteAsync(Viewer, "View", Request.Path, root ?? "Whole organization", $"digest preview of {report}, not shown: {Failure(ex, "Not shown")}");
+            return Html($"<!DOCTYPE html><p>{E(Failure(ex, "Not shown"))}</p>");
         }
     }
 }
@@ -559,7 +559,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 new HtmlString(Form("deltarget", $"<input type=\"hidden\" name=\"id\" value=\"{x.TargetId}\"/>" + Button("Remove", "Remove this target?", quiet: true)))]);
         Panels.Add(new("Adoption targets", new HtmlString(t.Render().Value + "<h3>Add a target</h3>" + Form("target",
             Input("root", "A manager's organization (UPN; empty for everyone)", null, 30) +
-            /* The measures by the names the table above and Adoption › Targets give them (2.4.10: the box showed their codes). */
+            /* The measures by the names the table above and Adoption › Targets give them (the box showed their codes). */
             Select("metric", "Measure", new[] { "Adoption", "ActiveShare", "ActivePeople" }.Select(m => (m, Adoption.TargetsModel.Label(m))), "Adoption") +
             Input("value", "Target (% or people)", null, 6, "number") +
             Input("start", "From", DateTime.Today.ToString("yyyy-MM-dd"), 10, "date") + Input("due", "Due", DateTime.Today.AddMonths(3).ToString("yyyy-MM-dd"), 10, "date") +
@@ -583,10 +583,10 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
             Input("RolloutWaveSize", "People in a rollout wave", V("RolloutWaveSize"), 6, "number") + Button("Save"))),
             "With a group, the license exports add and remove its members; without one, they assign or remove the license itself. The license price is in Admin › Access.", "half"));
 
-        /* 2.6.6: what Leadership › Costs and savings prices and values with. */
+        /* What Leadership › Costs and savings prices and values with. */
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.CostPrice', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
         {
-            /* 2.6.9: with each price, its volume price and the Dataverse capacity a seat brings, where the columns are installed. */
+            /* With each price, its volume price and the Dataverse capacity a seat brings, where the columns are installed. */
             var tiers = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.CostPrice', N'SparePercent') IS NULL THEN 0 ELSE 1 END;") == 1;
             var prices = await Db.QueryAsync<(string Item, string Area, string Name, string Unit, decimal MonthlyPrice, int? TierFrom, decimal? TierPrice, decimal? DbGb, decimal? FileGb, decimal? Spare, bool? ForCapacity)>(tiers
                 ? "SELECT Item, Area, Name, Unit, MonthlyPrice, TierFromSeats, TierPrice, DatabaseGbPerSeat, FileGbPerSeat, SparePercent, ForCapacity FROM dash.CostPrice ORDER BY Area, Name;"
@@ -616,7 +616,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
                 "Spare seats: unassigned seats kept on purpose for joiners and moves are not a saving; the default share is above, and a license can set its own. Bought for capacity or the volume price: its unassigned and idle seats are never counted as money back."));
         }
 
-        /* 2.6.6: what Licensing › Credit use estimates credits and tokens with. */
+        /* What Licensing › Credit use estimates credits and tokens with. */
         Panels.Add(new("Credit estimate", new HtmlString(Form("credits",
             Input("CreditsPerAnswer", "Credits a billed agent answer costs", V("CreditsPerAnswer"), 4) +
             Input("CreditsPerGrounding", "Credits grounding in work data adds", V("CreditsPerGrounding"), 4) +
@@ -627,7 +627,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
             "What Licensing › Credit use estimates with. Credits: Microsoft's list rates are 2 for a generative answer, 10 more for grounding in the organization's data, 5 for an action; " +
             "a credit's price is the Copilot Credit, pay-as-you-go, under Costs and savings. Tokens are a rough figure (Microsoft reports none for Microsoft 365 Copilot): what a turn takes before grounding, what each file or mail read adds, and an answer.", "half"));
 
-        /* 2.6.6: the suites, their price, what they include, and on or off. */
+        /* The suites, their price, what they include, and on or off. */
         if (await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.CostSuite', N'U') IS NULL THEN 0 ELSE 1 END;") == 1)
         {
             var suites = await Db.QueryAsync<(string SkuPattern, string Suite, byte Tier, decimal MonthlyPrice, string Includes, bool Enabled)>(
@@ -692,7 +692,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
         var name = await Db.ScalarAsync<string?>("SELECT Name FROM dash.CostPrice WHERE Item = @item;", new { item }) ?? throw new ArgumentException("no such price.");
         await Db.ExecuteAsync("UPDATE dash.CostPrice SET MonthlyPrice = @p, UpdatedBy = @by, UpdatedUtc = SYSUTCDATETIME() WHERE Item = @item;", new { p, item, by = Viewer.Upn ?? Viewer.WindowsName });
         var also = "";
-        /* 2.6.9: the volume price and the capacity a seat brings, where the form has them (a per-user license's row). */
+        /* The volume price and the capacity a seat brings, where the form has them (a per-user license's row). */
         if (tierFrom is not null || tierPrice is not null || dbGb is not null || fileGb is not null || spare is not null || capacity is not null)
         {
             var (tf, tp, db, fl) = PriceExtras(tierFrom, tierPrice, dbGb, fileGb);
@@ -707,7 +707,7 @@ public sealed class AssumptionsModel(PageServices s) : AdminPage(s)
         return $"{name}: {p.ToString("0.####", CultureInfo.InvariantCulture)}{also}.";
     });
 
-    /// <summary>The volume price and the Dataverse capacity a seat brings, from the price form (2.6.9): both of a tier or neither. Pure, for the tests.</summary>
+    /// <summary>The volume price and the Dataverse capacity a seat brings, from the price form: both of a tier or neither. Pure, for the tests.</summary>
     public static (int? TierFrom, decimal? TierPrice, decimal? DatabaseGb, decimal? FileGb) PriceExtras(string? tierFrom, string? tierPrice, string? dbGb, string? fileGb)
     {
         static decimal? Dec(string? v, string what, decimal max) => string.IsNullOrWhiteSpace(v) ? null
@@ -813,7 +813,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
     });
 
     /// <summary>
-    /// The shortest the audit log may be kept, in days (2.4.12): it is how administrators are held to account, so the person
+    /// The shortest the audit log may be kept, in days: it is how administrators are held to account, so the person
     /// it records cannot cut it to a day and erase their own record. Before, any number from 0 was taken.
     /// </summary>
     public const int MinAuditLogDays = 365;
@@ -824,7 +824,7 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         : jsonDays is > 0 and < 200 ? "JSON retention is 0 (keep) or at least 200 days: past Purview's 180 days it cannot be fetched again."
         : null;
 
-    public Task<IActionResult> OnPostRetentionAsync(string? AuditLogRetentionDays, string? NotificationRetentionDays, string? JsonRetentionDays) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRetentionAsync(string? AuditLogRetentionDays, string? NotificationRetentionDays, string? JsonRetentionDays) => AdminChangeAsync(false, async () =>
     {
         var json = SettingWriter.Int(JsonRetentionDays, "JSON retention", 0, 36500);
         var audit = SettingWriter.Int(AuditLogRetentionDays, "Audit-log retention", 0, 36500);
@@ -838,10 +838,10 @@ public sealed class PrivacyModel(PageServices s) : AdminPage(s)
         }, showValues: true));
     });
 
-    public Task<IActionResult> OnPostApplyAsync() => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostApplyAsync() => AdminChangeAsync(false, async () =>
     {
         try { return "Retention applied: " + await Db.ScalarAsync<string>("EXEC dash.usp_ApplyRetention;"); }
-        catch (Microsoft.Data.SqlClient.SqlException ex) { return "Retention stopped: " + ex.Message + " The nightly run applies it as the pipeline's account."; }
+        catch (Microsoft.Data.SqlClient.SqlException ex) { return Failure(ex, "Retention stopped") + " The nightly run applies it as the pipeline's account."; }
     });
 
     public Task<IActionResult> OnPostApiAsync(string? ApiEnabled) => AdminChangeAsync(async () =>
@@ -877,11 +877,11 @@ public sealed class ValuesModel(PageServices s) : AdminPage(s)
         public int TotalRows { get; set; }
     }
 
-    /* Agent ids (column 6) are no longer tied to Admin › Reference data's agents (2.4.12): since 2.4.11 a Copilot Studio
+    /* Agent ids (column 6) are no longer tied to Admin › Reference data's agents: since 2.4.11 a Copilot Studio
        or Microsoft agent is known by the app identity that names it, which a record's agent id never equals, so a name
        given here reached none of them, and an id that did match could be another agent's. Agents are named in Reference data. */
     /// <summary>
-    /// 2.7.1: the product name for each of the tenant's licenses, which every page shows in place of its part number
+    /// The product name for each of the tenant's licenses, which every page shows in place of its part number
     /// (dash.SkuName, seeded with Microsoft's names for the common ones). A license with none is shown by its part number.
     /// </summary>
     async Task LicenseNamesAsync()
@@ -942,7 +942,7 @@ FROM audit.ValueCatalogColumn AS c ORDER BY c.ColumnId;");
         foreach (var c in cols.Where(c => c.DistinctValues > 0 || c.Capped))
             ct.Rows.Add([c.Label, $"{c.TableName}.{c.ColumnName}", c.Capped ? "10,000 or more" : $"{c.DistinctValues:#,0}", c.Named,
                 c.Capped ? "too many to name" : new Link(c.ColumnId == col?.ColumnId ? "Naming" : "Name them", Request.Path + $"?col={c.ColumnId}")]);
-        /* The mapping file (2.4.5): every column's values and names in one CSV, the format the upload reads. */
+        /* The mapping file: every column's values and names in one CSV, the format the upload reads. */
         var mapping = $"<form class=\"admin\" method=\"post\" enctype=\"multipart/form-data\" action=\"{E(Request.Path + "?handler=upload" + (col is null ? "" : $"&col={col.ColumnId}") + TenantQuery)}\">{Token()}" +
                       "<label>Names from a CSV (column id, value, name, note)<input type=\"file\" name=\"file\" accept=\".csv,text/csv\"/></label>" + Button("Upload") + "</form>" +
                       $"<p class=\"sub\"><a href=\"{E(Request.Path + "?handler=download")}\">Download the mapping file</a>: every value of every column below, with its name and note. Fill in or change the names, and upload it back; an empty name removes one.</p>";
@@ -997,7 +997,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.ValueName (ColumnId, Value, Name, Note, Updat
     public Task<IActionResult> OnPostNameAsync(short col, string? value, string? name, string? note) => AdminChangeAsync(() =>
         string.IsNullOrEmpty(value) ? throw new ArgumentException("no value.") : SaveAsync(col, value, name, note));
 
-    public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(false, async () =>
     {
         if (file is null || file.Length == 0) throw new ArgumentException("choose a CSV file.");
         if (file.Length > 5_000_000) throw new ArgumentException("the file is over 5 MB.");
@@ -1057,7 +1057,7 @@ public sealed class TrainingRecordsModel(PageServices s) : AdminPage(s)
         Panels.Add(new("Sessions", new HtmlString(upload + t.Render().Value), "The effect is measured 28 days after each session, so a session shows on Enablement › Training effect four weeks after it."));
     }
 
-    public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(false, async () =>
     {
         if (file is null || file.Length == 0) throw new ArgumentException("choose a CSV file.");
         if (file.Length > 20_000_000) throw new ArgumentException("the file is over 20 MB.");
@@ -1082,7 +1082,7 @@ GROUP BY s.Upn, s.Session, s.AttendedOn;",
         return $"{Count(n, "attendance record")} of {session} removed.";
     });
 
-    /// <summary>The mapping file (2.4.5): every attendance record held, as UPN, Session, Date, which the upload reads back.</summary>
+    /// <summary>The mapping file: every attendance record held, as UPN, Session, Date, which the upload reads back.</summary>
     public async Task<IActionResult> OnGetMappingAsync()
     {
         if (!await PrepareAsync()) return Page();

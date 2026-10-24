@@ -156,7 +156,7 @@ public class NavigationTests
         Assert.DoesNotContain("/licensing/changes", Paths(V(5)));
     }
 
-    /* ---- The dashboard's level limit (2.4.4) ------------------------------------------------ */
+    /* ---- The dashboard's level limit ------------------------------------------------ */
 
     [Theory]
     [InlineData(0, 1, true)]       // no limit: everyone, as before
@@ -243,7 +243,7 @@ public class NavigationTests
     }
 }
 
-/// <summary>A Copilot license on a non-human account is a policy breach (2.4.5): the rules, and who sees the page.</summary>
+/// <summary>A Copilot license on a non-human account is a policy breach: the rules, and who sees the page.</summary>
 public class NonHumanTests
 {
     [Theory]
@@ -269,14 +269,18 @@ public class NonHumanTests
     static List<string> Paths(Viewer v) => CopilotInsights.Pages.Nav.For(v).SelectMany(g => g.Pages).Select(p => p.Path).ToList();
 
     [Theory]
-    [InlineData("Security", "/security/non-human")]
-    [InlineData("Compliance", "/compliance/non-human")]
-    [InlineData("Licensing", "/licensing/non-person")]
-    public void Security_compliance_and_licensing_each_see_the_breaches(string role, string path)
+    [InlineData("Security")]
+    [InlineData("Compliance")]
+    [InlineData("Licensing")]
+    public void Security_compliance_and_licensing_each_see_the_breaches(string role)
     {
+        /* One page, listed in each of the three sections (it was a copy in each). */
+        var path = CopilotInsights.Pages.Nav.NonHuman;
         Assert.Contains(path, Paths(V(role)));
         Assert.DoesNotContain(path, Paths(V()));
-        Assert.Equal(role, CopilotInsights.Pages.Nav.SectionOf(path)?.Role);
+        Assert.True(CopilotInsights.Pages.Nav.SectionOpen(path, V(role)));
+        Assert.False(CopilotInsights.Pages.Nav.SectionOpen(path, V(Roles.Adoption)));
+        Assert.Equal(role, CopilotInsights.Pages.Nav.SectionFor(path, V(role))?.Role);
     }
 
     [Fact]
@@ -285,7 +289,7 @@ public class NonHumanTests
             p => p.Path.Contains("non-"));
 }
 
-/// <summary>Levels 1 to N are never on a revoke or train list (2.4.6).</summary>
+/// <summary>Levels 1 to N are never on a revoke or train list.</summary>
 public class ProtectedLevelsTests
 {
     [Fact]

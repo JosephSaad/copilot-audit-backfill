@@ -264,6 +264,22 @@ jobs:
           sha256sum -c "${{ steps.build.outputs.name }}.zip.sha256"
           sha256sum -c "${{ steps.build.outputs.site }}.zip.sha256"
 
+      # 2.7.6: the full reporting reference (the guide, every table and view column by column, and the scripts' text) is
+      # made here from this release's files, with both guides as Word documents: the repository keeps the guide only.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.x'
+      - name: Build the reporting guides
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reporting
+          cp docs/REPORTING.md reporting/
+          pwsh -NoProfile -File tools/dev/schema/Build-ReportingReference.ps1 -OutFile reporting/REPORTING-REFERENCE.md
+          python -m pip install --quiet --disable-pip-version-check python-docx==1.2.0
+          python tools/dev/schema/build_docx.py reporting
+          ls -l reporting
+
       - name: Extract the changelog entry
         id: notes
         shell: bash
@@ -298,4 +314,7 @@ jobs:
             "${NAME}.zip" \
             "${NAME}.zip.sha256" \
             "${SITE}.zip" \
-            "${SITE}.zip.sha256"
+            "${SITE}.zip.sha256" \
+            reporting/REPORTING-REFERENCE.md \
+            reporting/REPORTING-REFERENCE.docx \
+            reporting/REPORTING.docx

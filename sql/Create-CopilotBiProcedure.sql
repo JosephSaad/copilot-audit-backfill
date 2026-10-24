@@ -29,7 +29,7 @@
          again from audit.RawLogFlattened a month at a time, adding keys for
          new users, apps, agents, models, license types and labels as it goes.
          bi.FactAccessedResource the same way, alongside, from
-         audit.RawLogAccessedResource (2.2.0), with keys for new resource
+         audit.RawLogAccessedResource, with keys for new resource
          types, actions, sites and labels.
       5. Dimension attributes: directory profile, today's license, app
          category. Small; rewritten every run.
@@ -52,7 +52,7 @@
         instead, ignoring LicensedSinceUtc, so for such a user a session
         before that date can say Licensed where its interactions say not.
       * Where the enrichment looked a user up after their last change in the
-        history and contradicts it (2.4.12): a user it finds licensed whom
+        history and contradicts it: a user it finds licensed whom
         the history leaves unlicensed (only another Copilot SKU added and
         taken away, say) is licensed from LicensedSinceUtc; and an account it
         no longer finds, which the history still has licensed, is licensed in
@@ -68,7 +68,7 @@
     that reaches the history later corrects only rows rebuilt after it; run
     with @SinceUtc = NULL (and fully refresh the model) to correct them all.
 
-    One refresh at a time (2.4.12): a second one waits for the first to
+    One refresh at a time: a second one waits for the first to
     finish (sp_getapplock on 'bi.usp_RefreshBi', held by the session).
 
     Reads audit.RawLogFlattened, audit.CopilotLicense, audit.CopilotSession
@@ -81,7 +81,7 @@
 SET NOCOUNT ON;
 
 /*
-    bi.usp_NameAgents (2.4.11): the name of every agent in bi.DimAgent.
+    bi.usp_NameAgents: the name of every agent in bi.DimAgent.
 
     The friendly name the audit log gave the agent on its latest record that
     carries one, from audit.AgentCatalog, which the flatten keeps from every
@@ -122,7 +122,7 @@ BEGIN
               WHERE c.AgentName IS NOT NULL AND i.AgentId <> N'(none)') AS x
         WHERE x.rn = 1;
 
-    /* 2.5.6: the agent inventory's name first, where the workbook loaded by tools/Import-AgentWorkbook.ps1 has one;
+    /* The agent inventory's name first, where the workbook loaded by tools/Import-AgentWorkbook.ps1 has one;
        the audit log's for an agent it does not list (one since deleted) or leaves unnamed. */
     CREATE TABLE #inv (AgentKey INT NOT NULL PRIMARY KEY, AgentName NVARCHAR(400) COLLATE DATABASE_DEFAULT NOT NULL);
     IF OBJECT_ID(N'dash.AgentInventory', N'U') IS NOT NULL
@@ -154,7 +154,7 @@ END;
 GO
 
 /*
-    bi.usp_MergeAgents (2.6.3): makes one agent of the identities marked as another name for it.
+    bi.usp_MergeAgents: makes one agent of the identities marked as another name for it.
 
     bi.DimAgent.MergedIntoKey says a row is a second identity of the agent with that key. Two things set it:
       - tools/Import-AgentWorkbook.ps1, from the workbook row that holds both ids of an agent;
@@ -309,7 +309,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM @licDbs WHERE OBJECT_ID(QUOTENAME(Name) + N'.audit.vLicenseSkuChange', N'V') IS NULL)
         THROW 50014, N'A database in @LicenseEventDatabase has no audit.vLicenseSkuChange - run sql/Create-LicenseEventSchema.sql there.', 1;
 
-    /* 2.4.12: one refresh at a time. A full rebuild commits month by month and holds nothing on the fact between
+    /* One refresh at a time. A full rebuild commits month by month and holds nothing on the fact between
        months, so a refresh that started meanwhile found its mark, emptied the fact under it and filled it again
        alongside it: every month after that point was in the fact twice, and in the rollups and the model after it.
        A second refresh now waits for the first to finish, then finds no mark and refreshes its own window. The lock
@@ -335,8 +335,8 @@ BEGIN
         SET @SinceUtc = NULL;
     END;
 
-    /* 2.4.9: a full rebuild that was stopped part way left months missing: this run finishes it. One that is still
-       running holds the lock above (2.4.12), so the mark found here is always one that was stopped. */
+    /* A full rebuild that was stopped part way left months missing: this run finishes it. One that is still
+       running holds the lock above, so the mark found here is always one that was stopped. */
     IF @SinceUtc IS NOT NULL AND OBJECT_ID(N'bi.RebuildInProgress', N'U') IS NOT NULL AND EXISTS (SELECT 1 FROM bi.RebuildInProgress)
     BEGIN
         RAISERROR('A full rebuild of the bi schema did not finish: building every interaction, not only the window asked for.', 0, 1) WITH NOWAIT;
@@ -430,7 +430,7 @@ BEGIN
         (or throughout, if it is not known) when licensed today; never, when
         not. A user in neither is not in #known: Unknown.
     */
-    /* 2.6.6: a suite with Copilot inside (E7, marked in the license pool) is a Copilot SKU too, so moving from the
+    /* A suite with Copilot inside (E7, marked in the license pool) is a Copilot SKU too, so moving from the
        Copilot add-on to E7 is a change of SKU, not a license taken away. */
     DROP TABLE IF EXISTS #suite;
     CREATE TABLE #suite (Sku NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
@@ -470,7 +470,7 @@ BEGIN
     WHERE c.IsLic = 1
       AND NOT EXISTS (SELECT 1 FROM #ev AS e WHERE e.Upn = c.Upn);
 
-    /* 2.4.12: a user the enrichment finds licensed, whose history leaves nothing held now, was not licensed from
+    /* A user the enrichment finds licensed, whose history leaves nothing held now, was not licensed from
        the history's last change on: their only Copilot changes can be another SKU added and taken away, while the
        license they hold was assigned before the history begins. Where the lookup came after that change, it is the
        newer evidence: licensed from LicensedSinceUtc, or from that change when it is not known. */
@@ -562,7 +562,7 @@ BEGIN
     INSERT INTO bi.DimSku (Sku, IsCopilot)
     SELECT DISTINCT c.Sku, CASE WHEN c.Sku LIKE N'%COPILOT%' OR c.Sku IN (SELECT Sku FROM #suite) THEN 1 ELSE 0 END FROM #chg AS c
     WHERE NOT EXISTS (SELECT 1 FROM bi.DimSku AS d WHERE d.Sku = c.Sku);
-    /* 2.6.6: a SKU already here before it was known as a suite with Copilot inside (E7) becomes a Copilot SKU now, so
+    /* A SKU already here before it was known as a suite with Copilot inside (E7) becomes a Copilot SKU now, so
        License changes and License inventory count its changes as the licensed days do. */
     UPDATE bi.DimSku SET IsCopilot = 1 WHERE IsCopilot = 0 AND Sku IN (SELECT Sku FROM #suite);
 
@@ -712,7 +712,7 @@ BEGIN
         WHERE NOT EXISTS (SELECT 1 FROM bi.DimLicenseType AS d WHERE d.LicenseType = s.LicenseType);
 
         /* The accessed resources of this month's interactions, from the element table. In the database's collation
-           (2.4.12), as every temp table here is: in tempdb's, a database whose collation differs from the server's
+           as every temp table here is: in tempdb's, a database whose collation differs from the server's
            failed every refresh at the first comparison with a dimension. */
         DROP TABLE IF EXISTS #rsrc;
         CREATE TABLE #rsrc (RecordId NVARCHAR(450) COLLATE DATABASE_DEFAULT NOT NULL, Ordinal SMALLINT NOT NULL,
@@ -726,20 +726,20 @@ BEGIN
                    LEFT(COALESCE(NULLIF(LTRIM(RTRIM(r.[Action])), N''), N'(not reported)'), 450),
                    LEFT(COALESCE(NULLIF(r.Site, N''), N'(none)'), 400),
                    r.SensitivityLabelId, r.IsBlocked, ISNULL(r.XPIADetected, 0),
-                   /* 2.4.6: a file's extension, 1 to 8 letters and digits after the last dot of its name (not the first character); else its Type. */
+                   /* A file's extension, 1 to 8 letters and digits after the last dot of its name (not the first character); else its Type. */
                    CASE WHEN CHARINDEX(N'.', REVERSE(nm.N)) BETWEEN 2 AND 9 AND CHARINDEX(N'.', REVERSE(nm.N)) < LEN(nm.N)
                              AND RIGHT(nm.N, CHARINDEX(N'.', REVERSE(nm.N)) - 1) NOT LIKE N'%[^A-Za-z0-9]%'
                             THEN LOWER(RIGHT(nm.N, CHARINDEX(N'.', REVERSE(nm.N)) - 1))
                             ELSE LEFT(COALESCE(NULLIF(LTRIM(RTRIM(r.[Type])), N''), N'(not reported)'), 64) END
             FROM #src AS s
-            /* 2.5.4: sought, an interaction at a time. Once the table is large its statistics are sampled, and a
+            /* Sought, an interaction at a time. Once the table is large its statistics are sampled, and a
                sample counts far too few distinct records in a key where one record's rows sit together (68,000
                for 11.6 million, in the lab). Left to choose on that, a night's 220,480 interactions were joined
                by reading all 70 million rows: four to five minutes, where seeking them takes seven seconds. */
             JOIN audit.RawLogAccessedResource AS r WITH (FORCESEEK) ON r.RecordId = s.RecordId
             CROSS APPLY (SELECT RTRIM(r.Name) AS N) AS nm;
 
-        /* 2.4.8: the interactions that read work content - a resource in SharePoint or OneDrive, Outlook or Teams,
+        /* The interactions that read work content - a resource in SharePoint or OneDrive, Outlook or Teams,
            or a mail, a Teams message, a meeting or a connector item. The web pages a web search cites are listed as
            resources too, so "read a resource" alone does not say work content. Without the element table (a load
            from a CSV export), the count and the web search flag are all there is, as before 2.4.8. */
@@ -792,7 +792,7 @@ BEGIN
                DATEADD(HOUR, DATEPART(HOUR, t.LocalTs), CAST(CAST(t.LocalTs AS DATE) AS DATETIME2(0))),
                YEAR(t.LocalTs) * 10000 + MONTH(t.LocalTs) * 100 + DAY(t.LocalTs),
                DATEPART(HOUR, t.LocalTs),
-               u.UserKey, a.AppKey, COALESCE(g.MergedIntoKey, g.AgentKey), m.ModelKey,   -- 2.6.3: one agent, two identities
+               u.UserKey, a.AppKey, COALESCE(g.MergedIntoKey, g.AgentKey), m.ModelKey,   -- One agent, two identities
                ls.LicenseStatusKey,
                s.PromptCount, s.AccessedResourceCount, s.UsedWebSearch, s.JailbreakDetected,
                s.PromptInjectionDetected, s.HasBlockedResource, s.HasSensitivityLabel,
@@ -818,7 +818,7 @@ BEGIN
         LEFT JOIN #work AS w ON w.RecordId = s.RecordId
         OUTER APPLY (SELECT TOP (1) 1 AS Held FROM #held AS x
                      WHERE x.Upn = s.Upn AND x.FromUtc <= s.Utc AND x.ToUtc > s.Utc) AS h
-        /* 2.4.8: a record Copilot itself marked Premium was written under a license, whatever the dates say: the
+        /* A record Copilot itself marked Premium was written under a license, whatever the dates say: the
            date Entra gives is when the current assignment began, which a reassignment moves forward. */
         CROSS APPLY (SELECT CAST(CASE WHEN s.LicenseType = N'Premium' THEN 1 WHEN k.Upn IS NULL THEN 0 WHEN h.Held = 1 THEN 1 ELSE 2 END AS TINYINT) AS LicenseStatusKey) AS ls
         CROSS APPLY (SELECT CAST(CASE WHEN s.Ident LIKE N'Copilot.Studio.%' THEN 0
@@ -857,11 +857,11 @@ BEGIN
 
     /* ---- 5. Dimension attributes ------------------------------------------ */
 
-    /* 2.6.3: an agent the audit log names two ways is one agent; what this refresh wrote under a second identity
+    /* An agent the audit log names two ways is one agent; what this refresh wrote under a second identity
        met for the first time is moved to it. */
     EXEC bi.usp_MergeAgents;
 
-    /* Every agent's name, from the whole history's records rather than this window's (2.4.11). */
+    /* Every agent's name, from the whole history's records rather than this window's. */
     EXEC bi.usp_NameAgents;
 
     UPDATE d
@@ -973,7 +973,7 @@ BEGIN
     WHERE r.rn = 1;
     SET @changes = @@ROWCOUNT;
 
-    /* Copilot Studio authoring events, from every license database that has them (2.3.0). */
+    /* Copilot Studio authoring events, from every license database that has them. */
     IF OBJECT_ID(N'bi.FactAgentEvent', N'U') IS NOT NULL
     BEGIN
         TRUNCATE TABLE bi.FactAgentEvent;
@@ -1016,7 +1016,7 @@ BEGIN
             @firstKey INT = YEAR(@firstDate) * 10000 + MONTH(@firstDate) * 100 + DAY(@firstDate),
             @todayKey INT = YEAR(@today) * 10000 + MONTH(@today) * 100 + DAY(@today);
 
-    /* 2.4.12: an account the enrichment no longer finds, which the history still has holding a license, is licensed
+    /* An account the enrichment no longer finds, which the history still has holding a license, is licensed
        to the last day it was used under that sign-in (or of its last change, if later), where the lookup came after
        that. The account was renamed or deleted, and the history, which knows a person only by the sign-in of the
        time, has no removal for it: before, it stayed licensed every day to today, a license to reclaim on an account

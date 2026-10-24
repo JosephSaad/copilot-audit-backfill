@@ -3,96 +3,7 @@ using CopilotInsights.Data;
 using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
 
-/* More reports for the original personas (2.2.0). */
-
-namespace CopilotInsights.Pages.Leadership
-{
-    public sealed class ScorecardModel(PageServices s, Metrics m) : InsightsPage(s)
-    {
-        public override string Title => "Scorecard";
-        public override string Persona => "Leadership";
-        public override string Intro => "This period against the one before it, of the same length: what moved, and in which part of the organization. "
-            + "Adoption splits in two: Premium, license holders who used what the license pays for (Copilot in Word, Excel, PowerPoint, Outlook or Teams, or chat over work content); "
-            + "and free only, those who used only what is free without a license (web Copilot Chat, agents).";
-
-        protected override async Task BuildAsync()
-        {
-            /* Premium use is recorded once the rollups are rebuilt with 2.3.0; before that it is all zero, so the split is left out. */
-            /* Independent reads started together (2.7.3); the period before is read once it is known to be covered. */
-            var splitTask = Forecasting.ActionsModel.PremiumReadyAsync(Db, Ctx.StartKey, Ctx.EndKey);
-            var firstTask = OpsReports.FirstDayAsync(Db);
-            var nowTask = m.TotalsAsync(Ctx);
-            var u1Task = m.UnitsAsync(Ctx);
-            await Task.WhenAll(splitTask, firstTask, nowTask, u1Task);
-            var split = await splitTask;
-            if (!split)
-                Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
-            var prev = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
-            /* Set against the period before only where the data covers all of it (2.4.12, see OpsReports.Covers): at 180 days
-               on 182 days of data, "+3997% on the 180 days before" was 1,270 people against the 31 of two days. */
-            var first = await firstTask;
-            var full = OpsReports.Covers(prev, first);
-            var now = await nowTask;
-            var beforeTask = full ? m.TotalsAsync(prev) : Task.FromResult(new Totals());
-            var u0Task = full ? m.UnitsAsync(prev) : null;
-            await Task.WhenAll(new Task?[] { beforeTask, u0Task }.OfType<Task>());
-            var before = await beforeTask;
-            string Delta(double a, double b, bool pct = false) =>
-                !full ? OpsReports.NoFullPeriodBefore(first)
-                : b == 0 ? "no earlier figure" : pct ? $"{(a - b) * 100:+0.0;-0.0;0} points on the {Ctx.Days} days before" : $"{(a - b) / b:+0%;-0%;0%} on the {Ctx.Days} days before";
-            double Adopt(Totals t) => t.LicensedNow > 0 ? t.ActiveLicensed / (double)t.LicensedNow : 0;
-            /* Premium + free only = Adoption: every active license holder either used a Premium feature or did not. */
-            double Premium(Totals t) => t.LicensedNow > 0 ? t.PremiumLicensed / (double)t.LicensedNow : 0;
-            double FreeOnly(Totals t) => t.LicensedNow > 0 ? (t.ActiveLicensed - t.PremiumLicensed) / (double)t.LicensedNow : 0;
-            Kpis.Add(new("People using Copilot", Num(now.Active), Delta(now.Active, before.Active), Href: Open("/licensing/ranking")));
-            Kpis.Add(new("Adoption", Pct(Adopt(now)), Delta(Adopt(now), Adopt(before), pct: true), Href: Open("/adoption")));
-            if (split)
-            {
-                Kpis.Add(new("Premium adoption", Pct(Premium(now)), Delta(Premium(now), Premium(before), pct: true)));
-                Kpis.Add(new("Free-only adoption", Pct(FreeOnly(now)), Delta(FreeOnly(now), FreeOnly(before), pct: true)));
-            }
-            Kpis.Add(new("Premium license holders", Num(now.LicensedNow), Delta(now.LicensedNow, before.LicensedNow), Href: Open("/licensing")));
-            Kpis.Add(new("Interactions", Num(now.Interactions), Delta(now.Interactions, before.Interactions)));
-            Kpis.Add(new("Sessions with a follow-up", Pct(Ratio(now.MultiTurn, now.Sessions)), Delta(Ratio(now.MultiTurn, now.Sessions) ?? 0, Ratio(before.MultiTurn, before.Sessions) ?? 0, pct: true)));
-
-            var u1 = (await u1Task).ToDictionary(u => u.Unit);
-            var u0 = u0Task is not null ? (await u0Task).ToDictionary(u => u.Unit) : new Dictionary<string, UnitRow>();
-            var t = new Table
-            {
-                Headers = split
-                    ? ["Unit", "People", "Adoption", "Premium", "Premium change", "Free only", "Free-only change", "Active people", "Active change", "Interactions per active person", "Interactions change"]
-                    : ["Unit", "People", "Adoption", "Adoption change", "Active people", "Active change", "Interactions per active person", "Interactions change"],
-                Numeric = Enumerable.Range(1, split ? 10 : 7).ToHashSet(),
-            };
-            var rows = new List<(UnitRow Now, UnitRow? Before)>();
-            foreach (var u in SmallGroups.Shown(u1.Values, u => u.People, Ctx.MinGroupSize)) rows.Add((u, u0.GetValueOrDefault(u.Unit)));
-            HtmlString Arrow(double? d, bool pct) => d is null ? new("<span class=\"muted\">—</span>")
-                : new($"<span class=\"{(d > 0 ? "status-ok" : d < 0 ? "status-bad" : "muted")}\">{(d > 0 ? "▲" : d < 0 ? "▼" : "")} {(pct ? $"{Math.Abs(d.Value) * 100:0.0} pts" : $"{Math.Abs(d.Value):0%}")}</span>");
-            foreach (var (n, b) in rows.OrderByDescending(r => r.Now.People))
-            {
-                double? a1 = Ratio(n.ActiveLicensed, n.Licensed), a0 = b is null ? null : Ratio(b.ActiveLicensed, b.Licensed);
-                double? i1 = n.Active > 0 ? n.Interactions / (double)n.Active : null, i0 = b is { Active: > 0 } ? b.Interactions / (double)b.Active : null;
-                var name = n.Drillable ? (object)new Link(n.Name, Ctx.Url(Request.Path, org: n.Unit)) : n.Name;
-                var rest = new object?[] { n.Active, Arrow(b is { Active: > 0 } ? (n.Active - b.Active) / (double)b.Active : null, false),
-                                           i1 is null ? null : Math.Round(i1.Value, 1), Arrow(i0 is > 0 ? (i1 - i0) / i0 : null, false) };
-                if (split)
-                {
-                    double? p1 = Ratio(n.PremiumLicensed, n.Licensed), p0 = b is null ? null : Ratio(b.PremiumLicensed, b.Licensed);
-                    double? f1 = Ratio(n.ActiveLicensed - n.PremiumLicensed, n.Licensed), f0 = b is null ? null : Ratio(b.ActiveLicensed - b.PremiumLicensed, b.Licensed);
-                    t.Rows.Add([name, n.People, Pct(a1), Pct(p1), Arrow(p1 - p0, true), Pct(f1), Arrow(f1 - f0, true), .. rest]);
-                }
-                else
-                    t.Rows.Add([name, n.People, Pct(a1), Arrow(a1 - a0, true), .. rest]);
-            }
-            CsvTable = t;   // 2.7.4: every page's main table downloads
-            Panels.Add(new("By unit, against the period before", t.Render(),
-                $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out, with the smallest others where they would together be under it. "
-                + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
-                + "Change in adoption is in percentage points; the others are relative."
-                + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}."), "full", CsvUrl()));
-        }
-    }
-}
+/* More reports for the original personas. */
 
 namespace CopilotInsights.Pages.Adoption
 {
@@ -109,7 +20,7 @@ namespace CopilotInsights.Pages.Adoption
             var w1 = Forecasting.Weekly.LastCompleteWeek(Ctx.End);
             var start = w1.AddDays(-7 * 19 - 6);
             /* Each person's twenty weeks as bits (week 0 the oldest), and how many people share each pattern: the curve
-               and the weeks-active count are worked out from the patterns (2.4.11). The page used to read every
+               and the weeks-active count are worked out from the patterns. The page used to read every
                person-week (2.5 million rows at 210,000 people) and loop over them, 3 seconds on every visit.
                Cohorts: the 12 weeks that have 8 weeks after them in the 20-week window. */
             var patterns = await Db.QueryAsync<(int Weeks, int People)>($@"
@@ -169,7 +80,7 @@ namespace CopilotInsights.Pages.Compliance
             Panels.Add(new("Share of interactions touching labeled content", Chart.Heatmap(units.Select(u => u.Name).ToList(), Labels(), grid, Fmt.Percent, "Labeled share by unit", 1, unit: "of interactions touched labeled content"),
                 $"Each part of the organization one level below. Darker is a larger share. {TrendNote}"));
 
-            /* Counted per key pair, then named (2.4.2): grouping on the names worked out a string for each of the rows. */
+            /* Counted per key pair, then named: grouping on the names worked out a string for each of the rows. */
             var mix = await Db.QueryAsync<(string Type, string Label, long N)>($@"
 WITH g AS (SELECT f.ResourceTypeKey, f.SensitivityLabelKey, COUNT_BIG(*) AS N
            FROM bi.FactAccessedResource AS f {Ctx.Scope("f.UserKey")}

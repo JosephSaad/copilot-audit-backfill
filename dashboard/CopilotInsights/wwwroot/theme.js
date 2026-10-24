@@ -2,7 +2,7 @@
 (function () {
   // The navigation folds its sections only when script runs; without it every section stays open.
   document.documentElement.classList.add('js');
-  // A phone gets its charts drawn for a narrow screen, so their text stays readable (2.4.10). The server draws them, so it
+  // A phone gets its charts drawn for a narrow screen, so their text stays readable. The server draws them, so it
   // is told with a cookie that holds nothing but narrow or not; the page is fetched again, once, when that changes.
   try {
     var narrow = window.matchMedia('(max-width: 640px)').matches ? '1' : '0';

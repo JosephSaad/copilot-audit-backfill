@@ -87,7 +87,7 @@ public class Review2412BTests
         var c = Ctx(V(1), "casey.ivanova@contoso.com", 30, LastDay);
         var html = LicenseActions.Button(c, "/licensing/leavers", "handler=bulk", "<input type=\"hidden\" name=\"__RequestVerificationToken\" value=\"t\"/>", "&tenant=Fabrikam", "Entra bulk-remove file");
         Assert.StartsWith("<form class=\"inline\" method=\"post\"", html);
-        /* With several tenants the post names the tenant the page showed (2.4.12, #13). */
+        /* With several tenants the post names the tenant the page showed (#13). */
         Assert.Contains("action=\"/licensing/leavers?d=30&amp;org=casey.ivanova%40contoso.com&amp;handler=bulk&amp;tenant=Fabrikam\"", html);
         Assert.Contains("__RequestVerificationToken", html);
         Assert.Contains(">Entra bulk-remove file</button></form>", html);
@@ -101,8 +101,8 @@ public class Review2412BTests
             .Where(m => m.Name is "OnGetBulkAsync" or "OnGetScriptAsync").Select(m => m.DeclaringType!.Name + "." + m.Name).ToList();
         Assert.Empty(gets);
         Type[] exports = [typeof(Pages.Forecasting.ActionsModel), typeof(Pages.Forecasting.WavesModel), typeof(Pages.Licensing.DeparturesModel),
-                          typeof(Pages.Licensing.LicenseForCreditsModel), typeof(Pages.Licensing.NonPersonModel), typeof(Pages.Security.NonHumanModel),
-                          typeof(Pages.Compliance.NonHumanModel), typeof(Pages.Licensing.SwapModel), typeof(Pages.Licensing.LeaversModel)];
+                          typeof(Pages.Licensing.LicenseForCreditsModel), typeof(Pages.Licensing.NonPersonModel),   // one page for Licensing, Security and Compliance
+                          typeof(Pages.Licensing.SwapModel), typeof(Pages.Licensing.LeaversModel)];
         foreach (var t in exports)
         {
             Assert.NotNull(t.GetMethod("OnPostBulkAsync", BindingFlags.Public | BindingFlags.Instance));
@@ -223,7 +223,7 @@ public class Review2412BTests
         ctx.Request.Path = "/adoption/by-license";
         ctx.Request.QueryString = new QueryString("?lic=all&p=100000");
         var p = new Paging(ctx.Request, new Dictionary<string, string> { ["name"] = "du.DisplayName" }, "name") { Total = 10_568 };
-        var html = p.Nav(ctx.Request).Value!;   // 2.5.8: the page links are under the list
+        var html = p.Nav(ctx.Request).Value!;   // The page links are under the list
         Assert.DoesNotContain("4,999,951", html);
         Assert.Contains("0–0 of 10,568", html);
         Assert.Contains("p=212\">‹ Previous", html);

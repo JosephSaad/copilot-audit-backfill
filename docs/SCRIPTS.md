@@ -124,8 +124,8 @@ In `tools\dev\`; [tools/dev/README.md](../tools/dev/README.md) has the steps and
 | Script | What it does |
 |---|---|
 | `schema\extract.ps1`, `scripts.py`, `build.py`, `build_md.py` | Regenerate the schema reference from installed databases and the scripts' own comments: read the metadata, map each table to its script, then write the page and `docs/SCHEMA.md`. |
-| `schema\Build-ReportingReference.ps1` | Fills the generated parts of `docs/REPORTING-REFERENCE.md`: the column reference, copied from `docs/SCHEMA.md`, and the text of the scripts that create and fill the schema. |
-| `schema\build_docx.py` | Writes the Word versions of the two reporting guides, `docs/REPORTING.docx` and `docs/REPORTING-REFERENCE.docx`. |
+| `schema\Build-ReportingReference.ps1` | Writes the full reporting reference to a file: the guide in `docs/REPORTING-REFERENCE.md`, the column reference copied from `docs/SCHEMA.md`, and the text of the scripts that create and fill the schema. The release workflow attaches it to each release. |
+| `schema\build_docx.py` | Writes the Word versions of the two reporting guides, `REPORTING.docx` and `REPORTING-REFERENCE.docx`; the release workflow attaches both to each release. |
 | `schema\Update-SchemaBaseline.ps1` | Takes `tests/schema-baseline.tsv` again at a release: the shape of the schema, which the next release must stay compatible with. Refuses when the release breaks the one in place. |
 | `ui\ui_audit.py` | Opens every dashboard page in a headless browser and reports layout faults: clipped or overlapping text, labels cut short, page scroll. |
 | `ui\Test-FigureLinks.ps1` | Opens the page behind each headline figure that is a link and checks it shows the same number. |

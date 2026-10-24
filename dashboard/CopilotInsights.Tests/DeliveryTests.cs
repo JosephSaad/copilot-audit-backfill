@@ -177,7 +177,7 @@ public class PrivacyNavTests
     public void Every_new_page_is_in_the_navigation()
     {
         var paths = Nav.Groups.SelectMany(g => g.Pages).Select(p => p.Path).ToHashSet();
-        foreach (var p in new[] { "/leadership/usecases", "/leadership/boardpack", "/adoption/leaderboard", "/security/guests",
+        foreach (var p in new[] { "/leadership/usecases", "/leadership/boardpack", "/adoption/departments", "/security/guests",
                                   "/compliance/person", "/forecasting/budget", "/forecasting/waves", "/forecasting/outcomes", "/workforce/families",
                                   "/admin/directory", "/admin/classifications", "/admin/extracts", "/licensing/ranking", "/licensing/payg", "/licensing/swap", "/licensing/license-for-credits", "/licensing/fading", "/licensing/non-person", "/agents/credits", "/licensing/overlap", "/licensing/departures" })
             Assert.Contains(p, paths);
@@ -216,7 +216,7 @@ public class RetryTests
     }
 }
 
-/// <summary>Adoption ranked across groups rests only on groups with enough license holders (2.4.5).</summary>
+/// <summary>Adoption ranked across groups rests only on groups with enough license holders.</summary>
 public class AdoptionRankingTests
 {
     [Fact]
@@ -227,7 +227,7 @@ public class AdoptionRankingTests
             new Chart.AdoptionGroup("Finance", 30, 60), new Chart.AdoptionGroup("Legal", 5, 5), new Chart.AdoptionGroup("Sales", 45, 45),
             new Chart.AdoptionGroup("Unlicensed team", 0, 0)], 5, "t").Value!;
         var order = System.Text.RegularExpressions.Regex.Matches(html, "class=\"blabel\"[^>]*><tspan[^>]*>([^<]+)").Select(m => m.Groups[1].Value).ToList();
-        /* 2 + 1 license holders are under 5 together, so the smallest ranked group, Legal's 5, joins them (2.4.12). */
+        /* 2 + 1 license holders are under 5 together, so the smallest ranked group, Legal's 5, joins them. */
         Assert.Equal(["Sales", "Finance", "3 smaller groups"], order.Take(3).Select(n => n.StartsWith("3 smaller") ? "3 smaller groups" : n));
         Assert.Contains("45 of 45", html);                 // shown beside the rate, not only on hover
         Assert.Contains("8 of 8", html);                   // the combined bar: 2 + 1 + 5 of 2 + 1 + 5
@@ -237,7 +237,7 @@ public class AdoptionRankingTests
     }
 }
 
-/// <summary>Groups too small to show on their own (2.4.12): what is left over reaches the minimum too.</summary>
+/// <summary>Groups too small to show on their own: what is left over reaches the minimum too.</summary>
 public class SmallGroupTests
 {
     static List<(string Name, int People)> Fold(int min, params (string, int)[] rows) =>

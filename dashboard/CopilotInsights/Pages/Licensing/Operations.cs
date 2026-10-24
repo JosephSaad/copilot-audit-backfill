@@ -18,15 +18,15 @@ public static class Price
 
     /// <summary>
     /// What licenses cost for the days they were held (OpsReports.LicenseDaysAsync, a person a day), at a price a month: a
-    /// month is a twelfth of a year (2.4.10; Value and time saved took a month for 30.4 days and the Board pack for 30, so the
-    /// same licenses cost two amounts). It was today's licenses times the period's days (2.4.12), so a rollout during the
+    /// month is a twelfth of a year (Value and time saved took a month for 30.4 days and the Board pack for 30, so the
+    /// same licenses cost two amounts). It was today's licenses times the period's days, so a rollout during the
     /// period, or a period reaching back before the licenses, was charged in full: the return halved from 180 days to 365
     /// on the same value.
     /// </summary>
     public static decimal ForLicenseDays(long licenseDays, decimal monthly) => licenseDays * monthly * 12m / 365m;
 
     /// <summary>
-    /// 2.7.2: what licenses cost for the calendar months they were held (OpsReports.LicenseMonthsAsync, a person a month):
+    /// What licenses cost for the calendar months they were held (OpsReports.LicenseMonthsAsync, a person a month):
     /// each month at the monthly price, whole. It was the days held, each a 365th of a year, so a 30-day period cost 17.75
     /// a license at 18 and a 31-day one 18.35. A license held one day of a month now costs that month.
     /// </summary>
@@ -54,9 +54,9 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
 {
     public override string Title => "License pool";
     public override string Persona => "Licensing";
-    /// <summary>The tenant's seats, whatever part of the organization is picked (2.5.0): the use beside them is the tenant's too.</summary>
+    /// <summary>The tenant's seats, whatever part of the organization is picked: the use beside them is the tenant's too.</summary>
     public override bool UsesTeam => false;
-    /// <summary>No filter bar (2.5.8): the seats are the tenant's as they stand, which no period or part of the organization changes.</summary>
+    /// <summary>No filter bar: the seats are the tenant's as they stand, which no period or part of the organization changes.</summary>
     public override bool UsesFilters => false;
     public override string Intro => "Copilot seats bought, assigned and used, from the tenant's subscriptions, read from Microsoft 365 each night. Seats bought but not assigned are paid for and idle; seats assigned but not used are the unused-license list.";
 
@@ -76,10 +76,10 @@ public sealed class PoolModel(PageServices s, OpsData ops, Metrics metrics) : In
         var (price, cur) = await Price.GetAsync(S.Settings);
         var copilot = pool.Where(p => p.IsCopilot).ToList();
         int bought = copilot.Sum(p => p.Bought), assigned = copilot.Sum(p => p.Consumed);
-        /* The use set against the tenant's seats is the tenant's (2.4.12, see OpsReports.Tenant). */
+        /* The use set against the tenant's seats is the tenant's (see OpsReports.Tenant). */
         var tc = OpsReports.Tenant(Ctx);
         var t = await metrics.TotalsAsync(tc);
-        /* 2.6.6: those who hold Copilot only inside a suite (E7) are not the add-on's seats: their use is left out too. */
+        /* Those who hold Copilot only inside a suite (E7) are not the add-on's seats: their use is left out too. */
         var inSuite = await Db.ScalarAsync<int>($@"
 SELECT COUNT(*) FROM bi.FactLicensedDay AS ld JOIN bi.DimUser AS du ON du.UserKey = ld.UserKey
 WHERE ld.DateKey = @k1 AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.UserPrincipalName")}
@@ -88,7 +88,7 @@ WHERE ld.DateKey = @k1 AND {CopilotInsights.Data.CopilotSuites.OnlyInSuite("du.U
         Kpis.Add(new("Copilot seats bought", Num(bought), $"{copilot.Sum(p => p.Warning):#,0} in the grace period after expiry"));
         Kpis.Add(new("Seats assigned", Num(assigned), bought > 0 ? $"{Pct(Ratio(assigned, bought))} of those bought" : null,
             bought > 0 && assigned >= bought * (await S.Settings.IntAsync("PoolWarnPercent", 95)) / 100.0 ? "warn" : null));
-        /* 2.6.9: the seats kept unassigned on purpose, for joiners and moves, are not idle money. */
+        /* The seats kept unassigned on purpose, for joiners and moves, are not idle money. */
         var sparePct = decimal.TryParse(await S.Settings.StringAsync("SpareSeatPercent"), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var sp) ? sp : 10m;
         var spare = CopilotInsights.Data.CostRules.Spare(bought, sparePct);
         var beyond = Math.Max(0, bought - assigned - spare);
@@ -113,7 +113,7 @@ GROUP BY SnapshotDate ORDER BY SnapshotDate;".Replace("@suites", pool.Any(p => p
                 [new Series("Bought", days.Select(d => (double?)d.Bought).ToList(), 1), new Series("Assigned", days.Select(d => (double?)d.Assigned).ToList(), 3)],
                 Fmt.Count, "Copilot seats bought and assigned"), "One point per night the license tool ran.", "half"));
 
-        var names = await SkuNames.LoadAsync(Db);   // 2.7.1: product names, the part number beside them
+        var names = await SkuNames.LoadAsync(Db);   // Product names, the part number beside them
         var tb = new Table { Zone = Zone, Headers = ["License", "Part number", "Copilot", "Bought", "Assigned", "Available", "Grace period", "Suspended", "Last read (UTC)"], Numeric = new HashSet<int> { 3, 4, 5, 6, 7 } };
         foreach (var p in pool) tb.Rows.Add([names.Name(p.SkuPartNumber), p.SkuPartNumber, p.IsCopilot ? "Yes" : p.IsSuite ? "Inside the suite" : "", p.Bought, p.Consumed, p.Available, p.Warning, p.Suspended, p.CapturedUtc]);
         CsvTable = tb;
@@ -129,7 +129,7 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
     public override string Intro => "The monthly cost of the Copilot licenses each group holds, what share of it is used, and the cost per person using Copilot: for allocating the license cost to budgets.";
 
     static readonly string[] By = ["Department", "Division", "Company", "Country", "Office", "EmployeeType"];
-    /* 2.7.1: the attribute's name in words, not the directory's column name. */
+    /* The attribute's name in words, not the directory's column name. */
     static string Said(string by) => by == "EmployeeType" ? "Employee type" : by;
 
     protected override async Task BuildAsync()
@@ -140,13 +140,13 @@ public sealed class ChargebackModel(PageServices s, Metrics metrics) : InsightsP
         var rows = Groups.Fold(this, await metrics.ByAttributeAsync(Ctx, by), Ctx.MinGroupSize, out var folded);
         var licensed = rows.Sum(r => r.Licensed);
         var used = rows.Sum(r => r.ActiveLicensed);
-        /* 2.7.3: the groups are enabled accounts found in the directory; a license on a disabled or missing account is paid
+        /* The groups are enabled accounts found in the directory; a license on a disabled or missing account is paid
            for and charged to no group (61 of 2,718 on the demo data). It is shown, not lost. */
         var unallocated = Math.Max(0, await heldTask - licensed);
-        /* 2.7.3: named for what it counts; License optimization's Licenses held counts every license, these only the groups'. */
+        /* Named for what it counts; License optimization's Licenses held counts every license, these only the groups'. */
         Kpis.Add(new("Licenses charged to groups", Num(licensed), $"{licensed * price:#,0} {cur} a month", Href: Open("/adoption/by-license"),
             Why: await WhyAsync($"Licenses held by the enabled accounts found in the directory, which the groups below are made of ({licensed:#,0}) × the Copilot license price ({price:#,0.##} {cur}) = {licensed * price:#,0} {cur} a month.", "LicenseMonthlyCost", "LicenseCurrency")));
-        /* 2.7.5: named for what it counts; the agent pages' Used in the period counts agents. */
+        /* Named for what it counts; the agent pages' Used in the period counts agents. */
         Kpis.Add(new("Licenses used in the period", Num(used), licensed > 0 ? $"{Pct(Ratio(used, licensed))} of those charged to groups" : null));
         Kpis.Add(new("Unused spend", $"{(licensed - used) * price:#,0} {cur}", "a month, on licenses not used in the period", licensed - used > 0 ? "warn" : null,
             Why: await WhyAsync($"(Licenses charged to groups − holders who used Copilot in the period) × price: ({licensed:#,0} − {used:#,0}) × {price:#,0.##} {cur}.", "LicenseMonthlyCost")));
@@ -207,7 +207,7 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
         };
         foreach (var r in rows) t.Rows.Add([r.DisplayName, r.UserPrincipalName, r.Department, r.ManagerName, r.Reason, r.LicensedSinceUtc?.Date, r.LastUsed]);
         CsvTable = t;
-        /* The files are for the part of the organization shown (2.4.12): built from the bare address, they carried no org=,
+        /* The files are for the part of the organization shown: built from the bare address, they carried no org=,
            so a division's five accounts on the page became the whole organization's twenty-seven in the file and the record. */
         var exports = pg.Total == 0 ? "" :
             $"<div class=\"sub\">To reclaim them: {LicenseActions.Button(Ctx, Request.Path, "handler=bulk", Token(), TenantQuery, "Entra bulk-remove file")} · " +
@@ -216,7 +216,7 @@ public sealed class LeaversModel(PageServices s, OpsData ops) : InsightsPage(s)
             "AD's account state comes from the nightly directory load, Entra's from the license tool.", "full", CsvUrl()));
     }
 
-    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    /* Posted, with the anti-forgery token (see LicenseActions.Button). */
     public async Task<IActionResult> OnPostBulkAsync() => await ExportAsync(false);
     public async Task<IActionResult> OnPostScriptAsync() => await ExportAsync(true);
 

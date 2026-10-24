@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages.Leadership;
 
 /// <summary>
-/// Microsoft 365 Copilot reservations and chargeback (2.6.8): each line of business's reserved seats against the add-on
+/// Microsoft 365 Copilot reservations and chargeback: each line of business's reserved seats against the add-on
 /// licenses its people hold, and what that bills, as the client's reservation policy defines it (see ReservationRules).
 /// The current operational state, from the licenses read last night, is never certified; month-end snapshots are kept
 /// as they were. Leaders see the organizations led from inside their part; the whole organization and the Licensing role
@@ -34,7 +34,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             return;
         }
         var whole = Ctx.Root is null && (Viewer.OrgWide || Viewer.Has(Roles.Licensing));
-        var snaps = await data.SnapshotsAsync(Ctx);   // 2.7.0: the viewer's organizations only, as a snapshot shows them
+        var snaps = await data.SnapshotsAsync(Ctx);   // The viewer's organizations only, as a snapshot shows them
         var snapParam = Request.Query["snap"].FirstOrDefault();
         ReservationView? v = null;
         if (DateTime.TryParseExact(snapParam, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var snapDate))
@@ -45,6 +45,12 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             Notice = "No licenses have been read yet. The license lookup fills them each night.";
             return;
         }
+        /* With nothing in the register, every holder is under no listed leader. A client read 17,886 of them, in red, as
+           a fault; it is the register still to be filled. Said first, for the whole organization's view of today. */
+        if (whole && !v.IsSnapshot && v.Orgs.Count == 0)
+            Notice = "No organization is in the reservation register yet, so every Microsoft 365 Copilot holder shows under no listed leader. " +
+                     (Viewer.IsAdmin ? "Add each line of business, its leader and its reserved seats in Reservation register below; then Finance's rate in Rate and purchase gate."
+                                                    : "An administrator adds each line of business, its leader and its reserved seats here.");
         var cur = v.Currency;
         string M(decimal? x) => x is { } d ? CostRules.Money(Math.Round(d, MidpointRounding.AwayFromZero), cur) : "Pending Finance Decision";
         var holders = Open("/licensing/reservation-holders");
@@ -85,7 +91,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         {
             object name = holders is not null && !v.IsSnapshot ? new Link(o.Name, Open("/licensing/reservation-holders", "res=" + Uri.EscapeDataString(o.OrgId))!) : o.Name;
             var why = o.LeaderMissing ? " (leader not in the directory)" : o.SharedLeader ? " (leader on another organization too)" : "";
-            /* 2.7.0: privacy mode names nobody, a leader included. */
+            /* Privacy mode names nobody, a leader included. */
             var leader = o.LeaderUpn is null ? "(no one: a pool)" : PrivacyMode ? "(named in the register)" : o.LeaderName ?? o.LeaderUpn;
             t.Rows.Add([name, o.OrgId, leader, o.CostCenter, o.Reserved, o.Allocated, o.Unused, o.Over, o.Billable,
                 o.Utilization is { } u ? Pct(u) : "N/A", new HtmlString(StatusCell(o.Status) + H(why)), M(ReservationRules.Monthly(o.Billable, v.Rate))]);
@@ -118,7 +124,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
     /* The tenant's add-on seats against what the organizations hold, and the purchase gate. */
     async Task ReconcileAsync(ReservationView v)
     {
-        /* 2.7.0: the Microsoft 365 Copilot add-on only, as Costs and savings counts it: not Copilot Studio's licenses, nor a
+        /* The Microsoft 365 Copilot add-on only, as Costs and savings counts it: not Copilot Studio's licenses, nor a
            suite with Copilot inside (E7), which the organizations' figures leave out too. */
         var suiteSkus = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.LicenseSku', N'CopilotInSuite') IS NULL THEN 0 ELSE 1 END;") == 1
             ? (await Db.QueryAsync<string>("SELECT SkuPartNumber FROM audit.LicenseSku WHERE CopilotInSuite = 1;")).ToHashSet(StringComparer.OrdinalIgnoreCase)
@@ -143,7 +149,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             $"<div><span class=\"fl\">Held, as counted here</span><b>{counted:#,0}</b><p>{v.Allocated:#,0} by organizations, {v.Unmapped:#,0} under no leader, {v.Technology:#,0} Technology-funded</p></div>" +
             $"<div><span class=\"fl\">Difference to reconcile</span><b>{assigned - counted:+#,0;-#,0;0}</b><p>{(assigned == counted ? "the license pool and the license holders agree" : "the license pool's assigned count against the holders read for each person: a refresh or an assignment in flight")}</p></div>" +
             $"<div><span class=\"fl\">Unused reserved capacity</span><b>{v.Unused:#,0}</b><p>reserved and not allocated: not the same as unassigned inventory</p></div>" +
-            /* 2.7.0: what the organizations are charged against what is bought. */
+            /* What the organizations are charged against what is bought. */
             $"<div><span class=\"fl\">Billable against bought</span><b>{v.Billable - bought:+#,0;-#,0;0}</b><p>{v.Billable:#,0} billable to the organizations, {bought:#,0} bought: reserved seats nobody holds are charged, and seats held over a reservation are billed beyond it</p></div>" +
             "</div>" + $"<p class=\"sub\"><b>Purchase gate.</b> {H(gate)}</p>"),
             "From the license pool (Graph's subscribed SKUs) and the licenses read for each person. The policy and the proposal name different pools for the 95% gate; until Finance decides, the gate counts unassigned inventory and the unused reserved capacity is shown beside it. The gate decides whether more licenses are bought; it is not the spare seats Costs and savings keeps for joiners, which decide what is a saving.", "half"));
@@ -170,7 +176,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
             var expired = await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.TechnologyAllocation WHERE ReviewDate < CAST(GETDATE() AS DATE);");
             Add("Technology-funded allocations past their review date", expired, "Review and renew, or end the allocation.", null);
         }
-        /* 2.7.0: only the add-on licenses an organization counts: Copilot inside a suite, and Technology-funded accounts, are not. */
+        /* Only the add-on licenses an organization counts: Copilot inside a suite, and Technology-funded accounts, are not. */
         var notCounted = (await Db.QueryAsync<string>("SELECT Upn FROM dash.CopilotSuiteOnly UNION SELECT Upn FROM dash.TechnologyAllocation;")).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var leavers = (await ops.LeaversAsync(Ctx.Root)).Count(l => !notCounted.Contains(l.UserPrincipalName));
         Add("Add-on licenses on disabled or departed accounts", leavers, "Reclaim them: they count against their organization.", To("/licensing/leavers"));
@@ -214,7 +220,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
         var rt = new Table { Headers = ["Org ID", "Organization", "Leader", "Cost center", "Reserved", "From", "To", "Note", ""], Numeric = new HashSet<int> { 4 }, EmptyText = "The register is empty." };
         foreach (var r in reg)
             rt.Rows.Add([r.OrgId, r.Name, r.LeaderUpn, r.CostCenter, r.Reserved, r.EffectiveFrom, r.EffectiveTo, r.Note,
-                /* 2.7.0: ended on a day, so past months keep it, or removed as entered by mistake. */
+                /* Ended on a day, so past months keep it, or removed as entered by mistake. */
                 new HtmlString((r.EffectiveTo is null ? InlineForm("endreserve", Hidden("id", r.ReservationId) + Input("end", "End on", null, 10, "date") + Button("End", quiet: true)) : "") +
                     Form("delreserve", Hidden("id", r.ReservationId) + RemoveBox($"Remove {r.Name} from {r.EffectiveFrom:yyyy-MM-dd}")))]);
         var add = "<h3>Add an organization's reservation</h3>" + Form("reserve",
@@ -256,7 +262,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
     static string Clip(string? s, int n) => (s ?? "").Trim() is var t && t.Length > n ? t[..n] : (s ?? "").Trim();
     static string? Opt(string? s, int n) => string.IsNullOrWhiteSpace(s) ? null : Clip(s, n);
 
-    /// <summary>One register row, checked (2.7.0: every row of a paste is checked before any is added).</summary>
+    /// <summary>One register row, checked (every row of a paste is checked before any is added).</summary>
     public sealed record RegisterRow(string OrgId, string Name, string? LeaderUpn, string? CostCenter, int Reserved, DateTime From, DateTime? To, string? Note);
 
     /// <summary>A row's fields made into a register row, or why not. Pure, for the tests.</summary>
@@ -273,7 +279,7 @@ public sealed class ReservationsModel(PageServices s, ReservationData data, OpsD
     }
 
     /// <summary>
-    /// Adds the rows in one transaction, all or none (2.7.0). An organization's row open on a new row's start is ended the
+    /// Adds the rows in one transaction, all or none. An organization's row open on a new row's start is ended the
     /// day before, so a change is a new row and never a second reservation summed with the first; a new row that would
     /// overlap a row starting on or after it is refused. Returns what each row ended.
     /// </summary>
@@ -340,7 +346,7 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
     });
 
     /// <summary>
-    /// The pasted lines as register rows (2.7.0): a field may be quoted, holding commas; a first line that is not a row
+    /// The pasted lines as register rows: a field may be quoted, holding commas; a first line that is not a row
     /// (its reserved is not a number and its from is not a date) is the header; every line is checked before any is
     /// added. Pure, for the tests.
     /// </summary>
@@ -384,7 +390,7 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
 
     public Task<IActionResult> OnPostDelreserveAsync(int id) => AdminChangeAsync(async () =>
     {
-        /* 2.7.0: the audit log says which reservation went. */
+        /* The audit log says which reservation went. */
         var row = (await Db.QueryAsync<(string OrgId, string Name, int Reserved, DateTime From, DateTime? To)>("SELECT OrgId, Name, Reserved, EffectiveFrom, EffectiveTo FROM dash.Reservation WHERE ReservationId = @id;", new { id })).FirstOrDefault();
         if (row.OrgId is null) return "That reservation was already gone.";
         await Db.ExecuteAsync("DELETE FROM dash.Reservation WHERE ReservationId = @id;", new { id });
@@ -396,7 +402,7 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
         if (from is null) throw new ArgumentException("give the date the rate applies from.");
         if (!decimal.TryParse(rate, NumberStyles.Number, CultureInfo.InvariantCulture, out var r) || r < 0 || r > 100000) throw new ArgumentException("the rate is a number.");
         if (decimal.Round(r, 2) != r) throw new ArgumentException("the rate has at most two decimals, as it is kept.");
-        /* 2.7.0: a rate replaced on the same day says what it was. */
+        /* A rate replaced on the same day says what it was. */
         var was = await Db.ScalarAsync<decimal?>("SELECT MonthlyRate FROM dash.ReservationRate WHERE EffectiveFrom = @from;", new { from });
         await Db.ExecuteAsync(@"
 MERGE dash.ReservationRate AS t USING (SELECT @from AS EffectiveFrom) AS s ON t.EffectiveFrom = s.EffectiveFrom

@@ -92,7 +92,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 AND f.Change < 0;", Ctx.Args())).ToList();
             Panels.Add(new("Removals by department", dt.Render(), folded > 0 ? FoldNote(folded, "department") : null, "full", CsvUrl()));
         }
 
-        /* Who made the changes names administrators, so it is for the Licensing role, and never in privacy mode (2.4.12). */
+        /* Who made the changes names administrators, so it is for the Licensing role, and never in privacy mode. */
         if (Ctx.Viewer.Has(Roles.Licensing) && !PrivacyMode)
         {
             var admins = await Db.QueryAsync<(string By, int Added, int Removed, DateTime Last)>($@"

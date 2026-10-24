@@ -85,7 +85,7 @@ function Get-UnsignedModuleFile {
     <#
         The files under a folder that can run (scripts, manifests, formats,
         libraries, catalogs) without a valid Authenticode signature from one of
-        the module's publishers. 2.4.12: Save-Module checks no signature
+        the module's publishers. Save-Module checks no signature
         (PowerShellGet checks one only when it installs), and the module is
         imported below and shipped in the release's bundle, so a package changed
         on the gallery or on the way ran here and reached the server unnoticed.
@@ -93,7 +93,7 @@ function Get-UnsignedModuleFile {
     param(
         [Parameter(Mandatory)][string] $Path,
         [string[]] $Publisher = @('O=Microsoft Corporation', 'O=Json.NET (.NET Foundation)'),
-        # Module folders under $Path checked another way: ImportExcel, by the hash of every file (2.5.7).
+        # Module folders under $Path checked another way: ImportExcel, by the hash of every file.
         [string[]] $Except = @()
     )
     $kinds = '.ps1', '.psm1', '.psd1', '.ps1xml', '.dll', '.exe', '.cat'

@@ -14,7 +14,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
 {
     public override string Title => "Group overview";
     public override string Persona => "Leadership";
-    /// <summary>Each tenant is read for its whole organization, whatever part is picked (2.5.0).</summary>
+    /// <summary>Each tenant is read for its whole organization, whatever part is picked.</summary>
     public override bool UsesTeam => false;
     public override string Intro => "Each tenant's headline figures for the period, and the group's totals. A tenant is included where you see its whole organization; the others are listed without figures.";
 
@@ -32,7 +32,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
                 tenants.Use(t);
                 try
                 {
-                    /* The viewer and their grants from the database, not the page's cached reads (2.4.12): a revoked
+                    /* The viewer and their grants from the database, not the page's cached reads: a revoked
                        Organization grant went on showing a tenant's whole organization here for up to 12 hours. */
                     Viewer v;
                     using (QueryCache.Off()) v = await S.Viewers.ResolveAsync();
@@ -40,7 +40,7 @@ public sealed class GroupModel(PageServices s, TenantAccessor tenants, Metrics m
                     var c = await S.Contexts.CreateAsync(v, Ctx.Days, null);
                     rows.Add(new(t.Name, await metrics.TotalsAsync(c), null));
                 }
-                catch (Microsoft.Data.SqlClient.SqlException ex) { rows.Add(new(t.Name, null, "its database did not answer: " + ex.Message)); }
+                catch (Microsoft.Data.SqlClient.SqlException ex) { rows.Add(new(t.Name, null, Failure(ex, "Its database did not answer"))); }
             }
         }
         finally { tenants.Use(here); }

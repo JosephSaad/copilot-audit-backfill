@@ -4,6 +4,101 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.6] - 2026-10-23
+
+Ready for several web servers behind a load balancer, and for a virtual directory. The servers now share one report
+cache through the database and build the pages once each morning between them; a load balancer has a health address to
+probe; the site runs at an address such as https://apps.contoso.com/CopilotDashboard. Six pages that repeated others
+are merged into the pages they repeated, a person's record charts their use, and an admin change is now audited in the
+same transaction as the change, with what it changed. The nightly failure at License events is fixed.
+
+**Install over 2.7.5:** run `Install-CopilotAudit.ps1 -Dashboard` (two new tables, `dash.QueryCacheShared` and
+`dash.CacheGeneration`, a new column, `dash.AuditLog.Change`, and the wider `Operations` columns), then build and deploy
+the dashboard from this release (docs\BUILD-FROM-SOURCE.md) on each web server. Nothing on the job server changes but
+the scripts. Old addresses of the merged pages open the page that took them.
+
+### Changed
+- **Copilot on non-human accounts is one page,** listed in Licensing, Security and Compliance, where there were three
+  copies; anyone with one of those roles opens it. `/security/non-human` and `/compliance/non-human` open it.
+- **Agent inventory has *Shared* and *In production* views,** which were the pages Shared agents and Agents in
+  production; `/agents/shared` and `/agents/production` open those views.
+- **The Board pack takes in the Scorecard:** adoption split into Premium and free only, each unit one level down with
+  its change, and a link to Value. `/leadership/scorecard` opens the Board pack.
+- **Departments takes in the Leaderboard:** every department, division, country or office ranked against the period
+  before, with the most improved; ranked by department, the change is a column of All departments rather than a second
+  table of the same rows. `/adoption/leaderboard` opens Departments.
+- **A report turned off before stays off.** In Admin › Reports shown, the non-human page is turned off section by
+  section, as its three copies were, and the Scorecard, the Leaderboard, Shared agents and Agents in production are parts
+  of the pages that took them, turned off as before: a switch set on 2.7.5 keeps its effect. The Board pack's units now
+  show adoption only for a unit of at least the minimum group size of license holders.
+- **Suite moves are no longer in the summaries.** The Costs and savings summary and What to act on no longer recommend
+  moving people between E3, E5 and E7; Licensing › Suite fit still shows the analysis for whoever opens it.
+- **A failure shows a reference, never the error's text,** to everyone, administrators included: "Not changed: it
+  failed. Reference 3FA9C2: an administrator finds the details under it in the web server's log." The error, which can
+  name servers, databases and accounts, is in the log under that reference. A refusal the dashboard makes itself (a
+  value out of range, a line of a paste that does not read) still says what to correct.
+- **The full reporting reference is attached to each release,** with both guides as Word documents
+  (`REPORTING-REFERENCE.md`, `REPORTING-REFERENCE.docx`, `REPORTING.docx`). The repository keeps the reference's guide
+  only, 1,459 lines where it held 18,256: Parts B and C were copies of `docs/SCHEMA.md` and of the scripts.
+- **Code comments no longer carry release numbers** ("2.4.12: ", "(2.7.4)"): 974 comments in 172 files keep their
+  explanation and drop the tag; CHANGELOG.md and the guides say when each thing came.
+
+### Added
+- **One report cache for every web server.** Each server keeps results in its own memory and, behind it, in the
+  database: a page built on one server is fast on the others, a manager's part of the organization too, without session
+  affinity. The morning build runs on one server at a time; the others wait for it and read what it kept. A result is
+  kept under the data it was read from, so the nightly load or an administrator's change on any server makes every
+  server read afresh, counted once the change commits. A result is shared only between servers running the same build,
+  and only when it reads back as written; anything else stays on its server. A shared read or write waits at most two
+  seconds on a lock, and old results are cleared 200 at a time, every half hour. Admin › Health shows what the servers
+  share. `Insights:SharedQueryCache` (true) turns it off on a server.
+- **`/healthz`, for a load balancer's probe:** `ok` when the server answers and reaches its (first tenant's) database,
+  503 `unavailable` when it does not; GET or HEAD, over HTTP or HTTPS, no sign-in, nothing named. The installer lets that
+  one address answer without Windows authentication.
+- **A virtual directory.** `Install-CopilotInsights.ps1 -SiteName <site> -ApplicationPath /CopilotDashboard` installs
+  the dashboard as an application inside an existing site, in an app pool and a folder of its own named after the path;
+  every link, form, file and redirect carries the path. Behind a proxy other than IIS, `Insights:PathBase` sets it. The
+  installer refuses a pool another site or application runs in, a folder holding files that are not the dashboard's, a
+  path named as one of the dashboard's own addresses (`/admin`, `/agents`), and a run without `-ApplicationPath` on a
+  site that holds the dashboard as an application.
+- **A person's use over time** on their record: interactions and sessions a day (a week over 90 days), with links for
+  7, 14, 30, 90, 180 and 365 days, days active and interactions a day active.
+- **What an admin change changed.** An admin change and its audit row are written in one transaction: a change whose
+  row cannot be written is not made. The row holds what was submitted (passwords, secrets, tokens, keys and webhook
+  addresses masked, and any address's query, where a Teams or Logic Apps address keeps its signature) and the settings
+  and role grants the change altered, before and after. Admin › Audit log shows it under *What changed*, as lines; its
+  CSV has it as JSON. What runs long or reaches outside the database (a rebuild, retention, a test email or webhook,
+  running the checks or an extract now, every tenant, the two uploads, taking a month again) is audited when it ends, as
+  before, and a failure there says part of it may be done.
+- **A test per audit loader against SQL Server:** each loader's operation set, taken from the nightly plan itself, is
+  written where the loader records it (the backfill range, an incremental load and the CSV import) on a fresh schema.
+
+### Fixed
+- **The nightly stopped at License events** with "String or binary data would be truncated in table
+  'audit.CopilotBackfillRange', column 'Operations'". 2.7.0 added the administrators' actions on agents to the
+  license-event load, and its operation set, as recorded, grew from 382 to 485 characters, past the column's 400.
+  `Operations` in audit.CopilotBackfillRange, audit.CopilotLoad and audit.CopilotCsvImport is now 2,000 characters,
+  widened by the schema script every load runs first: deploying the scripts is enough, and the night resumes where it
+  stopped. Until then, the same three `ALTER TABLE ... ALTER COLUMN Operations NVARCHAR(2000) NOT NULL` in the
+  license-event database fix it by hand.
+- **Adding a credit route** (Credit chargeback) left the list of routes as it was until the night's load: a write that
+  returns a value was not counted as a change.
+- **Copilot reservations with an empty register** showed every Microsoft 365 Copilot holder (17,886 at a client) under no
+  listed leader, in red, with nothing to say why. It now says first that no organization is in the register yet, and
+  where an administrator adds them and the rate.
+
+### Known limits
+- Three web servers were not run behind a load balancer here. Two dashboards on one database, side by side on this PC,
+  gave the same 20 page views byte for byte as one without sharing, and the second built them in a quarter of the time;
+  the morning lock was not raced between servers.
+- The virtual directory was tried with `Insights:PathBase` under Kestrel, not with `-ApplicationPath` under IIS: the
+  installer's new branch was not run on an IIS server. Bookmarks and email links from before need the path added.
+- An adversarial review of the release found, and this release fixes: the webhook address unmasked in the audit record;
+  running the checks now inside the change's transaction (a distributed-transaction error); reports turned off before
+  the merge coming back; installer defaults that could share a pool or mirror over another site's folder; the shared
+  cache's clean-up holding its table. Not changed: two admin changes saved in the same moment can deadlock, and one is
+  then not made, with a reference; Admin › Email's SMTP failure text, shown to administrators, can name the mail server.
+- Synthetic lab data, not the client's. Power BI Desktop: no `bi` view changed.
 ## [2.7.5] - 2026-10-21
 
 A pass over the 250 headline figures that open nothing: the ones that name a group now open it, and two figures that

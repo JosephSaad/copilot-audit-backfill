@@ -13,7 +13,7 @@ public sealed record CreditAgent(int AgentKey, string Name, string? Source, int 
 public sealed record CreditView(IReadOnlyList<CreditPerson> People, IReadOnlyList<CreditAgent> Agents, CreditRates Rates, int Days, string Currency);
 
 /// <summary>
-/// Reads Copilot use from bi.FactInteraction for <see cref="CreditRules"/> (2.6.6): per person and per agent in the
+/// Reads Copilot use from bi.FactInteraction for <see cref="CreditRules"/>: per person and per agent in the
 /// period and team shown, each interaction marked as with an agent or not, billed or not (an agent without a license at
 /// the time, or in a Copilot Studio channel), grounded in work data (resources read, or Copilot's own work-mode mark),
 /// and calling another agent. One pass over the fact, grouped twice.
@@ -39,7 +39,7 @@ public sealed class CreditData(Db db, Settings settings)
         public long BA { get; set; } public long R { get; set; } public long M { get; set; } public int Lic { get; set; } public int People { get; set; }
     }
 
-    /// <summary>The credit estimate, kept once worked out (2.7.4, see <see cref="Db.KeptAsync"/>).</summary>
+    /// <summary>The credit estimate, kept once worked out (see <see cref="Db.KeptAsync"/>).</summary>
     public Task<CreditView> BuildAsync(ReportContext c) => db.KeptAsync("CreditData.Build", c, () => BuildFreshAsync(c));
 
     async Task<CreditView> BuildFreshAsync(ReportContext c)
@@ -48,7 +48,7 @@ public sealed class CreditData(Db db, Settings settings)
         var cur = await settings.StringAsync("LicenseCurrency") ?? "USD";
         var days = OpsReports.DaysCovered(c, await OpsReports.FirstDayAsync(db));
         /* One pass over the fact, to one row a person and agent, then grouped twice (by person, by agent): nothing of the
-           period copied out, as at 120M interactions that copy was the cost of the page. 2.7.3: this replaced GROUPING SETS
+           period copied out, as at 120M interactions that copy was the cost of the page. This replaced GROUPING SETS
            with a distinct count of people, which aggregated the fact twice and spooled it (2.6 s against 0.2 s for the
            demo's half million rows, the same rows); a person and agent being one row, its billed rows count the people.
            Billed: an agent used by someone not licensed at the time (status 2; an unknown status is not taken for

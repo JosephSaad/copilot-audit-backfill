@@ -1,7 +1,7 @@
 namespace CopilotInsights.Pages;
 
 /// <summary>
-/// One sentence on what each page answers (2.4.9), and, in the larger sections, the heading it sits under.
+/// One sentence on what each page answers, and, in the larger sections, the heading it sits under.
 /// Written once and shown wherever a page is offered: the hover text of its link in the navigation, the section's
 /// panel, the start page, the search, and Admin › Reports shown. A page with no entry here fails a test.
 /// </summary>
@@ -18,9 +18,12 @@ public static class NavText
     public static IEnumerable<(string? Heading, List<NavPage> Pages)> Sub(IEnumerable<NavPage> pages)
     {
         var groups = new List<(string? Heading, List<NavPage> Pages)>();
-        foreach (var p in pages)
+        var list = pages.ToList();
+        var unheaded = list.Any(x => Heading(x) is null);
+        foreach (var p in list)
         {
-            var h = Heading(p);
+            /* A page shared by several sections keeps its heading only in a section whose pages all have one. */
+            var h = unheaded && Nav.SectionsOf(p.Path).Count > 1 ? null : Heading(p);
             if (groups.Count > 0 && groups[^1].Heading == h) groups[^1].Pages.Add(p);
             else groups.Add((h, [p]));
         }
@@ -31,7 +34,6 @@ public static class NavText
     {
         ["/leadership"] = ("Is Copilot being used, by how many of the people who have it, and where.", "At a glance"),
         ["/leadership/act"] = ("What the other reports say to do: each finding, how many, and where the detail is.", "At a glance"),
-        ["/leadership/scorecard"] = ("This period against the one before: what moved, and in which part of the organization.", "At a glance"),
         ["/leadership/org"] = ("Each part of the organization one level below, side by side.", "At a glance"),
         ["/leadership/compare"] = ("Two managers' teams side by side: adoption, use, depth and apps, over the same period.", "At a glance"),
         ["/group"] = ("Each tenant's headline figures for the period, and the group's totals.", "At a glance"),
@@ -41,13 +43,12 @@ public static class NavText
         ["/leadership/costs"] = ("What AI and automation cost, what can be saved, and what they return, all areas on one page.", "What it is used for"),
         ["/leadership/reservations"] = ("Each organization's reserved Copilot seats against its licenses, and what it bills.", "Cost savings"),
         ["/leadership/credit-chargeback"] = ("Each line of business's Copilot Credits by path, and what they charge it.", "Cost savings"),
-        ["/leadership/boardpack"] = ("The program on one page for the board: use, targets, value, licenses and risk.", "Reporting"),
+        ["/leadership/boardpack"] = ("The program on one page: change on the period before, by unit, targets, value and risk.", "Reporting"),
         ["/leadership/assumptions"] = ("Every price and assumption a cost, saving or value rests on, and where it is set.", "Reporting"),
 
         ["/adoption"] = ("From license to habit: how many licensed people started, are active, and keep going.", "Overview"),
         ["/adoption/by-license"] = ("How the people of one license type use Copilot: who, which apps, how long.", "Overview"),
         ["/adoption/departments"] = ("Adoption in each department, side by side.", "Overview"),
-        ["/adoption/leaderboard"] = ("Groups ranked by adoption, with the change on the period before.", "Overview"),
         ["/adoption/retention"] = ("Do people keep using Copilot once they start? Week by week.", "Who is and is not using it"),
         ["/adoption/cohorts"] = ("Do people keep using Copilot after they get a license? By the month licensed.", "Who is and is not using it"),
         ["/adoption/onboarding"] = ("People newly licensed or hired: how long until they first used Copilot.", "Who is and is not using it"),
@@ -77,19 +78,15 @@ public static class NavText
         ["/security"] = ("Jailbreak attempts, prompt injection and blocked resources: how many, when, and in which units.", null),
         ["/security/guests"] = ("Copilot use by guest accounts, and the organizations they come from.", null),
         ["/security/flags"] = ("Each flagged interaction, who and where, with its triage.", null),
-        ["/security/non-human"] = ("Copilot licenses on accounts that are not a person: a policy breach.", null),
 
         ["/compliance"] = ("How often Copilot works with labeled content, which labels, and what was blocked.", null),
         ["/compliance/units"] = ("Which parts of the organization have Copilot working with labeled content.", null),
         ["/compliance/sites"] = ("The sites Copilot read from most: where to check permissions first.", null),
         ["/compliance/access"] = ("Who worked with labeled content through Copilot, and the most sensitive label.", null),
         ["/compliance/person"] = ("Everything recorded about one person's Copilot use, for an access request.", null),
-        ["/compliance/non-human"] = ("Copilot licenses on accounts that are not a person: a policy breach.", null),
 
         ["/agents"] = ("Every agent people used: how many people, how often, and which are new.", null),
         ["/agents/inventory"] = ("Every current agent from the agent workbook, its owner and use; unused ones flagged.", null),
-        ["/agents/shared"] = ("Agents shared with other users or groups, and their use in the period.", null),
-        ["/agents/production"] = ("The agents in production, and whether people use them.", null),
         ["/agents/owners"] = ("Agents whose owner left, is disabled or is not set, and agents by owner's department.", null),
         ["/agents/checks"] = ("Agents whose settings disagree with their use: quarantined, web search, production.", null),
         ["/agents/children"] = ("Child agents: the parent agents that call each one, and their use.", null),

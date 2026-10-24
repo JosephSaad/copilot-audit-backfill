@@ -26,8 +26,8 @@ public sealed class IndexModel(PageServices s) : InsightsPage(s)
     protected override async Task BuildAsync()
     {
         /* Days counted as rows of a per-day grouping, and names joined rather than looked up by dash.fnValueName,
-           which kept the whole statement to one thread (2.4.2): 7 seconds to 3 for a year of a whole organization. */
-        /* The reads are independent: started together, awaited where used (2.7.3). */
+           which kept the whole statement to one thread: 7 seconds to 3 for a year of a whole organization. */
+        /* The reads are independent: started together, awaited where used. */
         var rowsTask = Db.QueryAsync<Row>($@"
 WITH d AS (SELECT f.AppKey, f.UserKey, f.DateKey, COUNT_BIG(*) AS N, SUM(CAST(f.PromptCount AS BIGINT)) AS P, SUM(CAST(f.AccessedResourceCount AS BIGINT)) AS R
            FROM bi.FactInteraction AS f {Ctx.Scope("f.UserKey")}
@@ -74,7 +74,7 @@ WHERE f.DateKey BETWEEN @k0 AND @k1 GROUP BY f.AppKey, {Ctx.BucketSql("d")};", C
         CsvTable = t;
         Panels.Add(new("Every app", WithTrendNote(t.Render()), "Came back: people who used Copilot in the app on more than one day.", "full", CsvUrl()));
 
-        /* 2.7.0: beside Copilot, from the activity database where it is set up: Teams meeting AI notes (Facilitator), Power BI
+        /* Beside Copilot, from the activity database where it is set up: Teams meeting AI notes (Facilitator), Power BI
            and Power Apps, by the people who used each, in the same period and part of the organization. */
         if (await activityTask == 1)
         {

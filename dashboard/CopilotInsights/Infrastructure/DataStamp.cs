@@ -6,13 +6,13 @@ using Microsoft.Data.SqlClient;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>
-/// What the query cache is keyed on (2.4.7): a stamp of everything the reports read that can change, taken from the
+/// What the query cache is keyed on: a stamp of everything the reports read that can change, taken from the
 /// database at most every 30 seconds for each tenant. It changes when the dashboard is refreshed, when a pipeline run
 /// ends, when the licenses or the directory are read, when a setting or a reference table changes (here or on another web
 /// server, or from Invoke-CopilotMaintenance.ps1), and at midnight UTC, since some reports count from today.
 /// Tables that change all day (triage, exported actions, confirmations) are not in the stamp: a change to one would
 /// end everything kept. A query that reads one is kept under that table's own version, read from the database for
-/// every page that asks (2.4.11, <see cref="Live"/>).
+/// every page that asks (<see cref="Live"/>).
 /// </summary>
 public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, ILogger<DataStamp> log)
 {
@@ -21,14 +21,16 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
     [
         "dash.Setting", "dash.Target", "dash.TimeSaving", "dash.TrainingAttendance", "dash.ValueName", "dash.AgentAlias", "dash.SensitivityLabel",
         "dash.JobFamilyRule", "dash.UseCaseRule", "dash.EventMarker", "dash.LicenseContract", "audit.PipelineSetting", "audit.SessionAppCategory",
-        "dash.AgentInventoryRun",   // 2.5.6: each load of the agent workbook adds a row, so the agent reports are read again
-        /* 2.6.6: what Leadership › Costs and savings reads that tools\Import-CostCsv.ps1 or an administrator can change outside a nightly run. */
+        "dash.AgentInventoryRun",   // Each load of the agent workbook adds a row, so the agent reports are read again
+        /* What Leadership › Costs and savings reads that tools\Import-CostCsv.ps1 or an administrator can change outside a nightly run. */
         "dash.CostPrice", "dash.CostSuite", "audit.FabricCapacityDay", "audit.FabricWorkloadDay", "audit.PowerAutomateFlow", "audit.PowerPlatformUserActivity",
         "audit.PowerPlatformCapacityDay", "audit.PowerPlatformCreditDay",
-        /* 2.6.9: the resource map administrators keep (the AI apps' days are stamped by their rollup's runs, below: too many rows to checksum). */
+        /* The resource map administrators keep (the AI apps' days are stamped by their rollup's runs, below: too many rows to checksum). */
         "audit.AIAppResource",
-        /* 2.6.8: the reservation register, its rate, the Technology pool and the month-end snapshots (Leadership › Copilot reservations). */
+        /* The reservation register, its rate, the Technology pool and the month-end snapshots (Leadership › Copilot reservations). */
         "dash.Reservation", "dash.ReservationRate", "dash.TechnologyAllocation", "dash.ReservationSnapshot",
+        /* The dashboard's changes, counted for every web server: a change on one is seen by the others at their next read of the stamp. */
+        "dash.CacheGeneration",
     ];
 
     /// <summary>A table people change all day, and the query that gives its version: one short string that differs after any change.</summary>
@@ -80,6 +82,8 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
     {
         if (!cache.Enabled) return;
         var tenant = tenants.Current;
+        /* This server wrote: its next page reads the stamp, with the change counted in it, at once. */
+        if (cache.TakeStale(tenant.Name)) force = true;
         if (!force && _checked.TryGetValue(tenant.Name, out var at) && DateTime.UtcNow - at < TimeSpan.FromSeconds(30)) return;
         var gate = _locks.GetOrAdd(tenant.Name, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync();
@@ -107,7 +111,7 @@ public sealed partial class DataStamp(TenantAccessor tenants, QueryCache cache, 
     {
         /* One batch: the runs that change the facts, the license read, and each reference table's row count and checksum.
            A table the database does not have yet counts as empty.
-           2.4.12: a pipeline run counts when it ends, not when it starts. Its first row ended everything kept, and started
+           A pipeline run counts when it ends, not when it starts. Its first row ended everything kept, and started
            a build of every page, at the start of the nightly load, before any data had changed. And the license read is
            every table it writes: the stamp saw only the pool, written first, and the warm-up kept the licensed accounts,
            their licenses and the service-account groups from before the read, until midnight UTC, when no refresh

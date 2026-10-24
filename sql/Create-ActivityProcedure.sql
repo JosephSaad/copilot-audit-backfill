@@ -1,5 +1,5 @@
 /*
-    audit.usp_ShredActivity (2.6.9)
+    audit.usp_ShredActivity
     ------------------------------------------------------------------------
     Reads the records of the activity database (Create-ActivitySchema.sql)
     into audit.AIAppCall and audit.PlatformActivity.
@@ -82,7 +82,7 @@ BEGIN
 
         DROP TABLE IF EXISTS #rec;
         SELECT a.RecordId, a.CreatedDateTime,
-               /* 2.7.0: by record type first where the workload is shared with other records (Teams, DLP). */
+               /* By record type first where the workload is shared with other records (Teams, DLP). */
                CASE WHEN a.RecordType LIKE N'teamCopilot%' THEN N'TeamsAI'
                     /* Only a policy match, undo or false-positive report: an endpoint's DLPEndpoint records also carry
                        its ordinary file activity (created, modified, renamed), audited with no rule matched. */
@@ -188,7 +188,7 @@ BEGIN
         WHERE r.Workload IN (N'PowerBI', N'PowerApps', N'TeamsAI');
         SET @platform += @@ROWCOUNT;
 
-        /* 2.7.0: data loss prevention matches. */
+        /* Data loss prevention matches. */
         DELETE m FROM audit.DlpMatch AS m JOIN #rec AS r ON r.RecordId = m.RecordId;
         INSERT INTO audit.DlpMatch (RecordId, CreatedDateTime, Workload, Operation, UserId, PolicyName, RuleName, Severity, Policies)
         SELECT r.RecordId, r.CreatedDateTime, r.SourceWorkload, r.Operation, LOWER(r.UserId), r.PolicyName, r.RuleName, r.Severity, ISNULL(r.Policies, 0)

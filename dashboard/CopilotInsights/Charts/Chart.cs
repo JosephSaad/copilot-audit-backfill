@@ -10,7 +10,7 @@ public enum Fmt { Count, Percent, Decimal1, Days }
 /// <summary>One series. Slot is the categorical color (1-8, fixed per entity, never by rank).</summary>
 public sealed record Series(string Name, IReadOnlyList<double?> Values, int Slot);
 
-/// <summary>A bar: Note goes in its tooltip; Shown is printed beside its value (2.4.5), such as "2 of 2" under a rate.</summary>
+/// <summary>A bar: Note goes in its tooltip; Shown is printed beside its value, such as "2 of 2" under a rate.</summary>
 public sealed record Bar(string Label, double? Value, string? Href = null, string? Note = null, int Slot = 1, string? Shown = null);
 
 /// <summary>
@@ -28,23 +28,23 @@ public sealed record Marker(int Index, string Label, string Kind, DateTime? Day 
 
 /// <summary>
 /// A trend's labels, with the events that fall in it. Line and Columns draw each event as a numbered badge above
-/// the plot and a dashed rule through it, with a key under the chart: nothing is written over the data (2.4.5).
+/// the plot and a dashed rule through it, with a key under the chart: nothing is written over the data.
 /// </summary>
 public sealed class Axis(IEnumerable<string> labels) : List<string>(labels)
 {
     public List<Marker> Markers { get; } = [];
 
     /// <summary>
-    /// The points not drawn (2.5.2): the weeks the period covers only in part, the first when it starts after a
+    /// The points not drawn: the weeks the period covers only in part, the first when it starts after a
     /// Saturday and the last while it is under way. Each counted a few days against the whole weeks' seven, so every
     /// weekly line ended in a drop that was only the calendar: on a Saturday, the last point was one day's people. Line,
     /// Columns, Heatmap and Sparkline leave them out, with their events; the page's other figures still count their days.
-    /// On a daily trend they are the days held back (2.5.3): the two newest days of records, which may not all be in yet.
+    /// On a daily trend they are the days held back: the two newest days of records, which may not all be in yet.
     /// </summary>
     public HashSet<int> Partial { get; } = [];
 
     /// <summary>
-    /// Said in a line under each chart drawn over this axis (2.5.3): how far a daily trend is shown and why it stops short
+    /// Said in a line under each chart drawn over this axis: how far a daily trend is shown and why it stops short
     /// of the period. On the page itself, not behind an information icon, so a chart copied out still says it.
     /// </summary>
     public string? Note { get; set; }
@@ -133,7 +133,7 @@ public static class Chart
     static List<(int I, List<string> Lines)> AxisLabels(IReadOnlyList<string> x, double spacing)
     {
         var every = Math.Max(1, (int)Math.Ceiling(x.Count / 8.0));
-        /* Fewer labels where even wrapped they would run into each other (2.4.10: a year of weeks and a year of forecast
+        /* Fewer labels where even wrapped they would run into each other (a year of weeks and a year of forecast
            in a half-width chart drew "w/e 22 May" over its neighbor). A word does not break, so the widest line decides. */
         int Room(int e) => Math.Max(6, (int)(spacing * e / 6.3) - 1);
         while (every < x.Count)
@@ -147,7 +147,7 @@ public static class Chart
         var list = new List<(int, List<string>)>();
         for (var i = 0; i < x.Count; i++)
             /* A label too near the last is left out where labels are thinned; where every point has room for its own (every
-               is 1), none is: six months drew five labels, the one before the last missing (2.6.6). */
+               is 1), none is: six months drew five labels, the one before the last missing. */
             if ((i % every == 0 && (i == x.Count - 1 || every == 1 || x.Count - 1 - i >= Math.Max(2, every * 0.85))) || i == x.Count - 1)
                 list.Add((i, WrapLines(x[i], room)));
         return list;
@@ -228,7 +228,7 @@ public static class Chart
         return (new Axis(keep.Select(i => cols[i])) { Note = ((Axis)cols).Note }, v);
     }
 
-    /// <summary>The line under a chart whose newest days are held back (2.5.3, see <see cref="Axis.Note"/>); nothing where there is none.</summary>
+    /// <summary>The line under a chart whose newest days are held back (see <see cref="Axis.Note"/>); nothing where there is none.</summary>
     public static string Held(string? note) => note is null ? "" : $"<p class=\"held\">{E(note)}</p>";
 
     static string Held(IReadOnlyList<string> x) => Held((x as Axis)?.Note);
@@ -237,7 +237,7 @@ public static class Chart
     static int TopFor(IReadOnlyList<string> x) => x is Axis a && a.Markers.Any(m => m.Index >= 0 && m.Index < x.Count) ? 34 : 14;
 
     /// <summary>
-    /// The events on the axis (2.4.5): a numbered badge each in the strip above the plot, a light dashed rule
+    /// The events on the axis: a numbered badge each in the strip above the plot, a light dashed rule
     /// through the plot where it falls, and the key under the chart, which this returns. Events at one point
     /// share a badge; badges too close to tell apart step to the right, joined to their rule by a short line.
     /// </summary>
@@ -271,10 +271,10 @@ public static class Chart
     public sealed record AdoptionGroup(string Name, int Active, int Licensed, string? Href = null, string? Note = null);
 
     /// <summary>
-    /// Adoption ranked across groups (2.4.5): only groups with at least <paramref name="min"/> license holders are
+    /// Adoption ranked across groups: only groups with at least <paramref name="min"/> license holders are
     /// ranked, highest first and, at the same rate, the larger first; the rest are one bar at the end, so no bar
     /// rests on one or two people. That bar reaches the minimum too, the smallest ranked groups joining it where
-    /// needed (2.4.12, see <see cref="CopilotInsights.Data.SmallGroups"/>). Each bar shows its "a of b" beside the rate.
+    /// needed (see <see cref="CopilotInsights.Data.SmallGroups"/>). Each bar shows its "a of b" beside the rate.
     /// </summary>
     public static HtmlString Adoption(IEnumerable<AdoptionGroup> groups, int min, string aria, int take = 20)
     {
@@ -283,7 +283,7 @@ public static class Chart
             .OrderByDescending(g => g.Active / (double)g.Licensed).ThenByDescending(g => g.Licensed).Take(take)
             .Select(g => new Bar(g.Name, g.Active / (double)g.Licensed, g.Href, g.Note ?? $"{g.Active:#,0} of {g.Licensed:#,0} licensed", Shown: $"{g.Active:#,0} of {g.Licensed:#,0}"))
             .ToList();
-        /* Not drawn when even all of them together are under the minimum (2.4.12): with nothing ranked to join it, that
+        /* Not drawn when even all of them together are under the minimum: with nothing ranked to join it, that
            bar was the rate of one or two license holders. */
         if (few.Count > 0 && few.Sum(g => g.Licensed) >= min)
         {
@@ -365,8 +365,7 @@ public static class Chart
         if (x.Count == 0 || lines.Count == 0 || lines.All(l => l.History.Values.All(v => v is null))) return new(Empty("Not enough history to forecast yet."));
         var top0 = lines.SelectMany(l => l.History.Values.Where(v => v.HasValue).Select(v => v!.Value).Concat(l.High)).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
-        /* Narrow, the end carries its value alone; also when the name and value would not fit the widest margin allowed (2.7.3:
-           at 390px "Free Copilot Chat only 229" ran 4px past the edge). The chart's title names a single line. */
+        /* Narrow, the end carries its value alone; also when the name and value would not fit the widest margin allowed (at 390px "Free Copilot Chat only 229" ran 4px past the edge). The chart's title names a single line. */
         var fullLabel = lines.Select(l => TextW(l.History.Name + " " + Format(l.Forecast.Count > 0 ? l.Forecast[^1] : l.History.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
         var compact = (W <= 380 && lines.Count >= 2) || fullLabel + 16 > Math.Max(110, W * 0.42);
         var endLabel = lines.Select(l => TextW((compact ? "" : l.History.Name + " ") + Format(l.Forecast.Count > 0 ? l.Forecast[^1] : l.History.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
@@ -490,14 +489,14 @@ public static class Chart
         var labelW = (int)Math.Clamp(bars.Max(b => b.Label.Length * 6.9) + 18, Math.Min(190, BW * 0.3), BW * 0.42);
         var perLine = Math.Max(10, (int)((labelW - 18) / 6.9));
         var wrapped = bars.Select(b => WrapLines(b.Label, perLine)).ToList();
-        /* Up to three lines of name; drawn narrow (a phone), where a line holds little, up to five (2.4.10). */
+        /* Up to three lines of name; drawn narrow (a phone), where a line holds little, up to five. */
         var maxLines = BW <= 380 ? 5 : 3;
         var lineCount = Math.Min(maxLines, wrapped.Max(w => w.Count));
         var rowH = lineCount switch { 1 => 26, 2 => 36, 3 => 48, _ => 48 + (lineCount - 3) * 12 };
         var span = BW - labelW - valueW - (low < 0 ? valueW : 0);
         var zero = labelW + (low < 0 ? valueW : 0) + span * (-low) / (top - low);
         /* A name sits around the middle of its bar, so one of three lines or more starts above the bar: the first row
-           is given that room, or its name left the top of the chart (2.4.10). */
+           is given that room, or its name left the top of the chart. */
         var pad = Math.Max(4, (lineCount - 1) * 6 - 2);
         var h = bars.Count * rowH + pad + 2;
         var sb = new StringBuilder($"<svg class=\"chart bars\" viewBox=\"0 0 {BW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
@@ -536,7 +535,7 @@ public static class Chart
     }
 
     /// <summary>A grid of cells shaded on the blue sequential ramp (q0 lightest to q8 darkest).</summary>
-    /// <param name="unit">What a cell's figure counts, said after it in the cell's hover text (2.4.10): "20 interactions", "45% active".</param>
+    /// <param name="unit">What a cell's figure counts, said after it in the cell's hover text: "20 interactions", "45% active".</param>
     /// <param name="unitOne">The same for a count of one: "1 interaction".</param>
     /// <param name="column">A column's label in full for the hover text, where the axis has room only for a short one: "14" is "14:00 to 14:59".</param>
     public static HtmlString Heatmap(IReadOnlyList<string> rows, IReadOnlyList<string> cols, double?[,] values, Fmt f, string aria, double? max = null,
@@ -558,14 +557,14 @@ public static class Chart
         const int rowH = 24;
         var HW = W;
         /* Row names are drawn as bar names are (6.9 a character, not a tick's 6.3), and a phone gives them up to 45% of
-           the width: at 390px, "Employee Experience" started 4px left of the chart (2.7.3). */
+           the width: at 390px, "Employee Experience" started 4px left of the chart. */
         var labelW = (int)Math.Clamp(rows.Max(r => r.Length * 6.9) + 14, 110, Math.Max(110, HW * (HW <= 420 ? 0.45 : 0.36)));
         var cw = (HW - labelW - 8) / (double)cols.Count;
         var h = rows.Count * rowH + 24;
         var sb = new StringBuilder($"<svg class=\"chart heat\" viewBox=\"0 0 {HW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
-        /* A label over every so many columns: twelve across at most, and fewer where the columns are narrower than a label (2.4.10).
+        /* A label over every so many columns: twelve across at most, and fewer where the columns are narrower than a label.
            One over the last columns is moved in until it is whole inside the chart, and left out where that would crowd the
-           one before it (2.5.2: over the last of 25 weeks, "w/e 2 Oct" ran 5px past the right edge). */
+           one before it (over the last of 25 weeks, "w/e 2 Oct" ran 5px past the right edge). */
         var every = Math.Max(Math.Max(1, (int)Math.Ceiling(cols.Count / 12.0)), (int)Math.Ceiling((cols.Max(c => TextW(c)) + 6) / Math.Max(1, cw)));
         var drawnTo = double.MinValue;
         for (var c = 0; c < cols.Count; c++)
@@ -598,7 +597,7 @@ public static class Chart
         return new(sb + scale + Held(cols));
     }
 
-    /// <summary>A small line for a table cell, over the page's trend points <paramref name="x"/>: drawn without the partial ones, as the trend charts are (2.5.2).</summary>
+    /// <summary>A small line for a table cell, over the page's trend points <paramref name="x"/>: drawn without the partial ones, as the trend charts are.</summary>
     public static HtmlString Sparkline(IReadOnlyList<string> x, IReadOnlyList<double?> values, string tip)
     {
         if (Drawn(x) is { } keep) values = keep.Select(i => values.ElementAtOrDefault(i)).ToList();

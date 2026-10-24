@@ -358,7 +358,7 @@ BEGIN
     IF @RebuildAll = 1
         SET @SinceUtc = NULL;
 
-    /* 2.5.4: one shred at a time. Two at once would each take the other's mark (below) for a stopped shred's, and
+    /* One shred at a time. Two at once would each take the other's mark (below) for a stopped shred's, and
        the first to finish would take away the mark the other still needs. A second shred waits for the first to
        finish, as a second bi refresh does. The lock is the session's, as a shred commits as it goes: released at
        the end, on an error (the CATCH at the end), or when the session closes. */
@@ -377,7 +377,7 @@ BEGIN
     DECLARE @shredFrom DATETIME2(0) = DATEADD(SECOND, -1, SYSUTCDATETIME());
 
     /*
-        2.5.4: a shred says that it is running (LicenseShredInProgress in audit.PipelineSetting, with the time it
+        A shred says that it is running (LicenseShredInProgress in audit.PipelineSetting, with the time it
         shreds from; empty: every record) and takes the mark away once it has finished and the SKU changes are
         worked out. Its statements commit one by one, so one that is stopped part way - between a batch's events
         and their properties, or before the chunk groups are reassembled - leaves events without their properties,
@@ -412,7 +412,7 @@ BEGIN
         TRUNCATE TABLE audit.LicenseEvent;
     END;
 
-    /* Chunk groups this run saw, reassembled once every batch is in. In the database's collation (2.4.12): in
+    /* Chunk groups this run saw, reassembled once every batch is in. In the database's collation: in
        tempdb's, a database whose collation differs from the server's failed every shred at the first comparison. */
     DROP TABLE IF EXISTS #touched;
     CREATE TABLE #touched (ChunkGroupId NVARCHAR(100) COLLATE DATABASE_DEFAULT NOT NULL PRIMARY KEY);
@@ -472,7 +472,7 @@ BEGIN
             ) AS t
         WHERE a.RecordId > @cursor AND a.RecordId <= @maxId
           AND (@SinceUtc IS NULL OR a.CreatedDateTime >= @SinceUtc)
-          /* Copilot Studio's authoring records share the load (2.3.0), and from 2.7.0 administrators' actions on agents:
+          /* Copilot Studio's authoring records share the load, and from 2.7.0 administrators' actions on agents:
              audit.usp_ShredAgentEvents takes them. */
           AND a.Operation NOT LIKE N'Bot%'
           AND a.Operation NOT IN (N'BlockedAgent', N'UnblockedAgent', N'DeployedAgent', N'RemovedAgent', N'DeletedAgent', N'UpdatedAgent', N'UpdatedTenantSettings');

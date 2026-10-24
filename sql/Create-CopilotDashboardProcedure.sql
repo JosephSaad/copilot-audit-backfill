@@ -11,7 +11,7 @@
          sites) from bi.FactAccessedResource, for the days from
          @SinceUtc's day on (every day when NULL), replaced in one transaction.
          Every day, too, when a full bi refresh has run since the last
-         rollup (2.4.12), and from the first day of an app whose category a
+         rollup, and from the first day of an app whose category a
          bi refresh changed.
       3. dash.AgentUse, whole: when each agent was first and last used.
 
@@ -20,7 +20,7 @@
 
     While a full bi rebuild has not finished (bi.RebuildInProgress has a row:
     it is running, or was stopped part way), steps 2 and 3 are skipped and
-    the rollups left as they are (2.4.12): the facts are half written. The
+    the rollups left as they are: the facts are half written. The
     first rollup after the rebuild has finished builds every day.
 
     The closure follows ManagerUPN up from each person. A manager missing from
@@ -117,7 +117,7 @@ BEGIN
     INSERT INTO #person (Upn)
     SELECT DISTINCT c.AncestorUpn FROM #clo AS c WHERE NOT EXISTS (SELECT 1 FROM #person AS p WHERE p.Upn = c.AncestorUpn);
 
-    /* A level counts every manager between a person and the top, those without a UPN too (2.4.12). The closure runs
+    /* A level counts every manager between a person and the top, those without a UPN too. The closure runs
        on ManagerUPN, which passes over a manager without a UPN to the one above, so a person under such a manager
        right below the top came out at level 2, which sees the whole organization. The AD load's OrgDepth counts them
        all; the deeper of the two is taken, so a level is never nearer the top than the chart puts it. */
@@ -145,7 +145,7 @@ BEGIN
 
     /* ---- 2. The daily rollup ------------------------------------------------- */
 
-    /* 2.4.12: not while a full bi rebuild has not finished, running or stopped part way: the facts are half written.
+    /* Not while a full bi rebuild has not finished, running or stopped part way: the facts are half written.
        A rollup over them took every month the rebuild had not reached yet out of the rollups (the dashboard
        installer's refresh during an upgrade's rebuild, say), and the windowed rollups after it never put them back.
        The run that finishes the rebuild is a full one, so the first rollup after it builds every day (below). */
@@ -175,7 +175,7 @@ BEGIN
     DECLARE @biRun INT = (SELECT MAX(RunId) FROM bi.RefreshRun);
     DECLARE @lastBiRun INT = ISNULL((SELECT TOP (1) r.BiRunId FROM dash.RefreshRun AS r WHERE r.BiRunId IS NOT NULL ORDER BY r.RunId DESC), 0);
 
-    /* 2.4.12: a full bi refresh since the last rollup rewrote every interaction (a new rule for Premium or licensed
+    /* A full bi refresh since the last rollup rewrote every interaction (a new rule for Premium or licensed
        use, license history that arrived late, another time zone, a stopped rebuild the nightly run finished), so
        every day is rolled up again. Before, only the window asked for was, and every older day kept the figures of
        the facts before it, for good: the dashboard and Power BI disagreed, and an upgrade's new Premium rule never
@@ -240,7 +240,7 @@ BEGIN
     /* Labels and sites, from bi.FactAccessedResource: the label on each resource
        read, the site of labeled content, and the site of content Copilot was
        blocked from. Sites are already cut to https://host/sites/name there.
-       Interactions, not resources (2.4.12): the fact has a row per resource, and
+       Interactions, not resources: the fact has a row per resource, and
        each was counted, so an answer drawn from six files with one label added
        six to that label and its site, where the page's own count of labeled
        interactions added one, and the label alert fired on a single interaction. */
@@ -290,7 +290,7 @@ BEGIN
         DELETE FROM dash.ResourceDay WHERE DateKey >= @fromKey;
     INSERT INTO dash.ResourceDay WITH (TABLOCK) (DateKey, UserKey, Kind, Item, Interactions)
     SELECT DateKey, UserKey, Kind, Item, Interactions FROM #res;
-    /* 2.4.7: the flagged interactions, for Security > Flagged interactions. From @fromKey on, or all of them when
+    /* The flagged interactions, for Security > Flagged interactions. From @fromKey on, or all of them when
        the table is empty, as it is the first time after an upgrade (a refresh of today alone would leave history out). */
     IF OBJECT_ID(N'dash.FlaggedInteraction', N'U') IS NOT NULL
     BEGIN

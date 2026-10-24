@@ -19,7 +19,7 @@ public sealed class PoolRow
     public string SkuPartNumber { get; set; } = "";
     public Guid SkuId { get; set; }
     public bool IsCopilot { get; set; }
-    /// <summary>A suite with Copilot inside (2.6.6, E7): not the add-on.</summary>
+    /// <summary>A suite with Copilot inside (E7): not the add-on.</summary>
     public bool IsSuite { get; set; }
     public int Enabled { get; set; }
     public int Warning { get; set; }
@@ -45,7 +45,7 @@ public sealed class LeaverRow
 /// <summary>The queries behind the operations pages, the alerts and the digests.</summary>
 public sealed class OpsData(Db db, Settings settings)
 {
-    /* A table or a view (2.7.1): dash.CopilotSuiteOnly is a view, which a check for a table never found, so the leavers
+    /* A table or a view: dash.CopilotSuiteOnly is a view, which a check for a table never found, so the leavers
        counted people whose Copilot comes only with a suite, which cannot be taken off alone. */
     public async Task<bool> HasAsync(string table) =>
         await db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(@t) IS NULL THEN 0 ELSE 1 END", new { t = table }) == 1;
@@ -66,7 +66,7 @@ public sealed class OpsData(Db db, Settings settings)
     /// <summary>The last complete day in the rollups, and the security signals on it against their 28-day averages.</summary>
     public async Task<(DateTime? Day, List<SignalDay> Signals)> SecurityDayAsync()
     {
-        /* Today where the data's days are cut, not SQL Server's own date (2.4.12, see ReportContextFactory). */
+        /* Today where the data's days are cut, not SQL Server's own date (see ReportContextFactory). */
         var end = await db.ScalarAsync<int?>(@"
 SELECT COALESCE((SELECT MAX(DateKey) FROM dash.UserDay WHERE DateKey < @today),
                 (SELECT MAX(DateKey) FROM dash.UserDay));", new { today = await settings.TodayKeyAsync() });
@@ -122,7 +122,7 @@ GROUP BY d.Dept, dd.[Date];", new { k0 = ReportContext.Key(from), k1 = ReportCon
 
     /// <summary>
     /// The license pool now: every SKU, Copilot ones first. IsCopilot is the Copilot add-on: a suite with Copilot inside
-    /// (2.6.6, E7) is IsSuite instead, so a page that counts Copilot seats, or an export that assigns or removes the
+    /// (E7) is IsSuite instead, so a page that counts Copilot seats, or an export that assigns or removes the
     /// Copilot license, never takes the suite for it.
     /// </summary>
     public async Task<List<PoolRow>> PoolAsync()
@@ -142,7 +142,7 @@ FROM audit.LicenseSku ORDER BY CASE WHEN IsCopilot = 1 AND {suite} = 0 THEN 0 EL
         var hasEntra = await db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EntraAccountEnabled') IS NULL THEN 0 ELSE 1 END") == 1;
         var entra = hasEntra ? "cl.EntraAccountEnabled" : "CAST(NULL AS BIT)";
         var scope = root is null ? "" : "JOIN dash.fnScopeUsers(@root) AS sc ON sc.UserKey = u.UserKey";
-        /* 2.6.6: Copilot held only inside a suite (E7) is not an add-on to take back: Suite fit reclaims the suite. */
+        /* Copilot held only inside a suite (E7) is not an add-on to take back: Suite fit reclaims the suite. */
         var addOn = await HasAsync("dash.CopilotSuiteOnly") ? $"AND {CopilotSuites.NotOnlyInSuite("u.UserPrincipalName")}" : "";
         return await db.QueryAsync<LeaverRow>($@"
 WITH today AS (SELECT MAX(DateKey) AS K FROM bi.FactLicensedDay)
@@ -168,6 +168,6 @@ WHERE (u.AccountEnabled = 0 OR u.DirectoryStatus = N'NotFound' OR cl.DirectorySt
         await db.QueryAsync<(string, string, DateTime)>(
             "SELECT AgentName, AgentSource, FirstSeenUtc FROM dash.Agent WHERE AgentSource <> N'(no agent)' AND FirstSeenUtc > @sinceUtc ORDER BY FirstSeenUtc;", new { sinceUtc });
 
-    /// <summary>The zone schedules run by and times are shown in: the TimeZone setting, else the zone the data's days are cut in, else the server's (2.4.10).</summary>
+    /// <summary>The zone schedules run by and times are shown in: the TimeZone setting, else the zone the data's days are cut in, else the server's.</summary>
     public Task<TimeZoneInfo> ZoneAsync() => settings.ZoneAsync();
 }

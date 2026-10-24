@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Agents;
 
 /// <summary>
-/// The agent inventory workbook (2.5.6): tools\Import-AgentWorkbook.ps1 loads it each night into dash.AgentInventory
+/// The agent inventory workbook: tools\Import-AgentWorkbook.ps1 loads it each night into dash.AgentInventory
 /// (the current agents, matched to the audit log's), dash.AgentChildLink and, as they come, the dbo tables of its sheets.
 /// </summary>
 static class Workbook
@@ -29,7 +29,7 @@ static class Workbook
 public sealed record WorkbookFilter(string Key, string Label, string Column);
 
 /// <summary>
-/// A list of the workbook's agents with their use in the period from the audit log (2.5.6): the inventory, shared
+/// A list of the workbook's agents with their use in the period from the audit log: the inventory, shared
 /// agents and agents in production. The workbook is the list; an agent no one used in the period is flagged, unless it
 /// runs on its own (triggers or flows: an autonomous agent, 2.5.8), which no interaction does not make unused.
 /// </summary>
@@ -42,6 +42,10 @@ public abstract class AgentListPage(PageServices s) : InsightsPage(s)
     protected virtual bool SharingColumns => false;
     protected virtual bool ChannelColumn => false;
     protected virtual string DefaultSort => "most";
+    /// <summary>The view chosen (Agent inventory's shared or in-production view), kept on the page's own links.</summary>
+    protected virtual string? ShowParam => null;
+    /// <summary>The views to choose from, above the list.</summary>
+    protected virtual string ShowTabs => "";
 
     /// <summary>
     /// The filters the page offers, none unless it says so. Each is a column of the sheet as the workbook load keeps it
@@ -74,6 +78,7 @@ ELSE EXEC (N'SELECT DISTINCT TOP (200) LTRIM(RTRIM(CAST([{f.Column}] AS NVARCHAR
         }
         /* The choices made stay on the page's own links: the period, the way down the organization, All and Not used. */
         var kept = states.Where(x => x.Value is not null).Select(x => $"{Uri.EscapeDataString(x.Filter.Key)}={Uri.EscapeDataString(x.Value!)}").ToList();
+        if (ShowParam is { } show) kept.Insert(0, show);
         if (kept.Count > 0) Ctx.Kept = (Request.Path, string.Join("&", kept));
         return states;
     }
@@ -143,7 +148,7 @@ ELSE EXEC (N'SELECT DISTINCT TOP (200) LTRIM(RTRIM(CAST([{f.Column}] AS NVARCHAR
         public int TotalRows { get; set; }
     }
 
-    /// <summary>What the list says of an agent's use in the period (2.5.8: an autonomous agent with none is not "unused").</summary>
+    /// <summary>What the list says of an agent's use in the period (an autonomous agent with none is not "unused").</summary>
     public static string Use(long n, bool autonomous) => n > 0 ? "Used" : autonomous ? "Autonomous (no chat)" : "Not used";
 
     /// <summary>The page's KPIs, its "used or not" filter and its paged list. False when no workbook is loaded.</summary>
@@ -193,8 +198,8 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
         Kpis.Add(new("Used in the period", Num(t0.Used), Pct(Ratio(t0.Used, t0.Agents)) + " of them"));
         Kpis.Add(new("Not used in the period", Num(notUsed), "no interaction in the audit log, and not autonomous", notUsed > 0 ? "warn" : null, Open(Request.Path, extra: "only=unused")));
         Kpis.Add(new("Autonomous", Num(t0.Autonomous), "triggers or flows, with no interaction: they can work with nobody chatting to them"));
-        Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups"));
-        Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet"));
+        Kpis.Add(new("Shared with others", Num(t0.Shared), "with viewers: users or groups", Href: ShowParam != "show=shared" && ShowTabs.Contains("show=shared", StringComparison.Ordinal) ? Ctx.Url(Request.Path, extra: "show=shared") : null));
+        Kpis.Add(new("In production", Num(t0.Production), "on the workbook's AgentsInProd sheet", Href: ShowParam != "show=production" && ShowTabs.Contains("show=production", StringComparison.Ordinal) ? Ctx.Url(Request.Path, extra: "show=production") : null));
 
         var headers = new List<string> { "Agent", "Owner", "Environment" };
         var keys = new List<string?> { "name", "owner", "env" };
@@ -212,7 +217,7 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
             Server = new(pg, Request, keys, new HashSet<int> { headers.IndexOf("Created"), headers.IndexOf("Last published"), headers.IndexOf("Last used"),
                                                              headers.IndexOf("People in the period"), headers.IndexOf("Interactions in the period") }),
         };
-        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // 2.5.8: owners by name
+        var ownerName = await NamesAsync(rows.Select(r => r.Owner));   // Owners by name
         foreach (var r in rows)
         {
             var cells = new List<object?> { new Link(r.AgentName, Workbook.DetailUrl(Ctx, r.AgentKey, r.InventoryAgentId)), PrivacyMode ? null : ownerName(r.Owner), r.Environment };
@@ -224,7 +229,7 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
             t.Rows.Add([.. cells]);
         }
         CsvTable = t;
-        var tabs = $"<p class=\"sub\"><a href=\"{E(Ctx.Url(Request.Path))}\"{(unused ? "" : " class=\"on\"")}>All</a> · " +
+        var tabs = ShowTabs + $"<p class=\"sub\"><a href=\"{E(Ctx.Url(Request.Path))}\"{(unused ? "" : " class=\"on\"")}>All</a> · " +
                    $"<a href=\"{E(Ctx.Url(Request.Path, extra: "only=unused"))}\"{(unused ? " class=\"on\"" : "")}>Not used in the period</a></p>";
         Panels.Add(new(listTitle, new HtmlString(tabs + FilterBoxes(filters) + pg.Controls(Request, SortLabels).Value + t.Render().Value),
             listNote + " Names and owners come from the agent workbook; where it leaves one out, from Admin › Reference data, then the audit log. Owners are shown by their name in the directory, or by sign-in where it does not have them. " +
@@ -234,37 +239,8 @@ WHERE (@q IS NULL OR AgentName LIKE @q OR Owner LIKE @q OR Environment LIKE @q) 
     }
 }
 
-public sealed class SharedModel(PageServices s) : AgentListPage(s)
-{
-    public override string Title => "Shared agents";
-    public override string Intro => "Agents from the agent workbook that are shared: with at least one viewer, a user or a group. Their use in the period comes from the audit log, and an agent no one used is flagged.";
-    protected override string Where => "i.IsShared = 1";
-    protected override bool SharingColumns => true;
-    protected override string DefaultSort => "viewers";
-
-    protected override async Task BuildAsync()
-    {
-        if (!await BuildListAsync("Shared agents", "Shared: the workbook's ViewerUsers or ViewerGroups is not 0."))
-            Notice = Workbook.Missing;
-    }
-}
-
-public sealed class ProductionModel(PageServices s) : AgentListPage(s)
-{
-    public override string Title => "Agents in production";
-    public override string Intro => "The agents the workbook lists on its AgentsInProd sheet, with their use in the period from the audit log. An agent in production no one used is flagged.";
-    protected override string Where => "i.InProduction = 1";
-    protected override bool ChannelColumn => true;
-
-    protected override async Task BuildAsync()
-    {
-        if (!await BuildListAsync("Agents in production", "In production: listed on the workbook's AgentsInProd sheet."))
-            Notice = Workbook.Missing;
-    }
-}
-
 /// <summary>
-/// Agents whose owner has gone (2.5.8): the workbook's owner looked up in the directory loaded from AD. An owner who
+/// Agents whose owner has gone: the workbook's owner looked up in the directory loaded from AD. An owner who
 /// is not in it has most likely left; one whose account is disabled has, or is about to. Their agents still run, and
 /// someone has to own them. Also each owner's department, for accountability by part of the business.
 /// </summary>
@@ -362,7 +338,7 @@ FROM #x GROUP BY ISNULL(NULLIF(OwnerDepartment, N''), N'(owner not in the direct
 }
 
 /// <summary>
-/// The agent workbook's settings against the agents' use (2.5.8): what the workbook says an agent is, set beside what the
+/// The agent workbook's settings against the agents' use: what the workbook says an agent is, set beside what the
 /// audit log shows it doing. Each finding is a breach to act on or a matter to review.
 /// </summary>
 public sealed class ChecksModel(PageServices s) : InsightsPage(s)
@@ -465,7 +441,7 @@ ORDER BY x.N DESC, x.Name;", Ctx.Args(new { dev = DevPeople }));
     }
 }
 /// <summary>
-/// Child and connected agents (2.5.6): each child, the parent agents that call it, and the parents' use. From 2.5.7 a
+/// Child and connected agents: each child, the parent agents that call it, and the parents' use. From 2.5.7 a
 /// child is what it is, not its name: a child agent lives inside its one parent, a connected agent is an agent of its
 /// own that several parents can call, and children that share a name are shown with their parent or environment.
 /// </summary>

@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages.Forecasting;
 
 /// <summary>
-/// The Copilot Credit commitment (2.7.2): a prepaid commitment such as the Copilot Credit Pre-Purchase Plan (P3), set
+/// The Copilot Credit commitment: a prepaid commitment such as the Copilot Credit Pre-Purchase Plan (P3), set
 /// against the metered credits the Power Platform admin center's consumption report gives: drawn, remaining, the burn
 /// rate, when it runs out at that rate or what it leaves unused, the straight-line plan, and the environments and lines
 /// of business drawing most. An estimate until Microsoft's applied figure is loaded from Azure Cost Management.
@@ -60,7 +60,7 @@ public sealed class CreditCommitmentModel(PageServices s, CreditChargeData data)
             Why: await WhyAsync($"As recorded below from the purchase: {M(c.Amount)} for {c.StartDate:d MMM yyyy} to {c.EndDate:d MMM yyyy}, one credit drawing {c.DrawRate.ToString("0.######", CultureInfo.InvariantCulture)} {c.Currency}.")));
         if (!st.Started)
         {
-            /* 2.7.2: nothing to project before the term begins. */
+            /* Nothing to project before the term begins. */
             Kpis.Add(new("Starts on", c.StartDate.ToString("d MMM yyyy"), $"{Count(Math.Max(0, (c.StartDate - DateTime.Today).Days), "day")} from today"));
             if (Viewer.IsAdmin) await AdminAsync(all);
             return;
@@ -152,7 +152,7 @@ GROUP BY d.EnvironmentName, r.Path, r.OrgId ORDER BY 5 DESC;", new { s = c.Start
         if (start is null || end is null || end <= start) throw new ArgumentException("the term ends after it starts.");
         var cur = string.IsNullOrWhiteSpace(currency) ? null : currency.Trim().ToUpperInvariant();
         if (cur is { Length: > 8 }) throw new ArgumentException("the currency is a code such as USD.");
-        /* 2.7.2: one commitment at a time, or each would claim the same metered credits. */
+        /* One commitment at a time, or each would claim the same metered credits. */
         var clash = await Db.ScalarAsync<string?>("SELECT TOP (1) Name FROM dash.CreditCommitment WHERE StartDate <= @end AND EndDate >= @start;", new { start, end });
         if (clash is not null) throw new ArgumentException($"its term overlaps {clash}: each would claim the same credits. Record a top-up by removing {clash} and adding it with the new amount.");
         await Db.ExecuteAsync(@"INSERT INTO dash.CreditCommitment (Name, Amount, Currency, DrawRate, StartDate, EndDate, Scope, Note, UpdatedBy)

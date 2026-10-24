@@ -150,7 +150,7 @@ public class Review2412CTests
         var offset = long.Parse(Regex.Match(p.OrderAndPage(), @"OFFSET (-?\d+) ROWS").Groups[1].Value);
         Assert.Equal((long)(Paging.MaxPage - 1) * Paging.PageSize, offset);
         p.Total = 10;
-        Assert.Contains("of 10", p.Nav(ctx.Request).Value);   // 2.5.8: the page links are under the list
+        Assert.Contains("of 10", p.Nav(ctx.Request).Value);   // The page links are under the list
     }
 
     /* ---- #73: a list no longer than the setting that holds it --------------------------------------------- */

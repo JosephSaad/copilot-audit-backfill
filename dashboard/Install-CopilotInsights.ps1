@@ -67,6 +67,18 @@
     The Windows time zone of -PrecacheAt. Default 'Eastern Standard Time': Eastern Time, EST in winter
     and EDT in summer, whatever zone the server's clock is in.
 
+.PARAMETER ApplicationPath
+    Installs the dashboard as an application under an existing site rather than as a site of its own: its virtual
+    directory, such as /CopilotDashboard for https://apps.contoso.com/CopilotDashboard. -SiteName then names the site
+    that holds it (which must exist, with its own bindings and certificate, left as they are), and the app pool is
+    -AppPoolName, CopilotInsights unless given. Every address the dashboard writes starts with the path.
+
+.PARAMETER AppPoolName
+    The app pool, with -ApplicationPath: CopilotInsights unless given. Without -ApplicationPath, the pool is named after the site.
+
+.EXAMPLE
+    .\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer sql01 -SiteName 'Apps' -ApplicationPath /CopilotDashboard `
+        -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -AppPoolIdentity 'CONTOSO\gmsa-insights$' -GrantDatabaseAccess
 .EXAMPLE
     .\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer sql01 -Database CopilotAudit `
         -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -AppPoolIdentity 'CONTOSO\gmsa-insights$' `
@@ -96,7 +108,9 @@ param(
     [string[]] $Tenant = @(),
     [switch] $SkipFeatureInstall,
     [string] $PrecacheAt = '07:00',
-    [string] $PrecacheTimeZone = 'Eastern Standard Time'
+    [string] $PrecacheTimeZone = 'Eastern Standard Time',
+    [string] $ApplicationPath,
+    [string] $AppPoolName
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,7 +120,7 @@ function Write-Step([string] $Text) { Write-Host "==> $Text" -ForegroundColor Cy
 
 function ConvertTo-Thumbprint {
     <#
-        A certificate thumbprint as the store names it (2.4.12): hex digits only, in capitals. The certificate dialog
+        A certificate thumbprint as the store names it: hex digits only, in capitals. The certificate dialog
         copies it with spaces and an invisible mark in front, which made the lookup fail. Pure, for the tests.
     #>
     param([string] $Value)
@@ -128,7 +142,7 @@ function ConvertTo-TenantList {
 
 function Resolve-SiteSetting {
     <#
-        What this run installs with (2.4.12): each setting given now, else what the site has already, else the
+        What this run installs with: each setting given now, else what the site has already, else the
         default. A re-run without every first-run parameter reset them, though the documents said the settings were
         kept: the app pool went back to its own identity (DOMAIN\HOST$ at a remote SQL Server, which had no grants, or
         was given the site's), the connection string to CopilotAudit without TrustServerCertificate, Kerberos off, and
@@ -182,11 +196,48 @@ Import-Module WebAdministration
 
 # ---- What the site has, and the inputs, before anything changes --------------------------------
 # A setting not given again keeps what the site has (Resolve-SiteSetting). Every input is checked here, before step 3
-# takes the site offline (2.4.12): a thumbprint the store does not hold, a -Tenant that is not Name=Database, a
+# takes the site offline: a thumbprint the store does not hold, a -Tenant that is not Name=Database, a
 # settings file that does not read, threw after the files were copied, with the site left offline.
-$poolPath = "IIS:\AppPools\$SiteName"
-$siteBefore = Get-Website -Name $SiteName
+# As a site of its own, or as an application (a virtual directory) under an existing site.
+$appName = $null
+if ($ApplicationPath) {
+    $appName = $ApplicationPath.Trim().Trim('/')
+    if ($appName -notmatch '^[A-Za-z0-9][A-Za-z0-9._\-]*(/[A-Za-z0-9][A-Za-z0-9._\-]*)*$') { throw "-ApplicationPath '$ApplicationPath' is not a path such as /CopilotDashboard. Nothing was changed." }
+    # A name the dashboard uses for its own addresses (/admin, /agents ...) could not be told from them.
+    $own = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'workforce', 'apps', 'governance', 'group', 'admin', 'api', 'healthz', 'not-found', 'error', 'me'
+    if (($appName -split '/')[0] -in $own) { throw "-ApplicationPath '$ApplicationPath' has the name of one of the dashboard's own addresses (/$(($appName -split '/')[0])): choose another, such as /CopilotDashboard. Nothing was changed." }
+    if (-not (Get-Website -Name $SiteName)) { throw "-ApplicationPath needs an existing site to hold it: there is no site '$SiteName'. Give the site's name with -SiteName. Nothing was changed." }
+}
+$location = if ($appName) { "$SiteName/$appName" } else { $SiteName }
+$appItem = if ($appName) { "IIS:\Sites\$SiteName\$appName" } else { "IIS:\Sites\$SiteName" }
+$siteBefore = if ($appName) { Get-WebApplication -Site $SiteName -Name $appName } else { Get-Website -Name $SiteName }
+# An application's own pool and folder, not the ones a site of its own would have: named after its path, so it never
+# shares them with a dashboard installed as a site (one pool cannot hold two of them). Run again, it keeps the pool
+# and the folder it has.
+$leaf = if ($appName) { $appName -replace '/', '-' } else { $null }
+$poolName = if ($AppPoolName) { $AppPoolName } elseif ($appName -and $siteBefore) { [string] $siteBefore.applicationPool } elseif ($appName) { $leaf } else { $SiteName }
+$poolPath = "IIS:\AppPools\$poolName"
 if ($siteBefore -and -not $PSBoundParameters.ContainsKey('PhysicalPath')) { $PhysicalPath = [Environment]::ExpandEnvironmentVariables($siteBefore.physicalPath) }
+elseif ($appName -and -not $PSBoundParameters.ContainsKey('PhysicalPath')) { $PhysicalPath = Join-Path (Split-Path $PhysicalPath -Parent) $leaf }
+# The dashboard already an application in this site, run again without -ApplicationPath, would have copied it over
+# the site's own folder.
+if (-not $appName -and $siteBefore) {
+    $inside = @(Get-WebApplication -Site $SiteName | Where-Object { Test-Path (Join-Path ([Environment]::ExpandEnvironmentVariables($_.PhysicalPath)) 'CopilotInsights.dll') })
+    if ($inside.Count -and -not (Test-Path (Join-Path $PhysicalPath 'CopilotInsights.dll'))) {
+        throw "The dashboard is an application in site '$SiteName', at $($inside[0].path): give -ApplicationPath $($inside[0].path) to update it. Nothing was changed."
+    }
+}
+# The files are mirrored into the folder, which removes what else it holds: never a folder of something else.
+$kept = 'logs', 'precache', 'appsettings.Production.json', 'app_offline.htm', 'Grant-CopilotInsightsAccess.sql', 'Invoke-InsightsPrecache.ps1'
+if ((Test-Path $PhysicalPath) -and -not (Test-Path (Join-Path $PhysicalPath 'CopilotInsights.dll')) -and
+    @(Get-ChildItem -LiteralPath $PhysicalPath -Force | Where-Object Name -notin $kept).Count) {
+    throw "$PhysicalPath holds files that are not the dashboard's, which installing would remove: give -PhysicalPath an empty folder or the dashboard's own. Nothing was changed."
+}
+# An app pool holds one dashboard: refused when another site or application already runs in the one named.
+$others = @(Get-WebConfiguration "/system.applicationHost/sites/site/application[@applicationPool='$poolName']" -ErrorAction SilentlyContinue |
+    ForEach-Object { "$($_.ItemXPath -replace '.*@name=''([^'']+)''.*', '$1')$($_.path)" } |
+    Where-Object { $_ -ne "$SiteName$(if ($appName) { "/$appName" } else { '/' })" })
+if ($others.Count) { throw "App pool '$poolName' already runs $($others -join ', '): give -AppPoolName a pool of the dashboard's own. Nothing was changed." }
 $settingsPath = Join-Path $PhysicalPath 'appsettings.Production.json'
 $settings = if (Test-Path $settingsPath) { Get-Content $settingsPath -Raw | ConvertFrom-Json } else { [pscustomobject] @{} }
 $before = if ($settings.PSObject.Properties['Insights'] -and $settings.Insights.PSObject.Properties['ConnectionString']) { [string] $settings.Insights.ConnectionString } else { '' }
@@ -212,7 +263,7 @@ if ($CertificateThumbprint) {
     $CertificateThumbprint = ConvertTo-Thumbprint $CertificateThumbprint
     if (-not (Test-Path "Cert:\LocalMachine\My\$CertificateThumbprint")) { throw "No certificate $CertificateThumbprint in LocalMachine\My. Nothing was changed." }
 }
-# The daily pre-cache (2.5.1): its time and zone, and the script it runs, which this copies into the site.
+# The daily pre-cache: its time and zone, and the script it runs, which this copies into the site.
 $precacheScript = Join-Path $PSScriptRoot 'Invoke-InsightsPrecache.ps1'
 if ($PrecacheAt -and $PrecacheAt -notmatch '^([01]?\d|2[0-3]):[0-5]\d$') { throw "-PrecacheAt '$PrecacheAt' is not a time of day: give it as HH:mm, such as 07:00, or '' for no pre-cache. Nothing was changed." }
 try { [void] [TimeZoneInfo]::FindSystemTimeZoneById($PrecacheTimeZone) }
@@ -271,7 +322,7 @@ try {
         }
     }
     if (-not (Test-Path (Join-Path $staging 'CopilotInsights.dll'))) { throw "No CopilotInsights.dll in ${PackagePath}: is it the published app?" }
-    # The daily pre-cache's script goes into the site's folder with the app (2.5.1), where the app pool only reads it.
+    # The daily pre-cache's script goes into the site's folder with the app, where the app pool only reads it.
     if (Test-Path $precacheScript) { Copy-Item -LiteralPath $precacheScript -Destination $staging -Force }
 
     New-Item -ItemType Directory -Force $PhysicalPath, (Join-Path $PhysicalPath 'logs'), (Join-Path $PhysicalPath 'precache') | Out-Null
@@ -308,8 +359,8 @@ try {
     $settings | ConvertTo-Json -Depth 5 | Set-Content $settingsPath -Encoding utf8
 
     # ---- 5. App pool and site -----------------------------------------------------------------
-    Write-Step "App pool and site '$SiteName'"
-    if (-not (Test-Path $poolPath)) { New-WebAppPool -Name $SiteName | Out-Null }
+    Write-Step $(if ($appName) { "App pool '$poolName' and application /$appName in site '$SiteName'" } else { "App pool and site '$SiteName'" })
+    if (-not (Test-Path $poolPath)) { New-WebAppPool -Name $poolName | Out-Null }
     Set-ItemProperty $poolPath -Name managedRuntimeVersion -Value ''
     Set-ItemProperty $poolPath -Name managedPipelineMode -Value 'Integrated'
     Set-ItemProperty $poolPath -Name startMode -Value 'AlwaysRunning'
@@ -326,26 +377,45 @@ try {
     }
     else {
         Set-ItemProperty $poolPath -Name processModel.identityType -Value 4   # ApplicationPoolIdentity
-        $poolAccount = "IIS APPPOOL\$SiteName"
+        $poolAccount = "IIS APPPOOL\$poolName"
     }
 
     $https = [bool] $CertificateThumbprint
     if (-not $Port) { $Port = if ($https) { 443 } else { 80 } }
-    if (-not $siteBefore) {
-        New-Website -Name $SiteName -PhysicalPath $PhysicalPath -ApplicationPool $SiteName -Port $Port -HostHeader $HostName -Ssl:$https | Out-Null
+    if ($appName) {
+        # An application in a site that is not ours: its bindings and certificate are the site's, left as they are.
+        if (-not $siteBefore) { New-WebApplication -Site $SiteName -Name $appName -PhysicalPath $PhysicalPath -ApplicationPool $poolName | Out-Null }
+        else {
+            Set-ItemProperty $appItem -Name physicalPath -Value $PhysicalPath
+            Set-ItemProperty $appItem -Name applicationPool -Value $poolName
+        }
+        # Start the app with IIS, not at the first visit: its background sender runs the alerts and digests.
+        Set-ItemProperty $appItem -Name preloadEnabled -Value $true
+    }
+    elseif (-not $siteBefore) {
+        New-Website -Name $SiteName -PhysicalPath $PhysicalPath -ApplicationPool $poolName -Port $Port -HostHeader $HostName -Ssl:$https | Out-Null
     }
     else {
         Set-ItemProperty "IIS:\Sites\$SiteName" -Name physicalPath -Value $PhysicalPath
-        Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationPool -Value $SiteName
+        Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationPool -Value $poolName
     }
     # Start the app with IIS, not at the first visit: its background sender runs the alerts and digests.
-    Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationDefaults.preloadEnabled -Value $true
+    if (-not $appName) { Set-ItemProperty "IIS:\Sites\$SiteName" -Name applicationDefaults.preloadEnabled -Value $true }
 
     # Alerts also go to the Application log under this source; creating a source needs an administrator.
     if (-not [System.Diagnostics.EventLog]::SourceExists('Copilot Insights')) {
         New-EventLog -LogName Application -Source 'Copilot Insights'
     }
-    if ($https) {
+    if ($appName) {
+        # The holding site's own address: its HTTPS binding's, or its HTTP one's.
+        $kept = @(Get-WebBinding -Name $SiteName | Sort-Object { if ($_.protocol -eq 'https') { 0 } else { 1 } })
+        $proto = 'http'
+        if ($kept) {
+            $parts = ([string] $kept[0].bindingInformation).Split(':')
+            $proto = [string] $kept[0].protocol; $Port = [int] $parts[1]; if (-not $HostName) { $HostName = $parts[2] }
+        }
+    }
+    elseif ($https) {
         $proto = 'https'
         if (-not (Get-WebBinding -Name $SiteName -Protocol https -Port $Port -HostHeader $HostName)) {
             New-WebBinding -Name $SiteName -Protocol https -Port $Port -HostHeader $HostName -SslFlags $(if ($HostName) { 1 } else { 0 })
@@ -365,7 +435,7 @@ try {
         Write-Warning 'No -CertificateThumbprint: the site answers on HTTP only. Windows authentication still protects it, but use HTTPS in production.'
     }
     else {
-        # No binding asked for: the site keeps its own (2.4.12; a re-run without -CertificateThumbprint added HTTP on
+        # No binding asked for: the site keeps its own (a re-run without -CertificateThumbprint added HTTP on
         # port 80 beside the HTTPS one). The address below is its HTTPS binding's, or its HTTP one's.
         $kept = @(Get-WebBinding -Name $SiteName | Sort-Object { if ($_.protocol -eq 'https') { 0 } else { 1 } })
         $proto = 'http'
@@ -379,16 +449,18 @@ try {
 
     # ---- 6. Authentication --------------------------------------------------------------------
     Write-Step 'Windows authentication on, anonymous off'
-    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $SiteName -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $false
-    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $SiteName -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name enabled -Value $true
+    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $false
+    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name enabled -Value $true
     # Kerberos for a host name registered on the app-pool account (the SPN below) needs the pool's own credentials.
-    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $SiteName -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name useAppPoolCredentials -Value ([bool] $AppPoolIdentity)
+    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name useAppPoolCredentials -Value ([bool] $AppPoolIdentity)
+    # The load balancer's probe answers without sign-in: it says only whether the server reaches its database.
+    Set-WebConfigurationProperty -PSPath 'IIS:\' -Location "$location/healthz" -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $true
 
     # The app pool writes its logs; everyone else only reads the site.
     $acl = Get-Acl (Join-Path $PhysicalPath 'logs')
     $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule $poolAccount, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
     Set-Acl (Join-Path $PhysicalPath 'logs') $acl
-    # The pre-cache folder (2.5.1): the scheduled task, as LOCAL SERVICE, leaves a request and its log there; the app
+    # The pre-cache folder: the scheduled task, as LOCAL SERVICE, leaves a request and its log there; the app
     # pool takes the request and writes its answer. Neither can change the script the task runs, in the site's folder.
     $acl = Get-Acl (Join-Path $PhysicalPath 'precache')
     foreach ($who in $poolAccount, 'NT AUTHORITY\LOCAL SERVICE') {
@@ -401,12 +473,12 @@ try {
 }
 finally {
     Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
-    # Back online whether steps 3 to 6 finished or not (2.4.12): only the last step removed it, so a run that failed
+    # Back online whether steps 3 to 6 finished or not: only the last step removed it, so a run that failed
     # after the files were copied left every user on "being updated" until a run succeeded.
     Remove-Item $offline -ErrorAction SilentlyContinue
 }
-Start-WebAppPool -Name $SiteName -ErrorAction SilentlyContinue
-Restart-WebAppPool -Name $SiteName -ErrorAction SilentlyContinue
+Start-WebAppPool -Name $poolName -ErrorAction SilentlyContinue
+Restart-WebAppPool -Name $poolName -ErrorAction SilentlyContinue
 
 # ---- 7. Database access -----------------------------------------------------------------------
 Write-Step 'Database access'
@@ -464,7 +536,7 @@ if ($GrantDatabaseAccess) {
     # The dash schema first: the grants below name its tables.
     $repoSql = Join-Path (Split-Path $PSScriptRoot -Parent) 'sql'
     $dbConnString = "Server=$SqlServer;Database=$db;Integrated Security=true;Encrypt=true;TrustServerCertificate=$trust"
-    # One run at a time (2.4.12), as the nightly pipeline, Install-CopilotAudit.ps1 and the maintenance rebuilds hold it:
+    # One run at a time, as the nightly pipeline, Install-CopilotAudit.ps1 and the maintenance rebuilds hold it:
     # the schema scripts and a full dashboard refresh below ran beside a nightly's refresh of the same tables.
     $runLock = $null
     if ($env:CopilotAuditRunLock -ne "$SqlServer/$db") {
@@ -512,7 +584,7 @@ else {
 }
 
 # ---- 8. The daily pre-cache -------------------------------------------------------------------
-# Every report page built ahead each morning (2.5.1). A task already scheduled is kept unless -PrecacheAt or
+# Every report page built ahead each morning. A task already scheduled is kept unless -PrecacheAt or
 # -PrecacheTimeZone is given, as the site's other settings are; -PrecacheAt '' removes it.
 $sitePrecache = Join-Path $PhysicalPath 'Invoke-InsightsPrecache.ps1'
 if (Test-Path $sitePrecache) {
@@ -525,7 +597,7 @@ if (Test-Path $sitePrecache) {
     else { & $sitePrecache -Register -PhysicalPath $PhysicalPath -At $PrecacheAt -TimeZone $PrecacheTimeZone }
 }
 
-$url = "{0}://{1}{2}/" -f $proto, $(if ($HostName) { $HostName } else { $env:COMPUTERNAME }), $(if (($https -and $Port -eq 443) -or (-not $https -and $Port -eq 80)) { '' } else { ":$Port" })
+$url = "{0}://{1}{2}/{3}" -f $proto, $(if ($HostName) { $HostName } else { $env:COMPUTERNAME }), $(if (($https -and $Port -eq 443) -or (-not $https -and $Port -eq 80)) { '' } else { ":$Port" }), $(if ($appName) { "$appName/" } else { '' })
 Write-Host ''
 Write-Host "Copilot Insights is at $url" -ForegroundColor Green
 Write-Host 'Next: sign in as a bootstrap administrator, open Admin > Access, set the top of the organization, and grant roles.'

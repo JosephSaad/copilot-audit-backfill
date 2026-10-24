@@ -97,15 +97,15 @@ $script:AgentOperations = 'BotCreate', 'BotDelete', 'BotDeleteCleanup', 'BotUpda
                           'BotUpdateOperation-BotNameUpdate', 'BotUpdateOperation-BotAuthUpdate', 'BotUpdateOperation-BotIconUpdate',
                           'BotAppInsightsUpdate', 'BotComponentCreate', 'BotComponentUpdate', 'BotComponentDelete',
                           'BotComponentCollectionCreate', 'BotComponentCollectionDelete',
-                          # 2.7.0: administrators' actions on agents (record type CopilotAgentManagement), from the night they are added.
+                          # Administrators' actions on agents (record type CopilotAgentManagement), from the night they are added.
                           'BlockedAgent', 'UnblockedAgent', 'DeployedAgent', 'RemovedAgent', 'DeletedAgent', 'UpdatedAgent', 'UpdatedTenantSettings'
 $script:LicenseOperations = @('Change user license', 'Update user', 'Add user', 'Delete user') + $script:AgentOperations
-# The activity database's record types (2.6.9): AI apps outside Copilot, Power BI and Power Apps. ActivityRecordTypes in
+# The activity database's record types: AI apps outside Copilot, Power BI and Power Apps. ActivityRecordTypes in
 # the settings replaces the list.
-# 2.7.0: Teams meeting AI notes too. The data loss prevention types (ComplianceDLPSharePoint, ComplianceDLPExchange,
+# Teams meeting AI notes too. The data loss prevention types (ComplianceDLPSharePoint, ComplianceDLPExchange,
 # DLPEndpoint) are added by naming them in ActivityRecordTypes: their volume is the tenant's every DLP match.
 $script:ActivityRecordTypes = 'ConnectedAIAppInteraction', 'PowerBIAudit', 'PowerAppsApp', 'TeamCopilotInteraction'
-# The delete guard's exit code (2.6.5): a loader that kept its table's last good load, which the night goes on from.
+# The delete guard's exit code: a loader that kept its table's last good load, which the night goes on from.
 . (Join-Path $PSScriptRoot 'tools' 'DropGuard.ps1')
 if (-not $SettingsPath) { $SettingsPath = Join-Path $PSScriptRoot 'copilot-audit.settings.psd1' }
 
@@ -166,13 +166,13 @@ function Get-PipelineStep {
     $sql = @{ SqlServer = $Setting.SqlServer }
     if (Has 'TrustServerCertificate') { $sql.TrustServerCertificate = $true }
     $lic = if (Has 'LicenseDatabase') { [string] $Setting.LicenseDatabase } else { $null }
-    # The license databases sessions and bi read (2.4.12): SessionLicenseDatabases, a list added to the settings by
+    # The license databases sessions and bi read: SessionLicenseDatabases, a list added to the settings by
     # hand when an older license database is read beside the one loaded each night, else that one. Only that one
     # could be passed, so a database built with several (as Install-CopilotAudit.ps1 suggests) failed every night.
     $readLic = @(@(if (Has 'SessionLicenseDatabases') { $Setting.SessionLicenseDatabases } elseif ($lic) { $lic }) |
                  ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $steps = [System.Collections.Generic.List[object]]::new()
-    # The delete guard's percentage for a loader (2.6.5), where the settings set one: <Loader>MaxDropPercent, 0 to turn it off.
+    # The delete guard's percentage for a loader, where the settings set one: <Loader>MaxDropPercent, 0 to turn it off.
     # Without one, the loader's own default (15) applies.
     function Drop($argsTable, $key) {
         if ($Setting.Contains($key) -and $null -ne $Setting[$key] -and "$($Setting[$key])" -ne '') { $argsTable.MaxDropPercent = [double] $Setting[$key] }
@@ -181,7 +181,7 @@ function Get-PipelineStep {
     function Add($name, $script, $argsTable, [switch] $Optional) {
         $steps.Add([pscustomobject]@{ Name = $name; Script = [System.IO.Path]::Combine($Root, $script); Arguments = $argsTable; Optional = [bool] $Optional })
     }
-    # The activity database (2.6.9), where the settings name one: its load, then its rollup into the Copilot database.
+    # The activity database, where the settings name one: its load, then its rollup into the Copilot database.
     $act = if (Has 'ActivityDatabase') { [string] $Setting.ActivityDatabase } else { $null }
     $actTypes = if (Has 'ActivityRecordTypes') { @($Setting.ActivityRecordTypes) } else { $script:ActivityRecordTypes }
     $rollup = $sql + @{ Database = $Setting.Database; ActivityDatabase = $act }
@@ -197,14 +197,14 @@ function Get-PipelineStep {
         if (Has 'TargetDomain') {
             $a = $sql + @{ Database = $Setting.Database; TargetDomain = $Setting.TargetDomain }
             if ($Setting.Contains('EmployeeTypes')) { $a.EmployeeTypes = @($Setting.EmployeeTypes) }
-            if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # 2.5.0: where the department is
+            if (Has 'DepartmentAttribute') { $a.DepartmentAttribute = @($Setting.DepartmentAttribute) }   # Where the department is
             if (Has 'CountryNames') { $a.CountryNames = $Setting.CountryNames }   # the administrator's own names for countries
             Add 'User directory from AD' 'tools/Export-UsersWithHierarchy-ToSql.ps1' (Drop $a 'UserDirectoryMaxDropPercent')
         }
     }
     $licenses = {
         $l = $sql + $app + @{ Database = $Setting.Database; AllLicensedUsers = $true }
-        if (Has 'IncludeLeaveDates') { $l.IncludeLeaveDates = $true }   # 2.4.3: needs User-LifeCycleInfo.Read.All
+        if (Has 'IncludeLeaveDates') { $l.IncludeLeaveDates = $true }   # Needs User-LifeCycleInfo.Read.All
         Add 'Copilot licenses from Graph' 'tools/Update-CopilotAuditEnrichment.ps1' (Drop $l 'LicenseMaxDropPercent')
     }
 
@@ -230,7 +230,7 @@ function Get-PipelineStep {
         # An Excel workbook of agents, reloaded each night when the settings name it.
         # From SharePoint Online (the newest file in a library, as the pipeline's app) or from an address or a share.
         if (Has 'AgentWorkbookSiteUrl') {
-            # Its own app registration and certificate (2.5.6), in the tenant the workbook's site is in.
+            # Its own app registration and certificate, in the tenant the workbook's site is in.
             $w = $sql + @{ Database = $Setting.Database; SiteUrl = $Setting.AgentWorkbookSiteUrl
                            TenantId = $(if (Has 'AgentWorkbookTenantId') { $Setting.AgentWorkbookTenantId } else { $Setting.TenantId })
                            ClientId = $Setting.AgentWorkbookClientId; CertificateThumbprint = $Setting.AgentWorkbookCertificateThumbprint }
@@ -247,7 +247,7 @@ function Get-PipelineStep {
             Add 'AI apps, Power BI and Power Apps' 'Invoke-CopilotAuditBackfill.ps1' ($sql + $app + @{ Database = $act; Incremental = $true; RecordTypes = $actTypes }) -Optional
             Add 'AI apps, Power BI and Power Apps rollup' 'tools/Update-ActivityRollup.ps1' $rollup -Optional
         }
-        # Usage and cost of AI outside Microsoft 365 Copilot (2.6.2), where the settings name the source. Last, and
+        # Usage and cost of AI outside Microsoft 365 Copilot, where the settings name the source. Last, and
         # optional: a failure of one is recorded with its step and in audit.ExternalUsageRun, and fails nothing else.
         if ((Has 'GitHubEnterprise') -or (Has 'GitHubOrganization')) {
             $g = $sql + @{ Database = $Setting.Database }
@@ -270,7 +270,7 @@ function Get-PipelineStep {
 function Get-PipelineSkipNote {
     <#
         A line for the log for each optional loader the nightly run leaves out because the settings do not
-        configure it (2.6.2): which one, and the setting that would turn it on. Nothing for one that is
+        configure it: which one, and the setting that would turn it on. Nothing for one that is
         configured. Skipping is never a failure. Pure, for the tests.
     #>
     param([System.Collections.IDictionary] $Setting)
@@ -303,7 +303,7 @@ function Invoke-PipelineStep {
 
 function Get-DropGuardDetail {
     <#
-        The run's detail when the delete guard refused a load (2.6.5): which steps, and the guard's own lines from the
+        The run's detail when the delete guard refused a load: which steps, and the guard's own lines from the
         log, the last five, so Admin > Health says why without opening the log. At most 4,000 characters.
     #>
     param([string[]] $Step, [string] $Log)
@@ -339,14 +339,14 @@ function Invoke-PipelineSql {
 
 function Test-HistoryLoaded {
     param([System.Collections.IDictionary] $Setting)
-    # The table only through EXEC (2.4.12): a statement naming a missing table fails when it runs, whatever its other
+    # The table only through EXEC: a statement naming a missing table fails when it runs, whatever its other
     # conditions, so a database whose history was not loaded yet threw here instead of saying to load it.
     [bool] (Invoke-PipelineSql $Setting "IF OBJECT_ID(N'audit.CopilotAudit', N'U') IS NULL SELECT 0; ELSE EXEC (N'SELECT CASE WHEN EXISTS (SELECT 1 FROM audit.CopilotAudit) THEN 1 ELSE 0 END');")
 }
 
 function Enter-PipelineRun {
     <#
-        Holds the Copilot database for this run alone (2.4.12): an exclusive application lock, on a connection of its
+        Holds the Copilot database for this run alone: an exclusive application lock, on a connection of its
         own kept open until the run ends, that Install-CopilotAudit.ps1 and the maintenance rebuilds take too. Nothing
         kept runs apart: a run by hand during the nightly, or the nightly during an upgrade's full rebuild, loaded the
         same windows twice or counted interactions twice. Returns that connection (dispose it to let go), or nothing
@@ -411,7 +411,7 @@ function Invoke-Retention {
 
 function Invoke-ReservationSnapshot {
     <#
-        2.6.8: keeps last month's Copilot reservation position (Leadership >
+        Keeps last month's Copilot reservation position (Leadership >
         Copilot reservations) once, as it was, after the licenses are read:
         dash.usp_TakeReservationSnapshot does nothing until the register has
         rows, or when the month is already kept. A failure is logged, not fatal.
@@ -421,7 +421,7 @@ function Invoke-ReservationSnapshot {
         $null = Invoke-PipelineSql $Setting -Timeout 600 -Sql "IF OBJECT_ID(N'dash.usp_TakeReservationSnapshot', N'P') IS NOT NULL EXEC dash.usp_TakeReservationSnapshot;"
     }
     catch { "$(Get-Date -Format s) The reservation snapshot was not taken: $($_.Exception.Message)" | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
-    # 2.7.2: and last month's Copilot Credit chargeback, once its credits are loaded to the month's last day.
+    # And last month's Copilot Credit chargeback, once its credits are loaded to the month's last day.
     try {
         $null = Invoke-PipelineSql $Setting -Timeout 600 -Sql "IF OBJECT_ID(N'dash.usp_TakeCreditChargeSnapshot', N'P') IS NOT NULL EXEC dash.usp_TakeCreditChargeSnapshot;"
     }
@@ -459,7 +459,7 @@ function Get-PipelineCertificateUse {
                                      ClientId = $(if (Has 'AgentWorkbookClientId') { "$($T.AgentWorkbookClientId)" })
                                      TenantId = $(if (Has 'AgentWorkbookTenantId') { "$($T.AgentWorkbookTenantId)" } elseif (Has 'TenantId') { "$($T.TenantId)" }) })
     }
-    # Foundry (2.6.2): only where its loader signs in with a certificate of its own, not the audit app's.
+    # Foundry: only where its loader signs in with a certificate of its own, not the audit app's.
     if ((Has 'FoundrySubscriptions') -and (Has 'FoundryCertificateThumbprint')) {
         $uses.Add([pscustomobject]@{ Purpose = 'Foundry'; Thumbprint = (Clean $T.FoundryCertificateThumbprint)
                                      ClientId = $(if (Has 'FoundryClientId') { "$($T.FoundryClientId)" } elseif (Has 'ClientId') { "$($T.ClientId)" })
@@ -538,14 +538,14 @@ function Invoke-TenantRun {
         $code = Invoke-PipelineStep -Step $step -Log $Log
         if ($runId) { [void] (Write-PipelineRecord $T -Log $Log -Parameters @{ '@r' = $runId; '@n' = $n; '@c' = $code } -Sql 'UPDATE audit.PipelineRunStep SET EndedUtc = SYSUTCDATETIME(), ExitCode = @c WHERE RunId = @r AND StepNo = @n;') }
         if ($code -eq $script:DropRefusedExitCode) {
-            # Refused by the delete guard (2.6.5): the table kept its last good load, so the steps after it can run.
+            # Refused by the delete guard: the table kept its last good load, so the steps after it can run.
             "$(Get-Date -Format s) $($step.Name) was refused by the delete guard: its table keeps the last good load (the reason is above). The run goes on." |
                 Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
             $refused.Add($step.Name)
             continue
         }
         if ($code -ne 0 -and $step.PSObject.Properties['Optional'] -and $step.Optional) {
-            # An optional step (2.6.2): its failure is on its own row and in the log, and the run goes on.
+            # An optional step: its failure is on its own row and in the log, and the run goes on.
             "$(Get-Date -Format s) $($step.Name) failed (exit code $code). It is optional: the run goes on. Its own log is audit.ExternalUsageRun (Admin > Health)." |
                 Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue
             continue
@@ -565,7 +565,7 @@ function Invoke-TenantRun {
         foreach ($note in (Get-PipelineSkipNote $T)) { "$(Get-Date -Format s) $Label $note".Replace('  ', ' ') | Tee-Object -FilePath $Log -Append | Write-Information -InformationAction Continue }
     }
     if (-not $once) { Invoke-Retention -Setting $T -Log $Log }
-    # 2.7.0: not after a load the delete guard refused: a month end is kept once, and its licenses may be the night before's.
+    # Not after a load the delete guard refused: a month end is kept once, and its licenses may be the night before's.
     if (-not $once -and $refused.Count -eq 0) { Invoke-ReservationSnapshot -Setting $T -Log $Log }
     # A load the delete guard refused is named in the run's detail, which Admin > Health shows, with its reason.
     $detail = if ($refused.Count) { Get-DropGuardDetail -Step $refused -Log $Log } else { $null }
@@ -577,7 +577,7 @@ function Invoke-Main {
     $s = Get-PipelineSetting $SettingsPath
     $logDir = if ($s.Contains('LogPath') -and $s.LogPath) { $s.LogPath } else { Join-Path $PSScriptRoot 'logs' }
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-    # A log of its own for each run (2.5.6): a second run on one day appended to the first's.
+    # A log of its own for each run: a second run on one day appended to the first's.
     $log = Join-Path $logDir ("{0}-{1:yyyy-MM-dd-HHmmss}.log" -f $(if ($ActivityHistory) { 'activity-history' } elseif ($History) { 'history' } else { 'nightly' }), (Get-Date))
     $keep = if ($s.Contains('LogRetentionDays') -and $s.LogRetentionDays) { [int] $s.LogRetentionDays } else { 90 }
     Get-ChildItem -LiteralPath $logDir -Filter '*.log' | Where-Object LastWriteTime -lt (Get-Date).AddDays(-$keep) | Remove-Item -ErrorAction SilentlyContinue
@@ -587,7 +587,7 @@ function Invoke-Main {
     $failed = @()
     foreach ($t in $tenants) {
         $label = if ($several) { "[$($t.Name)]" } else { '' }
-        # A tenant that cannot run is a failure of that tenant, and the next one runs (2.4.12): one whose database was
+        # A tenant that cannot run is a failure of that tenant, and the next one runs: one whose database was
         # offline, restoring or had lost the service account's login threw out of this loop, so the tenants after it
         # did not run, every night until it was fixed, and no "Finished with failures" line was written.
         $ok = $false; $lock = $null

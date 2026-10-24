@@ -46,14 +46,14 @@ public sealed class Viewer
     public int MaxLevel { get; init; }
 
     /// <summary>
-    /// The Admin pages an Admin grant limited to some pages opens (2.6.4), by path. Empty for everyone else, a full
+    /// The Admin pages an Admin grant limited to some pages opens, by path. Empty for everyone else, a full
     /// administrator among them: their Admin role is in <see cref="Roles"/>, a limited one's is not.
     /// </summary>
     public IReadOnlySet<string> AdminPaths { get; init; } = new HashSet<string>();
 
     /// <summary>A full administrator: every Admin page, and the only one who may grant, limit or remove Admin.</summary>
     public bool IsAdmin => Roles.Contains(Infrastructure.Roles.Admin);
-    /// <summary>Whether the viewer may open and change this Admin page: a full administrator, or one limited to pages that include it (2.6.4).</summary>
+    /// <summary>Whether the viewer may open and change this Admin page: a full administrator, or one limited to pages that include it.</summary>
     public bool CanAdmin(string? path) => IsAdmin || AdminPaths.Contains(CopilotInsights.Data.AdminPages.Normalize(path));
     /// <summary>Any Admin page at all.</summary>
     public bool AnyAdmin => IsAdmin || AdminPaths.Count > 0;
@@ -70,7 +70,7 @@ public static class AccessRules
         roles.Contains(Roles.Organization) || level is 1 or 2;
 
     /// <summary>
-    /// The dashboard's limit (2.4.4): with <paramref name="maxLevel"/> 0 everyone may use it, as before;
+    /// The dashboard's limit: with <paramref name="maxLevel"/> 0 everyone may use it, as before;
     /// otherwise only levels 1 to <paramref name="maxLevel"/> below the configured top, and anyone granted
     /// a role other than Admin (Admin › Access is the list of exceptions). Administrators alone are not
     /// admitted: they keep the Admin pages, which show no usage data. The level comes from the directory
@@ -90,7 +90,7 @@ public static class AccessRules
         string.IsNullOrWhiteSpace(recordedSid) || (tokenSid is not null && string.Equals(recordedSid.Trim(), tokenSid, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// The SID rule (2.4.12): whether the signed-in account may be the person a UPN names, by how the UPN was found.
+    /// The SID rule: whether the signed-in account may be the person a UPN names, by how the UPN was found.
     /// By the account's SID in the directory: yes. From Insights:IdentityMap, which an administrator wrote: yes, unless
     /// the directory records a different SID for the person. From Active Directory's answer, or a sign-in name that is
     /// a UPN: only when the directory records the person's SID and it is this account's. Those answers are the account's
@@ -173,7 +173,7 @@ public sealed class ViewerService(
 
     /// <summary>
     /// The roles granted to the account, its UPN or its groups, and the Admin pages of every Admin grant among them that
-    /// is limited to some (2.6.4). Such a grant adds its pages and not the Admin role; a grant with no pages named is
+    /// is limited to some. Such a grant adds its pages and not the Admin role; a grant with no pages named is
     /// the whole role, whatever the others say.
     /// </summary>
     async Task<(HashSet<string> Roles, HashSet<string> Paths)> RolesForAsync(string? upn, string windowsName, ClaimsPrincipal? user)
@@ -217,7 +217,7 @@ ELSE EXEC (N'SELECT Principal, PrincipalType, Role, Pages FROM dash.RoleGrant;')
     /// (<see cref="AccessRules.MayBe"/>): a person whose directory record carries a SID can
     /// be signed in as only by the account with that SID, and an answer from Active
     /// Directory or the sign-in name makes the account no one whose SID is not on record
-    /// (2.4.12), so no mapping, name or lookup can land one account on another person.
+    /// so no mapping, name or lookup can land one account on another person.
     /// Cached for ten minutes per account.
     /// </summary>
     async Task<string?> ResolveUpnAsync(ClaimsPrincipal user, string windowsName)

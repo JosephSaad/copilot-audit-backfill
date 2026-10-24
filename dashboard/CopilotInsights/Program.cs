@@ -16,13 +16,15 @@ builder.Services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolic
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<TenantAccessor>();
-/* The query cache in a store of its own, of a bounded size (2.4.12): the shared one has no limit. */
+/* The query cache in a store of its own, of a bounded size: the shared one has no limit. */
+builder.Services.AddSingleton<SharedCache>();
 builder.Services.AddSingleton(sp =>
 {
     var o = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<InsightsOptions>>();
-    return new QueryCache(QueryCache.Store(o.Value.QueryCacheEntries), o, sp.GetRequiredService<ILogger<QueryCache>>());
+    /* Each server's own cache, with the one the web servers share behind it (SharedCache). */
+    return new QueryCache(QueryCache.Store(o.Value.QueryCacheEntries), o, sp.GetRequiredService<ILogger<QueryCache>>()) { Shared = sp.GetRequiredService<SharedCache>() };
 });
-/* One set of form keys for every web server, where Insights:DataProtectionKeysPath names a share (2.4.12, KeyRing). */
+/* One set of form keys for every web server, where Insights:DataProtectionKeysPath names a share (KeyRing). */
 var keyRing = KeyRing.Configure(builder.Services, builder.Configuration.GetSection(InsightsOptions.Section).Get<InsightsOptions>() ?? new InsightsOptions());
 builder.Services.AddSingleton<DataStamp>();
 builder.Services.AddSingleton<Db>();
@@ -43,9 +45,9 @@ builder.Services.AddScoped<CopilotInsights.Data.CostData>();
 builder.Services.AddScoped<CopilotInsights.Data.SuiteData>();
 builder.Services.AddScoped<CopilotInsights.Data.CreditData>();
 builder.Services.AddScoped<CopilotInsights.Data.ReservationData>();
-builder.Services.AddScoped<CopilotInsights.Data.CreditChargeData>();   // 2.7.2: credit chargeback and the commitment
-builder.Services.AddScoped<CopilotInsights.Data.AssumptionData>();   // 2.6.9: the assumptions register
-/* A background service that fails is logged, and the site goes on (2.4.12): .NET's default stops the whole site,
+builder.Services.AddScoped<CopilotInsights.Data.CreditChargeData>();   // Credit chargeback and the commitment
+builder.Services.AddScoped<CopilotInsights.Data.AssumptionData>();   // The assumptions register
+/* A background service that fails is logged, and the site goes on: .NET's default stops the whole site,
    which a mail server that did not answer once did, again after every restart. */
 builder.Services.Configure<HostOptions>(o => o.BackgroundServiceExceptionBehavior = BackgroundServiceExceptionBehavior.Ignore);
 builder.Services.AddSingleton<Notifier>();
@@ -56,6 +58,19 @@ builder.Services.AddRazorPages(o => o.Conventions.ConfigureFilter(new Microsoft.
 
 var app = builder.Build();
 if (keyRing is not null) app.Logger.LogInformation("Form keys shared by the web servers: {KeyRing}.", keyRing);
+
+/* Under a virtual directory: IIS gives the application's path itself; behind another proxy, Insights:PathBase does. */
+if (app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<InsightsOptions>>().Value.PathBase is { Length: > 1 } pathBase)
+    app.UsePathBase(pathBase);
+app.UsePathBaseLinks();
+/* Under IIS the base is only known per request: said once, at the first, when it is named as one of the site's own addresses. */
+var clashSaid = 0;
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.PathBase.HasValue && Interlocked.Exchange(ref clashSaid, 1) == 0 && PathBaseLinks.Clashes(ctx.Request.PathBase.Value!))
+        app.Logger.LogWarning("The site's virtual directory {PathBase} has the name of one of its own addresses: some links will not reach their page. Install it under another name.", ctx.Request.PathBase.Value);
+    await next();
+});
 
 if (!app.Environment.IsDevelopment())
 {
@@ -75,7 +90,7 @@ app.Use(async (context, next) =>
     await next();
 });
 
-/* 2.4.10: an address with no page behind it (mistyped, or a bookmark to a page since moved) got an empty response, which
+/* An address with no page behind it (mistyped, or a bookmark to a page since moved) got an empty response, which
    a browser shows as a blank page. It is asked again as /not-found, which says so and offers the nearest reports; the
    answer is still 404. Only a page someone asked for: not the data API, not a file, not a form, and not a 404 that
    already came with a page of its own (a report turned off). */
@@ -94,9 +109,11 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
-app.UseHttpsRedirection();
+/* Not the load balancer's probe: one that asks over HTTP, with TLS ended at the balancer, would be sent to HTTPS and
+   count every server down. */
+app.UseWhen(ctx => !ctx.Request.Path.StartsWithSegments(HealthProbe.Path), b => b.UseHttpsRedirection());
 app.UseStaticFiles();
-/* A page, a file or an API answer whose audit row could not be written is not served (2.4.12, AuditLog): 503, and why. */
+/* A page, a file or an API answer whose audit row could not be written is not served (AuditLog): 503, and why. */
 app.Use(async (ctx, next) =>
 {
     try { await next(); }
@@ -112,12 +129,12 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.Use((ctx, next) => TenantAccessor.SelectAsync(ctx, () => next()));
-/* The dashboard's level limit (2.4.4), behind every endpoint that is not a page: pages refuse with
+/* The dashboard's level limit, behind every endpoint that is not a page: pages refuse with
    their own message (InsightsPage), the data API with its own; anything else added later is covered here. */
 app.Use(async (ctx, next) =>
 {
     if (ctx.GetEndpoint() is { } ep && ep.Metadata.GetMetadata<Microsoft.AspNetCore.Mvc.RazorPages.PageActionDescriptor>() is null
-        && !ctx.Request.Path.StartsWithSegments("/api"))
+        && !ctx.Request.Path.StartsWithSegments("/api") && !ctx.Request.Path.StartsWithSegments(HealthProbe.Path))
     {
         var viewer = await ctx.RequestServices.GetRequiredService<ViewerService>().GetAsync();
         if (!viewer.Admitted && !viewer.AnyAdmin)
@@ -132,9 +149,23 @@ app.Use(async (ctx, next) =>
 app.MapRazorPages();
 /* Health moved from /admin, which servers often block, to /admin/health; old links still arrive. */
 app.MapGet("/admin", () => Results.Redirect("/admin/health"));
-/* My Copilot's pages are gone (2.4.4): links to them in earlier emails land on the start page. */
+/* My Copilot's pages are gone: links to them in earlier emails land on the start page. */
 app.MapGet("/me/{**rest}", () => Results.Redirect("/"));
+/* Pages merged in 2.7.6: the old addresses (bookmarks, emails, alerts) land on the page that took them, their query kept. */
+static IResult Moved(HttpRequest r, string to, string? add = null)
+{
+    var q = string.Join("&", new[] { r.QueryString.HasValue ? r.QueryString.Value![1..] : null, add }.Where(x => !string.IsNullOrEmpty(x)));
+    return Results.Redirect(q.Length == 0 ? to : to + "?" + q);
+}
+app.MapGet("/security/non-human", (HttpRequest r) => Moved(r, Nav.NonHuman));
+app.MapGet("/compliance/non-human", (HttpRequest r) => Moved(r, Nav.NonHuman));
+app.MapGet("/leadership/scorecard", (HttpRequest r) => Moved(r, "/leadership/boardpack"));
+app.MapGet("/adoption/leaderboard", (HttpRequest r) => Moved(r, "/adoption/departments"));
+app.MapGet("/agents/shared", (HttpRequest r) => Moved(r, "/agents/inventory", "show=shared"));
+app.MapGet("/agents/production", (HttpRequest r) => Moved(r, "/agents/inventory", "show=production"));
 app.MapDataApi();
+/* The load balancer's probe: no sign-in, nothing named, only whether this server answers and reaches its database. */
+app.MapMethods(HealthProbe.Path, ["GET", "HEAD"], HealthProbe.AnswerAsync).AllowAnonymous();
 
 app.Run();
 

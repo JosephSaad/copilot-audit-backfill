@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// The reverse of Better on pay-as-you-go (2.4.3; 2.6.6 on the credit estimate): people without a Copilot license whose
+/// The reverse of Better on pay-as-you-go (2.6.6 on the credit estimate): people without a Copilot license whose
 /// agent use is billed in Copilot Credits at a cost a license would beat. The credits are Licensing › Credit use's
 /// estimate (<see cref="CreditData"/>), so this list, Credit use and Agents › Agents costing credits agree.
 /// </summary>
@@ -116,7 +116,7 @@ WHERE du.UserKey IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@keys, ','))
             "Credits a month: the estimate of Licensing › Credit use, at the rates in Admin › Targets and assumptions, scaled to 30 days; it errs high. " +
             "Listed: no license today, and an enabled account. Against the license: the cost less the license's; above zero, the license is cheaper.", "full", CsvUrl()));
     }
-    /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+    /* Posted, with the anti-forgery token (see LicenseActions.Button). */
     public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
     public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 

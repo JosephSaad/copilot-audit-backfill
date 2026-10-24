@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// License holders whose use is falling away but has not stopped (2.4.3): the last 30 days against the 60
+/// License holders whose use is falling away but has not stopped: the last 30 days against the 60
 /// before. Caught now, a word from their manager or a session keeps the license earning; a month later
 /// they are on Unused licenses.
 /// </summary>

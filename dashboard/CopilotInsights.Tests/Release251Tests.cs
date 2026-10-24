@@ -27,7 +27,7 @@ public class Release251Tests
         Assert.Null(typeof(ReportContext).GetProperty("TrendStartKey"));
         Assert.DoesNotContain("28-day average", Source.Read("Pages", "Shared", "_Report.cshtml"));
         Assert.DoesNotContain("kt0", Source.Read("Infrastructure", "ReportContext.cs"));
-        /* Admin › Operations sets the security-signal alerts, which compare a day with its 28-day average (2.3.0): an
+        /* Admin › Operations sets the security-signal alerts, which compare a day with its 28-day average: an
            alert rule, not a chart. Every report page is checked. */
         var offenders = Directory.GetFiles(PagesDirectory(), "*.cs", SearchOption.AllDirectories)
             .Where(f => !f.Contains(Path.DirectorySeparatorChar + "Admin" + Path.DirectorySeparatorChar))
@@ -41,7 +41,7 @@ public class Release251Tests
     {
         Assert.Equal(28, Metrics.AdoptionDays);
         var leadership = Source.Read("Pages", "Leadership", "Leadership.cs");
-        Assert.Contains("var adoptedTask = m.AdoptedAsync(Ctx);", leadership);   // 2.7.3: read alongside the others
+        Assert.Contains("var adoptedTask = m.AdoptedAsync(Ctx);", leadership);   // Read alongside the others
         Assert.Contains("Ratio(adopted.GetValueOrDefault(w.Bucket), w.Licensed)", leadership);
         Assert.Contains("A rolling {Metrics.AdoptionDays} days, so weekends and holidays do not dip it", leadership);
     }

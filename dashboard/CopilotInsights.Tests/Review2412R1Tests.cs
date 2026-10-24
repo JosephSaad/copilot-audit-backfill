@@ -6,7 +6,7 @@ using Xunit;
 /* A namespace of their own: the other review groups' test files sit beside this one. */
 namespace CopilotInsights.Tests.Review2412R1;
 
-/// <summary>The minimum group size, held everywhere a group is drawn or counted (2.4.12, review round 2).</summary>
+/// <summary>The minimum group size, held everywhere a group is drawn or counted (review round 2).</summary>
 public class MinimumGroupSizeTests
 {
     [Fact]
@@ -63,12 +63,12 @@ public class MinimumGroupSizeTests
     public void The_leaderboard_compares_only_with_a_group_that_met_the_minimum_before_and_a_folded_no_family_is_not_counted()
     {
         var people = Source.Read("Pages", "PeopleReports.cs");
-        Assert.Contains("pr.People >= Ctx.MinGroupSize && pr.Licensed >= Ctx.MinGroupSize", people);
+        Assert.Contains("pr.People >= Ctx.MinGroupSize && pr.Licensed >= Ctx.MinGroupSize", Source.Read("Pages", "Adoption", "Adoption.cs"));   // the ranking is on Departments
         Assert.Contains("kept.Any(r => r.Name == \"(no family)\")", people);
     }
 }
 
-/// <summary>Roles and digests (2.4.12, review round 2).</summary>
+/// <summary>Roles and digests (review round 2).</summary>
 public class RolesAndDigestsTests
 {
     [Fact]

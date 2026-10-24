@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    Fills the two generated parts of docs/REPORTING-REFERENCE.md: the column reference, copied from
-    docs/SCHEMA.md, and the transcripts of the scripts that create and fill the schema.
+    Writes the full reporting reference: docs/REPORTING-REFERENCE.md (the guide, written by hand) with its two
+    generated parts filled in, the column reference copied from docs/SCHEMA.md and the transcripts of the
+    scripts that create and fill the schema.
 
 .DESCRIPTION
     The guide at the top of docs/REPORTING-REFERENCE.md is written by hand. Two parts of it are not:
@@ -10,20 +11,22 @@
         docs/SCHEMA.md (from its first section of objects to its end) with each heading one level lower.
       * Between the "generated:scripts" marks: each script below, whole, in the order the installer runs them.
 
-    Run it after docs/SCHEMA.md or any of the scripts changed, and commit the result. With -Check nothing is
-    written: it exits 1 when the committed file is not what this would write, which tests/Test-ReportingReference.ps1
-    runs in CI, so the document cannot fall behind the scripts.
+    The repository keeps the guide only, with the two parts' marks empty (2.7.6: filled in, the document was 18,000
+    lines of copies of other files in the repository). The release workflow runs this with -OutFile and attaches the
+    full reference, and its Word version, to the release. With -Check nothing is written: it exits 1 when the
+    committed file carries generated text, or the full reference cannot be made, which tests/Test-ReportingReference.ps1
+    runs in CI.
 
     A script added to sql/ must be added to the list here: the run stops and names one that is missing.
 
 .EXAMPLE
-    pwsh tools/dev/schema/Build-ReportingReference.ps1
+    pwsh tools/dev/schema/Build-ReportingReference.ps1 -OutFile tools/dev/schema/out/REPORTING-REFERENCE.md
 .EXAMPLE
     pwsh tools/dev/schema/Build-ReportingReference.ps1 -Check
 #>
 #Requires -Version 7.2
 [CmdletBinding()]
-param([switch] $Check)
+param([switch] $Check, [string] $OutFile)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -102,15 +105,19 @@ function Set-Region([string] $Document, [string] $Name, [string] $Body) {
 }
 
 $current = Read-Text $target
+$empty = Set-Region (Set-Region $current 'columns' '') 'scripts' ''
 $new = Set-Region (Set-Region $current 'columns' $columns) 'scripts' $transcripts
 
 if ($Check) {
-    if ($new -ne $current) {
-        Write-Host 'docs/REPORTING-REFERENCE.md is behind docs/SCHEMA.md or the scripts. Run tools/dev/schema/Build-ReportingReference.ps1 and commit the result.' -ForegroundColor Red
+    if ($empty -ne $current) {
+        Write-Host 'docs/REPORTING-REFERENCE.md carries generated text: the repository keeps the guide only, with the marks empty. The release attaches the full reference.' -ForegroundColor Red
         exit 1
     }
-    Write-Host "docs/REPORTING-REFERENCE.md matches docs/SCHEMA.md and its $($scripts.Count) scripts."
+    Write-Host "docs/REPORTING-REFERENCE.md is the guide only; the full reference is made from docs/SCHEMA.md and $($scripts.Count) scripts."
     exit 0
 }
-[System.IO.File]::WriteAllText($target, $new, [System.Text.UTF8Encoding]::new($false))
-Write-Host ("docs/REPORTING-REFERENCE.md: {0:N0} lines, {1:N0} KB, {2} scripts." -f ($new -split "`n").Count, ($new.Length / 1KB), $scripts.Count)
+if (-not $OutFile) { throw 'Give -OutFile: where to write the full reference. The repository keeps the guide only.' }
+$dir = Split-Path -Parent ([System.IO.Path]::GetFullPath($OutFile))
+if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+[System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($OutFile), $new, [System.Text.UTF8Encoding]::new($false))
+Write-Host ("{0}: {1:N0} lines, {2:N0} KB, {3} scripts." -f $OutFile, ($new -split "`n").Count, ($new.Length / 1KB), $scripts.Count)

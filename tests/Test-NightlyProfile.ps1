@@ -86,7 +86,7 @@ $licLoad = [pscustomobject]@{ StartedUtc = T '12:05:10'; DownloadedUtc = T '12:0
 $lic = @(Get-LoadStage -StepStart (T '12:05:00') -StepEnd (T '12:11:00') -Load $licLoad -AfterMerge 'Shredding license and agent events' -Closing 'Shredding agent events, and closing')
 Assert-That ($lic[-1].Stage -eq 'Shredding license and agent events' -and $lic[-1].Seconds -eq 150) 'in the license step, what follows the merge is the shred'
 
-# 2.5.4: the shred ends by working out the SKU changes of what it shredded, and records that run: a stage of its own.
+# The shred ends by working out the SKU changes of what it shredded, and records that run: a stage of its own.
 $sku = [pscustomobject]@{ StartedUtc = T '12:10:20'; EndedUtc = T '12:10:29'; SinceUtc = T '12:00:00'; Events = 44405; Changes = 3335 }
 $lic = @(Get-LoadStage -StepStart (T '12:05:00') -StepEnd (T '12:11:00') -Load $licLoad -Sku $sku -AfterMerge 'Shredding license events' -Closing 'Shredding agent events, and closing')
 Assert-That ((($lic | ForEach-Object Stage) -join ' | ') -eq (@('Before the download: settings, sign-in, the load''s range', 'Purview download', 'Merge into audit.CopilotAudit', 'Shredding license events',

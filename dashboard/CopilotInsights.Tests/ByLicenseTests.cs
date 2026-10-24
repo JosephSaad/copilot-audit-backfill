@@ -5,7 +5,7 @@ using Xunit;
 
 namespace CopilotInsights.Tests;
 
-/// <summary>Usage by license (2.4.6): the license choice, the active-days bands, and who may open the page.</summary>
+/// <summary>Usage by license: the license choice, the active-days bands, and who may open the page.</summary>
 public class ByLicenseTests
 {
     [Theory]

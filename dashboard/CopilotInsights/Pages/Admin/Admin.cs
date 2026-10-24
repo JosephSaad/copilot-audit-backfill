@@ -24,7 +24,7 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
     public override string Title => "Health";
     public override string Intro => "Is the data current, and did the last run work? The three figures answer that; below them, each step of the pipeline, the directory behind who sees what, and a manual refresh.";
 
-    /* A step by a name that says what it is, with a line on what it does (2.4.10: "bi star schema" and "Dashboard rollups"
+    /* A step by a name that says what it is, with a line on what it does ("bi star schema" and "Dashboard rollups"
        told an administrator nothing). Optional: the way records are fetched from the audit log, which a site loaded from files may never use. */
     sealed record Step(string Name, string What, DateTime? Finished, string Rows, string? Note, bool Optional = false);
     const string NotInstalled = "Not installed in this database";
@@ -47,7 +47,7 @@ public sealed class HealthModel(PageServices s) : AdminPage(s)
         await Try("Report tables", "The tables every report and Power BI read (bi.usp_RefreshBi)", "SELECT TOP (1) EndedUtc, InteractionRows, CASE WHEN SinceUtc IS NULL THEN N'full rebuild' ELSE CONCAT(N'since ', FORMAT(SinceUtc, 'yyyy-MM-dd')) END FROM bi.RefreshRun ORDER BY RunId DESC;", "interactions written");
         await Try("Dashboard totals", "Daily totals for each person and the org chart, which these pages read (dash.usp_RefreshDashboard)", "SELECT TOP (1) EndedUtc, CAST(UserDayRows AS BIGINT), CONCAT(FORMAT(People, 'N0'), N' people, ', FORMAT(ClosureRows, 'N0'), N' org pairs') FROM dash.RefreshRun ORDER BY RunId DESC;", "person-days written");
         await Try("People directory", "People, managers and departments from Active Directory", "SELECT MAX(LoadedUtc), COUNT_BIG(*), NULL FROM audit.UserDirectory;", "people");
-        /* 2.5.6: the agent workbook, from the last load that reached the tables; a later load that failed says so. */
+        /* The agent workbook, from the last load that reached the tables; a later load that failed says so. */
         await Try("Agent inventory (Excel)", "The agent workbook loaded into the agent tables (tools\\Import-AgentWorkbook.ps1)", @"
 SELECT TOP (1) s.EndedUtc, CAST(s.InventoryRows AS BIGINT),
        CONCAT(N'agents; ', FORMAT(s.Matched, 'N0'), N' in the audit log; file ', ISNULL(s.Source, N'?'),
@@ -95,7 +95,7 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
        (SELECT COUNT(*) FROM dash.Person), (SELECT COUNT(*) FROM dash.Person WHERE Level IS NOT NULL),
        (SELECT COUNT(*) FROM dash.Person WHERE AccountEnabled = 1),
        (SELECT MAX(DateKey) FROM dash.UserDay);")).Single();
-        /* 2.4.10: the answer first. How current the reports are, whether the last run worked, and how many steps are behind;
+        /* The answer first. How current the reports are, whether the last run worked, and how many steps are behind;
            the tables below are the detail. */
         var today = CopilotInsights.Data.Zones.FromUtc(DateTime.UtcNow, Zone).Date;
         var lastDay = d.LastKey is int k ? new DateTime(k / 10000, k / 100 % 100, k % 100) : (DateTime?)null;
@@ -144,7 +144,7 @@ SELECT (SELECT COUNT(*) FROM bi.DimUser WHERE DirectoryStatus = N'Found'),
             var warn = await S.Settings.IntAsync("CertificateWarnDays", 30);
             if (certs.Count == 0)
                 OpsCard("App certificates", "Not recorded yet: the pipeline records each certificate it signs in with at the start of every run.", "status-warn");
-            /* 2.7.0: the next certificate to expire is a figure at the top, beside the steps behind: it sat mid-page. */
+            /* The next certificate to expire is a figure at the top, beside the steps behind: it sat mid-page. */
             if (certs.Where(c => c.ExpiresUtc is not null).OrderBy(c => c.ExpiresUtc).FirstOrDefault() is { } soonest)
             {
                 var left = (int)Math.Floor(Certificates.DaysLeft(soonest, DateTime.UtcNow) ?? 0);
@@ -195,7 +195,7 @@ FROM w;")).Single();
                 "As the job server held each certificate at the start of its last run. A certificate the settings name that the job server does not hold is shown as not found."));
         }
 
-        /* AI usage outside Microsoft 365 Copilot (2.6.2): the last run of each optional loader. */
+        /* AI usage outside Microsoft 365 Copilot: the last run of each optional loader. */
         try
         {
             var loaded = await ExternalUsage.ReadAsync(Db);
@@ -221,7 +221,7 @@ FROM w;")).Single();
             Form("refresh", "<input type=\"hidden\" name=\"days\" value=\"0\"/>" + Button("Rebuild every day", "Rebuild every day of the rollups? On a large tenant this takes minutes.", quiet: true)) +
             rt.Render().Value)));
 
-        /* 2.4.7: the report pages' queries are kept until the data changes, and built ahead for the whole organization. */
+        /* The report pages' queries are kept until the data changes, and built ahead for the whole organization. */
         var qc = HttpContext.RequestServices.GetRequiredService<QueryCache>();
         var warmer = HttpContext.RequestServices.GetRequiredService<PageWarmer>();
         var tenant = HttpContext.RequestServices.GetRequiredService<TenantAccessor>().Current.Name;
@@ -231,21 +231,29 @@ FROM w;")).Single();
             : warm is null ? "On. The pages have not been built ahead yet on this web server; it starts shortly after the site does."
             : warm.EndedUtc is null ? $"On. Building the pages ahead now: {warm.Pages:#,0} page views so far, started {When(warm.StartedUtc)}."
             : $"On. Built ahead {When(warm.EndedUtc)}: {warm.Pages:#,0} page views in {warm.Seconds / 60:0.#} minutes{(warm.Failed > 0 ? $", {warm.Failed:#,0} not built" : "")}.";
-        /* 2.5.1: the daily pre-cache, which Invoke-InsightsPrecache.ps1 asks for. */
+        /* The daily pre-cache, which Invoke-InsightsPrecache.ps1 asks for. */
         var pre = warmer.LastPrecache;
         var slowest = pre?.Tenants.Select(x => x.SlowestFromMemorySeconds).DefaultIfEmpty(0).Max() ?? 0;
         var over = pre?.Tenants.Sum(x => x.OverOneSecond) ?? 0;
         var precache = pre is null ? "No pre-cache on this web server since the site started (Invoke-InsightsPrecache.ps1; the installer schedules it daily)."
             : pre.EndedUtc is null ? $"Pre-cache asked for {When(pre.RequestedUtc ?? pre.StartedUtc)}: building every page again now."
             : $"Last pre-cache {When(pre.EndedUtc)}: {pre.Outcome}, {pre.Tenants.Sum(x => x.Pages):#,0} page views built again; from memory the slowest took {slowest:0.00} s{(over > 0 ? $", {over:#,0} over a second" : "")}.";
-        Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p>{E(precache)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
+        /* The results the web servers share, in the database. */
+        var shared = HttpContext.RequestServices.GetRequiredService<SharedCache>();
+        var (sHits, sStored, _) = shared.Counts;
+        var size = shared.Enabled ? await shared.SizeAsync() : null;
+        var sharing = !shared.Enabled ? "Shared with the other web servers: off on this one (Insights:SharedQueryCache)."
+            : size is not { } sz ? "Shared with the other web servers: not yet; Install-CopilotAudit.ps1 -Dashboard adds the table it needs (dash.QueryCacheShared)."
+            : $"Shared with the other web servers, in the database: {sz.Results:#,0} results, {sz.Bytes / 1048576.0:#,0.#} MB. Since the site started, this one read {sHits:#,0} from there and kept {sStored:#,0}.";
+        Panels.Add(new("Report speed", new HtmlString($"<p>{E(state)}</p><p>{E(precache)}</p><p>{E(sharing)}</p><p class=\"sub\">Since the site started on this web server: {hits:#,0} queries answered from memory, {misses:#,0} read from the database.</p>"),
             "A report page's queries are kept in memory until the data changes: a refresh, a finished pipeline run, a license or directory read, or a change to a setting or reference data. " +
             "After each change, and again when the results expire, every report is built once in the background for the whole organization, at every period, so the top two levels and Organization holders get each page at once. " +
             "A manager's own part of the organization is kept from the first time someone opens it. A list edited all day (flag triage, exported license actions, confirmed accounts) has a version of its own, " +
-            "read from the database for every page: a page that reads one is kept until that list changes, on this web server or another. Each web server keeps its own results and builds its own pages.", "half"));
+            "read from the database for every page: a page that reads one is kept until that list changes, on this web server or another. With several web servers, each keeps results in its own memory and shares them " +
+            "through the database, and the morning build runs on one at a time: the others read what it kept.", "half"));
     }
 
-    public Task<IActionResult> OnPostRefreshAsync(int days) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRefreshAsync(int days) => AdminChangeAsync(false, async () =>
     {
         DateTime? since = days > 0 ? DateTime.UtcNow.Date.AddDays(-days) : null;
         await Db.ExecuteAsync("EXEC dash.usp_RefreshDashboard @SinceUtc = @since;", new { since }, timeout: 3600);
@@ -255,7 +263,7 @@ FROM w;")).Single();
 
 /* ---- Reports shown ----------------------------------------------------------------------- */
 
-/// <summary>Which reports the dashboard shows (2.4.9): laid out as the start page is, a box to tick for each.</summary>
+/// <summary>Which reports the dashboard shows: laid out as the start page is, a box to tick for each.</summary>
 public sealed class ReportsModel(PageServices s) : AdminPage(s)
 {
     public override string Title => "Reports shown";
@@ -334,7 +342,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         public int TotalRows { get; set; }
     }
 
-    /// <summary>Whether dash.RoleGrant has the Pages column that limits an Admin grant to some pages (2.6.4: added by the schema script).</summary>
+    /// <summary>Whether dash.RoleGrant has the Pages column that limits an Admin grant to some pages (added by the schema script).</summary>
     async Task<bool> HasPagesAsync() => await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN 0 ELSE 1 END;") == 1;
 
     /// <summary>Whether a grant's principal is the signed-in account itself.</summary>
@@ -356,7 +364,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             Input("PaygInteractionCost", $"Pay-as-you-go cost an interaction ({set.GetValueOrDefault("LicenseCurrency") ?? "USD"})", set.GetValueOrDefault("PaygInteractionCost") ?? "0.12", 6) +
             ZonePicker(set.GetValueOrDefault(Zones.Setting), reportingZone) +
             Button("Save settings")) +
-            /* What each setting does, one line a setting (2.4.10: it was one paragraph for all of them). */
+            /* What each setting does, one line a setting (it was one paragraph for all of them). */
             "<ul class=\"tips sub\">" +
             $"<li><b>Top of the organization.</b> Usually the CEO: they and their direct reports see everything. Leave it empty to use the one the org chart shows{(set.GetValueOrDefault("OrgTopUpnDetected") is { Length: > 0 } det ? $" ({E(det)})" : "")}.</li>" +
             "<li><b>Minimum group size.</b> A group smaller than this is folded into \"Smaller groups\" wherever reports break figures down, and what is folded reaches it too, so no figure describes one or two people. It is also the smallest part of the organization a report can be narrowed to.</li>" +
@@ -370,7 +378,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             "</ul>"),
             "A change takes effect at once, and is recorded in the audit log."));
 
-        /* Who can open the dashboard (2.4.4): levels 1 to N below the top, with each choice's head count. */
+        /* Who can open the dashboard: levels 1 to N below the top, with each choice's head count. */
         var levels = await Db.QueryAsync<(byte? Level, int N)>("SELECT Level, COUNT(*) FROM dash.Person WHERE AccountEnabled = 1 GROUP BY Level ORDER BY Level;");
         var max = Math.Clamp(int.TryParse(set.GetValueOrDefault("MaxViewerLevel"), out var mv) ? mv : 0, 0, 15);
         var deepest = Math.Min(15, Math.Max(max, levels.Where(l => l.Level is not null).Select(l => (int)l.Level!.Value).DefaultIfEmpty(0).Max()));
@@ -390,7 +398,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             "Managers below the levels stop getting the manager digest. People with no level (not under the top) are left out by any limit." +
             (max > 0 ? $" Now: levels 1 to {max}." : " Now: everyone.")));
 
-        /* Levels never on a revoke, reclaim or training list (2.4.6), with each choice's head count. */
+        /* Levels never on a revoke, reclaim or training list, with each choice's head count. */
         var keep = await CopilotInsights.Data.ProtectedLevels.LevelsAsync(S.Settings);
         var keepChoices = new List<(string Value, string Label)> { ("0", "None: anyone can be listed") };
         for (var n = 1; n <= Math.Max(deepest, keep); n++)
@@ -404,7 +412,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             "Lists of accounts nobody can use keep everyone: disabled and departed accounts, departures ahead and non-human accounts." +
             $" Now: {(keep == 0 ? "none" : $"levels 1 to {keep}")}."));
 
-        /* 2.6.4: Admin can be limited to some of the Admin pages. Only a full administrator gives, limits or removes
+        /* Admin can be limited to some of the Admin pages. Only a full administrator gives, limits or removes
            Admin, so someone limited to this page cannot make themselves, or anyone, more than they are. */
         var hasPages = await HasPagesAsync();
         var offered = Roles.All.Where(r => Viewer.IsAdmin || r != Roles.Admin).ToList();
@@ -426,7 +434,7 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
             (Viewer.IsAdmin ? "" : " Admin is given, limited and removed by a full administrator.")));
 
         var roleFilter = Request.Query["role"].FirstOrDefault() is { } rf && Roles.All.Contains(rf) ? rf : null;
-        /* One row per person or group, with every role they hold (2.4.2); paged by principal. */
+        /* One row per person or group, with every role they hold; paged by principal. */
         var pg = new Paging(Request, new Dictionary<string, string>
         {
             ["principal"] = "g.Principal", ["new"] = "MAX(g.GrantedUtc) DESC, g.Principal",
@@ -450,7 +458,7 @@ WHERE g.Principal IN @list;", new { list });
             Zone = Zone, Headers = ["Select", "Principal", "Name", "Type", "Roles", "Why", "Granted by", "Last granted (UTC)"], EmptyText = "No grants yet.",
             Server = new(pg, Request, [null, "principal", "name", "type", null, null, "by", "new"], new HashSet<int> { 7 }),
         };
-        /* 2.6.3: every role of one person or group at once (Remove all, on their row), and of everyone ticked (below
+        /* Every role of one person or group at once (Remove all, on their row), and of everyone ticked (below
            the table). The tick boxes belong to that one form by its id: a row's own forms cannot hold them. */
         const string many = "revoke-many";
         foreach (var principal in list)
@@ -595,7 +603,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         if (roles.Count == 0) throw new ArgumentException("tick at least one role.");
         if (type == "User" && !principal.Contains('@') && !principal.Contains('\\')) throw new ArgumentException("a user is a UPN (name@domain) or DOMAIN\\name.");
         if (type == "Group" && !principal.Contains('\\')) throw new ArgumentException("a group is DOMAIN\\Group.");
-        /* 2.6.4: Admin limited to the pages ticked; none, or all of them, is the whole role. */
+        /* Admin limited to the pages ticked; none, or all of them, is the whole role. */
         string? pages = null;
         var hasPages = false;
         if (roles.Contains(Roles.Admin))
@@ -631,17 +639,17 @@ IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Rol
 
     public Task<IActionResult> OnPostRevokeAsync(int id) => AdminChangeAsync(async () =>
     {
-        /* 2.6.4: Admin is removed by a full administrator only. */
+        /* Admin is removed by a full administrator only. */
         if (!Viewer.IsAdmin && await Db.ScalarAsync<int>("SELECT COUNT(*) FROM dash.RoleGrant WHERE GrantId = @id AND Role = 'Admin';", new { id }) > 0)
             throw new ArgumentException("only a full administrator can remove Admin.");
         var g = (await Db.QueryAsync<(string Principal, string Role)>("DELETE FROM dash.RoleGrant OUTPUT deleted.Principal, deleted.Role WHERE GrantId = @id;", new { id })).FirstOrDefault();
         return g.Principal is null ? "That grant was already gone." : $"Removed {g.Role} from {g.Principal}.";
     });
 
-    /// <summary>Every role of one person or group (2.6.3).</summary>
+    /// <summary>Every role of one person or group.</summary>
     public Task<IActionResult> OnPostRevokeAllAsync(string? principal) => AdminChangeAsync(() => RemoveEveryRoleAsync([principal]));
 
-    /// <summary>Every role of each person and group ticked (2.6.3).</summary>
+    /// <summary>Every role of each person and group ticked.</summary>
     public Task<IActionResult> OnPostRevokeManyAsync(string[]? principal) => AdminChangeAsync(() => RemoveEveryRoleAsync(principal));
 
     async Task<string> RemoveEveryRoleAsync(IEnumerable<string?>? asked)
@@ -702,7 +710,7 @@ WHERE a.AgentSource <> N'(no agent)'
         Panels.Add(new("Agents", new HtmlString(pg.Controls(Request, new Dictionary<string, string> { ["unnamed"] = "Unnamed first", ["new"] = "Newest", ["name"] = "Name" }).Value + t.Render().Value),
             "An agent appears under the friendly name the audit log gives it, the latest when its maker renames it; where the log gives none, under a name read from its id (a Copilot Studio agent's schema name). A name given here shows everywhere instead; clear it to go back."));
 
-        /* The labels seen and how often (2.4.11): one pass over the rollup instead of two, and kept until the data
+        /* The labels seen and how often: one pass over the rollup instead of two, and kept until the data
            changes, as a report's queries are. It reads every day there is: 1.4 seconds at 120 million interactions on
            each visit to this page otherwise. The names and their order are read as they are now. */
         List<(string LabelId, long N)> seen;
@@ -733,7 +741,7 @@ FROM bi.DimApp AS a LEFT JOIN audit.SessionAppCategory AS c ON c.App = a.App ORD
         Panels.Add(new("App categories", at.Render(),
             "Copilot Chat or Copilot inside an app. A change applies the next time the pipeline builds sessions and the report tables, and shows on the dashboard after that.", "half"));
 
-        /* Which accounts are not a person (2.4.5): a Copilot license on one is a policy breach. */
+        /* Which accounts are not a person: a Copilot license on one is a policy breach. */
         var r = await CopilotInsights.Data.NonHuman.RulesAsync(S.Settings);
         string Box(string name, string label, bool on) => $"<label><input type=\"checkbox\" name=\"{name}\" value=\"On\"{(on ? " checked" : "")}/> {E(label)}</label>";
         var set = await S.Settings.AllAsync();
@@ -761,7 +769,7 @@ FROM bi.DimApp AS a LEFT JOIN audit.SessionAppCategory AS c ON c.App = a.App ORD
             var list = CopilotInsights.Data.NonHuman.Split(v);
             foreach (var x in list) if (x.Length > max || !ok(x)) throw new ArgumentException($"'{x}' is not {what}.");
             var joined = string.Join(", ", list);
-            /* A setting holds 400 characters (2.4.12). This allowed 1,000: a longer list failed in SQL Server after the
+            /* A setting holds 400 characters. This allowed 1,000: a longer list failed in SQL Server after the
                boxes before it were saved, with no audit row and no word of why. Now nothing is saved, and it says so. */
             if (joined.Length > MaxList) throw new ArgumentException($"the {what} list is longer than {MaxList} characters, the most a setting holds.");
             return joined.Length == 0 ? null : joined;
@@ -836,7 +844,7 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
     static readonly string[] Kinds = ["View", "Denied", "Export", "Api", "Admin"];
 
     /// <summary>
-    /// A kind in words, one entry or many (2.4.10). The log stores View, Denied, Export, Api and Admin; the page showed
+    /// A kind in words, one entry or many. The log stores View, Denied, Export, Api and Admin; the page showed
     /// those, and counted the data API's calls under a second "Admin changes". The download keeps the stored words.
     /// </summary>
     public static string KindName(string kind, bool many = false) => kind switch
@@ -858,7 +866,44 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
         public string? Scope { get; set; }
         public string? Detail { get; set; }
         public string? ClientIp { get; set; }
+        public string? Change { get; set; }
         public int TotalRows { get; set; }
+    }
+
+    /// <summary>A change's record, laid out to read: the JSON indented.</summary>
+    /// <summary>The audit row's record of a change, as lines a person reads: settings and grants first, then the form. The CSV keeps the JSON.</summary>
+    public static string AuditChangeText(string json)
+    {
+        try
+        {
+            var root = System.Text.Json.JsonDocument.Parse(json).RootElement;
+            var lines = new List<string>();
+            static string V(System.Text.Json.JsonElement e) => e.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.Null => "(none)",
+                System.Text.Json.JsonValueKind.String => e.GetString() is { Length: > 0 } s ? s : "(empty)",
+                _ => e.ToString(),
+            };
+            if (root.TryGetProperty("settings", out var settings))
+            {
+                lines.Add("Settings changed:");
+                foreach (var p in settings.EnumerateObject())
+                    lines.Add($"  {p.Name}: {V(p.Value.GetProperty("before"))} → {V(p.Value.GetProperty("after"))}");
+            }
+            foreach (var (key, label) in new[] { ("granted", "Roles granted:"), ("revoked", "Roles taken away:") })
+                if (root.TryGetProperty(key, out var list))
+                {
+                    lines.Add(label);
+                    lines.AddRange(list.EnumerateArray().Select(x => "  " + V(x)));
+                }
+            if (root.TryGetProperty("submitted", out var submitted) && submitted.EnumerateObject().Any())
+            {
+                lines.Add("Submitted on the form:");
+                lines.AddRange(submitted.EnumerateObject().Select(p => $"  {p.Name}: {V(p.Value)}"));
+            }
+            return lines.Count > 0 ? string.Join("\n", lines) : json;
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException) { return json; }
     }
 
     protected override async Task BuildAsync()
@@ -871,8 +916,10 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
             ["kind"] = "a.Kind, a.AtUtc DESC, a.LogId DESC", ["page"] = "a.Page, a.AtUtc DESC, a.LogId DESC", ["scope"] = "a.Scope, a.AtUtc DESC, a.LogId DESC",
             ["from"] = "a.ClientIp, a.AtUtc DESC, a.LogId DESC",
         }, "new");
+        /* What a change submitted and altered (dash.AuditLog.Change), where the database has the column. */
+        var hasChange = await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.AuditLog', N'Change') IS NULL THEN 0 ELSE 1 END") == 1;
         var rows = await Db.QueryAsync<Row>($@"
-SELECT a.AtUtc, a.Viewer, a.Kind, a.Page, a.Scope, a.Detail, a.ClientIp, COUNT(*) OVER () AS TotalRows
+SELECT a.AtUtc, a.Viewer, a.Kind, a.Page, a.Scope, a.Detail, a.ClientIp, {(hasChange ? "a.Change" : "CAST(NULL AS NVARCHAR(MAX)) AS Change")}, COUNT(*) OVER () AS TotalRows
 FROM dash.AuditLog AS a
 WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.Kind = @kind)
   AND (@q IS NULL OR a.Viewer LIKE @q OR a.Page LIKE @q OR a.Detail LIKE @q OR a.Scope LIKE @q)
@@ -892,11 +939,12 @@ WHERE a.AtUtc >= DATEADD(DAY, -@days, SYSUTCDATETIME()) AND (@kind IS NULL OR a.
             Server = new(pg, Request, ["new", "who", "kind", "page", "scope", null, "from"], new HashSet<int> { 0 }),
         };
         /* The page says each kind in words; the download keeps the words the log stores, which a tool reading it may match on. */
-        var csv = new Table { Zone = Zone, Headers = t.Headers };
+        var csv = new Table { Zone = Zone, Headers = [.. t.Headers, "Change"] };
         foreach (var r in rows)
         {
-            t.Rows.Add([r.AtUtc, r.Viewer, KindName(r.Kind), r.Page, r.Scope, r.Detail, r.ClientIp]);
-            csv.Rows.Add([r.AtUtc, r.Viewer, r.Kind, r.Page, r.Scope, r.Detail, r.ClientIp]);
+            object? detail = r.Change is null ? r.Detail : new HtmlString(E(r.Detail ?? "") + $"<details class=\"kwhy\"><summary>What changed</summary><pre class=\"change\">{E(AuditChangeText(r.Change))}</pre></details>");
+            t.Rows.Add([r.AtUtc, r.Viewer, KindName(r.Kind), r.Page, r.Scope, detail, r.ClientIp]);
+            csv.Rows.Add([r.AtUtc, r.Viewer, r.Kind, r.Page, r.Scope, r.Detail, r.ClientIp, r.Change]);
         }
         CsvTable = csv;
         string Link(string label, int dd, string? kk, bool on) =>

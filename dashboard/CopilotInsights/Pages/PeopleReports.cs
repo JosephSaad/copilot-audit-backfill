@@ -5,69 +5,6 @@ using CopilotInsights.Infrastructure;
 using Microsoft.AspNetCore.Html;
 using Microsoft.AspNetCore.Mvc;
 
-namespace CopilotInsights.Pages.Adoption
-{
-    /// <summary>Departments (or divisions, countries...) ranked by adoption, with the change on the period before.</summary>
-    public sealed class LeaderboardModel(PageServices s, Metrics metrics) : InsightsPage(s)
-    {
-        public override string Title => "Leaderboard";
-        public override string Persona => "Adoption";
-        public override string Intro => "Groups ranked by adoption (licensed people using Copilot), with the change on the period before and the most improved. Only groups of at least the minimum group size, with at least that many licenses, are ranked.";
-
-        static readonly string[] By = ["Department", "Division", "Country", "Office"];   // 2.5.8: no Company
-
-        protected override async Task BuildAsync()
-        {
-            var by = Request.Query["by"].FirstOrDefault() is { } b && By.Contains(b) ? b : "Department";
-            var prevCtx = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
-            var now = (await metrics.ByAttributeAsync(Ctx, by)).Where(r => r.People >= Ctx.MinGroupSize && r.Licensed >= Ctx.MinGroupSize).ToList();
-            /* Only where the data covers all of the period before (2.4.12, see OpsReports.Covers). */
-            var before = OpsReports.Covers(prevCtx, await OpsReports.FirstDayAsync(Db))
-                ? (await metrics.ByAttributeAsync(prevCtx, by)).ToDictionary(r => r.Name) : new Dictionary<string, GroupRow>();
-            double? Adopt(GroupRow r) => r.Licensed > 0 ? (double)r.ActiveLicensed / r.Licensed : null;
-            var ranked = now.OrderByDescending(r => Adopt(r) ?? 0).ThenByDescending(r => r.Interactions).ToList();
-            var choices = string.Join(" · ", By.Select(x => $"<a href=\"{WebUtility.HtmlEncode(Ctx.Url(Request.Path, extra: "by=" + x))}\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
-            if (ranked.Count == 0) { Notice = $"No {by.ToLowerInvariant()} in {Here} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses."; return; }
-
-            var t = new Table
-            {
-                Headers = ["Rank", by, "People", "License holders", "Adoption", "Change (points)", "Share of everyone using Copilot", "Interactions per active person", "Days active per person"],
-                Numeric = new HashSet<int> { 0, 2, 3, 4, 5, 6, 7, 8 },
-            };
-            var changes = new List<(string Name, double Points)>();
-            for (var i = 0; i < ranked.Count; i++)
-            {
-                var r = ranked[i];
-                /* Against the period before only where the group met the same minimum then (2.4.12): a group of two
-                   license holders a period ago made "+50 points" and the most improved of one person's use. */
-                double? change = before.TryGetValue(r.Name, out var pr) && pr.People >= Ctx.MinGroupSize && pr.Licensed >= Ctx.MinGroupSize
-                                 && Adopt(pr) is double a0 && Adopt(r) is double a1 ? (a1 - a0) * 100 : null;
-                if (change is double c) changes.Add((r.Name, c));
-                t.Rows.Add([i + 1, r.Name, r.People, r.Licensed, Pct(Adopt(r)), change is null ? null : $"{change:+0.#;-0.#;0}", Pct(Ratio(r.Active, r.People)),
-                            r.Active > 0 ? Math.Round(r.Interactions / (double)r.Active, 1) : null, r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null]);
-            }
-            CsvTable = t;
-            /* Not links to Departments (2.7.5 tried it): inside a team, Departments may combine a ranked department with a
-               smaller one, so no row describes a group of one or two people, and the name would not be there. */
-            Kpis.Add(new("Highest adoption", ranked[0].Name, $"{Pct(Adopt(ranked[0]))} adoption"));
-            if (changes.Count > 0)
-            {
-                var best = changes.MaxBy(c => c.Points);
-                Kpis.Add(new("Most improved", best.Name, $"{best.Points:+0.#;-0.#;0} points on the period before"));
-            }
-            Kpis.Add(new("Groups ranked", Num(ranked.Count), $"of the {by switch { "Company" => "companies", "Country" => "countries", _ => by.ToLowerInvariant() + "s" }} here"));
-
-            Panels.Add(new("Adoption", Chart.Bars(ranked.Take(20).Select(r => new Bar(r.Name, Adopt(r), Note: $"{r.ActiveLicensed:#,0} of {r.Licensed:#,0} licensed people used it")).ToList(),
-                Fmt.Percent, "Adoption by group", 1), null, "half"));
-            if (changes.Count > 0)
-                Panels.Add(new("Most improved", Chart.Bars(changes.OrderByDescending(c => c.Points).Take(10).Select(c => new Bar(c.Name, c.Points, Note: $"{c.Points:+0.#;-0.#;0} points", Slot: c.Points >= 0 ? 3 : 8)).ToList(),
-                    Fmt.Decimal1, "Change in adoption, points"), "Adoption now, less adoption in the period before, in percentage points.", "half"));
-            Panels.Add(new("Ranking", new HtmlString($"<p class=\"sub\">Rank by: {choices}</p>" + t.Render().Value),
-                "Adoption: of the people holding a license at the end of the period, the share who used Copilot while licensed.", "full", CsvUrl()));
-        }
-    }
-}
-
 namespace CopilotInsights.Pages.Security
 {
     /// <summary>Guests and external users in Copilot's records: who from outside is using it, and on what.</summary>
@@ -103,7 +40,7 @@ namespace CopilotInsights.Pages.Security
             var guest = userType
                 ? "(du.UserPrincipalName LIKE N'%#EXT#%' OR EXISTS (SELECT 1 FROM audit.CopilotLicense AS cl WHERE cl.UserPrincipalName = du.UserPrincipalName AND cl.UserType = N'Guest'))"
                 : "du.UserPrincipalName LIKE N'%#EXT#%'";
-            /* 2.7.5: a licensed guest an administrator confirmed as a person is no breach on Copilot on non-human accounts;
+            /* A licensed guest an administrator confirmed as a person is no breach on Copilot on non-human accounts;
                the count says how many, so the two pages agree. */
             var exceptions = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
             var ok = exceptions ? "CASE WHEN EXISTS (SELECT 1 FROM dash.NonHumanException AS ex WHERE ex.Upn = du.UserPrincipalName) THEN 1 ELSE 0 END" : "0";
@@ -123,7 +60,7 @@ GROUP BY g.Domain;", Ctx.Args());
             var confirmed = rows.Sum(r => r.Confirmed);
             Kpis.Add(new("Holding a Copilot license", Num(licensed),
                 confirmed == 0 ? "licenses in this tenant assigned to guests" : $"licenses in this tenant assigned to guests; {confirmed:#,0} confirmed as a person by an administrator",
-                licensed > confirmed ? "warn" : null, Href: licensed > 0 ? Open("/security/non-human", "why=guest") : null));
+                licensed > confirmed ? "warn" : null, Href: licensed > 0 ? Open(Nav.NonHuman, "why=guest") : null));
             Kpis.Add(new("Security signals", Num(rows.Sum(r => r.Flags)), "jailbreak, injection or blocked resource", rows.Sum(r => r.Flags) > 0 ? "crit" : null));
             if (rows.Count == 0) { Notice = $"No guest or external accounts used Copilot in {Here} in the period."; return; }
 
@@ -179,7 +116,7 @@ namespace CopilotInsights.Pages.Compliance
         public override bool AllowedInPrivacyMode => true;
         /* The box offers people with Copilot records, in the part of the organization the viewer may see. */
         public override CopilotInsights.Data.LookupKind Lookup => CopilotInsights.Data.LookupKind.People;
-        /// <summary>The scope here only decides who can be looked up (2.5.0); the team box would drop the person chosen.</summary>
+        /// <summary>The scope here only decides who can be looked up; the team box would drop the person chosen.</summary>
         public override bool UsesTeam => false;
         public override string Intro => "Everything recorded about one person's Copilot use, for a data-subject access request or an investigation. Each look and download is in the audit log, with whose record it was. Copilot's audit records hold no prompt or response text: for the content itself, use Purview eDiscovery with the record ids below.";
 
@@ -238,6 +175,27 @@ FROM bi.DimUser AS du {Ctx.Scope("du.UserKey")} WHERE du.UserPrincipalName = @up
                 "SELECT SkuPartNumber, CapabilityStatus, UpdatedUtc FROM audit.CopilotLicense WHERE UserPrincipalName = @upn;", new { upn })).FirstOrDefault();
             if (lic.Updated is not null) { d.Rows.Add(["License (license tool)", $"{lic.Sku} {lic.Status}".Trim()]); d.Rows.Add(["License read", lic.Updated]); }
             Panels.Add(new("Directory and license", d.Render(), null, "half"));
+
+            /* The client asked to see one person's use over time, over 7, 14, 30, 90 days and more: by day up to 30 days,
+               by week beyond, as every trend. The links are the period above, kept with the person. */
+            var trend = await Db.QueryAsync<(DateTime Bucket, long Interactions, long Sessions, int Days)>($@"
+SELECT {Ctx.BucketSql("dd")}, SUM(CAST(ud.Interactions AS BIGINT)), SUM(CAST(ud.Sessions AS BIGINT)), COUNT(CASE WHEN ud.Interactions > 0 THEN 1 END)
+FROM dash.UserDay AS ud JOIN bi.DimDate AS dd ON dd.DateKey = ud.DateKey
+WHERE ud.UserKey = @key AND ud.DateKey BETWEEN @k0 AND @k1
+GROUP BY {Ctx.BucketSql("dd")};", Ctx.Args(new { key = who.UserKey }));
+            var buckets = Buckets();
+            long At(DateTime b, Func<(DateTime Bucket, long Interactions, long Sessions, int Days), long> f) => trend.Where(x => x.Bucket == b).Sum(f);
+            var windows = string.Join(" · ", ReportContext.DayChoices.Select(n =>
+                $"<a href=\"{E(Ctx.Url(Request.Path, days: n, extra: "upn=" + Uri.EscapeDataString(who.UserPrincipalName)))}\"{(n == Ctx.Days ? " class=\"on\"" : "")}>{n} days</a>"));
+            var activeDays = trend.Sum(x => x.Days);
+            Kpis.Add(new("Days active", Num(activeDays), $"of {Ctx.Days} in the period"));
+            Kpis.Add(new("Interactions a day active", activeDays > 0 ? $"{trend.Sum(x => x.Interactions) / (double)activeDays:#,0.0}" : "—", "on the days they used Copilot"));
+            Panels.Add(new("Use over time",
+                new HtmlString($"<p class=\"sub\">Show: {windows}</p>" + Sized(Chart.Columns(Labels(), [
+                    new Series("Interactions", buckets.Select(b => (double?)At(b.Key, x => x.Interactions)).ToList(), 1),
+                    new Series("Sessions", buckets.Select(b => (double?)At(b.Key, x => x.Sessions)).ToList(), 3),
+                ], Fmt.Count, $"{who.DisplayName ?? who.UserPrincipalName}: interactions and sessions", stacked: false))),
+                $"Interactions (a prompt and its answer) and sessions (a conversation) for this person, in every app and agent. {TrendNote}", "full"));
 
             var pg = new Paging(Request, new Dictionary<string, string>
             {
@@ -309,7 +267,7 @@ GROUP BY fam.Family;", Ctx.Args(), timeout: 300);
             var kept = Groups.Fold(this, rows, Ctx.MinGroupSize, out var folded);
             var unmatched = rows.FirstOrDefault(r => r.Name == "(no family)")?.People ?? 0;
             Kpis.Add(new("Job families", Num(rows.Count(r => r.Name != "(no family)")), rules == 0 ? "no rules yet" : $"from {Count(rules, "rule")}"));
-            /* Counted only when "(no family)" is a row of its own (2.4.12): folded into "Smaller groups", its count here
+            /* Counted only when "(no family)" is a row of its own: folded into "Smaller groups", its count here
                was the one, two or three people the fold kept from view. */
             if (unmatched == 0 || kept.Any(r => r.Name == "(no family)"))
                 Kpis.Add(new("People without a family", Num(unmatched), rows.Sum(r => r.People) > 0 ? $"{Pct(Ratio(unmatched, rows.Sum(r => r.People)))} of people in {Here}" : null, unmatched > 0 && rules > 0 ? "warn" : null));

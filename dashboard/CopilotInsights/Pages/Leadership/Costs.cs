@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Leadership;
 
 /// <summary>
-/// What the company spends on AI and automation, what of it can be saved, and what it returns, on one page (2.6.6):
+/// What the company spends on AI and automation, what of it can be saved, and what it returns, on one page:
 /// Microsoft 365 Copilot, Copilot Studio's credits, Fabric with Copilot in Power BI, Power BI, Power Automate, Power
 /// Apps with Dataverse, GitHub Copilot and Foundry. A month at a time, laid out as a dashboard, the most important first:
 /// the headline in a sentence and five tiles, the savings ranked beside how sure they are and where the money goes, each
@@ -45,7 +45,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
             return;
         }
         var cur = v.Currency;
-        /* 2.6.9: how each headline figure is worked out, with the assumptions behind it and, for an administrator, where to change them;
+        /* How each headline figure is worked out, with the assumptions behind it and, for an administrator, where to change them;
            and the assumptions that disagree, said before anything else. */
         _why["spend"] = await WhyAsync("Each license: the seats bought (or assigned, where more are) × its price a month, the volume price where the count reaches it; Microsoft 365 Copilot's add-on at the license price. " +
             "Fabric, Foundry, GitHub Copilot and pay-as-you-go credits: what they billed over their last 30 days, brought to a month. Dataverse: the capacity used over the entitlement × its price a GB.",
@@ -89,7 +89,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     /// <summary>A report this viewer may open, for the whole organization: the page counts it whole, whatever the team chosen.</summary>
     string? Whole(string path, string? extra = null) => Open(path, extra, keepOrg: false);
 
-    /// <summary>How each headline tile's figure is worked out (2.6.9), by the tile's kind.</summary>
+    /// <summary>How each headline tile's figure is worked out, by the tile's kind.</summary>
     readonly Dictionary<string, KpiWhy> _why = [];
     IReadOnlyList<string> _conflicts = [];
 
@@ -105,7 +105,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         var spend = v.Spend; var saving = v.Saving; var value = v.Value;
         var after = spend - saving;
         var sb = new StringBuilder("<div class=\"cboard\">");
-        /* 2.6.9: assumptions that disagree come first: every figure below rests on them. */
+        /* Assumptions that disagree come first: every figure below rests on them. */
         foreach (var c in _conflicts) sb.Append($"<p class=\"conflict\" role=\"status\"><b>Prices disagree.</b> {E(c)}" +
             (Whole("/leadership/assumptions") is { } hu ? $" <a href=\"{E(hu)}\">How figures are calculated</a>" : "") + "</p>");
 
@@ -115,7 +115,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
         sb.Append('.');
         if (saving > 0) sb.Append($" Taking the {Count(allSave.Count, "saving")} found would cut the bill by <b>{saving / spend:P0}</b> ({M(saving * 12, cur)} a year)" +
                                   (after > 0 && value > 0 ? $" and lift the return to <b>{Times(value / after)}</b>." : "."));
-        if (v.Suites is { Saving: > 0 } ss) sb.Append($" A further {M(ss.Saving, cur)} a month in suite moves is worth reviewing.");
+        /* No suite moves (E7 to E5, E5 to E3) in the summary: the client said they are not a fit for this project. */
         sb.Append("</p>");
 
         /* Five tiles: the figure, a line on it, and a picture of it. */
@@ -238,7 +238,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     };
 
     /// <summary>
-    /// One area's own view (2.6.6): its figures, every saving, risk and opportunity in it, its six months, how it is
+    /// One area's own view: its figures, every saving, risk and opportunity in it, its six months, how it is
     /// counted, the table of what it is made of, and the reports with the named detail. Reached from the area's name,
     /// its part of the ring, or a saving that has no page of its own.
     /// </summary>
@@ -360,7 +360,7 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
     }
 
     /// <summary>
-    /// The suites (2.6.6): what each held costs, what it includes that is not counted again as AI spend, and the moves
+    /// The suites: what each held costs, what it includes that is not counted again as AI spend, and the moves
     /// Licensing › Suite fit finds (E7 to E5, E5 to E3, a second suite, training first), outside the AI totals: a
     /// suite's price buys much that cannot be split from it, so its savings are a review, not a sum to add.
     /// </summary>
@@ -371,31 +371,11 @@ public sealed class CostsModel(PageServices s, CostData costs) : InsightsPage(s)
             sb.Append($"<li><span class=\"sn\">{(open("/licensing/suites", $"suite={Uri.EscapeDataString(h.Suite)}") is { } su ? $"<a href=\"{E(su)}\">{E(h.Suite)}</a>" : E(h.Suite))}</span><span class=\"sh\">{h.Holders:#,0} × {E(CostRules.Money(h.Price, cur))}</span>" +
                       (h.Includes.Length > 0 ? $"<small>{E(h.Includes)} inside: {E(M(h.IncludedValue, cur))} at list, not AI spend</small>" : "") + "</li>");
         sb.Append("</ul>");
-        if (s.Moves.Count > 0)
-        {
-            sb.Append($"<p class=\"cb-sub\">Moves to review ({E(cur)} a month)</p><ul class=\"cb-moves\">");
-            foreach (var m in s.Moves)
-            {
-                var worth = m.Move == SuiteMove.Train ? m.AtStake : m.Saving;
-                var what = m.Move switch
-                {
-                    SuiteMove.Train => $"Train {m.People:#,0} on {Short(m.From)} first",
-                    SuiteMove.Reclaim => $"Take back {m.People:#,0} {Short(m.From)} from disabled accounts",
-                    SuiteMove.DropDuplicate => $"Drop the second suite beside {Short(m.From)} for {m.People:#,0}",
-                    SuiteMove.CutSeats => $"Cut {m.People:#,0} unassigned {Short(m.From)} seats",
-                    _ => $"{m.People:#,0} from {Short(m.From)} to {Short(m.To ?? "")}",
-                };
-                var link = m.Move == SuiteMove.CutSeats ? open("/licensing/pool", null)
-                    : open("/licensing/suites", (m.Move == SuiteMove.DropDuplicate ? "copy=suite" : $"move={m.Move.ToString().ToLowerInvariant()}") + $"&suite={Uri.EscapeDataString(m.From)}");
-                sb.Append($"<li><span class=\"mw\">{(link is null ? E(what) : $"<a href=\"{E(link)}\">{E(what)}</a>")}</span>{(m.Move == SuiteMove.Train ? $"<b class=\"muted\" title=\"at stake a month, not saved\">({E(N(worth))} at stake)</b>" : $"<b title=\"saved a month\">{E(N(worth))}</b>")}<span class=\"conf {m.Confidence.ToLowerInvariant()}\">{E(m.Confidence)}</span></li>");
-            }
-            sb.Append("</ul>");
-        }
-        else sb.Append("<p class=\"cb-foot\">Every holder's suite fits what the data shows of them.</p>");
-        sb.Append($"<p class=\"cb-foot\">{(s.PowerBiKnown ? "" : "Power BI activity is not loaded, so no E5 holder is offered E3. ")}Outside the savings above: each move names what to check first in {(open("/licensing/suites", null) is { } sf ? $"<a href=\"{E(sf)}\">Licensing › Suite fit</a>" : "Licensing › Suite fit, for the Licensing role")}.</p>");
-        return Card(s.Saving > 0 ? $"Suites: {M(s.Saving, cur)} a month to review" : "Suites",
+        /* The suites held, and no moves between them (E7 to E5, E5 to E3): the client said suite moves are not a fit
+           for this project. Licensing › Suite fit still lists who holds what. */
+        return Card("Suites",
             "E3, E5 and E7 as Admin › Targets and assumptions prices them. A suite's price also buys security, compliance and Teams, which cannot be split from it, so none of it is counted as AI spend, and Copilot or Power BI Pro inside it is not priced again. " +
-            "A standalone one on a suite's holder is paid twice, and counted with its area above. A move down rests on Copilot and Power BI use, the only parts of a suite the data sees, so these are a review, not savings to add.", cls, sb.ToString());
+            "A standalone one on a suite's holder is paid twice, and counted with its area above.", cls, sb.ToString());
     }
 
     /// <summary>"Microsoft 365 E5" as "E5", and "Microsoft 365 Copilot" as the add-on, for a narrow card; Office 365's as they are.</summary>

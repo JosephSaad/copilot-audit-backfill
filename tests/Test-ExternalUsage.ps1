@@ -1,5 +1,5 @@
 <#
-    Tests the two loaders of AI usage outside Microsoft 365 Copilot (2.6.2), dot-sourced so nothing touches
+    Tests the two loaders of AI usage outside Microsoft 365 Copilot, dot-sourced so nothing touches
     GitHub, Azure, the certificate store or SQL Server:
 
       1  tools\ExternalUsage.Common.ps1: the days a load covers, and rows as the table the bulk copy takes
@@ -227,7 +227,7 @@ Assert-That (($uses.Purpose -join '|') -eq 'Purview|Foundry' -and $uses[1].Thumb
     'a certificate of Foundry''s own is tracked with the others, for Admin > Health and the expiry alert'
 Assert-That ((Get-PipelineCertificateUse ($s + @{ FoundrySubscriptions = $subs })).Count -eq 1) 'signed in with the audit app''s certificate, there is no other to track'
 
-# 2.6.9: the activity database, loaded by record type, after the Copilot load and optional; its history on its own.
+# The activity database, loaded by record type, after the Copilot load and optional; its history on its own.
 $act = $s + @{ ActivityDatabase = 'CopilotActivity' }
 $an = Get-PipelineStep -Setting $act -Today $today -Root 'R:'
 $load = $an | Where-Object Name -eq 'AI apps, Power BI and Power Apps'

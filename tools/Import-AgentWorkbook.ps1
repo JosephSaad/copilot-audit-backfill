@@ -56,7 +56,7 @@ param(
     [string] $ConnectionString,               # for the tests: used as it is, in place of -SqlServer and -Database
     [string] $SettingsPath = (Join-Path (Split-Path $PSScriptRoot -Parent) 'copilot-audit.settings.psd1'),
     [hashtable] $Sheets = @{ 'AgentInventory' = 'dbo.AgentInventory'; 'AgentsInProd' = 'dbo.AgentsInProd'; 'ParentChildAgent' = 'dbo.ParentChildAgent' },
-    [ValidateRange(0, 100)][double] $MaxDropPercent = 15,   # the delete guard (2.6.5): the most a sheet may shrink, in %; 0 is off
+    [ValidateRange(0, 100)][double] $MaxDropPercent = 15,   # the delete guard: the most a sheet may shrink, in %; 0 is off
     [switch] $AllowDrop                                      # load a workbook the guard would refuse, once
 )
 $ErrorActionPreference = 'Stop'
@@ -132,7 +132,7 @@ try {
         $read[$sheet] = [pscustomobject]@{ Table = $table; Data = $dt; Columns = $cols }
     }
 
-    # 2. The delete guard (2.6.5): every sheet against what its table holds, before any is replaced.
+    # 2. The delete guard: every sheet against what its table holds, before any is replaced.
     foreach ($sheet in $read.Keys) {
         $table = $read[$sheet].Table
         $q = ($table -split '\.' | ForEach-Object { "[$($_.Trim('[]'))]" }) -join '.'
@@ -182,7 +182,7 @@ try {
         if (-not (Sql "SELECT CASE WHEN COL_LENGTH(N'dash.AgentInventory', N'IsAutonomous') IS NULL THEN 0 ELSE 1 END" $null -Scalar)) {
             throw 'dash.AgentInventory predates 2.5.8: run Install-CopilotAudit.ps1 -Dashboard from this release first.'
         }
-        # 2.6.3: second identities are folded into their agent where bi.DimAgent can say so (a database upgraded to 2.6.3).
+        # Second identities are folded into their agent where bi.DimAgent can say so (a database upgraded to 2.6.3).
         $canMerge = [bool] (Sql "SELECT CASE WHEN COL_LENGTH(N'bi.DimAgent', N'MergedIntoKey') IS NULL THEN 0 ELSE 1 END" $null -Scalar)
         $mainKey = if ($canMerge) { 'COALESCE(d.MergedIntoKey, d.AgentKey)' } else { 'd.AgentKey' }
         $markMerged = if ($canMerge) { 'UPDATE d SET MergedIntoKey = g.MainKey FROM bi.DimAgent AS d JOIN #merge AS g ON g.OwnKey = d.AgentKey WHERE d.MergedIntoKey IS NULL;' } else { '' }
@@ -354,7 +354,7 @@ FROM #pl AS l JOIN #ck AS c ON c.ChildKey = l.ChildKey;
         $matched = Sql 'SELECT COUNT(*) FROM dash.AgentInventory WHERE AgentKey IS NOT NULL' $null -Scalar
         $total = Sql 'SELECT COUNT(*) FROM dash.AgentInventory' $null -Scalar
         Write-Host "Agent inventory: $total agent(s), $matched of them in the audit log."
-        # How each was matched, for checking the rules against the data (2.5.7).
+        # How each was matched, for checking the rules against the data.
         $how = Sql @"
 SELECT STRING_AGG(CONCAT(CASE Rnk WHEN 1 THEN N'environment and schema name' WHEN 2 THEN N'title id (declarative)'
                                   WHEN 3 THEN N'schema name from Copilot Studio''s authoring records' WHEN 4 THEN N'schema name alone'
@@ -391,5 +391,5 @@ catch {
     Write-Host "Refused: $($_.Exception.Message)"
 }
 finally { $conn.Dispose(); Remove-Item -LiteralPath $file -ErrorAction SilentlyContinue }
-# Refused by the delete guard (2.6.5): every table kept the last workbook, and the nightly run goes on.
+# Refused by the delete guard: every table kept the last workbook, and the nightly run goes on.
 if ($refused) { exit $script:DropRefusedExitCode }

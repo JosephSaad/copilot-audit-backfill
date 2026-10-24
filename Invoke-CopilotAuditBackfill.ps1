@@ -178,7 +178,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# A record-type load (2.6.9) asks for whole record types, and for no operation unless -Operations is given too.
+# A record-type load asks for whole record types, and for no operation unless -Operations is given too.
 if ($RecordTypes -and -not $PSBoundParameters.ContainsKey('Operations')) { $Operations = @() }
 
 # A 'Modules' folder next to this script takes precedence over the machine's
@@ -315,7 +315,7 @@ function Initialize-CopilotAuditDatabase {
 
 function Enter-RunLock {
     <#
-        Holds the database for this run alone (2.4.12), as the nightly pipeline, Install-CopilotAudit.ps1 and the
+        Holds the database for this run alone, as the nightly pipeline, Install-CopilotAudit.ps1 and the
         maintenance rebuilds do: an exclusive application lock, on a connection of its own kept open to the end of the
         run. A load run by hand (-Incremental, or a history range) took none, so it could run beside the nightly and
         load the same windows twice. As one of the pipeline's own steps, the pipeline holds it already
@@ -350,7 +350,7 @@ function ConvertTo-UtcDate {
 
 function Get-AuditFilterSet {
     <#
-        What a database records it loads (2.6.9): its operations, and each
+        What a database records it loads: its operations, and each
         whole record type as rt:<type>, so a record-type database can never be
         resumed or loaded with operations, nor the other way round. Pure, for
         the tests.
@@ -443,7 +443,7 @@ FROM audit.CopilotLoad ORDER BY LoadId DESC
 }
 
 function Invoke-CopilotAuditFinalize {
-    # 2.7.3: an activity database builds no audit.CopilotInteraction (Finalize-CopilotAudit.sql); its own shred follows.
+    # An activity database builds no audit.CopilotInteraction (Finalize-CopilotAudit.sql); its own shred follows.
     $activity = [bool] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL THEN 0 ELSE 1 END")
     Write-Log ('Finalizing: verifying coverage, building audit.CopilotAudit' + $(if ($activity) { ' (an activity database: its own shred follows)...' } else { ' and audit.CopilotInteraction...' }))
     $sql = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'sql' 'Finalize-CopilotAudit.sql') -Raw
@@ -458,7 +458,7 @@ function Invoke-CopilotAuditFinalize {
         Write-Log ('Final: {0:N0} records | {1:N0} duplicates removed | {2:yyyy-MM-dd} -> {3:yyyy-MM-dd} | {4:N0} users' -f `
                    $s.FinalRows, $s.DuplicatesRemoved, $s.OldestRecordUtc, $s.NewestRecordUtc, $s.DistinctUsers)
     }
-    # 2.6.9: an activity database's history is shredded once it is final, so the rollup that follows has it.
+    # An activity database's history is shredded once it is final, so the rollup that follows has it.
     if ([bool] (Invoke-Sql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.usp_ShredActivity', N'P') IS NULL THEN 0 ELSE 1 END")) {
         Write-Log 'Shredding every AI app, Power BI and Power Apps record...'
         Invoke-Sql -Sql 'EXEC audit.usp_ShredActivity;' -TimeoutSeconds 0
@@ -634,7 +634,7 @@ function Invoke-DerivedTableRefresh {
 
 function Get-OwedRefresh {
     <#
-        Where the derived tables still owe a refresh (2.4.12): the start of the
+        Where the derived tables still owe a refresh: the start of the
         first merged load whose refresh did not finish (it failed after the
         merge, or ran with -SkipPostProcessing), or the earliest record of a CSV
         import whose own refresh did not. With the last load and import that
@@ -672,7 +672,7 @@ function Invoke-IncrementalLoad {
     if ($StartDate) { Write-Log '-StartDate is ignored with -Incremental: each load starts where the data ends, less the lookback.' -Level WARN }
 
     Invoke-SqlScript -Path (Join-Path $PSScriptRoot 'sql' 'Create-CopilotLoadProcedure.sql')
-    # A refresh an earlier run owes is made up from where it was owed (2.4.12). Each run refreshed from its own load's
+    # A refresh an earlier run owes is made up from where it was owed. Each run refreshed from its own load's
     # start only, so after a refresh failed past the lookback (three nights, or one long catch-up load), or a re-run
     # found nothing new to load, those days stayed out of sessions, bi and the dashboard for good.
     $owed = Get-OwedRefresh
@@ -976,7 +976,7 @@ function Invoke-Main {
     Initialize-CopilotAuditDatabase
 
     if ($Status) { Show-BackfillState; return }
-    # One run at a time (2.4.12): held to the end of the run, and let go in the finally below.
+    # One run at a time: held to the end of the run, and let go in the finally below.
     $runLock = Enter-RunLock
     try { Invoke-Run }
     finally { if ($runLock) { $runLock.Dispose() } }
@@ -990,7 +990,7 @@ function Invoke-Run {
     if ($range.Completed) {
         Write-Log 'This backfill already completed. Nothing to download.'
         if ($Finalize) {
-            # Finalized before (2.4.12): leave the tables alone. A re-run (-History carrying on after a later step
+            # Finalized before: leave the tables alone. A re-run (-History carrying on after a later step
             # failed) finalized again, rebuilding audit.CopilotAudit from staging, which by then may have been dropped.
             # -FinalizeOnly still builds them again, and finalize refuses when staging no longer holds the load.
             $built = [long] (Invoke-Sql -As Scalar -Sql "SELECT ISNULL(SUM(rows), 0) FROM sys.partitions WHERE object_id = OBJECT_ID(N'audit.CopilotAudit', N'U') AND index_id IN (0, 1)")
@@ -1022,7 +1022,7 @@ function Invoke-Run {
 
     Show-BackfillState
     if ($final.WindowsFailed -gt 0) {
-        # Thrown, as an incremental load does (2.4.12). It was logged and the script returned, so it exited 0: -History
+        # Thrown, as an incremental load does. It was logged and the script returned, so it exited 0: -History
         # carried on with the range not complete and not finalized, and reported the history loaded and built.
         throw "$($final.WindowsFailed) window(s) failed after retries. Run the same command again to retry them."
     }

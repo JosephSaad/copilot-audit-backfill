@@ -1,5 +1,5 @@
 /*
-    AI apps outside Copilot, Power BI and Power Apps, in the Copilot database (2.6.9)
+    AI apps outside Copilot, Power BI and Power Apps, in the Copilot database
     ------------------------------------------------------------------------
     The activity database (Create-ActivitySchema.sql), where the settings name
     one (ActivityDatabase), holds every record. audit.usp_RollupActivity copies
@@ -52,7 +52,7 @@ IF OBJECT_ID(N'audit.AIAppUserDay', N'U') IS NULL
     );
 GO
 
-/* 2.7.0: who used Power BI, Power Apps and Teams meeting AI notes each day (reporting-zone days), for the trends and
+/* Who used Power BI, Power Apps and Teams meeting AI notes each day (reporting-zone days), for the trends and
    the team views; and the data loss prevention matches each day, by policy, rule and person, where the activity database
    is asked for the DLP record types. */
 IF OBJECT_ID(N'audit.ActivityUserDay', N'U') IS NULL
@@ -172,7 +172,7 @@ BEGIN
            Copilot day. AT TIME ZONE once for each quarter hour of the range (a zone can be offset by 30 or 45 minutes), not
            once for each of tens of millions of records. */
         DECLARE @zone SYSNAME = audit.ReportingTimeZone(), @lo DATETIME2(0), @hi DATETIME2(0);
-        /* 2.7.0: the range of every table the days are cut for. */
+        /* The range of every table the days are cut for. */
         SET @sql = N'SELECT @lo = MIN(x.Lo), @hi = MAX(x.Hi) FROM (SELECT MIN(CreatedDateTime) AS Lo, MAX(CreatedDateTime) AS Hi FROM ' + @db + N'.audit.AIAppCall
             UNION ALL SELECT MIN(CreatedDateTime), MAX(CreatedDateTime) FROM ' + @db + N'.audit.PlatformActivity' +
             CASE WHEN @hasDlp = 1 THEN N' UNION ALL SELECT MIN(CreatedDateTime), MAX(CreatedDateTime) FROM ' + @db + N'.audit.DlpMatch' ELSE N'' END + N') AS x;';

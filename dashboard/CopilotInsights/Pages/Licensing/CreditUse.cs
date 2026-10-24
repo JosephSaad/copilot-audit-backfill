@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Html;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// Copilot Credits, and tokens, by person (2.6.6): an estimate, since Microsoft reports neither per person. Every agent
+/// Copilot Credits, and tokens, by person: an estimate, since Microsoft reports neither per person. Every agent
 /// is counted (Copilot Studio's, Copilot Studio lite's in Microsoft 365 Copilot, SharePoint's), and every use that bills
 /// credits: an agent without a license, or in a Copilot Studio channel. For a credit policy: how the credits spread across
 /// people, who would reach a cap a month, and the agents and departments behind them. The rules are <see cref="CreditRules"/>.
@@ -27,7 +27,7 @@ public sealed class CreditUseModel(PageServices s, CreditData credits) : Insight
     static readonly Dictionary<string, string> SortLabels = new() { ["credits"] = "Most credits", ["tokens"] = "Most tokens", ["name"] = "Name", ["dept"] = "Department" };
 
     /// <summary>
-    /// What the page works out over everyone before the viewer's choices (2.7.4): the billed people, most credits first,
+    /// What the page works out over everyone before the viewer's choices: the billed people, most credits first,
     /// the totals and the spread. Kept once worked out (see <see cref="Db.KeptAsync"/>): over the 210,000 people of 120
     /// million interactions, scanning and sorting them again took half a second each visit. Shared: read, never changed.
     /// </summary>
@@ -92,7 +92,7 @@ WHERE Product = 'Copilot Studio' AND [Day] > DATEADD(DAY, -30, (SELECT D FROM la
             if (billedNow.Days > 0)
             {
                 var billedMonth = CostRules.Monthly(billedNow.Credits, billedNow.Days);
-                /* 2.7.0: what was billed first, and the estimate as the share of it traced to people. */
+                /* What was billed first, and the estimate as the share of it traced to people. */
                 Kpis.Insert(0, new("Billed by the admin center", N(billedMonth), billedMonth > 0 ? $"credits a month; {total.Credits / billedMonth:P0} of it traced to people below" : "credits a month",
                     Href: Open("/leadership/costs", extra: $"area={CostAreas.Slot(CostAreas.Studio)}"),
                     Why: await WhyAsync("Copilot Studio's credits in the Power Platform admin center's consumption report over the last 30 days loaded, as a month. Leadership › Costs and savings shows what they cost.")));

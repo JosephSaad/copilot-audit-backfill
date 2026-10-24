@@ -35,7 +35,7 @@ body { margin: 0; background: var(--ground); color: var(--ink); font: 14px/1.5 v
 a { color: var(--accent); text-underline-offset: 2px; }
 a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* The way past the list of reports for a keyboard: out of sight until the Tab key reaches it (2.4.10). */
+/* The way past the list of reports for a keyboard: out of sight until the Tab key reaches it. */
 a.skip { position: absolute; top: 6px; left: 6px; z-index: 50; padding: 6px 12px; border-radius: 6px; background: var(--accent); color: var(--surface);
   font-weight: 600; text-decoration: none; transform: translateY(-200%); }
 a.skip:focus { transform: none; }
@@ -151,7 +151,7 @@ select.pick + .sub { margin-top: 8px; }
 .denied { background: var(--warn-soft); }
 .denied p, .notice p { margin: 6px 0 0; }
 
-/* 2.5.7: the start page. One line on access, a row of most-used reports, and a large card for each area. */
+/* The start page. One line on access, a row of most-used reports, and a large card for each area. */
 details.notice.access summary { cursor: pointer; list-style: none; }
 details.notice.access summary::-webkit-details-marker { display: none; }
 details.notice.access .more { color: var(--accent); font-weight: 600; margin-left: 6px; white-space: nowrap; }
@@ -195,7 +195,7 @@ details.notice.access[open] .more { display: none; }
 .klabel { font-size: 12px; color: var(--muted); }
 .kvalue { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 .knote { font-size: 12px; color: var(--faint); }
-/* 2.6.9: how a figure is worked out, under it: the formula and the assumptions, each with where to change it. */
+/* How a figure is worked out, under it: the formula and the assumptions, each with where to change it. */
 .kwhy { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .kwhy summary { cursor: pointer; color: var(--accent, var(--muted)); width: fit-content; }
 .kwhy p { margin: 6px 0 4px; overflow-wrap: anywhere; }
@@ -204,12 +204,12 @@ details.notice.access[open] .more { display: none; }
 .kwhy a { white-space: nowrap; }
 .focus-mark { outline: 3px solid var(--warn); outline-offset: 3px; border-radius: 4px; transition: outline-color 1s; }
 .conflict { border-left: 3px solid var(--warn); padding: 6px 10px; margin: 6px 0; }
-/* A figure that leads to its detail (2.6.6): the figure is the link, and a chevron says so. */
+/* A figure that leads to its detail: the figure is the link, and a chevron says so. */
 a.kvalue.klink { display: block; color: inherit; text-decoration: none; }
 a.kvalue.klink:hover, a.kvalue.klink:focus-visible { color: var(--accent); }
 a.kvalue.klink .kgo { font-size: 18px; color: var(--accent); font-weight: 600; }
 .kpi.good a.kvalue.klink { color: var(--good); }
-/* The report before this one in its section and the one after, at the foot of the page (2.4.10). */
+/* The report before this one in its section and the one after, at the foot of the page. */
 .pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
 .pager a { display: block; min-width: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 14px;
   color: inherit; text-decoration: none; }
@@ -224,7 +224,7 @@ a.kvalue.klink .kgo { font-size: 18px; color: var(--accent); font-weight: 600; }
 .nb { white-space: nowrap; }   /* a label's last word and its icon: they wrap together */
 td .cellnote { display: block; font-size: 12px; color: var(--muted); white-space: normal; }   /* a line under a cell's name on what it is */
 /* A phone: the headline figures two to a row, so the first chart is one screen down, not three; an odd last one
-   takes the whole row (2.4.10). */
+   takes the whole row. */
 @media (max-width: 640px) {
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .kpis .kpi:last-child:nth-child(odd) { grid-column: span 2; }
@@ -271,7 +271,7 @@ svg.spark path { fill: none; stroke: var(--s1); stroke-width: 1.5; }
 .scale span { margin: 0 6px; }
 .empty-chart { color: var(--faint); padding: 30px 0; text-align: center; }
 
-/* A table wider than its panel scrolls sideways. A shadow at an edge says there is more past it (2.4.10: on a phone the
+/* A table wider than its panel scrolls sideways. A shadow at an edge says there is more past it (on a phone the
    last columns were simply cut off). The first two layers move with the table and cover the shadow at each end. */
 .table-wrap { overflow-x: auto;
   background:
@@ -280,7 +280,7 @@ svg.spark path { fill: none; stroke: var(--s1); stroke-width: 1.5; }
     linear-gradient(to right, var(--edge), transparent) 0 0 / 10px 100% no-repeat scroll,
     linear-gradient(to left, var(--edge), transparent) 100% 0 / 10px 100% no-repeat scroll; }
 @media print { .table-wrap { background: none; } }
-/* 2.5.7: a long table a page at a time; print shows every row. */
+/* A long table a page at a time; print shows every row. */
 @media screen { tr.pg-off { display: none; } }
 .tpager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 4px; }
 .tpager .muted { margin-right: 6px; }
@@ -290,7 +290,7 @@ svg.spark path { fill: none; stroke: var(--s1); stroke-width: 1.5; }
 @media print { .tpager { display: none; } }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
-/* A long heading wraps onto a second line, whole words only, before the table has to scroll sideways (2.4.10). */
+/* A long heading wraps onto a second line, whole words only, before the table has to scroll sideways. */
 th { font-size: 11.5px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; white-space: normal; overflow-wrap: normal; word-break: keep-all; vertical-align: bottom; line-height: 1.25; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* A figure with its arrow or unit stays on one line. */
@@ -301,8 +301,8 @@ tr:hover td { background: var(--ground); }
 #tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--surface); padding: 5px 8px;
   border-radius: 6px; font-size: 12px; line-height: 1.45; max-width: min(360px, calc(100vw - 16px)); }
 
-/* 2.4.3: what a report is for and what to do, and the information icons that hold the longer text. */
-/* The heading in two lines (2.6.6): the title with who it is for beside it, then what it helps with and what to do. */
+/* What a report is for and what to do, and the information icons that hold the longer text. */
+/* The heading in two lines: the title with who it is for beside it, then what it helps with and what to do. */
 .ph-title { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
 .ph-title h1 { margin: 0; }
 .ph-title .who { display: inline-block; font-size: 12px; color: var(--accent); background: var(--accent-soft); border-radius: 10px; padding: 1px 9px; }
@@ -320,15 +320,15 @@ h1 button.infob { width: 18px; height: 18px; font-size: 12px; vertical-align: 5p
 form.admin { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin: 8px 0; }
 form.admin label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 2px; }
 form.admin label { max-width: 100%; min-width: 0; }
-form.admin label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); padding-bottom: 5px; }   /* 2.6.3: a tick box with its words beside it */
+form.admin label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); padding-bottom: 5px; }   /* A tick box with its words beside it */
 td .grant.all { margin-right: 0; }
 form.admin select { max-width: 100%; min-width: 0; }
 form.admin input, form.admin select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px; }
-/* A heading or a paragraph inside a form takes a line to itself, above the fields it is about (2.4.10: it sat beside them). */
+/* A heading or a paragraph inside a form takes a line to itself, above the fields it is about (it sat beside them). */
 form.admin > h3, form.admin > p, form.admin > ul { flex: 0 0 100%; margin: 0; }
 .panel form.admin > p { max-width: none; box-sizing: border-box; padding-right: max(0px, calc(100% - 660px)); }   /* the whole line, the text at its usual measure */
 form.admin > h3 { margin-top: 10px; }
-/* A checkbox sits before its words, on their line (2.4.10: it sat on a line of its own above them). */
+/* A checkbox sits before its words, on their line (it sat on a line of its own above them). */
 form.admin label:has(> input[type=checkbox]) { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); }
 form.admin input[type=checkbox] { flex: none; margin: 0; padding: 0; }
 button.btn { font: inherit; background: var(--accent); color: var(--surface); border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
@@ -370,7 +370,7 @@ form.admin fieldset.roles legend { font-size: 12px; color: var(--muted); padding
 form.admin fieldset.roles label { flex-direction: row; align-items: center; gap: 4px; color: var(--ink); font-size: 13px; }
 td .grant { display: inline-flex; align-items: center; gap: 4px; margin: 0 16px 2px 0; white-space: nowrap; }
 td .grant form.admin { display: inline-flex; }
-/* The pages an Admin grant is limited to (2.6.4): a list that may be long, so it wraps where the role's name does not. */
+/* The pages an Admin grant is limited to: a list that may be long, so it wraps where the role's name does not. */
 td .grant small { white-space: normal; color: var(--muted); }
 td .grant button.x { width: 18px; height: 18px; padding: 0; font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 td form.admin { margin: 0; flex-wrap: nowrap; }
@@ -378,7 +378,7 @@ td form.admin label { flex-direction: row; align-items: center; gap: 4px; }
 svg.chart .line.dashed { stroke-dasharray: 6 4; }
 svg.chart .band { opacity: 0.14; stroke: none; }
 svg.chart .grid.now { stroke: var(--faint); stroke-dasharray: 2 3; }
-/* Events on a trend (2.4.5): a numbered badge above the plot, a light rule through it, and a key below. */
+/* Events on a trend: a numbered badge above the plot, a light rule through it, and a key below. */
 svg.chart .marker { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 2 4; }
 svg.chart .mjoin { stroke: var(--faint); stroke-width: 1; }
 svg.chart .mhit { fill: transparent; }
@@ -388,7 +388,7 @@ svg.chart .mbadge:hover circle { stroke: var(--accent); fill: var(--accent-soft)
 .mkey { list-style: none; display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 4px 0 0; padding: 0; font-size: 12px; color: var(--muted); }
 .mkey .k { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; margin-right: 5px; border: 1.2px solid var(--muted);
   border-radius: 50%; font-size: 10px; font-weight: 600; color: var(--ink); vertical-align: -1px; }
-/* Under a daily trend (2.5.3): how far it is shown, and that the last 48 hours of records may not all be in yet. */
+/* Under a daily trend: how far it is shown, and that the last 48 hours of records may not all be in yet. */
 .held { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
 form.inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
 .period.own { color: var(--muted); font-weight: 600; }
@@ -416,7 +416,7 @@ pre.log { white-space: pre-wrap; max-height: 20em; overflow: auto; font-size: 12
 pre.log.whole { max-height: none; }
 .tenant { margin-right: 8px; }
 
-/* Sortable column headers (2.4.5): a button in the page, a link for a list paged on the server. */
+/* Sortable column headers: a button in the page, a link for a list paged on the server. */
 th button.sort, th a.sort { all: unset; cursor: pointer; color: inherit; font: inherit; }
 th button.sort:focus-visible, th a.sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 th button.sort:hover, th a.sort:hover { color: var(--accent); }
@@ -427,7 +427,7 @@ th[aria-sort="descending"] .sort::after { content: "\00a0\2193"; color: var(--ac
 svg.chart .bshown { fill: var(--muted); font-size: 11px; white-space: pre; }
 
 
-/* ---- Leadership > Costs and savings (2.6.6): a dashboard of its own ------------------------------------------ */
+/* ---- Leadership > Costs and savings: a dashboard of its own ------------------------------------------ */
 .cboard { display: grid; gap: 14px; font-variant-numeric: tabular-nums; }
 .cboard .panel { border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04); }
 .cboard .panel h2 { font-size: 15px; }
@@ -531,7 +531,7 @@ svg.donut .d-sub { text-anchor: middle; fill: var(--muted); font: 11px var(--san
 .facts b { text-align: right; font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .facts p { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--faint); }
 .sub a.on { font-weight: 700; text-decoration: none; color: var(--ink); }
-/* Drill-down (2.6.6): each tile's way to its detail, an area's own view and the way back, a filter shown as such. */
+/* Drill-down: each tile's way to its detail, an area's own view and the way back, a filter shown as such. */
 .cb-more { margin-top: 6px; font-size: 12px; font-weight: 600; text-decoration: none; }
 .cb-more:hover { text-decoration: underline; }
 .cb-anchor, #areas { scroll-margin-top: 12px; }
@@ -551,7 +551,7 @@ svg.donut .d-sub { text-anchor: middle; fill: var(--muted); font: 11px var(--san
 .cb-links { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
 .cb-links a { font-weight: 600; text-decoration: none; }
 .cb-links a:hover { text-decoration: underline; }
-/* The suites (2.6.6): each held, with what it includes; then the moves to review, each with its worth and confidence. */
+/* The suites: each held, with what it includes; then the moves to review, each with its worth and confidence. */
 .cb-suite, .cb-moves { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
 .cb-suite li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding-bottom: 6px; border-bottom: 1px dashed var(--rule); }
 .cb-suite li:last-child { border-bottom: 0; }

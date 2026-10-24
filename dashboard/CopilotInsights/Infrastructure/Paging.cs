@@ -27,7 +27,7 @@ public sealed class Paging
     public Paging(HttpRequest request, IReadOnlyDictionary<string, string> sorts, string defaultSort)
     {
         _sorts = sorts;
-        /* No further than the last page an offset can name (2.4.12): from p=42949674 on, (p - 1) * 50 overflowed into a
+        /* No further than the last page an offset can name: from p=42949674 on, (p - 1) * 50 overflowed into a
            negative OFFSET written into the SQL, which SQL Server refused, and every list answered 500 unaudited. */
         Page = int.TryParse(request.Query["p"], out var p) && p > 0 ? Math.Min(p, MaxPage) : 1;
         var q = request.Query["q"].FirstOrDefault()?.Trim();
@@ -87,14 +87,14 @@ public sealed class Paging
     public int Pages => Math.Max(1, (int)Math.Ceiling(Total / (double)PageSize));
 
     /// <summary>
-    /// The page links under the list (2.5.8): how many rows, Previous, the first and last pages and those around this one,
+    /// The page links under the list: how many rows, Previous, the first and last pages and those around this one,
     /// and Next; the same place and look as a table paged in the browser (site.js), on every report.
     /// </summary>
     public HtmlString Nav(HttpRequest request)
     {
         string Link(int page) => WebUtility.HtmlEncode(request.Path + QueryString(request, ("p", page.ToString())));
         /* A page past the end (a stale link, a list that shrank) shows none of the rows, and Previous goes to the last page
-           (2.4.12): it read "4,999,951–10,568 of 10,568", and Previous went one page back, still past the end. */
+           it read "4,999,951–10,568 of 10,568", and Previous went one page back, still past the end. */
         var past = Page > Pages;
         var first = Total == 0 || past ? 0 : (Page - 1) * PageSize + 1;
         var last = past ? 0 : Math.Min(Total, Page * PageSize);

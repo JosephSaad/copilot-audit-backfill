@@ -19,11 +19,11 @@
       dash.Reservation, dash.ReservationRate, dash.TechnologyAllocation,
       dash.ReservationSnapshot, dash.fnReservationMember,
       dash.usp_TakeReservationSnapshot
-                        2.6.8: Copilot reservations, their rate, the Technology
+                        Copilot reservations, their rate, the Technology
                         pool, and each month's position kept as it was
       dash.CreditRoute, dash.CreditChargeSnapshot, dash.CreditCommitment,
       dash.usp_TakeCreditChargeSnapshot
-                        2.7.2: Copilot Credit chargeback by line of business,
+                        Copilot Credit chargeback by line of business,
                         its month-end snapshots, and the credit commitment (P3)
       dash.usp_ApplyRetention, dash.usp_SetPrivacyMode, dash.usp_SetSecret,
       dash.usp_GetSecret
@@ -97,7 +97,7 @@ WHEN NOT MATCHED THEN INSERT (Name, Value, Description) VALUES (s.Name, s.Value,
     instance, the secrets cannot be read: run this again, then enter them again
     in Admin > Email and Admin > Alerts and digests.
 
-    2.4.12: on another instance neither the service master key nor the
+    On another instance neither the service master key nor the
     password opens the master key, so the secrets could be neither read nor
     stored again, and re-running this kept the keys that could not be opened.
     Now a chain that cannot be opened is made again, and the secrets it can no
@@ -207,7 +207,7 @@ IF OBJECT_ID(N'dash.NotificationLog', N'U') IS NULL
         INDEX IX_DashNotificationLog_At (AtUtc)
     );
 
-/* What was said between the dashboard and the mail server for a message (2.6.2), for troubleshooting on
+/* What was said between the dashboard and the mail server for a message, for troubleshooting on
    Admin > Email: where it connected and how, each command and the server's answer, and how it ended. Kept
    for every test message and every message that was not sent; never the password, nor the message itself. */
 IF COL_LENGTH(N'dash.NotificationLog', N'Detail') IS NULL
@@ -282,7 +282,7 @@ BEGIN
     RETURN COALESCE((SELECT Name FROM dash.ValueName WHERE ColumnId = @ColumnId AND Value = @Value), @Value);
 END;');
 
-/* 2.7.1: names for the app codes Copilot Chat records (column 2, the app), which pages showed as they come:
+/* Names for the app codes Copilot Chat records (column 2, the app), which pages showed as they come:
    BizChat, Office, OfficeCopilotSearchAnswer. Only where an administrator has not named them. */
 MERGE dash.ValueName AS t
 USING (VALUES
@@ -357,7 +357,7 @@ IF OBJECT_ID(N'dash.LicenseContract', N'U') IS NULL
         UpdatedUtc    DATETIME2(0)    NOT NULL CONSTRAINT DF_DashLicenseContract_Updated DEFAULT (SYSUTCDATETIME())
     );
 
-/* Accounts a non-human rule matches that an administrator confirmed are a person, with the reason (2.4.5): a Copilot license
+/* Accounts a non-human rule matches that an administrator confirmed are a person, with the reason: a Copilot license
    on a non-human account is a policy breach, and these are not. One row per sign-in; removing it flags the account again. */
 IF OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL
     CREATE TABLE dash.NonHumanException
@@ -368,7 +368,7 @@ IF OBJECT_ID(N'dash.NonHumanException', N'U') IS NULL
         ConfirmedUtc DATETIME2(0)    NOT NULL CONSTRAINT DF_DashNonHumanException_Confirmed DEFAULT (SYSUTCDATETIME())
     );
 
-/* ---- Copilot reservations (2.6.8) -------------------------------------------- */
+/* ---- Copilot reservations -------------------------------------------- */
 
 /* The reservation register: the Microsoft 365 Copilot seats each line of business, leader or group committed to, by
    persistent chargeback organization (OrgId). A row is effective from one date to another (NULL: open), so a change is
@@ -459,7 +459,7 @@ WHERE m.n = 1;');
 /* The month-end snapshot: by default the last day of the month before the latest licensed day loaded, once. Allocated
    is the Microsoft 365 Copilot add-on held that day (bi.FactLicensedDay, less Copilot held only inside a suite), Technology
    accounts counted in their own pool. The org chart is today's. A snapshot already taken is left as it is.
-   2.7.0: taken only once the licenses reach two days past the month end (a license event can reach Purview a day
+   Taken only once the licenses reach two days past the month end (a license event can reach Purview a day
    late, and the month end could not be taken again), only when a reservation is in effect that day (a register entered
    ahead kept snapshots of nobody but the pools, for good), and in one transaction (a timeout between its two inserts kept
    the organizations without the pools, and the snapshot could never be finished). */
@@ -509,7 +509,7 @@ BEGIN
 END;');
 
 /*
-    2.7.2: Copilot Credit chargeback by line of business, and the Copilot Credit commitment (P3).
+    Copilot Credit chargeback by line of business, and the Copilot Credit commitment (P3).
       dash.CreditRoute          each Power Platform environment's path: LoB Productivity, LoB Business Application
                                 (both charged to a line of business, OrgId as in dash.Reservation), Enterprise Shared
                                 (enterprise-funded, never charged to a line of business) or Innovation (a sponsor's,
@@ -587,7 +587,7 @@ USING (VALUES
 ON t.Name = s.Name
 WHEN NOT MATCHED THEN INSERT (Name, Value, Description, UpdatedBy) VALUES (s.Name, s.Value, s.Description, N'install');
 
-/* The credit routes' added rule (2.7.2): Enterprise Shared is funded centrally and names no line of business, as the
+/* The credit routes' added rule: Enterprise Shared is funded centrally and names no line of business, as the
    page refuses; a row written in SQL with one was left out of the charge yet shown in its credits. */
 IF OBJECT_ID(N'dash.CK_DashCreditRoute_Shared', N'C') IS NULL
    AND NOT EXISTS (SELECT 1 FROM dash.CreditRoute WHERE Path = 'EnterpriseShared' AND OrgId IS NOT NULL)
@@ -699,7 +699,7 @@ BEGIN
         (N'%', NULL, NULL, N'Asking questions (Copilot Chat)', 999, N'default');
 END;
 
-/* 2.4.0: one retry policy. A scheduled digest or extract that fails is tried again an hour later, three tries in all,
+/* One retry policy. A scheduled digest or extract that fails is tried again an hour later, three tries in all,
    before it waits for its next period (as manager digests do, through dash.DigestSend). dash.Extract's
    columns follow its CREATE TABLE below. */
 IF COL_LENGTH(N'dash.Subscription', N'FailedTries') IS NULL
@@ -735,7 +735,7 @@ IF OBJECT_ID(N'dash.Extract', N'U') IS NULL
         LastStatus  NVARCHAR(400)   NULL,
         CreatedBy   NVARCHAR(256)   NOT NULL
     );
-/* The retry policy's columns (2.4.0), after the table exists. */
+/* The retry policy's columns, after the table exists. */
 IF COL_LENGTH(N'dash.Extract', N'FailedTries') IS NULL
     ALTER TABLE dash.Extract ADD FailedTries TINYINT NOT NULL CONSTRAINT DF_DashExtract_Failed DEFAULT (0), RetryAfterUtc DATETIME2(0) NULL;
 
@@ -769,7 +769,7 @@ DELETE FROM dash.Setting WHERE Name = 'PersonalDigest';
 /* Privacy mode lives in audit.PipelineSetting, which bi.Users reads. Owned by dbo like the
    table, so the dashboard's account needs EXECUTE here to change it. It reads it with SELECT
    on audit.PipelineSetting (granted below): without that, the dashboard treats privacy mode as
-   on (2.4.12), where a read that failed used to turn it off. */
+   on, where a read that failed used to turn it off. */
 EXEC (N'CREATE OR ALTER PROCEDURE dash.usp_SetPrivacyMode
     @Mode NVARCHAR(16), @By NVARCHAR(256)
 AS
@@ -812,6 +812,38 @@ BEGIN
     SELECT CONCAT(@a, N'' audit-log row(s) and '', @n, N'' notification row(s) past retention deleted; '', @j, N''.'');
 END;');
 
+/* ---- Several web servers: one report cache behind them all ------------------ */
+
+/* The query cache shared by the web servers. Each keeps its results in memory; behind that, the results are kept here,
+   so a page one server built is read, not built again, by the others. A result is kept under the data's stamp, the
+   change count below and the query with its parameters (KeyHash), compressed JSON (Payload). Rows of an older stamp are
+   cleared by the server that builds the pages; a row past its time is not read. */
+IF OBJECT_ID(N'dash.QueryCacheShared', N'U') IS NULL
+    CREATE TABLE dash.QueryCacheShared
+    (
+        KeyHash     BINARY(32)      NOT NULL CONSTRAINT PK_DashQueryCacheShared PRIMARY KEY,
+        StampHash   BINARY(32)      NOT NULL,
+        Payload     VARBINARY(MAX)  NOT NULL,
+        Bytes       INT             NOT NULL,
+        CreatedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashQueryCacheShared_Created DEFAULT (SYSUTCDATETIME()),
+        ExpiresUtc  DATETIME2(0)    NOT NULL,
+        Server      NVARCHAR(128)   NULL,
+        INDEX IX_DashQueryCacheShared_Stamp (StampHash, CreatedUtc)
+    );
+
+/* How many changes the dashboard has made, on any web server: each change that can alter a report adds one. It is part
+   of the data's stamp, so every server sees a change made on another at its next stamp read (30 seconds at most), and
+   the server that made it at once. One row. */
+IF OBJECT_ID(N'dash.CacheGeneration', N'U') IS NULL
+    CREATE TABLE dash.CacheGeneration
+    (
+        Id          TINYINT         NOT NULL CONSTRAINT PK_DashCacheGeneration PRIMARY KEY CONSTRAINT CK_DashCacheGeneration_One CHECK (Id = 1),
+        N           BIGINT          NOT NULL,
+        ChangedUtc  DATETIME2(0)    NOT NULL CONSTRAINT DF_DashCacheGeneration_Changed DEFAULT (SYSUTCDATETIME())
+    );
+IF NOT EXISTS (SELECT 1 FROM dash.CacheGeneration)
+    INSERT INTO dash.CacheGeneration (Id, N) VALUES (1, 0);
+
 /* ---- The dashboard's database role ---------------------------------------- */
 
 IF DATABASE_PRINCIPAL_ID(N'CopilotInsightsApp') IS NULL
@@ -827,9 +859,9 @@ GRANT INSERT, UPDATE, DELETE ON dash.Subscription TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.AlertState TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Target TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TimeSaving TO CopilotInsightsApp;
-IF OBJECT_ID(N'dash.CostPrice', N'U') IS NOT NULL GRANT UPDATE ON dash.CostPrice TO CopilotInsightsApp;   -- 2.6.6: Admin > Targets and assumptions sets the prices
-IF OBJECT_ID(N'dash.CostSuite', N'U') IS NOT NULL GRANT UPDATE ON dash.CostSuite TO CopilotInsightsApp;   -- 2.6.6: and turns a suite's inclusions on or off
-IF OBJECT_ID(N'dash.SkuName', N'U') IS NOT NULL GRANT INSERT, UPDATE, DELETE ON dash.SkuName TO CopilotInsightsApp;   -- 2.7.1: Admin > Value names names the licenses
+IF OBJECT_ID(N'dash.CostPrice', N'U') IS NOT NULL GRANT UPDATE ON dash.CostPrice TO CopilotInsightsApp;   -- Admin > Targets and assumptions sets the prices
+IF OBJECT_ID(N'dash.CostSuite', N'U') IS NOT NULL GRANT UPDATE ON dash.CostSuite TO CopilotInsightsApp;   -- And turns a suite's inclusions on or off
+IF OBJECT_ID(N'dash.SkuName', N'U') IS NOT NULL GRANT INSERT, UPDATE, DELETE ON dash.SkuName TO CopilotInsightsApp;   -- Admin > Value names names the licenses
 GRANT INSERT, UPDATE, DELETE ON dash.TrainingAttendance TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ValueName TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.FlagCase TO CopilotInsightsApp;
@@ -840,9 +872,9 @@ GRANT INSERT, UPDATE, DELETE ON dash.LicenseContract TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Reservation TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.ReservationRate TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.TechnologyAllocation TO CopilotInsightsApp;
-GRANT INSERT, UPDATE, DELETE ON dash.CreditRoute TO CopilotInsightsApp;        -- 2.7.2: Leadership > Credit chargeback's register
-GRANT INSERT, UPDATE, DELETE ON dash.CreditCommitment TO CopilotInsightsApp;   -- 2.7.2: Forecasting > Credit commitment
-GRANT DELETE ON dash.CreditChargeSnapshot TO CopilotInsightsApp;                -- 2.7.2: an administrator clears a month to take it again
+GRANT INSERT, UPDATE, DELETE ON dash.CreditRoute TO CopilotInsightsApp;        -- Leadership > Credit chargeback's register
+GRANT INSERT, UPDATE, DELETE ON dash.CreditCommitment TO CopilotInsightsApp;   -- Forecasting > Credit commitment
+GRANT DELETE ON dash.CreditChargeSnapshot TO CopilotInsightsApp;                -- An administrator clears a month to take it again
 GRANT EXECUTE ON dash.usp_TakeCreditChargeSnapshot TO CopilotInsightsApp;      -- and takes it again
 GRANT INSERT, UPDATE, DELETE ON dash.SavedView TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.NonHumanException TO CopilotInsightsApp;
@@ -850,6 +882,8 @@ GRANT INSERT, UPDATE, DELETE ON dash.JobFamilyRule TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.UseCaseRule TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.EventMarker TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Extract TO CopilotInsightsApp;
+GRANT INSERT, UPDATE, DELETE ON dash.QueryCacheShared TO CopilotInsightsApp;   -- the web servers' shared report cache
+GRANT UPDATE ON dash.CacheGeneration TO CopilotInsightsApp;                      -- a change counted for every web server
 GRANT INSERT ON dash.AuditLog TO CopilotInsightsApp;
 GRANT INSERT ON dash.NotificationLog TO CopilotInsightsApp;
 GRANT EXECUTE ON dash.usp_RefreshDashboard TO CopilotInsightsApp;
@@ -863,7 +897,7 @@ GRANT VIEW DEFINITION ON SYMMETRIC KEY::CopilotInsightsSecretKey TO CopilotInsig
 GRANT CONTROL ON CERTIFICATE::CopilotInsightsSecretCert TO CopilotInsightsApp;
 IF OBJECT_ID(N'audit.SessionAppCategory', N'U') IS NOT NULL
     GRANT SELECT, INSERT, UPDATE ON audit.SessionAppCategory TO CopilotInsightsApp;
-/* The pipeline tables Admin > Health, the license reports and the value catalog read, and the members of the groups that mark non-human accounts (2.4.5). */
+/* The pipeline tables Admin > Health, the license reports and the value catalog read, and the members of the groups that mark non-human accounts. */
 DECLARE @t SYSNAME, @g NVARCHAR(400);
 DECLARE t CURSOR LOCAL FAST_FORWARD FOR
     SELECT name FROM (VALUES (N'CopilotLoad'), (N'CopilotCsvImport'), (N'CopilotSessionRun'), (N'UserDirectory'), (N'PipelineRun'),
@@ -887,7 +921,7 @@ CLOSE t;
 DEALLOCATE t;
 IF OBJECT_ID(N'audit.ReportingTimeZone', N'FN') IS NOT NULL
     GRANT EXECUTE ON audit.ReportingTimeZone TO CopilotInsightsApp;
-/* 2.6.9: administrators keep the AI resources' line of business, environment and owner. */
+/* Administrators keep the AI resources' line of business, environment and owner. */
 IF OBJECT_ID(N'audit.AIAppResource', N'U') IS NOT NULL
     GRANT INSERT, UPDATE ON audit.AIAppResource TO CopilotInsightsApp;
 
@@ -899,10 +933,10 @@ IF OBJECT_ID(N'audit.AIAppResource', N'U') IS NOT NULL
     people reporting to them and anyone granted Organization see everyone. The
     Power BI model in powerbi/ uses it in its Organization role:
     Users[UserKey] IN the viewer's rows, by USERPRINCIPALNAME(). Organization
-    granted to an AD group counts for its members too (2.4.0): the nightly
+    granted to an AD group counts for its members too: the nightly
     directory load expands the group into audit.GroupMember.
 
-    2.4.12: a grant by DOMAIN\name counts whatever type it was recorded with,
+    A grant by DOMAIN\name counts whatever type it was recorded with,
     as the dashboard matches it at sign-in. The directory load expands every
     one into audit.GroupMember: a group recorded as a user (GrantRole records
     one so when it cannot ask AD) into its members, and a person into their
@@ -910,7 +944,7 @@ IF OBJECT_ID(N'audit.AIAppResource', N'U') IS NOT NULL
     their own people in Power BI, though the dashboard showed them everyone.
     A user grant by UPN (name@domain) names the viewer directly.
 
-    WholeOrganization (2.4.12) marks the viewers who see everyone, so the role
+    WholeOrganization marks the viewers who see everyone, so the role
     can show the tables of whole-organization figures (bi.LicensePool,
     bi.ValueNames, bi.DepartmentWeek) to them alone. Before, every member of
     the role read those tables, and this one, whole.
@@ -958,7 +992,7 @@ SELECT SnapshotDate, SkuPartNumber, IsCopilot, Enabled + Warning AS Bought, Cons
        Enabled + Warning - Consumed AS Available, Warning AS InGracePeriod, Suspended
 FROM audit.LicenseSkuDay;');
 
-/* 2.3.0: the dashboard's classifications for Power BI. Every combination of app, web search and agent
+/* The dashboard's classifications for Power BI. Every combination of app, web search and agent
    with the use case the rules in dash.UseCaseRule give it (bi.Interactions.UseCaseKey points here). */
 EXEC (N'CREATE OR ALTER VIEW bi.UseCases AS
 SELECT a.AppKey * 4 + w.Web * 2 + g.WithAgent AS UseCaseKey, a.App, CAST(w.Web AS BIT) AS WebGrounded, CAST(g.WithAgent AS BIT) AS WithAgent,
@@ -983,7 +1017,7 @@ SELECT Day, YEAR(Day) * 10000 + MONTH(Day) * 100 + DAY(Day) AS DateKey, Label, K
 /* Weekly figures by department with any group under the minimum size hidden,
    for a model that must not show individuals (a works council''s condition).
 
-   2.4.12: a row for every department and every week of the data, used or not,
+   A row for every department and every week of the data, used or not,
    so whether a row exists never depends on anyone's use. Before, a row existed
    only where someone was active, so a hidden row for a one-person department
    still told whether that person used Copilot that week. Departments with
@@ -1032,7 +1066,7 @@ CROSS JOIN m
 LEFT JOIN used AS x ON x.WeekEnding = wk.WeekEnding AND x.ShownAs = s.ShownAs;');
 
 /* The reporting accounts' role (Install-CopilotAudit.ps1 -ReportingAccount) reads every bi view, these
-   included (2.4.12). The installer grants the views that exist when it runs, and the dashboard installer
+   included. The installer grants the views that exist when it runs, and the dashboard installer
    runs this script after it, so OrgSecurity, DepartmentWeek and the others here were left out. */
 IF DATABASE_PRINCIPAL_ID(N'CopilotReporting') IS NOT NULL
 BEGIN

@@ -16,7 +16,7 @@ public static class Webhook
         var text = lines.Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
         if (format == "Json")
             return JsonSerializer.Serialize(new { source = "Copilot Insights", kind, subject, lines = text, link, atUtc = atUtc.ToString("o", CultureInfo.InvariantCulture) });
-        /* Plain text, never Markdown (2.4.12): a TextBlock reads [text](address) as a link, and the lines carry what the
+        /* Plain text, never Markdown: a TextBlock reads [text](address) as a link, and the lines carry what the
            alert did not write, such as an agent's name from the audit log, so a maker could put a link in the alert channel.
            A TextRun shows its text as it is. */
         static object Text(string s, bool heading = false) => new
@@ -53,7 +53,7 @@ public static class CertificateWarning
 }
 
 /// <summary>
-/// The one retry policy (2.4.0): something scheduled that fails is tried again an hour later, three tries in all,
+/// The one retry policy: something scheduled that fails is tried again an hour later, three tries in all,
 /// then waits for its next period. Pure, for the tests.
 /// </summary>
 public static class Retry
@@ -71,7 +71,7 @@ public static class Retry
 /// <summary>The datasets a scheduled extract may write: aggregates only, never a named person.</summary>
 public static class ExtractData
 {
-    /* The four that read Copilot use between dates are planned for their own dates each time (2.4.12),
+    /* The four that read Copilot use between dates are planned for their own dates each time,
        OPTION (RECOMPILE): two extracts of one dataset over 7 and 365 days are the same statement, and shared one plan.
        They run a few times a day at most, so compiling each costs nothing that matters. */
     public static readonly Dictionary<string, (string Label, string Sql)> Datasets = new()
@@ -95,7 +95,7 @@ WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING
     };
 
     /// <summary>
-    /// Rows as CSV, with a header, formulas neutralised in text. A number is written as a number (2.4.12): the guard
+    /// Rows as CSV, with a header, formulas neutralised in text. A number is written as a number: the guard
     /// made a negative figure the text '-5, which a spreadsheet does not add up, and a number cannot hold a formula.
     /// </summary>
     public static string ToCsv(IEnumerable<IDictionary<string, object?>> rows)
@@ -130,7 +130,7 @@ WHERE d.[Date] >= @d0 GROUP BY d.WeekEnding, ag.AgentName, ag.AgentSource HAVING
     public static bool IsShare(string? folder) => folder?.Trim().StartsWith(@"\\", StringComparison.Ordinal) == true;
 
     /// <summary>
-    /// Why a folder on this web server's own disk will not do (2.4.12): other web servers run the checks as well, and each
+    /// Why a folder on this web server's own disk will not do: other web servers run the checks as well, and each
     /// round runs on whichever holds the lock, so the files would be split between their disks while the page said each
     /// was written. Null for a share, or with one web server.
     /// </summary>
@@ -161,7 +161,7 @@ public sealed partial class Notifier
 
         /// <summary>
         /// Posts the alert to the webhook at <paramref name="url"/>, if one is set. True when it was delivered. It throws
-        /// nothing (2.4.12): it runs after the alert's email has gone, and an exception would have the alert sent again.
+        /// nothing: it runs after the alert's email has gone, and an exception would have the alert sent again.
         /// </summary>
         async Task<bool> WebhookAsync(string? url, string format, string kind, string subject, IReadOnlyList<string> lines, string? link)
         {
@@ -175,7 +175,7 @@ public sealed partial class Notifier
             const string Stopped = "The site stopped before the webhook took it.";
             foreach (var wait in new[] { 0, 5, 20 })
             {
-                /* A stop ends the tries, as a post that failed (2.4.12): the exception it threw had the next start send the
+                /* A stop ends the tries, as a post that failed: the exception it threw had the next start send the
                    whole alert again. */
                 if (wait > 0)
                     try { await Task.Delay(TimeSpan.FromSeconds(wait), ct); }
@@ -189,9 +189,9 @@ public sealed partial class Notifier
                     if ((int)r.StatusCode is >= 400 and < 500 and not 408 and not 429) break;   // the address or payload is wrong: trying again will not help
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { status = "Failed"; error = Stopped; break; }
-                catch (Exception ex) { status = "Failed"; error = ex.Message; }
+                catch (Exception ex) { status = "Failed"; error = Incident.Note(_log, ex, "Failed"); }
             }
-            /* Logged as the email is (2.4.12): a log that cannot be written costs the log line, not the alert. Before, it threw
+            /* Logged as the email is: a log that cannot be written costs the log line, not the alert. Before, it threw
                after the email and the card had gone, and the alert was sent again every five minutes. */
             try
             {
@@ -258,7 +258,7 @@ public sealed partial class Notifier
 
         /// <summary>
         /// Claims a send for a person and period; false when it was sent, is being sent, or has failed three times. Two web
-        /// servers claiming the same one at once (2.4.12): the second waits on the first's key range and finds it taken, where
+        /// servers claiming the same one at once: the second waits on the first's key range and finds it taken, where
         /// it used to hit the primary key and stop the round.
         /// </summary>
         async Task<bool> ClaimAsync(string upn, string kind, string period)
@@ -277,7 +277,7 @@ IF @@ROWCOUNT = 0
         }
 
         /// <summary>
-        /// Gives a claim back when the send was stopped before the email went (2.4.12): a first try is removed, a later one
+        /// Gives a claim back when the send was stopped before the email went: a first try is removed, a later one
         /// goes back to its failure, due again at once. Before, the claim stayed "Sending" for good, and that manager never
         /// got that period's digest, with nothing to say so.
         /// </summary>
@@ -289,7 +289,7 @@ WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period AND Status IN ('Sendin
 
         /// <summary>
         /// Sent, or the try's failure (Sending2 becomes Fail2; Fail3 is final). A settled send that is not "Sent" gives its
-        /// own status: "Skipped" for a refused digest (2.4.12), which is not tried again for the period.
+        /// own status: "Skipped" for a refused digest, which is not tried again for the period.
         /// </summary>
         Task MarkAsync(string upn, string kind, string period, bool sent, string? settled = null) =>
             _db.ExecuteAsync(@"UPDATE dash.DigestSend SET Status = CASE WHEN @sent = 1 THEN ISNULL(@settled, 'Sent') ELSE REPLACE(Status, 'Sending', 'Fail') END, SentUtc = SYSUTCDATETIME()
@@ -302,9 +302,9 @@ WHERE Upn = @upn AND Kind = @kind AND PeriodKey = @period;", new { upn, kind, pe
             if (await _settings.PrivacyModeAsync()) return;   // unit names are people's names
             if (await DigestRoundAsync(freq) is not { } round) return;
             var min = await _settings.IntAsync("ManagerDigestMinPeople", 10);
-            /* Only managers who may open the dashboard (2.4.4): its figures go no further than its pages do. */
+            /* Only managers who may open the dashboard: its figures go no further than its pages do. */
             var max = Math.Clamp(await _settings.IntAsync("MaxViewerLevel", 0), 0, 15);
-            /* Only managers whose part reaches the minimum group size in enabled people (2.4.12), the rule a report on a
+            /* Only managers whose part reaches the minimum group size in enabled people, the rule a report on a
                part is held to (see ReportContextFactory): the digest of a smaller part is refused, and each was claimed,
                failed and tried three times, and counted as "not sent". */
             var minGroup = await _settings.IntAsync("MinGroupSize", 5);
@@ -333,7 +333,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup,
                 }
                 /* Stopped before the email went: Mailer sends nothing it was stopped during, so the claim is given back. */
                 catch (OperationCanceledException) when (ct.IsCancellationRequested) { await ReleaseAsync(m.Upn, "Manager", round.Period); throw; }
-                /* Refused (2.4.12: the part changed since the query, or privacy mode came on): settled for this period, not
+                /* Refused (the part changed since the query, or privacy mode came on): settled for this period, not
                    a failure to try again and report. */
                 catch (DigestRefused ex) { _log.LogInformation("Manager digest for {Upn} not sent: {Reason}", m.Upn, ex.Message); status = "Skipped"; }
                 catch (Exception ex) { _log.LogWarning(ex, "Manager digest for {Upn}", m.Upn); status = "Failed"; }
@@ -375,7 +375,7 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup,
         }
 
         /// <summary>
-        /// Records that this web server ran a round (2.4.12), as server:{name} in dash.AlertState, so an extract to a folder on
+        /// Records that this web server ran a round, as server:{name} in dash.AlertState, so an extract to a folder on
         /// one server's own disk can tell whether others run the checks too.
         /// </summary>
         public Task HereAsync() => SetStateAsync("server:" + Environment.MachineName, null);
@@ -404,11 +404,11 @@ ORDER BY p.PeopleBelow DESC;", new { take = DigestsPerRound, min, max, minGroup,
                     .Cast<IDictionary<string, object?>>().ToList();
                 var file = Path.Combine(x.Folder.Trim(), ExtractData.FileName(x.Name, today));
                 await File.WriteAllTextAsync(file, ExtractData.ToCsv(data), new UTF8Encoding(true), ct);
-                /* Which web server's disk, for a local folder (2.4.12): the status said only the path. */
+                /* Which web server's disk, for a local folder: the status said only the path. */
                 status = $"{data.Count:#,0} rows to {file}" + (ExtractData.IsShare(x.Folder) ? "" : $" on {Environment.MachineName}");
                 ok = true;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = "Failed: " + ex.Message; }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) { status = Incident.Note(_log, ex, "Failed"); }
             var next = Retry.After(ok, x.FailedTries, DateTime.UtcNow);
             if (next.Retry) status += $" Trying again after {next.RetryAfterUtc:HH:mm} UTC (try {x.FailedTries + 2} of {Retry.Tries}).";
             await _db.ExecuteAsync(@"UPDATE dash.Extract SET LastRunUtc = CASE WHEN @retry = 1 THEN LastRunUtc ELSE SYSUTCDATETIME() END,

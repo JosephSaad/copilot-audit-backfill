@@ -7,7 +7,7 @@ using Xunit;
 
 namespace CopilotInsights.Tests;
 
-/// <summary>Copilot reservations (2.6.8): the policy's arithmetic, its examples, and where the figures come from.</summary>
+/// <summary>Copilot reservations: the policy's arithmetic, its examples, and where the figures come from.</summary>
 public class ReservationRulesTests
 {
     [Theory]
@@ -95,7 +95,7 @@ public class ReservationSourceTests
         /* Only the Copilot add-on: Copilot held only inside a suite (E7) is not an allocation. */
         Assert.Contains("NOT EXISTS (SELECT 1 FROM dash.CopilotSuiteOnly AS so WHERE so.Upn = u.UserPrincipalName)", sql);
         var pipeline = File.ReadAllText(Path.Combine(Root(), "Invoke-CopilotPipeline.ps1"));
-        Assert.Contains("if (-not $once -and $refused.Count -eq 0) { Invoke-ReservationSnapshot -Setting $T -Log $Log }", pipeline);   // 2.6.9: not after a history load; 2.7.0: nor after a refused load
+        Assert.Contains("if (-not $once -and $refused.Count -eq 0) { Invoke-ReservationSnapshot -Setting $T -Log $Log }", pipeline);   // Not after a history load; Nor after a refused load
         /* The app may edit the register, the rate and the Technology pool, never the snapshots. */
         Assert.Contains("GRANT INSERT, UPDATE, DELETE ON dash.Reservation TO CopilotInsightsApp;", sql);
         Assert.DoesNotContain("ON dash.ReservationSnapshot TO CopilotInsightsApp", sql);

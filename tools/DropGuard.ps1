@@ -25,7 +25,7 @@
 
 $script:DefaultMaxDropPercent = 15
 
-# The exit code of a loader whose load the guard refused (2.6.5). Invoke-CopilotPipeline.ps1 records it and goes on
+# The exit code of a loader whose load the guard refused. Invoke-CopilotPipeline.ps1 records it and goes on
 # with the night: the table kept its last good load, so what comes after it can still run.
 $script:DropRefusedExitCode = 3
 
@@ -36,7 +36,7 @@ $script:DropGuardSetting = [ordered]@{
     'Licenses held'       = 'LicenseMaxDropPercent'
     'GitHub Copilot seats' = 'GitHubSeatMaxDropPercent'
     'Foundry deployments' = 'FoundryDeploymentMaxDropPercent'
-    'Cost import'         = 'CostImportMaxDropPercent'   # 2.6.6: tools\Import-CostCsv.ps1 -Replace
+    'Cost import'         = 'CostImportMaxDropPercent'   # Tools\Import-CostCsv.ps1 -Replace
 }
 
 function Get-DropRefusal {

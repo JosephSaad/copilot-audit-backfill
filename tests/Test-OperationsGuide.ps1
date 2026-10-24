@@ -52,12 +52,16 @@ foreach ($n in $named) {
     Assert-That ($n -in $tasks) "-Task $n, in the guide, still exists"
 }
 
-# 2.4.0: every report page in the navigation is in DASHBOARD.md's page table (| Persona | Page | ...),
+# Every report page in the navigation is in DASHBOARD.md's page table (| Persona | Page | ...),
 # and every page that table names is still in the navigation. Admin pages are checked above.
 $dash = Get-Content -LiteralPath (Join-Path $root 'docs' 'DASHBOARD.md') -Raw
 $table = $dash.Substring($dash.IndexOf('## What each persona gets'))
 $table = $table.Substring(0, $table.IndexOf("`n## ", 5))
-$reportPages = [regex]::Matches($nav, 'new\("([^"]+)", "(/[^"]*)"(?![^)]*Admin: true)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+# A page listed in several sections (Copilot on non-human accounts) is named by its constant there.
+# Read from the navigation's list only: HiddenReports.Parts names parts of pages the same way.
+$navList = $nav.Substring($nav.IndexOf('IReadOnlyList<NavGroup> Groups ='))
+$navList = $navList.Substring(0, $navList.IndexOf('];'))
+$reportPages = [regex]::Matches($navList, 'new\("([^"]+)", (?:"(/[^"]*)"|NonHuman)(?![^)]*Admin: true)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
 Assert-That ($reportPages.Count -ge 40) "found the report pages in Nav.cs ($($reportPages.Count))"
 $rows = [regex]::Matches($table, '(?m)^\|[^|
 ]*\|\s*([^|

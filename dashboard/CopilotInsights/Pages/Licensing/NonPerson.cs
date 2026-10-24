@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CopilotInsights.Pages
 {
     /// <summary>
-    /// Copilot licenses on accounts that are not a person: a policy breach (2.4.5; a licensing clean-up in 2.4.3). The
+    /// Copilot licenses on accounts that are not a person: a policy breach (a licensing clean-up in 2.4.3). The
     /// same page in Licensing, Security and Compliance, each for its own role: the accounts the rules in Admin >
     /// Reference data find (Data/NonHuman.cs), why each was flagged, the files to remove their licenses, and the accounts
     /// an administrator confirmed as people, with the reason. Disabled and deleted accounts are Licenses on disabled accounts.
@@ -71,7 +71,7 @@ namespace CopilotInsights.Pages
             var args = Ctx.Args(new { q = pg.Like, type });
             var cte = await NonHuman.CteAsync(Db, rules, Ctx.Scope("ld.UserKey"), args);
             /* Every license holder against the rules once, into #x; the list, the counts, the employee types and the
-               confirmed accounts are all read from it in the same batch (2.4.11). Each used to work the rules out
+               confirmed accounts are all read from it in the same batch. Each used to work the rules out
                again: four passes over every license holder on every visit, 2.5 seconds at 210,000 people. */
             /* The last day of use is looked up for the rows the list shows; sorted by it, for every row the filter leaves. */
             var filter = $@"{(type is null ? Why[why].Sql : "x.EmployeeType = @type")}
@@ -102,7 +102,7 @@ SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedU
 
             Kpis.Add(new("Policy breaches", Num(c.Any), "Copilot licenses on accounts that are not a person", c.Any > 0 ? "crit" : null));
             Kpis.Add(new("Guest accounts", Num(c.Guest), "guests holding a Copilot license"));
-            Kpis.Add(new("Name reads like an account", Num(c.Name), "service, shared, test, room"));   // 2.7.4: as the filter and the Why column say it
+            Kpis.Add(new("Name reads like an account", Num(c.Name), "service, shared, test, room"));   // As the filter and the Why column say it
             Kpis.Add(new("Outside the org chart", Num(c.Chart), "no manager, not under the top"));
             if (rules.EmployeeTypes.Count > 0 || rules.Groups.Count > 0) Kpis.Add(new("By employee type or group", Num(c.Type + c.Group), "the employee types and AD groups marked as not a person"));
             Kpis.Add(new("Confirmed as people", Num(c.Confirmed), "by an administrator, with a reason"));
@@ -151,7 +151,7 @@ SELECT x.UserPrincipalName, x.DisplayName, x.Reason, x.ConfirmedBy, x.ConfirmedU
                         Button("Flag it again", $"Flag {x.UserPrincipalName} again?", quiet: true)))] : cells);
                 }
                 Panels.Add(new("Confirmed as people", ct.Render(),
-                    /* Full width (2.6.6): a guest's sign-in and the reason do not fit beside another table. */
+                    /* Full width: a guest's sign-in and the reason do not fit beside another table. */
                     "Accounts a rule matched that an administrator confirmed are a person, with the reason. They are not breaches and raise no alert. Each change is in the audit log.", "full"));
             }
 
@@ -180,7 +180,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.NonHumanException (Upn, Reason, ConfirmedBy) 
             await Db.ExecuteAsync("DELETE FROM dash.NonHumanException WHERE Upn = @upn", new { upn }) > 0
                 ? $"{upn} is flagged again if a rule matches it." : $"{upn} was not confirmed as a person.");
 
-        /* Posted, with the anti-forgery token (2.4.12, see LicenseActions.Button). */
+        /* Posted, with the anti-forgery token (see LicenseActions.Button). */
         public Task<IActionResult> OnPostBulkAsync() => ExportAsync(false);
         public Task<IActionResult> OnPostScriptAsync() => ExportAsync(true);
 
@@ -202,27 +202,17 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.NonHumanException (Upn, Reason, ConfirmedBy) 
 
 namespace CopilotInsights.Pages.Licensing
 {
+    /// <summary>
+    /// The one page, for Licensing, Security and Compliance alike (Nav.NonHuman): it was a copy in each section. It names
+    /// people, so it needs one of their roles; the role it asks for is the first the viewer holds.
+    /// </summary>
     public sealed class NonPersonModel(PageServices s) : NonHumanPage(s)
     {
-        public override string Persona => "Licensing";
-        public override string? RequiredRole => Roles.Licensing;
-    }
-}
-
-namespace CopilotInsights.Pages.Security
-{
-    public sealed class NonHumanModel(PageServices s) : NonHumanPage(s)
-    {
-        public override string Persona => "Security";
-        public override string? RequiredRole => Roles.Security;
-    }
-}
-
-namespace CopilotInsights.Pages.Compliance
-{
-    public sealed class NonHumanModel(PageServices s) : NonHumanPage(s)
-    {
-        public override string Persona => "Compliance";
-        public override string? RequiredRole => Roles.Compliance;
+        static readonly string[] Holders = [Roles.Licensing, Roles.Security, Roles.Compliance];
+        public override string Persona => RequiredRole ?? Roles.Licensing;
+        /* The first role the viewer holds whose section has not turned the page off (Admin › Reports shown, Nav.Key). */
+        public override string? RequiredRole =>
+            Holders.FirstOrDefault(r => Viewer?.Has(r) == true && !CopilotInsights.Pages.HiddenReports.Is(HiddenReports, r == Roles.Licensing ? Nav.NonHuman : "/" + r.ToLowerInvariant() + "/non-human"))
+            ?? Holders.FirstOrDefault(r => Viewer?.Has(r) == true) ?? Roles.Licensing;
     }
 }

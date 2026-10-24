@@ -1,7 +1,7 @@
 namespace CopilotInsights.Pages;
 
 /// <summary>
-/// What each report is for and what to do with it (2.4.3): two short lines under the title, written for the
+/// What each report is for and what to do with it: two short lines under the title, written for the
 /// section's audience (NavGroup.Who). The longer explanations sit behind information icons. A test checks
 /// every report in the navigation has both lines.
 /// </summary>
@@ -16,7 +16,6 @@ public static class Guidance
         // Leadership
         ["/leadership"] = new("Answer \"is Copilot working here?\" in one screen.", "Look at the units with low use, and ask their leads what is in the way."),
         ["/leadership/act"] = new("See what needs doing without opening every report.", "Take the largest count first, and open the report beside it for the detail."),
-        ["/leadership/scorecard"] = new("See what moved since the last period, and where, with Premium and free-only adoption.", "Raise the largest drops; send units high on free-only use to Better on pay-as-you-go."),
         ["/leadership/org"] = new("Compare the parts of the organization side by side.", "Open the weakest unit to find the team behind it."),
         ["/leadership/compare"] = new("Set two managers' teams side by side, whatever their size.", "Ask the lead of the team ahead what they did, and share it with the other."),
         ["/leadership/mix"] = new("See where Copilot earns its place: which apps, and how much through agents.", "Back the apps and agents that carry use; question the ones that do not."),
@@ -35,7 +34,6 @@ public static class Guidance
         ["/adoption/retention"] = new("Tell a habit from a trial.", "Follow up with the groups whose use falls away after the first weeks."),
         ["/adoption/cohorts"] = new("See whether each month's new licenses turn into lasting use.", "Compare a weak month with a strong one, and repeat what the strong one had."),
         ["/adoption/departments"] = new("Find the departments ahead and behind.", "Pair a department behind with one ahead, through their champions."),
-        ["/adoption/leaderboard"] = new("Celebrate progress and create friendly competition.", "Recognize the most improved groups in your next update."),
         ["/adoption/targets"] = new("Know whether the program is on track for its goals.", "For a target behind its line, decide the push now, not at the deadline."),
         ["/adoption/onboarding"] = new("Make sure new license holders and new hires start quickly.", "Welcome each department's new joiners in their first week."),
         ["/adoption/anomalies"] = new("Catch outages, policy changes and launches from their effect on use.", "Check a sudden drop with IT; learn from a spike."),
@@ -55,8 +53,6 @@ public static class Guidance
         ["/licensing/chargeback"] = new("Allocate license cost to the budgets that hold the licenses.", "Send each group its cost and its share in use."),
         ["/licensing/leavers"] = new("Find licenses nobody can use: disabled or deleted accounts.", "Reclaim them all: export the removal file."),
         ["/licensing/non-person"] = new("Find Copilot licenses on accounts that are not a person: a policy breach, and money spent on no one.", "Remove them with the file here, or have an administrator confirm the account is a person."),
-        ["/security/non-human"] = new("Find Copilot on service, shared, test and guest accounts, which the license does not allow.", "Have each license removed, or confirmed as a person by an administrator, and watch for the alert."),
-        ["/compliance/non-human"] = new("Show that Copilot is licensed only to people, as policy requires.", "Follow up each breach until its license is removed or the account is confirmed as a person."),
         ["/licensing/overlap"] = new("Find people paying for two licenses that overlap.", "Drop the second license where the first covers the use."),
         ["/licensing/credit-use"] = new("Estimate each person's Copilot Credits and tokens, and what a cap would touch.", "Set the credit policy's cap from the spread; license the people above a license's worth."),
         ["/licensing/suites"] = new("See which of E3, E5 and E7 fits each holder, and what a move down saves.", "Drop the copies now; agree each move down with the manager, and with security for E5."),
@@ -78,8 +74,6 @@ public static class Guidance
         // Agents
         ["/agents"] = new("See which agents people use and come back to.", "Promote the agents with returning users; review the ones nobody returns to."),
         ["/agents/inventory"] = new("Keep a register of every current agent, and whether anyone uses it.", "Retire or promote the agents nobody used in the period."),
-        ["/agents/shared"] = new("See which agents are shared with other users or groups, and their use.", "Check that shared agents are owned, and that unused ones are retired."),
-        ["/agents/production"] = new("See whether the agents in production are used.", "Find out why production agents nobody used are not reaching people."),
         ["/agents/owners"] = new("Find the agents whose owner has left or is disabled.", "Give the used ones a new owner first; ask the old owner's manager."),
         ["/agents/checks"] = new("See where an agent's settings and its use disagree.", "Act on each breach; review the rest with the agent's owner."),
         ["/agents/children"] = new("See which parent agents call each child agent, and their use.", "Keep the child agents that busy parents rely on owned and supported."),

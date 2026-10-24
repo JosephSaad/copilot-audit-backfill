@@ -1,5 +1,5 @@
 /*
-    Usage and cost of AI outside Microsoft 365 Copilot (2.6.2): first plumbing
+    Usage and cost of AI outside Microsoft 365 Copilot: first plumbing
     ------------------------------------------------------------------------
     Two more sources, each loaded by a tool of its own into tables of its own,
     beside the Copilot audit data and not mixed into it:
@@ -27,7 +27,7 @@
       audit.ExternalUsageRun         one row per run of either tool, for
                                      Admin > Health
 
-      Microsoft Fabric, Copilot in Power BI and the Power Platform (2.6.6),
+      Microsoft Fabric, Copilot in Power BI and the Power Platform,
       from each source's own export (tools/Import-CostCsv.ps1), for
       Leadership > Costs and savings:
         audit.FabricCapacityDay      one row per capacity per day: size,
@@ -201,7 +201,7 @@ IF OBJECT_ID(N'audit.FoundryCostDay', N'U') IS NULL
         CONSTRAINT PK_FoundryCostDay PRIMARY KEY (SubscriptionId, ResourceGroup, Account, Meter, [Day])
     );
 
-/* ---- Microsoft Fabric, Copilot in Power BI and the Power Platform (2.6.6) ---- */
+/* ---- Microsoft Fabric, Copilot in Power BI and the Power Platform ---- */
 /*
     What the executive page Leadership > Costs and savings reads beside the licenses, GitHub and Foundry: each a
     table a source's own export fills (tools/Import-CostCsv.ps1 loads a CSV of it), keyed so a day or an item

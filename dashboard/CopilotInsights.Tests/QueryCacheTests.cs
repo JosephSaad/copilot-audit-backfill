@@ -83,7 +83,7 @@ public class PlanHintTests
 }
 
 /// <summary>
-/// The query cache (2.4.7): a result is found again only by the very same query with the very same parameters, in the
+/// The query cache: a result is found again only by the very same query with the very same parameters, in the
 /// same tenant, while the data's stamp stands. The scope root is a parameter, so one viewer's rows can never answer another's.
 /// </summary>
 public class QueryCacheTests

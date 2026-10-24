@@ -75,7 +75,7 @@ namespace CopilotAudit
         public int      InitialDownloadStreams  { get; set; } = 4;
         public int      MaxDownloadStreams      { get; set; } = 8;
         public int      IncreaseAfterCleanPages { get; set; } = 40;
-        public double   PageTimeoutMinutes      { get; set; } = 5;    // one page, its body read through (2.4.12)
+        public double   PageTimeoutMinutes      { get; set; } = 5;    // one page, its body read through
 
         // SQL load.
         public int      BatchRows               { get; set; } = 2000;
@@ -156,13 +156,13 @@ namespace CopilotAudit
         Task InsertAsync(AuditWindow w, CancellationToken ct);   // must set WindowId
         Task UpdateAsync(AuditWindow w, CancellationToken ct);
 
-        // The parent marked Split and both halves inserted, all or none (2.4.12; must set both WindowIds). Three
+        // The parent marked Split and both halves inserted, all or none (must set both WindowIds). Three
         // separate writes left the parent Split with a half missing when a run stopped between them: a hole nothing
         // planned again, which merge and finalize then refused for good.
         Task SplitAsync(AuditWindow parent, AuditWindow older, AuditWindow newer, CancellationToken ct);
 
         // The window table for this run alone until disposed, or WindowTableInUseException when another run holds it
-        // (2.4.12). Nothing claimed a window, so two runs on one table planned the same windows from the same cursor
+        // Nothing claimed a window, so two runs on one table planned the same windows from the same cursor
         // and wrote over each other's rows.
         Task<IDisposable> ClaimAsync(CancellationToken ct);
     }
@@ -826,7 +826,7 @@ namespace CopilotAudit
 
         async Task RunAsync(CancellationToken ct)
         {
-            // One run at a time on a window table, held to the end (2.4.12). A second run beside this one (-History
+            // One run at a time on a window table, held to the end. A second run beside this one (-History
             // started again from another console, a run by hand during the nightly) planned the same windows from the
             // same cursor and re-marked this run's windows as its own, leaving overlaps that finalize refuses for good,
             // or a load marked downloaded whose windows never all finished.
@@ -1225,12 +1225,12 @@ namespace CopilotAudit
                 ["filterStartDateTime"] = w.StartUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
                 ["filterEndDateTime"] = w.EndUtc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
             };
-            // A record-type load (2.6.9) asks for whole record types and names no operation.
+            // A record-type load asks for whole record types and names no operation.
             if (_o.Operations != null && _o.Operations.Length > 0) body["operationFilters"] = _o.Operations;
             if (_o.RecordTypes != null && _o.RecordTypes.Length > 0) body["recordTypeFilters"] = _o.RecordTypes;
             var json = JsonSerializer.Serialize(body);
 
-            /* 2.6.9: a search by record type goes to beta: v1.0's list of record types lacks the newer ones
+            /* A search by record type goes to beta: v1.0's list of record types lacks the newer ones
                (ConnectedAIAppInteraction, CopilotInteraction among them) and may refuse them. Its records are read as any other's. */
             var submitVersion = _o.RecordTypes != null && _o.RecordTypes.Length > 0 ? "/beta" : "/v1.0";
             var resp = await SendControlAsync(HttpMethod.Post, _o.GraphBaseUrl + submitVersion + "/security/auditLog/queries", json, ct).ConfigureAwait(false);
@@ -1528,7 +1528,7 @@ namespace CopilotAudit
                 await _limiter.WaitAsync(ct).ConfigureAwait(false);
                 long tv = Interlocked.Read(ref _tokenVersion);
                 HttpResponseMessage resp = null;
-                // Each page has a time limit of its own, body included (2.4.12). HttpClient's timeout ends once the
+                // Each page has a time limit of its own, body included. HttpClient's timeout ends once the
                 // headers arrive (ResponseHeadersRead), so a connection that went silent mid-body - a proxy or firewall
                 // dropping it without a reset - was awaited forever, and the whole run with it, until Task Scheduler
                 // killed it 20 hours later.

@@ -4,7 +4,7 @@ using CopilotInsights.Infrastructure;
 namespace CopilotInsights.Pages.Licensing;
 
 /// <summary>
-/// The named people behind a reservation (2.6.8): the Microsoft 365 Copilot add-on holders an organization's figure
+/// The named people behind a reservation: the Microsoft 365 Copilot add-on holders an organization's figure
 /// counts, those under no listed leader, or the Technology-funded pool. For the Licensing role, as every list of people.
 /// </summary>
 public sealed class ReservationHoldersModel(PageServices s, ReservationData data) : InsightsPage(s)
@@ -44,7 +44,7 @@ public sealed class ReservationHoldersModel(PageServices s, ReservationData data
             : await Db.ScalarAsync<string?>("SELECT TOP (1) Name FROM dash.Reservation WHERE OrgId = @res ORDER BY EffectiveFrom DESC;", new { res });
         if (name is null)
         {
-            /* 2.7.4: opened from the menu, the page said to go and choose on Copilot reservations; it offers the choice itself. */
+            /* Opened from the menu, the page said to go and choose on Copilot reservations; it offers the choice itself. */
             var orgs = await Db.QueryAsync<(string OrgId, string Name)>(@"
 SELECT OrgId, Name FROM (SELECT OrgId, Name, ROW_NUMBER() OVER (PARTITION BY OrgId ORDER BY EffectiveFrom DESC) AS n FROM dash.Reservation) AS x
 WHERE n = 1 ORDER BY Name;");
@@ -58,7 +58,7 @@ WHERE n = 1 ORDER BY Name;");
             return;
         }
         var k = int.Parse(day.ToString("yyyyMMdd"));
-        /* 2.7.0: within the viewer's part of the organization, as every list of people is (it was the whole bank's for any holder of the Licensing role).
+        /* Within the viewer's part of the organization, as every list of people is (it was the whole bank's for any holder of the Licensing role).
            Who the organization's figure counts: its members holding the add-on, Technology-funded accounts aside; or the
            holders no organization covers; or the Technology pool. As ReservationData counts them. */
         var which = res switch

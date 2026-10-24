@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace CopilotInsights.Infrastructure;
 
 /// <summary>
-/// The information icon's text for each field of the forms the pages write (2.7.0): a setting's own description, as
+/// The information icon's text for each field of the forms the pages write: a setting's own description, as
 /// dash.Setting keeps it, and for the other fields the text here, by the field's name on its page, or by its name alone.
 /// Every field had none: its help sat in paragraphs under the button, or nowhere.
 /// </summary>
@@ -70,7 +70,7 @@ public static partial class FieldTips
         ["/forecasting/budget|price"] = "What one seat costs a month under this agreement, after its discount: the price that settles disagreements with Admin › Access.",
         ["/forecasting/budget|start"] = "The day the agreement started.",
         ["renewal"] = "The day the agreement renews.",
-        /* Leadership › Credit chargeback: the routing register and the charge rate (2.7.2). */
+        /* Leadership › Credit chargeback: the routing register and the charge rate. */
         ["/leadership/credit-chargeback|environment"] = "The Power Platform environment, named exactly as the admin center's consumption report names it: that name matches its credits.",
         ["/leadership/credit-chargeback|path"] = "LoB Productivity or LoB Business Application: charged to a line of business. Enterprise Shared: funded centrally, never charged to one. Innovation: pilots and development, charged to its sponsor if it names one.",
         ["/leadership/credit-chargeback|orgId"] = "The line of business charged: its persistent Org ID, as Copilot reservations lists it. Required for the two LoB paths; empty for Enterprise Shared.",
@@ -81,7 +81,7 @@ public static partial class FieldTips
         ["/leadership/credit-chargeback|to"] = "The last day this route applies. Empty: until changed.",
         ["/leadership/credit-chargeback|end"] = "The last day this route is in effect: past months keep it, and the environment is not routed after it until a new route starts.",
         ["/leadership/credit-chargeback|rate"] = "What one Copilot Credit is charged back at, after any discount, in the license currency (0.01 at list price). Empty: the price list's pay-as-you-go credit.",
-        /* Forecasting › Credit commitment (2.7.2). */
+        /* Forecasting › Credit commitment. */
         ["/forecasting/credit-commitment|name"] = "A name for the commitment, as Finance knows it (Copilot Credit P3 FY27).",
         ["/forecasting/credit-commitment|amount"] = "What was committed, in its currency: the commit units bought.",
         ["/forecasting/credit-commitment|currency"] = "The commitment's currency code (USD). Empty: the license currency.",
@@ -90,7 +90,7 @@ public static partial class FieldTips
         ["/forecasting/credit-commitment|end"] = "The last day of the term: what is left after it is lost.",
         ["/forecasting/credit-commitment|alertDays"] = "Warn, on this page and by email to the license alert recipients, when the commitment is projected to run out this many days before its term ends, or to leave this many days' worth unused. 0 turns it off.",
         ["/forecasting/credit-commitment|scope"] = "The Azure scope it applies to (a billing account, subscription or resource group), as a label (optional).",
-        /* Admin › Value names: the licenses' product names (2.7.1). */
+        /* Admin › Value names: the licenses' product names. */
         ["/admin/values|part"] = "The license's part number, as License pool shows it beside its name (SPE_E5, Microsoft_365_Copilot).",
         ["/admin/values|productName"] = "The name every page shows for that license (Microsoft 365 E5). Empty: remove the name, and show the part number.",
         /* Leadership › Copilot reservations. */
