@@ -1,0 +1,23 @@
+@model string?
+@{
+    var req = ViewContext.HttpContext.Request;
+    var keep = new[] { "sort", "desc", "state", "open", "type", "role", "from", "to", "action", "campaign", "all" };
+}
+<div class="table-tools">
+    <form method="get" role="search">
+        @foreach (var k in keep)
+        {
+            if (req.Query.TryGetValue(k, out var v) && !string.IsNullOrEmpty(v))
+            {
+                <input type="hidden" name="@k" value="@v" />
+            }
+        }
+        <label class="sr-only" for="q">Search</label>
+        <input id="q" type="search" name="q" value="@Model" placeholder="Search this list" />
+        <button class="btn btn-small btn-ghost" type="submit">Search</button>
+        @if (!string.IsNullOrEmpty(Model))
+        {
+            <a class="btn btn-small btn-ghost" href="@req.Path">Clear</a>
+        }
+    </form>
+</div>

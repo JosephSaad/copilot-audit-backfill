@@ -1,0 +1,10 @@
+@page "/AccessDenied"
+@model AccessDeniedModel
+@{
+    ViewData["Title"] = "Not available to you";
+}
+<div class="card">
+    <h1>This page is not available to you</h1>
+    <p>Your roles do not include this part of the Workbench. If you need it, ask your LOB business owner (for LOB roles) or the Platform Owner (for central roles). <a href="/Me">See the roles you hold.</a></p>
+    <p><a class="btn" href="/Start">Back to Start</a></p>
+</div>

@@ -1,0 +1,364 @@
+@page "/Requests/{id:guid}"
+@model Governance.Web.Pages.Requests.DetailModel
+@using Governance.Application.Requests
+@{
+    var d = Model.D;
+    var r = d.Request;
+    ViewData["Title"] = r.RequestNumber;
+    var open = d.Tasks.Where(t => t.Status == "OPEN").ToList();
+    var closed = d.Tasks.Where(t => t.Status != "OPEN").ToList();
+    var visited = d.Timeline.Select(t => t.StageCode).Where(s => s is not null).ToHashSet();
+    var w = d.Workload;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/Requests">Requests</a> › @r.RequestNumber</div>
+        <h1>@r.Title</h1>
+        <p class="lead">@r.RequestNumber · @r.JourneyCode @d.JourneyName · @Ui.Pill(r.State) @(d.Stage is null ? "" : $"· now at {d.Stage.StageCode} {d.Stage.Name}")</p>
+    </div>
+    <div class="page-actions">
+        @if (Model.IsRequester && r.State is "DRAFT" or "RETURNED" or "DECLINED")
+        {
+            <a class="btn btn-ghost" href="/Requests/New/@r.JourneyCode?id=@r.PublicId">Edit</a>
+            <form method="post" asp-page-handler="Submit"><idem /><button class="btn" type="submit">@(r.State == "DRAFT" ? "Submit" : "Resubmit")</button></form>
+        }
+        @if (Model.IsRequester && (r.State == "DRAFT" || r.CurrentStage == "B7"))
+        {
+            <form method="post" asp-page-handler="Withdraw" data-confirm="Withdraw this request? It closes and cannot be reopened."><idem /><button class="btn btn-ghost" type="submit">Withdraw</button></form>
+        }
+    </div>
+</div>
+
+@if (d.Stages.Count > 0)
+{
+    <ol class="steps" aria-label="Stages">
+        @foreach (var s in d.Stages.Where(s => s.StageCode != "B7"))
+        {
+            var now = s.StageCode == r.CurrentStage;
+            <li class="@(now ? "now" : visited.Contains(s.StageCode) ? "done" : "")" aria-current="@(now ? "step" : null)">@s.StageCode @s.Name</li>
+        }
+    </ol>
+}
+
+<div class="grid grid-2">
+    <div class="card">
+        <h2>Summary</h2>
+        <dl class="facts">
+            <dt>Funding owner <help>The LOB or Enterprise Shared unit that pays; its business owner is accountable for the business case.</help></dt>
+            <dd><a href="/Registry/FundingOwners/@d.FundingOwnerPublicId">@d.FundingOwnerName</a></dd>
+            <dt>Requester <help>Who submitted the request. A requester never decides their own request (SoD1).</help></dt><dd>@d.RequesterName</dd>
+            <dt>Sponsor <help>Owns the purpose and the outcome claims.</help></dt><dd>@(d.SponsorName ?? "None")</dd>
+            <dt>Service <help>The approved catalogue service the request uses.</help></dt><dd>@(d.ServiceName ?? "None")</dd>
+            @if (r.EstimateCredits is decimal est)
+            {
+                <dt>Estimate <help>Monthly Copilot Credits, checked against the envelope at B4. An approval commits this amount.</help></dt><dd>@Ui.Num(est) Copilot Credits a month</dd>
+            }
+            <dt>Submitted <help>When the request left draft (B1).</help></dt><dd>@(r.SubmittedUtc is null ? "Not yet" : Ui.Local(r.SubmittedUtc))</dd>
+            @if (!string.IsNullOrEmpty(Model.Payload.Purpose))
+            {
+                <dt>Purpose <help>What the requester said it is for.</help></dt><dd>@Model.Payload.Purpose</dd>
+            }
+            @if (!string.IsNullOrEmpty(Model.Payload.RequestedDeviation))
+            {
+                <dt>Deviation <help>What falls outside the approved patterns (J3).</help></dt><dd>@Model.Payload.RequestedDeviation</dd>
+            }
+            @if (!string.IsNullOrEmpty(Model.Payload.ChangeKind))
+            {
+                <dt>Change <help>J4: what changes, from and to (credits).</help></dt><dd>@Ui.Words(Model.Payload.ChangeKind): @Ui.Num(Model.Payload.CurrentValue) → @Ui.Num(Model.Payload.RequestedValue)@(Model.Payload.RequestTenantPool ? ", with tenant-pool draw" : "")</dd>
+            }
+            @if (!string.IsNullOrEmpty(r.PatternResult) && r.PatternResult != "[]")
+            {
+                <dt>Pattern check <help>B4: the conditions no approved pattern covers. Each becomes a specialist review (B8).</help></dt>
+                <dd>@string.Join(" ", System.Text.Json.JsonSerializer.Deserialize<List<string>>(r.PatternResult)!.Select(Governance.Application.Rules.PatternFit.Describe))</dd>
+            }
+        </dl>
+    </div>
+    <div class="card">
+        <h2>Who does what now <help k="req.whodoeswhat">The RACI row for the current stage, resolved to people today in this request's scope. A: decides. R: does the work. C: consulted. I: informed in the daily digest.</help></h2>
+        @if (d.WhoDoesWhat.Count == 0)
+        {
+            <p class="muted">The request is not at a stage with a RACI activity.</p>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th scope="col">Function</th><th scope="col">Role</th><th scope="col">People</th></tr></thead>
+                    <tbody>
+                    @foreach (var l in d.WhoDoesWhat)
+                    {
+                        <tr>
+                            <td>@l.FunctionName</td>
+                            <td><span class="raci-@l.RaciValue.Replace("/", "")">@l.RaciValue</span></td>
+                            <td>@l.People</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@if (w is not null)
+{
+    <div class="card">
+        <div class="card-head">
+            <h2>Workload: <a href="/Registry/Workloads/@w.PublicId">@w.Name</a></h2>
+            @Ui.Pill(w.State)
+        </div>
+        <dl class="facts">
+            <dt>Solution class <help>Productivity solution or business application. Independent of the funding owner (C03).</help></dt><dd>@(Ui.Words(w.SolutionClass) is { Length: > 0 } sc ? sc : "Not set")</dd>
+            <dt>Lifecycle stage <help>Local, Development, Test or Production. Independent of the service (C03).</help></dt><dd>@(Ui.Words(w.LifecycleStage) is { Length: > 0 } ls ? ls : "Not set")</dd>
+            <dt>Cost center <help>The Finance unit for showback.</help></dt><dd>@(d.CostCenterCode ?? "Not set")</dd>
+            <dt>Criticality, trigger <help>Criticality decides whether production needs continuity acceptance; the trigger type decides whether FinOps reviews the forecast.</help></dt><dd>@(Ui.Words(w.Criticality) is { Length: > 0 } c ? c : "Not set"), @(Ui.Words(w.TriggerType) is { Length: > 0 } tt ? tt : "not set")</dd>
+            <dt>Audience, data <help>Who uses it and the highest data class it touches.</help></dt><dd>@(w.Audience ?? "Not set"); @(Ui.Words(w.DataClass) is { Length: > 0 } dc ? dc : "data class not set")</dd>
+            <dt>Data boundary <help>Where data may and may not go.</help></dt><dd>@(w.DataBoundary ?? "Not set")</dd>
+            <dt>Downstream meters <help>Other services it consumes (C-DM).</help></dt><dd>@(d.Meters.Count == 0 ? (r.MetersDeclaredNone ? "None declared" : "Not listed") : string.Join(", ", d.Meters.Select(Ui.Words)))</dd>
+        </dl>
+    </div>
+}
+
+<h2 class="mt">Open tasks</h2>
+@if (open.Count == 0)
+{
+    <div class="card muted">No open task. @(r.State == "FULFILLMENT" ? "The change is being made in the admin center through the ITSM task; closing the ticket sends it to verification." : "")</div>
+}
+@foreach (var t in open)
+{
+    var can = Model.CanAct(t);
+    <div class="task">
+        <div class="task-head">
+            <div class="task-title">@t.Title</div>
+            <div class="btn-row">
+                @Ui.Pill(t.TaskType, "info")
+                @if (t.DueUtc is not null) { @Ui.Pill(t.DueUtc < DateTime.UtcNow ? "OVERDUE" : "DUE " + Ui.Local(t.DueUtc, "d MMM HH:mm"), t.DueUtc < DateTime.UtcNow ? "bad" : "info") }
+            </div>
+        </div>
+        <div class="kv"><span>@Ui.TaskSentence(t.RoleName ?? (t.AssignedRoleCode == "REQUESTER" ? "the requester" : t.AssignedRoleCode), d.FundingOwnerName, t.StartedUtc, t.DueUtc, t.AssignedName)</span>@if (t.TaskType == "CONSULT") { <span>@(t.IsBlocking ? "The decision waits for this answer" : "Non-blocking")</span> }</div>
+        @if (!string.IsNullOrEmpty(t.Reason)) { <p class="small">@t.Reason</p> }
+        @if (t.ExcludedText is not null) { <p class="small muted">Cannot act (segregation of duties): @t.ExcludedText</p> }
+
+        @if (Model.CanClaim(t))
+        {
+            <form method="post" asp-page-handler="Claim" asp-route-task="@t.PublicId" class="inline"><idem /><button class="btn btn-small btn-ghost" type="submit">Claim</button></form>
+        }
+        @if (t.AssignedPersonId == Model.Principal.PersonId && t.ClaimedUtc is not null)
+        {
+            <form method="post" asp-page-handler="Release" asp-route-task="@t.PublicId" class="inline"><idem /><button class="btn btn-small btn-ghost" type="submit">Release</button></form>
+        }
+
+        @if (can && t.StageCode == "B3")
+        {
+            <details class="more mt" open>
+                <summary>Classification</summary>
+                <form method="post" asp-page-handler="Classify" class="mt">
+                    <idem />
+                    <p class="small muted">Answer each field on its own. None is derived from another (C03).</p>
+                    <div class="form-grid">
+                        <div class="field"><label for="cc">Cost center <help>The Finance unit of this funding owner that carries the showback.</help></label>
+                            <select id="cc" name="costCenterId"><option value="">Choose…</option>@foreach (var o in Model.CostCenters) { <option value="@o.Value" selected="@(w?.CostCenterId?.ToString() == o.Value)">@o.Text</option> }</select></div>
+                        <div class="field"><label for="sc">Solution class <help>A productivity solution helps people work; a business application runs a business process.</help></label>
+                            <select id="sc" name="solutionClass"><option value="">Choose…</option>@foreach (var x in SolutionClasses.All) { <option value="@x" selected="@(w?.SolutionClass == x)">@Ui.Words(x)</option> }</select></div>
+                        <div class="field"><label for="ls">Lifecycle stage <help>Where it runs now.</help></label>
+                            <select id="ls" name="lifecycleStage"><option value="">Choose…</option>@foreach (var x in LifecycleStages.All) { <option value="@x" selected="@(w?.LifecycleStage == x)">@Ui.Words(x)</option> }</select></div>
+                        <div class="field"><label for="sv">Service <help>The catalogue service and harness.</help></label>
+                            <select id="sv" name="serviceId">@foreach (var o in Model.Services) { <option value="@o.Value" selected="@(w?.ServiceId?.ToString() == o.Value)">@o.Text</option> }</select></div>
+                        <div class="field"><label for="cr">Criticality <help>High or critical business applications need production acceptance with continuity.</help></label>
+                            <select id="cr" name="criticality"><option value="">Choose…</option>@foreach (var x in Criticalities.All) { <option value="@x" selected="@(w?.Criticality == x)">@Ui.Words(x)</option> }</select></div>
+                        <div class="field"><label for="tt">Trigger type <help>User-initiated, scheduled, autonomous or customer-triggered (C12).</help></label>
+                            <select id="tt" name="triggerType"><option value="">Choose…</option>@foreach (var x in TriggerTypes.All) { <option value="@x" selected="@(w?.TriggerType == x)">@Ui.Words(x)</option> }</select></div>
+                        <div class="field"><label for="dcl">Data class <help>The highest class it touches.</help></label>
+                            <select id="dcl" name="dataClass"><option value="">Choose…</option>@foreach (var x in DataClasses.Ordered) { <option value="@x" selected="@(w?.DataClass == x)">@Ui.Words(x)</option> }</select></div>
+                        <div class="field"><label for="ec">Environment class <help>Sets the default agent limit.</help></label>
+                            <select id="ec" name="environmentClassCode"><option value="">Not an environment</option>@foreach (var o in Model.EnvironmentClasses) { <option value="@o.Value" selected="@(w?.EnvironmentClassCode == o.Value)">@o.Text</option> }</select></div>
+                        <div class="field"><label for="au">Audience <help>Who uses it.</help></label><input id="au" name="audience" value="@w?.Audience" maxlength="400" /></div>
+                        <div class="field"><label for="db">Data boundary <help>Where data may go, for example "Internal SharePoint sites of Retail only".</help></label><input id="db" name="dataBoundary" value="@w?.DataBoundary" maxlength="400" /></div>
+                        <fieldset class="full"><legend>Downstream meters <help>Costs outside Copilot Credits (C-DM).</help></legend>
+                            <div class="checks">@foreach (var m in Governance.Web.Pages.Requests.NewModel.MeterChoices) { <label class="check"><input type="checkbox" name="meters" value="@m.Code" checked="@(d.Meters.Contains(m.Code))" /> @m.Label</label> }</div>
+                            <label class="check"><input type="checkbox" name="metersNone" value="true" checked="@r.MetersDeclaredNone" /> It consumes nothing else</label>
+                        </fieldset>
+                    </div>
+                    <button class="btn btn-ghost mt" type="submit">Save classification</button>
+                </form>
+            </details>
+        }
+
+        @if (can && t.TaskType == "DECISION")
+        {
+            <form method="post" asp-page-handler="Decide" asp-route-task="@t.PublicId" enctype="multipart/form-data" class="mt">
+                <idem />
+                <div class="form-grid">
+                    <div class="field"><label for="o-@t.PublicId" class="req">Outcome <help>Approved, with conditions, a constrained pilot, hold or declined. A decline or hold always says why and what evidence is needed (B6).</help></label>
+                        <select id="o-@t.PublicId" name="outcome" required>
+                            <option value="APPROVED">Approve</option>
+                            <option value="APPROVED_WITH_CONDITIONS">Approve with conditions</option>
+                            @if (t.StageCode == "B9") { <option value="CONSTRAINED_PILOT">Constrained pilot</option> }
+                            @if (t.StageCode is "B9" or "F4") { <option value="HOLD">Hold for evidence</option> }
+                            <option value="DECLINED">Decline</option>
+                        </select></div>
+                    <div class="field"><label for="s-@t.PublicId" class="req">Scope <help>Service, audience, tier, environment or policy, and duration. This is what the approval covers.</help></label>
+                        <input id="s-@t.PublicId" name="scope" required maxlength="1000" value="@(d.ServiceName is null ? r.Title : $"{d.ServiceName} for {d.FundingOwnerName}")" /></div>
+                    <div class="field"><label for="e-@t.PublicId">Expires <help>Every approval expires or has a review date. Exceptions must expire.</help></label><input id="e-@t.PublicId" type="date" name="expires" value="@DateTime.UtcNow.AddMonths(Model.Payload.DurationMonths ?? 12).ToString("yyyy-MM-dd")" /></div>
+                    <div class="field"><label for="n-@t.PublicId">Next review <help>Drives recertification reminders (N14).</help></label><input id="n-@t.PublicId" type="date" name="review" value="@DateTime.UtcNow.AddMonths(6).ToString("yyyy-MM-dd")" /></div>
+                    <div class="field full" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="c-@t.PublicId">Condition <help>What must hold, who owns it and by when. More conditions can go in the text box.</help></label><input id="c-@t.PublicId" name="conditionText" maxlength="1000" /></div>
+                    <div class="field" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="co-@t.PublicId">Condition owner</label><select id="co-@t.PublicId" name="conditionOwner"><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+                    <div class="field" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="cd-@t.PublicId">Condition due</label><input id="cd-@t.PublicId" type="date" name="conditionDue" /></div>
+                    <div class="field full"><label for="r-@t.PublicId">Reason <help>Required for a decline or hold; helpful for any decision.</help></label><textarea id="r-@t.PublicId" name="reason" maxlength="2000"></textarea></div>
+                    <div class="field full" data-show-when="outcome=DECLINED|HOLD"><label for="ev-@t.PublicId">Evidence needed to proceed <help>No dead ends: the requester sees this checklist (B6, B7).</help></label><textarea id="ev-@t.PublicId" name="evidence" maxlength="2000"></textarea></div>
+                    <div class="field full"><label for="f-@t.PublicId">Attach evidence <help>Optional. Stored with its SHA-256 hash in the ledger.</help></label><input id="f-@t.PublicId" type="file" name="file" /></div>
+                </div>
+                <button class="btn mt" type="submit">Record the decision</button>
+                <span class="small muted">You decide as @(t.RoleName ?? t.AssignedRoleCode). The record names you, your role, the RACI version and any delegation used.</span>
+            </form>
+        }
+
+        @if (can && t.TaskType == "VERIFICATION")
+        {
+            <form method="post" asp-page-handler="Verify" asp-route-task="@t.PublicId" enctype="multipart/form-data" class="mt">
+                <idem />
+                @if (Model.Template is null)
+                {
+                    <div class="alert alert-warn">The service has no active control template, so nothing can be verified. Ask the Platform Owner to activate one.</div>
+                }
+                else
+                {
+                    <p class="small muted">Control template v@Model.Template.VersionNo for @Model.Template.ServiceName. Read-back checks compare with the last licensing read; attestation checks need evidence. The explicit deny case must be tested. Allow up to 15 minutes for credit availability to refresh.</p>
+                    <div class="table-wrap">
+                        <table class="stack">
+                            <thead><tr><th scope="col">Check</th><th scope="col">Expected</th><th scope="col">Found</th><th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>
+                            <tbody>
+                            @foreach (var c in Model.Checks)
+                            {
+                                var exp = c.SettingKey is not null && Model.Expected.TryGetValue(c.SettingKey, out var e) ? e : "";
+                                var found = c.SettingKey switch
+                                {
+                                    "allocationCredits" => Ui.Num(Model.Posture?.ReadAllocation),
+                                    "tenantPoolEnabled" => Model.Posture?.ReadTenantPool?.ToString().ToLowerInvariant() ?? "",
+                                    _ => "",
+                                };
+                                <tr>
+                                    <td><strong>@c.CheckCode</strong>@(c.IsDenyCase ? " (deny case)" : "")<div class="small">@c.Description</div><div class="small muted">@Ui.Words(c.Method)@(c.CaveatCode is null ? "" : " · " + c.CaveatCode)</div></td>
+                                    <td>@exp</td>
+                                    <td><input name="actual_@c.ControlCheckId" value="@found" aria-label="Value found for @c.CheckCode" maxlength="200" /></td>
+                                    <td><select name="check_@c.ControlCheckId" aria-label="Result for @c.CheckCode"><option value="fail">Fail</option><option value="pass">Pass</option></select></td>
+                                    <td>@if (c.Method != "READBACK") { <input type="file" name="file_@c.ControlCheckId" aria-label="Evidence for @c.CheckCode" /> } else { <span class="muted small">Read-back @(Model.Posture?.ReadAsOf is null ? "not run yet" : "as of " + Ui.Local(Model.Posture.ReadAsOf))</span> }</td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="form-grid mt">
+                        <div class="field"><label for="cv">Configuration version <help>The admin center's version or change reference, if any.</help></label><input id="cv" name="configurationVersion" maxlength="100" /></div>
+                        <div class="field"><label for="vn">Notes</label><input id="vn" name="notes" maxlength="2000" /></div>
+                    </div>
+                    <button class="btn mt" type="submit">Record verification</button>
+                }
+            </form>
+        }
+
+        @if (can && t.TaskType is "WORK" or "CONSULT" && t.StageCode != "B7")
+        {
+            var outcomes = Model.Outcomes(t);
+            <form method="post" asp-page-handler="Complete" asp-route-task="@t.PublicId" enctype="multipart/form-data" class="mt">
+                <idem />
+                <div class="form-grid">
+                    <div class="field full"><label for="nt-@t.PublicId">@(t.TaskType == "CONSULT" ? "Your view" : "Notes") <help>@(t.StageCode == "B2" ? "When returning, list exactly what is missing; the requester sees it." : "Recorded on the request's timeline.")</help></label><textarea id="nt-@t.PublicId" name="notes" maxlength="2000"></textarea></div>
+                    @if (t.StageCode is "D2" or "F5" || t.RelatedEntityType == "HOLD")
+                    {
+                        <div class="field"><label for="fl-@t.PublicId">Evidence <help>@(t.StageCode == "D2" ? "Charging, attribution, exhaustion, overage, recovery and negative test results, including enforcement lag (C08, C11)." : "The document that shows it is done.")</help></label><input id="fl-@t.PublicId" type="file" name="file" /></div>
+                        <input type="hidden" name="evidenceType" value="@(t.StageCode == "F5" ? "CONTRACT" : "TEST_RESULT")" />
+                    }
+                </div>
+                <div class="btn-row mt">
+                    @foreach (var o in outcomes)
+                    {
+                        <button class="btn @(o.Outcome == "RETURN" ? "btn-ghost" : "")" type="submit" name="outcome" value="@o.Outcome">@o.Label</button>
+                    }
+                </div>
+            </form>
+        }
+    </div>
+}
+
+@if (d.Decisions.Count > 0)
+{
+    <h2 class="mt">Decisions <help k="req.decisions">Every decision is an immutable row in a ledger table: decider, role, RACI version and activity, scope, conditions, expiry and next review.</help></h2>
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">Decision</th><th scope="col">Outcome</th><th scope="col">Decider</th><th scope="col">Scope and conditions</th><th scope="col">Expiry, review</th></tr></thead>
+            <tbody>
+            @foreach (var x in d.Decisions)
+            {
+                <tr>
+                    <td><strong>@DecisionTypes.Label(x.DecisionType)</strong><div class="small muted">@x.StageCode · @Ui.Local(x.DecidedAtUtc) · @x.Source</div></td>
+                    <td>@Ui.Pill(x.Outcome)</td>
+                    <td>@x.DeciderName<div class="small muted">@Ui.Words(x.DeciderRoleCode)@(x.DelegationId is null ? "" : " under delegation") · RACI v@x.RaciVersionNo @Ui.Words(x.RaciActivityCode)</div></td>
+                    <td>@x.ScopeText@if (x.ConditionsText is not null) { <div class="small">Conditions: @x.ConditionsText</div> }@if (x.ReasonText is not null) { <div class="small">Reason: @x.ReasonText</div> }@if (x.RequiredEvidenceText is not null) { <div class="small"><strong>Evidence needed:</strong> @x.RequiredEvidenceText</div> }</td>
+                    <td>@(x.ExpiresOn is null ? "" : "Expires " + Ui.Date(x.ExpiresOn))<div>@(x.NextReviewOn is null ? "" : "Review " + Ui.Date(x.NextReviewOn))</div></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+
+<div class="grid grid-2 mt">
+    <div class="card">
+        <h2>Evidence <help k="req.evidence">Files stay in the database outside the web root; their SHA-256 hash and metadata are in a ledger table, so tampering is detectable.</help></h2>
+        @if (d.Evidence.Count == 0) { <p class="muted">No evidence yet.</p> }
+        <ul>
+            @foreach (var e in d.Evidence)
+            {
+                <li>@if (e.Purged) { <span>@e.FileName (content purged)</span> } else { <a href="/Evidence/@e.PublicId">@e.FileName</a> } <span class="small muted">@Ui.Words(e.EvidenceType) · @Ui.Words(e.LinkType) · @e.UploadedByName · @Ui.Local(e.UploadedUtc)@(e.SourceSystem == "UPLOAD_UNSCANNED" ? " · not scanned" : "")</span><div class="small muted mono">SHA-256 @e.Sha256Hex</div></li>
+            }
+        </ul>
+        <form method="post" asp-page-handler="Upload" enctype="multipart/form-data" class="mt">
+            <idem />
+            <div class="form-grid">
+                <div class="field"><label for="up-file">File <help>PNG, JPG, PDF, CSV, JSON, XLSX, DOCX or TXT, up to 20 MB. Files are checked and scanned before they are accepted.</help></label><input id="up-file" type="file" name="file" required /></div>
+                <div class="field"><label for="up-type">Type</label><select id="up-type" name="evidenceType"><option value="SCREENSHOT">Screenshot</option><option value="EXPORT">Export</option><option value="TEST_RESULT">Test result</option><option value="OUTCOME">Outcome</option><option value="OTHER">Other</option></select></div>
+                <div class="field full"><label for="up-desc">Description</label><input id="up-desc" name="description" maxlength="1000" /></div>
+            </div>
+            <button class="btn btn-ghost mt" type="submit">Add evidence</button>
+        </form>
+    </div>
+    <div class="card">
+        <h2>ITSM <help k="req.itsm">Fulfillment tasks and incidents in ITSM are pre-approved work. Closing a ticket sends the request to verification, never straight to completed.</help></h2>
+        @if (d.Tickets.Count == 0) { <p class="muted">No ticket yet.</p> }
+        <ul>
+            @foreach (var tk in d.Tickets)
+            {
+                <li>@Ui.Words(tk.Kind) @if (tk.ExternalUrl is not null) { <a href="@tk.ExternalUrl" rel="noopener" target="_blank">@tk.ExternalNumber</a> } else { <span>@(tk.ExternalNumber ?? "being created")</span> } @Ui.Pill(tk.State) <span class="small muted">@Ui.Local(tk.CreatedUtc)</span>@if (tk.ClosureNotes is not null) { <div class="small">@tk.ClosureNotes</div> }</li>
+            }
+        </ul>
+        @if (d.Verifications.Count > 0)
+        {
+            <h3>Verifications</h3>
+            <ul>
+                @foreach (var v in d.Verifications)
+                {
+                    <li>@Ui.Pill(v.Result) @Ui.Words(v.Method) by @v.VerifierName, @Ui.Local(v.VerifiedUtc)</li>
+                }
+            </ul>
+        }
+    </div>
+</div>
+
+<div class="card mt">
+    <h2>Timeline</h2>
+    <ol class="timeline">
+        @foreach (var e in d.Timeline)
+        {
+            <li><div><strong>@Ui.Words(e.EventType)</strong>@(e.StageCode is null ? "" : " · " + e.StageCode)@(e.ToState is not null && e.ToState != e.FromState ? " → " + Ui.Words(e.ToState) : "")</div>
+                @if (!string.IsNullOrEmpty(e.Text)) { <div>@e.Text</div> }
+                <div class="when">@Ui.Local(e.Utc)@(e.PersonName is null ? "" : " · " + e.PersonName)</div></li>
+        }
+    </ol>
+    @if (closed.Count > 0)
+    {
+        <details class="more"><summary>Closed tasks (@closed.Count)</summary>
+            <ul>@foreach (var t in closed) { <li>@t.Title: @Ui.Words(t.Outcome ?? t.Status)@(t.CompletedByName is null ? "" : " by " + t.CompletedByName) <span class="small muted">@Ui.Local(t.CompletedUtc)</span>@if (!string.IsNullOrEmpty(t.Notes)) { <div class="small">@t.Notes</div> }</li> }</ul>
+        </details>
+    }
+</div>

@@ -1,0 +1,54 @@
+@page "/Admin/Integrations"
+@model Governance.Web.Pages.Admin.IntegrationsModel
+@{
+    ViewData["Title"] = "Integrations";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Admin</div>
+        <h1>Integrations and jobs</h1>
+        <p class="lead">The last successful run of every worker job and integration. All calls go out from the data center; nothing calls in. Two failures in a row alert the administrators (N19); data older than its freshness target shows a staleness banner where it is used.</p>
+    </div>
+</div>
+@if (!Model.InfrastructureInstalled)
+{
+    <div class="alert alert-warn">The integration module is not installed on this web server, so live health is not shown. Job history below comes from the database.</div>
+}
+<div class="grid grid-3">
+    <div class="stat"><div class="stat-label">Outbox waiting</div><div class="stat-value">@Model.Outbox.Pending</div><div class="stat-note">@(Model.Outbox.OldestPendingUtc is null ? "Nothing waiting" : "oldest " + Ui.Ago(Model.Outbox.OldestPendingUtc))</div></div>
+    <div class="stat"><div class="stat-label">Dead letters</div><div class="stat-value">@Model.Outbox.DeadLettered</div></div>
+    <div class="stat"><div class="stat-label">Jobs reporting</div><div class="stat-value">@Model.Jobs.Count</div></div>
+</div>
+@if (Model.Health.Count > 0)
+{
+    <h2 class="mt">Integrations</h2>
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">Integration</th><th scope="col">Mode</th><th scope="col">Last success</th><th scope="col">Status</th><th scope="col">Note</th></tr></thead>
+            <tbody>
+            @foreach (var h in Model.Health)
+            {
+                <tr><td><strong>@h.Code</strong> @h.Name</td><td>@h.Mode</td><td>@Ui.Local(h.LastSuccessUtc) <div class="small muted">@Ui.Ago(h.LastSuccessUtc)</div></td><td>@(h.Stale ? Ui.Pill("STALE", "warn") : Ui.Pill(h.LastStatus ?? "OK"))</td><td class="small">@h.Note</td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+<h2 class="mt">Worker jobs</h2>
+@if (Model.Jobs.Count == 0) { <div class="card empty">No job has reported yet. Is the worker running?</div> }
+else
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">Job</th><th scope="col">Last success</th><th scope="col">Last run</th><th scope="col">Status</th><th scope="col">Message</th></tr></thead>
+            <tbody>@foreach (var j in Model.Jobs) { <tr><td>@j.JobName</td><td>@Ui.Local(j.LastSuccessUtc)</td><td>@Ui.Local(j.LastRunUtc)</td><td>@(j.LastStatus is null ? "—" : Ui.Pill(j.LastStatus))</td><td class="small">@j.Message</td></tr> }</tbody>
+        </table>
+    </div>
+}
+<h2 class="mt">Data freshness</h2>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr><th scope="col">Source</th><th scope="col">Last success</th><th scope="col">Last status</th></tr></thead>
+        <tbody>@foreach (var f in Model.Freshness) { <tr><td>@f.Integration @Governance.Web.Pages.Operations.SyncModel.Integrations[f.Integration].Name</td><td>@(f.LastSuccessUtc is null ? "Never" : Ui.Local(f.LastSuccessUtc))</td><td>@(f.LastStatus is null ? "—" : Ui.Pill(f.LastStatus))</td></tr> }</tbody>
+    </table>
+</div>

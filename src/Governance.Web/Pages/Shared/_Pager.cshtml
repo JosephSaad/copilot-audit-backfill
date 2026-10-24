@@ -1,0 +1,16 @@
+@model (int Page, int Pages, int Total)
+@{
+    var req = ViewContext.HttpContext.Request;
+}
+<div class="pager" aria-label="Pages">
+    <span>@Model.Total.ToString("N0") @(Model.Total == 1 ? "item" : "items") · page @Model.Page of @Model.Pages</span>
+    @if (Model.Page > 1)
+    {
+        <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.Page - 1)">Previous</a>
+    }
+    @if (Model.Page < Model.Pages)
+    {
+        <a class="btn btn-small btn-ghost" href="@Ui.PageHref(req, Model.Page + 1)">Next</a>
+    }
+    <a class="btn btn-small btn-ghost" href="@Ui.CsvHref(req)">Export CSV</a>
+</div>

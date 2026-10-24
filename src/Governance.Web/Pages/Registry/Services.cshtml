@@ -1,0 +1,44 @@
+@page "/Registry/Services"
+@model Governance.Web.Pages.Registry.ServicesModel
+@{
+    ViewData["Title"] = "Services";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Registry</div>
+        <h1>Service catalogue</h1>
+        <p class="lead">The approved Microsoft services and harness routes (A1). Whether Microsoft makes a service available in the tenant and whether the institution approves it are separate answers: availability is never approval (C01).</p>
+    </div>
+    @if (Model.CanEdit) { <div class="page-actions"><a class="btn" href="/Registry/Services/Edit">Add a service</a></div> }
+</div>
+<partial name="_Search" model="Model.Search" />
+<div class="table-wrap">
+    <table class="stack">
+        <thead>
+        <tr>
+            <partial name="_Th" model='("name", "Service", "The service and its harness.")' />
+            <partial name="_Th" model='("route", "Route", "Where it is controlled: a Power Platform environment, a Microsoft 365 policy or an Entra access package.")' />
+            <partial name="_Th" model='("availability", "In the tenant", "What Microsoft offers: generally available, preview or not available.")' />
+            <partial name="_Th" model='("status", "Institution", "What the institution allows: approved, pilot, not approved or retired.")' />
+            <partial name="_Th" model='("", "Audiences and data", "Who may use it and the highest data classes approved.")' />
+            <partial name="_Th" model='("", "Template", "The active control template version. No template, no fulfillment.")' />
+            <partial name="_Th" model='("", "Owner, review", "The operational owner and the next review date.")' />
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var s in Model.Items.Items)
+        {
+            <tr>
+                <td>@if (Model.CanEdit) { <a href="/Registry/Services/Edit/@s.PublicId"><strong>@s.Name</strong></a> } else { <strong>@s.Name</strong> }<div class="small muted">@s.Code @(s.Harness is null ? "" : "· " + s.Harness)@(s.IsCustomerFacing ? " · customer-facing" : "")</div></td>
+                <td>@Ui.Words(s.RouteType)</td>
+                <td>@Ui.Pill(s.TenantAvailability)</td>
+                <td>@Ui.Pill(s.InstitutionalStatus)</td>
+                <td class="small">@string.Join(", ", s.Audiences.Split(',').Select(Ui.Words)); @string.Join(", ", s.DataClasses.Split(',').Select(Ui.Words))</td>
+                <td>@(s.ActiveTemplateVersion is null ? Ui.Pill("NONE", "warn") : Ui.Pill("V" + s.ActiveTemplateVersion, "ok"))</td>
+                <td>@(s.OperationalOwnerName ?? "Not named")<div class="small muted">@(s.ReviewOn is null ? "" : "review " + Ui.Date(s.ReviewOn))</div></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />

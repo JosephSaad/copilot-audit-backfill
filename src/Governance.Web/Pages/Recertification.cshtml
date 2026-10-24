@@ -1,0 +1,74 @@
+@page "/Recertification"
+@model RecertificationModel
+@{
+    ViewData["Title"] = "Recertification";
+}
+<div class="page-head">
+    <div>
+        <h1>Recertification</h1>
+        <p class="lead">Once a quarter, owners confirm each workload is still needed, reaches the right audience, is funded and delivers its outcome: renew, resize, reclassify or retire. Entra access reviews cover individual membership; this covers the workload itself (I1).</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn btn-ghost" href="/Recertification?all=@(!Model.All)">@(Model.All ? "Only mine" : "All items")</a>
+    </div>
+</div>
+
+<div class="grid grid-3">
+    @foreach (var c in Model.Campaigns.Take(3))
+    {
+        <a class="stat tile" href="/Recertification?campaign=@c.CampaignId&all=true">
+            <span class="stat-label">@c.Name @Ui.Pill(c.Status)</span>
+            <span class="stat-value">@c.Done / @c.Items</span>
+            <span class="stat-note">done · due @Ui.Date(c.DueOn)@(c.Overdue > 0 ? $" · {c.Overdue} overdue" : "")</span>
+        </a>
+    }
+</div>
+
+<h2 class="mt">Items @(Model.CampaignId is null ? "" : "in this campaign")</h2>
+<partial name="_Search" model="Model.Search" />
+@if (Model.Items.Items.Count == 0)
+{
+    <div class="card empty">Nothing to recertify.</div>
+}
+@foreach (var i in Model.Items.Items)
+{
+    <div class="task">
+        <div class="task-head">
+            <div class="task-title">@if (i.WorkloadPublicId is Guid g) { <a href="/Registry/Workloads/@g">@i.WorkloadName</a> } else { @i.WorkloadName }</div>
+            <div class="btn-row">@Ui.Pill(i.Status) @if (i.Outcome is not null) { @Ui.Pill(i.Outcome, "info") }</div>
+        </div>
+        <div class="kv"><span>@i.FundingOwnerName</span><span>@Ui.Words(i.LifecycleStage)</span><span>Owner: @(i.OwnerName ?? "none")</span><span>@i.CampaignName, due @Ui.Date(i.DueOn)</span></div>
+        @if (i.Status == "DONE")
+        {
+            <p class="small">@i.OutcomeEvidence <span class="muted">(@Ui.Local(i.CompletedUtc))</span></p>
+        }
+        else if (i.OwnerPersonId == Model.Principal.PersonId || Model.Principal.Roles.Any(r => (r.RoleCode is "LOB_BUSINESS_OWNER" or "SHARED_SERVICE_OWNER") && r.ScopeId == i.FundingOwnerId))
+        {
+            <form method="post" asp-page-handler="Complete" asp-route-item="@i.CampaignItemId" enctype="multipart/form-data" class="mt">
+                <idem />
+                <div class="form-grid">
+                    <div class="field"><label for="o@i.CampaignItemId" class="req">Outcome <help>Renew: keep as is for another year. Resize: start a capacity change (J4). Reclassify: a material change (I3). Retire: start a retirement (J7).</help></label>
+                        <select id="o@i.CampaignItemId" name="outcome"><option value="RENEW">Renew</option><option value="RESIZE">Resize</option><option value="RECLASSIFY">Reclassify</option><option value="RETIRE">Retire</option></select></div>
+                    <div class="field"><label for="f@i.CampaignItemId">Outcome evidence file <help>Optional: a report or measure that shows the outcome.</help></label><input id="f@i.CampaignItemId" type="file" name="file" /></div>
+                    <div class="field full"><label for="e@i.CampaignItemId" class="req">Is it delivering what was promised? <help>Need, audience, funding and outcome. This becomes the outcome evidence KPI.</help></label><textarea id="e@i.CampaignItemId" name="evidence" required maxlength="2000"></textarea></div>
+                </div>
+                <button class="btn mt" type="submit">Record</button>
+            </form>
+        }
+    </div>
+}
+<partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />
+
+@if (Model.IsPlatformOwner)
+{
+    <form method="post" asp-page-handler="Create" class="card mt">
+        <idem />
+        <h2>Open a campaign <help>Creates one item per live workload, owned by its product owner or the funding owner's business owner, and notifies them (N14).</help></h2>
+        <div class="form-grid">
+            <div class="field full"><label for="cn" class="req">Name</label><input id="cn" name="name" required maxlength="200" value="Q@((DateTime.UtcNow.Month + 2) / 3) @DateTime.UtcNow.Year recertification" /></div>
+            <div class="field"><label for="cs">Starts</label><input id="cs" type="date" name="startsOn" value="@DateTime.UtcNow.ToString("yyyy-MM-dd")" /></div>
+            <div class="field"><label for="cd">Due <help>15 business days is the standard campaign length.</help></label><input id="cd" type="date" name="dueOn" value="@DateTime.UtcNow.AddDays(21).ToString("yyyy-MM-dd")" /></div>
+        </div>
+        <button class="btn mt" type="submit">Open the campaign</button>
+    </form>
+}
