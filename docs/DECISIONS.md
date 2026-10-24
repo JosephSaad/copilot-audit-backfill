@@ -56,3 +56,14 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Local hosting | IIS, gMSA, LocalMachine certificates, HTTPS | Kestrel on `http://localhost:5450`, worker as a console process, CurrentUser certificates, SQL logins | No admin rights on the test PC; the localhost HTTPS certificate is not trusted and trusting it changes a security setting. Production settings are unchanged |
 | Spelling | British ("licence") | American ("license") in code and UI | House style of the user's other repositories |
 | Test persona switch | not in the architecture | Development-only "Act as" switch, audited, off unless `Testing:AllowActAs` is true and the environment is Development | One real account in the test tenant has to play every role, and segregation of duties needs different people |
+
+## Production deployment (deploy/)
+
+| Area | Decision | Why |
+|---|---|---|
+| Ledger digests | `deploy/Save-LedgerDigest.ps1` writes one digest file per run to a WORM share every 4 hours; `-Verify` checks the database against all of them | On-premises SQL Server stores digests automatically only in Azure immutable storage; a file share on write-once storage keeps the evidence outside the database (R27) |
+| Snapshot isolation | The DBA sets `ALLOW_SNAPSHOT_ISOLATION ON` on the database | `sys.sp_verify_database_ledger` refuses to run without it; `Deploy-Database.ps1` sets only `READ_COMMITTED_SNAPSHOT` today (candidate for the deploy script) |
+| SQL certificate validation | Production runs `Deploy-Database.ps1 -TrustServerCertificate:$false` | The script's default trusts any server certificate, which suits only the local test server |
+| Mirror guard | The installers mirror files with robocopy only into an empty folder or one marked `.cgw-install` by an earlier install of the same kind | `/MIR` deletes what is not in the source; a wrong path must not wipe another application's folder |
+| Settings | Installers refuse a settings file with placeholders, a password, a client secret or any `Testing` switch turned on | No secrets in files; test switches never reach production |
+| ITSM credential | Certificate-based OAuth where the ITSM supports it, otherwise the institution's vault injects `Itsm__ClientSecret` into the service environment | Keeps the only possible secret out of files and source |
