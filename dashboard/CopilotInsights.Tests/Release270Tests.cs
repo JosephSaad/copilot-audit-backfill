@@ -57,7 +57,7 @@ public class ReservationReviewTests
         Assert.Contains("OnPostEndreserveAsync", page);
         /* A database error during a change is audited and said, with a reference rather than the error's text. */
         var shared = Source.Read("Pages", "InsightsPage.cs");
-        Assert.Contains("ex is Microsoft.Data.SqlClient.SqlException or System.Transactions.TransactionException", shared);
+        Assert.Contains("catch (Exception ex) when (ex is not OperationCanceledException)", shared);
         Assert.Contains("Incident.Note(", shared);
     }
 

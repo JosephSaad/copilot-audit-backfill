@@ -63,6 +63,14 @@ if (keyRing is not null) app.Logger.LogInformation("Form keys shared by the web 
 if (app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<InsightsOptions>>().Value.PathBase is { Length: > 1 } pathBase)
     app.UsePathBase(pathBase);
 app.UsePathBaseLinks();
+/* Under IIS the base is only known per request: said once, at the first, when it is named as one of the site's own addresses. */
+var clashSaid = 0;
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.PathBase.HasValue && Interlocked.Exchange(ref clashSaid, 1) == 0 && PathBaseLinks.Clashes(ctx.Request.PathBase.Value!))
+        app.Logger.LogWarning("The site's virtual directory {PathBase} has the name of one of its own addresses: some links will not reach their page. Install it under another name.", ctx.Request.PathBase.Value);
+    await next();
+});
 
 if (!app.Environment.IsDevelopment())
 {
@@ -101,7 +109,9 @@ app.Use(async (ctx, next) =>
     await next();
 });
 
-app.UseHttpsRedirection();
+/* Not the load balancer's probe: one that asks over HTTP, with TLS ended at the balancer, would be sent to HTTPS and
+   count every server down. */
+app.UseWhen(ctx => !ctx.Request.Path.StartsWithSegments(HealthProbe.Path), b => b.UseHttpsRedirection());
 app.UseStaticFiles();
 /* A page, a file or an API answer whose audit row could not be written is not served (2.4.12, AuditLog): 503, and why. */
 app.Use(async (ctx, next) =>
@@ -155,7 +165,7 @@ app.MapGet("/agents/shared", (HttpRequest r) => Moved(r, "/agents/inventory", "s
 app.MapGet("/agents/production", (HttpRequest r) => Moved(r, "/agents/inventory", "show=production"));
 app.MapDataApi();
 /* The load balancer's probe: no sign-in, nothing named, only whether this server answers and reaches its database. */
-app.MapGet(HealthProbe.Path, HealthProbe.AnswerAsync).AllowAnonymous();
+app.MapMethods(HealthProbe.Path, ["GET", "HEAD"], HealthProbe.AnswerAsync).AllowAnonymous();
 
 app.Run();
 

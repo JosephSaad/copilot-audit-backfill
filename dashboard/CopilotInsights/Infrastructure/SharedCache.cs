@@ -32,6 +32,17 @@ public sealed class SharedCache(TenantAccessor tenants, IOptions<InsightsOptions
     readonly ConcurrentDictionary<string, bool> _ready = new(StringComparer.OrdinalIgnoreCase);
     readonly ConcurrentDictionary<Type, bool> _noRoundTrip = new();
     long _hits, _stored, _skipped;
+    readonly ConcurrentDictionary<string, DateTime> _purged = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// This build of the site: a result is shared only between servers running the same one, so a release that reads the
+    /// same query into another shape never reads what the one before kept, and a rolling upgrade keeps the two apart.
+    /// </summary>
+    static readonly string Build = typeof(SharedCache).Assembly.ManifestModule.ModuleVersionId.ToString("N");
+
+    /* A shared read or write waits at most two seconds on a lock (the clean-up, a server writing the same result), then
+       goes to the database: the cache never slows a page down for long. */
+    const string Wait = "SET LOCK_TIMEOUT 2000; ";
 
     /// <summary>Results above this size (compressed) are not shared: reading them back would take longer than building them.</summary>
     public const int MaxBytes = 32 * 1024 * 1024;
@@ -41,9 +52,9 @@ public sealed class SharedCache(TenantAccessor tenants, IOptions<InsightsOptions
 
     /// <summary>The shared key's hash: the tenant, the stamp the database gave, the query's own key and the live tables' versions.</summary>
     public static byte[] Key(string tenant, string stamp, string kind, Type type, string queryKey, string? live) =>
-        SHA256.HashData(Encoding.UTF8.GetBytes($"{tenant}\u0001{stamp}\u0001{kind}\u0001{type.FullName}\u0001{queryKey}\u0001{live}"));
+        SHA256.HashData(Encoding.UTF8.GetBytes($"{Build}\u0001{tenant}\u0001{stamp}\u0001{kind}\u0001{type.FullName}\u0001{queryKey}\u0001{live}"));
 
-    public static byte[] StampHash(string tenant, string stamp) => SHA256.HashData(Encoding.UTF8.GetBytes(tenant + "\u0001" + stamp));
+    public static byte[] StampHash(string tenant, string stamp) => SHA256.HashData(Encoding.UTF8.GetBytes(Build + "\u0001" + tenant + "\u0001" + stamp));
 
     /// <summary>
     /// A result from the shared cache, or read with <paramref name="read"/> and kept there. With <paramref name="newerThan"/>
@@ -58,7 +69,7 @@ public sealed class SharedCache(TenantAccessor tenants, IOptions<InsightsOptions
         {
             await using var c = new SqlConnection(cs);
             var row = await c.QueryFirstOrDefaultAsync<(byte[] Payload, DateTime CreatedUtc)?>(new CommandDefinition(
-                "SELECT Payload, CreatedUtc FROM dash.QueryCacheShared WHERE KeyHash = @key AND ExpiresUtc > SYSUTCDATETIME();", new { key }, commandTimeout: 30));
+                Wait + "SELECT Payload, CreatedUtc FROM dash.QueryCacheShared WHERE KeyHash = @key AND ExpiresUtc > SYSUTCDATETIME();", new { key }, commandTimeout: 10));
             if (row is { } r && (newerThan is null || r.CreatedUtc >= newerThan.Value))
             {
                 var value = JsonSerializer.Deserialize<T>(Unzip(r.Payload), Json);
@@ -90,7 +101,7 @@ public sealed class SharedCache(TenantAccessor tenants, IOptions<InsightsOptions
             var payload = Zip(json);
             if (payload.Length > MaxBytes) { Interlocked.Increment(ref _skipped); return; }
             await using var c = new SqlConnection(cs);
-            await c.ExecuteAsync(new CommandDefinition(@"
+            await c.ExecuteAsync(new CommandDefinition(Wait + @"
 UPDATE dash.QueryCacheShared SET StampHash = @stamp, Payload = @payload, Bytes = @bytes, CreatedUtc = SYSUTCDATETIME(),
        ExpiresUtc = DATEADD(MINUTE, @minutes, SYSUTCDATETIME()), Server = @server
 WHERE KeyHash = @key;
@@ -99,6 +110,13 @@ IF @@ROWCOUNT = 0
     VALUES (@key, @stamp, @payload, @bytes, DATEADD(MINUTE, @minutes, SYSUTCDATETIME()), @server);",
                 new { key, stamp = stampHash, payload, bytes = payload.Length, minutes, server = Environment.MachineName }, commandTimeout: 60));
             Interlocked.Increment(ref _stored);
+            /* Results past their time are cleared by whichever server keeps one, every half hour at most, whether or not
+               any server builds the pages ahead (Insights:WarmPages false on all of them). */
+            if (DateTime.UtcNow - _purged.GetValueOrDefault(cs) > TimeSpan.FromMinutes(30))
+            {
+                _purged[cs] = DateTime.UtcNow;
+                await DeleteAsync(cs, "ExpiresUtc <= SYSUTCDATETIME()", null);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -113,14 +131,28 @@ IF @@ROWCOUNT = 0
         if (!Enabled) return 0;
         var cs = tenants.Current.ConnectionString;
         if (!await ReadyAsync(cs)) return 0;
+        return await DeleteAsync(cs, "ExpiresUtc <= SYSUTCDATETIME() OR (StampHash <> @stamp AND CreatedUtc < DATEADD(MINUTE, -10, SYSUTCDATETIME()))", stampHash);
+    }
+
+    /// <summary>
+    /// Clears results 200 at a time, each batch its own short statement, so a clean-up never holds the table: a server
+    /// reading or keeping a result meanwhile waits on a few rows at most, and then not past its lock timeout.
+    /// </summary>
+    async Task<int> DeleteAsync(string cs, string where, byte[]? stampHash)
+    {
+        var total = 0;
         try
         {
             await using var c = new SqlConnection(cs);
-            return await c.ExecuteAsync(new CommandDefinition(@"
-DELETE FROM dash.QueryCacheShared
-WHERE ExpiresUtc <= SYSUTCDATETIME() OR (StampHash <> @stamp AND CreatedUtc < DATEADD(MINUTE, -10, SYSUTCDATETIME()));", new { stamp = stampHash }, commandTimeout: 300));
+            for (var i = 0; i < 10000; i++)
+            {
+                var n = await c.ExecuteAsync(new CommandDefinition($"DELETE TOP (200) FROM dash.QueryCacheShared WHERE {where};", new { stamp = stampHash }, commandTimeout: 60));
+                total += n;
+                if (n < 200) break;
+            }
         }
-        catch (SqlException ex) { log.LogWarning(ex, "Old results could not be cleared from the shared report cache."); return 0; }
+        catch (Exception ex) when (ex is not OperationCanceledException) { log.LogWarning(ex, "Old results could not be cleared from the shared report cache."); }
+        return total;
     }
 
     /// <summary>What the shared cache holds, for Admin › Health: results and their size, or null without the table.</summary>
@@ -194,6 +226,9 @@ WHERE ExpiresUtc <= SYSUTCDATETIME() OR (StampHash <> @stamp AND CreatedUtc < DA
         }
         if (t.IsInterface || t.IsAbstract || typeof(IEnumerable).IsAssignableFrom(t)) return false;
         if (t.Namespace?.StartsWith("System", StringComparison.Ordinal) == true) return false;
+        /* A member JSON skips (a non-public property, one marked JsonIgnore) would come back empty on the other servers. */
+        if (t.GetProperties(BindingFlags.Instance | BindingFlags.NonPublic).Any(p => p.Name != "EqualityContract")) return false;   // a record's own
+        if (t.GetMembers(BindingFlags.Instance | BindingFlags.Public).Any(m => m.IsDefined(typeof(System.Text.Json.Serialization.JsonIgnoreAttribute), true))) return false;
         /* A private field JSON never sees (other than a public property's own) would come back empty. */
         if (t.GetFields(BindingFlags.Instance | BindingFlags.NonPublic).Any(f => !f.Name.EndsWith(">k__BackingField", StringComparison.Ordinal))) return false;
         return t.GetProperties(BindingFlags.Instance | BindingFlags.Public).Where(p => p.GetIndexParameters().Length == 0).All(p => Check(p.PropertyType, seen))

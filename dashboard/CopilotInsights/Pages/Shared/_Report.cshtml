@@ -6,7 +6,7 @@
        explanations sit behind information icons (2.4.3). Pages without guidance, the Admin ones,
        keep their text on the page. */
     var guide = CopilotInsights.Pages.Guidance.For(path);
-    var who = CopilotInsights.Pages.Nav.SectionFor(path, Model.Viewer)?.Who;
+    var who = CopilotInsights.Pages.Nav.SectionFor(path, Model.Viewer, Model.HiddenReports)?.Who;
     /* A phone (theme.js sets the cookie): every chart is drawn for a narrow screen, as the ones in a third of the page are. */
     var narrow = Context.Request.Cookies["narrow"] == "1";
     /* "For executives and department heads", but a name or an abbreviation keeps its capital: Copilot, Microsoft 365, HR, AI. */

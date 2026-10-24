@@ -275,7 +275,7 @@ VALUES (@name, @dataset, @folder, @frequency, @d, @dom, @hour, @days, @by, SYSUT
         return $"Extract \"{name}\" added. The first file is written at its next scheduled time; Write now writes one today.";
     });
 
-    public Task<IActionResult> OnPostRunAsync(int id) => AdminChangeAsync(async () => "Write now: " + await notifier.WriteExtractNowAsync(id, HttpContext.RequestAborted));
+    public Task<IActionResult> OnPostRunAsync(int id) => AdminChangeAsync(false, async () => "Write now: " + await notifier.WriteExtractNowAsync(id, HttpContext.RequestAborted));
 
     public Task<IActionResult> OnPostToggleAsync(int id) => AdminChangeAsync(async () =>
         await Db.ScalarAsync<string?>("UPDATE dash.Extract SET Enabled = 1 - Enabled OUTPUT inserted.Name WHERE ExtractId = @id", new { id }) is { } n ? $"Extract \"{n}\" paused or resumed." : "That extract is gone.");

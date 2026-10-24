@@ -9,20 +9,38 @@ namespace CopilotInsights.Infrastructure;
 /// </summary>
 public static class AuditChange
 {
-    /// <summary>A form field whose value is never written down: passwords, secrets, tokens, keys and the webhook's address.</summary>
-    public static bool Secret(string name) =>
-        name.Contains("password", StringComparison.OrdinalIgnoreCase) || name.Contains("secret", StringComparison.OrdinalIgnoreCase)
-        || name.Contains("token", StringComparison.OrdinalIgnoreCase) || name.Contains("webhook", StringComparison.OrdinalIgnoreCase)
-        || name.EndsWith("key", StringComparison.OrdinalIgnoreCase);
+    static readonly System.Text.RegularExpressions.Regex SecretName = new(
+        @"password|secret|webhook|credential|connectionstring|apikey|api_key|accesskey|privatekey|bearer|token",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    /// <summary>The values submitted, by field, a secret's masked; the anti-forgery token left out. Pure, for the tests.</summary>
+    /// <summary>
+    /// A field or setting whose value is never written down: passwords, secrets, credentials, connection strings, access
+    /// keys and tokens, and the webhook's address. Not the credit model's TokensPerTurn and the like, which are counts.
+    /// </summary>
+    public static bool Secret(string name) => SecretName.IsMatch(name) && !name.StartsWith("Tokens", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A value as written down: a secret's as "(set)" or empty; an address's query and anything after its path left
+    /// out ("https://x.example/hook?(hidden)"), whatever the field is named, since a Teams or Logic Apps address carries
+    /// its signature there; at most 400 characters.
+    /// </summary>
+    public static string Masked(string name, string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (Secret(name)) return "(set)";
+        if (Uri.TryCreate(value.Trim(), UriKind.Absolute, out var u) && u.Scheme is "http" or "https" && (u.Query.Length > 1 || u.UserInfo.Length > 0))
+            return u.GetLeftPart(UriPartial.Path).Replace(u.UserInfo + "@", "", StringComparison.Ordinal) + "?(hidden)";
+        return value.Length > 400 ? value[..400] + "…" : value;
+    }
+
+    /// <summary>The values submitted, by field, masked (<see cref="Masked"/>); the anti-forgery token left out. Pure, for the tests.</summary>
     public static SortedDictionary<string, string> Submitted(IEnumerable<(string Name, string Value)> form)
     {
         var d = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (name, value) in form)
         {
             if (name.StartsWith("__", StringComparison.Ordinal)) continue;
-            d[name] = Secret(name) ? (string.IsNullOrEmpty(value) ? "" : "(set)") : value.Length > 400 ? value[..400] + "…" : value;
+            d[name] = Masked(name, value);
         }
         return d;
     }
@@ -51,7 +69,8 @@ public static class AuditChange
                 before.Settings.TryGetValue(name, out var was);
                 after.Settings.TryGetValue(name, out var now);
                 if (string.Equals(was, now, StringComparison.Ordinal)) continue;
-                changed[name] = Secret(name) ? new { before = (string?)"(hidden)", after = (string?)"(hidden)" } : new { before = was, after = now };
+                changed[name] = Secret(name) ? new { before = (string?)"(hidden)", after = (string?)"(hidden)" }
+                    : new { before = was is null ? null : (string?)Masked(name, was), after = now is null ? null : (string?)Masked(name, now) };
             }
         var granted = before is null || after is null ? [] : after.Grants.Except(before.Grants, StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList();
         var revoked = before is null || after is null ? [] : before.Grants.Except(after.Grants, StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToList();

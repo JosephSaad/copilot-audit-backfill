@@ -871,10 +871,39 @@ public sealed class AuditModel(PageServices s) : AdminPage(s)
     }
 
     /// <summary>A change's record, laid out to read: the JSON indented.</summary>
-    static string AuditChangeText(string json)
+    /// <summary>The audit row's record of a change, as lines a person reads: settings and grants first, then the form. The CSV keeps the JSON.</summary>
+    public static string AuditChangeText(string json)
     {
-        try { return System.Text.Json.JsonSerializer.Serialize(System.Text.Json.JsonDocument.Parse(json).RootElement, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }); }
-        catch (System.Text.Json.JsonException) { return json; }
+        try
+        {
+            var root = System.Text.Json.JsonDocument.Parse(json).RootElement;
+            var lines = new List<string>();
+            static string V(System.Text.Json.JsonElement e) => e.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.Null => "(none)",
+                System.Text.Json.JsonValueKind.String => e.GetString() is { Length: > 0 } s ? s : "(empty)",
+                _ => e.ToString(),
+            };
+            if (root.TryGetProperty("settings", out var settings))
+            {
+                lines.Add("Settings changed:");
+                foreach (var p in settings.EnumerateObject())
+                    lines.Add($"  {p.Name}: {V(p.Value.GetProperty("before"))} → {V(p.Value.GetProperty("after"))}");
+            }
+            foreach (var (key, label) in new[] { ("granted", "Roles granted:"), ("revoked", "Roles taken away:") })
+                if (root.TryGetProperty(key, out var list))
+                {
+                    lines.Add(label);
+                    lines.AddRange(list.EnumerateArray().Select(x => "  " + V(x)));
+                }
+            if (root.TryGetProperty("submitted", out var submitted) && submitted.EnumerateObject().Any())
+            {
+                lines.Add("Submitted on the form:");
+                lines.AddRange(submitted.EnumerateObject().Select(p => $"  {p.Name}: {V(p.Value)}"));
+            }
+            return lines.Count > 0 ? string.Join("\n", lines) : json;
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException) { return json; }
     }
 
     protected override async Task BuildAsync()

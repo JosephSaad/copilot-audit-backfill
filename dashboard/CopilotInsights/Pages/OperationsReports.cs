@@ -276,7 +276,9 @@ namespace CopilotInsights.Pages.Agents
 
         /* Shared agents and Agents in production were pages of their own, the same list filtered: they are views of this
            one, and their old addresses arrive here (Program.cs). */
-        string Show => Request.Query["show"].FirstOrDefault() switch { "shared" => "shared", "production" => "production", _ => "all" };
+        string Show => Request.Query["show"].FirstOrDefault() switch { "shared" => "shared", "production" => "production", _ => "all" } is var v && v != "all" && Off(v) ? "all" : v;
+        /* A view turned off in Admin › Reports shown, by its address before 2.7.6 (HiddenReports.Parts). */
+        bool Off(string view) => CopilotInsights.Pages.HiddenReports.Is(HiddenReports, "/agents/" + view);
         protected override string Where => Show switch { "shared" => "i.IsShared = 1", "production" => "i.InProduction = 1", _ => "1 = 1" };
         protected override bool SharingColumns => Show == "shared";
         protected override bool ChannelColumn => Show == "production";
@@ -295,7 +297,7 @@ namespace CopilotInsights.Pages.Agents
                 }
                 try
                 {
-                    return "<p class=\"sub\">Show: " + string.Join(" · ", new[] { ("all", "Every agent"), ("shared", "Shared agents"), ("production", "In production") }.Select(x =>
+                    return "<p class=\"sub\">Show: " + string.Join(" · ", new[] { ("all", "Every agent"), ("shared", "Shared agents"), ("production", "In production") }.Where(x => x.Item1 == "all" || !Off(x.Item1)).Select(x =>
                         $"<a href=\"{E(Ctx.Url(Request.Path, extra: x.Item1 == "all" ? null : "show=" + x.Item1))}\"{(x.Item1 == Show ? " class=\"on\"" : "")}>{x.Item2}</a>")) + "</p>";
                 }
                 finally { Ctx.Kept = saved; }

@@ -29,7 +29,7 @@
                 <select class="tenant" aria-label="Tenant" data-navigate>
                     @foreach (var t in Tenants.All)
                     {
-                        <option value="@(path)?tenant=@Uri.EscapeDataString(t.Name)" selected="@(t.Name == Tenants.Current.Name)">@t.Name</option>
+                        <option value="@(Context.Request.PathBase)@(path)?tenant=@Uri.EscapeDataString(t.Name)" selected="@(t.Name == Tenants.Current.Name)">@t.Name</option>
                     }
                 </select>
             }

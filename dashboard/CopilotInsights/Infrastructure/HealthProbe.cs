@@ -17,12 +17,11 @@ public static class HealthProbe
     {
         try
         {
-            /* Each tenant's database, at most five seconds each. */
-            foreach (var t in tenants.All)
-            {
-                await using var c = new SqlConnection(t.ConnectionString);
-                await c.ExecuteScalarAsync<int>(new CommandDefinition("SELECT 1;", commandTimeout: 5));
-            }
+            /* The first tenant's database, within five seconds. Not every tenant's: one tenant's database down would take
+               every web server out of the load balancer, and the others with it. Admin › Health shows each. */
+            var cs = new SqlConnectionStringBuilder(tenants.All.First().ConnectionString) { ConnectTimeout = 5 }.ConnectionString;
+            await using var c = new SqlConnection(cs);
+            await c.ExecuteScalarAsync<int>(new CommandDefinition("SELECT 1;", commandTimeout: 5));
             return Results.Text("ok", "text/plain");
         }
         catch (Exception ex) when (ex is SqlException or InvalidOperationException or TimeoutException)

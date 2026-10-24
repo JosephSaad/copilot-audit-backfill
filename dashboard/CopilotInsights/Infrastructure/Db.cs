@@ -97,9 +97,20 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
         }, await LiveAsync(sql));
     }
 
+    /* A statement that writes: INSERT ... OUTPUT, an UPDATE or a DELETE that returns a value. */
+    static readonly System.Text.RegularExpressions.Regex Writes = new(@"\b(INSERT\s+INTO\s+\[?(dash|audit|bi|dbo)\b|UPDATE\s+[\w\[\].]+\s+SET\b|DELETE\s+FROM\s+\[?(dash|audit|bi|dbo)\b|MERGE\s+(INTO\s+)?\[?(dash|audit|bi|dbo)\b)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
     public async Task<T?> ScalarAsync<T>(string sql, object? args = null)
     {
         var cs = _cs;
+        /* A write that returns a value (a new row's id) is never kept, and counts as a write (2.7.6: one adding a credit
+           route was not, so the list stayed as it was until the night's load). */
+        if (Writes.IsMatch(sql))
+        {
+            await using var w = new SqlConnection(cs);
+            try { return await w.ExecuteScalarAsync<T>(sql, args); }
+            finally { await AfterWriteAsync(w, sql); }
+        }
         return await cache.GetAsync(Tenant, "s", sql, args, async () =>
         {
             await using var c = new SqlConnection(cs);
@@ -123,16 +134,44 @@ public sealed class Db(TenantAccessor tenants, QueryCache cache)
     {
         await using var c = new SqlConnection(_cs);
         try { return await c.ExecuteAsync(new CommandDefinition(sql, args, commandTimeout: timeout)); }
-        finally
+        finally { await AfterWriteAsync(c, sql); }
+    }
+
+    /// <summary>After a write, whether it worked or not (part of it may be done): what was kept from the tables it writes is let go.</summary>
+    async Task AfterWriteAsync(SqlConnection c, string sql)
+    {
+        /* Inside an admin change's transaction: counted once it commits, on a connection outside it. Counted before, a page
+           read meanwhile on this or another server took the new count with the old rows, and kept them under it. */
+        if (DataStamp.Matters(sql) && System.Transactions.Transaction.Current is { } tx)
         {
-            if (DataStamp.Matters(sql))
+            var (cs, tenant) = (_cs, Tenant);
+            /* At the commit itself, before the page the change redirects to is asked for: a moment, once a change. */
+            tx.TransactionCompleted += (_, e) =>
             {
-                /* Counted in the database too, for the other web servers (dash.CacheGeneration, in the stamp). */
-                try { await c.ExecuteAsync(new CommandDefinition(CountChange, commandTimeout: 15)); } catch (SqlException) { }
-                cache.Wrote(Tenant);
-            }
+                if (e.Transaction?.TransactionInformation.Status == System.Transactions.TransactionStatus.Committed)
+                {
+                    using var outside = new System.Transactions.TransactionScope(System.Transactions.TransactionScopeOption.Suppress);
+                    try
+                    {
+                        using var n = new SqlConnection(cs);
+                        n.Execute(new CommandDefinition(CountChange, commandTimeout: 15));
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException) { }
+                }
+                cache.Wrote(tenant);
+            };
             foreach (var t in DataStamp.LiveIn(sql)) cache.WroteLive(Tenant, t.Table);
+            return;
         }
+        if (DataStamp.Matters(sql))
+        {
+            /* Counted in the database too, for the other web servers (dash.CacheGeneration, in the stamp). A failure here
+               must not hide the write's own error, so any is let go: this server forgets its results either way. */
+            try { await c.ExecuteAsync(new CommandDefinition(CountChange, commandTimeout: 15)); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { }
+            cache.Wrote(Tenant);
+        }
+        foreach (var t in DataStamp.LiveIn(sql)) cache.WroteLive(Tenant, t.Table);
     }
 
     /* ---- A caller's own copy of cached rows ---------------------------------------------------

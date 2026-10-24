@@ -312,7 +312,9 @@ public class PrivacyNavigationTests
         /* Every report can be chosen, and no Admin page: an administrator can always get back to turn one on. */
         var choices = Pages.HiddenReports.Choices.SelectMany(g => g.Pages).ToList();
         Assert.DoesNotContain(choices, p => p.Admin);
-        Assert.Equal(Pages.Nav.Groups.SelectMany(g => g.Pages).Where(p => !p.Admin).Select(p => p.Path).Distinct().Count(), choices.Count);   // a shared page once
+        /* Each listing of a page in a section (2.7.6: the non-human page in three, each with its own switch), and the parts
+           that were pages of their own. */
+        Assert.Equal(Pages.Nav.Groups.SelectMany(g => g.Pages).Count(p => !p.Admin) + Pages.HiddenReports.Parts.Count, choices.Count);
         Assert.Contains(Pages.Nav.Groups.SelectMany(g => g.Pages), p => p.Path == "/admin/reports" && p.Admin);
         /* A name for the setting fits its column (64). */
         Assert.All(choices, p => Assert.True((Pages.HiddenReports.Prefix + p.Path).Length <= 64));

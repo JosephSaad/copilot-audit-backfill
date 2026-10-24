@@ -19,16 +19,31 @@ public static class Nav
     public static IReadOnlyList<NavGroup> SectionsOf(string? path) =>
         path is null ? [] : [.. Groups.Where(g => g.Pages.Any(p => string.Equals(p.Path, path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)))];
 
-    /// <summary>Whether the viewer may open a page as far as its sections go: one of them needs no role, or one the viewer holds.</summary>
-    public static bool SectionOpen(string? path, Viewer viewer)
+    /// <summary>
+    /// What turns a page off in a section (Admin › Reports shown): its path, but for the non-human page in Security and
+    /// Compliance, which keep the addresses of their own copies before 2.7.6, so a copy turned off then stays off there,
+    /// and each section's listing is turned off on its own.
+    /// </summary>
+    public static string Key(NavGroup g, NavPage p) =>
+        p.Path == NonHuman && g.Persona is "Security" or "Compliance" ? "/" + g.Persona.ToLowerInvariant() + "/non-human" : p.Path;
+
+    static string KeyIn(NavGroup g, string path) =>
+        g.Pages.FirstOrDefault(p => string.Equals(p.Path, path.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)) is { } p ? Key(g, p) : path;
+
+    /// <summary>
+    /// Whether the viewer may open a page as far as its sections go: one of them needs no role, or one the viewer holds,
+    /// and has not turned it off there (<paramref name="hidden"/>).
+    /// </summary>
+    public static bool SectionOpen(string? path, Viewer viewer, IReadOnlySet<string>? hidden = null)
     {
         var sections = SectionsOf(path);
-        return sections.Count == 0 || sections.Any(g => g.Role is null || viewer.Has(g.Role));
+        return sections.Count == 0 || sections.Any(g => (g.Role is null || viewer.Has(g.Role)) && !HiddenReports.Is(hidden, KeyIn(g, path!)));
     }
 
-    /// <summary>The section a viewer reaches a page through: the first listing it that they may open.</summary>
-    public static NavGroup? SectionFor(string? path, Viewer? viewer) =>
-        SectionsOf(path).FirstOrDefault(g => g.Role is null || viewer?.Has(g.Role) == true) ?? SectionOf(path);
+    /// <summary>The section a viewer reaches a page through: the first listing it that they may open, and that is not turned off.</summary>
+    public static NavGroup? SectionFor(string? path, Viewer? viewer, IReadOnlySet<string>? hidden = null) =>
+        SectionsOf(path).FirstOrDefault(g => (g.Role is null || viewer?.Has(g.Role) == true) && !HiddenReports.Is(hidden, KeyIn(g, path!)))
+        ?? SectionsOf(path).FirstOrDefault(g => g.Role is null || viewer?.Has(g.Role) == true) ?? SectionOf(path);
 
     public static readonly IReadOnlyList<NavGroup> Groups =
     [
@@ -100,7 +115,7 @@ public static class Nav
     public static IReadOnlyList<NavGroup> For(Viewer? viewer, bool privacyMode = false, bool manyTenants = false, IReadOnlySet<string>? hidden = null) =>
         viewer is null ? [] :
         Groups.Where(g => g.Role is null || viewer.Has(g.Role))
-              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode) && !HiddenReports.Is(hidden, p.Path)).ToList() })
+              .Select(g => g with { Pages = g.Pages.Where(p => (manyTenants || !p.ManyTenants) && Allowed(p, viewer, privacyMode) && !HiddenReports.Is(hidden, Key(g, p))).ToList() })
               .Where(g => g.Pages.Count > 0).ToList();
 
     /// <summary>The role a page's section needs, if any (2.4.2): the section is hidden, and its pages refused, without it.</summary>
@@ -147,9 +162,40 @@ public static class HiddenReports
 {
     public const string Prefix = "Hide:";
 
-    /// <summary>Every report that can be turned off, by section: all but the Admin pages.</summary>
+    /// <summary>
+    /// The parts of a page that were pages of their own before 2.7.6, turned off as they were: by their old address. A
+    /// report turned off then stays off as part of the page that took it, and can be turned on again.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Section, NavPage Part)> Parts =
+    [
+        ("Leadership", new("Board pack: each unit against the period before (was the Scorecard)", "/leadership/scorecard")),
+        ("Adoption", new("Departments: the ranking against the period before (was the Leaderboard)", "/adoption/leaderboard")),
+        ("Agents", new("Agent inventory: Shared agents", "/agents/shared")),
+        ("Agents", new("Agent inventory: In production", "/agents/production")),
+    ];
+
+    /// <summary>
+    /// Every report that can be turned off, by section: all but the Admin pages, the non-human page in each section
+    /// that lists it (<see cref="Nav.Key"/>), and the parts that were pages of their own (<see cref="Parts"/>).
+    /// </summary>
     public static IEnumerable<NavGroup> Choices =>
-        Nav.Groups.Select(g => g with { Pages = g.Pages.Where(p => !p.Admin && Nav.SectionOf(p.Path) == g).ToList() }).Where(g => g.Pages.Count > 0);   // a shared page once, in its first section
+        Nav.Groups.Select(g => g with { Pages = [.. g.Pages.Where(p => !p.Admin).Select(p => p with { Path = Nav.Key(g, p) }), .. Parts.Where(x => x.Section == g.Persona).Select(x => x.Part)] })
+                  .Where(g => g.Pages.Count > 0);
+
+    /// <summary>
+    /// Whether a page is turned off for this viewer: its path, or, for a page listed in several sections, every section
+    /// the viewer reaches it through (every section, for one who reaches it through none).
+    /// </summary>
+    public static bool IsOff(IReadOnlySet<string>? hidden, string? path, Viewer? viewer)
+    {
+        if (hidden is not { Count: > 0 } || path is null) return false;
+        var sections = Nav.SectionsOf(path);
+        if (sections.Count <= 1) return Is(hidden, path);
+        var page = path.TrimEnd('/');
+        string Key(NavGroup g) => Nav.Key(g, g.Pages.First(p => string.Equals(p.Path, page, StringComparison.OrdinalIgnoreCase)));
+        var mine = sections.Where(g => g.Role is null || viewer?.Has(g.Role) == true).ToList();
+        return (mine.Count > 0 ? mine : sections).All(g => Is(hidden, Key(g)));
+    }
 
     public static async Task<IReadOnlySet<string>> GetAsync(Settings settings) =>
         (await settings.AllAsync()).Where(kv => kv.Key.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) && kv.Value == "1")

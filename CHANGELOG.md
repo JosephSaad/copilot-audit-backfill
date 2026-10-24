@@ -25,7 +25,12 @@ the scripts. Old addresses of the merged pages open the page that took them.
 - **The Board pack takes in the Scorecard:** adoption split into Premium and free only, each unit one level down with
   its change, and a link to Value. `/leadership/scorecard` opens the Board pack.
 - **Departments takes in the Leaderboard:** every department, division, country or office ranked against the period
-  before, with the most improved. `/adoption/leaderboard` opens Departments.
+  before, with the most improved; ranked by department, the change is a column of All departments rather than a second
+  table of the same rows. `/adoption/leaderboard` opens Departments.
+- **A report turned off before stays off.** In Admin › Reports shown, the non-human page is turned off section by
+  section, as its three copies were, and the Scorecard, the Leaderboard, Shared agents and Agents in production are parts
+  of the pages that took them, turned off as before: a switch set on 2.7.5 keeps its effect. The Board pack's units now
+  show adoption only for a unit of at least the minimum group size of license holders.
 - **Suite moves are no longer in the summaries.** The Costs and savings summary and What to act on no longer recommend
   moving people between E3, E5 and E7; Licensing › Suite fit still shows the analysis for whoever opens it.
 - **A failure shows a reference, never the error's text,** to everyone, administrators included: "Not changed: it
@@ -41,21 +46,28 @@ the scripts. Old addresses of the merged pages open the page that took them.
   database: a page built on one server is fast on the others, a manager's part of the organization too, without session
   affinity. The morning build runs on one server at a time; the others wait for it and read what it kept. A result is
   kept under the data it was read from, so the nightly load or an administrator's change on any server makes every
-  server read afresh. A result that does not read back as written stays on its server. Admin › Health shows what the
-  servers share. `Insights:SharedQueryCache` (true) turns it off on a server.
-- **`/healthz`, for a load balancer's probe:** `ok` when the server answers and reaches its database, 503 `unavailable`
-  when it does not; no sign-in, nothing named. The installer lets that one address answer without Windows
-  authentication.
+  server read afresh, counted once the change commits. A result is shared only between servers running the same build,
+  and only when it reads back as written; anything else stays on its server. A shared read or write waits at most two
+  seconds on a lock, and old results are cleared 200 at a time, every half hour. Admin › Health shows what the servers
+  share. `Insights:SharedQueryCache` (true) turns it off on a server.
+- **`/healthz`, for a load balancer's probe:** `ok` when the server answers and reaches its (first tenant's) database,
+  503 `unavailable` when it does not; GET or HEAD, over HTTP or HTTPS, no sign-in, nothing named. The installer lets that
+  one address answer without Windows authentication.
 - **A virtual directory.** `Install-CopilotInsights.ps1 -SiteName <site> -ApplicationPath /CopilotDashboard` installs
-  the dashboard as an application inside an existing site, in an app pool of its own (`-AppPoolName`); every link,
-  form, file and redirect carries the path. Behind a proxy other than IIS, `Insights:PathBase` sets it.
+  the dashboard as an application inside an existing site, in an app pool and a folder of its own named after the path;
+  every link, form, file and redirect carries the path. Behind a proxy other than IIS, `Insights:PathBase` sets it. The
+  installer refuses a pool another site or application runs in, a folder holding files that are not the dashboard's, a
+  path named as one of the dashboard's own addresses (`/admin`, `/agents`), and a run without `-ApplicationPath` on a
+  site that holds the dashboard as an application.
 - **A person's use over time** on their record: interactions and sessions a day (a week over 90 days), with links for
   7, 14, 30, 90, 180 and 365 days, days active and interactions a day active.
 - **What an admin change changed.** An admin change and its audit row are written in one transaction: a change whose
   row cannot be written is not made. The row holds what was submitted (passwords, secrets, tokens, keys and webhook
-  addresses masked) and the settings and role grants the change altered, before and after. Admin › Audit log shows it
-  under *What changed*, and its CSV has a Change column. A rebuild, retention, a test email or webhook, which run long
-  or reach outside the database, are audited when they end, as before.
+  addresses masked, and any address's query, where a Teams or Logic Apps address keeps its signature) and the settings
+  and role grants the change altered, before and after. Admin › Audit log shows it under *What changed*, as lines; its
+  CSV has it as JSON. What runs long or reaches outside the database (a rebuild, retention, a test email or webhook,
+  running the checks or an extract now, every tenant, the two uploads, taking a month again) is audited when it ends, as
+  before, and a failure there says part of it may be done.
 - **A test per audit loader against SQL Server:** each loader's operation set, taken from the nightly plan itself, is
   written where the loader records it (the backfill range, an incremental load and the CSV import) on a fresh schema.
 
@@ -67,6 +79,8 @@ the scripts. Old addresses of the merged pages open the page that took them.
   widened by the schema script every load runs first: deploying the scripts is enough, and the night resumes where it
   stopped. Until then, the same three `ALTER TABLE ... ALTER COLUMN Operations NVARCHAR(2000) NOT NULL` in the
   license-event database fix it by hand.
+- **Adding a credit route** (Credit chargeback) left the list of routes as it was until the night's load: a write that
+  returns a value was not counted as a change.
 - **Copilot reservations with an empty register** showed every Microsoft 365 Copilot holder (17,886 at a client) under no
   listed leader, in red, with nothing to say why. It now says first that no organization is in the register yet, and
   where an administrator adds them and the rate.
@@ -77,8 +91,11 @@ the scripts. Old addresses of the merged pages open the page that took them.
   the morning lock was not raced between servers.
 - The virtual directory was tried with `Insights:PathBase` under Kestrel, not with `-ApplicationPath` under IIS: the
   installer's new branch was not run on an IIS server. Bookmarks and email links from before need the path added.
-- A virtual directory named like a section of the dashboard (`/agents`, `/admin`) is not supported: its own links would
-  be taken as already carrying it.
+- An adversarial review of the release found, and this release fixes: the webhook address unmasked in the audit record;
+  running the checks now inside the change's transaction (a distributed-transaction error); reports turned off before
+  the merge coming back; installer defaults that could share a pool or mirror over another site's folder; the shared
+  cache's clean-up holding its table. Not changed: two admin changes saved in the same moment can deadlock, and one is
+  then not made, with a reference; Admin › Email's SMTP failure text, shown to administrators, can name the mail server.
 - Synthetic lab data, not the client's. Power BI Desktop: no `bi` view changed.
 ## [2.7.5] - 2026-10-21
 

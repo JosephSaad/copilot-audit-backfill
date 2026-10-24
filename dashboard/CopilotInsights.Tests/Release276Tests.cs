@@ -108,7 +108,7 @@ public class Release276Tests
     public void A_load_balancer_probe_answers_without_sign_in_and_names_nothing()
     {
         var program = File.ReadAllText(Path.Combine(Root(), "dashboard", "CopilotInsights", "Program.cs"));
-        Assert.Contains("app.MapGet(HealthProbe.Path, HealthProbe.AnswerAsync).AllowAnonymous();", program);
+        Assert.Contains("app.MapMethods(HealthProbe.Path, [\"GET\", \"HEAD\"], HealthProbe.AnswerAsync).AllowAnonymous();", program);
         var probe = File.ReadAllText(Path.Combine(Root(), "dashboard", "CopilotInsights", "Infrastructure", "HealthProbe.cs"));
         Assert.Contains("Results.Text(\"ok\"", probe);
         Assert.Contains("Results.Text(\"unavailable\"", probe);
@@ -130,7 +130,7 @@ public class Release276Tests
             var lines = File.ReadAllLines(f);
             for (var i = 0; i < lines.Length; i++)
                 if (lines[i].Contains("ex.Message", StringComparison.Ordinal)
-                    && !lines[Math.Max(0, i - 2)..(i + 1)].Any(l => l.Contains("ArgumentException", StringComparison.Ordinal)))
+                    && !lines[Math.Max(0, i - 3)..(i + 1)].Any(l => l.Contains("ArgumentException", StringComparison.Ordinal)))
                     Assert.Fail($"{Path.GetFileName(f)}:{i + 1}: {lines[i].Trim()}");
         }
     }
@@ -153,11 +153,79 @@ public class Release276Tests
         Assert.Contains("\"granted\":[\"CONTOSO\\\\bob Admin (/admin/health)\"]", json);
         Assert.Contains("\"revoked\":[\"CONTOSO\\\\amy Admin\"]", json);
         Assert.Null(CopilotInsights.Infrastructure.AuditChange.Json(new SortedDictionary<string, string>(), null, null));
+        /* Shown on Admin › Audit log as lines, not JSON. */
+        var text = CopilotInsights.Pages.Admin.AuditModel.AuditChangeText(json);
+        Assert.Contains("Settings changed:\n  MinGroupSize: 3 → 5", text);
+        Assert.Contains("Roles granted:\n  CONTOSO\\bob Admin (/admin/health)", text);
+        Assert.Contains("Roles taken away:\n  CONTOSO\\amy Admin", text);
+        Assert.Contains("Submitted on the form:\n  MinGroupSize: 5", text);
+        Assert.Contains("TeamsWebhook: (empty)", text);
+        Assert.DoesNotContain("{", text);
         /* The change and its audit row commit together. */
         var page = File.ReadAllText(Path.Combine(Root(), "dashboard", "CopilotInsights", "Pages", "InsightsPage.cs"));
         Assert.Contains("new System.Transactions.TransactionScope(", page);
         Assert.Contains("scope.Complete();", page);
         Assert.Contains("IF COL_LENGTH(N'dash.AuditLog', N'Change') IS NULL", File.ReadAllText(Path.Combine(Root(), "sql", "Create-CopilotDashboardSchema.sql")));
+    }
+
+    public sealed class WithHiddenProperty { public int Shown { get; set; } int Hidden { get; set; } public int Twice => Hidden * 2; }
+
+    [Fact]
+    public void Review_findings_stay_fixed()
+    {
+        /* A webhook's address carries its signature: kept without it, whatever the field is named. */
+        Assert.Equal("https://prod.logic.azure.com/workflows/abc/triggers/manual/paths/invoke?(hidden)",
+            CopilotInsights.Infrastructure.AuditChange.Masked("url", "https://prod.logic.azure.com/workflows/abc/triggers/manual/paths/invoke?api-version=2016&sig=SECRET"));
+        Assert.Equal("https://insights.contoso.com/", CopilotInsights.Infrastructure.AuditChange.Masked("DashboardUrl", "https://insights.contoso.com/"));
+        Assert.Equal("(set)", CopilotInsights.Infrastructure.AuditChange.Masked("ClientSecret", "x"));
+        Assert.False(CopilotInsights.Infrastructure.AuditChange.Secret("TokensPerTurn"));
+        Assert.False(CopilotInsights.Infrastructure.AuditChange.Secret("key"));
+        Assert.True(CopilotInsights.Infrastructure.AuditChange.Secret("ExoAccessToken"));
+        /* A member JSON skips is not shared. */
+        Assert.False(CopilotInsights.Infrastructure.SharedCache.IsShareable(typeof(WithHiddenProperty)));
+        /* A virtual directory named as one of the dashboard's own addresses. */
+        Assert.True(CopilotInsights.Infrastructure.PathBaseLinks.Clashes("/agents"));
+        Assert.True(CopilotInsights.Infrastructure.PathBaseLinks.Clashes("/Admin"));
+        Assert.False(CopilotInsights.Infrastructure.PathBaseLinks.Clashes("/CopilotDashboard"));
+        /* Long or outward-reaching admin actions are not held in a transaction. */
+        var ops = File.ReadAllText(Path.Combine(Root(), "dashboard", "CopilotInsights", "Pages", "Admin", "Operations.cs"));
+        Assert.Contains("OnPostRunAsync() => AdminChangeAsync(false,", ops);
+        Assert.Contains("OnPostRunallAsync() => AdminChangeAsync(false,", ops);
+        Assert.Contains("OnPostWebhookAsync(string? url, string? AlertWebhookFormat, string? clear) => AdminChangeAsync(async", ops);
+        Assert.Contains("OnPostRunAsync(int id) => AdminChangeAsync(false,", File.ReadAllText(Path.Combine(Root(), "dashboard", "CopilotInsights", "Pages", "Admin", "Directory.cs")));
+        /* The probe is not sent to HTTPS, and answers HEAD. */
+        var program = File.ReadAllText(Path.Combine(Root(), "dashboard", "CopilotInsights", "Program.cs"));
+        Assert.Contains("app.UseWhen(ctx => !ctx.Request.Path.StartsWithSegments(HealthProbe.Path), b => b.UseHttpsRedirection());", program);
+        Assert.Contains("[\"GET\", \"HEAD\"]", program);
+        /* The installer refuses a pool already in use and a folder of something else. */
+        var installer = File.ReadAllText(Path.Combine(Root(), "dashboard", "Install-CopilotInsights.ps1"));
+        Assert.Contains("already runs $($others -join ', ')", installer);
+        Assert.Contains("holds files that are not the dashboard's", installer);
+    }
+
+    [Fact]
+    public void A_report_turned_off_before_the_merge_stays_off()
+    {
+        var choices = CopilotInsights.Pages.HiddenReports.Choices.SelectMany(g => g.Pages.Select(p => (g.Persona, p.Path))).ToList();
+        /* The non-human page is turned off section by section, by the addresses its copies had. */
+        Assert.Contains(("Licensing", "/licensing/non-person"), choices);
+        Assert.Contains(("Security", "/security/non-human"), choices);
+        Assert.Contains(("Compliance", "/compliance/non-human"), choices);
+        /* The pages folded into others are parts that can still be turned off. */
+        foreach (var old in new[] { "/leadership/scorecard", "/adoption/leaderboard", "/agents/shared", "/agents/production" })
+            Assert.Contains(choices, c => c.Path == old);
+        Assert.Equal(choices.Count, choices.Distinct().Count());
+        /* Every copy off: off. Only Security's off: still open through Licensing. */
+        var all = new HashSet<string>(["/licensing/non-person", "/security/non-human", "/compliance/non-human"]);
+        Assert.True(CopilotInsights.Pages.HiddenReports.IsOff(all, "/licensing/non-person", null));
+        Assert.False(CopilotInsights.Pages.HiddenReports.IsOff(new HashSet<string>(["/security/non-human"]), "/licensing/non-person", null));
+        var section = CopilotInsights.Pages.Nav.Groups.First(g => g.Persona == "Security");
+        Assert.Equal("/security/non-human", CopilotInsights.Pages.Nav.Key(section, section.Pages.First(p => p.Path == CopilotInsights.Pages.Nav.NonHuman)));
+        /* The folded parts read their old switches. */
+        Assert.Contains("HiddenReports.Is(HiddenReports, \"/leadership/scorecard\")", Page("Leadership", "BoardPack.cs"));
+        Assert.Contains("HiddenReports.Is(HiddenReports, \"/adoption/leaderboard\")", Page("Adoption", "Adoption.cs"));
+        Assert.Contains("HiddenReports.Is(HiddenReports, \"/agents/\" + view)", Page("OperationsReports.cs"));
+        Assert.Contains("HiddenReports.Is(HiddenReports, r == Roles.Licensing ? Nav.NonHuman", Page("Licensing", "NonPerson.cs"));
     }
 
     [Fact]

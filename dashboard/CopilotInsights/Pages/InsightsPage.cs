@@ -272,7 +272,8 @@ public abstract class InsightsPage(PageServices s) : PageModel
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
         if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode) return;
-        if (Pages.HiddenReports.Is(await Pages.HiddenReports.GetAsync(S.Settings), Request.Path)) return;
+        HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
+        if (Pages.HiddenReports.IsOff(HiddenReports, Request.Path, viewer)) return;
         await S.Stamp.EnsureAsync();
         using (QueryCache.Use()) await BuildAsync();
     }
@@ -350,12 +351,12 @@ EXEC sys.sp_executesql @sql;");
         HiddenReports = await Pages.HiddenReports.GetAsync(S.Settings);
         if (HttpContext.RequestServices.GetService<MostUsed>() is { } most) MostUsedPaths = await most.PathsAsync(Viewer);
         /* A report an administrator turned off is not there, for anyone: its page, its files and its forms. */
-        var turnedOff = !AdminOnly && Pages.HiddenReports.Is(HiddenReports, Request.Path);
+        var turnedOff = !AdminOnly && Pages.HiddenReports.IsOff(HiddenReports, Request.Path, Viewer);
         if (turnedOff) Denied = "This report is turned off. An administrator can turn it back on in Admin › Reports shown.";
         else if (!Viewer.Admitted && !(AdminOnly ? Viewer.CanAdmin(Request.Path) : OpenToAdmins && Viewer.AnyAdmin)) Denied = LimitRefusal(Viewer);
         else if (AdminOnly && !Viewer.CanAdmin(Request.Path))
             Denied = Viewer.AnyAdmin ? "This Admin page is not one of those your Admin role covers. A full administrator can add it in Admin › Access." : "This page is for dashboard administrators.";
-        else if (!Nav.SectionOpen(Request.Path, Viewer) && Nav.SectionOf(Request.Path) is { Role: { } section } g)
+        else if (!Nav.SectionOpen(Request.Path, Viewer, HiddenReports) && Nav.SectionOf(Request.Path) is { Role: { } section } g)
             Denied = $"{g.Persona} pages are for holders of the {section} role. An administrator can grant it in Admin › Access.";
         else if (RequiredRole is not null && PrivacyMode && !AllowedInPrivacyMode)
             Denied = "Privacy mode is on, so no page names anyone. An administrator sets it in Admin › Privacy and retention.";
@@ -493,13 +494,17 @@ EXEC sys.sp_executesql @sql;");
         }
         catch (ArgumentException ex)
         {
-            var refused = "Not changed: " + ex.Message;
+            /* Outside a transaction, part of it may already be done: said so, not "Not changed". */
+            var refused = (transactional ? "Not changed: " : "Stopped: ") + ex.Message;
             await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, refused, AuditChange.Json(submitted, null, null));
             return refused;
         }
-        catch (Exception ex) when (ex is Microsoft.Data.SqlClient.SqlException or System.Transactions.TransactionException or InvalidOperationException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            var failed = Incident.Note(HttpContext.RequestServices.GetRequiredService<ILogger<InsightsPage>>(), ex, "Not changed: it failed");
+            /* Any failure: a database error, a transaction that could not commit, or one that would have reached a second
+               server (NotSupportedException): audited, with a reference to the log. */
+            var failed = Incident.Note(HttpContext.RequestServices.GetRequiredService<ILogger<InsightsPage>>(), ex,
+                transactional ? "Not changed: it failed" : "It stopped with an error, and part of it may be done");
             await S.Audit.WriteAsync(Viewer, kind, Request.Path, null, failed, AuditChange.Json(submitted, null, null));
             return failed;
         }

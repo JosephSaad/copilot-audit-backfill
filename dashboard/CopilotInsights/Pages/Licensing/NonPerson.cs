@@ -210,6 +210,9 @@ namespace CopilotInsights.Pages.Licensing
     {
         static readonly string[] Holders = [Roles.Licensing, Roles.Security, Roles.Compliance];
         public override string Persona => RequiredRole ?? Roles.Licensing;
-        public override string? RequiredRole => Holders.FirstOrDefault(r => Viewer?.Has(r) == true) ?? Roles.Licensing;
+        /* The first role the viewer holds whose section has not turned the page off (Admin › Reports shown, Nav.Key). */
+        public override string? RequiredRole =>
+            Holders.FirstOrDefault(r => Viewer?.Has(r) == true && !CopilotInsights.Pages.HiddenReports.Is(HiddenReports, r == Roles.Licensing ? Nav.NonHuman : "/" + r.ToLowerInvariant() + "/non-human"))
+            ?? Holders.FirstOrDefault(r => Viewer?.Has(r) == true) ?? Roles.Licensing;
     }
 }

@@ -203,7 +203,9 @@ public sealed class PageWarmer(IServiceScopeFactory scopes, TenantAccessor tenan
         var until = DateTime.UtcNow.AddHours(3);
         while (!stop.IsCancellationRequested && DateTime.UtcNow < until)
         {
-            var c = new Microsoft.Data.SqlClient.SqlConnection(tenants.Current.ConnectionString);
+            /* Not pooled: closing it ends the session, and the lock with it. A pooled one went back to the pool still
+               holding the lock, until the pool reused or dropped it. */
+            var c = new Microsoft.Data.SqlClient.SqlConnection(new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(tenants.Current.ConnectionString) { Pooling = false }.ConnectionString);
             try
             {
                 await c.OpenAsync(stop);

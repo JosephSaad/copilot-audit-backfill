@@ -40,6 +40,16 @@ public static class PathBaseLinks
             || location.StartsWith(b + "?", StringComparison.OrdinalIgnoreCase) ? location : b + location;
     }
 
+    /// <summary>
+    /// A virtual directory named as one of the dashboard's own top-level addresses: a link to that address could not be
+    /// told from one already under the base. The installer refuses these names.
+    /// </summary>
+    public static bool Clashes(string pathBase) =>
+        pathBase.Trim('/').Split('/')[0] is { Length: > 0 } first
+        && CopilotInsights.Pages.Nav.Groups.SelectMany(g => g.Pages).Select(p => p.Path.Trim('/').Split('/')[0])
+            .Concat(["api", "healthz", "not-found", "error", "me", "admin"])
+            .Contains(first, StringComparer.OrdinalIgnoreCase);
+
     public static IApplicationBuilder UsePathBaseLinks(this IApplicationBuilder app) => app.Use(async (ctx, next) =>
     {
         var pathBase = ctx.Request.PathBase.Value;
@@ -49,26 +59,54 @@ public static class PathBaseLinks
             if (ctx.Response.Headers.Location.ToString() is { Length: > 0 } loc) ctx.Response.Headers.Location = Location(loc, pathBase);
             return Task.CompletedTask;
         });
-        /* Only a page is read through: not a file, a download, a form's answer (a redirect) or the data API. */
+        /* Every response but the data API and files: an HTML page is read through and rewritten, whatever the method
+           (a page drawn again after a form was refused), and anything else (a download) goes straight out. */
         var path = ctx.Request.Path.Value ?? "";
-        if (!HttpMethods.IsGet(ctx.Request.Method) || ctx.Request.Query.ContainsKey("handler") || ctx.Request.Path.StartsWithSegments("/api") || Path.HasExtension(path))
-        {
-            await next();
-            return;
-        }
+        if (ctx.Request.Path.StartsWithSegments("/api") || Path.HasExtension(path)) { await next(); return; }
         var body = ctx.Response.Body;
-        await using var buffer = new MemoryStream();
-        ctx.Response.Body = buffer;
+        await using var html = new HtmlOnly(ctx.Response, body);
+        ctx.Response.Body = html;
         try { await next(); }
         finally { ctx.Response.Body = body; }
-        buffer.Position = 0;
-        if (ctx.Response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) == true)
+        if (html.Buffer is { } buffer)
         {
-            var html = Rewrite(await new StreamReader(buffer, Encoding.UTF8).ReadToEndAsync(), pathBase);
-            var bytes = Encoding.UTF8.GetBytes(html);
-            ctx.Response.ContentLength = bytes.Length;
+            buffer.Position = 0;
+            var text = Rewrite(await new StreamReader(buffer, Encoding.UTF8).ReadToEndAsync(), pathBase);
+            var bytes = Encoding.UTF8.GetBytes(text);
+            if (!ctx.Response.HasStarted) ctx.Response.ContentLength = bytes.Length;
             await body.WriteAsync(bytes);
         }
-        else await buffer.CopyToAsync(body);
     });
+
+    /// <summary>
+    /// The response's body: kept in memory when the response is an HTML page, decided at its first write from its content
+    /// type; anything else written straight through, so a large download is never held.
+    /// </summary>
+    sealed class HtmlOnly(HttpResponse response, Stream inner) : Stream
+    {
+        bool? _html;
+        public MemoryStream? Buffer { get; private set; }
+
+        Stream Target()
+        {
+            _html ??= response.ContentType?.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) == true;
+            if (_html == true) return Buffer ??= new MemoryStream();
+            return inner;
+        }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { if (_html != true) inner.Flush(); }
+        public override Task FlushAsync(CancellationToken token) => _html == true ? Task.CompletedTask : inner.FlushAsync(token);
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => Target().Write(buffer, offset, count);
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken token) => Target().WriteAsync(buffer, offset, count, token);
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken token = default) => Target().WriteAsync(buffer, token);
+        public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 }

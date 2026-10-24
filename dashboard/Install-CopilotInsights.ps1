@@ -203,14 +203,41 @@ $appName = $null
 if ($ApplicationPath) {
     $appName = $ApplicationPath.Trim().Trim('/')
     if ($appName -notmatch '^[A-Za-z0-9][A-Za-z0-9._\-]*(/[A-Za-z0-9][A-Za-z0-9._\-]*)*$') { throw "-ApplicationPath '$ApplicationPath' is not a path such as /CopilotDashboard. Nothing was changed." }
+    # A name the dashboard uses for its own addresses (/admin, /agents ...) could not be told from them.
+    $own = 'leadership', 'adoption', 'licensing', 'security', 'compliance', 'agents', 'enablement', 'forecasting', 'regions', 'workforce', 'apps', 'governance', 'group', 'admin', 'api', 'healthz', 'not-found', 'error', 'me'
+    if (($appName -split '/')[0] -in $own) { throw "-ApplicationPath '$ApplicationPath' has the name of one of the dashboard's own addresses (/$(($appName -split '/')[0])): choose another, such as /CopilotDashboard. Nothing was changed." }
     if (-not (Get-Website -Name $SiteName)) { throw "-ApplicationPath needs an existing site to hold it: there is no site '$SiteName'. Give the site's name with -SiteName. Nothing was changed." }
 }
-$poolName = if ($AppPoolName) { $AppPoolName } elseif ($appName) { 'CopilotInsights' } else { $SiteName }
-$poolPath = "IIS:\AppPools\$poolName"
 $location = if ($appName) { "$SiteName/$appName" } else { $SiteName }
 $appItem = if ($appName) { "IIS:\Sites\$SiteName\$appName" } else { "IIS:\Sites\$SiteName" }
 $siteBefore = if ($appName) { Get-WebApplication -Site $SiteName -Name $appName } else { Get-Website -Name $SiteName }
+# An application's own pool and folder, not the ones a site of its own would have: named after its path, so it never
+# shares them with a dashboard installed as a site (one pool cannot hold two of them). Run again, it keeps the pool
+# and the folder it has.
+$leaf = if ($appName) { $appName -replace '/', '-' } else { $null }
+$poolName = if ($AppPoolName) { $AppPoolName } elseif ($appName -and $siteBefore) { [string] $siteBefore.applicationPool } elseif ($appName) { $leaf } else { $SiteName }
+$poolPath = "IIS:\AppPools\$poolName"
 if ($siteBefore -and -not $PSBoundParameters.ContainsKey('PhysicalPath')) { $PhysicalPath = [Environment]::ExpandEnvironmentVariables($siteBefore.physicalPath) }
+elseif ($appName -and -not $PSBoundParameters.ContainsKey('PhysicalPath')) { $PhysicalPath = Join-Path (Split-Path $PhysicalPath -Parent) $leaf }
+# 2.7.6: the dashboard already an application in this site, run again without -ApplicationPath, would have copied it over
+# the site's own folder.
+if (-not $appName -and $siteBefore) {
+    $inside = @(Get-WebApplication -Site $SiteName | Where-Object { Test-Path (Join-Path ([Environment]::ExpandEnvironmentVariables($_.PhysicalPath)) 'CopilotInsights.dll') })
+    if ($inside.Count -and -not (Test-Path (Join-Path $PhysicalPath 'CopilotInsights.dll'))) {
+        throw "The dashboard is an application in site '$SiteName', at $($inside[0].path): give -ApplicationPath $($inside[0].path) to update it. Nothing was changed."
+    }
+}
+# The files are mirrored into the folder, which removes what else it holds: never a folder of something else.
+$kept = 'logs', 'precache', 'appsettings.Production.json', 'app_offline.htm', 'Grant-CopilotInsightsAccess.sql', 'Invoke-InsightsPrecache.ps1'
+if ((Test-Path $PhysicalPath) -and -not (Test-Path (Join-Path $PhysicalPath 'CopilotInsights.dll')) -and
+    @(Get-ChildItem -LiteralPath $PhysicalPath -Force | Where-Object Name -notin $kept).Count) {
+    throw "$PhysicalPath holds files that are not the dashboard's, which installing would remove: give -PhysicalPath an empty folder or the dashboard's own. Nothing was changed."
+}
+# An app pool holds one dashboard: refused when another site or application already runs in the one named.
+$others = @(Get-WebConfiguration "/system.applicationHost/sites/site/application[@applicationPool='$poolName']" -ErrorAction SilentlyContinue |
+    ForEach-Object { "$($_.ItemXPath -replace '.*@name=''([^'']+)''.*', '$1')$($_.path)" } |
+    Where-Object { $_ -ne "$SiteName$(if ($appName) { "/$appName" } else { '/' })" })
+if ($others.Count) { throw "App pool '$poolName' already runs $($others -join ', '): give -AppPoolName a pool of the dashboard's own. Nothing was changed." }
 $settingsPath = Join-Path $PhysicalPath 'appsettings.Production.json'
 $settings = if (Test-Path $settingsPath) { Get-Content $settingsPath -Raw | ConvertFrom-Json } else { [pscustomobject] @{} }
 $before = if ($settings.PSObject.Properties['Insights'] -and $settings.Insights.PSObject.Properties['ConnectionString']) { [string] $settings.Insights.ConnectionString } else { '' }

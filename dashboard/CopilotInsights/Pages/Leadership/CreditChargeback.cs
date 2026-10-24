@@ -309,7 +309,7 @@ SELECT @ended;", new { json, by = Viewer.Upn ?? Viewer.WindowsName });
     });
 
     /// <summary>A kept month cleared and taken again from today's register and rate: the routes put right after it was kept.</summary>
-    public Task<IActionResult> OnPostRetakeAsync(string? month) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRetakeAsync(string? month) => AdminChangeAsync(false, async () =>
     {
         if (!DateTime.TryParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var m)) throw new ArgumentException("choose the month to take again.");
         var before = await Db.QueryAsync<(decimal Credits, decimal Unrouted)>("SELECT ISNULL(SUM(Credits), 0), ISNULL(SUM(CASE WHEN Path = 'Unmapped' THEN Credits END), 0) FROM dash.CreditChargeSnapshot WHERE SnapshotMonth = @m;", new { m });

@@ -131,10 +131,12 @@ public sealed class DepartmentsModel(PageServices s, Metrics metrics) : Insights
     /// <summary>
     /// The groups ranked by adoption against the period before (the Leaderboard was this, on a page of its own: it is
     /// here, and /adoption/leaderboard arrives here). Only groups of at least the minimum group size, with at least that
-    /// many licenses, are ranked, then and now.
+    /// many licenses, are ranked, then and now. Ranked by department, the change goes into All departments, which is
+    /// that ranking already, and no second table repeats it: the panels to add after it are returned, with the changes.
     /// </summary>
-    async Task RankingAsync()
+    async Task<(string By, Dictionary<string, double> Changes, List<Panel> Panels)> RankingAsync()
     {
+        var after = new List<Panel>();
         var by = Request.Query["by"].FirstOrDefault() is { } b && RankBy.Contains(b) ? b : "Department";
         var prevCtx = OpsReports.Window(Ctx, Ctx.Start.AddDays(-1), Ctx.Days);
         var now = (await metrics.ByAttributeAsync(Ctx, by)).Where(r => r.People >= Ctx.MinGroupSize && r.Licensed >= Ctx.MinGroupSize).ToList();
@@ -145,8 +147,8 @@ public sealed class DepartmentsModel(PageServices s, Metrics metrics) : Insights
         var choices = string.Join(" · ", RankBy.Select(x => $"<a href=\"{E(Ctx.Url(Request.Path, extra: "by=" + x))}#ranking\"{(x == by ? " class=\"on\"" : "")}>{x}</a>"));
         if (ranked.Count == 0)
         {
-            Panels.Add(new("Ranking, against the period before", new HtmlString($"<p class=\"sub\" id=\"ranking\">Rank by: {choices}</p><p class=\"muted\">No {by.ToLowerInvariant()} in {Here} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses.</p>"), null, "full"));
-            return;
+            after.Add(new("Ranking, against the period before", new HtmlString($"<p class=\"sub\" id=\"ranking\">Rank by: {choices}</p><p class=\"muted\">No {by.ToLowerInvariant()} in {Here} has at least {Ctx.MinGroupSize} people and {Ctx.MinGroupSize} licenses.</p>"), null, "full"));
+            return (by, [], after);
         }
         var t = new Table
         {
@@ -169,11 +171,18 @@ public sealed class DepartmentsModel(PageServices s, Metrics metrics) : Insights
         {
             var best = changes.MaxBy(c => c.Points);
             Kpis.Add(new($"Most improved {by.ToLowerInvariant()}", best.Name, $"{best.Points:+0.#;-0.#;0} points on the period before"));
-            Panels.Add(new("Most improved", Chart.Bars(changes.OrderByDescending(c => c.Points).Take(10).Select(c => new Bar(c.Name, c.Points, Note: $"{c.Points:+0.#;-0.#;0} points", Slot: c.Points >= 0 ? 3 : 8)).ToList(),
+            after.Add(new("Most improved", Chart.Bars(changes.OrderByDescending(c => c.Points).Take(10).Select(c => new Bar(c.Name, c.Points, Note: $"{c.Points:+0.#;-0.#;0} points", Slot: c.Points >= 0 ? 3 : 8)).ToList(),
                 Fmt.Decimal1, "Change in adoption, points"), $"Adoption now, less adoption in the period before, in percentage points, by {by.ToLowerInvariant()}.", "half"));
         }
-        Panels.Add(new("Ranking, against the period before", new HtmlString($"<p class=\"sub\" id=\"ranking\">Rank by: {choices}</p>" + t.Render().Value),
+        var changed = changes.GroupBy(c => c.Name).ToDictionary(g => g.Key, g => g.First().Points);
+        if (by == "Department")
+        {
+            after.Add(new("Ranking, against the period before", new HtmlString($"<p class=\"sub\" id=\"ranking\">Rank by: {choices}</p><p class=\"muted\">Departments are ranked in All departments above, with their change on the period before. Choose division, country or office to rank those instead.</p>"), null, "full"));
+            return (by, changed, after);
+        }
+        after.Add(new("Ranking, against the period before", new HtmlString($"<p class=\"sub\" id=\"ranking\">Rank by: {choices}</p>" + t.Render().Value),
             "Adoption: of the people holding a license at the end of the period, the share who used Copilot while licensed. Ranked only where the group has at least the minimum group size of people and of licenses.", "full"));
+        return (by, changed, after);
     }
 
     sealed class Row
@@ -226,21 +235,30 @@ GROUP BY ISNULL(NULLIF(du.Department, N''), N'(no department)');", Ctx.Args());
         if (dept is not null) shown = shown.Where(r => r.Department == dept).ToList();
         /* In the chart and the table, every name but the combined smaller ones, until one is chosen. */
         string? Pick(Row r) => dept is null && r.Department != "Smaller departments" ? Only(r) : null;
+        /* The ranking was the Leaderboard: turned off in Admin › Reports shown by that address (HiddenReports.Parts). */
+        var ranking = dept is null && !CopilotInsights.Pages.HiddenReports.Is(HiddenReports, "/adoption/leaderboard") ? await RankingAsync() : default;
+        var withChange = ranking.By == "Department";
 
         Panels.Add(new("Adoption by department",
             Chart.Adoption(shown.Select(r => new Chart.AdoptionGroup(r.Department, r.ActiveLicensed, r.Licensed, Pick(r))), Ctx.MinGroupSize, "Adoption by department", 25),
             $"Departments with at least {Ctx.MinGroupSize} license holders, highest first; the rest are combined in the last bar, so no bar rests on one or two people. The table has every department."));
         var t = new Table
         {
-            Headers = ["Department", "People", "License holders", "Share with a license", "Used Copilot", "Adoption", "Days active per person", "Sessions with a follow-up"],
-            Numeric = new HashSet<int> { 1, 2, 3, 4, 5, 6, 7 },
+            Headers = ["Department", "People", "License holders", "Share with a license", "Used Copilot", "Adoption", .. (withChange ? new[] { "Change (points)" } : []), "Days active per person", "Sessions with a follow-up"],
+            Numeric = new HashSet<int>(Enumerable.Range(1, withChange ? 8 : 7)),
         };
         foreach (var r in shown)
-            t.Rows.Add([Pick(r) is { } href ? new Link(r.Department, href) : r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, AdoptionAtMin(r.ActiveLicensed, r.Licensed),
-                        r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null, Pct(Ratio(r.MultiTurn, r.Sessions))]);
+        {
+            List<object?> cells = [Pick(r) is { } href ? new Link(r.Department, href) : r.Department, r.People, r.Licensed, Pct(Ratio(r.Licensed, r.People)), r.Active, AdoptionAtMin(r.ActiveLicensed, r.Licensed)];
+            if (withChange) cells.Add(ranking.Changes.TryGetValue(r.Department, out var c) ? $"{c:+0.#;-0.#;0}" : null);
+            cells.AddRange([r.Active > 0 ? Math.Round(r.ActiveDays / (double)r.Active, 1) : null, Pct(Ratio(r.MultiTurn, r.Sessions))]);
+            t.Rows.Add([.. cells]);
+        }
         CsvTable = t;
-        Panels.Add(new("All departments", t.Render(), folded > 0 ? FoldNote(folded, "department") : null, "full", CsvUrl()));
-        if (dept is null) await RankingAsync();
+        Panels.Add(new("All departments", t.Render(),
+            (folded > 0 ? FoldNote(folded, "department") + " " : "") + (withChange ? "Change (points): adoption now less adoption in the period before, where the department had the minimum group size of people and of licenses both times." : ""),
+            "full", CsvUrl()));
+        if (ranking.Panels is { } more) Panels.AddRange(more);
     }
 }
 

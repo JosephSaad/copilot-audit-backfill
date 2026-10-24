@@ -336,7 +336,7 @@ WHERE pref.ManagerDigestOptOut = 1 ORDER BY ISNULL(p.DisplayName, pref.Upn);");
         return SettingWriter.Saved(await SettingWriter.SaveAsync(Db, S.Settings, Viewer.Upn ?? Viewer.WindowsName, values));
     });
 
-    public Task<IActionResult> OnPostWebhookAsync(string? url, string? AlertWebhookFormat, string? clear) => AdminChangeAsync(false, async () =>
+    public Task<IActionResult> OnPostWebhookAsync(string? url, string? AlertWebhookFormat, string? clear) => AdminChangeAsync(async () =>
     {
         var by = Viewer.Upn ?? Viewer.WindowsName;
         if (Webhook.Problem(url) is { } bad) throw new ArgumentException(bad);
@@ -457,7 +457,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
         return n is null ? "That digest was already gone." : $"Digest \"{n}\" removed.";
     });
 
-    public Task<IActionResult> OnPostRunAsync() => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRunAsync() => AdminChangeAsync(false, async () =>
     {
         var done = await notifier.RunOnceAsync(HttpContext.RequestAborted);
         return done.Count == 0 ? "The checks ran: nothing to report." : "The checks ran. " + string.Join(" · ", done);
@@ -468,7 +468,7 @@ VALUES (@name, @report, @to, @frequency, @dayIndex, @dom, @hour, @root, @days, @
     /// is; each tenant's lines start with its name, and each tenant it ran in has the run in its own audit log. Before, an
     /// administrator of one tenant ran the round in every tenant and read back their results.
     /// </summary>
-    public Task<IActionResult> OnPostRunallAsync() => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostRunallAsync() => AdminChangeAsync(false, async () =>
     {
         var tenants = HttpContext.RequestServices.GetRequiredService<TenantAccessor>();
         var from = tenants.Current.Name;
@@ -997,7 +997,7 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.ValueName (ColumnId, Value, Name, Note, Updat
     public Task<IActionResult> OnPostNameAsync(short col, string? value, string? name, string? note) => AdminChangeAsync(() =>
         string.IsNullOrEmpty(value) ? throw new ArgumentException("no value.") : SaveAsync(col, value, name, note));
 
-    public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(false, async () =>
     {
         if (file is null || file.Length == 0) throw new ArgumentException("choose a CSV file.");
         if (file.Length > 5_000_000) throw new ArgumentException("the file is over 5 MB.");
@@ -1057,7 +1057,7 @@ public sealed class TrainingRecordsModel(PageServices s) : AdminPage(s)
         Panels.Add(new("Sessions", new HtmlString(upload + t.Render().Value), "The effect is measured 28 days after each session, so a session shows on Enablement › Training effect four weeks after it."));
     }
 
-    public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostUploadAsync(IFormFile? file) => AdminChangeAsync(false, async () =>
     {
         if (file is null || file.Length == 0) throw new ArgumentException("choose a CSV file.");
         if (file.Length > 20_000_000) throw new ArgumentException("the file is over 20 MB.");

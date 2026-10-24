@@ -26,6 +26,9 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         var u1Task = metrics.UnitsAsync(Ctx);
         await Task.WhenAll(splitTask, firstTask, nowTask, u1Task);
         var split = await splitTask;
+        /* The Scorecard's parts (the Premium split and each unit against the period before), turned off in Admin › Reports
+           shown by its address (HiddenReports.Parts). */
+        var scorecard = !CopilotInsights.Pages.HiddenReports.Is(HiddenReports, "/leadership/scorecard");
         if (!split)
             Notice = "Adoption is not yet split into Premium and free use here. An administrator separates them by rebuilding the dashboard once (Admin › Health, Rebuild every day).";
         /* Set against the period before only where the data covers all of it (see OpsReports.Covers): the board read
@@ -47,7 +50,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         double? FreeOnly(Totals? x) => x is { LicensedNow: > 0 } ? (x.ActiveLicensed - x.PremiumLicensed) / (double)x.LicensedNow : null;
         Kpis.Add(new("People using Copilot", Num(t.Active), Change(t.Active, p?.Active), Href: Open("/licensing/ranking")));
         Kpis.Add(new("Adoption", Pct(Adopt(t)), Points(Adopt(t), Adopt(p)), Href: Open("/adoption")));
-        if (split)
+        if (split && scorecard)
         {
             Kpis.Add(new("Premium adoption", Pct(Premium(t)), Points(Premium(t), Premium(p))));
             Kpis.Add(new("Free-only adoption", Pct(FreeOnly(t)), Points(FreeOnly(t), FreeOnly(p))));
@@ -133,6 +136,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
                 "Units with at least the minimum group size of people and licenses.", "half"));
 
         /* Each unit against the period before (the Scorecard's table). */
+        if (!scorecard) return;
         var u1 = u1All.ToDictionary(u => u.Unit);
         var u0 = u0Task is not null ? (await u0Task).ToDictionary(u => u.Unit) : new Dictionary<string, UnitRow>();
         var ut = new Table
@@ -147,15 +151,18 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         foreach (var n in SmallGroups.Shown(u1.Values, u => u.People, Ctx.MinGroupSize).OrderByDescending(u => u.People))
         {
             var b = u0.GetValueOrDefault(n.Unit);
-            double? a1 = Ratio(n.ActiveLicensed, n.Licensed), a0 = b is null ? null : Ratio(b.ActiveLicensed, b.Licensed);
+            /* A share of license holders only where there are at least the minimum group size of them, then and now. */
+            bool Few(UnitRow? x) => x is null || x.Licensed < Ctx.MinGroupSize;
+            double? Share(UnitRow? x, Func<UnitRow, double> of) => Few(x) ? null : of(x!) / x!.Licensed;
+            double? a1 = Share(n, x => x.ActiveLicensed), a0 = Share(b, x => x.ActiveLicensed);
             double? i1 = n.Active > 0 ? n.Interactions / (double)n.Active : null, i0 = b is { Active: > 0 } ? b.Interactions / (double)b.Active : null;
             var name = n.Drillable ? (object)new Link(n.Name, Ctx.Url(Request.Path, org: n.Unit)) : n.Name;
             var rest = new object?[] { n.Active, Arrow(b is { Active: > 0 } ? (n.Active - b.Active) / (double)b.Active : null, false),
                                        i1 is null ? null : Math.Round(i1.Value, 1), Arrow(i0 is > 0 ? (i1 - i0) / i0 : null, false) };
             if (split)
             {
-                double? p1 = Ratio(n.PremiumLicensed, n.Licensed), p0 = b is null ? null : Ratio(b.PremiumLicensed, b.Licensed);
-                double? f1 = Ratio(n.ActiveLicensed - n.PremiumLicensed, n.Licensed), f0 = b is null ? null : Ratio(b.ActiveLicensed - b.PremiumLicensed, b.Licensed);
+                double? p1 = Share(n, x => x.PremiumLicensed), p0 = Share(b, x => x.PremiumLicensed);
+                double? f1 = Share(n, x => x.ActiveLicensed - x.PremiumLicensed), f0 = Share(b, x => x.ActiveLicensed - x.PremiumLicensed);
                 ut.Rows.Add([name, n.People, Pct(a1), Pct(p1), Arrow(p1 - p0, true), Pct(f1), Arrow(f1 - f0, true), .. rest]);
             }
             else
@@ -165,7 +172,7 @@ public sealed class BoardPackModel(PageServices s, Metrics metrics, OpsReports r
         Panels.Add(new("By unit, against the period before", ut.Render(),
             $"Each part of the organization one level below. Units under {Ctx.MinGroupSize} people are left out, with the smallest others where they would together be under it. "
             + (split ? "Adoption is Premium plus free only: license holders who used a Premium feature, and those who used only free Copilot Chat or agents. " : "")
-            + "Change in adoption is in percentage points; the others are relative."
+            + $"Adoption is shown only for a unit of at least {Ctx.MinGroupSize} license holders. Change in adoption is in percentage points; the others are relative."
             + (full ? "" : $" The changes are left blank: {OpsReports.NotCovered(first)}."), "full", CsvUrl()));
     }
 }
