@@ -1,0 +1,57 @@
+@page "/Reports/Audit"
+@model Governance.Web.Pages.Reports.AuditModel
+@{
+    ViewData["Title"] = "Audit";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Reports</div>
+        <h1>Audit</h1>
+        <p class="lead">Every change, view of sensitive records and export, and every decision, from append-only ledger tables that show tampering even by database administrators. Viewing and exporting this page is itself recorded.</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn @(Model.View == "audit" ? "" : "btn-ghost")" href="/Reports/Audit?view=audit">Audit trail</a>
+        <a class="btn @(Model.View == "decisions" ? "" : "btn-ghost")" href="/Reports/Audit?view=decisions">Decisions</a>
+    </div>
+</div>
+<form method="get" class="card form-grid">
+    <input type="hidden" name="view" value="@Model.View" />
+    <div class="field"><label for="af">From</label><input id="af" type="date" name="from" value="@Model.From?.ToString("yyyy-MM-dd")" /></div>
+    <div class="field"><label for="at">To</label><input id="at" type="date" name="to" value="@Model.To?.ToString("yyyy-MM-dd")" /></div>
+    @if (Model.View == "audit")
+    {
+        <div class="field"><label for="aa">Action starts with <help>For example decision, request, role, raci, evidence.</help></label><input id="aa" name="action" value="@Model.Action" maxlength="60" /></div>
+    }
+    <div class="field"><label for="aq">Search</label><input id="aq" type="search" name="q" value="@Model.Search" /></div>
+    <div class="field"><button class="btn btn-ghost" type="submit">Filter</button></div>
+</form>
+@if (Model.View == "decisions")
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">Decided</th><th scope="col">Decision</th><th scope="col">Decider</th><th scope="col">RACI</th><th scope="col">Scope</th><th scope="col">Request</th></tr></thead>
+            <tbody>
+            @foreach (var d in Model.Decisions.Items)
+            {
+                <tr><td class="small">@Ui.Local(d.DecidedAtUtc)<div class="muted">@d.Source</div></td><td>@DecisionTypes.Label(d.DecisionType) @Ui.Pill(d.Outcome)</td><td>@d.Decider<div class="small muted">@Ui.Words(d.DeciderRoleCode)@(d.DelegationId is null ? "" : ", delegated")</div></td><td class="small">@Ui.Words(d.RaciActivityCode), version @d.RaciVersionId</td><td class="small">@d.ScopeText@(d.ConditionsText is null ? "" : " · " + d.ConditionsText)</td><td>@d.RequestNumber<div class="small muted">@d.FundingOwner</div></td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <partial name="_Pager" model="(Model.Decisions.Query.Page, Model.Decisions.Pages, Model.Decisions.Total)" />
+}
+else
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">What</th><th scope="col">Detail</th><th scope="col">Outcome</th></tr></thead>
+            <tbody>
+            @foreach (var a in Model.Audit.Items)
+            {
+                <tr><td class="small nowrap">@Ui.Local(a.Utc)</td><td>@(a.PersonName ?? "Workbench")@if (a.ActingAsName is not null) { <div class="small muted">acting as @a.ActingAsName</div> }</td><td class="mono small">@a.Action</td><td class="small">@a.EntityType <span class="mono">@a.EntityId</span></td><td class="small">@a.Detail</td><td>@Ui.Pill(a.Outcome)</td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <partial name="_Pager" model="(Model.Audit.Query.Page, Model.Audit.Pages, Model.Audit.Total)" />
+}

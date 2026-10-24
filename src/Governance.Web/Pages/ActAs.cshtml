@@ -1,0 +1,26 @@
+@page "/ActAs"
+@model ActAsModel
+@{
+    ViewData["Title"] = "Act as a test persona";
+}
+<div class="page-head">
+    <div>
+        <h1>Act as a test persona</h1>
+        <p class="lead">Test environment only. Pick a synthetic persona to see and do what that role can. Segregation of duties needs different people, so one real account plays each role in turn. Every action is recorded with your real name and the persona's.</p>
+    </div>
+</div>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr><th scope="col">Persona</th><th scope="col">Roles</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
+        <tbody>
+        @foreach (var p in Model.Personas)
+        {
+            <tr>
+                <td><strong>@p.DisplayName</strong><div class="small muted">@p.Upn</div></td>
+                <td>@p.Roles</td>
+                <td><form method="post" asp-route-id="@p.PublicId"><idem /><button class="btn btn-small" type="submit">Act as @p.DisplayName</button></form></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>

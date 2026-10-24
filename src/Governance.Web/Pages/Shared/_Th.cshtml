@@ -1,0 +1,12 @@
+@model (string Key, string Label, string Help)
+@{
+    var req = ViewContext.HttpContext.Request;
+}
+<th scope="col" data-label="@Model.Label"><span class="th-inner">@if (string.IsNullOrEmpty(Model.Key))
+{
+    <span>@Model.Label</span>
+}
+else
+{
+    <a href="@Ui.SortHref(req, Model.Key)">@Model.Label@Ui.SortMark(req, Model.Key)</a>
+}<help label="About @Model.Label">@Model.Help</help></span></th>

@@ -1,0 +1,47 @@
+@page "/Registry/FundingOwners"
+@model Governance.Web.Pages.Registry.FundingOwnersModel
+@{
+    ViewData["Title"] = "Funding owners";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Registry</div>
+        <h1>Funding owners</h1>
+        <p class="lead">Every workload has exactly one funding owner: a line of business or an Enterprise Shared unit, with a named business owner, cost centers, delegated approvers and envelopes (A2). A funding owner becomes active only when its seven-item checklist is complete.</p>
+    </div>
+    @if (Model.CanEdit)
+    {
+        <div class="page-actions"><a class="btn" href="/Registry/FundingOwners/Edit">Add a funding owner</a></div>
+    }
+</div>
+<partial name="_Search" model="Model.Search" />
+<div class="table-wrap">
+    <table class="stack">
+        <thead>
+        <tr>
+            <partial name="_Th" model='("name", "Name", "The LOB or Enterprise Shared unit.")' />
+            <partial name="_Th" model='("type", "Type", "LOB: a division with its own budget. Enterprise Shared: a centrally funded service used across LOBs.")' />
+            <partial name="_Th" model='("", "Business owner", "The one person accountable for the business case, funding and continuity.")' />
+            <partial name="_Th" model='("", "Cost centers", "Finance units mapped to this owner today.")' />
+            <partial name="_Th" model='("", "Workloads", "Workloads it funds, not counting retired ones.")' />
+            <partial name="_Th" model='("", "Envelopes", "Active internal budgets, per service and period.")' />
+            <partial name="_Th" model='("status", "Status", "Draft until the activation checklist passes; Suspended when it loses its business owner.")' />
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var f in Model.Items.Items)
+        {
+            <tr>
+                <td><a href="/Registry/FundingOwners/@f.PublicId"><strong>@f.Name</strong></a><div class="small muted">@f.Code</div></td>
+                <td>@(f.OwnerType == "LOB" ? "LOB" : "Enterprise Shared")</td>
+                <td>@(f.BusinessOwnerName ?? "Not named")</td>
+                <td class="num">@f.CostCenters</td>
+                <td class="num">@f.Workloads</td>
+                <td class="num">@f.ActiveEnvelopes</td>
+                <td>@Ui.Pill(f.Status)</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />

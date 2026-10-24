@@ -1,0 +1,73 @@
+@page "/Registry/Envelopes"
+@model Governance.Web.Pages.Registry.EnvelopesModel
+@{
+    ViewData["Title"] = "Envelopes";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Registry</div>
+        <h1>Funding envelopes</h1>
+        <p class="lead">An envelope is an internal budget for one funding owner, one service and one period, in Copilot Credits. FinOps prepares it; the business owner approves it. It is a governance construct, not a Microsoft setting: it does not stop consumption (A4, C08).</p>
+    </div>
+</div>
+<partial name="_Search" model="Model.Search" />
+<div class="table-wrap">
+    <table class="stack">
+        <thead>
+        <tr>
+            <partial name="_Th" model='("owner", "Funding owner", "Who the budget belongs to.")' />
+            <partial name="_Th" model='("service", "Service", "The service it funds.")' />
+            <partial name="_Th" model='("start", "Period", "From and to.")' />
+            <partial name="_Th" model='("amount", "Amount", "The approved budget, in its own unit. Never converted without a dated rate (E8).")' />
+            <partial name="_Th" model='("", "Committed and headroom", "Approved requests commit their estimate; headroom is what is left for routine approval.")' />
+            <partial name="_Th" model='("status", "Status", "Draft until the business owner approves.")' />
+            <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var e in Model.Items.Items)
+        {
+            <tr>
+                <td>@e.FundingOwnerName</td>
+                <td>@e.ServiceName</td>
+                <td class="small">@Ui.Date(e.PeriodStart) to @Ui.Date(e.PeriodEnd)</td>
+                <td class="num">@Ui.Num(e.Amount) <span class="small muted">@Units.Label(e.Unit)</span></td>
+                <td class="num">@Ui.Num(e.Committed) / @Ui.Num(e.Amount - e.Committed)</td>
+                <td>@Ui.Pill(e.Status)</td>
+                <td>
+                    @if (e.Status == "DRAFT" && Model.CanApprove(e.FundingOwnerId))
+                    {
+                        <form method="post" asp-page-handler="Approve" asp-route-envelope="@e.PublicId" class="btn-row">
+                            <idem />
+                            <input name="reason" placeholder="Reason to decline" aria-label="Reason" maxlength="2000" />
+                            <button class="btn btn-small btn-ok" type="submit" name="approve" value="true">Approve</button>
+                            <button class="btn btn-small btn-ghost" type="submit" name="approve" value="false">Decline</button>
+                        </form>
+                    }
+                    else if (e.Status == "ACTIVE" && Model.CanManage)
+                    {
+                        <form method="post" asp-page-handler="Close" asp-route-envelope="@e.PublicId" data-confirm="Close this envelope? Routine approvals against it stop."><idem /><button class="btn btn-small btn-ghost" type="submit">Close</button></form>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />
+@if (Model.CanManage)
+{
+    <form method="post" asp-page-handler="Create" class="card mt">
+        <idem />
+        <h2>Prepare an envelope</h2>
+        <div class="form-grid">
+            <div class="field"><label for="eo" class="req">Funding owner</label><select id="eo" name="fundingOwnerId" required>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
+            <div class="field"><label for="es" class="req">Service</label><select id="es" name="serviceId" required>@foreach (var o in Model.Services) { <option value="@o.Value">@o.Text</option> }</select></div>
+            <div class="field"><label for="ef" class="req">From</label><input id="ef" type="date" name="start" value="@(new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).ToString("yyyy-MM-dd"))" required /></div>
+            <div class="field"><label for="et" class="req">To</label><input id="et" type="date" name="end" value="@(new DateTime(DateTime.UtcNow.Year, 12, 31).ToString("yyyy-MM-dd"))" required /></div>
+            <div class="field"><label for="ea" class="req">Amount</label><input id="ea" type="number" name="amount" min="1" step="1" required /></div>
+            <div class="field"><label for="eu">Unit <help>Credits in Phase 1 (OD12).</help></label><select id="eu" name="unit"><option value="COPILOT_CREDIT">Copilot Credits</option><option value="P3_COMMIT_UNIT">P3 commit units</option><option value="USD">US dollars</option><option value="CAD">Canadian dollars</option></select></div>
+        </div>
+        <button class="btn btn-ghost mt" type="submit">Prepare</button>
+    </form>
+}

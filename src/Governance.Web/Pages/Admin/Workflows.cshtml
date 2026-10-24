@@ -1,0 +1,42 @@
+@page "/Admin/Workflows"
+@model Governance.Web.Pages.Admin.WorkflowsModel
+@{
+    ViewData["Title"] = "Workflows";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Admin</div>
+        <h1>Workflows</h1>
+        <p class="lead">The operating model as data: each journey's stages, who acts, the service level and what follows each outcome. Each request stays on the definition version it was submitted under. Read-only here; a new version is a configuration change with approval.</p>
+    </div>
+</div>
+@foreach (var j in Model.Journeys)
+{
+    <div class="card">
+        <h2>@j.JourneyCode @j.Name <span class="muted small">version @j.VersionNo</span></h2>
+        @if (j.Stages.Count == 0)
+        {
+            <p class="muted">This journey does not run as a request (Entra, operations events or recertification campaigns).</p>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="stack">
+                    <thead><tr><th scope="col">Stage</th><th scope="col">Who</th><th scope="col">RACI activity</th><th scope="col">Service level</th><th scope="col">Outcomes</th></tr></thead>
+                    <tbody>
+                    @foreach (var s in j.Stages)
+                    {
+                        <tr>
+                            <td><strong>@s.StageCode</strong> @s.Name<div class="small muted">@s.Guidance</div></td>
+                            <td>@Ui.Words(s.TaskKind)@(s.TaskRoleCode is null ? "" : ": " + Ui.Words(s.TaskRoleCode))@(s.AllowsDelegation ? " (or a delegate)" : "")</td>
+                            <td>@Ui.Words(s.RaciActivityCode)</td>
+                            <td>@Ui.Words(s.SlaPolicyCode)</td>
+                            <td class="small">@string.Join("; ", j.Transitions.Where(t => t.FromStage == s.StageCode).Select(t => $"{Ui.Words(t.Outcome)} → {(t.ToStage == "END" ? "end" : t.ToStage)} ({Ui.Words(t.ToState)})"))</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}

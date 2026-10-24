@@ -1,0 +1,49 @@
+@page "/Requests"
+@model Governance.Web.Pages.Requests.IndexModel
+@{
+    ViewData["Title"] = "Requests";
+}
+<div class="page-head">
+    <div>
+        <h1>Requests</h1>
+        <p class="lead">@(Model.Mine ? "Requests you submitted or sponsor." : "Every request you are allowed to see: your own, and those of the funding owners where you hold a role.") Open one to see its stage, tasks, decisions and evidence.</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn btn-ghost" href="/Requests?mine=@(!Model.Mine)">@(Model.Mine ? "Show all I can see" : "Show only mine")</a>
+        <a class="btn" href="/Start">New request</a>
+    </div>
+</div>
+<partial name="_Search" model="Model.Search" />
+@if (Model.Items.Items.Count == 0)
+{
+    <div class="card empty">No requests yet. Start one from the Start page.</div>
+}
+else
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead>
+            <tr>
+                <partial name="_Th" model='("number", "Request", "Request number (CCG-year-sequence) and title.")' />
+                <partial name="_Th" model='("journey", "Journey", "Which of the eight journeys the request follows.")' />
+                <partial name="_Th" model='("owner", "Funding owner", "The LOB or Enterprise Shared unit that pays.")' />
+                <partial name="_Th" model='("state", "Status", "Where the request is in its lifecycle, and the current stage.")' />
+                <partial name="_Th" model='("activity", "Last activity", "When anything last happened on the request.")' />
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var r in Model.Items.Items)
+            {
+                <tr>
+                    <td><a href="/Requests/@r.PublicId"><strong>@r.RequestNumber</strong></a><div>@r.Title</div><div class="small muted">by @r.RequesterName</div></td>
+                    <td>@r.JourneyCode · @r.JourneyName</td>
+                    <td>@r.FundingOwnerName</td>
+                    <td>@Ui.Pill(r.State)<div class="small muted">@(r.StageName is null ? "" : $"{r.CurrentStage} {r.StageName}")</div></td>
+                    <td class="nowrap">@Ui.Local(r.LastActivityUtc)</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />
+}

@@ -1,0 +1,74 @@
+@page "/Operations/Sync"
+@model Governance.Web.Pages.Operations.SyncModel
+@{
+    ViewData["Title"] = "Sync and freshness";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Operations</div>
+        <h1>Sync and freshness</h1>
+        <p class="lead">Where the Workbench's Microsoft data comes from and how fresh it is (H10). The worker reads Entra and licensing on a schedule; the Power Platform inventory accepts only a signed-in operator's token, so an operator runs it here, at least weekly and before every verification.</p>
+    </div>
+</div>
+<div class="grid grid-3">
+    <form method="post" asp-antiforgery="true" action="/Operations/SyncRun?handler=Inventory" class="card">
+        <idem />
+        <h2>Inventory sync (X4) <help k="sync.inventory">Environments, Copilot Studio agents (with harness and owner) and agent flows, paged until the end. New or changed items raise findings: unregistered, owner change, harness change, environment type change. Runs under your own sign-in; limited to two runs every five minutes.</help></h2>
+        <p class="small muted">Microsoft returns HTTP 403 for app-only tokens on this API, so it runs as you.</p>
+        <button class="btn" type="submit" disabled="@(!Model.HasInventory)">Run inventory sync</button>
+    </form>
+    <form method="post" asp-antiforgery="true" action="/Operations/SyncRun?handler=Licensing" class="card">
+        <idem />
+        <h2>Licensing read (X5) <help k="sync.licensing">Allocations, tenant-pool rule and billing policy links per governed environment, then the drift evaluator. The worker runs it daily with the Power Platform reader role; this runs it now.</help></h2>
+        <p class="small muted">Verification waits up to 15 minutes for credit availability to refresh.</p>
+        <button class="btn btn-ghost" type="submit" disabled="@(!Model.HasLicensing)">Read licensing now</button>
+    </form>
+    <form method="post" asp-antiforgery="true" action="/Operations/SyncRun?handler=Registry" enctype="multipart/form-data" class="card">
+        <idem />
+        <h2>Agent Registry export (X7) <help k="sync.registry">Without Agent 365 or E7 there is no Graph access to the registry, so an operator uploads the Microsoft 365 admin center export monthly and before recertification. Unmatched agents raise findings.</help></h2>
+        <input type="file" name="file" accept=".csv" aria-label="Registry export CSV" required />
+        <button class="btn btn-ghost mt" type="submit" disabled="@(!Model.HasRegistry)">Import</button>
+    </form>
+</div>
+<h2 class="mt">Freshness by source</h2>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr><th scope="col">Source</th><th scope="col">Last success <help>When this source last delivered data.</help></th><th scope="col">Last run</th><th scope="col">Status</th><th scope="col">Fresh? <help>Stale beyond the freshness target: directory and entitlements 30 minutes, licensing 24 hours, inventory 7 days.</help></th></tr></thead>
+        <tbody>
+        @foreach (var f in Model.Freshness)
+        {
+            var def = Governance.Web.Pages.Operations.SyncModel.Integrations[f.Integration];
+            var health = Model.Health.FirstOrDefault(h => h.Code == f.Integration);
+            var stale = health?.Stale ?? (f.LastSuccessUtc is null || f.LastSuccessUtc < DateTime.UtcNow.AddHours(-def.MaxAgeHours));
+            <tr>
+                <td><strong>@f.Integration</strong> @def.Name<div class="small muted">@health?.Mode @health?.Note</div></td>
+                <td>@(f.LastSuccessUtc is null ? "Never" : Ui.Local(f.LastSuccessUtc))<div class="small muted">@Ui.Ago(f.LastSuccessUtc)</div></td>
+                <td>@Ui.Local(f.LastRunUtc)</td>
+                <td>@(f.LastStatus is null ? "—" : Ui.Pill(f.LastStatus))</td>
+                <td>@(stale ? Ui.Pill("STALE", "warn") : Ui.Pill("FRESH", "ok"))</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<h2 class="mt">Recent runs</h2>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr><th scope="col">Source</th><th scope="col">Mode</th><th scope="col">Started</th><th scope="col">Finished</th><th scope="col">Status</th><th scope="col">Items, findings</th><th scope="col">Note</th></tr></thead>
+        <tbody>
+        @foreach (var r in Model.Runs.Items)
+        {
+            <tr>
+                <td>@r.Integration</td>
+                <td>@Ui.Words(r.Mode)@(r.TriggeredByName is null ? "" : " by " + r.TriggeredByName)</td>
+                <td class="small">@Ui.Local(r.StartedUtc)</td>
+                <td class="small">@Ui.Local(r.FinishedUtc)</td>
+                <td>@Ui.Pill(r.Status)</td>
+                <td class="num">@r.ItemsRead, @r.FindingsRaised</td>
+                <td class="small">@r.Message</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<partial name="_Pager" model="(Model.Runs.Query.Page, Model.Runs.Pages, Model.Runs.Total)" />
