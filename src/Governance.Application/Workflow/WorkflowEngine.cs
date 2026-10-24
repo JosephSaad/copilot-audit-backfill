@@ -93,6 +93,7 @@ public sealed class WorkflowEngine(
 
     public async Task SubmitAsync(Uow uow, ICurrentPrincipal actor, long requestId)
     {
+        await LockRequestAsync(uow, requestId);
         var r = await GetRequestAsync(uow, requestId);
         if (r.RequesterPersonId != actor.PersonId) throw new DomainException("Only the requester can submit this request.");
         if (r.State != RequestStates.Draft) throw new DomainException("Only a draft can be submitted.");
@@ -104,8 +105,9 @@ public sealed class WorkflowEngine(
             "SELECT TOP (1) * FROM wf.StageDefinition WHERE DefinitionId = @DefinitionId AND StageCode <> 'B7' ORDER BY SortOrder", new { r.DefinitionId }))
             .FirstOrDefault() ?? throw new DomainException("The journey has no stages.");
 
-        await uow.ExecuteAsync("UPDATE wf.Request SET State = 'SUBMITTED', SubmittedUtc = @now, LastActivityUtc = @now WHERE RequestId = @requestId",
+        var moved = await uow.ExecuteAsync("UPDATE wf.Request SET State = 'SUBMITTED', SubmittedUtc = @now, LastActivityUtc = @now WHERE RequestId = @requestId AND State = 'DRAFT'",
             new { requestId, now = clock.UtcNow });
+        if (moved == 0) throw new ConcurrencyException();
         await EventAsync(uow, requestId, r.FundingOwnerId, actor.PersonId, "SUBMITTED", RequestStates.Draft, RequestStates.Submitted, null, "Submitted (B1).");
         await audit.WriteAsync(uow, actor, "request.submit", "Request", r.RequestNumber, null);
 
@@ -128,13 +130,13 @@ public sealed class WorkflowEngine(
 
     public async Task ClaimAsync(Uow uow, ICurrentPrincipal actor, long taskId)
     {
-        var t = await GetTaskAsync(uow, taskId);
+        var t = await LockTaskAsync(uow, taskId);
         if (t.Status != TaskStatuses.Open) throw new DomainException("This task is already closed.");
         var stage = t.RequestId is long rid ? await StageForTaskAsync(uow, t, rid) : null;
         var (ok, _, _, reason) = await resolver.CanActAsync(uow, t, actor.PersonId, stage?.AllowsDelegation ?? false);
         if (!ok) throw new DomainException(reason ?? "You cannot claim this task.");
         var n = await uow.ExecuteAsync(
-            "UPDATE wf.Task SET AssignedPersonId = @p, ClaimedUtc = @now WHERE TaskId = @taskId AND Status = 'OPEN' AND (AssignedPersonId IS NULL OR ClaimedUtc IS NOT NULL)",
+            "UPDATE wf.Task SET AssignedPersonId = @p, ClaimedUtc = @now WHERE TaskId = @taskId AND Status = 'OPEN' AND AssignedPersonId IS NULL",
             new { p = actor.PersonId, now = clock.UtcNow, taskId });
         if (n == 0) throw new ConcurrencyException();
         await audit.WriteAsync(uow, actor, "task.claim", "Task", t.PublicId, t.Title);
@@ -151,12 +153,33 @@ public sealed class WorkflowEngine(
     /// <summary>Completes a work, review, consult or verification task with a stage outcome.</summary>
     public async Task CompleteWorkAsync(Uow uow, ICurrentPrincipal actor, long taskId, string outcome, string? notes)
     {
-        var t = await GetTaskAsync(uow, taskId);
+        var t = await LockTaskAsync(uow, taskId);
         if (t.Status != TaskStatuses.Open) throw new DomainException("This task is already closed.");
         if (t.TaskType == TaskTypes.Decision) throw new DomainException("Decision tasks are completed by recording a decision.");
         var r = t.RequestId is long rid ? await GetRequestAsync(uow, rid) : throw new DomainException("This task is not part of a request.");
         var stage = await StageForTaskAsync(uow, t, r.RequestId);
         await AuthorizeAsync(uow, actor, t, r, stage);
+        if (t.TaskType != TaskTypes.Consult && t.StageCode != Stages.SpecialistReview && t.RelatedEntityType != "HOLD")
+            await RequireTransitionAsync(uow, r, t.StageCode, outcome == StageOutcomes.Pass ? new[] { StageOutcomes.Pass, StageOutcomes.PassGate } : new[] { outcome });
+
+        // Exit rules (section 7.1): the stage's rule must pass before the stage can close with a forward outcome.
+        if (stage?.ExitRule == "CompletenessCheck" && outcome == StageOutcomes.Complete)
+        {
+            var check = await CompletenessAsync(uow, r);
+            if (!check.Passed) throw new DomainException("Not complete yet; return it with these items instead: " + string.Join(" ", check.Reasons));
+        }
+        if (stage?.ExitRule == "VerificationComplete" && outcome == StageOutcomes.Pass)
+        {
+            var since = await uow.ScalarAsync<DateTime?>(
+                "SELECT MAX(Utc) FROM wf.RequestEvent WHERE RequestId = @RequestId AND EventType = 'TRANSITION' AND StageCode = 'D1'", new { r.RequestId }) ?? DateTime.MinValue;
+            var verified = await uow.QueryFirstOrDefaultAsync<(string Result, int VerifierPersonId)>(
+                "SELECT TOP (1) Result, VerifierPersonId FROM evd.Verification WHERE RequestId = @RequestId AND VerifiedUtc >= @since ORDER BY VerificationId DESC",
+                new { r.RequestId, since });
+            if (verified.Result != "PASS")
+                throw new DomainException("Record a passing verification first: every check of the control template, including the explicit deny case (P5).");
+            if (verified.VerifierPersonId != actor.PersonId)
+                throw new DomainException("The verification on record was made by someone else; the verifier completes this task.");
+        }
 
         if (t.StageCode == Stages.Classify && outcome == StageOutcomes.Classified)
         {
@@ -198,9 +221,11 @@ public sealed class WorkflowEngine(
     /// <summary>Records a decision on a decision task. One immutable ledger row per decision.</summary>
     public async Task<long> DecideAsync(Uow uow, ICurrentPrincipal actor, long taskId, DecisionInput input)
     {
-        var t = await GetTaskAsync(uow, taskId);
+        var t = await LockTaskAsync(uow, taskId);
         if (t.Status != TaskStatuses.Open) throw new DomainException("This task is already closed.");
         if (t.TaskType != TaskTypes.Decision) throw new DomainException("This task is not a decision.");
+        if (t.StageCode != Stages.Disposition)
+            await RequireTransitionAsync(uow, await GetRequestAsync(uow, t.RequestId!.Value), t.StageCode, new[] { StageOutcomeFor(t.StageCode, input.Outcome) });
         if (!Outcomes.Positive.Contains(input.Outcome) && input.Outcome is not (Outcomes.Hold or Outcomes.Declined))
             throw new DomainException("Choose an outcome.");
         if (string.IsNullOrWhiteSpace(input.ScopeText)) throw new DomainException("State the scope of the decision (service, audience, tier, duration).");
@@ -270,15 +295,7 @@ public sealed class WorkflowEngine(
             await AfterDispositionDecisionAsync(uow, r, actor, input.Outcome);
             return decisionId;
         }
-        var stageOutcome = (t.StageCode, input.Outcome) switch
-        {
-            (Stages.ProductionAcceptance, var o) when Outcomes.Positive.Contains(o) => StageOutcomes.Accepted,
-            (Stages.ProductionAcceptance, _) => StageOutcomes.Rejected,
-            (_, var o) when Outcomes.Positive.Contains(o) => Outcomes.Approved,
-            (_, Outcomes.Hold) => Outcomes.Hold,
-            _ => Outcomes.Declined,
-        };
-        await TransitionAsync(uow, r.RequestId, stageOutcome, actor);
+        await TransitionAsync(uow, r.RequestId, StageOutcomeFor(t.StageCode, input.Outcome), actor);
         return decisionId;
     }
 
@@ -292,17 +309,35 @@ public sealed class WorkflowEngine(
         var ticket = await uow.QuerySingleAsync<(long? RequestId, string Kind, string State)>(
             "SELECT RequestId, Kind, State FROM wf.ItsmTicket WHERE ItsmTicketId = @itsmTicketId", new { itsmTicketId });
         if (ticket.RequestId is not long requestId || ticket.Kind != "TASK") return;
+        await LockRequestAsync(uow, requestId);
         var r = await GetRequestAsync(uow, requestId);
         if (r.CurrentStage != Stages.Fulfillment) return;
-        if (configurerPersonId is int cp)
-            await uow.ExecuteAsync("UPDATE wf.Request SET ConfigurerPersonId = @cp WHERE RequestId = @requestId", new { cp, requestId });
-        await EventAsync(uow, requestId, r.FundingOwnerId, null, "ITSM_" + state, r.State, r.State, Stages.Fulfillment, closureNotes);
+        await uow.ExecuteAsync("UPDATE wf.Request SET ConfigurerPersonId = @configurerPersonId WHERE RequestId = @requestId", new { configurerPersonId, requestId });
+        await EventAsync(uow, requestId, r.FundingOwnerId, null, "ITSM_" + state, r.State, r.State, Stages.Fulfillment,
+            closureNotes + (configurerPersonId is null ? " The person who configured it could not be matched to a person here; a second operator verifies with read-back or evidence for every check." : ""));
+
+        // SoD2: the person who approved cannot be the one who configured. Back to fulfillment, with a finding.
+        if (state != "CANCELLED" && configurerPersonId is int cp
+            && await uow.ScalarAsync<int>("SELECT COUNT(*) FROM wf.Decision WHERE RequestId = @requestId AND DeciderPersonId = @cp AND Outcome IN ('APPROVED','APPROVED_WITH_CONDITIONS','CONSTRAINED_PILOT','EXTEND')", new { requestId, cp }) > 0)
+        {
+            await uow.ExecuteAsync(
+                "INSERT ops.Finding (FindingType, Severity, FundingOwnerId, WorkloadId, Title, Details, Status, DedupeKey) VALUES ('SOD_VIOLATION', 'HIGH', @FundingOwnerId, @WorkloadId, @title, @details, 'OPEN', @key)",
+                new
+                {
+                    r.FundingOwnerId, r.WorkloadId, title = $"{r.RequestNumber}: the approver configured the change",
+                    details = "SoD2: the person who approved the request closed its fulfillment ticket. The change goes back to fulfillment for another operator; check what was configured.",
+                    key = $"SOD2:{itsmTicketId}",
+                });
+            await TransitionAsync(uow, requestId, StageOutcomes.TicketCancelled, SystemPrincipal.Instance);
+            return;
+        }
         await TransitionAsync(uow, requestId, state == "CANCELLED" ? StageOutcomes.TicketCancelled : StageOutcomes.TicketClosed, SystemPrincipal.Instance);
     }
 
     /// <summary>B7: returned requests close after the configured business days without a response.</summary>
     public async Task AutoCloseAsync(Uow uow, long requestId)
     {
+        await LockRequestAsync(uow, requestId);
         var r = await GetRequestAsync(uow, requestId);
         if (r.CurrentStage != Stages.Remediate) return;
         await TransitionAsync(uow, requestId, StageOutcomes.AutoClose, SystemPrincipal.Instance);
@@ -318,6 +353,7 @@ public sealed class WorkflowEngine(
 
     public async Task WithdrawAsync(Uow uow, ICurrentPrincipal actor, long requestId)
     {
+        await LockRequestAsync(uow, requestId);
         var r = await GetRequestAsync(uow, requestId);
         if (r.RequesterPersonId != actor.PersonId) throw new DomainException("Only the requester can withdraw this request.");
         if (r.State == RequestStates.Draft)
@@ -351,9 +387,10 @@ public sealed class WorkflowEngine(
                 new { requestId, from, now = clock.UtcNow });
 
         var final = tr.ToStage == Stages.End;
-        await uow.ExecuteAsync(
-            "UPDATE wf.Request SET State = @ToState, CurrentStage = @stage, LastActivityUtc = @now, ClosedUtc = CASE WHEN @final = 1 THEN @now ELSE ClosedUtc END WHERE RequestId = @requestId",
-            new { tr.ToState, stage = final ? null : tr.ToStage, now = clock.UtcNow, final, requestId });
+        var changed = await uow.ExecuteAsync(
+            "UPDATE wf.Request SET State = @ToState, CurrentStage = @stage, LastActivityUtc = @now, ClosedUtc = CASE WHEN @final = 1 THEN @now ELSE ClosedUtc END WHERE RequestId = @requestId AND CurrentStage = @from",
+            new { tr.ToState, stage = final ? null : tr.ToStage, now = clock.UtcNow, final, requestId, from });
+        if (changed == 0) throw new ConcurrencyException();
         await EventAsync(uow, requestId, r.FundingOwnerId, actor.PersonId == 0 ? null : actor.PersonId, "TRANSITION", r.State, tr.ToState, tr.ToStage, outcome);
 
         await effects.ApplyAsync(uow, await GetRequestAsync(uow, requestId), from, outcome, tr.ToStage, actor);
@@ -403,9 +440,21 @@ public sealed class WorkflowEngine(
             _ => TaskTypes.Work,
         };
         var role = stage.TaskRoleCode ?? await RaciRoleAsync(uow, stage.RaciActivityCode, taskType == TaskTypes.Decision);
+        var decisionType = stage.DecisionType;
+        var activity = stage.RaciActivityCode;
+        // J8: the decision type, RACI activity and decider follow the kind of commercial decision.
+        if (r.JourneyCode == Journeys.Commercial && stageCode == Stages.CommercialDecision)
+        {
+            (decisionType, activity, role) = RequestPayload.FromJson(r.PayloadJson).CommercialKind switch
+            {
+                "RENEWAL" => (DecisionTypes.RenewalApproval, "P3_RENEWAL", Roles.CommercialApprover),
+                "CRITICAL_SHARED_FUNDING" => (DecisionTypes.ContinuityAcceptance, "SHARED_CONTINUITY", Roles.LobBusinessOwner),   // F9: shared-service owner
+                _ => (DecisionTypes.PurchaseApproval, "P3_PURCHASE", Roles.CommercialApprover),
+            };
+        }
         var title = stage.Name + (r.Title.Length > 0 ? $": {r.Title}" : "");
         var task = await CreateTaskAsync(uow, r, stage.StageCode, taskType, title, role, stage.SlaPolicyCode, stage.LadderCode,
-            stage.DecisionType, stage.RaciActivityCode, discipline: null, reason: stage.Guidance, stage.AllowsDelegation);
+            decisionType, activity, discipline: null, reason: stage.Guidance, stage.AllowsDelegation);
 
         // Consults this stage opens (blocking or not) and digest lines for informed parties.
         foreach (var c in await uow.QueryAsync<(string FunctionCode, bool IsBlocking, string? ConsultRoleCode)>(
@@ -447,7 +496,7 @@ public sealed class WorkflowEngine(
             : JsonSerializer.Deserialize<List<ReviewRef>>(r.TriggeredReviews, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? new();
         if (reviews.Count == 0) reviews.Add(new ReviewRef("ARCHITECTURE", DecisionTypes.ExceptionDisposition, "PLATFORM_FEATURE", Roles.PlatformOwner, Roles.Architect, "Exception disposition."));
         var positive = onlyUndecided
-            ? (await uow.QueryAsync<string>("SELECT DecisionType FROM wf.Decision WHERE RequestId = @RequestId AND StageCode = 'B9' AND Outcome IN ('APPROVED','APPROVED_WITH_CONDITIONS','CONSTRAINED_PILOT','EXTEND')", new { r.RequestId })).ToHashSet()
+            ? (await RoundDecisionsAsync(uow, r)).Where(d => Outcomes.Positive.Contains(d.Outcome)).Select(d => d.DecisionType).ToHashSet()
             : new HashSet<string>();
         foreach (var d in reviews.GroupBy(x => x.DecisionType))
         {
@@ -473,20 +522,79 @@ public sealed class WorkflowEngine(
         // Wait until every decision task of this round is closed, then aggregate: one decline declines,
         // one hold holds, otherwise the most constrained positive outcome wins.
         if (await OpenCountAsync(uow, r.RequestId, Stages.Disposition, TaskTypes.Decision) > 0) return;
-        var since = await uow.ScalarAsync<DateTime?>("SELECT MAX(Utc) FROM wf.RequestEvent WHERE RequestId = @RequestId AND EventType IN ('TRANSITION','EVIDENCE_SUPPLIED') AND StageCode IN ('B9','B8')", new { r.RequestId }) ?? DateTime.MinValue;
-        var outcomes = (await uow.QueryAsync<string>(
-            """
-            SELECT d.Outcome FROM wf.Decision d
-            WHERE d.RequestId = @RequestId AND d.StageCode = 'B9'
-              AND d.DecisionId = (SELECT MAX(x.DecisionId) FROM wf.Decision x WHERE x.RequestId = d.RequestId AND x.StageCode = 'B9' AND x.DecisionType = d.DecisionType)
-            """, new { r.RequestId })).ToList();
+        var outcomes = (await RoundDecisionsAsync(uow, r)).Select(d => d.Outcome).ToList();
+        if (outcomes.Count == 0) return;
         string agg =
             outcomes.Contains(Outcomes.Declined) ? Outcomes.Declined :
             outcomes.Contains(Outcomes.Hold) ? Outcomes.Hold :
             outcomes.Contains(Outcomes.ConstrainedPilot) ? Outcomes.ConstrainedPilot :
             outcomes.Contains(Outcomes.ApprovedWithConditions) ? Outcomes.ApprovedWithConditions : Outcomes.Approved;
-        _ = since;
         await TransitionAsync(uow, r.RequestId, agg, actor);
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Concurrency and round helpers
+    // ------------------------------------------------------------------------------------------
+
+    /// <summary>Serializes every command on one request (read committed snapshot is on, so counts need a lock).</summary>
+    private Task LockRequestAsync(Uow uow, long requestId)
+        => uow.ExecuteAsync("SELECT RequestId FROM wf.Request WITH (UPDLOCK, HOLDLOCK) WHERE RequestId = @requestId", new { requestId });
+
+    private async Task<TaskRow> LockTaskAsync(Uow uow, long taskId)
+    {
+        var requestId = await uow.ScalarAsync<long?>("SELECT RequestId FROM wf.Task WHERE TaskId = @taskId", new { taskId });
+        if (requestId is long rid) await LockRequestAsync(uow, rid);
+        return await GetTaskAsync(uow, taskId);
+    }
+
+    private static async Task RequireTransitionAsync(Uow uow, RequestRow r, string? stageCode, IEnumerable<string> outcomes)
+    {
+        var list = outcomes.ToArray();
+        var n = await uow.ScalarAsync<int>("SELECT COUNT(*) FROM wf.TransitionDefinition WHERE DefinitionId = @DefinitionId AND FromStage = @stageCode AND Outcome IN @list",
+            new { r.DefinitionId, stageCode, list });
+        if (n == 0) throw new DomainException($"That outcome is not allowed at this stage ({stageCode}).");
+    }
+
+    private static string StageOutcomeFor(string? stageCode, string decisionOutcome) => (stageCode, decisionOutcome) switch
+    {
+        (Stages.ProductionAcceptance, var o) when Outcomes.Positive.Contains(o) => StageOutcomes.Accepted,
+        (Stages.ProductionAcceptance, _) => StageOutcomes.Rejected,
+        (_, var o) when Outcomes.Positive.Contains(o) => Outcomes.Approved,
+        (_, Outcomes.Hold) => Outcomes.Hold,
+        _ => Outcomes.Declined,
+    };
+
+    /// <summary>The latest decision per type in the current B9 round, limited to the types this round triggered.</summary>
+    private static async Task<IReadOnlyList<DecisionRow>> RoundDecisionsAsync(Uow uow, RequestRow r)
+    {
+        var roundStart = await uow.ScalarAsync<DateTime?>(
+            "SELECT MAX(Utc) FROM wf.RequestEvent WHERE RequestId = @RequestId AND EventType = 'TRANSITION' AND StageCode = 'B9' AND ISNULL(Text, '') <> 'HOLD'",
+            new { r.RequestId }) ?? DateTime.MinValue;
+        var types = string.IsNullOrEmpty(r.TriggeredReviews)
+            ? new HashSet<string> { DecisionTypes.ExceptionDisposition }
+            : (JsonSerializer.Deserialize<List<ReviewRef>>(r.TriggeredReviews, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? new()).Select(x => x.DecisionType).ToHashSet();
+        var rows = await uow.QueryAsync<DecisionRow>(
+            "SELECT * FROM wf.Decision WHERE RequestId = @RequestId AND StageCode = 'B9' AND DecidedAtUtc >= @roundStart ORDER BY DecisionId",
+            new { r.RequestId, roundStart });
+        return rows.Where(d => types.Contains(d.DecisionType)).GroupBy(d => d.DecisionType).Select(g => g.Last()).ToList();
+    }
+
+    private async Task<RuleResult> CompletenessAsync(Uow uow, RequestRow r)
+    {
+        var p = RequestPayload.FromJson(r.PayloadJson);
+        var foStatus = await uow.ScalarAsync<string>("SELECT Status FROM core.FundingOwner WHERE FundingOwnerId = @FundingOwnerId", new { r.FundingOwnerId });
+        var sponsorActive = r.SponsorPersonId is int sp && await uow.ScalarAsync<bool>(
+            "SELECT CAST(CASE WHEN AccountEnabled = 1 AND (LeaveDate IS NULL OR LeaveDate > @today) THEN 1 ELSE 0 END AS bit) FROM sec.Person WHERE PersonId = @sp",
+            new { sp, today = clock.UtcNow.Date });
+        var service = r.ServiceId is int sid ? await uow.QuerySingleOrDefaultAsync<Service>("SELECT * FROM core.Service WHERE ServiceId = @sid", new { sid }) : null;
+        var workload = r.WorkloadId is int wid ? await uow.QuerySingleOrDefaultAsync<Workload>("SELECT * FROM core.Workload WHERE WorkloadId = @wid", new { wid }) : null;
+        var duplicates = (await uow.QueryAsync<string>(
+            """
+            SELECT RequestNumber FROM wf.Request
+            WHERE RequestId <> @RequestId AND JourneyCode = @JourneyCode AND FundingOwnerId = @FundingOwnerId AND Title = @Title
+              AND State NOT IN ('DRAFT','COMPLETED','CANCELLED','CLOSED','DECLINED')
+            """, new { r.RequestId, r.JourneyCode, r.FundingOwnerId, r.Title })).ToList();
+        return CompletenessCheck.Evaluate(new CompletenessCheck.Facts(r.JourneyCode, p, r.RequesterPersonId, r.SponsorPersonId, sponsorActive, foStatus, service, workload, duplicates));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -548,6 +656,8 @@ public sealed class WorkflowEngine(
         if (taskType == TaskTypes.Decision)
         {
             await ExcludeAsync(uow, task.TaskId, r.RequesterPersonId, "SOD1");
+            // The sponsor owns the request's purpose and outcome claims, so does not decide it either.
+            if (r.SponsorPersonId is int sponsor && sponsor != r.RequesterPersonId) await ExcludeAsync(uow, task.TaskId, sponsor, "SOD1");
             foreach (var admin in await uow.QueryAsync<int>("SELECT DISTINCT PersonId FROM sec.RoleAssignment WHERE RoleCode = 'WORKBENCH_ADMIN' AND (EffectiveTo IS NULL OR EffectiveTo >= @today)", new { today = clock.UtcNow.Date }))
                 await ExcludeAsync(uow, task.TaskId, admin, "SOD5");
         }

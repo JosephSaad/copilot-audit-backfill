@@ -87,14 +87,19 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
             SELECT TOP (1) e.*, COALESCE((SELECT SUM(c.Amount) FROM core.EnvelopeCommitment c WHERE c.EnvelopeId = e.EnvelopeId AND c.Status = 'ACTIVE'), 0) AS Committed
             FROM core.FundingEnvelope e
             WHERE e.FundingOwnerId = @FundingOwnerId AND e.ServiceId = @serviceId AND e.Status = 'ACTIVE' AND e.PeriodStart <= @today AND e.PeriodEnd >= @today
+              AND e.Unit = 'COPILOT_CREDIT'   -- Phase 1 envelopes are in credits (OD12); other units need a dated rate (E8)
             ORDER BY e.PeriodEnd
             """, new { r.FundingOwnerId, serviceId, today });
 
-        // J4 asks for an increase: the envelope must hold the difference, in credits.
-        decimal estimate = r.JourneyCode == Journeys.CapacityChange
+        // A monthly figure is committed for the months it runs inside the envelope period, not once.
+        // J4 asks for an increase: the envelope must hold the difference over the same months.
+        decimal monthly = r.JourneyCode == Journeys.CapacityChange
             ? Math.Max(0, (p.RequestedValue ?? 0) - (p.CurrentValue ?? 0))
             : p.EstimateCreditsPerMonth ?? 0;
-        var headroom = EnvelopeHeadroom.Evaluate(envelope, estimate, envelope?.Unit ?? Units.CopilotCredit);
+        var monthsLeft = envelope is null ? 12 : Math.Max(1, ((envelope.PeriodEnd.Year - today.Year) * 12) + envelope.PeriodEnd.Month - today.Month + 1);
+        var months = Math.Min(p.DurationMonths is > 0 ? p.DurationMonths.Value : 12, monthsLeft);
+        decimal estimate = monthly * months;
+        var headroom = EnvelopeHeadroom.Evaluate(envelope, estimate, Units.CopilotCredit);
 
         PatternFit.EnvironmentLimits? limits = null;
         var envClass = p.EnvironmentClassCode ?? workload?.EnvironmentClassCode;
@@ -102,7 +107,8 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
             limits = await uow.QuerySingleOrDefaultAsync<PatternFit.EnvironmentLimits>(
                 "SELECT EnvironmentClassCode AS ClassCode, DefaultAgentLimitCredits AS DefaultAgentLimit, TenantPoolAllowed, PaygAllowed FROM core.EnvironmentClass WHERE EnvironmentClassCode = @envClass", new { envClass });
 
-        if (r.JourneyCode == Journeys.CapacityChange) await uow.ExecuteAsync("UPDATE wf.Request SET EstimateCredits = @estimate WHERE RequestId = @RequestId", new { estimate, r.RequestId });
+        // EstimateCredits holds the amount committed against the envelope if approved (monthly x months).
+        await uow.ExecuteAsync("UPDATE wf.Request SET EstimateCredits = @estimate WHERE RequestId = @RequestId", new { estimate, r.RequestId });
 
         var result = PatternFit.Evaluate(new PatternFit.Facts(r.JourneyCode, p, service, workload, patterns, headroom, limits));
         return new PatternEvaluation(result, envelope?.EnvelopeId);
@@ -280,6 +286,15 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
             new { workloadId });
         var envId = p.EnvironmentId ?? current.EnvironmentId;
         if (envId is null) return;
+        if (current.PostureId == 0)
+        {
+            // No posture yet: start from the environment class defaults, never from zero (a zero would raise false drift).
+            var envClass = await uow.ScalarAsync<string>("SELECT EnvironmentClassCode FROM core.Workload WHERE WorkloadId = @workloadId", new { workloadId });
+            var defaults = await uow.QuerySingleOrDefaultAsync<(decimal DefaultAllocationCredits, decimal DefaultAgentLimitCredits)>(
+                "SELECT DefaultAllocationCredits, DefaultAgentLimitCredits FROM core.EnvironmentClass WHERE EnvironmentClassCode = @envClass", new { envClass });
+            current.AllocationCredits = defaults.DefaultAllocationCredits;
+            current.AgentLimitCredits = defaults.DefaultAgentLimitCredits == 0 ? null : defaults.DefaultAgentLimitCredits;
+        }
         var decision = await uow.ScalarAsync<long?>("SELECT MAX(DecisionId) FROM wf.Decision WHERE RequestId = @RequestId", new { r.RequestId });
         if (current.PostureId != 0)
             await uow.ExecuteAsync("UPDATE core.ApprovedPosture SET EffectiveTo = @yesterday WHERE PostureId = @PostureId", new { yesterday = today.AddDays(-1), current.PostureId });

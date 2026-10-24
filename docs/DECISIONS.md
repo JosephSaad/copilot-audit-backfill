@@ -56,3 +56,13 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Local hosting | IIS, gMSA, LocalMachine certificates, HTTPS | Kestrel on `http://localhost:5450`, worker as a console process, CurrentUser certificates, SQL logins | No admin rights on the test PC; the localhost HTTPS certificate is not trusted and trusting it changes a security setting. Production settings are unchanged |
 | Spelling | British ("licence") | American ("license") in code and UI | House style of the user's other repositories |
 | Test persona switch | not in the architecture | Development-only "Act as" switch, audited, off unless `Testing:AllowActAs` is true and the environment is Development | One real account in the test tenant has to play every role, and segregation of duties needs different people |
+
+## Fixes from the core review (2026-10-24)
+
+| Area | Decision |
+|---|---|
+| Sponsor | The sponsor is excluded from deciding the request they sponsor, like the requester (SoD1 widened): a sponsor owns the outcome claims. |
+| Envelope commitment | A monthly estimate is committed for the months it runs inside the envelope period (capped by the requested duration), not once. Only Copilot Credit envelopes count in Phase 1 (OD12, E8). |
+| Frozen versions | Active or retired RACI versions and control templates cannot change in place (database triggers); a change is a new version with two approvers. |
+| Configurer | If the person who closes the fulfillment ticket approved the request, the change goes back to fulfillment with an SoD finding (SoD2). |
+| Exit rules | B2 completes only when the completeness check passes; D1 passes only with a passing verification recorded by the verifier since the ticket closed (P5). |

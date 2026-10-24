@@ -60,7 +60,8 @@ public sealed class AssignmentResolver(IClock clock)
         if (excluded is not null) return (false, null, null, SodText(excluded));
 
         if (task.AssignedPersonId == personId) return (true, task.AssignedRoleCode ?? "ASSIGNEE", null, null);
-        if (task.AssignedPersonId is not null && task.ClaimedUtc is null) return (false, null, null, "This task is assigned to someone else.");
+        if (task.AssignedPersonId is not null)
+            return (false, null, null, task.ClaimedUtc is null ? "This task is assigned to someone else." : "Someone else has claimed this task; they can release it.");
         if (task.AssignedRoleCode is null) return (false, null, null, "This task has no role to act through.");
 
         var holders = await HoldersAsync(uow, task.AssignedRoleCode, task.ScopeType ?? ScopeTypes.Tenant, task.ScopeId, includeDelegates: false);
@@ -83,7 +84,7 @@ public sealed class AssignmentResolver(IClock clock)
 
     public static string SodText(string rule) => rule switch
     {
-        "SOD1" => "You submitted this request, so you cannot decide it (SoD1).",
+        "SOD1" => "You submitted or sponsor this request, so you cannot decide it (SoD1).",
         "SOD2" => "You approved this request, so you cannot fulfill or verify it (SoD2).",
         "SOD3" => "You configured this change, so a second operator verifies it (SoD3).",
         "SOD4" => "You already recorded a different decision type on this request (SoD4).",

@@ -9,6 +9,7 @@ IF EXISTS (SELECT 1 FROM sys.security_policies WHERE name = 'FundingOwnerPolicy'
 -- Dependents first: the request and task predicates bind to the funding owner predicate.
 DROP FUNCTION IF EXISTS sec.fn_RequestAccess;
 DROP FUNCTION IF EXISTS sec.fn_TaskAccess;
+DROP FUNCTION IF EXISTS sec.fn_ChildAccess;
 DROP FUNCTION IF EXISTS sec.fn_FundingOwnerAccess;
 GO
 CREATE FUNCTION sec.fn_FundingOwnerAccess (@FundingOwnerId int)
@@ -62,6 +63,24 @@ RETURN
     WHERE (IS_MEMBER(N'app_web') = 1 OR IS_MEMBER(N'app_worker') = 1)
       AND (@FundingOwnerId IS NULL OR CAST(SESSION_CONTEXT(N'PersonId') AS int) = @AssignedPersonId);
 GO
+-- Rows that belong to a request or a funding owner (decisions, timeline, comments, tickets, findings, evidence):
+-- the funding owner's scope, the request's requester and sponsor, and tenant-level rows (no funding owner, no request).
+CREATE FUNCTION sec.fn_ChildAccess (@FundingOwnerId int, @RequestId bigint)
+RETURNS TABLE
+WITH SCHEMABINDING
+AS
+RETURN
+    SELECT 1 AS AccessResult
+    FROM sec.fn_FundingOwnerAccess(@FundingOwnerId)
+    WHERE @FundingOwnerId IS NOT NULL
+    UNION ALL
+    SELECT 1
+    WHERE (IS_MEMBER(N'app_web') = 1 OR IS_MEMBER(N'app_worker') = 1)
+      AND (   (@FundingOwnerId IS NULL AND @RequestId IS NULL)
+           OR EXISTS (SELECT 1 FROM wf.Request AS r
+                      WHERE r.RequestId = @RequestId
+                        AND CAST(SESSION_CONTEXT(N'PersonId') AS int) IN (r.RequesterPersonId, r.SponsorPersonId)));
+GO
 CREATE SECURITY POLICY sec.FundingOwnerPolicy
     ADD FILTER PREDICATE sec.fn_FundingOwnerAccess(FundingOwnerId) ON core.Workload,
     ADD FILTER PREDICATE sec.fn_FundingOwnerAccess(FundingOwnerId) ON core.WorkloadHistory,     -- RLS is not copied to history tables
@@ -78,6 +97,14 @@ CREATE SECURITY POLICY sec.FundingOwnerPolicy
     ADD FILTER PREDICATE sec.fn_TaskAccess(FundingOwnerId, AssignedPersonId) ON wf.Task,
     ADD FILTER PREDICATE sec.fn_FundingOwnerAccess(FundingOwnerId) ON wf.ExceptionItem,
     ADD FILTER PREDICATE sec.fn_FundingOwnerAccess(FundingOwnerId) ON ops.ConsumptionEvent,
-    ADD FILTER PREDICATE sec.fn_FundingOwnerAccess(FundingOwnerId) ON wf.CampaignItem
+    ADD FILTER PREDICATE sec.fn_FundingOwnerAccess(FundingOwnerId) ON wf.CampaignItem,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, RequestId) ON wf.Decision,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, RequestId) ON wf.RequestEvent,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, RequestId) ON wf.Comment,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, RequestId) ON wf.ItsmTicket,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON ops.Finding,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, RequestId) ON evd.Attestation,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, RequestId) ON evd.Verification,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON evd.EvidenceItem
 WITH (STATE = ON, SCHEMABINDING = ON);
 GO
