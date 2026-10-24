@@ -56,3 +56,12 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Local hosting | IIS, gMSA, LocalMachine certificates, HTTPS | Kestrel on `http://localhost:5450`, worker as a console process, CurrentUser certificates, SQL logins | No admin rights on the test PC; the localhost HTTPS certificate is not trusted and trusting it changes a security setting. Production settings are unchanged |
 | Spelling | British ("licence") | American ("license") in code and UI | House style of the user's other repositories |
 | Test persona switch | not in the architecture | Development-only "Act as" switch, audited, off unless `Testing:AllowActAs` is true and the environment is Development | One real account in the test tenant has to play every role, and segregation of duties needs different people |
+
+## Demo seed choices (test environment only)
+
+| Item | Choice | Why |
+|---|---|---|
+| Business calendar | Canadian federal statutory holidays, with the observed Monday when a holiday falls on a weekend; time zone Eastern | The demo institution is a Toronto bank; replace with the institution's own calendar in Admin › SLAs |
+| Envelope period | The calendar year | The seed must produce envelopes active today; set the institution's fiscal year in production |
+| The real administrator | Workbench administrator and auditor only | Administrators cannot decide (SoD5); business personas are used through the test-only Act as switch |
+| Personas | 46 fictional people, `@example.invalid` mail, flagged synthetic | No real personal data in the demo |

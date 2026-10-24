@@ -44,6 +44,9 @@ public sealed class RequestFlows(EngineHost host, SeedResult seed)
         await host.AsAsync(seed.As(personaKey), u => E.CompleteWorkAsync(u, seed.As(personaKey), t.TaskId, outcome, notes));
     }
 
+    public Task CompleteTaskAsync(string personaKey, long taskId, string outcome, string? notes = null)
+        => host.AsAsync(seed.As(personaKey), u => E.CompleteWorkAsync(u, seed.As(personaKey), taskId, outcome, notes));
+
     public async Task<long> DecideAsync(string personaKey, long requestId, string stage, DecisionInput input, string? decisionType = null)
     {
         var t = await TaskAsync(requestId, stage, TaskTypes.Decision, decisionType);
