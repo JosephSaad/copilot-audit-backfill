@@ -1,0 +1,17 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users",
+  "@odata.deltaLink": "https://graph.microsoft.com/v1.0/users/delta?$deltatoken=final-delta-token",
+  "value": [
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "@removed": { "reason": "changed" }
+    },
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "displayName": "Casey Leaver",
+      "userPrincipalName": "casey@contoso.example",
+      "accountEnabled": false,
+      "employeeLeaveDateTime": "2026-10-01T00:00:00Z"
+    }
+  ]
+}
