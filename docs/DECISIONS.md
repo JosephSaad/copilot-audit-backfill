@@ -77,3 +77,12 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Mirror guard | The installers mirror files with robocopy only into an empty folder or one marked `.cgw-install` by an earlier install of the same kind | `/MIR` deletes what is not in the source; a wrong path must not wipe another application's folder |
 | Settings | Installers refuse a settings file with placeholders, a password, a client secret or any `Testing` switch turned on | No secrets in files; test switches never reach production |
 | ITSM credential | Certificate-based OAuth where the ITSM supports it, otherwise the institution's vault injects `Itsm__ClientSecret` into the service environment | Keeps the only possible secret out of files and source |
+
+## Demo seed choices (test environment only)
+
+| Item | Choice | Why |
+|---|---|---|
+| Business calendar | Canadian federal statutory holidays, with the observed Monday when a holiday falls on a weekend; time zone Eastern | The demo institution is a Toronto bank; replace with the institution's own calendar in Admin › SLAs |
+| Envelope period | The calendar year | The seed must produce envelopes active today; set the institution's fiscal year in production |
+| The real administrator | Workbench administrator and auditor only | Administrators cannot decide (SoD5); business personas are used through the test-only Act as switch |
+| Personas | 46 fictional people, `@example.invalid` mail, flagged synthetic | No real personal data in the demo |
