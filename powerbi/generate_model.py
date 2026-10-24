@@ -22,7 +22,7 @@ NAME = "CopilotInsights"
 MANIFEST = "generated-files.json"
 T = "\t"
 
-# The file types (2.4.6) were added to the model by hand, with tags of their own: kept, so Power BI keeps its bindings.
+# The file types were added to the model by hand, with tags of their own: kept, so Power BI keeps its bindings.
 FIXED_TAGS = {
     ("FileTypes",): "23a36491-824a-4c07-a912-5a24a471ac97",
     ("FileTypes", "FileTypeKey"): "57dd709c-1eae-46fc-aa1c-df49ac910763",
@@ -152,7 +152,7 @@ TABLES = {
             ("UserKey", "int64", dict(hidden=True)),
         ],
         # The end of the period is one day for every row, taken from Calendar, which no person filters
-        # (2.4.12). Before, each measure took the last day on which the people in the row held a license,
+        # Before, each measure took the last day on which the people in the row held a license,
         # so a department whose licenses were all removed on the 10th still counted them as licensed.
         measures=[
             ("Period end", "CALCULATE ( MAX ( Calendar[Date] ), KEEPFILTERS ( Calendar[IsLoaded] = TRUE () ) )", "yyyy-mm-dd",
