@@ -43,7 +43,7 @@ if (-not (Test-Path -LiteralPath $exe)) {
     throw "'$PublishPath' does not hold a published worker (Governance.Worker.exe missing). Run: dotnet publish src\Governance.Worker -c Release -r win-x64 -o <folder>."
 }
 $settings = Assert-SettingsFile -Path $SettingsFile -RequiredKeys @(
-    'ConnectionStrings:GovernanceWorker', 'Worker:TenantId', 'Worker:ClientId', 'Worker:CertificateDistinguishedName',
+    'ConnectionStrings:GovernanceWorker', 'Tenant:TenantId', 'Tenant:WorkerClientId', 'Tenant:WorkerCertificateSubject',
     'Notifications:Mailbox', 'Workbench:BaseUrl')
 
 # ------------------------------------------------------------------------------------------------
