@@ -25,11 +25,16 @@ public sealed class InventorySyncService(Db db, IPowerPlatformApi api, FindingWr
     public sealed record Item(string ResourceType, string ResourceId, string? DisplayName, string? EnvironmentId, string? EnvironmentType, string? OwnerObjectId, string? Harness, DateTime? CreatedAt, string RawJson);
 
     public Task<Guid> RunAsync(string delegatedAccessToken, int operatorPersonId, CancellationToken ct)
-        => SyncRuns.RunAsync(db, IntegrationCodes.Inventory, "DELEGATED", operatorPersonId, async (runId, uow) =>
+        => SyncRuns.RunAsync(db, IntegrationCodes.Inventory, "DELEGATED", operatorPersonId, async runId =>
         {
+            // Every page is read with no transaction open; the snapshot is then written in one short transaction.
             var items = new List<Item>();
             foreach (var k in Kinds) items.AddRange(await ReadAllAsync(delegatedAccessToken, k.Type, ct));
+            return await db.InTransactionAsync(uow => WriteAsync(uow, runId, items), ct);
+        }, ct);
 
+    private async Task<(int Items, int Findings, string? Message)> WriteAsync(Uow uow, long runId, List<Item> items)
+    {
             // Environment names and types for agents and flows.
             var envs = items.Where(i => i.ResourceType == Kinds[0].Type).ToDictionary(i => i.ResourceId, StringComparer.OrdinalIgnoreCase);
             foreach (var i in items)
@@ -47,7 +52,7 @@ public sealed class InventorySyncService(Db db, IPowerPlatformApi api, FindingWr
                     });
             var raised = await EvaluateAsync(uow, runId, items);
             return (items.Count, raised, $"{items.Count(i => i.ResourceType == Kinds[0].Type)} environments, {items.Count(i => i.ResourceType == Kinds[1].Type)} agents, {items.Count(i => i.ResourceType == Kinds[2].Type)} agent flows; {raised} new findings.");
-        }, ct);
+    }
 
     private async Task<List<Item>> ReadAllAsync(string token, string type, CancellationToken ct)
     {

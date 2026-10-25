@@ -7,7 +7,11 @@ using Microsoft.Extensions.Options;
 
 namespace Governance.Notifications;
 
-public sealed record OutboxRow(long OutboxId, string EventType, string Payload, string DedupeKey, int Attempts);
+/// <summary>A claimed outbox row. LockedBy is the node that holds the lease; deliveries re-check it before each send.</summary>
+public sealed record OutboxRow(long OutboxId, string EventType, string Payload, string DedupeKey, int Attempts, string? LockedBy = null);
+
+/// <summary>Another node took the row over (this node's lease expired): stop without touching the row.</summary>
+public sealed class LeaseLostException(long outboxId) : Exception($"Outbox row {outboxId} is now held by another node.");
 
 /// <summary>Handles one kind of outbox row (notices, ITSM commands...). The first handler that accepts the event type wins.</summary>
 public interface IOutboxHandler
@@ -31,7 +35,7 @@ public sealed class OutboxProcessor(Db db, IEnumerable<IOutboxHandler> handlers,
             SET    LockedBy = @node,
                    LockedUntilUtc = DATEADD(SECOND, 60, SYSUTCDATETIME()),
                    Attempts = Attempts + 1
-            OUTPUT inserted.OutboxId, inserted.EventType, inserted.Payload, inserted.DedupeKey, inserted.Attempts
+            OUTPUT inserted.OutboxId, inserted.EventType, inserted.Payload, inserted.DedupeKey, inserted.Attempts, inserted.LockedBy
             FROM   ntf.Outbox AS o WITH (ROWLOCK, READPAST, UPDLOCK)
             WHERE  o.ProcessedAtUtc IS NULL
               AND  o.DeadLetteredUtc IS NULL
@@ -62,6 +66,11 @@ public sealed class OutboxProcessor(Db db, IEnumerable<IOutboxHandler> handlers,
                 "UPDATE ntf.Outbox SET ProcessedAtUtc = SYSUTCDATETIME(), LockedBy = NULL, LockedUntilUtc = NULL, LastError = NULL WHERE OutboxId = @OutboxId AND LockedBy = @node",
                 new { row.OutboxId, node }), CancellationToken.None);
         }
+        catch (LeaseLostException)
+        {
+            // The lease ran out during a slow delivery and another node claimed the row: it finishes the work.
+            log.LogInformation("Outbox row {Id} ({Type}) was taken over by another node; stopping here.", row.OutboxId, row.EventType);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             var permanent = ex is PermanentDeliveryException;
@@ -72,8 +81,8 @@ public sealed class OutboxProcessor(Db db, IEnumerable<IOutboxHandler> handlers,
             {
                 if (dead)
                 {
-                    await u.ExecuteAsync("UPDATE ntf.Outbox SET DeadLetteredUtc = SYSUTCDATETIME(), LockedBy = NULL, LockedUntilUtc = NULL, LastError = @note WHERE OutboxId = @OutboxId",
-                        new { row.OutboxId, note = Short(note) });
+                    await u.ExecuteAsync("UPDATE ntf.Outbox SET DeadLetteredUtc = SYSUTCDATETIME(), LockedBy = NULL, LockedUntilUtc = NULL, LastError = @note WHERE OutboxId = @OutboxId AND LockedBy = @node",
+                        new { row.OutboxId, note = Short(note), node });
                     if (row.EventType != "N19")
                         await outbox.EnqueueAsync(u, new OutboxMessage
                         {
@@ -86,8 +95,8 @@ public sealed class OutboxProcessor(Db db, IEnumerable<IOutboxHandler> handlers,
                 else
                 {
                     var delay = Backoff(row.Attempts);
-                    await u.ExecuteAsync("UPDATE ntf.Outbox SET AvailableAtUtc = @next, LockedBy = NULL, LockedUntilUtc = NULL, LastError = @note WHERE OutboxId = @OutboxId",
-                        new { row.OutboxId, next = clock.UtcNow + delay, note = Short(note) });
+                    await u.ExecuteAsync("UPDATE ntf.Outbox SET AvailableAtUtc = @next, LockedBy = NULL, LockedUntilUtc = NULL, LastError = @note WHERE OutboxId = @OutboxId AND LockedBy = @node",
+                        new { row.OutboxId, next = clock.UtcNow + delay, note = Short(note), node });
                 }
             }, CancellationToken.None);
         }
