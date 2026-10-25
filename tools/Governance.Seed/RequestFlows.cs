@@ -63,8 +63,8 @@ public sealed class RequestFlows(EngineHost host, SeedResult seed)
             await u.ExecuteAsync(
                 """
                 INSERT evd.Verification (PublicId, RequestId, FundingOwnerId, TemplateId, ConfiguredByPersonId, VerifierPersonId, Method, Result, ChecksJson, VerifiedUtc)
-                VALUES (NEWID(), @RequestId, @FundingOwnerId, @templateId, @ConfigurerPersonId, @verifier, 'MIXED', @result, @checks, SYSUTCDATETIME())
-                """, new { r.RequestId, r.FundingOwnerId, templateId, r.ConfigurerPersonId, verifier = seed.Person(verifierKey), result, checks });
+                VALUES (NEWID(), @RequestId, @FundingOwnerId, @templateId, @ConfigurerPersonId, @verifier, 'MIXED', @result, @checks, @now)
+                """, new { r.RequestId, r.FundingOwnerId, templateId, r.ConfigurerPersonId, verifier = seed.Person(verifierKey), result, checks, now = host.Clock.UtcNow });
         });
 
     public Task CompleteTaskAsync(string personaKey, long taskId, string outcome, string? notes = null)

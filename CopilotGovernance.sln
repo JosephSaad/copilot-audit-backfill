@@ -33,6 +33,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Governance.UiTests", "tests
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Governance.Seed", "tools\Governance.Seed\Governance.Seed.csproj", "{602DB23E-0191-4739-AA77-5FA5F5B54C8E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Governance.SendTestNotice", "tools\Governance.SendTestNotice\Governance.SendTestNotice.csproj", "{15DA5300-7ED6-407B-AF9C-8822E3DBA184}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -187,6 +189,18 @@ Global
 		{602DB23E-0191-4739-AA77-5FA5F5B54C8E}.Release|x64.Build.0 = Release|Any CPU
 		{602DB23E-0191-4739-AA77-5FA5F5B54C8E}.Release|x86.ActiveCfg = Release|Any CPU
 		{602DB23E-0191-4739-AA77-5FA5F5B54C8E}.Release|x86.Build.0 = Release|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Debug|x64.Build.0 = Debug|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Debug|x86.Build.0 = Debug|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Release|Any CPU.Build.0 = Release|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Release|x64.ActiveCfg = Release|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Release|x64.Build.0 = Release|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Release|x86.ActiveCfg = Release|Any CPU
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -204,5 +218,6 @@ Global
 		{47B32A1F-E811-4B65-BFCC-BC1A01FCB996} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{7919CA3C-2103-4809-AEB1-037F8C3BDE23} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{602DB23E-0191-4739-AA77-5FA5F5B54C8E} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
+		{15DA5300-7ED6-407B-AF9C-8822E3DBA184} = {07C2787E-EAC7-C090-1BA3-A61EC2A24D84}
 	EndGlobalSection
 EndGlobal
