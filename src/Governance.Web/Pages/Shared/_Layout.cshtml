@@ -28,7 +28,7 @@
 @if (Me.ActingAs)
 {
     <div class="actas-banner" role="status">
-        Test mode: you are acting as <strong>@Me.DisplayName</strong> (signed in as @Me.RealDisplayName). Every action is recorded with both names.
+        <span>Test mode: acting as <strong>@Me.DisplayName</strong><span class="hide-sm"> (signed in as @Me.RealDisplayName). Every action is recorded with both names.</span></span>
         <form method="post" asp-page="/ActAs" asp-page-handler="Stop" class="inline"><idem /><button class="btn btn-small btn-light" type="submit">Stop acting</button></form>
     </div>
 }
@@ -125,7 +125,8 @@
     <main id="main" class="main" tabindex="-1">
         @if (TempData["Flash"] is string ok)
         {
-            <div class="alert alert-ok" role="status"><strong>Done.</strong> @ok</div>
+            @* The message already says what happened ("Request submitted."); no prefix, so it never reads "Done. Done." *@
+            <div class="alert alert-ok" role="status"><span aria-hidden="true">✓</span> <span class="sr-only">Success:</span> @ok</div>
         }
         @if (TempData["FlashError"] is string err)
         {

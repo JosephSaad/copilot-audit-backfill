@@ -258,8 +258,8 @@ public static class Ui
 
     public static string Num(decimal? d) => d?.ToString("N0", CultureInfo.GetCultureInfo("en-US")) ?? "";
 
-    public static string Words(string? code) => string.IsNullOrEmpty(code) ? "" :
-        CultureInfo.GetCultureInfo("en-US").TextInfo.ToTitleCase(code.Replace('_', ' ').ToLowerInvariant()).Replace("Lob", "LOB").Replace("Payg", "PAYG").Replace("P3", "P3").Replace("Itsm", "ITSM");
+    /// <summary>Plain words for a code (see <see cref="Labels"/>): people never see raw codes.</summary>
+    public static string Words(string? code) => Labels.For(code);
 
     /// <summary>A status pill: color is never the only signal (WCAG): the text says the status.</summary>
     public static IHtmlContent Pill(string? text, string? tone = null)

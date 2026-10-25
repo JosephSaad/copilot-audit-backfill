@@ -16,12 +16,35 @@
     @foreach (var k in Model.Kpis)
     {
         var def = Governance.Web.Pages.Reports.KpisModel.Definitions.TryGetValue(k.KpiCode, out var d) ? d : ("", "");
-        var isRatio = k.Denominator is not null;
+        // Counts, not rates: shared-service exhaustion is a number of events in 90 days.
+        var isCount = k.KpiCode is "SHARED_EXHAUSTION_RISK" or "UNAPPROVED_FINDINGS";
+        var isRatio = k.Denominator is not null && !isCount;
         var pct = isRatio && k.Denominator > 0 ? Math.Round(100m * (k.Numerator ?? 0) / k.Denominator!.Value, 1) : (decimal?)null;
+        var link = k.KpiCode switch
+        {
+            "OWNERSHIP_COVERAGE" or "APPROVED_ROUTE" => "/Registry/Workloads",
+            "THRESHOLD_RESPONSE" or "SHARED_EXHAUSTION_RISK" => "/Operations/Events?open=false",
+            "RECERT_COMPLETION" or "OUTCOME_EVIDENCE" => "/Recertification?all=true",
+            "UNAPPROVED_FINDINGS" => "/Operations/Findings",
+            _ => null,
+        };
+        var note = isCount
+            ? (k.KpiCode == "SHARED_EXHAUSTION_RISK" ? $"exhaustion events on critical shared services, last 90 days (of {Ui.Num(k.Denominator)} events)" : "open now")
+            : $"{Ui.Num(k.Numerator ?? 0)} of {Ui.Num(k.Denominator)}";
         <div class="stat">
-            <div class="stat-label">@k.Name <help>@def.Item1 Source: @def.Item2.</help></div>
-            <div class="stat-value">@(isRatio ? (pct is null ? "No data" : pct + "%") : Ui.Num(k.Numerator ?? 0))</div>
-            <div class="stat-note">@(isRatio ? $"{Ui.Num(k.Numerator ?? 0)} of {Ui.Num(k.Denominator)}" : "open now")</div>
+            <div class="stat-label">@k.Name <help>@def.Item1 Source: @def.Item2.@(link is null ? "" : " Select the figure to see the list it counts.")</help></div>
+            @if (link is not null)
+            {
+                <a class="kpi-link" href="@link" aria-label="@k.Name: open the list it counts">
+                    <div class="stat-value">@(isRatio ? (pct is null ? "No data" : pct + "%") : Ui.Num(k.Numerator ?? 0))</div>
+                    <div class="stat-note">@note</div>
+                </a>
+            }
+            else
+            {
+                <div class="stat-value">@(isRatio ? (pct is null ? "No data" : pct + "%") : Ui.Num(k.Numerator ?? 0))</div>
+                <div class="stat-note">@note</div>
+            }
         </div>
     }
 </div>

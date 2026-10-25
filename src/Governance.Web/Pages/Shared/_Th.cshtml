@@ -8,5 +8,5 @@
 }
 else
 {
-    <a href="@Ui.SortHref(req, Model.Key)">@Model.Label@Ui.SortMark(req, Model.Key)</a>
+    <a href="@Ui.SortHref(req, Model.Key)">@(Model.Label)@(Ui.SortMark(req, Model.Key))</a>
 }<help label="About @Model.Label">@Model.Help</help></span></th>

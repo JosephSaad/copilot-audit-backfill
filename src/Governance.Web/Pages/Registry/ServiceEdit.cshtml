@@ -13,8 +13,8 @@
 <form method="post" class="card">
     <idem />
     <div class="form-grid">
-        <div class="field"><label asp-for="Input.Code" class="req">Code</label><input asp-for="Input.Code" maxlength="40" required /></div>
-        <div class="field"><label asp-for="Input.Name" class="req">Name</label><input asp-for="Input.Name" maxlength="200" required /></div>
+        <div class="field"><label asp-for="Input.Code" class="req">Code <help>A short unique code, used in reports and imports.</help></label><input asp-for="Input.Code" maxlength="40" required /></div>
+        <div class="field"><label asp-for="Input.Name" class="req">Name <help>The name people will see.</help></label><input asp-for="Input.Name" maxlength="200" required /></div>
         <div class="field"><label asp-for="Input.Harness">Harness <help>The runtime that executes agents, for example "Standard" or "GitHub Copilot". The GitHub harness makes build and test usage billable (C12).</help></label><input asp-for="Input.Harness" maxlength="100" /></div>
         <div class="field"><label asp-for="Input.RouteType">Route <help>Where its controls live.</help></label>
             <select asp-for="Input.RouteType"><option value="PPAC_ENVIRONMENT">Power Platform environment</option><option value="M365_POLICY">Microsoft 365 policy</option><option value="ENTRA_PACKAGE">Entra access package</option></select></div>
@@ -27,9 +27,9 @@
         <div class="field"><label asp-for="Input.AccessTiers">Access tiers <help>Comma list, for example Standard, Extended.</help></label><input asp-for="Input.AccessTiers" maxlength="200" /></div>
         <div class="field"><label asp-for="Input.OperationalOwnerPersonId">Operational owner <help>Setup step 2: every service has one.</help></label>
             <select asp-for="Input.OperationalOwnerPersonId"><option value="">Not named</option>@foreach (var p in Model.People) { <option value="@p.Value" selected="@(p.Value == Model.Input.OperationalOwnerPersonId?.ToString())">@p.Text</option> }</select></div>
-        <div class="field"><label asp-for="Input.ReviewOn">Next review</label><input asp-for="Input.ReviewOn" type="date" /></div>
+        <div class="field"><label asp-for="Input.ReviewOn">Next review <help>When this is next reviewed; reminders go out before it.</help></label><input asp-for="Input.ReviewOn" type="date" /></div>
         <div class="field full"><label class="check"><input type="checkbox" asp-for="Input.IsCustomerFacing" /> Customer-facing <help>Requests always go to specialist review (C13).</help></label></div>
-        <div class="field full"><label asp-for="Input.Description">Description</label><textarea asp-for="Input.Description" maxlength="2000"></textarea></div>
+        <div class="field full"><label asp-for="Input.Description">Description <help>A short plain-language description.</help></label><textarea asp-for="Input.Description" maxlength="2000"></textarea></div>
     </div>
     <button class="btn mt" type="submit">Save</button>
 </form>

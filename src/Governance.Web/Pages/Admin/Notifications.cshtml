@@ -16,16 +16,16 @@
 </div>
 <div class="table-wrap mt">
     <table class="stack">
-        <thead><tr><th scope="col">Rule</th><th scope="col">Recipients</th><th scope="col">Channels</th><th scope="col">Timing</th><th scope="col">Status</th></tr></thead>
+        <thead><tr><th scope="col">Rule <help>A notice the Workbench can send (N01 to N22 in the architecture).</help></th><th scope="col">Recipients <help>Who gets it. People who must act get it at once; people who are informed get the daily digest.</help></th><th scope="col">Channels <help>Email is the notice of record; Teams activity feed and channel cards are conveniences.</help></th><th scope="col">Timing <help>When it is sent and how it escalates.</help></th><th scope="col">Status <help>Turned off rules send nothing; the event is still recorded.</help></th></tr></thead>
         <tbody>
         @foreach (var r in Model.Rules)
         {
             <tr>
-                <td><strong>@r.Code</strong> @r.EventName<div class="small muted">@(r.IsAction ? "Action notice" : "Information digest")</div></td>
+                <td><strong>@r.EventName</strong> <span class="small muted">@r.Code</span><div class="small muted">@(r.IsAction ? "Action notice" : "Information digest")</div></td>
                 <td class="small">@r.Recipients</td>
                 <td class="small">@string.Join(", ", r.Channels.Split(',').Select(c => c switch { "EMAIL" => "Email", "ACTIVITY" => "Teams activity", "CHANNEL" => "Teams channel", "ITSM" => "ITSM", _ => c }))</td>
                 <td class="small">@r.Timing</td>
-                <td><form method="post" asp-route-code="@r.Code" asp-route-enabled="@(!r.IsEnabled)"><idem />@(r.IsEnabled ? Ui.Pill("ON", "ok") : Ui.Pill("OFF", "warn")) <button class="btn btn-small btn-ghost" type="submit">@(r.IsEnabled ? "Turn off" : "Turn on")</button></form></td>
+                <td><form method="post" asp-route-code="@r.Code" asp-route-enabled="@(!r.IsEnabled)"><idem />@(r.IsEnabled ? Ui.Pill("On", "ok") : Ui.Pill("Off", "warn")) <button class="btn btn-small btn-ghost" type="submit">@(r.IsEnabled ? "Turn off" : "Turn on")</button></form></td>
             </tr>
         }
         </tbody>

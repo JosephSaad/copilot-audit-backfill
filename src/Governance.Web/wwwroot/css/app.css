@@ -142,7 +142,7 @@ code, .mono { font-family: var(--mono); font-size: .9em; }
 .field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
 .field > label, .field > .label { font-weight: 600; font-size: .92rem; display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; }
 .field .hint { color: var(--muted); font-size: .84rem; }
-input[type=text], input[type=number], input[type=date], input[type=search], input[type=email], input[type=file], select, textarea {
+input:not([type]), input[type=text], input[type=number], input[type=date], input[type=search], input[type=email], input[type=url], input[type=file], select, textarea {
     width: 100%; min-height: 38px; padding: .45rem .6rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit;
 }
 textarea { min-height: 90px; resize: vertical; }
@@ -158,7 +158,7 @@ legend { font-weight: 650; padding: 0 .35rem; }
 .table-tools { display: flex; gap: .5rem; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: .75rem; }
 .table-tools form { display: flex; gap: .5rem; flex-wrap: wrap; flex: 1; min-width: 220px; }
 .table-tools input[type=search] { max-width: 360px; }
-.table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.table-wrap { position: relative; /* keeps absolutely positioned screen-reader text inside the scroll box */ width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { background: var(--surface-2); color: var(--text-2); font-weight: 650; font-size: .84rem; white-space: normal; }
@@ -169,6 +169,10 @@ tbody tr:last-child td { border-bottom: none; }
 td.num, th.num { text-align: right; }
 .empty { padding: 1.5rem; text-align: center; color: var(--muted); }
 .pager { display: flex; gap: .5rem; align-items: center; justify-content: flex-end; margin-top: .6rem; flex-wrap: wrap; color: var(--muted); font-size: .88rem; }
+/* Table cells wrap between words, never inside one (labels are shown whole). */
+th, td { overflow-wrap: break-word; word-break: normal; }
+.raci { min-width: 760px; }
+.raci th { min-width: 6.5rem; }
 .raci td, .raci th { text-align: center; }
 .raci td:first-child, .raci th:first-child { text-align: left; }
 .raci-A, .raci-AR { font-weight: 700; color: var(--brand); }
@@ -234,7 +238,8 @@ pre.json { background: var(--surface-2); border: 1px solid var(--border); border
     table.stack td::before { content: attr(data-label); position: absolute; left: .7rem; top: .3rem; width: 38%; color: var(--muted); font-size: .8rem; font-weight: 600; }
     table.stack td.num { text-align: left; }
     table.stack td.nowrap, table.stack .nowrap { white-space: normal; }
-    .table-wrap { overflow-x: visible; }
+    /* Card-style tables need no scroll; matrix tables (RACI) keep their own horizontal scroll inside the box. */
+    .table-wrap:has(> table.stack) { overflow-x: visible; }
 }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
@@ -243,3 +248,28 @@ pre.json { background: var(--surface-2); border: 1px solid var(--border); border
 .mt { margin-top: 1.5rem; }
 .mb0 { margin-bottom: 0; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* Stage chips: the state is in text and a mark, not color alone. */
+.steps li { display: inline-flex; gap: .35rem; align-items: baseline; }
+.steps li.skipped { background: transparent; border-style: dashed; color: var(--muted); }
+.steps .step-mark { font-weight: 700; }
+.steps .step-code { font-size: .72rem; opacity: .75; }
+.steps .step-state:empty { display: none; }
+.steps .step-state { font-size: .72rem; font-style: italic; }
+
+/* What to fix (returned, declined or held requests). */
+.fix-box { border-left: 4px solid var(--warn); background: var(--warn-soft); }
+.checklist { list-style: none; padding-left: 0; margin: .4rem 0; }
+.checklist li { padding-left: 1.6rem; position: relative; margin: .25rem 0; }
+.checklist li::before { content: "☐"; position: absolute; left: 0; color: var(--warn); }
+
+/* Notes under tables, linked figures. */
+.table-note { font-size: .82rem; color: var(--muted); margin-top: .4rem; }
+.kpi-link { color: inherit; text-decoration: none; display: block; }
+.kpi-link:hover .stat-value, .kpi-link:focus .stat-value { text-decoration: underline; }
+
+@media (max-width: 860px) {
+    .actas-banner { padding: .3rem .75rem; font-size: .85rem; gap: .5rem; }
+    form.card.form-grid { padding-top: 1rem; overflow: visible; }
+    .form-grid input, .form-grid select { min-width: 0; }
+}

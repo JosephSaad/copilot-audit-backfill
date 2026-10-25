@@ -12,7 +12,7 @@
     </div>
 </div>
 <form method="get" class="btn-row mb0">
-    <label for="st">Status</label>
+    <label for="st">Status <help>Discovered, registered, a build stage, production, suspended or retired.</help></label>
     <select id="st" name="state">@foreach (var s in states) { <option value="@s" selected="@(s == (Model.State ?? ""))">@(s == "" ? "All" : Ui.Words(s))</option> }</select>
     <button class="btn btn-small btn-ghost" type="submit">Filter</button>
 </form>

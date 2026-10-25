@@ -9,20 +9,30 @@
     var closed = d.Tasks.Where(t => t.Status != "OPEN").ToList();
     var visited = d.Timeline.Select(t => t.StageCode).Where(s => s is not null).ToHashSet();
     var w = d.Workload;
+    var name = await Lookups.NamesAsync(Db);
+    var stageNames = d.Stages.GroupBy(s => s.StageCode).ToDictionary(g => g.Key, g => g.First().Name);
+    var isSponsor = r.SponsorPersonId == Model.Principal.PersonId;
+    var lastDecline = d.Decisions.Where(x => x.Outcome is "DECLINED" or "HOLD").OrderByDescending(x => x.DecidedAtUtc).FirstOrDefault();
+    var needsFix = (Model.IsRequester || isSponsor) && (r.CurrentStage == "B7" || r.State is "RETURNED" or "DECLINED" or "ON_HOLD");
+    // The intake task that returned it is hidden from the requester by row-level security: read its notes for this request only.
+    var lastReturn = needsFix ? await Governance.Application.Queries.FixBoxQueries.LatestReturnAsync(Db, r.PublicId, Model.Principal.PersonId) : null;
+    // One checklist item per line, semicolon or sentence.
+    static IEnumerable<string> Items(string? text) => System.Text.RegularExpressions.Regex.Split(text ?? "", @"(?<=[.!?])\s+|\r?\n|;").Select(x => x.Trim()).Where(x => x.Length > 0);
 }
+@inject Governance.Application.Data.Db Db
 <div class="page-head">
     <div>
         <div class="crumbs"><a href="/Requests">Requests</a> › @r.RequestNumber</div>
         <h1>@r.Title</h1>
-        <p class="lead">@r.RequestNumber · @r.JourneyCode @d.JourneyName · @Ui.Pill(r.State) @(d.Stage is null ? "" : $"· now at {d.Stage.StageCode} {d.Stage.Name}")</p>
+        <p class="lead">@r.RequestNumber · @r.JourneyCode @d.JourneyName · @Ui.Pill(r.State) @(d.Stage is null ? "" : $"· now at {d.Stage.Name} ({d.Stage.StageCode})")</p>
     </div>
     <div class="page-actions">
-        @if (Model.IsRequester && r.State is "DRAFT" or "RETURNED" or "DECLINED")
+        @if (Model.IsRequester && (r.State == "DRAFT" || (!needsFix && r.State is "RETURNED" or "DECLINED")))
         {
             <a class="btn btn-ghost" href="/Requests/New/@r.JourneyCode?id=@r.PublicId">Edit</a>
             <form method="post" asp-page-handler="Submit"><idem /><button class="btn" type="submit">@(r.State == "DRAFT" ? "Submit" : "Resubmit")</button></form>
         }
-        @if (Model.IsRequester && (r.State == "DRAFT" || r.CurrentStage == "B7"))
+        @if (Model.IsRequester && (r.State == "DRAFT" || (!needsFix && r.CurrentStage == "B7")))
         {
             <form method="post" asp-page-handler="Withdraw" data-confirm="Withdraw this request? It closes and cannot be reopened."><idem /><button class="btn btn-ghost" type="submit">Withdraw</button></form>
         }
@@ -31,13 +41,66 @@
 
 @if (d.Stages.Count > 0)
 {
+    var chips = d.Stages.Where(s => s.StageCode != "B7").ToList();
+    var currentIndex = chips.FindIndex(s => s.StageCode == r.CurrentStage);
+    var finished = r.ClosedUtc is not null;
     <ol class="steps" aria-label="Stages">
-        @foreach (var s in d.Stages.Where(s => s.StageCode != "B7"))
+        @for (var i = 0; i < chips.Count; i++)
         {
+            var s = chips[i];
             var now = s.StageCode == r.CurrentStage;
-            <li class="@(now ? "now" : visited.Contains(s.StageCode) ? "done" : "")" aria-current="@(now ? "step" : null)">@s.StageCode @s.Name</li>
+            var passed = !now && (visited.Contains(s.StageCode) || (i == 0 && r.SubmittedUtc is not null));
+            var skipped = !now && !passed && (finished || (currentIndex >= 0 && i < currentIndex));
+            var state = now ? "current" : passed ? "done" : skipped ? "skipped" : "not reached";
+            <li class="@(now ? "now" : passed ? "done" : skipped ? "skipped" : "")" aria-current="@(now ? "step" : null)">
+                <span class="step-mark" aria-hidden="true">@(now ? "●" : passed ? "✓" : skipped ? "–" : "○")</span>
+                @s.Name <span class="step-code">@s.StageCode</span>
+                <span class="step-state" aria-hidden="true">@(now ? "now" : skipped ? "skipped" : "")</span><span class="sr-only">(@state)</span>
+            </li>
         }
     </ol>
+}
+
+@if (needsFix)
+{
+    <div class="card fix-box" role="region" aria-labelledby="fix-h">
+        <h2 id="fix-h">What to fix <help>No dead ends: whoever returned, declined or held this request said why and what is needed to go on. Fix it, then resubmit, or withdraw it.</help></h2>
+        @if (lastReturn is not null && (lastDecline is null || lastReturn.ReturnedUtc > lastDecline.DecidedAtUtc))
+        {
+            <p class="small muted">Returned at @lastReturn.StageName by @(lastReturn.ReturnedByName ?? "the intake team") on @Ui.Local(lastReturn.ReturnedUtc, "d MMM").</p>
+            @if (Items(lastReturn.Notes).Any())
+            {
+                <ul class="checklist">@foreach (var item in Items(lastReturn.Notes)) { <li>@item</li> }</ul>
+            }
+            else { <p>No details were written. Ask the intake team what is missing.</p> }
+        }
+        else if (lastDecline is not null)
+        {
+            <p class="small muted">@DecisionTypes.Label(lastDecline.DecisionType): @Outcomes.Label(lastDecline.Outcome) by @lastDecline.DeciderName on @Ui.Local(lastDecline.DecidedAtUtc, "d MMM").</p>
+            @if (!string.IsNullOrEmpty(lastDecline.ReasonText)) { <p><strong>Why:</strong> @lastDecline.ReasonText</p> }
+            @if (Items(lastDecline.RequiredEvidenceText).Any())
+            {
+                <p><strong>Evidence needed to go on:</strong></p>
+                <ul class="checklist">@foreach (var item in Items(lastDecline.RequiredEvidenceText)) { <li>@item</li> }</ul>
+            }
+        }
+        <div class="btn-row mt">
+            @if (Model.IsRequester && r.State is "RETURNED" or "DECLINED")
+            {
+                <a class="btn" href="/Requests/New/@r.JourneyCode?id=@r.PublicId">Edit the request</a>
+                <form method="post" asp-page-handler="Submit"><idem /><button class="btn btn-ghost" type="submit">Resubmit as it is</button></form>
+            }
+            @if (Model.IsRequester && r.CurrentStage == "B7")
+            {
+                <form method="post" asp-page-handler="Withdraw" data-confirm="Withdraw this request? It closes and cannot be reopened."><idem /><button class="btn btn-ghost" type="submit">Withdraw</button></form>
+            }
+            @if (r.State == "ON_HOLD")
+            {
+                <a class="btn" href="#open-tasks">Supply the evidence below</a>
+            }
+            @if (isSponsor && !Model.IsRequester) { <span class="small muted">The requester edits and resubmits; as sponsor you can help them with the evidence.</span> }
+        </div>
+    </div>
 }
 
 <div class="grid grid-2">
@@ -83,13 +146,14 @@
         {
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th scope="col">Function</th><th scope="col">Role</th><th scope="col">People</th></tr></thead>
+                    <thead><tr><th scope="col">Function <help>The organizational function in the RACI matrix.</help></th><th scope="col">Role <help>A decides, R does the work, C is consulted, I is informed in the daily digest.</help></th><th scope="col">People <help>Who holds that role in this request's scope today. People excluded by segregation of duties are not listed.</help></th></tr></thead>
                     <tbody>
                     @foreach (var l in d.WhoDoesWhat)
                     {
                         <tr>
                             <td>@l.FunctionName</td>
-                            <td><span class="raci-@l.RaciValue.Replace("/", "")">@l.RaciValue</span></td>
+                            @{ var raciWords = l.RaciValue switch { "A" => "decides", "A/R" => "decides and does the work", "R" => "does the work", "C" => "consulted", _ => "informed" }; }
+                            <td><span class="raci-@l.RaciValue.Replace("/", "")" title="@raciWords">@l.RaciValue</span><span class="sr-only"> (@raciWords)</span></td>
                             <td>@l.People</td>
                         </tr>
                     }
@@ -119,7 +183,7 @@
     </div>
 }
 
-<h2 class="mt">Open tasks</h2>
+<h2 class="mt" id="open-tasks">Open tasks</h2>
 @if (open.Count == 0)
 {
     <div class="card muted">No open task. @(r.State == "FULFILLMENT" ? "The change is being made in the admin center through the ITSM task; closing the ticket sends it to verification." : "")</div>
@@ -131,13 +195,13 @@
         <div class="task-head">
             <div class="task-title">@t.Title</div>
             <div class="btn-row">
-                @Ui.Pill(t.TaskType, "info")
-                @if (t.DueUtc is not null) { @Ui.Pill(t.DueUtc < DateTime.UtcNow ? "OVERDUE" : "DUE " + Ui.Local(t.DueUtc, "d MMM HH:mm"), t.DueUtc < DateTime.UtcNow ? "bad" : "info") }
+                @Ui.Pill(Labels.For(t.TaskType), "info")
+                @if (t.DueUtc is not null) { @Ui.Pill(t.DueUtc < DateTime.UtcNow ? "Overdue" : "Due " + Ui.Local(t.DueUtc, "d MMM HH:mm"), t.DueUtc < DateTime.UtcNow ? "bad" : "info") }
             </div>
         </div>
-        <div class="kv"><span>@Ui.TaskSentence(t.RoleName ?? (t.AssignedRoleCode == "REQUESTER" ? "the requester" : t.AssignedRoleCode), d.FundingOwnerName, t.StartedUtc, t.DueUtc, t.AssignedName)</span>@if (t.TaskType == "CONSULT") { <span>@(t.IsBlocking ? "The decision waits for this answer" : "Non-blocking")</span> }</div>
+        <div class="kv"><span>@Ui.TaskSentence(t.RoleName ?? (t.AssignedRoleCode == "REQUESTER" ? "the requester" : name(t.AssignedRoleCode)), d.FundingOwnerName, t.StartedUtc, t.DueUtc, t.AssignedName)</span>@if (t.TaskType == "CONSULT") { <span>@(t.IsBlocking ? "The decision waits for this answer" : "Non-blocking")</span> }</div>
         @if (!string.IsNullOrEmpty(t.Reason)) { <p class="small">@t.Reason</p> }
-        @if (t.ExcludedText is not null) { <p class="small muted">Cannot act (segregation of duties): @t.ExcludedText</p> }
+        @if (t.ExcludedText is not null) { <p class="small muted">Cannot act (segregation of duties): @string.Join(" ", (t.ExcludedText ?? "").Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(x => x.StartsWith("SOD") && x.Length == 4 ? Labels.For(x) : System.Text.RegularExpressions.Regex.Replace(x, "SOD[0-9]", m => Labels.For(m.Value))))</p> }
 
         @if (Model.CanClaim(t))
         {
@@ -202,8 +266,8 @@
                     <div class="field"><label for="e-@t.PublicId">Expires <help>Every approval expires or has a review date. Exceptions must expire.</help></label><input id="e-@t.PublicId" type="date" name="expires" value="@DateTime.UtcNow.AddMonths(Model.Payload.DurationMonths ?? 12).ToString("yyyy-MM-dd")" /></div>
                     <div class="field"><label for="n-@t.PublicId">Next review <help>Drives recertification reminders (N14).</help></label><input id="n-@t.PublicId" type="date" name="review" value="@DateTime.UtcNow.AddMonths(6).ToString("yyyy-MM-dd")" /></div>
                     <div class="field full" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="c-@t.PublicId">Condition <help>What must hold, who owns it and by when. More conditions can go in the text box.</help></label><input id="c-@t.PublicId" name="conditionText" maxlength="1000" /></div>
-                    <div class="field" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="co-@t.PublicId">Condition owner</label><select id="co-@t.PublicId" name="conditionOwner"><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
-                    <div class="field" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="cd-@t.PublicId">Condition due</label><input id="cd-@t.PublicId" type="date" name="conditionDue" /></div>
+                    <div class="field" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="co-@t.PublicId">Condition owner <help>The person who makes sure the condition holds; they get the reminders.</help></label><select id="co-@t.PublicId" name="conditionOwner"><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+                    <div class="field" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="cd-@t.PublicId">Condition due <help>When the condition must be met.</help></label><input id="cd-@t.PublicId" type="date" name="conditionDue" /></div>
                     <div class="field full"><label for="r-@t.PublicId">Reason <help>Required for a decline or hold; helpful for any decision.</help></label><textarea id="r-@t.PublicId" name="reason" maxlength="2000"></textarea></div>
                     <div class="field full" data-show-when="outcome=DECLINED|HOLD"><label for="ev-@t.PublicId">Evidence needed to proceed <help>No dead ends: the requester sees this checklist (B6, B7).</help></label><textarea id="ev-@t.PublicId" name="evidence" maxlength="2000"></textarea></div>
                     <div class="field full"><label for="f-@t.PublicId">Attach evidence <help>Optional. Stored with its SHA-256 hash in the ledger.</help></label><input id="f-@t.PublicId" type="file" name="file" /></div>
@@ -223,10 +287,10 @@
                 }
                 else
                 {
-                    <p class="small muted">Control template v@Model.Template.VersionNo for @Model.Template.ServiceName. Read-back checks compare with the last licensing read; attestation checks need evidence. The explicit deny case must be tested. Allow up to 15 minutes for credit availability to refresh.</p>
+                    <p class="small muted">Control template version @(Model.Template.VersionNo) for @Model.Template.ServiceName. Read-back checks compare with the last licensing read; attestation checks need evidence. The explicit deny case must be tested. Allow up to 15 minutes for credit availability to refresh.</p>
                     <div class="table-wrap">
                         <table class="stack">
-                            <thead><tr><th scope="col">Check</th><th scope="col">Expected</th><th scope="col">Found</th><th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>
+                            <thead><tr><th scope="col">Check <help>What the control template says must be true after the change.</help></th><th scope="col">Expected <help>The approved value from the control template.</help></th><th scope="col">Found <help>The value read back from Microsoft, or what you see in the admin center.</help></th><th scope="col">Result <help>Pass only when the found value matches the expected one.</help></th><th scope="col">Evidence <help>Attestation and test checks need a screenshot or export.</help></th></tr></thead>
                             <tbody>
                             @foreach (var c in Model.Checks)
                             {
@@ -234,15 +298,15 @@
                                 var found = c.SettingKey switch
                                 {
                                     "allocationCredits" => Ui.Num(Model.Posture?.ReadAllocation),
-                                    "tenantPoolEnabled" => Model.Posture?.ReadTenantPool?.ToString().ToLowerInvariant() ?? "",
+                                    "tenantPoolEnabled" => Labels.Value(Model.Posture?.ReadTenantPool?.ToString()),
                                     _ => "",
                                 };
                                 <tr>
-                                    <td><strong>@c.CheckCode</strong>@(c.IsDenyCase ? " (deny case)" : "")<div class="small">@c.Description</div><div class="small muted">@Ui.Words(c.Method)@(c.CaveatCode is null ? "" : " · " + c.CaveatCode)</div></td>
-                                    <td>@exp</td>
-                                    <td><input name="actual_@c.ControlCheckId" value="@found" aria-label="Value found for @c.CheckCode" maxlength="200" /></td>
-                                    <td><select name="check_@c.ControlCheckId" aria-label="Result for @c.CheckCode"><option value="fail">Fail</option><option value="pass">Pass</option></select></td>
-                                    <td>@if (c.Method != "READBACK") { <input type="file" name="file_@c.ControlCheckId" aria-label="Evidence for @c.CheckCode" /> } else { <span class="muted small">Read-back @(Model.Posture?.ReadAsOf is null ? "not run yet" : "as of " + Ui.Local(Model.Posture.ReadAsOf))</span> }</td>
+                                    <td><strong>@c.Description</strong>@(c.IsDenyCase ? " (deny case: something must be refused)" : "")<div class="small muted">@Ui.Words(c.Method)@(c.CaveatCode is null ? "" : " · caveat " + c.CaveatCode)</div></td>
+                                    <td>@Labels.Value(exp)</td>
+                                    <td><input name="actual_@c.ControlCheckId" value="@found" aria-label="Value found for @c.Description" maxlength="200" /></td>
+                                    <td><select name="check_@c.ControlCheckId" aria-label="Result for @c.Description"><option value="fail">Fail</option><option value="pass">Pass</option></select></td>
+                                    <td>@if (c.Method != "READBACK") { <input type="file" name="file_@c.ControlCheckId" aria-label="Evidence for @c.Description" /> } else { <span class="muted small">Read-back @(Model.Posture?.ReadAsOf is null ? "not run yet" : "as of " + Ui.Local(Model.Posture.ReadAsOf))</span> }</td>
                                 </tr>
                             }
                             </tbody>
@@ -250,7 +314,7 @@
                     </div>
                     <div class="form-grid mt">
                         <div class="field"><label for="cv">Configuration version <help>The admin center's version or change reference, if any.</help></label><input id="cv" name="configurationVersion" maxlength="100" /></div>
-                        <div class="field"><label for="vn">Notes</label><input id="vn" name="notes" maxlength="2000" /></div>
+                        <div class="field"><label for="vn">Notes <help>Anything the next person should know, such as how you tested the deny case.</help></label><input id="vn" name="notes" maxlength="2000" /></div>
                     </div>
                     <button class="btn mt" type="submit">Record verification</button>
                 }
@@ -286,15 +350,15 @@
     <h2 class="mt">Decisions <help k="req.decisions">Every decision is an immutable row in a ledger table: decider, role, RACI version and activity, scope, conditions, expiry and next review.</help></h2>
     <div class="table-wrap">
         <table class="stack">
-            <thead><tr><th scope="col">Decision</th><th scope="col">Outcome</th><th scope="col">Decider</th><th scope="col">Scope and conditions</th><th scope="col">Expiry, review</th></tr></thead>
+            <thead><tr><th scope="col">Decision <help>The type of decision and when it was made.</help></th><th scope="col">Outcome <help>Approved, with conditions, constrained pilot, on hold or declined.</help></th><th scope="col">Decider <help>The person, the role they decided in, and the RACI activity it falls under.</help></th><th scope="col">Scope and conditions <help>What the decision covers and what must hold.</help></th><th scope="col">Expiry, review <help>Every approval expires or has a review date.</help></th></tr></thead>
             <tbody>
             @foreach (var x in d.Decisions)
             {
                 <tr>
-                    <td><strong>@DecisionTypes.Label(x.DecisionType)</strong><div class="small muted">@x.StageCode · @Ui.Local(x.DecidedAtUtc) · @x.Source</div></td>
+                    <td><strong>@DecisionTypes.Label(x.DecisionType)</strong><div class="small muted">@(x.StageCode is null || (stageNames.TryGetValue(x.StageCode, out var sn) && sn == DecisionTypes.Label(x.DecisionType)) ? "" : (stageNames.TryGetValue(x.StageCode, out var sn2) ? sn2 : x.StageCode) + " · ")@Ui.Local(x.DecidedAtUtc) · @Labels.For(x.Source)</div></td>
                     <td>@Ui.Pill(x.Outcome)</td>
-                    <td>@x.DeciderName<div class="small muted">@Ui.Words(x.DeciderRoleCode)@(x.DelegationId is null ? "" : " under delegation") · RACI v@x.RaciVersionNo @Ui.Words(x.RaciActivityCode)</div></td>
-                    <td>@x.ScopeText@if (x.ConditionsText is not null) { <div class="small">Conditions: @x.ConditionsText</div> }@if (x.ReasonText is not null) { <div class="small">Reason: @x.ReasonText</div> }@if (x.RequiredEvidenceText is not null) { <div class="small"><strong>Evidence needed:</strong> @x.RequiredEvidenceText</div> }</td>
+                    <td>@x.DeciderName<div class="small muted">@name(x.DeciderRoleCode)@(x.DelegationId is null ? "" : " under delegation") · @name(x.RaciActivityCode), RACI version @(x.RaciVersionNo)</div></td>
+                    <td>@(x.ScopeText)@if (x.ConditionsText is not null) { <div class="small">Conditions: @x.ConditionsText</div> }@if (x.ReasonText is not null) { <div class="small">Reason: @x.ReasonText</div> }@if (x.RequiredEvidenceText is not null) { <div class="small"><strong>Evidence needed:</strong> @x.RequiredEvidenceText</div> }</td>
                     <td>@(x.ExpiresOn is null ? "" : "Expires " + Ui.Date(x.ExpiresOn))<div>@(x.NextReviewOn is null ? "" : "Review " + Ui.Date(x.NextReviewOn))</div></td>
                 </tr>
             }
@@ -317,8 +381,8 @@
             <idem />
             <div class="form-grid">
                 <div class="field"><label for="up-file">File <help>PNG, JPG, PDF, CSV, JSON, XLSX, DOCX or TXT, up to 20 MB. Files are checked and scanned before they are accepted.</help></label><input id="up-file" type="file" name="file" required /></div>
-                <div class="field"><label for="up-type">Type</label><select id="up-type" name="evidenceType"><option value="SCREENSHOT">Screenshot</option><option value="EXPORT">Export</option><option value="TEST_RESULT">Test result</option><option value="OUTCOME">Outcome</option><option value="OTHER">Other</option></select></div>
-                <div class="field full"><label for="up-desc">Description</label><input id="up-desc" name="description" maxlength="1000" /></div>
+                <div class="field"><label for="up-type">Type <help>What kind of evidence this is; it decides where it counts (for example test results for production acceptance).</help></label><select id="up-type" name="evidenceType"><option value="SCREENSHOT">Screenshot</option><option value="EXPORT">Export</option><option value="TEST_RESULT">Test result</option><option value="OUTCOME">Outcome</option><option value="OTHER">Other</option></select></div>
+                <div class="field full"><label for="up-desc">Description <help>One line on what the file shows.</help></label><input id="up-desc" name="description" maxlength="1000" /></div>
             </div>
             <button class="btn btn-ghost mt" type="submit">Add evidence</button>
         </form>
@@ -350,8 +414,9 @@
     <ol class="timeline">
         @foreach (var e in d.Timeline)
         {
-            <li><div><strong>@Ui.Words(e.EventType)</strong>@(e.StageCode is null ? "" : " · " + e.StageCode)@(e.ToState is not null && e.ToState != e.FromState ? " → " + Ui.Words(e.ToState) : "")</div>
-                @if (!string.IsNullOrEmpty(e.Text)) { <div>@e.Text</div> }
+            var line = Labels.Timeline(e.EventType, e.StageCode, e.StageCode is null ? null : stageNames.GetValueOrDefault(e.StageCode), e.FromState, e.ToState, e.EventType == "TRANSITION" ? e.Text : null);
+            <li><div><strong>@line</strong></div>
+                @if (!string.IsNullOrEmpty(e.Text) && e.EventType != "TRANSITION") { <div>@e.Text</div> }
                 <div class="when">@Ui.Local(e.Utc)@(e.PersonName is null ? "" : " · " + e.PersonName)</div></li>
         }
     </ol>

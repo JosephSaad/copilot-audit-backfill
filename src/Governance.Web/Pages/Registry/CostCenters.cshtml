@@ -7,7 +7,7 @@
     <div>
         <div class="crumbs">Registry</div>
         <h1>Cost centers</h1>
-        <p class="lead">Finance accounting units used for showback, each belonging to one funding owner at a time. Moving a cost center is versioned, so reports for past dates still show who owned it then (H3). Finance validates each one.</p>
+        <p class="lead">Finance accounting units used for showback, each belonging to one funding owner at a time. Moving a cost center is versioned, so reports for past dates still show who owned it then. Finance validates each one. <help>Process references: H3.</help></p>
     </div>
 </div>
 <partial name="_Search" model="Model.Search" />
@@ -44,10 +44,10 @@
             <idem />
             <h2>Add a cost center</h2>
             <div class="form-grid">
-                <div class="field"><label for="cc" class="req">Code</label><input id="cc" name="code" required maxlength="100" /></div>
-                <div class="field"><label for="cn" class="req">Name</label><input id="cn" name="name" required maxlength="200" /></div>
-                <div class="field"><label for="cf">Finance node</label><input id="cf" name="financeNode" maxlength="100" /></div>
-                <div class="field"><label for="co" class="req">Funding owner</label><select id="co" name="fundingOwnerId" required>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
+                <div class="field"><label for="cc" class="req">Code <help>The cost center code as Finance uses it, and as it appears in Entra (employeeOrgData).</help></label><input id="cc" name="code" required maxlength="100" /></div>
+                <div class="field"><label for="cn" class="req">Name <help>The cost center's name.</help></label><input id="cn" name="name" required maxlength="200" /></div>
+                <div class="field"><label for="cf">Finance node <help>Where it sits in the Finance hierarchy.</help></label><input id="cf" name="financeNode" maxlength="100" /></div>
+                <div class="field"><label for="co" class="req">Funding owner <help>The LOB or Enterprise Shared unit that owns this cost center from now on.</help></label><select id="co" name="fundingOwnerId" required>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
             </div>
             <button class="btn btn-ghost mt" type="submit">Add</button>
         </form>
@@ -56,7 +56,7 @@
             <form method="post" asp-page-handler="Import" enctype="multipart/form-data" class="card">
                 <idem />
                 <h2>Import from Finance <help>A CSV with the columns Code, Name, FinanceNode, FundingOwnerCode. Existing codes are updated, new ones added; imported rows count as validated by Finance.</help></h2>
-                <div class="field"><label for="cv">CSV file</label><input id="cv" type="file" name="file" accept=".csv" required /></div>
+                <div class="field"><label for="cv">CSV file <help>A Finance export with columns Code, Name, FinanceNode, FundingOwnerCode.</help></label><input id="cv" type="file" name="file" accept=".csv" required /></div>
                 <button class="btn btn-ghost mt" type="submit">Import</button>
             </form>
         }

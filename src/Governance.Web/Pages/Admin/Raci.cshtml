@@ -4,6 +4,36 @@
     ViewData["Title"] = "RACI";
     var m = Model.M;
     string Cls(string v) => "raci-" + v.Replace("/", "");
+    // The deck's order: rows grouped by the accountable function (business owner, Digital Workplace, Finance, Security).
+    var deckOrder = new[]
+    {
+        "Business case and measurable outcome",
+        "Funding, annual budget and overage authorization",
+        "Enterprise Shared continuity acceptance",
+        "Lifecycle recertification and retirement",
+        "Solution classification, routing and platform feature approval",
+        "Environment and policy pattern",
+        "Technical implementation, monitoring and operational response",
+        "Microsoft capability evidence validation",
+        "P3 evaluation and purchase recommendation",
+        "Consumption forecast, estimator and credits-versus-license review",
+        "Cost-center mapping, showback, chargeback and reconciliation",
+        "Security and risk acceptance",
+    };
+    // The deck's seven columns; Commercial authority and Microsoft are in its footnote.
+    var deckFunctions = new[] { "BUSINESS_OWNER", "PLATFORM_OWNER", "FINANCE", "ARCHITECTURE", "ENG_OPS", "SECURITY_RISK", "SOURCING" };
+    var functionHelp = new Dictionary<string, string>
+    {
+        ["BUSINESS_OWNER"] = "The LOB business owner or Enterprise Shared service owner of the funding owner.",
+        ["PLATFORM_OWNER"] = "Digital Workplace: the Platform Owner.",
+        ["FINANCE"] = "Finance, TBM and FinOps.",
+        ["ARCHITECTURE"] = "Architecture.",
+        ["ENG_OPS"] = "Engineering and Platform Operations.",
+        ["SECURITY_RISK"] = "Security and Risk, including privacy and model risk.",
+        ["COMMERCIAL"] = "The authorized commercial owner who approves purchases and renewals.",
+        ["SOURCING"] = "Sourcing and Procurement: executes approved purchases.",
+        ["MICROSOFT"] = "Microsoft supplies capability evidence and advice and holds no R or A.",
+    };
 }
 <div class="page-head">
     <div>
@@ -22,7 +52,7 @@
         <strong>Versions:</strong>
         @foreach (var v in Model.Versions)
         {
-            <a class="btn btn-small @(v.VersionNo == m?.Version.VersionNo ? "" : "btn-ghost")" href="/Admin/Raci?v=@v.VersionNo">v@v.VersionNo · @Ui.Words(v.Status)</a>
+            <a class="btn btn-small @(v.VersionNo == m?.Version.VersionNo ? "" : "btn-ghost")" href="/Admin/Raci?v=@v.VersionNo">Version @(v.VersionNo) · @Ui.Words(v.Status)</a>
         }
         @if (!Model.Versions.Any(v => v.Status is "DRAFT" or "PENDING"))
         {
@@ -47,21 +77,23 @@
 </div>
 @if (m is not null)
 {
-    <p class="small muted">R: responsible (does the work). A: accountable (decides). C: consulted. I: informed (daily digest). Microsoft supplies capability evidence and advice and holds no R or A.</p>
+    <p class="small muted">R: responsible (does the work). A: accountable (decides). C: consulted. @(Model.Simplified ? "Blank: informed (daily digest)." : "I: informed (daily digest).") Microsoft supplies capability evidence and advice and holds no R or A.</p>
     <div class="table-wrap">
         <table class="raci">
             <thead>
             <tr>
-                <th scope="col">@(Model.Simplified ? "Simplified row" : "Activity")</th>
-                @foreach (var f in m.Functions) { <th scope="col">@f.Name</th> }
+                <th scope="col">@(Model.Simplified ? "Simplified row" : "Activity") <help>Each decision or piece of work in the operating model, with the process stages it governs.</help></th>
+                @foreach (var f in m.Functions.Where(f => !Model.Simplified || deckFunctions.Contains(f.FunctionCode))) { <th scope="col">@f.Name <help>@(functionHelp.GetValueOrDefault(f.FunctionCode, f.Name))</help></th> }
             </tr>
             </thead>
             <tbody>
             @if (Model.Simplified)
             {
-                @foreach (var row in m.Simplified())
+                var rows = m.Simplified().Where(r => !r.Row.StartsWith("Footnote", StringComparison.OrdinalIgnoreCase))
+                              .OrderBy(r => Array.IndexOf(deckOrder, r.Row) is var i && i >= 0 ? i : 99).ToList();
+                @foreach (var row in rows)
                 {
-                    <tr><td>@row.Row</td>@foreach (var f in m.Functions) { var val = row.Cells[f.FunctionCode]; <td class="@Cls(val)">@(val == "I" ? "" : val)<span class="sr-only">@(val == "I" ? "Informed" : "")</span></td> }</tr>
+                    <tr><td>@row.Row</td>@foreach (var f in m.Functions.Where(f => deckFunctions.Contains(f.FunctionCode))) { var val = row.Cells[f.FunctionCode]; <td class="@Cls(val)">@(val == "I" ? "" : val)<span class="sr-only">@(val == "I" ? "Informed" : "")</span></td> }</tr>
                 }
             }
             else
@@ -91,4 +123,8 @@
             </tbody>
         </table>
     </div>
+    @if (Model.Simplified)
+    {
+        <p class="table-note">Finance owns evaluation and attribution. The authorized commercial owner approves purchase and renewal; Sourcing executes. Microsoft supplies capability evidence and advice, with no R or A. Seventeen activities are merged into twelve rows; where merged activities differ between C and I, the row shows C.</p>
+    }
 }
