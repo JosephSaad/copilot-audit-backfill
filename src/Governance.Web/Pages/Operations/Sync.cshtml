@@ -7,7 +7,7 @@
     <div>
         <div class="crumbs">Operations</div>
         <h1>Sync and freshness</h1>
-        <p class="lead">Where the Workbench's Microsoft data comes from and how fresh it is (H10). The worker reads Entra and licensing on a schedule; the Power Platform inventory accepts only a signed-in operator's token, so an operator runs it here, at least weekly and before every verification.</p>
+        <p class="lead">Where the Workbench's Microsoft data comes from and how fresh it is. The worker reads Entra and licensing on a schedule; the Power Platform inventory accepts only a signed-in operator's token, so an operator runs it here, at least weekly and before every verification. <help>Process references: H10.</help></p>
     </div>
 </div>
 <div class="grid grid-3">
@@ -33,7 +33,7 @@
 <h2 class="mt">Freshness by source</h2>
 <div class="table-wrap">
     <table class="stack">
-        <thead><tr><th scope="col">Source</th><th scope="col">Last success <help>When this source last delivered data.</help></th><th scope="col">Last run</th><th scope="col">Status</th><th scope="col">Fresh? <help>Stale beyond the freshness target: directory and entitlements 30 minutes, licensing 24 hours, inventory 7 days.</help></th></tr></thead>
+        <thead><tr><th scope="col">Source <help>The Microsoft or ITSM source this sync reads.</help></th><th scope="col">Last success <help>When this source last delivered data.</help></th><th scope="col">Last run <help>When it last ran and how old its data is.</help></th><th scope="col">Status <help>Succeeded, partly done or failed. Failures show an incident reference, never the raw error.</help></th><th scope="col">Fresh? <help>Stale beyond the freshness target: directory and entitlements 30 minutes, licensing 24 hours, inventory 7 days.</help></th></tr></thead>
         <tbody>
         @foreach (var f in Model.Freshness)
         {
@@ -41,11 +41,11 @@
             var health = Model.Health.FirstOrDefault(h => h.Code == f.Integration);
             var stale = health?.Stale ?? (f.LastSuccessUtc is null || f.LastSuccessUtc < DateTime.UtcNow.AddHours(-def.MaxAgeHours));
             <tr>
-                <td><strong>@f.Integration</strong> @def.Name<div class="small muted">@health?.Mode @health?.Note</div></td>
+                <td><strong>@def.Name</strong><div class="small muted">@Ui.Words(health?.Mode) @health?.Note</div></td>
                 <td>@(f.LastSuccessUtc is null ? "Never" : Ui.Local(f.LastSuccessUtc))<div class="small muted">@Ui.Ago(f.LastSuccessUtc)</div></td>
                 <td>@Ui.Local(f.LastRunUtc)</td>
                 <td>@(f.LastStatus is null ? "—" : Ui.Pill(f.LastStatus))</td>
-                <td>@(stale ? Ui.Pill("STALE", "warn") : Ui.Pill("FRESH", "ok"))</td>
+                <td>@(f.LastSuccessUtc is null ? Ui.Pill("Never run", "warn") : stale ? Ui.Pill("Stale", "warn") : Ui.Pill("Fresh", "ok"))</td>
             </tr>
         }
         </tbody>
@@ -54,12 +54,12 @@
 <h2 class="mt">Recent runs</h2>
 <div class="table-wrap">
     <table class="stack">
-        <thead><tr><th scope="col">Source</th><th scope="col">Mode</th><th scope="col">Started</th><th scope="col">Finished</th><th scope="col">Status</th><th scope="col">Items, findings</th><th scope="col">Note</th></tr></thead>
+        <thead><tr><th scope="col">Source <help>The Microsoft or ITSM source this sync reads.</help></th><th scope="col">Mode <help>Who signed in for it: the worker on its own, or the operator who pressed Run.</help></th><th scope="col">Started <help>When the run began.</help></th><th scope="col">Finished <help>When it ended.</help></th><th scope="col">Status <help>Succeeded, partly done or failed. Failures show an incident reference, never the raw error.</help></th><th scope="col">Items, findings <help>How many items it read, and how many findings it raised (unregistered items, drift).</help></th><th scope="col">Note <help>The run's summary in plain words.</help></th></tr></thead>
         <tbody>
         @foreach (var r in Model.Runs.Items)
         {
             <tr>
-                <td>@r.Integration</td>
+                <td>@(Governance.Web.Pages.Operations.SyncModel.Integrations.TryGetValue(r.Integration, out var rd) ? rd.Name : r.Integration)</td>
                 <td>@Ui.Words(r.Mode)@(r.TriggeredByName is null ? "" : " by " + r.TriggeredByName)</td>
                 <td class="small">@Ui.Local(r.StartedUtc)</td>
                 <td class="small">@Ui.Local(r.FinishedUtc)</td>

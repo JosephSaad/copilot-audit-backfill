@@ -14,7 +14,7 @@
 </div>
 <form method="get" class="btn-row mb0">
     <input type="hidden" name="open" value="@Model.Open" />
-    <label for="ft">Kind</label>
+    <label for="ft">Kind <help>Show one kind of finding, such as an unregistered agent or allocation drift.</help></label>
     <select id="ft" name="type">@foreach (var t in types) { <option value="@t" selected="@(t == (Model.Type ?? ""))">@(t == "" ? "All" : Ui.Words(t))</option> }</select>
     <button class="btn btn-small btn-ghost" type="submit">Filter</button>
 </form>

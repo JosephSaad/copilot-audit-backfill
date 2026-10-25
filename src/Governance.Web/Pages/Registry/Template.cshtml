@@ -37,12 +37,12 @@
             </div>
             <div class="field"><label for="pe">Permitted exceptions <help>What an exception may change for this route, if anything.</help></label><textarea id="pe" name="permittedExceptions" maxlength="1000">@t.PermittedExceptions</textarea></div>
             <div class="field"><label for="or">Operator roles <help>Who configures in the admin center through ITSM.</help></label><input id="or" name="operatorRoles" value="@t.OperatorRoles" maxlength="400" /></div>
-            <div class="field full"><label for="nt">Notes</label><textarea id="nt" name="notes" maxlength="2000">@t.Notes</textarea></div>
+            <div class="field full"><label for="nt">Notes <help>Why this version differs from the last.</help></label><textarea id="nt" name="notes" maxlength="2000">@t.Notes</textarea></div>
         </div>
         <h2 class="mt">Verification checks <help>Each check is a read-back from Microsoft's API, an operator attestation with evidence, or test evidence. At least one must be the explicit deny case: proof that what should be refused is refused.</help></h2>
         <div class="table-wrap">
             <table class="stack">
-                <thead><tr><th scope="col">Code</th><th scope="col">What is checked</th><th scope="col">Method</th><th scope="col">Setting</th><th scope="col">Deny case</th><th scope="col">Caveat</th></tr></thead>
+                <thead><tr><th scope="col">Code <help>A short name for the check, used in reports.</help></th><th scope="col">What is checked <help>What must be true after the change.</help></th><th scope="col">Method <help>Read back from Microsoft, confirmed by a person with evidence, or shown by test results.</help></th><th scope="col">Setting <help>The setting in the template the read-back compares with.</help></th><th scope="col">Deny case <help>A check that something is refused, such as a limit stopping use. Every template needs one.</help></th><th scope="col">Caveat <help>The caveat from the process this check guards against.</help></th></tr></thead>
                 <tbody>
                 @for (var i = 0; i < rows.Count + blanks; i++)
                 {

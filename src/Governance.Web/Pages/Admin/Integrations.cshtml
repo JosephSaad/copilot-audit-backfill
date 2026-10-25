@@ -7,7 +7,7 @@
     <div>
         <div class="crumbs">Admin</div>
         <h1>Integrations and jobs</h1>
-        <p class="lead">The last successful run of every worker job and integration. All calls go out from the data center; nothing calls in. Two failures in a row alert the administrators (N19); data older than its freshness target shows a staleness banner where it is used.</p>
+        <p class="lead">The last successful run of every worker job and integration. All calls go out from the data center; nothing calls in. Two failures in a row alert the administrators; data older than its freshness target shows a staleness banner where it is used. <help>Process references: N19.</help></p>
     </div>
 </div>
 @if (!Model.InfrastructureInstalled)
@@ -15,20 +15,20 @@
     <div class="alert alert-warn">The integration module is not installed on this web server, so live health is not shown. Job history below comes from the database.</div>
 }
 <div class="grid grid-3">
-    <div class="stat"><div class="stat-label">Outbox waiting</div><div class="stat-value">@Model.Outbox.Pending</div><div class="stat-note">@(Model.Outbox.OldestPendingUtc is null ? "Nothing waiting" : "oldest " + Ui.Ago(Model.Outbox.OldestPendingUtc))</div></div>
-    <div class="stat"><div class="stat-label">Dead letters</div><div class="stat-value">@Model.Outbox.DeadLettered</div></div>
-    <div class="stat"><div class="stat-label">Jobs reporting</div><div class="stat-value">@Model.Jobs.Count</div></div>
+    <div class="stat"><div class="stat-label">Outbox waiting <help>Notices and ITSM commands written but not yet delivered. It should stay near zero.</help></div><div class="stat-value">@Model.Outbox.Pending</div><div class="stat-note">@(Model.Outbox.OldestPendingUtc is null ? "Nothing waiting" : "oldest " + Ui.Ago(Model.Outbox.OldestPendingUtc))</div></div>
+    <div class="stat"><div class="stat-label">Dead letters <help>Messages that failed after every retry; administrators get an alert (N19).</help></div><div class="stat-value">@Model.Outbox.DeadLettered</div></div>
+    <div class="stat"><div class="stat-label">Jobs reporting <help>Worker jobs that have reported a run.</help></div><div class="stat-value">@Model.Jobs.Count</div></div>
 </div>
 @if (Model.Health.Count > 0)
 {
     <h2 class="mt">Integrations</h2>
     <div class="table-wrap">
         <table class="stack">
-            <thead><tr><th scope="col">Integration</th><th scope="col">Mode</th><th scope="col">Last success</th><th scope="col">Status</th><th scope="col">Note</th></tr></thead>
+            <thead><tr><th scope="col">Integration <help>A Microsoft or ITSM connection the Workbench reads from (X1 to X12 in the architecture).</help></th><th scope="col">Mode <help>How it signs in: the worker on its own (app-only), a signed-in operator, an uploaded file, or a test double.</help></th><th scope="col">Last success <help>When it last finished without an error. Data older than its freshness target raises an alert.</help></th><th scope="col">Status <help>Stale means the data is older than its freshness target; two failures in a row also alert administrators (N19).</help></th><th scope="col">Note <help>What the last run said, in plain words. Errors are in the log under the reference shown.</help></th></tr></thead>
             <tbody>
             @foreach (var h in Model.Health)
             {
-                <tr><td><strong>@h.Code</strong> @h.Name</td><td>@h.Mode</td><td>@Ui.Local(h.LastSuccessUtc) <div class="small muted">@Ui.Ago(h.LastSuccessUtc)</div></td><td>@(h.Stale ? Ui.Pill("STALE", "warn") : Ui.Pill(h.LastStatus ?? "OK"))</td><td class="small">@h.Note</td></tr>
+                <tr><td><strong>@h.Name</strong><div class="small muted">@h.Code</div></td><td>@Ui.Words(h.Mode)</td><td>@Ui.Local(h.LastSuccessUtc) <div class="small muted">@Ui.Ago(h.LastSuccessUtc)</div></td><td>@(h.Stale ? Ui.Pill("Stale", "warn") : Ui.Pill(h.LastStatus ?? "OK"))</td><td class="small">@h.Note</td></tr>
             }
             </tbody>
         </table>
@@ -40,7 +40,7 @@ else
 {
     <div class="table-wrap">
         <table class="stack">
-            <thead><tr><th scope="col">Job</th><th scope="col">Last success</th><th scope="col">Last run</th><th scope="col">Status</th><th scope="col">Message</th></tr></thead>
+            <thead><tr><th scope="col">Job <help>A background job of the worker, such as the outbox dispatcher or the SLA timer.</help></th><th scope="col">Last success <help>When it last finished without an error. Data older than its freshness target raises an alert.</help></th><th scope="col">Last run <help>When it last started, successful or not.</help></th><th scope="col">Status <help>Stale means the data is older than its freshness target; two failures in a row also alert administrators (N19).</help></th><th scope="col">Message <help>The job's own summary of its last run.</help></th></tr></thead>
             <tbody>@foreach (var j in Model.Jobs) { <tr><td>@j.JobName</td><td>@Ui.Local(j.LastSuccessUtc)</td><td>@Ui.Local(j.LastRunUtc)</td><td>@(j.LastStatus is null ? "—" : Ui.Pill(j.LastStatus))</td><td class="small">@j.Message</td></tr> }</tbody>
         </table>
     </div>
@@ -48,7 +48,7 @@ else
 <h2 class="mt">Data freshness</h2>
 <div class="table-wrap">
     <table class="stack">
-        <thead><tr><th scope="col">Source</th><th scope="col">Last success</th><th scope="col">Last status</th></tr></thead>
+        <thead><tr><th scope="col">Source <help>Where the data comes from.</help></th><th scope="col">Last success <help>When it last finished without an error. Data older than its freshness target raises an alert.</help></th><th scope="col">Last status <help>The result of the most recent run.</help></th></tr></thead>
         <tbody>@foreach (var f in Model.Freshness) { <tr><td>@f.Integration @Governance.Web.Pages.Operations.SyncModel.Integrations[f.Integration].Name</td><td>@(f.LastSuccessUtc is null ? "Never" : Ui.Local(f.LastSuccessUtc))</td><td>@(f.LastStatus is null ? "—" : Ui.Pill(f.LastStatus))</td></tr> }</tbody>
     </table>
 </div>

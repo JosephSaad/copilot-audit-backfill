@@ -80,7 +80,7 @@
     <h2>People and roles <help>LOB roles are assigned by the business owner or the Platform Owner, with an effective period, and reviewed every year. A leaver or a role holder who changes cost center raises a vacancy finding (N20).</help></h2>
     <div class="table-wrap">
         <table class="stack">
-            <thead><tr><th scope="col">Person</th><th scope="col">Role</th><th scope="col">From</th><th scope="col">Until</th><th scope="col">Source</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
+            <thead><tr><th scope="col">Person <help>Who holds the role for this funding owner.</help></th><th scope="col">Role <help>What they do for this funding owner.</help></th><th scope="col">From <help>The first day it applies.</help></th><th scope="col">Until <help>The last day it applies.</help></th><th scope="col">Source <help>Assigned here, synced from an Entra group, or seeded.</help></th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
             <tbody>
             @foreach (var r in d.Roles)
             {
@@ -100,9 +100,9 @@
     {
         <form method="post" asp-page-handler="Role" class="form-grid mt">
             <idem />
-            <div class="field"><label for="rp">Person</label><select id="rp" name="personId" required><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+            <div class="field"><label for="rp">Person <help>Who holds the role for this funding owner.</help></label><select id="rp" name="personId" required><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
             <div class="field"><label for="rr">Role <help>Delegated approvers need a delegation too (below) to approve; the role alone lets them see this funding owner.</help></label><select id="rr" name="roleCode">@foreach (var r in Model.LobRoles) { <option value="@r.RoleCode">@r.Name</option> }</select></div>
-            <div class="field"><label for="rt">Until (optional)</label><input id="rt" type="date" name="effectiveTo" /></div>
+            <div class="field"><label for="rt">Until (optional) <help>The last day the role applies. Leave empty for open-ended; roles are still reviewed each year.</help></label><input id="rt" type="date" name="effectiveTo" /></div>
             <div class="field"><span class="label">&nbsp;</span><button class="btn btn-ghost" type="submit">Assign role</button></div>
         </form>
     }
@@ -122,12 +122,12 @@
     {
         <form method="post" asp-page-handler="Delegate" class="form-grid mt">
             <idem />
-            <div class="field"><label for="dp">Delegate to</label><select id="dp" name="delegatePersonId" required><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+            <div class="field"><label for="dp">Delegate to <help>The person who may approve routine requests for this funding owner. Never their own request.</help></label><select id="dp" name="delegatePersonId" required><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
             <div class="field"><label for="dm">Most credits per request <help>Above this, the request comes to you.</help></label><input id="dm" type="number" name="maxCredits" min="0" step="1" /></div>
-            <div class="field"><label for="df">From</label><input id="df" type="date" name="from" value="@DateTime.UtcNow.ToString("yyyy-MM-dd")" required /></div>
-            <div class="field"><label for="dt">Until</label><input id="dt" type="date" name="to" value="@DateTime.UtcNow.AddYears(1).ToString("yyyy-MM-dd")" /></div>
-            <fieldset class="full"><legend>Envelopes covered</legend><div class="checks">@foreach (var e in d.Envelopes.Where(e => e.Status is "ACTIVE" or "DRAFT")) { <label class="check"><input type="checkbox" name="envelopes" value="@e.EnvelopeId" /> @e.ServiceName, @Ui.Date(e.PeriodStart) to @Ui.Date(e.PeriodEnd)</label> }</div></fieldset>
-            <div class="field full"><label for="dn">Notes</label><input id="dn" name="notes" maxlength="1000" /></div>
+            <div class="field"><label for="df">From <help>The first day it applies.</help></label><input id="df" type="date" name="from" value="@DateTime.UtcNow.ToString("yyyy-MM-dd")" required /></div>
+            <div class="field"><label for="dt">Until <help>The last day it applies.</help></label><input id="dt" type="date" name="to" value="@DateTime.UtcNow.AddYears(1).ToString("yyyy-MM-dd")" /></div>
+            <fieldset class="full"><legend>Envelopes covered <help>The budgets the delegate may approve against. None selected means all of this funding owner's envelopes.</help></legend><div class="checks">@foreach (var e in d.Envelopes.Where(e => e.Status is "ACTIVE" or "DRAFT")) { <label class="check"><input type="checkbox" name="envelopes" value="@e.EnvelopeId" /> @e.ServiceName, @Ui.Date(e.PeriodStart) to @Ui.Date(e.PeriodEnd)</label> }</div></fieldset>
+            <div class="field full"><label for="dn">Notes <help>Why, or any limits agreed.</help></label><input id="dn" name="notes" maxlength="1000" /></div>
             <div class="field"><button class="btn btn-ghost" type="submit">Grant delegation</button></div>
         </form>
     }
@@ -142,9 +142,9 @@
         {
             <form method="post" asp-page-handler="Rule" class="form-grid">
                 <idem />
-                <div class="field"><label for="ad">Division</label><input id="ad" name="division" maxlength="200" /></div>
-                <div class="field"><label for="ac">Cost center</label><input id="ac" name="costCenter" maxlength="100" /></div>
-                <div class="field"><label for="ap">Department</label><input id="ap" name="department" maxlength="200" /></div>
+                <div class="field"><label for="ad">Division <help>The Entra division value that maps people to this funding owner.</help></label><input id="ad" name="division" maxlength="200" /></div>
+                <div class="field"><label for="ac">Cost center <help>The Entra cost center value that maps people to this funding owner.</help></label><input id="ac" name="costCenter" maxlength="100" /></div>
+                <div class="field"><label for="ap">Department <help>The Entra department value that maps people to this funding owner.</help></label><input id="ap" name="department" maxlength="200" /></div>
                 <div class="field"><label for="ar">Priority <help>Lower wins when several rules match one person.</help></label><input id="ar" type="number" name="priority" value="100" /></div>
                 <div class="field"><button class="btn btn-ghost" type="submit">Add rule</button></div>
             </form>

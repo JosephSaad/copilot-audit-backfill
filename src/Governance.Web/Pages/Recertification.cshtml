@@ -6,7 +6,7 @@
 <div class="page-head">
     <div>
         <h1>Recertification</h1>
-        <p class="lead">Once a quarter, owners confirm each workload is still needed, reaches the right audience, is funded and delivers its outcome: renew, resize, reclassify or retire. Entra access reviews cover individual membership; this covers the workload itself (I1).</p>
+        <p class="lead">Once a quarter, owners confirm each workload is still needed, reaches the right audience, is funded and delivers its outcome: renew, resize, reclassify or retire. Entra access reviews cover individual membership; this covers the workload itself. <help>Process references: I1.</help></p>
     </div>
     <div class="page-actions">
         <a class="btn btn-ghost" href="/Recertification?all=@(!Model.All)">@(Model.All ? "Only mine" : "All items")</a>
@@ -47,10 +47,10 @@
             <form method="post" asp-page-handler="Complete" asp-route-item="@i.CampaignItemId" enctype="multipart/form-data" class="mt">
                 <idem />
                 <div class="form-grid">
-                    <div class="field"><label for="o@i.CampaignItemId" class="req">Outcome <help>Renew: keep as is for another year. Resize: start a capacity change (J4). Reclassify: a material change (I3). Retire: start a retirement (J7).</help></label>
-                        <select id="o@i.CampaignItemId" name="outcome"><option value="RENEW">Renew</option><option value="RESIZE">Resize</option><option value="RECLASSIFY">Reclassify</option><option value="RETIRE">Retire</option></select></div>
-                    <div class="field"><label for="f@i.CampaignItemId">Outcome evidence file <help>Optional: a report or measure that shows the outcome.</help></label><input id="f@i.CampaignItemId" type="file" name="file" /></div>
-                    <div class="field full"><label for="e@i.CampaignItemId" class="req">Is it delivering what was promised? <help>Need, audience, funding and outcome. This becomes the outcome evidence KPI.</help></label><textarea id="e@i.CampaignItemId" name="evidence" required maxlength="2000"></textarea></div>
+                    <div class="field"><label for="o@(i.CampaignItemId)" class="req">Outcome <help>Renew: keep as is for another year. Resize: start a capacity change (J4). Reclassify: a material change (I3). Retire: start a retirement (J7).</help></label>
+                        <select id="o@(i.CampaignItemId)" name="outcome"><option value="RENEW">Renew</option><option value="RESIZE">Resize</option><option value="RECLASSIFY">Reclassify</option><option value="RETIRE">Retire</option></select></div>
+                    <div class="field"><label for="f@(i.CampaignItemId)">Outcome evidence file <help>Optional: a report or measure that shows the outcome.</help></label><input id="f@(i.CampaignItemId)" type="file" name="file" /></div>
+                    <div class="field full"><label for="e@(i.CampaignItemId)" class="req">Is it delivering what was promised? <help>Need, audience, funding and outcome. This becomes the outcome evidence KPI.</help></label><textarea id="e@(i.CampaignItemId)" name="evidence" required maxlength="2000"></textarea></div>
                 </div>
                 <button class="btn mt" type="submit">Record</button>
             </form>
@@ -65,8 +65,8 @@
         <idem />
         <h2>Open a campaign <help>Creates one item per live workload, owned by its product owner or the funding owner's business owner, and notifies them (N14).</help></h2>
         <div class="form-grid">
-            <div class="field full"><label for="cn" class="req">Name</label><input id="cn" name="name" required maxlength="200" value="Q@((DateTime.UtcNow.Month + 2) / 3) @DateTime.UtcNow.Year recertification" /></div>
-            <div class="field"><label for="cs">Starts</label><input id="cs" type="date" name="startsOn" value="@DateTime.UtcNow.ToString("yyyy-MM-dd")" /></div>
+            <div class="field full"><label for="cn" class="req">Name <help>A name people will recognize in their notices, for example "Q4 recertification".</help></label><input id="cn" name="name" required maxlength="200" value="Q@((DateTime.UtcNow.Month + 2) / 3) @DateTime.UtcNow.Year recertification" /></div>
+            <div class="field"><label for="cs">Starts <help>From this day owners see their items. They have 15 business days by default.</help></label><input id="cs" type="date" name="startsOn" value="@DateTime.UtcNow.ToString("yyyy-MM-dd")" /></div>
             <div class="field"><label for="cd">Due <help>15 business days is the standard campaign length.</help></label><input id="cd" type="date" name="dueOn" value="@DateTime.UtcNow.AddDays(21).ToString("yyyy-MM-dd")" /></div>
         </div>
         <button class="btn mt" type="submit">Open the campaign</button>
