@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Governance.Application;
 using Governance.Application.Data;
 using Governance.Application.Integrations;
@@ -29,12 +27,10 @@ public sealed class NotificationDelivery(
     OutboxWriter outbox,
     IClock clock,
     IOptions<DispatchOptions> options,
+    DeliveryLedger ledger,
     ILogger<NotificationDelivery> log) : IOutboxHandler
 {
     private static int _channelAuthFailures;
-
-    /// <summary>Terminal delivery states: a retry skips these recipients.</summary>
-    private static readonly HashSet<string> Done = new() { "SENT", "RECORDED", "SKIPPED", "SUPPRESSED", "QUIET", "DEAD_LETTER" };
 
     public bool CanHandle(string eventType) => eventType.Length == 3 && eventType[0] == 'N' && char.IsDigit(eventType[1]);
 
@@ -71,6 +67,19 @@ public sealed class NotificationDelivery(
         var channelsOfRule = rule.Channels.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToHashSet();
         var link = m.LinkPath is null ? null : options.Value.WorkbenchBaseUrl.TrimEnd('/') + m.LinkPath;
         var failures = new List<string>();
+        var pendingElsewhere = false;
+
+        // Every send is reserved first (PENDING row, unique per event, recipient and channel); the reservation also
+        // renews and checks this node's lease, so two nodes never send the same notice (LeaseLostException stops us).
+        async Task<bool> MayAsync(int? personId, string? address, string channel)
+        {
+            switch (await ledger.ReserveAsync(row, personId, address, channel, m.Subject, ct))
+            {
+                case Reservation.Reserved: return true;
+                case Reservation.PendingElsewhere: pendingElsewhere = true; return false;
+                default: return false;
+            }
+        }
 
         if (channelsOfRule.Contains("EMAIL"))
         {
@@ -79,7 +88,7 @@ public sealed class NotificationDelivery(
                 string.IsNullOrEmpty(guidance) ? null : guidance, footer);
             foreach (var p in list)
             {
-                if (await IsDoneAsync(row, p.PersonId, "EMAIL")) continue;
+                if (!await MayAsync(p.PersonId, p.Address, "EMAIL")) continue;
                 if (string.IsNullOrEmpty(p.Address)) { await RecordAsync(row, p.PersonId, null, "EMAIL", "SKIPPED", m.Subject, "No email address."); continue; }
                 try
                 {
@@ -99,7 +108,7 @@ public sealed class NotificationDelivery(
             var targets = new List<RecipientResolver.Recipient>();
             foreach (var p in list)
             {
-                if (await IsDoneAsync(row, p.PersonId, "ACTIVITY")) continue;
+                if (!await MayAsync(p.PersonId, null, "ACTIVITY")) continue;
                 if (p.EntraObjectId is null || !p.ActivityFeed) { await RecordAsync(row, p.PersonId, null, "ACTIVITY", "SKIPPED", m.Subject, "No Teams identity or activity feed turned off."); continue; }
                 if (InQuietHours(p, calendar)) { await RecordAsync(row, p.PersonId, null, "ACTIVITY", "QUIET", m.Subject, "Quiet hours: email remains the notice of record."); continue; }
                 targets.Add(p);
@@ -124,7 +133,7 @@ public sealed class NotificationDelivery(
         if (channelsOfRule.Contains("CHANNEL"))
             foreach (var queue in m.Queues.Distinct())
             {
-                if (await IsDoneAsync(row, null, "CHANNEL:" + queue)) continue;
+                if (!await MayAsync(null, queue, "CHANNEL:" + queue)) continue;
                 if (!channels.IsConfigured) { await RecordAsync(row, null, queue, "CHANNEL:" + queue, "SKIPPED", m.Subject, "The Teams channel flow is not configured."); continue; }
                 if (record) { await RecordAsync(row, null, queue, "CHANNEL:" + queue, "RECORDED", m.Subject, null); continue; }
                 try
@@ -153,6 +162,8 @@ public sealed class NotificationDelivery(
             }
 
         if (failures.Count > 0) throw new InvalidOperationException($"Delivery failed for: {string.Join(", ", failures.Distinct())}. Delivered recipients are not notified again on retry.");
+        // Another node reserved some deliveries a moment ago: retry the row later so a stopped node's work is not lost.
+        if (pendingElsewhere) throw new InvalidOperationException("Some deliveries are in progress on another node; the row is retried later.");
     }
 
     private static IReadOnlyList<KeyValuePair<string, string>> Facts(OutboxMessage m, Application.Sla.BusinessCalendar calendar)
@@ -166,12 +177,16 @@ public sealed class NotificationDelivery(
         return facts;
     }
 
-    private static Dictionary<string, string> TemplateParameters(OutboxMessage m)
+    /// <summary>
+    /// Exactly the parameters each activity type's templateText needs (setup/New-TeamsAppPackage.ps1), never {actor}:
+    /// that token is reserved and Teams fills it with the app's name.
+    /// </summary>
+    public static Dictionary<string, string> TemplateParameters(OutboxMessage m)
     {
         var number = m.Subject.Split(':')[0].Trim();
         return m.ActivityType switch
         {
-            "taskAssigned" => new() { ["actor"] = "The Workbench", ["taskTitle"] = m.Subject },
+            "taskAssigned" => new() { ["taskTitle"] = m.Subject },
             "requestReturned" => new() { ["requestNumber"] = number },
             "decisionRecorded" => new() { ["requestNumber"] = number, ["outcome"] = m.Subject.Contains(':') ? m.Subject[(m.Subject.IndexOf(':') + 1)..].Trim() : m.Subject },
             "verificationFailed" => new() { ["requestNumber"] = number },
@@ -202,38 +217,8 @@ public sealed class NotificationDelivery(
         _ => "Action needed",
     };
 
-    private async Task<bool> IsDoneAsync(OutboxRow row, int? personId, string channel)
-    {
-        var key = Key(row, personId?.ToString() ?? "-", channel);
-        var status = await db.InTransactionAsync(u => u.ScalarAsync<string>("SELECT Status FROM ntf.Delivery WHERE DedupeKey = @key", new { key }));
-        return status is not null && Done.Contains(status);
-    }
-
     private Task RecordAsync(OutboxRow row, int? personId, string? address, string channel, string status, string subject, string? detail)
-    {
-        var key = Key(row, personId?.ToString() ?? "-", channel);
-        return db.InTransactionAsync(u => u.ExecuteAsync(
-            """
-            IF EXISTS (SELECT 1 FROM ntf.Delivery WHERE DedupeKey = @key)
-                UPDATE ntf.Delivery SET Status = @status, Detail = @detail, Attempts = Attempts + 1, Utc = SYSUTCDATETIME() WHERE DedupeKey = @key;
-            ELSE
-                INSERT ntf.Delivery (OutboxId, RecipientPersonId, RecipientAddress, Channel, DedupeKey, Subject, Status, Detail)
-                VALUES (@OutboxId, @personId, @address, @channelShort, @key, @subject, @status, @detail);
-            """,
-            new
-            {
-                key, status, detail = detail is { Length: > 1000 } ? detail[..1000] : detail, row.OutboxId, personId,
-                address = address is { Length: > 256 } ? address[..256] : address, channelShort = channel.Split(':')[0],
-                subject = subject.Length > 400 ? subject[..400] : subject,
-            }));
-    }
-
-    /// <summary>Event, recipient and channel (section 8.2). Long keys are hashed to fit the column.</summary>
-    private static string Key(OutboxRow row, string recipient, string channel)
-    {
-        var key = $"{row.DedupeKey}|{recipient}|{channel}";
-        return key.Length <= 300 ? key : $"{key[..200]}#{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..32]}";
-    }
+        => ledger.RecordAsync(row, personId, address, channel, status, subject, detail);
 
     private Task AlertAsync(string dedupe, string subject, string text)
         => db.InTransactionAsync(u => outbox.EnqueueAsync(u, new OutboxMessage

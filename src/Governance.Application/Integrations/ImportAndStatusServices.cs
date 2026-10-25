@@ -92,16 +92,19 @@ public sealed class RegistryImportService(Db db, FindingWriter findings) : IRegi
 public sealed class AccessReviewImportService(Db db, IAccessReviewApi reviews)
 {
     public Task<Guid> RunAsync(CancellationToken ct)
-        => SyncRuns.RunAsync(db, IntegrationCodes.AccessReviews, "APP_ONLY", null, async (runId, uow) =>
+        => SyncRuns.RunAsync(db, IntegrationCodes.AccessReviews, "APP_ONLY", null, async runId =>
         {
-            var campaigns = (await uow.QueryAsync<(int CampaignId, string DefinitionId)>(
-                "SELECT CampaignId, AccessReviewDefinitionId FROM wf.Campaign WHERE Status = 'OPEN' AND CampaignType = 'RECERTIFICATION' AND AccessReviewDefinitionId IS NOT NULL")).ToList();
+            var campaigns = (await db.InTransactionAsync(uow => uow.QueryAsync<(int CampaignId, string DefinitionId)>(
+                "SELECT CampaignId, AccessReviewDefinitionId FROM wf.Campaign WHERE Status = 'OPEN' AND CampaignType = 'RECERTIFICATION' AND AccessReviewDefinitionId IS NOT NULL"), ct)).ToList();
             var read = 0;
             foreach (var c in campaigns)
                 foreach (var instance in await reviews.InstanceIdsAsync(c.DefinitionId, ct))
-                    foreach (var d in await reviews.DecisionsAsync(c.DefinitionId, instance, ct))
+                {
+                    var decisions = await reviews.DecisionsAsync(c.DefinitionId, instance, ct);
+                    read += decisions.Count;
+                    await db.InTransactionAsync(async uow =>
                     {
-                        read++;
+                    foreach (var d in decisions)
                         await uow.ExecuteAsync(
                             """
                             MERGE intg.AccessReviewDecision AS t USING (SELECT @key AS DecisionKey) AS s ON t.DecisionKey = s.DecisionKey
@@ -114,7 +117,8 @@ public sealed class AccessReviewImportService(Db db, IAccessReviewApi reviews)
                                 key = $"{c.DefinitionId}:{instance}:{d.Id}", c.DefinitionId, instance, d.PrincipalId, d.Decision, d.ReviewedById, d.ReviewedUtc,
                                 Justification = d.Justification is { Length: > 1000 } j ? j[..1000] : d.Justification, c.CampaignId, runId,
                             });
-                    }
+                    }, ct);
+                }
             return (read, 0, $"{campaigns.Count} open campaigns with an access review, {read} decisions.");
         }, ct);
 }

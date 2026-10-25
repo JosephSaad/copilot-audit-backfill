@@ -101,8 +101,11 @@ public static class ServiceCollectionExtensions
                 if (File.Exists(candidate)) { path = candidate; break; }
             }
         }
-        if (path is null) return new TenantSettings();
-        var settings = JsonSerializer.Deserialize<TenantSettings>(File.ReadAllText(path), new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? new TenantSettings();
+        var settings = path is null
+            ? new TenantSettings()
+            : JsonSerializer.Deserialize<TenantSettings>(File.ReadAllText(path), new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? new TenantSettings();
+        // Production keeps the IDs in the settings file instead (section "Tenant"): any value there wins.
+        configuration.GetSection("Tenant").Bind(settings);
         if (configuration["Notifications:Mailbox"] is { Length: > 0 } mailbox) settings.Mailbox = mailbox;
         return settings;
     }

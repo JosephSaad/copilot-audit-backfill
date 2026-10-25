@@ -16,15 +16,15 @@ public sealed class LicensingReadService(Db db, IPowerPlatformApi api, DriftEval
         string? BillingPolicyId, decimal? AgentLimitCredits, bool GroupRuleLocksTenantPool, string WorkloadName);
 
     public Task<Guid> RunAsync(string? delegatedAccessToken, int? operatorPersonId, CancellationToken ct)
-        => SyncRuns.RunAsync(db, IntegrationCodes.Licensing, delegatedAccessToken is null ? "APP_ONLY" : "DELEGATED", operatorPersonId, async (runId, uow) =>
+        => SyncRuns.RunAsync(db, IntegrationCodes.Licensing, delegatedAccessToken is null ? "APP_ONLY" : "DELEGATED", operatorPersonId, async runId =>
         {
-            var postures = (await uow.QueryAsync<Posture>(
+            var postures = (await db.InTransactionAsync(uow => uow.QueryAsync<Posture>(
                 """
                 SELECT p.WorkloadId, p.FundingOwnerId, p.EnvironmentId, p.AllocationCredits, p.TenantPoolEnabled, p.PaygLinked, p.BillingPolicyId,
                        p.AgentLimitCredits, p.GroupRuleLocksTenantPool, w.Name AS WorkloadName
                 FROM core.ApprovedPosture p JOIN core.Workload w ON w.WorkloadId = p.WorkloadId
                 WHERE p.EffectiveTo IS NULL AND w.State NOT IN ('RETIRED')
-                """)).ToList();
+                """), ct)).ToList();
             if (postures.Count == 0) return (0, 0, "No governed environments have an approved posture yet.");
 
             IReadOnlyDictionary<string, string> billing;
@@ -44,6 +44,10 @@ public sealed class LicensingReadService(Db db, IPowerPlatformApi api, DriftEval
                 var a = await api.GetAllocationAsync(delegatedAccessToken, p.EnvironmentId, ct);
                 billing.TryGetValue(p.EnvironmentId.ToLowerInvariant(), out var policy);
                 readings.Add((p, a, policy));
+            }
+            var raised = await db.InTransactionAsync(async uow =>
+            {
+                foreach (var (p, a, policy) in readings)
                 await uow.ExecuteAsync(
                     """
                     INSERT intg.AllocationReading (SyncRunId, EnvironmentId, AllocatedCredits, TenantPoolEnabled, BillingPolicyId, PaygLinked, ConsumedCredits, TenantPoolLockedByGroupRule, RawJson)
@@ -54,8 +58,8 @@ public sealed class LicensingReadService(Db db, IPowerPlatformApi api, DriftEval
                         runId, p.EnvironmentId, Allocated = a?.AllocatedCredits, Pool = a?.TenantPoolEnabled, policy, payg = billingNote is null ? policy is not null : (bool?)null,
                         Consumed = a?.ConsumedCredits, Locked = a?.TenantPoolLockedByGroupRule, Raw = a?.RawJson,
                     });
-            }
-            var raised = await drift.EvaluateAsync(uow, runId, readings, payglinkKnown: billingNote is null);
+                return await drift.EvaluateAsync(uow, runId, readings, payglinkKnown: billingNote is null);
+            }, ct);
             return (readings.Count, raised, $"{readings.Count} environments read, {raised} drift findings.{billingNote}");
         }, ct);
 }

@@ -80,13 +80,24 @@ public static class SyncRuns
             "UPDATE intg.SyncRun SET FinishedUtc = SYSUTCDATETIME(), Status = @status, ItemsRead = @items, FindingsRaised = @findings, Message = @message WHERE SyncRunId = @runId",
             new { runId, status, items, findings, message = message is { Length: > 1000 } ? message[..1000] : message });
 
-    /// <summary>Starts and finishes a run in its own short transactions, so a failure is still recorded.</summary>
-    public static async Task<Guid> RunAsync(Db db, string integration, string mode, int? personId, Func<long, Uow, Task<(int Items, int Findings, string? Message)>> work, CancellationToken ct)
+    /// <summary>
+    /// Starts and finishes a run in its own short transactions, so a failure is still recorded. The work runs in ONE
+    /// transaction: use this only for work that makes no external calls (an uploaded file). Work that calls Microsoft
+    /// or ITSM uses the overload without a Uow and opens short transactions itself between calls.
+    /// </summary>
+    public static Task<Guid> RunAsync(Db db, string integration, string mode, int? personId, Func<long, Uow, Task<(int Items, int Findings, string? Message)>> work, CancellationToken ct)
+        => RunAsync(db, integration, mode, personId, runId => db.InTransactionAsync(u => work(runId, u), ct), ct);
+
+    /// <summary>
+    /// Starts and finishes a run; the work fetches from the outside world with no transaction open and writes each page
+    /// or batch in its own short transaction (db.InTransactionAsync), so locks are never held across HTTP calls.
+    /// </summary>
+    public static async Task<Guid> RunAsync(Db db, string integration, string mode, int? personId, Func<long, Task<(int Items, int Findings, string? Message)>> work, CancellationToken ct)
     {
         var (runId, publicId) = await db.InTransactionAsync(u => StartAsync(u, integration, mode, personId), ct);
         try
         {
-            var result = await db.InTransactionAsync(u => work(runId, u), ct);
+            var result = await work(runId);
             await db.InTransactionAsync(u => FinishAsync(u, runId, "SUCCEEDED", result.Items, result.Findings, result.Message), ct);
         }
         catch (Exception ex)

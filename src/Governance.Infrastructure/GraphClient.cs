@@ -39,9 +39,39 @@ public sealed class GraphClient(HttpClient http, IOptions<GraphOptions> options,
             log.LogInformation("employeeLeaveDateTime refused (needs User-LifeCycleInfo.Read.All); syncing users without it.");
             return await UsersDeltaAsync(null, ct);
         }
+        if (link is not null && await IsResyncRequiredAsync(response, ct))
+            throw new DeltaResyncRequiredException($"Graph asked for a full resync of the users delta (HTTP {(int)response.StatusCode}).");
         await Http.EnsureAsync(response, Integration, ct);
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
         return ParseUsersDelta(doc.RootElement);
+    }
+
+    /// <summary>
+    /// A saved delta link expired or is invalid: Graph answers 410 Gone (syncStateNotFound, resyncRequired) or a 400
+    /// that names the token or sync state. Either way the caller drops the link and starts a full sync.
+    /// </summary>
+    public static async Task<bool> IsResyncRequiredAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        if (response.StatusCode == HttpStatusCode.Gone) return true;
+        if (response.StatusCode != HttpStatusCode.BadRequest) return false;
+        await response.Content.LoadIntoBufferAsync(ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        return body.Contains("syncStateNotFound", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("resyncRequired", StringComparison.OrdinalIgnoreCase)
+               || body.Contains("syncStateInvalid", StringComparison.OrdinalIgnoreCase)
+               || (body.Contains("token", StringComparison.OrdinalIgnoreCase) && body.Contains("delta", StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task<DirectoryUser?> GetUserAsync(Guid id, CancellationToken ct)
+    {
+        using var response = await http.GetAsync($"{Base}/users/{id}?$select={BasicSelect.Replace(",manager", "")}", ct);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
+        await Http.EnsureAsync(response, Integration, ct);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        var u = doc.RootElement;
+        var org = u.Obj("employeeOrgData");
+        return new DirectoryUser(id, false, u.Str("displayName"), u.Str("userPrincipalName"), u.Str("mail"), u.Str("jobTitle"), u.Str("department"),
+            u.Bool("accountEnabled"), org.Str("division"), org.Str("costCenter"), null, null);
     }
 
     public static DeltaPage<DirectoryUser> ParseUsersDelta(JsonElement root)
@@ -106,6 +136,33 @@ public sealed class GraphClient(HttpClient http, IOptions<GraphOptions> options,
         {
             // Requests only enrich the decision record with the justification; assignments are the source.
             log.LogInformation("Assignment requests filter not supported here; continuing with assignments only.");
+        }
+        return list;
+    }
+
+    public async Task<IReadOnlyList<ApprovalStageData>?> ApprovalStagesAsync(Guid assignmentRequestId, CancellationToken ct)
+    {
+        using var response = await http.GetAsync($"{Base}/identityGovernance/entitlementManagement/accessPackageAssignmentApprovals/{assignmentRequestId}/stages", ct);
+        // No approval on the policy (404), or the role does not reach it (403): the caller records that the approver is unknown.
+        if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.BadRequest)
+        {
+            log.LogInformation("Approval stages of request {Request} not readable (HTTP {Status}).", assignmentRequestId, (int)response.StatusCode);
+            return null;
+        }
+        await Http.EnsureAsync(response, Integration, ct);
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+        return ParseApprovalStages(doc.RootElement);
+    }
+
+    public static IReadOnlyList<ApprovalStageData> ParseApprovalStages(JsonElement root)
+    {
+        var list = new List<ApprovalStageData>();
+        foreach (var s in root.GetProperty("value").EnumerateArray())
+        {
+            var by = s.Obj("reviewedBy");
+            var byId = by.GuidOf("id");
+            if (byId == Guid.Empty) byId = null;   // Graph uses the empty GUID while the stage is not reviewed
+            list.Add(new ApprovalStageData(s.Str("id"), s.Str("reviewResult"), byId, by.Str("displayName"), s.Date("reviewedDateTime"), s.Str("justification"), s.Str("status")));
         }
         return list;
     }
@@ -195,7 +252,9 @@ public sealed class GraphClient(HttpClient http, IOptions<GraphOptions> options,
             ["topic"] = new { source = "text", value = "Copilot Governance Workbench", webUrl = $"https://teams.microsoft.com/l/entity/{appId}/launch?context={context}" },
             ["activityType"] = activityType,
             ["previewText"] = new { content = previewText.Length > 150 ? previewText[..150] : previewText },
-            ["templateParameters"] = parameters.Select(kv => new { name = kv.Key, value = kv.Value }).ToArray(),
+            // {actor} is reserved: Teams fills it with the app's name, and sending it fails with "incorrect template parameter arity".
+            ["templateParameters"] = parameters.Where(kv => !string.Equals(kv.Key, "actor", StringComparison.OrdinalIgnoreCase))
+                                               .Select(kv => new { name = kv.Key, value = kv.Value }).ToArray(),
         };
         if (recipients is not null)
             body["recipients"] = recipients.Select(r => new Dictionary<string, object> { ["@odata.type"] = "microsoft.graph.aadUserNotificationRecipient", ["userId"] = r }).ToArray();

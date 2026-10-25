@@ -11,6 +11,7 @@ public static class ServiceCollectionExtensions
         services.Configure<DispatchOptions>(configuration.GetSection("Notifications"));
         services.AddSingleton<TextBlocks>();
         services.AddSingleton<EmailRenderer>();
+        services.AddScoped<DeliveryLedger>();
         services.AddScoped<IOutboxHandler, NotificationDelivery>();
         services.AddScoped<OutboxProcessor>();
         services.AddScoped<DigestBuilder>();

@@ -14,26 +14,58 @@ public sealed class DirectorySyncService(Db db, IDirectoryApi directory, Finding
 {
     private const string DeltaKey = "graph.users.delta";
 
+    // Graph calls run with no transaction open; each page or group is written in its own short transaction.
     public Task<Guid> RunAsync(CancellationToken ct)
-        => SyncRuns.RunAsync(db, IntegrationCodes.Directory, "APP_ONLY", null, async (runId, uow) =>
+        => SyncRuns.RunAsync(db, IntegrationCodes.Directory, "APP_ONLY", null, async runId =>
         {
-            var people = await SyncUsersAsync(uow, runId, ct);
-            var memberships = await SyncGroupsAsync(uow, runId, ct);
-            var roles = await SyncCentralRolesAsync(uow);
-            var raised = await DetectVacanciesAsync(uow, runId);
-            return (people + memberships, raised, $"{people} people changed, {memberships} memberships read, {roles} central role changes, {raised} findings.");
+            var (people, resynced) = await SyncUsersAsync(runId, ct);
+            var memberships = await SyncGroupsAsync(runId, ct);
+            var (roles, raised) = await db.InTransactionAsync(async uow => (await SyncCentralRolesAsync(uow), await DetectVacanciesAsync(uow, runId)), ct);
+            return (people + memberships, raised,
+                $"{people} people changed, {memberships} memberships read, {roles} central role changes, {raised} findings.{(resynced ? " The saved delta link had expired: a full resync ran." : "")}");
         }, ct);
 
-    private async Task<int> SyncUsersAsync(Uow uow, long runId, CancellationToken ct)
+    private async Task<(int Changed, bool Resynced)> SyncUsersAsync(long runId, CancellationToken ct)
     {
-        var link = await uow.ScalarAsync<string>("SELECT DeltaLink FROM intg.DeltaToken WHERE TokenKey = @DeltaKey", new { DeltaKey });
+        var link = await db.InTransactionAsync(u => u.ScalarAsync<string>("SELECT DeltaLink FROM intg.DeltaToken WHERE TokenKey = @DeltaKey", new { DeltaKey }), ct);
         var changed = 0;
+        var resynced = false;
         var managers = new List<(Guid User, Guid Manager)>();
         while (true)
         {
-            var page = await directory.UsersDeltaAsync(link, ct);
-            foreach (var u in page.Items)
+            DeltaPage<DirectoryUser> page;
+            try { page = await directory.UsersDeltaAsync(link, ct); }
+            catch (DeltaResyncRequiredException) when (!resynced)
             {
+                // The saved delta link expired (410) or is invalid: drop it and start a full sync in this run.
+                log.LogWarning("The users delta link is no longer valid; dropping it and running a full resync.");
+                await db.InTransactionAsync(u => u.ExecuteAsync("DELETE FROM intg.DeltaToken WHERE TokenKey = @DeltaKey", new { DeltaKey }), ct);
+                link = null;
+                resynced = true;
+                continue;
+            }
+            changed += await db.InTransactionAsync(uow => WriteUsersPageAsync(uow, page, runId, managers), ct);
+            if (page.NextLink is not null) { link = page.NextLink; continue; }
+            if (page.DeltaLink is not null)
+                await db.InTransactionAsync(uow => uow.ExecuteAsync(
+                    "MERGE intg.DeltaToken AS t USING (SELECT @DeltaKey AS TokenKey) AS s ON t.TokenKey = s.TokenKey WHEN MATCHED THEN UPDATE SET DeltaLink = @DeltaLink, UpdatedUtc = SYSUTCDATETIME() WHEN NOT MATCHED THEN INSERT (TokenKey, DeltaLink) VALUES (@DeltaKey, @DeltaLink);",
+                    new { DeltaKey, page.DeltaLink }), ct);
+            break;
+        }
+        await db.InTransactionAsync(async uow =>
+        {
+            foreach (var (user, manager) in managers)
+                await uow.ExecuteAsync("UPDATE p SET ManagerPersonId = m.PersonId FROM sec.Person p JOIN sec.Person m ON m.EntraObjectId = @manager WHERE p.EntraObjectId = @user",
+                    new { user, manager });
+        }, ct);
+        return (changed, resynced);
+    }
+
+    private async Task<int> WriteUsersPageAsync(Uow uow, DeltaPage<DirectoryUser> page, long runId, List<(Guid User, Guid Manager)> managers)
+    {
+        var changed = 0;
+        foreach (var u in page.Items)
+        {
                 if (u.Removed)
                 {
                     changed += await uow.ExecuteAsync("UPDATE sec.Person SET AccountEnabled = 0, LastSyncedUtc = @now, SyncRunId = @runId WHERE EntraObjectId = @Id AND AccountEnabled = 1",
@@ -60,25 +92,15 @@ public sealed class DirectorySyncService(Db db, IDirectoryApi directory, Finding
                         LeaveDate = u.LeaveDateTime?.Date, now = clock.UtcNow, runId,
                     });
                 if (u.ManagerId is Guid m) managers.Add((u.Id, m));
-            }
-            if (page.NextLink is not null) { link = page.NextLink; continue; }
-            if (page.DeltaLink is not null)
-                await uow.ExecuteAsync(
-                    "MERGE intg.DeltaToken AS t USING (SELECT @DeltaKey AS TokenKey) AS s ON t.TokenKey = s.TokenKey WHEN MATCHED THEN UPDATE SET DeltaLink = @DeltaLink, UpdatedUtc = SYSUTCDATETIME() WHEN NOT MATCHED THEN INSERT (TokenKey, DeltaLink) VALUES (@DeltaKey, @DeltaLink);",
-                    new { DeltaKey, page.DeltaLink });
-            break;
         }
-        foreach (var (user, manager) in managers)
-            await uow.ExecuteAsync("UPDATE p SET ManagerPersonId = m.PersonId FROM sec.Person p JOIN sec.Person m ON m.EntraObjectId = @manager WHERE p.EntraObjectId = @user",
-                new { user, manager });
         return changed;
     }
 
     /// <summary>Membership of governed groups only: central role groups and policy scope groups (least privilege, section 6.5).</summary>
-    private async Task<int> SyncGroupsAsync(Uow uow, long runId, CancellationToken ct)
+    private async Task<int> SyncGroupsAsync(long runId, CancellationToken ct)
     {
-        var groups = (await uow.QueryAsync<Guid>(
-            "SELECT EntraGroupId FROM sec.GroupRoleMap UNION SELECT PolicyGroupId FROM intg.AccessPackageMap WHERE PolicyGroupId IS NOT NULL")).ToHashSet();
+        var groups = (await db.InTransactionAsync(u => u.QueryAsync<Guid>(
+            "SELECT EntraGroupId FROM sec.GroupRoleMap UNION SELECT PolicyGroupId FROM intg.AccessPackageMap WHERE PolicyGroupId IS NOT NULL"), ct)).ToHashSet();
         foreach (var pg in tenant.PolicyGroups)
             if (Guid.TryParse(pg.GroupId, out var g)) groups.Add(g);
         var read = 0;
@@ -88,14 +110,15 @@ public sealed class DirectorySyncService(Db db, IDirectoryApi directory, Finding
             try { members = await directory.GroupMemberIdsAsync(groupId, ct); }
             catch (IntegrationPermissionException) { throw; }
             catch (Exception ex) { log.LogWarning(ex, "Group {GroupId} could not be read; keeping its last good membership.", groupId); continue; }
-            foreach (var m in members)
+            await db.InTransactionAsync(async uow =>
             {
-                await uow.ExecuteAsync(
-                    "MERGE intg.GroupMember AS t USING (SELECT @groupId AS GroupId, @m AS MemberObjectId) AS s ON t.GroupId = s.GroupId AND t.MemberObjectId = s.MemberObjectId WHEN MATCHED THEN UPDATE SET LastSeenRunId = @runId WHEN NOT MATCHED THEN INSERT (GroupId, MemberObjectId, LastSeenRunId) VALUES (@groupId, @m, @runId);",
-                    new { groupId, m, runId });
-                read++;
-            }
-            await uow.ExecuteAsync("DELETE FROM intg.GroupMember WHERE GroupId = @groupId AND LastSeenRunId <> @runId", new { groupId, runId });
+                foreach (var m in members)
+                    await uow.ExecuteAsync(
+                        "MERGE intg.GroupMember AS t USING (SELECT @groupId AS GroupId, @m AS MemberObjectId) AS s ON t.GroupId = s.GroupId AND t.MemberObjectId = s.MemberObjectId WHEN MATCHED THEN UPDATE SET LastSeenRunId = @runId WHEN NOT MATCHED THEN INSERT (GroupId, MemberObjectId, LastSeenRunId) VALUES (@groupId, @m, @runId);",
+                        new { groupId, m, runId });
+                await uow.ExecuteAsync("DELETE FROM intg.GroupMember WHERE GroupId = @groupId AND LastSeenRunId <> @runId", new { groupId, runId });
+            }, ct);
+            read += members.Count;
         }
         return read;
     }
