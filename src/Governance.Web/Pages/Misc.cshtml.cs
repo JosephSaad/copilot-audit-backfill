@@ -36,13 +36,14 @@ public class MeModel : GovPage
 }
 
 /// <summary>Development-only persona switch (Testing:AllowActAs). Refused otherwise.</summary>
-public class ActAsModel(TestingOptions testing, Db db, AuditWriter audit) : GovPage
+public class ActAsModel(TestingOptions testing, Db db) : GovPage
 {
     public IReadOnlyList<(Guid PublicId, string DisplayName, string? Upn, string Roles)> Personas { get; private set; } = Array.Empty<(Guid, string, string?, string)>();
 
     public async Task<IActionResult> OnGetAsync()
     {
         if (!testing.AllowActAs) return NotFound();
+        if (!Me.CanActAs) return Forbid();
         await using var c = await db.OpenSystemAsync();
         Personas = (await c.QueryAsync<(Guid, string, string?, string)>(
             """
@@ -58,17 +59,28 @@ public class ActAsModel(TestingOptions testing, Db db, AuditWriter audit) : GovP
     public async Task<IActionResult> OnPostAsync(Guid id)
     {
         if (!testing.AllowActAs) return NotFound();
+        if (!Me.CanActAs) return Forbid();
+        string? name;
+        await using (var c = await db.OpenSystemAsync())
+            name = await c.QuerySingleOrDefaultAsync<string>("SELECT DisplayName FROM sec.Person WHERE PublicId = @id AND IsSynthetic = 1 AND AccountEnabled = 1", new { id });
+        if (name is null) return NotFound();
         Response.Cookies.Append(PrincipalLoader.ActAsCookie, id.ToString(), new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict, IsEssential = true });
-        await db.InTransactionAsync(u => audit.WriteAsync(u, Me, "actas.start", "Person", id, null));
+        await WriteAsync("actas.start", id, $"Started acting as {name} (test persona).");
         return Redirect("/Start");
     }
 
     public async Task<IActionResult> OnPostStopAsync()
     {
         Response.Cookies.Delete(PrincipalLoader.ActAsCookie);
-        if (testing.AllowActAs) await db.InTransactionAsync(u => audit.WriteAsync(u, Me, "actas.stop", "Person", Me.PublicId, null));
+        if (testing.AllowActAs && Me.ActingAs) await WriteAsync("actas.stop", Me.PublicId, $"Stopped acting as {Me.DisplayName}.");
         return Redirect("/Start");
     }
+
+    /// <summary>The switch is recorded against the signed-in person alone, not against the persona being left or entered.</summary>
+    private Task WriteAsync(string action, Guid personaId, string detail)
+        => db.InTransactionAsync(u => u.ExecuteAsync(
+            "INSERT aud.AuditLog (Utc, PersonId, ActingAsPersonId, Action, EntityType, EntityId, Detail, Outcome) VALUES (SYSUTCDATETIME(), @p, NULL, @action, 'Person', @id, @detail, 'OK')",
+            new { p = Me.RealPersonId ?? Me.PersonId, action, id = personaId.ToString(), detail }));
 }
 
 /// <summary>Evidence download: visible only through something the person can see; every download is audited.</summary>
@@ -98,12 +110,25 @@ public class TeamsLaunchModel : PageModel
 {
     public string Target { get; private set; } = "/Start";
 
+    // Only these Workbench addresses (no open redirect): an item page by its GUID, or a fixed list page.
+    private static readonly System.Text.RegularExpressions.Regex ItemPath = new(
+        @"^/(Requests|Registry/Workloads|Registry/FundingOwners|Operations/Events)/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    private static readonly HashSet<string> Fixed = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "/Start", "/MyWork", "/Recertification", "/Exceptions", "/Operations/Findings", "/Operations/Events", "/Operations/Attestations", "/Operations/Sync",
+    };
+
     public void OnGet(string? item)
     {
-        // Only Workbench paths, never an absolute or protocol-relative address (no open redirect).
-        if (!string.IsNullOrEmpty(item) && item.StartsWith('/') && !item.StartsWith("//") && !item.Contains('\\') && !item.Contains(':'))
-            Target = item;
-        else if (Guid.TryParse(item, out var g))
-            Target = $"/Requests/{g}";
+        Target = Resolve(item);
+    }
+
+    public static string Resolve(string? item)
+    {
+        if (string.IsNullOrEmpty(item) || item.Length > 200 || item.Any(char.IsControl) || item.Any(char.IsWhiteSpace)) return "/Start";
+        if (Guid.TryParse(item, out var g)) return $"/Requests/{g}";
+        if (Fixed.Contains(item)) return item;
+        return ItemPath.IsMatch(item) ? item : "/Start";
     }
 }

@@ -68,6 +68,25 @@
         });
     });
 
+    // Pickers scoped to another field (data-filter-by="fieldName"): options carry data-fo; only the chosen
+    // funding owner's people show. The server checks the choice again.
+    document.querySelectorAll('select[data-filter-by]').forEach(function (sel) {
+        var form = sel.form || document;
+        var source = form.querySelector('[name="' + sel.getAttribute('data-filter-by') + '"]');
+        if (!source) return;
+        function apply() {
+            var v = source.value;
+            Array.prototype.forEach.call(sel.options, function (o) {
+                if (!o.hasAttribute('data-fo')) return;
+                var show = v !== '' && o.getAttribute('data-fo') === v;
+                o.hidden = !show; o.disabled = !show;
+                if (!show && o.selected) { o.selected = false; sel.value = ''; }
+            });
+        }
+        source.addEventListener('change', apply);
+        apply();
+    });
+
     // Selects that save on change (RACI cells). Inline handlers are blocked by the Content Security Policy.
     document.querySelectorAll('select[data-autosubmit]').forEach(function (s) {
         s.addEventListener('change', function () { if (s.form.requestSubmit) s.form.requestSubmit(); else s.form.submit(); });

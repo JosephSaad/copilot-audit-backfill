@@ -17,6 +17,7 @@ public static class Policies
     public const string Central = "Central";
     public const string Operator = "Operator";
     public const string Admin = "Admin";
+    public const string PlatformGovernance = "PlatformGovernance";
     public const string Auditor = "Auditor";
 }
 
@@ -38,6 +39,8 @@ public sealed class WebPrincipal : ICurrentPrincipal
     public IReadOnlyList<(int FundingOwnerId, string Name)> FundingOwners { get; set; } = Array.Empty<(int, string)>();
     public IReadOnlyList<(string RoleCode, string Name, string? Scope)> RoleLabels { get; set; } = Array.Empty<(string, string, string?)>();
     public bool ActingAs => RealPersonId is not null;
+    /// <summary>Development only: the signed-in person (not a persona) holds Workbench.Admin and may act as a test persona.</summary>
+    public bool CanActAs { get; set; }
     public bool HasCentral(params string[] roles) => roles.Any(r => Roles.Any(g => g.RoleCode == r));
 }
 
@@ -60,10 +63,19 @@ public sealed class PrincipalLoader(Db db, TestingOptions testing, ILogger<Princ
         if (!person.AccountEnabled) { log.LogWarning("Disabled account {PersonId} signed in", person.PersonId); return; }
 
         var real = person;
+        var today0 = DateTime.UtcNow.Date;
         var appRolesFromClaims = user.FindAll(ClaimTypes.Role).Select(r => r.Value).Concat(user.FindAll("roles").Select(r => r.Value)).ToHashSet();
+        // The signed-in person's own app roles: Entra claims, or (loopback test sign-in) derived from their SQL roles.
+        var realAppRoles = testing.TestAuthentication
+            ? DeriveAppRoles((await c.QueryAsync<string>(
+                "SELECT RoleCode FROM sec.RoleAssignment WHERE PersonId = @PersonId AND EffectiveFrom <= @today0 AND (EffectiveTo IS NULL OR EffectiveTo >= @today0)",
+                new { real.PersonId, today0 })).ToHashSet())
+            : appRolesFromClaims.Where(r => r.StartsWith("Workbench.", StringComparison.Ordinal)).ToHashSet();
+        // Development-only persona switch, for a signed-in Workbench administrator only.
+        p.CanActAs = testing.AllowActAs && realAppRoles.Contains(AppRoles.Admin);
 
-        // Development-only persona switch: act as a synthetic test persona; every action records the real person.
-        if (testing.AllowActAs && http.Request.Cookies.TryGetValue(ActAsCookie, out var actAs) && Guid.TryParse(actAs, out var personaId))
+        // Act as a synthetic test persona; every action records the real person.
+        if (p.CanActAs && http.Request.Cookies.TryGetValue(ActAsCookie, out var actAs) && Guid.TryParse(actAs, out var personaId))
         {
             var persona = await c.QuerySingleOrDefaultAsync<Person>("SELECT * FROM sec.Person WHERE PublicId = @personaId AND IsSynthetic = 1 AND AccountEnabled = 1", new { personaId });
             if (persona is not null && persona.PersonId != real.PersonId)
@@ -119,8 +131,10 @@ public sealed class PrincipalLoader(Db db, TestingOptions testing, ILogger<Princ
         p.FundingOwners = roles.Where(r => r.ScopeId is not null).Select(r => (r.ScopeId!.Value, r.ScopeName ?? "")).Concat(delegations).Distinct().ToList();
 
         // Entra app roles gate pages. A persona or the loopback test scheme derives them from its SQL roles.
-        var derive = p.ActingAs || testing.TestAuthentication;
-        p.AppRoles = derive ? DeriveAppRoles(roles.Select(r => r.RoleCode).ToHashSet()) : appRolesFromClaims.Where(r => r.StartsWith("Workbench.", StringComparison.Ordinal)).ToHashSet();
+        // A persona's app roles come from its SQL roles but never exceed what the signed-in administrator holds.
+        p.AppRoles = p.ActingAs
+            ? DeriveAppRoles(roles.Select(r => r.RoleCode).ToHashSet()).Where(realAppRoles.Contains).ToHashSet()
+            : realAppRoles;
     }
 
     public static HashSet<string> DeriveAppRoles(IReadOnlySet<string> sqlRoles)
@@ -166,6 +180,20 @@ public sealed class PrincipalMiddleware(RequestDelegate next)
 
 public sealed record AppRoleRequirement(params string[] AnyOf) : IAuthorizationRequirement;
 
+/// <summary>Workbench administrators, or the Platform Owner or Steering (RACI, intake switch, central roles, wording).</summary>
+public sealed record PlatformGovernanceRequirement : IAuthorizationRequirement;
+
+public sealed class PlatformGovernanceHandler(IHttpContextAccessor http) : AuthorizationHandler<PlatformGovernanceRequirement>
+{
+    protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PlatformGovernanceRequirement requirement)
+    {
+        var p = http.HttpContext?.RequestServices.GetService<WebPrincipal>();
+        if (p is { IsAuthenticated: true } && (p.AppRoles.Contains(AppRoles.Admin) || p.HasCentral(Roles.PlatformOwner, Roles.Steering)))
+            context.Succeed(requirement);
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>Checks the app roles of the acting person (from Entra claims, or derived for a test persona).</summary>
 public sealed class AppRoleHandler(IHttpContextAccessor http) : AuthorizationHandler<AppRoleRequirement>
 {
@@ -186,16 +214,19 @@ public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions>
 {
     public const string SchemeName = "LoopbackTest";
     public const string Header = "X-Test-Upn";
-    public const string Cookie = "cgw.testupn";
+    public const string CookiePrefix = "cgw.testupn.";
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         var remote = Context.Connection.RemoteIpAddress;
         if (remote is null || !System.Net.IPAddress.IsLoopback(remote)) return Task.FromResult(AuthenticateResult.NoResult());
-        var upn = Request.Headers[Header].FirstOrDefault() ?? Request.Cookies[Cookie] ?? Request.Query["testUpn"].FirstOrDefault();
+        // Query string first (switching persona by URL always wins), then the header, then this port's cookie.
+        var cookie = CookiePrefix + (Context.Request.Host.Port?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "default");
+        var fromQuery = Request.Query["testUpn"].FirstOrDefault();
+        var upn = !string.IsNullOrWhiteSpace(fromQuery) ? fromQuery : Request.Headers[Header].FirstOrDefault() ?? Request.Cookies[cookie];
         if (string.IsNullOrWhiteSpace(upn)) return Task.FromResult(AuthenticateResult.NoResult());
-        if (Request.Query.ContainsKey("testUpn"))
-            Response.Cookies.Append(Cookie, upn, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict });
+        if (!string.IsNullOrWhiteSpace(fromQuery))
+            Response.Cookies.Append(cookie, fromQuery, new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Strict });
         var identity = new ClaimsIdentity(new[] { new Claim("preferred_username", upn), new Claim("name", upn) }, SchemeName);
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }

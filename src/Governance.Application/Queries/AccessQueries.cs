@@ -31,14 +31,16 @@ public sealed class EntraDecision
 /// <summary>J1 routine access: Entra decides through access packages; the Workbench attributes, verifies and records.</summary>
 public sealed class AccessQueries(Db db, ICurrentPrincipal me)
 {
+    /// <summary>Envelope amounts show only to people who can view this funding owner; others see the status.</summary>
     public async Task<IReadOnlyList<AccessOption>> OptionsAsync(int fundingOwnerId)
     {
+        var amounts = me.IsCentral || me.Can(Governance.Domain.Permissions.FundingOwnerView, fundingOwnerId);
         await using var c = await db.OpenSystemAsync();
         var today = DateTime.UtcNow.Date;
         return (await c.QueryAsync<AccessOption>(
             """
             SELECT m.AccessPackageId, m.DisplayName, s.Name AS ServiceName, s.ServiceId, m.Tier,
-                   e.Status AS EnvelopeStatus, e.Amount AS EnvelopeAmount, e.Committed AS EnvelopeCommitted, e.Unit AS EnvelopeUnit, e.PeriodEnd AS EnvelopeEnd,
+                   e.Status AS EnvelopeStatus, CASE WHEN @amounts = 1 THEN e.Amount END AS EnvelopeAmount, CASE WHEN @amounts = 1 THEN e.Committed END AS EnvelopeCommitted, e.Unit AS EnvelopeUnit, e.PeriodEnd AS EnvelopeEnd,
                    a.State AS MyAssignmentState, a.ExpiresUtc AS MyAssignmentExpiresUtc
             FROM intg.AccessPackageMap m JOIN core.Service s ON s.ServiceId = m.ServiceId
             OUTER APPLY (SELECT TOP (1) x.Status, x.Amount, x.Unit, x.PeriodEnd,
@@ -48,7 +50,7 @@ public sealed class AccessQueries(Db db, ICurrentPrincipal me)
             OUTER APPLY (SELECT TOP (1) ea.State, ea.ExpiresUtc FROM intg.EntitlementAssignment ea WHERE ea.AccessPackageId = m.AccessPackageId AND ea.TargetPersonId = @me ORDER BY ea.CreatedUtc DESC) a
             WHERE m.FundingOwnerId = @fundingOwnerId
             ORDER BY s.Name, m.Tier
-            """, new { fundingOwnerId, today, me = me.PersonId })).ToList();
+            """, new { fundingOwnerId, today, me = me.PersonId, amounts = amounts ? 1 : 0 })).ToList();
     }
 
     public async Task<IReadOnlyList<EntraDecision>> MyEntraDecisionsAsync()

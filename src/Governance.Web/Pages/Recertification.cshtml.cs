@@ -28,5 +28,10 @@ public class RecertificationModel(OperationsQueries ops, OperationsCommands comm
 
     public Task<IActionResult> OnPostCompleteAsync(int item, string outcome, string evidence, IFormFile? file)
         => Act(() => commands.CompleteCampaignItemAsync(Idem, item, outcome, evidence, Upload(file)),
-            outcome == "RETIRE" ? "Recorded. Start the retirement journey (J7) for this workload." : "Recertified. The next review is set for a year from today.");
+            r => r switch
+            {
+                "PROPOSED" => "Proposal recorded. The business owner decides it; it is on their work list.",
+                { } s when s.StartsWith("RETIRE_DRAFTED:", StringComparison.Ordinal) => "Decided: retire. A retirement request was drafted for the product owner to complete and submit.",
+                _ => "Recertified. The next review is set for a year from today.",
+            });
 }

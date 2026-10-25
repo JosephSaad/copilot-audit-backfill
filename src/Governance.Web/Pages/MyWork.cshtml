@@ -36,7 +36,7 @@ else
                         <div><strong>@t.Title</strong></div>
                         <div class="small muted">@Ui.Words(t.TaskType) @(t.StageCode is null ? "" : "· stage " + t.StageCode)@(t.EscalationLevel > 0 ? $" · escalated {t.EscalationLevel}×" : "")</div>
                     </td>
-                    <td>@if (t.RequestPublicId is Guid g) { <a href="/Requests/@g">@t.RequestNumber</a> } else { <span class="muted">—</span> }</td>
+                    <td>@if (t.RequestPublicId is Guid g) { <a href="/Requests/@g">@t.RequestNumber</a> } else if (t.RelatedEntityType == "CAMPAIGN_ITEM") { <a href="/Recertification">Recertification</a> } else { <span class="muted">—</span> }</td>
                     <td>@t.FundingOwnerName</td>
                     <td>@Ui.TaskSentence(t.RoleName, t.FundingOwnerName, t.StartedUtc, t.DueUtc, t.AssignedName)</td>
                     <td class="nowrap">@if (t.DueUtc is null) { <span class="muted">No SLA</span> } else { @Ui.Pill(overdue ? "OVERDUE" : "ON_TIME", overdue ? "bad" : "ok") <div class="small">@Ui.Local(t.DueUtc)</div> }</td>

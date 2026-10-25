@@ -7,7 +7,24 @@ using Governance.Domain;
 namespace Governance.Application.Commands;
 
 /// <summary>Operations (G1 to G5), findings, attestation (X6), recertification (I1) and the exception register.</summary>
-public sealed class OperationsCommands(CommandRunner run, DecisionRecorder decisions, EvidenceStore evidence, OutboxWriter outbox, BusinessCalendarProvider calendars, IClock clock)
+/// <summary>
+/// A draft created by the Workbench for someone else (a retirement decided at recertification): the request belongs to
+/// <c>PersonId</c>; the audit trail records the person who caused it.
+/// </summary>
+public sealed class OnBehalfPrincipal(int personId, ICurrentPrincipal actor) : ICurrentPrincipal
+{
+    public bool IsAuthenticated => true;
+    public int PersonId => personId;
+    public int? RealPersonId => actor.RealPersonId ?? actor.PersonId;
+    public string DisplayName => actor.DisplayName;
+    public bool IsCentral => false;
+    public IReadOnlyList<RoleGrant> Roles { get; } = Array.Empty<RoleGrant>();
+    public IReadOnlySet<string> AppRoles { get; } = new HashSet<string>();
+    public IReadOnlySet<string> Permissions { get; } = new HashSet<string>();
+    public IReadOnlyDictionary<int, IReadOnlySet<string>> ScopedPermissions { get; } = new Dictionary<int, IReadOnlySet<string>>();
+}
+
+public sealed class OperationsCommands(CommandRunner run, DecisionRecorder decisions, EvidenceStore evidence, OutboxWriter outbox, BusinessCalendarProvider calendars, IClock clock, WorkflowEngine engine)
 {
     private ICurrentPrincipal Me => run.Principal;
 
@@ -177,29 +194,97 @@ public sealed class OperationsCommands(CommandRunner run, DecisionRecorder decis
             return count.ToString();
         });
 
-    public Task CompleteCampaignItemAsync(Guid idem, int campaignItemId, string outcome, string evidenceText, UploadedFile? file)
+    /// <summary>
+    /// I1: the product owner proposes the outcome (R); the funding owner's business owner (or shared-service owner) decides
+    /// it (A, section 5.6). A business owner may decide directly. A decided RETIRE drafts a retirement request (J7).
+    /// Returns PROPOSED, DECIDED or RETIRE_DRAFTED:&lt;request public ID&gt;.
+    /// </summary>
+    public Task<string?> CompleteCampaignItemAsync(Guid idem, int campaignItemId, string outcome, string evidenceText, UploadedFile? file)
         => run.RunAsync(idem, "campaign.item", async uow =>
         {
             if (outcome is not ("RENEW" or "RESIZE" or "RECLASSIFY" or "RETIRE")) throw new DomainException("Choose renew, resize, reclassify or retire.");
             if (string.IsNullOrWhiteSpace(evidenceText)) throw new DomainException("State the outcome evidence: is the workload delivering what was promised?");
-            var i = await uow.QuerySingleOrDefaultAsync<(int Id, int FundingOwnerId, int? WorkloadId, int? OwnerPersonId, string Status, string? WorkloadName)>(
-                "SELECT i.CampaignItemId, i.FundingOwnerId, i.WorkloadId, i.OwnerPersonId, i.Status, w.Name FROM wf.CampaignItem i LEFT JOIN core.Workload w ON w.WorkloadId = i.WorkloadId WHERE i.CampaignItemId = @campaignItemId",
-                new { campaignItemId });
+            var i = await uow.QuerySingleOrDefaultAsync<(int Id, int FundingOwnerId, int? WorkloadId, int? OwnerPersonId, string Status, string? WorkloadName, long? TaskId, int? ProductOwnerPersonId)>(
+                """
+                SELECT i.CampaignItemId, i.FundingOwnerId, i.WorkloadId, i.OwnerPersonId, i.Status, w.Name, i.TaskId, w.ProductOwnerPersonId
+                FROM wf.CampaignItem i LEFT JOIN core.Workload w ON w.WorkloadId = i.WorkloadId WHERE i.CampaignItemId = @campaignItemId
+                """, new { campaignItemId });
             if (i.Id == 0) throw new DomainException("Item not found.");
             if (i.Status == "DONE") throw new DomainException("This item is already recertified.");
-            var isOwner = Me.HasRoleIn(Roles.LobBusinessOwner, i.FundingOwnerId) || Me.HasRoleIn(Roles.SharedServiceOwner, i.FundingOwnerId);
-            if (i.OwnerPersonId != Me.PersonId && !isOwner) throw new DomainException("The workload's owner or the business owner recertifies it.");
-            // The decision is the business owner's (Business case and outcome, I1); a product owner records it as R.
-            var role = isOwner ? (Me.HasRoleIn(Roles.SharedServiceOwner, i.FundingOwnerId) ? Roles.SharedServiceOwner : Roles.LobBusinessOwner) : Roles.ProductOwner;
-            var decisionId = await decisions.RecordAsync(uow, DecisionTypes.Recertification, outcome == "RETIRE" ? Outcomes.Declined : Outcomes.Extend, role, "BUSINESS_CASE",
+            var isBusinessOwner = Me.HasRoleIn(Roles.LobBusinessOwner, i.FundingOwnerId) || Me.HasRoleIn(Roles.SharedServiceOwner, i.FundingOwnerId);
+            if (i.OwnerPersonId != Me.PersonId && !isBusinessOwner) throw new DomainException("The workload's owner proposes and the business owner decides its recertification.");
+            if (file is not null)
+                await evidence.SaveAsync(uow, file, "OUTCOME", "Recertification outcome evidence.", i.FundingOwnerId, new[] { new EvidenceLinkTarget("CAMPAIGN_ITEM", i.Id) });
+
+            if (!isBusinessOwner)
+            {
+                // The product owner proposes; a decision task goes to the business owner in scope.
+                await uow.ExecuteAsync("UPDATE wf.CampaignItem SET Outcome = @outcome, OutcomeEvidence = @ev WHERE CampaignItemId = @Id",
+                    new { outcome, ev = CommandRunner.Trim(evidenceText, 2000), i.Id });
+                if (i.TaskId is null)
+                {
+                    var ownerRole = await uow.ScalarAsync<string>("SELECT CASE OwnerType WHEN 'ENTERPRISE_SHARED' THEN 'SHARED_SERVICE_OWNER' ELSE 'LOB_BUSINESS_OWNER' END FROM core.FundingOwner WHERE FundingOwnerId = @FundingOwnerId", new { i.FundingOwnerId });
+                    var due = clock.UtcNow.AddDays(7);
+                    var taskId = await uow.ScalarAsync<long>(
+                        """
+                        INSERT wf.Task (FundingOwnerId, StageCode, TaskType, Title, AssignedRoleCode, ScopeType, ScopeId, Status, IsBlocking, StartedUtc, DueUtc,
+                                        RelatedEntityType, RelatedEntityId, DecisionType, RaciActivityCode, Reason)
+                        OUTPUT inserted.TaskId
+                        VALUES (@FundingOwnerId, 'I1', 'DECISION', @title, @ownerRole, 'FUNDING_OWNER', @FundingOwnerId, 'OPEN', 1, @now, @due,
+                                'CAMPAIGN_ITEM', @Id, 'RECERTIFICATION', 'LIFECYCLE_RETIREMENT', @reason)
+                        """,
+                        new
+                        {
+                            i.FundingOwnerId, title = CommandRunner.Trim($"Decide the recertification of {i.WorkloadName}", 300), ownerRole, now = clock.UtcNow, due, i.Id,
+                            reason = CommandRunner.Trim($"The owner proposes: {outcome.ToLowerInvariant()}. Evidence: {evidenceText}", 1000),
+                        });
+                    await uow.ExecuteAsync("UPDATE wf.CampaignItem SET TaskId = @taskId WHERE CampaignItemId = @Id", new { taskId, i.Id });
+                    await outbox.EnqueueAsync(uow, new OutboxMessage
+                    {
+                        EventType = "N14", FundingOwnerId = i.FundingOwnerId, TaskId = taskId,
+                        Roles = { new RoleTarget(ownerRole ?? Roles.LobBusinessOwner, ScopeTypes.FundingOwner, i.FundingOwnerId) },
+                        Subject = $"Recertification to decide: {i.WorkloadName}", Text = $"The owner proposes to {outcome.ToLowerInvariant()} it. You decide.",
+                        LinkPath = "/Recertification", ActivityType = "recertificationDue",
+                    }, $"N14:item:{i.Id}");
+                }
+                await run.AuditAsync(uow, "campaign.propose", "CampaignItem", i.Id, outcome);
+                return "PROPOSED";
+            }
+
+            // The business owner decides.
+            var role = Me.HasRoleIn(Roles.SharedServiceOwner, i.FundingOwnerId) ? Roles.SharedServiceOwner : Roles.LobBusinessOwner;
+            var decisionId = await decisions.RecordAsync(uow, DecisionTypes.Recertification, outcome == "RETIRE" ? Outcomes.Declined : Outcomes.Extend, role, "LIFECYCLE_RETIREMENT",
                 $"Recertification of {i.WorkloadName}: {outcome.ToLowerInvariant()}", i.FundingOwnerId, i.WorkloadId, reason: evidenceText, nextReviewOn: outcome == "RETIRE" ? null : clock.UtcNow.Date.AddYears(1));
             await uow.ExecuteAsync("UPDATE wf.CampaignItem SET Status = 'DONE', Outcome = @outcome, OutcomeEvidence = @ev, DecisionId = @decisionId, CompletedUtc = @now WHERE CampaignItemId = @Id",
                 new { outcome, ev = CommandRunner.Trim(evidenceText, 2000), decisionId, now = clock.UtcNow, i.Id });
+            await uow.ExecuteAsync("UPDATE wf.Task SET Status = 'DONE', Outcome = @outcome, CompletedByPersonId = @me, CompletedUtc = @now WHERE RelatedEntityType = 'CAMPAIGN_ITEM' AND RelatedEntityId = @Id AND Status = 'OPEN'",
+                new { outcome, me = Me.PersonId, now = clock.UtcNow, i.Id });
             if (i.WorkloadId is int wid && outcome != "RETIRE")
                 await uow.ExecuteAsync("UPDATE core.Workload SET NextReviewOn = @next WHERE WorkloadId = @wid", new { next = clock.UtcNow.Date.AddYears(1), wid });
-            if (file is not null)
-                await evidence.SaveAsync(uow, file, "OUTCOME", "Recertification outcome evidence.", i.FundingOwnerId, new[] { new EvidenceLinkTarget("CAMPAIGN_ITEM", i.Id) });
             await run.AuditAsync(uow, "campaign.item", "CampaignItem", i.Id, outcome);
+
+            if (outcome == "RETIRE" && i.WorkloadId is int retireId)
+            {
+                // A retirement request (J7) is drafted for the workload's product owner (or the item's owner) to review and submit.
+                var requester = i.ProductOwnerPersonId ?? i.OwnerPersonId ?? Me.PersonId;
+                var onBehalf = new OnBehalfPrincipal(requester, Me);
+                var payload = new Requests.RequestPayload
+                {
+                    Purpose = $"Retire {i.WorkloadName}: decided at recertification.",
+                    ExistingWorkloadPublicId = await uow.ScalarAsync<Guid>("SELECT PublicId FROM core.Workload WHERE WorkloadId = @retireId", new { retireId }),
+                    RetirementReason = CommandRunner.Trim($"Recertification decided to retire it. {evidenceText}", 1000),
+                };
+                var draft = await engine.CreateDraftAsync(uow, onBehalf, Journeys.Retirement, CommandRunner.Trim($"Retire {i.WorkloadName}", 200), i.FundingOwnerId,
+                    null, Me.PersonId == requester ? null : Me.PersonId, retireId, payload);
+                await outbox.EnqueueAsync(uow, new OutboxMessage
+                {
+                    EventType = "N06", RequestId = draft.RequestId, FundingOwnerId = i.FundingOwnerId, PersonIds = { requester },
+                    Subject = $"{draft.RequestNumber}: retirement drafted for {i.WorkloadName}", Text = "Recertification decided to retire this workload. Add the retirement plan and submit the request.",
+                    LinkPath = $"/Requests/{draft.PublicId}",
+                }, $"N06:retire:{i.Id}");
+                return $"RETIRE_DRAFTED:{draft.PublicId}";
+            }
+            return "DECIDED";
         });
 
     // ---------------------------------------------------------------- exceptions

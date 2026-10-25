@@ -29,6 +29,11 @@
     </div>
 </div>
 
+@if (Model.IsRequester && r.State is "DRAFT" or "RETURNED" or "DECLINED" && Model.CompletenessGaps.Count > 0)
+{
+    <div class="alert alert-warn" role="status"><strong>Before you submit:</strong> intake will return the request unless these are fixed. You can still submit.
+        <ul>@foreach (var g in Model.CompletenessGaps) { <li>@g</li> }</ul></div>
+}
 @if (d.Stages.Count > 0)
 {
     <ol class="steps" aria-label="Stages">
@@ -49,9 +54,9 @@
             <dt>Requester <help>Who submitted the request. A requester never decides their own request (SoD1).</help></dt><dd>@d.RequesterName</dd>
             <dt>Sponsor <help>Owns the purpose and the outcome claims.</help></dt><dd>@(d.SponsorName ?? "None")</dd>
             <dt>Service <help>The approved catalogue service the request uses.</help></dt><dd>@(d.ServiceName ?? "None")</dd>
-            @if (r.EstimateCredits is decimal est)
+            @if (Model.EstimateText is string est)
             {
-                <dt>Estimate <help>Monthly Copilot Credits, checked against the envelope at B4. An approval commits this amount.</help></dt><dd>@Ui.Num(est) Copilot Credits a month</dd>
+                <dt>Estimate <help>The requester's monthly Copilot Credits. At the pattern check (B4) it is multiplied by the months it runs inside the envelope period; an approval commits that total against the envelope.</help></dt><dd>@est</dd>
             }
             <dt>Submitted <help>When the request left draft (B1).</help></dt><dd>@(r.SubmittedUtc is null ? "Not yet" : Ui.Local(r.SubmittedUtc))</dd>
             @if (!string.IsNullOrEmpty(Model.Payload.Purpose))
@@ -75,6 +80,10 @@
     </div>
     <div class="card">
         <h2>Who does what now <help k="req.whodoeswhat">The RACI row for the current stage, resolved to people today in this request's scope. A: decides. R: does the work. C: consulted. I: informed in the daily digest.</help></h2>
+        @foreach (var ot in open.Where(x => x.TaskType is "DECISION" or "WORK" or "VERIFICATION"))
+        {
+            <p class="small"><strong>Waiting for:</strong> @Model.PoolText(ot) (@ot.Title)</p>
+        }
         @if (d.WhoDoesWhat.Count == 0)
         {
             <p class="muted">The request is not at a stage with a RACI activity.</p>
@@ -135,7 +144,7 @@
                 @if (t.DueUtc is not null) { @Ui.Pill(t.DueUtc < DateTime.UtcNow ? "OVERDUE" : "DUE " + Ui.Local(t.DueUtc, "d MMM HH:mm"), t.DueUtc < DateTime.UtcNow ? "bad" : "info") }
             </div>
         </div>
-        <div class="kv"><span>@Ui.TaskSentence(t.RoleName ?? (t.AssignedRoleCode == "REQUESTER" ? "the requester" : t.AssignedRoleCode), d.FundingOwnerName, t.StartedUtc, t.DueUtc, t.AssignedName)</span>@if (t.TaskType == "CONSULT") { <span>@(t.IsBlocking ? "The decision waits for this answer" : "Non-blocking")</span> }</div>
+        <div class="kv"><span>@Ui.TaskSentence(t.RoleName ?? (t.AssignedRoleCode == "REQUESTER" ? "the requester" : t.AssignedRoleCode), d.FundingOwnerName, t.StartedUtc, t.DueUtc, t.AssignedName, t.StageCode == "B5")</span>@if (t.TaskType == "CONSULT") { <span>@(t.IsBlocking ? "The decision waits for this answer" : "Non-blocking")</span> }</div>
         @if (!string.IsNullOrEmpty(t.Reason)) { <p class="small">@t.Reason</p> }
         @if (t.ExcludedText is not null) { <p class="small muted">Cannot act (segregation of duties): @t.ExcludedText</p> }
 
@@ -191,12 +200,12 @@
                 <div class="form-grid">
                     <div class="field"><label for="o-@t.PublicId" class="req">Outcome <help>Approved, with conditions, a constrained pilot, hold or declined. A decline or hold always says why and what evidence is needed (B6).</help></label>
                         <select id="o-@t.PublicId" name="outcome" required>
-                            <option value="APPROVED">Approve</option>
-                            <option value="APPROVED_WITH_CONDITIONS">Approve with conditions</option>
-                            @if (t.StageCode == "B9") { <option value="CONSTRAINED_PILOT">Constrained pilot</option> }
-                            @if (t.StageCode is "B9" or "F4") { <option value="HOLD">Hold for evidence</option> }
-                            <option value="DECLINED">Decline</option>
+                            @foreach (var (value, label) in Model.DecisionOutcomes(t)) { <option value="@value">@label</option> }
                         </select></div>
+                    @if (Model.Envelope is { } env)
+                    {
+                        <div class="field full"><span class="small"><strong>Envelope:</strong> @env.ServiceName, @Ui.Date(env.PeriodStart) to @Ui.Date(env.PeriodEnd): @Ui.Num(env.Left) of @Ui.Num(env.Amount) @Units.Label(env.Unit) left (@Ui.Num(env.Committed) committed). This request commits @Ui.Num(r.EstimateCredits) if approved.</span></div>
+                    }
                     <div class="field"><label for="s-@t.PublicId" class="req">Scope <help>Service, audience, tier, environment or policy, and duration. This is what the approval covers.</help></label>
                         <input id="s-@t.PublicId" name="scope" required maxlength="1000" value="@(d.ServiceName is null ? r.Title : $"{d.ServiceName} for {d.FundingOwnerName}")" /></div>
                     <div class="field"><label for="e-@t.PublicId">Expires <help>Every approval expires or has a review date. Exceptions must expire.</help></label><input id="e-@t.PublicId" type="date" name="expires" value="@DateTime.UtcNow.AddMonths(Model.Payload.DurationMonths ?? 12).ToString("yyyy-MM-dd")" /></div>
@@ -217,6 +226,10 @@
         {
             <form method="post" asp-page-handler="Verify" asp-route-task="@t.PublicId" enctype="multipart/form-data" class="mt">
                 <idem />
+                @if (Model.VerifyError is string verr)
+                {
+                    <div class="alert alert-bad" role="alert"><strong>Not recorded.</strong> @verr Your entries are kept; choose any evidence files again.</div>
+                }
                 @if (Model.Template is null)
                 {
                     <div class="alert alert-warn">The service has no active control template, so nothing can be verified. Ask the Platform Owner to activate one.</div>
@@ -237,11 +250,12 @@
                                     "tenantPoolEnabled" => Model.Posture?.ReadTenantPool?.ToString().ToLowerInvariant() ?? "",
                                     _ => "",
                                 };
+                                (bool Passed, string? Actual)? posted = Model.PostedChecks.TryGetValue(c.ControlCheckId, out var pc) ? pc : null;
                                 <tr>
                                     <td><strong>@c.CheckCode</strong>@(c.IsDenyCase ? " (deny case)" : "")<div class="small">@c.Description</div><div class="small muted">@Ui.Words(c.Method)@(c.CaveatCode is null ? "" : " · " + c.CaveatCode)</div></td>
                                     <td>@exp</td>
-                                    <td><input name="actual_@c.ControlCheckId" value="@found" aria-label="Value found for @c.CheckCode" maxlength="200" /></td>
-                                    <td><select name="check_@c.ControlCheckId" aria-label="Result for @c.CheckCode"><option value="fail">Fail</option><option value="pass">Pass</option></select></td>
+                                    <td><input name="actual_@c.ControlCheckId" value="@(posted?.Actual ?? found)" aria-label="Value found for @c.CheckCode" maxlength="200" /></td>
+                                    <td><select name="check_@c.ControlCheckId" aria-label="Result for @c.CheckCode"><option value="fail">Fail</option><option value="pass" selected="@(posted?.Passed == true)">Pass</option></select></td>
                                     <td>@if (c.Method != "READBACK") { <input type="file" name="file_@c.ControlCheckId" aria-label="Evidence for @c.CheckCode" /> } else { <span class="muted small">Read-back @(Model.Posture?.ReadAsOf is null ? "not run yet" : "as of " + Ui.Local(Model.Posture.ReadAsOf))</span> }</td>
                                 </tr>
                             }
@@ -249,10 +263,14 @@
                         </table>
                     </div>
                     <div class="form-grid mt">
-                        <div class="field"><label for="cv">Configuration version <help>The admin center's version or change reference, if any.</help></label><input id="cv" name="configurationVersion" maxlength="100" /></div>
-                        <div class="field"><label for="vn">Notes</label><input id="vn" name="notes" maxlength="2000" /></div>
+                        <div class="field"><label for="cv">Configuration version <help>The admin center's version or change reference, if any.</help></label><input id="cv" name="configurationVersion" maxlength="100" value="@Model.PostedConfigurationVersion" /></div>
+                        <div class="field"><label for="vn">Notes <help>Required when you record a failure: say what failed so the next configuration fixes it.</help></label><input id="vn" name="notes" maxlength="2000" value="@Model.PostedNotes" /></div>
                     </div>
-                    <button class="btn mt" type="submit">Record verification</button>
+                    <div class="btn-row mt">
+                        <button class="btn" type="submit" name="intent" value="pass">Record: passed</button>
+                        <button class="btn btn-ghost" type="submit" name="intent" value="fail">Record: failed</button>
+                        <span class="small muted">"Passed" is checked first and nothing is recorded if a check is missing. "Failed" sends the change back to fulfillment.</span>
+                    </div>
                 }
             </form>
         }
@@ -263,7 +281,7 @@
             <form method="post" asp-page-handler="Complete" asp-route-task="@t.PublicId" enctype="multipart/form-data" class="mt">
                 <idem />
                 <div class="form-grid">
-                    <div class="field full"><label for="nt-@t.PublicId">@(t.TaskType == "CONSULT" ? "Your view" : "Notes") <help>@(t.StageCode == "B2" ? "When returning, list exactly what is missing; the requester sees it." : "Recorded on the request's timeline.")</help></label><textarea id="nt-@t.PublicId" name="notes" maxlength="2000"></textarea></div>
+                    <div class="field full"><label for="nt-@t.PublicId">@(t.TaskType == "CONSULT" ? "Your view" : "Notes") <help>@(t.StageCode == "B2" ? "When returning, list exactly what is missing; the requester sees it." : "Recorded on the request's timeline.")</help></label><textarea id="nt-@t.PublicId" name="notes" maxlength="2000">@Model.ReturnNotePrefill(t)</textarea></div>
                     @if (t.StageCode is "D2" or "F5" || t.RelatedEntityType == "HOLD")
                     {
                         <div class="field"><label for="fl-@t.PublicId">Evidence <help>@(t.StageCode == "D2" ? "Charging, attribution, exhaustion, overage, recovery and negative test results, including enforcement lag (C08, C11)." : "The document that shows it is done.")</help></label><input id="fl-@t.PublicId" type="file" name="file" /></div>

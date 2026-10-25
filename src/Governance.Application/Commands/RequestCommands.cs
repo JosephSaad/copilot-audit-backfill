@@ -30,6 +30,7 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
                 payload.ExistingWorkloadPublicId = wp;
             }
             await RequireCanRequestForAsync(uow, journey, fundingOwnerId, workloadId);
+            await RequireValidSponsorAsync(uow, sponsorPersonId, fundingOwnerId);
             var r = await engine.CreateDraftAsync(uow, Me, journey, title, fundingOwnerId, serviceId, sponsorPersonId, workloadId, payload);
             return r.PublicId.ToString();
         });
@@ -39,6 +40,7 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
         {
             var id = await RequestIdAsync(uow, requestPublicId);
             int? workloadId = workloadPublicId is Guid wp ? await WorkloadIdAsync(uow, wp) : null;
+            await RequireValidSponsorAsync(uow, sponsorPersonId, fundingOwnerId);
             await engine.UpdateDraftAsync(uow, Me, id, title, fundingOwnerId, serviceId, sponsorPersonId, workloadId, payload, rowVer);
         });
 
@@ -152,7 +154,7 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
     /// D1: records the verification (ledger) with every check's expected and actual value, then completes the task
     /// with PASS or FAIL. Attestation checks need evidence; the explicit deny case must be tested; SoD3 in the engine.
     /// </summary>
-    public Task<string?> VerifyAsync(Guid idem, Guid taskPublicId, IReadOnlyList<CheckInput> checks, string? configurationVersion, string? notes)
+    public Task<string?> VerifyAsync(Guid idem, Guid taskPublicId, IReadOnlyList<CheckInput> checks, string? configurationVersion, string? notes, bool recordFailure = false)
         => run.RunAsync(idem, "request.verify", async uow =>
         {
             var taskId = await TaskIdAsync(uow, taskPublicId);
@@ -162,7 +164,10 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
             var serviceId = r.ServiceId ?? await uow.ScalarAsync<int?>("SELECT ServiceId FROM core.Workload WHERE WorkloadId = @WorkloadId", new { r.WorkloadId });
             var template = await uow.QueryFirstOrDefaultAsync<(int TemplateId, string SettingsJson)>("SELECT TemplateId, SettingsJson FROM core.ControlTemplate WHERE ServiceId = @serviceId AND Status = 'ACTIVE'", new { serviceId });
             var defs = template.TemplateId == 0 ? new List<ControlCheckDef>()
-                : (await uow.QueryAsync<ControlCheckDef>("SELECT ControlCheckId, CheckCode, Method, SettingKey, IsDenyCase FROM core.ControlCheck WHERE TemplateId = @TemplateId", new { template.TemplateId })).ToList();
+                : (await uow.QueryAsync<ControlCheckDef>("SELECT ControlCheckId, CheckCode, Description, Method, SettingKey, IsDenyCase FROM core.ControlCheck WHERE TemplateId = @TemplateId ORDER BY SortOrder", new { template.TemplateId })).ToList();
+            if (defs.Count == 0) throw new DomainException("The service has no active control template with checks, so nothing can be verified. Ask the Platform Owner to activate one.");
+            if (r.ConfigurerPersonId == Me.PersonId) throw new DomainException("You configured this change, so a second operator verifies it (SoD3).");
+            if (recordFailure && string.IsNullOrWhiteSpace(notes)) throw new DomainException("Say what failed in the notes, so the operator who configures it again knows what to fix.");
             var settings = Settings(template.SettingsJson);
             var results = new List<VerificationComplete.CheckResult>();
             var evidenceFiles = new List<UploadedFile>();
@@ -176,7 +181,18 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
             }
             var readBackOnly = defs.Count > 0 && defs.All(d => d.Method == "READBACK");
             var rule = VerificationComplete.Evaluate(results, r.ConfigurerPersonId, Me.PersonId, readBackOnly);
-            var pass = rule.Passed;
+            // "Passed" is checked in full before anything is written: a refusal leaves no ledger row and the form keeps
+            // what was entered. Only an explicit "failed" writes a FAIL row and sends the change back to fulfillment.
+            if (!recordFailure && !rule.Passed)
+            {
+                var named = rule.Reasons.Select(reason =>
+                {
+                    var d = defs.FirstOrDefault(x => reason.StartsWith(x.CheckCode + ":", StringComparison.Ordinal));
+                    return d is null ? reason : $"“{d.Description}”{reason[d.CheckCode.Length..]}";
+                });
+                throw new DomainException("Not recorded yet. Fix these, then record again, or record it as failed: " + string.Join(" ", named));
+            }
+            var pass = !recordFailure && rule.Passed;
             var publicId = Guid.NewGuid();
             var verificationId = await uow.ScalarAsync<long>(
                 """
@@ -192,7 +208,7 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
                 });
             foreach (var f in evidenceFiles)
                 await evidence.SaveAsync(uow, f, "TEST_RESULT", "Verification evidence.", r.FundingOwnerId, new[] { new EvidenceLinkTarget("VERIFICATION", verificationId) });
-            var why = pass ? notes : string.Join(" ", rule.Reasons) + (string.IsNullOrWhiteSpace(notes) ? "" : " " + notes);
+            var why = pass ? notes : notes + (rule.Passed ? "" : " " + string.Join(" ", rule.Reasons));
             await engine.CompleteWorkAsync(uow, Me, taskId, pass ? StageOutcomes.Pass : StageOutcomes.Fail, CommandRunner.TrimN(why, 2000));
             if (!pass)
                 await uow.ExecuteAsync(
@@ -208,16 +224,17 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
                             EventType = "N08", RequestId = r.RequestId, FundingOwnerId = r.FundingOwnerId,
                             PersonIds = r.ConfigurerPersonId is int cp ? new List<int> { cp } : new List<int>(),
                             Roles = { new Outbox.RoleTarget(Roles.PlatformOperator, ScopeTypes.Tenant, null) },
-                            Subject = $"{r.RequestNumber}: verification failed", Text = string.Join(" ", rule.Reasons), LinkPath = $"/Requests/{r.PublicId}", ActivityType = "verificationFailed",
+                            Subject = $"{r.RequestNumber}: verification failed", Text = CommandRunner.Trim(why, 1000), LinkPath = $"/Requests/{r.PublicId}", ActivityType = "verificationFailed",
                         }.ToJson(),
                     });
-            return pass ? "PASS" : "FAIL: " + string.Join(" ", rule.Reasons);
+            return pass ? "PASS" : "FAIL";
         });
 
     private sealed class ControlCheckDef
     {
         public int ControlCheckId { get; init; }
         public string CheckCode { get; init; } = "";
+        public string Description { get; init; } = "";
         public string Method { get; init; } = "";
         public string? SettingKey { get; init; }
         public bool IsDenyCase { get; init; }
@@ -256,6 +273,20 @@ public sealed class RequestCommands(CommandRunner run, WorkflowEngine engine, Ev
                        || Me.HasRoleIn(Roles.LobBusinessOwner, w.FundingOwnerId) || Me.HasRoleIn(Roles.SharedServiceOwner, w.FundingOwnerId) || Me.IsCentral;
             if (!mine) throw new DomainException("Only the workload's product owner, sponsor or business owner can ask for this change.");
         }
+    }
+
+    /// <summary>A sponsor is someone else who sponsors, owns products or owns the business in the request's funding owner.</summary>
+    private async Task RequireValidSponsorAsync(Uow uow, int? sponsorPersonId, int fundingOwnerId)
+    {
+        if (sponsorPersonId is not int sp) return;
+        if (sp == Me.PersonId) throw new DomainException("Choose someone else as sponsor: the sponsor vouches for the request, so it cannot be the requester.");
+        var ok = await uow.ScalarAsync<int>(
+            """
+            SELECT COUNT(*) FROM sec.RoleAssignment
+            WHERE PersonId = @sp AND RoleCode IN @roles AND ScopeType = 'FUNDING_OWNER' AND ScopeId = @fundingOwnerId
+              AND EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)
+            """, new { sp, roles = Queries.RegistryQueries.SponsorRoles, fundingOwnerId, today = clock.UtcNow.Date });
+        if (ok == 0) throw new DomainException("The sponsor must be a workload sponsor, product owner or business owner in the funding owner you chose.");
     }
 
     private static async Task<long> RequestIdAsync(Uow uow, Guid publicId)

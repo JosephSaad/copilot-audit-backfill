@@ -23,21 +23,64 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
     public Dictionary<string, string> Expected { get; private set; } = new();
     public PostureRow? Posture { get; private set; }
     public bool IsRequester => D.Request.RequesterPersonId == Principal.PersonId;
+    /// <summary>B2 completeness on this request now: shown to the requester before submitting and prefilled in the intake return note.</summary>
+    public IReadOnlyList<string> CompletenessGaps { get; private set; } = Array.Empty<string>();
+    /// <summary>The envelope this request draws on, for the people deciding it.</summary>
+    public EnvelopeHeadroomView? Envelope { get; private set; }
+
+    // D1: what the verifier entered, kept when the form is shown again after a refusal.
+    public string? VerifyError { get; private set; }
+    public Dictionary<int, (bool Passed, string? Actual)> PostedChecks { get; private set; } = new();
+    public string? PostedConfigurationVersion { get; private set; }
+    public string? PostedNotes { get; private set; }
+
+    /// <summary>
+    /// The estimate in plain words. Before the pattern check it is the monthly figure the requester gave; afterwards the
+    /// request holds the whole commitment (a month's credits times the months it runs inside the envelope period).
+    /// </summary>
+    public string? EstimateText
+    {
+        get
+        {
+            var r = D.Request;
+            if (r.EstimateCredits is not decimal total) return null;
+            decimal monthly = r.JourneyCode == Journeys.CapacityChange
+                ? Math.Max(0, (Payload.RequestedValue ?? 0) - (Payload.CurrentValue ?? 0))
+                : Payload.EstimateCreditsPerMonth ?? 0;
+            var evaluated = r.PatternResult is not null;
+            if (!evaluated || monthly <= 0) return $"{Ui.Num(monthly > 0 ? monthly : total)} Copilot Credits a month (estimate)";
+            var months = (int)Math.Round(total / monthly, MidpointRounding.AwayFromZero);
+            return $"{Ui.Num(monthly)} a month × {months} month{(months == 1 ? "" : "s")} = {Ui.Num(total)} Copilot Credits committed if approved";
+        }
+    }
 
     public async Task<IActionResult> OnGetAsync()
     {
         var d = await work.RequestAsync(Id);
         if (d is null) return NotFound();
+        await LoadAsync(d);
+        if (d.Decisions.Count > 0 || d.Evidence.Count > 0) await AuditViewAsync("request.view", "Request", d.Request.RequestNumber);
+        return Page();
+    }
+
+    private async Task LoadAsync(RequestDetail d)
+    {
         D = d;
         Payload = RequestPayload.FromJson(d.Request.PayloadJson);
         var open = d.Tasks.Where(t => t.Status == TaskStatuses.Open).ToList();
+        if ((IsRequester && d.Request.State is "DRAFT" or "RETURNED" or "DECLINED") || open.Any(t => t.StageCode == Stages.Completeness))
+            CompletenessGaps = await work.CompletenessPreviewAsync(d.Request.RequestId);
         if (open.Any(t => t.StageCode == Stages.Classify))
         {
             CostCenters = await registry.CostCenterOptionsAsync(d.Request.FundingOwnerId);
             Services = await registry.ServiceOptionsAsync();
             EnvironmentClasses = await registry.EnvironmentClassOptionsAsync();
         }
-        if (open.Any(t => t.TaskType == TaskTypes.Decision)) People = await registry.PeopleOptionsAsync();
+        if (open.Any(t => t.TaskType == TaskTypes.Decision))
+        {
+            People = await registry.PeopleInScopeAsync(d.Request.FundingOwnerId);
+            if (d.Request.EnvelopeId is int env) Envelope = await work.EnvelopeHeadroomAsync(env);
+        }
         if (open.Any(t => t.TaskType == TaskTypes.Verification))
         {
             var serviceId = d.Request.ServiceId ?? d.Workload?.ServiceId;
@@ -49,9 +92,34 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
             if (d.Workload is not null)
                 Posture = (await registry.WorkloadAsync(d.Workload.PublicId, null))?.Posture.FirstOrDefault(p => p.EffectiveTo is null);
         }
-        if (d.Decisions.Count > 0 || d.Evidence.Count > 0) await AuditViewAsync("request.view", "Request", d.Request.RequestNumber);
-        return Page();
     }
+
+    /// <summary>Who the open task waits for: its role pool in scope, plus delegated approvers where the stage allows them.</summary>
+    public string PoolText(TaskView t)
+    {
+        if (t.AssignedName is not null) return t.AssignedName;
+        if (t.AssignedRoleCode == Roles.Requester) return "the requester";
+        var role = (t.RoleName ?? Ui.Words(t.AssignedRoleCode)).ToLowerInvariant().Replace("lob ", "LOB ");
+        var lob = Roles.BusinessOwnerRoles.Contains(t.AssignedRoleCode ?? "");
+        var scoped = lob ? $" for {D.FundingOwnerName}" : "";
+        var delegates = lob && t.StageCode == Stages.RoutineApproval ? ", or a delegated approver" : "";
+        return $"{Ui.Article(role)} {role}{scoped}{delegates}";
+    }
+
+    /// <summary>Decision outcomes offered: only those the stage's transitions allow (hold and pilot only where they exist).</summary>
+    public IReadOnlyList<(string Value, string Label)> DecisionOutcomes(TaskView t)
+    {
+        var from = D.Transitions.Where(x => x.FromStage == t.StageCode).Select(x => x.Outcome).ToHashSet();
+        var list = new List<(string, string)> { ("APPROVED", t.StageCode == Stages.ProductionAcceptance ? "Accept" : "Approve"), ("APPROVED_WITH_CONDITIONS", t.StageCode == Stages.ProductionAcceptance ? "Accept with conditions" : "Approve with conditions") };
+        if (from.Contains("CONSTRAINED_PILOT")) list.Add(("CONSTRAINED_PILOT", "Constrained pilot"));
+        if (from.Contains("HOLD")) list.Add(("HOLD", "Hold for evidence"));
+        list.Add(("DECLINED", t.StageCode == Stages.ProductionAcceptance ? "Reject: back to build and test" : "Decline"));
+        return list;
+    }
+
+    /// <summary>Intake's return note, prefilled with what the completeness check finds missing.</summary>
+    public string? ReturnNotePrefill(TaskView t)
+        => t.StageCode == Stages.Completeness && CompletenessGaps.Count > 0 ? "Missing: " + string.Join(" ", CompletenessGaps) : null;
 
     /// <summary>A hint for the page: may this person act on the task? The engine decides for real.</summary>
     public bool CanAct(TaskView t)
@@ -92,7 +160,7 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
     public Task<IActionResult> OnPostReleaseAsync(Guid task) => Act(() => commands.ReleaseAsync(Idem, task), "Released back to the queue.");
 
     public Task<IActionResult> OnPostCompleteAsync(Guid task, string outcome, string? notes, IFormFile? file, string? evidenceType)
-        => Act(() => commands.CompleteAsync(Idem, task, outcome, notes, Upload(file), evidenceType), "Done. The request moved on.");
+        => Act(() => commands.CompleteAsync(Idem, task, outcome, notes, Upload(file), evidenceType), "The request moved on.");
 
     public Task<IActionResult> OnPostDecideAsync(Guid task, string outcome, string scope, string? conditions, string? reason, string? evidence,
         DateTime? expires, DateTime? review, string? conditionText, int? conditionOwner, DateTime? conditionDue, IFormFile? file)
@@ -107,7 +175,11 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
         => Act(() => commands.SaveClassificationAsync(Idem, Id, new ClassificationInput(costCenterId, solutionClass, lifecycleStage, serviceId, criticality, triggerType,
             dataBoundary, dataClass, audience, environmentClassCode, meters ?? new List<string>(), metersNone)), "Classification saved. Complete the task when every field is set.");
 
-    public Task<IActionResult> OnPostVerifyAsync(Guid task, string? configurationVersion, string? notes)
+    /// <summary>
+    /// D1. "Record: passed" is checked in full before anything is written; a refusal shows the form again with what was
+    /// entered (files must be chosen again: browsers never refill file inputs). Only "Record: failed" writes a FAIL row.
+    /// </summary>
+    public async Task<IActionResult> OnPostVerifyAsync(Guid task, string? configurationVersion, string? notes, string intent)
     {
         var checks = new List<CheckInput>();
         foreach (var key in Request.Form.Keys.Where(k => k.StartsWith("check_", StringComparison.Ordinal)))
@@ -117,7 +189,24 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
             var actual = Request.Form[$"actual_{id}"].FirstOrDefault();
             checks.Add(new CheckInput(id, passed, actual, Upload(Request.Form.Files[$"file_{id}"])));
         }
-        return Act(() => commands.VerifyAsync(Idem, task, checks, configurationVersion, notes), r => r is "PASS" ? "Verified: the request moves on." : $"Verification recorded as failed. {r}");
+        var failIntent = string.Equals(intent, "fail", StringComparison.OrdinalIgnoreCase);
+        try
+        {
+            var r = await commands.VerifyAsync(Idem, task, checks, configurationVersion, notes, failIntent);
+            Flash = r is "PASS" ? "Verification recorded: passed. The request moves on." : "Verification recorded: failed. The change goes back to fulfillment for a new ITSM task.";
+            return RedirectToPage();
+        }
+        catch (DomainException ex) { VerifyError = ex.Message; }
+        catch (ConcurrencyException ex) { VerifyError = ex.Message; }
+        catch (Exception ex) { VerifyError = Incident.Note(Log, ex, "recording the verification"); }
+
+        PostedChecks = checks.ToDictionary(c => c.ControlCheckId, c => (c.Passed, c.Actual));
+        PostedConfigurationVersion = configurationVersion;
+        PostedNotes = notes;
+        var d = await work.RequestAsync(Id);
+        if (d is null) return NotFound();
+        await LoadAsync(d);
+        return Page();
     }
 
     public Task<IActionResult> OnPostUploadAsync(IFormFile? file, string evidenceType, string? description)

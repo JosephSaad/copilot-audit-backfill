@@ -20,7 +20,11 @@ public class NewModel(RegistryQueries registry, WorkQueries work, RequestCommand
     public bool IntakeOpen { get; private set; }
     public IReadOnlyList<Option> FundingOwners { get; private set; } = Array.Empty<Option>();
     public IReadOnlyList<Option> Services { get; private set; } = Array.Empty<Option>();
-    public IReadOnlyList<Option> People { get; private set; } = Array.Empty<Option>();
+    /// <summary>Sponsors per funding owner (WORKLOAD_SPONSOR, business owner, product owner), never the requester.</summary>
+    public IReadOnlyList<ScopedPersonOption> Sponsors { get; private set; } = Array.Empty<ScopedPersonOption>();
+    /// <summary>B2 completeness, run on a saved draft so the requester sees what intake will check before submitting.</summary>
+    public IReadOnlyList<string> CompletenessGaps { get; private set; } = Array.Empty<string>();
+    public bool IsResubmission => State is "RETURNED" or "DECLINED";
     public IReadOnlyList<Option> Workloads { get; private set; } = Array.Empty<Option>();
     public IReadOnlyList<Option> EnvironmentClasses { get; private set; } = Array.Empty<Option>();
     public IReadOnlyDictionary<string, (string Title, string Guidance)> Caveats { get; private set; } = new Dictionary<string, (string, string)>();
@@ -56,6 +60,7 @@ public class NewModel(RegistryQueries registry, WorkQueries work, RequestCommand
             State = d.Request.State;
             ReturnReason = d.Timeline.FirstOrDefault(t => t.ToState is "RETURNED" or "DECLINED")?.Text
                            ?? d.Decisions.FirstOrDefault(x => x.Outcome is "DECLINED" or "HOLD")?.RequiredEvidenceText;
+            CompletenessGaps = await work.CompletenessPreviewAsync(d.Request.RequestId);
         }
         else
         {
@@ -101,9 +106,9 @@ public class NewModel(RegistryQueries registry, WorkQueries work, RequestCommand
             else Flash = "Draft saved. Submit it when it is ready.";
             return Redirect($"/Requests/{publicId}");
         }
-        catch (DomainException ex) { FlashError = ex.Message; }
-        catch (ConcurrencyException ex) { FlashError = ex.Message; }
-        catch (Exception ex) { FlashError = Incident.Note(Log, ex, "saving the request"); }
+        catch (DomainException ex) { ShowErrorNow(ex.Message); }
+        catch (ConcurrencyException ex) { ShowErrorNow(ex.Message); }
+        catch (Exception ex) { ShowErrorNow(Incident.Note(Log, ex, "saving the request")); }
         await LoadAsync();
         return Page();
     }
@@ -114,7 +119,7 @@ public class NewModel(RegistryQueries registry, WorkQueries work, RequestCommand
         IntakeOpen = await work.IntakeOpenAsync();
         FundingOwners = await registry.FundingOwnerOptionsAsync(activeOnly: false);
         Services = await registry.ServiceOptionsAsync(approvedOnly: Journey != Journeys.Exception);
-        People = await registry.PeopleOptionsAsync();
+        Sponsors = await registry.SponsorOptionsAsync(Principal.PersonId);
         Workloads = await registry.WorkloadOptionsAsync();
         EnvironmentClasses = await registry.EnvironmentClassOptionsAsync();
         Caveats = await registry.CaveatsAsync();

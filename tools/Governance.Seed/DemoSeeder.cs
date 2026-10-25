@@ -323,6 +323,24 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
             await conn.ExecuteAsync("UPDATE core.FundingOwner SET Status = 'ACTIVE' WHERE FundingOwnerId = @foId", new { foId }, tx);
         }
 
+        // Step 5: the Platform Owner approved the SLAs, escalation ladders and recipients (seeded values; recipients confirmed above).
+        await conn.ExecuteAsync(
+            """
+            MERGE ref.Setting AS t USING (SELECT 'Setup.StandardsApprovedUtc' AS SettingKey) AS s ON t.SettingKey = s.SettingKey
+            WHEN MATCHED THEN UPDATE SET SettingValue = @now, UpdatedUtc = SYSUTCDATETIME(), UpdatedByPersonId = @po
+            WHEN NOT MATCHED THEN INSERT (SettingKey, SettingValue, Description, UpdatedByPersonId)
+                 VALUES ('Setup.StandardsApprovedUtc', @now, N'When the Platform Owner approved SLAs, escalation and recipients (setup step 5).', @po);
+            """, new { now = DateTime.UtcNow.ToString("o"), po = result.Person("platformOwner") }, tx);
+
+        // Step 6: brownfield discovery. The demo estate is registered above, so the seeded discovery run finds nothing
+        // unclaimed. It is recorded as a test double, never as a real inventory read.
+        await conn.ExecuteAsync(
+            """
+            IF NOT EXISTS (SELECT 1 FROM intg.SyncRun WHERE Integration = 'X4' AND Status = 'SUCCEEDED')
+                INSERT intg.SyncRun (Integration, Mode, TriggeredByPersonId, StartedUtc, FinishedUtc, Status, ItemsRead, FindingsRaised, Message)
+                VALUES ('X4', 'TEST_DOUBLE', @op, SYSUTCDATETIME(), SYSUTCDATETIME(), 'SUCCEEDED', 0, 0, N'Demo seed: the seeded estate is registered; no inventory was read from Microsoft.');
+            """, new { op = result.Person("operator1") }, tx);
+
         // Step 8: open intake.
         await conn.ExecuteAsync("UPDATE ref.Setting SET SettingValue = 'true', UpdatedUtc = SYSUTCDATETIME() WHERE SettingKey = 'Intake.Open'", transaction: tx);
         await conn.ExecuteAsync(

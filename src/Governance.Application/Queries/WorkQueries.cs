@@ -200,6 +200,18 @@ public sealed class RaciLine
     public string People { get; set; } = "";
 }
 
+public sealed class EnvelopeHeadroomView
+{
+    public int EnvelopeId { get; init; }
+    public string ServiceName { get; init; } = "";
+    public DateTime PeriodStart { get; init; }
+    public DateTime PeriodEnd { get; init; }
+    public decimal Amount { get; init; }
+    public string Unit { get; init; } = "";
+    public decimal Committed { get; init; }
+    public decimal Left => Amount - Committed;
+}
+
 public sealed class WorkQueries(Db db, ICurrentPrincipal me)
 {
     public async Task<IReadOnlyList<JourneyTile>> JourneysAsync()
@@ -233,6 +245,9 @@ public sealed class WorkQueries(Db db, ICurrentPrincipal me)
               (SELECT COUNT(*) FROM core.CommercialItem) AS CommercialItems,
               (SELECT COUNT(*) FROM core.CommercialItem WHERE ReconciledToContract = 0) AS UnreconciledItems,
               (SELECT COUNT(*) FROM ref.Setting WHERE SettingKey = 'Setup.StandardsApprovedUtc') AS StandardsApproved,
+              (SELECT COUNT(*) FROM core.FundingOwner WHERE Status = 'ACTIVE' AND NotificationRecipientsConfirmed = 0) AS OwnersWithoutRecipients,
+              (SELECT COUNT(*) FROM wf.SlaPolicy WHERE Duration > 0) AS SlaPolicies,
+              (SELECT COUNT(*) FROM wf.EscalationStep) AS EscalationSteps,
               (SELECT COUNT(*) FROM intg.SyncRun WHERE Integration = 'X4' AND Status = 'SUCCEEDED') AS InventoryRuns,
               (SELECT COUNT(*) FROM core.Workload w WHERE w.State = 'DISCOVERED'
                   AND NOT EXISTS (SELECT 1 FROM ops.Finding f WHERE f.WorkloadId = w.WorkloadId AND f.Status IN ('OPEN','ACKNOWLEDGED'))) AS UnhandledDiscovered,
@@ -256,7 +271,10 @@ public sealed class WorkQueries(Db db, ICurrentPrincipal me)
             new() { Step = 4, What = "Record the commercial inventory and reconcile it to contracts", Accountable = "Finance / FinOps", Screen = "Registry › Commercial", Link = "/Registry/Commercial",
                     Done = s.CommercialItems > 0 && s.UnreconciledItems == 0, Status = $"{s.CommercialItems} items, {s.UnreconciledItems} not reconciled." },
             new() { Step = 5, What = "Approve evidence and continuity standards (SLAs, escalation, recipients)", Accountable = "Platform Owner", Screen = "Admin › SLAs and notifications", Link = "/Admin/Intake",
-                    Done = s.StandardsApproved > 0, Status = s.StandardsApproved > 0 ? "Standards approved." : "Not approved yet." },
+                    Done = s.StandardsApproved > 0 && s.SlaPolicies > 0 && s.EscalationSteps > 0 && s.OwnersWithoutRecipients == 0,
+                    Status = (s.StandardsApproved > 0 ? "Standards approved" : "Standards not approved yet")
+                             + $"; {s.SlaPolicies} SLA policies, {s.EscalationSteps} escalation steps; "
+                             + (s.OwnersWithoutRecipients == 0 ? "recipients confirmed for every active funding owner." : $"{s.OwnersWithoutRecipients} active funding owners without confirmed recipients.") },
             new() { Step = 6, What = "Brownfield discovery: sync inventory, register or claim what exists", Accountable = "Platform Owner", Screen = "Registry › Discovery", Link = "/Registry/Discovery",
                     Done = s.InventoryRuns > 0 && s.UnhandledDiscovered == 0, Status = s.InventoryRuns == 0 ? "No inventory sync has succeeded yet." : $"{s.UnhandledDiscovered} discovered items not claimed or under a finding; {s.OpenUnregistered} open unregistered findings." },
             new() { Step = 7, What = "Approve funding envelopes for every active funding owner", Accountable = "LOB business owners", Screen = "Registry › Envelopes", Link = "/Registry/Envelopes",
@@ -278,6 +296,9 @@ public sealed class WorkQueries(Db db, ICurrentPrincipal me)
         public int CommercialItems { get; init; }
         public int UnreconciledItems { get; init; }
         public int StandardsApproved { get; init; }
+        public int OwnersWithoutRecipients { get; init; }
+        public int SlaPolicies { get; init; }
+        public int EscalationSteps { get; init; }
         public int InventoryRuns { get; init; }
         public int UnhandledDiscovered { get; init; }
         public int OpenUnregistered { get; init; }
@@ -442,6 +463,45 @@ public sealed class WorkQueries(Db db, ICurrentPrincipal me)
             Tasks = tasks, Decisions = decisions, Evidence = evidence, Tickets = tickets, Transitions = transitions, Meters = meters, Verifications = verifications,
             WhoDoesWhat = stage?.RaciActivityCode is null ? Array.Empty<RaciLine>() : await WhoDoesWhatAsync(c, stage.RaciActivityCode, r.FundingOwnerId),
         };
+    }
+
+    /// <summary>
+    /// The B2 completeness check (the same facts the engine uses at intake) run on a request now, so the requester sees
+    /// the gaps before submitting and the intake analyst can return it with the list. Empty when nothing is missing.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> CompletenessPreviewAsync(long requestId)
+    {
+        await using var c = await db.OpenSystemAsync();
+        var r = await c.QuerySingleOrDefaultAsync<RequestRow>("SELECT * FROM wf.Request WHERE RequestId = @requestId", new { requestId });
+        if (r is null) return Array.Empty<string>();
+        var today = DateTime.UtcNow.Date;
+        var p = Requests.RequestPayload.FromJson(r.PayloadJson);
+        var foStatus = await c.ExecuteScalarAsync<string>("SELECT Status FROM core.FundingOwner WHERE FundingOwnerId = @FundingOwnerId", new { r.FundingOwnerId });
+        var sponsorActive = r.SponsorPersonId is int sp && await c.ExecuteScalarAsync<bool>(
+            "SELECT CAST(CASE WHEN AccountEnabled = 1 AND (LeaveDate IS NULL OR LeaveDate > @today) THEN 1 ELSE 0 END AS bit) FROM sec.Person WHERE PersonId = @sp", new { sp, today });
+        var service = r.ServiceId is int sid ? await c.QuerySingleOrDefaultAsync<Service>("SELECT * FROM core.Service WHERE ServiceId = @sid", new { sid }) : null;
+        var workload = r.WorkloadId is int wid ? await c.QuerySingleOrDefaultAsync<Workload>("SELECT * FROM core.Workload WHERE WorkloadId = @wid", new { wid }) : null;
+        var duplicates = (await c.QueryAsync<string>(
+            """
+            SELECT RequestNumber FROM wf.Request
+            WHERE RequestId <> @RequestId AND JourneyCode = @JourneyCode AND FundingOwnerId = @FundingOwnerId AND Title = @Title
+              AND State NOT IN ('DRAFT','COMPLETED','CANCELLED','CLOSED','DECLINED')
+            """, new { r.RequestId, r.JourneyCode, r.FundingOwnerId, r.Title })).ToList();
+        var result = Rules.CompletenessCheck.Evaluate(new Rules.CompletenessCheck.Facts(r.JourneyCode, p, r.RequesterPersonId, r.SponsorPersonId, sponsorActive, foStatus, service, workload, duplicates));
+        return result.Reasons;
+    }
+
+    /// <summary>The envelope a request draws on: amount, committed by approved requests, and what is left (for approvers).</summary>
+    public async Task<EnvelopeHeadroomView?> EnvelopeHeadroomAsync(int envelopeId)
+    {
+        await using var c = await db.OpenSystemAsync();
+        return await c.QuerySingleOrDefaultAsync<EnvelopeHeadroomView>(
+            """
+            SELECT e.EnvelopeId, s.Name AS ServiceName, e.PeriodStart, e.PeriodEnd, e.Amount, e.Unit,
+                   COALESCE((SELECT SUM(cm.Amount) FROM core.EnvelopeCommitment cm WHERE cm.EnvelopeId = e.EnvelopeId AND cm.Status = 'ACTIVE'), 0) AS Committed
+            FROM core.FundingEnvelope e JOIN core.Service s ON s.ServiceId = e.ServiceId
+            WHERE e.EnvelopeId = @envelopeId
+            """, new { envelopeId });
     }
 
     /// <summary>Resolves the RACI row for an activity to people today, in the request's scope.</summary>
