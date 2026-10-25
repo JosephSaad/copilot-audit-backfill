@@ -101,10 +101,14 @@ public sealed class EvidenceQueries(Db db, ICurrentPrincipal principal)
     /// </summary>
     public async Task<(string FileName, string ContentType, byte[] Bytes, string Sha256)?> DownloadAsync(Guid publicId)
     {
-        await using var c = await db.OpenUserAsync();
-        var item = await c.QuerySingleOrDefaultAsync<(long EvidenceId, long? ContentId, string? FileName, string? ContentType, byte[]? Sha256)>(
+        // The item and its bytes are read in system mode: row-level security on evd.EvidenceItem is by funding owner,
+        // so a requester or sponsor without a role there could not see their own request's files. Visibility is decided
+        // below, in user mode, through what the file is linked to.
+        await using var sys = await db.OpenSystemAsync();
+        var item = await sys.QuerySingleOrDefaultAsync<(long EvidenceId, long? ContentId, string? FileName, string? ContentType, byte[]? Sha256)>(
             "SELECT EvidenceId, ContentId, FileName, ContentType, Sha256 FROM evd.EvidenceItem WHERE PublicId = @publicId", new { publicId });
         if (item.EvidenceId == 0) return null;
+        await using var c = await db.OpenUserAsync();
         var visible = principal.IsCentral || principal.AppRoles.Contains("Workbench.Auditor") || await c.ExecuteScalarAsync<int>(
             """
             SELECT COUNT(*) FROM evd.EvidenceLink l
@@ -117,7 +121,7 @@ public sealed class EvidenceQueries(Db db, ICurrentPrincipal principal)
              OR (l.LinkType = 'CAMPAIGN_ITEM' AND EXISTS (SELECT 1 FROM wf.CampaignItem i WHERE i.CampaignItemId = l.LinkId)))
             """, new { item.EvidenceId }) > 0;
         if (!visible) return null;
-        var bytes = item.ContentId is long cid ? await c.ExecuteScalarAsync<byte[]?>("SELECT Bytes FROM evd.EvidenceContent WHERE ContentId = @cid", new { cid }) : null;
+        var bytes = item.ContentId is long cid ? await sys.ExecuteScalarAsync<byte[]?>("SELECT Bytes FROM evd.EvidenceContent WHERE ContentId = @cid", new { cid }) : null;
         if (bytes is null) throw new DomainException("This file's content was purged at the end of its retention period; its hash and metadata remain.");
         return (item.FileName ?? "evidence", item.ContentType ?? "application/octet-stream", bytes, Convert.ToHexString(item.Sha256 ?? Array.Empty<byte>()));
     }

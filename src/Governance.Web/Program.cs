@@ -93,18 +93,26 @@ else
 }
 
 builder.Services.AddScoped<IAuthorizationHandler, AppRoleHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, PlatformGovernanceHandler>();
 builder.Services.AddAuthorization(o =>
 {
     o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
     o.AddPolicy(Policies.Central, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(Governance.Domain.AppRoles.Central, Governance.Domain.AppRoles.Admin)));
     o.AddPolicy(Policies.Operator, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(Governance.Domain.AppRoles.Operator)));
-    o.AddPolicy(Policies.Admin, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(Governance.Domain.AppRoles.Admin, Governance.Domain.AppRoles.Central)));
+    // Admin pages: Workbench administrators only. The Platform Owner's RACI approval and the intake switch are pages of
+    // their own (PlatformGovernance) with their own permission checks.
+    o.AddPolicy(Policies.Admin, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(Governance.Domain.AppRoles.Admin)));
+    o.AddPolicy(Policies.PlatformGovernance, b => b.RequireAuthenticatedUser().AddRequirements(new PlatformGovernanceRequirement()));
     o.AddPolicy(Policies.Auditor, b => b.RequireAuthenticatedUser().AddRequirements(new AppRoleRequirement(Governance.Domain.AppRoles.Auditor, Governance.Domain.AppRoles.Central)));
 });
 
 var mvc = builder.Services.AddRazorPages(o =>
 {
-    o.Conventions.AuthorizeFolder("/Admin", Policies.Admin);
+    // Configuration pages: administrators only. Governance pages the Platform Owner and Steering use: their own policy.
+    foreach (var page in new[] { "/Admin/Integrations", "/Admin/Notifications", "/Admin/Sla", "/Admin/Workflows" })
+        o.Conventions.AuthorizePage(page, Policies.Admin);
+    foreach (var page in new[] { "/Admin/Raci", "/Admin/Intake", "/Admin/Roles", "/Admin/Text" })
+        o.Conventions.AuthorizePage(page, Policies.PlatformGovernance);
     o.Conventions.AuthorizeFolder("/Operations", Policies.Central);
     o.Conventions.AuthorizeFolder("/Queues", Policies.Central);
     o.Conventions.AuthorizeFolder("/Reports", Policies.Auditor);

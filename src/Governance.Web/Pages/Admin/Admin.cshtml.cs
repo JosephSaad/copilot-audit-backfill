@@ -112,7 +112,7 @@ public class IntegrationsModel(AdminQueries admin, OperationsQueries ops, IServi
         if (status is not null)
         {
             try { Health = await status.GetAsync(HttpContext.RequestAborted); }
-            catch (Exception ex) { FlashError = Incident.Note(Log, ex, "reading integration health"); }
+            catch (Exception ex) { ShowErrorNow(Incident.Note(Log, ex, "reading integration health")); }
         }
     }
 }

@@ -6,6 +6,14 @@ namespace Governance.Application.Queries;
 
 public sealed record Option(string Value, string Text);
 
+/// <summary>A person offered in a picker for one funding owner (the page filters by the funding owner chosen).</summary>
+public sealed class ScopedPersonOption
+{
+    public int PersonId { get; init; }
+    public int FundingOwnerId { get; init; }
+    public string Text { get; init; } = "";
+}
+
 public sealed class FundingOwnerListItem : ICounted
 {
     public int FundingOwnerId { get; init; }
@@ -314,6 +322,47 @@ public sealed class RegistryQueries(Db db)
     {
         await using var c = await db.OpenSystemAsync();
         return (await c.QueryAsync<Option>("SELECT CAST(PersonId AS varchar(12)) AS Value, DisplayName + COALESCE(' — ' + UserPrincipalName, '') AS Text FROM sec.Person WHERE AccountEnabled = 1 ORDER BY DisplayName")).ToList();
+    }
+
+    /// <summary>Roles that can sponsor a request in a funding owner.</summary>
+    public static readonly string[] SponsorRoles = { Roles.WorkloadSponsor, Roles.LobBusinessOwner, Roles.SharedServiceOwner, Roles.ProductOwner };
+
+    /// <summary>
+    /// Sponsors: people holding a sponsor role in a funding owner today, one row per funding owner (the page shows only
+    /// the chosen funding owner's), never the requester.
+    /// </summary>
+    public async Task<IReadOnlyList<ScopedPersonOption>> SponsorOptionsAsync(int requesterPersonId)
+    {
+        await using var c = await db.OpenSystemAsync();
+        return (await c.QueryAsync<ScopedPersonOption>(
+            """
+            SELECT p.PersonId, ra.ScopeId AS FundingOwnerId, p.DisplayName + ' — ' + MIN(rd.Name) AS Text
+            FROM sec.RoleAssignment ra JOIN sec.Person p ON p.PersonId = ra.PersonId AND p.AccountEnabled = 1 JOIN sec.RoleDefinition rd ON rd.RoleCode = ra.RoleCode
+            WHERE ra.RoleCode IN @roles AND ra.ScopeType = 'FUNDING_OWNER' AND ra.EffectiveFrom <= @today AND (ra.EffectiveTo IS NULL OR ra.EffectiveTo >= @today)
+              AND p.PersonId <> @requesterPersonId
+            GROUP BY p.PersonId, ra.ScopeId, p.DisplayName
+            ORDER BY p.DisplayName
+            """, new { roles = SponsorRoles, today = DateTime.UtcNow.Date, requesterPersonId })).ToList();
+    }
+
+    /// <summary>People who can own a decision's condition: anyone with a role or delegation in this funding owner, and central role holders.</summary>
+    public async Task<IReadOnlyList<Option>> PeopleInScopeAsync(int fundingOwnerId)
+    {
+        await using var c = await db.OpenSystemAsync();
+        return (await c.QueryAsync<Option>(
+            """
+            SELECT CAST(p.PersonId AS varchar(12)) AS Value, p.DisplayName + ' — ' + MIN(x.What) AS Text
+            FROM (
+                SELECT ra.PersonId, rd.Name AS What FROM sec.RoleAssignment ra JOIN sec.RoleDefinition rd ON rd.RoleCode = ra.RoleCode
+                WHERE ra.EffectiveFrom <= @today AND (ra.EffectiveTo IS NULL OR ra.EffectiveTo >= @today)
+                  AND ((ra.ScopeType = 'FUNDING_OWNER' AND ra.ScopeId = @fundingOwnerId) OR (ra.ScopeType = 'TENANT' AND rd.IsCentral = 1 AND rd.RoleCode NOT IN ('WORKBENCH_ADMIN','AUDITOR')))
+                UNION ALL
+                SELECT d.DelegatePersonId, N'Delegated approver' FROM sec.Delegation d
+                WHERE d.FundingOwnerId = @fundingOwnerId AND d.Status = 'ACTIVE' AND d.EffectiveFrom <= @today AND (d.EffectiveTo IS NULL OR d.EffectiveTo >= @today)
+            ) x JOIN sec.Person p ON p.PersonId = x.PersonId AND p.AccountEnabled = 1
+            GROUP BY p.PersonId, p.DisplayName
+            ORDER BY p.DisplayName
+            """, new { fundingOwnerId, today = DateTime.UtcNow.Date })).ToList();
     }
 
     public async Task<IReadOnlyList<Option>> CostCenterOptionsAsync(int? fundingOwnerId = null)

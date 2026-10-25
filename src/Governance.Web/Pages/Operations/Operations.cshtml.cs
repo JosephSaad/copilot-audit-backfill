@@ -73,7 +73,7 @@ public class SyncModel(OperationsQueries ops, IServiceProvider services) : GovPa
         if (services.GetService<IIntegrationStatus>() is { } status)
         {
             try { Health = await status.GetAsync(HttpContext.RequestAborted); }
-            catch (Exception ex) { FlashError = Incident.Note(Log, ex, "reading integration health"); }
+            catch (Exception ex) { ShowErrorNow(Incident.Note(Log, ex, "reading integration health")); }
         }
     }
 

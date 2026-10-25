@@ -42,8 +42,16 @@
         {
             <p class="small">@i.OutcomeEvidence <span class="muted">(@Ui.Local(i.CompletedUtc))</span></p>
         }
+        else if (i.Outcome is not null && !Model.Principal.Roles.Any(r => (r.RoleCode is "LOB_BUSINESS_OWNER" or "SHARED_SERVICE_OWNER") && r.ScopeId == i.FundingOwnerId))
+        {
+            <p class="small">Proposed: <strong>@Ui.Words(i.Outcome)</strong>. @i.OutcomeEvidence <span class="muted">Waiting for the business owner to decide.</span></p>
+        }
         else if (i.OwnerPersonId == Model.Principal.PersonId || Model.Principal.Roles.Any(r => (r.RoleCode is "LOB_BUSINESS_OWNER" or "SHARED_SERVICE_OWNER") && r.ScopeId == i.FundingOwnerId))
         {
+            @if (i.Outcome is not null)
+            {
+                <p class="small">The owner proposes: <strong>@Ui.Words(i.Outcome)</strong>. @i.OutcomeEvidence You decide below.</p>
+            }
             <form method="post" asp-page-handler="Complete" asp-route-item="@i.CampaignItemId" enctype="multipart/form-data" class="mt">
                 <idem />
                 <div class="form-grid">

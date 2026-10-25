@@ -7,7 +7,8 @@
     string? Current(string prefix) => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? "page" : null;
     var central = Me.AppRoles.Contains("Workbench.Central") || Me.AppRoles.Contains("Workbench.Admin");
     var oper = Me.AppRoles.Contains("Workbench.Operator");
-    var admin = Me.AppRoles.Contains("Workbench.Admin") || Me.AppRoles.Contains("Workbench.Central");
+    var isAdmin = Me.AppRoles.Contains("Workbench.Admin");
+    var admin = isAdmin || Me.HasCentral(Governance.Domain.Roles.PlatformOwner, Governance.Domain.Roles.Steering);
     var auditor = Me.AppRoles.Contains("Workbench.Auditor") || Me.AppRoles.Contains("Workbench.Central");
     var flash = ViewData["Flash"] as string ?? TempData.Peek("Flash") as string;
 }
@@ -36,7 +37,7 @@
     <button type="button" class="nav-toggle" aria-controls="sidenav" aria-expanded="false" aria-label="Open the menu">☰</button>
     <a class="brand" href="/Start"><span class="brand-mark" aria-hidden="true">✓</span><span>Governance Workbench</span></a>
     <span class="topbar-spacer"></span>
-    @if (Testing.AllowActAs && Me.IsAuthenticated)
+    @if (Testing.AllowActAs && Me.IsAuthenticated && Me.CanActAs)
     {
         <a class="btn btn-small btn-ghost" href="/ActAs">Act as…</a>
     }
@@ -112,11 +113,17 @@
             <div class="nav-group">
                 <div class="nav-title">Admin</div>
                 <a class="@Cls("/Admin/Raci")" href="/Admin/Raci">RACI</a>
-                <a class="@Cls("/Admin/Workflows")" href="/Admin/Workflows">Workflows</a>
-                <a class="@Cls("/Admin/Sla")" href="/Admin/Sla">SLAs and escalation</a>
-                <a class="@Cls("/Admin/Notifications")" href="/Admin/Notifications">Notifications</a>
+                @if (isAdmin)
+                {
+                    <a class="@Cls("/Admin/Workflows")" href="/Admin/Workflows">Workflows</a>
+                    <a class="@Cls("/Admin/Sla")" href="/Admin/Sla">SLAs and escalation</a>
+                    <a class="@Cls("/Admin/Notifications")" href="/Admin/Notifications">Notifications</a>
+                }
                 <a class="@Cls("/Admin/Roles")" href="/Admin/Roles">Roles</a>
-                <a class="@Cls("/Admin/Integrations")" href="/Admin/Integrations">Integrations</a>
+                @if (isAdmin)
+                {
+                    <a class="@Cls("/Admin/Integrations")" href="/Admin/Integrations">Integrations</a>
+                }
                 <a class="@Cls("/Admin/Intake")" href="/Admin/Intake">Intake switch</a>
                 <a class="@Cls("/Admin/Text")" href="/Admin/Text">Wording</a>
             </div>

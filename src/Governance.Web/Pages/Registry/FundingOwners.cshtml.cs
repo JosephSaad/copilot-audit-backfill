@@ -24,10 +24,18 @@ public class FundingOwnerModel(RegistryQueries registry, RegistryCommands comman
     public bool IsBusinessOwner => Principal.Roles.Any(r => (r.RoleCode is Roles.LobBusinessOwner or Roles.SharedServiceOwner) && r.ScopeId == Fo);
     public bool CanAssignLob => Principal.Can(Permissions.RoleAssignLob, Fo);
 
+    /// <summary>
+    /// The detail (envelopes, delegations, role holders, attribution rules) is read in system mode, so access is checked
+    /// here: central roles, or a role in this funding owner that grants fundingowner.view (section 10.1).
+    /// </summary>
+    public static bool CanView(Governance.Web.Infrastructure.WebPrincipal p, int fundingOwnerId)
+        => p.IsCentral || p.Can(Permissions.FundingOwnerView, fundingOwnerId);
+
     public async Task<IActionResult> OnGetAsync()
     {
         var d = await registry.FundingOwnerAsync(Id);
         if (d is null) return NotFound();
+        if (!CanView(Principal, d.Owner.FundingOwnerId)) return Forbid();
         D = d;
         People = await registry.PeopleOptionsAsync();
         LobRoles = (await admin.RolesAsync()).Where(r => r.IsLob && r.RoleCode is not (Roles.LobBusinessOwner or Roles.SharedServiceOwner)).ToList();
@@ -82,6 +90,7 @@ public class FundingOwnerEditModel(RegistryQueries registry, RegistryCommands co
 
     public async Task<IActionResult> OnGetAsync()
     {
+        if (!Principal.Can(Permissions.RegistryFinance) && !Principal.Can(Permissions.RegistryEdit)) return Forbid();
         People = await registry.PeopleOptionsAsync();
         Owners = await registry.FundingOwnerOptionsAsync();
         if (Id is Guid id)

@@ -80,6 +80,9 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
                 if (n == 0) throw new ConcurrencyException();
             }
             if (i.ParentFundingOwnerId == id) throw new DomainException("A funding owner cannot be its own parent.");
+            // Nobody grants a role to themselves: naming yourself business owner or finance partner is refused.
+            if (i.BusinessOwnerPersonId == Me.PersonId || i.FinancePartnerPersonId == Me.PersonId)
+                throw new DomainException("You cannot name yourself here. Another person with this permission names you.");
             // The business owner holds the owner role in scope and must accept it (activation checklist item 1).
             if (i.BusinessOwnerPersonId is int bo)
             {
@@ -178,6 +181,7 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
     public Task AssignRoleAsync(Guid idem, int personId, string roleCode, int? fundingOwnerId, DateTime? effectiveTo)
         => run.RunAsync(idem, "role.assign", async uow =>
         {
+            if (personId == Me.PersonId) throw new DomainException("You cannot assign a role to yourself. Another person with this permission assigns it.");
             var scope = await uow.ScalarAsync<string>("SELECT ScopeType FROM sec.RoleDefinition WHERE RoleCode = @roleCode", new { roleCode }) ?? throw new DomainException("Unknown role.");
             if (scope == ScopeTypes.FundingOwner)
             {
@@ -474,14 +478,24 @@ public sealed class RegistryCommands(CommandRunner run, DecisionRecorder decisio
         {
             run.RequireAny(Permissions.RegistryEdit);
             var w = await uow.QuerySingleOrDefaultAsync<Workload>("SELECT * FROM core.Workload WHERE PublicId = @workloadPublicId", new { workloadPublicId }) ?? throw new DomainException("Workload not found.");
+            // The approved posture changes only through a decision (P2, P4): a change is a capacity or limit request (J4).
+            // The first baseline may be recorded here, tied to the workload's current approval.
+            if (await uow.ScalarAsync<int>("SELECT COUNT(*) FROM core.ApprovedPosture WHERE WorkloadId = @WorkloadId AND EffectiveTo IS NULL", new { w.WorkloadId }) > 0)
+                throw new DomainException("This workload already has an approved posture. Changing allocation, tenant-pool draw, PAYG or the agent limit needs a decision: start a capacity or limit change request (J4).");
+            var decisionId = await uow.ScalarAsync<long?>(
+                """
+                SELECT TOP (1) DecisionId FROM wf.Decision
+                WHERE WorkloadId = @WorkloadId AND Outcome IN ('APPROVED','APPROVED_WITH_CONDITIONS','CONSTRAINED_PILOT','EXTEND') AND (ExpiresOn IS NULL OR ExpiresOn >= @today)
+                ORDER BY DecisionId DESC
+                """, new { w.WorkloadId, today = Today })
+                ?? throw new DomainException("A baseline posture records what a decision approved, and this workload has no current approval. Approve it through a request first (J2 or J4).");
             if (tenantPool && w.EnvironmentClassCode is not null && !await uow.ScalarAsync<bool>("SELECT TenantPoolAllowed FROM core.EnvironmentClass WHERE EnvironmentClassCode = @EnvironmentClassCode", new { w.EnvironmentClassCode }))
                 throw new DomainException("This environment class does not allow drawing from tenant capacity; use the capacity change journey (J4) for an exception.");
-            await uow.ExecuteAsync("UPDATE core.ApprovedPosture SET EffectiveTo = @yesterday WHERE WorkloadId = @WorkloadId AND EffectiveTo IS NULL", new { yesterday = Today.AddDays(-1), w.WorkloadId });
             await uow.ExecuteAsync(
                 """
-                INSERT core.ApprovedPosture (WorkloadId, FundingOwnerId, EnvironmentId, AllocationCredits, TenantPoolEnabled, PaygLinked, BillingPolicyId, AgentLimitCredits, GroupRuleLocksTenantPool, EffectiveFrom)
-                VALUES (@WorkloadId, @FundingOwnerId, @env, @allocation, @tenantPool, @payg, @billing, @agentLimit, @groupRuleLock, @today)
-                """, new { w.WorkloadId, w.FundingOwnerId, env = CommandRunner.Trim(environmentId, 100), allocation, tenantPool, payg, billing = CommandRunner.TrimN(billingPolicyId, 100), agentLimit, groupRuleLock, today = Today });
+                INSERT core.ApprovedPosture (WorkloadId, FundingOwnerId, EnvironmentId, AllocationCredits, TenantPoolEnabled, PaygLinked, BillingPolicyId, AgentLimitCredits, GroupRuleLocksTenantPool, DecisionId, EffectiveFrom)
+                VALUES (@WorkloadId, @FundingOwnerId, @env, @allocation, @tenantPool, @payg, @billing, @agentLimit, @groupRuleLock, @decisionId, @today)
+                """, new { w.WorkloadId, w.FundingOwnerId, env = CommandRunner.Trim(environmentId, 100), allocation, tenantPool, payg, billing = CommandRunner.TrimN(billingPolicyId, 100), agentLimit, groupRuleLock, decisionId, today = Today });
             await run.AuditAsync(uow, "posture.save", "Workload", workloadPublicId,
                 $"alloc {allocation}, tenant pool {tenantPool}, PAYG {payg}, cap {(ProhibitedAssumptions.AllocationIsCap(tenantPool, payg) ? "yes" : "no")}");
         });

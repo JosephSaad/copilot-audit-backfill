@@ -42,7 +42,14 @@
         {
             <div class="field">
                 <label asp-for="Input.SponsorPersonId" class="req">Sponsor <help>The person who owns the purpose and outcome claims and receives lifecycle notices. A request without a valid sponsor is returned at B2.</help></label>
-                <select asp-for="Input.SponsorPersonId" asp-items="Sel(Model.People, Model.Input.SponsorPersonId?.ToString())"><option value="">Choose…</option></select>
+                <select asp-for="Input.SponsorPersonId" data-filter-by="Input.FundingOwnerId">
+                    <option value="">Choose…</option>
+                    @foreach (var s in Model.Sponsors)
+                    {
+                        <option value="@s.PersonId" data-fo="@s.FundingOwnerId" selected="@(Model.Input.SponsorPersonId == s.PersonId && Model.Input.FundingOwnerId == s.FundingOwnerId)">@s.Text</option>
+                    }
+                </select>
+                <span class="hint">People who sponsor, own products or own the business in the funding owner you chose.</span>
             </div>
         }
         <div class="field full">
@@ -246,9 +253,14 @@
         </div>
     }
 
+    @if (Model.CompletenessGaps.Count > 0)
+    {
+        <div class="alert alert-warn mt" role="status"><strong>Before you submit:</strong> intake will return the request unless these are fixed. You can still submit.
+            <ul>@foreach (var g in Model.CompletenessGaps) { <li>@g</li> }</ul></div>
+    }
     <div class="btn-row mt">
         <button class="btn btn-ghost" type="submit" asp-page-handler="Save">Save draft</button>
-        <button class="btn" type="submit" asp-page-handler="Submit" disabled="@(!Model.IntakeOpen)">Submit</button>
+        <button class="btn" type="submit" asp-page-handler="Submit" disabled="@(!Model.IntakeOpen)">@(Model.IsResubmission ? "Resubmit" : "Submit")</button>
         <span class="muted small">Submitting sends it to the intake team (B2).</span>
     </div>
 </form>

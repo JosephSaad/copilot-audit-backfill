@@ -184,6 +184,16 @@ public abstract class GovPage : PageModel
         return RedirectToPage();
     }
 
+    /// <summary>
+    /// An error shown on the page rendered by this same request (no redirect). The [TempData] property is written only
+    /// after the handler finishes, so the layout would not see it; the dictionary entry is visible at once.
+    /// </summary>
+    protected void ShowErrorNow(string message)
+    {
+        FlashError = null;
+        TempData["FlashError"] = message;
+    }
+
     protected IActionResult Csv<T>(IEnumerable<T> rows, string name, params string[] columns)
         => new FileContentResult(CsvWriter.Write(rows, columns), "text/csv; charset=utf-8") { FileDownloadName = $"{name}-{DateTime.UtcNow:yyyyMMdd-HHmm}.csv" };
 
@@ -276,10 +286,17 @@ public static class Ui
         _ => "info",
     };
 
+    /// <summary>"a" or "an" for the word that follows (spoken sound approximated by the first letter; "LOB" reads as a word).</summary>
+    public static string Article(string? word)
+        => !string.IsNullOrEmpty(word) && "aeiouAEIOU".Contains(word[0]) ? "an" : "a";
+
     /// <summary>Plain status sentence for a task: "Waiting for a delegated approver for LOB Retail since 14 Oct, due 16 Oct".</summary>
-    public static string TaskSentence(string? roleName, string? fundingOwner, DateTime started, DateTime? due, string? assignedName)
+    public static string TaskSentence(string? roleName, string? fundingOwner, DateTime started, DateTime? due, string? assignedName, bool orDelegate = false)
     {
-        var who = assignedName is not null ? assignedName : "a " + (roleName ?? "role holder").ToLowerInvariant().Replace("lob ", "LOB ");
+        var role = (roleName ?? "role holder").ToLowerInvariant().Replace("lob ", "LOB ");
+        var who = assignedName is not null ? assignedName
+                  : role.StartsWith("the ", StringComparison.Ordinal) ? role
+                  : $"{Article(role)} {role}" + (orDelegate ? " or a delegated approver" : "");
         var forWhom = string.IsNullOrEmpty(fundingOwner) ? "" : $" for {fundingOwner}";
         var dueText = due is null ? "" : $", due {Local(due, "d MMM")}";
         var late = due is not null && due < DateTime.UtcNow ? " (overdue)" : "";
