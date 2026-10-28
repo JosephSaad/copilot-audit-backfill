@@ -23,12 +23,13 @@ public class AdminPagesTests
         Nav.For(v).Where(g => g.Persona == "Admin").SelectMany(g => g.Pages).Select(p => p.Path).ToList();
 
     [Fact]
-    public void There_are_fourteen_admin_pages_to_choose_from()
+    public void There_are_fifteen_admin_pages_to_choose_from()
     {
-        Assert.Equal(14, AdminPages.Choices.Count);
+        /* 2.8.0 added Access profiles. */
+        Assert.Equal(15, AdminPages.Choices.Count);
         Assert.All(AdminPages.Choices, p => Assert.True(p.Admin && p.Path.StartsWith("/admin/")));
         /* Each is a page of its own: the list is what Admin > Access offers as tick boxes. */
-        Assert.Equal(14, AdminPages.Choices.Select(p => p.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal(15, AdminPages.Choices.Select(p => p.Path).Distinct(StringComparer.OrdinalIgnoreCase).Count());
     }
 
     [Fact]
@@ -79,7 +80,7 @@ public class AdminPagesTests
     {
         var full = V([Roles.Admin]);
         Assert.True(full.IsAdmin && full.AnyAdmin && full.CanAdmin("/admin/access") && full.CanAdmin("/forecasting/budget"));
-        Assert.Equal(14, AdminPathsShown(full).Count);
+        Assert.Equal(15, AdminPathsShown(full).Count);
         var none = V([Roles.Licensing]);
         Assert.False(none.AnyAdmin || none.CanAdmin("/admin/health"));
         Assert.Empty(AdminPathsShown(none));
@@ -103,7 +104,7 @@ public class AdminPagesTests
         Assert.Contains("AdminPages.Limits(g.Pages)", roles);
         Assert.Contains("paths.UnionWith(", roles);
         /* A database from before 2.6.4 has no Pages column: every Admin grant there is the whole role, and nothing fails. */
-        Assert.Contains("IF COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL", roles);
+        Assert.Contains("CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN N'CAST(NULL AS NVARCHAR(1000))'", viewer);
         /* A whole grant beside a limited one wins. */
         Assert.Contains("AdminPaths = roles.Contains(Roles.Admin) ? new HashSet<string>() : paths", viewer);
     }

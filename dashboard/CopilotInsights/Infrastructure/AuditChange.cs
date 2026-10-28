@@ -54,8 +54,19 @@ public static class AuditChange
         /* A grant as one line: who, which role, and the Admin pages it is limited to where it is. */
         var grants = (await db.QueryAsync<dynamic>("SELECT * FROM dash.RoleGrant;"))
             .Select(g => (IDictionary<string, object?>)g)
-            .Select(g => $"{g["Principal"]} {g["Role"]}" + (g.TryGetValue("Pages", out var p) && p is string s && s.Length > 0 ? $" ({s})" : ""))
+            .Select(g => $"{g["Principal"]} {g["Role"]}" + (g.TryGetValue("OrgWide", out var o) && o is true ? " across the organization" : "")
+                         + (g.TryGetValue("Pages", out var p) && p is string s && s.Length > 0 ? $" ({s})" : ""))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        /* Access profiles, as what each gives and who holds it: a change to a profile reaches everyone who holds it. */
+        grants.UnionWith(await db.QueryAsync<string>(@"
+IF OBJECT_ID(N'dash.ProfileGrant', N'U') IS NOT NULL
+    SELECT CONCAT(g.Principal, N' profile ', p.Name) FROM dash.ProfileGrant AS g JOIN dash.AccessProfile AS p ON p.ProfileId = g.ProfileId
+    UNION ALL
+    SELECT CONCAT(N'profile ', p.Name, N' gives ', r.Role, CASE WHEN r.OrgWide = 1 THEN N' across the organization' ELSE N'' END,
+                  CASE WHEN NULLIF(r.Pages, N'') IS NOT NULL THEN CONCAT(N' (', r.Pages, N')') ELSE N'' END)
+    FROM dash.AccessProfile AS p JOIN dash.AccessProfileRole AS r ON r.ProfileId = p.ProfileId
+    UNION ALL
+    SELECT CONCAT(N'profile ', p.Name, N' request ', ISNULL(p.RequestUrl, N'none'), N' owner ', ISNULL(p.OwnerUpn, N'none')) FROM dash.AccessProfile AS p;"));
         return new(settings, grants);
     }
 

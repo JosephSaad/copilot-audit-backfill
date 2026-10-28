@@ -54,6 +54,18 @@ public static partial class FieldTips
         ["TimeZone"] = "The zone every time on the dashboard is shown in, and digests, alerts and extracts go out by. Default: the zone the data's days are cut in.",
         ["principal"] = "A person's name or sign-in (UPN), or a group as DOMAIN\\Group: the role reaches the group's members.",
         ["who"] = "A person's name or sign-in (UPN): what they may see, and why.",
+        ["entraGroup"] = "An Entra ID group, by its name: the grant is kept by its object ID, and reaches its members, nested groups included, checked through Microsoft Graph at sign-in.",
+        ["orgWide"] = "The persona roles ticked show their own pages for the whole organization, where otherwise a holder sees their own part of it.",
+        /* Admin › Access profiles. */
+        ["/admin/profiles|name"] = "The profile's name, as people ask for it (Agent program lead).",
+        ["/admin/profiles|description"] = "What the profile is for, and who should hold it (optional).",
+        ["/admin/profiles|owner"] = "The person who answers for the profile: who should hold it, and what it gives (optional).",
+        ["/admin/profiles|approver"] = "Who approves a request for it, as people asking are told: a person or a group (optional). The approval itself is set in the access package.",
+        ["/admin/profiles|maxDays"] = "How long access lasts once granted, as the access package sets it, in days (optional). Shown beside the request link.",
+        ["/admin/profiles|requestUrl"] = "Where people ask for the profile: its Entra access package's My Access link, https:// only (optional). Shown to anyone refused a page it opens.",
+        ["/admin/profiles|profile"] = "The profile to grant.",
+        ["/admin/profiles|type"] = "User for one person; Group for an AD group (DOMAIN\\Group), whose members hold the profile.",
+        ["/admin/profiles|principal"] = "A person's name or sign-in (UPN), or an AD group as DOMAIN\\Group: the profile reaches the group's members.",
         /* Admin › Alerts and digests. */
         ["/admin/notifications|name"] = "A name for the digest, shown in its subject line.",
         ["recipients"] = "Email addresses, separated by commas or semicolons.",

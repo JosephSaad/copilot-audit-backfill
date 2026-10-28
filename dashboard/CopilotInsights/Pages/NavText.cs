@@ -124,6 +124,7 @@ public static class NavText
 
         ["/admin/health"] = ("Is the data fresh and complete? Pipeline runs, the directory, and a manual refresh.", null),
         ["/admin/access"] = ("Who sees what: the top of the organization, levels, and roles.", null),
+        ["/admin/profiles"] = ("Named bundles of roles, granted to groups as one, and where to ask for each.", null),
         ["/admin/directory"] = ("The gaps in Active Directory that weaken the reports and who sees what.", null),
         ["/admin/email"] = ("How the dashboard sends alerts and digests.", null),
         ["/admin/notifications"] = ("Who hears about what, when to raise an alert, and the scheduled digests.", null),

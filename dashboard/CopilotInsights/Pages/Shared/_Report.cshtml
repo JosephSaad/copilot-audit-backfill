@@ -50,6 +50,10 @@
         {
             <p>The dashboard's administrators: @string.Join(", ", Model.Administrators).</p>
         }
+        @if (Model.RequestAccess.Count > 0)
+        {
+            <p>Ask for it: @foreach (var (name, url) in Model.RequestAccess) { <a class="btn" href="@url" rel="noopener noreferrer" target="_blank">Request @name</a> }</p>
+        }
         <p><a href="/?home=1">Go to the start page</a> for the reports you can open.</p>
     </div>
     return;
