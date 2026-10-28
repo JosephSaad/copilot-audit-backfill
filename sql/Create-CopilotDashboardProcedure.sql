@@ -139,6 +139,12 @@ BEGIN
     FROM #person AS p
     LEFT JOIN #clo AS t ON t.AncestorUpn = @top AND t.DescendantUpn = p.Upn
     LEFT JOIN #dir AS d ON d.Upn = p.Upn;
+    /* Each person's Entra ID object ID, which a sign-in through Entra ID is matched by first. The column arrives with
+       the dashboard schema, and its source with the enrichment schema: either may not be there yet. */
+    IF COL_LENGTH(N'dash.Person', N'ObjectId') IS NOT NULL AND COL_LENGTH(N'audit.CopilotLicense', N'EntraObjectId') IS NOT NULL
+        EXEC (N'UPDATE p SET ObjectId = l.EntraObjectId
+                FROM dash.Person AS p JOIN audit.CopilotLicense AS l ON l.UserPrincipalName = p.Upn
+                WHERE l.EntraObjectId IS NOT NULL;');
     COMMIT TRANSACTION;
 
     DECLARE @people INT = (SELECT COUNT(*) FROM dash.Person), @closure INT = (SELECT COUNT(*) FROM dash.OrgClosure);

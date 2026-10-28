@@ -556,7 +556,7 @@ WHERE UserPrincipalName IS NOT NULL;
     }
 
     # ---- Look each one up --------------------------------------------------
-    $select = 'userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType' + $(if ($IncludeLeaveDates) { ',employeeLeaveDateTime' } else { '' })
+    $select = 'id,userPrincipalName,assignedLicenses,assignedPlans,accountEnabled,employeeHireDate,userType' + $(if ($IncludeLeaveDates) { ',employeeLeaveDateTime' } else { '' })
     $licRows = New-Object System.Collections.Generic.List[object]
     $skuRows = [System.Data.DataTable]::new()
     [void] $skuRows.Columns.Add('UserPrincipalName', [string]); [void] $skuRows.Columns.Add('SkuId', [guid])
@@ -612,7 +612,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 $licRows.Add([pscustomobject]@{
                     UserPrincipalName = $upn; IsCopilotLic = $null; SkuPartNumber = $null
                     LicensedSinceUtc = $null; CapabilityStatus = $null; DirectoryStatus = 'NotFound'
-                    EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null; EmployeeLeaveUtc = $null
+                    EntraAccountEnabled = $null; EmployeeHireDate = $null; UserType = $null; EmployeeLeaveUtc = $null; EntraObjectId = $null
                 })
                 continue
             }
@@ -648,6 +648,7 @@ WHERE UserPrincipalName IS NOT NULL;
                 EmployeeHireDate  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeHireDate'))
                 UserType          = $(if (Get-Prop $user 'userType') { "$(Get-Prop $user 'userType')" } else { $null })
                 EmployeeLeaveUtc  = $(ConvertTo-UtcOrNull (Get-Prop $user 'employeeLeaveDateTime'))
+                EntraObjectId     = $($oid = [guid]::Empty; if ([guid]::TryParse("$(Get-Prop $user 'id')", [ref] $oid)) { $oid } else { $null })
             })
         }
         $before = $done; $done = [math]::Min($at + 20, $list.Count)
@@ -665,7 +666,9 @@ WHERE UserPrincipalName IS NOT NULL;
 
     # The leave date only when it was asked for: a run without -IncludeLeaveDates keeps the last one read.
     $columns = @('UserPrincipalName', 'IsCopilotLic', 'SkuPartNumber', 'LicensedSinceUtc', 'CapabilityStatus', 'DirectoryStatus',
-                 'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') + $(if ($IncludeLeaveDates) { @('EmployeeLeaveUtc') } else { @() })
+                 'EntraAccountEnabled', 'EmployeeHireDate', 'UserType') + $(if ($IncludeLeaveDates) { @('EmployeeLeaveUtc') } else { @() }) +
+               # The object ID, which a sign-in through Entra ID is matched by, once the enrichment schema has its column.
+               $(if ((Invoke-EnrichmentSql -As Scalar -Sql "SELECT CASE WHEN COL_LENGTH(N'audit.CopilotLicense', N'EntraObjectId') IS NULL THEN 0 ELSE 1 END") -eq 1) { @('EntraObjectId') } else { @() })
     $n = Save-RowBatch -Table 'audit.CopilotLicense' -KeyColumn 'UserPrincipalName' -Rows $licRows `
                    -ColumnOrder $columns `
                    -ColumnTypes @{
@@ -679,6 +682,7 @@ WHERE UserPrincipalName IS NOT NULL;
                        EmployeeHireDate  = [System.Data.SqlDbType]::Date
                        UserType          = [System.Data.SqlDbType]::NVarChar
                        EmployeeLeaveUtc  = [System.Data.SqlDbType]::DateTime2
+                       EntraObjectId     = [System.Data.SqlDbType]::UniqueIdentifier
                    }
     Write-Log "Licenses written: $n."
     if ((Invoke-EnrichmentSql -As Scalar -Sql "SELECT CASE WHEN OBJECT_ID(N'audit.UserLicenseSku', N'U') IS NULL THEN 0 ELSE 1 END") -eq 1) {

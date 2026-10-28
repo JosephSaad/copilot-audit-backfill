@@ -318,6 +318,56 @@ BEGIN
         ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement'));
 END;
 
+/* With sign-in through Entra ID, a grant to an Entra group names it as entra:<object ID>, with the ID kept in a column
+   of its own and the group's name as it was when granted, for the lists. NULL on every grant to a UPN or to DOMAIN\name. */
+IF COL_LENGTH(N'dash.RoleGrant', N'PrincipalObjectId') IS NULL ALTER TABLE dash.RoleGrant ADD PrincipalObjectId UNIQUEIDENTIFIER NULL;
+IF COL_LENGTH(N'dash.RoleGrant', N'PrincipalName') IS NULL ALTER TABLE dash.RoleGrant ADD PrincipalName NVARCHAR(256) NULL;
+/* Across the whole organization: a persona role (Adoption, Licensing, Security, Compliance, Agents, Enablement) held
+   with it shows that role's pages for the whole organization, where without it they show the holder's own part. It
+   widens nothing else: other sections, the minimum group size and privacy mode apply as before. 0 on every grant before. */
+IF COL_LENGTH(N'dash.RoleGrant', N'OrgWide') IS NULL
+    ALTER TABLE dash.RoleGrant ADD OrgWide BIT NOT NULL CONSTRAINT DF_DashRoleGrant_OrgWide DEFAULT (0);
+
+/* Access profiles: a named bundle of roles (each with or without the whole organization) and Admin pages, granted
+   to people and groups as one. Changing a profile changes it for everyone who holds it. Grants role by role keep working. */
+IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NULL
+    CREATE TABLE dash.AccessProfile
+    (
+        ProfileId         INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashAccessProfile PRIMARY KEY,
+        Name              NVARCHAR(100)   NOT NULL CONSTRAINT UQ_DashAccessProfile_Name UNIQUE,
+        Description       NVARCHAR(400)   NULL,
+        OwnerUpn          NVARCHAR(256)   NULL,       -- who answers for it
+        ApproverPrincipal NVARCHAR(256)   NULL,       -- who approves a request for it, as told to the person asking
+        MaxDays           INT             NULL,       -- how long access lasts, as the access package that grants it says
+        RequestUrl        NVARCHAR(1000)  NULL,       -- where to ask for it: a My Access link to its access package
+        UpdatedBy         NVARCHAR(256)   NOT NULL,
+        UpdatedUtc        DATETIME2(0)    NOT NULL CONSTRAINT DF_DashAccessProfile_Updated DEFAULT (SYSUTCDATETIME())
+    );
+IF OBJECT_ID(N'dash.AccessProfileRole', N'U') IS NULL
+    CREATE TABLE dash.AccessProfileRole
+    (
+        ProfileId   INT             NOT NULL CONSTRAINT FK_DashAccessProfileRole_Profile REFERENCES dash.AccessProfile (ProfileId) ON DELETE CASCADE,
+        Role        VARCHAR(32)     NOT NULL CONSTRAINT CK_DashAccessProfileRole_Role CHECK (Role IN
+                        ('Admin', 'Organization', 'Adoption', 'Licensing', 'Security', 'Compliance', 'Agents', 'Enablement')),
+        OrgWide     BIT             NOT NULL CONSTRAINT DF_DashAccessProfileRole_OrgWide DEFAULT (0),
+        Pages       NVARCHAR(1000)  NULL,       -- for Admin: the Admin pages, as on dash.RoleGrant; NULL is every page
+        CONSTRAINT PK_DashAccessProfileRole PRIMARY KEY (ProfileId, Role)
+    );
+IF OBJECT_ID(N'dash.ProfileGrant', N'U') IS NULL
+    CREATE TABLE dash.ProfileGrant
+    (
+        GrantId           INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DashProfileGrant PRIMARY KEY,
+        Principal         NVARCHAR(256)   NOT NULL,   -- a UPN, DOMAIN\name, or entra:<object ID>, as on dash.RoleGrant
+        PrincipalType     VARCHAR(8)      NOT NULL CONSTRAINT CK_DashProfileGrant_Type CHECK (PrincipalType IN ('User', 'Group')),
+        PrincipalObjectId UNIQUEIDENTIFIER NULL,
+        PrincipalName     NVARCHAR(256)   NULL,
+        ProfileId         INT             NOT NULL CONSTRAINT FK_DashProfileGrant_Profile REFERENCES dash.AccessProfile (ProfileId),
+        Note              NVARCHAR(400)   NULL,
+        GrantedBy         NVARCHAR(256)   NOT NULL,
+        GrantedUtc        DATETIME2(0)    NOT NULL CONSTRAINT DF_DashProfileGrant_Granted DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT UQ_DashProfileGrant UNIQUE (Principal, ProfileId)
+    );
+
 /* Friendly names and owners for agents, set by an administrator: they come before the name the audit log gives. */
 IF OBJECT_ID(N'dash.AgentAlias', N'U') IS NULL
     CREATE TABLE dash.AgentAlias
@@ -382,6 +432,11 @@ IF COL_LENGTH(N'dash.Person', N'Sid') IS NULL
     ALTER TABLE dash.Person ADD Sid VARCHAR(184) NULL;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.Person') AND name = N'IX_DashPerson_Sid')
     EXEC (N'CREATE INDEX IX_DashPerson_Sid ON dash.Person (Sid);');
+/* The person's Entra ID object ID, from the license tool's lookup: how a sign-in through Entra ID is matched first. */
+IF COL_LENGTH(N'dash.Person', N'ObjectId') IS NULL
+    ALTER TABLE dash.Person ADD ObjectId UNIQUEIDENTIFIER NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dash.Person') AND name = N'IX_DashPerson_ObjectId')
+    EXEC (N'CREATE INDEX IX_DashPerson_ObjectId ON dash.Person (ObjectId);');
 
 IF OBJECT_ID(N'dash.OrgClosure', N'U') IS NULL
     CREATE TABLE dash.OrgClosure
