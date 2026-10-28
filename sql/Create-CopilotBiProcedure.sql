@@ -690,6 +690,11 @@ BEGIN
            would scan the table for a two-day refresh. */
         OPTION (RECOMPILE);
 
+        /* By record, so the accessed resources below find their interaction by seeking it. As a heap, a plan that
+           guessed one row from a small dimension read the whole of #src for every resource: 46,436 resources against
+           70,039 interactions in a month, about 3 billion rows, and a demo rebuild of 10 minutes, not 1. */
+        CREATE CLUSTERED INDEX IX_src_RecordId ON #src (RecordId);
+
         INSERT INTO bi.DimUser (UserPrincipalName)
         SELECT DISTINCT s.Upn FROM #src AS s
         WHERE NOT EXISTS (SELECT 1 FROM bi.DimUser AS d WHERE d.UserPrincipalName = s.Upn);
@@ -779,6 +784,21 @@ BEGIN
                CASE WHEN x.Site LIKE N'%/personal/%' THEN 1 ELSE 0 END
         FROM (SELECT DISTINCT Site FROM #rsrc) AS x
         WHERE NOT EXISTS (SELECT 1 FROM bi.DimSite AS d WHERE d.Site = x.Site);
+
+        /* A rebuild fills the small dimensions from nothing. Their statistics were taken when each held one row and,
+           at fewer than 500 changes, are never taken again, so every join on them was planned for one row. A few
+           hundred rows each, read in a moment. Not in a partial refresh: its transaction would hold them. */
+        IF @SinceUtc IS NULL
+        BEGIN
+            UPDATE STATISTICS bi.DimApp;
+            UPDATE STATISTICS bi.DimAgent;
+            UPDATE STATISTICS bi.DimModel;
+            UPDATE STATISTICS bi.DimLicenseType;
+            UPDATE STATISTICS bi.DimFileType;
+            UPDATE STATISTICS bi.DimSensitivityLabel;
+            UPDATE STATISTICS bi.DimResourceType;
+            UPDATE STATISTICS bi.DimResourceAction;
+        END;
 
         /* An agent keeps its key when renamed: bi.usp_NameAgents, after the months, sets the names. */
 

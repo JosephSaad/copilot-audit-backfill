@@ -335,7 +335,7 @@ Two more are run by hand before a release, since CI has no dashboard or installe
 | `tools/Import-CostCsv.ps1` | Loads the Fabric, flow, Power Platform and Copilot Credit exports Leadership › Costs and savings reads (2.6.6). |
 | `tools/DropGuard.ps1` | The delete guard (2.6.5): each load that empties and refills a table refuses a new load that is more than its percentage smaller than the last. |
 | `tools/Update-CopilotAuditEnrichment.ps1` | Copilot licenses, from Microsoft Graph. |
-| `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory and management chain, from on-premises AD, and the members of AD groups granted Organization, for Power BI. |
+| `tools/Export-UsersWithHierarchy-ToSql.ps1` | The user directory and management chain, from on-premises AD, and the members of every AD group granted a role, for Power BI and Admin › Access. |
 | `sql/Create-CopilotSessionSchema.sql` | Session, weekly rollup, app-category and run-log tables, and the CSV-shaped views. |
 | `sql/Create-CopilotSessionProcedure.sql` | `audit.usp_BuildCopilotSessions`. |
 | `tools/Export-CopilotSessionCsv.ps1` | Writes the session and weekly CSVs. |
