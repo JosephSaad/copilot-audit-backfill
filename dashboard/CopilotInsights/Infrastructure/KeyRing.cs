@@ -25,6 +25,17 @@ public static class KeyRing
     /// <returns>What was set up, for the log at start-up; null when nothing was (one web server).</returns>
     public static string? Configure(IServiceCollection services, InsightsOptions options, bool protect = true)
     {
+        /* On Azure: one blob every web server reads, its keys wrapped by a Key Vault key, both reached with the app's identity. */
+        if (string.Equals(options.DataProtection?.Trim(), "Blob", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!Uri.TryCreate(options.DataProtectionBlobUri?.Trim(), UriKind.Absolute, out var blob) || !Uri.TryCreate(options.DataProtectionKeyVaultKeyId?.Trim(), UriKind.Absolute, out var key))
+                throw new InvalidOperationException("Insights:DataProtection is Blob, but Insights:DataProtectionBlobUri and Insights:DataProtectionKeyVaultKeyId are not both full addresses.");
+            var credential = EntraCredentials.For(options.Entra);
+            var azure = services.AddDataProtection().SetApplicationName(ApplicationName).PersistKeysToAzureBlobStorage(blob, credential);
+            if (!protect) return $"keys in {blob}, not protected";
+            azure.ProtectKeysWithAzureKeyVault(key, credential);
+            return $"keys in {blob}, protected with the Key Vault key {key}";
+        }
         if (string.IsNullOrWhiteSpace(options.DataProtectionKeysPath)) return null;
         var folder = new DirectoryInfo(options.DataProtectionKeysPath.Trim());
         var dp = services.AddDataProtection().SetApplicationName(ApplicationName).PersistKeysToFileSystem(folder);

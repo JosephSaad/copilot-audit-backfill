@@ -54,6 +54,7 @@ Each is awkward to change after the first load. The examples below use the names
 - **The job server.** One Windows server that runs every scheduled step. It must reach `login.microsoftonline.com` and `graph.microsoft.com` over HTTPS, the SQL Server, and a domain controller of the domain your users are in. The AD export reads a *trusted* domain and refuses the domain the server itself is joined to, so the users must live in a different domain from the job server.
 - **The service account.** A group managed service account (gMSA), so there is no password to store or rotate. This guide uses `CORP\gmsa-copilot$`. The AD trust must let it read user objects (by default any authenticated user can).
 - **The reporting time zone.** Days and Saturday–Friday weeks are cut in the installing server's own time zone (2.4.10; before, Eastern time whatever the server) unless you pass `-ReportingTimeZone` to the setup in step 3, such as `'GMT Standard Time'` (a name from `sys.time_zone_info`). It is stored in both databases and every procedure reads it. It can't be changed once records are loaded.
+- **How people sign in to the dashboard.** Windows sign-in (the default), or Microsoft Entra ID from 2.8.0, which needs an app registration of its own and HTTPS ([ENTRA-SIGN-IN.md](ENTRA-SIGN-IN.md)). It can be changed later by running the dashboard installer again.
 - **How much history.** Microsoft keeps Copilot audit records for 180 days. More exists only if a custom retention policy covered Copilot at the time (step 1).
 - **Capacity for the Copilot agent.** Copilot in Power BI needs a paid Fabric (F2+) or Premium (P1+) capacity. Outside the US or EU data boundary it also needs a tenant setting that lets data be processed in another region (step 17). Buying capacity and that residency decision both take time, so start them now.
 - **Which employee types to load.** The AD export loads `employeeType` codes `EMP` and `NONW` by default, written as EMPLOYEE and CONTRACTOR. Check the codes your directory uses; `-EmployeeTypes @()` loads every type.
@@ -387,7 +388,7 @@ Part of the history run, and of every nightly run. Alone:
 .\tools\Update-CopilotAuditEnrichment.ps1 -SqlServer SQLPROD01 -Database CopilotAudit @app -AllLicensedUsers
 ```
 
-It asks Graph about twenty users at a time and logs a line for every 1,000 looked up. Nothing is written until every user has been looked up, so stopping it early saves nothing: let it finish.
+It asks Graph about twenty users at a time and logs a line for every 1,000 looked up. Nothing is written until every user has been looked up, so stopping it early saves nothing: let it finish. From 2.8.0 it also records each user's Entra object ID (`audit.CopilotLicense.EntraObjectId`), which a dashboard sign-in through Entra ID is matched by first ([ENTRA-SIGN-IN.md](ENTRA-SIGN-IN.md)); it needs no new permission.
 
 Writes `audit.CopilotLicense`: the Copilot SKU, since when, whether the user still exists in Entra, whether their Entra account is enabled, and their hire date where Entra has one. `-AllLicensedUsers` adds license holders who have never used Copilot, which is what the "licensed, never used" report needs. A user who has since been deleted is stored as *not known*, which is a different claim from *unlicensed*.
 

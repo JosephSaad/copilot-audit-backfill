@@ -15,6 +15,30 @@ public abstract class AdminPage(PageServices s) : InsightsPage(s)
     /* An administrator names a person to grant, check or exempt: anyone in the directory can be found. */
     public override CopilotInsights.Data.LookupKind Lookup => CopilotInsights.Data.LookupKind.Directory;
 
+    /// <summary>Whether a grant's principal is the signed-in account itself.</summary>
+    protected bool IsMe(string principal) =>
+        string.Equals(principal, Viewer.Upn, StringComparison.OrdinalIgnoreCase) || string.Equals(principal, Viewer.WindowsName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// An Entra group named in the grant form, by its object ID or its exact name, looked up in Microsoft Graph so the
+    /// grant holds the ID (a name can change; the ID cannot) and the name as it is today.
+    /// </summary>
+    protected async Task<(Guid? Id, string? Name)> EntraGroupAsync(string given)
+    {
+        var graph = HttpContext.RequestServices.GetRequiredService<EntraGraph>();
+        if (!graph.Available)
+            throw new ArgumentException("a group is DOMAIN\\Group. Entra groups need the app registration in Insights:Entra (docs/ENTRA-SIGN-IN.md).");
+        if (EntraPrincipal.TryParse(given, out var parsed) || Guid.TryParse(given, out parsed))
+            return (parsed, await graph.GroupNameAsync(parsed) ?? throw new ArgumentException($"no Entra group has the object ID {parsed}."));
+        var found = (await graph.FindGroupsAsync(given)).Where(g => string.Equals(g.Name, given, StringComparison.OrdinalIgnoreCase)).ToList();
+        return found.Count switch
+        {
+            0 => throw new ArgumentException($"no Entra group is named {given}. Give its exact name or its object ID."),
+            1 => (found[0].Id, found[0].Name),
+            _ => throw new ArgumentException($"{found.Count} Entra groups are named {given}. Give the one you mean by its object ID: {string.Join(", ", found.Select(f => f.Id))}."),
+        };
+    }
+
 }
 
 /* ---- Health ------------------------------------------------------------------------------ */
@@ -339,15 +363,14 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         public DateTime GrantedUtc { get; set; }
         public string? DisplayName { get; set; }
         public string? Pages { get; set; }
+        public bool OrgWide { get; set; }
+        public string? PrincipalName { get; set; }
         public int TotalRows { get; set; }
     }
 
     /// <summary>Whether dash.RoleGrant has the Pages column that limits an Admin grant to some pages (added by the schema script).</summary>
     async Task<bool> HasPagesAsync() => await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'Pages') IS NULL THEN 0 ELSE 1 END;") == 1;
 
-    /// <summary>Whether a grant's principal is the signed-in account itself.</summary>
-    bool IsMe(string principal) =>
-        string.Equals(principal, Viewer.Upn, StringComparison.OrdinalIgnoreCase) || string.Equals(principal, Viewer.WindowsName, StringComparison.OrdinalIgnoreCase);
 
     protected override async Task BuildAsync()
     {
@@ -419,15 +442,23 @@ public sealed class AccessModel(PageServices s) : AdminPage(s)
         var pagePicker = !Viewer.IsAdmin || !hasPages ? "" :
             "<fieldset class=\"roles\"><legend>Admin pages (none ticked: every page)</legend>" +
             string.Concat(AdminPages.Choices.Select(ap => $"<label><input type=\"checkbox\" name=\"adminPage\" value=\"{E(ap.Path)}\"/> {E(ap.Title)}</label>")) + "</fieldset>";
+        var has28 = await Has28Async();
+        var entraGroups = HttpContext.RequestServices.GetRequiredService<EntraGraph>().Available && has28;
         Panels.Add(new("Grant a role", new HtmlString(Form("grant",
             PersonBox("principal", "User (name or UPN) or group (DOMAIN\\Group)", null, 34) +
             Select("type", "Type", ["User", "Group"], "User") +
+            (entraGroups ? EntraGroupBox() : "") +
             "<fieldset class=\"roles\"><legend>Roles</legend>" +
             string.Concat(offered.Select(r => $"<label><input type=\"checkbox\" name=\"role\" value=\"{E(r)}\"/> {E(r)}</label>")) + "</fieldset>" +
+            (has28 ? $"<label class=\"check\"><input type=\"checkbox\" name=\"orgWide\" value=\"true\"/> Across the whole organization{FieldTip("orgWide", "Across the whole organization")}</label>" : "") +
             pagePicker +
             Input("note", "Why (optional)", null, 30) + Button("Grant")) +
             "<ul class=\"sub\">" + string.Concat(offered.Select(r => $"<li><b>{E(r)}</b>: {E(Roles.Describe[r])}</li>")) + "</ul>"),
-            "Tick every role the person or group should have; one grant gives them all. A group grant follows AD membership at sign-in, so it is the easiest to run at scale." +
+            "Tick every role the person or group should have; one grant gives them all. A group grant follows AD membership at sign-in, so it is the easiest to run at scale. " +
+            "To give the same bundle to many people, make it an access profile (Admin › Access profiles) and grant that to a group." +
+            (has28 ? " Across the whole organization: the persona roles ticked (Adoption, Licensing, Security, Compliance, Agents, Enablement) show their own pages for the whole organization, " +
+                     "where otherwise a holder sees their own part of it. It widens nothing else; the minimum group size and privacy mode still apply. Granting a role held already sets this box as ticked now." : "") +
+            (entraGroups ? " An Entra group is checked through Microsoft Graph at sign-in, nested groups included, and is kept by its object ID, so renaming it changes nothing." : "") +
             (pagePicker != "" ? " With Admin, tick the Admin pages to limit it to those: the person sees and changes only them. With none ticked, Admin is every page. " +
                                 "Granting Admin again to someone who holds it replaces their pages." : "") +
             (Viewer.IsAdmin && !hasPages ? " To limit Admin to some pages, run Create-CopilotDashboardSchema.sql again: this database is from before 2.6.4." : "") +
@@ -450,7 +481,7 @@ GROUP BY g.Principal
         pg.Total = principals.FirstOrDefault().TotalRows;
         var list = principals.Select(x => x.Principal).ToList();
         var grants = list.Count == 0 ? [] : await Db.QueryAsync<GrantRow>(@"
-SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, p.DisplayName" + (hasPages ? ", g.Pages" : "") + @"
+SELECT g.GrantId, g.Principal, g.PrincipalType, g.Role, g.Note, g.GrantedBy, g.GrantedUtc, COALESCE(p.DisplayName" + (has28 ? ", g.PrincipalName" : "") + @") AS DisplayName" + (hasPages ? ", g.Pages" : "") + (has28 ? ", g.OrgWide, g.PrincipalName" : "") + @"
 FROM dash.RoleGrant AS g LEFT JOIN dash.Person AS p ON p.Upn = g.Principal
 WHERE g.Principal IN @list;", new { list });
         var t = new Table
@@ -466,7 +497,7 @@ WHERE g.Principal IN @list;", new { list });
             var mine = grants.Where(g => g.Principal == principal).OrderBy(g => Array.IndexOf(Roles.All, g.Role)).ToList();
             if (mine.Count == 0) continue;
             var roleCell = string.Concat(mine.Select(g =>
-                $"<span class=\"grant\">{E(g.Role)}" +
+                $"<span class=\"grant\">{E(g.Role)}" + (g.OrgWide ? " <small>(whole organization)</small>" : "") +
                 (g.Role == Roles.Admin && AdminPages.Limits(g.Pages) ? $" <small>({E(AdminPages.Names(g.Pages))})</small>" : "") +
                 (g.Role == Roles.Admin && !Viewer.IsAdmin ? "" :
                     Form("revoke", $"<input type=\"hidden\" name=\"id\" value=\"{g.GrantId}\"/>" + RemoveBox($"Remove {g.Role} from {g.Principal}"))) + "</span>")) +
@@ -497,46 +528,74 @@ WHERE g.Principal IN @list;", new { list });
         {
             var p = (await Db.QueryAsync<(string Upn, string? DisplayName, byte? Level, int PeopleBelow, string? ManagerUpn)>(
                 "SELECT Upn, DisplayName, Level, PeopleBelow, ManagerUpn FROM dash.Person WHERE Upn = @who;", new { who })).FirstOrDefault();
-            var pagesCol = hasPages ? "g.Pages" : "CAST(NULL AS NVARCHAR(1000))";
-            var direct = await Db.QueryAsync<(string Role, string? Pages)>(
-                $"SELECT g.Role, {pagesCol} AS Pages FROM dash.RoleGrant AS g WHERE g.PrincipalType = 'User' AND g.Principal = @who ORDER BY g.Role;", new { who });
-            /* The roles that reach them through a group, from the members the nightly directory load records for every
-               group named in a grant. The dashboard itself asks Windows at sign-in, so this is as of that load. */
-            var membersLoaded = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.GroupMember', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
             var upn = p.Upn ?? who;
-            var viaGroup = !membersLoaded ? [] : await Db.QueryAsync<(string Principal, string Role, string? Pages, DateTime LoadedUtc)>($@"
-SELECT g.Principal, g.Role, {pagesCol} AS Pages, gm.LoadedUtc
-FROM dash.RoleGrant AS g JOIN audit.GroupMember AS gm ON gm.GroupName = g.Principal
-WHERE gm.UserPrincipalName = @upn AND g.Principal <> @who
-ORDER BY g.Principal, g.Role;", new { upn, who });
-            var unexpanded = !membersLoaded ? [] : await Db.QueryAsync<string>(@"
-SELECT DISTINCT g.Principal FROM dash.RoleGrant AS g
-WHERE g.PrincipalType = 'Group'
-  AND NOT EXISTS (SELECT 1 FROM audit.GroupMember AS gm WHERE gm.GroupName = g.Principal)
-ORDER BY g.Principal;");
+            /* Every grant as sign-in reads it: role by role, and each access profile's roles. */
+            var all = await ViewerService.GrantsAsync(Db);
+            var profileNames = (await Db.QueryAsync<(int Id, string Name)>(
+                "IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL SELECT ProfileId, Name FROM dash.AccessProfile;")).ToDictionary(x => x.Id, x => x.Name);
+            var groupNames = !has28 ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : (await Db.QueryAsync<(string Principal, string Name)>(@"
+SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM dash.RoleGrant
+    UNION ALL SELECT Principal, PrincipalName FROM dash.ProfileGrant) AS x WHERE PrincipalName IS NOT NULL GROUP BY Principal;"))
+                .ToDictionary(x => x.Principal, x => x.Name, StringComparer.OrdinalIgnoreCase);
+            string Named(string principal) => groupNames.TryGetValue(principal, out var n) ? $"{n} (Entra group)" : principal;
+
+            /* AD groups: the members the nightly directory load records for every group named in a grant. The dashboard
+               itself asks Windows at sign-in, so this is as of that load. */
+            var membersLoaded = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.GroupMember', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
+            var adGroups = !membersLoaded ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                : (await Db.QueryAsync<string>("SELECT GroupName FROM audit.GroupMember WHERE UserPrincipalName = @upn;", new { upn })).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var loadedUtc = !membersLoaded ? null : await Db.ScalarAsync<DateTime?>("SELECT MAX(LoadedUtc) FROM audit.GroupMember;");
-            var roles = direct.Select(d => d.Role).Concat(viaGroup.Select(g => g.Role)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var unexpanded = !membersLoaded ? [] : all.Where(g => g.PrincipalType == "Group" && g.Principal.Contains('\\')).Select(g => g.Principal)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Except(await Db.QueryAsync<string>("SELECT DISTINCT GroupName FROM audit.GroupMember;"), StringComparer.OrdinalIgnoreCase).Order().ToList();
+
+            /* Entra groups: asked of Microsoft Graph now, by the person's Entra object ID, as sign-in does. */
+            var graph = HttpContext.RequestServices.GetRequiredService<EntraGraph>();
+            var entraIds = all.Select(g => EntraPrincipal.TryParse(g.Principal, out var id) ? id : Guid.Empty).Where(id => id != Guid.Empty).Distinct().ToList();
+            var personOid = entraIds.Count == 0 || !has28 ? null : await Db.ScalarAsync<Guid?>("SELECT TOP (1) ObjectId FROM dash.Person WHERE Upn = @upn;", new { upn });
+            var inEntra = personOid is { } poid && graph.Available ? await graph.MemberOfAsync(poid, entraIds) : new HashSet<Guid>();
+
+            /* Each grant that reaches them, and how: "" by their own name, else the group it comes through. */
+            string? Through(ViewerService.GrantRow g) =>
+                string.Equals(g.Principal, who, StringComparison.OrdinalIgnoreCase) || string.Equals(g.Principal, upn, StringComparison.OrdinalIgnoreCase) ? ""
+                : adGroups.Contains(g.Principal) ? g.Principal
+                : EntraPrincipal.TryParse(g.Principal, out var gid) && inEntra.Contains(gid) ? g.Principal : null;
+            var held = all.Select(g => (Grant: g, Via: Through(g))).Where(x => x.Via is not null).ToList();
+            string RoleText(ViewerService.GrantRow g) =>
+                (g.Role == Roles.Admin && AdminPages.Limits(g.Pages) ? $"Admin ({AdminPages.Names(g.Pages)})" : g.Role) + (g.OrgWide && AccessRules.IsPersona(g.Role) ? " across the organization" : "");
+
+            var roles = held.Select(x => x.Grant.Role).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var wideRoles = held.Where(x => x.Grant.OrgWide && AccessRules.IsPersona(x.Grant.Role)).Select(x => x.Grant.Role).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
             var org = AccessRules.SeesWholeOrganization(p.Level, roles);
             body.Append(p.Upn is null
                 ? $"<p>{E(who)} is not in the directory, so they see nothing unless granted Organization{(roles.Contains(Roles.Organization) ? " (they are)" : "")}.</p>"
                 : $"<p><b>{E(p.DisplayName ?? p.Upn)}</b>, level {(p.Level?.ToString() ?? "not under the top")}, reports to {E(p.ManagerUpn ?? "nobody")}.</p>" +
                   $"<p>Sees: <b>{(org ? "the whole organization" : p.PeopleBelow > 0 ? $"themselves and the {p.PeopleBelow:#,0} people under them" : "their own use")}</b>" +
-                  $"{(org && roles.Contains(Roles.Organization) && p.Level is not (1 or 2) ? " (by the Organization role)" : "")}.</p>");
+                  $"{(org && roles.Contains(Roles.Organization) && p.Level is not (1 or 2) ? " (by the Organization role)" : "")}" +
+                  (!org && wideRoles.Count > 0 ? $"; on the {E(string.Join(", ", wideRoles))} pages, the whole organization" : "") + ".</p>");
             if (!AccessRules.MayUseDashboard(p.Level, roles, max))
-                body.Append($"<p><b>Cannot open the dashboard</b>: it is open to levels 1 to {max}, and they hold no role{(roles.Contains(Roles.Admin) ? " other than Admin, which gives them the Admin pages only" : "")}, directly or through a group recorded below.</p>");
-            body.Append($"<p>Roles granted to the account directly: {(direct.Count == 0 ? "none" : E(string.Join(", ", direct.Select(d => d.Role).Distinct(StringComparer.OrdinalIgnoreCase))))}.</p>");
-            if (!membersLoaded)
-                body.Append("<p>Roles from groups: not known here. Group members are recorded by the nightly directory load (tools\\Export-UsersWithHierarchy-ToSql.ps1), which has not run against this database; Windows still applies group grants when they sign in.</p>");
-            else
-            {
-                body.Append("<p>Roles from groups" + (loadedUtc is { } at ? $" (as of the directory load, {at:yyyy-MM-dd HH:mm} UTC)" : "") + ": " +
-                    (viaGroup.Count == 0 ? "none." : "</p><ul>" + string.Concat(viaGroup.GroupBy(g => g.Principal, StringComparer.OrdinalIgnoreCase).Select(g =>
-                        $"<li>{E(string.Join(", ", g.Select(x => x.Role == Roles.Admin && AdminPages.Limits(x.Pages) ? $"Admin ({AdminPages.Names(x.Pages)})" : x.Role)))} through <b>{E(g.Key)}</b></li>")) + "</ul><p>") +
-                    "A change to a group in Active Directory reaches the dashboard at their next sign-in, and this list after the next directory load.</p>");
-                if (unexpanded.Count > 0)
-                    body.Append($"<p>No members recorded yet for {E(string.Join(", ", unexpanded))}: granted since the last directory load, or not found in Active Directory (its log names any it could not find).</p>");
-            }
-            var adminGrants = direct.Where(d => d.Role == Roles.Admin).Select(d => d.Pages).Concat(viaGroup.Where(g => g.Role == Roles.Admin).Select(g => g.Pages)).ToList();
+                body.Append($"<p><b>Cannot open the dashboard</b>: it is open to levels 1 to {max}, and they hold no role{(roles.Contains(Roles.Admin) ? " other than Admin, which gives them the Admin pages only" : "")}, directly, through a profile or through a group listed below.</p>");
+
+            var direct = held.Where(x => x.Via == "" && x.Grant.ProfileId is null).Select(x => RoleText(x.Grant)).Distinct().ToList();
+            body.Append($"<p>Roles granted to the account directly: {(direct.Count == 0 ? "none" : E(string.Join(", ", direct)))}.</p>");
+            var viaProfiles = held.Where(x => x.Grant.ProfileId is not null).GroupBy(x => (x.Grant.ProfileId!.Value, x.Via!)).ToList();
+            if (viaProfiles.Count > 0)
+                body.Append("<p>Through access profiles:</p><ul>" + string.Concat(viaProfiles.Select(g =>
+                    $"<li><b>{E(profileNames.GetValueOrDefault(g.Key.Item1, $"profile {g.Key.Item1}"))}</b>: {E(string.Join(", ", g.Select(x => RoleText(x.Grant))))}" +
+                    (g.Key.Item2 == "" ? ", granted to them" : $", through {E(Named(g.Key.Item2))}") + "</li>")) + "</ul>");
+            var viaGroups = held.Where(x => x.Via != "" && x.Grant.ProfileId is null).GroupBy(x => x.Via!, StringComparer.OrdinalIgnoreCase).ToList();
+            body.Append("<p>Roles from groups" + (membersLoaded && loadedUtc is { } at ? $" (AD groups as of the directory load, {at:yyyy-MM-dd HH:mm} UTC)" : "") + ": " +
+                (viaGroups.Count == 0 ? "none. " : "</p><ul>" + string.Concat(viaGroups.Select(g =>
+                    $"<li>{E(string.Join(", ", g.Select(x => RoleText(x.Grant))))} through <b>{E(Named(g.Key))}</b></li>")) + "</ul><p>") +
+                (membersLoaded ? "A change to a group in Active Directory reaches the dashboard at their next sign-in, and this list after the next directory load." : "") + "</p>");
+            if (!membersLoaded && all.Any(g => g.Principal.Contains('\\')))
+                body.Append("<p>AD groups: not known here. Group members are recorded by the nightly directory load (tools\\Export-UsersWithHierarchy-ToSql.ps1), which has not run against this database; Windows still applies group grants when they sign in.</p>");
+            if (unexpanded.Count > 0)
+                body.Append($"<p>No members recorded yet for {E(string.Join(", ", unexpanded))}: granted since the last directory load, or not found in Active Directory (its log names any it could not find).</p>");
+            if (entraIds.Count > 0 && !graph.Available)
+                body.Append("<p>Entra groups: not checked. The app registration in Insights:Entra is not set up to call Microsoft Graph (docs/ENTRA-SIGN-IN.md).</p>");
+            else if (entraIds.Count > 0 && personOid is null)
+                body.Append("<p>Entra groups: not checked for them. No Entra object ID is recorded for this person yet; the license tool records it at its next run.</p>");
+            var adminGrants = held.Where(x => x.Grant.Role == Roles.Admin).Select(x => x.Grant.Pages).ToList();
             if (hasPages && adminGrants.Count > 0)
                 body.Append($"<p>Their Admin role covers: {E(adminGrants.Any(pg => !AdminPages.Limits(pg)) ? AdminPages.Names(null) : AdminPages.Names(string.Join(",", adminGrants.SelectMany(AdminPages.Parse))))}.</p>");
         }
@@ -623,15 +682,21 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         return $"Left off revoke and train lists: {Say(before)} before, {Say(ProtectedLevels)} now.";
     });
 
-    public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string[]? adminPage, string? note) => AdminChangeAsync(async () =>
+    public Task<IActionResult> OnPostGrantAsync(string? principal, string? type, string[]? role, string[]? adminPage, string? note, bool orgWide = false, string? entraGroup = null) => AdminChangeAsync(async () =>
     {
+        /* An Entra group chosen in its own box is the grant's group, whatever else was typed. */
+        if (!string.IsNullOrWhiteSpace(entraGroup)) (principal, type) = (entraGroup, "Group");
         principal = principal?.Trim();
-        if (string.IsNullOrEmpty(principal) || principal.Length > 256) throw new ArgumentException("give a UPN or DOMAIN\\Group.");
+        if (string.IsNullOrEmpty(principal) || principal.Length > 256) throw new ArgumentException("give a UPN, DOMAIN\\Group or an Entra group.");
         if (type is not ("User" or "Group")) throw new ArgumentException("choose User or Group.");
         var roles = (role ?? []).Where(r => Roles.All.Contains(r)).Distinct().ToList();
         if (roles.Count == 0) throw new ArgumentException("tick at least one role.");
         if (type == "User" && !principal.Contains('@') && !principal.Contains('\\')) throw new ArgumentException("a user is a UPN (name@domain) or DOMAIN\\name.");
-        if (type == "Group" && !principal.Contains('\\')) throw new ArgumentException("a group is DOMAIN\\Group.");
+        var (objectId, groupName) = type == "Group" && !principal.Contains('\\') ? await EntraGroupAsync(principal) : ((Guid?)null, (string?)null);
+        if (objectId is { } oid) principal = EntraPrincipal.Of(oid);
+        var has28 = await Has28Async();
+        if (orgWide && !has28) throw new ArgumentException("the whole organization on a role needs the 2.8.0 schema: run Install-CopilotAudit.ps1 -Dashboard.");
+        if (objectId is not null && !has28) throw new ArgumentException("grants to Entra groups need the 2.8.0 schema: run Install-CopilotAudit.ps1 -Dashboard.");
         /* Admin limited to the pages ticked; none, or all of them, is the whole role. */
         string? pages = null;
         var hasPages = false;
@@ -646,13 +711,22 @@ IF @@ROWCOUNT = 0 INSERT INTO dash.Setting (Name, Value, UpdatedBy) VALUES (N'Pr
         var by = Viewer.Upn ?? Viewer.WindowsName;
         var added = new List<string>();
         var changed = "";
+        var widened = new List<string>();
         foreach (var r in roles)
         {
-            var n = await Db.ExecuteAsync(@"
+            var wide = orgWide && AccessRules.IsPersona(r);
+            var n = await Db.ExecuteAsync(has28 ? @"
+IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Role = @role)
+    INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy, PrincipalObjectId, PrincipalName, OrgWide)
+    VALUES (@principal, @type, @role, @note, @by, @objectId, @groupName, @wide);" : @"
 IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Role = @role)
     INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (@principal, @type, @role, @note, @by);",
-                new { principal, type, role = r, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by });
+                new { principal, type, role = r, note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()[..Math.Min(400, note.Trim().Length)], by, objectId, groupName, wide });
             if (n > 0) added.Add(r);
+            /* Granting a role held already sets its whole-organization box as ticked now, and says so. */
+            else if (has28 && AccessRules.IsPersona(r) && await Db.ExecuteAsync(
+                "UPDATE dash.RoleGrant SET OrgWide = @wide, GrantedBy = @by, GrantedUtc = SYSUTCDATETIME() WHERE Principal = @principal AND Role = @role AND OrgWide <> @wide;",
+                new { principal, role = r, wide, by }) > 0) widened.Add(r + (wide ? " now across the whole organization" : " now for their own part only"));
             if (r != Roles.Admin || !hasPages) continue;
             /* A new Admin grant takes its pages; one held already has them replaced, and says so. */
             var moved = await Db.ExecuteAsync(
@@ -660,11 +734,32 @@ IF NOT EXISTS (SELECT 1 FROM dash.RoleGrant WHERE Principal = @principal AND Rol
                 new { principal, pages, by });
             if (moved > 0 && n <= 0) changed = $" {principal}'s Admin role now covers: {AdminPages.Names(pages)}.";
         }
-        var had = roles.Except(added).Where(r => r != Roles.Admin || changed == "").ToList();
-        return ((added.Count > 0 ? $"Granted {string.Join(", ", added)} to {type.ToLowerInvariant()} {principal}" +
+        var had = roles.Except(added).Where(r => r != Roles.Admin || changed == "").Where(r => !widened.Any(w => w.StartsWith(r + " ", StringComparison.Ordinal))).ToList();
+        var who = groupName is null ? principal : $"{groupName} ({principal})";
+        var wideAdded = added.Where(r => orgWide && AccessRules.IsPersona(r)).ToList();
+        return ((added.Count > 0 ? $"Granted {string.Join(", ", added)} to {type.ToLowerInvariant()} {who}" +
+                    (wideAdded.Count > 0 ? $", {string.Join(", ", wideAdded)} across the whole organization" : "") +
                     (added.Contains(Roles.Admin) && pages is not null ? $", with Admin limited to: {AdminPages.Names(pages)}." : ".") : "")
-             + (had.Count > 0 ? $" {principal} already had {string.Join(", ", had)}." : "") + changed).Trim();
+             + (widened.Count > 0 ? $" {who}: {string.Join("; ", widened)}." : "")
+             + (had.Count > 0 ? $" {who} already had {string.Join(", ", had)}." : "") + changed).Trim();
     });
+
+    /// <summary>Whether this database has 2.8.0's grant columns (the whole organization, Entra groups).</summary>
+    async Task<bool> Has28Async() => await Db.ScalarAsync<int>("SELECT CASE WHEN COL_LENGTH(N'dash.RoleGrant', N'OrgWide') IS NULL THEN 0 ELSE 1 END;") == 1;
+
+    /// <summary>Entra groups whose name starts with what was typed, for the grant form's list.</summary>
+    public async Task<IActionResult> OnGetGroupsAsync(string? q)
+    {
+        if (!await PrepareAsync() || !Viewer.CanAdmin(Request.Path)) return StatusCode(403);
+        var groups = await HttpContext.RequestServices.GetRequiredService<EntraGraph>().FindGroupsAsync(q ?? "");
+        return new JsonResult(groups.Select(g => new { value = EntraPrincipal.Of(g.Id), label = g.Name }));
+    }
+
+    /// <summary>The grant form's box for an Entra group: its name, searched in Graph from the second letter.</summary>
+    string EntraGroupBox() =>
+        $"<label>Or an Entra group<input type=\"text\" name=\"entraGroup\" size=\"34\" list=\"entra-groups\" autocomplete=\"off\" " +
+        $"data-lookup=\"{E(Request.Path + "?handler=groups" + TenantQuery)}\" data-min=\"2\" placeholder=\"2 letters of the group's name\"/>{FieldTip("entraGroup", "Or an Entra group")}</label>" +
+        "<datalist id=\"entra-groups\"></datalist>";
 
     public Task<IActionResult> OnPostRevokeAsync(int id) => AdminChangeAsync(async () =>
     {

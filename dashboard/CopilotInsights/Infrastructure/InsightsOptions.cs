@@ -102,4 +102,72 @@ public sealed class InsightsOptions
 
     /// <summary>How long after start-up the first round of checks waits, in seconds.</summary>
     public int NotifierStartDelaySeconds { get; set; } = 60;
+
+    /// <summary>
+    /// How people sign in: Windows (the default, as before: IIS Windows authentication) or Entra (Microsoft Entra ID, with
+    /// the app registration in <see cref="Entra"/>). See docs/ENTRA-SIGN-IN.md.
+    /// </summary>
+    public string Authentication { get; set; } = SignIn.Windows;
+
+    /// <summary>The Entra ID app registration: for sign-in when <see cref="Authentication"/> is Entra, and for Entra group grants either way.</summary>
+    public EntraOptions Entra { get; set; } = new();
+
+    /// <summary>
+    /// Where the form keys are kept: empty for <see cref="DataProtectionKeysPath"/> (a folder, or each server's own profile),
+    /// or Blob for an Azure Storage blob (<see cref="DataProtectionBlobUri"/>), protected with an Azure Key Vault key
+    /// (<see cref="DataProtectionKeyVaultKeyId"/>), reached with the identity in <see cref="Entra"/>.
+    /// </summary>
+    public string? DataProtection { get; set; }
+
+    /// <summary>The blob that holds the key ring, such as https://account.blob.core.windows.net/keys/keys.xml.</summary>
+    public string? DataProtectionBlobUri { get; set; }
+
+    /// <summary>The Key Vault key that protects it, such as https://vault.vault.azure.net/keys/dataprotection.</summary>
+    public string? DataProtectionKeyVaultKeyId { get; set; }
+
+    /// <summary>
+    /// An Application Insights connection string: requests, failures and the site's warnings go there as well as to the
+    /// log. Empty: nothing is sent anywhere.
+    /// </summary>
+    public string? ApplicationInsightsConnectionString { get; set; }
+}
+
+/// <summary>The two ways in.</summary>
+public static class SignIn
+{
+    public const string Windows = "Windows", Entra = "Entra";
+}
+
+/// <summary>The Entra ID app registration the dashboard signs people in with, and calls Microsoft Graph as.</summary>
+public sealed class EntraOptions
+{
+    /// <summary>The cloud's sign-in address.</summary>
+    public string Instance { get; set; } = "https://login.microsoftonline.com/";
+    /// <summary>The directory (tenant) ID.</summary>
+    public string? TenantId { get; set; }
+    /// <summary>The app registration's application (client) ID.</summary>
+    public string? ClientId { get; set; }
+    /// <summary>
+    /// How the app proves itself to Entra ID and Graph: ManagedIdentity (on Azure: no secret anywhere; on the app
+    /// registration, a federated credential for that identity), Certificate (a certificate in Local Computer › Personal,
+    /// by <see cref="CertificateThumbprint"/>), or Secret (<see cref="ClientSecret"/>, the last resort).
+    /// </summary>
+    public string ClientCredential { get; set; } = "Certificate";
+    /// <summary>A user-assigned managed identity's client ID; empty for the system-assigned one.</summary>
+    public string? ManagedIdentityClientId { get; set; }
+    public string? CertificateThumbprint { get; set; }
+    /// <summary>Read from an environment variable or a secret store, never committed: Insights__Entra__ClientSecret.</summary>
+    public string? ClientSecret { get; set; }
+    /// <summary>Where Entra ID sends the browser back after sign-in, under the site's address.</summary>
+    public string CallbackPath { get; set; } = "/signin-oidc";
+    /// <summary>The audience a token for the data API must carry; empty for api://{ClientId}.</summary>
+    public string? ApiAudience { get; set; }
+    /// <summary>Microsoft Graph's address in this cloud.</summary>
+    public string GraphUrl { get; set; } = "https://graph.microsoft.com";
+    /// <summary>The app role that makes its holders administrators, as Insights:BootstrapAdmins does.</summary>
+    public string BootstrapAdminRole { get; set; } = "Insights.BootstrapAdmin";
+
+    /// <summary>Whether enough is set to ask Microsoft Graph about Entra groups.</summary>
+    public bool CanCallGraph => !string.IsNullOrWhiteSpace(TenantId) && (ClientCredential.Equals("ManagedIdentity", StringComparison.OrdinalIgnoreCase)
+        || !string.IsNullOrWhiteSpace(ClientId) && (!string.IsNullOrWhiteSpace(CertificateThumbprint) || !string.IsNullOrWhiteSpace(ClientSecret)));
 }

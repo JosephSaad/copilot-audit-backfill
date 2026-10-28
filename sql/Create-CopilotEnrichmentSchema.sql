@@ -78,6 +78,10 @@ IF COL_LENGTH(N'audit.CopilotLicense', N'EmployeeLeaveUtc') IS NULL
 /* Member or Guest, from the same lookup: guests using Copilot are a report of their own. */
 IF COL_LENGTH(N'audit.CopilotLicense', N'UserType') IS NULL
     ALTER TABLE audit.CopilotLicense ADD UserType NVARCHAR(20) NULL;
+/* The account's Entra ID object ID, from the same lookup: the dashboard's refresh copies it to dash.Person, where a
+   sign-in through Entra ID is matched by it (its oid claim) before anything else. */
+IF COL_LENGTH(N'audit.CopilotLicense', N'EntraObjectId') IS NULL
+    ALTER TABLE audit.CopilotLicense ADD EntraObjectId UNIQUEIDENTIFIER NULL;
 
 /*
     Members of the AD groups granted Organization in the dashboard (dash.RoleGrant), expanded

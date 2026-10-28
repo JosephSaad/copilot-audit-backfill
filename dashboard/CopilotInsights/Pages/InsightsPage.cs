@@ -335,6 +335,27 @@ EXEC sys.sp_executesql @sql;");
         catch (Microsoft.Data.SqlClient.SqlException) { return []; }
     }
 
+    /// <summary>
+    /// Where to ask for a page that was refused: the access profiles that give the role it needs (for an Admin page, ones
+    /// whose Admin pages include it) and say where to request them, such as an Entra access package in My Access.
+    /// </summary>
+    public IReadOnlyList<(string Name, string Url)> RequestAccess { get; private set; } = [];
+
+    async Task<IReadOnlyList<(string Name, string Url)>> RequestLinksAsync(string? role)
+    {
+        if (role is null) return [];
+        try
+        {
+            var rows = await Db.QueryAsync<(string Name, string Url, string? Pages)>(@"
+IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL
+    SELECT p.Name, p.RequestUrl, r.Pages FROM dash.AccessProfile AS p JOIN dash.AccessProfileRole AS r ON r.ProfileId = p.ProfileId
+    WHERE r.Role = @role AND p.RequestUrl LIKE N'https://%' ORDER BY p.Name;", new { role });
+            return rows.Where(r => role != Roles.Admin || !CopilotInsights.Data.AdminPages.Limits(r.Pages) || CopilotInsights.Data.AdminPages.Parse(r.Pages).Contains(CopilotInsights.Data.AdminPages.Normalize(Request.Path)))
+                .Select(r => (r.Name, r.Url)).Take(3).ToList();
+        }
+        catch (Microsoft.Data.SqlClient.SqlException) { return []; }
+    }
+
     /// <summary>The reports this viewer opens most, by path, most opened first; see <see cref="MostUsed"/>.</summary>
     public IReadOnlyList<string> MostUsedPaths { get; private set; } = [];
 
@@ -343,7 +364,8 @@ EXEC sys.sp_executesql @sql;");
 
     protected async Task<bool> PrepareAsync()
     {
-        Viewer = await S.Viewers.GetAsync();
+        /* A persona role held across the whole organization widens that role's own pages, and no others. */
+        Viewer = (await S.Viewers.GetAsync()).ForSection(RequiredRole ?? Nav.SectionOf(Request.Path)?.Role);
         Ctx = await S.Contexts.CreateAsync(Viewer, Request, forPage: true);
         PrivacyMode = await S.Settings.PrivacyModeAsync();
         Zone = await S.Settings.ZoneAsync();
@@ -370,6 +392,7 @@ EXEC sys.sp_executesql @sql;");
         if (Denied is not null)
         {
             Administrators = await AdministratorsAsync();
+            if (!turnedOff) RequestAccess = await RequestLinksAsync(AdminOnly ? Roles.Admin : RequiredRole ?? Nav.SectionOf(Request.Path)?.Role);
             await S.Audit.WriteAsync(Viewer, "Denied", Request.Path, Ctx.ScopeLabel, Denied);
             Response.StatusCode = turnedOff ? 404 : 403;
             return false;
@@ -632,6 +655,9 @@ SELECT DB_NAME(), USER_NAME(), STRING_AGG(n, N'|') FROM (VALUES {names}) AS o(n)
     IReadOnlyDictionary<string, string>? _fieldTips;
 
     /// <summary>A field's information icon, where the page has a tip for it.</summary>
+    /// <summary>The information icon for a field a page writes itself, from the same tips.</summary>
+    protected string FieldTip(string name, string label) => Tip(name, label);
+
     string Tip(string name, string label) =>
         _fieldTips is { } tips && tips.TryGetValue(name, out var tip) ? ((HtmlString)InfoTip.Icon(tip, label)).Value ?? "" : "";
 

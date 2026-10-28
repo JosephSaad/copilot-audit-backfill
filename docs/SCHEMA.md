@@ -2,7 +2,7 @@
 
 Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column by column, and the script behind each. Generated from the metadata of copies of the lab's Copilot and license-event databases upgraded by the 2.3.0 installer (27 September 2026), with the notes the scripts' DDL carries. Types are SQL Server's; **no** under Null means NOT NULL.
 
-127 tables (plus 2 left over from 1.x), 39 views, 1566 columns, from 22 scripts.
+130 tables (plus 2 left over from 1.x), 39 views, 1593 columns, from 22 scripts.
 
 **Compatibility.** From 2.6.3, a release adds to this schema and takes nothing away. No table, view, procedure, column, parameter or grant to a role is dropped or renamed; a column keeps its type or widens it; a view keeps its columns in their places, with new ones after them; and a new column or parameter never has to be given. A report or query written against one release runs against the next, and installing over a database in use loses nothing. Every build is checked against the last release's schema, and by installing over 2.6.2 and over the last release ([tools/dev/README.md](../tools/dev/README.md#schema-compatibility)). What replaces something is added beside it, and the old one is marked as replaced here.
 
@@ -23,7 +23,7 @@ Every table and view copilot-audit-backfill 2.3.0 creates in SQL Server, column 
 - [bi: dimensions](#bi-dimensions): [`bi.DimDate`](#bidimdate), [`bi.DimUser`](#bidimuser), [`bi.DimApp`](#bidimapp), [`bi.DimAgent`](#bidimagent), [`bi.DimModel`](#bidimmodel), [`bi.DimSku`](#bidimsku), [`bi.DimLicenseStatus`](#bidimlicensestatus), [`bi.DimLicenseType`](#bidimlicensetype), [`bi.DimSensitivityLabel`](#bidimsensitivitylabel), [`bi.DimFileType`](#bidimfiletype), [`bi.DimResourceType`](#bidimresourcetype), [`bi.DimResourceAction`](#bidimresourceaction), [`bi.DimSite`](#bidimsite)
 - [bi: facts and refresh log](#bi-facts-and-refresh-log): [`bi.FactInteraction`](#bifactinteraction), [`bi.FactSession`](#bifactsession), [`bi.FactLicenseChange`](#bifactlicensechange), [`bi.FactLicensedDay`](#bifactlicensedday), [`bi.FactAccessedResource`](#bifactaccessedresource), [`bi.FactAgentEvent`](#bifactagentevent), [`bi.RebuildInProgress`](#birebuildinprogress), [`bi.RefreshRun`](#birefreshrun)
 - [bi: views Power BI imports](#bi-views-power-bi-imports): [`bi.Interactions`](#biinteractions), [`bi.Sessions`](#bisessions), [`bi.LicenseChanges`](#bilicensechanges), [`bi.LicensedDays`](#bilicenseddays), [`bi.Calendar`](#bicalendar), [`bi.Users`](#biusers), [`bi.Apps`](#biapps), [`bi.Agents`](#biagents), [`bi.Models`](#bimodels), [`bi.Skus`](#biskus), [`bi.LicenseStatuses`](#bilicensestatuses), [`bi.AccessedResources`](#biaccessedresources), [`bi.LicenseTypes`](#bilicensetypes), [`bi.SensitivityLabels`](#bisensitivitylabels), [`bi.ResourceTypes`](#biresourcetypes), [`bi.FileTypes`](#bifiletypes), [`bi.ResourceActions`](#biresourceactions), [`bi.Sites`](#bisites), [`bi.AgentEvents`](#biagentevents), [`bi.OrgSecurity`](#biorgsecurity), [`bi.ValueNames`](#bivaluenames), [`bi.LicensePool`](#bilicensepool), [`bi.DepartmentWeek`](#bidepartmentweek), [`bi.UseCases`](#biusecases), [`bi.JobFamilies`](#bijobfamilies), [`bi.EventMarkers`](#bieventmarkers)
-- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
+- [dash: the Copilot Insights dashboard](#dash-the-copilot-insights-dashboard): [`dash.Setting`](#dashsetting), [`dash.CostPrice`](#dashcostprice), [`dash.CostSuite`](#dashcostsuite), [`dash.SkuName`](#dashskuname), [`dash.CopilotSuiteOnly`](#dashcopilotsuiteonly), [`dash.CopilotSuiteHolder`](#dashcopilotsuiteholder), [`dash.RoleGrant`](#dashrolegrant), [`dash.AccessProfile`](#dashaccessprofile), [`dash.AccessProfileRole`](#dashaccessprofilerole), [`dash.ProfileGrant`](#dashprofilegrant), [`dash.AgentAlias`](#dashagentalias), [`dash.SensitivityLabel`](#dashsensitivitylabel), [`dash.AuditLog`](#dashauditlog), [`dash.Person`](#dashperson), [`dash.OrgClosure`](#dashorgclosure), [`dash.UserDay`](#dashuserday), [`dash.FlaggedInteraction`](#dashflaggedinteraction), [`dash.ResourceDay`](#dashresourceday), [`dash.AgentUse`](#dashagentuse), [`dash.RefreshRun`](#dashrefreshrun), [`dash.AgentInventory`](#dashagentinventory), [`dash.AgentChildLink`](#dashagentchildlink), [`dash.AgentInventoryRun`](#dashagentinventoryrun), [`dash.Agent`](#dashagent)
 - [dash: operations (2.3.0)](#dash-operations-230): [`dash.Secret`](#dashsecret), [`dash.Subscription`](#dashsubscription), [`dash.NotificationLog`](#dashnotificationlog), [`dash.AlertState`](#dashalertstate), [`dash.Target`](#dashtarget), [`dash.TimeSaving`](#dashtimesaving), [`dash.TrainingAttendance`](#dashtrainingattendance), [`dash.ValueName`](#dashvaluename), [`dash.FlagCase`](#dashflagcase), [`dash.DigestPreference`](#dashdigestpreference), [`dash.DigestSend`](#dashdigestsend), [`dash.LicenseAction`](#dashlicenseaction), [`dash.LicenseContract`](#dashlicensecontract), [`dash.SavedView`](#dashsavedview), [`dash.NonHumanException`](#dashnonhumanexception), [`dash.Reservation`](#dashreservation), [`dash.ReservationRate`](#dashreservationrate), [`dash.TechnologyAllocation`](#dashtechnologyallocation), [`dash.ReservationSnapshot`](#dashreservationsnapshot), [`dash.CreditRoute`](#dashcreditroute), [`dash.CreditChargeSnapshot`](#dashcreditchargesnapshot), [`dash.CreditCommitment`](#dashcreditcommitment), [`dash.JobFamilyRule`](#dashjobfamilyrule), [`dash.UseCaseRule`](#dashusecaserule), [`dash.EventMarker`](#dasheventmarker), [`dash.Extract`](#dashextract)
 - [Left over from 1.x](#left-over-from-1x)
 
@@ -743,6 +743,7 @@ Who holds a license (Microsoft Graph) and where they sit in the organization (on
 | 9 | `CapabilityStatus` | nvarchar(50) | yes |  |  |
 | 10 | `DirectoryStatus` | nvarchar(20) | yes |  |  |
 | 11 | `EmployeeLeaveUtc` | datetime2(0) | yes |  | Entra's employeeLeaveDateTime, read with -IncludeLeaveDates (2.4.3) |
+| 12 | `EntraObjectId` | uniqueidentifier | yes |  | the account's Entra ID object ID, from the same lookup (2.8.0): the dashboard's refresh copies it to dash.Person, where a sign-in through Entra ID is matched by it first |
 
 Indexes and constraints:
 
@@ -2910,7 +2911,7 @@ Indexes and constraints:
 | 1 | `Upn` | nvarchar(512) | **no** |  |  |
 ### dash.RoleGrant
 
-*Table.* Roles granted to people (UPN or DOMAIN\\user) or AD groups (DOMAIN\\Group). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail.
+*Table.* Roles granted to people (UPN or DOMAIN\\user), AD groups (DOMAIN\\Group) or Entra groups (entra:&lt;object ID&gt;, 2.8.0). Admin runs the admin module, or only the Admin pages its grant names (2.6.4); Organization sees the whole organization; the persona roles unlock named detail, and with OrgWide show their pages for the whole organization (2.8.0).
 
 **Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
 
@@ -2924,6 +2925,9 @@ Indexes and constraints:
 | 6 | `GrantedBy` | nvarchar(256) | **no** |  |  |
 | 7 | `GrantedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
 | 8 | `Pages` | nvarchar(1000) | yes |  | 2.6.4: the Admin pages an Admin grant is limited to, as their paths, comma-separated (/admin/health,/admin/audit); NULL is the whole role, and what every other role has |
+| 9 | `PrincipalObjectId` | uniqueidentifier | yes |  | 2.8.0: an Entra group's object ID; NULL for a UPN or DOMAIN\\name |
+| 10 | `PrincipalName` | nvarchar(256) | yes |  | 2.8.0: the Entra group's name when it was granted, for the lists |
+| 11 | `OrgWide` | bit | **no** | `0` | 2.8.0: a persona role across the whole organization: its pages show the whole organization to the holder; 0 on every grant before |
 
 Indexes and constraints:
 
@@ -2931,6 +2935,74 @@ Indexes and constraints:
 - `UQ_DashRoleGrant`: unique, nonclustered (Principal, Role)
 - `CK_DashRoleGrant_Type`: check `([PrincipalType]='Group' OR [PrincipalType]='User')`
 - `CK_DashRoleGrant_Role`: check `([Role]='Enablement' OR [Role]='Agents' OR [Role]='Compliance' OR [Role]='Security' OR [Role]='Licensing' OR [Role]='Adoption' OR [Role]='Organization' OR [Role]='Admin')`
+- `DF_DashRoleGrant_OrgWide`: default `(0)` on OrgWide
+
+### dash.AccessProfile
+
+*Table.* Access profiles (2.8.0): named bundles of roles and Admin pages, granted to people and groups as one, each with its owner, its approver, how long access lasts and where to ask for it (a My Access link). Edited in Admin &gt; Access profiles.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ProfileId` | int | **no** | **PK** identity |  |
+| 2 | `Name` | nvarchar(100) | **no** |  |  |
+| 3 | `Description` | nvarchar(400) | yes |  |  |
+| 4 | `OwnerUpn` | nvarchar(256) | yes |  | who answers for it |
+| 5 | `ApproverPrincipal` | nvarchar(256) | yes |  | who approves a request for it, as told to the person asking |
+| 6 | `MaxDays` | int | yes |  | how long access lasts, as the access package that grants it says |
+| 7 | `RequestUrl` | nvarchar(1000) | yes |  | where to ask for it: a My Access link to its access package |
+| 8 | `UpdatedBy` | nvarchar(256) | **no** |  |  |
+| 9 | `UpdatedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashAccessProfile`: primary key, clustered (ProfileId)
+- `UQ_DashAccessProfile_Name`: unique, nonclustered (Name)
+
+### dash.AccessProfileRole
+
+*Table.* What each access profile gives (2.8.0): a role, across the whole organization or not, and for Admin its pages.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `ProfileId` | int | **no** | **PK**, FK dash.AccessProfile |  |
+| 2 | `Role` | varchar(32) | **no** | **PK** |  |
+| 3 | `OrgWide` | bit | **no** | `0` |  |
+| 4 | `Pages` | nvarchar(1000) | yes |  | for Admin: the Admin pages, as on dash.RoleGrant; NULL is every page |
+
+Indexes and constraints:
+
+- `PK_DashAccessProfileRole`: primary key, clustered (ProfileId, Role)
+- `FK_DashAccessProfileRole_Profile`: foreign key (ProfileId) to dash.AccessProfile, on delete cascade
+- `CK_DashAccessProfileRole_Role`: check, the eight roles of dash.RoleGrant
+
+### dash.ProfileGrant
+
+*Table.* Access profiles granted to people, AD groups (DOMAIN\\Group) and Entra groups (entra:&lt;object ID&gt;) (2.8.0). Sign-in expands each to its profile's roles.
+
+**Script** `Create-CopilotDashboardSchema.sql` · **In** Copilot database
+
+| # | Column | Type | Null | Default / key | Notes |
+|--:|---|---|---|---|---|
+| 1 | `GrantId` | int | **no** | **PK** identity |  |
+| 2 | `Principal` | nvarchar(256) | **no** |  | a UPN, DOMAIN\\name, or entra:&lt;object ID&gt;, as on dash.RoleGrant |
+| 3 | `PrincipalType` | varchar(8) | **no** |  |  |
+| 4 | `PrincipalObjectId` | uniqueidentifier | yes |  |  |
+| 5 | `PrincipalName` | nvarchar(256) | yes |  |  |
+| 6 | `ProfileId` | int | **no** |  | FK dash.AccessProfile |
+| 7 | `Note` | nvarchar(400) | yes |  |  |
+| 8 | `GrantedBy` | nvarchar(256) | **no** |  |  |
+| 9 | `GrantedUtc` | datetime2(0) | **no** | `sysutcdatetime` |  |
+
+Indexes and constraints:
+
+- `PK_DashProfileGrant`: primary key, clustered (GrantId)
+- `UQ_DashProfileGrant`: unique, nonclustered (Principal, ProfileId)
+- `FK_DashProfileGrant_Profile`: foreign key (ProfileId) to dash.AccessProfile
+- `CK_DashProfileGrant_Type`: check `([PrincipalType]='Group' OR [PrincipalType]='User')`
 
 ### dash.AgentAlias
 
@@ -3010,12 +3082,14 @@ Indexes and constraints:
 | 7 | `DirectReports` | int | **no** |  |  |
 | 8 | `PeopleBelow` | int | **no** |  | everyone under them, at any depth |
 | 9 | `Sid` | varchar(184) | yes |  |  |
+| 10 | `ObjectId` | uniqueidentifier | yes |  | the person's Entra ID object ID, from audit.CopilotLicense (2.8.0): how a sign-in through Entra ID is matched first |
 
 Indexes and constraints:
 
 - `PK_DashPerson`: primary key, clustered (Upn)
 - `IX_DashPerson_Manager`: nonclustered (ManagerUpn)
 - `IX_DashPerson_Sid`: nonclustered (Sid)
+- `IX_DashPerson_ObjectId`: nonclustered (ObjectId)
 
 ### dash.OrgClosure
 

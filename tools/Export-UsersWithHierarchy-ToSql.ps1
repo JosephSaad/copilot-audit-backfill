@@ -615,8 +615,12 @@ function Get-OrganizationGroup {
     try {
         $cmd = $conn.CreateCommand()
         $cmd.CommandText = @'
+/* Groups granted an access profile too, once the dashboard schema has them. Entra groups (entra:<object ID>) are
+   not in AD: the dashboard asks Entra about them itself. */
+DECLARE @profiles NVARCHAR(400) = CASE WHEN OBJECT_ID(N'dash.ProfileGrant', N'U') IS NULL THEN N'' ELSE N'
+            UNION SELECT Principal FROM dash.ProfileGrant WHERE (PrincipalType = ''Group'' OR Principal LIKE N''%\%'') AND Principal NOT LIKE N''entra:%''' END;
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NOT NULL
-    EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE PrincipalType = ''Group'' OR Principal LIKE N''%\%''
+    EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE (PrincipalType = ''Group'' OR Principal LIKE N''%\%'') AND Principal NOT LIKE N''entra:%''' + @profiles + N'
             UNION SELECT LTRIM(RTRIM(g.value)) FROM dash.Setting AS s
             CROSS APPLY STRING_SPLIT(REPLACE(REPLACE(ISNULL(s.Value, N''''), N'';'', N'',''), CHAR(10), N'',''), N'','') AS g
             WHERE s.Name = N''NonHumanGroups'' AND LTRIM(RTRIM(g.value)) <> N'''';');

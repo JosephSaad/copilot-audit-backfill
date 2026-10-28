@@ -8,10 +8,18 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.Configure<InsightsOptions>(builder.Configuration.GetSection(InsightsOptions.Section));
 
-/* Windows sign-in. Under IIS the handler defers to IIS Windows authentication;
-   under Kestrel (development) it negotiates itself. Every page needs a signed-in user. */
-builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+var insights = builder.Configuration.GetSection(InsightsOptions.Section).Get<InsightsOptions>() ?? new InsightsOptions();
+var entraSignIn = string.Equals(insights.Authentication?.Trim(), SignIn.Entra, StringComparison.OrdinalIgnoreCase);
+/* Windows sign-in, the default. Under IIS the handler defers to IIS Windows authentication; under Kestrel (development)
+   it negotiates itself. Or Entra ID, with Insights:Authentication = Entra (EntraSignIn). Every page needs a signed-in user. */
+if (entraSignIn) EntraSignIn.Configure(builder.Services, insights);
+else builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
 builder.Services.AddAuthorization(o => o.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+/* Grants to Entra groups are checked through Microsoft Graph, whichever way people sign in, once the app registration is set. */
+builder.Services.AddSingleton<EntraGraph>();
+/* Requests, failures and the site's warnings to Application Insights as well as the log, when a connection string is set. */
+if (!string.IsNullOrWhiteSpace(insights.ApplicationInsightsConnectionString))
+    builder.Services.AddApplicationInsightsTelemetry(o => o.ConnectionString = insights.ApplicationInsightsConnectionString.Trim());
 
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
@@ -25,7 +33,7 @@ builder.Services.AddSingleton(sp =>
     return new QueryCache(QueryCache.Store(o.Value.QueryCacheEntries), o, sp.GetRequiredService<ILogger<QueryCache>>()) { Shared = sp.GetRequiredService<SharedCache>() };
 });
 /* One set of form keys for every web server, where Insights:DataProtectionKeysPath names a share (KeyRing). */
-var keyRing = KeyRing.Configure(builder.Services, builder.Configuration.GetSection(InsightsOptions.Section).Get<InsightsOptions>() ?? new InsightsOptions());
+var keyRing = KeyRing.Configure(builder.Services, insights);
 builder.Services.AddSingleton<DataStamp>();
 builder.Services.AddSingleton<Db>();
 builder.Services.AddSingleton<Settings>();
@@ -164,6 +172,8 @@ app.MapGet("/adoption/leaderboard", (HttpRequest r) => Moved(r, "/adoption/depar
 app.MapGet("/agents/shared", (HttpRequest r) => Moved(r, "/agents/inventory", "show=shared"));
 app.MapGet("/agents/production", (HttpRequest r) => Moved(r, "/agents/inventory", "show=production"));
 app.MapDataApi();
+/* Signed in through Entra ID, a way out: of the dashboard and of Entra ID, back to the start page. */
+if (entraSignIn) app.MapGet(EntraSignIn.SignOutPath, EntraSignIn.SignOut);
 /* The load balancer's probe: no sign-in, nothing named, only whether this server answers and reaches its database. */
 app.MapMethods(HealthProbe.Path, ["GET", "HEAD"], HealthProbe.AnswerAsync).AllowAnonymous();
 

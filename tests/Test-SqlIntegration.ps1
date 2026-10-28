@@ -3604,6 +3604,27 @@ SELECT (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'd@contoso.com' A
 Invoke-SqlText -Sql "DELETE FROM audit.GroupMember WHERE GroupName = N'CONTOSO\licensing-team'; DELETE FROM dash.RoleGrant WHERE Principal = N'CONTOSO\licensing-team';"
 Assert-That ($loadedOther -contains 'CONTOSO\licensing-team') "the nightly directory load expands a group granted Licensing, for Check someone's access ($($loadedOther -join ', '))"
 Assert-That ([int] $other.DWhole -eq 0) 'a member of a group granted Licensing alone does not see the whole organization in Power BI'
+# Access profiles: Organization given through a profile, to a person or to an AD group, counts in Power BI as it does
+# role by role; the nightly directory load reads the profile's AD group, and leaves an Entra group to the dashboard.
+$prof = (Invoke-SqlText -As Table -Sql @"
+DECLARE @id INT;
+INSERT INTO dash.AccessProfile (Name, UpdatedBy) VALUES (N'IT org viewers', N'test');
+SET @id = SCOPE_IDENTITY();
+INSERT INTO dash.AccessProfileRole (ProfileId, Role, OrgWide) VALUES (@id, 'Organization', 0), (@id, 'Agents', 1);
+INSERT INTO dash.ProfileGrant (Principal, PrincipalType, ProfileId, GrantedBy) VALUES
+    (N'd@contoso.com', 'User', @id, N'test'), (N'CONTOSO\it-viewers', 'Group', @id, N'test'),
+    (N'entra:2f6b0a4e-3c1d-4e5f-9a8b-7c6d5e4f3a2b', 'Group', @id, N'test');
+INSERT INTO audit.GroupMember (GroupName, UserPrincipalName) VALUES (N'CONTOSO\it-viewers', N'b@contoso.com');
+SELECT (SELECT COUNT(DISTINCT UserKey) FROM bi.OrgSecurity WHERE ViewerUpn = N'd@contoso.com' AND WholeOrganization = 1) AS DSees,
+       (SELECT COUNT(DISTINCT UserKey) FROM bi.OrgSecurity WHERE ViewerUpn = N'b@contoso.com' AND WholeOrganization = 1) AS BSees,
+       (SELECT COUNT(*) FROM bi.DimUser) AS Everyone;
+"@).Rows[0]
+[string[]] $loadedProfiles = & { . (Join-Path $root 'tools' 'Export-UsersWithHierarchy-ToSql.ps1'); Get-OrganizationGroup -ConnString (New-ConnString $script:ITDatabase) }
+Invoke-SqlText -Sql "DELETE FROM audit.GroupMember WHERE GroupName = N'CONTOSO\it-viewers'; DELETE FROM dash.ProfileGrant; DELETE FROM dash.AccessProfile WHERE Name = N'IT org viewers';"
+Assert-That ([int] $prof.DSees -eq [int] $prof.Everyone -and [int] $prof.BSees -eq [int] $prof.Everyone) `
+    "2.8.0: Organization through an access profile reaches Power BI, granted to a person and to an AD group ($($prof.DSees) and $($prof.BSees) of $($prof.Everyone))"
+Assert-That ($loadedProfiles -contains 'CONTOSO\it-viewers' -and -not ($loadedProfiles | Where-Object { $_ -like 'entra:*' })) `
+    "the nightly directory load reads a profile's AD group and leaves its Entra group to the dashboard ($($loadedProfiles -join ', '))"
 & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'boss@contoso.com' | Out-Null   # as section 15 left it
 Invoke-SqlText -Sql "ALTER ROLE CopilotInsightsApp DROP MEMBER it_app; DROP USER it_app;"
 

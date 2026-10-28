@@ -853,6 +853,10 @@ GRANT SELECT ON SCHEMA::dash TO CopilotInsightsApp;
 DENY SELECT ON dash.Secret TO CopilotInsightsApp;   -- read only through dash.usp_GetSecret
 GRANT INSERT, UPDATE, DELETE ON dash.Setting TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.RoleGrant TO CopilotInsightsApp;
+/* Admin > Access profiles. */
+IF OBJECT_ID(N'dash.AccessProfile', N'U') IS NOT NULL GRANT INSERT, UPDATE, DELETE ON dash.AccessProfile TO CopilotInsightsApp;
+IF OBJECT_ID(N'dash.AccessProfileRole', N'U') IS NOT NULL GRANT INSERT, UPDATE, DELETE ON dash.AccessProfileRole TO CopilotInsightsApp;
+IF OBJECT_ID(N'dash.ProfileGrant', N'U') IS NOT NULL GRANT INSERT, UPDATE, DELETE ON dash.ProfileGrant TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.AgentAlias TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.SensitivityLabel TO CopilotInsightsApp;
 GRANT INSERT, UPDATE, DELETE ON dash.Subscription TO CopilotInsightsApp;
@@ -957,12 +961,19 @@ IF OBJECT_ID(N'audit.AIAppResource', N'U') IS NOT NULL
 IF OBJECT_ID(N'audit.GroupMember', N'U') IS NULL
     CREATE TABLE audit.GroupMember (GroupName NVARCHAR(256) NOT NULL, UserPrincipalName NVARCHAR(256) NOT NULL,
         LoadedUtc DATETIME2(0) NOT NULL CONSTRAINT DF_GroupMember_Loaded DEFAULT (SYSUTCDATETIME()), CONSTRAINT PK_GroupMember PRIMARY KEY (GroupName, UserPrincipalName));
+/* Organization held through an access profile counts the same way, granted to the person or to a group they are in. */
+DECLARE @profiles NVARCHAR(MAX) = CASE WHEN OBJECT_ID(N'dash.ProfileGrant', N'U') IS NULL THEN N'' ELSE N'
+    UNION SELECT pg.Principal FROM dash.ProfileGrant AS pg JOIN dash.AccessProfileRole AS pr ON pr.ProfileId = pg.ProfileId AND pr.Role = ''Organization''
+          WHERE pg.PrincipalType = ''User'' AND pg.Principal LIKE N''%@%''
+    UNION SELECT gm.UserPrincipalName FROM audit.GroupMember AS gm
+          JOIN dash.ProfileGrant AS pg ON pg.Principal = gm.GroupName
+          JOIN dash.AccessProfileRole AS pr ON pr.ProfileId = pg.ProfileId AND pr.Role = ''Organization''' END;
 EXEC (N'CREATE OR ALTER VIEW bi.OrgSecurity AS
 WITH whole AS (   -- everyone who sees the whole organization: the top two levels, and Organization granted to them or to a group they are in
     SELECT Upn FROM dash.Person WHERE Level IN (1, 2)
     UNION SELECT Principal FROM dash.RoleGrant WHERE PrincipalType = ''User'' AND Role = ''Organization'' AND Principal LIKE N''%@%''
     UNION SELECT gm.UserPrincipalName FROM audit.GroupMember AS gm
-          JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.Role = ''Organization''
+          JOIN dash.RoleGrant AS g ON g.Principal = gm.GroupName AND g.Role = ''Organization''' + @profiles + N'
 )
 SELECT oc.AncestorUpn AS ViewerUpn, u.UserKey, CAST(0 AS BIT) AS WholeOrganization
 FROM dash.OrgClosure AS oc

@@ -76,6 +76,22 @@
 .PARAMETER AppPoolName
     The app pool, with -ApplicationPath: CopilotInsights unless given. Without -ApplicationPath, the pool is named after the site.
 
+.PARAMETER Authentication
+    How people sign in: Windows (IIS Windows authentication) or Entra (Microsoft Entra ID, docs\ENTRA-SIGN-IN.md).
+    With Entra, IIS lets requests through anonymously and the site signs people in itself; it needs HTTPS, and
+    -EntraTenantId, -EntraClientId and -EntraCertificateThumbprint the first time. Omitted: the site keeps the way it
+    has, and a new site uses Windows.
+
+.PARAMETER EntraTenantId
+    The Entra ID directory (tenant) ID, with -Authentication Entra, or for grants to Entra groups with Windows sign-in.
+
+.PARAMETER EntraClientId
+    The app registration's application (client) ID.
+
+.PARAMETER EntraCertificateThumbprint
+    The thumbprint of the app registration's certificate, in Local Computer > Personal on every web server; the
+    app-pool account is given read access to its private key.
+
 .EXAMPLE
     .\Install-CopilotInsights.ps1 -PackagePath .\CopilotInsights -SqlServer sql01 -SiteName 'Apps' -ApplicationPath /CopilotDashboard `
         -AdminPrincipal 'CONTOSO\Copilot-Insights-Admins' -AppPoolIdentity 'CONTOSO\gmsa-insights$' -GrantDatabaseAccess
@@ -110,7 +126,11 @@ param(
     [string] $PrecacheAt = '07:00',
     [string] $PrecacheTimeZone = 'Eastern Standard Time',
     [string] $ApplicationPath,
-    [string] $AppPoolName
+    [string] $AppPoolName,
+    [ValidateSet('Windows', 'Entra')][string] $Authentication,
+    [string] $EntraTenantId,
+    [string] $EntraClientId,
+    [string] $EntraCertificateThumbprint
 )
 
 $ErrorActionPreference = 'Stop'
@@ -354,6 +374,24 @@ try {
         Write-Warning 'No -AdminPrincipal: nobody can open Admin until a row is added to dash.RoleGrant (see the RUNBOOK).'
     }
     if ($tenantList) { Set-Prop $settings.Insights 'Tenants' @($tenantList.Entries) }
+    # Sign-in: the way given, else the way the site has (Windows for a new one). The app registration, when given.
+    if ($Authentication) { Set-Prop $settings.Insights 'Authentication' $Authentication }
+    $signIn = if ($settings.Insights.PSObject.Properties['Authentication']) { [string] $settings.Insights.Authentication } else { 'Windows' }
+    if ($EntraTenantId -or $EntraClientId -or $EntraCertificateThumbprint) {
+        if (-not $settings.Insights.PSObject.Properties['Entra']) { Set-Prop $settings.Insights 'Entra' ([pscustomobject] @{}) }
+        if ($EntraTenantId) { Set-Prop $settings.Insights.Entra 'TenantId' $EntraTenantId.Trim() }
+        if ($EntraClientId) { Set-Prop $settings.Insights.Entra 'ClientId' $EntraClientId.Trim() }
+        if ($EntraCertificateThumbprint) {
+            Set-Prop $settings.Insights.Entra 'ClientCredential' 'Certificate'
+            Set-Prop $settings.Insights.Entra 'CertificateThumbprint' ($EntraCertificateThumbprint -replace '\s', '')
+        }
+    }
+    if ($signIn -eq 'Entra') {
+        $e = if ($settings.Insights.PSObject.Properties['Entra']) { $settings.Insights.Entra } else { $null }
+        foreach ($need in 'TenantId', 'ClientId') {
+            if (-not $e -or -not $e.PSObject.Properties[$need] -or -not $e.$need) { throw "Sign-in through Entra ID needs -Entra$need the first time (docs\ENTRA-SIGN-IN.md)." }
+        }
+    }
     # Before 2.3.0 a Development-only setting let an administrator view as someone else; the site no longer has it.
     if ($settings.Insights.PSObject.Properties['AllowViewAs']) { $settings.Insights.PSObject.Properties.Remove('AllowViewAs') }
     $settings | ConvertTo-Json -Depth 5 | Set-Content $settingsPath -Encoding utf8
@@ -448,11 +486,37 @@ try {
     $https = $proto -eq 'https'
 
     # ---- 6. Authentication --------------------------------------------------------------------
+    if ($signIn -eq 'Entra') {
+        # The site signs people in through Entra ID itself: IIS lets every request reach it. Every page still needs a
+        # signed-in person; only the sign-in's own addresses and the health probe answer without one.
+        Write-Step 'Sign-in through Entra ID: anonymous on, Windows authentication off in IIS'
+        Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name enabled -Value $false
+        Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $true
+        if (-not $https) { Write-Warning 'Sign-in through Entra ID needs HTTPS: give -CertificateThumbprint, or put the site behind a proxy that ends TLS.' }
+        $thumb = if ($settings.Insights.Entra.PSObject.Properties['CertificateThumbprint']) { [string] $settings.Insights.Entra.CertificateThumbprint } else { '' }
+        if ($thumb) {
+            # The app pool reads the certificate's private key to prove itself to Entra ID.
+            $cert = Get-Item "Cert:\LocalMachine\My\$thumb" -ErrorAction SilentlyContinue
+            if (-not $cert -or -not $cert.HasPrivateKey) { Write-Warning "The certificate $thumb, with its private key, is not in Local Computer > Personal: sign-in will fail until it is." }
+            else {
+                $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+                $keyFile = Get-ChildItem "$env:ProgramData\Microsoft\Crypto" -Recurse -Filter $rsa.Key.UniqueName -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($keyFile) {
+                    $keyAcl = Get-Acl $keyFile.FullName
+                    $keyAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule $poolAccount, 'Read', 'Allow'))
+                    Set-Acl $keyFile.FullName $keyAcl
+                }
+                else { Write-Warning "Could not find the private key file of ${thumb}: give $poolAccount read access to it in certlm.msc (All Tasks > Manage Private Keys)." }
+            }
+        }
+    }
+    else {
     Write-Step 'Windows authentication on, anonymous off'
     Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $false
     Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name enabled -Value $true
     # Kerberos for a host name registered on the app-pool account (the SPN below) needs the pool's own credentials.
     Set-WebConfigurationProperty -PSPath 'IIS:\' -Location $location -Filter 'system.webServer/security/authentication/windowsAuthentication' -Name useAppPoolCredentials -Value ([bool] $AppPoolIdentity)
+    }
     # The load balancer's probe answers without sign-in: it says only whether the server reaches its database.
     Set-WebConfigurationProperty -PSPath 'IIS:\' -Location "$location/healthz" -Filter 'system.webServer/security/authentication/anonymousAuthentication' -Name enabled -Value $true
 
@@ -601,4 +665,4 @@ $url = "{0}://{1}{2}/{3}" -f $proto, $(if ($HostName) { $HostName } else { $env:
 Write-Host ''
 Write-Host "Copilot Insights is at $url" -ForegroundColor Green
 Write-Host 'Next: sign in as a bootstrap administrator, open Admin > Access, set the top of the organization, and grant roles.'
-if ($HostName) { Write-Host "For Kerberos sign-in on $HostName, register its SPN on the app-pool account: setspn -S HTTP/$HostName $(if ($AppPoolIdentity) { $AppPoolIdentity } else { "$env:USERDOMAIN\$env:COMPUTERNAME`$" })" }
+if ($HostName -and $signIn -ne 'Entra') { Write-Host "For Kerberos sign-in on $HostName, register its SPN on the app-pool account: setspn -S HTTP/$HostName $(if ($AppPoolIdentity) { $AppPoolIdentity } else { "$env:USERDOMAIN\$env:COMPUTERNAME`$" })" }

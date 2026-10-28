@@ -83,7 +83,7 @@ public class Release277Tests
     public void Check_someones_access_lists_roles_from_groups()
     {
         var admin = File.ReadAllText(Path.Combine(Root(), "dashboard", "CopilotInsights", "Pages", "Admin", "Admin.cs"));
-        Assert.Contains("JOIN audit.GroupMember AS gm ON gm.GroupName = g.Principal", admin);
+        Assert.Contains("SELECT GroupName FROM audit.GroupMember WHERE UserPrincipalName = @upn;", admin);
         Assert.Contains("Roles from groups", admin);
         Assert.DoesNotContain("Group grants are resolved when they sign in, so check the groups above too", admin);
     }

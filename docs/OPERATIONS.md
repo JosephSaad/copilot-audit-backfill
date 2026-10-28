@@ -13,6 +13,7 @@ Nothing here needs SQL typed by hand, but for looking inside a slow night ([A sl
 
 - [Every day](#every-day)
 - [Access and permissions](#access-and-permissions)
+- [Access profiles](#access-profiles)
 - [Names for codes and ids](#names-for-codes-and-ids)
 - [Email, alerts and digests](#email-alerts-and-digests)
 - [Targets, value and training](#targets-value-and-training)
@@ -65,11 +66,11 @@ The dashboard installer schedules it (07:00 Eastern unless given `-PrecacheAt` a
 
 ## Access and permissions
 
-**How access works.** Everyone signs in with their Windows account. The top of the organization, the people who report directly to them and anyone granted **Organization** see the whole organization; everyone else sees themselves and the people under them. Pages that name people also need their persona's role. **Admin** runs the Admin pages and sees no usage data by itself. [DASHBOARD.md](DASHBOARD.md#who-sees-what) has the full rules.
+**How access works.** Everyone signs in with their Windows account, or, on a site set up for it, through Microsoft Entra ID (2.8.0, [ENTRA-SIGN-IN.md](ENTRA-SIGN-IN.md)). The top of the organization, the people who report directly to them and anyone granted **Organization** see the whole organization; everyone else sees themselves and the people under them. Pages that name people also need their persona's role. **Admin** runs the Admin pages and sees no usage data by itself. [DASHBOARD.md](DASHBOARD.md#who-sees-what) has the full rules.
 
 | Role | Gives |
 |---|---|
-| Admin | The Admin pages: all fourteen, or only the ones ticked for that person or group (2.6.4) |
+| Admin | The Admin pages: all fifteen, or only the ones ticked for that person or group (2.6.4) |
 | Organization | The whole organization's aggregates, whatever the person's level |
 | Adoption | Named people licensed but not started |
 | Licensing | Named unused licenses, Copilot Chat users, licenses on disabled accounts, upgrade/train/revoke lists, the use ranking, rollout waves, license action outcomes, and their export files |
@@ -85,7 +86,7 @@ M -Task GrantRole -Principal 'USERS\Copilot-Insights-Licensing' -PrincipalType G
 M -Task RevokeRole -Principal 'ada.lovelace@contoso.com' -Role Licensing
 ```
 
-**Limit an administrator to some Admin pages (2.6.4).** Admin › Access › *Grant a role*: tick **Admin**, then tick, under *Admin pages*, the pages that person or group should run, any of the fourteen: Health, Access, Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Reports shown, Scheduled extracts, Training records and Audit log. They see those pages in the navigation and no other Admin page, can change what is on them, and are refused the rest, page, form and file. With none ticked, or all fourteen, Admin is the whole role, as every Admin grant was before.
+**Limit an administrator to some Admin pages (2.6.4).** Admin › Access › *Grant a role*: tick **Admin**, then tick, under *Admin pages*, the pages that person or group should run, any of the fifteen: Health, Access, Access profiles (2.8.0), Directory quality, Email, Alerts and digests, Targets and assumptions, Privacy and retention, Reference data, Value names, Classifications and events, Reports shown, Scheduled extracts, Training records and Audit log. They see those pages in the navigation and no other Admin page, can change what is on them, and are refused the rest, page, form and file. With none ticked, or all fifteen, Admin is the whole role, as every Admin grant was before.
 
 - **To change someone's pages,** grant Admin to them again with the new pages ticked: the pages are replaced, and the message says what the role now covers. Granting it again with none ticked makes them a full administrator.
 - **The grants list** shows a limited Admin role with its pages in brackets, and *Check someone's access* says what a person's Admin role covers.
@@ -98,7 +99,25 @@ M -Task RevokeRole -Principal 'ada.lovelace@contoso.com' -Role Licensing
 
 **Set the time zone.** Admin › Access › *Settings* › *Time zone* (2.4.10). Every time the dashboard shows (the audit log, pipeline runs, when a license was read, when an alert went out) and the hour digests, alerts and extracts are sent is in this zone, and each column says which ("When (Eastern Time)"); before, they were in UTC. Left on *Default* it is the zone the data's days are cut in, which a new install takes from its server (and an install made before 2.4.10 without `-ReportingTimeZone` has as Eastern time); on a database without one, the web server's own. Choosing a zone here changes what is shown and when things are sent, at once. It does not move the days in the reports: those are cut when the data is loaded and cannot be changed afterwards.
 
-**Check what someone sees.** Admin › Access › *Check someone's access*: their level, their scope, whether the level limit keeps them out, the roles granted to their account directly, and the roles that reach them through an AD group, each with the group's name. Group members are as of the nightly directory load, which records the members of every group named in a grant; the dashboard itself asks Windows at sign-in, so a change in AD reaches their access first and this panel the next morning.
+**Check what someone sees.** Admin › Access › *Check someone's access*: their level, their scope (and the sections they see across the whole organization), whether the level limit keeps them out, the roles granted to their account directly, those that come through an access profile, and the roles that reach them through a group, each with the group's name. AD group members are as of the nightly directory load, which records the members of every AD group named in a grant or a profile grant; the dashboard itself asks Windows at sign-in, so a change in AD reaches their access first and this panel the next morning. Entra groups are asked of Microsoft Graph as the panel is drawn, by the person's Entra object ID, which the license tool records (2.8.0).
+
+**A role across the whole organization (2.8.0).** Admin › Access › *Grant a role*: tick *Across the whole organization* with a persona role (Adoption, Licensing, Security, Compliance, Agents or Enablement). That role's pages then show the whole organization to its holder, where they otherwise show the holder's own part of it. It widens that section only: an Agents grant across the organization leaves Leadership and the other sections at the holder's own part, and the minimum group size and privacy mode apply as before. Granting a role someone holds already sets the box as ticked now. The grants list shows *(whole organization)* beside such a role. Organization still gives every section the whole organization.
+
+**Grant to an Entra group (2.8.0).** With the app registration in `Insights:Entra` ([ENTRA-SIGN-IN.md](ENTRA-SIGN-IN.md)), *Grant a role* and *Grant a profile* have a box for an Entra group: two letters of its name offer the groups that match. The grant keeps the group's object ID (`entra:<ID>`) and its name as it was. Membership, nested groups included, is checked through Microsoft Graph when the person signs in and kept for ten minutes, whichever way they sign in. AD groups (`DOMAIN\Group`) keep working: with Windows sign-in from the Windows token, with Entra sign-in from the members the nightly directory load records.
+
+## Access profiles
+
+An access profile is a named bundle: roles, each with or without the whole organization, and for Admin its pages. Grant a profile to a group, and whoever is in the group has the bundle; change the profile, and everyone who holds it has the change from their next page. Grants role by role keep working beside them.
+
+**Start from what people hold today.** Admin › Access profiles › *Offered from today's grants* lists each set of roles that people and groups hold role by role, most held first, then four starters (Agent program lead, License manager, Security reviewer, Dashboard operator). *Make it a profile* creates it; tick *and grant it to the N who hold this today* to give it to them at once. Their role-by-role grants are kept: remove them in Admin › Access once the profile is in place.
+
+**Add or change one.** *Add a profile*: a name, what it is for, the roles (and *whole organization* beside a persona role), Admin pages for Admin, an owner, an approver, how long access lasts, and a request link. *Change* in the profiles list fills the form with a profile's values. A profile that gives Admin is made, changed, granted and removed by a full administrator only. A profile is deleted once nobody holds it.
+
+**Grant one.** *Grant a profile*: a person, an AD group or an Entra group, and the profile. Grant to groups rather than people: access is then group membership, which IT already manages and reviews. *Who holds each profile* lists every grant with a × box that removes it.
+
+**Requests and approvals through Entra ID.** Each profile can carry a request link: create an Entra ID access package for the profile's group (Identity Governance › Access packages, with Entra ID P2, part of Microsoft 365 E5), set its approver and how long access lasts, and paste its My Access link. Anyone refused a page that profile would open is shown *Request <profile>*. For administrators, grant the Dashboard operator profile, or full Admin, to an Entra group managed by PIM for Groups: they activate it for a few hours, with a reason, and Entra ID records each activation.
+
+**What is recorded.** Every change to a profile, and every grant and removal, goes to the audit log in the same transaction, with the profiles and their grants before and after. Power BI's *Organization* role counts Organization given through a profile, as it counts it given role by role.
 
 **Keep leaders off revoke and train lists (2.4.6).** Admin › Access › *Never on revoke or train lists*: levels 1 to N of the organization (5 by default; *None* lists anyone), each choice with how many people it protects. People at those levels are never on Upgrade, train or revoke (train and revoke), the Swap list (take side), Unused licenses, Better on pay-as-you-go, Fading use, Not started, Enablement's one-off and not-started people, or License optimization's counts, nor in their CSVs, removal files, the Licensing digest's counts, the Board pack, Budget and renewal, or the data API. Each of those lists says so at the top. Lists of accounts nobody can use keep everyone: Licenses on disabled accounts, Departures ahead and Copilot on non-human accounts. From the job server: `M -Task SetDashboardSetting -Name ProtectedLevels -Value 5` (0 for none).
 
@@ -638,7 +657,8 @@ Then run the dashboard installer with every tenant in `-Tenant`, as when one was
 | Admin page | What it is for |
 |---|---|
 | Admin › Health | Report speed (when the report pages were last built ahead on this web server, the last morning pre-cache and its slowest page from memory, what the web servers share in the database (2.7.6), and how the cache works), pipeline runs and each step's freshness, directory coverage, the latest day with data, each certificate the pipeline signs in with (the Purview audit app's, the SharePoint agent workbook app's and the Foundry usage app's where it has its own) and its details, the audit searches waiting and what the last load took, the last run of the optional GitHub Copilot and Foundry usage loads (2.6.2), and a manual refresh |
-| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles, limiting an administrator to some Admin pages (2.6.4), checking someone's access. Every price and assumption, wherever it is set, is listed on Leadership › How figures are calculated (2.6.9) |
+| Admin › Access | Who can open the dashboard (everyone, or levels 1 to N), the levels never on revoke or train lists, the top of the organization, the access settings and license price, granting and removing roles (to people, AD groups and Entra groups, across the whole organization or not: 2.8.0), limiting an administrator to some Admin pages (2.6.4), checking someone's access. Every price and assumption, wherever it is set, is listed on Leadership › How figures are calculated (2.6.9) |
+| Admin › Access profiles | Named bundles of roles and Admin pages (2.8.0): the profiles and what each gives, adding and changing them, granting them to people and groups, who holds each, and the bundles held today offered as profiles |
 | Admin › Directory quality | People without a manager, department, title, email or SID; managers missing or disabled; people outside the org chart; each listed and downloadable |
 | Admin › Email | How email is sent, a test message, where the logs are with the last test's conversation with the mail server (2.6.2), and everything sent or not, with the conversation of each test and each message not sent |
 | Admin › Alerts and digests | Alert recipients and thresholds, digests, manager digests and the managers who do not get them, the webhook, running the checks now |
