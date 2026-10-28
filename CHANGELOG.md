@@ -34,6 +34,10 @@ granted a role; until it has run, *Check someone's access* shows roles from Orga
   every row gets room for the most lines a name needs. Heatmaps whose names already fit draw as before.
 - **A trend line whose name and value do not fit beside it** shows its value there and its name, whole, in the legend
   above the chart, as the forecast chart already did. Before, a long name was cut with "…". No chart cuts a name now.
+- **Two packages with published vulnerabilities are updated:** `Microsoft.AspNetCore.Authentication.Negotiate`, the
+  Windows sign-in, from 10.0.12 to 10.0.14 (GHSA-vrrp-6v32-2p8g, high), and `System.Security.Cryptography.Pkcs`, which
+  it brought in at 10.0.0, now named at 10.0.14 (GHSA-846f-f764-76mx, high; GHSA-2fmv-rv2c-59x7, moderate). The build
+  from source needs both versions in the package feed it uses.
 
 ### Known limits
 - **Roles from groups were tested against the demo database and the SQL integration suite,** not against a real AD:
