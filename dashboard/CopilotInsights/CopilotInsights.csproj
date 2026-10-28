@@ -23,4 +23,9 @@
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The tests stand in for Microsoft Graph (EntraGraph.Fake). -->
+    <InternalsVisibleTo Include="CopilotInsights.Tests" />
+  </ItemGroup>
+
 </Project>
