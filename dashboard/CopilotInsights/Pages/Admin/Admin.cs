@@ -584,7 +584,7 @@ SELECT Principal, MAX(PrincipalName) FROM (SELECT Principal, PrincipalName FROM 
                     (g.Key.Item2 == "" ? ", granted to them" : $", through {E(Named(g.Key.Item2))}") + "</li>")) + "</ul>");
             var viaGroups = held.Where(x => x.Via != "" && x.Grant.ProfileId is null).GroupBy(x => x.Via!, StringComparer.OrdinalIgnoreCase).ToList();
             body.Append("<p>Roles from groups" + (membersLoaded && loadedUtc is { } at ? $" (AD groups as of the directory load, {at:yyyy-MM-dd HH:mm} UTC)" : "") + ": " +
-                (viaGroups.Count == 0 ? "none." : "</p><ul>" + string.Concat(viaGroups.Select(g =>
+                (viaGroups.Count == 0 ? "none. " : "</p><ul>" + string.Concat(viaGroups.Select(g =>
                     $"<li>{E(string.Join(", ", g.Select(x => RoleText(x.Grant))))} through <b>{E(Named(g.Key))}</b></li>")) + "</ul><p>") +
                 (membersLoaded ? "A change to a group in Active Directory reaches the dashboard at their next sign-in, and this list after the next directory load." : "") + "</p>");
             if (!membersLoaded && all.Any(g => g.Principal.Contains('\\')))

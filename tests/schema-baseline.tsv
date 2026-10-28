@@ -1,4 +1,4 @@
-# release 2.7.7
+# release 2.8.0
 # The shape of the schema this release installs: with the dashboard, the first load's tables and a reporting account.
 # The next release must stay compatible with it; tests/SchemaCompatibility.ps1 has the rules and the columns.
 # Written by tools/dev/schema/Update-SchemaBaseline.ps1. Do not edit it by hand.
@@ -153,8 +153,9 @@ C	copilot	audit.CopilotInteraction	U	7	ClientRegion	nvarchar(20)	1
 C	copilot	audit.CopilotInteraction	U	8	ModelName	nvarchar(200)	1	
 C	copilot	audit.CopilotInteraction	U	9	ModelProvider	nvarchar(200)	1	
 C	copilot	audit.CopilotLicense	U	1	UserPrincipalName	nvarchar(512)	0	
-C	copilot	audit.CopilotLicense	U	10	CapabilityStatus	nvarchar(50)	1	
-C	copilot	audit.CopilotLicense	U	11	DirectoryStatus	nvarchar(20)	1	
+C	copilot	audit.CopilotLicense	U	10	EntraObjectId	uniqueidentifier	1	
+C	copilot	audit.CopilotLicense	U	11	CapabilityStatus	nvarchar(50)	1	
+C	copilot	audit.CopilotLicense	U	12	DirectoryStatus	nvarchar(20)	1	
 C	copilot	audit.CopilotLicense	U	2	IsCopilotLic	bit	1	
 C	copilot	audit.CopilotLicense	U	3	UpdatedUtc	datetime2(0)	0	D
 C	copilot	audit.CopilotLicense	U	4	SkuPartNumber	nvarchar(100)	1	
@@ -1077,6 +1078,19 @@ C	copilot	bi.ValueNames	V	8	LastSeenUtc	datetime2(0)	0
 C	copilot	bi.fnAgentIdentity	IF	1	AgentId	nvarchar(400)	1	
 C	copilot	bi.fnAgentIdentity	IF	2	AgentSource	nvarchar(14)	1	
 C	copilot	bi.fnAgentIdentity	IF	3	DerivedName	nvarchar(400)	1	
+C	copilot	dash.AccessProfile	U	1	ProfileId	int	0	I
+C	copilot	dash.AccessProfile	U	2	Name	nvarchar(100)	0	
+C	copilot	dash.AccessProfile	U	3	Description	nvarchar(400)	1	
+C	copilot	dash.AccessProfile	U	4	OwnerUpn	nvarchar(256)	1	
+C	copilot	dash.AccessProfile	U	5	ApproverPrincipal	nvarchar(256)	1	
+C	copilot	dash.AccessProfile	U	6	MaxDays	int	1	
+C	copilot	dash.AccessProfile	U	7	RequestUrl	nvarchar(1000)	1	
+C	copilot	dash.AccessProfile	U	8	UpdatedBy	nvarchar(256)	0	
+C	copilot	dash.AccessProfile	U	9	UpdatedUtc	datetime2(0)	0	D
+C	copilot	dash.AccessProfileRole	U	1	ProfileId	int	0	
+C	copilot	dash.AccessProfileRole	U	2	Role	varchar(32)	0	
+C	copilot	dash.AccessProfileRole	U	3	OrgWide	bit	0	D
+C	copilot	dash.AccessProfileRole	U	4	Pages	nvarchar(1000)	1	
 C	copilot	dash.Agent	V	1	AgentKey	int	0	
 C	copilot	dash.Agent	V	10	InProduction	bit	1	
 C	copilot	dash.Agent	V	2	AgentId	nvarchar(400)	0	
@@ -1299,6 +1313,7 @@ C	copilot	dash.OrgClosure	U	1	AncestorUpn	nvarchar(256)	0
 C	copilot	dash.OrgClosure	U	2	DescendantUpn	nvarchar(256)	0	
 C	copilot	dash.OrgClosure	U	3	Depth	tinyint	0	
 C	copilot	dash.Person	U	1	Upn	nvarchar(256)	0	
+C	copilot	dash.Person	U	10	ObjectId	uniqueidentifier	1	
 C	copilot	dash.Person	U	2	DisplayName	nvarchar(256)	1	
 C	copilot	dash.Person	U	3	ManagerUpn	nvarchar(256)	1	
 C	copilot	dash.Person	U	4	Department	nvarchar(200)	1	
@@ -1307,6 +1322,15 @@ C	copilot	dash.Person	U	6	Level	tinyint	1
 C	copilot	dash.Person	U	7	DirectReports	int	0	
 C	copilot	dash.Person	U	8	PeopleBelow	int	0	
 C	copilot	dash.Person	U	9	Sid	varchar(184)	1	
+C	copilot	dash.ProfileGrant	U	1	GrantId	int	0	I
+C	copilot	dash.ProfileGrant	U	2	Principal	nvarchar(256)	0	
+C	copilot	dash.ProfileGrant	U	3	PrincipalType	varchar(8)	0	
+C	copilot	dash.ProfileGrant	U	4	PrincipalObjectId	uniqueidentifier	1	
+C	copilot	dash.ProfileGrant	U	5	PrincipalName	nvarchar(256)	1	
+C	copilot	dash.ProfileGrant	U	6	ProfileId	int	0	
+C	copilot	dash.ProfileGrant	U	7	Note	nvarchar(400)	1	
+C	copilot	dash.ProfileGrant	U	8	GrantedBy	nvarchar(256)	0	
+C	copilot	dash.ProfileGrant	U	9	GrantedUtc	datetime2(0)	0	D
 C	copilot	dash.QueryCacheShared	U	1	KeyHash	binary(32)	0	
 C	copilot	dash.QueryCacheShared	U	2	StampHash	binary(32)	0	
 C	copilot	dash.QueryCacheShared	U	3	Payload	varbinary(max)	0	
@@ -1356,6 +1380,8 @@ C	copilot	dash.ResourceDay	U	3	Kind	varchar(8)	0
 C	copilot	dash.ResourceDay	U	4	Item	nvarchar(400)	0	
 C	copilot	dash.ResourceDay	U	5	Interactions	int	0	
 C	copilot	dash.RoleGrant	U	1	GrantId	int	0	I
+C	copilot	dash.RoleGrant	U	10	PrincipalName	nvarchar(256)	1	
+C	copilot	dash.RoleGrant	U	11	OrgWide	bit	0	D
 C	copilot	dash.RoleGrant	U	2	Principal	nvarchar(256)	0	
 C	copilot	dash.RoleGrant	U	3	PrincipalType	varchar(8)	0	
 C	copilot	dash.RoleGrant	U	4	Role	varchar(32)	0	
@@ -1363,6 +1389,7 @@ C	copilot	dash.RoleGrant	U	5	Note	nvarchar(400)	1
 C	copilot	dash.RoleGrant	U	6	GrantedBy	nvarchar(256)	0	
 C	copilot	dash.RoleGrant	U	7	GrantedUtc	datetime2(0)	0	D
 C	copilot	dash.RoleGrant	U	8	Pages	nvarchar(1000)	1	
+C	copilot	dash.RoleGrant	U	9	PrincipalObjectId	uniqueidentifier	1	
 C	copilot	dash.SavedView	U	1	ViewId	int	0	I
 C	copilot	dash.SavedView	U	2	Owner	nvarchar(256)	0	
 C	copilot	dash.SavedView	U	3	Name	nvarchar(100)	0	
@@ -1673,6 +1700,8 @@ C	license	audit.vLicenseSkuChangeFromRecords	V	5	TargetUpn	nvarchar(512)	1
 C	license	audit.vLicenseSkuChangeFromRecords	V	6	FromChunks	int	0	
 C	license	audit.vLicenseSkuChangeFromRecords	V	7	Sku	nvarchar(max)	1	
 C	license	audit.vLicenseSkuChangeFromRecords	V	8	Change	nvarchar(7)	0	
+G	copilot	CopilotInsightsApp	DELETE	dash.AccessProfile
+G	copilot	CopilotInsightsApp	DELETE	dash.AccessProfileRole
 G	copilot	CopilotInsightsApp	DELETE	dash.AgentAlias
 G	copilot	CopilotInsightsApp	DELETE	dash.AlertState
 G	copilot	CopilotInsightsApp	DELETE	dash.CreditChargeSnapshot
@@ -1687,6 +1716,7 @@ G	copilot	CopilotInsightsApp	DELETE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	DELETE	dash.LicenseContract
 G	copilot	CopilotInsightsApp	DELETE	dash.NonHumanException
+G	copilot	CopilotInsightsApp	DELETE	dash.ProfileGrant
 G	copilot	CopilotInsightsApp	DELETE	dash.QueryCacheShared
 G	copilot	CopilotInsightsApp	DELETE	dash.Reservation
 G	copilot	CopilotInsightsApp	DELETE	dash.ReservationRate
@@ -1712,6 +1742,8 @@ G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_SetSecret
 G	copilot	CopilotInsightsApp	EXECUTE	dash.usp_TakeCreditChargeSnapshot
 G	copilot	CopilotInsightsApp	INSERT	audit.AIAppResource
 G	copilot	CopilotInsightsApp	INSERT	audit.SessionAppCategory
+G	copilot	CopilotInsightsApp	INSERT	dash.AccessProfile
+G	copilot	CopilotInsightsApp	INSERT	dash.AccessProfileRole
 G	copilot	CopilotInsightsApp	INSERT	dash.AgentAlias
 G	copilot	CopilotInsightsApp	INSERT	dash.AlertState
 G	copilot	CopilotInsightsApp	INSERT	dash.AuditLog
@@ -1727,6 +1759,7 @@ G	copilot	CopilotInsightsApp	INSERT	dash.LicenseAction
 G	copilot	CopilotInsightsApp	INSERT	dash.LicenseContract
 G	copilot	CopilotInsightsApp	INSERT	dash.NonHumanException
 G	copilot	CopilotInsightsApp	INSERT	dash.NotificationLog
+G	copilot	CopilotInsightsApp	INSERT	dash.ProfileGrant
 G	copilot	CopilotInsightsApp	INSERT	dash.QueryCacheShared
 G	copilot	CopilotInsightsApp	INSERT	dash.Reservation
 G	copilot	CopilotInsightsApp	INSERT	dash.ReservationRate
@@ -1782,6 +1815,8 @@ G	copilot	CopilotInsightsApp	SELECT	audit.ValueCatalog
 G	copilot	CopilotInsightsApp	SELECT	audit.ValueCatalogColumn
 G	copilot	CopilotInsightsApp	UPDATE	audit.AIAppResource
 G	copilot	CopilotInsightsApp	UPDATE	audit.SessionAppCategory
+G	copilot	CopilotInsightsApp	UPDATE	dash.AccessProfile
+G	copilot	CopilotInsightsApp	UPDATE	dash.AccessProfileRole
 G	copilot	CopilotInsightsApp	UPDATE	dash.AgentAlias
 G	copilot	CopilotInsightsApp	UPDATE	dash.AlertState
 G	copilot	CopilotInsightsApp	UPDATE	dash.CacheGeneration
@@ -1798,6 +1833,7 @@ G	copilot	CopilotInsightsApp	UPDATE	dash.JobFamilyRule
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseAction
 G	copilot	CopilotInsightsApp	UPDATE	dash.LicenseContract
 G	copilot	CopilotInsightsApp	UPDATE	dash.NonHumanException
+G	copilot	CopilotInsightsApp	UPDATE	dash.ProfileGrant
 G	copilot	CopilotInsightsApp	UPDATE	dash.QueryCacheShared
 G	copilot	CopilotInsightsApp	UPDATE	dash.Reservation
 G	copilot	CopilotInsightsApp	UPDATE	dash.ReservationRate
@@ -1959,6 +1995,8 @@ O	copilot	bi.fnAgentIdentity	IF
 O	copilot	bi.usp_MergeAgents	P
 O	copilot	bi.usp_NameAgents	P
 O	copilot	bi.usp_RefreshBi	P
+O	copilot	dash.AccessProfile	U
+O	copilot	dash.AccessProfileRole	U
 O	copilot	dash.Agent	V
 O	copilot	dash.AgentAlias	U
 O	copilot	dash.AgentChildLink	U
@@ -1988,6 +2026,7 @@ O	copilot	dash.NonHumanException	U
 O	copilot	dash.NotificationLog	U
 O	copilot	dash.OrgClosure	U
 O	copilot	dash.Person	U
+O	copilot	dash.ProfileGrant	U
 O	copilot	dash.QueryCacheShared	U
 O	copilot	dash.RefreshRun	U
 O	copilot	dash.Reservation	U
