@@ -511,7 +511,7 @@ WHERE gm.UserPrincipalName = @upn AND g.Principal <> @who
 ORDER BY g.Principal, g.Role;", new { upn, who });
             var unexpanded = !membersLoaded ? [] : await Db.QueryAsync<string>(@"
 SELECT DISTINCT g.Principal FROM dash.RoleGrant AS g
-WHERE (g.PrincipalType = 'Group' OR g.Principal LIKE N'%\%')
+WHERE g.PrincipalType = 'Group'
   AND NOT EXISTS (SELECT 1 FROM audit.GroupMember AS gm WHERE gm.GroupName = g.Principal)
 ORDER BY g.Principal;");
             var loadedUtc = !membersLoaded ? null : await Db.ScalarAsync<DateTime?>("SELECT MAX(LoadedUtc) FROM audit.GroupMember;");
