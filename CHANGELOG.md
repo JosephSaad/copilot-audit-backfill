@@ -25,7 +25,8 @@ granted a role; until it has run, *Check someone's access* shows roles from Orga
   still gives the whole organization only to members of Organization groups.
 
 ### Fixed
-- **A full rebuild of the report tables is back to about a minute on the demo**, from 10 to 12: a month's accessed
+- **A full rebuild of the report tables from empty takes 3.5 minutes on the demo, from 11** (211 s against 671 s, the
+  demo built from 2.7.6 and from this release on the same PC): a month's accessed
   resources could be planned against a guess of one row from a small dimension, and then read the whole month's
   interactions once for every resource (about 3 billion rows). The month's interactions are now indexed by record,
   and a rebuild refreshes the small dimensions' statistics as each month adds to them.
@@ -38,7 +39,12 @@ granted a role; until it has run, *Check someone's access* shows roles from Orga
 - **Roles from groups were tested against the demo database and the SQL integration suite,** not against a real AD:
   nested groups, a group in a trusted domain and a large group were not tried with this release (the directory load's
   expansion is unchanged; only which groups it reads changed).
-- **The rebuild's speed was measured on the demo,** not on the client's data.
+- **The rebuild's speed was measured on the demo,** not on the client's data. A rebuild over tables already filled
+  took the same time with either release (105 s): the gain is in a rebuild whose small dimensions start empty.
+- **Licensing › Chargeback's *Charged to no group* (61 on the demo) opens Leavers, which lists 57.** Chargeback also
+  counts licensed accounts that are not in AD at all (guests, test and room accounts: 6 on the demo); Leavers lists
+  disabled and departed accounts, and two disabled only in Entra. Unchanged from 2.7.6; those 6 are on the non-human
+  accounts page.
 
 ## [2.7.6] - 2026-10-23
 
