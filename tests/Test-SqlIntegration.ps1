@@ -3593,6 +3593,17 @@ Invoke-SqlText -Sql "DELETE FROM audit.GroupMember WHERE GroupName IN (N'CONTOSO
 Assert-That ([int] $byName.BSees -eq [int] $byName.Everyone -and [int] $byName.CSees -eq [int] $byName.Everyone -and [int] $byName.ByWindowsName -eq 0) `
     "2.4.12: Organization granted by DOMAIN\name as a user reaches Power BI, for a group and for a person ($($byName.BSees) and $($byName.CSees) of $($byName.Everyone))"
 Assert-That ($loaded -contains 'CONTOSO\risk-team' -and $loaded -contains 'CONTOSO\cperson') "and the nightly directory load reads both grants, to record who they are ($($loaded -join ', '))"
+# A group granted any other role is expanded too, so Admin > Access can show the roles a person holds through it;
+# Power BI's row-level security still gives the whole organization only for Organization.
+$other = (Invoke-SqlText -As Table -Sql @"
+INSERT INTO dash.RoleGrant (Principal, PrincipalType, Role, Note, GrantedBy) VALUES (N'CONTOSO\licensing-team', 'Group', 'Licensing', N'test', N'test');
+INSERT INTO audit.GroupMember (GroupName, UserPrincipalName) VALUES (N'CONTOSO\licensing-team', N'd@contoso.com');
+SELECT (SELECT COUNT(*) FROM bi.OrgSecurity WHERE ViewerUpn = N'd@contoso.com' AND WholeOrganization = 1) AS DWhole;
+"@).Rows[0]
+[string[]] $loadedOther = & { . (Join-Path $root 'tools' 'Export-UsersWithHierarchy-ToSql.ps1'); Get-OrganizationGroup -ConnString (New-ConnString $script:ITDatabase) }
+Invoke-SqlText -Sql "DELETE FROM audit.GroupMember WHERE GroupName = N'CONTOSO\licensing-team'; DELETE FROM dash.RoleGrant WHERE Principal = N'CONTOSO\licensing-team';"
+Assert-That ($loadedOther -contains 'CONTOSO\licensing-team') "the nightly directory load expands a group granted Licensing, for Check someone's access ($($loadedOther -join ', '))"
+Assert-That ([int] $other.DWhole -eq 0) 'a member of a group granted Licensing alone does not see the whole organization in Power BI'
 & $maint @conn -Database $script:ITDatabase -Task SetOrgTop -Upn 'boss@contoso.com' | Out-Null   # as section 15 left it
 Invoke-SqlText -Sql "ALTER ROLE CopilotInsightsApp DROP MEMBER it_app; DROP USER it_app;"
 

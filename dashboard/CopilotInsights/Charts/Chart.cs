@@ -310,8 +310,10 @@ public static class Chart
         var top0 = max ?? series.SelectMany(s => s.Values).Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
         var (top, step) = Nice(top0, f);
         /* Drawn narrow (a phone, 2.4.10) with a legend above it, a line's end carries its value alone: the name is in the
-           legend, and beside the line it took half the chart. */
-        var compact = W <= 380 && series.Count is >= 2 and <= 4;
+           legend, and beside the line it took half the chart. So too where a name and its value would not fit the widest
+           margin allowed, as on the forecast chart: the name is then in the legend, whole, rather than cut with "…". */
+        var fullLabel = series.Count > 4 ? 0 : series.Select(s => TextW(s.Name + " " + Format(s.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
+        var compact = series.Count <= 4 && ((W <= 380 && series.Count >= 2) || fullLabel + 16 > Math.Max(110, W * 0.42));
         var endLabel = series.Count > 4 ? 0 : series.Select(s => TextW((compact ? "" : s.Name + " ") + Format(s.Values.LastOrDefault(v => v.HasValue), f))).DefaultIfEmpty(0).Max();
         var r = (int)Math.Clamp(endLabel + 16, compact ? 48 : 110, Math.Max(110, W * 0.42));
         using var layout = new Layout(r, BottomFor(x, W - r - L), TopFor(x));
@@ -333,8 +335,7 @@ public static class Chart
             {
                 var ly = Place(labelYs, Y(last.v!.Value) + 4);
                 var val = Format(last.v, f);
-                var (attr, body) = compact ? ("", E(val)) : Cut(s.Name, Math.Max(NameRoom(val), 60), " " + val);
-                sb.Append($"<text class=\"dlabel\" x=\"{N(X(last.i) + 9)}\" y=\"{N(ly)}\"{attr}>{body}</text>");
+                sb.Append($"<text class=\"dlabel\" x=\"{N(X(last.i) + 9)}\" y=\"{N(ly)}\">{E(compact ? val : s.Name + " " + val)}</text>");
             }
         }
         /* Hover: one column per week carrying every series' value. */
@@ -346,7 +347,7 @@ public static class Chart
         }
         var events = Markers(sb, x, X);
         sb.Append($"<line class=\"cross\" x1=\"0\" x2=\"0\" y1=\"{T}\" y2=\"{H - B}\"/></svg>");
-        return new((series.Count >= 2 ? Legend(series).Value : "") + sb + events + Held(x));
+        return new((series.Count >= 2 || compact ? Legend(series).Value : "") + sb + events + Held(x));
     }
 
     /// <summary>
@@ -399,8 +400,7 @@ public static class Chart
             sb.Append($"<circle class=\"end\" cx=\"{N(endX)}\" cy=\"{N(Y(endV))}\" r=\"4\" style=\"fill:var(--s{s.Slot})\"/>");
             var ly = Place(labelYs, Y(endV) + 4);
             var endVal = Format(endV, f);
-            var (endAttr, endBody) = compact ? ("", E(endVal)) : Cut(s.Name, Math.Max(NameRoom(endVal), 60), " " + endVal);
-            sb.Append($"<text class=\"dlabel\" x=\"{N(endX + 9)}\" y=\"{N(ly)}\"{endAttr}>{endBody}</text>");
+            sb.Append($"<text class=\"dlabel\" x=\"{N(endX + 9)}\" y=\"{N(ly)}\">{E(compact ? endVal : s.Name + " " + endVal)}</text>");
         }
         for (var i = 0; i < x.Count; i++)
         {
@@ -554,11 +554,15 @@ public static class Chart
     {
         if (rows.Count == 0 || cols.Count == 0) return new(Empty("No data for this period."));
         var top = max ?? values.Cast<double?>().Where(v => v.HasValue).Select(v => v!.Value).DefaultIfEmpty(0).Max();
-        const int rowH = 24;
         var HW = W;
         /* Row names are drawn as bar names are (6.9 a character, not a tick's 6.3), and a phone gives them up to 45% of
-           the width: at 390px, "Employee Experience" started 4px left of the chart. */
+           the width: at 390px, "Employee Experience" started 4px left of the chart. A name longer than its column wraps,
+           and every row is given room for the most lines a name takes, so no name is cut with "…". */
         var labelW = (int)Math.Clamp(rows.Max(r => r.Length * 6.9) + 14, 110, Math.Max(110, HW * (HW <= 420 ? 0.45 : 0.36)));
+        var perLine = Math.Max(6, (int)((labelW - 14) / 6.9));
+        var wrapped = rows.Select(r => r.Length * 6.9 + 14 <= labelW ? [r] : WrapLines(r, perLine)).ToList();
+        const int lineH = 13;
+        var rowH = 24 + (wrapped.Max(w => w.Count) - 1) * lineH;
         var cw = (HW - labelW - 8) / (double)cols.Count;
         var h = rows.Count * rowH + 24;
         var sb = new StringBuilder($"<svg class=\"chart heat\" viewBox=\"0 0 {HW} {h}\"{MaxWidth} role=\"img\" aria-label=\"{E(aria)}\">");
@@ -579,8 +583,9 @@ public static class Chart
         for (var r = 0; r < rows.Count; r++)
         {
             var y = 20 + r * rowH;
-            var (rowAttr, rowBody) = Cut(rows[r], 60);
-            sb.Append($"<text class=\"blabel\" x=\"{labelW - 8}\" y=\"{y + 15}\" text-anchor=\"end\"{rowAttr}>{rowBody}</text>");
+            var lines = wrapped[r];
+            var label = lines.Count == 1 ? E(lines[0]) : Tspans(lines, labelW - 8, lineH);
+            sb.Append($"<text class=\"blabel\" x=\"{labelW - 8}\" y=\"{N(y + rowH / 2.0 + 3 - (lines.Count - 1) * lineH / 2.0)}\" text-anchor=\"end\">{label}</text>");
             for (var c = 0; c < cols.Count; c++)
             {
                 var v = values[r, c];
@@ -611,18 +616,6 @@ public static class Chart
         return new($"<svg class=\"spark\" viewBox=\"0 0 {SW} {SH}\" data-tip=\"{E(tip)}\"><path d=\"{d}\"/></svg>");
     }
 
-    static string Trunc(string s, int n) => s.Length <= n ? s : s[..(n - 1)] + "…";
-
-    /// <summary>
-    /// A label cut to <paramref name="n"/> characters: the attributes to put on its &lt;text&gt; and the text itself.
-    /// When it is cut, the full label shows on hover (data-tip for the site's tooltip, &lt;title&gt; for everything else).
-    /// </summary>
-    static (string Attr, string Body) Cut(string s, int n, string suffix = "")
-    {
-        if (s.Length <= n) return ("", E(s) + suffix);
-        return ($" data-tip=\"{E(s + suffix)}\"", E(Trunc(s, n)) + suffix + $"<title>{E(s + suffix)}</title>");
-    }
-
     /// <summary>
     /// Where a line-end label goes: as near its line as it can without touching another label,
     /// trying below then above, and never outside the chart.
@@ -639,7 +632,4 @@ public static class Chart
         used.Add(want);
         return want;
     }
-
-    /// <summary>How many characters of a series name fit beside its end value in the right margin (about 6px a character at 11px).</summary>
-    static int NameRoom(string value) => Math.Max(4, (R - 12) / 6 - value.Length - 1);
 }

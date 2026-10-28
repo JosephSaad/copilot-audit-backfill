@@ -497,8 +497,25 @@ WHERE g.Principal IN @list;", new { list });
         {
             var p = (await Db.QueryAsync<(string Upn, string? DisplayName, byte? Level, int PeopleBelow, string? ManagerUpn)>(
                 "SELECT Upn, DisplayName, Level, PeopleBelow, ManagerUpn FROM dash.Person WHERE Upn = @who;", new { who })).FirstOrDefault();
-            var direct = await Db.QueryAsync<string>("SELECT Role FROM dash.RoleGrant WHERE PrincipalType = 'User' AND Principal = @who ORDER BY Role;", new { who });
-            var roles = direct.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var pagesCol = hasPages ? "g.Pages" : "CAST(NULL AS NVARCHAR(1000))";
+            var direct = await Db.QueryAsync<(string Role, string? Pages)>(
+                $"SELECT g.Role, {pagesCol} AS Pages FROM dash.RoleGrant AS g WHERE g.PrincipalType = 'User' AND g.Principal = @who ORDER BY g.Role;", new { who });
+            /* The roles that reach them through a group, from the members the nightly directory load records for every
+               group named in a grant. The dashboard itself asks Windows at sign-in, so this is as of that load. */
+            var membersLoaded = await Db.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID(N'audit.GroupMember', N'U') IS NULL THEN 0 ELSE 1 END") == 1;
+            var upn = p.Upn ?? who;
+            var viaGroup = !membersLoaded ? [] : await Db.QueryAsync<(string Principal, string Role, string? Pages, DateTime LoadedUtc)>($@"
+SELECT g.Principal, g.Role, {pagesCol} AS Pages, gm.LoadedUtc
+FROM dash.RoleGrant AS g JOIN audit.GroupMember AS gm ON gm.GroupName = g.Principal
+WHERE gm.UserPrincipalName = @upn AND g.Principal <> @who
+ORDER BY g.Principal, g.Role;", new { upn, who });
+            var unexpanded = !membersLoaded ? [] : await Db.QueryAsync<string>(@"
+SELECT DISTINCT g.Principal FROM dash.RoleGrant AS g
+WHERE g.PrincipalType = 'Group'
+  AND NOT EXISTS (SELECT 1 FROM audit.GroupMember AS gm WHERE gm.GroupName = g.Principal)
+ORDER BY g.Principal;");
+            var loadedUtc = !membersLoaded ? null : await Db.ScalarAsync<DateTime?>("SELECT MAX(LoadedUtc) FROM audit.GroupMember;");
+            var roles = direct.Select(d => d.Role).Concat(viaGroup.Select(g => g.Role)).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var org = AccessRules.SeesWholeOrganization(p.Level, roles);
             body.Append(p.Upn is null
                 ? $"<p>{E(who)} is not in the directory, so they see nothing unless granted Organization{(roles.Contains(Roles.Organization) ? " (they are)" : "")}.</p>"
@@ -506,10 +523,22 @@ WHERE g.Principal IN @list;", new { list });
                   $"<p>Sees: <b>{(org ? "the whole organization" : p.PeopleBelow > 0 ? $"themselves and the {p.PeopleBelow:#,0} people under them" : "their own use")}</b>" +
                   $"{(org && roles.Contains(Roles.Organization) && p.Level is not (1 or 2) ? " (by the Organization role)" : "")}.</p>");
             if (!AccessRules.MayUseDashboard(p.Level, roles, max))
-                body.Append($"<p><b>Cannot open the dashboard</b>: it is open to levels 1 to {max}, and they hold no role directly{(roles.Contains(Roles.Admin) ? " other than Admin, which gives them the Admin pages only" : "")}. A group grant would still let them in.</p>");
-            body.Append($"<p>Roles granted to the account directly: {(roles.Count == 0 ? "none" : E(string.Join(", ", roles)))}. Group grants are resolved when they sign in, so check the groups above too.</p>");
-            if (hasPages && roles.Contains(Roles.Admin))
-                body.Append($"<p>Their Admin role covers: {E(AdminPages.Names(await Db.ScalarAsync<string?>("SELECT Pages FROM dash.RoleGrant WHERE PrincipalType = 'User' AND Principal = @who AND Role = 'Admin';", new { who })))}.</p>");
+                body.Append($"<p><b>Cannot open the dashboard</b>: it is open to levels 1 to {max}, and they hold no role{(roles.Contains(Roles.Admin) ? " other than Admin, which gives them the Admin pages only" : "")}, directly or through a group recorded below.</p>");
+            body.Append($"<p>Roles granted to the account directly: {(direct.Count == 0 ? "none" : E(string.Join(", ", direct.Select(d => d.Role).Distinct(StringComparer.OrdinalIgnoreCase))))}.</p>");
+            if (!membersLoaded)
+                body.Append("<p>Roles from groups: not known here. Group members are recorded by the nightly directory load (tools\\Export-UsersWithHierarchy-ToSql.ps1), which has not run against this database; Windows still applies group grants when they sign in.</p>");
+            else
+            {
+                body.Append("<p>Roles from groups" + (loadedUtc is { } at ? $" (as of the directory load, {at:yyyy-MM-dd HH:mm} UTC)" : "") + ": " +
+                    (viaGroup.Count == 0 ? "none." : "</p><ul>" + string.Concat(viaGroup.GroupBy(g => g.Principal, StringComparer.OrdinalIgnoreCase).Select(g =>
+                        $"<li>{E(string.Join(", ", g.Select(x => x.Role == Roles.Admin && AdminPages.Limits(x.Pages) ? $"Admin ({AdminPages.Names(x.Pages)})" : x.Role)))} through <b>{E(g.Key)}</b></li>")) + "</ul><p>") +
+                    "A change to a group in Active Directory reaches the dashboard at their next sign-in, and this list after the next directory load.</p>");
+                if (unexpanded.Count > 0)
+                    body.Append($"<p>No members recorded yet for {E(string.Join(", ", unexpanded))}: granted since the last directory load, or not found in Active Directory (its log names any it could not find).</p>");
+            }
+            var adminGrants = direct.Where(d => d.Role == Roles.Admin).Select(d => d.Pages).Concat(viaGroup.Where(g => g.Role == Roles.Admin).Select(g => g.Pages)).ToList();
+            if (hasPages && adminGrants.Count > 0)
+                body.Append($"<p>Their Admin role covers: {E(adminGrants.Any(pg => !AdminPages.Limits(pg)) ? AdminPages.Names(null) : AdminPages.Names(string.Join(",", adminGrants.SelectMany(AdminPages.Parse))))}.</p>");
         }
         Panels.Add(new("Check someone's access", new HtmlString(body.ToString()), null, "half"));
 

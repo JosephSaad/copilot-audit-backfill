@@ -602,8 +602,10 @@ function Write-UserDirectory {
 
 function Get-OrganizationGroup {
     <#
-        The AD groups whose members the dashboard needs, if it is installed: those granted Organization (for
-        Power BI's row-level security), and those an administrator listed as marking non-human accounts (the NonHumanGroups setting, separated by commas, semicolons or lines). An Organization grant by
+        The AD groups whose members the dashboard needs, if it is installed: every group granted any role in
+        Admin > Access (Organization ones for Power BI's row-level security, and all of them so Check someone's
+        access can say which roles reach a person through a group), and those an administrator listed as marking
+        non-human accounts (the NonHumanGroups setting, separated by commas, semicolons or lines). A grant by
         DOMAIN\name is read whatever type it was recorded with, as the dashboard matches it: a group
         recorded as a user, and a person, whom Get-GroupMemberUpn gives by their UPN.
     #>
@@ -614,7 +616,7 @@ function Get-OrganizationGroup {
         $cmd = $conn.CreateCommand()
         $cmd.CommandText = @'
 IF OBJECT_ID(N'dash.RoleGrant', N'U') IS NOT NULL
-    EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE Role = ''Organization'' AND (PrincipalType = ''Group'' OR Principal LIKE N''%\%'')
+    EXEC (N'SELECT DISTINCT Principal FROM dash.RoleGrant WHERE PrincipalType = ''Group'' OR Principal LIKE N''%\%''
             UNION SELECT LTRIM(RTRIM(g.value)) FROM dash.Setting AS s
             CROSS APPLY STRING_SPLIT(REPLACE(REPLACE(ISNULL(s.Value, N''''), N'';'', N'',''), CHAR(10), N'',''), N'','') AS g
             WHERE s.Name = N''NonHumanGroups'' AND LTRIM(RTRIM(g.value)) <> N'''';');
@@ -725,18 +727,19 @@ function Invoke-Main {
     $n = Write-UserDirectory -ConnString $connStr -Table $rows.Table -BatchRows $BatchSize -MaxDropPercent $MaxDropPercent -AllowDrop:$AllowDrop
     Write-Log ("Loaded {0:N0} row(s) into audit.UserDirectory." -f $n)
 
-    # Organization granted to AD groups: their members, for Power BI's row-level security (bi.OrgSecurity);
-    # and the groups that mark non-human accounts, for the dashboard's policy-breach check.
+    # Every role granted to an AD group: its members, for Power BI's row-level security (bi.OrgSecurity reads the
+    # Organization ones) and for Admin > Access's Check someone's access; and the groups that mark non-human
+    # accounts, for the dashboard's policy-breach check.
     # Written every night, even with no groups, so a revoked grant's members do not linger.
     # Get-OrganizationGroup returns its array whole (unary comma), so @() here would wrap it in a second array.
     [string[]] $groups = Get-OrganizationGroup -ConnString $connStr
     $expanded = @(foreach ($g in $groups) {
         $members = Get-GroupMemberUpn -Domain $TargetDomain -Group $g
-        if ($null -eq $members) { Write-Log "$g, granted Organization or listed as marking non-human accounts, is not a group or person in ${TargetDomain}: its members are not recorded." -Level WARN; continue }
+        if ($null -eq $members) { Write-Log "$g, granted a role or listed as marking non-human accounts, is not a group or person in ${TargetDomain}: its members are not recorded." -Level WARN; continue }
         [pscustomobject]@{ Group = $g; Members = $members }
     })
     $gm = Write-GroupMember -ConnString $connStr -Table (ConvertTo-GroupMemberTable -Groups $expanded)
-    if ($groups.Count -gt 0) { Write-Log ("{0:N0} member(s) of {1} group(s) recorded (granted Organization, or marking non-human accounts)." -f $gm, $expanded.Count) }
+    if ($groups.Count -gt 0) { Write-Log ("{0:N0} member(s) of {1} group(s) recorded (granted a role, or marking non-human accounts)." -f $gm, $expanded.Count) }
 
     $m = Get-DirectoryMatch -ConnString $connStr
     if ($m.AuditUsers -gt 0) {

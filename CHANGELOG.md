@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.7] - 2026-10-28
+
+A full rebuild of the report tables is fast again, no chart cuts a name short with "…", and Admin › Access ›
+*Check someone's access* shows the roles a person holds through an AD group, not only those granted to them by name.
+
+**Install over 2.7.6:** run `Install-CopilotAudit.ps1 -Dashboard` on the job server, as for 2.7.6 (the report procedure
+`bi.usp_RefreshBi` changed; no table, column or view did), then build and deploy the dashboard from this release
+(docs\BUILD-FROM-SOURCE.md) on each web server. The next nightly directory load records the members of every group
+granted a role; until it has run, *Check someone's access* shows roles from Organization groups only.
+
+### Changed
+- **Check someone's access lists roles that come from groups.** Beside the roles granted to the account by name, it
+  lists each role that reaches the person through an AD group, with the group's name, and covers them in what the
+  person sees, whether they may open the dashboard and which Admin pages their Admin role covers. Before, it said
+  "group grants are resolved when they sign in" and left the groups to be checked by hand. Group members are as of the
+  nightly directory load; a group granted since then, or not found in AD, is named as having no members recorded.
+- **The nightly directory load expands every group granted a role,** not only those granted Organization, into
+  `audit.GroupMember` (`tools\Export-UsersWithHierarchy-ToSql.ps1`). Power BI's row-level security (`bi.OrgSecurity`)
+  still gives the whole organization only to members of Organization groups.
+
+### Fixed
+- **A full rebuild of the report tables from empty takes 3.5 minutes on the demo, from 11** (211 s against 671 s, the
+  demo built from 2.7.6 and from this release on the same PC): a month's accessed
+  resources could be planned against a guess of one row from a small dimension, and then read the whole month's
+  interactions once for every resource (about 3 billion rows). The month's interactions are now indexed by record,
+  and a rebuild refreshes the small dimensions' statistics as each month adds to them.
+- **A heatmap row name longer than its column wraps onto more lines** instead of being cut at 60 characters with "…";
+  every row gets room for the most lines a name needs. Heatmaps whose names already fit draw as before.
+- **A trend line whose name and value do not fit beside it** shows its value there and its name, whole, in the legend
+  above the chart, as the forecast chart already did. Before, a long name was cut with "…". No chart cuts a name now.
+- **Two packages with published vulnerabilities are updated:** `Microsoft.AspNetCore.Authentication.Negotiate`, the
+  Windows sign-in, from 10.0.12 to 10.0.14 (GHSA-vrrp-6v32-2p8g, high), and `System.Security.Cryptography.Pkcs`, which
+  it brought in at 10.0.0, now named at 10.0.14 (GHSA-846f-f764-76mx, high; GHSA-2fmv-rv2c-59x7, moderate). The build
+  from source needs both versions in the package feed it uses.
+
+### Known limits
+- **Roles from groups were tested against the demo database and the SQL integration suite,** not against a real AD:
+  nested groups, a group in a trusted domain and a large group were not tried with this release (the directory load's
+  expansion is unchanged; only which groups it reads changed).
+- **The rebuild's speed was measured on the demo,** not on the client's data. A rebuild over tables already filled
+  took the same time with either release (105 s): the gain is in a rebuild whose small dimensions start empty.
+- **Licensing › Chargeback's *Charged to no group* (61 on the demo) opens Leavers, which lists 57.** Chargeback also
+  counts licensed accounts that are not in AD at all (guests, test and room accounts: 6 on the demo); Leavers lists
+  disabled and departed accounts, and two disabled only in Entra. Unchanged from 2.7.6; those 6 are on the non-human
+  accounts page.
+
 ## [2.7.6] - 2026-10-23
 
 Ready for several web servers behind a load balancer, and for a virtual directory. The servers now share one report

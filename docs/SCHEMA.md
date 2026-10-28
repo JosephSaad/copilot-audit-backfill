@@ -798,7 +798,7 @@ Indexes and constraints:
 
 ### audit.GroupMember
 
-*Table.* The members of each AD group granted Organization in the dashboard, nested groups included (2.4.0): the group as granted (DOMAIN\\Group) and the member's UPN. Rewritten by each AD export, so bi.OrgSecurity gives them the whole organization in Power BI as the dashboard does at sign-in.
+*Table.* The members of each AD group granted a role in the dashboard, nested groups included (2.4.0; every role since 2.7.7): the group as granted (DOMAIN\\Group) and the member's UPN. Rewritten by each AD export, so bi.OrgSecurity gives the members of Organization groups the whole organization in Power BI as the dashboard does at sign-in, and Admin › Access › Check someone's access lists the roles a person holds through a group.
 
 **Script** `Create-CopilotEnrichmentSchema.sql` · **In** Copilot database
 
