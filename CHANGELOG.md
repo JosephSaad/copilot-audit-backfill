@@ -4,6 +4,65 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-10-28
+
+Fewer grants to make by hand, and a second way in. A persona role can now be granted across the whole organization;
+roles can be bundled into access profiles granted to groups as one, with a link to request each; grants can go to
+Entra groups; and the dashboard can sign people in through Microsoft Entra ID instead of Windows. Windows sign-in stays
+the default: a site that sets nothing new works exactly as before.
+
+**Install over 2.7.7:** run `Install-CopilotAudit.ps1 -Dashboard` on the job server (three new tables and five new
+columns, all additive), then build and deploy the dashboard from this release (docs\BUILD-FROM-SOURCE.md) on each web
+server. The build needs these packages in the feed it uses, new in this release: `Microsoft.Identity.Web` 4.16.1,
+`Azure.Identity` 1.21.0, `Azure.Extensions.AspNetCore.DataProtection.Blobs` 1.5.5,
+`Azure.Extensions.AspNetCore.DataProtection.Keys` 1.6.5 and `Microsoft.ApplicationInsights.AspNetCore` 3.2.0, with
+what they bring in. The next license tool run records each person's Entra object ID. To sign in through Entra ID, follow
+docs\ENTRA-SIGN-IN.md; nothing else needs doing for Windows sign-in.
+
+### Added
+- **Admin › Access profiles.** A profile is a named bundle of roles, each with or without the whole organization, and
+  Admin pages: grant it to a group, and whoever is in the group has the bundle; change it, and everyone who holds it has
+  the change. The bundles people and groups hold today are offered as profiles in a click, optionally granted to their
+  holders at once (their role-by-role grants are kept until removed), with four starters: Agent program lead, License
+  manager, Security reviewer and Dashboard operator. Each profile can carry a request link, such as its Entra access
+  package in My Access: anyone refused a page the profile would open is shown *Request <profile>*. Every change is
+  audited with the profiles and their grants before and after; Power BI's *Organization* role counts Organization
+  given through a profile.
+- **A role across the whole organization.** Admin › Access › *Grant a role* has *Across the whole organization*: with a
+  persona role (Adoption, Licensing, Security, Compliance, Agents, Enablement), that role's pages show the whole
+  organization to its holder, where they showed the holder's own part. It widens that section only; the minimum group
+  size and privacy mode apply as before.
+- **Grants to Entra groups.** With the app registration in `Insights:Entra`, *Grant a role* and *Grant a profile* offer
+  Entra groups by name. The grant keeps the group's object ID; membership, nested groups included, is checked through
+  Microsoft Graph (`checkMemberGroups`, GroupMember.Read.All) at sign-in and kept ten minutes, whichever way people sign in.
+- **Sign-in through Microsoft Entra ID** (`Insights:Authentication` = `Entra`; the IIS installer's `-Authentication
+  Entra -EntraTenantId -EntraClientId -EntraCertificateThumbprint`). OpenID Connect with the authorization code and PKCE,
+  a certificate or (on Azure) a managed identity as the app's credential, and *Sign out* in the header. A person is
+  matched by their Entra object ID, then the on-premises SID the token can carry, then the UPN, which is refused when the
+  directory records another account for that person. AD group grants keep working with Entra sign-in, from the members
+  the nightly directory load records. An app role, `Insights.BootstrapAdmin`, makes administrators as
+  `Insights:BootstrapAdmins` does. The data API takes a bearer token for the app's API. docs\ENTRA-SIGN-IN.md.
+- **For Azure, off unless set:** the form keys in an Azure Storage blob protected with a Key Vault key
+  (`Insights:DataProtection` = `Blob`), and Application Insights (`Insights:ApplicationInsightsConnectionString`).
+- **The license tool records each person's Entra object ID** (`audit.CopilotLicense.EntraObjectId`, copied to
+  `dash.Person.ObjectId` by the dashboard's refresh), with no new permission.
+
+### Changed
+- **Check someone's access** lists the roles that come through an access profile and through an Entra group (asked of
+  Graph as the panel is drawn), and the sections the person sees across the whole organization.
+- **The nightly directory load** also expands AD groups granted an access profile, and leaves Entra groups to the
+  dashboard.
+- **Admin has fifteen pages** to limit an administrator to, with Access profiles.
+
+### Known limits
+- **Entra ID was not tried against a real tenant.** Sign-in, the token's claims, the federated credential of a managed
+  identity, Graph's answers for real groups, Key Vault, Blob Storage and Application Insights were built to Microsoft's
+  documented contracts and tested with stand-ins only. Try it on a test site first, keeping a bootstrap administrator
+  who can sign in with Windows on the production one.
+- **Admin "view as"** (the plan's Phase 2) is not in this release.
+- **The data API** keeps each viewer's own scope: a role across the whole organization widens that role's pages, not the API.
+- **Licensing › Chargeback's *Charged to no group*** still opens Leavers with a different count, as in 2.7.7.
+
 ## [2.7.7] - 2026-10-28
 
 A full rebuild of the report tables is fast again, no chart cuts a name short with "…", and Admin › Access ›
