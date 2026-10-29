@@ -52,12 +52,14 @@ builder.Services.AddScoped<RequestCommands>();
 builder.Services.AddScoped<RegistryCommands>();
 builder.Services.AddScoped<AdminCommands>();
 builder.Services.AddScoped<OperationsCommands>();
+builder.Services.AddScoped<SeatCommands>();
 builder.Services.AddScoped<WorkQueries>();
 builder.Services.AddScoped<RegistryQueries>();
 builder.Services.AddScoped<OperationsQueries>();
 builder.Services.AddScoped<ReportQueries>();
 builder.Services.AddScoped<AdminQueries>();
 builder.Services.AddScoped<AccessQueries>();
+builder.Services.AddScoped<SeatQueries>();
 builder.Services.AddSingleton<HelpText>();
 builder.Services.AddSingleton<TestingOptions>(new TestingOptions(testAuth && env.IsDevelopment(), actAs && env.IsDevelopment()));
 
@@ -111,7 +113,7 @@ var mvc = builder.Services.AddRazorPages(o =>
     // Configuration pages: administrators only. Governance pages the Platform Owner and Steering use: their own policy.
     foreach (var page in new[] { "/Admin/Integrations", "/Admin/Notifications", "/Admin/Sla", "/Admin/Workflows" })
         o.Conventions.AuthorizePage(page, Policies.Admin);
-    foreach (var page in new[] { "/Admin/Raci", "/Admin/Intake", "/Admin/Roles", "/Admin/Text" })
+    foreach (var page in new[] { "/Admin/Raci", "/Admin/Intake", "/Admin/Roles", "/Admin/Text", "/Admin/SeatGroups" })
         o.Conventions.AuthorizePage(page, Policies.PlatformGovernance);
     o.Conventions.AuthorizeFolder("/Operations", Policies.Central);
     o.Conventions.AuthorizeFolder("/Queues", Policies.Central);

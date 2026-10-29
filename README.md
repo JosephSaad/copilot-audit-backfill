@@ -15,6 +15,9 @@ enforcing limits and measuring consumption; the Workbench reads from them and ne
 - Fulfillment through ITSM tickets, then verification by a second operator (read-back or attestation).
 - Email and Teams notices with reminders at 50 and 80 percent of each SLA and an escalation ladder.
 - Drift and unregistered-agent findings, exceptions with expiry, recertification, retirement, KPIs.
+- Copilot seats: the paid Microsoft 365 Copilot license reserved per LOB, read back from the shared license
+  group and each LOB's tracking group; reserved against assigned per LOB, reclaim of inactive seats, monthly
+  chargeback certified by FinOps, and LOB seat admins who track their own LOB.
 
 ## What it does not do
 

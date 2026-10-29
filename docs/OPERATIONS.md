@@ -23,6 +23,10 @@ Changes to the RACI matrix and to control templates need two approvers, the Plat
 | Operations › Drift (`/Operations/Drift`) | Findings: drift, unregistered items, vacancies, assignments without funding | Operators | Acknowledge, resolve or accept with a reason |
 | Operations › Events (`/Operations/Events`) | Consumption events (J5) with acknowledgement targets | Operators | High and critical events open an ITSM incident |
 | Operations › Attestations (`/Operations/Attestations`) | Attest Microsoft 365 settings with evidence after each change and monthly | Operators | Overdue attestations raise N22 |
+| Admin › Seat groups (`/Admin/SeatGroups`) | Maps the Copilot seat groups (the shared license group, one tracking group per LOB with its OIM role, exclusion, Chat-only and other MCO groups), the Copilot SKUs, and lists the Seats.* settings | Admin, Platform Owner | Groups are found in Entra by name. Tick "Purpose confirmed" only after the group owner confirms it: unconfirmed exclusion groups raise no findings. A change ends the old row and starts a new one (history kept) |
+| Registry › Copilot seats (`/Registry/Seats`) | Purchased, reserved, buffer, free to reserve, and each LOB's reserved against assigned seats | FinOps, Platform Owner, auditors (all LOBs); LOB business owners, approvers, finance partners and LOB seat admins (their LOB only) | The first reservation of an LOB is recorded once on its page by FinOps; later changes are seat reservation requests (J9) |
+| Registry › Copilot seats › LOB (`/Registry/Seats/{id}`) | Reservation history, holders, reclaim answers, LOB seat admins, monthly chart | As above | LOB seat admins name or end other seat admins for the same LOB only; the last one cannot remove themselves (the business owner or Platform Owner can) |
+| Reports › Seat chargeback (`/Reports/SeatChargeback`) | Monthly seat chargeback per LOB (reservation plus seats above it, one rate); certify; CSV | FinOps lead certifies; central roles read | Certified months cannot change (database trigger). The rate is a placeholder until the contracted price is set |
 | Reports › Audit (`/Reports/Audit`) | Decisions, evidence and the audit trail; export | Auditors | Read only |
 
 ## Background jobs
@@ -64,3 +68,18 @@ searches by correlation ID first).
 | `setup\Setup-TestTenant.ps1` | Registers the apps and creates the test groups, access packages, mailbox and Teams app; safe to rerun |
 | `tools\Governance.Seed` | Seeds the demo institution and sample requests; a seeded database is left alone |
 | `tools\Governance.MockItsm` | A local ITSM stand-in on port 5470 |
+
+## Copilot seats: first-time setup
+
+1. Admin › Seat groups: add the shared license group (purpose License), then one LOB tracking group per LOB
+   with its LOB and its OIM role name (for example "Retail . M365 Copilot License . Role"). Add the other MCO
+   groups as Exclusion, Copilot Chat only, Managers or Other, unconfirmed until their owners confirm them.
+2. Add the Copilot add-on SKU (part number Microsoft_365_Copilot) as "Copilot add-on", and any suite that
+   includes Copilot (for example E7) as "Includes Copilot".
+3. Check the Seats.* settings with Finance: EA anniversary, true-down window, operational buffer, the one
+   rate per seat and currency, when increases take effect, the chargeback year, inactivity days. Until a
+   settings page exists, a database administrator updates them in `ref.Setting`.
+4. FinOps records each LOB's first reservation on its Copilot seats page.
+5. The business owner (or Platform Owner) names each LOB's first seat admin on the same page; seat admins name
+   the others. The role is LOB_SEAT_ADMIN (210-seed-seats.sql): it reads seats and manages seat admins only.
+

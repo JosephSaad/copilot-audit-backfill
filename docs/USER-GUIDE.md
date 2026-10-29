@@ -36,8 +36,24 @@ Teams message. Each field has an (i) icon that says why it is asked.
 - **Start here:** My Work and the LOB summary.
 - **You do:** approve envelopes and delegations, authorize overage, accept production and continuity,
   recertify and retire your workloads. You are the last escalation step for your LOB's approvals.
+- **Copilot seats:** Registry › Copilot seats › your LOB shows the reservation against actual seats. Answer
+  the **Seats proposed for reclaim** list: Keep, or Reclaim with a reason (a delegated approver can answer
+  too). Reclaim opens an ITSM task to remove the person's OIM role; the seat shows as removed after the next
+  license read. Name the LOB's first seat admin in the **LOB seat admins** panel.
 - **Never here:** configure Microsoft settings; record a risk acceptance or purchase on a request where you
   recorded the budget decision.
+
+## LOB seat admin
+
+- **Start here:** Registry › Copilot seats, then your LOB.
+- **You do:** track your LOB's Copilot seat reservation against the seats people actually hold: reserved,
+  assigned, over the reservation (charged on top), unused reserved seats (still charged until the April EA
+  anniversary), inactive holders and the month-by-month chart. Ask for a change with **Change the
+  reservation**. Name other seat admins for your LOB in the **LOB seat admins** panel (type a name and pick
+  it), or end one.
+- **Never here:** see other LOBs; give any other role; name yourself; remove yourself when you are the last
+  seat admin (name another one first, or ask the business owner). People get or lose a seat through the OIM
+  role "<LOB> . M365 Copilot License . Role", not here.
 
 ## LOB finance partner
 
@@ -75,6 +91,11 @@ Teams message. Each field has an (i) icon that says why it is asked.
 - **Start here:** Queues › Reviews (FinOps), Registry › Envelopes and Commercial.
 - **You do:** review forecasts and overages, manage envelopes and cost-center mapping, prepare commercial
   recommendations (J8), close commitments at retirement.
+- **Copilot seats:** Registry › Copilot seats shows purchased, reserved, buffer and the seats still free to
+  reserve. Record each LOB's first reservation on its page (once; every later change is a seat reservation
+  request). The FinOps lead certifies each month in Reports › Seat chargeback: check the draft (reserved,
+  assigned, over, charged seats at one rate), then **Certify this month**. A certified month never changes.
+  The "No LOB" row is seats nobody is charged for: get them attributed through the right OIM role.
 - **Never here:** buy or renew anything; forecasts never trigger purchases.
 
 ## Commercial approver and sourcing agent
