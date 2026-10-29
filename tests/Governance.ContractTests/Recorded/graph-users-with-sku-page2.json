@@ -1,0 +1,13 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users(id,userPrincipalName,usageLocation,licenseAssignmentStates)",
+  "value": [
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "userPrincipalName": "sam@contoso.example",
+      "usageLocation": "US",
+      "licenseAssignmentStates": [
+        { "assignedByGroup": null, "disabledPlans": [], "error": "None", "skuId": "639dec6b-bb19-468b-871c-c5c441c4b0cb", "state": "Active", "lastUpdatedDateTime": "2026-09-12T10:00:00Z" }
+      ]
+    }
+  ]
+}

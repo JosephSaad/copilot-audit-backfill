@@ -40,7 +40,7 @@ if (cli.FakeNow is DateTime fake)
 }
 
 var jobs = new[] { typeof(OutboxDispatcherJob), typeof(SlaTimerJob), typeof(DirectorySyncJob), typeof(EntitlementSyncJob), typeof(AccessReviewImportJob),
-                   typeof(LicensingReadJob), typeof(ItsmPollerJob), typeof(CampaignSchedulerJob), typeof(DigestJob) };
+                   typeof(LicensingReadJob), typeof(SeatSyncJob), typeof(ItsmPollerJob), typeof(CampaignSchedulerJob), typeof(DigestJob) };
 foreach (var j in jobs) builder.Services.AddSingleton(j);
 if (cli.Once is null && !cli.Drain)
     foreach (var j in jobs) builder.Services.AddSingleton(typeof(IHostedService), sp => sp.GetRequiredService(j));

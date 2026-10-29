@@ -36,6 +36,7 @@ public static class ServiceCollectionExtensions
         services.AddTransient<IDirectoryApi>(sp => sp.GetRequiredService<GraphClient>());
         services.AddTransient<IEntitlementApi>(sp => sp.GetRequiredService<GraphClient>());
         services.AddTransient<IAccessReviewApi>(sp => sp.GetRequiredService<GraphClient>());
+        services.AddTransient<ISeatLicenseApi>(sp => sp.GetRequiredService<GraphClient>());
 
         // Power Platform: app-only unless a delegated token is passed per call.
         services.AddHttpClient<PowerPlatformClient>(c => c.Timeout = TimeSpan.FromMinutes(2))
@@ -81,6 +82,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILicensingRead, LicensingReadService>();
         services.AddScoped<IRegistryImport, RegistryImportService>();
         services.AddScoped<IIntegrationStatus, IntegrationStatusService>();
+        services.AddScoped<SeatSyncService>();
         return services;
     }
 

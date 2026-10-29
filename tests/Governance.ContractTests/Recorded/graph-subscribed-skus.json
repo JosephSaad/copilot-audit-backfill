@@ -1,0 +1,17 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#subscribedSkus(skuId,skuPartNumber,prepaidUnits,consumedUnits)",
+  "value": [
+    {
+      "skuId": "639dec6b-bb19-468b-871c-c5c441c4b0cb",
+      "skuPartNumber": "Microsoft_365_Copilot",
+      "consumedUnits": 912,
+      "prepaidUnits": { "enabled": 1000, "suspended": 0, "warning": 50, "lockedOut": 0 }
+    },
+    {
+      "skuId": "06ebc4ee-1bb5-47dd-8120-11324bc54e06",
+      "skuPartNumber": "SPE_E5",
+      "consumedUnits": 4380,
+      "prepaidUnits": { "enabled": 4500, "suspended": 0, "warning": 0, "lockedOut": 0 }
+    }
+  ]
+}

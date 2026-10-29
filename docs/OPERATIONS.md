@@ -38,6 +38,7 @@ run the same job at once. Each run is recorded in `intg.JobRun`; Admin › Integ
 | Entitlement sync | Every 15 minutes | Yes | Access package assignments and requests for governed packages, recorded as decisions with source Entra; assignments without an active envelope raise N15 | N19 |
 | Access review import | Daily during campaigns | Yes | Review decisions as recertification evidence | Campaign item stays open |
 | Licensing read | Daily and on demand | Yes | Allocation, tenant-pool rule and billing policy per governed environment | Falls back to an operator-run read; N19 |
+| Copilot seat read (X13) | Daily and on demand (Operations › Sync) | Yes | Copilot SKUs bought and assigned, seat groups (license, LOB tracking, exclusion) and their members, each person's license state, the Copilot usage report; then seat findings (N10 for LOB and tenant level), reclaim proposals for seats inactive 60 days, and in the first week of a month the draft chargeback for the month before | A refused usage report is a note, not a failure; other failures N19 |
 | Drift evaluator | After each read | Yes | Compares what was read with the approved posture and the register; raises findings (N10, N11) | N19 |
 | ITSM status poller | Every 5 minutes for open tickets | Yes | A closed ticket moves the request to verification, never straight to completed | N19 |
 | Campaign scheduler | Daily | Yes | Recertification, monthly re-attestation (N22), exception expiry (N13 at 30, 7 and 1 days), commercial renewals (N18 at 90, 60 and 30 days), inventory older than 7 days (N21) | N19 |

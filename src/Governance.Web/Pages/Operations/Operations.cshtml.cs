@@ -57,6 +57,7 @@ public class SyncModel(OperationsQueries ops, IServiceProvider services) : GovPa
     public bool HasInventory => services.GetService<IInventorySync>() is not null;
     public bool HasLicensing => services.GetService<ILicensingRead>() is not null;
     public bool HasRegistry => services.GetService<IRegistryImport>() is not null;
+    public bool HasSeats => services.GetService<SeatSyncService>() is not null;
 
     public static readonly IReadOnlyDictionary<string, (string Name, int MaxAgeHours)> Integrations = new Dictionary<string, (string, int)>
     {
@@ -64,6 +65,7 @@ public class SyncModel(OperationsQueries ops, IServiceProvider services) : GovPa
         ["X4"] = ("Power Platform inventory (operator-run)", 24 * 7), ["X5"] = ("Power Platform licensing read", 26), ["X6"] = ("Microsoft 365 settings attestation", 24 * 31),
         ["X7"] = ("Agent Registry export", 24 * 31), ["X8"] = ("ITSM", 1), ["X9"] = ("Email", 24), ["X10"] = ("Teams activity feed", 24), ["X11"] = ("Teams channels", 24),
         ["X12"] = ("Copilot Agent Kit (optional)", 48),
+        ["X13"] = ("Copilot seat licenses (Graph)", 26),
     };
 
     public async Task OnGetAsync()
@@ -117,6 +119,23 @@ public class SyncRunModel(IServiceProvider services) : GovPage
         catch (MicrosoftIdentityWebChallengeUserException) { throw; }   // incremental consent: AuthorizeForScopes sends the operator to sign in
         catch (DomainException ex) { FlashError = ex.Message; }
         catch (Exception ex) { FlashError = Incident.Note(Log, ex, "running the inventory sync"); }
+        return Redirect("/Operations/Sync");
+    }
+
+    /// <summary>X13 runs app-only with the Worker's Graph permissions; no operator token is used.</summary>
+    public async Task<IActionResult> OnPostSeatsAsync()
+    {
+        if (!Principal.Can(Permissions.SyncRun)) { FlashError = "Running the seat read needs the platform operator role."; return Redirect("/Operations/Sync"); }
+        var seats = services.GetService<SeatSyncService>();
+        if (seats is null) { FlashError = "The seat integration is not installed on this server."; return Redirect("/Operations/Sync"); }
+        try
+        {
+            await seats.RunAsync(Principal.PersonId, HttpContext.RequestAborted);
+            Flash = "Seat read finished. Findings, reclaim proposals and the draft chargeback were updated; the run row says what was read.";
+        }
+        catch (DomainException ex) { FlashError = ex.Message; }
+        catch (IntegrationPermissionException ex) { FlashError = ex.Message; }
+        catch (Exception ex) { FlashError = Incident.Note(Log, ex, "reading Copilot seats"); }
         return Redirect("/Operations/Sync");
     }
 
