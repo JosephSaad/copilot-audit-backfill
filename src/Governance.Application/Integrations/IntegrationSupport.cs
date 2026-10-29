@@ -151,11 +151,11 @@ public sealed class FindingWriter(OutboxWriter outbox, IClock clock)
             """,
             new { now = clock.UtcNow, resolution, findingType, keys = System.Text.Json.JsonSerializer.Serialize(stillOpenKeys) });
 
-    public Task NotifyAsync(Uow uow, string code, long findingId, string subject, string text, IEnumerable<int> personIds, IEnumerable<RoleTarget> roles, IEnumerable<string>? queues = null, int? fundingOwnerId = null)
+    public Task NotifyAsync(Uow uow, string code, long findingId, string subject, string text, IEnumerable<int> personIds, IEnumerable<RoleTarget> roles, IEnumerable<string>? queues = null, int? fundingOwnerId = null, string linkPath = "/Operations/Drift")
         => outbox.EnqueueAsync(uow, new OutboxMessage
         {
             EventType = code, FindingId = findingId, FundingOwnerId = fundingOwnerId, PersonIds = personIds.Distinct().ToList(), Roles = roles.ToList(),
-            Queues = queues?.ToList() ?? new List<string>(), Subject = subject, Text = text, LinkPath = "/Operations/Drift",
+            Queues = queues?.ToList() ?? new List<string>(), Subject = subject, Text = text, LinkPath = linkPath,
         }, $"{code}:finding:{findingId}");
 
     private static string? Cut(string? s, int max) => s is null ? null : s.Length <= max ? s : s[..max];

@@ -23,6 +23,12 @@
         <p class="small muted">Verification waits up to 15 minutes for credit availability to refresh.</p>
         <button class="btn btn-ghost" type="submit" disabled="@(!Model.HasLicensing)">Read licensing now</button>
     </form>
+    <form method="post" asp-antiforgery="true" action="/Operations/SyncRun?handler=Seats" class="card">
+        <idem />
+        <h2>Copilot seats (X13) <help k="sync.seats">Subscribed Copilot SKUs, the license and LOB tracking groups, each person's license state and the Copilot usage report, read from Microsoft Graph with the Worker's app permissions. Then seat findings, reclaim proposals and the draft monthly chargeback. The worker runs it daily; this runs it now.</help></h2>
+        <p class="small muted">Read-only: seats change only through OIM roles and ServiceNow.</p>
+        <button class="btn btn-ghost" type="submit" disabled="@(!Model.HasSeats)">Read seats now</button>
+    </form>
     <form method="post" asp-antiforgery="true" action="/Operations/SyncRun?handler=Registry" enctype="multipart/form-data" class="card">
         <idem />
         <h2>Agent Registry export (X7) <help k="sync.registry">Without Agent 365 or E7 there is no Graph access to the registry, so an operator uploads the Microsoft 365 admin center export monthly and before recertification. Unmatched agents raise findings.</help></h2>

@@ -13,6 +13,8 @@
       - a shared mailbox scoped to the Worker through Exchange RBAC for Applications;
       - the Power Platform reader role for the Worker (preview API);
       - the Teams app (activity feed) uploaded to the org catalog and installed for you.
+      - Copilot seats: LicenseAssignment.Read.All and Reports.Read.All for the Worker, and cloud
+        stand-in groups for the AD seat groups (GSGu_MCO_CopilotM365 and one tracking group per LOB).
     Admin consent is not granted by the script: it opens the consent page so you approve it yourself.
     Writes the IDs it made to config\tenant.test.json (git-ignored). Nothing secret is written.
 
@@ -28,7 +30,7 @@ param(
     [Parameter(Mandatory)] [string] $AdminUpn,
     [string] $Mailbox = '',
     [string] $WebBaseUrl = 'http://localhost:5450',
-    [string[]] $Steps = @('Certificates', 'Apps', 'Groups', 'AccessPackages', 'Consent', 'Mailbox', 'PowerPlatform', 'Teams'),
+    [string[]] $Steps = @('Certificates', 'Apps', 'Groups', 'AccessPackages', 'Consent', 'Mailbox', 'PowerPlatform', 'Teams', 'Seats'),
     [string] $Suffix = 'Test'
 )
 
@@ -36,7 +38,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # pwsh -File passes "A,B" as one string: split, then check every name.
-$known = 'Certificates', 'Apps', 'Groups', 'AccessPackages', 'Consent', 'Mailbox', 'PowerPlatform', 'Teams'
+$known = 'Certificates', 'Apps', 'Groups', 'AccessPackages', 'Consent', 'Mailbox', 'PowerPlatform', 'Teams', 'Seats'
 $Steps = @($Steps | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 foreach ($s in $Steps) { if ($known -notcontains $s) { throw "Unknown step '$s'. Steps: $($known -join ', ')" } }
 
@@ -287,7 +289,10 @@ if ($Steps -contains 'Apps') {
                 resourceAccess = @(
                     @{ id = (& $graphRole 'User.Read.All'); type = 'Role' },
                     @{ id = (& $graphRole 'GroupMember.Read.All'); type = 'Role' },
-                    @{ id = (& $graphRole 'AccessReview.Read.All'); type = 'Role' }
+                    @{ id = (& $graphRole 'AccessReview.Read.All'); type = 'Role' },
+                    # Copilot seats (X13): license states and subscribed SKUs, and the Copilot usage report.
+                    @{ id = (& $graphRole 'LicenseAssignment.Read.All'); type = 'Role' },
+                    @{ id = (& $graphRole 'Reports.Read.All'); type = 'Role' }
                 )
             }
         )
@@ -547,6 +552,61 @@ if ($Steps -contains 'Teams') {
         }
         catch { Write-Note "install for $AdminUpn failed: $($_.Exception.Message)" }
     }
+    Save-Config $cfg
+}
+
+# --------------------------------------------------------------------------------------------
+# Copilot seats (X13): two more Worker permissions and cloud stand-ins for the AD seat groups
+# --------------------------------------------------------------------------------------------
+if ($Steps -contains 'Seats') {
+    Write-Step 'Copilot seats: Worker permissions and stand-in groups'
+    if (-not $cfg['workerClientId']) { throw 'Run the Apps step first: the Worker app registration is missing.' }
+
+    # 1. LicenseAssignment.Read.All (subscribed SKUs, users' license states) and Reports.Read.All (Copilot usage report).
+    $graphSp = Get-ServicePrincipalByAppId $GraphAppId
+    $wanted = foreach ($v in 'LicenseAssignment.Read.All', 'Reports.Read.All') { ($graphSp['appRoles'] | Where-Object { $_['value'] -eq $v })['id'] }
+    $workerApp = Find-One "/applications?`$filter=appId eq '$($cfg['workerClientId'])'"
+    $access = @($workerApp['requiredResourceAccess'])
+    $graphAccess = $access | Where-Object { $_['resourceAppId'] -eq $GraphAppId } | Select-Object -First 1
+    $have = if ($graphAccess) { @($graphAccess['resourceAccess'] | ForEach-Object { $_['id'] }) } else { @() }
+    $missing = @($wanted | Where-Object { $have -notcontains $_ })
+    if ($missing.Count -gt 0) {
+        $newGraph = @{ resourceAppId = $GraphAppId; resourceAccess = @(@($have | ForEach-Object { @{ id = $_; type = 'Role' } }) + @($missing | ForEach-Object { @{ id = $_; type = 'Role' } })) }
+        $others = @($access | Where-Object { $_['resourceAppId'] -ne $GraphAppId })
+        Invoke-Graph -Method PATCH -Uri "/applications/$($workerApp['id'])" -Body @{ requiredResourceAccess = @($others + $newGraph) } | Out-Null
+        Write-Done "Worker app now asks for LicenseAssignment.Read.All and Reports.Read.All"
+    }
+    $granted = @(Get-GraphAll "/servicePrincipals/$($cfg['workerServicePrincipalId'])/appRoleAssignments" | ForEach-Object { $_['appRoleId'] })
+    if (@($wanted | Where-Object { $granted -notcontains $_ }).Count -gt 0) {
+        $url = "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$($cfg['workerClientId'])/isMSAApp~/false"
+        Write-Note "Worker app: click 'Grant admin consent' on $url"
+        Open-InEdge $url
+        Write-Host '   Approve the page in the browser. Waiting up to 15 minutes...' -ForegroundColor Yellow
+        $deadline = (Get-Date).AddMinutes(15)
+        do {
+            [System.Threading.Thread]::Sleep(10000)
+            $granted = @(Get-GraphAll "/servicePrincipals/$($cfg['workerServicePrincipalId'])/appRoleAssignments" | ForEach-Object { $_['appRoleId'] })
+        } while (@($wanted | Where-Object { $granted -notcontains $_ }).Count -gt 0 -and (Get-Date) -lt $deadline)
+        if (@($wanted | Where-Object { $granted -notcontains $_ }).Count -gt 0) { Write-Note 'Consent not seen yet; rerun with -Steps Seats after approving.' }
+        else { Write-Done 'LicenseAssignment.Read.All and Reports.Read.All granted' }
+    }
+    else { Write-Done 'LicenseAssignment.Read.All and Reports.Read.All already granted' }
+    Write-Note 'For reclaim proposals, turn off "Display concealed user, group, and site names in all reports" (Microsoft 365 admin center > Settings > Org settings > Reports).'
+
+    # 2. Cloud security groups standing in for the on-premises AD groups (GSGu_MCO_*). No license is assigned to
+    #    them: the Workbench only reads, and a real Copilot license group is managed by OIM and group-based licensing.
+    $seatGroups = @()
+    $lic = Get-OrCreateGroup "CGW $Suffix - GSGu_MCO_CopilotM365" "Test stand-in for the shared Copilot license group (GSGu_MCO_CopilotM365). No license is assigned to it."
+    Add-GroupMember $lic['id'] $cfg['adminObjectId']
+    $seatGroups += @{ purpose = 'LICENSE'; lob = $null; name = $lic['displayName']; groupId = $lic['id'] }
+    foreach ($code in @($lobTiers | ForEach-Object { $_.Code } | Select-Object -Unique)) {
+        $short = ($code -replace '[^A-Za-z0-9]', '')
+        $g = Get-OrCreateGroup "CGW $Suffix - GSGu_MCO_$($short)Tracking" "Test stand-in for the $code LOB tracking group (GSGu_MCO_<LOB>Tracking): members belong to $code for Copilot seats."
+        if ($code -eq 'RETAIL') { Add-GroupMember $g['id'] $cfg['adminObjectId'] }
+        $seatGroups += @{ purpose = 'LOB_TRACKING'; lob = $code; name = $g['displayName']; groupId = $g['id'] }
+    }
+    $cfg['seatGroups'] = $seatGroups
+    Write-Done "$($seatGroups.Count) seat stand-in groups ready. Record them on the Workbench's seat groups page (purpose and LOB) so the seat read picks them up."
     Save-Config $cfg
 }
 

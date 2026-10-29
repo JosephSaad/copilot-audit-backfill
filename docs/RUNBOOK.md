@@ -10,7 +10,9 @@ approvals and verification wait, and Microsoft keeps enforcing limits.
 1. Find the integration and the call in the worker log by the reference (errors are logged, never shown).
 2. 401: the certificate is missing, expired or not readable by the service account (see certificate rotation).
 3. 403 on Graph: check the Worker app's granted application permissions in Entra (`User.Read.All`,
-   `GroupMember.Read.All`, `AccessReview.Read.All`) and that admin consent is granted.
+   `GroupMember.Read.All`, `AccessReview.Read.All`; for Copilot seats (X13) also `LicenseAssignment.Read.All`
+   and `Reports.Read.All`) and that admin consent is granted. A refused usage report does not fail the seat read:
+   the run says so and no seat is proposed for reclaim.
 4. 403 on access packages: the Worker must be catalog reader on the governed catalog. Re-add it in Identity
    Governance › Catalogs › Roles and administrators.
 5. 403 on Power Platform: the Worker's Power Platform reader role (preview). Until fixed, operators run the
@@ -34,7 +36,11 @@ Certificates are selected by subject name, so a new certificate needs no configu
 
 1. Directory and entitlement sync: check the job's last run and error reference; fix permissions; run again.
    A lost delta token makes the next run a full read; that is expected and slower.
-2. Inventory: the inventory API works only with an operator's sign-in. An operator opens Operations › Sync
+2. Copilot seats (X13): the worker reads them daily, app-only. If the run says the usage report conceals names,
+   turn off concealed names in the Microsoft 365 admin center (Org settings › Reports). If a seat group is not
+   found, check its name on the seat groups page and that Entra Connect syncs it. An operator can run the read
+   at once from Operations › Sync › Read seats now.
+3. Inventory: the inventory API works only with an operator's sign-in. An operator opens Operations › Sync
    and runs it. Do this before every verification (D1) too.
 
 ## Dead-letter replay

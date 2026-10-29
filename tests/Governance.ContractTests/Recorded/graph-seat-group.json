@@ -1,0 +1,11 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#groups(id,displayName,onPremisesSyncEnabled,assignedLicenses)",
+  "value": [
+    {
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "displayName": "GSGu_MCO_CopilotM365",
+      "onPremisesSyncEnabled": true,
+      "assignedLicenses": [ { "disabledPlans": [], "skuId": "639dec6b-bb19-468b-871c-c5c441c4b0cb" } ]
+    }
+  ]
+}

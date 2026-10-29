@@ -28,17 +28,22 @@ What it creates:
 |---|---|
 | Two certificates | `CN=CopilotGovernanceWeb-Test` and `CN=CopilotGovernanceWorker-Test` in your user certificate store, private keys not exportable. No client secrets. |
 | Web app registration | Sign-in, five app roles (User, Central, Operator, Admin, Auditor), delegated Power Platform API scopes for the operator's inventory sync. You are assigned every app role. |
-| Worker app registration | Application permissions `User.Read.All`, `GroupMember.Read.All`, `AccessReview.Read.All`. No `Mail.Send` in Entra. |
+| Worker app registration | Application permissions `User.Read.All`, `GroupMember.Read.All`, `AccessReview.Read.All`, and for Copilot seats `LicenseAssignment.Read.All` and `Reports.Read.All`. No `Mail.Send` in Entra. |
 | Test groups | Ten central role groups and five policy scope groups (`CGW Test - ...`). |
 | Access packages | One catalog and one package per LOB tier, approval by a named approver. The Worker is catalog reader on that catalog only. |
 | Admin consent | The script opens each app's API permissions page in Edge; you click **Grant admin consent**. |
 | Notification mailbox | A shared mailbox, with the Worker's Mail.Send scoped to that mailbox only (Exchange RBAC for Applications). |
 | Power Platform role | The Worker gets Power Platform reader (a preview API). |
 | Teams app | Uploaded to your org catalog and installed for you, with permission to send you activity-feed notices. |
+| Copilot seats (`-Steps Seats`) | Adds `LicenseAssignment.Read.All` and `Reports.Read.All` to the Worker and opens its consent page. Creates cloud stand-ins for the on-premises seat groups: `CGW Test - GSGu_MCO_CopilotM365` (you are a member; no license is assigned to it) and one `CGW Test - GSGu_MCO_<LOB>Tracking` group per test LOB. Record them on the seat groups page so the seat read (X13) uses them. |
 
 The script writes the IDs it made to `config\tenant.test.json`: tenant, the two app IDs and service principal
 IDs, certificate subjects and thumbprints, group IDs, access package IDs, the catalog, the mailbox and the
-Teams app. No secrets. The file is git-ignored.
+Teams app, and the seat stand-in groups. No secrets. The file is git-ignored.
+
+The seat read (X13) needs one tenant setting the script cannot change: in the Microsoft 365 admin center, Settings
+› Org settings › Reports, turn off **Display concealed user, group, and site names in all reports**. Otherwise the
+Copilot usage report returns hashed names, the read says so, and no seat is proposed for reclaim.
 
 ## 2. Create the database
 
