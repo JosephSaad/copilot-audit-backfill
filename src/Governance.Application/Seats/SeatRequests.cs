@@ -14,6 +14,7 @@ public static class SeatRequests
     public static readonly IReadOnlyList<string> RequesterRoles = new[]
     {
         Roles.LobBusinessOwner, Roles.SharedServiceOwner, Roles.DelegatedApprover, Roles.LobFinancePartner, Roles.ProductOwner,
+        "LOB_SEAT_ADMIN",   // LOB seat admins ask for changes for their LOB (decided 2026-10-29)
     };
 
     /// <summary>
@@ -58,7 +59,7 @@ public static class SeatRequests
               AND EffectiveFrom <= @today AND (EffectiveTo IS NULL OR EffectiveTo >= @today)
             """, new { personId, RequesterRoles, fundingOwnerId, today });
         if (holds == 0)
-            throw new DomainException("Only the LOB's business owner, delegated approver, finance partner or a product owner in that LOB can ask to change its Copilot seat reservation.");
+            throw new DomainException("Only the LOB's business owner, seat admin, delegated approver, finance partner or a product owner in that LOB can ask to change its Copilot seat reservation.");
         if (p.RequestedSeats is not int requested || requested < 0) throw new DomainException("Give the LOB's new total seat reservation (0 or more).");
         var current = await CurrentSeatsAsync(uow, fundingOwnerId, today);
         if (requested == (current ?? 0)) throw new DomainException($"The LOB already reserves {current ?? 0} seats: ask for a different total.");

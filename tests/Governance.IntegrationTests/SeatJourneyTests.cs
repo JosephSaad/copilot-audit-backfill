@@ -19,6 +19,8 @@ public sealed class SeatJourneyTests(SeededFixture fx) : IClassFixture<SeededFix
         using var c = fx.Admin();
         c.Execute(
             """
+            -- The seat demo seed gives some LOBs their own baseline; replace it with this test's.
+            DELETE FROM core.SeatReservation WHERE FundingOwnerId = @fo AND RequestId IS NULL AND ISNULL(Notes, N'') <> N'Test baseline';
             IF NOT EXISTS (SELECT 1 FROM core.SeatReservation WHERE FundingOwnerId = @fo)
                 INSERT core.SeatReservation (FundingOwnerId, Seats, ChangeKind, EffectiveFrom, Notes) VALUES (@fo, @seats, 'INITIAL', @from, N'Test baseline')
             """, new { fo = fx.Seed.FundingOwners[lob], seats, from = Today.AddDays(-daysAgo) });

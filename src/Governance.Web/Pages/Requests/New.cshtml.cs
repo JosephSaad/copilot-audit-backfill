@@ -13,6 +13,8 @@ public class NewModel(RegistryQueries registry, WorkQueries work, RequestCommand
 {
     [BindProperty(SupportsGet = true)] public string Journey { get; set; } = "";
     [BindProperty(SupportsGet = true)] public Guid? Id { get; set; }
+    /// <summary>Preselected funding owner (public ID), e.g. from "Change reservation" on the seat pages.</summary>
+    [FromQuery(Name = "fundingOwner")] public Guid? FundingOwnerPublicId { get; set; }
     [BindProperty] public RequestInput Input { get; set; } = new();
     [BindProperty] public string? RowVerBase64 { get; set; }
 
@@ -70,6 +72,15 @@ public class NewModel(RegistryQueries registry, WorkQueries work, RequestCommand
             var (fo, basis) = await registry.AttributeAsync(Principal.PersonId);
             Input.FundingOwnerId = fo;
             AttributionBasis = fo is null ? null : basis;
+            if (FundingOwnerPublicId is Guid pick)
+            {
+                await using var c = await db.OpenUserAsync();
+                if (await c.ExecuteScalarAsync<int?>("SELECT FundingOwnerId FROM core.FundingOwner WHERE PublicId = @pick", new { pick }) is int chosen)
+                {
+                    Input.FundingOwnerId = chosen;
+                    AttributionBasis = null;
+                }
+            }
             Input.Meters = new List<string>();
         }
         return Page();
