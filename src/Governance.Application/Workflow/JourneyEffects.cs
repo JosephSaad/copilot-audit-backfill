@@ -257,6 +257,11 @@ public sealed class JourneyEffects(IClock clock, OutboxWriter outbox)
                 await UpdatePostureAsync(uow, r, wid4, p, today);
                 break;
 
+            // J9: an approved seat change writes the LOB's new reservation (effective date, previous, approver, flex-pool review).
+            case (Journeys.SeatReservation, Stages.SeatDecision, Outcomes.Approved):
+                await Seats.SeatRequests.ApplyAsync(uow, r, today);
+                break;
+
             // J7: decision puts the workload in Retiring; closing commitments retires it and ends its bindings.
             case (Journeys.Retirement, Stages.RetirementDecision, Outcomes.Approved):
                 await SetWorkloadStateAsync(uow, r.WorkloadId, WorkloadStates.Retiring, null);

@@ -24,6 +24,8 @@ public class StartModel(WorkQueries work, RegistryCommands registry, Db db) : Go
     {
         Journeys.Commercial => Me.Can(Permissions.RegistryFinance) || Me.Can(Permissions.CommercialView),
         Journeys.Recertification => Me.Roles.Any(r => r.RoleCode is Roles.LobBusinessOwner or Roles.SharedServiceOwner or Roles.ProductOwner) || Me.HasCentral(Roles.PlatformOwner),
+        Journeys.SeatReservation => Me.Roles.Any(r => r.ScopeType == ScopeTypes.FundingOwner && Application.Seats.SeatRequests.RequesterRoles.Contains(r.RoleCode))
+                                    || Me.HasCentral(Roles.FinOpsLead) || Me.HasCentral(Roles.PlatformOwner),
         _ => true,
     };
 

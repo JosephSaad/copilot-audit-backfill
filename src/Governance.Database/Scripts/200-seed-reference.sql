@@ -293,7 +293,8 @@ USING (VALUES
  ('J5', N'Report a consumption problem', N'Threshold notice, denial, exhaustion or runaway activity: Operations triages and responds.', N'Any user, Operations', N'Acknowledged within 1 hour (critical) to 1 business day', 0),
  ('J6', N'Review what I own', N'Recertify the workloads you own: need, audience, funding and outcome.', N'Business owner, product owner', N'15 business day campaign', 0),
  ('J7', N'Retire a workload', N'Controlled retirement: decision, access removed, allocations released, commitments closed.', N'Product owner', N'About 10 business days', 1),
- ('J8', N'Prepare a commercial decision', N'P3, pack, renewal or critical shared funding: FinOps recommends, Commercial Authority approves, Sourcing executes.', N'FinOps, Commercial Authority', N'About 2 weeks', 1)
+ ('J8', N'Prepare a commercial decision', N'P3, pack, renewal or critical shared funding: FinOps recommends, Commercial Authority approves, Sourcing executes.', N'FinOps, Commercial Authority', N'About 2 weeks', 1),
+ ('J9', N'Change a Copilot seat reservation', N'Reserve Copilot seats for your LOB, add seats at any time, or give seats back at the April EA anniversary. Finance decides after Digital Workplace confirms the seats are available.', N'LOB business owner or finance partner', N'About 1 week', 1)
 ) AS s (JourneyCode, Name, Description, TypicalUser, Turnaround, HasStages)
 ON t.JourneyCode = s.JourneyCode AND t.VersionNo = 1
 WHEN NOT MATCHED THEN INSERT (JourneyCode, VersionNo, Name, Description, TypicalUser, Turnaround, IsActive)
@@ -352,7 +353,11 @@ INSERT @st VALUES
  -- J8 Commercial decision
  ('J8','F1', N'FinOps recommendation', 'P3_EVALUATION','WORK','FINOPS_ANALYST',NULL,'BD5','CENTRAL',0,NULL,NULL,NULL,'N18', N'Coverage, forecast and scenarios; the recommendation states units (credits, P3 commit units, currency) separately.', 10),
  ('J8','F4', N'Commercial authority decision', 'P3_PURCHASE','DECISION','COMMERCIAL_APPROVER','PURCHASE_APPROVAL','BD5','CENTRAL',0,NULL,NULL,NULL,'N06', N'Approve, decline or defer. The Workbench never purchases or renews anything itself (C21).', 20),
- ('J8','F5', N'Sourcing executes', 'P3_PURCHASE','WORK','SOURCING_AGENT',NULL,'BD10','CENTRAL',0,'CONTRACT',NULL,NULL,'N06', N'Execute the approved purchase and upload the order or contract as evidence.', 30);
+ ('J8','F5', N'Sourcing executes', 'P3_PURCHASE','WORK','SOURCING_AGENT',NULL,'BD10','CENTRAL',0,'CONTRACT',NULL,NULL,'N06', N'Execute the approved purchase and upload the order or contract as evidence.', 30),
+ -- J9 Copilot seat reservation (seats, never credits): increases any time, true-downs only at the EA anniversary
+ ('J9','B2', N'Completeness', 'FUNDING_BUDGET','WORK','INTAKE_ANALYST',NULL,'BD2','CENTRAL',0,NULL,NULL,'CompletenessCheck','N02', N'Check the LOB, the requested seats and who needs them.', 10),
+ ('J9','B7', N'Remediate and resubmit', 'BUSINESS_CASE','WORK','REQUESTER',NULL,'BD10',NULL,0,NULL,NULL,NULL,'N02', N'Fix what was returned and resubmit, or withdraw.', 15),
+ ('J9','S4', N'Reservation decision', 'FUNDING_BUDGET','DECISION','FINOPS_LEAD','BUDGET_APPROVAL','BD5','CENTRAL',0,NULL,NULL,'SeatReservationRules','N04,N06', N'Finance decides after Digital Workplace confirms unallocated seats, pending demand and the operational buffer. A decrease can be approved only in the window before the EA anniversary; until then hold it.', 20);
 
 INSERT wf.StageDefinition (DefinitionId, StageCode, Name, RaciActivityCode, TaskKind, TaskRoleCode, DecisionType, SlaPolicyCode, LadderCode,
                            AllowsDelegation, RequiredEvidence, EntryRule, ExitRule, NotifyCodes, Guidance, SortOrder)
@@ -402,7 +407,11 @@ INSERT @tr VALUES
 
  ('J8','F1','READY','F4','ROUTINE_APPROVAL',NULL),
  ('J8','F4','APPROVED','F5','APPROVED',NULL),       ('J8','F4','DECLINED','END','DECLINED',NULL), ('J8','F4','HOLD','F1','ON_HOLD',NULL),
- ('J8','F5','EXECUTED','END','COMPLETED',NULL);
+ ('J8','F5','EXECUTED','END','COMPLETED',NULL),
+
+ ('J9','B2','COMPLETE','S4','ROUTINE_APPROVAL',NULL), ('J9','B2','RETURN','B7','RETURNED',NULL),
+ ('J9','B7','RESUBMIT','B2','SUBMITTED',NULL),      ('J9','B7','WITHDRAW','END','CANCELLED',NULL), ('J9','B7','AUTO_CLOSE','END','CLOSED',NULL),
+ ('J9','S4','APPROVED','END','COMPLETED',NULL),     ('J9','S4','DECLINED','END','DECLINED',NULL), ('J9','S4','HOLD','S4','ON_HOLD',NULL);
 
 INSERT wf.TransitionDefinition (DefinitionId, FromStage, Outcome, ToStage, ToState, GuardRule)
 SELECT d.DefinitionId, t.FromStage, t.Outcome, t.ToStage, t.ToState, t.Guard
@@ -413,7 +422,8 @@ DECLARE @co TABLE (JourneyCode varchar(10), StageCode varchar(20), FunctionCode 
 INSERT @co VALUES
  ('J2','D5','FINANCE',1), ('J2','D5','ENG_OPS',1),
  ('J7','I4','FINANCE',0), ('J7','I4','SOURCING',0),
- ('J8','F4','BUSINESS_OWNER',0), ('J8','F4','SECURITY_RISK',0);
+ ('J8','F4','BUSINESS_OWNER',0), ('J8','F4','SECURITY_RISK',0),
+ ('J9','S4','PLATFORM_OWNER',1), ('J9','S4','BUSINESS_OWNER',0);
 INSERT wf.ConsultDefinition (DefinitionId, StageCode, FunctionCode, IsBlocking)
 SELECT d.DefinitionId, c.StageCode, c.FunctionCode, c.IsBlocking
 FROM @co c JOIN @defs d ON d.JourneyCode = c.JourneyCode;

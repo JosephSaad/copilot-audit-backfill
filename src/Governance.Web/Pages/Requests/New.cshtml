@@ -33,11 +33,14 @@
             <label asp-for="Input.Title" class="req">Title <help>A short name people will recognize in their task list, for example "Claims triage agent for Retail".</help></label>
             <input asp-for="Input.Title" maxlength="200" required />
         </div>
+        @if (j != Journeys.SeatReservation)
+        {
         <div class="field">
             <label asp-for="Input.FundingOwnerId" class="req">Funding owner <help k="req.fundingowner">The LOB or Enterprise Shared unit that pays for this and whose business owner is accountable. One funding owner at a time (A2). @(Model.AttributionBasis is null ? "" : "Prefilled from " + Model.AttributionBasis + ".")</help></label>
             <select asp-for="Input.FundingOwnerId" asp-items="Sel(Model.FundingOwners, Model.Input.FundingOwnerId?.ToString())"><option value="">Choose…</option></select>
             @if (Model.AttributionBasis is not null) { <span class="hint">Prefilled from @Model.AttributionBasis. Change it if this work is funded elsewhere.</span> }
         </div>
+        }
         @if (j is Journeys.NewWorkload or Journeys.Exception)
         {
             <div class="field">
@@ -52,10 +55,13 @@
                 <span class="hint">People who sponsor, own products or own the business in the funding owner you chose.</span>
             </div>
         }
+        @if (j != Journeys.SeatReservation)
+        {
         <div class="field full">
             <label asp-for="Input.Purpose" class="req">Purpose <help>What problem this solves and for whom. Intake checks it is complete and not a duplicate (B2).</help></label>
             <textarea asp-for="Input.Purpose" maxlength="2000"></textarea>
         </div>
+        }
     </div>
 
     @if (j == Journeys.NewWorkload)
@@ -251,6 +257,64 @@
                 <textarea asp-for="Input.Rationale" maxlength="2000"></textarea>
             </div>
         </div>
+    }
+
+
+    @if (j == Journeys.SeatReservation)
+    {
+        var ss = Model.SeatSettings;
+        var anniv = Governance.Application.Seats.SeatPolicy.NextAnniversary(ss, DateTime.UtcNow);
+        var opens = Governance.Application.Seats.SeatPolicy.TrueDownWindowOpens(ss, DateTime.UtcNow);
+        var windowOpen = Governance.Application.Seats.SeatPolicy.IsTrueDownWindowOpen(ss, DateTime.UtcNow);
+        <h2 class="mt">The seat reservation</h2>
+        <div class="alert alert-info">Copilot seats are the paid per-user Microsoft 365 Copilot license, counted in seats, never in credits.
+            Your LOB pays for its whole reservation every month, and for any seats assigned above it.
+            You can ask for more seats at any time. Seats can only be given back at the EA anniversary on @anniv.ToString("d MMMM yyyy"):
+            @(windowOpen ? "the window for decreases is open now." : $"a decrease asked for now is held until {opens:d MMMM yyyy} and does not change the reservation before the anniversary.")
+            People get their seat through their LOB's OIM role, not through this request.</div>
+        @if (Model.SeatLobs.Count == 0)
+        {
+            <div class="alert alert-warn">You hold no LOB role (business owner, delegated approver, finance partner or product owner) that can change a seat reservation.</div>
+        }
+        <div class="form-grid">
+            <div class="field">
+                <label asp-for="Input.FundingOwnerId" class="req">LOB <help>The line of business whose reservation changes. Only LOBs where you are the business owner, a delegated approver, the finance partner or a product owner are listed.</help></label>
+                <select asp-for="Input.FundingOwnerId" id="seatLob">
+                    <option value="">Choose…</option>
+                    @foreach (var l in Model.SeatLobs)
+                    {
+                        <option value="@l.FundingOwnerId" data-reserved="@(l.ReservedSeats ?? 0)" data-assigned="@(l.AssignedSeats?.ToString() ?? "not read yet")" data-group="@(l.TrackingGroup ?? "no tracking group mapped")" selected="@(Model.Input.FundingOwnerId == l.FundingOwnerId)">@l.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Today <help>The reservation in effect today, and the people in the LOB's tracking group who hold a Copilot seat at the last read-back. The request records the reservation in effect when you submit, not a number you type.</help></label>
+                <div id="seatNow" class="hint">
+                    @foreach (var l in Model.SeatLobs.Where(l => l.FundingOwnerId == Model.Input.FundingOwnerId))
+                    {
+                        <span>@(l.ReservedSeats ?? 0) seats reserved; @(l.AssignedSeats?.ToString() ?? "not read yet") assigned (@(l.TrackingGroup ?? "no tracking group mapped")).</span>
+                    }
+                </div>
+            </div>
+            <div class="field">
+                <label asp-for="Input.RequestedSeats" class="req">New total reservation (seats) <help>The LOB's whole reservation after the change, not the difference. More than today is an increase (any time); less is a true-down (only at the EA anniversary). Digital Workplace and Finance check unallocated seats, approved pending demand and the operational buffer first.</help></label>
+                <input asp-for="Input.RequestedSeats" type="number" min="0" step="1" />
+            </div>
+            <div class="field full">
+                <label asp-for="Input.SeatDemand" class="req">Who needs the seats and why <help>For an increase: the teams or roles, how many people and from when. For a decrease: why the seats are no longer needed. Finance uses this in the flex-pool review.</help></label>
+                <textarea asp-for="Input.SeatDemand" maxlength="2000"></textarea>
+            </div>
+        </div>
+        <script nonce-on>
+            (function () {
+                var sel = document.getElementById('seatLob'), now = document.getElementById('seatNow');
+                if (!sel || !now) return;
+                sel.addEventListener('change', function () {
+                    var o = sel.options[sel.selectedIndex];
+                    now.textContent = o && o.value ? (o.dataset.reserved + ' seats reserved; ' + o.dataset.assigned + ' assigned (' + o.dataset.group + ').') : '';
+                });
+            })();
+        </script>
     }
 
     @if (Model.CompletenessGaps.Count > 0)

@@ -31,6 +31,9 @@ public class NewModel(RegistryQueries registry, WorkQueries work, RequestCommand
     public string? AttributionBasis { get; private set; }
     public string? State { get; private set; }
     public string? ReturnReason { get; private set; }
+    /// <summary>J9: LOBs where the signed-in person may ask to change the seat reservation, with today's seat position.</summary>
+    public IReadOnlyList<SeatLobOption> SeatLobs { get; private set; } = Array.Empty<SeatLobOption>();
+    public Governance.Application.Seats.SeatSettings SeatSettings { get; private set; } = Governance.Application.Seats.SeatSettings.Default;
 
     public static readonly IReadOnlyList<(string Code, string Label)> MeterChoices = new[]
     {
@@ -123,7 +126,32 @@ public class NewModel(RegistryQueries registry, WorkQueries work, RequestCommand
         Workloads = await registry.WorkloadOptionsAsync();
         EnvironmentClasses = await registry.EnvironmentClassOptionsAsync();
         Caveats = await registry.CaveatsAsync();
-        _ = db;
+        if (Journey == Journeys.SeatReservation) await LoadSeatsAsync();
+    }
+
+    private async Task LoadSeatsAsync()
+    {
+        var lobs = Principal.Roles
+            .Where(r => r.ScopeType == ScopeTypes.FundingOwner && r.ScopeId is int && Governance.Application.Seats.SeatRequests.RequesterRoles.Contains(r.RoleCode))
+            .Select(r => r.ScopeId!.Value).Distinct().ToArray();
+        await using var c = await db.OpenUserAsync();
+        var today = DateTime.UtcNow.Date;
+        var settings = (await c.QueryAsync<(string SettingKey, string SettingValue)>("SELECT SettingKey, SettingValue FROM ref.Setting WHERE SettingKey LIKE 'Seats.%'"))
+            .ToDictionary(x => x.SettingKey, x => x.SettingValue);
+        SeatSettings = Governance.Application.Seats.SeatSettings.From(settings);
+        if (lobs.Length == 0) return;
+        SeatLobs = (await c.QueryAsync<SeatLobOption>(
+            """
+            SELECT fo.FundingOwnerId, fo.Name,
+                   (SELECT TOP (1) r.Seats FROM core.SeatReservation r
+                    WHERE r.FundingOwnerId = fo.FundingOwnerId AND r.EffectiveFrom <= @today AND (r.EffectiveTo IS NULL OR r.EffectiveTo >= @today)
+                    ORDER BY r.EffectiveFrom DESC, r.SeatReservationId DESC) AS ReservedSeats,
+                   p.AssignedSeats, p.TrackingGroup
+            FROM core.FundingOwner fo
+            OUTER APPLY (SELECT TOP (1) AssignedSeats, TrackingGroup FROM rpt.fn_SeatPosition(@today) x WHERE x.FundingOwnerId = fo.FundingOwnerId) p
+            WHERE fo.FundingOwnerId IN @lobs
+            ORDER BY fo.Name
+            """, new { lobs, today })).ToList();
     }
 }
 
@@ -169,6 +197,8 @@ public sealed class RequestInput
     public decimal? Quantity { get; set; }
     public string? Unit { get; set; }
     public string? Rationale { get; set; }
+    public int? RequestedSeats { get; set; }
+    public string? SeatDemand { get; set; }
 
     public RequestPayload ToPayload() => new()
     {
@@ -179,7 +209,7 @@ public sealed class RequestInput
         SupportContact = SupportContact, RequestedDeviation = RequestedDeviation, ProposedCompensatingControls = ProposedCompensatingControls, RequestedExpiry = RequestedExpiry,
         ChangeKind = ChangeKind, EnvironmentId = EnvironmentId, CurrentValue = CurrentValue, RequestedValue = RequestedValue, RequestTenantPool = RequestTenantPool,
         RetirementReason = RetirementReason, RetirementPlan = RetirementPlan, ReplacementWorkload = ReplacementWorkload, CommercialKind = CommercialKind, Quantity = Quantity,
-        Unit = Unit, Rationale = Rationale,
+        Unit = Unit, Rationale = Rationale, RequestedSeats = RequestedSeats, SeatDemand = SeatDemand,
     };
 
     public static RequestInput From(RequestRow r, RequestPayload p, Guid? workload) => new()
@@ -192,6 +222,16 @@ public sealed class RequestInput
         SupportContact = p.SupportContact, RequestedDeviation = p.RequestedDeviation, ProposedCompensatingControls = p.ProposedCompensatingControls, RequestedExpiry = p.RequestedExpiry,
         ChangeKind = p.ChangeKind, EnvironmentId = p.EnvironmentId, CurrentValue = p.CurrentValue, RequestedValue = p.RequestedValue, RequestTenantPool = p.RequestTenantPool,
         RetirementReason = p.RetirementReason, RetirementPlan = p.RetirementPlan, ReplacementWorkload = p.ReplacementWorkload, CommercialKind = p.CommercialKind, Quantity = p.Quantity,
-        Unit = p.Unit, Rationale = p.Rationale,
+        Unit = p.Unit, Rationale = p.Rationale, RequestedSeats = p.RequestedSeats, SeatDemand = p.SeatDemand,
     };
+}
+
+/// <summary>J9: an LOB the person can ask for, with its reservation in effect and the seats assigned at the last read-back.</summary>
+public sealed class SeatLobOption
+{
+    public int FundingOwnerId { get; init; }
+    public string Name { get; init; } = "";
+    public int? ReservedSeats { get; init; }
+    public int? AssignedSeats { get; init; }
+    public string? TrackingGroup { get; init; }
 }

@@ -59,6 +59,13 @@ public sealed class RequestPayload
     public Guid? CommercialItemPublicId { get; set; }
     public string? Rationale { get; set; }
 
+    // J9 Copilot seat reservation (seats, never credits)
+    public string? SeatChangeKind { get; set; }        // NEW, INCREASE, TRUE_DOWN (SeatChangeKinds); set by the engine
+    public int? CurrentSeats { get; set; }             // the reservation in effect, filled by the engine (not the form)
+    public int? RequestedSeats { get; set; }           // the LOB's new total reservation
+    public string? SeatDemand { get; set; }            // who needs the seats and why (or why seats can go)
+    public string? FlexPoolReview { get; set; }        // recorded by the Finance approver at S4 (CAL-06)
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
