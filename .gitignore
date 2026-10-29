@@ -27,3 +27,7 @@ Thumbs.db
 
 # Agent worktrees (local only)
 .claude/worktrees/
+
+# License Management walkthrough: generated audio and the share zip (rebuild with make-voice.ps1)
+docs/license-management/audio/
+docs/license-management/*.zip
