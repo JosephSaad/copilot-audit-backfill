@@ -236,3 +236,56 @@ ON t.SettingKey = s.SettingKey
 WHEN NOT MATCHED THEN INSERT (SettingKey, SettingValue, Description) VALUES (s.SettingKey, s.SettingValue, s.Description)
 WHEN MATCHED THEN UPDATE SET Description = s.Description;
 GO
+------------------------------------------------------------------------------------------------
+-- Seat position per LOB on a date, from the latest read-back. One row per active LOB, plus one row
+-- (FundingOwnerId NULL) for licensed people no LOB tracking group claims.
+--   ReservedSeats    the reservation in effect on @AsOf
+--   TrackingMembers  members of the LOB's tracking group
+--   AssignedSeats    tracking members who hold an active Copilot add-on seat
+--   OverSeats        AssignedSeats above ReservedSeats (billed on top, FIN-06)
+------------------------------------------------------------------------------------------------
+GO
+CREATE OR ALTER FUNCTION rpt.fn_SeatHolders ()
+RETURNS TABLE
+AS
+RETURN
+    SELECT DISTINCT h.MemberObjectId
+    FROM intg.SeatHolder h
+    JOIN core.SeatSku k ON k.SkuId = h.SkuId AND k.Kind = 'COPILOT_ADDON' AND k.IsActive = 1
+    WHERE h.State IN ('Active','ActiveWithError');
+GO
+CREATE OR ALTER FUNCTION rpt.fn_SeatPosition (@AsOf date)
+RETURNS TABLE
+AS
+RETURN
+    WITH lob AS
+    (
+        SELECT fo.FundingOwnerId, fo.Code, fo.Name, g.SeatGroupId, g.EntraGroupId, g.DisplayName AS TrackingGroup,
+               (SELECT TOP (1) r.Seats FROM core.SeatReservation r
+                WHERE r.FundingOwnerId = fo.FundingOwnerId AND r.EffectiveFrom <= @AsOf AND (r.EffectiveTo IS NULL OR r.EffectiveTo >= @AsOf)
+                ORDER BY r.EffectiveFrom DESC) AS ReservedSeats
+        FROM core.FundingOwner fo
+        LEFT JOIN core.SeatGroup g ON g.FundingOwnerId = fo.FundingOwnerId AND g.Purpose = 'LOB_TRACKING'
+             AND g.EffectiveFrom <= @AsOf AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @AsOf)
+        WHERE fo.Status IN ('ACTIVE','SUSPENDED')
+          AND (g.SeatGroupId IS NOT NULL OR EXISTS (SELECT 1 FROM core.SeatReservation r WHERE r.FundingOwnerId = fo.FundingOwnerId))
+    ),
+    counted AS
+    (
+        SELECT l.FundingOwnerId, l.Code, l.Name, l.SeatGroupId, l.TrackingGroup, ISNULL(l.ReservedSeats, 0) AS ReservedSeats,
+               (SELECT COUNT(*) FROM intg.GroupMember gm WHERE gm.GroupId = l.EntraGroupId) AS TrackingMembers,
+               (SELECT COUNT(*) FROM intg.GroupMember gm JOIN rpt.fn_SeatHolders() s ON s.MemberObjectId = gm.MemberObjectId
+                WHERE gm.GroupId = l.EntraGroupId) AS AssignedSeats
+        FROM lob l
+    )
+    SELECT FundingOwnerId, Code, Name, SeatGroupId, TrackingGroup, ReservedSeats, TrackingMembers, AssignedSeats,
+           CASE WHEN AssignedSeats > ReservedSeats THEN AssignedSeats - ReservedSeats ELSE 0 END AS OverSeats
+    FROM counted
+    UNION ALL
+    SELECT NULL, NULL, N'No LOB', NULL, NULL, 0, 0, COUNT(*), COUNT(*)
+    FROM rpt.fn_SeatHolders() s
+    WHERE NOT EXISTS (SELECT 1 FROM intg.GroupMember gm
+                      JOIN core.SeatGroup g ON g.EntraGroupId = gm.GroupId AND g.Purpose = 'LOB_TRACKING'
+                           AND g.EffectiveFrom <= @AsOf AND (g.EffectiveTo IS NULL OR g.EffectiveTo >= @AsOf)
+                      WHERE gm.MemberObjectId = s.MemberObjectId);
+GO
