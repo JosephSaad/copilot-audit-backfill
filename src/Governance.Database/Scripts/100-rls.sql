@@ -74,6 +74,10 @@ RETURN
     FROM sec.fn_FundingOwnerAccess(@FundingOwnerId)
     WHERE @FundingOwnerId IS NOT NULL
     UNION ALL
+    -- Readers and owners see tenant-level and request-only rows too (the first branch needs a funding owner).
+    SELECT 1
+    WHERE @FundingOwnerId IS NULL AND (IS_MEMBER(N'gov_reader') = 1 OR IS_MEMBER(N'db_owner') = 1)
+    UNION ALL
     SELECT 1
     WHERE (IS_MEMBER(N'app_web') = 1 OR IS_MEMBER(N'app_worker') = 1)
       AND (   (@FundingOwnerId IS NULL AND @RequestId IS NULL)
