@@ -72,6 +72,7 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
             log.WriteLine($"Already seeded (Seed.Version {marker}); loading IDs only.");
             await LoadAsync(conn, result);
             result.AlreadySeeded = true;
+            await SeatDemoSeeder.SeedAsync(conn, result, _today, log);
             return result;
         }
         if (marker is not null && await conn.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM wf.Request") > 0)
@@ -348,6 +349,7 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
             new { v = Version }, tx);
         await tx.CommitAsync();
         log.WriteLine("Foundation seeded; intake is open.");
+        await SeatDemoSeeder.SeedAsync(conn, result, _today, log);
         return result;
     }
 

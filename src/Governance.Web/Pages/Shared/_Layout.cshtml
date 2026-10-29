@@ -72,6 +72,10 @@
             <a class="@Cls("/Registry/FundingOwners")" href="/Registry/FundingOwners">Funding owners</a>
             <a class="@Cls("/Registry/Workloads")" href="/Registry/Workloads">Workloads</a>
             <a class="@Cls("/Registry/Envelopes")" href="/Registry/Envelopes">Envelopes</a>
+            @if (Governance.Web.Pages.Registry.SeatsModel.CanOpen(Me))
+            {
+                <a class="@Cls("/Registry/Seats")" href="/Registry/Seats">Copilot seats</a>
+            }
             <a class="@Cls("/Registry/Services")" href="/Registry/Services">Services</a>
             <a class="@Cls("/Registry/Templates")" href="/Registry/Templates">Control templates</a>
             @if (central)
@@ -106,6 +110,7 @@
                 <div class="nav-title">Reports</div>
                 <a class="@Cls("/Reports/Kpis")" href="/Reports/Kpis">Governance KPIs</a>
                 <a class="@Cls("/Reports/Audit")" href="/Reports/Audit">Audit</a>
+                <a class="@Cls("/Reports/SeatChargeback")" href="/Reports/SeatChargeback">Seat chargeback</a>
             </div>
         }
         @if (admin)
@@ -120,6 +125,7 @@
                     <a class="@Cls("/Admin/Notifications")" href="/Admin/Notifications">Notifications</a>
                 }
                 <a class="@Cls("/Admin/Roles")" href="/Admin/Roles">Roles</a>
+                <a class="@Cls("/Admin/SeatGroups")" href="/Admin/SeatGroups">Seat groups</a>
                 @if (isAdmin)
                 {
                     <a class="@Cls("/Admin/Integrations")" href="/Admin/Integrations">Integrations</a>

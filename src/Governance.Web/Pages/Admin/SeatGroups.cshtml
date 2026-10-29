@@ -1,0 +1,131 @@
+@page "/Admin/SeatGroups"
+@model Governance.Web.Pages.Admin.SeatGroupsModel
+@{
+    ViewData["Title"] = "Seat groups";
+    var e = Model.Editing;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Admin</div>
+        <h1>Copilot seat groups</h1>
+        <p class="lead">The groups behind Copilot seats. One shared license group gives the license; each LOB's tracking group says whose seat it is. The groups live in on-premises AD and are provisioned by OIM roles through ServiceNow: the Workbench only reads them. <help>The worker finds each group in Entra by its name, reads its members, and reports whether it is synced from AD and whether it nests other groups (group-based licensing ignores members of nested groups).</help></p>
+    </div>
+</div>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr>
+            <partial name="_Th" model='("", "Group", "The group name as it shows in Entra, and the OIM role that fills it.")' />
+            <partial name="_Th" model='("", "Purpose", "What the Workbench uses the group for. Unconfirmed purposes raise no findings.")' />
+            <partial name="_Th" model='("", "LOB", "For a tracking group: the LOB its members belong to.")' />
+            <partial name="_Th" model='("", "Last read", "Found in Entra, synced from AD, members and nested groups, from the latest license read.")' />
+            <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody>
+        @if (Model.Groups.Count == 0) { <tr><td colspan="5" class="muted">No seat group mapped yet. Start with the shared license group, then one tracking group per LOB.</td></tr> }
+        @foreach (var g in Model.Groups)
+        {
+            var purpose = Governance.Web.Pages.Admin.SeatGroupsModel.Purposes.TryGetValue(g.Purpose, out var pp) ? pp.Label : g.Purpose;
+            <tr>
+                <td data-label="Group"><strong class="mono">@g.DisplayName</strong>@if (g.OimRoleName is not null) { <div class="small muted">OIM role: @g.OimRoleName</div> }@if (g.Notes is not null) { <div class="small">@g.Notes</div> }</td>
+                <td data-label="Purpose">@purpose @if (!g.PurposeConfirmed) { <span class="pill pill-warn">To confirm</span> } <div class="small muted">@(g.Source == "ON_PREM_AD" ? "On-premises AD" : "Cloud")</div></td>
+                <td data-label="LOB">@g.LobName</td>
+                <td data-label="Last read">
+                    @if (g.ReadUtc is null) { <span class="muted">Not read yet</span> }
+                    else if (g.Found == false) { <span class="pill pill-bad">Not found in Entra</span> }
+                    else
+                    {
+                        <span>@Ui.Num(g.UserMembers) members</span>
+                        @if ((g.NestedGroups ?? 0) > 0) { <span class="pill pill-bad">@g.NestedGroups nested groups</span> }
+                        <div class="small muted">@(g.OnPremisesSynced == true ? "Synced from AD" : g.OnPremisesSynced == false ? "Cloud group" : "") · @Ui.Ago(g.ReadUtc)</div>
+                    }
+                </td>
+                <td>
+                    @if (Model.CanEdit)
+                    {
+                        <div class="btn-row">
+                            <a class="btn btn-small btn-ghost" href="?edit=@g.PublicId#group-form">Change</a>
+                            <form method="post" asp-page-handler="End" asp-route-id="@g.PublicId" class="inline" data-confirm="Stop using @g.DisplayName? Its history is kept."><idem /><button class="btn btn-small btn-ghost" type="submit">End</button></form>
+                        </div>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+@if (Model.CanEdit)
+{
+    <form method="post" asp-page-handler="Save" asp-route-id="@e?.PublicId" class="card mt" id="group-form">
+        <idem />
+        <h2>@(e is null ? "Add a group" : "Change " + e.DisplayName)</h2>
+        <div class="form-grid">
+            <div class="field"><label for="gn" class="req">Group name <help>Exactly as it shows in Entra, for example GSGu_MCO_RetailTracking.</help></label><input id="gn" name="displayName" value="@e?.DisplayName" maxlength="256" required /></div>
+            <div class="field"><label for="gp" class="req">Purpose <help>License: gives the seat. LOB tracking: says whose seat it is. Exclusion: people who must not hold a seat. The others are for reference.</help></label>
+                <select id="gp" name="purpose" required>@foreach (var kv in Governance.Web.Pages.Admin.SeatGroupsModel.Purposes) { <option value="@kv.Key" selected="@(e?.Purpose == kv.Key)">@kv.Value.Label</option> }</select></div>
+            <div class="field"><label for="gl">LOB <help>Only for a tracking group: the LOB its members are charged to. One tracking group per LOB.</help></label>
+                <select id="gl" name="fundingOwnerId"><option value="">None</option>@foreach (var o in Model.Lobs) { <option value="@o.Value" selected="@(e?.FundingOwnerId?.ToString() == o.Value)">@o.Text</option> }</select></div>
+            <div class="field"><label for="go">OIM role <help>The OIM role that puts people in this group, for example "Retail . M365 Copilot License . Role". Reclaim tasks name it.</help></label><input id="go" name="oimRoleName" value="@e?.OimRoleName" maxlength="300" /></div>
+            <div class="field"><label for="gs" class="req">Source <help>On-premises AD groups are synced to Entra and can only be changed in AD.</help></label>
+                <select id="gs" name="source"><option value="ON_PREM_AD" selected="@(e is null || e.Source == "ON_PREM_AD")">On-premises AD</option><option value="CLOUD" selected="@(e?.Source == "CLOUD")">Cloud</option></select></div>
+            <div class="field"><label for="ge">Entra object ID <help>Optional. Leave empty and the worker finds the group by name.</help></label><input id="ge" name="entraGroupId" value="@e?.EntraGroupId" maxlength="36" /></div>
+            <div class="field"><label class="check"><input type="checkbox" name="purposeConfirmed" value="true" checked="@(e?.PurposeConfirmed ?? false)" /> Purpose confirmed <help>Tick once the group's owner has confirmed what it is for. Findings that depend on the purpose (for example exclusion) start only after that.</help></label></div>
+            <div class="field full"><label for="gx">Notes <help>Anything worth knowing, for example who confirmed the purpose.</help></label><input id="gx" name="notes" value="@e?.Notes" maxlength="1000" /></div>
+        </div>
+        <div class="btn-row mt"><button class="btn" type="submit">@(e is null ? "Add" : "Save the change")</button>@if (e is not null) { <a class="btn btn-ghost" href="/Admin/SeatGroups">Cancel</a> }</div>
+    </form>
+}
+
+<h2 class="mt">Copilot SKUs <help>Which Microsoft 365 SKUs count. The add-on is the paid seat reserved per LOB. Suites that already include Copilot (for example E7) let the Workbench spot people who pay twice.</help></h2>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr>
+            <partial name="_Th" model='("", "SKU", "Name, part number and SKU ID from the Microsoft 365 admin center.")' />
+            <partial name="_Th" model='("", "Kind", "The Copilot add-on, or a suite that includes Copilot.")' />
+            <partial name="_Th" model='("", "Purchased and assigned", "Enabled and consumed units from the latest read.")' />
+        </tr></thead>
+        <tbody>
+        @if (Model.Skus.Count == 0) { <tr><td colspan="3" class="muted">No SKU recorded. Add the Copilot add-on below, with its SKU ID.</td></tr> }
+        @foreach (var k in Model.Skus)
+        {
+            <tr>
+                <td data-label="SKU"><strong>@k.Name</strong>@if (!k.IsActive) { <span class="pill">Not used</span> }<div class="small muted mono">@k.SkuPartNumber · @k.SkuId</div></td>
+                <td data-label="Kind">@(k.Kind == "COPILOT_ADDON" ? "Copilot add-on (reserved seat)" : "Includes Copilot")</td>
+                <td data-label="Purchased and assigned">@(k.EnabledUnits is null ? "Not read" : Ui.Num(k.ConsumedUnits) + " of " + Ui.Num(k.EnabledUnits))</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+@if (Model.CanEdit)
+{
+    <form method="post" asp-page-handler="Sku" class="card mt">
+        <idem />
+        <h2>Add or change a SKU</h2>
+        <div class="form-grid">
+            <div class="field"><label for="ki" class="req">SKU ID <help>The GUID from the Microsoft 365 admin center or Graph subscribedSkus. Entering an existing ID changes that SKU.</help></label><input id="ki" name="skuId" maxlength="36" required /></div>
+            <div class="field"><label for="kp" class="req">Part number <help>For example Microsoft_365_Copilot.</help></label><input id="kp" name="partNumber" maxlength="100" required /></div>
+            <div class="field"><label for="kn">Name <help>The product name people know.</help></label><input id="kn" name="name" maxlength="200" /></div>
+            <div class="field"><label for="kk" class="req">Kind <help>Add-on: the paid seat. Includes Copilot: a suite such as E7.</help></label><select id="kk" name="kind"><option value="COPILOT_ADDON">Copilot add-on</option><option value="INCLUDES_COPILOT">Includes Copilot</option></select></div>
+            <div class="field"><label class="check"><input type="checkbox" name="isActive" value="true" checked /> In use <help>Untick to ignore the SKU without deleting it.</help></label></div>
+            <div class="field full"><label for="kx">Notes <help>For example the contract reference.</help></label><input id="kx" name="notes" maxlength="1000" /></div>
+        </div>
+        <button class="btn mt" type="submit">Save SKU</button>
+    </form>
+}
+
+<h2 class="mt">Seat settings <help>Policy parameters the worker and the pages use. Finance owns the values marked open; a database administrator changes them in ref.Setting until a settings page exists.</help></h2>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr>
+            <partial name="_Th" model='("", "Setting", "The setting key.")' />
+            <partial name="_Th" model='("", "Value", "The value in use.")' />
+            <partial name="_Th" model='("", "What it does", "Description of the setting.")' />
+        </tr></thead>
+        <tbody>
+        @foreach (var s in Model.Settings)
+        {
+            <tr><td data-label="Setting" class="mono">@s.SettingKey</td><td data-label="Value"><strong>@s.SettingValue</strong></td><td data-label="What it does">@s.Description</td></tr>
+        }
+        </tbody>
+    </table>
+</div>

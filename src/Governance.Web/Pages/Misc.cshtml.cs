@@ -51,7 +51,10 @@ public class ActAsModel(TestingOptions testing, Db db) : GovPage
                    COALESCE(STUFF((SELECT ', ' + rd.Name + COALESCE(' (' + fo.Name + ')', '') FROM sec.RoleAssignment ra JOIN sec.RoleDefinition rd ON rd.RoleCode = ra.RoleCode
                                    LEFT JOIN core.FundingOwner fo ON fo.FundingOwnerId = ra.ScopeId
                                    WHERE ra.PersonId = p.PersonId AND (ra.EffectiveTo IS NULL OR ra.EffectiveTo >= CAST(SYSUTCDATETIME() AS date)) FOR XML PATH('')), 1, 2, ''), 'No roles')
-            FROM sec.Person p WHERE p.IsSynthetic = 1 AND p.AccountEnabled = 1 ORDER BY p.DisplayName
+            FROM sec.Person p WHERE p.IsSynthetic = 1 AND p.AccountEnabled = 1
+              -- Synthetic seat holders of the Copilot seat demo (they carry an object ID and no role) are not personas.
+              AND (p.EntraObjectId IS NULL OR EXISTS (SELECT 1 FROM sec.RoleAssignment r WHERE r.PersonId = p.PersonId))
+            ORDER BY p.DisplayName
             """)).ToList();
         return Page();
     }
