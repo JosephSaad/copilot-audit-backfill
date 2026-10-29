@@ -356,7 +356,9 @@ public sealed class DemoSeeder(string connectionString, DateTime todayUtc)
     /// <summary>Reads back the IDs of an already seeded database (personas by mail, funding owners, services...).</summary>
     public static async Task LoadAsync(SqlConnection conn, SeedResult result)
     {
-        var byMail = (await conn.QueryAsync<(int PersonId, string Mail)>("SELECT PersonId, Mail FROM sec.Person WHERE IsSynthetic = 1")).ToDictionary(x => x.Mail, x => x.PersonId);
+        // Synthetic seat holders have no mail; personas are matched by mail (first one wins if repeated).
+        var byMail = (await conn.QueryAsync<(int PersonId, string Mail)>("SELECT PersonId, Mail FROM sec.Person WHERE IsSynthetic = 1 AND Mail IS NOT NULL ORDER BY PersonId"))
+            .GroupBy(x => x.Mail, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().PersonId, StringComparer.OrdinalIgnoreCase);
         foreach (var p in Personas.All())
             if (byMail.TryGetValue(Personas.MailFor(p.DisplayName), out var id)) result.People[p.Key] = id;
         foreach (var (id, code) in await conn.QueryAsync<(int, string)>("SELECT FundingOwnerId, Code FROM core.FundingOwner")) result.FundingOwners[code] = id;
