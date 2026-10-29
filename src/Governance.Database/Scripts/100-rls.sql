@@ -105,6 +105,10 @@ CREATE SECURITY POLICY sec.FundingOwnerPolicy
     ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON ops.Finding,
     ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, RequestId) ON evd.Attestation,
     ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, RequestId) ON evd.Verification,
-    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON evd.EvidenceItem
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON evd.EvidenceItem,
+    ADD FILTER PREDICATE sec.fn_FundingOwnerAccess(FundingOwnerId) ON core.SeatReservation,
+    ADD FILTER PREDICATE sec.fn_FundingOwnerAccess(FundingOwnerId) ON core.SeatReservationHistory,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON core.SeatChargeSnapshot,
+    ADD FILTER PREDICATE sec.fn_ChildAccess(FundingOwnerId, NULL) ON core.SeatReclaim
 WITH (STATE = ON, SCHEMABINDING = ON);
 GO

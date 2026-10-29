@@ -49,6 +49,7 @@ public static class IntegrationCodes
     public const string TeamsActivity = "X10";
     public const string TeamsChannel = "X11";
     public const string AgentKit = "X12";
+    public const string Seats = "X13";
 
     public static readonly IReadOnlyList<(string Code, string Name, TimeSpan Fresh)> All = new[]
     {
@@ -57,6 +58,7 @@ public static class IntegrationCodes
         (AccessReviews, "Entra access reviews", TimeSpan.FromDays(2)),
         (Inventory, "Power Platform inventory (operator-run)", TimeSpan.FromDays(7)),
         (Licensing, "Power Platform licensing", TimeSpan.FromHours(26)),
+        (Seats, "Copilot seat licenses (Graph)", TimeSpan.FromHours(26)),
         (M365Attestation, "Microsoft 365 settings (attestation)", TimeSpan.FromDays(35)),
         (Registry, "Agent Registry export", TimeSpan.FromDays(35)),
         (Itsm, "ITSM", TimeSpan.FromMinutes(15)),

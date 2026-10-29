@@ -25,6 +25,9 @@ EXEC (@sql);
 GRANT DELETE ON sec.TokenCache        TO app_web;
 GRANT DELETE ON sec.TokenCache        TO app_worker;
 GRANT DELETE ON intg.GroupMember      TO app_worker;
+GRANT DELETE ON intg.SeatHolder       TO app_worker;
+GRANT DELETE ON intg.CopilotActivity  TO app_worker;
+GRANT DELETE ON core.SeatChargeSnapshot TO app_worker;   -- draft snapshots are retaken; the trigger refuses certified ones
 GRANT DELETE ON wf.TaskExclusion      TO app_web;
 GRANT DELETE ON wf.TaskExclusion      TO app_worker;
 GRANT DELETE ON ntf.Outbox            TO app_worker;

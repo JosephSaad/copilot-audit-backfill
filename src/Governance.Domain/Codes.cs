@@ -12,9 +12,10 @@ public static class Journeys
     public const string Recertification = "J6";
     public const string Retirement = "J7";
     public const string Commercial = "J8";
+    public const string SeatReservation = "J9";
 
     /// <summary>Journeys that run as a request through the workflow engine.</summary>
-    public static readonly IReadOnlySet<string> WithStages = new HashSet<string> { NewWorkload, Exception, CapacityChange, Retirement, Commercial };
+    public static readonly IReadOnlySet<string> WithStages = new HashSet<string> { NewWorkload, Exception, CapacityChange, Retirement, Commercial, SeatReservation };
 }
 
 public static class Stages
@@ -37,6 +38,7 @@ public static class Stages
     public const string FinOpsRecommendation = "F1";
     public const string CommercialDecision = "F4";
     public const string SourcingExecutes = "F5";
+    public const string SeatDecision = "S4";
 }
 
 public static class RequestStates
@@ -353,6 +355,55 @@ public static class FindingTypes
     public const string AttestationOverdue = "ATTESTATION_OVERDUE";
     public const string UnmatchedRegistryAgent = "UNMATCHED_REGISTRY_AGENT";
     public const string ExceptionExpired = "EXCEPTION_EXPIRED";
+    // Copilot seat licenses
+    public const string SeatOverReservation = "SEAT_OVER_RESERVATION";
+    public const string SeatReservationsOverInventory = "SEAT_RESERVED_OVER_PURCHASED";
+    public const string SeatNoLob = "SEAT_NO_LOB";
+    public const string SeatTwoLobs = "SEAT_TWO_LOBS";
+    public const string SeatTrackedNoLicense = "SEAT_TRACKED_NO_LICENSE";
+    public const string SeatDirectAssignment = "SEAT_DIRECT_ASSIGNMENT";
+    public const string SeatLicenseError = "SEAT_LICENSE_ERROR";
+    public const string SeatLeaver = "SEAT_LEAVER";
+    public const string SeatExcludedHolder = "SEAT_EXCLUDED_HOLDER";
+    public const string SeatPaidTwice = "SEAT_PAID_TWICE";
+    public const string SeatNestedGroup = "SEAT_NESTED_GROUP";
+    public const string SeatGroupMissing = "SEAT_GROUP_MISSING";
+    public const string SeatCostCenterMismatch = "SEAT_COST_CENTER_MISMATCH";
+}
+
+/// <summary>Copilot seat licenses reserved per LOB (core.SeatGroup, core.SeatReservation).</summary>
+public static class SeatGroupPurposes
+{
+    public const string License = "LICENSE";
+    public const string LobTracking = "LOB_TRACKING";
+    public const string Exclusion = "EXCLUSION";
+    public const string ChatOnly = "CHAT_ONLY";
+    public const string Manager = "MANAGER";
+    public const string Other = "OTHER";
+}
+
+public static class SeatChangeKinds
+{
+    public const string Initial = "INITIAL";
+    public const string New = "NEW";
+    public const string Increase = "INCREASE";
+    public const string TrueDown = "TRUE_DOWN";
+    public const string Correction = "CORRECTION";
+}
+
+public static class SeatSkuKinds
+{
+    public const string CopilotAddOn = "COPILOT_ADDON";
+    public const string IncludesCopilot = "INCLUDES_COPILOT";
+}
+
+public static class SeatReclaimStatuses
+{
+    public const string Proposed = "PROPOSED";
+    public const string Keep = "KEEP";
+    public const string Reclaim = "RECLAIM";
+    public const string Removed = "REMOVED";
+    public const string Cancelled = "CANCELLED";
 }
 
 public static class DecisionSources
