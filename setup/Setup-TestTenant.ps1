@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Sets up a Microsoft 365 tenant for the Copilot Governance Workbench test environment.
 
@@ -576,7 +576,7 @@ if ($Steps -contains 'Seats') {
         Invoke-Graph -Method PATCH -Uri "/applications/$($workerApp['id'])" -Body @{ requiredResourceAccess = @($others + $newGraph) } | Out-Null
         Write-Done "Worker app now asks for LicenseAssignment.Read.All and Reports.Read.All"
     }
-    $granted = @(Get-GraphAll "/servicePrincipals/$($cfg['workerServicePrincipalId'])/appRoleAssignments" | ForEach-Object { $_['appRoleId'] })
+    $granted = @((Get-GraphAll "/servicePrincipals/$($cfg['workerServicePrincipalId'])/appRoleAssignments") | ForEach-Object { $_['appRoleId'] })
     if (@($wanted | Where-Object { $granted -notcontains $_ }).Count -gt 0) {
         $url = "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$($cfg['workerClientId'])/isMSAApp~/false"
         Write-Note "Worker app: click 'Grant admin consent' on $url"
@@ -585,7 +585,7 @@ if ($Steps -contains 'Seats') {
         $deadline = (Get-Date).AddMinutes(15)
         do {
             [System.Threading.Thread]::Sleep(10000)
-            $granted = @(Get-GraphAll "/servicePrincipals/$($cfg['workerServicePrincipalId'])/appRoleAssignments" | ForEach-Object { $_['appRoleId'] })
+            $granted = @((Get-GraphAll "/servicePrincipals/$($cfg['workerServicePrincipalId'])/appRoleAssignments") | ForEach-Object { $_['appRoleId'] })
         } while (@($wanted | Where-Object { $granted -notcontains $_ }).Count -gt 0 -and (Get-Date) -lt $deadline)
         if (@($wanted | Where-Object { $granted -notcontains $_ }).Count -gt 0) { Write-Note 'Consent not seen yet; rerun with -Steps Seats after approving.' }
         else { Write-Done 'LicenseAssignment.Read.All and Reports.Read.All granted' }
