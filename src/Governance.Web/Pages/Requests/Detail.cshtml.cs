@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Governance.Web.Pages.Requests;
 
-public class DetailModel(WorkQueries work, RegistryQueries registry, RequestCommands commands) : GovPage
+public class DetailModel(WorkQueries work, RegistryQueries registry, RequestCommands commands, Application.Data.Db db) : GovPage
 {
     [BindProperty(SupportsGet = true)] public Guid Id { get; set; }
 
@@ -27,6 +27,8 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
     public IReadOnlyList<string> CompletenessGaps { get; private set; } = Array.Empty<string>();
     /// <summary>The envelope this request draws on, for the people deciding it.</summary>
     public EnvelopeHeadroomView? Envelope { get; private set; }
+    /// <summary>J9: the seat change and the figures the Finance decider weighs (Section 4.4), computed today.</summary>
+    public Application.Seats.SeatRequests.Facts? Seat { get; private set; }
 
     // D1: what the verifier entered, kept when the form is shown again after a refusal.
     public string? VerifyError { get; private set; }
@@ -81,6 +83,8 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
             People = await registry.PeopleInScopeAsync(d.Request.FundingOwnerId);
             if (d.Request.EnvelopeId is int env) Envelope = await work.EnvelopeHeadroomAsync(env);
         }
+        if (d.Request.JourneyCode == Journeys.SeatReservation && d.Request.State is not ("COMPLETED" or "CANCELLED" or "CLOSED" or "DECLINED"))
+            Seat = await db.InTransactionAsync(u => Application.Seats.SeatRequests.FactsAsync(u, d.Request, DateTime.UtcNow));
         if (open.Any(t => t.TaskType == TaskTypes.Verification))
         {
             var serviceId = d.Request.ServiceId ?? d.Workload?.ServiceId;
@@ -112,7 +116,7 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
         var from = D.Transitions.Where(x => x.FromStage == t.StageCode).Select(x => x.Outcome).ToHashSet();
         var list = new List<(string, string)> { ("APPROVED", t.StageCode == Stages.ProductionAcceptance ? "Accept" : "Approve"), ("APPROVED_WITH_CONDITIONS", t.StageCode == Stages.ProductionAcceptance ? "Accept with conditions" : "Approve with conditions") };
         if (from.Contains("CONSTRAINED_PILOT")) list.Add(("CONSTRAINED_PILOT", "Constrained pilot"));
-        if (from.Contains("HOLD")) list.Add(("HOLD", "Hold for evidence"));
+        if (from.Contains("HOLD")) list.Add(("HOLD", D.Request.JourneyCode == Journeys.SeatReservation ? "Hold (until the window or more evidence)" : "Hold for evidence"));
         list.Add(("DECLINED", t.StageCode == Stages.ProductionAcceptance ? "Reject: back to build and test" : "Decline"));
         return list;
     }
@@ -163,10 +167,11 @@ public class DetailModel(WorkQueries work, RegistryQueries registry, RequestComm
         => Act(() => commands.CompleteAsync(Idem, task, outcome, notes, Upload(file), evidenceType), "The request moved on.");
 
     public Task<IActionResult> OnPostDecideAsync(Guid task, string outcome, string scope, string? conditions, string? reason, string? evidence,
-        DateTime? expires, DateTime? review, string? conditionText, int? conditionOwner, DateTime? conditionDue, IFormFile? file)
+        DateTime? expires, DateTime? review, string? conditionText, int? conditionOwner, DateTime? conditionDue, IFormFile? file, string? flexPoolReview)
     {
         var conds = string.IsNullOrWhiteSpace(conditionText) ? null : new List<ConditionInput> { new(conditionText, conditionOwner, conditionDue) };
-        return Act(() => commands.DecideAsync(Idem, task, new DecisionInput(outcome, scope, conditions ?? conditionText, reason, evidence, expires, review, conds), Upload(file)),
+        return Act(() => commands.DecideAsync(Idem, task, new DecisionInput(outcome, scope, conditions ?? conditionText, reason, evidence, expires, review, conds,
+                FlexPoolReview: flexPoolReview), Upload(file)),
             _ => "Decision recorded in the ledger. The people involved are notified.");
     }
 

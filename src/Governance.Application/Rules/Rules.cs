@@ -67,6 +67,11 @@ public static class CompletenessCheck
                 if (p.Quantity is null || string.IsNullOrWhiteSpace(p.Unit)) missing.Add("Give the quantity and its unit.");
                 if (string.IsNullOrWhiteSpace(p.Rationale)) missing.Add("Give the rationale.");
                 break;
+            case Journeys.SeatReservation:
+                if (p.RequestedSeats is null or < 0) missing.Add("Give the LOB's new total seat reservation.");
+                else if (p.RequestedSeats == (p.CurrentSeats ?? 0)) missing.Add("The requested seats equal the current reservation: nothing changes.");
+                if (string.IsNullOrWhiteSpace(p.SeatDemand)) missing.Add("Say who needs the seats and why (or why the seats can be given back).");
+                break;
         }
         foreach (var d in f.DuplicateRequestNumbers) missing.Add($"Possible duplicate of {d}: link or withdraw one of them.");
         return RuleResult.From(missing);

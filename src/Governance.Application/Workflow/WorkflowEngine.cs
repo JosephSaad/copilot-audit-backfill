@@ -3,6 +3,7 @@ using Governance.Application.Data;
 using Governance.Application.Outbox;
 using Governance.Application.Requests;
 using Governance.Application.Rules;
+using Governance.Application.Seats;
 using Governance.Application.Sla;
 using Governance.Domain;
 using Microsoft.Extensions.Logging;
@@ -19,7 +20,8 @@ public sealed record DecisionInput(
     DateTime? ExpiresOn,
     DateTime? NextReviewOn,
     IReadOnlyList<ConditionInput>? Conditions = null,
-    Guid? OnBehalfOfPersonPublicId = null);
+    Guid? OnBehalfOfPersonPublicId = null,
+    string? FlexPoolReview = null);
 
 public sealed record ConditionInput(string Text, int? OwnerPersonId, DateTime? DueOn);
 
@@ -45,6 +47,7 @@ public sealed class WorkflowEngine(
     {
         if (!Journeys.WithStages.Contains(journeyCode)) throw new DomainException("This journey does not use a request.");
         if (string.IsNullOrWhiteSpace(title)) throw new DomainException("Give the request a title.");
+        if (journeyCode == Journeys.SeatReservation) await SeatRequests.PrepareAsync(uow, actor.PersonId, fundingOwnerId, payload, clock.UtcNow);
         var defId = await uow.ScalarAsync<int?>("SELECT DefinitionId FROM wf.WorkflowDefinition WHERE JourneyCode = @journeyCode AND IsActive = 1", new { journeyCode })
                     ?? throw new DomainException("This journey has no active definition.");
         var seq = await uow.ScalarAsync<long>("SELECT NEXT VALUE FOR wf.RequestNumber");
@@ -75,6 +78,7 @@ public sealed class WorkflowEngine(
         if (r.RequesterPersonId != actor.PersonId) throw new DomainException("Only the requester can edit this request.");
         if (r.State is not (RequestStates.Draft or RequestStates.Returned or RequestStates.Declined))
             throw new DomainException("The request can be edited only as a draft or after it was returned.");
+        if (r.JourneyCode == Journeys.SeatReservation) await SeatRequests.PrepareAsync(uow, actor.PersonId, fundingOwnerId, payload, clock.UtcNow);
         var n = await uow.ExecuteAsync(
             """
             UPDATE wf.Request SET Title = @title, Summary = @summary, FundingOwnerId = @fundingOwnerId, ServiceId = @serviceId,
@@ -100,6 +104,13 @@ public sealed class WorkflowEngine(
         var intakeOpen = await uow.ScalarAsync<string>("SELECT SettingValue FROM ref.Setting WHERE SettingKey = 'Intake.Open'");
         if (!string.Equals(intakeOpen, "true", StringComparison.OrdinalIgnoreCase))
             throw new DomainException("Intake is not open yet: the foundation steps (section 4.1) must be finished first.");
+        if (r.JourneyCode == Journeys.SeatReservation)
+        {
+            // The reservation in effect may have changed since the draft was saved: take it again now.
+            var seatPayload = RequestPayload.FromJson(r.PayloadJson);
+            await SeatRequests.PrepareAsync(uow, actor.PersonId, r.FundingOwnerId, seatPayload, clock.UtcNow);
+            await uow.ExecuteAsync("UPDATE wf.Request SET PayloadJson = @json WHERE RequestId = @requestId", new { json = seatPayload.ToJson(), requestId });
+        }
 
         var first = (await uow.QueryAsync<StageDefinition>(
             "SELECT TOP (1) * FROM wf.StageDefinition WHERE DefinitionId = @DefinitionId AND StageCode <> 'B7' ORDER BY SortOrder", new { r.DefinitionId }))
@@ -264,6 +275,21 @@ public sealed class WorkflowEngine(
                 throw new DomainException(string.Join(" ", check.Reasons) + " Escalate to the business owner.");
         }
 
+        // J9 (S4): the seat reservation rules (CAL-04, CAL-06, Section 4.4); the flex-pool review is kept on the request.
+        var conditionsText = input.ConditionsText;
+        if (r.JourneyCode == Journeys.SeatReservation && t.StageCode == Stages.SeatDecision && Outcomes.Positive.Contains(input.Outcome))
+        {
+            var facts = await SeatRequests.FactsAsync(uow, r, clock.UtcNow);
+            conditionsText = SeatRequests.CheckApproval(facts, input.FlexPoolReview, input.ConditionsText);
+            var sp = RequestPayload.FromJson(r.PayloadJson);
+            sp.FlexPoolReview = Trim(input.FlexPoolReview!.Trim(), 1000);
+            sp.CurrentSeats = facts.CurrentSeats;
+            sp.SeatChangeKind = facts.Kind;
+            await uow.ExecuteAsync("UPDATE wf.Request SET PayloadJson = @json WHERE RequestId = @RequestId", new { json = sp.ToJson(), r.RequestId });
+            r = await GetRequestAsync(uow, r.RequestId);
+            input = input with { ConditionsText = conditionsText };
+        }
+
         var raciVersionId = await ActiveRaciVersionAsync(uow);
         var activity = t.RaciActivityCode ?? stage?.RaciActivityCode ?? "BUSINESS_CASE";
         var publicId = Guid.NewGuid();
@@ -389,7 +415,8 @@ public sealed class WorkflowEngine(
             ?? throw new DomainException($"Outcome {outcome} is not allowed at stage {from}.");
 
         // Close whatever is still open at the stage being left (other holders' copies, non-blocking consults).
-        if (tr.ToStage != from)
+        // A stage that loops on itself (J9 S4 HOLD) reopens fresh, so its open tasks close too; B9 keeps its round.
+        if (tr.ToStage != from || from != Stages.Disposition)
             await uow.ExecuteAsync("UPDATE wf.Task SET Status = 'CANCELLED', CompletedUtc = @now, Notes = COALESCE(Notes, N'Closed when the stage moved on.') WHERE RequestId = @requestId AND StageCode = @from AND Status = 'OPEN'",
                 new { requestId, from, now = clock.UtcNow });
 
@@ -462,6 +489,21 @@ public sealed class WorkflowEngine(
         var title = stage.Name + (r.Title.Length > 0 ? $": {r.Title}" : "");
         var task = await CreateTaskAsync(uow, r, stage.StageCode, taskType, title, role, stage.SlaPolicyCode, stage.LadderCode,
             decisionType, activity, discipline: null, reason: stage.Guidance, stage.AllowsDelegation);
+
+        // J9: a decrease held outside the true-down window waits for the window, not for the SLA. Its reminder at the
+        // window's opening is the nudge to the FinOps lead that the held request can now be decided.
+        if (r.JourneyCode == Journeys.SeatReservation && stageCode == Stages.SeatDecision && r.State == RequestStates.OnHold)
+        {
+            var seat = await SeatRequests.FactsAsync(uow, r, clock.UtcNow);
+            if (seat.IsDecrease && !seat.WindowOpen)
+                await uow.ExecuteAsync(
+                    "UPDATE wf.Task SET Reminder1Utc = @opens, Reminder2Utc = DATEADD(DAY, 3, @opens), DueUtc = DATEADD(DAY, 7, @opens), Reason = @reason WHERE TaskId = @TaskId",
+                    new
+                    {
+                        opens = seat.WindowOpens, task.TaskId,
+                        reason = $"Held: a decrease can be approved from {seat.WindowOpens:d MMMM yyyy}, before the EA anniversary on {seat.Anniversary:d MMMM yyyy}. The reservation does not change while it is held.",
+                    });
+        }
 
         // Consults this stage opens (blocking or not) and digest lines for informed parties.
         foreach (var c in await uow.QueryAsync<(string FunctionCode, bool IsBlocking, string? ConsultRoleCode)>(

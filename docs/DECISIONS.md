@@ -86,3 +86,17 @@ merged rows share the same A and R; purchase and renewal stay separate rows (Com
 | Envelope period | The calendar year | The seed must produce envelopes active today; set the institution's fiscal year in production |
 | The real administrator | Workbench administrator and auditor only | Administrators cannot decide (SoD5); business personas are used through the test-only Act as switch |
 | Personas | 46 fictional people, `@example.invalid` mail, flagged synthetic | No real personal data in the demo |
+
+## Journey J9: change a Copilot seat reservation (2026-10-29)
+
+| Area | Decision | Why |
+|---|---|---|
+| Who decides | The FinOps lead decides at S4 (decision type Budget approval); Digital Workplace (Platform Owner) is a blocking consult; the LOB business owner is a non-blocking consult | The reservation policy puts approval with Finance after Digital Workplace checks unallocated seats, pending demand and the buffer (Section 4.4); the LOB asks, so its owner is heard but does not approve its own demand |
+| RACI | The existing Funding and annual budget row (FUNDING_BUDGET) is reused; the stage names the decider explicitly | No new RACI activity, so RACI version 1 stays active and unchanged |
+| Who may ask | The LOB's business owner, delegated approver, finance partner or a product owner in that LOB | A reservation is the LOB's commitment; makers ask their LOB, and people get seats through the OIM role, not this journey |
+| Current seats | Taken by the Workbench from core.SeatReservation when the draft is saved and again at submission, never from the form; the kind (new, increase, true-down) follows from it | The record must show the true previous quantity (CAL-06) |
+| Decreases | Can be approved only from Seats.TrueDownWindowDays before the EA anniversary up to the anniversary; outside it the decider holds (or declines), and the held decision task is due when the window opens, so its reminder is the nudge | CAL-04: a decrease outside the anniversary does not change the baseline. A hold reopens S4 with a fresh Digital Workplace consult, because the seat picture may have changed by then |
+| Effective dates | Approved true-downs take effect at the anniversary (the current row keeps running until then); increases on the decision date or the next month (Seats.IncreaseEffective) | CAL-05 and FIN-05; Section 6.10 leaves the increase rule to Finance |
+| Flex-pool review | Required text for any approval; stored on the request and on the new reservation row | CAL-06 |
+| Above unallocated | Allowed only with conditions stating the purchase need; the Workbench adds that a commercial decision (J8) is needed | Finance may buy more seats; the Workbench never buys (C21) |
+| Two changes | A change dated later than another blocks the earlier one until that date; two changes taking effect the same day replace that day's row (the older version stays in the temporal history) | Reservation rows never overlap, so every count of seats in effect stays exact |

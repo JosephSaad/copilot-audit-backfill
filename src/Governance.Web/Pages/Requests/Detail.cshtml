@@ -99,7 +99,7 @@
             {
                 <form method="post" asp-page-handler="Withdraw" data-confirm="Withdraw this request? It closes and cannot be reopened."><idem /><button class="btn btn-ghost" type="submit">Withdraw</button></form>
             }
-            @if (r.State == "ON_HOLD")
+            @if (r.State == "ON_HOLD" && r.JourneyCode != Journeys.SeatReservation)
             {
                 <a class="btn" href="#open-tasks">Supply the evidence below</a>
             }
@@ -129,6 +129,32 @@
             @if (!string.IsNullOrEmpty(Model.Payload.RequestedDeviation))
             {
                 <dt>Deviation <help>What falls outside the approved patterns (J3).</help></dt><dd>@Model.Payload.RequestedDeviation</dd>
+            }
+            @if (r.JourneyCode == Journeys.SeatReservation)
+            {
+                var kind = Model.Seat?.Kind ?? Model.Payload.SeatChangeKind;
+                <dt>Seat change <help>J9: the LOB's whole Copilot seat reservation before and after, in seats (never credits). The reservation in effect is taken by the Workbench, not typed by the requester.</help></dt>
+                <dd>@(Model.Seat?.CurrentSeats ?? Model.Payload.CurrentSeats ?? 0) → @(Model.Payload.RequestedSeats?.ToString() ?? "not given") seats@(kind is null ? "" : " (" + Ui.Words(kind) + ")")</dd>
+                @if (!string.IsNullOrEmpty(Model.Payload.SeatDemand))
+                {
+                    <dt>Who needs them <help>Who needs the seats and why, or why they can be given back.</help></dt><dd>@Model.Payload.SeatDemand</dd>
+                }
+                @if (Model.Seat is { } st)
+                {
+                    <dt>Would take effect <help>An increase takes effect on the decision date or the next month, as Finance set it (Section 6.10). A decrease takes effect at the EA anniversary; until then the LOB pays its full reservation (FIN-05).</help></dt>
+                    <dd>@st.EffectiveOn.ToString("d MMMM yyyy")</dd>
+                    @if (st.IsDecrease)
+                    {
+                        <dt>Decrease window <help>A decrease can be approved only from the window's opening up to the EA anniversary (CAL-04). Outside it the request is held and the reservation does not change.</help></dt>
+                        <dd>@(st.WindowOpen ? $"Open now, until {st.Anniversary:d MMMM yyyy}." : $"Closed: opens {st.WindowOpens:d MMMM yyyy}, before the EA anniversary on {st.Anniversary:d MMMM yyyy}.")</dd>
+                    }
+                    <dt>Assigned today <help>People in the LOB's tracking group who hold a Copilot seat at the last read-back. Seats above the reservation are billed on top (FIN-06).</help></dt>
+                    <dd>@st.AssignedSeats seats@(st.BelowAssigned ? $": the new total is {st.AssignedSeats - st.RequestedSeats} below what is assigned, so those seats would be billed on top until people are removed." : "")</dd>
+                }
+                @if (!string.IsNullOrEmpty(Model.Payload.FlexPoolReview))
+                {
+                    <dt>Flex-pool review <help>What Finance checked before approving: unallocated seats, approved pending demand and the operational buffer (CAL-06).</help></dt><dd>@Model.Payload.FlexPoolReview</dd>
+                }
             }
             @if (!string.IsNullOrEmpty(Model.Payload.ChangeKind))
             {
@@ -266,6 +292,19 @@
                         <select id="o-@t.PublicId" name="outcome" required>
                             @foreach (var (value, label) in Model.DecisionOutcomes(t)) { <option value="@value">@label</option> }
                         </select></div>
+                    @if (Model.Seat is { } seat && t.StageCode == Stages.SeatDecision)
+                    {
+                        <div class="field full"><span class="small"><strong>Seats:</strong>
+                            @(seat.Purchased is int pu ? $"{pu:N0} purchased" : "purchased seats not read yet")
+                            · @seat.ReservedTotal.ToString("N0") reserved across LOBs · @seat.BufferSeats.ToString("N0") operational buffer · @seat.PendingIncrease.ToString("N0") approved or asked for and not yet in effect
+                            · <strong>@(seat.Unallocated is int un ? $"{un:N0} unallocated" : "unallocated not known")</strong>.
+                            This request changes the LOB by @(seat.Delta > 0 ? "+" : "")@seat.Delta.ToString("N0").
+                            @if (seat.Shortfall > 0) { <strong>It needs @seat.Shortfall.ToString("N0") more than are unallocated: approve only with a condition stating the purchase need; a commercial decision (J8) follows.</strong> }
+                            @if (seat.IsDecrease && !seat.WindowOpen) { <strong>The decrease window opens @seat.WindowOpens.ToString("d MMMM yyyy"): hold or decline it until then.</strong> }
+                            @if (seat.BelowAssigned) { <strong>The new total is below the @seat.AssignedSeats seats assigned today.</strong> }
+                        </span></div>
+                        <div class="field full" data-show-when="outcome=APPROVED|APPROVED_WITH_CONDITIONS"><label for="fp-@t.PublicId" class="req">Flex-pool review <help>Required to approve (CAL-06): what you checked with Digital Workplace, the unallocated seats, approved pending demand and the operational buffer. It is recorded with the new reservation.</help></label><textarea id="fp-@t.PublicId" name="flexPoolReview" maxlength="1000"></textarea></div>
+                    }
                     @if (Model.Envelope is { } env)
                     {
                         <div class="field full"><span class="small"><strong>Envelope:</strong> @env.ServiceName, @Ui.Date(env.PeriodStart) to @Ui.Date(env.PeriodEnd): @Ui.Num(env.Left) of @Ui.Num(env.Amount) @Units.Label(env.Unit) left (@Ui.Num(env.Committed) committed). This request commits @Ui.Num(r.EstimateCredits) if approved.</span></div>
@@ -273,7 +312,7 @@
                     <div class="field"><label for="s-@t.PublicId" class="req">Scope <help>Service, audience, tier, environment or policy, and duration. This is what the approval covers.</help></label>
                         <input id="s-@t.PublicId" name="scope" required maxlength="1000" value="@(d.ServiceName is null ? r.Title : $"{d.ServiceName} for {d.FundingOwnerName}")" /></div>
                     <div class="field"><label for="e-@t.PublicId">Expires <help>Every approval expires or has a review date. Exceptions must expire.</help></label><input id="e-@t.PublicId" type="date" name="expires" value="@DateTime.UtcNow.AddMonths(Model.Payload.DurationMonths ?? 12).ToString("yyyy-MM-dd")" /></div>
-                    <div class="field"><label for="n-@t.PublicId">Next review <help>Drives recertification reminders (N14).</help></label><input id="n-@t.PublicId" type="date" name="review" value="@DateTime.UtcNow.AddMonths(6).ToString("yyyy-MM-dd")" /></div>
+                    <div class="field"><label for="n-@t.PublicId">Next review <help>Drives recertification reminders (N14).</help></label><input id="n-@t.PublicId" type="date" name="review" value="@(Model.Seat is { } sr ? sr.Anniversary.ToString("yyyy-MM-dd") : DateTime.UtcNow.AddMonths(6).ToString("yyyy-MM-dd"))" /></div>
                     <div class="field full" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="c-@t.PublicId">Condition <help>What must hold, who owns it and by when. More conditions can go in the text box.</help></label><input id="c-@t.PublicId" name="conditionText" maxlength="1000" /></div>
                     <div class="field" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="co-@t.PublicId">Condition owner <help>The person who makes sure the condition holds; they get the reminders.</help></label><select id="co-@t.PublicId" name="conditionOwner"><option value="">Choose…</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
                     <div class="field" data-show-when="outcome=APPROVED_WITH_CONDITIONS|CONSTRAINED_PILOT"><label for="cd-@t.PublicId">Condition due <help>When the condition must be met.</help></label><input id="cd-@t.PublicId" type="date" name="conditionDue" /></div>
