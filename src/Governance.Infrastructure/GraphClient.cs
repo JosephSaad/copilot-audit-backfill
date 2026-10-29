@@ -354,9 +354,10 @@ public sealed class GraphClient(HttpClient http, IOptions<GraphOptions> options,
         var rows = new List<JsonElement>();
         try
         {
-            await foreach (var r in PagesAsync($"{Base}/copilot/reports/getMicrosoft365CopilotUsageUserDetail(period='{p}')", ct)) rows.Add(r);
+            // Without $format the report can answer with CSV (seen live: "Report Refresh Date,..."); ask for JSON.
+            await foreach (var r in PagesAsync($"{Base}/copilot/reports/getMicrosoft365CopilotUsageUserDetail(period='{p}')?$format=application/json", ct)) rows.Add(r);
         }
-        catch (HttpRequestException ex) when (ex.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.BadRequest)
+        catch (Exception ex) when (ex is HttpRequestException { StatusCode: HttpStatusCode.NotFound or HttpStatusCode.BadRequest } or JsonException)
         {
             rows.Clear();
             var beta = Base.EndsWith("/v1.0", StringComparison.OrdinalIgnoreCase) ? Base[..^5] + "/beta" : Base;
