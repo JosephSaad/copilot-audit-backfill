@@ -1,0 +1,61 @@
+@page "/Operations/Events/{id:guid}"
+@model Governance.Web.Pages.Operations.EventModel
+@{
+    var e = Model.E;
+    ViewData["Title"] = e.Title;
+    var steps = new[] { ("OPEN", "Reported"), ("ACKNOWLEDGED", "Acknowledged"), ("RESTORED", "Restored"), ("CLOSED", "Reviewed and closed") };
+    var at = Array.FindIndex(steps, s => s.Item1 == e.Status);
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/Operations/Events">Consumption events</a></div>
+        <h1>@e.Title</h1>
+        <p class="lead">@Ui.Pill(e.Severity) @Ui.Words(e.EventClass) · @e.FundingOwnerName@(e.WorkloadName is null ? "" : " · " + e.WorkloadName)@(e.CriticalServiceAffected ? " · critical shared service affected" : "")</p>
+    </div>
+</div>
+<ol class="steps">@for (var i = 0; i < steps.Length; i++) { <li class="@(i < at ? "done" : i == at ? "now" : "")">@steps[i].Item2</li> }</ol>
+<div class="grid grid-2">
+    <div class="card">
+        <h2>What happened</h2>
+        <p>@e.Description</p>
+        <dl class="facts">
+            <dt>Reported <help>When and by whom the event was reported.</help></dt><dd>@Ui.Local(e.ReportedUtc) by @e.ReportedByName</dd>
+            <dt>Acknowledge by <help>From the severity's service level (A5).</help></dt><dd>@Ui.Local(e.AckDueUtc)</dd>
+            <dt>Acknowledged <help>When Operations acknowledged it, against the target for its severity.</help></dt><dd>@(e.AckUtc is null ? "Not yet" : Ui.Local(e.AckUtc) + " by " + e.AckByName)</dd>
+            <dt>Action taken <help>What Operations did, within its authority (G3).</help></dt><dd>@(e.ResponseAction ?? "None recorded")</dd>
+            <dt>Restored <help>When normal service came back (G5).</help></dt><dd>@(e.RestoredUtc is null ? "Not yet" : Ui.Local(e.RestoredUtc))</dd>
+            <dt>Review <help>When it is next reviewed.</help></dt><dd>@(e.ReviewNotes ?? "Not yet")</dd>
+            <dt>ITSM incident <help>The linked incident in ITSM, opened for high and critical events.</help></dt><dd>@(e.IncidentNumber is null ? (e.Severity == "NORMAL" ? "Not needed" : "Being created") : e.IncidentNumber + " (" + Ui.Words(e.IncidentState) + ")")</dd>
+        </dl>
+    </div>
+    @if (Model.CanRespond && e.Status != "CLOSED")
+    {
+        <div class="card">
+            <h2>Next step <help>Act within your authority. Raising a limit or an allocation is a capacity change (J4) or an overage authorization by the business owner; an Azure budget alert never stops consumption (C08).</help></h2>
+            @if (e.Status == "OPEN")
+            {
+                <form method="post" asp-page-handler="Step" asp-route-step="acknowledge"><idem /><button class="btn" type="submit">Acknowledge</button></form>
+            }
+            @if (e.Status is "OPEN" or "ACKNOWLEDGED")
+            {
+                <form method="post" asp-page-handler="Step" asp-route-step="respond" class="mt">
+                    <idem />
+                    <div class="field"><label for="ra">Action taken <help>What you did and under which authority.</help></label><textarea id="ra" name="text" required maxlength="2000">@e.ResponseAction</textarea></div>
+                    <button class="btn btn-ghost mt" type="submit">Record the action</button>
+                </form>
+            }
+            @if (e.Status == "ACKNOWLEDGED")
+            {
+                <form method="post" asp-page-handler="Step" asp-route-step="restore" class="mt"><idem /><button class="btn btn-ok" type="submit">Service restored</button></form>
+            }
+            @if (e.Status == "RESTORED")
+            {
+                <form method="post" asp-page-handler="Step" asp-route-step="close" class="mt">
+                    <idem />
+                    <div class="field"><label for="rv">Review <help>Cause, lessons and follow-ups, for Engineering and FinOps (G5).</help></label><textarea id="rv" name="text" required maxlength="2000"></textarea></div>
+                    <button class="btn mt" type="submit">Close with review</button>
+                </form>
+            }
+        </div>
+    }
+</div>

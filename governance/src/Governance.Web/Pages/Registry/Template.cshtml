@@ -1,0 +1,64 @@
+@page "/Registry/Templates/{id:guid}"
+@model Governance.Web.Pages.Registry.TemplateModel
+@{
+    var t = Model.T;
+    ViewData["Title"] = $"{t.ServiceName} template v{t.VersionNo}";
+    var rows = Model.Checks.ToList();
+    var blanks = Model.CanEdit ? 3 : 0;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/Registry/Templates">Control templates</a></div>
+        <h1>@t.ServiceName · version @t.VersionNo</h1>
+        <p class="lead">@Ui.Pill(t.Status) · Platform Owner approval: @(t.PlatformOwnerApprovalName ?? "pending") · Steering approval: @(t.SteeringApprovalName ?? "pending")@(t.ActivatedUtc is null ? "" : " · active since " + Ui.Local(t.ActivatedUtc))</p>
+    </div>
+    @if (t.Status is "DRAFT" or "PENDING")
+    {
+        <div class="page-actions">
+            @if (Model.Principal.HasCentral(Roles.PlatformOwner) && t.PlatformOwnerApprovalPersonId is null)
+            {
+                <form method="post" asp-page-handler="Approve" asp-route-asRole="PLATFORM_OWNER"><idem /><button class="btn" type="submit">Approve as Platform Owner</button></form>
+            }
+            @if (Model.Principal.HasCentral(Roles.Steering) && t.SteeringApprovalPersonId is null)
+            {
+                <form method="post" asp-page-handler="Approve" asp-route-asRole="STEERING"><idem /><button class="btn" type="submit">Approve as Steering</button></form>
+            }
+        </div>
+    }
+</div>
+<form method="post" asp-page-handler="Save" class="card">
+    <idem />
+    <input type="hidden" name="rowVer" value="@(t.RowVer is null ? "" : Convert.ToBase64String(t.RowVer))" />
+    <fieldset disabled="@(!Model.CanEdit)">
+        <div class="form-grid">
+            <div class="field full">
+                <label for="sj">Settings baseline (JSON) <help k="tpl.settings">The exact values the operator applies and the verifier checks, as setting name and expected value. For Microsoft 365 policies include autoApplyNewServices (C16); for environments allocationCredits and tenantPoolEnabled.</help></label>
+                <textarea id="sj" name="settingsJson" class="mono" rows="8">@t.SettingsJson</textarea>
+            </div>
+            <div class="field"><label for="pe">Permitted exceptions <help>What an exception may change for this route, if anything.</help></label><textarea id="pe" name="permittedExceptions" maxlength="1000">@t.PermittedExceptions</textarea></div>
+            <div class="field"><label for="or">Operator roles <help>Who configures in the admin center through ITSM.</help></label><input id="or" name="operatorRoles" value="@t.OperatorRoles" maxlength="400" /></div>
+            <div class="field full"><label for="nt">Notes <help>Why this version differs from the last.</help></label><textarea id="nt" name="notes" maxlength="2000">@t.Notes</textarea></div>
+        </div>
+        <h2 class="mt">Verification checks <help>Each check is a read-back from Microsoft's API, an operator attestation with evidence, or test evidence. At least one must be the explicit deny case: proof that what should be refused is refused.</help></h2>
+        <div class="table-wrap">
+            <table class="stack">
+                <thead><tr><th scope="col">Code <help>A short name for the check, used in reports.</help></th><th scope="col">What is checked <help>What must be true after the change.</help></th><th scope="col">Method <help>Read back from Microsoft, confirmed by a person with evidence, or shown by test results.</help></th><th scope="col">Setting <help>The setting in the template the read-back compares with.</help></th><th scope="col">Deny case <help>A check that something is refused, such as a limit stopping use. Every template needs one.</help></th><th scope="col">Caveat <help>The caveat from the process this check guards against.</help></th></tr></thead>
+                <tbody>
+                @for (var i = 0; i < rows.Count + blanks; i++)
+                {
+                    var c = i < rows.Count ? rows[i] : null;
+                    <tr>
+                        <td><input name="checkCode" value="@c?.CheckCode" aria-label="Check code" maxlength="40" /></td>
+                        <td><input name="checkDescription" value="@c?.Description" aria-label="Description" maxlength="1000" /></td>
+                        <td><select name="checkMethod" aria-label="Method">@foreach (var m in new[] { "READBACK", "ATTESTATION", "TEST_EVIDENCE" }) { <option value="@m" selected="@(c?.Method == m)">@Ui.Words(m)</option> }</select></td>
+                        <td><input name="checkKey" value="@c?.SettingKey" aria-label="Setting key" maxlength="100" /></td>
+                        <td><input type="checkbox" name="checkDeny" value="@i" checked="@(c?.IsDenyCase == true)" aria-label="Deny case" /></td>
+                        <td><input name="checkCaveat" value="@c?.CaveatCode" aria-label="Caveat" maxlength="10" /></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        @if (Model.CanEdit) { <button class="btn mt" type="submit">Save draft</button> }
+    </fieldset>
+</form>

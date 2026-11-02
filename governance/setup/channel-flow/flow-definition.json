@@ -1,0 +1,106 @@
+{
+  "properties": {
+    "connectionReferences": {
+      "shared_teams": {
+        "runtimeSource": "embedded",
+        "connection": {
+          "connectionReferenceLogicalName": "__CONNREF_LOGICAL_NAME__"
+        },
+        "api": {
+          "name": "shared_teams"
+        }
+      }
+    },
+    "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$connections": { "defaultValue": {}, "type": "Object" },
+        "$authentication": { "defaultValue": {}, "type": "SecureObject" },
+        "TeamId": { "defaultValue": "__TEAM_ID__", "type": "String" },
+        "ChannelMap": { "defaultValue": "__CHANNEL_MAP__", "type": "Object" }
+      },
+      "triggers": {
+        "manual": {
+          "metadata": {},
+          "type": "Request",
+          "kind": "Http",
+          "inputs": {
+            "method": "POST",
+            "triggerAuthenticationType": "Tenant",
+            "triggerAllowedUsers": "__ALLOWED_OBJECT_ID__",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "queue": { "type": "string", "description": "INTAKE, ARCHITECTURE, OPERATIONS, FINOPS or RISK" },
+                "card": { "type": "object", "description": "A complete Adaptive Card (version 1.4 or lower) composed by the Workbench worker" },
+                "correlationId": { "type": "string" }
+              },
+              "required": [ "queue", "card" ]
+            }
+          }
+        }
+      },
+      "actions": {
+        "Channel_for_queue": {
+          "runAfter": {},
+          "type": "Compose",
+          "inputs": "@parameters('ChannelMap')?[toUpper(triggerBody()?['queue'])]"
+        },
+        "Queue_known": {
+          "runAfter": { "Channel_for_queue": [ "Succeeded" ] },
+          "type": "If",
+          "expression": {
+            "and": [
+              { "not": { "equals": [ "@outputs('Channel_for_queue')", "@null" ] } }
+            ]
+          },
+          "actions": {
+            "Post_card_in_channel": {
+              "runAfter": {},
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_teams",
+                  "connectionName": "shared_teams",
+                  "operationId": "PostCardToConversation"
+                },
+                "parameters": {
+                  "poster": "Flow bot",
+                  "location": "Channel",
+                  "body/recipient/groupId": "@parameters('TeamId')",
+                  "body/recipient/channelId": "@outputs('Channel_for_queue')",
+                  "body/messageBody": "@{string(triggerBody()?['card'])}"
+                },
+                "authentication": "@parameters('$authentication')"
+              }
+            },
+            "Accepted": {
+              "runAfter": { "Post_card_in_channel": [ "Succeeded" ] },
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 202,
+                "body": { "correlationId": "@triggerBody()?['correlationId']" }
+              }
+            }
+          },
+          "else": {
+            "actions": {
+              "Unknown_queue": {
+                "runAfter": {},
+                "type": "Response",
+                "kind": "Http",
+                "inputs": {
+                  "statusCode": 400,
+                  "body": { "error": "Unknown queue", "correlationId": "@triggerBody()?['correlationId']" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemaVersion": "1.0.0.0"
+}

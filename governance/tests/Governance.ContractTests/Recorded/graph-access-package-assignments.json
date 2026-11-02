@@ -1,0 +1,29 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#identityGovernance/entitlementManagement/assignments(target())",
+  "value": [
+    {
+      "id": "a1a1a1a1-0000-0000-0000-000000000001",
+      "state": "delivered",
+      "status": "Delivered",
+      "expiredDateTime": null,
+      "schedule": {
+        "startDateTime": "2026-10-20T14:00:00Z",
+        "expiration": { "endDateTime": "2027-10-20T14:00:00Z", "type": "afterDateTime" }
+      },
+      "target": {
+        "id": "b2b2b2b2-0000-0000-0000-000000000002",
+        "objectId": "11111111-1111-1111-1111-111111111111",
+        "displayName": "Avery Retail",
+        "principalName": "avery@contoso.example",
+        "email": "avery@contoso.example"
+      }
+    },
+    {
+      "id": "a1a1a1a1-0000-0000-0000-000000000003",
+      "state": "expired",
+      "expiredDateTime": "2026-09-01T00:00:00Z",
+      "schedule": { "startDateTime": "2025-09-01T00:00:00Z" },
+      "target": { "objectId": "44444444-4444-4444-4444-444444444444", "principalName": "casey@contoso.example" }
+    }
+  ]
+}

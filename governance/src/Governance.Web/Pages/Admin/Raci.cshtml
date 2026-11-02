@@ -1,0 +1,130 @@
+@page "/Admin/Raci"
+@model Governance.Web.Pages.Admin.RaciModel
+@{
+    ViewData["Title"] = "RACI";
+    var m = Model.M;
+    string Cls(string v) => "raci-" + v.Replace("/", "");
+    // The deck's order: rows grouped by the accountable function (business owner, Digital Workplace, Finance, Security).
+    var deckOrder = new[]
+    {
+        "Business case and measurable outcome",
+        "Funding, annual budget and overage authorization",
+        "Enterprise Shared continuity acceptance",
+        "Lifecycle recertification and retirement",
+        "Solution classification, routing and platform feature approval",
+        "Environment and policy pattern",
+        "Technical implementation, monitoring and operational response",
+        "Microsoft capability evidence validation",
+        "P3 evaluation and purchase recommendation",
+        "Consumption forecast, estimator and credits-versus-license review",
+        "Cost-center mapping, showback, chargeback and reconciliation",
+        "Security and risk acceptance",
+    };
+    // The deck's seven columns; Commercial authority and Microsoft are in its footnote.
+    var deckFunctions = new[] { "BUSINESS_OWNER", "PLATFORM_OWNER", "FINANCE", "ARCHITECTURE", "ENG_OPS", "SECURITY_RISK", "SOURCING" };
+    var functionHelp = new Dictionary<string, string>
+    {
+        ["BUSINESS_OWNER"] = "The LOB business owner or Enterprise Shared service owner of the funding owner.",
+        ["PLATFORM_OWNER"] = "Digital Workplace: the Platform Owner.",
+        ["FINANCE"] = "Finance, TBM and FinOps.",
+        ["ARCHITECTURE"] = "Architecture.",
+        ["ENG_OPS"] = "Engineering and Platform Operations.",
+        ["SECURITY_RISK"] = "Security and Risk, including privacy and model risk.",
+        ["COMMERCIAL"] = "The authorized commercial owner who approves purchases and renewals.",
+        ["SOURCING"] = "Sourcing and Procurement: executes approved purchases.",
+        ["MICROSOFT"] = "Microsoft supplies capability evidence and advice and holds no R or A.",
+    };
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Admin</div>
+        <h1>Decision rights (RACI)</h1>
+        <p class="lead">The 19-activity matrix is the source; the 12-row view for communication is generated from it with the operating model's merge rule (where merged activities differ between C and I, show C). Every activity has exactly one A or A/R. A new version needs the Platform Owner and Steering, as two different people, before it activates (SoD6).</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn @(Model.Simplified ? "btn-ghost" : "")" href="/Admin/Raci?v=@m?.Version.VersionNo">19 activities</a>
+        <a class="btn @(Model.Simplified ? "" : "btn-ghost")" href="/Admin/Raci?v=@m?.Version.VersionNo&simplified=true">12-row view</a>
+        <a class="btn btn-ghost" href="@Ui.CsvHref(ViewContext.HttpContext.Request)">Export CSV</a>
+    </div>
+</div>
+<div class="card">
+    <div class="btn-row">
+        <strong>Versions:</strong>
+        @foreach (var v in Model.Versions)
+        {
+            <a class="btn btn-small @(v.VersionNo == m?.Version.VersionNo ? "" : "btn-ghost")" href="/Admin/Raci?v=@v.VersionNo">Version @(v.VersionNo) · @Ui.Words(v.Status)</a>
+        }
+        @if (!Model.Versions.Any(v => v.Status is "DRAFT" or "PENDING"))
+        {
+            <form method="post" asp-page-handler="Draft" class="btn-row"><idem /><input name="notes" placeholder="Why a new version" aria-label="Notes" maxlength="2000" /><button class="btn btn-small btn-ghost" type="submit">Draft a new version</button></form>
+        }
+    </div>
+    @if (m is not null)
+    {
+        var v = m.Version;
+        <p class="small mt">Version @v.VersionNo @Ui.Pill(v.Status) · Platform Owner: @(v.PlatformOwnerApproval is null ? "not approved" : v.PlatformOwnerApproval + ", " + Ui.Local(v.PlatformOwnerApprovalUtc)) · Steering: @(v.SteeringApproval is null ? "not approved" : v.SteeringApproval + ", " + Ui.Local(v.SteeringApprovalUtc))@(v.ActivatedUtc is null ? "" : " · active since " + Ui.Local(v.ActivatedUtc))</p>
+        @if (!string.IsNullOrEmpty(v.Notes)) { <p class="small">@v.Notes</p> }
+        var problems = m.Problems();
+        @if (problems.Count > 0) { <div class="alert alert-bad">@string.Join(" ", problems)</div> }
+        @if (v.Status is "DRAFT" or "PENDING")
+        {
+            <div class="btn-row">
+                @if (Model.Principal.HasCentral(Roles.PlatformOwner) && v.PlatformOwnerApprovalPersonId is null) { <form method="post" asp-page-handler="Approve" asp-route-v="@v.VersionNo" asp-route-asRole="PLATFORM_OWNER"><idem /><button class="btn" type="submit" disabled="@(problems.Count > 0)">Approve as Platform Owner</button></form> }
+                @if (Model.Principal.HasCentral(Roles.Steering) && v.SteeringApprovalPersonId is null) { <form method="post" asp-page-handler="Approve" asp-route-v="@v.VersionNo" asp-route-asRole="STEERING"><idem /><button class="btn" type="submit" disabled="@(problems.Count > 0)">Approve as Steering</button></form> }
+            </div>
+        }
+    }
+</div>
+@if (m is not null)
+{
+    <p class="small muted">R: responsible (does the work). A: accountable (decides). C: consulted. @(Model.Simplified ? "Blank: informed (daily digest)." : "I: informed (daily digest).") Microsoft supplies capability evidence and advice and holds no R or A.</p>
+    <div class="table-wrap">
+        <table class="raci">
+            <thead>
+            <tr>
+                <th scope="col">@(Model.Simplified ? "Simplified row" : "Activity") <help>Each decision or piece of work in the operating model, with the process stages it governs.</help></th>
+                @foreach (var f in m.Functions.Where(f => !Model.Simplified || deckFunctions.Contains(f.FunctionCode))) { <th scope="col">@f.Name <help>@(functionHelp.GetValueOrDefault(f.FunctionCode, f.Name))</help></th> }
+            </tr>
+            </thead>
+            <tbody>
+            @if (Model.Simplified)
+            {
+                var rows = m.Simplified().Where(r => !r.Row.StartsWith("Footnote", StringComparison.OrdinalIgnoreCase))
+                              .OrderBy(r => Array.IndexOf(deckOrder, r.Row) is var i && i >= 0 ? i : 99).ToList();
+                @foreach (var row in rows)
+                {
+                    <tr><td>@row.Row</td>@foreach (var f in m.Functions.Where(f => deckFunctions.Contains(f.FunctionCode))) { var val = row.Cells[f.FunctionCode]; <td class="@Cls(val)">@(val == "I" ? "" : val)<span class="sr-only">@(val == "I" ? "Informed" : "")</span></td> }</tr>
+                }
+            }
+            else
+            {
+                @foreach (var a in m.Activities)
+                {
+                    <tr>
+                        <td>@a.Name<div class="small muted">@a.Stages</div></td>
+                        @foreach (var f in m.Functions)
+                        {
+                            var val = m.Cells.TryGetValue((a.Code, f.FunctionCode), out var c) ? c : "I";
+                            <td class="@Cls(val)">
+                                @if (Model.CanEdit)
+                                {
+                                    <form method="post" asp-page-handler="Cell" asp-route-v="@m.Version.VersionNo" asp-route-activity="@a.Code" asp-route-function="@f.FunctionCode">
+                                        <idem />
+                                        <select name="value" aria-label="@a.Name, @f.Name" data-autosubmit="true">@foreach (var o in new[] { "A/R", "A", "R", "C", "I" }) { <option value="@o" selected="@(o == val)">@o</option> }</select>
+                                        <noscript><button class="btn btn-small btn-ghost" type="submit">Save</button></noscript>
+                                    </form>
+                                }
+                                else { @val }
+                            </td>
+                        }
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+    @if (Model.Simplified)
+    {
+        <p class="table-note">Finance owns evaluation and attribution. The authorized commercial owner approves purchase and renewal; Sourcing executes. Microsoft supplies capability evidence and advice, with no R or A. Seventeen activities are merged into twelve rows; where merged activities differ between C and I, the row shows C.</p>
+    }
+}

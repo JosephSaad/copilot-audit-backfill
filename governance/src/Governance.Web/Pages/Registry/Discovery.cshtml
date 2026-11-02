@@ -1,0 +1,57 @@
+@page "/Registry/Discovery"
+@model Governance.Web.Pages.Registry.DiscoveryModel
+@{
+    ViewData["Title"] = "Discovery";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Registry</div>
+        <h1>Discovery</h1>
+        <p class="lead">What already runs in the tenant but is not in the register: found by the Power Platform inventory sync or the Agent Registry export. Every discovered item must be claimed by a funding owner or stay under a finding (setup step 6). Microsoft's own guidance starts governance here.</p>
+    </div>
+    <div class="page-actions"><a class="btn btn-ghost" href="/Operations/Sync">Run inventory sync</a></div>
+</div>
+<partial name="_Search" model="Model.Search" />
+<h2>Unregistered objects <help>Open findings from the sync: an environment, agent or flow with no binding to a registered workload. The owner from the inventory is asked to claim it within 10 business days (N11).</help></h2>
+@if (Model.Unregistered.Items.Count == 0)
+{
+    <div class="card empty">Nothing waiting. Run the inventory sync to look again.</div>
+}
+@foreach (var f in Model.Unregistered.Items)
+{
+    <div class="task">
+        <div class="task-head"><div class="task-title">@f.Title</div><div class="btn-row">@Ui.Pill(f.FindingType, "warn") @Ui.Pill(f.Severity)</div></div>
+        <div class="kv"><span class="mono">@f.ExternalId</span><span>raised @Ui.Local(f.RaisedUtc)</span><span>last seen @Ui.Ago(f.LastSeenUtc)</span></div>
+        @if (!string.IsNullOrEmpty(f.Details)) { <p class="small">@f.Details</p> }
+        @if (Model.CanClaim)
+        {
+            <form method="post" asp-page-handler="Claim" asp-route-finding="@f.PublicId" class="form-grid mt">
+                <idem />
+                <div class="field"><label for="fo-@f.PublicId">Funding owner <help>Who will own and pay for it once it is registered.</help></label><select id="fo-@f.PublicId" name="fundingOwnerId" required><option value="">Choose…</option>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
+                <div class="field"><label for="po-@f.PublicId">Product owner <help>Who answers for it day to day.</help></label><select id="po-@f.PublicId" name="productOwnerPersonId"><option value="">Unknown</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+                <div class="field"><label for="nm-@f.PublicId">Name <help>A name people will recognize.</help></label><input id="nm-@f.PublicId" name="name" maxlength="200" /></div>
+                <div class="field"><button class="btn btn-ghost" type="submit">Claim and register</button></div>
+            </form>
+        }
+    </div>
+}
+<h2 class="mt">Discovered workloads</h2>
+@if (Model.Discovered.Items.Count == 0)
+{
+    <div class="card empty">No discovered workload waiting.</div>
+}
+@foreach (var w in Model.Discovered.Items)
+{
+    <div class="task">
+        <div class="task-head"><div class="task-title"><a href="/Registry/Workloads/@w.PublicId">@w.Name</a></div>@Ui.Pill(w.State)</div>
+        @if (Model.CanClaim)
+        {
+            <form method="post" asp-page-handler="Claim" asp-route-workload="@w.PublicId" class="form-grid mt">
+                <idem />
+                <div class="field"><label for="wo-@w.PublicId">Funding owner <help>Who will own and pay for it once it is registered.</help></label><select id="wo-@w.PublicId" name="fundingOwnerId" required><option value="">Choose…</option>@foreach (var o in Model.Owners) { <option value="@o.Value">@o.Text</option> }</select></div>
+                <div class="field"><label for="wp-@w.PublicId">Product owner <help>Who answers for it day to day.</help></label><select id="wp-@w.PublicId" name="productOwnerPersonId"><option value="">Unknown</option>@foreach (var p in Model.People) { <option value="@p.Value">@p.Text</option> }</select></div>
+                <div class="field"><button class="btn btn-ghost" type="submit">Claim</button></div>
+            </form>
+        }
+    </div>
+}

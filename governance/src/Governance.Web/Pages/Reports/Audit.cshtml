@@ -1,0 +1,69 @@
+@page "/Reports/Audit"
+@model Governance.Web.Pages.Reports.AuditModel
+@inject Governance.Application.Data.Db Db
+@{
+    ViewData["Title"] = "Audit";
+    var name = await Lookups.NamesAsync(Db);
+    // Records named by a GUID show the person's name when the GUID is a person.
+    var guids = Model.View == "audit" ? Model.Audit.Items.Select(a => a.EntityId).Where(id => Guid.TryParse(id, out _)).Distinct().ToArray() : Array.Empty<string?>();
+    var personNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    if (guids.Length > 0)
+    {
+        await using var conn = await Db.OpenUserAsync();
+        foreach (var row in await Dapper.SqlMapper.QueryAsync<(Guid PublicId, string DisplayName)>(conn,
+                     "SELECT PublicId, DisplayName FROM sec.Person WHERE PublicId IN @ids", new { ids = guids.Select(g => Guid.Parse(g!)).ToArray() }))
+            personNames[row.PublicId.ToString()] = row.DisplayName;
+    }
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Reports</div>
+        <h1>Audit</h1>
+        <p class="lead">Every change, view of sensitive records and export, and every decision, from append-only ledger tables that show tampering even by database administrators. Viewing and exporting this page is itself recorded.</p>
+    </div>
+    <div class="page-actions">
+        <a class="btn @(Model.View == "audit" ? "" : "btn-ghost")" href="/Reports/Audit?view=audit">Audit trail</a>
+        <a class="btn @(Model.View == "decisions" ? "" : "btn-ghost")" href="/Reports/Audit?view=decisions">Decisions</a>
+    </div>
+</div>
+<form method="get" class="card form-grid">
+    <input type="hidden" name="view" value="@Model.View" />
+    <div class="field"><label for="af">From <help>The first day to include.</help></label><input id="af" type="date" name="from" value="@Model.From?.ToString("yyyy-MM-dd")" /></div>
+    <div class="field"><label for="at">To <help>The last day to include.</help></label><input id="at" type="date" name="to" value="@Model.To?.ToString("yyyy-MM-dd")" /></div>
+    @if (Model.View == "audit")
+    {
+        <div class="field"><label for="aa">Action starts with <help>For example decision, request, role, raci, evidence.</help></label><input id="aa" name="action" value="@Model.Action" maxlength="60" /></div>
+    }
+    <div class="field"><label for="aq">Search <help>Words in the detail, the record or the person's name.</help></label><input id="aq" type="search" name="q" value="@Model.Search" /></div>
+    <div class="field"><button class="btn btn-ghost" type="submit">Filter</button></div>
+</form>
+@if (Model.View == "decisions")
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">Decided <help>When the decision was recorded, and where.</help></th><th scope="col">Decision <help>The decision type and its outcome.</help></th><th scope="col">Decider <help>The person and the role they decided in.</help></th><th scope="col">RACI <help>The decision-rights activity and the RACI version in force.</help></th><th scope="col">Scope <help>What the decision covers and its conditions.</help></th><th scope="col">Request <help>The request it belongs to, and its funding owner.</help></th></tr></thead>
+            <tbody>
+            @foreach (var d in Model.Decisions.Items)
+            {
+                <tr><td class="small">@Ui.Local(d.DecidedAtUtc)<div class="muted">@Labels.For(d.Source)</div></td><td>@DecisionTypes.Label(d.DecisionType) @Ui.Pill(d.Outcome)</td><td>@d.Decider<div class="small muted">@name(d.DeciderRoleCode)@(d.DelegationId is null ? "" : ", delegated")</div></td><td class="small">@name(d.RaciActivityCode), RACI version @(d.RaciVersionId)</td><td class="small">@d.ScopeText@(d.ConditionsText is null ? "" : " · " + d.ConditionsText)</td><td>@d.RequestNumber<div class="small muted">@d.FundingOwner</div></td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <partial name="_Pager" model="(Model.Decisions.Query.Page, Model.Decisions.Pages, Model.Decisions.Total)" />
+}
+else
+{
+    <div class="table-wrap">
+        <table class="stack">
+            <thead><tr><th scope="col">When <help>When it happened, in the institution's time zone.</help></th><th scope="col">Who <help>The signed-in person, and the persona they acted as in test mode.</help></th><th scope="col">Action <help>What was done.</help></th><th scope="col">What <help>The record it was done to.</help></th><th scope="col">Detail <help>More about the action. Secrets and tokens are never written here.</help></th><th scope="col">Outcome <help>Done, denied or failed.</help></th></tr></thead>
+            <tbody>
+            @foreach (var a in Model.Audit.Items)
+            {
+                <tr><td class="small nowrap">@Ui.Local(a.Utc)</td><td>@(a.PersonName ?? "Workbench")@if (a.ActingAsName is not null) { <div class="small muted">acting as @a.ActingAsName</div> }</td><td class="small">@Labels.Action(a.Action)</td><td class="small">@Labels.For(a.EntityType) @(a.EntityId is not null && personNames.TryGetValue(a.EntityId, out var pn) ? pn : (Guid.TryParse(a.EntityId, out _) ? "" : a.EntityId))</td><td class="small">@Labels.Text(a.Detail)</td><td>@Ui.Pill(a.Outcome)</td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <partial name="_Pager" model="(Model.Audit.Query.Page, Model.Audit.Pages, Model.Audit.Total)" />
+}

@@ -1,0 +1,141 @@
+@page "/Registry/Workloads/{id:guid}"
+@model Governance.Web.Pages.Registry.WorkloadModel
+@using Governance.Application.Rules
+@{
+    var d = Model.D;
+    ViewData["Title"] = d?.Workload.Name ?? "Workload";
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/Registry/Workloads">Workloads</a></div>
+        <h1>@(d?.Workload.Name ?? "Not in the register on that date")</h1>
+        @if (d is not null)
+        {
+            <p class="lead">@Ui.Words(d.Workload.WorkloadType) funded by @d.FundingOwnerName · @Ui.Pill(d.Workload.State)@(d.AsOf is null ? "" : $" · as the register said on {Ui.Date(Model.AsOf)}")</p>
+        }
+    </div>
+    <form method="get" class="btn-row">
+        <label for="asof">As of <help k="wl.asof">See what the register said at the end of a past day (system time). Ownership changes and corrections never rewrite history (H3).</help></label>
+        <input id="asof" type="date" name="asOf" value="@Model.AsOf?.ToString("yyyy-MM-dd")" />
+        <button class="btn btn-small btn-ghost" type="submit">Show</button>
+        @if (Model.AsOf is not null) { <a class="btn btn-small btn-ghost" href="/Registry/Workloads/@Model.Id">Today</a> }
+    </form>
+</div>
+@if (d is not null)
+{
+    var w = d.Workload;
+    <div class="grid grid-2">
+        <div class="card">
+            <h2>Classification <help>Four independent fields (C03): financial owner, solution class, lifecycle stage, and service with criticality, audience and data boundary.</help></h2>
+            <dl class="facts">
+                <dt>Funding owner, cost center <help>Who owns and pays for it, and the Finance unit for showback.</help></dt><dd>@d.FundingOwnerName, @(d.CostCenterCode ?? "no cost center")</dd>
+                <dt>Solution class <help>Productivity solution or business application; independent of the funding owner (C03).</help></dt><dd>@(Ui.Words(w.SolutionClass) is { Length: > 0 } a ? a : "Not set")</dd>
+                <dt>Lifecycle stage <help>Local, Development, Test or Production; independent of the service (C03).</help></dt><dd>@(Ui.Words(w.LifecycleStage) is { Length: > 0 } lsv ? lsv : "Not set")</dd>
+                <dt>Service, criticality <help>The catalogue service it uses, and how critical it is.</help></dt><dd>@(d.ServiceName ?? "Not set"), @(Ui.Words(w.Criticality) is { Length: > 0 } c ? c : "criticality not set")</dd>
+                <dt>Trigger, data class <help>How it starts (by a user, on a schedule, on its own, or by customers) and the highest data class it touches.</help></dt><dd>@Ui.Words(w.TriggerType), @Ui.Words(w.DataClass)</dd>
+                <dt>Audience, data boundary <help>Who uses it, and where its data may and may not go.</help></dt><dd>@w.Audience; @w.DataBoundary</dd>
+                <dt>Meters <help>Downstream services it consumes (C-DM).</help></dt><dd>@(d.Meters.Count == 0 ? "None listed" : string.Join(", ", d.Meters.Select(Ui.Words)))</dd>
+                <dt>Expiry, review <help>Every approval expires or has a review date.</help></dt><dd>@(w.ExpiresOn is null ? "No expiry" : "Expires " + Ui.Date(w.ExpiresOn)), @(w.NextReviewOn is null ? "no review date" : "review " + Ui.Date(w.NextReviewOn))</dd>
+            </dl>
+        </div>
+        <div class="card">
+            <h2>People</h2>
+            @if (Model.CanEdit && Model.AsOf is null)
+            {
+                <form method="post" asp-page-handler="Save" class="form-grid">
+                    <idem />
+                    <div class="field full"><label for="wn">Name <help>The workload's name.</help></label><input id="wn" name="name" value="@w.Name" maxlength="200" /></div>
+                    <div class="field"><label for="po">Product owner <help>Classification inputs, support contact, outcome evidence and the retirement plan.</help></label><select id="po" name="productOwnerPersonId"><option value="">None</option>@foreach (var p in Model.People) { <option value="@p.Value" selected="@(p.Value == w.ProductOwnerPersonId?.ToString())">@p.Text</option> }</select></div>
+                    <div class="field"><label for="sp">Sponsor <help>Who owns the purpose and outcome claims.</help></label><select id="sp" name="sponsorPersonId"><option value="">None</option>@foreach (var p in Model.People) { <option value="@p.Value" selected="@(p.Value == w.SponsorPersonId?.ToString())">@p.Text</option> }</select></div>
+                    <div class="field"><label for="sc">Support contact <help>Where users go for help.</help></label><input id="sc" name="supportContact" value="@w.SupportContact" maxlength="200" /></div>
+                    <div class="field"><label for="cr">Compliance case <help>Optional Copilot Agent Kit case reference (X12).</help></label><input id="cr" name="complianceCaseRef" value="@w.ComplianceCaseRef" maxlength="200" /></div>
+                    <div class="field"><button class="btn btn-ghost" type="submit">Save</button></div>
+                </form>
+            }
+            else
+            {
+                <dl class="facts"><dt>Product owner <help>Who answers for it day to day.</help></dt><dd>@(d.ProductOwnerName ?? "None")</dd><dt>Sponsor <help>Who owns the purpose and outcome claims.</help></dt><dd>@(d.SponsorName ?? "None")</dd><dt>Support <help>Where users go for help.</help></dt><dd>@(w.SupportContact ?? "None")</dd></dl>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Microsoft objects <help k="wl.bindings">One binding per Microsoft object (C04): environment, agent, agent flow, credit or spending policy, access package, group. Inventory and licensing reads compare them with the register.</help></h2>
+        @if (d.Bindings.Count == 0) { <p class="muted">No objects bound.</p> }
+        <ul>@foreach (var b in d.Bindings) { <li>@Ui.Words(b.ObjectType): <span class="mono">@b.ExternalId</span> @b.DisplayName <span class="small muted">from @Ui.Date(b.EffectiveFrom)@(b.EffectiveTo is null ? "" : " to " + Ui.Date(b.EffectiveTo))</span>
+            @if (Model.CanBind && b.EffectiveTo is null && Model.AsOf is null) { <form method="post" asp-page-handler="Unbind" asp-route-bindingId="@b.BindingId" class="inline"><idem /><button class="btn btn-small btn-ghost" type="submit">End</button></form> }</li> }</ul>
+        @if (Model.CanBind && Model.AsOf is null)
+        {
+            <form method="post" asp-page-handler="Bind" class="form-grid">
+                <idem />
+                <div class="field"><label for="bt">Object type <help>The kind of Microsoft object: environment, agent, flow, policy, access package or group.</help></label><select id="bt" name="objectType">@foreach (var t in new[] { "PP_ENVIRONMENT", "CS_AGENT", "AGENT_FLOW", "CHAT_CREDIT_POLICY", "SPENDING_POLICY", "ACCESS_PACKAGE", "ENTRA_GROUP", "REGISTRY_AGENT", "ENVIRONMENT_GROUP", "BILLING_POLICY" }) { <option value="@t">@Ui.Words(t)</option> }</select></div>
+                <div class="field"><label for="be">Microsoft ID <help>The object's ID in Microsoft, as the inventory or admin center shows it.</help></label><input id="be" name="externalId" required maxlength="200" /></div>
+                <div class="field"><label for="bn">Display name <help>The name shown in the admin center.</help></label><input id="bn" name="displayName" maxlength="400" /></div>
+                <div class="field"><button class="btn btn-ghost" type="submit">Bind</button></div>
+            </form>
+        }
+    </div>
+
+    <div class="card">
+        <h2>Approved capacity posture <help k="wl.posture">What was approved for the environment, compared with the last licensing read. An allocation is a cap only when tenant-pool draw is off and no PAYG plan is linked (E2 to E4).</help></h2>
+        @if (d.Posture.Count == 0) { <p class="muted">No posture recorded.</p> }
+        else
+        {
+            <div class="table-wrap">
+                <table class="stack">
+                    <thead><tr><th scope="col">Environment <help>The Power Platform environment this posture is for.</help></th><th scope="col">Allocation <help>Copilot Credits allocated to the environment, approved and as read back.</help></th><th scope="col">Tenant pool, PAYG <help>Whether it may draw from the tenant's unallocated capacity, and whether a pay-as-you-go plan is linked.</help></th><th scope="col">Is it a cap? <help>An allocation is a cap only when tenant-pool draw is off and no PAYG plan is linked.</help></th><th scope="col">Agent limit <help>The monthly limit per agent; it does not stop the agent flows the agent calls.</help></th><th scope="col">Last read <help>When the posture was last read back from Microsoft.</help></th><th scope="col">Period <help>When this approved posture applies.</help></th></tr></thead>
+                    <tbody>
+                    @foreach (var p in d.Posture)
+                    {
+                        <tr>
+                            <td class="mono">@p.EnvironmentId</td>
+                            <td>@Ui.Num(p.AllocationCredits)</td>
+                            <td>@(p.TenantPoolEnabled ? "Draws from tenant" : "No tenant draw")@(p.GroupRuleLocksTenantPool ? " (locked by group rule)" : ""), @(p.PaygLinked ? "PAYG linked" : "no PAYG")</td>
+                            <td>@(ProhibitedAssumptions.AllocationIsCap(p.TenantPoolEnabled, p.PaygLinked) ? "Yes" : "No: it can draw beyond the allocation")</td>
+                            <td>@(p.AgentLimitCredits is null ? "Class default" : Ui.Num(p.AgentLimitCredits))</td>
+                            <td>@if (p.ReadAsOf is null) { <span class="muted">Not read yet</span> } else { <span>@Ui.Num(p.ReadAllocation), pool @(p.ReadTenantPool == true ? "on" : "off")</span><div class="small muted">as of @Ui.Local(p.ReadAsOf)</div> }</td>
+                            <td class="small">@Ui.Date(p.EffectiveFrom)@(p.EffectiveTo is null ? " onward" : " to " + Ui.Date(p.EffectiveTo))</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+        @if (Model.CanPosture && Model.AsOf is null)
+        {
+            <details class="more mt"><summary>Record an approved posture</summary>
+                <form method="post" asp-page-handler="Posture" class="form-grid mt">
+                    <idem />
+                    <div class="field"><label for="pe">Environment ID <help>The Power Platform environment's ID.</help></label><input id="pe" name="environmentId" required maxlength="100" value="@d.Bindings.FirstOrDefault(b => b.ObjectType == "PP_ENVIRONMENT")?.ExternalId" /></div>
+                    <div class="field"><label for="pa">Allocation (credits) <help>The approved allocation; drift findings compare the read-back with it.</help></label><input id="pa" type="number" name="allocation" min="0" step="1" required /></div>
+                    <div class="field"><label for="pl">Agent limit (credits) <help>The approved monthly limit per agent.</help></label><input id="pl" type="number" name="agentLimit" min="0" step="1" /></div>
+                    <div class="field"><label for="pb">Billing policy <help>The PAYG billing policy linked to the environment, if any.</help></label><input id="pb" name="billingPolicyId" maxlength="100" /></div>
+                    <div class="field full checks">
+                        <label class="check"><input type="checkbox" name="tenantPool" value="true" /> Draw from tenant capacity</label>
+                        <label class="check"><input type="checkbox" name="payg" value="true" /> PAYG billing plan linked</label>
+                        <label class="check"><input type="checkbox" name="groupRuleLock" value="true" /> Locked by an environment group rule (C15)</label>
+                    </div>
+                    <div class="field"><button class="btn btn-ghost" type="submit">Record</button></div>
+                </form>
+            </details>
+        }
+    </div>
+
+    <div class="grid grid-2">
+        <div class="card">
+            <h2>Requests</h2>
+            @if (d.Requests.Count == 0) { <p class="muted">None.</p> }
+            <ul>@foreach (var r in d.Requests) { <li><a href="/Requests/@r.PublicId">@r.RequestNumber</a> @r.Title @Ui.Pill(r.State)</li> }</ul>
+        </div>
+        <div class="card">
+            <h2>Findings</h2>
+            @if (d.Findings.Count == 0) { <p class="muted">None.</p> }
+            <ul>@foreach (var f in d.Findings) { <li>@Ui.Pill(f.Severity) @f.Title @Ui.Pill(f.Status) <span class="small muted">@Ui.Local(f.RaisedUtc)</span></li> }</ul>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-head"><h2>Decisions</h2><a class="btn btn-small btn-ghost" href="@Ui.CsvHref(ViewContext.HttpContext.Request)">Export CSV</a></div>
+        @if (d.Decisions.Count == 0) { <p class="muted">None.</p> }
+        <ul>@foreach (var x in d.Decisions) { <li>@DecisionTypes.Label(x.DecisionType) @Ui.Pill(x.Outcome) by @x.DeciderName, @Ui.Local(x.DecidedAtUtc) <span class="small muted">@x.ScopeText</span></li> }</ul>
+    </div>
+}

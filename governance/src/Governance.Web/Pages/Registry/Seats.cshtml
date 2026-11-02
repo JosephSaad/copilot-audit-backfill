@@ -1,0 +1,128 @@
+@page "/Registry/Seats"
+@model Governance.Web.Pages.Registry.SeatsModel
+@{
+    ViewData["Title"] = "Copilot seats";
+    var s = Model.Summary;
+    var unalloc = s.Unallocated;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Registry</div>
+        <h1>Copilot seats</h1>
+        <p class="lead">The paid Microsoft 365 Copilot license, counted in seats. Each LOB reserves seats for the year; the license comes from one shared group and each LOB's tracking group says whose seat it is. An LOB pays its full reservation until the EA anniversary, plus any seats assigned above it. <help>Policy references: Sections 4.1 and 4.4; FIN-05 and FIN-06. Seats are never converted to credits or money here, except on the chargeback report.</help></p>
+    </div>
+    <div class="page-actions"><a class="btn btn-ghost" href="@Ui.CsvHref(ViewContext.HttpContext.Request)">Export CSV</a></div>
+</div>
+<p class="small muted">
+    License read-back @(s.LastReadUtc is null ? "has not run yet" : "as of " + Ui.Local(s.LastReadUtc)) @(s.LastReadStatus is null ? "" : "(" + Ui.Words(s.LastReadStatus).ToLowerInvariant() + ")")
+    <help>Read daily from Microsoft Graph by the Workbench worker: purchased and assigned units, who holds a seat, and group membership. Nothing is changed in Microsoft 365 from here.</help>
+</p>
+@if (s.Stale)
+{
+    <div class="alert alert-warn" role="status">The license read-back is older than a day or has not run. Figures below may be out of date. <help>Platform Operations can run it from Operations, Sync and freshness.</help></div>
+}
+@if (Model.SeesAll)
+{
+    <div class="grid grid-4">
+        <div class="stat"><div class="stat-label">Purchased <help>Copilot add-on units the tenant owns (enabled units in Microsoft 365), from the latest read-back.</help></div><div class="stat-value">@(s.Purchased is null ? "Not read" : Ui.Num(s.Purchased))</div><div class="stat-note">@(s.SkuReadUtc is null ? "no reading yet" : "read " + Ui.Ago(s.SkuReadUtc))</div></div>
+        <div class="stat"><div class="stat-label">Assigned in the tenant <help>Add-on units Microsoft counts as assigned, across all LOBs and outside them.</help></div><div class="stat-value">@(s.Consumed is null ? "Not read" : Ui.Num(s.Consumed))</div><div class="stat-note">@(s.Purchased is int p && s.Consumed is int cn ? Ui.Num(p - cn) + " not assigned" : "")</div></div>
+        <div class="stat"><div class="stat-label">Reserved by LOBs <help>The sum of every LOB's reservation in effect today.</help></div><div class="stat-value">@Ui.Num(s.ReservedTotal)</div><div class="stat-note">plus @Ui.Num(s.BufferSeats) seats kept as buffer</div></div>
+        <div class="stat"><div class="stat-label">Free to reserve <help>Purchased, less reserved, less the operational buffer, less increases already asked for and not yet decided (Section 4.4). Below zero means more is promised than owned.</help></div>
+            <div class="stat-value @(unalloc < 0 ? "text-bad" : "")">@(unalloc is null ? "Not read" : Ui.Num(unalloc))</div>
+            <div class="stat-note">@Ui.Num(s.PendingIncrease) seats asked for in open requests</div></div>
+    </div>
+}
+<div class="card mt">
+    <div class="card-head"><h2>EA anniversary and true-downs <help>Reservations can go up at any time. They go down only at the EA anniversary, and a decrease can be approved only in the window before it. A decrease asked for outside the window waits and does not change the reservation (CAL-04).</help></h2></div>
+    <p>Next anniversary: <strong>@Ui.Date(s.NextAnniversary)</strong>. The true-down window @(s.WindowOpen ? "is open now" : "opens on " + Ui.Date(s.WindowOpens)) (@s.Settings.TrueDownWindowDays days before).
+        @if (s.WindowOpen) { <span class="pill pill-ok">Decreases can be approved</span> } else { <span class="pill">Decreases wait for the window</span> }</p>
+</div>
+<div class="table-wrap mt">
+    <table class="stack">
+        <thead>
+        <tr>
+            <partial name="_Th" model='("", "LOB", "The line of business that reserves and pays for the seats.")' />
+            <partial name="_Th" model='("", "Reserved", "Seats the LOB reserved, in effect today.")' />
+            <partial name="_Th" model='("", "Assigned", "People in the LOB tracking group who hold an active Copilot seat.")' />
+            <partial name="_Th" model='("", "Over", "Seats assigned above the reservation. They are charged on top (FIN-06).")' />
+            <partial name="_Th" model='("", "Unused reserved", "Reserved seats nobody holds. The LOB still pays for them until a true-down (FIN-05).")' />
+            <partial name="_Th" model='("", "Inactive", "Seat holders with no Copilot activity in the usage report period: candidates for reclaim.")' />
+            <partial name="_Th" model='("", "Asked for", "Extra seats asked for in open reservation requests.")' />
+            <partial name="_Th" model='("", "Findings", "Open seat findings for this LOB (for example license errors or people in two LOBs).")' />
+            <th scope="col"><span class="sr-only">Actions</span></th>
+        </tr>
+        </thead>
+        <tbody>
+        @if (Model.Lobs.Count == 0)
+        {
+            <tr><td colspan="9" class="muted">No LOB has seats yet. FinOps records each LOB's first reservation on its page; admins map the seat groups in Admin, Seat groups.</td></tr>
+        }
+        @foreach (var r in Model.Lobs)
+        {
+            var pct = r.ReservedSeats > 0 ? Math.Min(100, (int)Math.Round(100.0 * r.AssignedSeats / r.ReservedSeats)) : (r.AssignedSeats > 0 ? 100 : 0);
+            <tr class="@(r.FundingOwnerId is null ? "row-warn" : "")">
+                <td data-label="LOB">
+                    @if (r.PublicId is Guid g) { <a href="/Registry/Seats/@g"><strong>@r.Name</strong></a> }
+                    else { <a href="/Registry/Seats?show=nolob#nolob"><strong>No LOB</strong></a> <span class="small muted">seats no tracking group claims</span> }
+                    @if (r.TrackingGroup is not null) { <div class="small muted mono">@r.TrackingGroup</div> }
+                    else if (r.FundingOwnerId is not null) { <div class="small text-bad">No tracking group mapped</div> }
+                </td>
+                <td data-label="Reserved" class="num">@Ui.Num(r.ReservedSeats)</td>
+                <td data-label="Assigned" class="num">@Ui.Num(r.AssignedSeats)
+                    @if (r.FundingOwnerId is not null) { <div class="meter" role="img" aria-label="@pct% of the reservation is assigned"><span style="width:@(pct)%" class="@(r.OverSeats > 0 ? "meter-bad" : "")"></span></div> }
+                </td>
+                <td data-label="Over" class="num @(r.OverSeats > 0 ? "text-bad" : "")">@Ui.Num(r.OverSeats)</td>
+                <td data-label="Unused reserved" class="num">@(r.FundingOwnerId is null ? "" : Ui.Num(r.UnusedReserved))</td>
+                <td data-label="Inactive" class="num">@Ui.Num(r.Inactive)</td>
+                <td data-label="Asked for" class="num">@(r.PendingSeats > 0 ? "+" + Ui.Num(r.PendingSeats) : "")</td>
+                <td data-label="Findings" class="num nowrap">@if (r.OpenFindings > 0) { <span class="pill pill-warn">@r.OpenFindings open</span> }</td>
+                <td class="nowrap">@if (r.PublicId is Guid id) { <a class="btn btn-small btn-ghost" href="/Requests/New/J9?fundingOwner=@id">Change reservation</a> }</td>
+            </tr>
+        }
+        </tbody>
+        @if (Model.Lobs.Count > 1)
+        {
+            <tfoot>
+            <tr>
+                <th scope="row">Total</th>
+                <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.ReservedSeats))</td>
+                <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.AssignedSeats))</td>
+                <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.OverSeats))</td>
+                <td class="num">@Ui.Num(Model.Lobs.Where(r => r.FundingOwnerId is not null).Sum(r => r.UnusedReserved))</td>
+                <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.Inactive))</td>
+                <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.PendingSeats))</td>
+                <td class="num">@Ui.Num(Model.Lobs.Sum(r => r.OpenFindings))</td>
+                <td></td>
+            </tr>
+            </tfoot>
+        }
+    </table>
+</div>
+@if (Model.Show == "nolob" && Model.SeesAll)
+{
+    <div class="card mt" id="nolob">
+        <div class="card-head"><h2>Seats no LOB claims <help>People who hold a Copilot seat but are in no LOB tracking group. Nobody is charged for them. Add them to the right LOB through its OIM role, or remove the seat.</help></h2></div>
+        <div class="table-wrap">
+            <table class="stack">
+                <thead><tr>
+                    <partial name="_Th" model='("", "Person", "Name and sign-in name.")' />
+                    <partial name="_Th" model='("", "How assigned", "Through the license group, or assigned directly to the person.")' />
+                    <partial name="_Th" model='("", "State", "License state from Microsoft 365, with the error if any.")' />
+                    <partial name="_Th" model='("", "Last Copilot use", "From the Copilot usage report.")' />
+                </tr></thead>
+                <tbody>
+                @if (Model.Unattributed.Count == 0) { <tr><td colspan="4" class="muted">None.</td></tr> }
+                @foreach (var h in Model.Unattributed)
+                {
+                    <tr>
+                        <td data-label="Person">@(h.DisplayName ?? "Unknown person") <div class="small muted">@h.UserPrincipalName</div></td>
+                        <td data-label="How assigned">@(h.Direct ? "Directly" : "License group")</td>
+                        <td data-label="State">@h.State @if (h.Error is not null) { <span class="pill pill-bad">@Ui.Words(h.Error)</span> }</td>
+                        <td data-label="Last Copilot use">@(h.LastActivityDate is null ? "None reported" : Ui.Date(h.LastActivityDate))</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}

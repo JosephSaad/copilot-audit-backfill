@@ -1,0 +1,65 @@
+@page "/Operations/Attestations"
+@model Governance.Web.Pages.Operations.AttestationsModel
+@{
+    ViewData["Title"] = "Attestations";
+    var s = Model.Selected;
+}
+<div class="page-head">
+    <div>
+        <div class="crumbs">Operations</div>
+        <h1>Attestations</h1>
+        <p class="lead">Copilot Chat credit policies and spending policies have no production API, so the control is an operator's attestation backed by evidence, after every change and once a month (X6). New services can join a policy on their own while Auto-apply new services is on, which is why it is attested every time. <help>Process references: C16.</help></p>
+    </div>
+</div>
+@if (Model.TemplateId is not null)
+{
+    <form method="post" enctype="multipart/form-data" class="card" asp-route-template="@Model.TemplateId" asp-route-binding="@Model.BindingId">
+        <idem />
+        <h2>Attest: @(s?.ServiceName ?? "template " + Model.TemplateId)@(s?.BindingName is null ? "" : " · " + s.BindingName)</h2>
+        <p class="small muted">Write what the admin center shows, not what it should show. Differences raise a finding.</p>
+        <div class="form-grid">
+            <div class="field full"><label for="sb" class="req">Subject <help>Which policy or setting you looked at.</help></label><input id="sb" name="subject" required maxlength="400" value="@(s?.BindingName ?? s?.ServiceName)" /></div>
+            @foreach (var (key, expected) in Model.Expected.Where(k => !k.Key.Equals("autoApplyNewServices", StringComparison.OrdinalIgnoreCase)))
+            {
+                <div class="field"><label for="v-@key">@key <help>Expected by the template: @expected</help></label><input id="v-@key" name="v_@key" maxlength="400" /></div>
+            }
+            <div class="field"><label for="aa" class="req">Auto-apply new services <help>On by default in Microsoft 365: new services can join this policy without any change here (C16). Expected: @(Model.Expected.TryGetValue("autoApplyNewServices", out var aa) ? aa : "as approved").</help></label>
+                <select id="aa" name="v_autoApplyNewServices" required><option value="">Choose…</option><option value="false">Off</option><option value="true">On</option></select></div>
+            <div class="field"><label for="rs">Why now <help>After a change you made, or the monthly check (new services can join a policy when auto-apply is on).</help></label><select id="rs" name="reason"><option value="CHANGE">After a change</option><option value="MONTHLY">Monthly check</option></select></div>
+            <div class="field full"><label for="ev" class="req">Evidence <help>The export or screenshot you read the values from. Its hash goes into the ledger.</help></label><input id="ev" type="file" name="file" required /></div>
+        </div>
+        <button class="btn mt" type="submit">Record attestation</button>
+        <a class="btn btn-ghost mt" href="/Operations/Attestations">Cancel</a>
+    </form>
+}
+<h2>Due</h2>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr><th scope="col">Policy <help>The Microsoft 365 policy or setting being attested (no production API reads it, so a person confirms it).</help></th><th scope="col">Template <help>The approved control template the settings are compared with.</help></th><th scope="col">Last attested <help>When someone last confirmed the settings, with evidence. Due again after every change and every month.</help></th><th scope="col">Matched? <help>Whether the attested values equal the template. A mismatch raises a finding.</help></th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
+        <tbody>
+        @foreach (var d in Model.Due)
+        {
+            <tr>
+                <td><strong>@(d.BindingName ?? d.WorkloadName ?? d.ServiceName)</strong><div class="small muted">@Ui.Words(d.ObjectType) <span class="mono">@d.ExternalId</span></div></td>
+                <td>@d.ServiceName, template version @(d.VersionNo)</td>
+                <td>@(d.LastAttestedUtc is null ? "Never" : Ui.Local(d.LastAttestedUtc) + " by " + d.LastAttestedBy) @if (d.Overdue) { @Ui.Pill("DUE", "warn") }</td>
+                <td>@(d.LastMatched is null ? "—" : d.LastMatched.Value ? Ui.Pill("MATCHED", "ok") : Ui.Pill("DIFFERED", "bad"))</td>
+                <td><a class="btn btn-small" href="/Operations/Attestations?template=@d.TemplateId&binding=@d.BindingId">Attest</a></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<h2 class="mt">Recent attestations</h2>
+<div class="table-wrap">
+    <table class="stack">
+        <thead><tr><th scope="col">Subject <help>What was attested.</help></th><th scope="col">By <help>The operator who attested.</help></th><th scope="col">Why <help>After a change, or the monthly re-attestation.</help></th><th scope="col">Result <help>Matched or not matched, with the differences.</help></th></tr></thead>
+        <tbody>
+        @foreach (var a in Model.Recent.Items)
+        {
+            <tr><td>@a.Subject</td><td>@a.AttestedByName<div class="small muted">@Ui.Local(a.AttestedUtc)</div></td><td>@Ui.Words(a.Reason)</td><td>@(a.MatchesTemplate ? Ui.Pill("MATCHES", "ok") : Ui.Pill("DIFFERS", "bad"))<div class="small">@a.Differences</div></td></tr>
+        }
+        </tbody>
+    </table>
+</div>
+<partial name="_Pager" model="(Model.Recent.Query.Page, Model.Recent.Pages, Model.Recent.Total)" />

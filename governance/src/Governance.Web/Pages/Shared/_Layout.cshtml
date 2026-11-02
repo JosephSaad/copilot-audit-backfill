@@ -1,0 +1,153 @@
+﻿@using Governance.Web.Infrastructure
+@inject WebPrincipal Me
+@inject TestingOptions Testing
+@{
+    var path = Context.Request.Path.Value ?? "/";
+    string Cls(string prefix) => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? "nav-link active" : "nav-link";
+    string? Current(string prefix) => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? "page" : null;
+    var central = Me.AppRoles.Contains("Workbench.Central") || Me.AppRoles.Contains("Workbench.Admin");
+    var oper = Me.AppRoles.Contains("Workbench.Operator");
+    var isAdmin = Me.AppRoles.Contains("Workbench.Admin");
+    var admin = isAdmin || Me.HasCentral(Governance.Domain.Roles.PlatformOwner, Governance.Domain.Roles.Steering);
+    var auditor = Me.AppRoles.Contains("Workbench.Auditor") || Me.AppRoles.Contains("Workbench.Central");
+    var flash = ViewData["Flash"] as string ?? TempData.Peek("Flash") as string;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · Governance Workbench</title>
+    <link rel="stylesheet" href="~/css/app.css" asp-append-version="true" />
+    <link rel="icon" href="~/favicon.svg" type="image/svg+xml" />
+    <script nonce-on>
+        try { var t = localStorage.getItem('cgw-theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) { }
+    </script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+@if (Me.ActingAs)
+{
+    <div class="actas-banner" role="status">
+        <span>Test mode: acting as <strong>@Me.DisplayName</strong><span class="hide-sm"> (signed in as @Me.RealDisplayName). Every action is recorded with both names.</span></span>
+        <form method="post" asp-page="/ActAs" asp-page-handler="Stop" class="inline"><idem /><button class="btn btn-small btn-light" type="submit">Stop acting</button></form>
+    </div>
+}
+<header class="topbar">
+    <button type="button" class="nav-toggle" aria-controls="sidenav" aria-expanded="false" aria-label="Open the menu">☰</button>
+    <a class="brand" href="/Start"><span class="brand-mark" aria-hidden="true">✓</span><span>Governance Workbench</span></a>
+    <span class="topbar-spacer"></span>
+    @if (Testing.AllowActAs && Me.IsAuthenticated && Me.CanActAs)
+    {
+        <a class="btn btn-small btn-ghost" href="/ActAs">Act as…</a>
+    }
+    <button type="button" class="btn btn-small btn-ghost theme-toggle" aria-label="Switch between light and dark">◐ <span class="hide-sm">Theme</span></button>
+    @if (Me.IsAuthenticated)
+    {
+        <a class="me" href="/Me" title="Your roles">@Me.DisplayName</a>
+    }
+</header>
+<div class="shell">
+    <nav id="sidenav" class="sidenav" aria-label="Main">
+        <div class="nav-group">
+            <div class="nav-title">Work</div>
+            <a class="@Cls("/Start")" aria-current="@Current("/Start")" href="/Start">Start</a>
+            <a class="@Cls("/MyWork")" aria-current="@Current("/MyWork")" href="/MyWork">My work</a>
+            <a class="@Cls("/Requests")" aria-current="@Current("/Requests")" href="/Requests">Requests</a>
+            <a class="@Cls("/Events/Report")" href="/Events/Report">Report a consumption problem</a>
+        </div>
+        @if (central)
+        {
+            <div class="nav-group">
+                <div class="nav-title">Queues</div>
+                <a class="@Cls("/Queues/Intake")" href="/Queues/Intake">Intake</a>
+                <a class="@Cls("/Queues/Classification")" href="/Queues/Classification">Classification</a>
+                <a class="@Cls("/Queues/Reviews")" href="/Queues/Reviews">Specialist reviews</a>
+                <a class="@Cls("/Queues/Decisions")" href="/Queues/Decisions">Decisions</a>
+                <a class="@Cls("/Queues/Fulfillment")" href="/Queues/Fulfillment">Fulfillment and verification</a>
+            </div>
+        }
+        <div class="nav-group">
+            <div class="nav-title">Registry</div>
+            <a class="@Cls("/Registry/FundingOwners")" href="/Registry/FundingOwners">Funding owners</a>
+            <a class="@Cls("/Registry/Workloads")" href="/Registry/Workloads">Workloads</a>
+            <a class="@Cls("/Registry/Envelopes")" href="/Registry/Envelopes">Envelopes</a>
+            @if (Governance.Web.Pages.Registry.SeatsModel.CanOpen(Me))
+            {
+                <a class="@Cls("/Registry/Seats")" href="/Registry/Seats">Copilot seats</a>
+            }
+            <a class="@Cls("/Registry/Services")" href="/Registry/Services">Services</a>
+            <a class="@Cls("/Registry/Templates")" href="/Registry/Templates">Control templates</a>
+            @if (central)
+            {
+                <a class="@Cls("/Registry/CostCenters")" href="/Registry/CostCenters">Cost centers</a>
+                <a class="@Cls("/Registry/Commercial")" href="/Registry/Commercial">Commercial</a>
+                <a class="@Cls("/Registry/Discovery")" href="/Registry/Discovery">Discovery</a>
+            }
+        </div>
+        @if (central)
+        {
+            <div class="nav-group">
+                <div class="nav-title">Operations</div>
+                <a class="@Cls("/Operations/Events")" href="/Operations/Events">Consumption events</a>
+                <a class="@Cls("/Operations/Findings")" href="/Operations/Findings">Drift and findings</a>
+                @if (oper)
+                {
+                    <a class="@Cls("/Operations/Sync")" href="/Operations/Sync">Sync and freshness</a>
+                    <a class="@Cls("/Operations/Attestations")" href="/Operations/Attestations">Attestations</a>
+                }
+            </div>
+        }
+        <div class="nav-group">
+            <div class="nav-title">Lifecycle</div>
+            <a class="@Cls("/Recertification")" href="/Recertification">Recertification</a>
+            <a class="@Cls("/Exceptions")" href="/Exceptions">Exceptions</a>
+            <a class="@Cls("/Retirement")" href="/Retirement">Retirement</a>
+        </div>
+        @if (auditor)
+        {
+            <div class="nav-group">
+                <div class="nav-title">Reports</div>
+                <a class="@Cls("/Reports/Kpis")" href="/Reports/Kpis">Governance KPIs</a>
+                <a class="@Cls("/Reports/Audit")" href="/Reports/Audit">Audit</a>
+                <a class="@Cls("/Reports/SeatChargeback")" href="/Reports/SeatChargeback">Seat chargeback</a>
+            </div>
+        }
+        @if (admin)
+        {
+            <div class="nav-group">
+                <div class="nav-title">Admin</div>
+                <a class="@Cls("/Admin/Raci")" href="/Admin/Raci">RACI</a>
+                @if (isAdmin)
+                {
+                    <a class="@Cls("/Admin/Workflows")" href="/Admin/Workflows">Workflows</a>
+                    <a class="@Cls("/Admin/Sla")" href="/Admin/Sla">SLAs and escalation</a>
+                    <a class="@Cls("/Admin/Notifications")" href="/Admin/Notifications">Notifications</a>
+                }
+                <a class="@Cls("/Admin/Roles")" href="/Admin/Roles">Roles</a>
+                <a class="@Cls("/Admin/SeatGroups")" href="/Admin/SeatGroups">Seat groups</a>
+                @if (isAdmin)
+                {
+                    <a class="@Cls("/Admin/Integrations")" href="/Admin/Integrations">Integrations</a>
+                }
+                <a class="@Cls("/Admin/Intake")" href="/Admin/Intake">Intake switch</a>
+                <a class="@Cls("/Admin/Text")" href="/Admin/Text">Wording</a>
+            </div>
+        }
+    </nav>
+    <main id="main" class="main" tabindex="-1">
+        @if (TempData["Flash"] is string ok)
+        {
+            @* The message already says what happened ("Request submitted."); no prefix, so it never reads "Done. Done." *@
+            <div class="alert alert-ok" role="status"><span aria-hidden="true">✓</span> <span class="sr-only">Success:</span> @ok</div>
+        }
+        @if (TempData["FlashError"] is string err)
+        {
+            <div class="alert alert-bad" role="alert"><strong>Not done.</strong> @err</div>
+        }
+        @RenderBody()
+    </main>
+</div>
+<script src="~/js/app.js" asp-append-version="true"></script>
+</body>
+</html>

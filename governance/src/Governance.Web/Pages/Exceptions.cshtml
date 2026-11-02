@@ -1,0 +1,43 @@
+@page "/Exceptions"
+@model ExceptionsModel
+@{
+    ViewData["Title"] = "Exceptions";
+}
+<div class="page-head">
+    <div>
+        <h1>Exception register</h1>
+        <p class="lead">Approved departures from the patterns, each with compensating controls, an owner and an expiry. Owners are reminded 30, 7 and 1 days before expiry; an expired exception raises a finding and can suspend the workload. <help>Process references: B7, B9.</help></p>
+    </div>
+    <div class="page-actions"><a class="btn btn-ghost" href="/Exceptions?all=@(!Model.All)">@(Model.All ? "Active only" : "Include closed")</a></div>
+</div>
+<partial name="_Search" model="Model.Search" />
+<div class="table-wrap">
+    <table class="stack">
+        <thead>
+        <tr>
+            <partial name="_Th" model='("title", "Exception", "What is allowed outside the patterns, and the request that approved it.")' />
+            <partial name="_Th" model='("owner", "Funding owner", "Whose workload it is.")' />
+            <partial name="_Th" model='("", "Compensating controls", "What reduces the risk while it lasts.")' />
+            <partial name="_Th" model='("", "Owner", "Who answers for the exception.")' />
+            <partial name="_Th" model='("expires", "Expires", "Every exception expires.")' />
+            <partial name="_Th" model='("status", "Status", "Active, expired or closed.")' />
+            <th scope="col"><span class="sr-only">Close</span></th>
+        </tr>
+        </thead>
+        <tbody>
+        @foreach (var x in Model.Items.Items)
+        {
+            <tr>
+                <td><strong>@x.Title</strong><div class="small">@x.Description</div>@if (x.RequestPublicId is Guid g) { <div class="small"><a href="/Requests/@g">@x.RequestNumber</a></div> }</td>
+                <td>@x.FundingOwnerName<div class="small muted">@x.WorkloadName</div></td>
+                <td class="small">@x.CompensatingControls</td>
+                <td>@x.OwnerName</td>
+                <td>@Ui.Date(x.ExpiresOn)@if (x.Status == "ACTIVE") { <div>@Ui.Pill(x.DaysLeft < 0 ? "EXPIRED" : x.DaysLeft <= 30 ? $"{x.DaysLeft} DAYS LEFT" : $"{x.DaysLeft} days left", x.DaysLeft < 0 ? "bad" : x.DaysLeft <= 30 ? "warn" : "ok")</div> }</td>
+                <td>@Ui.Pill(x.Status)</td>
+                <td>@if (x.Status == "ACTIVE") { <form method="post" asp-page-handler="Close" asp-route-id="@x.PublicId" class="btn-row"><idem /><input name="reason" placeholder="Why it is no longer needed" aria-label="Reason" required maxlength="500" /><button class="btn btn-small btn-ghost" type="submit">Close</button></form> }</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+<partial name="_Pager" model="(Model.Items.Query.Page, Model.Items.Pages, Model.Items.Total)" />

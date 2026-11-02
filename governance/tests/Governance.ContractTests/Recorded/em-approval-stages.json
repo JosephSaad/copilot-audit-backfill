@@ -1,0 +1,25 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#identityGovernance/entitlementManagement/accessPackageAssignmentApprovals('abd306ef-f7b2-4a10-9fd1-493454322489')/stages",
+  "value": [
+    {
+      "id": "d4fa4045-4716-436d-aec5-57b0a713f095",
+      "displayName": null,
+      "reviewedDateTime": "2026-10-20T14:05:11Z",
+      "reviewResult": "Approve",
+      "status": "Completed",
+      "assignedToMe": false,
+      "justification": "Needed for the Retail pilot.",
+      "reviewedBy": { "id": "04ab5bfe-2b9e-4c5b-8e53-9c6b7f6f1a11", "displayName": "Rita Approver" }
+    },
+    {
+      "id": "7a1d1ac0-0b56-4f0e-a6a8-7e7b1f2f0a02",
+      "displayName": null,
+      "reviewedDateTime": null,
+      "reviewResult": "NotReviewed",
+      "status": "Completed",
+      "assignedToMe": false,
+      "justification": null,
+      "reviewedBy": { "id": "00000000-0000-0000-0000-000000000000", "displayName": "" }
+    }
+  ]
+}
